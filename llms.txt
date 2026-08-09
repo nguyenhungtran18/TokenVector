@@ -1,0 +1,32 @@
+# TokenVector Native AOT Language
+
+> TokenVector is an independent, high-level, high-performance AOT Native compiled programming language generating ~2.5KB standalone .exe binaries running 8x-10x faster than CPython without any Python runtime dependency.
+
+## Core Documentation for LLMs & AI Agents
+
+- [AGENTS.md](https://github.com/nguyenhungtran18/TokenVector/blob/main/AGENTS.md): Official instructions for AI agents writing TokenVector code.
+- [README.md](https://github.com/nguyenhungtran18/TokenVector/blob/main/README.md): Master technical specifications and benchmark comparisons.
+- [USAGE_GUIDE.md](https://github.com/nguyenhungtran18/TokenVector/blob/main/USAGE_GUIDE.md): Full syntax reference for unboxed types, classes, multithreading, and CIL generation.
+- [CONTRIBUTING.md](https://github.com/nguyenhungtran18/TokenVector/blob/main/CONTRIBUTING.md): Guidelines for open-source and AI agent contributions.
+- [LICENSE](https://github.com/nguyenhungtran18/TokenVector/blob/main/LICENSE): MIT License.
+
+## Quick Syntax Spec for Code Generation
+
+```python
+# -*- coding: utf-8 -*-
+class Counter:
+    val: "i32"
+    def __init__(self, val):
+        self.val = val
+
+def main() -> "i32":
+    c = Counter(10)
+    print("Value: " + str(c.val))
+    return 1
+```
+
+## Compiler Execution Command
+
+```powershell
+.\dist\tkvc.exe build file.tkv
+```
