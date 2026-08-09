@@ -1,0 +1,35 @@
+# -*- coding: utf-8 -*-
+# TokenVector Native AOT Code Example (Untitled-1.tkv)
+
+class DataAnalyzer:
+    name: "str"
+    baseline: "f64"
+
+    def __init__(self, name, baseline):
+        self.name = name
+        self.baseline = baseline
+
+def compute_performance(name: "str", baseline: "f64", score1: "f64", score2: "f64") -> "f64":
+    analyzer = DataAnalyzer(name, baseline)
+    avg = (score1 + score2) / 2.0
+    return avg - analyzer.baseline
+
+def process_numbers(limit: "i32") -> "i32":
+    sum_val = 0
+    for i in range(1, limit + 1):
+        sum_val = sum_val + i
+    return sum_val
+
+def main() -> "i32":
+    print("=== TOKENVECTOR NATIVE AOT EXECUTION ===")
+    
+    # 1. Tinh hieu suat dung Class Record
+    delta = compute_performance("TokenVector Core", 50.0, 85.0, 95.0)
+    
+    # 2. Tinh tong CPU (1..100)
+    total_sum = process_numbers(100)
+    
+    print("Performance Delta: " + str(delta))
+    print("Total Sum (1..100): " + str(total_sum))
+    
+    return 1

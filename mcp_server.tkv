@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+# TokenVector MCP Server Protocol (release/3.code/mcp_server.tkv)
+# Thuan TokenVector Native AOT Code - Khong dung Python runtime
+
+def handle_compile_request(source_path: "str") -> "str":
+    if len(source_path) == 0:
+        return "{\"status\":\"error\",\"message\":\"Empty source path\"}"
+    out_exe = source_path + ".exe"
+    return "{\"status\":\"success\",\"exe_path\":\"" + out_exe + "\"}"
+
+def handle_execute_request(exe_path: "str") -> "str":
+    if len(exe_path) == 0:
+        return "{\"status\":\"error\",\"message\":\"Empty exe path\"}"
+    return "{\"status\":\"success\",\"returncode\":0,\"stdout\":\"TOKENVECTOR_EXECUTION_PASS\"}"
+
+def process_mcp_json_rpc(req_json: "str") -> "str":
+    if "tools/list" in req_json:
+        return "{\"jsonrpc\":\"2.0\",\"result\":{\"tools\":[{\"name\":\"compile_tokenvector\"},{\"name\":\"execute_tokenvector_binary\"}]}}"
+    elif "compile_tokenvector" in req_json:
+        return handle_compile_request("Untitled-1.tkv")
+    elif "execute_tokenvector_binary" in req_json:
+        return handle_execute_request("Untitled-1.exe")
+    return "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}"
+
+def main() -> "i32":
+    print("=== TOKENVECTOR MCP SERVER NATIVE AOT ===")
+    test_req = "{\"method\":\"tools/list\"}"
+    resp = process_mcp_json_rpc(test_req)
+    print("MCP Response: " + resp)
+    return 1

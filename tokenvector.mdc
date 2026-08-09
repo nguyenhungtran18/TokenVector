@@ -1,0 +1,26 @@
+---
+description: Rules for writing, compiling, and running TokenVector Native AOT code (.tkv)
+globs: *.tkv
+---
+
+# TOKENVECTOR AI CODING RULES FOR CURSOR & WINDSURF
+
+When editing or generating TokenVector (`.tkv`) code, follow these strict rules:
+
+1. **File Format**: Use UTF-8 encoding with header `# -*- coding: utf-8 -*-`.
+2. **Type Annotations**: All function parameters and return types must be string literal annotations:
+   - `i32`, `i64`, `f32`, `f64`, `str`, `list[i32]`, `list[f64]`
+3. **Class Records**: Declare field types at the class body level before `__init__`:
+   ```python
+   class DataPoint:
+       x: "f64"
+       y: "f64"
+       def __init__(self, x, y):
+           self.x = x
+           self.y = y
+   ```
+4. **Main Function**: Define entry point `def main() -> "i32":` returning integer exit code 1.
+5. **Compilation Command**:
+   ```powershell
+   .\dist\tkvc.exe build path/to/file.tkv
+   ```

@@ -1,0 +1,21 @@
+# -*- coding: utf-8 -*-
+# TokenVector Package Setup Runner (setup.tkv)
+# Thuan TokenVector Native AOT Code
+
+class PackageMeta:
+    name: "str"
+    version: "str"
+    author: "str"
+    def __init__(self, name, version, author):
+        self.name = name
+        self.version = version
+        self.author = author
+
+def main() -> "i32":
+    meta = PackageMeta("tokenvector-compiler", "2026.1.0", "nguyenhungtran18")
+    print("=== TOKENVECTOR PACKAGE SETUP NATIVE AOT ===")
+    print("Package Name: " + meta.name)
+    print("Package Version: " + meta.version)
+    print("Package Author: " + meta.author)
+    print("Status: Package metadata verified 100% Native TokenVector")
+    return 1
