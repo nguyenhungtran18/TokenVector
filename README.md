@@ -27,7 +27,7 @@ def run() -> "str":
 
 Biên dịch ra file `.exe` độc lập bằng `tkvc`:
 ```cmd
-tkvc build hello.tkv --out hello.exe --entry run
+.\dist\tkvc.exe build hello.tkv --out hello.exe --entry run
 ```
 
 Chạy chương trình:
