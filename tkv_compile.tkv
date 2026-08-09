@@ -1,0 +1,1391 @@
+# -*- coding: utf-8 -*-
+"""TokenVector .tkv-transpiler: dich THANG mot file nguon TokenVector THAT
+(dang la Python HOP LE, chay duoc that duoi CPython that, khong phai mot
+ngon ngu rieng - quy uoc dat ten `.tkv` thay vi `.py` de cat dut lien he
+ten goi voi Python, xem ROADMAP.md Buoc 9) sang IL, tai su dung TOAN BO
+backend co san (il_codegen.gen_il_program - vua them ho tro nhieu ham/1
+chuong trinh) - KHONG viet lai parser/grammar tu dau.
+
+Ly do lam theo huong nay (thay vi mo rong dan mini-DSL): cu phap DSL da
+co (for/if/return/assign/index) von duoc thiet ke GIONG HET mot tap con
+Python roi - nen viec "tien hoa Python thanh TokenVector" don gian la:
+lay dinh nghia ham THAT (ast.parse), doi chu ky sang dang typed_dsl
+(dung annotation la STRING - vd `x: "f32[4]"` - van la Python HOP LE,
+khong loi khi chay that duoi CPython vi Python khong ep kieu annotation
+luc runtime), roi dua PHAN THAN HAM (van la text Python nguyen ban,
+khong sua) THANG vao gen_il_function/gen_il_program da co san.
+
+Gioi han THAT: chi ham top-level (khong nested def/class), tham so/return
+BAT BUOC co annotation dang string kieu DSL ('f32'|'f64'|'i32'|'i64', co
+the kem '[dim,...]'), than ham CHI duoc dung cu phap da ho tro boi
+il_codegen.py (xem DSL reference trong alphaai_codegen.py) - moi cu phap
+Python khac (class/comprehension/exec-eval-dong/...) se bao loi RO RANG
+(tu chinh parser cua il_codegen.py), khong am tham bo qua.
+
+Doi ten module tu `py_transpile.py` -> `tkv_compile.py` (2026-07-28, Buoc
+9 ROADMAP.md) - noi dung/API khong doi (`extract_program`/
+`transpile_program`/`transpile_file` giu nguyen ten), chi doi ten module.
+`ast.parse`/`runpy.run_path` (dung trong cac test doi chieu CPython) da
+xac minh THAT khong quan tam duoi file - `.tkv` chay duoc y het `.py`."""
+import ast
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+COMPILER_DIR = Path(__file__).parent / "compiler"
+sys.path.insert(0, str(COMPILER_DIR))
+sys.path.insert(0, str(Path(__file__).parent))
+from typed_dsl_parser import (parse_typed_signature, DTYPES, TypeAnn,  # noqa: E402
+                               parse_type_ann_str as _parse_type_ann_str)
+from il_core import rename_reserved_identifiers as _rename_reserved_identifiers  # noqa: E402
+from il_codegen import gen_il_program, gen_record_types, il_type_str  # noqa: E402
+from il_core import IL_SCALAR, IL_LDC_OP  # noqa: E402
+from tokenvector_compile import (ILASM, assemble_il_to_exe,  # noqa: E402
+                                  TokenVectorError)
+from il_features.stdlib_sqlite import uses_sqlite as _uses_sqlite, SQLITE_PINVOKE_DECL_LINES  # noqa: E402
+# --- BEGIN GEMINI ADDED CODE: cJSON Plugin Import ---
+from il_features.stdlib_cjson import uses_cjson as _uses_cjson, CJSON_PINVOKE_DECL_LINES  # noqa: E402
+# --- END GEMINI ADDED CODE ---
+
+
+class TranspileError(Exception):
+    pass
+
+
+def _annotation_to_type_str(node, ctx_name):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    raise TranspileError(
+        f"{ctx_name}: annotation phai la STRING kieu DSL (vd x: \"f32[4]\", -> \"f32\"), "
+        f"gap {ast.dump(node)}")
+
+
+def _default_literal_to_str(node, ctx_name):
+    """Doi 1 ast default-value node (Python that, vd 'b: "i32" = 10' hoac
+    '= -5' hoac '= "Hello"') sang van ban literal ma typed_dsl_parser.py's
+    tokenizer hieu duoc ('= 10'/'= -5'/'= "Hello"') - CHI ho tro so
+    (int/float, ke ca am qua UnaryOp USub) va chuoi (xem
+    Param.default_node trong typed_dsl_parser.py, gioi han co y thuc)."""
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and \
+            isinstance(node.operand, ast.Constant) and isinstance(node.operand.value, (int, float)):
+        return f'-{node.operand.value}'
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and \
+            not isinstance(node.value, bool):
+        return str(node.value)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return f'"{node.value}"'
+    raise TranspileError(
+        f"{ctx_name}: gia tri mac dinh chi ho tro literal so/chuoi (khong tham chieu bien), "
+        f"gap {ast.dump(node)}")
+
+
+def _params_with_defaults(func_node, args_to_check, ctx_name):
+    """args_to_check da bo 'self' (neu co, xem _extract_record_method_sig_line) -
+    func_node.args.defaults CANH PHAI (right-aligned) voi TOAN BO
+    func_node.args.args, nhung vi 'self' KHONG BAO GIO co default, cat
+    duoi (tail) cua args_to_check van dung voi defaults."""
+    n_defaults = len(func_node.args.defaults)
+    parts = []
+    for i, a in enumerate(args_to_check):
+        if a.annotation is None:
+            raise TranspileError(f"{ctx_name}: tham so '{a.arg}' thieu annotation kieu DSL")
+        t = _annotation_to_type_str(a.annotation, f"{ctx_name} tham so '{a.arg}'")
+        arg_name = _rename_reserved_identifiers(a.arg)
+        default_idx = i - (len(args_to_check) - n_defaults)
+        if default_idx >= 0:
+            lit = _default_literal_to_str(func_node.args.defaults[default_idx],
+                                           f"{ctx_name} tham so '{a.arg}'")
+            parts.append(f"{arg_name}: {t} = {lit}")
+        else:
+            parts.append(f"{arg_name}: {t}")
+    return parts
+
+
+def _extract_signature_line(func_node):
+    if func_node.args.vararg or func_node.args.kwarg or func_node.args.kwonlyargs:
+        raise TranspileError(f"ham '{func_node.name}': chi ho tro tham so thuong (khong *args/**kwargs/keyword-only)")
+    parts = _params_with_defaults(func_node, func_node.args.args, f"ham '{func_node.name}'")
+    if func_node.returns is None:
+        raise TranspileError(f"ham '{func_node.name}': thieu return-type annotation (vd -> \"f32\":)")
+    ret_t = _annotation_to_type_str(func_node.returns, f"ham '{func_node.name}' return type")
+    func_name = _rename_reserved_identifiers(func_node.name)
+    prefix = "async " if isinstance(func_node, ast.AsyncFunctionDef) else ""
+    return f"{prefix}{func_name}({', '.join(parts)}) -> {ret_t}:"
+
+
+def _body_source_lines(source_lines, func_node, hoisted=None):
+    """hoisted (2026-08-03): list OUT-parameter - moi 'def' long KHONG bat
+    bien nao se duoc CHUYEN LEN top-level (doi ten '<ngoai>__<long>') va
+    append vao day duoi dang (sig_line, body_lines) - xem _hoist_nested_def."""
+    if not func_node.body:
+        raise TranspileError(f"ham '{func_node.name}': than ham rong")
+    start = func_node.body[0].lineno
+    end = func_node.body[-1].end_lineno
+    lines = list(source_lines[start - 1:end])
+    _rewrite_nested_defs(func_node, lines, start, hoisted=hoisted)
+    return lines
+
+
+def _reads_outer_names(inner, outer):
+    """True neu than ham long CO doc 1 ten von la local/tham so cua ham
+    ngoai (2026-08-03). Dung de biet 'nonlocal' co THAT SU can hay khong -
+    ham long doc lap hoan toan thi khong can (va Python cung khong cho
+    viet 'nonlocal' rong)."""
+    own = {a.arg for a in inner.args.args}
+    for node in ast.walk(inner):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            own.add(node.id)
+    outer_names = {a.arg for a in outer.args.args}
+    for node in outer.body:
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
+                outer_names.add(sub.id)
+    for node in ast.walk(inner):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            if node.id not in own and node.id in outer_names:
+                return True
+    return False
+
+
+
+def _hoist_nested_def(inner, outer, lines, body_start_lineno, hoisted):
+    """Chuyen 1 'def' long KHONG bat bien nao len top-level (2026-08-03).
+
+    Ham long khong bat bien thi KHONG phai closure - no chi la 1 ham thuong
+    dat nham cho. Truoc day bi tu choi o CA HAI tang (transpile doi dong
+    'nonlocal', ma Python khong cho viet rong; codegen bao "khong bat bien
+    nao"), du day la cach viet rat thuong gap.
+
+    - Ten moi '<ham_ngoai>__<ham_long>' - tranh dung do voi ham top-level
+      co san VA voi ham long CUNG TEN trong 1 ham khac.
+    - Cac dong cua no bi xoa khoi than ham ngoai (thanh dong RONG - giu
+      nguyen so dong, cung cach da lam voi dong 'nonlocal').
+    - Cac LOI GOI trong than ham ngoai duoc doi sang ten moi.
+
+    GIOI HAN (ghi ro): chi doi LOI GOI. Neu ham long duoc truyen di nhu 1
+    GIA TRI (function reference) thi ten cu khong con -> bao loi "bien chua
+    duoc khai bao" RO RANG luc bien dich, khong sai am tham."""
+    start_idx = inner.lineno - body_start_lineno
+    end_idx = inner.end_lineno - body_start_lineno
+    indent = len(lines[start_idx]) - len(lines[start_idx].lstrip(' '))
+    inner_lines = [ln[indent:] if len(ln) > indent else ln.lstrip(' ')
+                   for ln in lines[start_idx + 1:end_idx + 1]]
+    new_name = f'{outer.name}__{inner.name}'
+    sig_line = _extract_signature_line(inner)
+    old_name = _rename_reserved_identifiers(inner.name)
+    sig_line = sig_line.replace(old_name + '(', new_name + '(', 1)
+    # 'def' long BEN TRONG ham long: xu ly de quy TRUOC khi cat ra, de moi
+    # tang deu duoc nang len top-level.
+    _rewrite_nested_defs(inner, inner_lines, inner.body[0].lineno, hoisted=hoisted)
+    hoisted.append((sig_line, inner_lines))
+    for i in range(start_idx, end_idx + 1):
+        lines[i] = ''
+    call_re = re.compile(r'\b' + re.escape(inner.name) + r'\s*\(')
+    for i, ln in enumerate(lines):
+        if ln:
+            lines[i] = call_re.sub(new_name + '(', ln)
+
+
+def _rewrite_nested_defs(func_node, lines, body_start_lineno, inherited_captures=None,
+                          hoisted=None):
+    """Closure that (Buoc 4, 2026-07-29 - xem project-tokenvector-wave2-
+    status memory, 'checkpoint tach session'): sua TAI CHO (in-place, GIU
+    NGUYEN so dong) 1 'def long' (nested FunctionDef) truc tiep ben trong
+    than 1 ham - (a) dong header 'def ten(...) -> "kieu":' duoc doi ve dang
+    KHONG dau ngoac kep quanh annotation (giong het sig_line top-level, tai
+    dung _extract_signature_line), de il_codegen.py's nested_def line-
+    parser (il_features/closures.py) parse duoc THANG qua parse_typed_
+    signature; (b) dong 'nonlocal x' (BAT BUOC ve mat cu phap de file .tkv
+    con la Python HOP LE, chay duoc that duoi CPython - xem triet ly module
+    nay) duoc XOA (thanh dong rong) vi il_codegen.py KHONG co khai niem
+    'nonlocal' - bien bi bat duoc suy tu chinh phan tich bien tu do (xem
+    il_features/closures.py's fpw_nested_def), khong can khai bao rieng.
+
+    Slice thu hai (2026-07-29, N>=1 bien bi bat): N>=1 bien trong 1 dong
+    'nonlocal a, b, ...' - MOI bien PHAI la 1 LOCAL cua ham NGOAI (gan qua
+    '=' thuong, khai bao TRUOC ham long trong thu tu van ban nguon) HOAC
+    (B3, Phase C.1, 2026-07-29) 1 THAM SO cua ham NGOAI (chi hop le neu
+    kieu THAM CHIEU - kiem tra dtype cu the o tang duoi, xem il_features/
+    closures.py's fpw_nested_def) - vi pham bat ky dieu kien nao o day se
+    bao loi RO RANG (TranspileError) thay vi de il_codegen.py that bai kho
+    hieu hon o tang duoi.
+
+    Phase C.2 (2026-07-29): HO TRO N>=1 def long SONG SONG truc tiep trong
+    CUNG 1 ham (khong con gioi han DUNG 1) - MOI def long duoc rewrite +
+    kiem tra DOC LAP (vong lap duoi). CUNG ho tro def-long-TRONG-def-long
+    (2+ tang, vd 'inner' nam trong 'mid' nam trong 'ham_ngoai') - DE QUY
+    vao THAN cua tung 'inner' de tim + rewrite cac def long SAU HON NUA
+    (tham so 'inherited_captures': tap ten bien MA CHINH 'func_node' nay DA
+    tu bat tu 1 tang NGOAI HON NUA - neu 1 def-con-cua-func_node bat lai 1
+    ten trong tap nay, KHONG can kiem tra '_check_captured_declared_before'
+    (bien do von KHONG PHAI local THAT su cua func_node, ma la 1 tham chieu
+    chuyen tiep tu tang xa hon - viec box/chuyen-tiep CELL dung 1 chuoi da
+    duoc _load_boxed_cell_ref ho tro san, xem il_codegen.py))."""
+    if inherited_captures is None:
+        inherited_captures = set()
+    nested = [n for n in func_node.body if isinstance(n, ast.FunctionDef)]
+    if not nested:
+        return
+    outer_params = {a.arg for a in func_node.args.args}
+    for inner in nested:
+        header_idx = inner.lineno - body_start_lineno
+        indent = len(lines[header_idx]) - len(lines[header_idx].lstrip(' '))
+        sig_line = _extract_signature_line(inner)  # vd 'inc() -> i32:' (khong dau ngoac kep)
+        lines[header_idx] = ' ' * indent + f'def {sig_line}'
+
+        if not inner.body or not isinstance(inner.body[0], ast.Nonlocal):
+            if _reads_outer_names(inner, func_node):
+                raise TranspileError(
+                    f"ham long '{inner.name}' (trong ham '{func_node.name}'): BAT BUOC dong DAU "
+                    f"TIEN trong than ham long phai la 'nonlocal <ten>, ...' (khai bao (cac) bien "
+                    f"bi bat - dung cu phap Python THAT de file van chay duoc dung duoi CPython)")
+            # (2026-08-03) Ham long KHONG dung bien nao cua ham ngoai thi
+            # KHONG can 'nonlocal' - va Python that cung khong cho viet
+            # 'nonlocal' rong. Truoc day van bat buoc, khien cach viet
+            # thuong gap nhat ('def helper' thuan tuy, khong bat gi) bi tu
+            # choi vo ly.
+            if hoisted is None:
+                _rewrite_nested_defs(inner, lines, body_start_lineno, inherited_captures)
+                continue
+            _hoist_nested_def(inner, func_node, lines, body_start_lineno, hoisted)
+            continue
+        nonlocal_node = inner.body[0]
+        nl_idx = nonlocal_node.lineno - body_start_lineno
+        lines[nl_idx] = ''
+
+        for captured_name in nonlocal_node.names:
+            if captured_name in outer_params:
+                # B3 (Phase C.1, 2026-07-29, xem project-tokenvector-wave2-status
+                # memory): bat 1 THAM SO cua ham ngoai gio HOP LE (da bind san
+                # luc vao ham, khong can "khai bao truoc" nhu local) NEU no la
+                # kieu THAM CHIEU (list/dict/record/func...) - viec kiem tra
+                # dtype cu the (scalar van CHUA ho tro bat qua tham so) nam o
+                # tang duoi (il_features/closures.py's fpw_nested_def, co day
+                # du TypeAnn luc do, o day chi la buoc tien xu ly cu phap THO,
+                # chua biet dtype).
+                continue
+            if captured_name in inherited_captures:
+                # Phase C.2: 'func_node' (vd 'mid') TU NO cung dang bat lai
+                # ten nay tu 1 tang xa hon (vd 'a' tu 'make_deep') - khong
+                # phai local THAT cua func_node nen KHONG kiem tra "khai bao
+                # truoc", chi chuyen tiep (chain) nguyen ven.
+                continue
+            _check_captured_declared_before(func_node, inner, captured_name)
+
+        # De quy: 'inner' co the CUNG co def long rieng cua no - tap
+        # inherited_captures cho vong de quy nay = MOI ten 'inner' se NHAN
+        # LAI duoi dang closure_field (tham so THAM CHIEU cua chinh no +
+        # MOI ten no vua bat o vong nay).
+        inner_inherited = {p.arg for p in inner.args.args} | set(nonlocal_node.names)
+        _rewrite_nested_defs(inner, lines, body_start_lineno, inherited_captures=inner_inherited)
+
+
+def _check_captured_declared_before(func_node, inner, captured_name):
+    declared_before = any(
+        isinstance(st, ast.Assign) and len(st.targets) == 1 and
+        isinstance(st.targets[0], ast.Name) and st.targets[0].id == captured_name and
+        st.lineno < inner.lineno
+        for st in func_node.body)
+    if not declared_before:
+        raise TranspileError(
+            f"ham '{func_node.name}': bien bi bat '{captured_name}' phai duoc khai bao qua "
+            f"1 phep gan thuong ('{captured_name} = ...') TRUOC ham long '{inner.name}' trong "
+            f"thu tu van ban nguon")
+
+
+def _extract_record_method_sig_line(class_node, method_node, is_static=False):
+    """Nhu _extract_signature_line, nhung BO QUA tham so dau tien ('self'
+    - khong duoc co annotation, khac cac tham so khac) - khoang trong ngon
+    ngu #1 (method that tren record). 'self' duoc il_codegen.py TU dong
+    bind vao scope (xem gen_il_method/_Scope.add_self), khong xuat hien
+    trong dong chu ky sinh ra o day.
+
+    is_static=True (Wave 1 Nhom B, 2026-07-29 - '@staticmethod'): method
+    KHONG co 'self' - tat ca tham so (ke ca tham so DAU) deu can annotation
+    kieu binh thuong, giong 1 ham top-level, xem _extract_record_def."""
+    if is_static:
+        if method_node.args.args and method_node.args.args[0].arg == 'self':
+            raise TranspileError(
+                f"method '{method_node.name}' cua class '{class_node.name}': "
+                f"'@staticmethod' khong duoc co tham so 'self'")
+        args_to_check = method_node.args.args
+    else:
+        if not method_node.args.args or method_node.args.args[0].arg != 'self':
+            raise TranspileError(
+                f"method '{method_node.name}' cua class '{class_node.name}': tham so DAU TIEN "
+                f"phai la 'self' (giong Python that)")
+        if method_node.args.args[0].annotation is not None:
+            raise TranspileError(
+                f"method '{method_node.name}' cua class '{class_node.name}': 'self' khong duoc "
+                f"co annotation kieu")
+        args_to_check = method_node.args.args[1:]
+    if method_node.args.vararg or method_node.args.kwarg or method_node.args.kwonlyargs:
+        raise TranspileError(
+            f"method '{method_node.name}': chi ho tro tham so thuong (khong *args/**kwargs/"
+            f"keyword-only)")
+    parts = _params_with_defaults(method_node, args_to_check, f"method '{method_node.name}'")
+    m_name = _rename_reserved_identifiers(method_node.name)
+    if method_node.returns is None:
+        return f"{m_name}({', '.join(parts)}):"
+    ret_t = _annotation_to_type_str(method_node.returns, f"method '{method_node.name}' return type")
+    return f"{m_name}({', '.join(parts)}) -> {ret_t}:"
+
+
+def _extract_interface_def(class_node, source_lines):
+    """Phase C.4 (2026-07-29, xem project-tokenvector-wave2-status memory -
+    huong F da chot: mixin = CIL interface). Parse 1 'class dang interface'
+    (danh dau qua '@interface' o CLASS, khong phai method) - CHI cho phep
+    khai bao METHOD (chu ky + 1 than THAT SU KHONG DUOC BIEN DICH, thuong
+    la 'pass'/'...' - giong stub trong Python that, chi can hop le cu phap
+    de file van chay duoc that duoi CPython, KHONG anh huong CIL sinh ra -
+    interface method LUON abstract, khong co than). KHONG duoc co field
+    (AnnAssign), KHONG '__init__', KHONG '@staticmethod'/'@property'.
+
+    Tra ve dict {ten_method: sig_line} (sig_line dang 'ten(...) -> kieu:',
+    KHONG dau ngoac kep - dung LAI _extract_record_method_sig_line)."""
+    if class_node.bases or class_node.keywords:
+        raise TranspileError(
+            f"class '{class_node.name}': '@interface' khong duoc co base class rieng "
+            f"(interface la goc, khong ke thua interface khac)")
+    methods = {}
+    for stmt in class_node.body:
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and \
+                isinstance(stmt.value.value, str):
+            continue  # docstring cua class
+        if not isinstance(stmt, ast.FunctionDef):
+            raise TranspileError(
+                f"class '{class_node.name}' (@interface): CHI ho tro khai bao method (chu ky + "
+                f"1 than stub 'pass'/'...' - khong bien dich) - gap {type(stmt).__name__} o dong "
+                f"{stmt.lineno}")
+        if stmt.decorator_list:
+            raise TranspileError(
+                f"method '{stmt.name}' cua interface '{class_node.name}': khong ho tro decorator "
+                f"(interface method luon la instance abstract)")
+        if stmt.name in methods:
+            raise TranspileError(f"interface '{class_node.name}': trung ten method '{stmt.name}'")
+        sig_line = _extract_record_method_sig_line(class_node, stmt, is_static=False)
+        methods[stmt.name] = sig_line
+    if not methods:
+        raise TranspileError(f"interface '{class_node.name}': khong co method nao")
+    return methods
+
+
+_EXCEPTION_BASE_NAME = 'Exception'
+
+
+def _extract_record_def(class_node, source_lines, known_records=None, known_interfaces=None):
+    """Parse 1 'class dang record' (huong tiep theo sau tuple/nhieu gia
+    tri tra ve, va khoang trong ngon ngu #1 - "method that tren record"):
+    field khai bao dang AnnAssign (khong gia tri khoi tao), TOI DA 1
+    '__init__' (bi qua luc bien dich, chi de file van la Python that
+    chay duoc), va 0+ method THAT (tham so dau '(self)', khong annotation).
+
+    Ke thua (B1, 2026-07-29, xem project-tokenvector-wave2-status memory):
+    HO TRO 1 base class DUY NHAT ('(object)'/khong ngoac van tuong duong
+    "khong ke thua" nhu truoc) - base PHAI la 1 record DA khai bao TRUOC DO
+    trong CUNG file (known_records: dict ten->fields DA parse xong, theo
+    THU TU xuat hien - giong quy uoc Python that: dùng truoc khi dinh nghia
+    la loi). KHONG ho tro da ke thua GIUA 2 RECORD (nhieu base la record
+    cung luc). KHONG nested class.
+
+    Da ke thua qua interface (Phase C.4, 2026-07-29 - huong F da chot,
+    "mixin = CIL interface"): CAC base SAU base DAU TIEN (neu co) PHAI la
+    ten 1 '@interface' DA khai bao truoc do (known_interfaces: dict ten->
+    {method:sig}) - vd 'class Dog(Animal, Flyable, Swimmable):' = ke thua
+    THAT tu Animal (record) + implements Flyable/Swimmable (interface,
+    method Dog TU VIET, CLR tu anh xa qua ten+chu ky trung khop, KHONG can
+    field/state chia se). Tra ve THEM `interface_names: list[str]`.
+
+    Tra ve (fields: list[(field_name, dtype_str)] - DA FLATTEN, field cua
+    base (neu co) DUNG THEO THU TU TRUOC, roi den field RIENG cua class
+    nay - giu dinh dang list[(name,dtype)] CU de MOI noi khac dung
+    'records' dict (il_type_str, record_feature.py...) KHONG can doi gi;
+    methods_raw: list[(sig_line, body_lines, is_static, is_property)] - CHI
+    method RIENG cua class nay (KHONG lap lai method ke thua tu base - CLR tu
+    dispatch qua v-table, xem gen_record_types); base_name: ten class cha
+    hoac None; interface_names: list ten interface duoc implement)."""
+    known_records = known_records or {}
+    known_interfaces = known_interfaces or {}
+    all_bases = [b for b in class_node.bases if not (isinstance(b, ast.Name) and b.id == 'object')]
+    if class_node.keywords:
+        raise TranspileError(f"class '{class_node.name}': khong ho tro tham so keyword trong base class")
+    for b in all_bases:
+        if not isinstance(b, ast.Name):
+            raise TranspileError(
+                f"class '{class_node.name}': base class phai la 1 TEN DON GIAN "
+                f"(vd 'class Dog(Animal):'), gap {ast.dump(b)} o dong {class_node.lineno}")
+    # 'Exception' la base DAC BIET (Giai doan 3, 2026-08-03): khong phai
+    # record do nguoi dung khai bao ma la System.Exception cua .NET - cho
+    # phep 'class MyError(Exception):' de co exception TU DINH NGHIA dung
+    # duoc voi 'raise'/'except'. Van la Python hop le (Exception co san).
+    record_bases_found = [b.id for b in all_bases
+                          if b.id in known_records or b.id == _EXCEPTION_BASE_NAME]
+    interface_names = [b.id for b in all_bases if b.id in known_interfaces]
+    unknown_bases = [b.id for b in all_bases
+                     if b.id not in known_records and b.id not in known_interfaces
+                     and b.id != _EXCEPTION_BASE_NAME]
+    if unknown_bases:
+        raise TranspileError(
+            f"class '{class_node.name}': base {sorted(unknown_bases)} chua duoc khai bao la "
+            f"'class dang record' HOAC '@interface' TRUOC DO trong file (phai dinh nghia TRUOC "
+            f"derived, giong quy uoc Python that)")
+    base_name = record_bases_found[0] if record_bases_found else None
+    base_info = record_bases_found if len(record_bases_found) > 1 else base_name
+    own_fields = []
+    base_fields = []
+    for b in record_bases_found:
+        sec_f = known_records.get(b, [])
+        for f_tuple in sec_f:
+            if f_tuple not in base_fields:
+                base_fields.append(f_tuple)
+    fields = list(base_fields)
+    methods_raw = []
+    for stmt in class_node.body:
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and \
+                isinstance(stmt.value.value, str):
+            continue  # docstring cua class
+        if isinstance(stmt, ast.FunctionDef) and stmt.name == '__init__':
+            # BO QUA HOAN TOAN luc transpile (khong dung de sinh CIL - .ctor
+            # THAT duoc gen_record_types() tu sinh tu chinh cac field ben
+            # duoi) - CHI de file .tkv van la Python HOP LE, chay duoc that
+            # (vd 'Point(1.0, 2.0)' goi duoc duoi CPython that khi doi
+            # chieu ket qua), giong dung tinh than '.tkv van la Python that'
+            # da xac lap tu Buoc 9 (doi ten .py->.tkv).
+            continue
+        if isinstance(stmt, ast.FunctionDef):
+            # Method THAT (khong phai __init__) - KHOANG TRONG #1, khac
+            # __init__: co bien dich THAT sang CIL instance method (xem
+            # gen_il_method), khong chi bo qua.
+            #
+            # '@staticmethod' (Wave 1 Nhom B, 2026-07-29): method KHONG
+            # 'self' - bien dich thanh CIL 'static' (nhu 1 ham top-level)
+            # thay vi 'instance', van goi duoc qua cu phap CO SAN
+            # 'obj.method(...)' (giong Python that: staticmethod goi qua
+            # INSTANCE van hop le).
+            # '@property' (Phase C.3, 2026-07-29, xem project-tokenvector-
+            # wave2-status memory - huong B da chot: desugar AST TRUOC khi
+            # vao compile_attr, 0 dong thay doi o compile_attr/gen_record_
+            # types): method la 1 GETTER binh thuong (instance, CHI nhan
+            # 'self', co return type) - 'obj.propname' (doc, KHONG goi ())
+            # o BAT KY dau trong chuong trinh se duoc desugar THANH
+            # 'obj.propname()' (goi method that) TRUOC KHI parse xuong
+            # il_codegen.py (xem _desugar_property_reads, goi tu cuoi
+            # _parse_program_ast SAU KHI da biet DU property_names toan
+            # chuong trinh). CHI ho tro GETTER (doc) - KHONG ho tro setter
+            # (@x.setter) - gan '.propname = value' se tu nhien bao loi ro
+            # rang o tang duoi (field khong ton tai) vi KHONG duoc desugar.
+            # '@classmethod'/decorator tuy bien khac KHONG duoc ho tro (can
+            # 'cls' runtime, ngoai pham vi).
+            decorator_names = [d.id for d in stmt.decorator_list if isinstance(d, ast.Name)]
+            unsupported = set(decorator_names) - {'staticmethod', 'property'}
+            if unsupported:
+                raise TranspileError(
+                    f"method '{stmt.name}' cua class '{class_node.name}': decorator "
+                    f"{sorted(unsupported)} chua duoc ho tro (chi '@staticmethod'/'@property')")
+            is_static = 'staticmethod' in decorator_names
+            is_property = 'property' in decorator_names
+            if is_static and is_property:
+                raise TranspileError(
+                    f"method '{stmt.name}' cua class '{class_node.name}': '@staticmethod' va "
+                    f"'@property' khong the dung CUNG luc")
+            if is_property and len(stmt.args.args) != 1:
+                raise TranspileError(
+                    f"method '{stmt.name}' cua class '{class_node.name}': '@property' (getter) "
+                    f"CHI duoc nhan dung 1 tham so 'self', khong tham so nao khac")
+            sig_line = _extract_record_method_sig_line(class_node, stmt, is_static=is_static)
+            body_lines = _body_source_lines(source_lines, stmt)
+            methods_raw.append((sig_line, body_lines, is_static, is_property))
+            continue
+        if not isinstance(stmt, ast.AnnAssign) or stmt.value is not None:
+            raise TranspileError(
+                f"class '{class_node.name}': 'class dang record' chi ho tro cac dong "
+                f"khai bao field DON THUAN 'ten: \"dtype\"' (khong gia tri mac dinh), "
+                f"1 '__init__' TUY CHON (bi qua luc bien dich), va cac method THAT "
+                f"(tham so dau '(self)') - gap {type(stmt).__name__} o dong {stmt.lineno}")
+        if not isinstance(stmt.target, ast.Name):
+            raise TranspileError(f"class '{class_node.name}': field o dong {stmt.lineno} phai la 1 ten don")
+        dtype = _annotation_to_type_str(stmt.annotation, f"class '{class_node.name}' field '{stmt.target.id}'")
+        # Field KHONG vo huong (container 'list[str]'/'dict[k,v]', hoac 1
+        # class khac) GIU NGUYEN VAN BAN o day - ten class trong CUNG file
+        # co the khai bao SAU ('class A: b: "B"'), nen viec phan giai doi
+        # sang _resolve_record_field_types(), chay khi da biet DU ten cac
+        # record (2026-08-03, dot 1).
+        if stmt.target.id in dict(base_fields):
+            raise TranspileError(
+                f"class '{class_node.name}': field '{stmt.target.id}' da co san o base class "
+                f"'{base_name}' - khong duoc khai bao lai (ghi de field ke thua chua ho tro)")
+        fields.append((stmt.target.id, dtype))
+    if not fields:
+        raise TranspileError(f"class '{class_node.name}': record khong co field nao")
+    return fields, methods_raw, base_name, base_info, interface_names
+
+
+_FUNC_NAME_RE = re.compile(r'^(\w+)\(')
+
+
+def _desugar_property_reads(body_lines, property_names):
+    """@property (Phase C.3, 2026-07-29, xem project-tokenvector-wave2-
+    status memory - huong B da chot): rewrite VAN BAN THO 'obj.propname'
+    (truy cap kieu FIELD, KHONG co '()') THANH 'obj.propname()' (goi
+    method THAT) cho MOI ten trong 'property_names' - ap dung TOAN CUC
+    theo TEN (khong scope theo tung kieu record cu the, don gian hoa co
+    y thuc: 2 record KHAC NHAU dat CUNG 1 ten property se CHIA SE quy tac
+    desugar - chap nhan duoc vi ten property thuong mang tinh mo ta ro
+    rang, giong quy uoc dat ten bien khac trong DSL).
+
+    CHI desugar dang DOC (khong theo sau '(' - tranh sua 'obj.propname()'
+    da la 1 loi goi that thanh 2 cap ngoac). KHONG xu ly dang GHI ('obj.
+    propname = value') - @property setter CHUA ho tro, dang GHI se KHONG
+    duoc desugar nen tu nhien bao loi ro rang o tang duoi (field khong ton
+    tai, vi 'propname' khong phai field THAT cua record)."""
+    if not property_names:
+        return body_lines
+    prop_re = re.compile(r'\b(\w+)\.(' + '|'.join(re.escape(p) for p in property_names) + r')\b(?!\s*\()')
+    return [prop_re.sub(lambda mo: f'{mo.group(1)}.{mo.group(2)}()', line) for line in body_lines]
+
+
+def _parse_program_ast(source_text):
+    """Parse THUAN 1 file nguon TokenVector (`.tkv`) THAT - KHONG doc file
+    nao khac, KHONG resolve import - chi tra ve THANG PHAN NOI DUNG cua
+    CHINH file nay: (record_defs, record_methods_raw, record_bases, pairs,
+    import_names). record_bases (B1, 2026-07-29): dict ten-record ->
+    ten-class-cha (hoac None neu khong ke thua) - xem _extract_record_def.
+    import_names: list ten module (KHONG co duoi '.tkv') lay tu bien
+    module-level '__tkv_import__' (xem extract_program_file - khoang
+    trong ngon ngu #3, "import module TokenVector khac"). 'import X'/
+    'from X import Y' THAT (cu phap Python chuan) van duoc BO QUA nhu
+    truoc gio (chi de file chay duoc duoi CPython that, vd numpy/helper
+    module rieng cua File I/O) - '__tkv_import__' la co che RIENG, MOI,
+    danh cho cross-file GIUA CAC FILE .tkv (khac hoan toan y nghia)."""
+    tree = ast.parse(source_text)
+    source_lines = source_text.split('\n')
+    record_defs = {}
+    record_methods_raw = {}
+    record_bases = {}
+    module_consts = {}
+    record_interfaces = {}
+    interface_defs = {}
+    pairs = []
+    import_names = []
+    extern_assemblies = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            sig_line = _extract_signature_line(node)
+            hoisted = []
+            body_lines = _body_source_lines(source_lines, node, hoisted=hoisted)
+            pairs.append((sig_line, body_lines))
+            # 'def' long khong bat bien nao da duoc nang len top-level -
+            # them vao chuong trinh nhu ham binh thuong.
+            pairs.extend(hoisted)
+        elif isinstance(node, ast.ClassDef):
+            if node.name in record_defs or node.name in interface_defs:
+                raise TranspileError(f"trung ten class '{node.name}'")
+            is_interface = any(isinstance(d, ast.Name) and d.id == 'interface' for d in node.decorator_list)
+            if is_interface:
+                # Phase C.4 (2026-07-29): '@interface' - mixin CIL interface
+                # (huong F), KHONG phai 1 record (khong field/state).
+                interface_defs[node.name] = _extract_interface_def(node, source_lines)
+                continue
+            fields, methods_raw, base_name, base_info, interface_names = _extract_record_def(
+                node, source_lines, known_records=record_defs, known_interfaces=interface_defs)
+            record_defs[node.name] = fields
+            record_methods_raw[node.name] = methods_raw
+            record_bases[node.name] = base_info
+            record_interfaces[node.name] = interface_names
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and node.targets[0].id == '__tkv_import__':
+            # Co che IMPORT RIENG cua TokenVector (khoang trong ngon ngu #3):
+            # 'import' THAT cua Python KHONG dung duoc de tham chieu 1 file
+            # .tkv khac (Python's import machinery chi tim '.py', khong
+            # biet '.tkv') - dung 1 phep GAN chuoi/list-chuoi HOP LE 100%
+            # (chay duoc that duoi CPython, khong lam gi luc runtime, giong
+            # tinh than annotation-la-string da dung xuyen suot du an) lam
+            # PRAGMA rieng cho compiler doc.
+            v = node.value
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                import_names = [v.value]
+            elif isinstance(v, ast.List) and v.elts and \
+                    all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in v.elts):
+                import_names = [e.value for e in v.elts]
+            else:
+                raise TranspileError(
+                    "__tkv_import__ phai la 1 chuoi hoac list chuoi (ten file .tkv KHONG co "
+                    "duoi '.tkv', vd __tkv_import__ = 'shapes' hoac ['shapes', 'utils'])")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                import_names.append(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                import_names.append(node.module)
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and node.targets[0].id == '__tkv_extern_assembly__':
+            # Co che MO RONG (Wave 3, 2026-07-29, xem project-tokenvector-
+            # wave2-status memory - "package ecosystem"): khai bao THEM 1
+            # hoac nhieu '.assembly extern' vao IL sinh ra, de cac stdlib
+            # function MOI (vd http_get dung [System]) hoac tuong lai
+            # (DB/thu vien .NET khac) co the tham chieu assembly ngoai
+            # mscorlib/System/System.Core da co san CUNG SAN, KHONG can sua
+            # tay phan header IL trong compile_tkv_cli() moi lan them 1
+            # thu vien moi. Moi phan tu: 1 chuoi ten (dung publickeytoken/
+            # version CHUAN cua .NET Framework GAC, da XAC MINH THAT qua
+            # ilasm.exe - System.Xml.XmlConvert.EncodeName() chay dung voi
+            # CUNG 1 token 'B7 7A 5C 56 19 34 E0 89' + ver 4:0:0:0 giong
+            # mscorlib/System/System.Core), HOAC 1 tuple 3 phan tu (ten,
+            # publickeytoken_hex_or_None, version_or_None) cho assembly
+            # RIENG/thu vien ngoai KHONG dung token chuan .NET Framework
+            # (vd 1 .dll private dat canh file .exe, publickeytoken=None
+            # nghia la KHONG ky ten manh - .assembly extern bare)."""
+            v = node.value
+            elts = v.elts if isinstance(v, ast.List) else [v]
+            for e in elts:
+                if isinstance(e, ast.Constant) and isinstance(e.value, str):
+                    extern_assemblies.append((e.value, 'DEFAULT', 'DEFAULT'))
+                elif isinstance(e, ast.Tuple) and len(e.elts) == 3:
+                    parts = []
+                    for sub in e.elts:
+                        if isinstance(sub, ast.Constant) and (sub.value is None or isinstance(sub.value, str)):
+                            parts.append(sub.value)
+                        else:
+                            raise TranspileError(
+                                "__tkv_extern_assembly__ tuple 3 phan tu phai la (ten:str, "
+                                "publickeytoken:str_hoac_None, version:str_hoac_None)")
+                    extern_assemblies.append(tuple(parts))
+                else:
+                    raise TranspileError(
+                        "__tkv_extern_assembly__ phai la 1 chuoi/list chuoi (ten assembly .NET "
+                        "Framework GAC chuan, vd 'System.Xml') hoac tuple 3 phan tu (ten, "
+                        "publickeytoken_hex_or_None, version_or_None) cho assembly rieng")
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue  # vd 'import numpy as np' - chi de file chay duoc duoi CPython that
+        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and \
+                isinstance(node.value.value, str):
+            continue  # module docstring
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'interface':
+            continue
+        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and \
+                isinstance(node.value.func, ast.Name) and node.value.func.id == '__tkv_extern_assembly__':
+            args = [a.value for a in node.value.args if isinstance(a, ast.Constant)]
+            if len(args) >= 1:
+                asm_name = args[0]
+                pubkeytoken = args[1] if len(args) > 1 else 'DEFAULT'
+                version = args[2] if len(args) > 2 else 'DEFAULT'
+                extern_assemblies.append((asm_name, pubkeytoken, version))
+            continue
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and                 isinstance(node.targets[0], ast.Name) and                 isinstance(node.value, ast.Constant) and                 isinstance(node.value.value, (int, float, str)) and                 not isinstance(node.value.value, bool):
+            # HANG SO cap module (2026-08-03): 'MAX = 10' / 'NAME = "x"'.
+            # CHI nhan HANG so/chuoi - KHONG phai bien toan cuc that (khong
+            # gan lai duoc, khong co o nho): moi noi dung se duoc thay bang
+            # chinh hang so do luc bien dich. Bien toan cuc GHI DUOC la 1
+            # thu khac han (can .field static + ngu nghia doc/ghi xuyen
+            # ham) - chua lam, va cach viet quen thuoc nhat trong script
+            # la hang so.
+            module_consts[node.targets[0].id] = node.value.value
+        else:
+            raise TranspileError(
+                f"Chi ho tro dinh nghia ham/class-record top-level, HANG SO cap module "
+                f"(vd MAX = 10), (va '__tkv_import__') trong "
+                f"1 file TokenVector; gap {type(node).__name__} o dong {node.lineno} (bien "
+                f"module-level khac/... chua ho tro)")
+    if not pairs:
+        raise TranspileError("File khong co ham top-level nao co annotation kieu DSL")
+
+    # @property (Phase C.3, 2026-07-29): gom TEN property TOAN CHUONG TRINH
+    # (moi record_methods_raw[*] hien la 4-tuple co is_property, xem
+    # _extract_record_def) - PHAI lam SAU KHI het vong lap tren (property co
+    # the khai bao o 1 class xuat hien SAU 1 ham/method dung no trong van
+    # ban nguon), roi desugar 'obj.propname' -> 'obj.propname()' tren TOAN
+    # BO body_lines (ham top-level LAN method record) TRUOC KHI tra ve -
+    # tra record_methods_raw VE LAI dang 3-tuple cu (sig_line, body_lines,
+    # is_static) de _build_record_methods/gen_record_types KHONG can doi gi.
+    property_names = set()
+    for methods_raw in record_methods_raw.values():
+        for sig_line, _body_lines, _is_static, is_property in methods_raw:
+            if is_property:
+                m = re.match(r'^(\w+)\(', sig_line)
+                if m:
+                    property_names.add(m.group(1))
+
+    if property_names:
+        pairs[:] = [(sig_line, _desugar_property_reads(body_lines, property_names))
+                    for sig_line, body_lines in pairs]
+        for rname, methods_raw in record_methods_raw.items():
+            record_methods_raw[rname] = [
+                (sig_line, _desugar_property_reads(body_lines, property_names), is_static)
+                for sig_line, body_lines, is_static, _is_property in methods_raw]
+    else:
+        for rname, methods_raw in record_methods_raw.items():
+            record_methods_raw[rname] = [
+                (sig_line, body_lines, is_static)
+                for sig_line, body_lines, is_static, _is_property in methods_raw]
+
+    _resolve_record_field_types(record_defs)
+    return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
+            import_names, extern_assemblies, module_consts)
+
+
+def _resolve_record_field_types(record_defs):
+    """Doi kieu field KHONG vo huong tu VAN BAN sang TypeAnn, SAU KHI da
+    biet du ten cac record trong file (2026-08-03, dot 1): field co the la
+    1 container ('list[str]', 'dict[str,f64]'), 1 record khac ('Node'), hay
+    container CUA record ('list[Node]') - ke ca khai bao SAU (tham chieu
+    tien, vd 'class Node: next: "Node"'). Field vo huong GIU NGUYEN dang
+    chuoi dtype nhu cu (khong doi dinh dang du lieu da co)."""
+    record_names = set(record_defs)
+    for rname, fields in record_defs.items():
+        resolved = []
+        for fname, dtype in fields:
+            if not isinstance(dtype, str) or dtype in DTYPES:
+                resolved.append((fname, dtype))
+                continue
+            if dtype in record_names:
+                resolved.append((fname, TypeAnn(dtype, 'record')))
+                continue
+            try:
+                ta = _parse_type_ann_str(dtype, record_names=record_names)
+            except SyntaxError as e:
+                raise TranspileError(
+                    f"class '{rname}' field '{fname}': dtype {dtype!r} khong hop le "
+                    f"(vo huong: {sorted(DTYPES)}; container: 'list[...]'/'dict[khoa,gia_tri]'; "
+                    f"hoac ten 1 class da khai bao trong file) - {e}")
+            if ta.shape not in ('list', 'dict'):
+                raise TranspileError(
+                    f"class '{rname}' field '{fname}': dtype {dtype!r} khong hop le - field chi "
+                    f"duoc la VO HUONG {sorted(DTYPES)}, 1 class da khai bao, hoac container "
+                    f"'list[...]'/'dict[khoa,gia_tri]'")
+            resolved.append((fname, ta))
+        record_defs[rname] = resolved
+
+
+def extract_program(source_text):
+    """Parse mot file nguon TokenVector (`.tkv`) THAT tu VAN BAN THO
+    (khong co duong dan file that), tra ve (record_defs, record_methods_raw,
+    record_bases, record_interfaces, interface_defs, pairs) - xem
+    _parse_program_ast. KHONG ho tro '__tkv_import__' (can duong dan thu
+    muc de tim file import - dung extract_program_file() / compile_tkv_cli()
+    / transpile_file() cho truong hop do)."""
+    (record_defs, record_methods_raw, record_bases, record_interfaces,
+     interface_defs, pairs, import_names, extern_assemblies,
+     module_consts) = _parse_program_ast(source_text)
+    if import_names:
+        raise TranspileError(
+            f"file co '__tkv_import__' = {import_names!r} nhung duoc goi qua extract_program"
+            f"(source_text) (khong co duong dan file that) - dung extract_program_file(tkv_path) "
+            f"hoac compile_tkv_cli()/transpile_file() (co duong dan) de import cheo file hoat dong")
+    return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
+            extern_assemblies, module_consts)
+
+
+_PROJECT_ROOT = Path(__file__).parent.resolve()
+
+
+def _find_module_path(imp_name, base_dir):
+    candidates = [
+        # Native TokenVector module files (.tkv) have top priority:
+        base_dir / f'{imp_name}.tkv',
+        base_dir / imp_name / '__init__.tkv',
+        base_dir / 'stdlib' / f'{imp_name}.tkv',
+        base_dir / 'stdlib' / imp_name / '__init__.tkv',
+        _PROJECT_ROOT / 'stdlib' / f'{imp_name}.tkv',
+        _PROJECT_ROOT / 'stdlib' / imp_name / '__init__.tkv',
+        base_dir / 'vendor' / f'{imp_name}.tkv',
+        base_dir / 'vendor' / imp_name / '__init__.tkv',
+        # Third-party Python non-native packages (fallback):
+        base_dir / f'{imp_name}.py',
+        base_dir / imp_name / '__init__.py',
+        base_dir / 'vendor' / f'{imp_name}.py',
+        base_dir / 'vendor' / imp_name / '__init__.py',
+    ]
+    for cand in candidates:
+        if cand.exists():
+            return cand.resolve()
+    for sp in sys.path:
+        sp_dir = Path(sp)
+        if not sp_dir.exists():
+            continue
+        sp_cands = [
+            sp_dir / f'{imp_name}.tkv',
+            sp_dir / imp_name / '__init__.tkv',
+            sp_dir / f'{imp_name}.py',
+            sp_dir / imp_name / '__init__.py',
+        ]
+        for cand in sp_cands:
+            if cand.exists():
+                return cand.resolve()
+    return None
+
+
+def extract_program_file(tkv_path, _visited=None):
+    """Nhu extract_program(), nhung doc THANG tu 1 file that (co duong dan)
+    va DE QUY giai quyet '__tkv_import__' (khoang trong ngon ngu #3 - chia
+    du an thanh nhieu file .tkv) - tim file '<ten>.tkv' trong CUNG thu muc
+    voi file dang xu ly, gop TOAN BO ham/record/method cua no vao ket qua
+    CHUNG (bao loi RO RANG neu trung ten ham/class giua 2 file - khong
+    am tham ghi de). _visited: tap duong dan TUYET DOI da xu ly (chong
+    import vong lap - vd A import B, B import lai A: lan gap lai A THU
+    HAI se bi BO QUA thay vi de quy vo han, vi noi dung A da duoc gop
+    roi tu lan dau)."""
+    if _visited is None:
+        _visited = set()
+    tkv_path = Path(tkv_path).resolve()
+    _visited.add(str(tkv_path))
+    source_text = tkv_path.read_text(encoding='utf-8')
+    (record_defs, record_methods_raw, record_bases, record_interfaces,
+     interface_defs, pairs, import_names, extern_assemblies,
+     module_consts) = _parse_program_ast(source_text)
+    func_names = {m.group(1) for sig_line, _ in pairs if (m := _FUNC_NAME_RE.match(sig_line))}
+
+    for imp_name in import_names:
+        imp_path = _find_module_path(imp_name, tkv_path.parent)
+        if imp_path is None:
+            raise TranspileError(
+                f"file '{tkv_path.name}': import module '{imp_name}' khong tim thay trong "
+                f"thu muc hien tai hoac site-packages ({sys.path!r})")
+        if str(imp_path) in _visited:
+            continue
+        _visited.add(str(imp_path))
+        (imp_record_defs, imp_record_methods_raw, imp_record_bases, imp_record_interfaces,
+         imp_interface_defs, imp_pairs, imp_extern_assemblies,
+         imp_module_consts) = extract_program_file(imp_path, _visited)
+        imp_func_names = {m.group(1) for sig_line, _ in imp_pairs if (m := _FUNC_NAME_RE.match(sig_line))}
+
+        dup_funcs = func_names & imp_func_names
+        if dup_funcs:
+            raise TranspileError(
+                f"trung ten ham {sorted(dup_funcs)} giua file '{tkv_path.name}' va import "
+                f"'{imp_name}.tkv'")
+        dup_records = set(record_defs) & set(imp_record_defs)
+        if dup_records:
+            raise TranspileError(
+                f"trung ten class {sorted(dup_records)} giua file '{tkv_path.name}' va import "
+                f"'{imp_name}.tkv'")
+        dup_interfaces = set(interface_defs) & set(imp_interface_defs)
+        if dup_interfaces:
+            raise TranspileError(
+                f"trung ten interface {sorted(dup_interfaces)} giua file '{tkv_path.name}' va "
+                f"import '{imp_name}.tkv'")
+
+        pairs.extend(imp_pairs)
+        func_names |= imp_func_names
+        record_defs.update(imp_record_defs)
+        record_methods_raw.update(imp_record_methods_raw)
+        record_bases.update(imp_record_bases)
+        record_interfaces.update(imp_record_interfaces)
+        interface_defs.update(imp_interface_defs)
+        extern_assemblies.extend(imp_extern_assemblies)
+        # Hang so cap module cua file IMPORT dung duoc trong file goc (giong
+        # ham/record) - trung ten thi file GOC thang (khai bao gan hon).
+        for k, v in imp_module_consts.items():
+            module_consts.setdefault(k, v)
+
+    return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
+            extern_assemblies, module_consts)
+
+
+def _build_record_methods(record_defs, record_methods_raw, record_bases=None):
+    """Parse TAT CA sig_line THO cua method (record_methods_raw) thanh
+    Signature THAT - lam RIENG, SAU khi record_defs (fields) da biet DU
+    (khong lam ben trong extract_program) de method co the tham chieu
+    BAT KY record nao trong file (ke ca khai bao SAU no) qua record_names.
+
+    record_bases (B1, 2026-07-29): dict ten-record -> ten-class-cha (hoac
+    None) - neu co, 'record_methods' tra ve la VIEW DA GOP (method ke thua
+    tu to tien + method RIENG, method RIENG de len SAU nen THANG method ke
+    thua neu trung ten - dung khi 1 CALL SITE (vd 'dog.speak()') can biet
+    Signature cua 1 method du no dinh nghia o Dog hay o Animal). KHONG
+    truyen (None, mac dinh) tuong duong record_bases rong - hanh vi CU
+    (chi method RIENG cua tung record), an toan cho MOI caller khong ke
+    thua. record_method_bodies LUON CHI method RIENG (khong lap - CLR tu
+    dispatch method ke thua qua v-table, xem gen_record_types) - KHONG bi
+    anh huong boi gop nay.
+
+    Tra ve (record_methods: {ten-record: {ten-method: Signature}} - DA GOP
+    neu co record_bases, record_method_bodies: {ten-record: [(Signature,
+    body_lines), ...]} - CHI method RIENG)."""
+    record_bases = record_bases or {}
+    record_names = set(record_defs)
+    record_methods_own = {}
+    record_method_bodies = {}
+    for rname, methods_raw in record_methods_raw.items():
+        sigs = {}
+        bodies = []
+        for sig_line, body_lines, is_static in methods_raw:
+            m_sig = parse_typed_signature(sig_line, record_names=record_names)
+            m_sig.is_static = is_static
+            if m_sig.name in sigs:
+                raise TranspileError(f"class '{rname}': trung ten method '{m_sig.name}'")
+            sigs[m_sig.name] = m_sig
+            bodies.append((m_sig, body_lines))
+        record_methods_own[rname] = sigs
+        record_method_bodies[rname] = bodies
+
+    for rname in record_defs:
+        bases = record_bases.get(rname)
+        if isinstance(bases, list) and len(bases) > 1:
+            own_names = {m[0].name for m in record_method_bodies.get(rname, [])}
+            for sec in bases[1:]:
+                for m_sig, b_lines in record_method_bodies.get(sec, []):
+                    if m_sig.name not in own_names:
+                        record_method_bodies[rname].append((m_sig, b_lines))
+                        own_names.add(m_sig.name)
+                        record_methods_own[rname][m_sig.name] = m_sig
+
+    record_methods = {}
+    for rname in record_defs:
+        visited = set()
+        queue = [rname]
+        chain = []
+        while queue:
+            cur = queue.pop(0)
+            if cur in visited:
+                continue
+            visited.add(cur)
+            chain.append(cur)
+            bases = record_bases.get(cur)
+            if isinstance(bases, list):
+                queue.extend(bases)
+            elif bases:
+                queue.append(bases)
+        merged = {}
+        for c in reversed(chain):  # goc truoc, roi den con - con THANG neu trung ten (override)
+            merged.update(record_methods_own.get(c, {}))
+        record_methods[rname] = merged
+    return record_methods, record_method_bodies, record_methods_own
+
+
+def _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
+                          module_consts=None, extra_classes=None):
+    """Phan CHUNG cua transpile_program/transpile_file - nhan ket qua da
+    extract (tu 1 file don le HOAC da gop nhieu file qua
+    extract_program_file/__tkv_import__), sinh CIL method that."""
+    record_methods, _ = _build_record_methods(record_defs, record_methods_raw)
+    sig_body_pairs = [(parse_typed_signature(sig_line, record_names=set(record_defs)), body_lines)
+                       for sig_line, body_lines in pairs]
+    return gen_il_program(sig_body_pairs, class_name=class_name, with_guards=with_guards,
+                           records=record_defs, record_methods=record_methods,
+                           module_consts=module_consts, extra_classes=extra_classes)
+
+
+def transpile_program(source_text, class_name='Program', with_guards=True,
+                       extra_classes=None):
+    """Pipeline day du: source TokenVector (`.tkv`) THAT -> list CIL
+    method (dung gen_il_program - da co func_table cho goi ham cheo nhau).
+    LUU Y: neu source co 'class dang record', KHONG dung ham nay truc tiep
+    de ra 1 file .il hoan chinh - method_lines tra ve CHUA co cac '.class
+    value' cua record (xem compile_tkv_cli, noi ghep gen_record_types()
+    RIENG ben ngoai class chuong trinh chinh). KHONG ho tro '__tkv_import__'
+    (xem extract_program) - dung transpile_file() cho file co import cheo."""
+    (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea,
+     module_consts) = extract_program(source_text)
+    return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
+                                 module_consts=module_consts, extra_classes=extra_classes)
+
+
+def transpile_file(tkv_path, class_name='Program', with_guards=True,
+                    extra_classes=None):
+    """Nhu transpile_program, nhung doc THANG tu file (co duong dan) nen
+    ho tro '__tkv_import__' (khoang trong ngon ngu #3 - import module
+    TokenVector khac) qua extract_program_file()."""
+    (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea,
+     module_consts) = extract_program_file(tkv_path)
+    return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
+                                 module_consts=module_consts, extra_classes=extra_classes)
+
+
+# ============================================================
+# CLI tu dong (huong tiep theo sau ROADMAP.md 9 buoc): tu truoc gio moi
+# vi du/test trong session deu phai TU TAY viet 1 method Main() bang IL
+# (doc argv, goi ham, in ket qua) - tuc TokenVector moi dung duoc "qua
+# script Python", chua phai "cong cu bien dich that goi tu dong lenh".
+# build_generic_main()/compile_tkv_cli() tu dong sinh Main() cho BAT KY
+# ham entry nao co tham so/return VO HUONG (i32/i64/f32/f64/str) - khong
+# them tinh nang ngon ngu moi, chi dong goi lai ha tang codegen DA CO va
+# DA VERIFY (parse argv theo dtype, in ket qua) thanh 1 lenh `tkv build`.
+#
+# Gioi han THAT (chua ho tro): tham so/return la mang/list/dict - argv la
+# chuoi PHANG, chua co quy uoc serialize container ro rang; se bao loi
+# ro rang (CliError) thay vi doan mo.
+# ============================================================
+
+class CliError(Exception):
+    pass
+
+
+_CLI_PARSE_SEQ = {
+    'i32': ['call int32 [mscorlib]System.Int32::Parse(string)'],
+    'i64': ['call int64 [mscorlib]System.Int64::Parse(string)'],
+    'f32': ['call class [mscorlib]System.Globalization.CultureInfo '
+            '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()',
+            'call float32 [mscorlib]System.Single::Parse(string, '
+            'class [mscorlib]System.IFormatProvider)'],
+    'f64': ['call class [mscorlib]System.Globalization.CultureInfo '
+            '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()',
+            'call float64 [mscorlib]System.Double::Parse(string, '
+            'class [mscorlib]System.IFormatProvider)'],
+    'str': [],  # argv[i] da la string san, khong can Parse
+}
+
+_CLI_PRINT_SEQ = {
+    'i32': ['call instance string [mscorlib]System.Int32::ToString()'],
+    'i64': ['call instance string [mscorlib]System.Int64::ToString()'],
+    'f32': ['call class [mscorlib]System.Globalization.CultureInfo '
+            '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()',
+            'call instance string [mscorlib]System.Single::ToString(class [mscorlib]System.IFormatProvider)'],
+    'f64': ['call class [mscorlib]System.Globalization.CultureInfo '
+            '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()',
+            'call instance string [mscorlib]System.Double::ToString(class [mscorlib]System.IFormatProvider)'],
+    'str': [],  # ket qua da la string, in thang khong can ToString
+}
+
+
+def _build_main_tuple(sig, class_name, body):
+    """Phan duoi cua build_generic_main cho ham tra ValueTuple: doc tung
+    ItemN qua ldflda (field cua struct - can DIA CHI de goi ToString tren
+    value type, cung ly do voi str() builtin) roi noi thanh '(a, b)'."""
+    dtypes = sig.return_type.tuple_dtypes
+    tup_il = il_type_str(sig.return_type)
+    body.append('    stloc.0')
+    body.append('    ldstr "("')
+    for i, d in enumerate(dtypes, start=1):
+        if i > 1:
+            body.append('    ldstr ", "')
+            body.append('    call string [mscorlib]System.String::Concat(string, string)')
+        # Kieu cua field PHAI ghi bang PLACEHOLDER generic ('!0', '!1'...)
+        # chu KHONG phai kieu da the the ('int32') - neu khong, CLR bao
+        # MissingFieldException LUC CHAY (da gap that o day). Cung quy uoc
+        # voi '!0' cua List::get_Item o cac module khac.
+        if d == 'str':
+            body.append('    ldloc.0')
+            body.append(f'    ldfld !{i - 1} {tup_il}::Item{i}')
+        else:
+            body.append('    ldloca.s 0')
+            body.append(f'    ldflda !{i - 1} {tup_il}::Item{i}')
+            body.extend(f'    {op}' for op in _CLI_PRINT_SEQ[d])
+            if d in ('f32', 'f64'):
+                body.append('    dup')
+                body.append('    ldstr "."')
+                body.append('    callvirt instance bool [mscorlib]System.String::Contains(string)')
+                body.append(f'    brtrue cli_tup{i}_hasdot')
+                body.append('    ldstr ".0"')
+                body.append('    call string [mscorlib]System.String::Concat(string, string)')
+                body.append(f'    br cli_tup{i}_end')
+                body.append(f'  cli_tup{i}_hasdot:')
+                body.append(f'  cli_tup{i}_end:')
+        body.append('    call string [mscorlib]System.String::Concat(string, string)')
+    body.append('    ldstr ")"')
+    body.append('    call string [mscorlib]System.String::Concat(string, string)')
+    body.append('    call void [mscorlib]System.Console::WriteLine(string)')
+    body.append('    ret')
+    method = [
+        '  .method public static void Main(string[] args) cil managed',
+        '  {',
+        '    .entrypoint',
+        '    .maxstack 8',
+        f'    .locals init ({tup_il} __cli_ret)',
+    ]
+    method += body
+    method.append('  }')
+    return method
+
+
+
+def _cli_default_literal(param, sig):
+    """1 lenh IL day GIA TRI MAC DINH cua 1 tham so len stack (2026-08-03).
+    CHI nhan hang so/chuoi - bieu thuc mac dinh phuc tap thi bao loi RO
+    RANG thay vi sinh ma sai."""
+    node = param.default_node
+    dtype = param.type_ann.dtype
+    if node[0] == 'str_lit' and dtype == 'str':
+        return f'ldstr {node[1]}'
+    if node[0] == 'num' and dtype in IL_LDC_OP:
+        return f'{IL_LDC_OP[dtype]} {node[1]}'
+    if node[0] == 'neg' and node[1][0] == 'num' and dtype in IL_LDC_OP:
+        return f'{IL_LDC_OP[dtype]} -{node[1][1]}'
+    raise CliError(
+        f"tkv build: tham so '{param.name}' cua ham '{sig.name}' co gia tri mac dinh "
+        f"khong phai hang so don gian - CLI tu dong chi day duoc hang so/chuoi. "
+        f"Truyen du doi so khi chay, hoac doi mac dinh thanh 1 hang.")
+
+
+def build_generic_main(sig, class_name):
+    """Sinh 1 method Main(string[] args) TU DONG cho ham entry `sig`: doc
+    N tham so vo huong tu argv THEO DUNG THU TU tham so (parse dung dtype,
+    InvariantCulture cho f32/f64 - xem bug locale that da sua o Buoc 1-3),
+    goi ham, in ket qua ra stdout."""
+    for p in sig.params:
+        if p.type_ann.shape is not None or p.type_ann.dtype not in _CLI_PARSE_SEQ:
+            raise CliError(
+                f"tkv build: tham so '{p.name}' cua ham '{sig.name}' co "
+                f"dtype={p.type_ann.dtype!r} shape={p.type_ann.shape!r} - CLI tu "
+                f"dong hien CHI ho tro tham so VO HUONG (i32/i64/f32/f64/str), "
+                f"khong ho tro mang/list/dict (argv la chuoi phang, chua co quy "
+                f"uoc serialize container).")
+    if sig.return_type is None:
+        raise CliError(
+            f"tkv build: ham '{sig.name}' khong co return type - CLI tu dong "
+            f"can in ket qua nen ham entry BAT BUOC phai return gia tri.")
+    is_tuple_ret = sig.return_type.shape == 'tuple'
+    if is_tuple_ret:
+        bad = [d for d in sig.return_type.tuple_dtypes if d not in _CLI_PRINT_SEQ]
+        if bad:
+            raise CliError(
+                f"tkv build: ham '{sig.name}' tra tuple co phan tu kieu {bad} - CLI tu "
+                f"dong chi in duoc phan tu VO HUONG (i32/i64/f32/f64/str).")
+    elif sig.return_type.shape is not None or sig.return_type.dtype not in _CLI_PRINT_SEQ:
+        raise CliError(
+            f"tkv build: ham '{sig.name}' return dtype={sig.return_type.dtype!r} "
+            f"shape={sig.return_type.shape!r} - CLI tu dong hien CHI ho tro "
+            f"return VO HUONG (i32/i64/f32/f64/str) hoac tuple cac gia tri vo huong.")
+
+    body = []
+    for i, p in enumerate(sig.params):
+        if p.default_node is None:
+            body.append('    ldarg.0')
+            body.append(f'    ldc.i4 {i}')
+            body.append('    ldelem.ref')
+            body.extend(f'    {op}' for op in _CLI_PARSE_SEQ[p.type_ann.dtype])
+            continue
+        # Tham so CO GIA TRI MAC DINH (2026-08-03): truoc day Main van doc
+        # thang argv[i] -> chay 'ham.exe 4' cho ham f(a, b=3) nem
+        # IndexOutOfRangeException kho hieu (bug THAT tim ra bang
+        # scratch/probe_runtime.py). Nay: thieu doi so thi dung mac dinh.
+        default_il = _cli_default_literal(p, sig)
+        miss_lbl = f'cli_def{i}_miss'
+        done_lbl = f'cli_def{i}_done'
+        body.append('    ldarg.0')
+        body.append('    ldlen')
+        body.append('    conv.i4')
+        body.append(f'    ldc.i4 {i}')
+        body.append(f'    ble {miss_lbl}')
+        body.append('    ldarg.0')
+        body.append(f'    ldc.i4 {i}')
+        body.append('    ldelem.ref')
+        body.extend(f'    {op}' for op in _CLI_PARSE_SEQ[p.type_ann.dtype])
+        body.append(f'    br {done_lbl}')
+        body.append(f'  {miss_lbl}:')
+        body.append(f'    {default_il}')
+        body.append(f'  {done_lbl}:')
+
+    params_il = ', '.join(il_type_str(p.type_ann) for p in sig.params)
+    ret_il = il_type_str(sig.return_type)
+    # Ten ham cung phai boc nhay don (2026-08-03): 'flags' la tu khoa
+    # ILASM - 1 ham ten do lam ca file khong assemble duoc. Xem
+    # _il_ident trong il_codegen.py (cung ly do, o vi tri goi).
+    body.append(f"    call {ret_il} {class_name}::'{sig.name}'({params_il})")
+
+    if is_tuple_ret:
+        # Ham tra TUPLE lam entry CLI (2026-08-03): in ra dang '(a, b)' -
+        # dung het cua Python de doi chieu duoc THANG. Truoc day bi tu
+        # choi hoan toan, du tuple dung NOI BO van chay tot.
+        return _build_main_tuple(sig, class_name, body)
+
+    ret_dtype = sig.return_type.dtype
+    if ret_dtype == 'str':
+        body.append('    call void [mscorlib]System.Console::WriteLine(string)')
+        locals_decl = ''
+    else:
+        # Can DIA CHI (khong the lay dia chi 1 gia tri TAM tren stack) de
+        # goi ToString() - instance method tren value type - cung ly do da
+        # ap dung cho str() builtin trong il_codegen.py.
+        body.append('    stloc.0')
+        body.append('    ldloca.s 0')
+        body.extend(f'    {op}' for op in _CLI_PRINT_SEQ[ret_dtype])
+        if ret_dtype in ('f32', 'f64'):
+            # BUG THAT tim thay qua chinh test CLI moi (sample_cli_smoke2.tkv,
+            # scale_f32(3.5, 2.0) in ra "7" thay vi "7.0") - CUNG 1 loi
+            # locale/format da sua truoc do trong str() builtin cua
+            # il_codegen.py (Single/Double.ToString() bo dau cham cho so
+            # tron) nhung quen ap dung lai o day - vong lap "them dau .0
+            # neu thieu" giong het pattern da xac minh.
+            body.append('    dup')
+            body.append('    ldstr "."')
+            body.append('    callvirt instance bool [mscorlib]System.String::Contains(string)')
+            body.append('    brtrue cli_ret_hasdot')
+            body.append('    ldstr ".0"')
+            body.append('    call string [mscorlib]System.String::Concat(string, string)')
+            body.append('    br cli_ret_end')
+            body.append('  cli_ret_hasdot:')
+            body.append('  cli_ret_end:')
+        body.append('    call void [mscorlib]System.Console::WriteLine(string)')
+        locals_decl = ret_il
+    body.append('    ret')
+
+    method = [
+        '  .method public static void Main(string[] args) cil managed',
+        '  {',
+        '    .entrypoint',
+        '    .maxstack 8',
+    ]
+    if locals_decl:
+        method.append(f'    .locals init ({locals_decl} __cli_ret)')
+    method += body
+    method.append('  }')
+    return method
+
+
+def _compute_record_overrides(record_bases, record_methods):
+    overrides = {}
+    for name in record_methods:
+        seen = set()
+        visited = set()
+        queue = []
+        b = record_bases.get(name)
+        if isinstance(b, list):
+            queue.extend(b)
+        elif b:
+            queue.append(b)
+        while queue:
+            cur = queue.pop(0)
+            if cur in visited:
+                continue
+            visited.add(cur)
+            seen.update(record_methods.get(cur, {}))
+            next_b = record_bases.get(cur)
+            if isinstance(next_b, list):
+                queue.extend(next_b)
+            elif next_b:
+                queue.append(next_b)
+        overrides[name] = seen
+    return overrides
+
+
+def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp'):
+    """Bien dich 1 file `.tkv` THAT thanh `.exe` GOI DUOC TU DONG LENH
+    TRUC TIEP (tu dong sinh Main(), khong can tu tay viet IL nhu moi vi
+    du truoc day trong session) - argv[0..] anh xa THEO THU TU tham so
+    cua ham entry, in ket qua ra stdout.
+
+    entry_name=None: neu file chi co 1 ham, dung ham do; neu nhieu ham,
+    can co 1 ham ten 'main' hoac phai truyen entry_name ro rang. Ho tro
+    '__tkv_import__' (khoang trong ngon ngu #3) qua extract_program_file -
+    entry_name co the la ham dinh nghia trong file IMPORT, khong chi file
+    goc (func_table gop CA HAI)."""
+    (record_defs, record_methods_raw, record_bases, record_interfaces,
+     interface_defs, pairs, extern_assemblies, module_consts) = extract_program_file(tkv_path)
+    record_methods, record_method_bodies, record_methods_own = _build_record_methods(
+        record_defs, record_methods_raw, record_bases=record_bases)
+    record_overrides = _compute_record_overrides(record_bases, record_methods)
+    sig_body_pairs = [(parse_typed_signature(sig_line, record_names=set(record_defs)), body_lines)
+                      for sig_line, body_lines in pairs]
+    func_table = {sig.name: sig for sig, _ in sig_body_pairs}
+
+    if entry_name is None:
+        if len(sig_body_pairs) == 1:
+            entry_name = sig_body_pairs[0][0].name
+        elif 'main' in func_table:
+            entry_name = 'main'
+        else:
+            raise CliError(
+                f"tkv build: file co {len(sig_body_pairs)} ham ({', '.join(func_table)}), "
+                f"khong ro entry point nao - dat ten 1 ham la 'main' hoac chi ro entry_name.")
+    if entry_name not in func_table:
+        raise CliError(f"tkv build: khong tim thay ham entry '{entry_name}' trong {tkv_path}")
+
+    # extra_classes (Buoc 4 - closure that, 2026-07-29): OUT-parameter cua
+    # gen_il_program - moi 'def long' trong chuong trinh se append vao day
+    # 1 hoac nhieu khoi '.class' MOI (cell/closure, xem il_features/
+    # closures.py) can ghep RIENG vao IL text, giong het cach lam voi
+    # record_type_lines o duoi.
+    extra_classes = []
+    method_lines = gen_il_program(sig_body_pairs, class_name=class_name, records=record_defs,
+                                   record_methods=record_methods, extra_classes=extra_classes,
+                                   record_bases=record_bases, module_consts=module_consts)
+    main_method = build_generic_main(func_table[entry_name], class_name)
+    record_type_lines = gen_record_types(record_defs, record_method_bodies=record_method_bodies,
+                                          record_methods=record_methods, class_name=class_name,
+                                          func_table=func_table, record_bases=record_bases,
+                                          record_overrides=record_overrides,
+                                          record_interfaces=record_interfaces,
+                                          interface_defs=interface_defs,
+                                          module_consts=module_consts,
+                                          record_methods_own=record_methods_own)
+    extra_class_lines = [line for block in extra_classes for line in block]
+
+    # DB that qua P/Invoke sqlite3.dll (Wave 3, 2026-07-29 - xem
+    # il_features/stdlib_sqlite.py) - CHI ghep 6 khai bao pinvokeimpl vao
+    # class chuong trinh KHI THAT SU dung it nhat 1 ham db_* (tranh khai
+    # bao pinvoke thua/doi hoi sqlite3.dll canh file .exe cho chuong
+    # trinh khong dung DB).
+    sqlite_decl_lines = (SQLITE_PINVOKE_DECL_LINES
+                          if any(_uses_sqlite(body_lines) for _sig, body_lines in pairs)
+                          else [])
+    
+    # --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Extraction ---
+    cjson_decl_lines = (CJSON_PINVOKE_DECL_LINES
+                          if any(_uses_cjson(body_lines) for _sig, body_lines in pairs)
+                          else [])
+    # --- END GEMINI ADDED CODE ---
+
+    # Co che MO RONG (Wave 3, 2026-07-29, "package ecosystem" - xem
+    # __tkv_extern_assembly__ trong _parse_program_ast, project-tokenvector-
+    # wave2-status memory): THEM cac '.assembly extern' do nguoi dung khai
+    # bao, ngoai 3 assembly LUON CO SAN (mscorlib/System.Core/System).
+    # 'DEFAULT'/'DEFAULT' = dung publickeytoken+version CHUAN .NET Framework
+    # (da xac minh THAT qua ilasm.exe voi System.Xml - CUNG 1 token/ver
+    # ap dung cho moi assembly GAC chuan cua Framework 4.0). Dedupe theo
+    # ten (khong khai bao lai mscorlib/System/System.Core du nguoi dung
+    # lo khai bao trung).
+    _default_pubkeytoken = 'B7 7A 5C 56 19 34 E0 89'
+    _builtin_extern_names = {'mscorlib', 'System.Core', 'System'}
+    extern_lines = []
+    seen_extern = set(_builtin_extern_names)
+    for asm_name, pubkeytoken, version in extern_assemblies:
+        if asm_name in seen_extern:
+            continue
+        seen_extern.add(asm_name)
+        if pubkeytoken == 'DEFAULT' and version == 'DEFAULT':
+            extern_lines.append(
+                f'.assembly extern {asm_name} {{ .publickeytoken = ({_default_pubkeytoken} ) .ver 4:0:0:0 }}\n')
+        elif pubkeytoken:
+            extern_lines.append(
+                f'.assembly extern {asm_name} {{ .publickeytoken = ({pubkeytoken} ) .ver {version} }}\n')
+        else:
+            extern_lines.append(f'.assembly extern {asm_name} {{}}\n')
+
+    il_text = (
+        f'.assembly extern mscorlib {{}}\n'
+        f'.assembly extern System.Core {{ .publickeytoken = (B7 7A 5C 56 19 34 E0 89 ) .ver 4:0:0:0 }}\n'
+        # System.Text.RegularExpressions.Regex (re_match/re_sub, Wave 2
+        # 2026-07-29) nam trong assembly "System" (KHAC "System.Core" o
+        # tren) - can khai bao rieng, xac minh THAT qua ilasm.exe (thieu
+        # se FileNotFoundException luc CHAY, khong phai luc assemble).
+        f'.assembly extern System {{ .publickeytoken = (B7 7A 5C 56 19 34 E0 89 ) .ver 4:0:0:0 }}\n'
+        # System.Numerics.BigInteger - duong CHAM cua kieu 'int' (so nguyen
+        # vo han chu so, moc 6 buoc 2 2026-08-05, xem il_features/int_type.py).
+        # Khai bao LUON: 1 dong '.assembly extern' khong dung den khong ton
+        # gi luc chay va re hon la doi khai bao theo tung chuong trinh.
+        f'.assembly extern System.Numerics {{ .publickeytoken = (B7 7A 5C 56 19 34 E0 89 ) .ver 4:0:0:0 }}\n'
+        + ''.join(extern_lines)
+        + f'.assembly {class_name} {{}}\n.module {class_name}.exe\n\n'
+        + '\n'.join(record_type_lines) + ('\n\n' if record_type_lines else '')
+        + '\n'.join(extra_class_lines) + ('\n\n' if extra_class_lines else '')
+        + f'.class public auto ansi {class_name} extends [mscorlib]System.Object\n{{\n'
+        + '\n'.join(method_lines) + '\n' + '\n'.join(main_method) + '\n'
+        + '\n'.join(sqlite_decl_lines) + ('\n' if sqlite_decl_lines else '')
+        # --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Injection ---
+        + '\n'.join(cjson_decl_lines) + ('\n' if cjson_decl_lines else '')
+        # --- END GEMINI ADDED CODE ---
+        + '}\n'
+    )
+    # Di qua assemble_il_to_exe (tokenvector_compile.py) chu khong tu goi
+    # ilasm: o do co buoc 'on dinh' tranh duong tinh gia cua Defender voi
+    # mot PE vua dung xong - xem docstring cua no.
+    try:
+        return assemble_il_to_exe(il_text, out_exe)
+    except TokenVectorError as e:
+        raise CliError(str(e))
+
+
+def install_package_cli(pkg_name: str, target_dir: Path = None):
+    """Cai dat package PyPI vao thu muc vendor cua du an."""
+    if target_dir is None:
+        target_dir = Path.cwd() / 'vendor'
+    target_dir = Path(target_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, '-m', 'pip', 'install', '--target', str(target_dir), pkg_name]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise CliError(f"pip install that bai cho package '{pkg_name}': {proc.stderr}")
+    print(f"[tkv] Da cai dat package '{pkg_name}' vao {target_dir}")
+
