@@ -52,7 +52,7 @@ hello.exe
 ---
 
 ## 📄 BẢO HÀNH & BẢN QUYỀN
-Hệ thống được thiết kế và bảo chứng bởi Antigravity AI Team.
+Hệ thống được thiết kế và bảo chứng bởi TokenVector Team.
 
 ---
 
@@ -62,7 +62,7 @@ Hệ thống được thiết kế và bảo chứng bởi Antigravity AI Team.
 
 **Mã tài liệu: TKV-RELEASE-2026-MASTER**  
 **Phiên bản: 2026.1 (Bản Phát hành Thương mại Độc lập)**  
-**Bản quyền & Bảo chứng: Đội ngũ Trình biên dịch TokenVector & Antigravity AI Team**  
+**Bản quyền & Bảo chứng: Đội ngũ Trình biên dịch TokenVector Team**  
 **GitHub Repository:** [https://github.com/nguyenhungtran18/TokenVector](https://github.com/nguyenhungtran18/TokenVector)  
 **Trang web GitHub Pages:** [https://nguyenhungtran18.github.io/TokenVector/](https://nguyenhungtran18.github.io/TokenVector/)
 
