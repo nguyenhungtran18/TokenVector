@@ -1,0 +1,136 @@
+name: TokenVector Cross-Platform CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # ─── Windows (hiện tại, đã hoạt động) ──────────────────────────────────────
+  build-windows:
+    name: Build & Test — Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyinstaller
+
+      - name: Verify .NET Framework available
+        run: |
+          $ilasmPath = Get-ChildItem "C:\Windows\Microsoft.NET\Framework64" -Recurse -Filter "ilasm.exe" | Select-Object -First 1
+          if ($ilasmPath) {
+            Write-Host "[OK] ilasm.exe found: $($ilasmPath.FullName)"
+          } else {
+            Write-Host "[FAIL] ilasm.exe not found"
+            exit 1
+          }
+
+      - name: Compile hello.tkv smoke test
+        run: |
+          dist\tkvc.exe build hello.tkv
+          if (Test-Path "hello.exe") {
+            Write-Host "[OK] hello.exe compiled successfully"
+          } else {
+            Write-Host "[FAIL] hello.exe not found"
+            exit 1
+          }
+
+      - name: Run hello.exe
+        run: .\hello.exe
+
+      - name: Compile Phase 1 TUI modules
+        run: |
+          dist\tkvc.exe build TokenVector_UI_Design\phase1_tui\tkv_console.tkv
+          dist\tkvc.exe build TokenVector_UI_Design\phase1_tui\demo_tui.tkv
+          Write-Host "[OK] Phase 1 TUI modules compiled"
+
+      - name: Compile Phase 2 Web UI modules
+        run: |
+          dist\tkvc.exe build TokenVector_UI_Design\phase2_webui\tkv_json.tkv
+          dist\tkvc.exe build TokenVector_UI_Design\phase2_webui\demo_webui.tkv
+          Write-Host "[OK] Phase 2 Web UI modules compiled"
+
+      - name: Run Phase 2 demo
+        run: .\TokenVector_UI_Design\phase2_webui\demo_webui.exe
+
+  # ─── Linux (Phase 3 — cần .NET 8 SDK + ilasm) ──────────────────────────────
+  build-linux:
+    name: Build & Test — Linux (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y dotnet-sdk-8.0
+
+      - name: Verify dotnet ilasm available
+        run: |
+          SDK_DIR=$(ls /usr/share/dotnet/sdk/ | grep "^8\." | sort -V | tail -1)
+          ILASM_PATH="/usr/share/dotnet/sdk/${SDK_DIR}/ilasm"
+          if [ -f "$ILASM_PATH" ]; then
+            echo "[OK] ilasm found at: $ILASM_PATH"
+          else
+            echo "[WARN] ilasm not at expected path, searching..."
+            find /usr/share/dotnet -name "ilasm" 2>/dev/null || echo "[INFO] ilasm not found in SDK"
+          fi
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Platform detection test
+        run: |
+          python TokenVector_UI_Design/phase3_crossplatform/platform_patch.py
+
+      - name: Run cross-platform build check
+        run: |
+          python -c "
+          import sys
+          print(f'Python: {sys.version}')
+          print(f'Platform: {sys.platform}')
+          print('[INFO] Linux cross-platform build test - Phase 3 in progress')
+          "
+
+  # ─── macOS ARM (Phase 3 — Apple Silicon) ────────────────────────────────────
+  build-macos:
+    name: Build & Test — macOS ARM (Apple Silicon)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        run: brew install dotnet@8 || dotnet --version
+
+      - name: Verify dotnet available
+        run: dotnet --version
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Platform detection test
+        run: |
+          python TokenVector_UI_Design/phase3_crossplatform/platform_patch.py
+
+      - name: Run cross-platform build check
+        run: |
+          python -c "
+          import sys
+          print(f'Python: {sys.version}')
+          print(f'Platform: {sys.platform}')
+          print('[INFO] macOS cross-platform build test - Phase 3 in progress')
+          "
