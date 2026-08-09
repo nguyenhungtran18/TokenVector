@@ -18,8 +18,8 @@ Chào mừng bạn đến với Bản phát hành Chính thức của Trình bi�
    ```
 
 ### 3. Biên dịch & Chạy ứng dụng TokenVector đầu tiên
-Tạo tệp `hello.tkv`:
-```python
+Tạo tệp `hello.tkv` trong VScode hoặc dùng Notepad:
+# -*- coding: utf-8 -*- 
 def run() -> "str":
     print("Hello TokenVector AOT Native Engine!")
     return "SUCCESS"
