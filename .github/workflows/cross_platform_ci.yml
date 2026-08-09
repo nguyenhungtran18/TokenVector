@@ -90,18 +90,17 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Platform detection test
+      - name: Compile Phase 3 platform patch
         run: |
-          python TokenVector_UI_Design/phase3_crossplatform/platform_patch.py
+          python tkv.py build TokenVector_UI_Design/phase3_crossplatform/platform_patch.tkv --out platform_patch.exe
+          if [ ! -f platform_patch.exe ]; then
+            echo "[FAIL] platform_patch.exe not created"
+            exit 1
+          fi
 
-      - name: Run cross-platform build check
+      - name: Run Phase 3 platform patch
         run: |
-          python -c "
-          import sys
-          print(f'Python: {sys.version}')
-          print(f'Platform: {sys.platform}')
-          print('[INFO] Linux cross-platform build test - Phase 3 in progress')
-          "
+          dotnet ./platform_patch.exe
 
   # ─── macOS ARM (Phase 3 — Apple Silicon) ────────────────────────────────────
   build-macos:
@@ -122,15 +121,14 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Platform detection test
+      - name: Compile Phase 3 platform patch
         run: |
-          python TokenVector_UI_Design/phase3_crossplatform/platform_patch.py
+          python tkv.py build TokenVector_UI_Design/phase3_crossplatform/platform_patch.tkv --out platform_patch.exe
+          if [ ! -f platform_patch.exe ]; then
+            echo "[FAIL] platform_patch.exe not created"
+            exit 1
+          fi
 
-      - name: Run cross-platform build check
+      - name: Run Phase 3 platform patch
         run: |
-          python -c "
-          import sys
-          print(f'Python: {sys.version}')
-          print(f'Platform: {sys.platform}')
-          print('[INFO] macOS cross-platform build test - Phase 3 in progress')
-          "
+          dotnet ./platform_patch.exe
