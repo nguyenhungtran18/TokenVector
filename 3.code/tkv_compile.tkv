@@ -959,7 +959,7 @@ def _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, wit
     """Phan CHUNG cua transpile_program/transpile_file - nhan ket qua da
     extract (tu 1 file don le HOAC da gop nhieu file qua
     extract_program_file/__tkv_import__), sinh CIL method that."""
-    record_methods, _ = _build_record_methods(record_defs, record_methods_raw)
+    record_methods, _, _ = _build_record_methods(record_defs, record_methods_raw)
     sig_body_pairs = [(parse_typed_signature(sig_line, record_names=set(record_defs)), body_lines)
                        for sig_line, body_lines in pairs]
     return gen_il_program(sig_body_pairs, class_name=class_name, with_guards=with_guards,
