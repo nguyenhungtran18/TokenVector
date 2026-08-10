@@ -1,0 +1,140 @@
+# -*- coding: utf-8 -*-
+"""whylink - cong cu THAT viet bang TokenVector.
+
+Noi GRAPH voi LY DO: tim ghi chu Obsidian nao noi ve file/mien nao.
+
+Graph biet *cai gi noi cai gi*; Obsidian biet *vi sao quyet nhu vay*.
+Thieu cay cau giua hai ben thi van chua phai quan tri du an.
+
+Cach doi sanh, khong doan:
+  - duong dan file xuat hien NGUYEN VAN trong ghi chu  -> lien ket "path"
+  - ten MIEN (thu muc cap mot) xuat hien trong ghi chu -> lien ket "domain"
+
+Chi hai luat do. Doi ten gan dung, suy dien ngu nghia, doi sanh mo deu
+KHONG lam - mot lien ket sai dan toi doc nham ly do, ton kem hon la khong
+co lien ket.
+
+Dung:
+    whylink.exe <md_manifest.txt> <code_manifest.txt> <out.json>
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def domain_of(rel: "str") -> "str":
+    """Mien cua mot file = thu muc cap mot."""
+    at = rel.find("/")
+    if at < 0:
+        return ""
+    return rel[0:at]
+
+
+def base_of(rel: "str") -> "str":
+    """Ten file cuoi duong dan."""
+    cut = -1
+    i = 0
+    while i < len(rel):
+        if rel[i] == "/":
+            cut = i
+        i = i + 1
+    return rel[cut + 1:len(rel)]
+
+
+def blob_add(blob: "str", val: "str") -> "str":
+    """Them phan tu vao blob neu chua co."""
+    if len(blob) == 0:
+        blob = "|"
+    if blob.find("|" + val + "|") >= 0:
+        return blob
+    return blob + val + "|"
+
+
+def esc(s: "str") -> "str":
+    """Thoat chuoi cho JSON."""
+    step = s.replace("\\", "\\\\")
+    return step.replace("\"", "\\\"")
+
+
+def link_json(note: "str", target: "str", kind: "str") -> "str":
+    """Mot lien ket ghi-chu <-> graph."""
+    out = "  {\"note\":\"" + esc(note) + "\",\"target\":\"" + esc(target) + "\""
+    out = out + ",\"kieu\":\"" + kind + "\"}"
+    return out
+
+
+def read_list(path: "str") -> "list[str]":
+    """Doc mot manifest thanh danh sach duong dan."""
+    out = []
+    raw = read_file(path)
+    rows = raw.split("\n")
+    for r in rows:
+        p = norm_slashes(r.strip())
+        if len(p) > 0:
+            out.append(p)
+    return out
+
+
+def run(md_manifest: "str", code_manifest: "str", out_path: "str") -> "str":
+    """Doi sanh ghi chu Obsidian voi file/mien trong graph."""
+    notes = read_list(md_manifest)
+    codes = read_list(code_manifest)
+
+    # Danh sach mien, khong trung.
+    doms = []
+    seen_d = {}
+    for rel in codes:
+        d = domain_of(rel)
+        if len(d) > 0:
+            if len(seen_d.get(d, "")) == 0:
+                seen_d[d] = "1"
+                doms.append(d)
+
+    links = []
+    n_path = 0
+    n_dom = 0
+    hit_notes = {}
+    hit_files = {}
+    for note in notes:
+        text = read_file(note)
+        if len(text) == 0:
+            continue
+        nb = base_of(note)
+        i = 0
+        while i < len(codes):
+            rel = codes[i]
+            if text.find(rel) >= 0:
+                links.append(link_json(note, "file:" + rel, "path"))
+                n_path = n_path + 1
+                hit_notes[note] = "1"
+                hit_files[rel] = "1"
+            i = i + 1
+        j = 0
+        while j < len(doms):
+            dm = doms[j]
+            if text.find(dm) >= 0:
+                links.append(link_json(note, "domain:" + dm, "domain"))
+                n_dom = n_dom + 1
+                hit_notes[note] = "1"
+            j = j + 1
+
+    n_hit = 0
+    k = 0
+    while k < len(notes):
+        if len(hit_notes.get(notes[k], "")) > 0:
+            n_hit = n_hit + 1
+        k = k + 1
+    n_hf = 0
+    q = 0
+    while q < len(codes):
+        if len(hit_files.get(codes[q], "")) > 0:
+            n_hf = n_hf + 1
+        q = q + 1
+
+    doc = "{\n \"links\": [\n" + ",\n".join(links) + "\n ],\n \"stats\": {"
+    doc = doc + "\"ghi_chu\":" + str(len(notes))
+    doc = doc + ",\"ghi_chu_co_lien_ket\":" + str(n_hit)
+    doc = doc + ",\"file_duoc_nhac\":" + str(n_hf)
+    doc = doc + ",\"lien_ket_path\":" + str(n_path)
+    doc = doc + ",\"lien_ket_domain\":" + str(n_dom) + "}\n}\n"
+    write_file(out_path, doc)
+    return "ghi_chu=" + str(len(notes)) + " co_lien_ket=" + str(n_hit) + " path=" + str(n_path) + " domain=" + str(n_dom) + " file_duoc_nhac=" + str(n_hf)

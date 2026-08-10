@@ -1,0 +1,285 @@
+# BAN VA - CHUA AP DUNG, danh cho phien lam TokenVector (khong phai CodeGraph)
+#
+# Hai sua doi da duoc kiem chung nhung KHONG commit vao phien CodeGraph:
+#   1. compiler/il_features/fstring.py - quet co trang thai chuoi thay regex
+#      `f"([^"]*)"`. Regex cu khop nham chu 'f' CUOI mot chuoi thuong, nen
+#      `if w == "def" or w == "class":` bi viet lai thanh `"de(" ... ")class"`
+#      -> dieu kien LUON sai, khong bao gi. Day la nguyen nhan THAT cua ca ba
+#      muc 9, 11, 12 trong PARITY_GAPS_2026-08-04.md.
+#   2. compiler/il_codegen.py - `.maxstack` tinh tu than ham thay hang so 8
+#      (muc 10: ham tu 9 tham so tro len nem InvalidProgramException).
+#
+# DA KIEM: test/verify/parity_traps_test.py, 18/18 mau doi chieu CPython.
+#          Doi chung bang cach khoi phuc hanh vi cu -> test bat 6/18.
+# CHUA KIEM: bo test day du (~130 file). Chay truoc khi commit:
+#          python -c "import glob,subprocess,sys; [subprocess.run([sys.executable,f]) for f in sorted(glob.glob('test/verify/*_test.py'))]"
+#
+# Ap dung: git apply --include='*compiler*' ban_va_nay, roi tao lai 2 file moi
+# o cuoi file (chung khong o dang diff).
+
+diff --git a/TokenVector/compiler/il_codegen.py b/TokenVector/compiler/il_codegen.py
+index 559db81..6f9d8a4 100644
+--- a/TokenVector/compiler/il_codegen.py
++++ b/TokenVector/compiler/il_codegen.py
+@@ -3124,7 +3124,7 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
+     else:
+         lines_out.append(f'  .method public static {ret_type} {_il_ident(sig.name)}({params_il}) cil managed')
+     lines_out.append('  {')
+-    lines_out.append('    .maxstack 8')
++    lines_out.append(f'    .maxstack {_max_stack_for(body)}')
+     if locals_sig:
+         lines_out.append(f'    .locals init ({locals_sig})')
+     lines_out.extend(body)
+@@ -3132,6 +3132,35 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
+     return lines_out
+ 
+ 
++def _max_stack_for(body):
++    """Gia tri `.maxstack` du cho than ham nay.
++
++    Truoc day HANG SO 8 cho moi ham. Goi mot ham 9 THAM SO can 9 o tren
++    stack, nen IL sinh ra khong hop le: ilasm van dich, CLR nem
++    InvalidProgramException LUC CHAY, khong noi gi ve maxstack. Da do:
++    8 tham so chay tot, 9 tham so hong.
++
++    Uoc luong don gian, thien ve du: so tham so lon nhat trong moi lenh
++    `call`/`newobj` cua than ham, cong bien 8. `.maxstack` chi la muc
++    dat truoc nen dat du khong ton gi; dat THIEU thi hong."""
++    widest = 0
++    for line in body:
++        st = line.strip()
++        if not (st.startswith('call ') or st.startswith('callvirt ')
++                or st.startswith('newobj ')):
++            continue
++        at = st.find('(')
++        if at < 0:
++            continue
++        inside = st[at + 1:st.rfind(')')]
++        n = 0 if not inside.strip() else inside.count(',') + 1
++        if st.startswith('call instance') or st.startswith('callvirt'):
++            n = n + 1
++        if n > widest:
++            widest = n
++    return max(8, widest + 8)
++
++
+ def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict = None,
+                                class_name: str = None, records: dict = None,
+                                record_methods: dict = None, record_bases: dict = None,
+diff --git a/TokenVector/compiler/il_features/fstring.py b/TokenVector/compiler/il_features/fstring.py
+index cb1680c..4499eb4 100644
+--- a/TokenVector/compiler/il_features/fstring.py
++++ b/TokenVector/compiler/il_features/fstring.py
+@@ -62,21 +62,63 @@ def _fstring_to_concat_expr(content: str) -> str:
+     return '(' + ' + '.join(parts) + ')'
+ 
+ 
++_IDENT_CH = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_')
++
++
+ def try_expand_fstring(line: str):
+     """MACRO_EXPANDERS entry - thay THE (co the NHIEU lan xuat hien tren
+     CUNG 1 dong) tung f-string literal bang bieu thuc noi chuoi tuong
+     duong. Tra None neu dong khong co f-string nao (dung vong lap
+-    _expand_macros hoi tu, xem docstring module)."""
+-    if 'f"' not in line:
+-        return None
++    _expand_macros hoi tu, xem docstring module).
++
++    PHAI quet co trang thai chuoi, KHONG duoc dung regex tren ca dong:
++    `f"` xuat hien ben trong MOT CHUOI THUONG ket thuc bang chu 'f'. Vi du
++    that da lam hong ca cong cu:
+ 
+-    def _replace(m):
+-        return _fstring_to_concat_expr(m.group(1))
++        if w == "def" or w == "class":
+ 
+-    new_line, n = _FSTRING_RE.subn(_replace, line)
+-    if n == 0:
++    Regex cu khop `f" or w == "` (chu 'f' cuoi cua "def" + nhay dong) roi
++    viet lai thanh `"de(" ... ")class"` - dieu kien LUON sai, khong bao loi.
++    Bang dinh nghia cua typegraph rong sach, 0 canh `calls`. Nguon chuoi
++    "def"/"self"/"elif" deu ket thuc bang 'f' nen bay nay rat de gap.
++
++    Hai dieu kien de coi la f-string that: dang o NGOAI moi chuoi, va ky tu
++    ngay truoc 'f' khong phai ky tu dinh danh (de `xf"..."` khong bi nhan)."""
++    if 'f"' not in line:
++        return None
++    out = []
++    i = 0
++    n = len(line)
++    changed = False
++    while i < n:
++        ch = line[i]
++        # Chuoi ba nhay: nuot nguyen cum de khong lam lech trang thai.
++        if line.startswith('"""', i) or line.startswith("'''", i):
++            out.append(line[i:i + 3])
++            i += 3
++            continue
++        if ch == 'f' and i + 1 < n and line[i + 1] == '"':
++            prev = line[i - 1] if i > 0 else ''
++            if prev not in _IDENT_CH:
++                end = line.find('"', i + 2)
++                if end >= 0:
++                    out.append(_fstring_to_concat_expr(line[i + 2:end]))
++                    i = end + 1
++                    changed = True
++                    continue
++        if ch == '"' or ch == "'":
++            end = line.find(ch, i + 1)
++            if end < 0:
++                out.append(line[i:])
++                break
++            out.append(line[i:end + 1])
++            i = end + 1
++            continue
++        out.append(ch)
++        i += 1
++    if not changed:
+         return None
+-    return new_line
++    return ''.join(out)
+ 
+ 
+ register_macro_expander('fstring', try_expand_fstring)
+
+--- FILE MOI: TokenVector/test/sample_parity_traps.tkv
+# -*- coding: utf-8 -*-
+"""Cac bay PARITY da lam hong cong cu that - moi ham o day tung sai AM THAM.
+
+Doi chieu truc tiep voi CPython chay chinh file nay (xem
+test/verify/parity_traps_test.py). Dung sua noi dung chuoi o day: chuoi
+KET THUC BANG CHU 'f' ngay truoc dau nhay la trong tam cua bay dau tien.
+"""
+
+
+def kw_or(w: "str") -> "i32":
+    """BAY 1: `"def"` ket thuc bang 'f', nen `f"` xuat hien GIUA hai chuoi.
+
+    Bo tien xu ly f-string tung khop `f" or w == "` roi viet lai thanh
+    `"de(" ... ")class"`, khien dieu kien LUON sai ma khong bao gi. Bang
+    dinh nghia cua typegraph rong sach, 0 canh `calls`."""
+    if w == "def" or w == "class":
+        return 1
+    return 0
+
+
+def kw_chain(w: "str") -> "str":
+    """BAY 1 dang if/elif/else - tung bi ghi nham la loi cua `else` long."""
+    out = "?"
+    if len(w) > 0:
+        if w == "class":
+            out = "L"
+        elif w == "def":
+            out = "H"
+        else:
+            out = "x"
+    return out
+
+
+def ends_f(w: "str") -> "i32":
+    """Chuoi ket thuc bang 'f' o cac vi tri khac: `elif`, `self`, `if`."""
+    n = 0
+    if w == "elif":
+        n = n + 1
+    if w == "self":
+        n = n + 2
+    if w == "if":
+        n = n + 4
+    return n
+
+
+def real_fstring(name: "str", n: "i32") -> "str":
+    """f-string THAT phai van chay - ban va cham khong duoc lam hong no."""
+    return f"chao {name} so {n}"
+
+
+def add9(a0: "i32", a1: "i32", a2: "i32", a3: "i32", a4: "i32", a5: "i32", a6: "i32", a7: "i32", a8: "i32") -> "i32":
+    """BAY 2: goi ham 9 THAM SO can 9 o tren stack, nhung `.maxstack` truoc
+    day la hang so 8 - ilasm van dich, CLR nem InvalidProgramException luc
+    chay va khong noi gi ve maxstack."""
+    return a0 + a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8
+
+
+def add12(a0: "i32", a1: "i32", a2: "i32", a3: "i32", a4: "i32", a5: "i32", a6: "i32", a7: "i32", a8: "i32", a9: "i32", a10: "i32", a11: "i32") -> "i32":
+    """Xa hon nguong mot chut, de chac la sua that chu khong phai noi 8->9."""
+    return a0 + a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8 + a9 + a10 + a11
+
+
+def call9(x: "i32") -> "i32":
+    """Loi goi 9 tham so nam TRONG mot ham khac - day moi la cho hong."""
+    return add9(x, x + 1, x + 2, x + 3, x + 4, x + 5, x + 6, x + 7, x + 8)
+
+
+def call12(x: "i32") -> "i32":
+    """Loi goi 12 tham so."""
+    return add12(x, x, x, x, x, x, x, x, x, x, x, x)
+
+--- FILE MOI: TokenVector/test/verify/parity_traps_test.py
+# -*- coding: utf-8 -*-
+"""Doi chieu THAT hai bay parity da lam hong cong cu that (2026-08-04).
+
+BAY 1 - tien xu ly f-string khop nham ben trong mot chuoi thuong: chuoi
+`"def"` ket thuc bang chu 'f', nen `f"` xuat hien o cho noi hai chuoi
+(`w == "def" or w == "class"`). Bo tien xu ly viet lai thanh
+`"de(" ... ")class"` - dieu kien LUON sai, KHONG bao gi. Hau qua that:
+bang dinh nghia cua typegraph rong sach, 0 canh `calls`. Hai muc khac
+trong PARITY_GAPS (`else` long, goi ham trong noi chuoi) hoa ra la CUNG
+mot nguyen nhan nay, bi ghi nham thanh ba loi rieng.
+
+BAY 2 - `.maxstack` la hang so 8, nen goi ham tu 9 tham so tro len sinh
+IL khong hop le: ilasm van dich, CLR nem InvalidProgramException luc chay.
+
+Trong tai la CPython chay chinh file .tkv (no la Python hop le)."""
+import runpy
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from tkv_compile import compile_tkv_cli
+
+HERE = Path(__file__).parent.parent
+SRC = HERE / 'sample_parity_traps.tkv'
+py = runpy.run_path(str(SRC))
+
+CASES = [
+    ('kw_or', [('def',), ('class',), ('khac',), ('',)]),
+    ('kw_chain', [('class',), ('def',), ('x',), ('',)]),
+    ('ends_f', [('elif',), ('self',), ('if',), ('none',)]),
+    ('real_fstring', [('An', 3), ('Binh', 0)]),
+    ('call9', [(1,), (10,)]),
+    ('call12', [(2,), (7,)]),
+]
+
+
+def main():
+    total = 0
+    bad = []
+    for entry, arg_sets in CASES:
+        exe = HERE / ('sample_parity_traps_%s.exe' % entry)
+        compile_tkv_cli(SRC, exe, entry_name=entry)
+        for args in arg_sets:
+            total += 1
+            want = py[entry](*args)
+            r = subprocess.run([str(exe)] + [str(a) for a in args],
+                                capture_output=True, text=True, errors='replace')
+            got = r.stdout.rstrip('\r\n')
+            if r.returncode != 0 or got != str(want):
+                bad.append((entry, args, str(want), got, r.returncode,
+                            r.stderr.strip()[:120]))
+
+    print("So mau doi chieu voi CPython: %d" % total)
+    print("Khop: %d/%d" % (total - len(bad), total))
+    if bad:
+        print("SAI LECH:")
+        for b in bad:
+            print("  entry=%s args=%s mong doi=%r duoc=%r rc=%s %s" % b)
+        return 1
+    print("PASS: chuoi ket thuc bang 'f' khong con bi doc nham la f-string, "
+          "f-string that van chay, ham 9 va 12 tham so chay dung")
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

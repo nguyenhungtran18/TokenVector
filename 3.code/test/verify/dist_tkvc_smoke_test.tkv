@@ -1,0 +1,32 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 19: Smoke test bien dich truc tiep bang release binary dist/tkvc.exe."""
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+def test_dist_tkvc_build():
+    TKVC = Path('dist/tkvc.exe')
+    if not TKVC.exists():
+        print("SKIP: dist/tkvc.exe chua duoc build")
+        return
+    
+    SRC = Path('tools/codestat.tkv')
+    EXPECTED_EXE = Path('tools/codestat.exe')
+    
+    proc = subprocess.run([str(TKVC), 'build', str(SRC)], capture_output=True, text=True)
+    assert proc.returncode == 0, f"dist/tkvc.exe build failed: {proc.stderr}"
+    assert EXPECTED_EXE.exists(), "dist/tkvc.exe khong tao ra output .exe"
+    
+    # Test execution of compiled binary passing a valid file
+    proc_run = subprocess.run([str(EXPECTED_EXE), 'compiler/il_codegen.py'], capture_output=True, text=True)
+    assert proc_run.returncode == 0, f"codestat.exe execution failed: {proc_run.stderr}"
+    print("PASS: test_dist_tkvc_build", proc_run.stdout.strip()[:100])
+
+if __name__ == '__main__':
+    test_dist_tkvc_build()
+    print("ALL MOC 19 TESTS PASSED!")

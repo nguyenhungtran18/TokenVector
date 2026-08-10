@@ -1,0 +1,79 @@
+# -*- coding: utf-8 -*-
+"""cJSON P/Invoke Plugin cho TokenVector (Added by Gemini - 2026-08-07)
+Tuong tu nhu stdlib_sqlite.py, plugin nay mo cong FFI toi thu vien cJSON.dll (C)
+giup TokenVector co the xu ly JSON o toc do C-native ma khong can thu vien Python.
+
+Hien tai ho tro 4 ham co ban:
+- json_parse(chuoi) -> i64 (Tra ve handle con tro object)
+- json_get_obj(handle, key) -> i64 (Tra ve con tro cua mot thuoc tinh con)
+- json_get_str(handle, key) -> str (Tra ve chuoi cua mot thuoc tinh)
+- json_delete(handle) -> i32 (Giai phong bo nho)
+"""
+import re
+from il_dispatch import register_expr_builtin
+
+# Regex check xem nguoi dung co dung cJSON khong
+_USES_CJSON_RE = re.compile(r'\bjson_(parse|get_obj|get_str|delete)\(')
+
+# Khai bao P/Invoke cho CIL
+CJSON_PINVOKE_DECL_LINES = [
+    '  // --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Declarations ---',
+    '  .method public hidebysig static pinvokeimpl("cJSON.dll" as "cJSON_Parse" cdecl)',
+    '      int64 __cjson_parse(string value) cil managed preservesig {}',
+    '  .method public hidebysig static pinvokeimpl("cJSON.dll" as "cJSON_GetObjectItem" cdecl)',
+    '      int64 __cjson_get_object_item(int64 obj, string key) cil managed preservesig {}',
+    '  .method public hidebysig static pinvokeimpl("cJSON.dll" as "cJSON_GetStringValue" cdecl)',
+    '      string __cjson_get_string_value(int64 item) cil managed preservesig {}',
+    '  .method public hidebysig static pinvokeimpl("cJSON.dll" as "cJSON_Delete" cdecl)',
+    '      int32 __cjson_delete(int64 item) cil managed preservesig {}',
+    '  // --- END GEMINI ADDED CODE ---'
+]
+
+def uses_cjson(body_lines):
+    """Kiem tra xem than ham co dung cJSON khong."""
+    for raw in body_lines:
+        if _USES_CJSON_RE.search(raw):
+            return True
+    return False
+
+def _class_name(ctx):
+    return (ctx or {}).get('class_name') or 'Program'
+
+def push_json_parse(args, scope, out, dtype, ctx):
+    if len(args) != 1: raise SyntaxError("json_parse can 1 tham so (string)")
+    arg0 = args[0]()
+    if arg0 != 'str': raise SyntaxError("json_parse can tham so string")
+    out.append(f'    call int64 {_class_name(ctx)}::__cjson_parse(string)')
+    return 'i64'
+
+def push_json_get_obj(args, scope, out, dtype, ctx):
+    if len(args) != 2: raise SyntaxError("json_get_obj can 2 tham so (handle, key)")
+    arg0 = args[0]()
+    arg1 = args[1]()
+    if arg0 != 'i64' or arg1 != 'str': raise SyntaxError("json_get_obj can (i64, str)")
+    out.append(f'    call int64 {_class_name(ctx)}::__cjson_get_object_item(int64, string)')
+    return 'i64'
+
+def push_json_get_str(args, scope, out, dtype, ctx):
+    if len(args) != 2: raise SyntaxError("json_get_str can 2 tham so (handle, key)")
+    arg0 = args[0]() # push handle
+    arg1 = args[1]() # push key
+    if arg0 != 'i64' or arg1 != 'str': raise SyntaxError("json_get_str can (i64, str)")
+    
+    # Lay object truoc, sau do lay string
+    out.append(f'    call int64 {_class_name(ctx)}::__cjson_get_object_item(int64, string)')
+    out.append(f'    call string {_class_name(ctx)}::__cjson_get_string_value(int64)')
+    return 'str'
+
+def push_json_delete(args, scope, out, dtype, ctx):
+    if len(args) != 1: raise SyntaxError("json_delete can 1 tham so (handle)")
+    arg0 = args[0]()
+    if arg0 != 'i64': raise SyntaxError("json_delete can tham so i64")
+    out.append(f'    call int32 {_class_name(ctx)}::__cjson_delete(int64)')
+    return 'i32'
+
+# Dang ky cac ham vao he thong
+register_expr_builtin('json_parse', push_json_parse, 'i64')
+register_expr_builtin('json_get_obj', push_json_get_obj, 'i64')
+register_expr_builtin('json_get_str', push_json_get_str, 'str')
+register_expr_builtin('json_delete', push_json_delete, 'i32')

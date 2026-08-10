@@ -1,0 +1,39 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 16: os_list_files_rec & os_list_dirs (Recursive directory listing)."""
+import os
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+import sys
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_os_list_files_rec_and_dirs():
+    p = '''def run() -> "str":
+    files = os_list_files_rec("compiler/il_features")
+    dirs = os_list_dirs("compiler")
+    has_os = 0
+    for f in files:
+        if "stdlib_os.py" in f:
+            has_os = 1
+    has_feat = 0
+    for d in dirs:
+        if "il_features" in d:
+            has_feat = 1
+    return str(has_os) + "|" + str(has_feat)'''
+    
+    SRC = Path('scratch/m16_os.tkv')
+    EXE = Path('scratch/m16_os.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "1|1", f"Mismatch: {repr(tkv_val)}"
+    print("PASS: test_os_list_files_rec_and_dirs", tkv_val)
+
+if __name__ == '__main__':
+    test_os_list_files_rec_and_dirs()
+    print("ALL MOC 16 TESTS PASSED!")

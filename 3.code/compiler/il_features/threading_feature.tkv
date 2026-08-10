@@ -1,0 +1,49 @@
+# -*- coding: utf-8 -*-
+"""Lap trinh Da luong Tinh (Moc 22, 2026-08-09) - thread_spawn, thread_join, thread_sleep.
+
+Cung mot file .tkv, 2 duong chay (CPython & TokenVector .exe), cung ket qua 100%.
+"""
+from il_core import IL_SCALAR
+from il_dispatch import register_expr_builtin
+
+def compile_thread_spawn(args, scope, out, dtype, ctx):
+    """thread_spawn(fn_name) -> Thread handle."""
+    if not args or len(args) > 1:
+        raise SyntaxError("il_codegen: thread_spawn() nhan 1 tham so la ten ham target")
+    fn_node = args[0]
+    if fn_node[0] != 'var':
+        raise SyntaxError(f"il_codegen: thread_spawn() nhan ten ham target, nhan duoc: {fn_node!r}")
+    fn_name = fn_node[1]
+    class_name = ctx.get('class_name', 'TKVApp')
+    func_table = ctx.get('func_table', {})
+    sig = func_table.get(fn_name)
+    ret_dtype = sig.return_type.dtype if (sig and sig.return_type) else 'void'
+    il_ret = IL_SCALAR.get(ret_dtype, 'void')
+    out.append('    ldnull')
+    out.append(f'    ldftn {il_ret} {class_name}::{fn_name}()')
+    out.append('    newobj instance void [mscorlib]System.Threading.ThreadStart::.ctor(object, native int)')
+    out.append('    newobj instance void [mscorlib]System.Threading.Thread::.ctor(class [mscorlib]System.Threading.ThreadStart)')
+    out.append('    dup')
+    out.append('    callvirt instance void [mscorlib]System.Threading.Thread::Start()')
+
+def compile_thread_join(args, scope, out, dtype, ctx):
+    """thread_join(thread_var) -> Join thread."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: thread_join() nhan 1 tham so la bien thread")
+    t_node = args[0]
+    ctx['compile_expr'](t_node, scope, out, 'thread', ctx)
+    out.append('    callvirt instance void [mscorlib]System.Threading.Thread::Join()')
+    out.append('    ldc.i4.0')
+
+def compile_thread_sleep(args, scope, out, dtype, ctx):
+    """thread_sleep(ms) -> System.Threading.Thread::Sleep(ms)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: thread_sleep() nhan 1 tham so la so miligiay (ms)")
+    ms_node = args[0]
+    ctx['compile_expr'](ms_node, scope, out, 'i32', ctx)
+    out.append('    call void [mscorlib]System.Threading.Thread::Sleep(int32)')
+    out.append('    ldc.i4.0')
+
+register_expr_builtin('thread_spawn', compile_thread_spawn, 'thread')
+register_expr_builtin('thread_join', compile_thread_join, 'i32')
+register_expr_builtin('thread_sleep', compile_thread_sleep, 'i32')

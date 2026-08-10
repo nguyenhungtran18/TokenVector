@@ -1,0 +1,57 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 25: Bat ngoai le & Inspect chi tiet (try...except Exception as e, str(e), custom Exception)."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_builtin_exception_inspect():
+    p = '''def run() -> "str":
+    msg = ""
+    try:
+        raise ValueError("INVALID_VALUE")
+    except ValueError as e:
+        msg = str(e)
+    return msg'''
+    
+    SRC = Path('scratch/m25_builtin.tkv')
+    EXE = Path('scratch/m25_builtin.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "INVALID_VALUE", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_builtin_exception_inspect", tkv_val)
+
+def test_custom_exception_inspect():
+    p = '''class CustomError(Exception):
+    msg: "str"
+
+def run() -> "str":
+    res = ""
+    try:
+        raise CustomError("CUSTOM_ERR_OCCURRED")
+    except CustomError as err:
+        res = str(err)
+    finally:
+        res = res + "|FINALLY"
+    return res'''
+    
+    SRC = Path('scratch/m25_custom.tkv')
+    EXE = Path('scratch/m25_custom.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "CUSTOM_ERR_OCCURRED|FINALLY", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_custom_exception_inspect", tkv_val)
+
+if __name__ == '__main__':
+    test_builtin_exception_inspect()
+    test_custom_exception_inspect()
+    print("ALL MOC 25 TESTS PASSED!")

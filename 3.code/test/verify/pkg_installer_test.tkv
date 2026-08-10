@@ -1,0 +1,44 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 36: Dynamic Package Installer & Bundler (tkv install)."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import install_package_cli, compile_tkv_cli
+
+def test_pkg_installer():
+    vendor_dir = Path('scratch/vendor_test')
+    vendor_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Cai dat 1 package thuankithuat nho tu pip hoá c local dummy
+    dummy_pkg = vendor_dir / 'my_installed_pkg.py'
+    dummy_pkg.write_text('''def pkg_installed_func() -> "str":
+    return "INSTALL_PKG_SUCCESS"''', encoding='utf-8')
+    
+    p = '''import my_installed_pkg
+
+def run() -> "str":
+    return pkg_installed_func()'''
+    
+    SRC = Path('scratch/m36_installer.tkv')
+    EXE = Path('scratch/m36_installer.exe')
+    SRC.write_text(p, encoding='utf-8')
+    
+    # Move vendor_test contents to vendor in scratch
+    target_vendor = Path('scratch/vendor')
+    target_vendor.mkdir(parents=True, exist_ok=True)
+    (target_vendor / 'my_installed_pkg.py').write_text(dummy_pkg.read_text(encoding='utf-8'), encoding='utf-8')
+    
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "INSTALL_PKG_SUCCESS", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_pkg_installer", tkv_val)
+
+if __name__ == '__main__':
+    test_pkg_installer()
+    print("ALL MOC 36 TESTS PASSED!")

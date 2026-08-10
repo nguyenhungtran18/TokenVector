@@ -1,0 +1,110 @@
+# -*- coding: utf-8 -*-
+"""Ham toan hoc KHONG khop khuon 1-tham-so cua _MATH_FUNCS trong core
+(2026-07-28) - pow(x, y) nhan 2 tham so, khac han sqrt/sin/floor/... chi
+nhan 1. floor/ceil/log/round o LAI core (chi la them entry vao dict
+_MATH_FUNCS co san, tai dung nguyen ven co che conv.r8/conv-nguoc-lai da
+verify qua sqrt/sin/... - khong can code moi). Quy uoc dependency-
+injection qua `ctx` nhu cac il_features/*.py khac."""
+from il_core import IL_LDC_OP
+
+IPOW_CLASS = 'TkvIPow'
+_INT_DTYPES = ('i32', 'i64')
+
+
+def _ensure_ipow_class(ctx):
+    """Chen .class TkvIPow DUNG MOT LAN - cung co che ensure_class cua
+    int_type.py."""
+    emitted = ctx.get('emitted_types')
+    if emitted is None or IPOW_CLASS in emitted:
+        return
+    emitted.add(IPOW_CLASS)
+    ctx['extra_classes'].append(_gen_ipow_class_il())
+
+
+def _gen_ipow_class_il():
+    """Luy thua NGUYEN chinh xac tuyet doi, binh phuong lien tiep.
+
+    'mul.ovf' chu khong phai 'mul': tran phai ON AO. Day la dung tinh
+    than buoc 1 cua moc 6 (a5ce8d2) - so nguyen i32/i64 khong the ngang
+    bang Python, nhung it nhat phai bao thay vi quan vong lang le."""
+    return [
+        f'.class public abstract sealed auto ansi {IPOW_CLASS}',
+        '       extends [mscorlib]System.Object',
+        '{',
+        '  .method public static int64 Pow(int64 b, int64 e) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int64 r, int64 bb, int64 ee)',
+        '    ldarg.1', '    ldc.i8 0', '    blt IPOW_NEG',
+        '    ldc.i8 1', '    stloc.s r',
+        '    ldarg.0', '    stloc.s bb',
+        '    ldarg.1', '    stloc.s ee',
+        '  IPOW_LOOP:',
+        '    ldloc.s ee', '    ldc.i8 0', '    ble IPOW_DONE',
+        # bit thap cua so mu == 1 -> nhan ket qua voi luy thua hien tai
+        '    ldloc.s ee', '    ldc.i8 1', '    and',
+        '    ldc.i8 0', '    beq IPOW_SQ',
+        '    ldloc.s r', '    ldloc.s bb', '    mul.ovf', '    stloc.s r',
+        '  IPOW_SQ:',
+        '    ldloc.s ee', '    ldc.i4.1', '    shr', '    stloc.s ee',
+        # Thoat TRUOC khi binh phuong not: vong cuoi khong can binh phuong
+        # nua, va lam thua se nem OverflowException GIA (vd 3**40 dung ra
+        # phai bao tran o phep nhan ket qua, khong phai o co so).
+        '    ldloc.s ee', '    ldc.i8 0', '    ble IPOW_DONE',
+        '    ldloc.s bb', '    ldloc.s bb', '    mul.ovf', '    stloc.s bb',
+        '    br IPOW_LOOP',
+        '  IPOW_DONE:',
+        '    ldloc.s r', '    ret',
+        '  IPOW_NEG:',
+        '    ldstr "so nguyen ** so mu am tra ve float trong Python '
+        '(2 ** -1 == 0.5) - doi ve f64 truoc khi luy thua."',
+        '    newobj instance void [mscorlib]System.NotSupportedException'
+        '::.ctor(string)',
+        '    throw',
+        '  }',
+        '}',
+    ]
+
+
+def compile_pow(args, scope, out, dtype, ctx):
+    """pow(x, y) va 'x ** y'.
+
+    SUA 2026-08-05 (moc 6 lat 2): duong SO NGUYEN truoc day cung di
+    System.Math::Pow, tuc float64, tuc XAP XI - roi conv.i8 cat phan le.
+    Sai AM THAM, do that tren ban chua sua:
+
+        3**35  TokenVector 50031545098999704    CPython 50031545098999707
+        3**38  TokenVector 1350851717672992000  CPython 1350851717672992089
+        7**20  TokenVector 79792266297612000    CPython 79792266297612001
+        2**62  KHOP
+
+    Luy thua cua 2 luon khop (float64 bieu dien chinh xac) - do la ly do
+    bug nay song sot lau den vay: ai thu '2**n' se thay moi thu on.
+
+    Nay so nguyen di TkvIPow::Pow (binh phuong lien tiep, mul.ovf). dtype
+    THUC (f32/f64) giu nguyen duong Math::Pow cu - o do float64 la dung
+    ngu nghia, khong phai xap xi ngoai y muon."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: pow(x, y) chi nhan dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    if dtype in _INT_DTYPES:
+        _ensure_ipow_class(ctx)
+        compile_expr(args[0], scope, out, dtype, ctx)
+        if dtype == 'i32':
+            out.append('    conv.i8')
+        compile_expr(args[1], scope, out, dtype, ctx)
+        if dtype == 'i32':
+            out.append('    conv.i8')
+        out.append(f'    call int64 {IPOW_CLASS}::Pow(int64, int64)')
+        if dtype == 'i32':
+            # 'conv.ovf.i4' chu khong phai 'conv.i4': ket qua khong vua
+            # i32 phai NEM, khong duoc cat am tham.
+            out.append('    conv.ovf.i4')
+        return
+    compile_expr(args[0], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    compile_expr(args[1], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    out.append('    call float64 [mscorlib]System.Math::Pow(float64, float64)')
+    if dtype != 'f64':
+        out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')

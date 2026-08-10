@@ -1,0 +1,11 @@
+# -*- coding: utf-8 -*-
+"""TokenVector Native Standard Library - PyStdlib BCL Bridge."""
+
+def tkv_re_replace(text: "str", pattern: "str", replacement: "str") -> "str":
+    return re_replace(text, pattern, replacement)
+
+def tkv_now() -> "str":
+    return datetime_now()
+
+def tkv_randint(a: "i32", b: "i32") -> "i32":
+    return random_randint(a, b)

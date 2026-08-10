@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 34: In-Memory Reflection.Emit Engine & Full Runtime REPL."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_reflection_emit_repl():
+    p = '''def run() -> "str":
+    e = eval_code("500 + 300")
+    x = exec_code("x = 42")
+    return "EVAL_" + str(e) + "|" + x'''
+    
+    SRC = Path('scratch/m34_repl.tkv')
+    EXE = Path('scratch/m34_repl.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "EVAL_800|EXEC_OK:x = 42", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_reflection_emit_repl", tkv_val)
+
+if __name__ == '__main__':
+    test_reflection_emit_repl()
+    print("ALL MOC 34 TESTS PASSED!")

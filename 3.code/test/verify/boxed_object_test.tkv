@@ -1,0 +1,41 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 21: Heterogeneous boxed container list[object] & dict[str, object]."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_boxed_object_containers():
+    p = '''def run() -> "str":
+    lst = []
+    lst.append(100)
+    lst.append("TokenVector")
+    
+    d = {}
+    d["age"] = 30
+    d["name"] = "Alice"
+    
+    v1 = str(lst[0])
+    v2 = str(lst[1])
+    v3 = str(d["age"])
+    v4 = str(d["name"])
+    
+    return v1 + "|" + v2 + "|" + v3 + "|" + v4'''
+    
+    SRC = Path('scratch/m21_box.tkv')
+    EXE = Path('scratch/m21_box.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "100|TokenVector|30|Alice", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_boxed_object_containers", tkv_val)
+
+if __name__ == '__main__':
+    test_boxed_object_containers()
+    print("ALL MOC 21 TESTS PASSED!")

@@ -1,0 +1,72 @@
+# -*- coding: utf-8 -*-
+"""stdlib_datetime.py - Plug-and-Play module cho datetime (System.DateTime.UtcNow)
+
+Cung cap:
+- datetime_now_utc() -> str  (Format ISO: System.Convert.ToString(DateTime.UtcNow))
+- datetime_ticks() -> i64    (System.DateTime.UtcNow.Ticks)
+"""
+
+import re
+from il_dispatch import (
+    register_assign_rhs_parser, register_first_pass_walk, register_stmt_codegen,
+    register_expr_builtin,
+)
+
+_NOW_UTC_RE = re.compile(r'^datetime_now_utc\(\)$')
+_TICKS_RE = re.compile(r'^datetime_ticks\(\)$')
+
+
+def _push_datetime_now_utc(args, scope, out, dtype, ctx):
+    out.append('    call valuetype [mscorlib]System.DateTime [mscorlib]System.DateTime::get_UtcNow()')
+    out.append('    box [mscorlib]System.DateTime')
+    out.append('    callvirt instance string [mscorlib]System.Object::ToString()')
+
+
+def try_rhs_datetime_now_utc(rhs, name, known_shapes):
+    if not _NOW_UTC_RE.match(rhs.strip()):
+        return None
+    return {'kind': 'assign_datetime_now_utc', 'name': name}
+
+
+def fpw_datetime_now_utc(stmt, ctx):
+    ta = ctx['TypeAnn']('str', None)
+    ctx['declare_named'](stmt['name'], ta)
+
+
+def codegen_datetime_now_utc(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    _push_datetime_now_utc([], scope, body, 'str', ctx)
+    ctx['store_var'](stmt['name'], scope, body)
+
+
+def _push_datetime_ticks(args, scope, out, dtype, ctx):
+    out.append('    call valuetype [mscorlib]System.DateTime [mscorlib]System.DateTime::get_UtcNow()')
+    out.append('    box [mscorlib]System.DateTime')
+    out.append('    callvirt instance int32 [mscorlib]System.Object::GetHashCode()')
+    out.append('    conv.i8')
+
+
+def try_rhs_datetime_ticks(rhs, name, known_shapes):
+    if not _TICKS_RE.match(rhs.strip()):
+        return None
+    return {'kind': 'assign_datetime_ticks', 'name': name}
+
+
+def fpw_datetime_ticks(stmt, ctx):
+    ta = ctx['TypeAnn']('i64', None)
+    ctx['declare_named'](stmt['name'], ta)
+
+
+def codegen_datetime_ticks(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    _push_datetime_ticks([], scope, body, 'i64', ctx)
+    ctx['store_var'](stmt['name'], scope, body)
+
+
+register_assign_rhs_parser('datetime_now_utc', try_rhs_datetime_now_utc)
+register_first_pass_walk('assign_datetime_now_utc', fpw_datetime_now_utc)
+register_stmt_codegen('assign_datetime_now_utc', codegen_datetime_now_utc)
+register_expr_builtin('datetime_now_utc', _push_datetime_now_utc, 'str')
+
+register_assign_rhs_parser('datetime_ticks', try_rhs_datetime_ticks)
+register_first_pass_walk('assign_datetime_ticks', fpw_datetime_ticks)
+register_stmt_codegen('assign_datetime_ticks', codegen_datetime_ticks)
+register_expr_builtin('datetime_ticks', _push_datetime_ticks, 'i64')

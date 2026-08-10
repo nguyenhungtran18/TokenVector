@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 20: Multi-target assignment a = b = c = expr."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_multi_target_assign():
+    p = '''def run() -> "str":
+    a = b = c = 42
+    x = y = "Hello"
+    return str(a) + "|" + str(b) + "|" + str(c) + "|" + x + "|" + y'''
+    
+    SRC = Path('scratch/m20_multi.tkv')
+    EXE = Path('scratch/m20_multi.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "42|42|42|Hello|Hello", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_multi_target_assign", tkv_val)
+
+if __name__ == '__main__':
+    test_multi_target_assign()
+    print("ALL MOC 20 TESTS PASSED!")

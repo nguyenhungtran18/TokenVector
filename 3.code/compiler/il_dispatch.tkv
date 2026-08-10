@@ -1,0 +1,194 @@
+# -*- coding: utf-8 -*-
+"""Registry dung chung cho refactor dispatch-table hoa 5 ham khong lo trong
+il_codegen.py (_parse_block, _expand_macros_once, _compile_expr,
+_codegen_stmts, _first_pass_collect_locals). Chi chua registry + ham
+dang ky, KHONG chua logic handler that (logic o il_codegen.py roi sau
+nay se chuyen dan sang il_features/*.py). KHONG import il_codegen.py
+(tranh circular import - xem quy uoc trong il_core.py)."""
+
+# co thu tu (name, fn) - _parse_block thu tung cai theo dung thu tu dang ky
+LINE_PARSERS = []
+# co thu tu, long trong slot cascade "assign" cua LINE_PARSERS
+ASSIGN_RHS_PARSERS = []
+# co thu tu, 1 vong fixpoint cua _expand_macros = 1 lan duyet het list nay
+MACRO_EXPANDERS = []
+
+# khong can thu tu (da doc lap theo tag/kind) - dict tra cuu = if/elif toan return
+EXPR_CODEGEN = {}
+STMT_CODEGEN = {}
+FIRST_PASS_WALK = {}
+FIRST_PASS_PRESCAN = {}
+
+# Giai doan 0.2 (2026-08-03, dong Python-parity-gap v2): dang ky builtin
+# THU VIEN (khong phai ham nguoi dung/toan hoc/record) de goi duoc NGAY
+# TRONG bieu thuc ('t = f() + 1', 'return f()'), khong chi o vi tri RHS
+# cua 1 phep gan don le. 1 NGUON SU THAT DUY NHAT cho ca 2 noi truoc day
+# phai sua RIENG RE khi them 1 builtin moi (_expr_call's dispatch VA
+# _infer_dtype's nhanh 'call' trong il_codegen.py) - dung dict nay thay
+# vi them 1 nhanh if/elif thu 3. fn dang ky co CHU KY GIONG HET cac ham
+# _stdlib_*_compile_* da co san (args, scope, out, dtype, ctx) -> None,
+# day gia tri len stack (chua widen) - _expr_call se widen sau khi goi.
+EXPR_BUILTIN_CODEGEN = {}
+# name -> return dtype ('str'/'i32'/'i64'/...) HOAC None neu khong xac
+# dinh duoc tu chinh no (giong quy uoc cua _infer_dtype, vd 'pow').
+EXPR_BUILTIN_DTYPE = {}
+
+# Giai doan 0.2 nhom 4 (2026-08-03): builtin/method tra ve CONTAINER
+# (list/dict/set) thay vi gia tri vo huong - phai luu 'shape' RIENG vi
+# EXPR_*_DTYPE chi mang duoc 1 chuoi dtype, khong bieu dien noi hinh dang;
+# bien nhan ket qua ('parts = s.split(",")') can duoc khai bao voi
+# TypeAnn(dtype, shape) DAY DU, khong the di qua nhanh suy dtype thuong.
+#
+# BUILTIN (khong co doi tuong nhan): luu THANG cap (dtype, shape) - hinh
+# dang tra ve la HANG SO ('os_list_files(p)' luon la list[str]).
+EXPR_BUILTIN_SHAPE = {}
+# METHOD (co doi tuong nhan): luu 1 HAM PHAN GIAI fn(obj_ta) -> TypeAnn -
+# nhom 5 (2026-08-03) cho thay cap (dtype, shape) TINH la KHONG DU: kieu
+# tra ve cua nhieu method PHU THUOC chinh doi tuong nhan ('d.keys()' ->
+# list[key_dtype CUA d], 'lst.copy()' -> DUNG kieu cua lst ke ca khi lst
+# la container long nhau, giu nguyen ca elem_ta). Ham phan giai duoc dinh
+# nghia trong il_features/*.py (nhung file do import TypeAnn THANG tu
+# typed_dsl_parser, khong qua il_codegen.py nen khong circular).
+EXPR_METHOD_SHAPE = {}
+
+# Nhom 6 (2026-08-03) - BUG THAT tim ra khi viet test nhom 6, da lot vao
+# 2 commit truoc do: cac duong ASSIGN_RHS_PARSERS cu (da bo o nhom 3-6)
+# ngoai viec sinh stmt CON ghi 'known_shapes[bien_dich] = "list"/"set"' -
+# 1 kenh phu tang PARSER ma NHIEU parser khac tra cuu (sum/min/max/sorted
+# cua stdlib_aggregates, list.count, slicing, list*n, set.remove...).
+# Bo duong cu ma khong ghi lai kenh nay lam 'ys = xs.copy()' roi
+# 'sum(ys)' KHONG con bien dich duoc (bao "ham 'sum' khong ton tai").
+# Day la HINH DANG THO (chuoi 'list'/'set'/'dict') dung o tang PARSER -
+# KHAC EXPR_*_SHAPE o tren (kieu DAY DU, tang first-pass/codegen, can
+# TypeAnn cua doi tuong nhan von CHUA co luc parse). Hai tang khac nhau,
+# thong tin san co khac nhau -> khai bao rieng, khong suy ra tu nhau.
+EXPR_BUILTIN_RESULT_SHAPE = {}
+EXPR_METHOD_RESULT_SHAPE = {}
+
+
+# Nhom 7 (2026-08-03): builtin dang HAM cung can BIEN CUC BO AN - vd
+# 'json_dumps(lst)' phai sinh vong lap noi chuoi. Doi xung voi
+# EXPR_METHOD_TEMPS (nhom 3, danh cho method); cung chu ky fn(node, ctx),
+# cung quy uoc khoa id(node).
+EXPR_BUILTIN_TEMPS = {}
+
+
+# dtype tra ve PHU THUOC THAM SO (2026-08-03): sum/min/max(lst) tra ve
+# dtype cua CHINH phan tu list - khong phai 1 chuoi co dinh. Doi xung voi
+# EXPR_METHOD_SHAPE's return_ta_fn cua nhom 5 (method tra container phu
+# thuoc doi tuong nhan): cung 1 van de, o phia builtin dang HAM. fn nhan
+# (args, scope) - scope o day co the la infer_scope (tang first-pass) hoac
+# _Scope (tang codegen); ca hai deu tra (kind, idx, TypeAnn) khi tra cuu
+# theo ten, nen dung chung duoc.
+EXPR_BUILTIN_DTYPE_FN = {}
+
+# Builtin tra ve 1 container ma cap (dtype, shape) KHONG du de mo ta -
+# vd http_request() tra dict[str,str]: can ca key_dtype. Luu THANG 1
+# TypeAnn day du (2026-08-03). Duoc uu tien hon EXPR_BUILTIN_SHAPE.
+EXPR_BUILTIN_RETURN_TA = {}
+
+
+# Builtin TU SINH gia tri kieu 'int' (vo han chu so) khi duoc goi trong
+# ngu canh 'int' - vd int("99999999999999999999") (moc 6 lat 3,
+# 2026-08-05). EXPR_BUILTIN_DTYPE cua chung van la kieu MAC DINH ('i32'
+# cho int()) de khong doi hanh vi o moi ngu canh khac; danh sach nay chi
+# noi voi _expr_call: "dung widen ket qua nua, no da dung kieu roi".
+# Thieu no thi _widen_if_needed sinh 'conv.i8 + FromI64' de len mot
+# TkvInt - IL sai kieu ma ilasm van assemble duoc.
+EXPR_BUILTIN_NATIVE_INT = set()
+
+
+def register_expr_builtin(name, codegen_fn, return_dtype, return_shape=None,
+                           temps_fn=None, return_dtype_fn=None, return_ta=None,
+                           native_int=False):
+    EXPR_BUILTIN_CODEGEN[name] = codegen_fn
+    if native_int:
+        EXPR_BUILTIN_NATIVE_INT.add(name)
+    EXPR_BUILTIN_DTYPE[name] = return_dtype
+    if return_dtype_fn is not None:
+        EXPR_BUILTIN_DTYPE_FN[name] = return_dtype_fn
+    if return_ta is not None:
+        if return_ta.shape is None:
+            raise ValueError(
+                f"register_expr_builtin({name!r}): return_ta chi danh cho builtin tra "
+                f"CONTAINER (shape khac None) - gia tri vo huong dung return_dtype")
+        EXPR_BUILTIN_RETURN_TA[name] = return_ta
+        EXPR_BUILTIN_SHAPE[name] = (return_ta.dtype, return_ta.shape)
+        EXPR_BUILTIN_RESULT_SHAPE[name] = return_ta.shape
+    if temps_fn is not None:
+        EXPR_BUILTIN_TEMPS[name] = temps_fn
+    if return_shape is not None:
+        EXPR_BUILTIN_SHAPE[name] = (return_dtype, return_shape)
+        EXPR_BUILTIN_RESULT_SHAPE[name] = return_shape
+
+
+# Giai doan 0.2 nhom 3 (2026-08-03): method THU VIEN can BIEN CUC BO AN
+# (hidden local) + nhan IL - vd 's.count(x)'/'s.title()'/'s.zfill(n)' phai
+# sinh vong lap nen khong the chi day gia tri len stack nhu nhom 1/2.
+# Truoc day cac method nay CHI chay duoc o RHS 1 phep gan don le vi
+# 'method_call' (EXPR_CODEGEN) khong co diem moc first-pass de CAP PHAT
+# hidden local (xem docstring goc cua stdlib_string_count.py/string_title.py/
+# stdlib_string_zfill.py). Registry nay them dung diem moc do:
+#   - temps_fn(node, ctx) chay o FIRST PASS, khai bao hidden local, dat ten
+#     theo id(node) (AST parse DUY NHAT 1 lan va dung lai o pass 2, xem ghi
+#     chu tai _expr_ternary - id() la khoa TIN CAY).
+#   - codegen_fn(node, scope, out, dtype, ctx) chay o pass 2, tra cuu lai
+#     dung hidden local do qua CUNG khoa id(node).
+# Khoa: (shape_key, method_name) - shape_key la ta.shape neu co (list/dict/
+# set...), nguoc lai la ta.dtype ('str' cho string vo huong).
+EXPR_METHOD_CODEGEN = {}
+EXPR_METHOD_DTYPE = {}
+EXPR_METHOD_TEMPS = {}
+
+
+def register_expr_method(shape_key, method_name, codegen_fn, return_dtype=None,
+                          temps_fn=None, return_ta_fn=None, result_shape=None):
+    """return_dtype: dtype tra ve khi la HANG SO (method tra gia tri vo
+    huong, vd 's.count(x)' luon i32). return_ta_fn: fn(obj_ta) -> TypeAnn
+    khi kieu tra ve PHU THUOC doi tuong nhan (method tra container, vd
+    'd.keys()' -> list[key_dtype cua d]) - dung 1 trong 2, khong dung ca
+    hai (return_ta_fn duoc uu tien khi suy dtype). result_shape: hinh dang
+    THO ('list'/'set'/'dict') cho tang PARSER - BAT BUOC di kem
+    return_ta_fn, xem ghi chu EXPR_METHOD_RESULT_SHAPE o tren."""
+    key = (shape_key, method_name)
+    EXPR_METHOD_CODEGEN[key] = codegen_fn
+    if return_dtype is not None:
+        EXPR_METHOD_DTYPE[key] = return_dtype
+    if temps_fn is not None:
+        EXPR_METHOD_TEMPS[key] = temps_fn
+    if return_ta_fn is not None:
+        EXPR_METHOD_SHAPE[key] = return_ta_fn
+        if result_shape is None:
+            raise ValueError(
+                f"register_expr_method({shape_key!r}, {method_name!r}): co return_ta_fn "
+                f"thi BAT BUOC co result_shape - thieu se lam parser mat kenh "
+                f"known_shapes (xem ghi chu EXPR_METHOD_RESULT_SHAPE)")
+        EXPR_METHOD_RESULT_SHAPE[key] = result_shape
+
+
+def register_line_parser(name, fn):
+    LINE_PARSERS.append((name, fn))
+
+
+def register_assign_rhs_parser(name, fn):
+    ASSIGN_RHS_PARSERS.append((name, fn))
+
+
+def register_macro_expander(name, fn):
+    MACRO_EXPANDERS.append((name, fn))
+
+
+def register_expr_codegen(tag, fn):
+    EXPR_CODEGEN[tag] = fn
+
+
+def register_stmt_codegen(kind, fn):
+    STMT_CODEGEN[kind] = fn
+
+
+def register_first_pass_walk(kind, fn):
+    FIRST_PASS_WALK[kind] = fn
+
+
+def register_first_pass_prescan(kind, fn):
+    FIRST_PASS_PRESCAN[kind] = fn

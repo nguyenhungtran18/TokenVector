@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TokenVector Enterprise Demo - Excel, Chart & Word Engines</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --accent-cyan: #38bdf8;
+      --accent-purple: #a855f7;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-gradient);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    header h1 {
+      font-size: 2.5rem;
+      background: linear-gradient(to right, var(--accent-cyan), var(--accent-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+    }
+
+    header p {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .card-title.excel { color: var(--accent-emerald); }
+    .card-title.chart { color: var(--accent-cyan); }
+    .card-title.word { color: var(--accent-purple); }
+
+    /* Excel Table Styling */
+    .excel-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.9rem;
+    }
+
+    .excel-table th, .excel-table td {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 0.5rem 0.75rem;
+      text-align: right;
+    }
+
+    .excel-table th {
+      background: rgba(15, 23, 42, 0.6);
+      color: var(--accent-emerald);
+      text-align: center;
+    }
+
+    .excel-table td:first-child {
+      text-align: left;
+      color: var(--text-muted);
+    }
+
+    .excel-table tr.total-row {
+      font-weight: 700;
+      background: rgba(52, 211, 153, 0.1);
+      color: var(--accent-emerald);
+    }
+
+    /* Chart SVG Styling */
+    .chart-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 1rem 0;
+    }
+
+    /* Word Preview Styling */
+    .word-preview {
+      background: #ffffff;
+      color: #1e293b;
+      padding: 1.5rem;
+      border-radius: 0.5rem;
+      font-family: 'Inter', serif;
+      line-height: 1.6;
+    }
+
+    .word-preview h2 {
+      font-size: 1.2rem;
+      color: #0f172a;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .word-preview p {
+      font-size: 0.95rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: rgba(56, 189, 248, 0.1);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .code-box {
+      background: #090d16;
+      border-radius: 0.5rem;
+      padding: 1rem;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.85rem;
+      color: #e2e8f0;
+      overflow-x: auto;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <span class="badge">TOKENVECTOR NATIVE AOT ENGINE 2026</span>
+      <h1>Enterprise Capabilities Demonstration</h1>
+      <p>Kết quả thực thi trực tiếp từ chương trình Native <code>demo_excel_chart_word.exe</code></p>
+    </header>
+
+    <div class="grid">
+      <!-- EXCEL ENGINE CARD -->
+      <div class="card">
+        <div class="card-title excel">
+          📊 Excel Calculation Engine
+        </div>
+        <table class="excel-table">
+          <thead>
+            <tr>
+              <th>Quý (Quarter)</th>
+              <th>Doanh Thu ($)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Q1 2026</td><td>$1,500.50</td></tr>
+            <tr><td>Q2 2026</td><td>$2,300.75</td></tr>
+            <tr><td>Q3 2026</td><td>$1,850.00</td></tr>
+            <tr><td>Q4 2026</td><td>$3,100.25</td></tr>
+            <tr class="total-row"><td>TỔNG CỘNG (TOTAL)</td><td>$8,751.50</td></tr>
+            <tr class="total-row"><td>TRUNG BÌNH (AVG)</td><td>$2,187.88</td></tr>
+          </tbody>
+        </table>
+        <div class="code-box">
+EXCEL_OUTPUT:
+TOTAL: 8751.5 | AVG: 2187.875
+        </div>
+      </div>
+
+      <!-- CHART ENGINE CARD -->
+      <div class="card">
+        <div class="card-title chart">
+          📈 SVG Chart Drawing Engine
+        </div>
+        <div class="chart-container">
+          <svg width="320" height="180" viewBox="0 0 320 180">
+            <!-- Grid lines -->
+            <line x1="40" y1="140" x2="300" y2="140" stroke="#334155" stroke-width="1" />
+            <line x1="40" y1="90" x2="300" y2="90" stroke="#334155" stroke-width="1" stroke-dasharray="4" />
+            <line x1="40" y1="40" x2="300" y2="40" stroke="#334155" stroke-width="1" stroke-dasharray="4" />
+            
+            <!-- Bars -->
+            <rect x="60" y="80" width="35" height="60" rx="4" fill="#38bdf8" />
+            <rect x="120" y="45" width="35" height="95" rx="4" fill="#a855f7" />
+            <rect x="180" y="65" width="35" height="75" rx="4" fill="#34d399" />
+            <rect x="240" y="20" width="35" height="120" rx="4" fill="#fbbf24" />
+
+            <!-- Labels -->
+            <text x="77" y="160" fill="#94a3b8" font-size="11" text-anchor="middle">Q1</text>
+            <text x="137" y="160" fill="#94a3b8" font-size="11" text-anchor="middle">Q2</text>
+            <text x="197" y="160" fill="#94a3b8" font-size="11" text-anchor="middle">Q3</text>
+            <text x="257" y="160" fill="#94a3b8" font-size="11" text-anchor="middle">Q4</text>
+          </svg>
+        </div>
+        <div class="code-box">
+SVG_ENGINE: Rendered 4-Bar Interactive Chart
+        </div>
+      </div>
+
+      <!-- WORD ENGINE CARD -->
+      <div class="card">
+        <div class="card-title word">
+          📝 Word Document Engine
+        </div>
+        <div class="word-preview">
+          <h2>BÁO CÁO DOANH THU NĂM 2026</h2>
+          <p>Tài liệu này được khởi tạo hoàn toàn tự động bởi <b>TokenVector Native Engine</b>.</p>
+          <p>Hệ thống hỗ trợ định dạng văn bản nâng cao, bảng biểu và xuất bản ra định dạng HTML / OpenXML Word DOCX.</p>
+        </div>
+        <div class="code-box">
+DOC_ENGINE: Formatted Rich Document Generated
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

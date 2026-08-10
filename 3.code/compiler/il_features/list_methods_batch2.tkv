@@ -1,0 +1,86 @@
+# -*- coding: utf-8 -*-
+"""list.sort()/list.extend() (2026-07-29) - soan nhap boi Gemini, Claude
+sua lai chu ky LINE_PARSERS/STMT_CODEGEN/FIRST_PASS_WALK cho khop dung
+khuon that cua il_dispatch.py (draft goc dung sai chu ky kieu offset-scan
+tu viet, khong phai khuon dang ky that cua he thong - xem list_type.py
+lam mau chuan) truoc khi noi vao. Logic nghiep vu (Sort()/AddRange(),
+kiem tra dtype khop nhau khi extend) giu nguyen y het draft, chi sua
+phan "khung" tich hop."""
+import re
+
+from il_core import parse_expr
+from il_dispatch import register_line_parser, register_stmt_codegen, register_first_pass_walk
+from il_features.list_type import il_list_type
+
+_LIST_SORT_RE = re.compile(r'^(\w+)\.sort\(\)\s*$')
+_LIST_EXTEND_RE = re.compile(r'^(\w+)\.extend\((\w+)\)\s*$')
+
+
+def try_parse_list_sort(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """LINE_PARSERS entry: 'lst.sort()' - PHAI dang ky TRUOC method_call_stmt."""
+    m = _LIST_SORT_RE.match(line)
+    if not m:
+        return None
+    return {'kind': 'list_sort', 'name': m.group(1)}, pos + 1
+
+
+def try_parse_list_extend(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """LINE_PARSERS entry: 'lst.extend(other)' - `other` PHAI la 1 TEN
+    BIEN don (khong ho tro bieu thuc phuc tap - can doc scope['other']
+    de doi chieu dtype phan tu luc codegen, ma parse_expr tren 1 bieu
+    thuc bat ky khong dam bao chi la 1 ten bien)."""
+    m = _LIST_EXTEND_RE.match(line)
+    if not m:
+        return None
+    name, other_name = m.groups()
+    return {'kind': 'list_extend', 'name': name, 'other_name': other_name}, pos + 1
+
+
+def codegen_list_sort(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN entry: 'lst.sort()' - List<T>.Sort().
+
+    GIOI HAN DA BIET: List<T>.Sort() dung Comparer<T>.Default - voi T la
+    dtype so (i32/i64/f32/f64) sap xep TANG DAN dung nhu Python
+    list.sort() mac dinh; voi T la 1 class dang record se NEM
+    InvalidOperationException luc CHAY (record chua implement
+    IComparable) - day la danh doi thiet ke, khong phai bug, KHONG tu
+    them IComparable cho record (ngoai pham vi)."""
+    _, _, ta = scope[stmt['name']]
+    ctx['load_var_ref'](stmt['name'], scope, body)
+    body.append(f'    callvirt instance void {il_list_type(ta.dtype, ctx.get("records"))}::Sort()')
+
+
+def codegen_list_extend(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN entry: 'lst.extend(other)' - List<T>.AddRange(IEnumerable<T>).
+    List<T> chinh no da implement IEnumerable<T> nen truyen thang duoc."""
+    name, other_name = stmt['name'], stmt['other_name']
+    _, _, ta = scope[name]
+    _, _, ta_other = scope[other_name]
+    if ta_other.shape != 'list':
+        raise SyntaxError(f"il_codegen: '{name}.extend({other_name})' can '{other_name}' la list")
+    if ta_other.dtype != ta.dtype:
+        raise SyntaxError(
+            f"il_codegen: '{name}.extend({other_name})' - dtype phan tu khac nhau "
+            f"({ta.dtype!r} vs {ta_other.dtype!r})")
+    list_type = il_list_type(ta.dtype, ctx.get("records"))
+    ctx['load_var_ref'](name, scope, body)
+    ctx['load_var_ref'](other_name, scope, body)
+    body.append(
+        f'    callvirt instance void {list_type}::AddRange(class '
+        f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+
+
+def fpw_list_sort(stmt, ctx):
+    pass
+
+
+def fpw_list_extend(stmt, ctx):
+    pass
+
+
+register_line_parser('list_sort', try_parse_list_sort)
+register_line_parser('list_extend', try_parse_list_extend)
+register_stmt_codegen('list_sort', codegen_list_sort)
+register_stmt_codegen('list_extend', codegen_list_extend)
+register_first_pass_walk('list_sort', fpw_list_sort)
+register_first_pass_walk('list_extend', fpw_list_extend)

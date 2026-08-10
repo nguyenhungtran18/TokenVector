@@ -1,0 +1,63 @@
+# -*- coding: utf-8 -*-
+"""enumerate()/zip() trong for-loop (Wave 2, 2026-07-29) - CA HAI deu la
+macro TEXT-LEVEL (khong CIL/loop moi), desugar ve dang 'for i in
+range(...):' + index da co san, giong for_in_list o control_flow.py.
+Gemini-drafted (enumerate + khung zip), Claude hoan thien phan zip():
+Gemini dung dan TU CHOI doan len() vi khong xac dinh duoc DSL co ham
+'min()' built-in hay khong (thuc te KHONG CO min()/max() trong
+_MATH_FUNCS cua il_codegen.py) - thay vi them 1 ham built-in moi ngoai
+pham vi, dung LAI cu phap ternary 'cond ? a : b' DA CO SAN (xem
+il_core.py's parse_ternary) de tinh min(len(a), len(b)) ngay trong
+bound-expression cua range(), khong can sinh CIL/local moi."""
+import re
+
+from il_dispatch import register_macro_expander
+
+# =============================================================================
+# 1. ENUMERATE: for i, x in enumerate(lst):
+# =============================================================================
+_FOR_ENUMERATE_RE = re.compile(r'^for\s+(\w+)\s*,\s*(\w+)\s+in\s+enumerate\((\w+)\)\s*:\s*$')
+
+
+def try_expand_for_enumerate(line):
+    stripped = line.strip()
+    m = _FOR_ENUMERATE_RE.match(stripped)
+    if not m:
+        return None
+    idx_name, elem_name, container = m.groups()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    # 'i' la ten bien THAT nguoi dung dat (khac for_in_list phai tu sinh
+    # ten an) - dung THANG, khong can bo dem.
+    return f'{ind}for {idx_name} in range(len({container})):\n{ind}    {elem_name} = {container}[{idx_name}]'
+
+
+# =============================================================================
+# 2. ZIP: for a, b in zip(lst1, lst2):
+# =============================================================================
+_FOR_ZIP_RE = re.compile(r'^for\s+(\w+)\s*,\s*(\w+)\s+in\s+zip\((\w+)\s*,\s*(\w+)\)\s*:\s*$')
+_me_zip_counter = [0]
+
+
+def try_expand_for_zip(line):
+    stripped = line.strip()
+    m = _FOR_ZIP_RE.match(stripped)
+    if not m:
+        return None
+    var_a, var_b, lst1, lst2 = m.groups()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    n = _me_zip_counter[0]
+    _me_zip_counter[0] += 1
+    idx = f'__iterzip{n}_idx'
+    # min(len(lst1), len(lst2)) qua ternary co san, KHONG can them ham
+    # 'min()' built-in moi (khong co san, ngoai pham vi Wave 2 nay).
+    bound = f'(len({lst1}) < len({lst2}) ? len({lst1}) : len({lst2}))'
+    return (f'{ind}for {idx} in range({bound}):\n'
+            f'{ind}    {var_a} = {lst1}[{idx}]\n'
+            f'{ind}    {var_b} = {lst2}[{idx}]')
+
+
+# =============================================================================
+# DANG KY MACRO
+# =============================================================================
+register_macro_expander('for_enumerate', try_expand_for_enumerate)
+register_macro_expander('for_zip', try_expand_for_zip)

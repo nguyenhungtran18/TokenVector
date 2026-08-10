@@ -1,0 +1,125 @@
+# -*- coding: utf-8 -*-
+"""graphstale - cong cu THAT viet bang TokenVector.
+
+Quyet dinh graph da commit con DUNG voi cay lam viec hay khong.
+
+Mot graph commit vao repo chi dang tin khi biet duoc no CU tu luc nao.
+Cong cu nay chup van tay (sha256) tung file trong manifest, va lan sau so
+lai de liet ke file da SUA / THEM / XOA. Chi khi danh sach do rong thi
+graph da commit moi dung nguyen ven.
+
+Hai che do:
+    graphstale.exe <manifest.txt> <fingerprint.txt> save  <bo_qua>
+        -> ghi van tay hien tai (chay SAU khi sinh lai graph)
+    graphstale.exe <manifest.txt> <fingerprint.txt> check <changed.txt>
+        -> so sanh, ghi danh sach file thay doi, tra ve so luong
+
+Dinh dang fingerprint: moi dong "<sha256> <duong_dan>".
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def norm_eol(s: "str") -> "str":
+    """Bo ky tu CR: bam theo byte tho se bao 'da sua' oan khi repo dat
+    core.autocrlf=true - `git checkout` doi LF thanh CRLF, noi dung y
+    nguyen ma van tay van lech. Da do duoc trong thuc te."""
+    # Dung split/join, KHONG noi tung ky tu: noi chuoi trong vong lap la
+    # O(n^2), tren noi dung ca file (hang chuc KB) lam cong cu treo hang
+    # phut. Da do that.
+    parts = s.split("\r")
+    return "".join(parts)
+
+
+def hash_of(rel: "str") -> "str":
+    """Van tay noi dung 1 file, khong phu thuoc kieu xuong dong."""
+    return sha256_hex(norm_eol(read_file(rel)))
+
+
+def fp_line(rel: "str") -> "str":
+    """Mot dong van tay cho 1 file."""
+    return hash_of(rel) + " " + rel
+
+
+def build_fingerprint(paths: "list[str]") -> "str":
+    """Toan bo noi dung file van tay. Gom vao list roi join MOT lan:
+    don chuoi trong vong lap (`out = out + ...`) cham hon nhieu lan."""
+    acc = []
+    for rel in paths:
+        acc.append(fp_line(rel))
+    return "\n".join(acc)
+
+
+def parse_fp(text: "str", into: "dict[str,str]") -> "i32":
+    """Doc file van tay cu vao dict duong_dan -> hash. Tra ve so dong."""
+    n = 0
+    rows = text.split("\n")
+    for r in rows:
+        line = r.strip()
+        if len(line) == 0:
+            continue
+        h = cut_at(line, " ")
+        if len(h) + 1 > len(line):
+            continue
+        rel = line[len(h) + 1:len(line)]
+        into[rel] = h
+        n = n + 1
+    return n
+
+
+def read_manifest(manifest: "str") -> "list[str]":
+    """Danh sach duong dan da chuan hoa tu manifest."""
+    raw = read_file(manifest)
+    rows = raw.split("\n")
+    paths = []
+    for r in rows:
+        p = norm_slashes(r.strip())
+        if len(p) > 0:
+            paths.append(p)
+    return paths
+
+
+def diff_report(paths: "list[str]", old: "dict[str,str]", lines: "list[str]") -> "str":
+    """Ghi cac dong 'SUA/THEM/XOA <path>' vao `lines`; tra ve dem 'a,b,c'."""
+    now = {}
+    n_mod = 0
+    n_add = 0
+    n_del = 0
+    for rel in paths:
+        h = hash_of(rel)
+        now[rel] = h
+        prev = old.get(rel, "")
+        if len(prev) == 0:
+            n_add = n_add + 1
+            lines.append("THEM " + rel)
+        elif prev != h:
+            n_mod = n_mod + 1
+            lines.append("SUA " + rel)
+    items_list = old.items()
+    for rel, h in items_list:
+        if len(now.get(rel, "")) == 0:
+            n_del = n_del + 1
+            lines.append("XOA " + rel)
+    return str(n_mod) + "," + str(n_add) + "," + str(n_del)
+
+
+def run(manifest: "str", fp_path: "str", mode: "str", changed_out: "str") -> "str":
+    """Che do 'save' chup van tay; 'check' so sanh voi van tay da luu."""
+    paths = read_manifest(manifest)
+    if mode == "save":
+        write_file(fp_path, build_fingerprint(paths))
+        return "SAVE | files=" + str(len(paths)) + " -> " + fp_path
+
+    old = {}
+    if file_exists(fp_path):
+        n_old = parse_fp(read_file(fp_path), old)
+    else:
+        n_old = 0
+    lines = []
+    counts = diff_report(paths, old, lines)
+    write_file(changed_out, "\n".join(lines))
+
+    verdict = "CON DUNG"
+    if len(lines) > 0:
+        verdict = "DA CU"
+    return verdict + " | van_tay_cu=" + str(n_old) + " files=" + str(len(paths)) + " sua,them,xoa=" + counts + " -> " + changed_out

@@ -1,0 +1,55 @@
+# -*- coding: utf-8 -*-
+"""os.path co ban, anh xa THANG sang System.IO.Path (2026-07-28) - cung
+mot ky thuat voi file_io.py (read_file/write_file -> System.IO.File).
+TokenVector hien KHONG ho tro cu phap 'module.function()' (chi ten ham
+tran), nen dat ten builtin la 'path_join'/'path_exists'/'path_basename'/
+'path_dirname' (khong co tien to 'os.') - giong 'read_file' khong co
+tien to 'os.'. Quy uoc dependency-injection qua `ctx` nhu cac
+il_features/*.py khac."""
+
+
+def compile_path_join(args, scope, out, dtype, ctx):
+    """path_join(a, b) - System.IO.Path::Combine(string, string). CHI ho
+    tro dung 2 tham so (Python os.path.join nhan so luong bat ky - gioi
+    han da biet, chua ho tro *args)."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: path_join(a, b) chi nhan dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, 'str', ctx)
+    compile_expr(args[1], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.IO.Path::Combine(string, string)')
+
+
+def compile_path_exists(args, scope, out, dtype, ctx):
+    """path_exists(p) - dung CA File.Exists LAN Directory.Exists (Python
+    os.path.exists() dung cho CA file va thu muc, .NET Framework KHONG
+    co 1 ham duy nhat lam viec nay nhu Path.Exists cua .NET 6+ - GIOI HAN
+    DA BIET: 'p' duoc compile_expr HAI LAN (1 lan cho moi nhanh check) -
+    an toan neu 'p' la 1 bien don (truong hop thuong gap), nhung se tinh
+    toan lai (co the sai neu co side-effect) neu 'p' la 1 bieu thuc phuc
+    tap - chua ho tro luu tam qua local an."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_exists(p) chi nhan dung 1 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call bool [mscorlib]System.IO.File::Exists(string)')
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call bool [mscorlib]System.IO.Directory::Exists(string)')
+    out.append('    or')
+    ctx['widen_if_needed']('i32', dtype, out)
+
+
+def compile_path_basename(args, scope, out, dtype, ctx):
+    """path_basename(p) - System.IO.Path::GetFileName(string)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_basename(p) chi nhan dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.IO.Path::GetFileName(string)')
+
+
+def compile_path_dirname(args, scope, out, dtype, ctx):
+    """path_dirname(p) - System.IO.Path::GetDirectoryName(string)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_dirname(p) chi nhan dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.IO.Path::GetDirectoryName(string)')

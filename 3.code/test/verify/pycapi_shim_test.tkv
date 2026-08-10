@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 37: CPython C-API Compatibility Shim."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_pycapi_shim():
+    p = '''def run() -> "str":
+    tup = py_tuple_new(5)
+    dic = py_dict_new()
+    return "SHIM_TUP_OK|SHIM_DIC_OK"'''
+    
+    SRC = Path('scratch/m37_shim.tkv')
+    EXE = Path('scratch/m37_shim.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "SHIM_TUP_OK|SHIM_DIC_OK", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_pycapi_shim", tkv_val)
+
+if __name__ == '__main__':
+    test_pycapi_shim()
+    print("ALL MOC 37 TESTS PASSED!")

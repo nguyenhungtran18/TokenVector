@@ -1,0 +1,62 @@
+# -*- coding: utf-8 -*-
+"""Parity test for Python standard ternary syntax 'a if cond else b' (Moc 9, 2026-08-08).
+
+Verifies that Python standard ternary expressions compile correctly and match CPython.
+"""
+import runpy
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from tkv_compile import compile_tkv_cli
+
+HERE = Path(__file__).parent
+SRC = HERE / 'tmp_ternary_ifexp.tkv'
+EXE = HERE / 'tmp_ternary_ifexp.exe'
+
+SRC.write_text(
+    '''
+def check_val(n: "i32") -> "str":
+    return "high" if n > 10 else "medium" if n > 5 else "low"
+
+
+def run() -> "str":
+    out = []
+    vals = [12, 7, 3]
+    for v in vals:
+        out.append(check_val(v))
+    
+    flag = 1
+    msg = "active" if flag != 0 else "inactive"
+    out.append(msg)
+    
+    num = -42
+    abs_val = num if num >= 0 else -num
+    out.append(str(abs_val))
+    
+    return "|".join(out)
+'''.lstrip(),
+    encoding='utf-8',
+)
+
+py_ns = runpy.run_path(str(SRC))
+expected = py_ns['run']()
+
+compile_tkv_cli(str(SRC), str(EXE), entry_name='run', class_name='TernaryIfExpProgram')
+r = subprocess.run([str(EXE)], capture_output=True, text=True)
+got = r.stdout.strip()
+
+print(f"expected={expected!r}")
+print(f"got={got!r}")
+if r.returncode != 0 or got != expected:
+    print(r.stderr)
+    sys.exit(1)
+
+# Cleanup
+if SRC.exists():
+    SRC.unlink()
+if EXE.exists():
+    EXE.unlink()
+
+print("ternary_ifexp_test: PASS")

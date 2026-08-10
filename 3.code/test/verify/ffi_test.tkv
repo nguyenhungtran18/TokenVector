@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 27: Native C Interop & FFI (ctypes / P/Invoke)."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_c_ffi_puts():
+    p = '''def run() -> "str":
+    ret_code = c_puts("NATIVE_C_FFI_SUCCESS")
+    return str(ret_code)'''
+    
+    SRC = Path('scratch/m27_ffi.tkv')
+    EXE = Path('scratch/m27_ffi.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    out_text = proc.stdout.strip()
+    assert "NATIVE_C_FFI_SUCCESS" in out_text, f"Mismatch output: {repr(out_text)} (err={proc.stderr!r})"
+    print("PASS: test_c_ffi_puts", out_text)
+
+if __name__ == '__main__':
+    test_c_ffi_puts()
+    print("ALL MOC 27 TESTS PASSED!")

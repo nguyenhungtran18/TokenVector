@@ -1,0 +1,67 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 11: Kep slice & chi so am dong (Slice & dynamic negative bounds clamping) cho list va string."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / 'parity'))
+import arbiter
+
+def test_list_dynamic_negative_indexing():
+    p = '''def run() -> "str":
+    lst = [10, 20, 30, 40, 50]
+    i1 = 1
+    i2 = 2
+    i5 = 5
+    r1 = lst[-i1]
+    r2 = lst[-i2]
+    r5 = lst[-i5]
+    return str(r1) + "|" + str(r2) + "|" + str(r5)'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    print("PASS: test_list_dynamic_negative_indexing", res[2]['value'])
+
+def test_string_dynamic_negative_indexing():
+    p = '''def run() -> "str":
+    s = "hello_world"
+    i1 = 1
+    i5 = 5
+    r1 = s[-i1]
+    r5 = s[-i5]
+    return r1 + "|" + r5'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    print("PASS: test_string_dynamic_negative_indexing", res[2]['value'])
+
+def test_list_slice_dynamic_negative_and_clamping():
+    p = '''def run() -> "str":
+    lst = [10, 20, 30, 40, 50]
+    i1 = 1
+    i2 = 2
+    s1 = lst[1:-i1]
+    s2 = lst[-i2:]
+    s3 = lst[-100:100]
+    s4 = lst[10:2]
+    return str(len(s1)) + "|" + str(len(s2)) + "|" + str(len(s3)) + "|" + str(len(s4))'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    print("PASS: test_list_slice_dynamic_negative_and_clamping", res[2]['value'])
+
+def test_string_slice_dynamic_negative_and_clamping():
+    p = '''def run() -> "str":
+    s = "antigravity"
+    i2 = 2
+    s1 = s[1:-i2]
+    s2 = s[-i2:]
+    s3 = s[-50:50]
+    s4 = s[20:5]
+    return s1 + "|" + s2 + "|" + s3 + "|" + s4'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    print("PASS: test_string_slice_dynamic_negative_and_clamping", res[2]['value'])
+
+if __name__ == '__main__':
+    test_list_dynamic_negative_indexing()
+    test_string_dynamic_negative_indexing()
+    test_list_slice_dynamic_negative_and_clamping()
+    test_string_slice_dynamic_negative_and_clamping()
+    print("ALL MOC 11 TESTS PASSED!")
