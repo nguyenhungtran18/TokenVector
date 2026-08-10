@@ -19,11 +19,17 @@ Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên 
 - **`3.code/`**: Mã nguồn tự-host bằng TokenVector Native.
   - `compiler/` (+ `compiler.zip`) — **thư viện chức năng thật của `tkvc.exe`** (82 file `.tkv`: `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `compiler/il_codegen.tkv` + toàn bộ `il_features/*.tkv`). Chỉ cần đúng các file này (+ `build_tkvc.ps1`) là build lại được `tkvc.exe`, không phụ thuộc gì bên ngoài `3.code/`.
   - `examples/` — chương trình **mẫu** do `tkvc.exe` biên dịch (KHÔNG phải mã nguồn của `tkvc.exe`): `tools/` (15 công cụ case-study thật), `stdlib/` (thư viện tiện ích mẫu), `e2e_test.tkv`/`.exe` (kiểm thử tích hợp E2E), `tkv_bridge.tkv` (MicroLM MCP bridge), `spike_int_repr.tkv`.
-  - `Testkit/native_test_suite.tkv` — **công cụ dò bug thuần TokenVector** (không dùng Python lúc test): tự biên dịch qua `tkvc.exe` thành `.exe` độc lập, mỗi ca tự so sánh kết quả với giá trị mong đợi ngay trong code (`if/else` + in `PASS`/`FAIL`), không cần đối chiếu bằng tay. Dùng để kiểm tra nhanh compiler còn đúng không trước khi viết thêm thư viện/engine `.tkv` mới:
-    ```powershell
-    .\dist\tkvc.exe build Testkit\native_test_suite.tkv --entry run
-    .\Testkit\native_test_suite.exe
-    ```
+  - `Testkit/native_test_suite.tkv` — **công cụ dò bug thuần TokenVector** (không dùng Python lúc test), 1 file nguồn, 2 cách build:
+    - `--entry run` → bộ 16 test nội bộ, tự so sánh kết quả với giá trị mong đợi ngay trong code (`if/else` + in `PASS`/`FAIL`), dùng để kiểm tra nhanh compiler còn đúng không trước khi viết thêm thư viện/engine `.tkv` mới:
+      ```powershell
+      .\dist\tkvc.exe build Testkit\native_test_suite.tkv --entry run --out Testkit\native_test_suite.exe
+      .\Testkit\native_test_suite.exe
+      ```
+    - `--entry check_file` → phân tích TĨNH 1 file `.tkv` bất kỳ (nhận đường dẫn làm tham số dòng lệnh), quét cảnh báo trước các pattern đã biết gây lỗi biên dịch thật (class thiếu field, `import re`/`import json`/... không cần thiết) — KHÔNG thay thế biên dịch thật, chỉ tiền-kiểm-tra nhanh:
+      ```powershell
+      .\dist\tkvc.exe build Testkit\native_test_suite.tkv --entry check_file --out Testkit\check_file.exe
+      .\Testkit\check_file.exe <duong_dan_file.tkv>
+      ```
   - `dist/tkvc.exe` — tệp thực thi độc lập đã build sẵn.
   - `docs/` — giáo trình lập trình (`SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`) và tài liệu spike.
   - `build_tkvc.ps1` — script tự build lại `tkvc.exe`.

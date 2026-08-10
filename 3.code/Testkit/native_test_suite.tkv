@@ -42,6 +42,78 @@ def check(name: "str", got: "str", expected: "str") -> "i32":
         return 0
 
 
+def check_file(path: "str") -> "i32":
+    """Phan tich TINH (khong bien dich that) 1 file .tkv bat ky - doc noi
+    dung bang read_file(), quet tim cac pattern DA BIET tung gay bug that
+    (xem docs/BUGS_TODO.md), canh bao TRUOC khi build that bang tkvc.exe.
+    Muc tieu: cong cu tien-kiem-tra nhanh cho nhieu file .tkv se viet lam
+    thu vien/engine trong tuong lai, khong thay the bien dich that (chi
+    bat pattern TINH, khong bat het moi loi that co the co)."""
+    content = read_file(path)
+    lines = content.split("\n")
+    n = len(lines)
+    warnings = 0
+
+    i = 0
+    while i < n:
+        raw = lines[i]
+        trimmed = raw.strip()
+
+        # 1. 'class X:' (KHONG co lop cha trong ngoac - 'class X(Y):' thi
+        # ke thua field tu Y, KHONG can field rieng, khong tinh la nghi
+        # van) ma dong TIEP THEO (khong tinh dong trong) la 'def' ngay -
+        # nghi van thieu khai bao field (TokenVector BAT BUOC moi class
+        # phai co >=1 field RIENG hoac KE THUA, khac Python) -> se loi
+        # bien dich that 'record khong co field nao'.
+        is_plain_class = 0
+        if trimmed.startswith("class ") and trimmed.endswith(":"):
+            if trimmed.find("(") < 0:
+                is_plain_class = 1
+        if is_plain_class == 1:
+            j = i + 1
+            while j < n and len(lines[j].strip()) == 0:
+                j = j + 1
+            if j < n:
+                next_trimmed = lines[j].strip()
+                if next_trimmed.startswith("def "):
+                    print("CANH BAO dong " + str(i + 1) + ": '" + trimmed +
+                          "' - dong ngay sau la 'def', KHONG phai khai bao field. " +
+                          "TokenVector bat buoc moi class phai co it nhat 1 field " +
+                          "(vd 'ten: \"str\"') truoc method dau tien, khac Python.")
+                    warnings = warnings + 1
+
+        # 2. 'import re'/'import json'/'import os'/... - cac builtin nay
+        # la HAM TOAN CUC (re_replace/json_dumps/os_getenv...), KHONG can
+        # (va KHONG DUOC) import - se loi bien dich that 'import module
+        # khong tim thay'.
+        is_bad_import = 0
+        if trimmed.startswith("import re"):
+            is_bad_import = 1
+        if trimmed.startswith("import json"):
+            is_bad_import = 1
+        if trimmed.startswith("import os"):
+            is_bad_import = 1
+        if trimmed.startswith("import random"):
+            is_bad_import = 1
+        if trimmed.startswith("import datetime"):
+            is_bad_import = 1
+        if trimmed.startswith("import hashlib"):
+            is_bad_import = 1
+        if is_bad_import == 1:
+            print("CANH BAO dong " + str(i + 1) + ": '" + trimmed +
+                  "' - cac ham nay la BUILTIN TOAN CUC trong TokenVector, " +
+                  "KHONG can 'import' (se loi bien dich 'import module khong tim thay').")
+            warnings = warnings + 1
+
+        i = i + 1
+
+    print("")
+    print("=== " + path + ": " + str(n) + " dong, " + str(warnings) + " canh bao ===")
+    if warnings > 0:
+        return 1
+    return 0
+
+
 def make_counter(start: "i32") -> "func() -> i32":
     count = start
     def increment() -> "i32":
