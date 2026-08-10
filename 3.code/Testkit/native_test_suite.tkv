@@ -3,7 +3,14 @@
 chinh tkvc.exe thanh 1 file .exe DOC LAP, moi ca tu so sanh ket qua voi
 gia tri mong doi NGAY TRONG CODE (if/else + print PASS/FAIL), khong can
 Python hay may chay ben ngoai de doi chieu. Chay: tkvc.exe build
-native_test_suite.tkv --entry run; native_test_suite.exe"""
+native_test_suite.tkv --entry run; native_test_suite.exe
+
+Dung chung check()/test_summary() tu tkv_test_lib.tkv (xem Testkit/
+README.md - day la KHUON MAU cho moi file test .tkv trong tuong lai,
+khong copy-paste rieng cho tung file)."""
+
+__tkv_import__ = "tkv_test_lib"
+
 
 class Animal:
     name: "str"
@@ -31,15 +38,6 @@ class GPS:
 class SmartCar(Engine, GPS):
     def drive(self) -> "str":
         return self.start_engine() + "|" + self.get_location()
-
-
-def check(name: "str", got: "str", expected: "str") -> "i32":
-    if got == expected:
-        print("PASS " + name)
-        return 1
-    else:
-        print("FAIL " + name + " got=" + got + " expected=" + expected)
-        return 0
 
 
 def check_file(path: "str") -> "i32":
@@ -319,8 +317,4 @@ def run() -> "i32":
     tested = tested + 1
     total = total + check("lcm_via_gcd_implicit_narrow", str(lcm_via_gcd(4, 6)), "12")
 
-    print("")
-    print("=== KET QUA: " + str(total) + "/" + str(tested) + " PASS ===")
-    if total == tested:
-        return 0
-    return 1
+    return test_summary("native_test_suite", total, tested)
