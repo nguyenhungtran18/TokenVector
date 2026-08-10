@@ -17,11 +17,11 @@ class Dog(Animal):
     def __init__(self, name, sound):
         super().__init__(name, sound)
     def fetch(self) -> "str":
-        # GHI CHU: 'self.name' (field ke thua tu Animal, khong khai bao rieng
-        # o Dog) gay MissingFieldException luc chay - xem docs/BUGS_TODO.md.
-        # Dung self.speak() (method ke thua, KHONG truy cap field ke thua
-        # truc tiep) de tranh bug nay trong lc luot e2e demo.
-        return self.speak() + " -> fetches the ball"
+        # 'self.name' la field khai bao o Animal (base), KHONG khai bao
+        # rieng o Dog - truoc 2026-08-10 gay MissingFieldException luc
+        # chay (xem docs/BUGS_TODO.md muc E, da sua trong
+        # _field_owner_class cua record_feature.tkv).
+        return self.name + " fetches the ball"
 
 
 def make_counter(start: "i32") -> "func() -> i32":

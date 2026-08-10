@@ -59,10 +59,19 @@ def _field_owner_class(ctx, record_name, field_name):
         if cur in visited:
             continue
         visited.add(cur)
-        own_fields = records.get(cur, [])
+        bases = record_bases.get(cur)
+        # records[cur] la fields DA FLATTEN (field cua base TRUOC, xem
+        # gen_record_types) - PHAI tru field cua base DAU TIEN (base con
+        # lai trong list, neu co, la interface KHONG dong gop field) truoc
+        # khi so sanh, neu khong 'own_fields' se luon chua field ke thua va
+        # cur (lop con) bi nham la chu so huu THAT (bug goc: MissingField-
+        # Exception 'Dog.name' du 'name' khai bao o Animal).
+        base0 = bases[0] if isinstance(bases, list) and bases else (
+            bases if isinstance(bases, str) else None)
+        base_fields = records.get(base0, []) if base0 else []
+        own_fields = records.get(cur, [])[len(base_fields):]
         if any(fn == field_name for fn, _ in own_fields):
             return cur
-        bases = record_bases.get(cur)
         if isinstance(bases, list):
             queue.extend(bases)
         elif bases:
