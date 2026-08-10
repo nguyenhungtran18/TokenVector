@@ -19,6 +19,11 @@ Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên 
 - **`3.code/`**: Mã nguồn tự-host bằng TokenVector Native.
   - `compiler/` (+ `compiler.zip`) — **thư viện chức năng thật của `tkvc.exe`** (82 file `.tkv`: `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `compiler/il_codegen.tkv` + toàn bộ `il_features/*.tkv`). Chỉ cần đúng các file này (+ `build_tkvc.ps1`) là build lại được `tkvc.exe`, không phụ thuộc gì bên ngoài `3.code/`.
   - `examples/` — chương trình **mẫu** do `tkvc.exe` biên dịch (KHÔNG phải mã nguồn của `tkvc.exe`): `tools/` (15 công cụ case-study thật), `stdlib/` (thư viện tiện ích mẫu), `e2e_test.tkv`/`.exe` (kiểm thử tích hợp E2E), `tkv_bridge.tkv` (MicroLM MCP bridge), `spike_int_repr.tkv`.
+  - `Testkit/native_test_suite.tkv` — **công cụ dò bug thuần TokenVector** (không dùng Python lúc test): tự biên dịch qua `tkvc.exe` thành `.exe` độc lập, mỗi ca tự so sánh kết quả với giá trị mong đợi ngay trong code (`if/else` + in `PASS`/`FAIL`), không cần đối chiếu bằng tay. Dùng để kiểm tra nhanh compiler còn đúng không trước khi viết thêm thư viện/engine `.tkv` mới:
+    ```powershell
+    .\dist\tkvc.exe build Testkit\native_test_suite.tkv --entry run
+    .\Testkit\native_test_suite.exe
+    ```
   - `dist/tkvc.exe` — tệp thực thi độc lập đã build sẵn.
   - `docs/` — giáo trình lập trình (`SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`) và tài liệu spike.
   - `build_tkvc.ps1` — script tự build lại `tkvc.exe`.

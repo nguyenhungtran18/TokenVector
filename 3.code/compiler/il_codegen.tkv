@@ -1025,6 +1025,23 @@ def _widen_if_needed(actual_dtype: str, requested_dtype: str, out: list):
     if actual_dtype in _INT_DTYPES and requested_dtype in _FLOAT_DTYPES:
         out.append('    conv.r4' if requested_dtype == 'f32' else '    conv.r8')
         return
+    if actual_dtype in _FLOAT_DTYPES and requested_dtype in _INT_DTYPES:
+        # SUA 2026-08-10 (docs/BUGS_TODO.md muc H): truoc day nhanh nay
+        # KHONG TON TAI - goi widen_if_needed(f64, i32) (vd '/' luon tra
+        # f64 that nhung ham khai bao tra i32) IM LANG khong lam gi, de
+        # lai gia tri f64 (8 byte) tren stack noi cho doi i32 (4 byte) SAI
+        # KIEU -> ket qua rac/sai am tham tuy ngu canh (khong crash, khong
+        # loi bien dich - da xac nhan that qua 'return a*b/g' trong ham
+        # khai bao '-> i32'). Theo DUNG tien le da co cua nhanh 'int' ben
+        # duoi (thu hep CO KIEM TRA thay vi bao loi bien dich cung): dung
+        # 'conv.ovf.i4'/'conv.ovf.i8' (CAT CUT ve 0, giong Python int()
+        # that - int(12.7)==12, int(-12.7)==-12 - VA nem
+        # OverflowException NEU vuot pham vi i32/i64, khong quan vong
+        # lang le) thay vi bao loi bien dich cung buoc nguoi dung phai
+        # sua code - it xam lan hon, van giu nguyen tac "khong lech am
+        # tham" cua du an (chi doi tu luc bien dich sang luc chay).
+        out.append('    conv.ovf.i4' if requested_dtype == 'i32' else '    conv.ovf.i8')
+        return
     # Kieu 'int' (vo han chu so, 2026-08-05) - i32/i64 nang len 'int'
     # LUON an toan (khong mat du lieu), va BAT BUOC phai lam: 'while i <= n'
     # voi i:'int', n:'i32' se de 1 int32 tho o cho doi 1 TkvInt -> stack
