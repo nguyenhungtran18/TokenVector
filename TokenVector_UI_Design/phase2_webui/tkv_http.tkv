@@ -1,0 +1,65 @@
+# -*- coding: utf-8 -*-
+# tkv_http.tkv - TokenVector HTTP Router Logic Module (Phase 2 - Web UI)
+# Xu ly cac route GET/POST, tra ve JSON response
+
+class HttpRoute:
+    path: "str"
+    method: "str"
+    response: "str"
+
+    def __init__(self, path, method, response):
+        self.path = path
+        self.method = method
+        self.response = response
+
+def build_response(status: "i32", body: "str", content_type: "str") -> "str":
+    status_text = "OK"
+    if status == 404:
+        status_text = "Not Found"
+    elif status == 500:
+        status_text = "Internal Server Error"
+    elif status == 201:
+        status_text = "Created"
+    header = "HTTP/1.1 " + str(status) + " " + status_text + "\r\n"
+    header = header + "Content-Type: " + content_type + "\r\n"
+    header = header + "Access-Control-Allow-Origin: *\r\n"
+    header = header + "\r\n"
+    return header + body
+
+def route_get(path: "str") -> "str":
+    if path == "/":
+        return build_response(200, "<h1>TokenVector Web UI Bridge</h1>", "text/html")
+    elif path == "/api/info":
+        body = "{\"name\":\"TokenVector\",\"version\":\"2026.1.0\",\"compiler\":\"tkvc\",\"output\":\"Native AOT .exe\"}"
+        return build_response(200, body, "application/json")
+    elif path == "/api/status":
+        body = "{\"status\":\"running\",\"uptime_ms\":100,\"no_gil\":true,\"threads\":4}"
+        return build_response(200, body, "application/json")
+    elif path == "/api/benchmark":
+        body = "{\"integer_loop_10M_ms\":410,\"float_ops_2M_ms\":429,\"multithread_4t_ms\":244,\"speedup_vs_python\":10}"
+        return build_response(200, body, "application/json")
+    return build_response(404, "{\"error\":\"Route not found\"}", "application/json")
+
+def route_post(path: "str", body: "str") -> "str":
+    if path == "/api/compile":
+        resp = "{\"status\":\"queued\",\"message\":\"Compilation scheduled\",\"source\":\"" + body + "\"}"
+        return build_response(201, resp, "application/json")
+    return build_response(404, "{\"error\":\"Route not found\"}", "application/json")
+
+def main() -> "i32":
+    print("=== TKV_HTTP MODULE TEST ===")
+    print("GET / =>")
+    print(route_get("/"))
+    print("---")
+    print("GET /api/info =>")
+    print(route_get("/api/info"))
+    print("---")
+    print("GET /api/benchmark =>")
+    print(route_get("/api/benchmark"))
+    print("---")
+    print("POST /api/compile =>")
+    print(route_post("/api/compile", "hello.tkv"))
+    print("---")
+    print("GET /unknown =>")
+    print(route_get("/notexist"))
+    return 1

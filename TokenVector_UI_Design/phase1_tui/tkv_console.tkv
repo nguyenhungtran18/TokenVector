@@ -1,0 +1,72 @@
+# -*- coding: utf-8 -*-
+# tkv_console.tkv - TokenVector Console ANSI Color & Cursor Control Module
+# Dung ANSI Escape Codes de dieu khien mau sac va cursor trong Terminal
+
+def color_red(text: "str") -> "str":
+    return "\x1b[31m" + text + "\x1b[0m"
+
+def color_green(text: "str") -> "str":
+    return "\x1b[32m" + text + "\x1b[0m"
+
+def color_yellow(text: "str") -> "str":
+    return "\x1b[33m" + text + "\x1b[0m"
+
+def color_blue(text: "str") -> "str":
+    return "\x1b[34m" + text + "\x1b[0m"
+
+def color_cyan(text: "str") -> "str":
+    return "\x1b[36m" + text + "\x1b[0m"
+
+def color_magenta(text: "str") -> "str":
+    return "\x1b[35m" + text + "\x1b[0m"
+
+def color_bold(text: "str") -> "str":
+    return "\x1b[1m" + text + "\x1b[0m"
+
+def print_color(text: "str", color: "str") -> "i32":
+    if color == "red":
+        print(color_red(text))
+    elif color == "green":
+        print(color_green(text))
+    elif color == "yellow":
+        print(color_yellow(text))
+    elif color == "blue":
+        print(color_blue(text))
+    elif color == "cyan":
+        print(color_cyan(text))
+    elif color == "magenta":
+        print(color_magenta(text))
+    elif color == "bold":
+        print(color_bold(text))
+    else:
+        print(text)
+    return 1
+
+def clear() -> "i32":
+    print("\x1b[2J\x1b[H")
+    return 1
+
+def print_divider(width: "i32", color: "str") -> "i32":
+    line = ""
+    i = 0
+    for i in range(width):
+        line = line + "─"
+    print_color(line, color)
+    return 1
+
+def print_header(title: "str", width: "i32") -> "i32":
+    print_divider(width, "cyan")
+    print_color("  " + title, "bold")
+    print_divider(width, "cyan")
+    return 1
+
+def main() -> "i32":
+    print("=== TKV_CONSOLE MODULE TEST ===")
+    print_color("[RED]    This is red text", "red")
+    print_color("[GREEN]  This is green text", "green")
+    print_color("[YELLOW] This is yellow text", "yellow")
+    print_color("[CYAN]   This is cyan text", "cyan")
+    print_color("[BOLD]   This is bold text", "bold")
+    print_divider(40, "blue")
+    print_header("TokenVector Console Module v1.0", 40)
+    return 1

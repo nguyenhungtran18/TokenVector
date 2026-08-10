@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+# tkv_menu.tkv - TokenVector Numbered Menu Module
+# Hien thi menu danh so, nguoi dung nhap so de chon
+
+def print_menu_item(index: "i32", label: "str", selected: "i32") -> "i32":
+    num = str(index)
+    if selected == 1:
+        print("  \x1b[36m[" + num + "]\x1b[0m \x1b[1m" + label + "\x1b[0m  ◄")
+    else:
+        print("  \x1b[90m[" + num + "]\x1b[0m " + label)
+    return 1
+
+def show_menu(title: "str") -> "i32":
+    print("")
+    print("  \x1b[1m\x1b[36m" + title + "\x1b[0m")
+    print("  \x1b[90m" + "─" * 30 + "\x1b[0m")
+    return 1
+
+def main() -> "i32":
+    print("=== TKV_MENU MODULE TEST ===")
+    show_menu("TOKENVECTOR MAIN MENU")
+    print_menu_item(1, "Compile Project (.tkv -> .exe)", 1)
+    print_menu_item(2, "Run Test Suite (E2E)", 0)
+    print_menu_item(3, "View Benchmark Results", 0)
+    print_menu_item(4, "Open Documentation", 0)
+    print_menu_item(5, "Exit", 0)
+    print("")
+    print("  \x1b[90mNhap so lua chon (1-5): \x1b[0m")
+    return 1

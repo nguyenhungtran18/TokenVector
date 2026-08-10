@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+# tkv_progress.tkv - TokenVector Progress Bar Module
+
+def render_bar(current: "i32", total: "i32", width: "i32") -> "str":
+    filled = (current * width) / total
+    bar = "["
+    i = 0
+    for i in range(width):
+        if i < filled:
+            bar = bar + "\x1b[32m█\x1b[0m"
+        else:
+            bar = bar + "\x1b[90m░\x1b[0m"
+    bar = bar + "]"
+    return bar
+
+def show(current: "i32", total: "i32", label: "str") -> "i32":
+    bar = render_bar(current, total, 30)
+    pct = (current * 100) / total
+    print(label + " " + bar + " " + str(pct) + "%")
+    return 1
+
+def main() -> "i32":
+    print("=== TKV_PROGRESS MODULE TEST ===")
+    show(0,   100, "Compiling")
+    show(25,  100, "Compiling")
+    show(50,  100, "Compiling")
+    show(75,  100, "Compiling")
+    show(100, 100, "Compiling")
+    return 1

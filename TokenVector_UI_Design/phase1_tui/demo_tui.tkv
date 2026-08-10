@@ -1,0 +1,63 @@
+# -*- coding: utf-8 -*-
+# demo_tui.tkv - TokenVector TUI Demo - Phase 1 Full Integration (Final)
+
+def print_divider() -> "i32":
+    print("\x1b[36m==================================================\x1b[0m")
+    return 1
+
+def print_header(title: "str") -> "i32":
+    print_divider()
+    print("\x1b[1m\x1b[36m  " + title + "\x1b[0m")
+    print_divider()
+    return 1
+
+def print_stat(label: "str", value: "str", color: "str") -> "i32":
+    if color == "green":
+        print("  " + label + ": \x1b[32m" + value + "\x1b[0m")
+    elif color == "cyan":
+        print("  " + label + ": \x1b[36m" + value + "\x1b[0m")
+    elif color == "yellow":
+        print("  " + label + ": \x1b[33m" + value + "\x1b[0m")
+    else:
+        print("  " + label + ": " + value)
+    return 1
+
+def make_bar(filled_chars: "str", empty_chars: "str", pct: "str", label: "str") -> "i32":
+    bar = "  [\x1b[32m" + filled_chars + "\x1b[90m" + empty_chars + "\x1b[0m] " + pct + "%  " + label
+    print(bar)
+    return 1
+
+def run_build_simulation() -> "i32":
+    print("\x1b[33m  Simulating build pipeline...\x1b[0m")
+    print("")
+    make_bar("", "░░░░░░░░░░░░░░░░░░░░", "0",   "Initializing...")
+    make_bar("█████", "░░░░░░░░░░░░░░░", "25",  "Parsing AST...")
+    make_bar("██████████", "░░░░░░░░░░", "50",  "Generating CIL...")
+    make_bar("███████████████", "░░░░░", "75",  "Running ILASM...")
+    make_bar("████████████████████", "", "100", "\x1b[32mDone!\x1b[0m")
+    return 1
+
+def main() -> "i32":
+    print_header(" TOKENVECTOR BUILDER v2026.1 ")
+    print("")
+    print("  \x1b[1m\x1b[36mQUICK STATS\x1b[0m")
+    print_stat("Compiler Version", "tkvc 2026.1.0", "cyan")
+    print_stat("Output Size",      "~35 KB Standalone", "green")
+    print_stat("Build Time",       "~200 ms AOT", "green")
+    print_stat("No-GIL Speedup",   "10.39x vs CPython", "yellow")
+    print("")
+    print("  \x1b[90m--------------------------------------------------\x1b[0m")
+    print("  \x1b[1m\x1b[36mBUILD PIPELINE\x1b[0m")
+    print("")
+    run_build_simulation()
+    print("")
+    print("  \x1b[90m--------------------------------------------------\x1b[0m")
+    print("  \x1b[1m\x1b[36mMENU\x1b[0m")
+    print("")
+    print("  \x1b[90m[1]\x1b[0m \x1b[1mCompile new file\x1b[0m  ◄")
+    print("  \x1b[90m[2]\x1b[0m Run test suite")
+    print("  \x1b[90m[3]\x1b[0m View benchmark")
+    print("  \x1b[90m[4]\x1b[0m Exit")
+    print("")
+    print("  \x1b[90mEnter choice (1-4): \x1b[0m")
+    return 1
