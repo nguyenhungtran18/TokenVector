@@ -105,6 +105,44 @@ def check_file(path: "str") -> "i32":
                   "KHONG can 'import' (se loi bien dich 'import module khong tim thay').")
             warnings = warnings + 1
 
+        # 3. 'from X import Y' (cu phap Python thuong, KHAC __tkv_import__)
+        # - compiler co the tu resolve X thanh 1 file .tkv khac cung thu
+        # muc va co bien dich CA file do, ngay ca khi X chi la file helper
+        # danh rieng cho phia CPython (chua ham khong co annotation kieu
+        # DSL) -> loi bien dich that ve thieu annotation kieu DSL tai 1 ham
+        # nguoi dung khong he goi truc tiep. An toan hon: dung bien module
+        # __tkv_import__ gan ten module (khong co duoi file) cho import
+        # cheo file THAT trong TokenVector.
+        if trimmed.startswith("from ") and trimmed.find(" import ") >= 0:
+            print("CANH BAO dong " + str(i + 1) + ": '" + trimmed +
+                  "' - 'from X import Y' co the khien compiler tu bien dich " +
+                  "CA file X (ke ca ham khong co annotation kieu DSL, chi danh " +
+                  "cho phia CPython) -> loi 'thieu annotation kieu DSL'. Dung " +
+                  "'__tkv_import__ = \"ten_module\"' cho import cheo file that.")
+            warnings = warnings + 1
+
+        # 4. Bien cuc bo co annotation kieu kem gia tri mac dinh (ten, hai
+        # cham, chuoi kieu, dau bang, gia tri) BEN TRONG than ham -
+        # annotation dang nay CHI hop le cho THAM SO HAM (gia tri mac
+        # dinh), dung cho bien cuc bo se loi bien dich that 'khong dich
+        # duoc dong'. Heuristic: dong bat dau bang 1 tu (khong phai
+        # def/class), theo sau la hai-cham-cach-nhay-kep, roi co dau bang
+        # o dong do (khong phai bat dau ham) va khong nam trong ngoac don.
+        if not trimmed.startswith("def "):
+            if not trimmed.startswith("class "):
+                colon_quote_pos = trimmed.find(": \"")
+                if colon_quote_pos > 0:
+                    has_paren_before = trimmed.find("(") >= 0
+                    tail = trimmed[colon_quote_pos:len(trimmed)]
+                    has_eq_after = tail.find("=") >= 0
+                    if has_eq_after and not has_paren_before:
+                        print("CANH BAO dong " + str(i + 1) + ": '" + trimmed +
+                              "' - annotation kieu ('ten: \"kieu\" = gia_tri') CHI hop le " +
+                              "cho THAM SO HAM, KHONG hop le cho bien cuc bo trong than ham " +
+                              "(se loi 'khong dich duoc dong'). Bo annotation, chi gan tran " +
+                              "('ten = gia_tri'), compiler tu suy kieu.")
+                        warnings = warnings + 1
+
         i = i + 1
 
     print("")
