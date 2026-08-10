@@ -1,0 +1,168 @@
+# -*- coding: utf-8 -*-
+"""Bo test tu-kiem-tra THUAN TokenVector (khong Python) - bien dich bang
+chinh tkvc.exe thanh 1 file .exe DOC LAP, moi ca tu so sanh ket qua voi
+gia tri mong doi NGAY TRONG CODE (if/else + print PASS/FAIL), khong can
+Python hay may chay ben ngoai de doi chieu. Chay: tkvc.exe build
+native_test_suite.tkv --entry run; native_test_suite.exe"""
+
+class Animal:
+    name: "str"
+    def __init__(self, name):
+        self.name = name
+    def speak(self) -> "str":
+        return self.name + " makes a sound"
+
+class Dog(Animal):
+    def __init__(self, name):
+        super().__init__(name)
+    def bark(self) -> "str":
+        return self.name + " woof"
+
+class Engine:
+    hp: "i32"
+    def start_engine(self) -> "str":
+        return "ENGINE_ON"
+
+class GPS:
+    lat: "f64"
+    def get_location(self) -> "str":
+        return "LOC_OK"
+
+class SmartCar(Engine, GPS):
+    def drive(self) -> "str":
+        return self.start_engine() + "|" + self.get_location()
+
+
+def check(name: "str", got: "str", expected: "str") -> "i32":
+    if got == expected:
+        print("PASS " + name)
+        return 1
+    else:
+        print("FAIL " + name + " got=" + got + " expected=" + expected)
+        return 0
+
+
+def make_counter(start: "i32") -> "func() -> i32":
+    count = start
+    def increment() -> "i32":
+        nonlocal count
+        count = count + 1
+        return count
+    return increment
+
+
+def worker_task() -> "i64":
+    s = 0
+    for i in range(5000000):
+        s = s + i
+    return s
+
+
+def sub_numbers() -> "list[i32]":
+    yield 10
+    yield 20
+
+def main_numbers() -> "list[i32]":
+    yield 1
+    yield from sub_numbers()
+    yield 2
+
+
+async def async_worker(x: "i32") -> "i32":
+    thread_sleep(5)
+    return x * 2
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    # 1. Record + ke thua don, truy cap field ke thua
+    d = Dog("Rex")
+    tested = tested + 1
+    total = total + check("inherited_field_access", d.bark(), "Rex woof")
+
+    # 2. Da ke thua lop that (2 base khong lien quan)
+    car = SmartCar(200, 10.77)
+    tested = tested + 1
+    total = total + check("multi_inheritance", car.drive(), "ENGINE_ON|LOC_OK")
+
+    # 3. Closure
+    inc = make_counter(10)
+    v1 = inc()
+    v2 = inc()
+    v3 = inc()
+    tested = tested + 1
+    total = total + check("closure", str(v1) + "," + str(v2) + "," + str(v3), "11,12,13")
+
+    # 4. List/dict
+    scores = [80.0, 90.0, 100.0]
+    scores.append(70.0)
+    total_score = 0.0
+    for s in scores:
+        total_score = total_score + s
+    avg = total_score / float(len(scores))
+    tested = tested + 1
+    total = total + check("list_avg", str(avg), "85.0")
+
+    d2 = {}
+    d2["a"] = 1
+    d2["b"] = 2
+    tested = tested + 1
+    total = total + check("dict_len", str(len(d2)), "2")
+
+    # 5. try/except/finally
+    result = ""
+    try:
+        raise ValueError("boom")
+    except ValueError as e:
+        result = "caught:" + str(e)
+    finally:
+        result = result + "|finally"
+    tested = tested + 1
+    total = total + check("try_except_finally", result, "caught:boom|finally")
+
+    # 6. Generator yield / yield from
+    out = ""
+    for v in main_numbers():
+        out = out + str(v) + ","
+    tested = tested + 1
+    total = total + check("generator_yield_from", out, "1,10,20,2,")
+
+    # 7. Threading - thread_join tra dung gia tri (da sua 2026-08-10)
+    t1 = thread_spawn(worker_task)
+    t2 = thread_spawn(worker_task)
+    r1 = thread_join(t1)
+    r2 = thread_join(t2)
+    tested = tested + 1
+    total = total + check("thread_join_value", str(r1 + r2), "24999995000000")
+
+    # 8. FFI - c_puts (goi C that qua P/Invoke)
+    status = c_puts("native ffi call")
+    tested = tested + 1
+    total = total + check("ffi_c_puts", str(status), "0")
+
+    # 9. String builtin
+    s9 = "CODE1234TEST"
+    sub9 = s9[0:4]
+    tested = tested + 1
+    total = total + check("string_slice", sub9, "CODE")
+
+    # 10. Async/await
+    a1 = await async_worker(21)
+    tested = tested + 1
+    total = total + check("async_await", str(a1), "42")
+
+    # 11. json_dumps (BUG DA BIET: sai dau cach trong cay .tkv tu-host,
+    # doi chieu voi CPython json.dumps(sep=(',',':')) - de nguyen de xac
+    # nhan con hay het bug, KHONG sua ki vong o day)
+    jd = {}
+    jd["a"] = 1
+    tested = tested + 1
+    total = total + check("json_dumps_compact", json_dumps(jd), "{\"a\":1}")
+
+    print("")
+    print("=== KET QUA: " + str(total) + "/" + str(tested) + " PASS ===")
+    if total == tested:
+        return 0
+    return 1
