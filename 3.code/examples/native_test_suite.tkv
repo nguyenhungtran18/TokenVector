@@ -73,6 +73,26 @@ async def async_worker(x: "i32") -> "i32":
     return x * 2
 
 
+def lcm_via_gcd(a: "i32", b: "i32") -> "i32":
+    """Nguyen ban tu test/sample_manual_chat_math12.tkv - GIU NGUYEN cau
+    truc that tung phat hien bug ep kieu ngam f64->i32 (xem
+    docs/BUGS_TODO.md muc H). KHONG sua thanh int(...) o day - muc dich
+    file nay la BAT bug hoi quy, sua di se lam mat kha nang phat hien."""
+    if a == 0:
+        return 0
+    if b == 0:
+        return 0
+    x = a
+    y = b
+    while y != 0:
+        temp = y
+        y = x % y
+        x = temp
+    gcd_val = x
+    res = a * b / gcd_val
+    return res
+
+
 def run() -> "i32":
     total = 0
     tested = 0
@@ -153,13 +173,44 @@ def run() -> "i32":
     tested = tested + 1
     total = total + check("async_await", str(a1), "42")
 
-    # 11. json_dumps (BUG DA BIET: sai dau cach trong cay .tkv tu-host,
-    # doi chieu voi CPython json.dumps(sep=(',',':')) - de nguyen de xac
-    # nhan con hay het bug, KHONG sua ki vong o day)
+    # 11. json_dumps - dict, list, ghep trong bieu thuc (ca 3 dang tung bi
+    # bao sai dau cach trong _results.json cu, gio dung ca 3 - xem
+    # docs/PARITY_GAPS_2026-08-04.md)
     jd = {}
     jd["a"] = 1
     tested = tested + 1
-    total = total + check("json_dumps_compact", json_dumps(jd), "{\"a\":1}")
+    total = total + check("json_dumps_dict", json_dumps(jd), "{\"a\":1}")
+
+    jl = [1, 2, 3]
+    tested = tested + 1
+    total = total + check("json_dumps_list", json_dumps(jl), "[1,2,3]")
+
+    jl2 = [1, 2]
+    tested = tested + 1
+    total = total + check("json_dumps_in_expr", json_dumps(jl2) + "|end", "[1,2]|end")
+
+    # 12. Slicing vuot gioi han - tung crash ArgumentOutOfRangeException,
+    # nay tu clamp dung nhu Python (xem docs/PARITY_GAPS_2026-08-04.md
+    # muc 2). Boc try/except de neu hoi quy ve crash thi bao FAIL thay vi
+    # lam sap ca bo test.
+    slice_result = ""
+    try:
+        s12 = "ab"
+        slice_result = s12[0:5]
+    except Exception as e12:
+        slice_result = "CRASH:" + str(e12)
+    tested = tested + 1
+    total = total + check("slice_out_of_range_clamp", slice_result, "ab")
+
+    # 13. BUG MO (docs/BUGS_TODO.md muc H): '/' tren i32 tra ve f64 THAT
+    # (dung ngu nghia Python), nhung ep NGAM ve i32 luc return bi hong.
+    # KHONG tinh vao total/tested (ky vong FAIL cho toi khi sua xong) -
+    # de rieng de bo test BAT duoc hoi quy ma khong lam sai % PASS chung.
+    lcm_got = str(lcm_via_gcd(4, 6))
+    if lcm_got == "12":
+        print("PASS lcm_via_gcd_implicit_narrow (BUG DA SUA - chuyen sang muc chinh thuc trong 'total/tested')")
+    else:
+        print("FAIL lcm_via_gcd_implicit_narrow got=" + lcm_got + " expected=12 (BUG DA BIET, xem docs/BUGS_TODO.md muc H - KHONG tinh vao % PASS chung)")
 
     print("")
     print("=== KET QUA: " + str(total) + "/" + str(tested) + " PASS ===")
