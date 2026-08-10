@@ -10,7 +10,7 @@ def compile_eval_code(args, scope, out, dtype, ctx):
     if len(args) != 1:
         raise SyntaxError("il_codegen: eval_code(expr_str) nhận 1 tham số string")
     ctx['compile_expr'](args[0], scope, out, 'str', ctx)
-    out.append('    call int32 class TKVApp::TkvEvalCode(string)')
+    out.append(f'    call int32 class {ctx.get("class_name", "TKVApp")}::TkvEvalCode(string)')
     if dtype:
         ctx['widen_if_needed']('i32', dtype, out)
 
@@ -19,7 +19,7 @@ def compile_exec_code(args, scope, out, dtype, ctx):
     if len(args) != 1:
         raise SyntaxError("il_codegen: exec_code(code_str) nhận 1 tham số string")
     ctx['compile_expr'](args[0], scope, out, 'str', ctx)
-    out.append('    call string class TKVApp::TkvExecCode(string)')
+    out.append(f'    call string class {ctx.get("class_name", "TKVApp")}::TkvExecCode(string)')
     if dtype:
         ctx['widen_if_needed']('str', dtype, out)
 

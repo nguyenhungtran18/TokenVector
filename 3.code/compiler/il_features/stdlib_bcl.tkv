@@ -12,13 +12,13 @@ def compile_re_replace(args, scope, out, dtype, ctx):
     ctx['compile_expr'](args[0], scope, out, 'str', ctx)
     ctx['compile_expr'](args[1], scope, out, 'str', ctx)
     ctx['compile_expr'](args[2], scope, out, 'str', ctx)
-    out.append('    call string class TKVApp::TkvReReplace(string, string, string)')
+    out.append(f'    call string class {ctx.get("class_name", "TKVApp")}::TkvReReplace(string, string, string)')
     if dtype:
         ctx['widen_if_needed']('str', dtype, out)
 
 def compile_datetime_now(args, scope, out, dtype, ctx):
     """datetime_now() -> DateTime.Now.ToString()."""
-    out.append('    call string class TKVApp::TkvDateTimeNow()')
+    out.append(f'    call string class {ctx.get("class_name", "TKVApp")}::TkvDateTimeNow()')
     if dtype:
         ctx['widen_if_needed']('str', dtype, out)
 
@@ -28,7 +28,7 @@ def compile_random_randint(args, scope, out, dtype, ctx):
         raise SyntaxError("il_codegen: random_randint(min, max) nhan 2 tham so")
     ctx['compile_expr'](args[0], scope, out, 'i32', ctx)
     ctx['compile_expr'](args[1], scope, out, 'i32', ctx)
-    out.append('    call int32 class TKVApp::TkvRandomRandint(int32, int32)')
+    out.append(f'    call int32 class {ctx.get("class_name", "TKVApp")}::TkvRandomRandint(int32, int32)')
     if dtype:
         ctx['widen_if_needed']('i32', dtype, out)
 

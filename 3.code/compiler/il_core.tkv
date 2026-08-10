@@ -6,7 +6,17 @@ il_features/*.py import TU day, il_codegen.py import CA day LAN
 il_features/*.py)."""
 import re
 
-IL_SCALAR = {'f32': 'float32', 'f64': 'float64', 'i32': 'int32', 'i64': 'int64', 'str': 'string', 'object': 'object', 'thread': 'class [mscorlib]System.Threading.Thread'}
+IL_SCALAR = {'f32': 'float32', 'f64': 'float64', 'i32': 'int32', 'i64': 'int64', 'str': 'string', 'object': 'object',
+             # 'thread' (sua 2026-08-10, xem docs/BUGS_TODO.md muc G): 1
+             # bien 'thread' co the giu Task<T> VOI T KHAC NHAU trong CUNG
+             # 1 ham (vd worker tra i64 va worker tra str) - CIL doi hoi
+             # kieu local CO DINH, nen dung 'object' lam kieu luu chung
+             # (Task<T> luon la reference type, gan duoc vao object khong
+             # can ep kieu), roi castclass ve dung Task<T> luc thread_join
+             # (xem threading_feature.py) - truoc day hardcode thang
+             # System.Threading.Thread nen thread_join() KHONG the doc
+             # duoc gia tri tra ve that, luon phai ldc.i4.0.
+             'thread': 'object'}
 IL_NEWARR_ELEM = {'f32': '[mscorlib]System.Single', 'f64': '[mscorlib]System.Double',
                   'i32': '[mscorlib]System.Int32', 'i64': '[mscorlib]System.Int64'}
 IL_LDELEM = {'f32': 'ldelem.r4', 'f64': 'ldelem.r8', 'i32': 'ldelem.i4', 'i64': 'ldelem.i8'}

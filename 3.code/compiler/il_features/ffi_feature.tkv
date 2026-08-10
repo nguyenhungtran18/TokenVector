@@ -30,7 +30,8 @@ def compile_c_puts(args, scope, out, dtype, ctx):
     if len(args) != 1:
         raise SyntaxError("il_codegen: c_puts(msg) nhan 1 tham so string")
     ctx['compile_expr'](args[0], scope, out, 'str', ctx)
-    out.append('    call int32 TKVApp::puts(string)')
+    cn = ctx.get('class_name', 'TKVApp')
+    out.append(f'    call int32 {cn}::puts(string)')
     if dtype:
         ctx['widen_if_needed']('i32', dtype, out)
 
@@ -39,7 +40,8 @@ def compile_ctypes_cdll(args, scope, out, dtype, ctx):
     if len(args) != 1:
         raise SyntaxError("il_codegen: ctypes_cdll(dll_name) nhan 1 tham so string")
     ctx['compile_expr'](args[0], scope, out, 'str', ctx)
-    out.append('    call native int TKVApp::TkvLoadCDLL(string)')
+    cn = ctx.get('class_name', 'TKVApp')
+    out.append(f'    call native int {cn}::TkvLoadCDLL(string)')
     if dtype:
         ctx['widen_if_needed']('i64', dtype, out)
 
@@ -48,7 +50,8 @@ def compile_ctypes_call(args, scope, out, dtype, ctx):
     if len(args) != 1:
         raise SyntaxError("il_codegen: ctypes_call(msg) nhan 1 tham so string")
     ctx['compile_expr'](args[0], scope, out, 'str', ctx)
-    out.append('    call int32 TKVApp::TkvCCall(string)')
+    cn = ctx.get('class_name', 'TKVApp')
+    out.append(f'    call int32 {cn}::TkvCCall(string)')
     if dtype:
         ctx['widen_if_needed']('i32', dtype, out)
 

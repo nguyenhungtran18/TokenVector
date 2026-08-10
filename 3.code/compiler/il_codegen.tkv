@@ -3105,7 +3105,13 @@ def _stmt_assign_scalar(stmt, scope: _Scope, body: list, body_dtype: str, ctx: d
         _compile_expr(stmt['rhs_node'], scope, body, var_ta.dtype, ctx)
         body.append(f'    stfld {IL_SCALAR[var_ta.dtype]} {cell_class}::v')
         return
+    # Thread that (sua 2026-08-10, xem docs/BUGS_TODO.md muc G): ghi ten
+    # bien dich se gan RA de thread_spawn() luu duoc kieu tra ve THAT cua
+    # ham worker, phuc vu thread_join() sau nay lay dung gia tri (khong
+    # con hardcode tra ve 0) - xem il_features/threading_feature.py.
+    ctx['_assign_target_name'] = name
     _compile_expr(stmt['rhs_node'], scope, body, var_ta.dtype, ctx)
+    ctx['_assign_target_name'] = None
     _store_var(name, scope, body)
 
 
@@ -3897,10 +3903,18 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
     import il_features.dynamic_exec as _dyn
     import il_features.stdlib_bcl as _bcl
     import il_features.pycapi_shim as _shim
-    all_lines.append(_ffi.FFI_CIL_HELPERS)
-    all_lines.append(_dyn.DYNAMIC_EXEC_CIL_HELPERS)
-    all_lines.append(_bcl.STDLIB_BCL_CIL_HELPERS)
-    all_lines.append(_shim.PYCAPI_SHIM_CIL_HELPERS)
+    # 4 khoi IL tho hardcode ten class 'TKVApp' (sua 2026-08-10, xem
+    # docs/BUGS_TODO.md) - dung DUNG duoc voi compile_tkv_cli (luon dung
+    # class_name mac dinh 'TKVApp'), nhung vo hieu khi goi transpile_
+    # program(..., class_name=<ten khac>) truc tiep (vd test/verify dung
+    # de lay IL doi chieu CPython) - ILASM bao 'Reference to undefined
+    # class TKVApp'. Thay bang class_name THAT o day, 1 cho DUY NHAT, thay
+    # vi sua tung khoi text tho rieng le trong 4 file khac nhau.
+    _eff_class = class_name or 'TKVApp'
+    all_lines.append(_ffi.FFI_CIL_HELPERS.replace('TKVApp', _eff_class))
+    all_lines.append(_dyn.DYNAMIC_EXEC_CIL_HELPERS.replace('TKVApp', _eff_class))
+    all_lines.append(_bcl.STDLIB_BCL_CIL_HELPERS.replace('TKVApp', _eff_class))
+    all_lines.append(_shim.PYCAPI_SHIM_CIL_HELPERS.replace('TKVApp', _eff_class))
     return all_lines
 
 

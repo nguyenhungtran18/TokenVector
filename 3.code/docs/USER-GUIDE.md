@@ -250,12 +250,7 @@ def run() -> "str":
     return "PARALLEL_RESULT:" + str(r1 + r2)
 ```
 
-> ⚠️ **Giới hạn kiến trúc thật (xác minh 2026-08-10)**: `thread_join()`
-> hiện **luôn trả về `0`**, không lấy được `return s` thật của hàm chạy
-> trong luồng (cơ chế `System.Threading.Thread`/`ThreadStart` bên dưới
-> không có kênh trả giá trị). `r1 + r2` ở trên thực tế luôn ra `0`. Luồng
-> vẫn chạy song song thật (đúng công dụng "No-GIL"), chỉ riêng giá trị
-> trả về bị mất — xem `docs/BUGS_TODO.md` mục G.
+`thread_join()` lấy đúng giá trị `return` thật của hàm chạy trong luồng (dùng `Task.Factory.StartNew<T>()`/`Task<T>.get_Result()` bên dưới) — đã build+chạy xác minh lại 2026-08-10, `r1 + r2` ra đúng `24999995000000`.
 
 ---
 

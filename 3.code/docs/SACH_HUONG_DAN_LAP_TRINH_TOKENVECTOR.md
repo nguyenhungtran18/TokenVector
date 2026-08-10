@@ -495,21 +495,11 @@ Khởi chạy 2 OS Kernel Threads chạy tính toán song song 100% trên 2 nhâ
 #### 🔍 Giải thích chi tiết từng dòng lệnh:
 - **Dòng 3-7 (`worker_task`)**: Hàm thực hiện 5,000,000 phép tính cộng dồn.
 - **Dòng 10-11 (`t1 = thread_spawn(...)`)**: Khởi tạo và khởi chạy 2 OS Kernel Threads độc lập song song — luồng **chạy thật**, đủ 5 triệu vòng lặp mỗi luồng.
-- **Dòng 13-14 (`r1 = thread_join(t1)`)**: Chờ luồng hoàn tất.
+- **Dòng 13-14 (`r1 = thread_join(t1)`)**: Chờ luồng hoàn tất và **lấy đúng giá trị `return s` thật** của `worker_task()` (đã sửa bug 2026-08-10 — trước đây `thread_join()` hardcode trả về `0`; nay dùng `Task.Factory.StartNew<T>()`/`Task<T>.get_Result()` bên dưới thay vì `Thread`/`ThreadStart` — xem `docs/BUGS_TODO.md` lịch sử sửa).
+- **Dòng 15 (`return ...`)**: Trả về tổng kết quả của 2 luồng ($12,499,997,500,000 \times 2 = 24,999,995,000,000$).
 
-> ⚠️ **GIỚI HẠN KIẾN TRÚC THẬT (đã build+chạy xác minh 2026-08-10, xem
-> `docs/BUGS_TODO.md` mục G)**: `thread_join()` hiện **LUÔN trả về `0`**,
-> KHÔNG lấy được giá trị `return s` thật của `worker_task()`. Nguyên nhân:
-> cơ chế bên dưới dùng `System.Threading.Thread` + `ThreadStart` (delegate
-> `void`, không có kênh trả giá trị) — đây là giới hạn của chính API đang
-> dùng, không phải lỗi in ấn. `r1 + r2` trong ví dụ này thực tế luôn ra
-> `0`, KHÔNG PHẢI `24999995000000`. Dùng `thread_spawn`/`thread_join` khi
-> chỉ cần **chạy song song, không cần lấy kết quả trả về** (vd ghi file,
-> gọi API phụ) — không dùng khi cần tổng hợp giá trị tính toán từ luồng
-> con cho tới khi bug này được sửa.
-
-#### 📊 Kết quả thực thi cuối cùng (Output) — ĐÃ XÁC MINH THẬT:
-- **Return Value**: `"MULTITHREAD_NO_GIL_RESULT:0"` (không phải `24999995000000`)
+#### 📊 Kết quả thực thi cuối cùng (Output) — đã build+chạy xác minh lại 2026-08-10:
+- **Return Value**: `"MULTITHREAD_NO_GIL_RESULT:24999995000000"`
 
 ---
 

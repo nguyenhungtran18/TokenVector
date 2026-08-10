@@ -10,13 +10,13 @@ def compile_py_tuple_new(args, scope, out, dtype, ctx):
     if len(args) != 1:
         raise SyntaxError("il_codegen: py_tuple_new(size) nhan 1 tham so i32")
     ctx['compile_expr'](args[0], scope, out, 'i32', ctx)
-    out.append('    call class [mscorlib]System.Collections.Generic.List`1<object> class TKVApp::TkvPyTupleNew(int32)')
+    out.append(f'    call class [mscorlib]System.Collections.Generic.List`1<object> class {ctx.get("class_name", "TKVApp")}::TkvPyTupleNew(int32)')
     if dtype:
         ctx['widen_if_needed']('object', dtype, out)
 
 def compile_py_dict_new(args, scope, out, dtype, ctx):
     """py_dict_new() -> Dictionary<object, object> as PyDict."""
-    out.append('    call class [mscorlib]System.Collections.Generic.Dictionary`2<object,object> class TKVApp::TkvPyDictNew()')
+    out.append(f'    call class [mscorlib]System.Collections.Generic.Dictionary`2<object,object> class {ctx.get("class_name", "TKVApp")}::TkvPyDictNew()')
     if dtype:
         ctx['widen_if_needed']('object', dtype, out)
 
