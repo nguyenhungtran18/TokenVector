@@ -14,9 +14,9 @@
 
 Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên nghiệp, toàn bộ sản phẩm bàn giao được tổ chức tập trung tại thư mục gốc `release/`:
 
-- **`1.media/`**: Chứa sơ đồ kiến trúc hệ thống (`architecture_overview.md`) và các tài sản mô tả luồng tính toán 3 bên.
-- **`2.UI/`**: Chứa bản mô phỏng giao diện Terminal REPL (`terminal_repl_preview.md`) và báo cáo trực quan HTML (`benchmark_results.html`).
-- **`3.code/`**: Mã nguồn gốc sạch 100% bằng TokenVector Native (`.tkv`), cấu hình môi trường mẫu (`.env.example`), giáo trình lập trình (`docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`), tệp thực thi độc lập (`dist/tkvc.exe`), và bộ kiểm thử tích hợp E2E (`e2e_test.tkv`, `e2e_test.exe`).
+- **`1.media/`**: Chứa sơ đồ kiến trúc hệ thống (`architecture_overview.md`).
+- **`2.UI/`**: Báo cáo trực quan HTML (`benchmark_results.html`, `enterprise_demo.html`).
+- **`3.code/`**: Mã nguồn tự-host bằng TokenVector Native (`compiler.zip`, `.tkv`), giáo trình lập trình (`docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`), tệp thực thi độc lập (`dist/tkvc.exe`), script tự build lại `tkvc.exe` (`build_tkvc.ps1`), và bộ kiểm thử tích hợp E2E (`e2e_test.tkv`, `e2e_test.exe`).
 
 ---
 

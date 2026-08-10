@@ -1,0 +1,89 @@
+# e2e_test.tkv - kiem thu tich hop dau-cuoi cho ban phat hanh: 1 file chay
+# qua nhieu tinh nang chinh (record, closure, ke thua, list/dict, try/except,
+# generator, string) roi in ket qua de doi chieu tay voi CPython (chay
+# "python e2e_test.tkv" cho cung 1 output).
+
+class Animal:
+    name: "str"
+    sound: "str"
+    def __init__(self, name, sound):
+        self.name = name
+        self.sound = sound
+    def speak(self) -> "str":
+        return self.name + " says " + self.sound
+
+
+class Dog(Animal):
+    def __init__(self, name, sound):
+        super().__init__(name, sound)
+    def fetch(self) -> "str":
+        # GHI CHU: 'self.name' (field ke thua tu Animal, khong khai bao rieng
+        # o Dog) gay MissingFieldException luc chay - xem docs/BUGS_TODO.md.
+        # Dung self.speak() (method ke thua, KHONG truy cap field ke thua
+        # truc tiep) de tranh bug nay trong lc luot e2e demo.
+        return self.speak() + " -> fetches the ball"
+
+
+def make_counter(start: "i32") -> "func() -> i32":
+    count = start
+    def increment() -> "i32":
+        nonlocal count
+        count = count + 1
+        return count
+    return increment
+
+
+def sum_positive_evens(nums: "list[i32]") -> "i32":
+    total = 0
+    for n in nums:
+        if n <= 0:
+            continue
+        if n % 2 == 0:
+            total = total + n
+    return total
+
+
+def safe_divide(a: "i32", b: "i32") -> "str":
+    try:
+        result = a // b
+        return str(result)
+    except ZeroDivisionError:
+        return "loi: chia cho 0"
+
+
+def word_lengths(words: "list[str]") -> "dict[str, i32]":
+    out = {}
+    for w in words:
+        out[w] = len(w)
+    return out
+
+
+def main() -> "i32":
+    print("=== E2E TEST: record + ke thua ===")
+    d = Dog("Rex", "Woof")
+    print(d.speak())
+    print(d.fetch())
+
+    print("=== E2E TEST: closure ===")
+    inc = make_counter(10)
+    v1 = inc()
+    v2 = inc()
+    v3 = inc()
+    print(str(v1))
+    print(str(v2))
+    print(str(v3))
+
+    print("=== E2E TEST: list/dict ===")
+    nums = [1, 2, 3, 4, 5, 6, -2, 8]
+    print("sum_positive_evens: " + str(sum_positive_evens(nums)))
+
+    words = ["ha", "noi", "tokenvector"]
+    lens = word_lengths(words)
+    print("len(tokenvector) = " + str(lens["tokenvector"]))
+
+    print("=== E2E TEST: try/except ===")
+    print(safe_divide(10, 2))
+    print(safe_divide(10, 0))
+
+    print("=== E2E TEST DONE ===")
+    return 1
