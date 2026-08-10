@@ -1,7 +1,7 @@
 # TOKENVECTOR SYSTEM FILE & LIBRARY REGISTRY
 ### (Danh Sách Toàn Bộ Tệp Hệ Thống & Thư Viện Native TokenVector Trong Bản Phát Hành Release)
 
-Tài liệu liệt kê và phân loại chính thức toàn bộ **278 tệp hệ thống, nhân trình biên dịch, thư viện chuẩn và bộ kiểm thử Native `.tkv`** nằm trong bộ phát hành thương mại [`release/`](file:///C:/Claude%20AI%20Project/TokenVector/release/).
+Tài liệu liệt kê và phân loại chính thức toàn bộ **364 tệp** (đếm trực tiếp, gồm cả `.exe`/`.il` build sẵn) nằm trong bộ phát hành thương mại `release/`. Riêng phần **thư viện chức năng thật của `tkvc.exe`** (mã nguồn compiler, không tính chương trình mẫu/test) chỉ gồm **82 file `.tkv`** — xem mục 2-3 bên dưới, đã xác minh bằng phân tích reachability từ `tkv.tkv` (2026-08-10).
 
 ---
 
@@ -45,35 +45,34 @@ Tài liệu liệt kê và phân loại chính thức toàn bộ **278 tệp h�
 
 ---
 
-## 4. THƯ VIỆN CHUẨN NATIVE (`release/3.code/stdlib/`)
+## 4. VÍ DỤ THƯ VIỆN TIỆN ÍCH (`release/3.code/examples/stdlib/`)
 
-- `release/3.code/stdlib/math.tkv`: Thư viện toán học Native (`sqrt`, `pow`, `abs`).
-- `release/3.code/stdlib/pystdlib.tkv`: Thư viện cầu nối BCL (`tkv_re_replace`, `tkv_now`, `tkv_randint`).
-- `release/3.code/stdlib/sys.tkv`: Thư viện thông tin hệ thống và đường dẫn module.
-- `release/3.code/stdlib/datetime.tkv`: Thư viện thời gian và ngày tháng.
-- `release/3.code/stdlib/re.tkv`: Thư viện xử lý Biểu thức chính quy (Regular Expressions).
-- `release/3.code/stdlib/os.tkv`: Thư viện tương tác Hệ điều hành & File System.
+Đúng **2 file** (đã xác minh trực tiếp — KHÔNG có `sys.tkv`/`datetime.tkv`/`re.tkv`/`os.tkv` như phiên bản tài liệu trước đây ghi nhầm; các hàm `re`/`datetime`/`os` khác đã có sẵn dạng builtin toàn cục trong compiler, không cần file riêng):
+
+- `release/3.code/examples/stdlib/math.tkv`: Ví dụ thư viện toán học Native (`sqrt`, `pow`, `abs`).
+- `release/3.code/examples/stdlib/pystdlib.tkv`: Ví dụ thư viện cầu nối BCL (`tkv_re_replace`, `tkv_now`, `tkv_randint`).
 
 ---
 
-## 5. CÔNG CỤ NATIVE TRANSPILER (`release/3.code/tools/`)
+## 5. CHƯƠNG TRÌNH MẪU & CÔNG CỤ (`release/3.code/examples/tools/`)
 
-- `release/3.code/tools/tkv_transpiler.tkv`: Trình chuyển đổi mã hai chiều tự động giữa `.py` và `.tkv` viết 100% bằng TokenVector Native.
+**15 công cụ thật** dùng làm case-study (đã build sẵn `.exe`, biên dịch lại thành công từ nguồn `.tkv` — xác minh 2026-08-10): `codestat.tkv`, `ctxpack.tkv`, `defmeta.tkv`, `domain.tkv`, `graphreview.tkv`, `graphstale.tkv`, `impact.tkv`, `impgraph.tkv`, `layers.tkv`, `mergedefs.tkv`, `mergemeta.tkv`, `nodemeta.tkv`, `pytok.tkv`, `tkvcalc.tkv`, `tkvcalc_ast.tkv`, `tour.tkv`, `typegraph.tkv`, `whylink.tkv`, và `tkv_transpiler.tkv` (trình chuyển đổi mã hai chiều `.py`↔`.tkv`).
+
+Lưu ý: đây là **chương trình mẫu do `tkvc.exe` biên dịch**, KHÔNG phải mã nguồn của chính `tkvc.exe` — xem mục 2-3 để biết đâu là thư viện chức năng thật.
 
 ---
 
 ## 6. TÀI LIỆU & BÁO CÁO GIAO DIỆN (`release/2.UI/` & `release/3.code/docs/`)
 
 - `release/2.UI/benchmark_results.html`: Báo cáo so sánh hiệu năng giao diện HTML interactive.
-- `release/3.code/docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`: Sách hướng dẫn lập trình TokenVector chuẩn học thuật (Unit I - Unit V).
-- `release/3.code/docs/DANH_SACH_TEP_CHUAN_TOKENVECTOR.md`: Tài liệu quy định tệp chuẩn.
+- `release/3.code/docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`: Sách hướng dẫn lập trình TokenVector (Unit I - Unit V, một số bài trong mục lục chưa có nội dung — xem ghi chú đầu file đó).
 - `release/README.md`: Hướng dẫn vận hành nhanh bản phát hành.
 
 ---
 
 ## 7. BỘ KIỂM THỬ NGIỆM THU NATIVE (`release/3.code/test/verify/`)
 
-Gồm **160 tệp kiểm thử Native `.tkv`** bảo chứng 100% chức năng hệ thống:
+Gồm **174 tệp `.tkv`** (đếm trực tiếp 2026-08-10, không phải 160 như phiên bản trước) — nhưng **KHÔNG tự chạy được nếu chỉ tải riêng `release/` về**: bộ test này cần ~115 file mẫu `sample_*.tkv` và `test/parity/arbiter.py` nằm ở gốc repo (`test/`), hiện chưa được đóng gói kèm theo. Xem `docs/BUGS_TODO.md` mục F để biết chi tiết. Bộ test tiêu biểu:
 - `ledger_test.tkv`: Bộ kiểm thử nghiệm thu tổng (0 open entries, PASS 100%).
 - `async_await_test.tkv`: Kiểm thử bất đồng bộ native.
 - `generator_test.tkv` & `yield_from_test.tkv`: Kiểm thử Generator state machine.

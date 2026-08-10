@@ -40,39 +40,25 @@ $$\text{Tệp } \texttt{.tkv} \quad \xrightarrow{\text{1. AST Parse}} \quad \tex
 
 **Trên Windows Command Prompt (cmd)**:
 ```cmd
-set PATH=%PATH%;C:\Claude AI Project\TokenVector\release\3.code\dist
+set PATH=%PATH%;D:\Claude AI Project\TokenVector\release\3.code\dist
 ```
 
 **Trên Windows PowerShell**:
 ```powershell
-$env:Path += ";C:\Claude AI Project\TokenVector\release\3.code\dist"
+$env:Path += ";D:\Claude AI Project\TokenVector\release\3.code\dist"
 ```
 
 ### 2.2 Chi tiết Danh mục Lệnh CLI (`tkvc`)
 
-#### 1. Lệnh Biên dịch AOT (`tkvc build`)
+`tkvc.exe` hiện **chỉ có đúng 1 subcommand**: `build` (đã xác minh trực tiếp trong `tkv.tkv`/`tkv.py` — không có `transpile`/`install`, các lệnh này KHÔNG tồn tại, đừng gõ thử).
+
+#### Lệnh Biên dịch AOT (`tkvc build`)
 Biên dịch một file Native `.tkv` ra file thực thi `.exe` độc lập:
 ```bash
 tkvc build <path/to/file.tkv> --out <path/to/output.exe> --entry <ten_ham_diem_vao>
 ```
-- `--out`: Đường dẫn file `.exe` đầu ra.
-- `--entry`: Hàm điểm vào chính của chương trình (Mặc định là `run`).
-
-#### 2. Lệnh Chuyển đổi Mã Tự động Hai Chiều (`tkvc transpile`)
-Chuyển đổi cú pháp giữa TokenVector tiêu chuẩn (`.py`) và TokenVector Native (`.tkv`):
-```bash
-# Chuyển đổi từ TokenVector (.py) sang TokenVector (.tkv)
-tkvc transpile py2tkv input.py -o output.tkv
-
-# Chuyển đổi từ TokenVector (.tkv) sang TokenVector (.py)
-tkvc transpile tkv2py input.tkv -o output.py
-```
-
-#### 3. Lệnh Tải Package Thư viện (`tkvc install`)
-Tải thư viện từ TkvPI về thư mục `vendor/` dự án:
-```bash
-tkvc install <package_name>
-```
+- `--out`: Đường dẫn file `.exe` đầu ra (mặc định: cùng tên, đổi đuôi `.exe`).
+- `--entry`: Hàm điểm vào chính của chương trình (mặc định: hàm duy nhất, hoặc hàm tên `main`/`run` nếu file có nhiều hàm — nếu vẫn mơ hồ, `tkvc` sẽ báo lỗi yêu cầu chỉ rõ).
 
 ---
 
@@ -191,14 +177,16 @@ def demo_dict_set() -> "str":
 
 ## CHƯƠNG 6: LẬP TRÌNH HƯỚNG ĐỐI TƯỢNG (OOP) & ĐA KẾ THỪA LỚP
 
-TokenVector hỗ trợ Lập trình Hướng đối tượng đầy đủ bao gồm **Đa Kế Thừa Lớp** thông qua cơ chế Proxy Delegation Synthesis:
+TokenVector hỗ trợ Lập trình Hướng đối tượng bao gồm **Đa Kế Thừa Lớp** thật (đã xác minh trực tiếp bằng compile+run, khớp CPython). **Lưu ý bắt buộc**: mọi `class` trong TokenVector phải khai báo **ít nhất 1 field** — class chỉ có method (không field) sẽ báo lỗi biên dịch `record khong co field nao`, khác với Python (cho phép class rỗng field hoàn toàn):
 
 ```TokenVector
 class Engine:
+    hp: "i32"
     def start_engine(self) -> "str":
         return "ENGINE_ON"
 
 class GPS:
+    lat: "f64"
     def get_location(self) -> "str":
         return "LAT_10.77_LON_106.69"
 
@@ -209,26 +197,29 @@ class SmartCar(Engine, GPS):
         return status + "|NAVIGATING_" + loc
 
 def run() -> "str":
-    car = SmartCar()
+    car = SmartCar(200, 10.77)
     return car.drive()
 ```
+
+Constructor tự sinh nhận tham số **theo thứ tự field gộp từ mọi lớp cha** (ở đây: `hp` từ `Engine`, `lat` từ `GPS`) — khác Python (không cần truyền gì nếu không có `__init__` tùy chỉnh).
 
 ---
 
 ## CHƯƠNG 7: THƯ VIỆN CHUẨN NATIVE (`stdlib/*.tkv`) & QUẢN LÝ PACKAGE
 
 ### 7.1 Bộ Thư viện Chuẩn Native Tích hợp Sẵn
-TokenVector cung cấp bộ thư viện chuẩn Native `.tkv` đặt tại thư mục `stdlib/`:
+TokenVector cung cấp bộ thư viện chuẩn Native `.tkv` đặt tại thư mục `examples/stdlib/` (2 file — đã xác minh trực tiếp, KHÔNG có `sys.tkv`/`datetime.tkv`/`re.tkv`/`os.tkv` như phiên bản tài liệu trước đây ghi nhầm):
 
-1. **`stdlib/math.tkv`**:
+1. **`examples/stdlib/math.tkv`**:
    - `sqrt(x)`: Băn căn bậc hai số thực.
    - `pow(x, y)`: Tính lũy thừa $x^y$.
    - `abs(x)`: Giá trị tuyệt đối.
-2. **`stdlib/pystdlib.tkv`**:
+2. **`examples/stdlib/pystdlib.tkv`**:
    - `tkv_re_replace(text, pattern, repl)`: Thay thế chuỗi Regex.
    - `tkv_now()`: Lấy thời gian hệ thống hiện tại.
    - `tkv_randint(min, max)`: Sinh số nguyên ngẫu nhiên.
-3. **`stdlib/sys.tkv`**, **`stdlib/datetime.tkv`**, **`stdlib/re.tkv`**, **`stdlib/os.tkv`**.
+
+Ngoài 2 file "thư viện mẫu" trên, các hàm builtin `re`/`datetime`/`random`/`os`/`json`/`hashlib` khác được compiler hỗ trợ TRỰC TIẾP (không cần file `.tkv` riêng) — xem `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md` mục 2 để biết danh sách đầy đủ.
 
 ---
 
@@ -258,6 +249,13 @@ def run() -> "str":
     r2 = thread_join(t2)
     return "PARALLEL_RESULT:" + str(r1 + r2)
 ```
+
+> ⚠️ **Giới hạn kiến trúc thật (xác minh 2026-08-10)**: `thread_join()`
+> hiện **luôn trả về `0`**, không lấy được `return s` thật của hàm chạy
+> trong luồng (cơ chế `System.Threading.Thread`/`ThreadStart` bên dưới
+> không có kênh trả giá trị). `r1 + r2` ở trên thực tế luôn ra `0`. Luồng
+> vẫn chạy song song thật (đúng công dụng "No-GIL"), chỉ riêng giá trị
+> trả về bị mất — xem `docs/BUGS_TODO.md` mục G.
 
 ---
 

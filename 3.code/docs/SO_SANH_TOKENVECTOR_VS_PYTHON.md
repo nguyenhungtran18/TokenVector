@@ -34,7 +34,7 @@
 | **Đa luồng (Threads)** | Giới hạn bởi GIL | OS Kernel Threads (`System.Threading.Thread`) | **Vượt trội** | Chạy đa luồng thật 100% trên các nhân CPU vật lý mà không bị khóa GIL. |
 | **FFI & C Interop** | C-Extensions (`.pyd`), `ctypes` | Direct P/Invoke (`pinvokeimpl`) & `ctypes` FFI | **100%** | Gọi trực tiếp các hàm C native trong DLL/SO (`kernel32`, `ucrtbase`,...) qua `ctypes` wrapper và P/Invoke. |
 | **Thực thi Động** | `eval()`, `exec()` | Built-in `eval_code()`, `exec_code()` | **100%** | Hỗ trợ đánh giá chuỗi mã và câu lệnh động ngay tại runtime. |
-| **Thư viện chuẩn (Stdlib)** | ~300+ modules (`math`, `json`, `re`, `os`, `sys`, `socket`,...) | ~30+ core modules (`math`, `json`, `threading`, `string`, `itertools`, `re`, `datetime`, `random`,...) | **80%+** | Ánh xạ các module `re`, `datetime`, `random`, `hashlib`, `socket` trực tiếp sang các class .NET BCL. |
+| **Thư viện chuẩn (Stdlib)** | ~300+ modules (`math`, `json`, `re`, `os`, `sys`, `socket`,...) | 54 hàm builtin đăng ký thật (đếm trực tiếp qua `register_expr_builtin`) phủ `math`, `json`, `http` (get/post/put/delete), `datetime`, `random`, `hashlib` (md5/sha256), `base64`, `os` (getenv/mkdir/list_files), `zip`, `db` (sqlite) | Không phải "module" đúng nghĩa Python (không `import re` rồi `re.replace()`) — là hàm toàn cục phẳng (`re_replace()`, `md5_hex()`...). **KHÔNG có `socket`** (chỉ nhắc trong docstring ý định, chưa có hàm `socket_*` nào đăng ký thật) — dùng `http_get`/`http_post`/... thay thế cho phần lớn nhu cầu network cấp cao. |
 
 ---
 
@@ -45,9 +45,9 @@ Khi đánh giá trên quy mô sản xuất (Production):
 1. **Hệ sinh thái C-Extensions (PyPI Ecosystem)**:
    - CPython có hơn 500,000 package trên PyPI. Đa số các thư viện Machine Learning/Data Science (NumPy, PyTorch, TensorFlow, Pandas) phụ thuộc vào CPython C-API (`Python.h`, `PyObject*`).
    - TokenVector AOT CIL biên dịch trực tiếp ra mã máy .NET, muốn dùng các thư viện C-Extension này cần tạo bộ wrapper FFI/P-Invoke.
-2. **Đa kế thừa Lớp (Multiple Class Inheritance)**:
-   - Python cho phép `class Derived(BaseA, BaseB)`.
-   - TokenVector AOT CIL tuân thủ mô hình OOP của .NET CLR: **Chỉ hỗ trợ Kế thừa đơn Lớp (`extends Base`) + Đa kế thừa Interface (`@interface`)**.
+2. **Ràng buộc riêng của TokenVector trên `class`**:
+   - Python cho phép class hoàn toàn không có field (chỉ method). TokenVector **bắt buộc mọi `class` phải khai báo ít nhất 1 field** — thiếu field báo lỗi biên dịch `record khong co field nao`. Đa kế thừa lớp thật (`class Derived(BaseA, BaseB)`, cả 2 base đều có field/method riêng) **CÓ hỗ trợ** (đã xác minh trực tiếp bằng compile+run, xem `USER-GUIDE.md` Chương 6) — không phải giới hạn "chỉ đơn kế thừa" như phiên bản tài liệu trước đây ghi nhầm.
+   - Constructor tự sinh nhận tham số **theo thứ tự field gộp từ mọi lớp cha** — khác Python (không tự sinh `__init__`, dùng `object.__init__` mặc định nếu không định nghĩa riêng).
 3. **Dynamic Monkey-Patching Cấu trúc Lớp**:
    - Python cho phép `setattr(obj, 'new_field', val)` hoặc thay đổi `obj.__class__` của instance tại runtime.
    - TokenVector đóng gói Class thành CIL type layout cố định để đạt tốc độ tối đa, không hỗ trợ chèn field ngẫu nhiên vào instance sau khi đã khởi tạo.

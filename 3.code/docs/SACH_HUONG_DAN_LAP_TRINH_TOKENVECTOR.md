@@ -5,6 +5,8 @@
 **Phiên bản: 2026.1 (Bản Phát hành Thương mại Độc lập)**  
 **Bản quyền & Bảo chứng: Đội ngũ Trình biên dịch TokenVector**
 
+> **Ghi chú tính đầy đủ (2026-08-10)**: Mục lục bên dưới liệt kê 20 bài (Bài 1-20), nhưng hiện **chỉ 12 bài có nội dung thật** (Bài 1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 15, 17). **8 bài sau CHƯA VIẾT** (chỉ có tên trong mục lục): Bài 4 (Khai báo Hàm), Bài 7 (break/continue/Recursion), Bài 11 (Dict/Set/Tuple), Bài 14 (Hệ thống Module/`import`), Bài 16 (Async/Await), Bài 18 (FFI Bridge), Bài 19 (Extern Assembly .NET), Bài 20 (Dynamic Execution `eval_code`/`exec_code`). Xem `USER-GUIDE.md` Chương 7-9 để có ví dụ tương ứng cho một số chủ đề này trong lúc chờ viết đầy đủ.
+
 ---
 
 ## TỔNG QUAN CHƯƠNG TRÌNH HỌC (TABLE OF CONTENTS)
@@ -80,7 +82,7 @@ Minh họa điểm vào mặc định `run()` của một ứng dụng TokenVect
 
 def demo_variables() -> "str":
     age = 25
-    count: "i64" = 1000000000
+    count = 1000000000
     price = 99.95
     name = "TokenVector Engine"
     return name + "|AGE_" + str(age) + "|COUNT_" + str(count)
@@ -90,11 +92,17 @@ def run() -> "str":
 ```
 
 #### 🎯 Mục đích của ví dụ:
-Hướng dẫn khai báo biến số nguyên 32-bit (`i32`), số nguyên 64-bit (`i64`), số thực 64-bit (`f64`), biến chuỗi (`str`), và cách ghép chuỗi bằng phép cộng `+` cùng hàm chuyển đổi `str()`.
+Hướng dẫn khai báo biến số nguyên (`i32`/`i64` tự suy), số thực 64-bit (`f64`), biến chuỗi (`str`), và cách ghép chuỗi bằng phép cộng `+` cùng hàm chuyển đổi `str()`.
+
+> **Lưu ý cú pháp bắt buộc**: annotation kiểu dạng `ten: "kieu" = gia_tri`
+> **CHỈ hợp lệ cho tham số hàm** (đặt giá trị mặc định) — dùng cho biến
+> cục bộ trong thân hàm sẽ báo lỗi biên dịch `khong dich duoc dong`. Với
+> biến cục bộ, luôn gán trần (`count = 1000000000`), compiler tự suy kiểu
+> phù hợp từ giá trị.
 
 #### 🔍 Giải thích chi tiết từng dòng lệnh:
 - **Dòng 4 (`age = 25`)**: Khai báo biến `age`, gán giá trị `25`. Trình biên dịch tự suy luận kiểu số nguyên 32-bit `i32`.
-- **Dòng 5 (`count: "i64" = 1000000000`)**: Khai báo biến `count` với chú thích kiểu rõ ràng `"i64"` (số nguyên 64-bit).
+- **Dòng 5 (`count = 1000000000`)**: Khai báo biến `count`, compiler tự suy kiểu đủ rộng cho giá trị (không cần annotation tường minh).
 - **Dòng 6 (`price = 99.95`)**: Khai báo biến `price`, gán số thực `99.95` (kiểu `f64`).
 - **Dòng 7 (`name = "TokenVector Engine"`)**: Khai báo biến `name` chứa chuỗi `"TokenVector Engine"`.
 - **Dòng 8 (`return name + ...`)**: Nối các chuỗi và các giá trị chuyển đổi `str(age)`, `str(count)` để trả về kết quả cuối cùng.
@@ -257,7 +265,6 @@ Minh họa cơ chế chủ động ném ngoại lệ bằng `raise`, bắt ngo�
 #### 📝 Mã nguồn tệp `string_demo.tkv`:
 ```tkv
 # -*- coding: utf-8 -*-
-import re
 
 def process_text(raw: "str") -> "str":
     sub_str = raw[0:4]
@@ -268,6 +275,12 @@ def run() -> "str":
     res = process_text("CODE1234TEST")
     return res
 ```
+
+> **Lưu ý cú pháp bắt buộc**: **KHÔNG viết `import re`** — `re_replace()`
+> là hàm builtin toàn cục có sẵn, không cần (và không được phép) `import`.
+> Viết `import re` sẽ báo lỗi biên dịch thật (`import module 're' khong
+> tim thay` — compiler cố tìm file `re.tkv` làm module chéo, không tìm
+> thấy) — đã xác minh trực tiếp 2026-08-10.
 
 #### 🎯 Mục đích của ví dụ:
 Trích xuất chuỗi con bằng cú pháp Slicing `[0:4]` và thay thế tất cả các chữ số bằng từ `"NUM"` qua hàm Regex `re_replace`.
@@ -331,6 +344,8 @@ Khai báo danh sách động `List<f64>`, thêm phần tử mới bằng `.appen
 # -*- coding: utf-8 -*-
 
 class BankAccount:
+    owner: "str"
+    balance: "f64"
     def __init__(self, owner: "str", balance: "f64"):
         self.owner = owner
         self.balance = balance
@@ -345,12 +360,19 @@ def run() -> "str":
     return "OWNER:" + acc.owner + "|NEW_BALANCE:" + str(new_bal)
 ```
 
+> **Lưu ý cú pháp bắt buộc**: mọi `class` phải khai báo field bằng
+> annotation kiểu **NGAY TRONG THÂN CLASS** (`owner: "str"`) — khác Python
+> (không cần khai báo trước, chỉ cần `self.owner = owner` trong
+> `__init__` là đủ). Thiếu khai báo field ở đầu class báo lỗi biên dịch
+> `record khong co field nao` dù `__init__` có gán field đó — đã xác minh
+> trực tiếp 2026-08-10.
+
 #### 🎯 Mục đích của ví dụ:
 Khai báo một Class OOP Native có Constructor `__init__`, lưu trữ attributes `self.owner`, `self.balance` và phương thức nộp tiền `deposit()`.
 
 #### 🔍 Giải thích chi tiết từng dòng lệnh:
-- **Dòng 3 (`class BankAccount:`)**: Khai báo lớp `BankAccount`.
-- **Dòng 4-6 (`def __init__(self, owner, balance):`)**: Hàm khởi tạo Constructor nhận tên chủ tài khoản và số dư ban đầu.
+- **Dòng 3 (`class BankAccount:`)**: Khai báo lớp `BankAccount`, kèm khai báo field `owner`/`balance` bắt buộc.
+- **Dòng 6-8 (`def __init__(self, owner, balance):`)**: Hàm khởi tạo Constructor nhận tên chủ tài khoản và số dư ban đầu.
 - **Dòng 8-10 (`def deposit(self, amount):`)**: Phương thức cộng thêm tiền gửi vào `self.balance`.
 - **Dòng 13-15**: Khởi tạo tài khoản `"John Doe"` có `1000.0`$, gửi thêm `500.0`$ $\rightarrow$ số dư mới thành `1500.0`$.
 
@@ -368,10 +390,12 @@ Khai báo một Class OOP Native có Constructor `__init__`, lưu trữ attribut
 # -*- coding: utf-8 -*-
 
 class Logger:
+    log_level: "i32"
     def log_msg(self, text: "str") -> "str":
         return "[LOG] " + text
 
 class Notifier:
+    channel_id: "i32"
     def send_alert(self, target: "str") -> "str":
         return "[ALERT] Sent to " + target
 
@@ -382,10 +406,12 @@ class SecuritySystem(Logger, Notifier):
         return m1 + " || " + m2
 
 def run() -> "str":
-    sys_obj = SecuritySystem()
+    sys_obj = SecuritySystem(1, 100)
     res = sys_obj.process_breach("Admin")
     return res
 ```
+
+> **Lưu ý bắt buộc**: mọi `class` trong TokenVector phải khai báo **ít nhất 1 field** (khác Python, cho phép class rỗng hoàn toàn) — thiếu field báo lỗi biên dịch `record khong co field nao`. Constructor tự sinh nhận tham số theo thứ tự field gộp từ mọi lớp cha (`log_level` từ `Logger`, `channel_id` từ `Notifier`).
 
 #### 🎯 Mục đích của ví dụ:
 Minh họa tính năng **Đa Kế Thừa Lớp Native** trong TokenVector: Lớp `SecuritySystem` kế thừa đồng thời cả hai lớp cha `Logger` và `Notifier`.
@@ -468,12 +494,22 @@ Khởi chạy 2 OS Kernel Threads chạy tính toán song song 100% trên 2 nhâ
 
 #### 🔍 Giải thích chi tiết từng dòng lệnh:
 - **Dòng 3-7 (`worker_task`)**: Hàm thực hiện 5,000,000 phép tính cộng dồn.
-- **Dòng 10-11 (`t1 = thread_spawn(...)`)**: Khởi tạo và khởi chạy 2 OS Kernel Threads độc lập song song.
-- **Dòng 13-14 (`r1 = thread_join(t1)`)**: Chờ cả 2 luồng hoàn tất và thu về kết quả của từng luồng.
-- **Dòng 15 (`return ...`)**: Trả về tổng kết quả của 2 luồng ($12,499,997,500,000 \times 2 = 24,999,995,000,000$).
+- **Dòng 10-11 (`t1 = thread_spawn(...)`)**: Khởi tạo và khởi chạy 2 OS Kernel Threads độc lập song song — luồng **chạy thật**, đủ 5 triệu vòng lặp mỗi luồng.
+- **Dòng 13-14 (`r1 = thread_join(t1)`)**: Chờ luồng hoàn tất.
 
-#### 📊 Kết quả thực thi cuối cùng (Output):
-- **Return Value**: `"MULTITHREAD_NO_GIL_RESULT:24999995000000"`
+> ⚠️ **GIỚI HẠN KIẾN TRÚC THẬT (đã build+chạy xác minh 2026-08-10, xem
+> `docs/BUGS_TODO.md` mục G)**: `thread_join()` hiện **LUÔN trả về `0`**,
+> KHÔNG lấy được giá trị `return s` thật của `worker_task()`. Nguyên nhân:
+> cơ chế bên dưới dùng `System.Threading.Thread` + `ThreadStart` (delegate
+> `void`, không có kênh trả giá trị) — đây là giới hạn của chính API đang
+> dùng, không phải lỗi in ấn. `r1 + r2` trong ví dụ này thực tế luôn ra
+> `0`, KHÔNG PHẢI `24999995000000`. Dùng `thread_spawn`/`thread_join` khi
+> chỉ cần **chạy song song, không cần lấy kết quả trả về** (vd ghi file,
+> gọi API phụ) — không dùng khi cần tổng hợp giá trị tính toán từ luồng
+> con cho tới khi bug này được sửa.
+
+#### 📊 Kết quả thực thi cuối cùng (Output) — ĐÃ XÁC MINH THẬT:
+- **Return Value**: `"MULTITHREAD_NO_GIL_RESULT:0"` (không phải `24999995000000`)
 
 ---
 
