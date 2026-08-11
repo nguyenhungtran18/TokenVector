@@ -32,7 +32,7 @@ TOKEN_RE = re.compile(r'''
       | (?P<STRING>"[^"]*")
       | (?P<NUMBER>\d+(?:\.\d+)?)
       | (?P<IDENT>[A-Za-z_]\w*)
-      | (?P<OP>[():,\[\]=-])
+      | (?P<OP>\*\*|[():,\[\]=*-])
     )
 ''', re.VERBOSE)
 
@@ -87,7 +87,8 @@ class TypeAnn:
 
 
 class Param:
-    def __init__(self, name: str, type_ann: TypeAnn, default_node=None):
+    def __init__(self, name: str, type_ann: TypeAnn, default_node=None, is_vararg=False,
+                 is_kwarg=False):
         self.name = name
         self.type_ann = type_ann
         # default_node: node bieu thuc ('num'/'str_lit'/'neg', ...) hoac
@@ -96,6 +97,9 @@ class Param:
         # khac (Python cho phep nhung mac dinh chi tinh 1 lan luc dinh
         # nghia ham, DSL nay chua co khai niem do - gioi han co y thuc).
         self.default_node = default_node
+        # is_vararg/is_kwarg (Phase 5.1, 2026-08-11): '*name: T'/'**name: T'.
+        self.is_vararg = is_vararg
+        self.is_kwarg = is_kwarg
 
     def __repr__(self):
         return f'Param({self.name}: {self.type_ann} = {self.default_node})'
@@ -309,7 +313,26 @@ class Parser:
         return ('neg', node) if neg else node
 
     def parse_param(self) -> Param:
-        """param := IDENT ':' type_ann ('=' default_literal)?"""
+        """param := IDENT ':' type_ann ('=' default_literal)?
+                   | '*' IDENT ':' type_ann | '**' IDENT ':' type_ann
+        '*name: T'/'**name: T' (Phase 5.1, 2026-08-11): type_ann THAT su la
+        'list[T]' (vararg) / 'dict[str,T]' (kwarg)."""
+        kind0, value0, _ = self.peek()
+        if kind0 == 'OP' and value0 in ('*', '**'):
+            self.advance()
+            is_kwarg = (value0 == '**')
+            name = self.expect('IDENT')
+            self.expect('OP', ':')
+            elem_ta = self.parse_type_ann()
+            if elem_ta.shape is not None:
+                raise SyntaxError(
+                    f"il_codegen: tham so '{'**' if is_kwarg else '*'}{name}' phai khai bao "
+                    f"1 dtype VO HUONG (vd 'i32'/'str'), khong ho tro list/dict long nhau")
+            if is_kwarg:
+                type_ann = TypeAnn(elem_ta.dtype, 'dict', key_dtype='str')
+            else:
+                type_ann = TypeAnn(elem_ta.dtype, 'list')
+            return Param(name, type_ann, None, is_vararg=not is_kwarg, is_kwarg=is_kwarg)
         name = self.expect('IDENT')
         self.expect('OP', ':')
         type_ann = self.parse_type_ann()
@@ -341,6 +364,8 @@ class Parser:
         # cung phai co default (khong the '(a: i32 = 1, b: i32)').
         seen_default = False
         for p in params:
+            if p.is_vararg or p.is_kwarg:
+                continue
             if p.default_node is not None:
                 seen_default = True
             elif seen_default:
@@ -348,6 +373,17 @@ class Parser:
                     f"il_codegen: tham so '{p.name}' khong co gia tri mac dinh nhung dung "
                     f"SAU 1 tham so da co default - tat ca tham so sau tham so co default "
                     f"dau tien cung phai co default (giong Python)")
+        vararg_idx = next((i for i, p in enumerate(params) if p.is_vararg), None)
+        kwarg_idx = next((i for i, p in enumerate(params) if p.is_kwarg), None)
+        if vararg_idx is not None and kwarg_idx is not None and vararg_idx > kwarg_idx:
+            raise SyntaxError("il_codegen: '*args' phai khai bao TRUOC '**kwargs'")
+        tail_start = min(x for x in (vararg_idx, kwarg_idx) if x is not None) \
+            if (vararg_idx is not None or kwarg_idx is not None) else len(params)
+        for p in params[tail_start:]:
+            if not (p.is_vararg or p.is_kwarg):
+                raise SyntaxError(
+                    f"il_codegen: tham so '{p.name}' khong the dung SAU '*args'/'**kwargs' "
+                    f"(khong ho tro keyword-only param rieng)")
         return params
 
     def parse_signature(self) -> Signature:

@@ -102,10 +102,26 @@ def _params_with_defaults(func_node, args_to_check, ctx_name):
     return parts
 
 
-def _extract_signature_line(func_node):
-    if func_node.args.vararg or func_node.args.kwarg or func_node.args.kwonlyargs:
+def _extract_signature_line(func_node, allow_varargs=False):
+    """allow_varargs (Phase 5.1, 2026-08-11): True CHI cho ham top-level."""
+    if func_node.args.kwonlyargs:
+        raise TranspileError(f"ham '{func_node.name}': chua ho tro tham so keyword-only")
+    if not allow_varargs and (func_node.args.vararg or func_node.args.kwarg):
         raise TranspileError(f"ham '{func_node.name}': chi ho tro tham so thuong (khong *args/**kwargs/keyword-only)")
     parts = _params_with_defaults(func_node, func_node.args.args, f"ham '{func_node.name}'")
+    if allow_varargs:
+        if func_node.args.vararg is not None:
+            va = func_node.args.vararg
+            if va.annotation is None:
+                raise TranspileError(f"ham '{func_node.name}': '*{va.arg}' thieu annotation kieu DSL")
+            t = _annotation_to_type_str(va.annotation, f"ham '{func_node.name}' tham so '*{va.arg}'")
+            parts.append(f"*{_rename_reserved_identifiers(va.arg)}: {t}")
+        if func_node.args.kwarg is not None:
+            kw = func_node.args.kwarg
+            if kw.annotation is None:
+                raise TranspileError(f"ham '{func_node.name}': '**{kw.arg}' thieu annotation kieu DSL")
+            t = _annotation_to_type_str(kw.annotation, f"ham '{func_node.name}' tham so '**{kw.arg}'")
+            parts.append(f"**{_rename_reserved_identifiers(kw.arg)}: {t}")
     if func_node.returns is None:
         raise TranspileError(f"ham '{func_node.name}': thieu return-type annotation (vd -> \"f32\":)")
     ret_t = _annotation_to_type_str(func_node.returns, f"ham '{func_node.name}' return type")
@@ -712,6 +728,7 @@ def _parse_program_ast(source_text):
     record_methods_raw = {}
     record_bases = {}
     module_consts = {}
+    module_globals = {}
     record_interfaces = {}
     interface_defs = {}
     pairs = []
@@ -748,7 +765,7 @@ def _parse_program_ast(source_text):
                     f"khi 'deco' la 1 ham top-level KHAC duoc khai bao trong CUNG file, dang "
                     f"'def deco(f: \"func(...)->...\") -> \"func(...)->...\":' voi than gom DUNG "
                     f"1 'def wrapper(...):' long + 'return wrapper' (xem _expand_custom_decorator)")
-            sig_line = _extract_signature_line(node)
+            sig_line = _extract_signature_line(node, allow_varargs=True)
             hoisted = []
             body_lines = _body_source_lines(source_lines, node, hoisted=hoisted)
             pairs.append((sig_line, body_lines))
@@ -874,10 +891,34 @@ def _parse_program_ast(source_text):
             # ham) - chua lam, va cach viet quen thuoc nhat trong script
             # la hang so.
             module_consts[node.targets[0].id] = node.value.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None and \
+                isinstance(node.target, ast.Name):
+            # BIEN toan cuc GHI DUOC ('global', 2026-08-11): 'counter: "i32" = 0'
+            # o cap module - PHAN BIET voi hang so o tren qua AnnAssign (co
+            # annotation kieu) thay vi Assign thuong. Sinh 1 '.field private
+            # static' THAT (xem gen_il_program/build_generic_main). Thu hep
+            # pham vi co y: CHI nhan gia tri khoi tao la 1 hang so/chuoi don
+            # gian (giong module_consts), KHONG bieu thuc phuc tap.
+            gname = node.target.id
+            if gname in module_consts:
+                raise TranspileError(
+                    f"'{gname}' da khai bao la hang so module (Assign khong annotation) - "
+                    f"khong the vua la hang so vua la bien global (AnnAssign)")
+            gdtype = _annotation_to_type_str(node.annotation, f"bien module-level '{gname}'")
+            if gdtype not in ('i32', 'i64', 'f32', 'f64', 'str'):
+                raise TranspileError(
+                    f"bien module-level '{gname}': 'global' hien CHI ho tro kieu vo huong "
+                    f"(i32/i64/f32/f64/str), khong ho tro container/record")
+            if not isinstance(node.value, ast.Constant) or isinstance(node.value.value, bool):
+                raise TranspileError(
+                    f"bien module-level '{gname}': gia tri khoi tao phai la 1 hang so/chuoi "
+                    f"don gian (giong hang so module), khong phai bieu thuc")
+            module_globals[gname] = (gdtype, node.value.value)
         else:
             raise TranspileError(
                 f"Chi ho tro dinh nghia ham/class-record top-level, HANG SO cap module "
-                f"(vd MAX = 10), (va '__tkv_import__') trong "
+                f"(vd MAX = 10), bien global co kieu (vd 'counter: \"i32\" = 0'), "
+                f"(va '__tkv_import__') trong "
                 f"1 file TokenVector; gap {type(node).__name__} o dong {node.lineno} (bien "
                 f"module-level khac/... chua ho tro)")
     if not pairs:
@@ -914,7 +955,7 @@ def _parse_program_ast(source_text):
 
     _resolve_record_field_types(record_defs)
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            import_names, extern_assemblies, module_consts)
+            import_names, extern_assemblies, module_consts, module_globals)
 
 
 def _resolve_record_field_types(record_defs):
@@ -959,14 +1000,14 @@ def extract_program(source_text):
     / transpile_file() cho truong hop do)."""
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies,
-     module_consts) = _parse_program_ast(source_text)
+     module_consts, module_globals) = _parse_program_ast(source_text)
     if import_names:
         raise TranspileError(
             f"file co '__tkv_import__' = {import_names!r} nhung duoc goi qua extract_program"
             f"(source_text) (khong co duong dan file that) - dung extract_program_file(tkv_path) "
             f"hoac compile_tkv_cli()/transpile_file() (co duong dan) de import cheo file hoat dong")
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            extern_assemblies, module_consts)
+            extern_assemblies, module_consts, module_globals)
 
 
 _PROJECT_ROOT = Path(__file__).parent.resolve()
@@ -1025,7 +1066,7 @@ def extract_program_file(tkv_path, _visited=None):
     source_text = tkv_path.read_text(encoding='utf-8')
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies,
-     module_consts) = _parse_program_ast(source_text)
+     module_consts, module_globals) = _parse_program_ast(source_text)
     func_names = {m.group(1) for sig_line, _ in pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
     for imp_name in import_names:
@@ -1039,7 +1080,7 @@ def extract_program_file(tkv_path, _visited=None):
         _visited.add(str(imp_path))
         (imp_record_defs, imp_record_methods_raw, imp_record_bases, imp_record_interfaces,
          imp_interface_defs, imp_pairs, imp_extern_assemblies,
-         imp_module_consts) = extract_program_file(imp_path, _visited)
+         imp_module_consts, imp_module_globals) = extract_program_file(imp_path, _visited)
         imp_func_names = {m.group(1) for sig_line, _ in imp_pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
         dup_funcs = func_names & imp_func_names
@@ -1070,9 +1111,13 @@ def extract_program_file(tkv_path, _visited=None):
         # ham/record) - trung ten thi file GOC thang (khai bao gan hon).
         for k, v in imp_module_consts.items():
             module_consts.setdefault(k, v)
+        # Bien global cua file IMPORT (2026-08-11) - cung quy uoc: trung
+        # ten thi file GOC thang.
+        for k, v in imp_module_globals.items():
+            module_globals.setdefault(k, v)
 
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            extern_assemblies, module_consts)
+            extern_assemblies, module_consts, module_globals)
 
 
 def _build_record_methods(record_defs, record_methods_raw, record_bases=None):
@@ -1147,7 +1192,7 @@ def _build_record_methods(record_defs, record_methods_raw, record_bases=None):
 
 
 def _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
-                          module_consts=None, extra_classes=None):
+                          module_consts=None, extra_classes=None, module_globals=None):
     """Phan CHUNG cua transpile_program/transpile_file - nhan ket qua da
     extract (tu 1 file don le HOAC da gop nhieu file qua
     extract_program_file/__tkv_import__), sinh CIL method that."""
@@ -1156,7 +1201,8 @@ def _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, wit
                        for sig_line, body_lines in pairs]
     return gen_il_program(sig_body_pairs, class_name=class_name, with_guards=with_guards,
                            records=record_defs, record_methods=record_methods,
-                           module_consts=module_consts, extra_classes=extra_classes)
+                           module_consts=module_consts, extra_classes=extra_classes,
+                           module_globals=module_globals)
 
 
 def transpile_program(source_text, class_name='Program', with_guards=True,
@@ -1169,9 +1215,10 @@ def transpile_program(source_text, class_name='Program', with_guards=True,
     RIENG ben ngoai class chuong trinh chinh). KHONG ho tro '__tkv_import__'
     (xem extract_program) - dung transpile_file() cho file co import cheo."""
     (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea,
-     module_consts) = extract_program(source_text)
+     module_consts, module_globals) = extract_program(source_text)
     return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
-                                 module_consts=module_consts, extra_classes=extra_classes)
+                                 module_consts=module_consts, extra_classes=extra_classes,
+                                 module_globals=module_globals)
 
 
 def transpile_file(tkv_path, class_name='Program', with_guards=True,
@@ -1180,9 +1227,10 @@ def transpile_file(tkv_path, class_name='Program', with_guards=True,
     ho tro '__tkv_import__' (khoang trong ngon ngu #3 - import module
     TokenVector khac) qua extract_program_file()."""
     (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea,
-     module_consts) = extract_program_file(tkv_path)
+     module_consts, module_globals) = extract_program_file(tkv_path)
     return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
-                                 module_consts=module_consts, extra_classes=extra_classes)
+                                 module_consts=module_consts, extra_classes=extra_classes,
+                                 module_globals=module_globals)
 
 
 # ============================================================
@@ -1231,7 +1279,26 @@ _CLI_PRINT_SEQ = {
 }
 
 
-def _build_main_tuple(sig, class_name, body):
+def _global_init_lines(module_globals, class_name):
+    """Sinh cac dong IL khoi tao TAT CA bien module-level GHI DUOC ('global',
+    2026-08-11) - goi 1 LAN DUY NHAT dau Main(), TRUOC khi goi ham entry.
+    Tranh dung '.cctor' (chua kiem chung trong codebase nay, cung tinh than
+    ghi chu o il_features/logging_feature.py) - khoi tao TRUC TIEP trong
+    than Main la duong da kiem chung an toan (giong cach CLI doc argv)."""
+    lines = []
+    for gname, (gdtype, gval) in (module_globals or {}).items():
+        il_t = IL_SCALAR[gdtype]
+        fname = "'" + gname + "'"
+        if gdtype == 'str':
+            escaped = str(gval).replace(chr(92), chr(92) * 2).replace('"', chr(92) + '"')
+            lines.append(f'    ldstr "{escaped}"')
+        else:
+            lines.append(f'    {IL_LDC_OP[gdtype]} {gval}')
+        lines.append(f'    stsfld {il_t} {class_name}::{fname}')
+    return lines
+
+
+def _build_main_tuple(sig, class_name, body, module_globals=None):
     """Phan duoi cua build_generic_main cho ham tra ValueTuple: doc tung
     ItemN qua ldflda (field cua struct - can DIA CHI de goi ToString tren
     value type, cung ly do voi str() builtin) roi noi thanh '(a, b)'."""
@@ -1276,6 +1343,7 @@ def _build_main_tuple(sig, class_name, body):
         '    .maxstack 8',
         f'    .locals init ({tup_il} __cli_ret)',
     ]
+    method += _global_init_lines(module_globals, class_name)
     method += body
     method.append('  }')
     return method
@@ -1300,7 +1368,7 @@ def _cli_default_literal(param, sig):
         f"Truyen du doi so khi chay, hoac doi mac dinh thanh 1 hang.")
 
 
-def build_generic_main(sig, class_name):
+def build_generic_main(sig, class_name, module_globals=None):
     """Sinh 1 method Main(string[] args) TU DONG cho ham entry `sig`: doc
     N tham so vo huong tu argv THEO DUNG THU TU tham so (parse dung dtype,
     InvariantCulture cho f32/f64 - xem bug locale that da sua o Buoc 1-3),
@@ -1370,7 +1438,7 @@ def build_generic_main(sig, class_name):
         # Ham tra TUPLE lam entry CLI (2026-08-03): in ra dang '(a, b)' -
         # dung het cua Python de doi chieu duoc THANG. Truoc day bi tu
         # choi hoan toan, du tuple dung NOI BO van chay tot.
-        return _build_main_tuple(sig, class_name, body)
+        return _build_main_tuple(sig, class_name, body, module_globals=module_globals)
 
     ret_dtype = sig.return_type.dtype
     if ret_dtype == 'str':
@@ -1411,6 +1479,7 @@ def build_generic_main(sig, class_name):
     ]
     if locals_decl:
         method.append(f'    .locals init ({locals_decl} __cli_ret)')
+    method += _global_init_lines(module_globals, class_name)
     method += body
     method.append('  }')
     return method
@@ -1454,7 +1523,8 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp'):
     entry_name co the la ham dinh nghia trong file IMPORT, khong chi file
     goc (func_table gop CA HAI)."""
     (record_defs, record_methods_raw, record_bases, record_interfaces,
-     interface_defs, pairs, extern_assemblies, module_consts) = extract_program_file(tkv_path)
+     interface_defs, pairs, extern_assemblies, module_consts,
+     module_globals) = extract_program_file(tkv_path)
     record_methods, record_method_bodies, record_methods_own = _build_record_methods(
         record_defs, record_methods_raw, record_bases=record_bases)
     record_overrides = _compute_record_overrides(record_bases, record_methods)
@@ -1482,8 +1552,9 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp'):
     extra_classes = []
     method_lines = gen_il_program(sig_body_pairs, class_name=class_name, records=record_defs,
                                    record_methods=record_methods, extra_classes=extra_classes,
-                                   record_bases=record_bases, module_consts=module_consts)
-    main_method = build_generic_main(func_table[entry_name], class_name)
+                                   record_bases=record_bases, module_consts=module_consts,
+                                   module_globals=module_globals)
+    main_method = build_generic_main(func_table[entry_name], class_name, module_globals=module_globals)
     record_type_lines = gen_record_types(record_defs, record_method_bodies=record_method_bodies,
                                           record_methods=record_methods, class_name=class_name,
                                           func_table=func_table, record_bases=record_bases,

@@ -892,6 +892,7 @@ class _Scope:
 
     def __init__(self):
         self.vars = {}
+        self.class_name = 'Program'
 
     def add_arg(self, name, idx, type_ann):
         self.vars[name] = ('arg', idx, type_ann)
@@ -916,6 +917,15 @@ class _Scope:
         sinh 'ldc'/'ldstr' thay vi 'ldloc'. Nho vay moi noi khac (suy
         dtype, so sanh, truyen tham so...) dung nguyen duong cu."""
         self.vars[name] = ('const', value, type_ann)
+
+    def add_global(self, name, type_ann):
+        """Bien module-level GHI DUOC ('global x' trong than ham, 2026-08-11)
+        - KHONG co local slot: doc/ghi qua '.field private static' cua
+        chinh class chuong trinh (xem self.class_name, gan trong
+        gen_il_function) qua ldsfld/stsfld (xem _load_var_ref/
+        _stmt_assign_scalar). idx = None (khong dung, giong quy uoc cua
+        'closure_field' voi tuple)."""
+        self.vars[name] = ('global', None, type_ann)
 
     def __getitem__(self, name):
         if name not in self.vars:
@@ -960,6 +970,11 @@ def _load_var_ref(name, scope: _Scope, out: list):
         return
     if kind == 'local':
         out.append(f'    ldloc.s {idx}')
+    elif kind == 'global':
+        # Bien module-level GHI DUOC ('global x', 2026-08-11) - doc qua
+        # '.field private static' cua class chuong trinh (xem _Scope.
+        # add_global/gen_il_function's scope.class_name).
+        out.append(f'    ldsfld {IL_SCALAR[ta.dtype]} {scope.class_name}::{_il_ident(name)}')
     elif kind == 'boxed':
         # Local cua ham NGOAI bi bat - idx tro toi slot giu THAM CHIEU cell,
         # phai ldfld 'v' de lay GIA TRI scalar that (xem _Scope docstring).
@@ -1024,6 +1039,11 @@ def _load_var_addr(name, scope: _Scope, out: list):
     kind, idx, _ = scope[name]
     if kind == 'local':
         out.append(f'    ldloca.s {idx}')
+    elif kind == 'global':
+        raise SyntaxError(
+            f"il_codegen: bien global '{name}' chua ho tro goi instance method/str() "
+            f"can dia chi (vd '.upper()'/str(x)) - pham vi 'global' hien CHI ho tro "
+            f"doc/ghi don gian, khong ho tro nhu 1 local")
     elif kind == 'selfarg':
         # 'self' trong 1 instance method DA LA dia chi tu dau (kieu !T&,
         # khong phai !T) - dung ldarg.s THANG (KHONG duoc ldarga.s lai,
@@ -1043,6 +1063,11 @@ def _store_var(name, scope: _Scope, out: list):
     if kind == 'arg':
         out.append(f'    starg.s {idx}')
         return
+    if kind == 'global':
+        raise SyntaxError(
+            f"il_codegen: bien global '{name}' chi ho tro gan don gian 'x = expr' "
+            f"(qua _stmt_assign_scalar) - duong ghi nay (vd compound-assign/bien vong "
+            f"lap) chua duoc ho tro cho 'global'")
     out.append(f'    stloc.s {idx}')
 
 
@@ -1889,26 +1914,48 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             f"il_codegen: ham '{name}' khong ton tai (khong phai ham toan hoc "
             f"{sorted(_MATH_FUNCS)}+abs, cung khong co trong chuong trinh dang bien dich)")
     callee = func_table[name]
-    n_required = sum(1 for p in callee.params if p.default_node is None)
-    if not (n_required <= len(args) <= len(callee.params)):
+    # *args/**kwargs (Phase 5.1, 2026-08-11).
+    normal_params = [p for p in callee.params if not (p.is_vararg or p.is_kwarg)]
+    vararg_param = next((p for p in callee.params if p.is_vararg), None)
+    kwarg_param = next((p for p in callee.params if p.is_kwarg), None)
+    n_required = sum(1 for p in normal_params if p.default_node is None)
+    n_fixed_max = len(normal_params)
+    if vararg_param is None:
+        if not (n_required <= len(args) <= n_fixed_max):
+            raise SyntaxError(
+                f"il_codegen: goi '{name}' voi {len(args)} tham so nhung ham '{name}' "
+                f"can {n_required}"
+                + (f'-{n_fixed_max}' if n_required != n_fixed_max else '')
+                + " tham so")
+    elif len(args) < n_required:
         raise SyntaxError(
-            f"il_codegen: goi '{name}' voi {len(args)} tham so nhung ham '{name}' "
-            f"can {n_required}"
-            + (f'-{len(callee.params)}' if n_required != len(callee.params) else '')
-            + " tham so")
+            f"il_codegen: goi '{name}' voi {len(args)} tham so nhung ham '{name}' can it nhat "
+            f"{n_required} tham so")
     if callee.return_type is None:
         raise SyntaxError(
             f"il_codegen: '{name}' khong co return type (ham void) - chua ho tro goi "
             f"ham void o giua bieu thuc")
-    for arg_node, p in zip(args, callee.params):
+    n_fixed_supplied = min(len(args), n_fixed_max)
+    for arg_node, p in zip(args, normal_params):
         if p.type_ann.shape == 'func':
             _compile_funcref_arg(arg_node, p.type_ann, scope, out, ctx)
         else:
             _compile_expr(arg_node, scope, out, p.type_ann.dtype, ctx)
     # Tham so con thieu (Wave 2, 2026-07-29): dung default_node cua chinh
     # Param do, khong can scope (chi la literal, xem Param.default_node).
-    for p in callee.params[len(args):]:
+    for p in normal_params[n_fixed_supplied:]:
         _compile_expr(p.default_node, scope, out, p.type_ann.dtype, ctx)
+    if vararg_param is not None:
+        extra_args = args[n_fixed_max:]
+        list_il = il_type_str(vararg_param.type_ann, records)
+        out.append(f'    newobj instance void {list_il}::.ctor()')
+        for a in extra_args:
+            out.append('    dup')
+            _compile_expr(a, scope, out, vararg_param.type_ann.dtype, ctx)
+            out.append(f'    callvirt instance void {list_il}::Add(!0)')
+    if kwarg_param is not None:
+        dict_il = il_type_str(kwarg_param.type_ann, records)
+        out.append(f'    newobj instance void {dict_il}::.ctor()')
     if getattr(callee, 'is_async', False):
         raw_ret = il_type_str(callee.return_type)
         ret_il = f'class [mscorlib]System.Threading.Tasks.Task`1<{raw_ret}>'
@@ -3268,6 +3315,13 @@ def _stmt_assign_scalar(stmt, scope: _Scope, body: list, body_dtype: str, ctx: d
     # (1 ham numeric van co the co local string, vd de xay message).
     name = stmt['name']
     kind, idx, var_ta = scope[name]
+    if kind == 'global':
+        # Bien module-level GHI DUOC ('global x', 2026-08-11) - ghi qua
+        # '.field private static' cua class chuong trinh (stsfld), khong
+        # co local slot (xem _Scope.add_global/_load_var_ref).
+        _compile_expr(stmt['rhs_node'], scope, body, var_ta.dtype, ctx)
+        body.append(f'    stsfld {IL_SCALAR[var_ta.dtype]} {scope.class_name}::{_il_ident(name)}')
+        return
     if kind == 'boxed':
         # Closure that (Buoc 4): CIL 'stfld' can THU TU [objref, value] tren
         # stack - value KHONG the tinh TRUOC nhu duong thuong (_store_var)
@@ -3565,6 +3619,25 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
     return out
 
 
+_GLOBAL_DECL_RE = re.compile(r'^(\s*)global\s+(\w+(?:\s*,\s*\w+)*)\s*$')
+
+
+def _extract_global_decls(body_lines):
+    """Quet 'global x, y' (2026-08-11) trong body_lines RAW (truoc parse) -
+    tra ve (list ten bien, body_lines DA LOAI cac dong nay). Giong CPython
+    that: 'global' la 1 khai bao THUAN BIEN-DICH, khong sinh bytecode/IL
+    rieng - loai bo o day de _parse_block khong can biet gi ve no."""
+    names = []
+    kept = []
+    for line in body_lines:
+        m = _GLOBAL_DECL_RE.match(line)
+        if m:
+            names.extend(n.strip() for n in m.group(2).split(','))
+        else:
+            kept.append(line)
+    return names, kept
+
+
 def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
                      func_table: dict = None, class_name: str = None, records: dict = None,
                      self_type_ann: TypeAnn = None, record_methods: dict = None,
@@ -3572,7 +3645,7 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
                      extra_classes: list = None, emitted_types: set = None,
                      pre_parsed_stmts: list = None, virtual_kw: str = None,
                      record_bases: dict = None, module_consts: dict = None,
-                     record_methods_own: dict = None) -> list:
+                     record_methods_own: dict = None, module_globals: dict = None) -> list:
     """Sinh 1 CIL `.method` HOAN CHINH (bao goi .method/.locals/instructions/
     .maxstack/}) tu Signature + than ham (body_lines - CUNG dinh dang dung
     cho csharp_codegen.py). Tra ve list dong.
@@ -3616,6 +3689,7 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
         body_dtype = 'i32'
 
     scope = _Scope()
+    scope.class_name = class_name or 'Program'
     param_idx_base = 0
     if self_type_ann is not None:
         scope.add_self('self', self_type_ann)
@@ -3660,6 +3734,25 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
     if pre_parsed_stmts is not None:
         stmts = pre_parsed_stmts
     else:
+        # 'global x, y' (2026-08-11): quet + LOAI BO cac dong khai bao nay
+        # KHOI body_lines TRUOC KHI parse binh thuong (giong 'global' cua
+        # CPython that - khong sinh bytecode/IL rieng, chi la 1 khai bao
+        # bien-dich). Danh dau MOI ten trong 'global_names' de first-pass
+        # (extra_declared) VA second-pass (scope.add_global) coi la bien
+        # module-level thay vi local moi. Pham vi thu hep co y: CHI ho tro
+        # o ham top-level (khong pre_parsed_stmts - tuc KHONG ho tro trong
+        # 1 ham long/closure, chua co nhu cau/test that).
+        global_names, body_lines = _extract_global_decls(body_lines)
+        for gname in global_names:
+            if gname not in (module_globals or {}):
+                raise SyntaxError(
+                    f"il_codegen: ham '{sig.name}': 'global {gname}' nhung khong co bien "
+                    f"module-level ten '{gname}' (khai bao dang 'ten: \"dtype\" = gia_tri' "
+                    f"o cap module)")
+            gdtype, _gval = module_globals[gname]
+            g_ta = TypeAnn(gdtype, None)
+            scope.add_global(gname, g_ta)
+            extra_declared[gname] = g_ta
         body_lines = _expand_macros(body_lines)
         body_lines = [_rename_reserved_identifiers(l) for l in body_lines]
         lines = _strip_lines(body_lines)
@@ -4034,7 +4127,7 @@ def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict
 def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guards: bool = True,
                     records: dict = None, record_methods: dict = None,
                     extra_classes: list = None, record_bases: dict = None,
-                    module_consts: dict = None) -> list:
+                    module_consts: dict = None, module_globals: dict = None) -> list:
     """Bien dich NHIEU ham/1 chuong trinh (danh sach (Signature, body_lines))
     thanh 1 CIL class hoan chinh - moi ham co the goi ham KHAC trong CUNG
     danh sach (func_table xay TRUOC, cho phep goi xuoi lan goi nguoc thu
@@ -4114,6 +4207,13 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
         _int_type.ensure_class({'emitted_types': emitted_types,
                                 'extra_classes': extra_classes})
     all_lines = []
+    # Bien module-level GHI DUOC ('global', 2026-08-11): 1 '.field private
+    # static' cho MOI bien, khai bao O DAU class chuong trinh (truoc cac
+    # '.method') - gia tri khoi tao that su duoc gan trong Main() (xem
+    # tkv_compile.tkv's _global_init_lines, tranh dung '.cctor' chua kiem
+    # chung trong codebase nay).
+    for gname, (gdtype, _gval) in (module_globals or {}).items():
+        all_lines.append(f"  .field private static {IL_SCALAR[gdtype]} {_il_ident(gname)}")
     for sig, body_lines in sig_body_pairs:
         if getattr(sig, 'is_generator', False):
             all_lines.extend(gen_il_generator_function(
@@ -4126,7 +4226,8 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
                                               records=records, record_methods=record_methods,
                                               extra_classes=extra_classes, emitted_types=emitted_types,
                                               record_bases=record_bases,
-                                              module_consts=module_consts))
+                                              module_consts=module_consts,
+                                              module_globals=module_globals))
     import il_features.ffi_feature as _ffi
     import il_features.dynamic_exec as _dyn
     import il_features.stdlib_bcl as _bcl
