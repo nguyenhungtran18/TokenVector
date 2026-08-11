@@ -215,6 +215,18 @@ class Parser:
                     f"(khong ho tro long nhau list/dict), gap {v_val!r} (vi tri ~{v_pos})")
             self.expect('OP', ']')
             return TypeAnn(v_val, 'defaultdict', key_dtype=k_val)
+        if kind == 'IDENT' and value == 'Counter':
+            # 'Counter[K]' (Phase 3.2, 2026-08-11): dtype GIA TRI luon CO
+            # DINH 'i32' (dem tan suat) - khong cho khai bao dtype khac,
+            # khac 'dict[K,V]'/'defaultdict[K,V]' co V tuy chon.
+            self.expect('OP', '[')
+            k_kind, k_val, k_pos = self.advance()
+            if k_kind != 'IDENT' or k_val not in DTYPES:
+                raise SyntaxError(
+                    f"il_codegen: ky vong key_dtype trong 'Counter[...]', gap {k_val!r} "
+                    f"(vi tri ~{k_pos})")
+            self.expect('OP', ']')
+            return TypeAnn('i32', 'counter', key_dtype=k_val)
         if kind == 'IDENT' and value == 'func':
             # 'func(dtype, dtype, ...) -> dtype' - "function reference" HEP
             # (Wave 3, 2026-07-29): CHI dung lam kieu THAM SO, bieu dien 1

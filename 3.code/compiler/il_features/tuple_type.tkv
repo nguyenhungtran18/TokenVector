@@ -85,7 +85,30 @@ def codegen_tuple_assign(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_
     targets = stmt['targets']
     compile_expr = ctx['compile_expr']
     store_var = ctx['store_var']
-    if len(rhs_nodes) == 1:
+    if len(rhs_nodes) == 1 and rhs_nodes[0][0] == 'index':
+        # 'k, v = lst[i]' (Phase 3.2, 2026-08-11 - most_common(c,n) tra ve
+        # list[(K,i32)], can doc lai tung phan tu) - 'lst' phai la 1 BIEN
+        # list-cua-tuple (elem_ta.shape=='tuple'). Dung LAI y het mau
+        # ldloc-roi-ldfld cua nhanh 'call' ben duoi (da xac minh THAT) -
+        # chi khac buoc lay GIA TRI tuple: get_Item(int32) thay vi goi ham.
+        idx_node = rhs_nodes[0]
+        list_name, indices = idx_node[1], idx_node[2]
+        if len(indices) != 1:
+            raise SyntaxError(f"il_codegen: '{', '.join(targets)} = {list_name}[...]' chi ho tro 1 chi so")
+        _, _, list_ta = scope[list_name]
+        dtypes = list_ta.elem_ta.tuple_dtypes
+        tuple_type = il_tupleN_type(dtypes)
+        list_type = ctx['il_type_str'](list_ta, ctx.get('records'))
+        _, tmp_idx, _ = scope[f'__tupleassign{id(stmt)}_tmp']
+        ctx['load_var_ref'](list_name, scope, body)
+        compile_expr(indices[0], scope, body, 'i32', ctx)
+        body.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
+        body.append(f'    stloc.s {tmp_idx}')
+        for i, t in enumerate(targets):
+            body.append(f'    ldloc.s {tmp_idx}')
+            body.append(f'    ldfld !{i} {tuple_type}::Item{i + 1}')
+            store_var(t, scope, body)
+    elif len(rhs_nodes) == 1:
         # 'x, y, ... = f(...)' - f tra ve 1 ValueTuple<T1..TN> that -
         # luu vao local tam TRUOC roi doc lai N lan (ldfld doc truc tiep
         # tren 1 gia tri value-type KHONG can dia chi, nhung can nap lai
@@ -130,7 +153,33 @@ def fpw_tuple_assign(stmt, ctx):
     declare_named = ctx['declare_named']
     collect_ternary_temps = ctx['collect_ternary_temps']
     TypeAnn = ctx['TypeAnn']
-    if len(rhs_nodes) == 1:
+    infer_scope = ctx.get('infer_scope')
+    if len(rhs_nodes) == 1 and rhs_nodes[0][0] == 'index' and infer_scope is not None:
+        # 'k, v = lst[i]' (Phase 3.2, 2026-08-11) - 'lst' phai la 1 BIEN
+        # list-cua-tuple da khai bao (elem_ta.shape=='tuple') - xem
+        # codegen_tuple_assign's nhanh tuong ung.
+        idx_node = rhs_nodes[0]
+        list_name, indices = idx_node[1], idx_node[2]
+        try:
+            list_ta = infer_scope[list_name][2]
+        except KeyError:
+            raise SyntaxError(f"il_codegen: '{', '.join(targets)} = {list_name}[...]' - '{list_name}' chua duoc khai bao")
+        if list_ta.shape != 'list' or list_ta.elem_ta is None or list_ta.elem_ta.shape != 'tuple':
+            raise SyntaxError(
+                f"il_codegen: '{', '.join(targets)} = {list_name}[...]' - '{list_name}' phai la "
+                f"1 list-cua-tuple (vd 'list[(K,i32)]' tra ve tu most_common(...))")
+        dtypes = list_ta.elem_ta.tuple_dtypes
+        if len(dtypes) != len(targets):
+            raise SyntaxError(
+                f"il_codegen: '{', '.join(targets)} = {list_name}[...]' - can {len(dtypes)} "
+                f"target (tuple {len(dtypes)} phan tu), gap {len(targets)}")
+        for t, d in zip(targets, dtypes):
+            declare_named(t, TypeAnn(d, None))
+        declare_named(f'__tupleassign{id(stmt)}_tmp',
+                      TypeAnn(dtypes[0], 'tuple', tuple_dtypes=dtypes))
+        for idx_expr in indices:
+            collect_ternary_temps(idx_expr)
+    elif len(rhs_nodes) == 1:
         # 'x, y, ... = f(...)' - f tra ve 1 tuple that.
         call_node = rhs_nodes[0]
         if call_node[0] != 'call' or not func_table or call_node[1] not in func_table:

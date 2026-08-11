@@ -222,11 +222,12 @@ def il_type_str(type_ann: TypeAnn, records: dict = None) -> str:
         # Local AN cho phep don chuoi trong vong lap (il_features/
         # str_accum.py) - khong bao gio la kieu do NGUOI DUNG viet ra.
         return 'class [mscorlib]System.Text.StringBuilder'
-    if type_ann.shape in ('dict', 'defaultdict'):
-        # 'defaultdict' (Phase 3.2, 2026-08-11): vat ly VAN LA Dictionary<K,V>
-        # giong het 'dict' - chi khac hanh vi doc chi so bi thieu (xem
-        # il_features/defaultdict_type.py) - CHUA ho tro long nhau (gia tri
-        # luon vo huong, khac 'dict' co the long qua elem_ta).
+    if type_ann.shape in ('dict', 'defaultdict', 'counter'):
+        # 'defaultdict'/'counter' (Phase 3.2, 2026-08-11): vat ly VAN LA
+        # Dictionary<K,V> giong het 'dict' - chi khac hanh vi doc chi so
+        # bi thieu (xem il_features/defaultdict_type.py, counter_type.py)
+        # - CHUA ho tro long nhau (gia tri luon vo huong, khac 'dict' co
+        # the long qua elem_ta).
         if type_ann.elem_ta is not None:
             inner = il_type_str(type_ann.elem_ta, records)
             key = IL_SCALAR[type_ann.key_dtype]  # khoa dict CHUA ho tro long nhau (khoa luon vo huong)
@@ -1227,6 +1228,9 @@ def _expr_index(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     if type_ann.shape == 'defaultdict':
         from il_features.defaultdict_type import compile_index_defaultdict
         return compile_index_defaultdict(name, indices, scope, out, dtype, ctx)
+    if type_ann.shape == 'counter':
+        from il_features.counter_type import compile_index_counter
+        return compile_index_counter(name, indices, scope, out, dtype, ctx)
     if type_ann.dtype == 'str' and type_ann.shape is None:
         return _string_compile_index_str(name, indices, scope, out, ctx)
     if type_ann.shape == 'set':
@@ -1975,10 +1979,11 @@ def _compile_index_store(name, indices, value_node, scope: _Scope, out: list, dt
         list_type = il_type_str(type_ann, (ctx or {}).get('records'))
         out.append(f'    callvirt instance void {list_type}::set_Item(int32, !0)')
         return
-    if type_ann.shape in ('dict', 'defaultdict'):
-        # 'defaultdict' (Phase 3.2): GHI qua chi so hoat dong Y HET dict
-        # thuong (khong can auto-vivify khi GHI, chi khi DOC - xem
-        # _expr_index/il_features/defaultdict_type.py).
+    if type_ann.shape in ('dict', 'defaultdict', 'counter'):
+        # 'defaultdict'/'counter' (Phase 3.2): GHI qua chi so hoat dong Y
+        # HET dict thuong (khong can auto-vivify/khong-vivify khi GHI, chi
+        # khac o DOC - xem _expr_index/il_features/defaultdict_type.py,
+        # counter_type.py).
         if len(indices) != 1:
             raise SyntaxError(f"il_codegen: dict '{name}' chi ho tro 1 khoa (vd {name}[k] = v)")
         _load_var_ref(name, scope, out)
@@ -2406,14 +2411,21 @@ def _lp_typed_local_decl(line, lines, pos, indent_level, sig, known_shapes, pars
         return None
     name, type_str, rhs = m.groups()
     type_ann = parse_type_ann_str(type_str)
-    if type_ann.shape not in ('func', 'defaultdict'):
-        # Pham vi Phase 3.3/3.2: CHI khai bao local kieu 'func'/'defaultdict'
-        # co cu phap tuong minh - list/dict/scalar... van suy dtype tu ve
-        # phai nhu cu (declare_scalar), khong can/khong ho tro cu phap nay.
+    is_list_of_tuple = type_ann.shape == 'list' and type_ann.elem_ta is not None and \
+        type_ann.elem_ta.shape == 'tuple'
+    if type_ann.shape not in ('func', 'defaultdict', 'counter') and not is_list_of_tuple:
+        # Pham vi Phase 3.3/3.2: CHI khai bao local kieu 'func'/'defaultdict'/
+        # 'counter'/'list[(K,V)]' co cu phap tuong minh (list[(K,V)] can
+        # thiet rieng cho 'most_common(c,n)' - xem il_features/
+        # counter_type.py - vi khong suy dinh duoc dang list-cua-tuple qua
+        # duong declare_scalar thuong, chi ho tro dtype PHU THUOC tham so
+        # bang 1 chuoi dtype don, khong bieu dien duoc shape long nhau) -
+        # cac kieu khac suy dtype tu ve phai nhu cu (declare_scalar), khong
+        # can/khong ho tro cu phap nay.
         raise SyntaxError(
             f"il_codegen: khai bao local co kieu tuong minh ('{name}: \"{type_str}\" = ...') "
-            f"hien CHI ho tro kieu 'func(...)->...'/'defaultdict[K,V]' - cac kieu khac suy "
-            f"dtype tu ve phai, khong dung cu phap nay")
+            f"hien CHI ho tro kieu 'func(...)->...'/'defaultdict[K,V]'/'Counter[K]'/"
+            f"'list[(K,V)]' - cac kieu khac suy dtype tu ve phai, khong dung cu phap nay")
     rhs_node = parse_expr(rhs)
     return {'kind': 'assign_typed_decl', 'name': name, 'type_ann': type_ann,
             'rhs_node': rhs_node}, pos + 1
@@ -3038,6 +3050,13 @@ def _fpw_assign_typed_decl(stmt, ctx):
         # il_features/defaultdict_type.py's compile_assign_defaultdict_new.
         ctx['declare_named'](f'__defaultdict_factory_{stmt["name"]}',
                               TypeAnn(stmt['type_ann'].dtype, 'func', func_params=[]))
+    if stmt['type_ann'].shape == 'counter':
+        # Phase 3.2 (2026-08-11): local AN giu chi so vong lap khi khoi
+        # tao 'Counter(xs)' (dem tan suat cac phan tu xs) - xem
+        # il_features/counter_type.py's compile_assign_counter_new. Khai
+        # bao vo dieu kien (ke ca 'Counter()' rong khong dung toi) - don
+        # gian hon kiem tra dieu kien o day, ton 1 slot local khong dang ke.
+        ctx['declare_named'](f'__counter_idx_{stmt["name"]}', TypeAnn('i32', None))
     ctx['collect_ternary_temps'](stmt['rhs_node'])
 
 
@@ -3276,6 +3295,13 @@ def _stmt_assign_scalar(stmt, scope: _Scope, body: list, body_dtype: str, ctx: d
         # - xem il_features/defaultdict_type.py's compile_assign_defaultdict_new.
         from il_features.defaultdict_type import compile_assign_defaultdict_new
         compile_assign_defaultdict_new(name, var_ta, stmt['rhs_node'], scope, body, ctx)
+        return
+    if var_ta.shape == 'counter' and stmt['rhs_node'][0] == 'call' and \
+            stmt['rhs_node'][1] == 'Counter':
+        # Phase 3.2 (2026-08-11): 'c: "Counter[K]" = Counter()'/'Counter(xs)'
+        # - xem il_features/counter_type.py's compile_assign_counter_new.
+        from il_features.counter_type import compile_assign_counter_new
+        compile_assign_counter_new(name, var_ta, stmt['rhs_node'], scope, body, ctx)
         return
     if var_ta.shape == 'func' and stmt['rhs_node'][0] in ('lambda', 'var'):
         # Phase 3.3 (2026-08-11) - CHI re nhanh khi ve phai la 'lambda'/
