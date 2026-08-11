@@ -1,0 +1,64 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+# Ghi chu: cu phap that Python can 'from collections import defaultdict',
+# nhung o day bo qua dong import (xem namedtuple_test.tkv - ly do giong het:
+# cay .tkv tu-host co resolver import THAT rieng, se bao loi "module khong
+# tim thay" neu viet 'from collections import defaultdict').
+
+
+def zero_i32() -> "i32":
+    return 0
+
+
+def one_i32() -> "i32":
+    return 1
+
+
+def empty_str() -> "str":
+    return "-"
+
+
+def count_missing_key() -> "i32":
+    fac: "func()->i32" = zero_i32
+    d: "defaultdict[str,i32]" = defaultdict(fac)
+    return d["missing"]
+
+
+def increment_twice() -> "i32":
+    fac: "func()->i32" = zero_i32
+    d: "defaultdict[str,i32]" = defaultdict(fac)
+    d["a"] = d["a"] + 1
+    d["a"] = d["a"] + 1
+    return d["a"]
+
+
+def two_keys_independent() -> "i32":
+    fac: "func()->i32" = one_i32
+    d: "defaultdict[str,i32]" = defaultdict(fac)
+    d["x"] = d["x"] + 5
+    return d["x"] + d["y"]
+
+
+def string_default() -> "str":
+    fac: "func()->str" = empty_str
+    d: "defaultdict[str,str]" = defaultdict(fac)
+    return d["nope"]
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("count_missing_key", str(count_missing_key()), "0")
+
+    tested = tested + 1
+    total = total + check("increment_twice", str(increment_twice()), "2")
+
+    tested = tested + 1
+    total = total + check("two_keys_independent", str(two_keys_independent()), "7")
+
+    tested = tested + 1
+    total = total + check("string_default", string_default(), "-")
+
+    return test_summary("defaultdict_test", total, tested)
