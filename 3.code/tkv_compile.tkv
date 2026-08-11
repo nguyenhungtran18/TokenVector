@@ -521,6 +521,48 @@ def _extract_record_def(class_node, source_lines, known_records=None, known_inte
     return fields, methods_raw, base_name, base_info, interface_names
 
 
+def _extract_namedtuple_def(assign_node):
+    """'Point = namedtuple("Point", ["x", "y"])' hoac dang chuoi cach nhau
+    boi khoang trang 'namedtuple("Point", "x y")' (Phase 3.2, 2026-08-11,
+    nguoi dung chon "kieu built-in moi hoan chinh" - KHONG syntax sugar
+    tren dict/tuple co san). Desugar NGAY O TANG PARSE thanh field list
+    dung dinh dang (name, dtype) HET NHU 1 record record thuong (xem
+    _extract_record_def) - field MAC DINH kieu "i32" (DSL khong co dynamic
+    typing, khong the suy tu gia tri runtime luc bien dich). Ten record
+    dung TEN BIEN duoc GAN ('Point' o 've trai') - tham so typename dau
+    tien CHI de kiem tra dang hop le, khong dung lam ten (giong Python
+    that cho phep 2 ten khac nhau nhung o day don gian hoa: PHAI GIONG
+    ten bien, tranh 2 ten khac nhau cho cung 1 kieu gay nham lan doc code).
+
+    Tra ve (record_name, fields: list[(name, "i32")])."""
+    record_name = assign_node.targets[0].id
+    call = assign_node.value
+    if len(call.args) < 2 or call.keywords:
+        raise TranspileError(
+            f"'{record_name} = namedtuple(...)': can dung 2 tham so vi tri "
+            f"(typename:str, field_names:list[str] hoac str cach nhau boi "
+            f"khoang trang), khong ho tro tham so keyword")
+    typename_node, fields_node = call.args[0], call.args[1]
+    if not (isinstance(typename_node, ast.Constant) and isinstance(typename_node.value, str)):
+        raise TranspileError(f"'{record_name} = namedtuple(...)': tham so dau (typename) phai la 1 chuoi")
+    if typename_node.value != record_name:
+        raise TranspileError(
+            f"'{record_name} = namedtuple(\"{typename_node.value}\", ...)': typename phai GIONG "
+            f"ten bien duoc gan ('{record_name}') - chua ho tro 2 ten khac nhau")
+    if isinstance(fields_node, ast.Constant) and isinstance(fields_node.value, str):
+        field_names = fields_node.value.replace(',', ' ').split()
+    elif isinstance(fields_node, (ast.List, ast.Tuple)) and fields_node.elts and \
+            all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in fields_node.elts):
+        field_names = [e.value for e in fields_node.elts]
+    else:
+        raise TranspileError(
+            f"'{record_name} = namedtuple(...)': tham so thu 2 (field_names) phai la 1 list "
+            f"chuoi hoac 1 chuoi cach nhau boi khoang trang, vd ['x','y'] hoac \"x y\"")
+    if not field_names:
+        raise TranspileError(f"'{record_name} = namedtuple(...)': can it nhat 1 field")
+    return record_name, [(fn, 'i32') for fn in field_names]
+
+
 _FUNC_NAME_RE = re.compile(r'^(\w+)\(')
 
 
@@ -673,6 +715,21 @@ def _parse_program_ast(source_text):
                 version = args[2] if len(args) > 2 else 'DEFAULT'
                 extern_assemblies.append((asm_name, pubkeytoken, version))
             continue
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Call) and \
+                ((isinstance(node.value.func, ast.Name) and node.value.func.id == 'namedtuple') or
+                 (isinstance(node.value.func, ast.Attribute) and node.value.func.attr == 'namedtuple')):
+            # collections.namedtuple (Phase 3.2, 2026-08-11): desugar THANH
+            # 1 record binh thuong NGAY O TANG PARSE - tai su dung 100%
+            # pipeline record co san (gen_record_types/record_feature.py)
+            # ben duoi, KHONG runtime wrapper (xem _extract_namedtuple_def).
+            record_name, fields = _extract_namedtuple_def(node)
+            if record_name in record_defs or record_name in interface_defs:
+                raise TranspileError(f"trung ten class '{record_name}' (namedtuple)")
+            record_defs[record_name] = fields
+            record_methods_raw[record_name] = []
+            record_bases[record_name] = None
+            record_interfaces[record_name] = []
         elif isinstance(node, ast.Assign) and len(node.targets) == 1 and                 isinstance(node.targets[0], ast.Name) and                 isinstance(node.value, ast.Constant) and                 isinstance(node.value.value, (int, float, str)) and                 not isinstance(node.value.value, bool):
             # HANG SO cap module (2026-08-03): 'MAX = 10' / 'NAME = "x"'.
             # CHI nhan HANG so/chuoi - KHONG phai bien toan cuc that (khong
