@@ -807,7 +807,13 @@ def _parse_program_ast(source_text):
                     "__tkv_import__ phai la 1 chuoi hoac list chuoi (ten file .tkv KHONG co "
                     "duoi '.tkv', vd __tkv_import__ = 'shapes' hoac ['shapes', 'utils'])")
         elif isinstance(node, ast.Import):
+            # 'tkv_import_hook' (Phase 6.2, 2026-08-11): marker rieng, KHONG
+            # phai 1 module TokenVector - dong nay chi de dang ky FileFinder
+            # path_hook cho '.tkv' luc chay THAT duoi CPython (xem
+            # tkv_import_hook.py).
             for alias in node.names:
+                if alias.name == 'tkv_import_hook':
+                    continue
                 import_names.append(alias.name)
         elif isinstance(node, ast.ImportFrom):
             if node.module:
@@ -850,8 +856,6 @@ def _parse_program_ast(source_text):
                         "__tkv_extern_assembly__ phai la 1 chuoi/list chuoi (ten assembly .NET "
                         "Framework GAC chuan, vd 'System.Xml') hoac tuple 3 phan tu (ten, "
                         "publickeytoken_hex_or_None, version_or_None) cho assembly rieng")
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            continue  # vd 'import numpy as np' - chi de file chay duoc duoi CPython that
         elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and \
                 isinstance(node.value.value, str):
             continue  # module docstring

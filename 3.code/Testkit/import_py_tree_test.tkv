@@ -1,0 +1,16 @@
+import tkv_import_hook  # noqa: F401 - dang ky hook de 'from X import ...' chay dung duoi CPython that
+from import_lib_mod import double, greet
+from tkv_test_lib import check, test_summary
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("double", str(double(21)), "42")
+
+    tested = tested + 1
+    total = total + check("greet", greet("tkv"), "hello tkv")
+
+    return test_summary("import_py_tree_test", total, tested)
