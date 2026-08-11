@@ -167,7 +167,21 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
 def _str_of_slot(var_kind, var_idx, var_ta, out, ctx, int_dtypes, float_dtypes):
     """Sinh ToString(InvariantCulture) cho 1 SLOT (arg/local) da co dia
     chi - dung chung cho ca 'str(bien)' va 'str(bieu thuc)' (bieu thuc da
-    duoc do vao 1 local an truoc do)."""
+    duoc do vao 1 local an truoc do).
+
+    BUG THAT sua 2026-08-11 (phat hien khi verify .format(), xem
+    string_format.py): dtype='int' (TkvInt, so nguyen vo han chu so cua
+    DSL) truoc day RƠI vao nhanh chung ben duoi (gia dinh MOI dtype so co
+    instance method 'ToString(IFormatProvider)') -> MissingMethodException
+    THAT luc chay ('str(1)', 'str(i+1)' voi i la 'int' deu vo). TkvInt
+    KHONG co ToString(IFormatProvider) - chi co ham STATIC rieng
+    'TkvInt::Str(valuetype TkvInt)' (xem int_type.py's compile_str_of_int)."""
+    if var_ta.dtype == 'int':
+        import il_features.int_type as _int_type
+        _int_type.ensure_class(ctx)
+        out.append(f'    {"ldarg.s" if var_kind == "arg" else "ldloc.s"} {var_idx}')
+        out.append(f'    call string {_int_type.TKVINT_CLASS}::Str(valuetype {_int_type.TKVINT_CLASS})')
+        return
     if var_ta.dtype == 'object':
         out.append(f'    {"ldarg.s" if var_kind == "arg" else "ldloc.s"} {var_idx}')
         out.append('    callvirt instance string [mscorlib]System.Object::ToString()')
