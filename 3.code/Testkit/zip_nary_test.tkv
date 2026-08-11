@@ -1,0 +1,33 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    a = [1, 2, 3]
+    b = [10, 20, 30]
+    c = [100, 200, 300]
+    s = 0
+    for x, y, z in zip(a, b, c):
+        s = s + x + y + z
+    tested = tested + 1
+    total = total + check("zip3_sum", str(s), "666")
+
+    d = [1, 2]
+    s2 = 0
+    for x2, y2 in zip(a, d):
+        s2 = s2 + x2 + y2
+    tested = tested + 1
+    total = total + check("zip2_backward_compat_short_circuits", str(s2), "6")
+
+    e = [7, 8, 9, 11]
+    f = [1, 1, 1, 1]
+    g = [2, 2, 2, 2]
+    h = [3, 3, 3, 3]
+    s3 = 0
+    for w1, w2, w3, w4 in zip(e, f, g, h):
+        s3 = s3 + w1 + w2 + w3 + w4
+    tested = tested + 1
+    total = total + check("zip4_sum", str(s3), "59")
+
+    return test_summary("zip_nary_test", total, tested)

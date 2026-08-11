@@ -32,10 +32,30 @@ def try_expand_for_enumerate(line):
 
 
 # =============================================================================
-# 2. ZIP: for a, b in zip(lst1, lst2):
+# 2. ZIP: for a, b, ... in zip(lst1, lst2, ...): - N-ary (Phase 2.1,
+# 2026-08-11: mo rong tu CHI 2 list len N list bat ky >= 2, van CUNG kien
+# truc for-header macro nhu ban dau, khong doi). GIOI HAN VAN GIU (khong
+# doi tu ban dau): CHI dang trong header 'for ... in zip(...):' voi cac
+# ten bien/list la IDENT tran - CHUA ho tro 'zip(...)' o VI TRI BIEU THUC
+# doc lap (vd 'lst_cap = list(zip(a, b))') vi can 1 kieu list-cua-tuple
+# moi (chua co trong DSL, xem tuple_type.py - chi ho tro tuple SCALAR
+# tra ve/gan, khong phai PHAN TU cua list) - de lai cho phien sau, can
+# thiet ke kieu du lieu rieng, khong phai mo rong macro nay.
 # =============================================================================
-_FOR_ZIP_RE = re.compile(r'^for\s+(\w+)\s*,\s*(\w+)\s+in\s+zip\((\w+)\s*,\s*(\w+)\)\s*:\s*$')
+_FOR_ZIP_RE = re.compile(r'^for\s+([\w\s,]+?)\s+in\s+zip\(([\w\s,]+?)\)\s*:\s*$')
 _me_zip_counter = [0]
+
+
+def _min_len_expr(lists):
+    """min(len(l) for l in lists) qua ternary long nhau (khong dung ham
+    'min()' built-in - khong co san cho > 2 doi so, xem docstring dau
+    file). Vd 3 list -> '(len(a) < (len(b) < len(c) ? len(b) : len(c))
+    ? len(a) : (len(b) < len(c) ? len(b) : len(c)))'."""
+    if len(lists) == 1:
+        return f'len({lists[0]})'
+    rest = _min_len_expr(lists[1:])
+    head = f'len({lists[0]})'
+    return f'({head} < ({rest}) ? {head} : ({rest}))'
 
 
 def try_expand_for_zip(line):
@@ -43,17 +63,18 @@ def try_expand_for_zip(line):
     m = _FOR_ZIP_RE.match(stripped)
     if not m:
         return None
-    var_a, var_b, lst1, lst2 = m.groups()
+    var_names = [v.strip() for v in m.group(1).split(',')]
+    list_names = [l.strip() for l in m.group(2).split(',')]
+    if len(var_names) != len(list_names) or len(list_names) < 2:
+        return None
     ind = ' ' * (len(line) - len(line.lstrip(' ')))
     n = _me_zip_counter[0]
     _me_zip_counter[0] += 1
     idx = f'__iterzip{n}_idx'
-    # min(len(lst1), len(lst2)) qua ternary co san, KHONG can them ham
-    # 'min()' built-in moi (khong co san, ngoai pham vi Wave 2 nay).
-    bound = f'(len({lst1}) < len({lst2}) ? len({lst1}) : len({lst2}))'
-    return (f'{ind}for {idx} in range({bound}):\n'
-            f'{ind}    {var_a} = {lst1}[{idx}]\n'
-            f'{ind}    {var_b} = {lst2}[{idx}]')
+    bound = _min_len_expr(list_names)
+    body_lines = ''.join(
+        f'{ind}    {var} = {lst}[{idx}]\n' for var, lst in zip(var_names, list_names))
+    return f'{ind}for {idx} in range({bound}):\n{body_lines}'.rstrip('\n')
 
 
 # =============================================================================
