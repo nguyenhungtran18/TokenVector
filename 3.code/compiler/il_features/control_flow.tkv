@@ -45,6 +45,9 @@ _EXCEPT_RE = re.compile(r'^except\s*:\s*$')
 _EXCEPT_TYPED_RE = re.compile(r'^except\s+(\w+)(?:\s+as\s+(\w+))?\s*:\s*$')
 _FINALLY_RE = re.compile(r'^finally\s*:\s*$')
 _RAISE_RE = re.compile(r'^raise\s+(\w+)\((.*)\)\s*$')
+# 'raise' tran (Phase 6.3, 2026-08-12) - nem lai chinh exception dang bat,
+# chi hop le trong 1 khoi 'except' (xem codegen_raise's rethrow).
+_BARE_RAISE_RE = re.compile(r'^raise\s*$')
 _FOR_IN_LIST_RE = re.compile(r'^for\s+(\w+)\s+in\s+(\w+)\s*:\s*$')
 # B5 (sua doc lap tren 2 nhanh, gop lai - ban tong quat hon duoc giu):
 # 'for x in <bieu thuc>:' vd 'for x in v1.split(","):' - container KHONG
@@ -183,7 +186,10 @@ def _stmts_end_in_return(stmts):
     if not stmts:
         return False
     last = stmts[-1]
-    if last['kind'] in ('return', 'return_tuple'):
+    if last['kind'] in ('return', 'return_tuple', 'raise'):
+        # 'raise' (Phase 6.3, 2026-08-12) - 'throw'/'rethrow' cung ket thuc
+        # khoi HOP LE, 1 'leave' ngay sau la unreachable ('rethrow' con gay
+        # AccessViolationException THAT luc chay neu khong loai truoc).
         return True
     if last['kind'] == 'if' and last['else_body'] is not None:
         return _stmts_end_in_return(last['body']) and _stmts_end_in_return(last['else_body'])
@@ -565,6 +571,8 @@ def try_parse_return(line, lines, pos, indent_level, sig, known_shapes, parse_bl
 
 
 def try_parse_raise(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    if _BARE_RAISE_RE.match(line):
+        return {'kind': 'raise', 'exc_type': None, 'msg_node': None, 'bare': True}, pos + 1
     m_raise = _RAISE_RE.match(line)
     if not m_raise:
         return None
@@ -818,7 +826,9 @@ def codegen_try(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
                 _, bind_idx, _ = scope[bind]
                 body.append(f'      stloc.s {bind_idx}')
             ctx['try_depth'] = ctx.get('try_depth', 0) + 1
+            ctx['in_except_handler'] = ctx.get('in_except_handler', 0) + 1
             codegen_stmts_fn(handler_body, scope, body, body_dtype, ctx, sig)
+            ctx['in_except_handler'] -= 1
             ctx['try_depth'] -= 1
             if not _stmts_end_in_return(handler_body):
                 body.append(f'      leave {end_lbl}')
@@ -1054,6 +1064,13 @@ def codegen_with_open(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
 
 
 def codegen_raise(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    if stmt.get('bare'):
+        if not ctx.get('in_except_handler', 0):
+            raise SyntaxError(
+                "il_codegen: 'raise' (khong ten loi) chi hop le BEN TRONG 1 khoi 'except' "
+                "(nem lai chinh exception dang bat)")
+        body.append('    rethrow')
+        return
     # 'raise ValueError("msg")' - TU xay dung + 'throw' 1 exception THAT
     # (khac 'except' chi BAT loi CLR tu nem) - da xac minh THAT bang
     # probe_raise.il: .ctor(string) gan dung Message (voi System.Exception),
