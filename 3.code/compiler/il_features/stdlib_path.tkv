@@ -53,3 +53,23 @@ def compile_path_dirname(args, scope, out, dtype, ctx):
         raise SyntaxError("il_codegen: path_dirname(p) chi nhan dung 1 tham so")
     ctx['compile_expr'](args[0], scope, out, 'str', ctx)
     out.append('    call string [mscorlib]System.IO.Path::GetDirectoryName(string)')
+
+
+def compile_path_isfile(args, scope, out, dtype, ctx):
+    """path_isfile(p) -> i32 (0/1) - System.IO.File::Exists(string), khop
+    ngu nghia Python os.path.isfile() (File rieng, khac path_exists() da
+    co goi CA File.Exists LAN Directory.Exists)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_isfile(p) chi nhan dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call bool [mscorlib]System.IO.File::Exists(string)')
+    ctx['widen_if_needed']('i32', dtype, out)
+
+
+def compile_path_isdir(args, scope, out, dtype, ctx):
+    """path_isdir(p) -> i32 (0/1) - System.IO.Directory::Exists(string)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_isdir(p) chi nhan dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call bool [mscorlib]System.IO.Directory::Exists(string)')
+    ctx['widen_if_needed']('i32', dtype, out)

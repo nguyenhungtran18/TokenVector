@@ -86,7 +86,12 @@ import il_features.stdlib_repeat  # noqa: F401 - dang ky assign-rhs-parser/stmt-
 import il_features.closures  # noqa: F401 - dang ky line-parser/first-pass-walk/stmt-codegen qua side-effect luc import (closure that - Buoc 4, 2026-07-29, def long/nested def)
 from il_features.generator_feature import is_generator_body as _is_generator_body  # noqa: F401 - phat hien ham generator (con lai sau khi thay eager-list bang lazy that, xem generator_lazy.py)
 import il_features.generator_lazy  # noqa: F401 - dang ky line-parser/stmt-codegen/first-pass-walk qua side-effect luc import (yield_stmt/for_in_generator, Wave 3 2026-07-29, generator lazy THAT)
-from il_features.stdlib_math import compile_pow as _stdlib_math_compile_pow
+from il_features.stdlib_math import (
+    compile_pow as _stdlib_math_compile_pow,
+    compile_math_pi as _stdlib_math_compile_math_pi,
+    compile_math_e as _stdlib_math_compile_math_e,
+    compile_math_gcd as _stdlib_math_compile_math_gcd,
+)
 from il_features.stdlib_math_trig import EXTRA_FUNCS as _stdlib_math_trig_extra_funcs
 from il_features.string_methods_batch3 import RETURN_DTYPE as _STR_METHOD_RETURN_DTYPE
 from il_features.stdlib_random import (
@@ -101,6 +106,8 @@ from il_features.stdlib_path import (
     compile_path_exists as _stdlib_path_compile_path_exists,
     compile_path_basename as _stdlib_path_compile_path_basename,
     compile_path_dirname as _stdlib_path_compile_path_dirname,
+    compile_path_isfile as _stdlib_path_compile_path_isfile,
+    compile_path_isdir as _stdlib_path_compile_path_isdir,
 )
 import il_features.stdlib_sqlite  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (db_open/db_exec/db_query_text/db_query_int/db_close, Wave 3 2026-07-29, DB that qua P/Invoke sqlite3.dll)
 import il_features.stdlib_http  # noqa: F401 - plug-and-play module http (http_get/http_post)
@@ -548,9 +555,13 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
             return 'i32'
         if name == 'pow':
             return None
+        if name in ('math_pi', 'math_e'):
+            return 'f64'
+        if name == 'math_gcd':
+            return None
         if name in ('path_join', 'path_basename', 'path_dirname'):
             return 'str'
-        if name == 'path_exists':
+        if name in ('path_exists', 'path_isfile', 'path_isdir'):
             return 'i32'
         if name in ('random', 'randint', 'uniform', 'randrange'):
             return None
@@ -1679,6 +1690,12 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         return _file_io_compile_file_exists(args, scope, out, dtype, ctx)
     if name == 'pow':
         return _stdlib_math_compile_pow(args, scope, out, dtype, ctx)
+    if name == 'math_pi':
+        return _stdlib_math_compile_math_pi(args, scope, out, dtype, ctx)
+    if name == 'math_e':
+        return _stdlib_math_compile_math_e(args, scope, out, dtype, ctx)
+    if name == 'math_gcd':
+        return _stdlib_math_compile_math_gcd(args, scope, out, dtype, ctx)
     if name == 'random':
         return _stdlib_random_compile_random(args, scope, out, dtype, ctx)
     if name == 'randint':
@@ -1697,6 +1714,10 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         return _stdlib_path_compile_path_basename(args, scope, out, dtype, ctx)
     if name == 'path_dirname':
         return _stdlib_path_compile_path_dirname(args, scope, out, dtype, ctx)
+    if name == 'path_isfile':
+        return _stdlib_path_compile_path_isfile(args, scope, out, dtype, ctx)
+    if name == 'path_isdir':
+        return _stdlib_path_compile_path_isdir(args, scope, out, dtype, ctx)
     if name == 'xml_encode_name':
         return _stdlib_xml_compile_xml_encode_name(args, scope, out, dtype, ctx)
     if name == 're_match':
