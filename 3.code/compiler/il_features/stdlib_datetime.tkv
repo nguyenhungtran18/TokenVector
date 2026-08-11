@@ -41,8 +41,8 @@ def codegen_datetime_now_utc(stmt, scope, body, body_dtype, ctx, sig, codegen_st
 def _push_datetime_ticks(args, scope, out, dtype, ctx):
     out.append('    call valuetype [mscorlib]System.DateTime [mscorlib]System.DateTime::get_UtcNow()')
     out.append('    box [mscorlib]System.DateTime')
-    out.append('    callvirt instance int32 [mscorlib]System.Object::GetHashCode()')
-    out.append('    conv.i8')
+    out.append('    unbox [mscorlib]System.DateTime')
+    out.append('    call instance int64 [mscorlib]System.DateTime::get_Ticks()')
 
 
 def try_rhs_datetime_ticks(rhs, name, known_shapes):
