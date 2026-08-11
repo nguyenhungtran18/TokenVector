@@ -552,7 +552,17 @@ class _ExprParser:
             return ('num', v)
         if k == 'ID':
             if v == 'await':
-                return ('await', self.parse_expr())
+                # Dung parse_factor() (KHONG PHAI parse_expr()) - 'await'
+                # phai bat CHAT nhu 1 toan tu mot ngoi (giong '-'/'not'),
+                # giong dung Python that. BUG THAT phat hien khi port sang
+                # cay .py (phien Phase 4, 2026-08-11) va test qua
+                # 'await f(5) + await f(10)' - parse_expr() (uu tien THAP
+                # NHAT) nuot NHAM ca '+ await f(10)' vao trong await dau
+                # tien, sinh IL sai kieu (add.ovf tren 1 tham chieu Task),
+                # crash NullReferenceException luc chay. Chua tung lo o
+                # day vi test goc CHI dung 1 await don le - sua CA 2 cay
+                # de giu dong bo, khong chi rieng cay .py.
+                return ('await', self.parse_factor())
             if v == 'None':
                 # 'None' (2026-08-03, dot 1) - tham chieu rong. Can cho do
                 # thi doi tuong: 'Node(1, None, None)', 'if x is None:'.

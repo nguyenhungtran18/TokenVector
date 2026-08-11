@@ -506,6 +506,15 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
         return 'i32'
     if tag == 'neg':
         return _infer_dtype(node[1], scope, func_table, records, record_methods)
+    if tag == 'await':
+        # 'await task_expr' (Phase 4, 2026-08-11) - dtype cua ca bieu thuc
+        # CHINH LA dtype cua gia tri BEN TRONG Task<T>, suy tiep tren node
+        # ben trong. BUG THAT phat hien khi port sang cay .py va test qua
+        # 'total = await f(5) + await f(10)' - THIEU nhanh nay khien
+        # _infer_dtype tra None cho 'await', declare_scalar roi ve mac
+        # dinh 'int' (TkvInt) sai. Them CA vao cay nay de dong bo (cay
+        # goc CHUA lo bug vi test o day CHI dung 1 await don le).
+        return _infer_dtype(node[1], scope, func_table, records, record_methods)
     if tag == 'call':
         name = node[1]
         if records and name in records:
