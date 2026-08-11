@@ -44,6 +44,37 @@ def compile_randint(args, scope, out, dtype, ctx):
     ctx['widen_if_needed']('i32', dtype, out)
 
 
+def compile_uniform(args, scope, out, dtype, ctx):
+    """uniform(a, b) - so thuc ngau nhien trong [a, b], giong Python
+    random.uniform(a,b). Cong thuc: a + NextDouble() * (b - a)."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: uniform(a, b) chi nhan dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, 'f64', ctx)
+    out.append('    newobj instance void [mscorlib]System.Random::.ctor()')
+    out.append('    callvirt instance float64 [mscorlib]System.Random::NextDouble()')
+    compile_expr(args[1], scope, out, 'f64', ctx)
+    compile_expr(args[0], scope, out, 'f64', ctx)
+    out.append('    sub')
+    out.append('    mul')
+    out.append('    add')
+    ctx['widen_if_needed']('f64', dtype, out)
+
+
+def compile_randrange(args, scope, out, dtype, ctx):
+    """randrange(a, b) - so nguyen ngau nhien trong doan NUA MO [a, b),
+    giong Python random.randrange(a,b). Khac randint(a,b) (dong ca 2 dau)
+    dung chinh Random.Next(min,max) khong can cong 1."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: randrange(a, b) chi nhan dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    out.append('    newobj instance void [mscorlib]System.Random::.ctor()')
+    compile_expr(args[0], scope, out, 'i32', ctx)
+    compile_expr(args[1], scope, out, 'i32', ctx)
+    out.append('    callvirt instance int32 [mscorlib]System.Random::Next(int32, int32)')
+    ctx['widen_if_needed']('i32', dtype, out)
+
+
 def compile_choice(args, scope, out, dtype, ctx):
     """choice(lst) - chon 1 phan tu ngau nhien tu list. GIOI HAN DA BIET:
     CHI nhan 1 BIEN list don (khong ho tro bieu thuc phuc tap) - can 2
