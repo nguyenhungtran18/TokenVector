@@ -30,7 +30,7 @@ nay cho float[,] cua C#) - KHONG phai suy doan, la quy uoc bat buoc cua
 CLR cho mang rank>1.
 """
 import re
-from typed_dsl_parser import Signature, TypeAnn, Param, parse_typed_signature
+from typed_dsl_parser import Signature, TypeAnn, Param, parse_typed_signature, parse_type_ann_str
 from il_core import (
     IL_SCALAR, IL_NEWARR_ELEM, IL_LDELEM, IL_STELEM, IL_LDC_OP,
     il_array_rank_type, rename_reserved_identifiers as _rename_reserved_identifiers,
@@ -125,6 +125,7 @@ import il_features.stdlib_hashlib  # noqa: F401 - plug-and-play module hashlib
 import il_features.stdlib_base64  # noqa: F401 - plug-and-play module base64
 import il_features.stdlib_zipfile  # noqa: F401 - plug-and-play module zipfile
 import il_features.stdlib_shutil  # noqa: F401 - plug-and-play module shutil
+import il_features.stdlib_functional  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (map()/filter()/reduce(), Phase 3.3, 2026-08-11)
 from il_features.stdlib_xml import compile_xml_encode_name as _stdlib_xml_compile_xml_encode_name
 from il_features.stdlib_re import (
     compile_re_match as _stdlib_re_compile_re_match,
@@ -2020,6 +2021,14 @@ def _compile_index_store(name, indices, value_node, scope: _Scope, out: list, dt
 _ZEROS_2D_RE = re.compile(r'^np\.zeros\(\(([^,]+),\s*([^)]+)\),\s*dtype=np\.\w+\)$')
 _ZEROS_1D_RE = re.compile(r'^np\.zeros\(([^,()]+),\s*dtype=np\.\w+\)$')
 _ASSIGN_RE = re.compile(r'^(\w+)\s*=\s*(.+)$')
+# 'f: "func(i32)->i32" = lambda x: x*2' (Phase 3.3, 2026-08-11) - khai bao
+# LOCAL co kieu TUONG MINH, chua tung co truoc gio (DSL nay CHI suy dtype
+# local tu ve phai - xem declare_scalar). Can THIET rieng cho kieu 'func'
+# vi lambda/ten ham KHONG co du lieu de suy dtype tu chinh no (khac
+# '= 5' suy duoc 'int' tu literal). Cu phap chuoi trong ngoac kep giong
+# HET tham so ham ("func(i32)->i32") de tai dung nguyen parse_type_ann_str,
+# va de file .tkv van la Python hop le (annotation dang string).
+_TYPED_LOCAL_DECL_RE = re.compile(r'^(\w+)\s*:\s*"([^"]*)"\s*=\s*(.+)$')
 # _TUPLE_ASSIGN_RE da chuyen sang il_features/tuple_type.py (Phase 1
 # buoc 3, 2026-07-28).
 _INDEXED_ASSIGN_RE = re.compile(r'^(\w+)\[(.+)\]\s*=\s*(.+)$')
@@ -2381,6 +2390,25 @@ def _result_container_shape(rhs_node, known_shapes):
     return None
 
 
+def _lp_typed_local_decl(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    m = _TYPED_LOCAL_DECL_RE.match(line)
+    if not m:
+        return None
+    name, type_str, rhs = m.groups()
+    type_ann = parse_type_ann_str(type_str)
+    if type_ann.shape != 'func':
+        # Pham vi Phase 3.3: CHI khai bao local kieu 'func' co cu phap
+        # tuong minh - list/dict/scalar... van suy dtype tu ve phai nhu
+        # cu (declare_scalar), khong can/khong ho tro cu phap nay.
+        raise SyntaxError(
+            f"il_codegen: khai bao local co kieu tuong minh ('{name}: \"{type_str}\" = ...') "
+            f"hien CHI ho tro kieu 'func(...)->...' - cac kieu khac suy dtype tu ve phai, "
+            f"khong dung cu phap nay")
+    rhs_node = parse_expr(rhs)
+    return {'kind': 'assign_typed_decl', 'name': name, 'type_ann': type_ann,
+            'rhs_node': rhs_node}, pos + 1
+
+
 def _lp_assign(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
     m_assign = _ASSIGN_RE.match(line)
     if not m_assign:
@@ -2460,6 +2488,10 @@ register_line_parser('idx_assign', _lp_idx_assign)
 # (Phase 1 buoc 8, 2026-07-28).
 # 'tuple_assign' dang ky boi il_features/tuple_type.py luc import (Phase
 # 1 buoc 3, 2026-07-28).
+# 'assign_typed_decl' PHAI truoc 'assign' (Phase 3.3, 2026-08-11): ca 2
+# deu co dau '=', nhung _ASSIGN_RE khong khop dong co ':' truoc '=' nen
+# thu tu that ra khong xung dot - dat truoc chi de RO RANG uu tien.
+register_line_parser('assign_typed_decl', _lp_typed_local_decl)
 register_line_parser('assign', _lp_assign)
 register_line_parser('method_call_stmt', _lp_method_call_stmt)
 register_line_parser('call_stmt', _lp_call_stmt)
@@ -2984,6 +3016,15 @@ def _fpw_assign_scalar(stmt, ctx):
     ctx['collect_ternary_temps'](stmt['rhs_node'])
 
 
+def _fpw_assign_typed_decl(stmt, ctx):
+    # Phase 3.3 (2026-08-11) - kieu DA BIET SAN tu chinh cu phap khai bao
+    # ('name: "func(...)->..." = ...'), khong can suy tu ve phai nhu
+    # declare_scalar - dung declare_named CO SAN (da dung cho key_var/
+    # val_var cua dict.items()/local an).
+    ctx['declare_named'](stmt['name'], stmt['type_ann'])
+    ctx['collect_ternary_temps'](stmt['rhs_node'])
+
+
 def _fpw_assign_zeros1d(stmt, ctx):
     ctx['declare_array'](stmt['name'], TypeAnn(ctx['body_dtype'], [stmt['dim']]))
 
@@ -3019,6 +3060,7 @@ register_first_pass_walk('idx_assign', _fpw_idx_assign)
 # 'attr_assign' dang ky boi il_features/record_feature.py luc import
 # (Phase 1 buoc 8, 2026-07-28).
 register_first_pass_walk('assign_scalar', _fpw_assign_scalar)
+register_first_pass_walk('assign_typed_decl', _fpw_assign_typed_decl)
 register_first_pass_walk('assign_zeros1d', _fpw_assign_zeros1d)
 register_first_pass_walk('assign_zeros2d', _fpw_assign_zeros2d)
 # 'assign_list_new'/'list_append' dang ky boi il_features/list_type.py;
@@ -3212,6 +3254,23 @@ def _stmt_assign_scalar(stmt, scope: _Scope, body: list, body_dtype: str, ctx: d
         _compile_expr(stmt['rhs_node'], scope, body, var_ta.dtype, ctx)
         body.append(f'    stfld {IL_SCALAR[var_ta.dtype]} {cell_class}::v')
         return
+    if var_ta.shape == 'func' and stmt['rhs_node'][0] in ('lambda', 'var'):
+        # Phase 3.3 (2026-08-11) - CHI re nhanh khi ve phai la 'lambda'/
+        # 1 TEN (bien 'func' khac hoac ham top-level) - day la duong tao
+        # boi khai bao tuong minh moi ('assign_typed_decl', xem
+        # _lp_typed_local_decl/_fpw_assign_typed_decl) HOAC 1 phep gan lai
+        # THUONG ('f = g'/'f = ten_ham') sau do. _compile_expr KHONG
+        # dispatch duoc node 'lambda' (khong dang ky trong EXPR_CODEGEN)
+        # nen phai dung _compile_funcref_arg (giong het duong 'func' o
+        # tham so goi ham). KHONG bat nhanh nay khi ve phai la 'call'
+        # (BUG THAT phat hien khi test qua cay .tkv self-host: closure that
+        # - Buoc 4, 2026-07-29 - da co san 1 duong KHAC gan local shape==
+        # 'func' tu 1 loi goi ham tra ve closure, vd 'f = make_counter()' -
+        # _compile_expr's nhanh 'call' TU LAU da xu ly dung truong hop nay
+        # qua func_table/il_type_str, khong duoc dam len).
+        _compile_funcref_arg(stmt['rhs_node'], var_ta, scope, body, ctx)
+        _store_var(name, scope, body)
+        return
     # Thread that (sua 2026-08-10, xem docs/BUGS_TODO.md muc G): ghi ten
     # bien dich se gan RA de thread_spawn() luu duoc kieu tra ve THAT cua
     # ham worker, phuc vu thread_join() sau nay lay dung gia tri (khong
@@ -3258,6 +3317,7 @@ register_stmt_codegen('idx_assign', _stmt_idx_assign)
 # 'attr_assign' dang ky boi il_features/record_feature.py luc import
 # (Phase 1 buoc 8, 2026-07-28).
 register_stmt_codegen('assign_scalar', _stmt_assign_scalar)
+register_stmt_codegen('assign_typed_decl', _stmt_assign_scalar)
 register_stmt_codegen('assign_zeros1d', _stmt_assign_zeros1d)
 register_stmt_codegen('assign_zeros2d', _stmt_assign_zeros2d)
 # 'assign_list_new'/'list_append' dang ky boi il_features/list_type.py;
@@ -3592,6 +3652,7 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
            # (tranh circular import - quy uoc bat dau tu Phase 1 buoc 1).
            'compile_expr': _compile_expr, 'load_var_ref': _load_var_ref, 'il_ident': _il_ident,
            'load_var_addr': _load_var_addr, 'store_var': _store_var,
+           'compile_funcref_arg': _compile_funcref_arg,
            'widen_if_needed': _widen_if_needed, 'neg_literal_int': _neg_literal_int,
            # Them cho il_features/string_feature.py (Phase 1 buoc 5).
            'int_dtypes': _INT_DTYPES, 'float_dtypes': _FLOAT_DTYPES,
@@ -3764,6 +3825,7 @@ def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict
            'record_bases': record_bases or {},
            'compile_expr': _compile_expr, 'load_var_ref': _load_var_ref, 'il_ident': _il_ident,
            'load_var_addr': _load_var_addr, 'store_var': _store_var,
+           'compile_funcref_arg': _compile_funcref_arg,
            'widen_if_needed': _widen_if_needed, 'neg_literal_int': _neg_literal_int,
            'int_dtypes': _INT_DTYPES, 'float_dtypes': _FLOAT_DTYPES,
            'compare_opcode': _COMPARE_OPCODE, 'compare_negated': _COMPARE_NEGATED,
