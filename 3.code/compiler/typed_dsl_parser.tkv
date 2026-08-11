@@ -23,7 +23,7 @@ import re
 # bieu dien bang struct TkvInt (xem il_features/int_type.py). 'i32'/'i64'
 # giu nguyen y nghia cu (do rong co dinh, tran thi nem OverflowException)
 # - ma .tkv cu khong doi hanh vi.
-DTYPES = {'f32', 'f64', 'i32', 'i64', 'str', 'int'}
+DTYPES = {'f32', 'f64', 'i32', 'i64', 'str', 'int', 'datetime', 'timedelta'}
 
 TOKEN_RE = re.compile(r'''
     \s*(?:
