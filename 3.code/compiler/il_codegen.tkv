@@ -62,6 +62,8 @@ import il_features.slicing  # noqa: F401 - dang ky assign-rhs-parser/expr-codege
 import il_features.dict_keys_values  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (dict.keys()/.values())
 import il_features.string_split  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (string.split())
 import il_features.fstring  # noqa: F401 - dang ky macro-expander qua side-effect luc import (f-string 'f"...{var}..."')
+import il_features.string_format  # noqa: F401 - dang ky macro-expander qua side-effect luc import (str.format(), Phase 1.1 2026-08-11)
+import il_features.string_percent_format  # noqa: F401 - dang ky macro-expander qua side-effect luc import ('%' string-formatting, Phase 1.2 2026-08-11)
 import il_features.threading_feature  # noqa: F401 - Moc 22 static threading
 import il_features.async_await  # noqa: F401 - Moc 24 async/await native
 import il_features.ffi_feature  # noqa: F401 - Moc 27 Native C Interop & FFI
