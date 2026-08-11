@@ -126,6 +126,7 @@ import il_features.stdlib_base64  # noqa: F401 - plug-and-play module base64
 import il_features.stdlib_zipfile  # noqa: F401 - plug-and-play module zipfile
 import il_features.stdlib_shutil  # noqa: F401 - plug-and-play module shutil
 import il_features.stdlib_functional  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (map()/filter()/reduce(), Phase 3.3, 2026-08-11)
+import il_features.typecheck  # noqa: F401 - dang ky isinstance()/issubclass()/type() (Phase 4, 2026-08-11)
 from il_features.stdlib_xml import compile_xml_encode_name as _stdlib_xml_compile_xml_encode_name
 from il_features.stdlib_re import (
     compile_re_match as _stdlib_re_compile_re_match,
