@@ -66,6 +66,84 @@ def _gen_ipow_class_il():
     ]
 
 
+GCD_CLASS = 'TkvGcd'
+
+
+def _ensure_gcd_class(ctx):
+    """Chen .class TkvGcd DUNG MOT LAN (Phase 2.3, 2026-08-11) - .NET
+    Framework 4.0 (muc tieu build cua du an) KHONG co Math.Gcd (chi tu
+    .NET Core/Standard sau nay), nen viet tay 1 ham tinh Euclid, cung co
+    che voi TkvIPow ben tren."""
+    emitted = ctx.get('emitted_types')
+    if emitted is None or GCD_CLASS in emitted:
+        return
+    emitted.add(GCD_CLASS)
+    ctx['extra_classes'].append(_gen_gcd_class_il())
+
+
+def _gen_gcd_class_il():
+    """gcd(a,b) - thuat toan Euclid, tra ve GIA TRI TUYET DOI (khop
+    Python math.gcd() - luon >= 0 du dau vao am, khac dau '%' cua ngon
+    ngu nay co the am)."""
+    return [
+        f'.class public abstract sealed auto ansi {GCD_CLASS}',
+        '       extends [mscorlib]System.Object',
+        '{',
+        '  .method public static int64 Gcd(int64 a, int64 b) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int64 t)',
+        '    ldarg.0', '    ldc.i8 0', '    bge GCD_A_OK',
+        '    ldarg.0', '    neg', '    starg.s 0',
+        '  GCD_A_OK:',
+        '    ldarg.1', '    ldc.i8 0', '    bge GCD_B_OK',
+        '    ldarg.1', '    neg', '    starg.s 1',
+        '  GCD_B_OK:',
+        '  GCD_LOOP:',
+        '    ldarg.1', '    ldc.i8 0', '    beq GCD_DONE',
+        '    ldarg.1', '    stloc.s t',
+        '    ldarg.0', '    ldarg.1', '    rem', '    starg.s 1',
+        '    ldloc.s t', '    starg.s 0',
+        '    br GCD_LOOP',
+        '  GCD_DONE:',
+        '    ldarg.0', '    ret',
+        '  }',
+        '}',
+    ]
+
+
+def compile_math_pi(args, scope, out, dtype, ctx):
+    """math_pi() -> f64, hang so pi (Phase 2.3, 2026-08-11). DSL khong co
+    cu phap 'module.attr' (chi ten ham tran, xem docstring dau
+    stdlib_path.py) nen dat ten dang ham 0-tham-so, giong quy uoc cac
+    builtin khac trong file nay."""
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: math_pi() khong nhan tham so")
+    out.append(f'    ldc.r8 {repr(3.141592653589793)}')
+    ctx['widen_if_needed']('f64', dtype, out)
+
+
+def compile_math_e(args, scope, out, dtype, ctx):
+    """math_e() -> f64, hang so e."""
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: math_e() khong nhan tham so")
+    out.append(f'    ldc.r8 {repr(2.718281828459045)}')
+    ctx['widen_if_needed']('f64', dtype, out)
+
+
+def compile_math_gcd(args, scope, out, dtype, ctx):
+    """math_gcd(a, b) -> i32/i64, uoc chung lon nhat (thuat toan Euclid,
+    tra ve TUYET DOI - khop Python math.gcd())."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: math_gcd(a, b) chi nhan dung 2 tham so")
+    _ensure_gcd_class(ctx)
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, 'i64', ctx)
+    compile_expr(args[1], scope, out, 'i64', ctx)
+    out.append(f'    call int64 {GCD_CLASS}::Gcd(int64, int64)')
+    ctx['widen_if_needed']('i64', dtype, out)
+
+
 def compile_pow(args, scope, out, dtype, ctx):
     """pow(x, y) va 'x ** y'.
 
