@@ -13,6 +13,7 @@ from il_core import IL_SCALAR
 from il_dispatch import (
     register_assign_rhs_parser, register_line_parser,
     register_stmt_codegen, register_first_pass_walk, register_first_pass_prescan,
+    register_macro_expander,
 )
 from il_features.list_type import il_list_elem_ilstr, il_list_type
 
@@ -518,6 +519,33 @@ def fpw_container_clear(stmt, ctx):
 # CHI viet lai thanh '.keys()' khi container DA XAC NHAN la dict - giu lai
 # nhanh do, xoa nhanh nay.
 
+# ==================== dict.update(other) (Phase 2.3, 2026-08-11) =========
+# Macro TEXT-LEVEL (khong codegen rieng): viet lai 'd.update(other)' thanh
+# vong lap dung LAI cu phap 'for k, v in other.items(): d[k] = v' DA CO
+# SAN o tren (try_parse_for_in_dict_items/codegen_for_in_dict_items) -
+# khong can them nhanh codegen moi. GIOI HAN DA BIET: 'other' PHAI la 1
+# IDENT don (khong bieu thuc phuc tap, giong gioi han cua choice()/
+# tuple ident trong string_percent_format.py) - macro chay o muc VAN BAN
+# TRUOC first-pass nen khong the goi ham/bieu thuc phuc tap an toan lam
+# nguon vong lap.
+_DICT_UPDATE_RE = re.compile(r'^(\w+)\.update\((\w+)\)\s*$')
+_me_dict_update_counter = [0]
+
+
+def try_expand_dict_update(line):
+    stripped = line.strip()
+    m = _DICT_UPDATE_RE.match(stripped)
+    if not m:
+        return None
+    dict_name, other_name = m.groups()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    n = _me_dict_update_counter[0]
+    _me_dict_update_counter[0] += 1
+    k, v = f'__dupd{n}_k', f'__dupd{n}_v'
+    return (f'{ind}for {k}, {v} in {other_name}.items():\n'
+            f'{ind}    {dict_name}[{k}] = {v}')
+
+
 # Dang ky vao il_dispatch NGAY LUC MODULE NAP (il_dispatch.py khong phu
 # thuoc il_codegen.py nen import truc tiep an toan, khong circular).
 register_assign_rhs_parser('dict_new', try_rhs_dict_new)
@@ -529,4 +557,5 @@ register_stmt_codegen('container_clear', codegen_container_clear)
 register_first_pass_walk('assign_dict_new', fpw_assign_dict_new)
 register_first_pass_walk('for_in_dict_items', fpw_for_in_dict_items)
 register_first_pass_walk('container_clear', fpw_container_clear)
+register_macro_expander('dict_update', try_expand_dict_update)
 register_first_pass_prescan('for_in_dict_items', fpp_for_in_dict_items)
