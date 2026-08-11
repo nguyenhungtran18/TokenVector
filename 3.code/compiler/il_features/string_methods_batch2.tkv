@@ -33,14 +33,22 @@ def compile_str_method_lower(node, scope, out, dtype, ctx):
 
 
 def compile_str_method_strip(node, scope, out, dtype, ctx):
-    """GIOI HAN DA BIET: chi ho tro dang s.strip() KHONG tham so, anh xa
-    thang String::Trim() - s.strip(chars) CO tham so KHONG duoc ho tro."""
+    """s.strip() -> String::Trim() (khong tham so). s.strip(chars) them
+    2026-08-11 (Phase 1.5): Trim(char[]) can 1 MANG ky tu, khong phai 1
+    string - dung 'chars'.ToCharArray() de doi kieu truoc khi goi, giong
+    het ngu nghia Python str.strip(chars) (bo TAT CA ky tu co trong tap
+    'chars' o ca 2 dau, khong phai bo NGUYEN CHUOI con)."""
     obj_name, args = node[1], node[3]
-    if len(args) != 0:
-        raise SyntaxError("il_codegen: s.strip() hien chi ho tro dang khong tham so")
+    if len(args) not in (0, 1):
+        raise SyntaxError("il_codegen: s.strip() hoac s.strip(chars) can 0 hoac 1 tham so")
     _validate_str_method_caller(obj_name, scope)
     ctx['load_var_ref'](obj_name, scope, out)
-    out.append('    callvirt instance string [mscorlib]System.String::Trim()')
+    if len(args) == 1:
+        ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+        out.append('    callvirt instance char[] [mscorlib]System.String::ToCharArray()')
+        out.append('    callvirt instance string [mscorlib]System.String::Trim(char[])')
+    else:
+        out.append('    callvirt instance string [mscorlib]System.String::Trim()')
 
 
 def compile_str_method_replace(node, scope, out, dtype, ctx):

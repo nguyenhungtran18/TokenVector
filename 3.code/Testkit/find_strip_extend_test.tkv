@@ -1,0 +1,24 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    s = "abcabcabc"
+    tested = tested + 1
+    total = total + check("find_with_start", str(s.find("abc", 3)), "3")
+
+    tested = tested + 1
+    total = total + check("find_with_start_no_match", str(s.find("xyz", 3)), "-1")
+
+    tested = tested + 1
+    total = total + check("find_no_start_backward_compat", str(s.find("abc")), "0")
+
+    t = "xxhelloxx"
+    tested = tested + 1
+    total = total + check("strip_with_chars", t.strip("x"), "hello")
+
+    tested = tested + 1
+    total = total + check("strip_no_arg_backward_compat", "  hi  ".strip(), "hi")
+
+    return test_summary("find_strip_extend_test", total, tested)
