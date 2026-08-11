@@ -119,7 +119,6 @@ import il_features.int_type as _int_type  # kieu 'int' vo han chu so nhu Python 
 import il_features.expr_hoist  # noqa: F401 - hoist bieu thuc ra bien tam (dot 2, 2026-08-03)
 import il_features.stdlib_eval  # noqa: F401 - eval_arith(): port System.Data.DataTable.Compute (Giai doan 2.3, 2026-08-03)
 import il_features.stdlib_json_get  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (json_get_str, 2026-07-30, phan bu doc cho json_dumps)
-import il_features.stdlib_datetime  # noqa: F401 - plug-and-play module datetime
 import il_features.stdlib_os  # noqa: F401 - plug-and-play module os
 import il_features.stdlib_hashlib  # noqa: F401 - plug-and-play module hashlib
 import il_features.stdlib_base64  # noqa: F401 - plug-and-play module base64

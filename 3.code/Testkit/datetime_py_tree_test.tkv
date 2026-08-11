@@ -33,11 +33,19 @@ def diff_roundtrip() -> "str":
     return d3.strftime("%Y-%m-%d")
 
 
-def utcnow_add_zero_noop() -> "i32":
-    d = datetime_utcnow()
+def now_add_zero_noop() -> "i32":
+    d = datetime()
     zero = timedelta_days(0)
     d2 = datetime_add(d, zero)
     if d == d2:
+        return 1
+    return 0
+
+
+def ticks_of_now_plausible() -> "i32":
+    d = datetime()
+    t = datetime_ticks(d)
+    if t > 600000000000000000:
         return 1
     return 0
 
@@ -62,6 +70,9 @@ def run() -> "i32":
     total = total + check("diff_roundtrip", diff_roundtrip(), "2026-08-20")
 
     tested = tested + 1
-    total = total + check("utcnow_add_zero_noop", str(utcnow_add_zero_noop()), "1")
+    total = total + check("now_add_zero_noop", str(now_add_zero_noop()), "1")
+
+    tested = tested + 1
+    total = total + check("ticks_of_now_plausible", str(ticks_of_now_plausible()), "1")
 
     return test_summary("datetime_py_tree_test", total, tested)

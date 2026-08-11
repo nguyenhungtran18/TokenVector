@@ -4,8 +4,10 @@ def run() -> "i32":
     total = 0
     tested = 0
 
-    t1 = datetime_ticks()
-    t2 = datetime_ticks()
+    d1 = datetime()
+    d2 = datetime()
+    t1 = datetime_ticks(d1)
+    t2 = datetime_ticks(d2)
 
     tested = tested + 1
     total = total + check("ticks_monotonic_or_equal", str(t2 >= t1), "True")

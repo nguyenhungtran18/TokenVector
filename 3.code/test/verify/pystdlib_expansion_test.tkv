@@ -13,7 +13,7 @@ from tkv_compile import compile_tkv_cli
 def test_pystdlib_bcl():
     p = '''def run() -> "str":
     s = re_replace("hello 123 world 456", "[0-9]+", "NUM")
-    dt = datetime_now()
+    dt = datetime()
     rnd = random_randint(10, 50)
     is_rnd_ok = rnd >= 10
     return s + "|" + str(is_rnd_ok)'''
