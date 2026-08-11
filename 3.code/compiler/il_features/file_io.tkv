@@ -10,6 +10,13 @@ long trong tag 'call' dung chung o core (goi lai qua ham rieng, giong
 str() cua string_feature.py). Quy uoc dependency-injection qua `ctx`
 nhu cac buoc truoc."""
 from il_dispatch import register_stmt_codegen
+# logging/pickle (Phase 4 backlog, phien 5, 2026-08-11) - nhap KHONG TRE
+# o day (khong phai trong ham) de dam bao register_expr_builtin ben
+# trong pickle_feature.py (cho pickle_load_X) LUON chay du chuong trinh
+# co dung log_X/pickle_dump_X hay khong - file_io.py duoc il_codegen.py
+# nhap KHONG DIEU KIEN nen day la diem chac chan chay 1 lan luc nap module.
+import il_features.logging_feature as _logging_feature
+import il_features.pickle_feature as _pickle_feature
 
 
 def compile_read_file(args, scope, out, dtype, ctx):
@@ -76,6 +83,17 @@ def codegen_call_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
         compile_expr(call_args[0], scope, body, 'str', ctx)
         compile_expr(call_args[1], scope, body, 'str', ctx)
         body.append('    call void [mscorlib]System.IO.File::AppendAllText(string, string)')
+    elif name in _logging_feature.LOG_STMT_CODEGEN:
+        # logging (Phase 4 backlog, phien 5, 2026-08-11) - xem
+        # il_features/logging_feature.py. Ham VOID (log_debug/.../
+        # log_set_level) - khong dang qua register_expr_builtin (do
+        # khong tra gia tri) nen dispatch qua day, giong write_file.
+        _logging_feature.LOG_STMT_CODEGEN[name](call_args, scope, body, ctx)
+    elif name in _pickle_feature.DUMP_STMT_CODEGEN:
+        # pickle_dump_X (Phase 4 backlog, phien 5, 2026-08-11) - xem
+        # il_features/pickle_feature.py. Cung la ham VOID, dispatch qua
+        # day giong log_X o tren.
+        _pickle_feature.DUMP_STMT_CODEGEN[name](call_args, scope, body, ctx)
     else:
         from il_dispatch import EXPR_BUILTIN_DTYPE
         if name in EXPR_BUILTIN_DTYPE:
