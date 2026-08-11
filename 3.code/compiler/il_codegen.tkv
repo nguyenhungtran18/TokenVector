@@ -84,6 +84,7 @@ import il_features.set_to_list  # noqa: F401 - set.to_list(): HashSet -> List de
 import il_features.list_copy  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (list.copy(), Huong A stdlib mo rong 2026-07-29)
 import il_features.stdlib_repeat  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen qua side-effect luc import (list * n / repeat_str)
 import il_features.closures  # noqa: F401 - dang ky line-parser/first-pass-walk/stmt-codegen qua side-effect luc import (closure that - Buoc 4, 2026-07-29, def long/nested def)
+from il_features.closures import _collect_var_names as _lambda_collect_var_names
 from il_features.generator_feature import is_generator_body as _is_generator_body  # noqa: F401 - phat hien ham generator (con lai sau khi thay eager-list bang lazy that, xem generator_lazy.py)
 import il_features.generator_lazy  # noqa: F401 - dang ky line-parser/stmt-codegen/first-pass-walk qua side-effect luc import (yield_stmt/for_in_generator, Wave 3 2026-07-29, generator lazy THAT)
 from il_features.stdlib_math import (
@@ -1307,31 +1308,43 @@ def _expr_in(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     return _dict_compile_in_dict(key_node, coll_node[1], scope, out, ctx)
 
 
-def _gen_lambda_class_il(class_name_l, nested_sig, body_stmts, ctx):
-    """Sinh 1 '.class' MOI cho 1 lambda (A2, 2026-07-29) - tai dung HOAN
-    TOAN co che 'closure voi 0 bien bat' (giong _gen_closure_class_il trong
-    il_features/closures.py, nhung viet lai o day vi lambda KHONG di qua
-    fpw_nested_def - khong co buoc phan tich bien tu do, gioi han co y
-    thuc CHI ho tro lambda KHONG capture bien ngoai o vong dau, xem
-    project-tokenvector-wave2-status memory). 0 truong (khong bat gi) nen
-    .ctor khong tham so; than method 'invoke' sinh qua gen_il_function voi
-    pre_parsed_stmts=[1 stmt 'return'] (body cua lambda DA la 1 AST node
-    duoc parse san, khong can parse lai tu text)."""
+def _gen_lambda_class_il(class_name_l, nested_sig, body_stmts, ctx, captures=None):
+    """Sinh 1 '.class' MOI cho 1 lambda (A2, 2026-07-29; mo rong voi
+    'captures' o Phase 2.4, 2026-08-11 - xem docstring _compile_lambda_funcref
+    ben duoi de biet TOAN BO ly do thiet ke). 'captures' None/rong -> 0
+    truong, .ctor khong tham so (duong CU, khong doi). 'captures' co gia
+    tri -> list[(ten_bien, TypeAnn, kieu_IL_field)] - MOI bien bi bat la 1
+    field CONG KHAI giu GIA TRI TRUC TIEP (KHONG qua cell/boxed nhu
+    nested_def's scalar - xem probe_lambda_closure.il da xac minh THAT
+    truoc khi viet ham nay: an toan CHI VI lambda dang cho luon duoc GOI
+    NGAY LAP TUC tai vi tri tham so, khong bao gio luu lai qua 1 lan goi
+    khac - khac han nested_def co the goi NHIEU LAN sau khi bien ngoai da
+    doi gia tri, buoc phai dung cell de thay doi 'nhin thay' duoc)."""
+    captures = captures or []
+    ctor_params_il = ', '.join(f'{fld_il} {name}' for name, _ta, fld_il in captures)
     lines = [
         f'.class public auto ansi {class_name_l} extends [mscorlib]System.Object',
         '{',
-        '  .method public hidebysig specialname rtspecialname instance void .ctor() cil managed',
-        '  {',
-        '    .maxstack 8',
-        '    ldarg.0',
-        '    call instance void [mscorlib]System.Object::.ctor()',
-        '    ret',
-        '  }',
     ]
+    for name, _ta, fld_il in captures:
+        lines.append(f'  .field public {fld_il} {name}')
+    lines.append('  .method public hidebysig specialname rtspecialname instance void '
+                 f'.ctor({ctor_params_il}) cil managed')
+    lines.append('  {')
+    lines.append('    .maxstack 8')
+    lines.append('    ldarg.0')
+    lines.append('    call instance void [mscorlib]System.Object::.ctor()')
+    for i, (name, _ta, fld_il) in enumerate(captures):
+        lines.append('    ldarg.0')
+        lines.append(f'    ldarg.s {i + 1}')
+        lines.append(f'    stfld {fld_il} {class_name_l}::{name}')
+    lines.append('    ret')
+    lines.append('  }')
+    closure_captures = [(name, ta, class_name_l, fld_il) for name, ta, fld_il in captures]
     method_lines = gen_il_function(
         nested_sig, None, with_guards=False, func_table=ctx['func_table'],
         class_name=ctx['class_name'], records=ctx['records'], self_type_ann=None,
-        record_methods=ctx['record_methods'], closure_captures=[],
+        record_methods=ctx['record_methods'], closure_captures=closure_captures,
         is_closure_method=True, extra_classes=ctx['extra_classes'],
         emitted_types=ctx['emitted_types'], pre_parsed_stmts=body_stmts)
     lines.extend(method_lines)
@@ -1345,32 +1358,70 @@ def _compile_lambda_funcref(arg_node, target_ta, scope: _Scope, out: list, ctx: 
     TRA VE cua lambda suy HOAN TOAN tu `target_ta` (lambda khong co chu
     thich kieu rieng trong cu phap - NGOAI LE co y thuc CHI danh cho vi tri
     nay, vi kieu da biet CHAC CHAN tu tham so 'func' dang cho o call-site,
-    KHONG phai doan mo). CHI ho tro lambda KHONG bat bien ngoai (0 free
-    variable) - lambda KHONG di qua fpw_nested_def nen khong co phan tich
-    bien tu do; neu than lambda tham chieu 1 bien ngoai KHONG PHAI tham so
-    cua chinh no, se loi bien-khong-xac-dinh tu tang duoi (scope KeyError)
-    khi gen_il_function bien dich than method - CHAP NHAN duoc (bao loi ro
-    rang o muc do khac, khong am tham sai), xem gioi han ghi trong memory."""
+    KHONG phai doan mo).
+
+    Phase 2.4 (2026-08-11) - ho tro BAT BIEN TU DO (khac ban dau chi 0
+    free variable): quyet dinh sau khi test doc lap qua probe_lambda_closure.il
+    (Lua chon 3 nguoi dung chon, xem docs/PYTHON_GAP_IMPLEMENTATION_PLAN.md).
+    Phat hien bien tu do bang _collect_var_names (tai dung TU closures.py,
+    KHONG sua closures.py/nested_def - co y thuc GIU NGUYEN co che
+    nested_def dang chay dung 16/16 test, tranh rui ro). Voi MOI bien tu do
+    tim thay VA da khai bao trong 'scope' cua ham dang bien dich: bat qua
+    GIA TRI TRUC TIEP (KHONG cell/boxed, khac nested_def's scalar) - AN
+    TOAN vi lambda CHI dung duoc o vi tri tham so goi ham NGAY LAP TUC (Wave
+    3's gioi han cu van con nguyen: khong gan duoc vao bien/tra ve ngoai
+    ham), nen khong co 'lan goi sau' de gia tri cu the doi truoc do can
+    nhin thay - xem _gen_lambda_class_il's docstring. Neu than lambda
+    tham chieu 1 ten KHONG PHAI tham so cua no VA KHONG nam trong scope
+    hien tai (vd goi nham 1 ten khong ton tai), loi bien-khong-xac-dinh se
+    tu nhien tu tang duoi (scope KeyError) khi gen_il_function bien dich
+    than method - van CHAP NHAN duoc (bao loi ro rang, khong am tham
+    sai), giu nguyen tinh than gioi han da ghi tu ban dau."""
     _, param_names, body_node = arg_node
     if len(param_names) != len(target_ta.func_params):
         raise SyntaxError(
             f"il_codegen: lambda co {len(param_names)} tham so nhung vi tri nay can "
             f"{len(target_ta.func_params)} tham so kieu 'func' (({', '.join(target_ta.func_params)}) "
             f"-> {target_ta.dtype})")
-    counter = ctx.setdefault('_lambda_counter', [0])
-    counter[0] += 1
-    class_name_l = f"__Lambda_{counter[0]}"
+    records = (ctx or {}).get('records')
+    param_name_set = set(param_names)
+    candidate_names = set()
+    _lambda_collect_var_names(body_node, candidate_names)
+    free_names = sorted(n for n in (candidate_names - param_name_set) if n in scope)
+    captures = []
+    for name in free_names:
+        _, _, cap_ta = scope[name]
+        captures.append((name, cap_ta, il_type_str(cap_ta, records)))
+
+    # BUG THAT phat hien 2026-08-11 (Phase 2.4, khi test capture): ten class
+    # truoc day dung 1 bo dem RIENG cho MOI ham (ctx['_lambda_counter'] -
+    # ctx la dict TAO MOI moi lan gen_il_function chay cho 1 ham TOP-LEVEL
+    # khac nhau, xem gen_il_program), trong khi 'emitted_types'/'extra_classes'
+    # la CHUNG cho CA chuong trinh - lambda DAU TIEN trong BAT KY ham nao
+    # cung ten '__Lambda_1', nen lambda thu 2 (o 1 ham KHAC) trung ten se bi
+    # "emitted_types check" coi la DA sinh roi va DUNG LAI class cua lambda
+    # DAU - than lambda SAI ("goi nham" lambda cua ham khac) MA KHONG BAO
+    # LOI GI (sai am tham, chi lo ra khi capture khac chu ky ctor -> crash
+    # ro rang thay vi am tham). Sua bang dung id(arg_node) lam khoa (moi
+    # node AST lambda la 1 object Python rieng, id() duy nhat trong doi
+    # chuong trinh dang bien dich) - cung quy uoc voi '__strtmp{id(arg)}'/
+    # '__dictiter{id(stmt)}' da dung o noi khac trong file nay.
+    class_name_l = f"__Lambda_{id(arg_node)}"
     params = [Param(n, TypeAnn(d, None)) for n, d in zip(param_names, target_ta.func_params)]
     nested_sig = Signature('invoke', params, TypeAnn(target_ta.dtype, None), 'block')
     body_stmts = [{'kind': 'return', 'expr_node': body_node, 'expr_text': '<lambda>'}]
     emitted = ctx['emitted_types']
     if class_name_l not in emitted:
         emitted.add(class_name_l)
-        ctx['extra_classes'].append(_gen_lambda_class_il(class_name_l, nested_sig, body_stmts, ctx))
+        ctx['extra_classes'].append(
+            _gen_lambda_class_il(class_name_l, nested_sig, body_stmts, ctx, captures))
     params_il = ', '.join(IL_SCALAR[d] for d in target_ta.func_params)
     ret_il = IL_SCALAR[target_ta.dtype]
-    func_il = il_type_str(target_ta, (ctx or {}).get('records'))
-    out.append(f'    newobj instance void {class_name_l}::.ctor()')
+    func_il = il_type_str(target_ta, records)
+    for name, _cap_ta, _fld_il in captures:
+        _load_var_ref(name, scope, out)
+    ctor_params_il = ', '.join(fld_il for _n, _ta, fld_il in captures)
+    out.append(f'    newobj instance void {class_name_l}::.ctor({ctor_params_il})')
     out.append(f'    ldftn instance {ret_il} {class_name_l}::invoke({params_il})')
     out.append(f'    newobj instance void {func_il}::.ctor(object, native int)')
 
