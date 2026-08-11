@@ -1,0 +1,33 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def chain_two() -> "str":
+    a = ["x", "y"]
+    b = ["p", "q", "r"]
+    out = ""
+    for v in chain(a, b):
+        out = out + v
+    return out
+
+
+def chain_three() -> "str":
+    a = ["1"]
+    b = ["2", "3"]
+    c = ["4", "5", "6"]
+    out = ""
+    for v in chain(a, b, c):
+        out = out + v
+    return out
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("chain_two", chain_two(), "xypqr")
+
+    tested = tested + 1
+    total = total + check("chain_three", chain_three(), "123456")
+
+    return test_summary("itertools_chain_py_tree_test", total, tested)
