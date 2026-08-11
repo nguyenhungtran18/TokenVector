@@ -1,0 +1,19 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("search_mid_string", str(re_search("wor", "hello world")), "1")
+
+    tested = tested + 1
+    total = total + check("search_no_match", str(re_search("zzz", "hello world")), "0")
+
+    tested = tested + 1
+    total = total + check("fullmatch_exact", str(re_fullmatch("[a-z]+", "hello")), "1")
+
+    tested = tested + 1
+    total = total + check("fullmatch_partial_fails", str(re_fullmatch("[a-z]+", "hello world")), "0")
+
+    return test_summary("re_extend_test", total, tested)

@@ -25,6 +25,34 @@ def compile_re_match(args, scope, out, dtype, ctx):
     out.append('    call bool [System]System.Text.RegularExpressions.Regex::IsMatch(string, string)')
 
 
+def compile_re_search(args, scope, out, dtype, ctx):
+    """re_search(pattern, s) -> i32 (0/1) - .NET Regex.IsMatch(input, pattern)
+    tim khop O BAT KY DAU trong chuoi, dung THANG (khong can tu them '^'
+    nhu re_match) - day CHINH LA ngu nghia goc cua Python re.search()."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: re_search(pattern, s) can dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[1], scope, out, 'str', ctx)
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call bool [System]System.Text.RegularExpressions.Regex::IsMatch(string, string)')
+
+
+def compile_re_fullmatch(args, scope, out, dtype, ctx):
+    """re_fullmatch(pattern, s) -> i32 (0/1) - Python re.fullmatch() doi
+    hoi khop TOAN BO chuoi; Regex.IsMatch mac dinh chi can khop 1 phan nen
+    tu neo CA HAI DAU ('^' + pattern + '$') truoc khi goi."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: re_fullmatch(pattern, s) can dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[1], scope, out, 'str', ctx)
+    out.append('    ldstr "^"')
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    out.append('    ldstr "$"')
+    out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    out.append('    call bool [System]System.Text.RegularExpressions.Regex::IsMatch(string, string)')
+
+
 def compile_re_sub(args, scope, out, dtype, ctx):
     """re_sub(pattern, repl, s) -> str - .NET Regex.Replace(input, pattern,
     replacement) - CHU Y thu tu tham so KHAC Python (input truoc)."""
