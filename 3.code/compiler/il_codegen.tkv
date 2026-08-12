@@ -2873,7 +2873,16 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
                                          'TypeAnn': TypeAnn})
         for tern_node in _walk_ternaries_preorder(expr_node):
             tern_temp_of_id[id(tern_node)] = len(locals_decl)
-            t_dtype = (_infer_dtype(tern_node, infer_scope, func_table, records, record_methods) or body_dtype)
+            # Tang 2 (2026-08-12, phat hien qua 'min(4, 2, 8, 1)' toan
+            # hang so - _infer_dtype tra None cho tag 'num' theo dung
+            # thiet ke): _infer_literal_dtype quet ca cay tim hang so DAU
+            # TIEN, nhin cu phap (co dau '.' hay khong) de doan 'int' hay
+            # float - cung tang fallback da dung o declare_scalar phia
+            # tren, tranh khai bao nham local kieu body_dtype (vd 'string')
+            # trong khi gia tri that la TkvInt (valuetype nhieu field).
+            t_dtype = (_infer_dtype(tern_node, infer_scope, func_table, records, record_methods)
+                       or _infer_literal_dtype(tern_node)
+                       or body_dtype)
             locals_decl.append((f'__tern{len(tern_temp_of_id)}', TypeAnn(t_dtype, None)))
         for div_node in _walk_intdiv_nodes(expr_node):
             # '//' va '%' tren SO NGUYEN can 4 o nho de sinh dung ngu

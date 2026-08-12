@@ -81,14 +81,19 @@ def try_expand_minmax_2arg(line):
     name = m.group(1)
     open_idx = m.end() - 1
     close_idx, parts = _find_balanced_call(line, open_idx)
-    if len(parts) != 2:
+    if len(parts) < 2:
         # min(lst)/max(lst) 1 tham so (aggregate) - KHONG phai viec cua
         # macro nay, de builtin ben duoi xu ly.
         return None
-    a, b = parts
     op = '<' if name == 'min' else '>'
-    replacement = f'({a} {op} {b} ? {a} : {b})'
-    return line[:m.start()] + replacement + line[close_idx + 1:]
+    # N-ary (2026-08-12, Phase 5 uu tien "sum/min/max variadic"): gap
+    # trai qua tung cap theo thu tu TRAI->PHAI, giong min(a, min(b,c))
+    # nhung viet phang thanh 1 ternary long nhau - van CHAP NHAN nhan
+    # ban VAN BAN (khong tac dung phu, xem docstring dau file).
+    expr = parts[0]
+    for p in parts[1:]:
+        expr = f'({expr} {op} {p} ? {expr} : {p})'
+    return line[:m.start()] + expr + line[close_idx + 1:]
 
 
 # ---------------------------------------------------------------------
@@ -97,11 +102,14 @@ def try_expand_minmax_2arg(line):
 _NUMERIC_DTYPES = {'i32', 'i64', 'f32', 'f64', 'int'}
 
 
-def _agg_arg_ta(args, scope, fname):
-    """TypeAnn cua tham so + kiem tra no la 1 BIEN list/set."""
-    if len(args) != 1 or args[0][0] != 'var':
+def _agg_arg_ta(args, scope, fname, max_args=1):
+    """TypeAnn cua tham so + kiem tra no la 1 BIEN list/set. max_args>1
+    cho phep them tham so phu (vd sum(xs, start)) - CHI args[0] duoc xet
+    o day, cac tham so sau do caller tu xu ly rieng."""
+    if not (1 <= len(args) <= max_args) or args[0][0] != 'var':
+        extra = f" (toi da {max_args} tham so)" if max_args > 1 else ""
         raise SyntaxError(
-            f"il_codegen: {fname}() can DUNG 1 tham so la 1 BIEN list/set (vd {fname}(xs)) "
+            f"il_codegen: {fname}() can 1 tham so DAU la 1 BIEN list/set (vd {fname}(xs)){extra} "
             f"- bieu thuc long nhau chua ho tro, gan ra 1 bien truoc")
     name = args[0][1]
     try:
@@ -117,8 +125,14 @@ def _agg_arg_ta(args, scope, fname):
 
 def _agg_elem_dtype(args, scope):
     """EXPR_BUILTIN_DTYPE_FN: sum/min/max/sorted deu mang dtype PHAN TU cua
-    nguon. Tra None khi chua suy duoc (caller tu fallback)."""
-    if len(args) != 1 or args[0][0] != 'var':
+    nguon. Tra None khi chua suy duoc (caller tu fallback). sum(xs, start)
+    (2026-08-12): args[1:] (start) khong anh huong dtype ket qua - VAN
+    LAY tu args[0] (nguon list), chi noi long check do dai tu ==1 sang
+    >=1 - BUG THAT tung phat hien: thieu nhanh nay khien infer_dtype tra
+    None cho 'sum(xs, start)', keo theo compile_str_builtin() khai bao
+    sai dtype cho local __strtmp (mismatch voi ket qua i32 THAT tren
+    stack), gay NullReferenceException luc chay."""
+    if len(args) < 1 or args[0][0] != 'var':
         return None
     try:
         return scope[args[0][1]][2].dtype
@@ -137,7 +151,7 @@ def _temps_agg(node, ctx, prefix, res_dtype_fn):
     """3 bien an: nguon (List<T> - CAN ca khi tham so von la list, vi trong
     bieu thuc khong 'load lai' duoc 1 gia tri tam), chi so, va ket qua."""
     args = node[2]
-    if len(args) != 1 or args[0][0] != 'var':
+    if len(args) < 1 or args[0][0] != 'var':
         return
     try:
         ta = ctx['infer_scope'][args[0][1]][2]
@@ -151,11 +165,11 @@ def _temps_agg(node, ctx, prefix, res_dtype_fn):
     ctx['declare_named'](f'__{prefix}{id(args)}_res', TypeAnn(res_dtype_fn(ta), None))
 
 
-def _loop_prelude(args, scope, out, ctx, prefix, fname):
+def _loop_prelude(args, scope, out, ctx, prefix, fname, max_args=1):
     """src = <list/set nguon> (set duoc chuyen sang List 1 lan), tra ve
     (list_type, ta, cac chi so local, 3 nhan) - dung chung cho
     sum/min/max/any/all."""
-    name, ta = _agg_arg_ta(args, scope, fname)
+    name, ta = _agg_arg_ta(args, scope, fname, max_args=max_args)
     if ta.dtype == 'int':
         # Ham co the KHONG dung phep so hoc 'int' nao khac ngoai sum(xs)
         # - luc do khong ai khac goi ensure_class va .class TkvInt se
@@ -203,10 +217,17 @@ def _emit_get_item(out, list_type, src_idx, idx_idx):
 
 
 def push_sum(args, scope, out, dtype, ctx):
+    """sum(xs) hoac sum(xs, start) (2026-08-12, Phase 5 uu tien "sum
+    variadic") - tham so thu 2 la GIA TRI KHOI TAO (bieu thuc bat ky,
+    khong bat buoc la bien), thay cho hang so 0 mac dinh - dung ngu
+    nghia Python that."""
     list_type, ta, src_idx, idx_idx, res_idx, (start_lbl, _skip, end_lbl) = \
-        _loop_prelude(args, scope, out, ctx, 'sum', 'sum')
+        _loop_prelude(args, scope, out, ctx, 'sum', 'sum', max_args=2)
     _require_numeric(ta, 'sum')
-    ctx['compile_expr'](('num', '0'), scope, out, ta.dtype, ctx)
+    if len(args) == 2:
+        ctx['compile_expr'](args[1], scope, out, ta.dtype, ctx)
+    else:
+        ctx['compile_expr'](('num', '0'), scope, out, ta.dtype, ctx)
     out.append(f'    stloc.s {res_idx}')
     out.append('    ldc.i4.0')
     out.append(f'    stloc.s {idx_idx}')
