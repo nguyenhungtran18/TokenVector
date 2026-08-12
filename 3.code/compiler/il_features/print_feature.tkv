@@ -12,7 +12,7 @@ chuyen chuoi voi str() (tkvstr.emit_to_str) - do la yeu cau cua chinh
 moc 7: hai duong dinh dang so thuc song song thi chac chan lech nhau.
 """
 import il_features.tkvstr as _tkvstr
-from il_features.string_feature import _is_bool_shaped
+from il_features.string_builtin import _is_bool_shaped
 
 
 def compile_print(call_node, scope, body, ctx):

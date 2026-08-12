@@ -47,11 +47,10 @@ from il_features.tuple_type import MAX_TUPLE_ARITY as _MAX_TUPLE_ARITY, il_tuple
 import il_features.comprehension  # noqa: F401 - dang ky macro-expander qua side-effect luc import
 from il_features.string_feature import (
     compile_index_str as _string_compile_index_str, compile_len_str as _string_compile_len_str,
-    compile_str_builtin as _string_compile_str_builtin,
-    compile_fmt_float as _string_compile_fmt_float,
     compile_binop_concat as _string_compile_binop_concat,
     compile_compare_str as _string_compile_compare_str,
 )
+import il_features.string_builtin  # noqa: F401 - dang ky expr-builtin (str()/fmt_float()) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 import il_features.operators  # noqa: F401 - dang ky expr-codegen/macro-expander qua side-effect luc import
 import il_features.file_io  # noqa: F401 - dang ky expr-builtin (read_file/file_exists) + call_stmt (write_file/append_file) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 import il_features.list_methods_batch2  # noqa: F401 - dang ky line-parser/stmt-codegen/first-pass-walk qua side-effect luc import (list.sort()/list.extend())
@@ -1742,10 +1741,6 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         out.append(f'    callvirt instance int32 {col_type}::get_Count()')
         _widen_if_needed('i32', dtype, out)
         return
-    if name == 'str':
-        return _string_compile_str_builtin(args, scope, out, dtype, ctx)
-    if name == 'fmt_float':
-        return _string_compile_fmt_float(args, scope, out, dtype, ctx)
     if name == 'round':
         return _compile_round_builtin(args, scope, out, dtype, ctx)
     if name == 'abs':
