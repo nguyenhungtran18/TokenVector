@@ -87,7 +87,8 @@ import il_features.generator_lazy  # noqa: F401 - dang ky line-parser/stmt-codeg
 import il_features.stdlib_math  # noqa: F401 - dang ky expr-builtin (pow/math_pi/math_e/math_gcd + toan bo _MATH_FUNCS) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 import il_features.stdlib_math_trig  # noqa: F401 - .update() them EXTRA_FUNCS vao _MATH_FUNCS cua stdlib_math.py qua side-effect luc import - PHAI import SAU stdlib_math (xem register_math_extra_funcs)
 from il_features.stdlib_math import _MATH_FUNCS as _stdlib_math_funcs_names  # THAM CHIEU DOC (khong con literal) - chi dung cho _infer_dtype's nhanh 'ham toan hoc 1-tham-so luon tra f64' (xem duoi), _expr_call KHONG con dung ten nay (di qua EXPR_BUILTIN_CODEGEN)
-from il_features.string_methods_batch3 import RETURN_DTYPE as _STR_METHOD_RETURN_DTYPE
+from il_dispatch import STR_METHOD_RETURN_DTYPE as _STR_METHOD_RETURN_DTYPE
+import il_features.string_methods_batch3  # noqa: F401 - nop RETURN_DTYPE vao il_dispatch.STR_METHOD_RETURN_DTYPE qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 import il_features.stdlib_random  # noqa: F401 - dang ky expr-builtin (random/randint/choice/uniform/randrange) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 import il_features.stdlib_path  # noqa: F401 - dang ky expr-builtin (path_join/path_exists/path_basename/path_dirname/path_isfile/path_isdir) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 import il_features.stdlib_sqlite  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (db_open/db_exec/db_query_text/db_query_int/db_close, Wave 3 2026-07-29, DB that qua P/Invoke sqlite3.dll)

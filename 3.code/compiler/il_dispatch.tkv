@@ -212,3 +212,17 @@ def register_first_pass_walk(kind, fn):
 
 def register_first_pass_prescan(kind, fn):
     _register_unique(FIRST_PASS_PRESCAN, kind, fn, 'register_first_pass_prescan')
+
+
+# STR_METHOD_RETURN_DTYPE (2026-08-12, Phase tach tkvc.exe thanh plugin):
+# TRUOC DAY il_codegen.py import THANG dict 'RETURN_DTYPE' tu
+# string_methods_batch3.py roi doc qua bien _STR_METHOD_RETURN_DTYPE -
+# nay chuyen thanh 1 dict trung tam trong il_dispatch.py (giong
+# EXPR_METHOD_DTYPE), string_methods_batch3.py TU GOI ham dang ky ben
+# duoi de nop mapping cua no vao, il_codegen.py chi con doc dict o day
+# (khong con import truc tiep module string_methods_batch3 nua).
+STR_METHOD_RETURN_DTYPE = {}
+
+
+def register_str_method_return_dtype(mapping):
+    STR_METHOD_RETURN_DTYPE.update(mapping)

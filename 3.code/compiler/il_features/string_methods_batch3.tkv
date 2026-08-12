@@ -144,3 +144,7 @@ RETURN_DTYPE = {
     'rfind': 'i32',
     'isdigit': 'i32',
 }
+
+from il_dispatch import register_str_method_return_dtype
+
+register_str_method_return_dtype(RETURN_DTYPE)
