@@ -111,12 +111,7 @@ import il_features.datetime_type  # noqa: F401 - dang ky kieu datetime/timedelta
 import il_features.stdlib_input  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (input()/input(prompt), Phase 6.4, 2026-08-12)
 import il_features.stdlib_itertools_expr  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (enumerate(x)/zip(a,b) o vi tri bieu thuc doc lap, Phase 5.3, 2026-08-12)
 import il_features.stdlib_xml  # noqa: F401 - dang ky expr-builtin (xml_encode_name) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
-from il_features.stdlib_re import (
-    compile_re_match as _stdlib_re_compile_re_match,
-    compile_re_sub as _stdlib_re_compile_re_sub,
-    compile_re_search as _stdlib_re_compile_re_search,
-    compile_re_fullmatch as _stdlib_re_compile_re_fullmatch,
-)
+import il_features.stdlib_re  # noqa: F401 - dang ky expr-builtin (re_match/re_sub/re_search/re_fullmatch) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 # import nay CUNG dang ky line-parser/expr-codegen/stmt-codegen/macro-
 # expander qua side-effect luc import (giong cac il_features khac).
 from il_features.record_feature import is_record_ctor_rhs as _record_is_record_ctor_rhs
@@ -1747,14 +1742,6 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         out.append(f'    callvirt instance int32 {col_type}::get_Count()')
         _widen_if_needed('i32', dtype, out)
         return
-    if name == 're_match':
-        return _stdlib_re_compile_re_match(args, scope, out, dtype, ctx)
-    if name == 're_sub':
-        return _stdlib_re_compile_re_sub(args, scope, out, dtype, ctx)
-    if name == 're_search':
-        return _stdlib_re_compile_re_search(args, scope, out, dtype, ctx)
-    if name == 're_fullmatch':
-        return _stdlib_re_compile_re_fullmatch(args, scope, out, dtype, ctx)
     if name == 'str':
         return _string_compile_str_builtin(args, scope, out, dtype, ctx)
     if name == 'fmt_float':

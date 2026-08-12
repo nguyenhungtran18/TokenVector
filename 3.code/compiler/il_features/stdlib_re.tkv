@@ -63,3 +63,11 @@ def compile_re_sub(args, scope, out, dtype, ctx):
     compile_expr(args[0], scope, out, 'str', ctx)
     compile_expr(args[1], scope, out, 'str', ctx)
     out.append('    call string [System]System.Text.RegularExpressions.Regex::Replace(string, string, string)')
+
+
+from il_dispatch import register_expr_builtin
+
+register_expr_builtin('re_match', compile_re_match, 'i32')
+register_expr_builtin('re_search', compile_re_search, 'i32')
+register_expr_builtin('re_fullmatch', compile_re_fullmatch, 'i32')
+register_expr_builtin('re_sub', compile_re_sub, 'str')
