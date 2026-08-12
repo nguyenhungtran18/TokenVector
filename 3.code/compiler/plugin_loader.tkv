@@ -19,12 +19,39 @@ register_* cua no luc duoc exec (side-effect, giong het co che import
 cung TRUOC DAY - CHI doi CACH file duoc doc vao, khong doi code BEN
 TRONG tung module thu vien).
 
-QUAN TRONG: trong che do dev, thu muc plugin VAN la 'compiler/il_features/'
-- noi CUNG chua ca nhom "core-dependency" (list_type.py, string_feature.py,
-...) LAN nhom "thu vien" (stdlib_math.py, stdlib_re.py, ...). import dong
-CA HAI nhom la AN TOAN (Python cache import - file da duoc il_codegen.py
-import truc tiep truoc do se KHONG bi nap lai lan 2, importlib chi tra
-ve module DA CO trong sys.modules) - khong can phan biet 2 nhom o day."""
+QUAN TRONG (2 huong): trong che do dev, thu muc plugin VAN la
+'compiler/il_features/' - noi CUNG chua ca nhom "core-dependency"
+(list_type.py, string_feature.py, ...) LAN nhom "thu vien" (stdlib_math.py,
+stdlib_re.py, ...). Mot so file "thu vien" (vd closures.py, dict_type.py)
+CUNG duoc 1 file khac (il_codegen.py/tkv_compile.py) `from il_features.X
+import ten` truc tiep (phu thuoc CORE that su, KHONG bi xoa o Task 11) -
+2 duong nap (import tinh 'il_features.X' vs load_plugins() qua ten
+SYNTHETIC '_tkv_plugin_X') KHONG tu dung chung 1 entry sys.modules nen
+Python khong tu nhan ra chung la cung 1 module vat ly - du duong nao
+chay TRUOC, duong con lai (neu khong xu ly) se exec lai file lan 2 ->
+dang ky trung register_* -> ValueError tu il_dispatch's collision guard.
+Xu ly CA 2 chieu:
+  (a) truoc khi tu exec 1 file, kiem tra ca 2 ten ('_tkv_plugin_X' VA
+      'il_features.X') da co trong sys.modules chua - co roi thi bo qua;
+  (b) sau khi TU exec thanh cong duoi ten synthetic, GHI THEM 1 tham
+      chieu sys.modules['il_features.X'] tro toi CUNG object module do -
+      de 1 dong 'from il_features.X import ten' chay SAU load_plugins()
+      (vd trong il_codegen.py) trung cache Python, khong exec lai.
+Quan trong hon CA 2 diem tren: THU TU GOI load_plugins() so voi luc
+import il_codegen.py. il_codegen.py's THAN file (khong phai khoi import
+dau file) tu dang ky 1 vai LINE_PARSERS/FIRST_PASS_WALK... theo THU TU
+CO Y NGHIA (vd 'method_call_stmt' PHAI dang ky SAU 'list_sort'/'list_
+extend' - list.sort()/list.extend() phai duoc thu truoc method-call tong
+quat, xem cascade trong _parse_block). Truoc Task 11, moi import
+'il_features.X' (ca core-dependency lan thu-vien) deu nam o DAU
+il_codegen.py, chay TRUOC than file - dam bao thu tu dung. Neu
+load_plugins() chi duoc goi SAU khi 'from il_codegen import ...' (nhu
+tkv_compile.py cu) thi than il_codegen.py da dang ky 'method_call_stmt'
+XONG truoc khi cac thu vien (list_methods_batch2.py's 'list_sort'...)
+duoc load_plugins() nap - dao NGUOC thu tu cascade, gay loi bien dich sai
+(list.sort() bi method_call_stmt tong quat "nuot" truoc). VI VAY:
+tkv_compile.py PHAI goi load_plugins() TRUOC dong 'from il_codegen import
+...' (xem tkv_compile.py, Task 11)."""
 import importlib.util
 import os
 import sys
@@ -52,8 +79,15 @@ def load_plugins(plugin_dir=None):
         if not fname.endswith('.py') or fname.startswith('_'):
             continue
         fpath = os.path.join(plugin_dir, fname)
-        mod_name = f'_tkv_plugin_{fname[:-3]}'
+        stem = fname[:-3]
+        mod_name = f'_tkv_plugin_{stem}'
         if mod_name in sys.modules:
+            continue
+        # Da duoc nap truoc do qua ten goi THAT ('il_features.<stem>', vi du
+        # do 1 dong 'from il_features.X import ten' con lai trong
+        # il_codegen.py - phu thuoc CORE) - bo qua, tranh exec lai lan 2 gay
+        # dang ky trung (xem docstring dau file).
+        if f'il_features.{stem}' in sys.modules:
             continue
         spec = importlib.util.spec_from_file_location(mod_name, fpath)
         module = importlib.util.module_from_spec(spec)
@@ -65,5 +99,10 @@ def load_plugins(plugin_dir=None):
             raise ImportError(
                 f"plugin_loader: nap thu vien '{fname}' that bai ({type(exc).__name__}: "
                 f"{exc}) - file nam o {fpath!r}") from exc
+        # (b) ghi them cache duoi ten goi THAT - xem docstring dau file
+        # ('QUAN TRONG (2 huong)'), muc (b).
+        real_name = f'il_features.{stem}'
+        if real_name not in sys.modules:
+            sys.modules[real_name] = module
         loaded.append(fname)
     return loaded

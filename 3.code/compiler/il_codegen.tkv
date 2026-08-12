@@ -38,80 +38,26 @@ from il_core import (
 )
 from il_features.list_type import il_list_elem_ilstr, il_list_type, compile_index_list as _list_compile_index_list
 from il_features.set_type import il_set_type, compile_in_set as _set_compile_in_set
-import il_features.set_methods_batch2  # noqa: F401 - dang ky line-parser/assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (set.remove()/discard()/union()/intersection()/difference(), Huong A stdlib mo rong 2026-07-29)
 from il_features.dict_type import (
     il_dict_type, il_dict_enumerator_type, il_kvpair_type,
     compile_index_dict as _dict_compile_index_dict, compile_in_dict as _dict_compile_in_dict,
 )
 from il_features.tuple_type import MAX_TUPLE_ARITY as _MAX_TUPLE_ARITY, il_tupleN_type
-import il_features.comprehension  # noqa: F401 - dang ky macro-expander qua side-effect luc import
 from il_features.string_feature import (
     compile_index_str as _string_compile_index_str, compile_len_str as _string_compile_len_str,
     compile_binop_concat as _string_compile_binop_concat,
     compile_compare_str as _string_compile_compare_str,
 )
-import il_features.string_builtin  # noqa: F401 - dang ky expr-builtin (str()/fmt_float()) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
-import il_features.operators  # noqa: F401 - dang ky expr-codegen/macro-expander qua side-effect luc import
-import il_features.file_io  # noqa: F401 - dang ky expr-builtin (read_file/file_exists) + call_stmt (write_file/append_file) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
-import il_features.list_methods_batch2  # noqa: F401 - dang ky line-parser/stmt-codegen/first-pass-walk qua side-effect luc import (list.sort()/list.extend())
-import il_features.list_methods_batch3  # noqa: F401 - dang ky line-parser/stmt-codegen/first-pass-walk qua side-effect luc import (list.reverse()/list.remove(), Huong A stdlib mo rong 2026-07-29)
-import il_features.slicing  # noqa: F401 - dang ky assign-rhs-parser/expr-codegen/stmt-codegen/first-pass-walk qua side-effect luc import (slicing a[i:j])
-import il_features.dict_keys_values  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (dict.keys()/.values())
-import il_features.string_split  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (string.split())
-import il_features.fstring  # noqa: F401 - dang ky macro-expander qua side-effect luc import (f-string 'f"...{var}..."')
-import il_features.string_format  # noqa: F401 - dang ky macro-expander qua side-effect luc import (str.format(), Phase 1.1 2026-08-11)
-import il_features.string_percent_format  # noqa: F401 - dang ky macro-expander qua side-effect luc import ('%' string-formatting, Phase 1.2 2026-08-11)
 import il_features.threading_feature  # noqa: F401 - Moc 22 static threading
-import il_features.async_await  # noqa: F401 - Moc 24 async/await native
 import il_features.ffi_feature  # noqa: F401 - Moc 27 Native C Interop & FFI
 import il_features.dynamic_exec  # noqa: F401 - Moc 28 Dynamic eval & exec native
 import il_features.stdlib_bcl  # noqa: F401 - Moc 33 PyStdlib BCL expansion
 import il_features.pycapi_shim  # noqa: F401 - Moc 37 CPython C-API shim
-import il_features.list_count_index  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (list.count())
-import il_features.stdlib_string_count  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (string.count(), Huong A stdlib mo rong 2026-07-29)
-import il_features.stdlib_string_zfill  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (string.zfill(), Huong A stdlib mo rong 2026-07-29)
-import il_features.string_title  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (string.title(), Huong A stdlib mo rong 2026-07-29, nhom thu 11)
-import il_features.dict_items_list  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (dict.items()-as-assign, Huong A stdlib mo rong 2026-07-29, nhom cuoi cung)
-import il_features.for_in_kvlist  # noqa: F401 - dang ky macro-expander qua side-effect luc import ('for k, v in items_list:', cung nhom dict_items_list.py o tren)
-import il_features.stdlib_itertools  # noqa: F401 - dang ky macro-expander qua side-effect luc import (for enumerate()/zip())
-import il_features.stdlib_json  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (json_dumps())
-import il_features.stdlib_aggregates  # noqa: F401 - dang ky macro-expander/assign-rhs-parser/stmt-codegen qua side-effect luc import (min/max/sum/sorted)
-import il_features.string_join  # noqa: F401 - '"sep".join(lst)' + sep.join(lst) (2026-08-03)
-import il_features.set_to_list  # noqa: F401 - set.to_list(): HashSet -> List de lap duoc bang for-in (2026-08-03)
-import il_features.list_copy  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (list.copy(), Huong A stdlib mo rong 2026-07-29)
-import il_features.stdlib_repeat  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen qua side-effect luc import (list * n / repeat_str)
-import il_features.closures  # noqa: F401 - dang ky line-parser/first-pass-walk/stmt-codegen qua side-effect luc import (closure that - Buoc 4, 2026-07-29, def long/nested def)
 from il_features.closures import _collect_var_names as _lambda_collect_var_names
 from il_features.generator_feature import is_generator_body as _is_generator_body  # noqa: F401 - phat hien ham generator (con lai sau khi thay eager-list bang lazy that, xem generator_lazy.py)
-import il_features.generator_lazy  # noqa: F401 - dang ky line-parser/stmt-codegen/first-pass-walk qua side-effect luc import (yield_stmt/for_in_generator, Wave 3 2026-07-29, generator lazy THAT)
-import il_features.stdlib_math  # noqa: F401 - dang ky expr-builtin (pow/math_pi/math_e/math_gcd + toan bo _MATH_FUNCS) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
-import il_features.stdlib_math_trig  # noqa: F401 - .update() them EXTRA_FUNCS vao _MATH_FUNCS cua stdlib_math.py qua side-effect luc import - PHAI import SAU stdlib_math (xem register_math_extra_funcs)
 from il_features.stdlib_math import _MATH_FUNCS as _stdlib_math_funcs_names  # THAM CHIEU DOC (khong con literal) - chi dung cho _infer_dtype's nhanh 'ham toan hoc 1-tham-so luon tra f64' (xem duoi), _expr_call KHONG con dung ten nay (di qua EXPR_BUILTIN_CODEGEN)
 from il_dispatch import STR_METHOD_RETURN_DTYPE as _STR_METHOD_RETURN_DTYPE
-import il_features.string_methods_batch3  # noqa: F401 - nop RETURN_DTYPE vao il_dispatch.STR_METHOD_RETURN_DTYPE qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
-import il_features.stdlib_random  # noqa: F401 - dang ky expr-builtin (random/randint/choice/uniform/randrange) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
-import il_features.stdlib_path  # noqa: F401 - dang ky expr-builtin (path_join/path_exists/path_basename/path_dirname/path_isfile/path_isdir) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
-import il_features.stdlib_sqlite  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (db_open/db_exec/db_query_text/db_query_int/db_close, Wave 3 2026-07-29, DB that qua P/Invoke sqlite3.dll)
-import il_features.stdlib_http  # noqa: F401 - plug-and-play module http (http_get/http_post)
-import il_features.stdlib_http_full  # noqa: F401 - http_request(): doc duoc status code + header tra ve (2026-08-03)
-import il_features.int_builtin  # noqa: F401 - int(x): chieu nguoc lai cua str(x) (Giai doan 1, 2026-08-03)
-import il_features.float_builtin  # noqa: F401 - float(x): doi xung voi int(x) (2026-08-03)
 import il_features.int_type as _int_type  # kieu 'int' vo han chu so nhu Python (moc 6 buoc 2, 2026-08-05)
-import il_features.expr_hoist  # noqa: F401 - hoist bieu thuc ra bien tam (dot 2, 2026-08-03)
-import il_features.stdlib_eval  # noqa: F401 - eval_arith(): port System.Data.DataTable.Compute (Giai doan 2.3, 2026-08-03)
-import il_features.stdlib_json_get  # noqa: F401 - dang ky assign-rhs-parser/stmt-codegen/first-pass-walk qua side-effect luc import (json_get_str, 2026-07-30, phan bu doc cho json_dumps)
-import il_features.stdlib_os  # noqa: F401 - plug-and-play module os
-import il_features.stdlib_hashlib  # noqa: F401 - plug-and-play module hashlib
-import il_features.stdlib_base64  # noqa: F401 - plug-and-play module base64
-import il_features.stdlib_zipfile  # noqa: F401 - plug-and-play module zipfile
-import il_features.stdlib_shutil  # noqa: F401 - plug-and-play module shutil
-import il_features.stdlib_functional  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (map()/filter()/reduce(), Phase 3.3, 2026-08-11)
-import il_features.typecheck  # noqa: F401 - dang ky isinstance()/issubclass()/type() (Phase 4, 2026-08-11)
-import il_features.datetime_type  # noqa: F401 - dang ky kieu datetime/timedelta that (Phase 4, 2026-08-11)
-import il_features.stdlib_input  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (input()/input(prompt), Phase 6.4, 2026-08-12)
-import il_features.stdlib_itertools_expr  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (enumerate(x)/zip(a,b) o vi tri bieu thuc doc lap, Phase 5.3, 2026-08-12)
-import il_features.stdlib_xml  # noqa: F401 - dang ky expr-builtin (xml_encode_name) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
-import il_features.stdlib_re  # noqa: F401 - dang ky expr-builtin (re_match/re_sub/re_search/re_fullmatch) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 # import nay CUNG dang ky line-parser/expr-codegen/stmt-codegen/macro-
 # expander qua side-effect luc import (giong cac il_features khac).
 from il_features.record_feature import is_record_ctor_rhs as _record_is_record_ctor_rhs

@@ -39,6 +39,18 @@ sys.path.insert(0, str(Path(__file__).parent))
 from typed_dsl_parser import (parse_typed_signature, DTYPES, TypeAnn,  # noqa: E402
                                parse_type_ann_str as _parse_type_ann_str)
 from il_core import rename_reserved_identifiers as _rename_reserved_identifiers  # noqa: E402
+import plugin_loader  # noqa: E402
+
+# PHAI goi TRUOC 'from il_codegen import ...' ben duoi - than il_codegen.py
+# tu dang ky mot vai LINE_PARSERS ('method_call_stmt'...) theo THU TU CO Y
+# NGHIA (cascade), can cac thu vien nhu list_methods_batch2.py's
+# 'list_sort'/'list_extend' dang ky TRUOC 'method_call_stmt' (list.sort()/
+# list.extend() phai duoc thu truoc pattern method-call tong quat). Neu
+# goi load_plugins() SAU khi import il_codegen, than il_codegen.py da chay
+# xong (dang ky method_call_stmt roi) truoc khi cac thu vien duoc nap ->
+# dao NGUOC thu tu cascade -> bien dich sai (xem plugin_loader.py, Task 11).
+plugin_loader.load_plugins()
+
 from il_codegen import gen_il_program, gen_record_types, il_type_str  # noqa: E402
 from il_core import IL_SCALAR, IL_LDC_OP  # noqa: E402
 from tokenvector_compile import (ILASM, assemble_il_to_exe,  # noqa: E402
