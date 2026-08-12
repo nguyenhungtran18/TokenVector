@@ -207,8 +207,22 @@ def register_math_extra_funcs(extra_dict):
     cach cu 'il_codegen.py tu import EXTRA_FUNCS roi .update() thang vao
     dict cua chinh no' (doi huong phu thuoc: truoc day il_codegen.py biet
     ve stdlib_math_trig, nay stdlib_math_trig biet ve stdlib_math qua
-    ham nay, il_codegen.py khong can biet ca hai)."""
-    _MATH_FUNCS.update(extra_dict)
+    ham nay, il_codegen.py khong can biet ca hai).
+
+    SUA (review fix Task 3, 2026-08-12): TRUOC DAY ham nay CHI .update()
+    dict, roi trong cay hy vong _register_all_math_funcs() (chay luc
+    stdlib_math.py nap module) se "bat" duoc cac ten them sau - nhung
+    _register_all_math_funcs() da chay TRUOC khi stdlib_math_trig.py kip
+    import xong va goi ham nay (Python chay het than module stdlib_math.py,
+    RO stdlib_math_trig.py moi goi register_math_extra_funcs), nen cac ten
+    trig-extra (tan/asin/acos/atan/sinh/cosh/log10/trunc) bi update() vao
+    dict nhung KHONG BAO GIO duoc register_expr_builtin - mat hoan toan
+    khoi EXPR_BUILTIN_CODEGEN. Nay TU dang ky ngay cac ten trong
+    extra_dict qua register_expr_builtin, khong con dua vao thu tu
+    module-load nua."""
+    for name, method_name in extra_dict.items():
+        _MATH_FUNCS[name] = method_name
+        register_expr_builtin(name, _make_math_func_compiler(method_name), None)
 
 
 def _make_math_func_compiler(method_name):
@@ -224,12 +238,16 @@ def _make_math_func_compiler(method_name):
 
 
 def _register_all_math_funcs():
-    """Dang ky TOAN BO _MATH_FUNCS qua register_expr_builtin - goi 1 LAN
-    DUY NHAT luc module nap XONG (sau khi stdlib_math_trig.py da kip
-    .update() vao _MATH_FUNCS qua register_math_extra_funcs - xem thu tu
-    import trong stdlib_math_trig.py: PHAI import stdlib_math truoc roi
-    moi goi register_math_extra_funcs). return_dtype=None vi ham tu
-    widen theo dtype yeu cau (giong pow/math_pi/... ben duoi), khong can
+    """Dang ky cac ham CO SAN trong _MATH_FUNCS luc stdlib_math.py nap
+    module (chi 9 ham co ban - exp/sqrt/tanh/sin/cos/floor/ceil/log/
+    round). SUA (review fix Task 3, 2026-08-12): TRUOC DAY docstring nay
+    tuyen bo se "bat" duoc ca cac ten trig-extra do stdlib_math_trig.py
+    them sau qua register_math_extra_funcs() - SAI, vi ham nay chay va
+    KET THUC truoc khi stdlib_math_trig.py kip import xong. Nay
+    register_math_extra_funcs() tu dang ky lay phan cua no (xem dinh
+    nghia phia tren) - ham nay chi con dang ky dung 9 ten co ban, khong
+    dam bao gi ve cac module extra. return_dtype=None vi ham tu widen
+    theo dtype yeu cau (giong pow/math_pi/... ben duoi), khong can
     EXPR_BUILTIN_DTYPE lam gi them."""
     for name, method_name in _MATH_FUNCS.items():
         register_expr_builtin(name, _make_math_func_compiler(method_name), None)
