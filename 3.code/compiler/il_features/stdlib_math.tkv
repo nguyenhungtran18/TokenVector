@@ -186,3 +186,67 @@ def compile_pow(args, scope, out, dtype, ctx):
     out.append('    call float64 [mscorlib]System.Math::Pow(float64, float64)')
     if dtype != 'f64':
         out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+
+
+from il_dispatch import register_expr_builtin
+
+# _MATH_FUNCS (2026-08-12, Phase tach tkvc.exe thanh plugin): danh sach
+# ham 1-tham-so goi thang System.Math, TRUOC DAY dinh nghia LITERAL
+# trong il_codegen.py roi .update() them tu stdlib_math_trig.py's
+# EXTRA_FUNCS - nay CHUYEN HAN vao day (module thu vien) de il_codegen.py
+# khong con giu literal nao ve danh sach ham toan hoc, chi con 1 diem
+# dang ky trung tam. GIU NGUYEN cach anh xa cu (chi co overload float64,
+# conv.r8 truoc goi / conv nguoc lai sau goi neu dtype!='f64').
+_MATH_FUNCS = {'exp': 'Exp', 'sqrt': 'Sqrt', 'tanh': 'Tanh', 'sin': 'Sin', 'cos': 'Cos',
+               'floor': 'Floor', 'ceil': 'Ceiling', 'log': 'Log', 'round': 'Round'}
+
+
+def register_math_extra_funcs(extra_dict):
+    """Goi boi stdlib_math_trig.py (va bat ky module 'ham toan hoc 1-tham-
+    so' nao khac sau nay) de gop them vao _MATH_FUNCS - THAY THE cho
+    cach cu 'il_codegen.py tu import EXTRA_FUNCS roi .update() thang vao
+    dict cua chinh no' (doi huong phu thuoc: truoc day il_codegen.py biet
+    ve stdlib_math_trig, nay stdlib_math_trig biet ve stdlib_math qua
+    ham nay, il_codegen.py khong can biet ca hai)."""
+    _MATH_FUNCS.update(extra_dict)
+
+
+def _make_math_func_compiler(method_name):
+    def _compile(args, scope, out, dtype, ctx):
+        if len(args) != 1:
+            raise SyntaxError(f"il_codegen: ham toan hoc chi nhan dung 1 tham so")
+        ctx['compile_expr'](args[0], scope, out, dtype, ctx)
+        out.append('    conv.r8')
+        out.append(f'    call float64 [mscorlib]System.Math::{method_name}(float64)')
+        if dtype != 'f64':
+            out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+    return _compile
+
+
+def _register_all_math_funcs():
+    """Dang ky TOAN BO _MATH_FUNCS qua register_expr_builtin - goi 1 LAN
+    DUY NHAT luc module nap XONG (sau khi stdlib_math_trig.py da kip
+    .update() vao _MATH_FUNCS qua register_math_extra_funcs - xem thu tu
+    import trong stdlib_math_trig.py: PHAI import stdlib_math truoc roi
+    moi goi register_math_extra_funcs). return_dtype=None vi ham tu
+    widen theo dtype yeu cau (giong pow/math_pi/... ben duoi), khong can
+    EXPR_BUILTIN_DTYPE lam gi them."""
+    for name, method_name in _MATH_FUNCS.items():
+        register_expr_builtin(name, _make_math_func_compiler(method_name), None)
+
+
+# return_dtype=None ca 4 dong duoi: compile_pow/compile_math_pi/
+# compile_math_e/compile_math_gcd deu TU GOI ctx['widen_if_needed'](...)
+# ben trong than ham (xem dinh nghia phia tren) de dua ket qua ve dung
+# 'dtype' yeu cau - neu khai bao return_dtype khac None o day, dispatch
+# chung (_expr_call's nhanh EXPR_BUILTIN_CODEGEN trong il_codegen.py) se
+# GOI THEM 1 lan _widen_if_needed(actual, dtype, out) sau khi ham da tu
+# widen roi -> widen 2 LAN chong nhau, sinh IL sai (BUG THAT phat hien
+# qua math_extra_test.tkv: 'math_gcd' dang ky voi 'i64' truoc day lam
+# gcd_basic/gcd_negative_arg/gcd_zero_arg deu FAIL, ket qua rac
+# 15722056 thay vi 6/6/5).
+register_expr_builtin('pow', compile_pow, None)
+register_expr_builtin('math_pi', compile_math_pi, None)
+register_expr_builtin('math_e', compile_math_e, None)
+register_expr_builtin('math_gcd', compile_math_gcd, None)
+_register_all_math_funcs()

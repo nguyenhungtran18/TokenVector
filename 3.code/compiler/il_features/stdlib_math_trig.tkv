@@ -14,3 +14,7 @@ EXTRA_FUNCS = {
     'tan': 'Tan', 'asin': 'Asin', 'acos': 'Acos', 'atan': 'Atan',
     'sinh': 'Sinh', 'cosh': 'Cosh', 'log10': 'Log10', 'trunc': 'Truncate',
 }
+
+from il_features.stdlib_math import register_math_extra_funcs
+
+register_math_extra_funcs(EXTRA_FUNCS)

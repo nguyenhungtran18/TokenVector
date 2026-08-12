@@ -85,13 +85,9 @@ import il_features.closures  # noqa: F401 - dang ky line-parser/first-pass-walk/
 from il_features.closures import _collect_var_names as _lambda_collect_var_names
 from il_features.generator_feature import is_generator_body as _is_generator_body  # noqa: F401 - phat hien ham generator (con lai sau khi thay eager-list bang lazy that, xem generator_lazy.py)
 import il_features.generator_lazy  # noqa: F401 - dang ky line-parser/stmt-codegen/first-pass-walk qua side-effect luc import (yield_stmt/for_in_generator, Wave 3 2026-07-29, generator lazy THAT)
-from il_features.stdlib_math import (
-    compile_pow as _stdlib_math_compile_pow,
-    compile_math_pi as _stdlib_math_compile_math_pi,
-    compile_math_e as _stdlib_math_compile_math_e,
-    compile_math_gcd as _stdlib_math_compile_math_gcd,
-)
-from il_features.stdlib_math_trig import EXTRA_FUNCS as _stdlib_math_trig_extra_funcs
+import il_features.stdlib_math  # noqa: F401 - dang ky expr-builtin (pow/math_pi/math_e/math_gcd + toan bo _MATH_FUNCS) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
+import il_features.stdlib_math_trig  # noqa: F401 - .update() them EXTRA_FUNCS vao _MATH_FUNCS cua stdlib_math.py qua side-effect luc import - PHAI import SAU stdlib_math (xem register_math_extra_funcs)
+from il_features.stdlib_math import _MATH_FUNCS as _stdlib_math_funcs_names  # THAM CHIEU DOC (khong con literal) - chi dung cho _infer_dtype's nhanh 'ham toan hoc 1-tham-so luon tra f64' (xem duoi), _expr_call KHONG con dung ten nay (di qua EXPR_BUILTIN_CODEGEN)
 from il_features.string_methods_batch3 import RETURN_DTYPE as _STR_METHOD_RETURN_DTYPE
 from il_features.stdlib_random import (
     compile_random as _stdlib_random_compile_random,
@@ -167,24 +163,11 @@ from il_dispatch import (
 # lai o day de GIU NGUYEN toan bo code ben duoi dung ten cu (IL_SCALAR,
 # il_list_type, ...) khong doi.
 
-# Ham toan hoc dung sau nay cho activation function (sigmoid/tanh/softmax
-# - dung muc tieu "AI nho gon" cua du an) - anh xa ten DSL -> ten static
-# method cua System.Math. System.Math CHI co overload float64 cho phan
-# lon (tru Abs co ban float32 rieng) nen can conv.r8 truoc / conv.r4 sau.
-_MATH_FUNCS = {'exp': 'Exp', 'sqrt': 'Sqrt', 'tanh': 'Tanh', 'sin': 'Sin', 'cos': 'Cos',
-                # 2026-07-28: floor/ceil/log/round mo rong - dung LAI y het
-                # co che 1-tham-so cua nhanh nay (conv.r8 truoc goi, conv
-                # nguoc lai ve dtype yeu cau sau goi NEU dtype!='f64') -
-                # co che nay VON DA xu ly dung ca truong hop dtype la i32/
-                # i64 (vd 'n: i32 = floor(x)') qua trick IL_LDC_OP[dtype]
-                # .replace('ldc.', 'conv.') - KHONG can code moi rieng.
-                'floor': 'Floor', 'ceil': 'Ceiling', 'log': 'Log', 'round': 'Round'}
-# 2026-07-29 (Huong A stdlib mo rong, dang module rieng theo nhom chuc
-# nang - xem il_features/stdlib_math_trig.py): moi nhom ham stdlib moi
-# sinh dang ky them vao _MATH_FUNCS qua .update() ngay tai diem import,
-# KHONG sua truc tiep literal o tren - giu file nay khong phinh to them
-# khi co nhom ham moi, dung tinh than plug-and-play cua il_features/*.py.
-_MATH_FUNCS.update(_stdlib_math_trig_extra_funcs)
+# _MATH_FUNCS (ham toan hoc 1-tham-so goi thang System.Math) chuyen han
+# vao il_features/stdlib_math.py (2026-08-12, Phase tach tkvc.exe thanh
+# plugin) - xem _stdlib_math_funcs_names o dau file (import doc, chi
+# dung cho _infer_dtype) va EXPR_BUILTIN_CODEGEN (dispatch codegen that,
+# xem _expr_call ben duoi).
 
 # Closure that (Buoc 4, 2026-07-29 - xem project-tokenvector-wave2-status
 # memory, 'checkpoint tach session'): 1 REFERENCE TYPE nho (1 field 'v')
@@ -540,7 +523,7 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
             # lop loi voi B4 (mot cho suy dtype quen cap nhat theo mot
             # cho codegen da doi).
             return 'i32' if len(node[2]) == 1 else 'f64'
-        if name in _MATH_FUNCS:
+        if name in _stdlib_math_funcs_names:
             # 2026-08-03: truoc day tra None -> caller fallback ve
             # body_dtype, nen 'r = round(v)' trong 1 ham TRA VE 'str' bi
             # khai bao kieu string -> KeyError 'str' luc sinh 'conv.<dtype>'.
@@ -1782,14 +1765,6 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         out.append(f'    callvirt instance int32 {col_type}::get_Count()')
         _widen_if_needed('i32', dtype, out)
         return
-    if name == 'pow':
-        return _stdlib_math_compile_pow(args, scope, out, dtype, ctx)
-    if name == 'math_pi':
-        return _stdlib_math_compile_math_pi(args, scope, out, dtype, ctx)
-    if name == 'math_e':
-        return _stdlib_math_compile_math_e(args, scope, out, dtype, ctx)
-    if name == 'math_gcd':
-        return _stdlib_math_compile_math_gcd(args, scope, out, dtype, ctx)
     if name == 'random':
         return _stdlib_random_compile_random(args, scope, out, dtype, ctx)
     if name == 'randint':
@@ -1828,26 +1803,16 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         return _string_compile_fmt_float(args, scope, out, dtype, ctx)
     if name == 'round':
         return _compile_round_builtin(args, scope, out, dtype, ctx)
-    if name in _MATH_FUNCS or name == 'abs':
+    if name == 'abs':
         if len(args) != 1:
-            raise SyntaxError(f"il_codegen: ham '{name}' chi nhan dung 1 tham so")
-        if name == 'abs' and dtype == 'int':
+            raise SyntaxError("il_codegen: ham 'abs' chi nhan dung 1 tham so")
+        if dtype == 'int':
             # Kieu 'int' (vo han chu so): System.Math::Abs KHONG co
             # overload nao nhan struct TkvInt - xem int_type.compile_abs.
             return _int_type.compile_abs(args[0], scope, out, ctx)
         _compile_expr(args[0], scope, out, dtype, ctx)
-        if name == 'abs':
-            # Math.Abs CO overload float32 rieng - khong can chuyen doi.
-            out.append(f'    call {IL_SCALAR[dtype]} [mscorlib]System.Math::Abs({IL_SCALAR[dtype]})')
-        else:
-            # Cac ham con lai cua System.Math CHI co overload float64 -
-            # phai conv.r8 truoc goi; chi conv nguoc lai neu dtype KHONG
-            # phai f64 san (tranh conv.r4 sai khi dtype la f64).
-            method = _MATH_FUNCS[name]
-            out.append('    conv.r8')
-            out.append(f'    call float64 [mscorlib]System.Math::{method}(float64)')
-            if dtype != 'f64':
-                out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+        # Math.Abs CO overload float32 rieng - khong can chuyen doi.
+        out.append(f'    call {IL_SCALAR[dtype]} [mscorlib]System.Math::Abs({IL_SCALAR[dtype]})')
         return
     # Goi ham do NGUOI DUNG dinh nghia trong CUNG chuong trinh nhieu
     # ham (xem gen_il_program) - can func_table (ten -> Signature) va
@@ -1907,8 +1872,9 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     func_table = (ctx or {}).get('func_table') or {}
     if name not in func_table:
         raise SyntaxError(
-            f"il_codegen: ham '{name}' khong ton tai (khong phai ham toan hoc "
-            f"{sorted(_MATH_FUNCS)}+abs, cung khong co trong chuong trinh dang bien dich)")
+            f"il_codegen: ham '{name}' khong ton tai (khong phai ham toan hoc, "
+            f"cung khong phai builtin thu vien nao (str/pow/re_*/path_*/...), "
+            f"cung khong co trong chuong trinh dang bien dich)")
     callee = func_table[name]
     # *args/**kwargs (Phase 5.1, 2026-08-11).
     normal_params = [p for p in callee.params if not (p.is_vararg or p.is_kwarg)]
