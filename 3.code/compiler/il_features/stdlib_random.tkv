@@ -8,12 +8,16 @@ compile_index_list). il_list_type() cung can tham so `records` thu 2
 (cho truong hop list chua 1 class dang record) - thieu tham so nay se
 sai khi dtype phan tu la record.
 
-QUYET DINH KIEN TRUC DA CHOT: khong dung static field cap class (core
-chua ho tro). Moi lan goi random()/randint()/choice() khoi tao 1
-System.Random MOI. GIOI HAN DA BIET (danh doi thiet ke, khong phai bug):
-.NET Random() mac dinh seed theo Environment.TickCount (do phan giai
-~15ms tren Windows) - 2 lenh goi LIEN TIEP RAT NHANH trong 1 vong lap co
-the co CUNG seed -> tra ve CUNG 1 SO."""
+KIEN TRUC HIEN TAI (cap nhat batch 5.5, 2026-08-12 - Task 1+2 random
+seeding): dung 1 static field cap class TkvRandom::rng - 1 System.Random
+DUNG CHUNG cho toan chuong trinh, khoi tao LUOI (lazy) tai lan goi
+Instance() DAU TIEN (xem ensure_class/Instance() ben duoi). random()/
+randint()/uniform()/randrange()/choice() deu goi qua Instance() nen dung
+CHUNG 1 instance - khac ban dau (moi lan goi khoi tao Random MOI, de bi
+trung seed theo Environment.TickCount khi goi lien tiep rat nhanh).
+seed(n) (Task 2, codegen_seed ben duoi) goi TkvRandom::SetSeed(int32) -
+gan lai field static rng = new Random(n), cho phep dat lai chuoi so ngau
+nhien mot cach xac dinh (cung seed -> cung dãy gia tri)."""
 from il_features.list_type import il_list_type
 from il_dispatch import register_expr_builtin
 
@@ -179,3 +183,16 @@ register_expr_builtin('randint', compile_randint, None)
 register_expr_builtin('uniform', compile_uniform, None)
 register_expr_builtin('randrange', compile_randrange, None)
 register_expr_builtin('choice', compile_choice, None, return_dtype_fn=_choice_dtype_fn)
+
+
+def codegen_seed(call_args, scope, body, ctx):
+    """seed(n) - lenh DOC LAP (khong tra gia tri), dispatch qua
+    RANDOM_STMT_CODEGEN giong het log_set_level (logging_feature.py)."""
+    if len(call_args) != 1:
+        raise SyntaxError("il_codegen: seed(n) nhan dung 1 tham so")
+    ensure_class(ctx)
+    ctx['compile_expr'](call_args[0], scope, body, 'i32', ctx)
+    body.append(f'    call void {_HELPER_CLASS}::SetSeed(int32)')
+
+
+RANDOM_STMT_CODEGEN = {'seed': codegen_seed}
