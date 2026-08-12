@@ -24,4 +24,14 @@ def run() -> "i32":
     tested = tested + 1
     total = total + check("split_last", words[2], "foo")
 
+    nums = re_findall("[0-9]+", "a12 b345 c6")
+    tested = tested + 1
+    total = total + check("findall_len", str(len(nums)), "3")
+    tested = tested + 1
+    total = total + check("findall_first", nums[0], "12")
+    tested = tested + 1
+    total = total + check("findall_second", nums[1], "345")
+    tested = tested + 1
+    total = total + check("findall_third", nums[2], "6")
+
     return test_summary("re_extend_test", total, tested)

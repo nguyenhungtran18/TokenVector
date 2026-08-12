@@ -161,6 +161,11 @@ def il_type_str(type_ann: TypeAnn, records: dict = None) -> str:
         # local AN giu 1 doi tuong System.Text.RegularExpressions.Match
         # (reference type, khong can dia chi).
         return 'class [System]System.Text.RegularExpressions.Match'
+    if type_ann.shape == 'regex_matches':
+        # re_findall (batch 5.5b, 2026-08-12) - local AN giu 1 doi tuong
+        # System.Text.RegularExpressions.MatchCollection (reference type),
+        # can Count + indexer de duyet trich .Value tung Match.
+        return 'class [System]System.Text.RegularExpressions.MatchCollection'
     if type_ann.shape == 'generator':
         # Generator LAZY THAT (Wave 3, 2026-07-29, thay the hoan toan B2(c)'s
         # eager-list desugar - xem gen_il_generator_function/project-
