@@ -197,8 +197,20 @@ from il_dispatch import register_expr_builtin
 # khong con giu literal nao ve danh sach ham toan hoc, chi con 1 diem
 # dang ky trung tam. GIU NGUYEN cach anh xa cu (chi co overload float64,
 # conv.r8 truoc goi / conv nguoc lai sau goi neu dtype!='f64').
+# SUA (2026-08-12, fix bug collision 'round'): XOA 'round': 'Round' khoi
+# dict nay - float_builtin.tkv's push_round_builtin (Moc 15, 2026-08-09)
+# da dang ky 'round' voi ngu nghia DAY DU HON (Python round() that: Banker's
+# Rounding, nhan 1 HOAC 2 tham so, tra ve i32/f64 tuy so tham so) - trong
+# khi ban o day chi la 1 trong 9 ham anh xa 1-tham-so->System.Math thang,
+# lam tron THUONG (khong phai half-to-even) va SE GHI DE/TRUNG voi ban
+# day du hon khi 2 module cung nap (il_dispatch's collision guard bung
+# ValueError). Cay .py doi chung: compiler/il_features/float_builtin.py
+# CHUA co push_round_builtin (Moc 15 chi moi vao cay .tkv, chua port
+# nguoc ve .py) nen 'round' o cay .py hien VAN chi di qua stdlib_math.py's
+# ban don gian nay - do la DIVERGENCE CO SAN tu truoc, KHONG thuoc pham
+# vi fix nay (khong dong vao cay .py). Giu ban day du hon o float_builtin.tkv.
 _MATH_FUNCS = {'exp': 'Exp', 'sqrt': 'Sqrt', 'tanh': 'Tanh', 'sin': 'Sin', 'cos': 'Cos',
-               'floor': 'Floor', 'ceil': 'Ceiling', 'log': 'Log', 'round': 'Round'}
+               'floor': 'Floor', 'ceil': 'Ceiling', 'log': 'Log'}
 
 
 def register_math_extra_funcs(extra_dict):

@@ -69,40 +69,104 @@ def load_plugins(plugin_dir=None):
     """Tra ve danh sach TEN FILE (khong duong dan) da nap thanh cong -
     rong neu thu muc khong ton tai (KHONG bao loi - chuong trinh dang
     bien dich co the khong dung builtin thu vien nao ca, thu muc rong/
-    khong co la hop le)."""
+    khong co la hop le).
+
+    2-PASS (+retry) de xu ly THU TU phu thuoc giua cac file thu vien: 1
+    file (vd file_io.py) co the co dong tinh 'import il_features.Y' HOAC
+    'from il_features import Y as _y' o CAP MODULE tro toi 1 file thu
+    vien KHAC (vd logging_feature.py) chua duoc nap (thu tu alphabet:
+    file_io < logging_feature). Neu chi quet 1 luot theo thu tu bang chu
+    cai, file_io.py se fail truoc khi logging_feature.py kip nap. Giai
+    phap: bat rieng ImportError/ModuleNotFoundError (khac voi loi that
+    trong noi dung file) trong luc exec_module, dua file loi vao hang
+    doi retry, quet lai hang doi sau khi phan con lai da nap xong - lap
+    toi da cho den khi 1 vong khong nap them duoc file nao (luc do moi
+    bao loi that, tranh vong lap vo han neu la loi phu thuoc vong tron
+    hoac module ngoai that su thieu)."""
     if plugin_dir is None:
         plugin_dir = discover_plugin_dir()
     if not os.path.isdir(plugin_dir):
         return []
-    loaded = []
-    for fname in sorted(os.listdir(plugin_dir)):
-        if not fname.endswith('.py') or fname.startswith('_'):
-            continue
+    def _try_load(fname):
+        """Tra ve (True, None) neu nap thanh cong / da nap roi (bo qua),
+        (False, exc) neu that bai vi ImportError/ModuleNotFoundError (co
+        the la loi phu thuoc thu tu, dang retry duoc). Cac loi khac duoc
+        raise thang ra ngoai (loi that trong noi dung plugin, khong
+        retry)."""
         fpath = os.path.join(plugin_dir, fname)
         stem = fname[:-3]
         mod_name = f'_tkv_plugin_{stem}'
-        if mod_name in sys.modules:
-            continue
-        # Da duoc nap truoc do qua ten goi THAT ('il_features.<stem>', vi du
-        # do 1 dong 'from il_features.X import ten' con lai trong
-        # il_codegen.py - phu thuoc CORE) - bo qua, tranh exec lai lan 2 gay
-        # dang ky trung (xem docstring dau file).
-        if f'il_features.{stem}' in sys.modules:
-            continue
+        real_name = f'il_features.{stem}'
+        if mod_name in sys.modules or real_name in sys.modules:
+            # Da nap qua duong nay hoac qua 'from il_features.X import
+            # ten' con lai trong il_codegen.py (phu thuoc CORE) - bo qua,
+            # tranh exec lai lan 2 gay dang ky trung (xem docstring dau
+            # file).
+            return True, None
         spec = importlib.util.spec_from_file_location(mod_name, fpath)
         module = importlib.util.module_from_spec(spec)
         sys.modules[mod_name] = module
         try:
             spec.loader.exec_module(module)
+        except ImportError as exc:
+            # Co the la 1 dong 'import il_features.Y' HOAC 'from
+            # il_features import Y as _y' tinh tro toi 1 file thu vien
+            # KHAC chua duoc nap (van de thu tu) - ca 2 dang deu nem
+            # ImportError (dang 2 cu the la 'cannot import name Y from
+            # il_features' - ModuleNotFoundError la 1 subclass cua
+            # ImportError nen bat chung 1 nhanh). Don dep entry nap do va
+            # de vong ngoai quyet dinh retry hay bao loi that (neu sau
+            # het cac vong retry van khong tien trien duoc, day moi la
+            # loi that su - xem vong lap ben duoi).
+            del sys.modules[mod_name]
+            return False, exc
         except Exception as exc:
             del sys.modules[mod_name]
             raise ImportError(
                 f"plugin_loader: nap thu vien '{fname}' that bai ({type(exc).__name__}: "
                 f"{exc}) - file nam o {fpath!r}") from exc
         # (b) ghi them cache duoi ten goi THAT - xem docstring dau file
-        # ('QUAN TRONG (2 huong)'), muc (b).
-        real_name = f'il_features.{stem}'
+        # ('QUAN TRONG (2 huong)'), muc (b). CHI can dong nay: ca 'import
+        # il_features.X as _x' lan 'from il_features import X as _x' deu
+        # tu di qua nhanh du phong cua CPython import machinery dua tren
+        # sys.modules['il_features.X'] (ModuleSpec cache-hit / fallback
+        # trong _handle_fromlist) - KHONG can setattr len package cha
+        # 'il_features', va KHONG duoc tu tao 1 package 'il_features' gia
+        # (vi du __path__ = []) o day: lam vay se GHI DE len viec
+        # CPython tu tao package 'il_features' THAT (voi __path__ dung)
+        # khi lan dau 1 module CORE (vd list_type, duoc PyInstaller dong
+        # bang that su ben trong 'il_features') duoc import - phat hien
+        # qua thu nghiem thuc te: 1 package gia voi __path__ rong se lam
+        # 'from il_features.list_type import ten' (module CORE, KHONG
+        # qua plugin_loader) that bai vi tim submodule tren __path__ rong
+        # thay vi qua frozen importer that.
         if real_name not in sys.modules:
             sys.modules[real_name] = module
-        loaded.append(fname)
+        return True, None
+
+    pending = [f for f in sorted(os.listdir(plugin_dir))
+               if f.endswith('.py') and not f.startswith('_')]
+    loaded = []
+    last_exc = None
+    while pending:
+        next_pending = []
+        progressed = False
+        for fname in pending:
+            ok, exc = _try_load(fname)
+            if ok:
+                loaded.append(fname)
+                progressed = True
+            else:
+                last_exc = exc
+                next_pending.append(fname)
+        if not progressed:
+            # Khong file nao trong vong nay nap duoc - loi phu thuoc that
+            # su (module ngoai thieu, hoac vong tron), khong phai van de
+            # thu tu nap - bao loi that, dung retry vo han.
+            failed = ', '.join(next_pending)
+            raise ImportError(
+                f"plugin_loader: khong the nap cac thu vien sau (co the do "
+                f"phu thuoc bi thieu/vong tron): {failed} - loi cuoi cung: "
+                f"{type(last_exc).__name__}: {last_exc}") from last_exc
+        pending = next_pending
     return loaded
