@@ -231,6 +231,7 @@ def _expand_custom_decorator(node, deco_node, source_lines):
     orig_name_token = _rename_reserved_identifiers(node.name)
     hidden_sig_line = orig_sig_line.replace(orig_name_token + '(', hidden_name + '(', 1)
     hidden_body_lines = _body_source_lines(source_lines, node)
+    hidden_start_line = node.body[0].lineno
 
     wrapper_sig_line = _extract_signature_line(wrapper_node)
     wrapper_name_token = _rename_reserved_identifiers(wrapper_node.name)
@@ -244,8 +245,10 @@ def _expand_custom_decorator(node, deco_node, source_lines):
     dedented = [ln[indent:] if len(ln) > indent else ln.lstrip(' ') for ln in raw_body]
     call_re = re.compile(r'\b' + re.escape(param_name) + r'\s*\(')
     public_body_lines = [call_re.sub(hidden_name + '(', ln) for ln in dedented]
+    public_start_line = wrapper_node.body[0].lineno
 
-    return (hidden_sig_line, hidden_body_lines), (public_sig_line, public_body_lines)
+    return ((hidden_sig_line, hidden_body_lines, hidden_start_line),
+            (public_sig_line, public_body_lines, public_start_line))
 
 
 def _body_source_lines(source_lines, func_node, hoisted=None):
@@ -312,7 +315,7 @@ def _hoist_nested_def(inner, outer, lines, body_start_lineno, hoisted):
     # 'def' long BEN TRONG ham long: xu ly de quy TRUOC khi cat ra, de moi
     # tang deu duoc nang len top-level.
     _rewrite_nested_defs(inner, inner_lines, inner.body[0].lineno, hoisted=hoisted)
-    hoisted.append((sig_line, inner_lines))
+    hoisted.append((sig_line, inner_lines, inner.body[0].lineno))
     for i in range(start_idx, end_idx + 1):
         lines[i] = ''
     call_re = re.compile(r'\b' + re.escape(inner.name) + r'\s*\(')
@@ -783,7 +786,7 @@ def _parse_program_ast(source_text):
             sig_line = _extract_signature_line(node, allow_varargs=True)
             hoisted = []
             body_lines = _body_source_lines(source_lines, node, hoisted=hoisted)
-            pairs.append((sig_line, body_lines))
+            pairs.append((sig_line, body_lines, node.body[0].lineno))
             # 'def' long khong bat bien nao da duoc nang len top-level -
             # them vao chuong trinh nhu ham binh thuong.
             pairs.extend(hoisted)
@@ -960,8 +963,8 @@ def _parse_program_ast(source_text):
                     property_names.add(m.group(1))
 
     if property_names:
-        pairs[:] = [(sig_line, _desugar_property_reads(body_lines, property_names))
-                    for sig_line, body_lines in pairs]
+        pairs[:] = [(sig_line, _desugar_property_reads(body_lines, property_names), start_line)
+                    for sig_line, body_lines, start_line in pairs]
         for rname, methods_raw in record_methods_raw.items():
             record_methods_raw[rname] = [
                 (sig_line, _desugar_property_reads(body_lines, property_names), is_static)
@@ -1086,7 +1089,7 @@ def extract_program_file(tkv_path, _visited=None):
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies,
      module_consts, module_globals) = _parse_program_ast(source_text)
-    func_names = {m.group(1) for sig_line, _ in pairs if (m := _FUNC_NAME_RE.match(sig_line))}
+    func_names = {m.group(1) for sig_line, _, _start in pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
     for imp_name in import_names:
         imp_path = _find_module_path(imp_name, tkv_path.parent)
@@ -1100,7 +1103,7 @@ def extract_program_file(tkv_path, _visited=None):
         (imp_record_defs, imp_record_methods_raw, imp_record_bases, imp_record_interfaces,
          imp_interface_defs, imp_pairs, imp_extern_assemblies,
          imp_module_consts, imp_module_globals) = extract_program_file(imp_path, _visited)
-        imp_func_names = {m.group(1) for sig_line, _ in imp_pairs if (m := _FUNC_NAME_RE.match(sig_line))}
+        imp_func_names = {m.group(1) for sig_line, _, _start in imp_pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
         dup_funcs = func_names & imp_func_names
         if dup_funcs:
@@ -1216,8 +1219,8 @@ def _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, wit
     extract (tu 1 file don le HOAC da gop nhieu file qua
     extract_program_file/__tkv_import__), sinh CIL method that."""
     record_methods, _, _ = _build_record_methods(record_defs, record_methods_raw)
-    sig_body_pairs = [(parse_typed_signature(sig_line, record_names=set(record_defs)), body_lines)
-                       for sig_line, body_lines in pairs]
+    sig_body_pairs = [(parse_typed_signature(sig_line, record_names=set(record_defs)), body_lines, start_line)
+                       for sig_line, body_lines, start_line in pairs]
     return gen_il_program(sig_body_pairs, class_name=class_name, with_guards=with_guards,
                            records=record_defs, record_methods=record_methods,
                            module_consts=module_consts, extra_classes=extra_classes,
@@ -1547,9 +1550,9 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp'):
     record_methods, record_method_bodies, record_methods_own = _build_record_methods(
         record_defs, record_methods_raw, record_bases=record_bases)
     record_overrides = _compute_record_overrides(record_bases, record_methods)
-    sig_body_pairs = [(parse_typed_signature(sig_line, record_names=set(record_defs)), body_lines)
-                      for sig_line, body_lines in pairs]
-    func_table = {sig.name: sig for sig, _ in sig_body_pairs}
+    sig_body_pairs = [(parse_typed_signature(sig_line, record_names=set(record_defs)), body_lines, start_line)
+                      for sig_line, body_lines, start_line in pairs]
+    func_table = {sig.name: sig for sig, _, _start in sig_body_pairs}
 
     if entry_name is None:
         if len(sig_body_pairs) == 1:
@@ -1596,12 +1599,12 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp'):
     # bao pinvoke thua/doi hoi sqlite3.dll canh file .exe cho chuong
     # trinh khong dung DB).
     sqlite_decl_lines = (SQLITE_PINVOKE_DECL_LINES
-                          if any(_uses_sqlite(body_lines) for _sig, body_lines in pairs)
+                          if any(_uses_sqlite(body_lines) for _sig, body_lines, _start in pairs)
                           else [])
-    
+
     # --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Extraction ---
     cjson_decl_lines = (CJSON_PINVOKE_DECL_LINES
-                          if any(_uses_cjson(body_lines) for _sig, body_lines in pairs)
+                          if any(_uses_cjson(body_lines) for _sig, body_lines, _start in pairs)
                           else [])
     # --- END GEMINI ADDED CODE ---
 

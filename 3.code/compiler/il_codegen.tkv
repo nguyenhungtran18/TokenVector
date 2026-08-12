@@ -2088,11 +2088,19 @@ def _expand_macros_once(body_lines: list) -> list:
 # (Phase 1 buoc 9, 2026-07-28).
 
 
-def _strip_lines(body_lines):
+def _strip_lines(body_lines, start_line=None):
     """Bo dong trong, dong chu thich '#' va DOCSTRING (cau lenh chi gom 1
     chuoi tam nhay, 1 hoac nhieu dong). Docstring khong sinh ma nhung co
-    mat trong MOI ham that, nen phai bo qua tai day thay vi bao loi."""
+    mat trong MOI ham that, nen phai bo qua tai day thay vi bao loi.
+
+    start_line (Debug PDB, 2026-08-12): so dong TUYET DOI (1-based) cua
+    body_lines[0] trong file nguon goc (tu ast's .lineno) - neu co, ham
+    nay TRA VE THEM 1 list line_nos CUNG DO DAI voi ket qua chinh, moi
+    phan tu la so dong tuyet doi tuong ung. None neu khong truyen
+    start_line (cac noi CHUA can, vd generator/async closure body o Task
+    khac cua plan nay)."""
     out = []
+    line_nos = [] if start_line is not None else None
     i = 0
     while i < len(body_lines):
         raw = body_lines[i]
@@ -2114,6 +2122,7 @@ def _strip_lines(body_lines):
             i += 1
             continue
         indent = len(raw) - len(raw.lstrip(' '))
+        line_no_here = (start_line + i) if start_line is not None else None
         # CHU THICH CUOI DONG (2026-08-03, dot 3): 'x = f(a)  # ghi chu' -
         # truoc day chi bo duoc dong chu thich NGUYEN DONG, con '#' o cuoi
         # 1 dong ma thi loi vao bieu thuc ("khong tokenize duoc"). Bo dau
@@ -2127,8 +2136,10 @@ def _strip_lines(body_lines):
             i += 1
             body = body + ' ' + body_lines[i].strip()
         out.append((indent, body))
+        if line_nos is not None:
+            line_nos.append(line_no_here)
         i += 1
-    return out
+    return (out, line_nos) if start_line is not None else (out, None)
 
 
 def _strip_trailing_comment(text):
@@ -2200,7 +2211,7 @@ def _eval_const_dim(expr_str: str, known_shapes: dict) -> int:
     raise SyntaxError(f'il_codegen: khong tinh duoc kich thuoc mang tu {expr_str!r} (chi ho tro X.shape[N] hoac hang so)')
 
 
-def _parse_block(lines, pos, indent_level, sig, known_shapes):
+def _parse_block(lines, pos, indent_level, sig, known_shapes, line_nos=None):
     """Recursive-descent: doc lines[pos:] o dung indent_level, tra ve
     (list[Stmt], vi_tri_ke_tiep). Moi khoi con (for/if/else) doc indent
     cua dong DAU TIEN ben trong lam chuan (khong ep cung 4 space nhu ban
@@ -2213,10 +2224,18 @@ def _parse_block(lines, pos, indent_level, sig, known_shapes):
     LINE_PARSERS (CO THU TU - vd list_append/set_add PHAI thu truoc
     method_call_stmt vi 'x.append(y)' cung khop pattern method-call tong
     quat) cho toi khi 1 cai tra ve khop, giu NGUYEN raise cuoi cung khi
-    khong parser nao khop."""
+    khong parser nao khop.
+
+    line_nos (Debug PDB, 2026-08-12): tham so tuy chon, CUNG DO DAI, CUNG
+    CHI SO voi 'lines' (xem _strip_lines) - neu co, gan stmt['src_line']
+    = line_nos[pos] (pos TRUOC khi bi 'matched' cap nhat - dong BAT DAU
+    cua statement). KHONG truyen tiep vao cac loi goi _parse_block DE QUY
+    ben trong tung _lp_*/try_parse_* (than for/if long) - GIOI HAN DA
+    BIET cua Task nay, de danh mo rong sau."""
     stmts = []
     while pos < len(lines) and lines[pos][0] == indent_level:
         line = lines[pos][1]
+        start_pos = pos
         matched = None
         for _name, fn in LINE_PARSERS:
             matched = fn(line, lines, pos, indent_level, sig, known_shapes, _parse_block)
@@ -2225,6 +2244,8 @@ def _parse_block(lines, pos, indent_level, sig, known_shapes):
         if matched is None:
             raise SyntaxError(f'il_codegen: khong dich duoc dong: {line!r}')
         stmt, pos = matched
+        if line_nos is not None and start_pos < len(line_nos):
+            stmt['src_line'] = line_nos[start_pos]
         stmts.append(stmt)
     return stmts, pos
 
@@ -3520,7 +3541,7 @@ def _gen_async_def(sig, body_lines, class_name, records, record_methods,
     from il_features.closures import _gen_closure_class_il
 
     known_shapes = {p.name: p.type_ann.shape for p in sig.params if p.type_ann.shape is not None}
-    lines = _strip_lines([_rename_reserved_identifiers(l) for l in _expand_macros(body_lines)])
+    lines, _line_nos = _strip_lines([_rename_reserved_identifiers(l) for l in _expand_macros(body_lines)])
     base_indent = lines[0][0] if lines else 0
     stmts, end_pos = _parse_block(lines, 0, base_indent, sig, known_shapes)
     if end_pos != len(lines):
@@ -3711,7 +3732,7 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
             extra_declared[gname] = g_ta
         body_lines = _expand_macros(body_lines)
         body_lines = [_rename_reserved_identifiers(l) for l in body_lines]
-        lines = _strip_lines(body_lines)
+        lines, _line_nos = _strip_lines(body_lines)
         base_indent = lines[0][0] if lines else 0
         known_shapes = {p.name: p.type_ann.shape for p in sig.params if p.type_ann.shape is not None}
         stmts, end_pos = _parse_block(lines, 0, base_indent, sig, known_shapes)
@@ -3885,7 +3906,7 @@ def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict
     body_dtype = sig.generator_elem_dtype
     body_lines = _expand_macros(body_lines)
     body_lines = [_rename_reserved_identifiers(l) for l in body_lines]
-    lines = _strip_lines(body_lines)
+    lines, _line_nos = _strip_lines(body_lines)
     base_indent = lines[0][0] if lines else 0
     known_shapes = {p.name: p.type_ann.shape for p in sig.params if p.type_ann.shape is not None}
     stmts, end_pos = _parse_block(lines, 0, base_indent, sig, known_shapes)
@@ -4104,9 +4125,9 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
     va CHIA SE (cung 1 object) qua MOI lan goi gen_il_function ben duoi, de
     dedupe cell class theo dtype tren toan CHUONG TRINH (nhieu ham co the
     dung chung 1 dtype bi bat, khong can sinh lai cell class do nhieu lan)."""
-    func_table = {sig.name: sig for sig, _ in sig_body_pairs}
+    func_table = {sig.name: sig for sig, _, _start in sig_body_pairs}
     dup = [name for name in func_table if
-           sum(1 for s, _ in sig_body_pairs if s.name == name) > 1]
+           sum(1 for s, _, _start in sig_body_pairs if s.name == name) > 1]
     if dup:
         raise SyntaxError(f'il_codegen: trung ten ham trong 1 chuong trinh: {sorted(set(dup))}')
     # Ham nguoi dung TRUNG TEN 1 builtin da dang ky se bi builtin CHE AM
@@ -4131,7 +4152,7 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
     # THAY THE bang TypeAnn(ten_class, 'generator') - moi noi khac tra cuu
     # func_table[name].return_type deu thay dung kieu class state-machine,
     # khong can sua rieng tung noi goi.
-    for sig, body_lines in sig_body_pairs:
+    for sig, body_lines, _start in sig_body_pairs:
         if _is_generator_body(body_lines):
             if sig.return_type is None or sig.return_type.shape != 'list':
                 raise SyntaxError(
@@ -4164,7 +4185,7 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
     # chung trong codebase nay).
     for gname, (gdtype, _gval) in (module_globals or {}).items():
         all_lines.append(f"  .field private static {IL_SCALAR[gdtype]} {_il_ident(gname)}")
-    for sig, body_lines in sig_body_pairs:
+    for sig, body_lines, _start in sig_body_pairs:
         if getattr(sig, 'is_generator', False):
             all_lines.extend(gen_il_generator_function(
                 sig, body_lines, func_table=func_table, class_name=class_name,
