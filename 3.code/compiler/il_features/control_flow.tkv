@@ -896,16 +896,10 @@ def codegen_return(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
             f"cho phep 'ret' mang gia tri tu ham void. Them '-> <type>' vao chu ky.")
     if ctx.get('try_depth', 0) > 0:
         compile_expr(stmt['expr_node'], scope, body, body_dtype, ctx)
-        if ctx.get('is_async'):
-            il_ret = ctx['il_type_str'](sig.return_type)
-            body.append(f'    call class [mscorlib]System.Threading.Tasks.Task`1<!!0> [mscorlib]System.Threading.Tasks.Task::FromResult<{il_ret}>(!!0)')
         store_var(ctx['ret_tmp_name'], scope, body)
         body.append(f'    leave {ctx["epilogue_lbl"]}')
     else:
         compile_expr(stmt['expr_node'], scope, body, body_dtype, ctx)
-        if ctx.get('is_async'):
-            il_ret = ctx['il_type_str'](sig.return_type)
-            body.append(f'    call class [mscorlib]System.Threading.Tasks.Task`1<!!0> [mscorlib]System.Threading.Tasks.Task::FromResult<{il_ret}>(!!0)')
         body.append('    ret')
 
 
