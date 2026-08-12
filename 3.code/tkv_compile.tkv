@@ -1533,7 +1533,7 @@ def _compute_record_overrides(record_bases, record_methods):
     return overrides
 
 
-def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp'):
+def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', debug=False):
     """Bien dich 1 file `.tkv` THAT thanh `.exe` GOI DUOC TU DONG LENH
     TRUC TIEP (tu dong sinh Main(), khong can tu tay viet IL nhu moi vi
     du truoc day trong session) - argv[0..] anh xa THEO THU TU tham so
@@ -1575,7 +1575,8 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp'):
     method_lines = gen_il_program(sig_body_pairs, class_name=class_name, records=record_defs,
                                    record_methods=record_methods, extra_classes=extra_classes,
                                    record_bases=record_bases, module_consts=module_consts,
-                                   module_globals=module_globals)
+                                   module_globals=module_globals,
+                                   source_path=str(tkv_path), debug=debug)
     main_method = build_generic_main(func_table[entry_name], class_name, module_globals=module_globals)
     record_type_lines = gen_record_types(record_defs, record_method_bodies=record_method_bodies,
                                           record_methods=record_methods, class_name=class_name,
@@ -1590,7 +1591,8 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp'):
                                           # tren - 'async def' method tren
                                           # record can ghi '.class' closure
                                           # cua no vao day.
-                                          extra_classes=extra_classes)
+                                          extra_classes=extra_classes,
+                                          source_path=str(tkv_path), debug=debug)
     extra_class_lines = [line for block in extra_classes for line in block]
 
     # DB that qua P/Invoke sqlite3.dll (Wave 3, 2026-07-29 - xem
@@ -1663,7 +1665,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp'):
     # ilasm: o do co buoc 'on dinh' tranh duong tinh gia cua Defender voi
     # mot PE vua dung xong - xem docstring cua no.
     try:
-        return assemble_il_to_exe(il_text, out_exe)
+        return assemble_il_to_exe(il_text, out_exe, debug=debug)
     except TokenVectorError as e:
         raise CliError(str(e))
 

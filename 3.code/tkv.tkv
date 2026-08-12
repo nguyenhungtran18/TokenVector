@@ -20,6 +20,8 @@ def main():
                         help="Ten ham lam entry point (mac dinh: ham duy nhat, hoac ham ten 'main')")
     build.add_argument('--out', default=None,
                         help='Duong dan .exe dau ra (mac dinh: cung ten voi source, doi duoi .exe)')
+    build.add_argument('--debug', action='store_true', default=False,
+                        help='Sinh them file .pdb (Windows PDB) cho phep dat breakpoint that trong Visual Studio')
 
     args = ap.parse_args()
 
@@ -30,7 +32,7 @@ def main():
             sys.exit(1)
         out_exe = Path(args.out) if args.out else src.with_suffix('.exe')
         try:
-            result = compile_tkv_cli(src, out_exe, entry_name=args.entry)
+            result = compile_tkv_cli(src, out_exe, entry_name=args.entry, debug=args.debug)
         except (CliError, TranspileError) as e:
             print(f"[tkv] Loi: {e}", file=sys.stderr)
             sys.exit(1)

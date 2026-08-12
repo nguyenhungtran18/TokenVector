@@ -77,7 +77,7 @@ class AvBlockedError(TokenVectorError):
     assemble_il_to_exe ve LY DO va CACH tranh."""
 
 
-def assemble_il_to_exe(il_text, out_exe):
+def assemble_il_to_exe(il_text, out_exe, debug=False):
     """Ghi IL ra file roi goi ilasm, TRANH khuon hanh vi ma Defender gan
     cho dropper malware (2026-08-05).
 
@@ -124,8 +124,10 @@ def assemble_il_to_exe(il_text, out_exe):
     for attempt in range(2):
         if out_exe.exists():
             out_exe.unlink()
-        result = subprocess.run([ILASM, str(il_path), '/exe', f'/output:{out_exe}'],
-                                 capture_output=True, text=True)
+        ilasm_args = [ILASM, str(il_path), '/exe', f'/output:{out_exe}']
+        if debug:
+            ilasm_args.append('/debug')
+        result = subprocess.run(ilasm_args, capture_output=True, text=True)
         if result.returncode != 0:
             raise TokenVectorError(
                 f"ilasm.exe that bai (code {result.returncode}):\n"

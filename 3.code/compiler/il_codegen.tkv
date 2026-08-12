@@ -3105,7 +3105,10 @@ def _codegen_stmts(stmts, scope: _Scope, body: list, body_dtype: str, ctx: dict,
     duoi, dang ky qua register_stmt_codegen() luc module nap. GIU
     NGUYEN loi (khong them raise khi kind la) so voi ban if/elif cu -
     day la 1 lo hong co san, ngoai pham vi refactor nay."""
+    source_path_il = ctx.get('source_path_il')
     for stmt in stmts:
+        if source_path_il and stmt.get('src_line'):
+            body.append(f"    .line {stmt['src_line']} '{source_path_il}'")
         fn = STMT_CODEGEN.get(stmt['kind'])
         if fn:
             fn(stmt, scope, body, body_dtype, ctx, sig, _codegen_stmts)
@@ -3375,7 +3378,8 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
                       record_bases: dict = None, record_overrides: dict = None,
                       record_interfaces: dict = None, interface_defs: dict = None,
                       module_consts: dict = None, record_methods_own: dict = None,
-                      extra_classes: list = None, emitted_types: set = None) -> list:
+                      extra_classes: list = None, emitted_types: set = None,
+                      source_path: str = None, debug: bool = False) -> list:
     """Sinh 1 '.class public auto ansi <Ten> extends <Base>' RIENG (kieu
     top-level, SONG SONG voi class chuong trinh chinh, khong long ben
     trong) cho MOI 'class dang record' - 1 REFERENCE TYPE (khong con la
@@ -3503,7 +3507,8 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
                                       func_table=func_table, record_bases=record_bases,
                                       module_consts=module_consts, record_methods_own=record_methods_own,
                                       virtual_kw=('virtual' if m_sig.name in overridden else 'newslot virtual'),
-                                      extra_classes=extra_classes, emitted_types=emitted_types))
+                                      extra_classes=extra_classes, emitted_types=emitted_types,
+                                      source_path=source_path, debug=debug))
         out.append('}')
     return out
 
@@ -3615,7 +3620,9 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
                      extra_classes: list = None, emitted_types: set = None,
                      pre_parsed_stmts: list = None, virtual_kw: str = None,
                      record_bases: dict = None, module_consts: dict = None,
-                     record_methods_own: dict = None, module_globals: dict = None) -> list:
+                     record_methods_own: dict = None, module_globals: dict = None,
+                     source_path: str = None, debug: bool = False,
+                     body_start_line: int = None) -> list:
     """Sinh 1 CIL `.method` HOAN CHINH (bao goi .method/.locals/instructions/
     .maxstack/}) tu Signature + than ham (body_lines - CUNG dinh dang dung
     cho csharp_codegen.py). Tra ve list dong.
@@ -3732,10 +3739,10 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
             extra_declared[gname] = g_ta
         body_lines = _expand_macros(body_lines)
         body_lines = [_rename_reserved_identifiers(l) for l in body_lines]
-        lines, _line_nos = _strip_lines(body_lines)
+        lines, line_nos = _strip_lines(body_lines, start_line=body_start_line)
         base_indent = lines[0][0] if lines else 0
         known_shapes = {p.name: p.type_ann.shape for p in sig.params if p.type_ann.shape is not None}
-        stmts, end_pos = _parse_block(lines, 0, base_indent, sig, known_shapes)
+        stmts, end_pos = _parse_block(lines, 0, base_indent, sig, known_shapes, line_nos=line_nos)
         if end_pos != len(lines):
             bad_indent, bad_line = lines[end_pos]
             raise SyntaxError(f'il_codegen: indent khong hop le tai dong {bad_line!r} '
@@ -3794,6 +3801,9 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
            'gen_il_function': gen_il_function,
            'extra_classes': extra_classes if extra_classes is not None else [],
            'emitted_types': emitted_types if emitted_types is not None else set()}
+    ctx['source_path_il'] = (
+        source_path.replace('\\', '\\\\').replace("'", "\\'") if (debug and source_path) else None
+    )
     if with_guards:
         body.extend(gen_il_guard_lines(sig, sig.name, label_counter))
 
@@ -4098,7 +4108,8 @@ def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict
 def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guards: bool = True,
                     records: dict = None, record_methods: dict = None,
                     extra_classes: list = None, record_bases: dict = None,
-                    module_consts: dict = None, module_globals: dict = None) -> list:
+                    module_consts: dict = None, module_globals: dict = None,
+                    source_path: str = None, debug: bool = False) -> list:
     """Bien dich NHIEU ham/1 chuong trinh (danh sach (Signature, body_lines))
     thanh 1 CIL class hoan chinh - moi ham co the goi ham KHAC trong CUNG
     danh sach (func_table xay TRUOC, cho phep goi xuoi lan goi nguoc thu
@@ -4185,7 +4196,7 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
     # chung trong codebase nay).
     for gname, (gdtype, _gval) in (module_globals or {}).items():
         all_lines.append(f"  .field private static {IL_SCALAR[gdtype]} {_il_ident(gname)}")
-    for sig, body_lines, _start in sig_body_pairs:
+    for sig, body_lines, start_line in sig_body_pairs:
         if getattr(sig, 'is_generator', False):
             all_lines.extend(gen_il_generator_function(
                 sig, body_lines, func_table=func_table, class_name=class_name,
@@ -4198,7 +4209,9 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
                                               extra_classes=extra_classes, emitted_types=emitted_types,
                                               record_bases=record_bases,
                                               module_consts=module_consts,
-                                              module_globals=module_globals))
+                                              module_globals=module_globals,
+                                              source_path=source_path, debug=debug,
+                                              body_start_line=start_line))
     import il_features.ffi_feature as _ffi
     import il_features.dynamic_exec as _dyn
     import il_features.stdlib_bcl as _bcl
@@ -4265,7 +4278,8 @@ def gen_il_method(record_name: str, sig: Signature, body_lines: list, records: d
                    func_table: dict = None, virtual_kw: str = None,
                    record_bases: dict = None, module_consts: dict = None,
                    record_methods_own: dict = None, extra_classes: list = None,
-                   emitted_types: set = None) -> list:
+                   emitted_types: set = None, source_path: str = None,
+                   debug: bool = False) -> list:
     """Sinh 1 INSTANCE method (khoang trong ngon ngu #1 - "method that tren
     record") - tai dung TOAN BO gen_il_function (parse/first-pass/codegen
     da duoc test ky qua 18+ bo test) qua tham so `self_type_ann`, CHI khac
@@ -4287,7 +4301,8 @@ def gen_il_method(record_name: str, sig: Signature, body_lines: list, records: d
                             virtual_kw=None if is_static else virtual_kw,
                             record_bases=record_bases,
                             module_consts=module_consts,
-                            extra_classes=extra_classes, emitted_types=emitted_types)
+                            extra_classes=extra_classes, emitted_types=emitted_types,
+                            source_path=source_path, debug=debug)
 
 
 if __name__ == '__main__':
