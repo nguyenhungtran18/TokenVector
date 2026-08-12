@@ -110,7 +110,7 @@ import il_features.typecheck  # noqa: F401 - dang ky isinstance()/issubclass()/t
 import il_features.datetime_type  # noqa: F401 - dang ky kieu datetime/timedelta that (Phase 4, 2026-08-11)
 import il_features.stdlib_input  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (input()/input(prompt), Phase 6.4, 2026-08-12)
 import il_features.stdlib_itertools_expr  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (enumerate(x)/zip(a,b) o vi tri bieu thuc doc lap, Phase 5.3, 2026-08-12)
-from il_features.stdlib_xml import compile_xml_encode_name as _stdlib_xml_compile_xml_encode_name
+import il_features.stdlib_xml  # noqa: F401 - dang ky expr-builtin (xml_encode_name) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 from il_features.stdlib_re import (
     compile_re_match as _stdlib_re_compile_re_match,
     compile_re_sub as _stdlib_re_compile_re_sub,
@@ -1747,8 +1747,6 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         out.append(f'    callvirt instance int32 {col_type}::get_Count()')
         _widen_if_needed('i32', dtype, out)
         return
-    if name == 'xml_encode_name':
-        return _stdlib_xml_compile_xml_encode_name(args, scope, out, dtype, ctx)
     if name == 're_match':
         return _stdlib_re_compile_re_match(args, scope, out, dtype, ctx)
     if name == 're_sub':
