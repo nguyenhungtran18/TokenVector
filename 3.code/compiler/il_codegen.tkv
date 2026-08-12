@@ -3353,7 +3353,8 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
                       class_name: str = 'Program', func_table: dict = None,
                       record_bases: dict = None, record_overrides: dict = None,
                       record_interfaces: dict = None, interface_defs: dict = None,
-                      module_consts: dict = None, record_methods_own: dict = None) -> list:
+                      module_consts: dict = None, record_methods_own: dict = None,
+                      extra_classes: list = None, emitted_types: set = None) -> list:
     """Sinh 1 '.class public auto ansi <Ten> extends <Base>' RIENG (kieu
     top-level, SONG SONG voi class chuong trinh chinh, khong long ben
     trong) cho MOI 'class dang record' - 1 REFERENCE TYPE (khong con la
@@ -3392,6 +3393,14 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
     record_bases = record_bases or {}
     record_overrides = record_overrides or {}
     record_interfaces = record_interfaces or {}
+    # extra_classes/emitted_types (Task 3, 2026-08-12): xem il_codegen.py
+    # ban goc - can de 'async def' method tren record ghi '.class' closure
+    # cua no vao, neu khong bi mat (ilasm.exe bao 'Reference to undefined
+    # class').
+    if extra_classes is None:
+        extra_classes = []
+    if emitted_types is None:
+        emitted_types = set()
     out = gen_interface_types(interface_defs)
     for name, fields in records.items():
         base_name = record_bases.get(name)
@@ -3472,7 +3481,8 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
                                       record_methods=record_methods, class_name=class_name,
                                       func_table=func_table, record_bases=record_bases,
                                       module_consts=module_consts, record_methods_own=record_methods_own,
-                                      virtual_kw=('virtual' if m_sig.name in overridden else 'newslot virtual')))
+                                      virtual_kw=('virtual' if m_sig.name in overridden else 'newslot virtual'),
+                                      extra_classes=extra_classes, emitted_types=emitted_types))
         out.append('}')
     return out
 
@@ -4233,7 +4243,8 @@ def gen_il_method(record_name: str, sig: Signature, body_lines: list, records: d
                    record_methods: dict = None, class_name: str = 'Program',
                    func_table: dict = None, virtual_kw: str = None,
                    record_bases: dict = None, module_consts: dict = None,
-                   record_methods_own: dict = None) -> list:
+                   record_methods_own: dict = None, extra_classes: list = None,
+                   emitted_types: set = None) -> list:
     """Sinh 1 INSTANCE method (khoang trong ngon ngu #1 - "method that tren
     record") - tai dung TOAN BO gen_il_function (parse/first-pass/codegen
     da duoc test ky qua 18+ bo test) qua tham so `self_type_ann`, CHI khac
@@ -4254,7 +4265,8 @@ def gen_il_method(record_name: str, sig: Signature, body_lines: list, records: d
                             record_methods=record_methods, record_methods_own=record_methods_own,
                             virtual_kw=None if is_static else virtual_kw,
                             record_bases=record_bases,
-                            module_consts=module_consts)
+                            module_consts=module_consts,
+                            extra_classes=extra_classes, emitted_types=emitted_types)
 
 
 if __name__ == '__main__':

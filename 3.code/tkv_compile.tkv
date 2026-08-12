@@ -460,10 +460,13 @@ def _extract_record_method_sig_line(class_node, method_node, is_static=False):
             f"keyword-only)")
     parts = _params_with_defaults(method_node, args_to_check, f"method '{method_node.name}'")
     m_name = _rename_reserved_identifiers(method_node.name)
+    # 'async def' method tren record (Task 3, 2026-08-12) - cung prefix
+    # 'async ' nhu _extract_signature_line (ham top-level).
+    prefix = "async " if isinstance(method_node, ast.AsyncFunctionDef) else ""
     if method_node.returns is None:
-        return f"{m_name}({', '.join(parts)}):"
+        return f"{prefix}{m_name}({', '.join(parts)}):"
     ret_t = _annotation_to_type_str(method_node.returns, f"method '{method_node.name}' return type")
-    return f"{m_name}({', '.join(parts)}) -> {ret_t}:"
+    return f"{prefix}{m_name}({', '.join(parts)}) -> {ret_t}:"
 
 
 def _extract_interface_def(class_node, source_lines):
@@ -587,7 +590,7 @@ def _extract_record_def(class_node, source_lines, known_records=None, known_inte
             # chieu ket qua), giong dung tinh than '.tkv van la Python that'
             # da xac lap tu Buoc 9 (doi ten .py->.tkv).
             continue
-        if isinstance(stmt, ast.FunctionDef):
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
             # Method THAT (khong phai __init__) - KHOANG TRONG #1, khac
             # __init__: co bien dich THAT sang CIL instance method (xem
             # gen_il_method), khong chi bo qua.
@@ -1578,7 +1581,13 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp'):
                                           record_interfaces=record_interfaces,
                                           interface_defs=interface_defs,
                                           module_consts=module_consts,
-                                          record_methods_own=record_methods_own)
+                                          record_methods_own=record_methods_own,
+                                          # Task 3 (2026-08-12): CUNG 1 list
+                                          # extra_classes voi gen_il_program o
+                                          # tren - 'async def' method tren
+                                          # record can ghi '.class' closure
+                                          # cua no vao day.
+                                          extra_classes=extra_classes)
     extra_class_lines = [line for block in extra_classes for line in block]
 
     # DB that qua P/Invoke sqlite3.dll (Wave 3, 2026-07-29 - xem

@@ -283,7 +283,13 @@ def compile_method_call(node, scope, out, dtype, ctx=None):
     for p in m_sig.params[len(args):]:
         compile_expr(p.default_node, scope, out, p.type_ann.dtype, ctx)
     il_type_str = ctx['il_type_str']
-    ret_il = il_type_str(m_sig.return_type)
+    if getattr(m_sig, 'is_async', False):
+        # 'async def' method tren record (Task 3, 2026-08-12) - kieu tra ve
+        # THAT cua .method la Task<T> (xem _gen_async_def), giong cach ham
+        # top-level 'async def' duoc goi.
+        ret_il = f'class [mscorlib]System.Threading.Tasks.Task`1<{il_type_str(m_sig.return_type)}>'
+    else:
+        ret_il = il_type_str(m_sig.return_type)
     params_il = ', '.join(il_type_str(p.type_ann) for p in m_sig.params)
     # B1 (2026-07-29): dung 'callvirt' DONG LOAT cho method non-static (moi
     # method record gio la 'virtual', xem gen_record_types) - an toan theo
