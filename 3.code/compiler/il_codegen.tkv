@@ -3496,6 +3496,87 @@ def _extract_global_decls(body_lines):
     return names, kept
 
 
+def _gen_async_def(sig, body_lines, class_name, records, record_methods,
+                    record_methods_own, record_bases, self_type_ann,
+                    module_consts, module_globals, extra_classes, emitted_types,
+                    func_table=None):
+    """Sinh wrapper THAT cho 1 'async def' (top-level hoac record method) -
+    body THAT chay tren 1 class closure rieng ({prefix}__AsyncBody), qua
+    Task.Factory.StartNew<T> (KHONG phai Task.Run - ilasm.exe target
+    mscorlib v4.0 chua co Task.Run, xem threading_feature.py). Tai dung
+    NGUYEN VAN ha tang closure cua closures.py (_gen_closure_class_il) -
+    'self' (neu la record method) VA moi tham so deu tro thanh 1 capture
+    mode='direct' (ban sao gia tri, khong can cell/boxed)."""
+    from il_features.closures import _gen_closure_class_il
+
+    known_shapes = {p.name: p.type_ann.shape for p in sig.params if p.type_ann.shape is not None}
+    lines = _strip_lines([_rename_reserved_identifiers(l) for l in _expand_macros(body_lines)])
+    base_indent = lines[0][0] if lines else 0
+    stmts, end_pos = _parse_block(lines, 0, base_indent, sig, known_shapes)
+    if end_pos != len(lines):
+        bad_indent, bad_line = lines[end_pos]
+        raise SyntaxError(f'il_codegen: indent khong hop le tai dong {bad_line!r} '
+                           f'(indent={bad_indent}, ky vong {base_indent})')
+
+    captures = []
+    if self_type_ann is not None:
+        captures.append(('self', self_type_ann, None, 'direct'))
+    for p in sig.params:
+        captures.append((p.name, p.type_ann, None, 'direct'))
+
+    prefix = f'{self_type_ann.dtype}__' if self_type_ann is not None else ''
+    closure_class = f'{prefix}{sig.name}__AsyncBody'
+    invoke_sig = Signature('Invoke', [], sig.return_type, 'block', None, is_async=False)
+
+    ctx_stub = {
+        'gen_il_function': gen_il_function, 'il_type_str': il_type_str,
+        'class_name': class_name, 'records': records or {},
+        'record_methods': record_methods or {}, 'record_methods_own': record_methods_own or {},
+        'record_bases': record_bases or {}, 'func_table': func_table or {},
+        'extra_classes': extra_classes, 'emitted_types': emitted_types,
+    }
+    if closure_class not in emitted_types:
+        emitted_types.add(closure_class)
+        extra_classes.append(_gen_closure_class_il(closure_class, captures, invoke_sig, stmts, ctx_stub))
+
+    raw_ret = il_type_str(sig.return_type)
+    scope = _Scope()
+    scope.class_name = class_name or 'Program'
+    param_idx_base = 0
+    if self_type_ann is not None:
+        scope.add_self('self', self_type_ann)
+        param_idx_base = 1
+    for idx, p in enumerate(sig.params):
+        scope.add_arg(p.name, idx + param_idx_base, p.type_ann)
+
+    ctor_params_il = ', '.join(il_type_str(ta) for _, ta, _, _ in captures)
+    body = []
+    body.append('    call class [mscorlib]System.Threading.Tasks.TaskFactory '
+                 '[mscorlib]System.Threading.Tasks.Task::get_Factory()')
+    for cname, _, _, _ in captures:
+        _load_var_ref(cname, scope, body)
+    body.append(f'    newobj instance void {closure_class}::.ctor({ctor_params_il})')
+    body.append(f'    ldftn instance {raw_ret} {closure_class}::Invoke()')
+    body.append(f'    newobj instance void class [mscorlib]System.Func`1<{raw_ret}>::.ctor(object, native int)')
+    body.append(f'    callvirt instance class [mscorlib]System.Threading.Tasks.Task`1<!!0> '
+                 f'[mscorlib]System.Threading.Tasks.TaskFactory::StartNew<{raw_ret}>('
+                 f'class [mscorlib]System.Func`1<!!0>)')
+    body.append('    ret')
+
+    params_il = ', '.join(f'{il_type_str(p.type_ann)} {_il_ident(p.name)}' for p in sig.params)
+    ret_type = f'class [mscorlib]System.Threading.Tasks.Task`1<{raw_ret}>'
+    lines_out = []
+    if self_type_ann is not None:
+        lines_out.append(f'  .method public hidebysig instance {ret_type} {_il_ident(sig.name)}({params_il}) cil managed')
+    else:
+        lines_out.append(f'  .method public static {ret_type} {_il_ident(sig.name)}({params_il}) cil managed')
+    lines_out.append('  {')
+    lines_out.append(f'    .maxstack {_max_stack_for(body)}')
+    lines_out.extend(body)
+    lines_out.append('  }')
+    return lines_out
+
+
 def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
                      func_table: dict = None, class_name: str = None, records: dict = None,
                      self_type_ann: TypeAnn = None, record_methods: dict = None,
@@ -3545,6 +3626,13 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
         # 'i32' la mac dinh an toan (khong anh huong self.field, deu co
         # dtype rieng tu 'records').
         body_dtype = 'i32'
+
+    if getattr(sig, 'is_async', False) and not is_closure_method:
+        return _gen_async_def(sig, body_lines, class_name, records, record_methods,
+                               record_methods_own, record_bases, self_type_ann,
+                               module_consts, module_globals, extra_classes if extra_classes is not None else [],
+                               emitted_types if emitted_types is not None else set(),
+                               func_table=func_table)
 
     scope = _Scope()
     scope.class_name = class_name or 'Program'
@@ -3633,12 +3721,7 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
             scope.add_local(name, i, ta)
 
     params_il = ', '.join(f'{il_type_str(p.type_ann)} {_il_ident(p.name)}' for p in sig.params)
-    is_async_fn = getattr(sig, 'is_async', False)
-    if is_async_fn:
-        raw_ret = il_type_str(sig.return_type) if sig.return_type else 'void'
-        ret_type = f'class [mscorlib]System.Threading.Tasks.Task`1<{raw_ret}>'
-    else:
-        ret_type = il_type_str(sig.return_type) if sig.return_type else 'void'
+    ret_type = il_type_str(sig.return_type) if sig.return_type else 'void'
 
     def _local_il_type(name, ta):
         if name in boxed_names:
@@ -3656,7 +3739,6 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
            'record_methods_own': record_methods_own or {},
            'record_bases': record_bases or {},
            'current_record': self_type_ann.dtype if self_type_ann else None,
-           'is_async': is_async_fn,
            # Cac ham loi (core) duoc "tiem" (dependency injection) vao ctx
            # de il_features/*.py DUNG DUOC ma khong phai import il_codegen.py
            # (tranh circular import - quy uoc bat dau tu Phase 1 buoc 1).
