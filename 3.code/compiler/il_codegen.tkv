@@ -90,14 +90,7 @@ import il_features.stdlib_math_trig  # noqa: F401 - .update() them EXTRA_FUNCS v
 from il_features.stdlib_math import _MATH_FUNCS as _stdlib_math_funcs_names  # THAM CHIEU DOC (khong con literal) - chi dung cho _infer_dtype's nhanh 'ham toan hoc 1-tham-so luon tra f64' (xem duoi), _expr_call KHONG con dung ten nay (di qua EXPR_BUILTIN_CODEGEN)
 from il_features.string_methods_batch3 import RETURN_DTYPE as _STR_METHOD_RETURN_DTYPE
 import il_features.stdlib_random  # noqa: F401 - dang ky expr-builtin (random/randint/choice/uniform/randrange) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
-from il_features.stdlib_path import (
-    compile_path_join as _stdlib_path_compile_path_join,
-    compile_path_exists as _stdlib_path_compile_path_exists,
-    compile_path_basename as _stdlib_path_compile_path_basename,
-    compile_path_dirname as _stdlib_path_compile_path_dirname,
-    compile_path_isfile as _stdlib_path_compile_path_isfile,
-    compile_path_isdir as _stdlib_path_compile_path_isdir,
-)
+import il_features.stdlib_path  # noqa: F401 - dang ky expr-builtin (path_join/path_exists/path_basename/path_dirname/path_isfile/path_isdir) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 import il_features.stdlib_sqlite  # noqa: F401 - dang ky expr-builtin qua side-effect luc import (db_open/db_exec/db_query_text/db_query_int/db_close, Wave 3 2026-07-29, DB that qua P/Invoke sqlite3.dll)
 import il_features.stdlib_http  # noqa: F401 - plug-and-play module http (http_get/http_post)
 import il_features.stdlib_http_full  # noqa: F401 - http_request(): doc duoc status code + header tra ve (2026-08-03)
@@ -1754,18 +1747,6 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         out.append(f'    callvirt instance int32 {col_type}::get_Count()')
         _widen_if_needed('i32', dtype, out)
         return
-    if name == 'path_join':
-        return _stdlib_path_compile_path_join(args, scope, out, dtype, ctx)
-    if name == 'path_exists':
-        return _stdlib_path_compile_path_exists(args, scope, out, dtype, ctx)
-    if name == 'path_basename':
-        return _stdlib_path_compile_path_basename(args, scope, out, dtype, ctx)
-    if name == 'path_dirname':
-        return _stdlib_path_compile_path_dirname(args, scope, out, dtype, ctx)
-    if name == 'path_isfile':
-        return _stdlib_path_compile_path_isfile(args, scope, out, dtype, ctx)
-    if name == 'path_isdir':
-        return _stdlib_path_compile_path_isdir(args, scope, out, dtype, ctx)
     if name == 'xml_encode_name':
         return _stdlib_xml_compile_xml_encode_name(args, scope, out, dtype, ctx)
     if name == 're_match':

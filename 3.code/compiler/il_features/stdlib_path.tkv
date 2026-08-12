@@ -7,6 +7,8 @@ tran), nen dat ten builtin la 'path_join'/'path_exists'/'path_basename'/
 tien to 'os.'. Quy uoc dependency-injection qua `ctx` nhu cac
 il_features/*.py khac."""
 
+from il_dispatch import register_expr_builtin
+
 
 def compile_path_join(args, scope, out, dtype, ctx):
     """path_join(a, b) - System.IO.Path::Combine(string, string). CHI ho
@@ -73,3 +75,16 @@ def compile_path_isdir(args, scope, out, dtype, ctx):
     ctx['compile_expr'](args[0], scope, out, 'str', ctx)
     out.append('    call bool [mscorlib]System.IO.Directory::Exists(string)')
     ctx['widen_if_needed']('i32', dtype, out)
+
+
+register_expr_builtin('path_join', compile_path_join, 'str')
+# return_dtype=None cho path_exists/path_isfile/path_isdir: ham tu goi
+# ctx['widen_if_needed']('i32', dtype, out) o BEN TRONG minh (xem than ham
+# o tren) - neu truyen return_dtype='i32' o day, dispatcher se widen THEM
+# 1 lan nua ben ngoai -> double-widen bug (da xac nhan tai Task 3, tranh
+# lai tai Task 4 va tai day, 2026-08-12).
+register_expr_builtin('path_exists', compile_path_exists, None)
+register_expr_builtin('path_basename', compile_path_basename, 'str')
+register_expr_builtin('path_dirname', compile_path_dirname, 'str')
+register_expr_builtin('path_isfile', compile_path_isfile, None)
+register_expr_builtin('path_isdir', compile_path_isdir, None)
