@@ -101,6 +101,17 @@ EXPR_BUILTIN_NATIVE_INT = set()
 def register_expr_builtin(name, codegen_fn, return_dtype, return_shape=None,
                            temps_fn=None, return_dtype_fn=None, return_ta=None,
                            native_int=False):
+    if name in EXPR_BUILTIN_CODEGEN:
+        # BUG THAT tim thay o phien truoc (json_get_str bi stdlib_cjson
+        # de am tham, chi phat hien qua doc code ky, khong bao loi luc
+        # build) - gan thang dict truoc day KHONG canh bao trung ten.
+        # Tu 2026-08-12: bung loi RO RANG ngay luc import, tranh lap lai
+        # kieu bug do khi thu tu import doi (vd chuyen sang nap plugin
+        # dong theo thu tu thu muc, xem plugin_loader.py).
+        raise ValueError(
+            f"il_dispatch: register_expr_builtin({name!r}) - ten nay DA duoc dang "
+            f"ky truoc do (co the do 2 module khac nhau vo tinh dung trung ten "
+            f"builtin) - doi ten 1 trong 2, khong duoc de de am tham")
     EXPR_BUILTIN_CODEGEN[name] = codegen_fn
     if native_int:
         EXPR_BUILTIN_NATIVE_INT.add(name)
@@ -178,17 +189,26 @@ def register_macro_expander(name, fn):
     MACRO_EXPANDERS.append((name, fn))
 
 
+def _register_unique(table, key, fn, table_name):
+    if key in table:
+        raise ValueError(
+            f"il_dispatch: {table_name}({key!r}) - khoa nay DA duoc dang ky truoc "
+            f"do (co the do 2 module khac nhau vo tinh dung trung ten/kind) - doi "
+            f"ten 1 trong 2, khong duoc de de am tham")
+    table[key] = fn
+
+
 def register_expr_codegen(tag, fn):
-    EXPR_CODEGEN[tag] = fn
+    _register_unique(EXPR_CODEGEN, tag, fn, 'register_expr_codegen')
 
 
 def register_stmt_codegen(kind, fn):
-    STMT_CODEGEN[kind] = fn
+    _register_unique(STMT_CODEGEN, kind, fn, 'register_stmt_codegen')
 
 
 def register_first_pass_walk(kind, fn):
-    FIRST_PASS_WALK[kind] = fn
+    _register_unique(FIRST_PASS_WALK, kind, fn, 'register_first_pass_walk')
 
 
 def register_first_pass_prescan(kind, fn):
-    FIRST_PASS_PRESCAN[kind] = fn
+    _register_unique(FIRST_PASS_PRESCAN, kind, fn, 'register_first_pass_prescan')
