@@ -16,4 +16,12 @@ def run() -> "i32":
     tested = tested + 1
     total = total + check("fullmatch_partial_fails", str(re_fullmatch("[a-z]+", "hello world")), "0")
 
+    words = re_split("\\s+", "hello   world  foo")
+    tested = tested + 1
+    total = total + check("split_len", str(len(words)), "3")
+    tested = tested + 1
+    total = total + check("split_first", words[0], "hello")
+    tested = tested + 1
+    total = total + check("split_last", words[2], "foo")
+
     return test_summary("re_extend_test", total, tested)

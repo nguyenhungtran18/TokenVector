@@ -65,9 +65,25 @@ def compile_re_sub(args, scope, out, dtype, ctx):
     out.append('    call string [System]System.Text.RegularExpressions.Regex::Replace(string, string, string)')
 
 
+def compile_re_split(args, scope, out, dtype, ctx):
+    """re_split(pattern, s) -> list[str] - .NET Regex.Split(input,
+    pattern) tra thang string[], la 1 IEnumerable<string> hop le de dua
+    thang vao List<string> constructor - giong het cach _push_os_list_files
+    (stdlib_os.py) da lam voi Directory.GetFiles(). CHU Y thu tu tham so
+    KHAC Python (input truoc, giong re_sub)."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: re_split(pattern, s) can dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[1], scope, out, 'str', ctx)
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call string[] [System]System.Text.RegularExpressions.Regex::Split(string, string)')
+    out.append('    newobj instance void class [mscorlib]System.Collections.Generic.List`1<string>::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+
+
 from il_dispatch import register_expr_builtin
 
 register_expr_builtin('re_match', compile_re_match, 'i32')
 register_expr_builtin('re_search', compile_re_search, 'i32')
 register_expr_builtin('re_fullmatch', compile_re_fullmatch, 'i32')
 register_expr_builtin('re_sub', compile_re_sub, 'str')
+register_expr_builtin('re_split', compile_re_split, 'str', return_shape='list')
