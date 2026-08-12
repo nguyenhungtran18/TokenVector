@@ -44,7 +44,7 @@ _EXCEPT_RE = re.compile(r'^except\s*:\s*$')
 # 'as' la cach viet BINH THUONG cua Python that khi can doc thong diep loi.
 _EXCEPT_TYPED_RE = re.compile(r'^except\s+(\w+)(?:\s+as\s+(\w+))?\s*:\s*$')
 _FINALLY_RE = re.compile(r'^finally\s*:\s*$')
-_RAISE_RE = re.compile(r'^raise\s+(\w+)\((.*)\)\s*$')
+_RAISE_RE = re.compile(r'^raise\s+(\w+)\((.*)\)(?:\s+from\s+(\w+))?\s*$')
 # 'raise' tran (Phase 6.3, 2026-08-12) - nem lai chinh exception dang bat,
 # chi hop le trong 1 khoi 'except' (xem codegen_raise's rethrow).
 _BARE_RAISE_RE = re.compile(r'^raise\s*$')
@@ -580,12 +580,15 @@ def try_parse_raise(line, lines, pos, indent_level, sig, known_shapes, parse_blo
     # chi BAT loi CLR tu nem tu 1 phep toan that) - dung LAI CHINH
     # _EXC_TYPE_MAP da co cho 'except <Loai>:'. Msg co the rong ('raise
     # ValueError()' - .ctor khong tham so).
-    exc_type, msg_text = m_raise.groups()
+    # '... from err' (exception chaining, 2026-08-12) - 'err' phai la 1
+    # bien kieu Exception-tuong-thich, tinh hop le kiem o CODEGEN.
+    exc_type, msg_text, from_name = m_raise.groups()
     # Tinh hop le cua ten kiem tra o CODEGEN (_resolve_exc_clr_type) - xem
     # ghi chu tuong tu o nhanh 'except' phia tren.
     msg_text = msg_text.strip()
     msg_node = parse_expr(msg_text) if msg_text else None
-    return {'kind': 'raise', 'exc_type': exc_type, 'msg_node': msg_node}, pos + 1
+    return {'kind': 'raise', 'exc_type': exc_type, 'msg_node': msg_node,
+            'from_name': from_name}, pos + 1
 
 
 def fpw_for(stmt, ctx):
@@ -1082,6 +1085,30 @@ def codegen_raise(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     # class do trong .NET, khong phai loi codegen.
     clr_type = _resolve_exc_clr_type(stmt['exc_type'], ctx,
                                       f"'raise {stmt['exc_type']}(...)'")
+    from_name = stmt.get('from_name')
+    if from_name is not None:
+        # 'raise X(...) from err' (exception chaining, 2026-08-12) - dung
+        # .ctor(string, Exception) - xac minh THAT qua reflection truoc
+        # khi viet (co tren moi class trong _EXC_TYPE_MAP).
+        _, _, from_ta = scope[from_name]
+        records = ctx.get('records') or {}
+        record_bases = ctx.get('record_bases') or {}
+        is_exc_compatible = (from_ta.dtype == 'Exception' and from_ta.shape is None) or (
+            from_ta.dtype in records and _derives_from_exception(from_ta.dtype, record_bases))
+        if not is_exc_compatible:
+            raise SyntaxError(
+                f"il_codegen: 'raise {stmt['exc_type']}(...) from {from_name}' - '{from_name}' "
+                f"phai la 1 bien kieu Exception (tu 'except ... as {from_name}:' hoac 1 "
+                f"record ke thua Exception), dang co dtype={from_ta.dtype!r} shape={from_ta.shape!r}")
+        if stmt['msg_node'] is not None:
+            ctx['compile_expr'](stmt['msg_node'], scope, body, 'str', ctx)
+        else:
+            body.append('    ldstr ""')
+        ctx['load_var_ref'](from_name, scope, body)
+        body.append(
+            f'    newobj instance void {clr_type}::.ctor(string, class [mscorlib]System.Exception)')
+        body.append('    throw')
+        return
     if stmt['msg_node'] is not None:
         ctx['compile_expr'](stmt['msg_node'], scope, body, 'str', ctx)
         body.append(f'    newobj instance void {clr_type}::.ctor(string)')
