@@ -9,7 +9,7 @@ _lp_call_stmt/_CALL_STMT_RE o core), va 2 nhanh read_file/file_exists
 long trong tag 'call' dung chung o core (goi lai qua ham rieng, giong
 str() cua string_feature.py). Quy uoc dependency-injection qua `ctx`
 nhu cac buoc truoc."""
-from il_dispatch import register_stmt_codegen
+from il_dispatch import register_stmt_codegen, register_expr_builtin
 # logging/pickle (Phase 4 backlog, phien 5, 2026-08-11) - nhap KHONG TRE
 # o day (khong phai trong ham) de dam bao register_expr_builtin ben
 # trong pickle_feature.py (cho pickle_load_X) LUON chay du chuong trinh
@@ -122,3 +122,11 @@ def codegen_call_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
 
 # Dang ky vao il_dispatch NGAY LUC MODULE NAP.
 register_stmt_codegen('call_stmt', codegen_call_stmt)
+
+# Migrate tu co che if/elif cu trong il_codegen.py's _expr_call sang
+# register_expr_builtin (2026-08-12, Phase "tach tkvc.exe thanh plugin")
+# - gia CHUAN de goi thu vien tu ben ngoai duoc, khong can il_codegen.py
+# import thang ten ham. Hanh vi IL sinh ra KHONG DOI, chi doi CO CHE
+# DANG KY.
+register_expr_builtin('read_file', compile_read_file, 'str')
+register_expr_builtin('file_exists', compile_file_exists, 'i32')

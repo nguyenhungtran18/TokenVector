@@ -53,9 +53,7 @@ from il_features.string_feature import (
     compile_compare_str as _string_compile_compare_str,
 )
 import il_features.operators  # noqa: F401 - dang ky expr-codegen/macro-expander qua side-effect luc import
-from il_features.file_io import (
-    compile_read_file as _file_io_compile_read_file, compile_file_exists as _file_io_compile_file_exists,
-)
+import il_features.file_io  # noqa: F401 - dang ky expr-builtin (read_file/file_exists) + call_stmt (write_file/append_file) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 import il_features.list_methods_batch2  # noqa: F401 - dang ky line-parser/stmt-codegen/first-pass-walk qua side-effect luc import (list.sort()/list.extend())
 import il_features.list_methods_batch3  # noqa: F401 - dang ky line-parser/stmt-codegen/first-pass-walk qua side-effect luc import (list.reverse()/list.remove(), Huong A stdlib mo rong 2026-07-29)
 import il_features.slicing  # noqa: F401 - dang ky assign-rhs-parser/expr-codegen/stmt-codegen/first-pass-walk qua side-effect luc import (slicing a[i:j])
@@ -1784,10 +1782,6 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         out.append(f'    callvirt instance int32 {col_type}::get_Count()')
         _widen_if_needed('i32', dtype, out)
         return
-    if name == 'read_file':
-        return _file_io_compile_read_file(args, scope, out, dtype, ctx)
-    if name == 'file_exists':
-        return _file_io_compile_file_exists(args, scope, out, dtype, ctx)
     if name == 'pow':
         return _stdlib_math_compile_pow(args, scope, out, dtype, ctx)
     if name == 'math_pi':
