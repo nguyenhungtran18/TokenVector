@@ -1,0 +1,63 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def join_i32(xs: "list[i32]") -> "str":
+    out = ""
+    i = 0
+    while i < len(xs):
+        if i > 0:
+            out = out + ","
+        out = out + str(xs[i])
+        i = i + 1
+    return out
+
+
+def make_list(*vals: "i32") -> "list[i32]":
+    return vals
+
+
+def sort_plain() -> "str":
+    xs = make_list(3, 1, 2)
+    xs.sort()
+    return join_i32(xs)
+
+
+def sort_reverse_only() -> "str":
+    xs = make_list(3, 1, 2)
+    xs.sort(reverse=True)
+    return join_i32(xs)
+
+
+def neg_key(x: "i32") -> "i32":
+    return 0 - x
+
+
+def sort_with_key() -> "str":
+    xs = make_list(3, 1, 2)
+    xs.sort(key=neg_key)
+    return join_i32(xs)
+
+
+def sort_with_key_reverse() -> "str":
+    xs = make_list(3, 1, 2)
+    xs.sort(key=neg_key, reverse=True)
+    return join_i32(xs)
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("sort_plain", sort_plain(), "1,2,3")
+
+    tested = tested + 1
+    total = total + check("sort_reverse_only", sort_reverse_only(), "3,2,1")
+
+    tested = tested + 1
+    total = total + check("sort_with_key", sort_with_key(), "3,2,1")
+
+    tested = tested + 1
+    total = total + check("sort_with_key_reverse", sort_with_key_reverse(), "1,2,3")
+
+    return test_summary("list_sort_kwargs_py_tree_test", total, tested)

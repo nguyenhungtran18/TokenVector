@@ -34,9 +34,19 @@ def _resolve_func_ta(f_node, scope, func_table, fname):
             f"hoac TEN 1 ham top-level trong chuong trinh - KHONG nhan lambda truc tiep "
             f"tai cho (lambda tu than khong mang kieu) cung khong nhan bieu thuc khac")
     name = f_node[1]
+    # BUG THAT sua 2026-08-12 (phat hien qua 'lst.sort(key=<ten ham
+    # top-level TRUC TIEP>)' - truoc day CHUA co noi goi nao dung nhanh
+    # "ten ham top-level" nay qua _Scope THAT (codegen pass 2), chi qua
+    # infer_scope (first-pass) - 2 scope nay KHAC nhau khi tra 1 ten
+    # KHONG ton tai: infer_scope (_DtypeOnlyScope) nem KeyError (bat duoc
+    # o day), con _Scope THAT nem SyntaxError (KHONG bat duoc truoc day,
+    # crash thang thay vi roi xuong nhanh func_table ben duoi). Bat CA
+    # HAI loai loi (khong dung 'in' - _DtypeOnlyScope khong co
+    # __contains__, se rơi vao __getitem__ fallback nem KeyError khong
+    # kiem soat).
     try:
         ta = scope[name][2]
-    except KeyError:
+    except (KeyError, SyntaxError):
         ta = None
     if ta is not None:
         if ta.shape != 'func':
