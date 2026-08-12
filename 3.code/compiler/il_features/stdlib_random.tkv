@@ -15,6 +15,7 @@ System.Random MOI. GIOI HAN DA BIET (danh doi thiet ke, khong phai bug):
 ~15ms tren Windows) - 2 lenh goi LIEN TIEP RAT NHANH trong 1 vong lap co
 the co CUNG seed -> tra ve CUNG 1 SO."""
 from il_features.list_type import il_list_type
+from il_dispatch import register_expr_builtin
 
 
 def compile_random(args, scope, out, dtype, ctx):
@@ -106,4 +107,32 @@ def compile_choice(args, scope, out, dtype, ctx):
     out.append(f'    callvirt instance int32 {list_type}::get_Count()')
     out.append('    callvirt instance int32 [mscorlib]System.Random::Next(int32)')
     out.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
-    ctx['widen_if_needed'](ta.dtype, dtype, out)
+    # KHONG tu goi widen_if_needed o day (khac 4 ham random/randint/
+    # uniform/randrange o tren): dtype tra ve cua choice() PHU THUOC tham
+    # so (dtype phan tu list), nen phai dang ky qua return_dtype_fn
+    # (_choice_dtype_fn duoi day) - _expr_call's dispatch (il_codegen.py)
+    # se TU widen dua tren dtype_fn nay SAU KHI goi ham nay, giong het
+    # cach push_sum/push_min_list/push_max_list cua stdlib_aggregates.py
+    # lam (KHONG tu widen ben trong than ham). Neu giu ca 2 (tu widen o
+    # day VA dang ky return_dtype_fn) se bi widen 2 LAN chong nhau (dung
+    # bug Task 3 tung gap voi stdlib_math).
+
+
+def _choice_dtype_fn(args, scope):
+    """dtype tra ve cua choice(lst) PHU THUOC dtype phan tu 'lst' - khong
+    co dinh, giong het cach _agg_elem_dtype cua stdlib_aggregates.py xu
+    ly cho sum/min/max. Tra None neu chua suy duoc (fallback ve None ->
+    _expr_call se khong widen gi them trong truong hop hiem gap loi)."""
+    if len(args) != 1 or args[0][0] != 'var':
+        return None
+    try:
+        return scope[args[0][1]][2].dtype
+    except KeyError:
+        return None
+
+
+register_expr_builtin('random', compile_random, None)
+register_expr_builtin('randint', compile_randint, None)
+register_expr_builtin('uniform', compile_uniform, None)
+register_expr_builtin('randrange', compile_randrange, None)
+register_expr_builtin('choice', compile_choice, None, return_dtype_fn=_choice_dtype_fn)

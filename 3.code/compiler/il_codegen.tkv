@@ -89,13 +89,7 @@ import il_features.stdlib_math  # noqa: F401 - dang ky expr-builtin (pow/math_pi
 import il_features.stdlib_math_trig  # noqa: F401 - .update() them EXTRA_FUNCS vao _MATH_FUNCS cua stdlib_math.py qua side-effect luc import - PHAI import SAU stdlib_math (xem register_math_extra_funcs)
 from il_features.stdlib_math import _MATH_FUNCS as _stdlib_math_funcs_names  # THAM CHIEU DOC (khong con literal) - chi dung cho _infer_dtype's nhanh 'ham toan hoc 1-tham-so luon tra f64' (xem duoi), _expr_call KHONG con dung ten nay (di qua EXPR_BUILTIN_CODEGEN)
 from il_features.string_methods_batch3 import RETURN_DTYPE as _STR_METHOD_RETURN_DTYPE
-from il_features.stdlib_random import (
-    compile_random as _stdlib_random_compile_random,
-    compile_randint as _stdlib_random_compile_randint,
-    compile_choice as _stdlib_random_compile_choice,
-    compile_uniform as _stdlib_random_compile_uniform,
-    compile_randrange as _stdlib_random_compile_randrange,
-)
+import il_features.stdlib_random  # noqa: F401 - dang ky expr-builtin (random/randint/choice/uniform/randrange) qua side-effect luc import (Phase "tach tkvc.exe thanh plugin", 2026-08-12)
 from il_features.stdlib_path import (
     compile_path_join as _stdlib_path_compile_path_join,
     compile_path_exists as _stdlib_path_compile_path_exists,
@@ -575,11 +569,6 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
             return 'i32'
         if name == 're_fullmatch':
             return 'i32'
-        if name == 'choice':
-            args = node[2]
-            if args and args[0][0] == 'var':
-                return scope[args[0][1]][2].dtype
-            return None
         if name in EXPR_BUILTIN_DTYPE_FN:
             # dtype phu thuoc tham so (sum/min/max cua 1 list) - xem
             # EXPR_BUILTIN_DTYPE_FN trong il_dispatch.py.
@@ -1765,16 +1754,6 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         out.append(f'    callvirt instance int32 {col_type}::get_Count()')
         _widen_if_needed('i32', dtype, out)
         return
-    if name == 'random':
-        return _stdlib_random_compile_random(args, scope, out, dtype, ctx)
-    if name == 'randint':
-        return _stdlib_random_compile_randint(args, scope, out, dtype, ctx)
-    if name == 'choice':
-        return _stdlib_random_compile_choice(args, scope, out, dtype, ctx)
-    if name == 'uniform':
-        return _stdlib_random_compile_uniform(args, scope, out, dtype, ctx)
-    if name == 'randrange':
-        return _stdlib_random_compile_randrange(args, scope, out, dtype, ctx)
     if name == 'path_join':
         return _stdlib_path_compile_path_join(args, scope, out, dtype, ctx)
     if name == 'path_exists':
