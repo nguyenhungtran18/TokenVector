@@ -17,13 +17,52 @@ the co CUNG seed -> tra ve CUNG 1 SO."""
 from il_features.list_type import il_list_type
 from il_dispatch import register_expr_builtin
 
+_HELPER_CLASS = 'TkvRandom'
+
+
+def ensure_class(ctx):
+    """Sinh 1 lan/chuong trinh (dedupe qua ctx['emitted_types']) class
+    tinh TkvRandom giu 1 System.Random DUNG CHUNG toan chuong trinh -
+    khoi tao LUOI (neu chua tung goi seed()) tai lan goi Instance() DAU
+    TIEN, giong het mau TkvLogging (logging_feature.py's ensure_class)."""
+    emitted = ctx.get('emitted_types')
+    if emitted is None or _HELPER_CLASS in emitted:
+        return
+    emitted.add(_HELPER_CLASS)
+    ctx['extra_classes'].append([
+        f'.class public auto ansi beforefieldinit {_HELPER_CLASS} extends [mscorlib]System.Object',
+        '{',
+        '  .field private static class [mscorlib]System.Random rng',
+        '  .method public static class [mscorlib]System.Random Instance() cil managed',
+        '  {',
+        '    .maxstack 8',
+        f'    ldsfld class [mscorlib]System.Random {_HELPER_CLASS}::rng',
+        '    brtrue TKVRANDOM_HAVE',
+        '    newobj instance void [mscorlib]System.Random::.ctor()',
+        f'    stsfld class [mscorlib]System.Random {_HELPER_CLASS}::rng',
+        '  TKVRANDOM_HAVE:',
+        f'    ldsfld class [mscorlib]System.Random {_HELPER_CLASS}::rng',
+        '    ret',
+        '  }',
+        '  .method public static void SetSeed(int32 n) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ldarg.0',
+        '    newobj instance void [mscorlib]System.Random::.ctor(int32)',
+        f'    stsfld class [mscorlib]System.Random {_HELPER_CLASS}::rng',
+        '    ret',
+        '  }',
+        '}',
+    ])
+
 
 def compile_random(args, scope, out, dtype, ctx):
     """random() - tra ve so thuc ngau nhien trong [0.0, 1.0), giong
     Python random.random()."""
     if len(args) != 0:
         raise SyntaxError("il_codegen: random() khong nhan tham so nao")
-    out.append('    newobj instance void [mscorlib]System.Random::.ctor()')
+    ensure_class(ctx)
+    out.append(f'    call class [mscorlib]System.Random {_HELPER_CLASS}::Instance()')
     out.append('    callvirt instance float64 [mscorlib]System.Random::NextDouble()')
     ctx['widen_if_needed']('f64', dtype, out)
 
@@ -35,8 +74,9 @@ def compile_randint(args, scope, out, dtype, ctx):
     tham so b truoc khi goi Next() de bu lai khac biet nay."""
     if len(args) != 2:
         raise SyntaxError("il_codegen: randint(a, b) chi nhan dung 2 tham so")
+    ensure_class(ctx)
     compile_expr = ctx['compile_expr']
-    out.append('    newobj instance void [mscorlib]System.Random::.ctor()')
+    out.append(f'    call class [mscorlib]System.Random {_HELPER_CLASS}::Instance()')
     compile_expr(args[0], scope, out, 'i32', ctx)
     compile_expr(args[1], scope, out, 'i32', ctx)
     out.append('    ldc.i4.1')
@@ -50,9 +90,10 @@ def compile_uniform(args, scope, out, dtype, ctx):
     random.uniform(a,b). Cong thuc: a + NextDouble() * (b - a)."""
     if len(args) != 2:
         raise SyntaxError("il_codegen: uniform(a, b) chi nhan dung 2 tham so")
+    ensure_class(ctx)
     compile_expr = ctx['compile_expr']
     compile_expr(args[0], scope, out, 'f64', ctx)
-    out.append('    newobj instance void [mscorlib]System.Random::.ctor()')
+    out.append(f'    call class [mscorlib]System.Random {_HELPER_CLASS}::Instance()')
     out.append('    callvirt instance float64 [mscorlib]System.Random::NextDouble()')
     compile_expr(args[1], scope, out, 'f64', ctx)
     compile_expr(args[0], scope, out, 'f64', ctx)
@@ -68,8 +109,9 @@ def compile_randrange(args, scope, out, dtype, ctx):
     dung chinh Random.Next(min,max) khong can cong 1."""
     if len(args) != 2:
         raise SyntaxError("il_codegen: randrange(a, b) chi nhan dung 2 tham so")
+    ensure_class(ctx)
     compile_expr = ctx['compile_expr']
-    out.append('    newobj instance void [mscorlib]System.Random::.ctor()')
+    out.append(f'    call class [mscorlib]System.Random {_HELPER_CLASS}::Instance()')
     compile_expr(args[0], scope, out, 'i32', ctx)
     compile_expr(args[1], scope, out, 'i32', ctx)
     out.append('    callvirt instance int32 [mscorlib]System.Random::Next(int32, int32)')
@@ -100,9 +142,10 @@ def compile_choice(args, scope, out, dtype, ctx):
         raise SyntaxError(f"il_codegen: choice(lst) can '{var_name}' la list (shape={ta.shape!r})")
     list_type = il_list_type(ta.dtype, (ctx or {}).get('records'))
     load_var_ref = ctx['load_var_ref']
+    ensure_class(ctx)
 
     load_var_ref(var_name, scope, out)
-    out.append('    newobj instance void [mscorlib]System.Random::.ctor()')
+    out.append(f'    call class [mscorlib]System.Random {_HELPER_CLASS}::Instance()')
     load_var_ref(var_name, scope, out)
     out.append(f'    callvirt instance int32 {list_type}::get_Count()')
     out.append('    callvirt instance int32 [mscorlib]System.Random::Next(int32)')

@@ -1,0 +1,6 @@
+def run() -> "i32":
+    a = random()
+    b = randint(1, 100)
+    print("a=" + str(a))
+    print("b=" + str(b))
+    return 0
