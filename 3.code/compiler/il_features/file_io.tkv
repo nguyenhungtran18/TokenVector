@@ -17,6 +17,7 @@ from il_dispatch import register_stmt_codegen
 # nhap KHONG DIEU KIEN nen day la diem chac chan chay 1 lan luc nap module.
 import il_features.logging_feature as _logging_feature
 import il_features.pickle_feature as _pickle_feature
+import il_features.stdlib_sys as _stdlib_sys
 
 
 def compile_read_file(args, scope, out, dtype, ctx):
@@ -94,6 +95,11 @@ def codegen_call_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
         # il_features/pickle_feature.py. Cung la ham VOID, dispatch qua
         # day giong log_X o tren.
         _pickle_feature.DUMP_STMT_CODEGEN[name](call_args, scope, body, ctx)
+    elif name in _stdlib_sys.SYS_STMT_CODEGEN:
+        # sys_exit(code) (Phase 5.4, 2026-08-12) - xem il_features/
+        # stdlib_sys.py. Cung la ham VOID, dispatch qua day giong log_X/
+        # pickle_dump_X o tren.
+        _stdlib_sys.SYS_STMT_CODEGEN[name](call_args, scope, body, ctx)
     else:
         from il_dispatch import EXPR_BUILTIN_DTYPE
         if name in EXPR_BUILTIN_DTYPE:
