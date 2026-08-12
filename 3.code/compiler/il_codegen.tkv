@@ -3010,8 +3010,19 @@ def _fpw_assign_zeros2d(stmt, ctx):
 
 
 def _fpw_call_stmt(stmt, ctx):
-    for arg_node in stmt['call_node'][2]:
+    call_node = stmt['call_node']
+    for arg_node in call_node[2]:
         ctx['collect_ternary_temps'](arg_node)
+    # 2026-08-12 (Task 3 random shuffle/sample): 1 so ten ham dispatch qua
+    # 'call_stmt' (vd shuffle(lst) qua RANDOM_STMT_CODEGEN - xem
+    # stdlib_random.py) can hidden local rieng cho than ham (khong chi
+    # cac ARG nhu vong for tren) - dung LAI EXPR_BUILTIN_TEMPS lam kho
+    # chung qua register_call_stmt_temps (il_dispatch.py), tra cuu THEO
+    # TEN ham (call_node[1]) giong het cach collect_ternary_temps tra cuu
+    # EXPR_BUILTIN_TEMPS cho 1 'call' node nam trong bieu thuc.
+    temps_fn = EXPR_BUILTIN_TEMPS.get(call_node[1])
+    if temps_fn:
+        temps_fn(call_node, ctx)
 
 
 def _fpw_method_call_stmt(stmt, ctx):

@@ -214,6 +214,19 @@ def register_first_pass_prescan(kind, fn):
     _register_unique(FIRST_PASS_PRESCAN, kind, fn, 'register_first_pass_prescan')
 
 
+def register_call_stmt_temps(name, temps_fn):
+    """Dang ky temps_fn(call_node, ctx) chay o FIRST PASS cho 1 ten ham
+    duoc goi nhu LENH DOC LAP ('call_stmt' - khong tra gia tri, vd
+    'shuffle(lst)' qua RANDOM_STMT_CODEGEN, khac 'sample(lst,k)' la
+    EXPR_BUILTIN thuc su nen dung THANG temps_fn cua register_expr_builtin)
+    nhung VAN can hidden local (2026-08-12, Task 3 random shuffle/sample).
+    Dung LAI EXPR_BUILTIN_TEMPS lam kho chua chung - _fpw_call_stmt trong
+    il_codegen.py tra cuu dict nay theo TEN ham (call_node[1]) cho MOI
+    call_stmt, giong het cach EXPR_BUILTIN_TEMPS da duoc tra cuu cho
+    'call' node nam trong bieu thuc (xem collect_ternary_temps)."""
+    _register_unique(EXPR_BUILTIN_TEMPS, name, temps_fn, 'register_call_stmt_temps')
+
+
 # STR_METHOD_RETURN_DTYPE (2026-08-12, Phase tach tkvc.exe thanh plugin):
 # TRUOC DAY il_codegen.py import THANG dict 'RETURN_DTYPE' tu
 # string_methods_batch3.py roi doc qua bien _STR_METHOD_RETURN_DTYPE -
