@@ -1142,6 +1142,34 @@ def extract_program_file(tkv_path, _visited=None):
             extern_assemblies, module_consts, module_globals)
 
 
+def _resolve_effective_method_bodies(cur, record_method_bodies, record_bases, cache, stack):
+    """Fix MRO da-base (2026-08-13, muc 6.10) - xem ban .py goc de biet ly
+    do day du. Tra ve dict ten-method -> (Signature, body_lines) 'cur' se
+    THAT SU dung neu goi tren no, duyet de quy ca chuoi to tien."""
+    if cur in cache:
+        return cache[cur]
+    if cur in stack:
+        return {}
+    stack.add(cur)
+    result = {}
+    for m_pair in record_method_bodies.get(cur, []):
+        m_sig = m_pair[0]
+        b_lines = m_pair[1]
+        result[m_sig.name] = (m_sig, b_lines)
+    cur_bases = record_bases.get(cur)
+    parents = cur_bases if isinstance(cur_bases, list) else ([cur_bases] if cur_bases else [])
+    for p in parents:
+        if not isinstance(p, str) or not p:
+            continue
+        presolved = _resolve_effective_method_bodies(p, record_method_bodies, record_bases, cache, stack)
+        for name in presolved:
+            if name not in result:
+                result[name] = presolved[name]
+    stack.discard(cur)
+    cache[cur] = result
+    return result
+
+
 def _build_record_methods(record_defs, record_methods_raw, record_bases=None):
     """Parse TAT CA sig_line THO cua method (record_methods_raw) thanh
     Signature THAT - lam RIENG, SAU khi record_defs (fields) da biet DU
@@ -1179,16 +1207,21 @@ def _build_record_methods(record_defs, record_methods_raw, record_bases=None):
         record_methods_own[rname] = sigs
         record_method_bodies[rname] = bodies
 
+    _effective_cache = {}
+
     for rname in record_defs:
         bases = record_bases.get(rname)
         if isinstance(bases, list) and len(bases) > 1:
             own_names = {m[0].name for m in record_method_bodies.get(rname, [])}
-            for sec in bases[1:]:
-                for m_sig, b_lines in record_method_bodies.get(sec, []):
-                    if m_sig.name not in own_names:
+            for sec in bases:
+                sec_methods = _resolve_effective_method_bodies(sec, record_method_bodies, record_bases, _effective_cache, set())
+                for m_name, m_pair in sec_methods.items():
+                    m_sig = m_pair[0]
+                    b_lines = m_pair[1]
+                    if m_name not in own_names:
                         record_method_bodies[rname].append((m_sig, b_lines))
-                        own_names.add(m_sig.name)
-                        record_methods_own[rname][m_sig.name] = m_sig
+                        own_names.add(m_name)
+                        record_methods_own[rname][m_name] = m_sig
 
     record_methods = {}
     for rname in record_defs:
