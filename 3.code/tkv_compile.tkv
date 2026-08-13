@@ -580,6 +580,36 @@ def _extract_record_def(class_node, source_lines, known_records=None, known_inte
             if f_tuple not in base_fields:
                 base_fields.append(f_tuple)
     fields = list(base_fields)
+    # (2026-08-13) Chan field TRUNG TEN THAT giua nhieu base da ke thua (vd
+    # class Combo(BaseA, BaseB) voi ca 2 base cung khai bao field 'val' KHAC
+    # dtype). Neu khong chan o day, CIL sinh field theo ten tho, se crash
+    # MissingFieldException luc chay. Field kim cuong HOP LE (2 base cung 1
+    # to tien chung, field den tu to tien do) KHONG duoc chan nham: 2 owner
+    # khac nhau nhung f_tuple (ten, dtype) GIONG HET nhau -> day la ke thua
+    # hop le qua to tien chung, khong phai collision. Chi collision THAT khi
+    # cung 1 ten field nhung f_tuple KHAC NHAU giua cac owner (dtype khac,
+    # hoac field khac ban chat) tu 2 base doc lap.
+    _field_owner_tuples = {}
+    for b in record_bases_found:
+        for f_tuple in known_records.get(b, []):
+            fn = f_tuple[0]
+            _owned = _field_owner_tuples.setdefault(fn, [])
+            if f_tuple not in _owned:
+                _owned.append(f_tuple)
+    _collisions = {}
+    for fn, tuples in _field_owner_tuples.items():
+        if len(tuples) > 1:
+            _collisions[fn] = tuples
+    if _collisions:
+        _detail_parts = []
+        for fn, tuples in _collisions.items():
+            _detail_parts.append(f"'{fn}' co dtype khac nhau giua cac base: {sorted(str(t) for t in tuples)}")
+        details = '; '.join(_detail_parts)
+        raise TranspileError(
+            f"class '{class_node.name}': field trung ten giua nhieu base da ke thua ({details}) - "
+            f"CIL sinh field theo ten tho, khong phan biet duoc field trung ten tu base khac nhau "
+            f"(se crash MissingFieldException luc chay neu khong chan o day). Doi ten field o 1 "
+            f"trong cac base de tranh trung.")
     methods_raw = []
     for stmt in class_node.body:
         if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and \
