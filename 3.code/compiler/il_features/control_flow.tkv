@@ -253,6 +253,21 @@ def set_known_dict_vars(names):
     _known_dict_vars = set(names)
 
 
+# 6.7 (iterator protocol tuy bien, 2026-08-13): 'for x in <bien_record>:'
+# CUNG khop CHINH XAC _FOR_IN_LIST_RE - neu khong chan o day, macro nay se
+# VIET LAI NHAM record thanh range(len())/index truoc khi line-parser
+# 'for_in_iter' kip chay. Giong het co che _known_dict_vars o tren.
+_known_record_vars = set()
+
+
+def set_known_record_vars(names):
+    """Goi 1 LAN moi than ham (tu _expand_macros) TRUOC khi macro chay,
+    voi tap ten bien DA BIET la kieu record trong than ham nay (tham so
+    kieu record + local gan tu constructor record)."""
+    global _known_record_vars
+    _known_record_vars = set(names)
+
+
 def try_expand_for_in_list(line):
     # for x in lst: - lap TRUC TIEP qua list - KHONG can codegen moi:
     # List<T> da ho tro doc theo chi so (get_Item/get_Count), nen chi can
@@ -266,6 +281,8 @@ def try_expand_for_in_list(line):
     m = _FOR_IN_LIST_RE.match(stripped)
     if m:
         var, container = m.groups()
+        if container in _known_record_vars:
+            return None
         if container in _known_dict_vars:
             # B1: container la dict da biet -> phai kiem tra o DAY, TRUOC
             # nhanh list-index ngay ben duoi (container la '\w+' don gian
@@ -1060,6 +1077,131 @@ def codegen_with_open(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
     body.append(f'  {end_lbl}:')
 
 
+_FOR_IN_NAME_RE = re.compile(r'^for\s+(\w+)\s+in\s+(\w+)\s*:\s*$')
+
+
+def try_parse_for_in_record(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """'for x in <bien_record>:' (6.7, iterator protocol tuy bien,
+    2026-08-13) - CHI khop khi ve phai la 1 TEN don. Validate hoan sang
+    first-pass-walk (fpw_for_in_iter), giong cach with_ctx (6.6) da lam."""
+    m = _FOR_IN_NAME_RE.match(line)
+    if not m:
+        return None
+    var, record_var = m.groups()
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(f"il_codegen: 'for {var} in {record_var}:' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return {'kind': 'for_in_iter', 'var': var, 'record_var': record_var, 'body': body}, pos
+
+
+def fpw_for_in_iter(stmt, ctx):
+    var, record_var = stmt['var'], stmt['record_var']
+    infer_scope = ctx['infer_scope']
+    declared_names = ctx['declared_names']
+    records = ctx.get('records') or {}
+    record_methods = ctx.get('record_methods') or {}
+    if record_var not in infer_scope._d:
+        raise SyntaxError(
+            f"il_codegen: 'for {var} in {record_var}:' - '{record_var}' chua duoc khai bao")
+    _, _, record_ta = infer_scope[record_var]
+    if record_ta.shape != 'record':
+        raise SyntaxError(
+            f"il_codegen: 'for {var} in {record_var}:' - '{record_var}' khong phai bien "
+            f"kieu record (khong phai list/dict/set/range - cac dang do da duoc xu ly "
+            f"o macro/parser rieng)")
+    record_type = record_ta.dtype
+    iter_m = record_methods.get(record_type, {}).get('__iter__')
+    if iter_m is None or iter_m.params or iter_m.return_type is None:
+        raise SyntaxError(
+            f"il_codegen: record '{record_type}' can dinh nghia "
+            f"'def __iter__(self) -> \"IterT\": ...' (0 tham so, co return type) "
+            f"de dung trong 'for {var} in {record_var}:'")
+    iter_ta = iter_m.return_type
+    if iter_ta.shape != 'record' or iter_ta.dtype not in records:
+        raise SyntaxError(
+            f"il_codegen: record '{record_type}' co __iter__ nhung kieu tra ve "
+            f"'{iter_ta.dtype}' khong phai 1 record hop le")
+    next_m = record_methods.get(iter_ta.dtype, {}).get('__next__')
+    if next_m is None or next_m.params or next_m.return_type is None or \
+            next_m.return_type.shape != 'tuple' or \
+            len(next_m.return_type.tuple_dtypes) != 2 or \
+            next_m.return_type.tuple_dtypes[1] != 'i32':
+        raise SyntaxError(
+            f"il_codegen: record '{iter_ta.dtype}' can dinh nghia "
+            f"'def __next__(self) -> \"(T, i32)\": ...' (0 tham so, tra ve tuple 2 "
+            f"phan tu, phan tu thu 2 la i32 - co con/het) de dung trong "
+            f"'for {var} in {record_var}:'")
+    elem_dtype = next_m.return_type.tuple_dtypes[0]
+    stmt['_iter_type'] = iter_ta.dtype
+    stmt['_elem_dtype'] = elem_dtype
+    if var not in declared_names:
+        declared_names.add(var)
+        elem_ta = ctx['TypeAnn'](elem_dtype, None)
+        ctx['locals_decl'].append((var, elem_ta))
+        infer_scope.set(var, elem_ta)
+    iterobj = f"__iterobj{id(stmt)}"
+    nexttmp = f"__iternext{id(stmt)}"
+    stmt['_iterobj'] = iterobj
+    stmt['_nexttmp'] = nexttmp
+    if iterobj not in declared_names:
+        declared_names.add(iterobj)
+        iter_local_ta = ctx['TypeAnn'](iter_ta.dtype, 'record')
+        ctx['locals_decl'].append((iterobj, iter_local_ta))
+        infer_scope.set(iterobj, iter_local_ta)
+    if nexttmp not in declared_names:
+        declared_names.add(nexttmp)
+        tuple_ta = ctx['TypeAnn'](elem_dtype, 'tuple', tuple_dtypes=[elem_dtype, 'i32'])
+        ctx['locals_decl'].append((nexttmp, tuple_ta))
+        infer_scope.set(nexttmp, tuple_ta)
+    plan_str_accum(stmt, ctx)
+    ctx['walk_fn'](stmt['body'])
+
+
+def fpp_for_in_iter(stmt, ctx):
+    ctx['prescan_fn'](stmt['body'])
+
+
+def codegen_for_in_iter(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    var, record_var = stmt['var'], stmt['record_var']
+    iter_type, elem_dtype = stmt['_iter_type'], stmt['_elem_dtype']
+    iterobj, nexttmp = stmt['_iterobj'], stmt['_nexttmp']
+    records = ctx.get('records') or {}
+    record_type = scope[record_var][2].dtype
+    from il_features.record_feature import _method_owner_class
+    from il_features.tuple_type import il_tupleN_type
+
+    iter_owner = _method_owner_class(ctx, record_type, '__iter__')
+    iter_il = ctx['il_type_str'](TypeAnn(iter_type, 'record'), records)
+    ctx['load_var_ref'](record_var, scope, body)
+    body.append(f'    callvirt instance {iter_il} {iter_owner}::__iter__()')
+    ctx['store_var'](iterobj, scope, body)
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    start_lbl, end_lbl = f'{sig.name}_ForIter{n}_start', f'{sig.name}_ForIter{n}_end'
+    tuple_type_il = il_tupleN_type([elem_dtype, 'i32'])
+    next_owner = _method_owner_class(ctx, iter_type, '__next__')
+
+    emit_sb_setup(stmt, scope, body, ctx)
+    body.append(f'  {start_lbl}:')
+    ctx['load_var_ref'](iterobj, scope, body)
+    body.append(f'    callvirt instance {tuple_type_il} {next_owner}::__next__()')
+    ctx['store_var'](nexttmp, scope, body)
+    ctx['load_var_ref'](nexttmp, scope, body)
+    body.append(f'    ldfld !1 {tuple_type_il}::Item2')
+    body.append(f'    brfalse {end_lbl}')
+    ctx['load_var_ref'](nexttmp, scope, body)
+    body.append(f'    ldfld !0 {tuple_type_il}::Item1')
+    ctx['store_var'](var, scope, body)
+    ctx['loop_stack'].append((start_lbl, end_lbl))
+    codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+    ctx['loop_stack'].pop()
+    body.append(f'    br {start_lbl}')
+    body.append(f'  {end_lbl}:')
+    emit_sb_flush(stmt, scope, body, ctx)
+
+
 _WITH_CTX_RE = re.compile(r'^with\s+(.+?)\s+as\s+(\w+)\s*:\s*$')
 
 
@@ -1258,6 +1400,7 @@ register_line_parser('return', try_parse_return)
 register_line_parser('raise', try_parse_raise)
 register_line_parser('with_open', try_parse_with_open)
 register_line_parser('with_ctx', try_parse_with_ctx)
+register_line_parser('for_in_iter', try_parse_for_in_record)
 register_first_pass_walk('for', fpw_for)
 register_first_pass_walk('while', fpw_while)
 register_first_pass_walk('if', fpw_if)
@@ -1266,12 +1409,14 @@ register_first_pass_walk('return', fpw_return)
 register_first_pass_walk('raise', fpw_raise)
 register_first_pass_walk('with_open', fpw_with_open)
 register_first_pass_walk('with_ctx', fpw_with_ctx)
+register_first_pass_walk('for_in_iter', fpw_for_in_iter)
 register_first_pass_prescan('for', fpp_for)
 register_first_pass_prescan('while', fpp_while_if)
 register_first_pass_prescan('if', fpp_while_if)
 register_first_pass_prescan('try', fpp_try)
 register_first_pass_prescan('with_open', fpp_with_open)
 register_first_pass_prescan('with_ctx', fpp_with_ctx)
+register_first_pass_prescan('for_in_iter', fpp_for_in_iter)
 def codegen_block(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     codegen_stmts_fn(stmt['stmts'], scope, body, body_dtype, ctx, sig)
 
@@ -1297,6 +1442,7 @@ register_stmt_codegen('return', codegen_return)
 register_stmt_codegen('raise', codegen_raise)
 register_stmt_codegen('with_open', codegen_with_open)
 register_stmt_codegen('with_ctx', codegen_with_ctx)
+register_stmt_codegen('for_in_iter', codegen_for_in_iter)
 register_stmt_codegen('block', codegen_block)
 register_first_pass_walk('block', fpw_block)
 register_first_pass_prescan('block', fpp_block)

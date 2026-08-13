@@ -71,6 +71,7 @@ from il_features.control_flow import (
     compile_file_method_call as _compile_file_method_call,
     _split_all_top_level_commas as _split_idx_commas,
     set_known_dict_vars as _set_known_dict_vars,
+    set_known_record_vars as _set_known_record_vars,
 )
 from il_dispatch import (
     EXPR_CODEGEN, register_expr_codegen, STMT_CODEGEN, register_stmt_codegen,
@@ -2064,7 +2065,7 @@ _METHOD_CALL_STMT_RE = re.compile(r'^(\w+)\.(\w+)\(.*\)\s*$')
 # chuyen sang il_features/comprehension.py (Phase 1 buoc 4, 2026-07-28).
 
 
-def _expand_macros(body_lines: list) -> list:
+def _expand_macros(body_lines: list, records: dict = None, sig=None) -> list:
     """Lap _expand_macros_once DEN DIEM CO DINH (toi da 10 vong, chan an
     toan tranh vong lap vo han neu 1 macro loi tu sinh lai chinh no) -
     can THIET vi comprehension (2026-07-28) sinh ra van ban dang
@@ -2072,7 +2073,11 @@ def _expand_macros(body_lines: list) -> list:
     'for i in range(N):' (ho tro NGUYEN SINH trong _parse_block, khong
     can macro) - 1 vong duy nhat truoc day KHONG du de mo rong ca 2 lop
     macro long nhau. Idempotent voi input da on dinh (vong sau khong
-    doi gi thi dung ngay, khong ton chi phi thua)."""
+    doi gi thi dung ngay, khong ton chi phi thua).
+
+    'records'/'sig' (6.7, iterator protocol tuy bien, 2026-08-13, tuy
+    chon - mac dinh None) - quet truoc tap bien "da biet la record"
+    (xem set_known_record_vars) truoc khi macro 'for_in_list' chay."""
     # B1 (docs/BUGS_TODO.md): quet TRUOC toan than ham xem bien nao duoc
     # gan '{}' truc tiep (dict moi) - macro cho 'for k in d:' can biet d
     # co phai dict hay khong TRUOC KHI chay (ban than macro chi thay 1
@@ -2089,6 +2094,20 @@ def _expand_macros(body_lines: list) -> list:
         if m:
             dict_vars.add(m.group(1))
     _set_known_dict_vars(dict_vars)
+
+    # 6.7: cung logic quet-truoc nhu dict_vars o tren.
+    record_vars = set()
+    if sig is not None:
+        for p in sig.params:
+            if p.type_ann is not None and p.type_ann.shape == 'record':
+                record_vars.add(p.name)
+    if records:
+        record_ctor_re = re.compile(r'^(\w+)\s*=\s*(\w+)\(.*\)\s*$')
+        for raw in body_lines:
+            m = record_ctor_re.match(raw.strip())
+            if m and m.group(2) in records:
+                record_vars.add(m.group(1))
+    _set_known_record_vars(record_vars)
 
     prev = body_lines
     for _ in range(10):
@@ -3649,7 +3668,7 @@ def _gen_async_def(sig, body_lines, class_name, records, record_methods,
     from il_features.closures import _gen_closure_class_il
 
     known_shapes = {p.name: p.type_ann.shape for p in sig.params if p.type_ann.shape is not None}
-    lines, _line_nos = _strip_lines([_rename_reserved_identifiers(l) for l in _expand_macros(body_lines)])
+    lines, _line_nos = _strip_lines([_rename_reserved_identifiers(l) for l in _expand_macros(body_lines, records=records, sig=sig)])
     base_indent = lines[0][0] if lines else 0
     stmts, end_pos = _parse_block(lines, 0, base_indent, sig, known_shapes)
     if end_pos != len(lines):
@@ -3840,7 +3859,7 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
             g_ta = TypeAnn(gdtype, None)
             scope.add_global(gname, g_ta)
             extra_declared[gname] = g_ta
-        body_lines = _expand_macros(body_lines)
+        body_lines = _expand_macros(body_lines, records=records, sig=sig)
         body_lines = [_rename_reserved_identifiers(l) for l in body_lines]
         lines, line_nos = _strip_lines(body_lines, start_line=body_start_line)
         base_indent = lines[0][0] if lines else 0
@@ -4017,7 +4036,7 @@ def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict
       CHUA duoc kiem tra rieng - se loi ro rang (KeyError/sai field) neu
       dung toi, chua co test cho to hop nay."""
     body_dtype = sig.generator_elem_dtype
-    body_lines = _expand_macros(body_lines)
+    body_lines = _expand_macros(body_lines, records=records, sig=sig)
     body_lines = [_rename_reserved_identifiers(l) for l in body_lines]
     lines, _line_nos = _strip_lines(body_lines)
     base_indent = lines[0][0] if lines else 0
