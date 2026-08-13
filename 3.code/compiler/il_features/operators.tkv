@@ -309,7 +309,10 @@ def compile_compare(node, scope, out, dtype, ctx=None):
     ctx['compile_compare_str'] (string_feature.py), phan con lai (so
     sanh so hoc) o day. Ket qua LUON la int32 0/1 (khong phai dtype cua
     toan hang) - dung ceq/cgt/clt CHUAN CIL, cac toan tu con lai
-    (!=,>=,<=) suy tu 3 cai do bang 1 lan phu dinh (ldc.i4.0; ceq)."""
+    (!=,>=,<=) suy tu 3 cai do bang 1 lan phu dinh (ldc.i4.0; ceq).
+    __eq__ cho record (6.5, dunder overload - muc 2, 2026-08-13): '=='/
+    '!=' tren 2 gia tri CUNG kieu record co __eq__(self, other) -> "i32"
+    goi callvirt thay vi ceq (reference-compare mac dinh)."""
     op, left, right = node[1], node[2], node[3]
     operand_dtype = ctx['resolve_compare_operand_dtype'](
         left, right, scope, (ctx or {}).get('func_table'), dtype,
@@ -319,6 +322,35 @@ def compile_compare(node, scope, out, dtype, ctx=None):
     if operand_dtype == 'int':
         return _int_type.compile_compare(op, left, right, scope, out, ctx)
     compile_expr = ctx['compile_expr']
+    records = (ctx or {}).get('records') or {}
+    if op in ('==', '!=') and operand_dtype in records:
+        record_methods = (ctx or {}).get('record_methods') or {}
+        dunder = record_methods.get(operand_dtype, {}).get('__eq__')
+        if dunder is not None:
+            record_bases = (ctx or {}).get('record_bases') or {}
+            ancestors = {operand_dtype}
+            walk = operand_dtype
+            while isinstance(record_bases.get(walk), str) and record_bases.get(walk):
+                walk = record_bases[walk]
+                ancestors.add(walk)
+            if len(dunder.params) != 1 or dunder.params[0].type_ann.dtype not in ancestors or \
+                    dunder.params[0].type_ann.shape != 'record' or \
+                    dunder.return_type is None or dunder.return_type.dtype != 'i32' or \
+                    dunder.return_type.shape is not None:
+                raise SyntaxError(
+                    f"il_codegen: record '{operand_dtype}' co __eq__ nhung chu ky sai - can "
+                    f"dung 1 tham so CUNG kieu record va tra ve \"i32\" "
+                    f"('def __eq__(self, other) -> \"i32\":')")
+            compile_expr(left, scope, out, operand_dtype, ctx)
+            compile_expr(right, scope, out, operand_dtype, ctx)
+            from il_features.record_feature import _method_owner_class
+            owner = _method_owner_class(ctx, operand_dtype, '__eq__')
+            param_il = ctx['il_type_str'](dunder.params[0].type_ann, records)
+            out.append(f'    callvirt instance int32 {owner}::__eq__({param_il})')
+            if op == '!=':
+                out.append('    ldc.i4.0')
+                out.append('    ceq')
+            return
     compile_expr(left, scope, out, operand_dtype, ctx)
     compile_expr(right, scope, out, operand_dtype, ctx)
     compare_opcode, compare_negated = ctx['compare_opcode'], ctx['compare_negated']
