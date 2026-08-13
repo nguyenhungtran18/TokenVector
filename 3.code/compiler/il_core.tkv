@@ -150,7 +150,8 @@ def rename_reserved_identifiers(line: str) -> str:
 
 _EXPR_TOKEN_RE = re.compile(r'''
     \s*(?:
-        (?P<STR>"(?:[^"\\]|\\.)*")
+        (?P<BYTES>b"(?:[^"\\]|\\.)*")
+      | (?P<STR>"(?:[^"\\]|\\.)*")
       | (?P<NUM>\d+\.\d+|\d+)
       | (?P<ID>[A-Za-z_]\w*)
       | (?P<CMPOP>>=|<=|==|!=)
@@ -546,6 +547,8 @@ class _ExprParser:
                     elements.append(self.parse_expr())
             self.expect_op(']')
             return ('list_literal', elements)
+        if k == 'BYTES':
+            return ('bytes_lit', v)  # v giu nguyen tien to 'b' + dau ngoac kep - xem bytes_type.py's parse_bytes_literal
         if k == 'STR':
             return ('str_lit', v)  # v giu nguyen ca dau ngoac kep - dung THANG cho 'ldstr'
         if k == 'NUM':

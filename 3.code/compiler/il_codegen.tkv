@@ -38,6 +38,7 @@ from il_core import (
 )
 from il_features.list_type import il_list_elem_ilstr, il_list_type, compile_index_list as _list_compile_index_list
 from il_features.bytearray_type import il_bytearray_type as _il_bytearray_type  # muc 6.8 (3/4, 2026-08-13): dang ky parser/codegen luc import, xem module do
+import il_features.bytes_type as _bytes_type  # noqa: F401 - muc 6.8 (4/4, 2026-08-13): dang ky parser/codegen luc import, xem module do
 from il_features.set_type import il_set_type, compile_in_set as _set_compile_in_set
 from il_features.dict_type import (
     il_dict_type, il_dict_enumerator_type, il_kvpair_type,
@@ -129,9 +130,11 @@ def il_type_str(type_ann: TypeAnn, records: dict = None) -> str:
             inner = il_type_str(type_ann.elem_ta, records)
             return f'class [mscorlib]System.Collections.Generic.List`1<{inner}>'
         return il_list_type(type_ann.dtype, records)
-    if type_ann.shape == 'bytearray':
-        # muc 6.8 (3/4, 2026-08-13): List<uint8> - CHI khac List<i32> cua
-        # list[i32] o KICH THUOC phan tu, xem bytearray_type.py dau file.
+    if type_ann.shape in ('bytearray', 'bytes'):
+        # muc 6.8 (3/4 va 4/4, 2026-08-13): List<uint8> - CHI khac List<i32>
+        # cua list[i32] o KICH THUOC phan tu, xem bytearray_type.py/
+        # bytes_type.py dau file. 'bytes' TAI DUNG NGUYEN VEN kieu IL nay
+        # (chi khac o cach tao - unroll hang so, va o cho .append() bi chan).
         return _il_bytearray_type()
     if type_ann.shape in ('set', 'frozenset'):
         return il_set_type(type_ann.dtype, records)
@@ -1206,9 +1209,10 @@ def _expr_shape(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
 def _expr_index(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     name, indices = node[1], node[2]
     _, _, type_ann = scope[name]
-    if type_ann.shape in ('list', 'bytearray'):
-        # muc 6.8 (3/4, 2026-08-13): doc bytearray[i] TAI DUNG NGUYEN VEN
-        # nhanh list (xem Dieu tra Step 1, bytearray_type.py dau file) -
+    if type_ann.shape in ('list', 'bytearray', 'bytes'):
+        # muc 6.8 (3/4 va 4/4, 2026-08-13): doc bytearray[i]/bytes[i] TAI
+        # DUNG NGUYEN VEN nhanh list (xem Dieu tra Step 1, bytearray_type.py
+        # dau file) -
         # compile_index_list dung ctx['il_type_str'] (DE QUY, da day nhanh
         # 'bytearray' o tren) + 'get_Item(int32) -> !0' generic, KHONG
         # hardcode i32/dtype cu the - da XAC NHAN qua build+chay test that
@@ -1609,10 +1613,10 @@ def _compile_len_of_expr(arg, scope, out, dtype, ctx):
         out.append('    callvirt instance int32 [mscorlib]System.String::get_Length()')
         _widen_if_needed('i32', dtype, out)
         return
-    if ta.shape in ('list', 'bytearray'):
-        # muc 6.8 (3/4, 2026-08-13): len(bytearray) TAI DUNG nhanh list -
-        # il_type_str da day nhanh 'bytearray' o tren, get_Count() khong
-        # phu thuoc dtype phan tu (giong het get_Item).
+    if ta.shape in ('list', 'bytearray', 'bytes'):
+        # muc 6.8 (3/4 va 4/4, 2026-08-13): len(bytearray)/len(bytes) TAI
+        # DUNG nhanh list - il_type_str da day nhanh 'bytearray'/'bytes' o
+        # tren, get_Count() khong phu thuoc dtype phan tu.
         col_type = il_type_str(ta, records)
     elif ta.shape in ('set', 'frozenset'):
         col_type = il_set_type(ta.dtype, records)
@@ -1620,7 +1624,7 @@ def _compile_len_of_expr(arg, scope, out, dtype, ctx):
         col_type = il_type_str(ta, records)
     else:
         raise SyntaxError(
-            f"il_codegen: len(<bieu thuc>) chi ap dung cho list/dict/set/frozenset/bytearray/str - bieu thuc "
+            f"il_codegen: len(<bieu thuc>) chi ap dung cho list/dict/set/frozenset/bytearray/bytes/str - bieu thuc "
             f"nay co dtype={ta.dtype!r} shape={ta.shape!r}")
     _compile_expr(arg, scope, out, ta.dtype, ctx)
     out.append(f'    callvirt instance int32 {col_type}::get_Count()')
@@ -1789,18 +1793,19 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             out.append(f'    callvirt instance int32 {owner}::__len__()')
             _widen_if_needed('i32', dtype, out)
             return
-        if arg_ta.shape not in ('list', 'dict', 'set', 'frozenset', 'bytearray'):
+        if arg_ta.shape not in ('list', 'dict', 'set', 'frozenset', 'bytearray', 'bytes'):
             raise SyntaxError(
-                f"il_codegen: len() hien CHI ho tro list/dict/set/frozenset/bytearray/string, hoac 1 record co "
+                f"il_codegen: len() hien CHI ho tro list/dict/set/frozenset/bytearray/bytes/string, hoac 1 record co "
                 f"__len__ ('{arg[1]}' co dtype={arg_ta.dtype!r} shape={arg_ta.shape!r}) - "
                 f"mang co san dung .shape[0] thay the")
         _load_var_ref(arg[1], scope, out)
         if arg_ta.shape == 'list':
             col_type = il_list_type(arg_ta.dtype, (ctx or {}).get('records'))
-        elif arg_ta.shape == 'bytearray':
-            # muc 6.8 (3/4, 2026-08-13): len(ba) tren bien don - nhanh
-            # rieng cua 'len(<bien>)' (khac _compile_len_of_expr o tren,
-            # dung cho bieu thuc), get_Count() khong phu thuoc dtype phan tu.
+        elif arg_ta.shape in ('bytearray', 'bytes'):
+            # muc 6.8 (3/4 va 4/4, 2026-08-13): len(ba)/len(data) tren bien
+            # don - nhanh rieng cua 'len(<bien>)' (khac _compile_len_of_expr
+            # o tren, dung cho bieu thuc), get_Count() khong phu thuoc dtype
+            # phan tu.
             col_type = _il_bytearray_type()
         elif arg_ta.shape in ('set', 'frozenset'):
             col_type = il_set_type(arg_ta.dtype, (ctx or {}).get('records'))

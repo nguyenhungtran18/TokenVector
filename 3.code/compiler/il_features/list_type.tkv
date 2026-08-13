@@ -110,9 +110,15 @@ def try_parse_list_append(line, lines, pos, indent_level, sig, known_shapes, par
     bytearray_type.py) - neu KHONG loai tru o day, nhanh list nay se cuop
     mat truoc (list_type.py duoc import/dang ky TRUOC bytearray_type.py
     trong il_codegen.py, LINE_PARSERS thu THEO THU TU dang ky) va bo lo
-    buoc narrow bat buoc do."""
+    buoc narrow bat buoc do.
+
+    Loai tru THEM known_shapes=='bytes' (muc 6.8, 4/4, 2026-08-13): 'data.append(x)'
+    tren bien 'bytes' (bat bien) PHAI bi try_parse_bytes_append_blocked
+    (bytes_type.py) bat va nem SyntaxError bat bien - neu KHONG loai tru o
+    day, nhanh list nay se cuop mat truoc va sinh IL append hop le (SAI,
+    'bytes' khong duoc mutate)."""
     m = _LIST_APPEND_RE.match(line)
-    if not m or known_shapes.get(m.group(1)) == 'bytearray':
+    if not m or known_shapes.get(m.group(1)) in ('bytearray', 'bytes'):
         return None
     name, arg_expr = m.groups()
     return {'kind': 'list_append', 'name': name, 'value_node': parse_expr(arg_expr)}, pos + 1
@@ -426,7 +432,7 @@ def try_parse_list_remove(line, lines, pos, indent_level, sig, known_shapes, par
     la list thu THEO THU TU dang ky, file nay import TRUOC nen luon thang
     neu khong co dieu kien nay)."""
     m = _LIST_REMOVE_RE.match(line)
-    if not m or known_shapes.get(m.group(1)) in ('set', 'frozenset'):
+    if not m or known_shapes.get(m.group(1)) in ('set', 'frozenset', 'bytearray'):
         return None
     name, arg_expr = m.groups()
     return {'kind': 'list_remove', 'name': name, 'value_node': parse_expr(arg_expr)}, pos + 1
@@ -453,7 +459,7 @@ def try_parse_list_insert(line, lines, pos, indent_level, sig, known_shapes, par
     """LINE_PARSERS entry: 'lst.insert(i, x)' - PHAI dang ky TRUOC
     method_call_stmt, giong list_append/list_remove."""
     m = _LIST_INSERT_RE.match(line)
-    if not m:
+    if not m or known_shapes.get(m.group(1)) == 'bytearray':
         return None
     name, idx_expr, val_expr = m.groups()
     return {'kind': 'list_insert', 'name': name, 'index_node': parse_expr(idx_expr),
