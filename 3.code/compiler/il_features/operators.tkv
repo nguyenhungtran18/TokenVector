@@ -142,6 +142,46 @@ def compile_binop(node, scope, out, dtype, ctx=None):
     left_dtype = infer_dtype(left, scope, func_table)
     right_dtype = infer_dtype(right, scope, func_table)
     operand_dtype = left_dtype or right_dtype or dtype
+    records = (ctx or {}).get('records') or {}
+    if op == '+' and operand_dtype in records:
+        # __add__ cho record (6.5, dunder overload - muc 5/5, 2026-08-13):
+        # a + b tren 2 gia tri CUNG kieu record co
+        # __add__(self, other) -> T goi callvirt. KHONG co fallback mac
+        # dinh nhu __eq__ - thieu __add__ la loi RO, khong ROI xuong
+        # nhanh 'add' CIL tren 2 object reference (vo nghia/crash).
+        record_methods = (ctx or {}).get('record_methods') or {}
+        dunder = record_methods.get(operand_dtype, {}).get('__add__')
+        if dunder is None:
+            raise SyntaxError(
+                f"il_codegen: record '{operand_dtype}' khong co __add__ - "
+                f"'+' tren record can dinh nghia "
+                f"'def __add__(self, other) -> \"T\": ...' (T la kieu tra ve tuy chon)")
+        record_bases = (ctx or {}).get('record_bases') or {}
+        ancestors = {operand_dtype}
+        walk = operand_dtype
+        while isinstance(record_bases.get(walk), str) and record_bases.get(walk):
+            walk = record_bases[walk]
+            ancestors.add(walk)
+        if len(dunder.params) != 1 or \
+                dunder.params[0].type_ann.dtype not in ancestors or \
+                dunder.params[0].type_ann.shape != 'record' or \
+                dunder.return_type is None:
+            raise SyntaxError(
+                f"il_codegen: record '{operand_dtype}' co __add__ nhung chu ky sai - "
+                f"can dung 1 tham so CUNG kieu record (hoac to tien) va tra ve 1 kieu "
+                f"bat ky ('def __add__(self, other) -> \"T\":')")
+        compile_expr = ctx['compile_expr']
+        compile_expr(left, scope, out, operand_dtype, ctx)
+        compile_expr(right, scope, out, operand_dtype, ctx)
+        from il_features.record_feature import _method_owner_class
+        owner = _method_owner_class(ctx, operand_dtype, '__add__')
+        param_il = ctx['il_type_str'](dunder.params[0].type_ann, records)
+        ret_dtype, ret_shape = dunder.return_type.dtype, dunder.return_type.shape
+        ret_il = ctx['il_type_str'](dunder.return_type, records)
+        out.append(f'    callvirt instance {ret_il} {owner}::__add__({param_il})')
+        if ret_shape is None:
+            ctx['widen_if_needed'](ret_dtype, dtype, out)
+        return
     if operand_dtype == 'str' or (op == '*' and 'str' in (left_dtype, right_dtype)):
         # '"ab" * 3' VA '3 * "ab"' (2026-08-03): Python cho phep ca 2
         # chieu. Chieu thu hai co left_dtype='i32' nen KHONG loc duoc bang
