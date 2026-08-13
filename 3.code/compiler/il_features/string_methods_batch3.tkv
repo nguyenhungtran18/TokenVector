@@ -103,24 +103,35 @@ def compile_str_method_lstrip(node, scope, out, dtype, ctx):
     that su (xac minh qua PowerShell reflection: [string].GetMethods()
     CHI co 'TrimStart(Char[])') - C# 's.TrimStart()' duoc trinh bien dich
     tu dong nap 'null' cho tham so char[] nay, phai lam dung y het
-    (ldnull truoc callvirt)."""
+    (ldnull truoc callvirt).
+    s.lstrip(chars) them 2026-08-13: mirror compile_str_method_strip -
+    'chars'.ToCharArray() truoc khi goi TrimStart(char[])."""
     obj_name, args = node[1], node[3]
-    if len(args) != 0:
-        raise SyntaxError("il_codegen: s.lstrip() hien chi ho tro dang khong tham so")
+    if len(args) not in (0, 1):
+        raise SyntaxError("il_codegen: s.lstrip() hoac s.lstrip(chars) can 0 hoac 1 tham so")
     _validate_str_method_caller(obj_name, scope)
     ctx['load_var_ref'](obj_name, scope, out)
-    out.append('    ldnull')
+    if len(args) == 1:
+        ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+        out.append('    callvirt instance char[] [mscorlib]System.String::ToCharArray()')
+    else:
+        out.append('    ldnull')
     out.append('    callvirt instance string [mscorlib]System.String::TrimStart(char[])')
 
 
 def compile_str_method_rstrip(node, scope, out, dtype, ctx):
-    """s.rstrip() - tuong tu lstrip(), TrimEnd(Char[]) voi null."""
+    """s.rstrip() - tuong tu lstrip(), TrimEnd(Char[]) voi null.
+    s.rstrip(chars) them 2026-08-13: mirror compile_str_method_strip."""
     obj_name, args = node[1], node[3]
-    if len(args) != 0:
-        raise SyntaxError("il_codegen: s.rstrip() hien chi ho tro dang khong tham so")
+    if len(args) not in (0, 1):
+        raise SyntaxError("il_codegen: s.rstrip() hoac s.rstrip(chars) can 0 hoac 1 tham so")
     _validate_str_method_caller(obj_name, scope)
     ctx['load_var_ref'](obj_name, scope, out)
-    out.append('    ldnull')
+    if len(args) == 1:
+        ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+        out.append('    callvirt instance char[] [mscorlib]System.String::ToCharArray()')
+    else:
+        out.append('    ldnull')
     out.append('    callvirt instance string [mscorlib]System.String::TrimEnd(char[])')
 
 
