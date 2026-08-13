@@ -8,6 +8,7 @@ tien to 'os.'. Quy uoc dependency-injection qua `ctx` nhu cac
 il_features/*.py khac."""
 
 from il_dispatch import register_expr_builtin
+from typed_dsl_parser import TypeAnn
 
 
 def compile_path_join(args, scope, out, dtype, ctx):
@@ -77,6 +78,54 @@ def compile_path_isdir(args, scope, out, dtype, ctx):
     ctx['widen_if_needed']('i32', dtype, out)
 
 
+def _splitext_temps(node, ctx):
+    """FIRST PASS: khai 2 local an cho path_splitext(p) - 'p' (gia tri
+    duong dan, giu de dung 2 lan: tinh ext VA tinh root), 'ext' (phan
+    mo rong, giu de dua vao ca phep tru do dai VA gia tri tuple cuoi).
+    Batch 5.5b muc 4, 2026-08-13."""
+    args = node[2]
+    if len(args) != 1:
+        return
+    TypeAnn_ = ctx['TypeAnn']
+    ctx['declare_named'](f'__pse{id(args)}_p', TypeAnn_('str', None))
+    ctx['declare_named'](f'__pse{id(args)}_ext', TypeAnn_('str', None))
+
+
+def compile_path_splitext(args, scope, out, dtype, ctx):
+    """path_splitext(p) -> (str, str) - Path.GetExtension(p) lay ext,
+    root = p.Substring(0, p.Length - ext.Length). GIOI HAN DA BIET: file
+    bat dau bang dau cham khong co extension khac (vd '.bashrc') -
+    .NET Path.GetExtension coi TOAN BO la extension, khac Python (coi la
+    KHONG co extension) - chap nhan duoc, xem spec 2026-08-13-path-
+    splitext-design.md."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_splitext(p) chi nhan dung 1 tham so")
+    compile_expr = ctx['compile_expr']
+    p_idx = scope[f'__pse{id(args)}_p'][1]
+    ext_idx = scope[f'__pse{id(args)}_ext'][1]
+
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append(f'    stloc.s {p_idx}')
+
+    out.append(f'    ldloc.s {p_idx}')
+    out.append('    call string [mscorlib]System.IO.Path::GetExtension(string)')
+    out.append(f'    stloc.s {ext_idx}')
+
+    # root = p.Substring(0, p.Length - ext.Length)
+    out.append(f'    ldloc.s {p_idx}')
+    out.append('    ldc.i4.0')
+    out.append(f'    ldloc.s {p_idx}')
+    out.append('    callvirt instance int32 [mscorlib]System.String::get_Length()')
+    out.append(f'    ldloc.s {ext_idx}')
+    out.append('    callvirt instance int32 [mscorlib]System.String::get_Length()')
+    out.append('    sub')
+    out.append('    callvirt instance string [mscorlib]System.String::Substring(int32, int32)')
+
+    out.append(f'    ldloc.s {ext_idx}')
+    out.append('    newobj instance void valuetype '
+                '[mscorlib]System.ValueTuple`2<string, string>::.ctor(!0, !1)')
+
+
 register_expr_builtin('path_join', compile_path_join, 'str')
 # return_dtype=None cho path_exists/path_isfile/path_isdir: ham tu goi
 # ctx['widen_if_needed']('i32', dtype, out) o BEN TRONG minh (xem than ham
@@ -88,3 +137,6 @@ register_expr_builtin('path_basename', compile_path_basename, 'str')
 register_expr_builtin('path_dirname', compile_path_dirname, 'str')
 register_expr_builtin('path_isfile', compile_path_isfile, None)
 register_expr_builtin('path_isdir', compile_path_isdir, None)
+register_expr_builtin('path_splitext', compile_path_splitext, None,
+                       temps_fn=_splitext_temps,
+                       return_ta=TypeAnn('str', 'tuple', tuple_dtypes=['str', 'str']))
