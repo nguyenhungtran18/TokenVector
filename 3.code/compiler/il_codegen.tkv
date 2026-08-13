@@ -352,8 +352,25 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
     tag = node[0]
     if tag == 'str_lit':
         return 'str'
-    if tag in ('var', 'index'):
+    if tag == 'var':
         return scope[node[1]][2].dtype
+    if tag == 'index':
+        # 'r[i]' - mac dinh dtype PHAN TU chinh la dtype cua TypeAnn cua
+        # container (dung cho list/mang - TypeAnn cua mang luu san dtype
+        # PHAN TU, khong phai dtype cua ban than container). Rieng record
+        # (__getitem__, 6.5 muc 4, 2026-08-13): TypeAnn.dtype cua 1 bien
+        # record LA TEN CLASS ('Box'), khong phai dtype phan tu - phai tra
+        # cuu qua record_methods['__getitem__'].return_type.dtype, neu
+        # khong se tra ve sai 'Box' -> hidden temp local bi khai bao kieu
+        # 'Box' (khong ton tai trong IL_SCALAR) -> KeyError luc gen locals_sig.
+        container_ta = scope[node[1]][2]
+        if container_ta.shape == 'record':
+            if record_methods:
+                dunder = record_methods.get(container_ta.dtype, {}).get('__getitem__')
+                if dunder and dunder.return_type:
+                    return dunder.return_type.dtype
+            return None
+        return container_ta.dtype
     if tag == 'slice':
         src = node[1]
         if isinstance(src, str):
@@ -1190,6 +1207,44 @@ def _expr_index(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             f"il_codegen: '{name}[...]' - '{name}' la set, ma set KHONG lay duoc theo "
             f"chi so (giong Python). Neu ban dang viet 'for x in {name}:' thi chuyen "
             f"sang list truoc: 'xs = {name}.to_list()' roi 'for x in xs:'.")
+    if type_ann.shape == 'record':
+        # __getitem__ cho record (6.5, dunder overload - muc 4, 2026-08-13):
+        # r[i] tren 1 BIEN record co __getitem__(self, i) -> T goi callvirt
+        # thay vi raise loi generic. Xem docs/superpowers/plans/
+        # 2026-08-13-dunder-getitem.md.
+        if len(indices) != 1:
+            raise SyntaxError(
+                f"il_codegen: '{name}[...]' - record chi ho tro 1 chi so nguyen, "
+                f"khong ho tro '{name}[i, j]' (da nhan {len(indices)} chi so)")
+        record_methods = (ctx or {}).get('record_methods') or {}
+        dunder = record_methods.get(type_ann.dtype, {}).get('__getitem__')
+        if dunder is None:
+            raise SyntaxError(
+                f"il_codegen: record '{type_ann.dtype}' khong co __getitem__ - "
+                f"'{name}[i]' can dinh nghia "
+                f"'def __getitem__(self, i) -> \"T\": ...' (T la kieu tra ve tuy chon)")
+        if len(dunder.params) != 1 or dunder.params[0].type_ann.dtype != 'i32' or \
+                dunder.params[0].type_ann.shape is not None or dunder.return_type is None:
+            raise SyntaxError(
+                f"il_codegen: record '{type_ann.dtype}' co __getitem__ nhung chu ky sai - "
+                f"can dung 1 tham so \"i32\" va tra ve 1 kieu bat ky "
+                f"('def __getitem__(self, i) -> \"T\":')")
+        records = (ctx or {}).get('records') or {}
+        _load_var_ref(name, scope, out)
+        idx_node = indices[0]
+        if _neg_literal_int(idx_node) is not None:
+            raise SyntaxError(
+                f"il_codegen: '{name}[-i]' - __getitem__ tren record chua ho tro chi so "
+                f"am (tu xu ly chi so am ben trong than __getitem__ neu can).")
+        _compile_expr(idx_node, scope, out, 'i32', ctx)
+        from il_features.record_feature import _method_owner_class
+        owner = _method_owner_class(ctx, type_ann.dtype, '__getitem__')
+        ret_dtype, ret_shape = dunder.return_type.dtype, dunder.return_type.shape
+        ret_il = il_type_str(dunder.return_type, records)
+        out.append(f'    callvirt instance {ret_il} {owner}::__getitem__(int32)')
+        if ret_shape is None:
+            _widen_if_needed(ret_dtype, dtype, out)
+        return
     if type_ann.shape is None:
         # Loi ro rang thay vi crash TypeError mo ho ('NoneType has no len()')
         # - thuong gap khi 'name' la ket qua cua 1 phep gan 'x = outer[i]'
