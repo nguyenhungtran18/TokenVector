@@ -121,7 +121,7 @@ def run() -> "i32":
     total = total + check("two_base_override_first_wins", two_base_override_first_wins(), "flyer-speak")
 
     tested = tested + 1
-    total = total + check("three_tier_multi_base_propagation", three_tier_multi_base_propagation(), "base1-greet")
+    total = total + check("three_tier_multi_base_propagation", three_tier_multi_base_propagation(), "mid2-greet")
 
     tested = tested + 1
     total = total + check("diamond_no_name_conflict_regression", diamond_no_name_conflict_regression(), "wing+fin")
