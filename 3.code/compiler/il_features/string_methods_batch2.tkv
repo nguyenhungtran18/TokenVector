@@ -54,17 +54,25 @@ def compile_str_method_strip(node, scope, out, dtype, ctx):
 def compile_str_method_replace(node, scope, out, dtype, ctx):
     """'.replace(old, new)' - di qua TkvStr::Replace (khong goi thang
     System.String::Replace) vi .NET NEM ArgumentException khi old="" con
-    Python thi hop le (chen new xen giua moi ky tu) - xem tkvstr.py."""
+    Python thi hop le (chen new xen giua moi ky tu) - xem tkvstr.py.
+    '.replace(old, new, count)' (batch 5.5b, 2026-08-13) - them tham so
+    thu 3 optional, gioi han so lan thay the TOI DA - di qua
+    TkvStr::ReplaceCount rieng (giu nguyen duong 2-tham-so cu KHONG doi
+    IL sinh ra, tranh regression)."""
     obj_name, args = node[1], node[3]
-    if len(args) != 2:
-        raise SyntaxError("il_codegen: s.replace(old, new) can dung 2 tham so")
+    if len(args) not in (2, 3):
+        raise SyntaxError("il_codegen: s.replace(old, new) hoac s.replace(old, new, count) can dung 2 hoac 3 tham so")
     _validate_str_method_caller(obj_name, scope)
     import il_features.tkvstr as _tkvstr
     _tkvstr.ensure_class(ctx)
     ctx['load_var_ref'](obj_name, scope, out)
     ctx['compile_expr'](args[0], scope, out, 'str', ctx)
     ctx['compile_expr'](args[1], scope, out, 'str', ctx)
-    out.append(f'    call string {_tkvstr.TKVSTR_CLASS}::Replace(string, string, string)')
+    if len(args) == 3:
+        ctx['compile_expr'](args[2], scope, out, 'i32', ctx)
+        out.append(f'    call string {_tkvstr.TKVSTR_CLASS}::ReplaceCount(string, string, string, int32)')
+    else:
+        out.append(f'    call string {_tkvstr.TKVSTR_CLASS}::Replace(string, string, string)')
 
 
 def compile_str_method_join(node, scope, out, dtype, ctx):
