@@ -86,6 +86,10 @@ EXPR_BUILTIN_DTYPE_FN = {}
 # vd http_request() tra dict[str,str]: can ca key_dtype. Luu THANG 1
 # TypeAnn day du (2026-08-03). Duoc uu tien hon EXPR_BUILTIN_SHAPE.
 EXPR_BUILTIN_RETURN_TA = {}
+# dtype PHU THUOC tham so thuc te luc goi (khac EXPR_BUILTIN_RETURN_TA
+# co dinh o tren) - vd divmod(a,b) tra (i32,i32)/(i64,i64) tuy dtype cua
+# 'a' (batch 5.5b muc cuoi, 2026-08-13). fn(args, scope) -> TypeAnn|None.
+EXPR_BUILTIN_RETURN_TA_FN = {}
 
 
 # Builtin TU SINH gia tri kieu 'int' (vo han chu so) khi duoc goi trong
@@ -100,7 +104,7 @@ EXPR_BUILTIN_NATIVE_INT = set()
 
 def register_expr_builtin(name, codegen_fn, return_dtype, return_shape=None,
                            temps_fn=None, return_dtype_fn=None, return_ta=None,
-                           native_int=False):
+                           return_ta_fn=None, native_int=False):
     if name in EXPR_BUILTIN_CODEGEN:
         # BUG THAT tim thay o phien truoc (json_get_str bi stdlib_cjson
         # de am tham, chi phat hien qua doc code ky, khong bao loi luc
@@ -131,6 +135,8 @@ def register_expr_builtin(name, codegen_fn, return_dtype, return_shape=None,
     if return_shape is not None:
         EXPR_BUILTIN_SHAPE[name] = (return_dtype, return_shape)
         EXPR_BUILTIN_RESULT_SHAPE[name] = return_shape
+    if return_ta_fn is not None:
+        EXPR_BUILTIN_RETURN_TA_FN[name] = return_ta_fn
 
 
 # Giai doan 0.2 nhom 3 (2026-08-03): method THU VIEN can BIEN CUC BO AN

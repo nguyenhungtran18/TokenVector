@@ -16,7 +16,8 @@ import re
 
 from il_core import IL_SCALAR, parse_expr_list
 from il_dispatch import (register_line_parser, register_stmt_codegen,
-                          register_first_pass_walk, EXPR_BUILTIN_RETURN_TA)
+                          register_first_pass_walk, EXPR_BUILTIN_RETURN_TA,
+                          EXPR_BUILTIN_RETURN_TA_FN)
 
 MAX_TUPLE_ARITY = 7  # ValueTuple`1..`7 co san (`8 can TRest long nhau, ngoai pham vi)
 
@@ -124,7 +125,11 @@ def codegen_tuple_assign(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_
             dtypes = ctx['func_table'][builtin_name].return_type.tuple_dtypes
         else:
             from il_dispatch import EXPR_BUILTIN_RETURN_TA as _EBRT
-            dtypes = _EBRT[builtin_name].tuple_dtypes
+            from il_dispatch import EXPR_BUILTIN_RETURN_TA_FN as _EBRTFN
+            if builtin_name in _EBRT:
+                dtypes = _EBRT[builtin_name].tuple_dtypes
+            else:
+                dtypes = _EBRTFN[builtin_name](call_node[2], scope).tuple_dtypes
         tuple_type = il_tupleN_type(dtypes)
         _, tmp_idx, _ = scope[f'__tupleassign{id(stmt)}_tmp']
         compile_expr(call_node, scope, body, dtypes[0], ctx)
@@ -216,6 +221,21 @@ def fpw_tuple_assign(stmt, ctx):
                     f"{len(builtin_ta.tuple_dtypes)} phan tu, khong khop "
                     f"{len(targets)} target ben trai")
             dtypes = builtin_ta.tuple_dtypes
+        elif builtin_name in EXPR_BUILTIN_RETURN_TA_FN:
+            # dtype PHU THUOC tham so (vd divmod(a,b) - batch 5.5b muc
+            # cuoi, 2026-08-13). Goi fn(args, infer_scope) NGAY O FIRST
+            # PASS de suy dtype tu bien 'a' da khai bao truoc do.
+            dyn_ta = EXPR_BUILTIN_RETURN_TA_FN[builtin_name](call_node[2], infer_scope)
+            if dyn_ta is None or dyn_ta.shape != 'tuple':
+                raise SyntaxError(
+                    f"il_codegen: '{builtin_name}(...)' khong suy duoc kieu tra ve tuple "
+                    f"(tham so dau co the chua phai 1 BIEN da khai bao kieu ro rang)")
+            if len(dyn_ta.tuple_dtypes) != len(targets):
+                raise SyntaxError(
+                    f"il_codegen: '{builtin_name}(...)' tra ve tuple "
+                    f"{len(dyn_ta.tuple_dtypes)} phan tu, khong khop "
+                    f"{len(targets)} target ben trai")
+            dtypes = dyn_ta.tuple_dtypes
         else:
             raise SyntaxError(
                 f"il_codegen: '{', '.join(targets)} = ...' voi 1 gia tri ben phai "
