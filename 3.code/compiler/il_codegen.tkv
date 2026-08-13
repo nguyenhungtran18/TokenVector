@@ -1661,6 +1661,9 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     if name == 'len':
         # len(lst)/len(d)/len(s) - list/dict/string (mang co san dung
         # .shape[N], da biet hang so luc codegen, khong can len() runtime).
+        # __len__ cho record (6.5, dunder overload - muc 3, 2026-08-13):
+        # len(r) tren 1 BIEN record co __len__(self) -> "i32" goi callvirt
+        # thay vi raise loi.
         if len(args) != 1:
             raise SyntaxError("il_codegen: len() chi nhan dung 1 tham so")
         arg = args[0]
@@ -1678,11 +1681,29 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         _, _, arg_ta = scope[arg[1]]
         if arg_ta.dtype == 'str' and arg_ta.shape is None:
             return _string_compile_len_str(arg[1], scope, out, dtype, ctx)
+        if arg_ta.shape == 'record':
+            record_methods = (ctx or {}).get('record_methods') or {}
+            dunder = record_methods.get(arg_ta.dtype, {}).get('__len__')
+            if dunder is None:
+                raise SyntaxError(
+                    f"il_codegen: record '{arg_ta.dtype}' khong co __len__ - len(r) tren "
+                    f"record can dinh nghia 'def __len__(self) -> \"i32\": ...'")
+            if dunder.params or dunder.return_type is None or \
+                    dunder.return_type.dtype != 'i32' or dunder.return_type.shape is not None:
+                raise SyntaxError(
+                    f"il_codegen: record '{arg_ta.dtype}' co __len__ nhung chu ky sai - "
+                    f"can dung 0 tham so va tra ve \"i32\" ('def __len__(self) -> \"i32\":')")
+            _load_var_ref(arg[1], scope, out)
+            from il_features.record_feature import _method_owner_class
+            owner = _method_owner_class(ctx, arg_ta.dtype, '__len__')
+            out.append(f'    callvirt instance int32 {owner}::__len__()')
+            _widen_if_needed('i32', dtype, out)
+            return
         if arg_ta.shape not in ('list', 'dict', 'set'):
             raise SyntaxError(
-                f"il_codegen: len() hien CHI ho tro list/dict/set/string ('{arg[1]}' co "
-                f"dtype={arg_ta.dtype!r} shape={arg_ta.shape!r}) - mang co san dung "
-                f".shape[0] thay the")
+                f"il_codegen: len() hien CHI ho tro list/dict/set/string, hoac 1 record co "
+                f"__len__ ('{arg[1]}' co dtype={arg_ta.dtype!r} shape={arg_ta.shape!r}) - "
+                f"mang co san dung .shape[0] thay the")
         _load_var_ref(arg[1], scope, out)
         if arg_ta.shape == 'list':
             col_type = il_list_type(arg_ta.dtype, (ctx or {}).get('records'))
