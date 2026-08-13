@@ -225,8 +225,7 @@ def fpw_tuple_assign(stmt, ctx):
             declare_named(t, TypeAnn(d, None))
         declare_named(f'__tupleassign{id(stmt)}_tmp',
                       TypeAnn(dtypes[0], 'tuple', tuple_dtypes=dtypes))
-        for arg_node in call_node[2]:
-            collect_ternary_temps(arg_node)
+        collect_ternary_temps(call_node)
     else:
         # Local tam RIENG cho tung ve (KHONG gan thang vao target) - dam
         # bao ngu nghia hoan doi dung THAT ('x, y = y, x' phai danh gia
