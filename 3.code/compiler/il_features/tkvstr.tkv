@@ -297,6 +297,90 @@ def _gen_class_il():
         f'    callvirt instance string {_STR}::Replace(string, string)',
         '    ret')
 
+    # ReplaceCount: '.replace(old, new, count)' (batch 5.5b, 2026-08-13)
+    # - gioi han so lan thay the TOI DA 'count' lan tinh tu trai. count<0
+    # coi nhu KHONG gioi han (goi lai Replace() da co, tai dung nhanh
+    # old="" cua no). old="" voi count cu the: chen newStr TRUOC moi ky
+    # tu, dung SAU khi da chen du count lan (ke ca gap SAU ky tu cuoi neu
+    # count > do dai src) - khop 'aaa'.replace('', '-', 2) Python ->
+    # '-a-aa'. old!="": vong lap IndexOf(oldStr, pos) tim tung khop, dung
+    # khi du count lan hoac het khop.
+    lines += _m(
+        'string ReplaceCount(string src, string oldStr, string newStr, int32 count)',
+        '    .locals init (int32 i, int32 n, int32 pos, int32 replaced, int32 idx, '
+        'class [mscorlib]System.Text.StringBuilder sb)',
+        '    ldarg.3', '    ldc.i4.0', '    bge RC_NONNEG',
+        '    ldarg.0', '    ldarg.1', '    ldarg.2',
+        f'    call string {TKVSTR_CLASS}::Replace(string, string, string)',
+        '    ret',
+        '  RC_NONNEG:',
+        '    ldarg.1', f'    callvirt instance int32 {_STR}::get_Length()',
+        '    brtrue RC_OLDNONEMPTY',
+        # old == "": chen newStr truoc toi da 'count' ky tu dau, dung du
+        # thi thoi (khong lap het chuoi nhu Replace() lam khi khong gioi
+        # han).
+        '    ldarg.0', f'    callvirt instance int32 {_STR}::get_Length()', '    stloc.s n',
+        '    newobj instance void [mscorlib]System.Text.StringBuilder::.ctor()',
+        '    stloc.s sb',
+        '    ldc.i4.0', '    stloc.s i',
+        '  RC_EMPTY_LOOP:',
+        '    ldloc.s i', '    ldarg.3', '    bge RC_EMPTY_TAIL',
+        '    ldloc.s i', '    ldloc.s n', '    bge RC_EMPTY_TAIL',
+        '    ldloc.s sb', '    ldarg.2',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '    ldloc.s sb', '    ldarg.0', '    ldloc.s i',
+        f'    callvirt instance char {_STR}::get_Chars(int32)',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(char)', '    pop',
+        '    ldloc.s i', '    ldc.i4.1', '    add', '    stloc.s i',
+        '    br RC_EMPTY_LOOP',
+        '  RC_EMPTY_TAIL:',
+        # neu count > do dai src: con 1 gap SAU ky tu cuoi chua chen.
+        '    ldarg.3', '    ldloc.s n', '    ble RC_EMPTY_NOEXTRA',
+        '    ldloc.s sb', '    ldarg.2',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '  RC_EMPTY_NOEXTRA:',
+        '    ldloc.s sb', '    ldarg.0', '    ldloc.s i',
+        f'    callvirt instance string {_STR}::Substring(int32)',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '    ldloc.s sb',
+        '    callvirt instance string [mscorlib]System.Text.StringBuilder::ToString()',
+        '    ret',
+        '  RC_OLDNONEMPTY:',
+        # old != "": vong lap IndexOf(oldStr, pos), thay toi da 'count' lan.
+        '    ldc.i4.0', '    stloc.s pos',
+        '    ldc.i4.0', '    stloc.s replaced',
+        '    newobj instance void [mscorlib]System.Text.StringBuilder::.ctor()',
+        '    stloc.s sb',
+        '  RC_LOOP:',
+        '    ldloc.s replaced', '    ldarg.3', '    bge RC_TAIL',
+        '    ldarg.0', '    ldarg.1', '    ldloc.s pos',
+        f'    callvirt instance int32 {_STR}::IndexOf(string, int32)',
+        '    stloc.s idx',
+        '    ldloc.s idx', '    ldc.i4.0', '    blt RC_TAIL',
+        '    ldloc.s sb', '    ldarg.0', '    ldloc.s pos', '    ldloc.s idx', '    ldloc.s pos', '    sub',
+        f'    callvirt instance string {_STR}::Substring(int32, int32)',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '    ldloc.s sb', '    ldarg.2',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '    ldloc.s idx', '    ldarg.1', f'    callvirt instance int32 {_STR}::get_Length()', '    add',
+        '    stloc.s pos',
+        '    ldloc.s replaced', '    ldc.i4.1', '    add', '    stloc.s replaced',
+        '    br RC_LOOP',
+        '  RC_TAIL:',
+        '    ldloc.s sb', '    ldarg.0', '    ldloc.s pos',
+        f'    callvirt instance string {_STR}::Substring(int32)',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '    ldloc.s sb',
+        '    callvirt instance string [mscorlib]System.Text.StringBuilder::ToString()',
+        '    ret')
+
     # RFind: '.rfind(sub)' - String::LastIndexOf(string) cua .NET tra ve
     # KHAC Python khi sub="": "hello".rfind("") Python cho 5 (do dai
     # chuoi - khop sau CUNG cua chuoi rong la vi tri NGAY SAU ky tu cuoi),
