@@ -22,4 +22,14 @@ def run() -> "i32":
     tested = tested + 1
     total = total + check("format_str_literal_int", str(7), "7")
 
+    tested = tested + 1
+    total = total + check("format_kwargs_only",
+                           "Hello, {name}! You are {age}.".format(name="Alice", age=str(30)),
+                           "Hello, Alice! You are 30.")
+
+    tested = tested + 1
+    total = total + check("format_mixed_positional_kwargs",
+                           "{0} says hi to {name}".format("Bob", name="Carol"),
+                           "Bob says hi to Carol")
+
     return test_summary("string_format_test", total, tested)

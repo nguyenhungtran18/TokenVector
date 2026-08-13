@@ -87,7 +87,8 @@ def _capture_percent_rhs(line: str, i: int):
                 depth -= 1
                 if depth == 0:
                     args_str = line[i + 1:j]
-                    return _split_top_level_args(args_str), j + 1
+                    positional, _kwargs = _split_top_level_args(args_str)
+                    return positional, j + 1
             j += 1
         return None
     j = i
