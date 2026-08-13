@@ -102,9 +102,17 @@ def try_rhs_list_literal(rhs, name, known_shapes):
 
 def try_parse_list_append(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
     """LINE_PARSERS entry: 'lst.append(x)' - PHAI dang ky TRUOC
-    method_call_stmt (pattern method-call tong quat cung khop dong nay)."""
+    method_call_stmt (pattern method-call tong quat cung khop dong nay).
+
+    Loai tru known_shapes=='bytearray' (muc 6.8, 3/4, 2026-08-13, giong het
+    cach try_parse_list_remove da loai tru set/frozenset o duoi): 'ba.append(x)'
+    tren bytearray CAN codegen RIENG (chen 'conv.u1' truoc Add(!0) - xem
+    bytearray_type.py) - neu KHONG loai tru o day, nhanh list nay se cuop
+    mat truoc (list_type.py duoc import/dang ky TRUOC bytearray_type.py
+    trong il_codegen.py, LINE_PARSERS thu THEO THU TU dang ky) va bo lo
+    buoc narrow bat buoc do."""
     m = _LIST_APPEND_RE.match(line)
-    if not m:
+    if not m or known_shapes.get(m.group(1)) == 'bytearray':
         return None
     name, arg_expr = m.groups()
     return {'kind': 'list_append', 'name': name, 'value_node': parse_expr(arg_expr)}, pos + 1
