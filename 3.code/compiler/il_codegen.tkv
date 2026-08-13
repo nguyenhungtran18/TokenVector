@@ -422,8 +422,19 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
     if tag == 'binop':
         if node[1] == '/':
             return 'f64'
-        return (_infer_dtype(node[2], scope, func_table, records, record_methods)
-                or _infer_dtype(node[3], scope, func_table, records, record_methods))
+        left_dtype = _infer_dtype(node[2], scope, func_table, records, record_methods)
+        right_dtype = _infer_dtype(node[3], scope, func_table, records, record_methods)
+        # __add__ tren record (6.5 muc 5, 2026-08-13): cung lop loi voi
+        # 'index'/__getitem__ o tren - neu toan hang la 1 bien record co
+        # dinh nghia __add__, dtype cua CA bieu thuc 'a + b' la return_type
+        # cua __add__, KHONG PHAI ten class nhu dtype THAT cua toan hang.
+        if node[1] == '+' and record_methods:
+            for operand_dtype in (left_dtype, right_dtype):
+                if operand_dtype and operand_dtype in record_methods:
+                    dunder = record_methods[operand_dtype].get('__add__')
+                    if dunder and dunder.return_type:
+                        return dunder.return_type.dtype
+        return left_dtype or right_dtype
     if tag == 'ternary':
         return (_infer_dtype(node[2], scope, func_table, records, record_methods)
                 or _infer_dtype(node[3], scope, func_table, records, record_methods))

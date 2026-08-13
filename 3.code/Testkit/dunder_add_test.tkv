@@ -23,6 +23,13 @@ class Sub(Base):
     extra: "i32"
 
 
+class Scalar:
+    v: "i32"
+
+    def __add__(self, other: "Scalar") -> "i32":
+        return self.v + other.v
+
+
 def run() -> "i32":
     total = 0
     tested = 0
@@ -41,5 +48,11 @@ def run() -> "i32":
     s3 = s1 + s2
     tested = tested + 1
     total = total + check("inherited_dunder_add", str(s3.val), "10")
+
+    a = Scalar(7)
+    b = Scalar(8)
+    x = a + b
+    tested = tested + 1
+    total = total + check("add_new_var_scalar_return_dtype", str(x), "15")
 
     return test_summary("dunder_add_test", total, tested)
