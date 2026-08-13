@@ -54,7 +54,7 @@ def _make_set_remove_parser(re_pattern, kind):
 
     def fn(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
         m = re_pattern.match(line)
-        if not m or known_shapes.get(m.group(1)) != 'set':
+        if not m or known_shapes.get(m.group(1)) not in ('set', 'frozenset'):
             return None
         name, arg_expr = m.groups()
         return {'kind': kind, 'name': name, 'value_node': parse_expr(arg_expr)}, pos + 1
@@ -70,6 +70,10 @@ def _codegen_set_remove_like(stmt, scope, body, body_dtype, ctx, sig, codegen_st
     message chua gia tri thieu - chap nhan sai khac nho ve loai/noi dung
     exception, giong tien le sample()/RFind da chap nhan truoc do."""
     _, _, ta = scope[stmt['name']]
+    if ta.shape == 'frozenset':
+        method = 'remove' if stmt['kind'] == 'set_remove' else 'discard'
+        raise SyntaxError(
+            f"il_codegen: '{stmt['name']}' la frozenset (bat bien) - khong the .{method}()")
     ctx['load_var_ref'](stmt['name'], scope, body)
     ctx['compile_expr'](stmt['value_node'], scope, body, ta.dtype, ctx)
     body.append(f'    callvirt instance bool {il_set_type(ta.dtype, ctx.get("records"))}::Remove(!0)')

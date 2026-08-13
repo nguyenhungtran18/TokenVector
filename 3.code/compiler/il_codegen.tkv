@@ -127,7 +127,7 @@ def il_type_str(type_ann: TypeAnn, records: dict = None) -> str:
             inner = il_type_str(type_ann.elem_ta, records)
             return f'class [mscorlib]System.Collections.Generic.List`1<{inner}>'
         return il_list_type(type_ann.dtype, records)
-    if type_ann.shape == 'set':
+    if type_ann.shape in ('set', 'frozenset'):
         return il_set_type(type_ann.dtype, records)
     if type_ann.shape == 'file':
         return _il_file_type(type_ann.dtype)
@@ -1208,15 +1208,17 @@ def _expr_index(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         return compile_index_counter(name, indices, scope, out, dtype, ctx)
     if type_ann.dtype == 'str' and type_ann.shape is None:
         return _string_compile_index_str(name, indices, scope, out, ctx)
-    if type_ann.shape == 'set':
-        # HashSet<T> KHONG co indexer (dung nhu set cua Python). Truong hop
-        # hay gap nhat den day la 'for x in <set>:' - macro for-in khai
-        # trien thanh 'x = s[i]' vi o tang VAN BAN no chua biet 's' la set.
-        # Truoc 2026-08-03 loi bao ra la "chi ho tro mang rank 1 hoac 2"
-        # (do len('set') == 3 bi hieu nham la rank 3) - vo nghia voi nguoi
-        # doc. Nay bao dung viec + chi cach lam.
+    if type_ann.shape in ('set', 'frozenset'):
+        # HashSet<T> KHONG co indexer (dung nhu set/frozenset cua Python).
+        # Truong hop hay gap nhat den day la 'for x in <set>:' - macro
+        # for-in khai trien thanh 'x = s[i]' vi o tang VAN BAN no chua biet
+        # 's' la set/frozenset. Truoc 2026-08-03 loi bao ra la "chi ho tro
+        # mang rank 1 hoac 2" (do len('set') == 3 bi hieu nham la rank 3) -
+        # vo nghia voi nguoi doc. Nay bao dung viec + chi cach lam (ca 2
+        # shape deu co .to_list(), xem set_to_list.py).
+        kind = type_ann.shape
         raise SyntaxError(
-            f"il_codegen: '{name}[...]' - '{name}' la set, ma set KHONG lay duoc theo "
+            f"il_codegen: '{name}[...]' - '{name}' la {kind}, ma {kind} KHONG lay duoc theo "
             f"chi so (giong Python). Neu ban dang viet 'for x in {name}:' thi chuyen "
             f"sang list truoc: 'xs = {name}.to_list()' roi 'for x in xs:'.")
     if type_ann.shape == 'record':
@@ -1310,7 +1312,7 @@ def _expr_in(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         raise SyntaxError("il_codegen: 'in' hien CHI ho tro kiem tra tren 1 bien "
                           "dict/set/list/chuoi don (vd key in d)")
     _, _, coll_ta = scope[coll_node[1]]
-    if coll_ta.shape == 'set':
+    if coll_ta.shape in ('set', 'frozenset'):
         return _set_compile_in_set(key_node, coll_node[1], scope, out, ctx)
     if coll_ta.shape is None and coll_ta.dtype == 'str':
         # '"x" in s' - chuoi CON (2026-08-03). Python that: 'in' tren chuoi
@@ -1591,13 +1593,13 @@ def _compile_len_of_expr(arg, scope, out, dtype, ctx):
         return
     if ta.shape == 'list':
         col_type = il_type_str(ta, records)
-    elif ta.shape == 'set':
+    elif ta.shape in ('set', 'frozenset'):
         col_type = il_set_type(ta.dtype, records)
     elif ta.shape == 'dict':
         col_type = il_type_str(ta, records)
     else:
         raise SyntaxError(
-            f"il_codegen: len(<bieu thuc>) chi ap dung cho list/dict/set/str - bieu thuc "
+            f"il_codegen: len(<bieu thuc>) chi ap dung cho list/dict/set/frozenset/str - bieu thuc "
             f"nay co dtype={ta.dtype!r} shape={ta.shape!r}")
     _compile_expr(arg, scope, out, ta.dtype, ctx)
     out.append(f'    callvirt instance int32 {col_type}::get_Count()')
@@ -1766,15 +1768,15 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             out.append(f'    callvirt instance int32 {owner}::__len__()')
             _widen_if_needed('i32', dtype, out)
             return
-        if arg_ta.shape not in ('list', 'dict', 'set'):
+        if arg_ta.shape not in ('list', 'dict', 'set', 'frozenset'):
             raise SyntaxError(
-                f"il_codegen: len() hien CHI ho tro list/dict/set/string, hoac 1 record co "
+                f"il_codegen: len() hien CHI ho tro list/dict/set/frozenset/string, hoac 1 record co "
                 f"__len__ ('{arg[1]}' co dtype={arg_ta.dtype!r} shape={arg_ta.shape!r}) - "
                 f"mang co san dung .shape[0] thay the")
         _load_var_ref(arg[1], scope, out)
         if arg_ta.shape == 'list':
             col_type = il_list_type(arg_ta.dtype, (ctx or {}).get('records'))
-        elif arg_ta.shape == 'set':
+        elif arg_ta.shape in ('set', 'frozenset'):
             col_type = il_set_type(arg_ta.dtype, (ctx or {}).get('records'))
         else:
             col_type = il_dict_type(arg_ta.key_dtype, arg_ta.dtype, (ctx or {}).get('records'))

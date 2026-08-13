@@ -31,6 +31,7 @@ def il_set_type(dtype: str, records: dict = None) -> str:
 
 _SET_NEW_RE = re.compile(r'^set\(\)\s*$')
 _SET_ADD_RE = re.compile(r'^(\w+)\.add\((.+)\)\s*$')
+_FROZENSET_NEW_RE = re.compile(r'^frozenset\((\w+)\)\s*$')
 
 
 def compile_in_set(key_node, coll_name, scope, out, ctx):
@@ -52,6 +53,26 @@ def try_rhs_set_new(rhs, name, known_shapes):
     return {'kind': 'assign_set_new', 'name': name}
 
 
+def try_rhs_frozenset_new(rhs, name, known_shapes):
+    """ASSIGN_RHS_PARSERS entry: 'fs = frozenset(lst)' - CHI nhan 1 BIEN
+    list DON lam nguon (khong rong, khong bieu thuc phuc tap - gioi han
+    cung theo plan 6.8). 'lst' PHAI da duoc khai bao/biet shape='list'
+    TRUOC dong nay trong van ban nguon (known_shapes duoc cap nhat DAN
+    theo thu tu parse - xem _lp_assign trong il_codegen.py) - neu chua,
+    bao loi ro NGAY tai day thay vi de loi kho hieu ve sau."""
+    m = _FROZENSET_NEW_RE.match(rhs.strip())
+    if not m:
+        return None
+    src = m.group(1)
+    if known_shapes.get(src) != 'list':
+        raise SyntaxError(
+            f"il_codegen: frozenset({src}) - '{src}' phai la 1 BIEN list DA KHAI BAO "
+            f"TRUOC dong nay (dang co known_shapes={known_shapes.get(src)!r}) - frozenset() "
+            f"hien CHI ho tro frozenset(<bien_list_don>)")
+    known_shapes[name] = 'frozenset'
+    return {'kind': 'assign_frozenset_new', 'name': name, 'src': src}
+
+
 def try_parse_set_add(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
     """LINE_PARSERS entry: 's.add(x)' - PHAI dang ky TRUOC method_call_stmt
     (pattern method-call tong quat cung khop dong nay)."""
@@ -69,11 +90,29 @@ def codegen_assign_set_new(stmt, scope, body, body_dtype, ctx, sig, codegen_stmt
     ctx['store_var'](stmt['name'], scope, body)
 
 
+def codegen_assign_frozenset_new(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN entry: 'fs = frozenset(lst)' - HashSet<T>(IEnumerable<T>)
+    dien san tu 'lst' (xac nhan THAT qua PowerShell reflection, Step 1 cua
+    plan 6.8/frozenset) - phan tu trung lap trong 'lst' tu dong bi loai
+    (ban chat HashSet). BAT BIEN sau khi tao: khong co duong codegen nao
+    khac ghi lai vao 'fs' (.add()/.remove()/.discard() bi chan o guard
+    rieng, xem codegen_set_add/_codegen_set_remove_like)."""
+    _, _, ta = scope[stmt['name']]
+    ctx['load_var_ref'](stmt['src'], scope, body)
+    body.append(
+        f'    newobj instance void {il_set_type(ta.dtype, ctx.get("records"))}::.ctor(class '
+        f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    ctx['store_var'](stmt['name'], scope, body)
+
+
 def codegen_set_add(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     """STMT_CODEGEN entry: 's.add(x)' - HashSet<T>.Add(T) tra ve bool
     (khac List<T>.Add(T) la void, xac minh THAT qua probe_hashset.il) -
     can 'pop' bo ket qua khi dung nhu 1 lenh doc lap (khong gan bien)."""
     _, _, ta = scope[stmt['name']]
+    if ta.shape == 'frozenset':
+        raise SyntaxError(
+            f"il_codegen: '{stmt['name']}' la frozenset (bat bien) - khong the .add()")
     ctx['load_var_ref'](stmt['name'], scope, body)
     ctx['compile_expr'](stmt['value_node'], scope, body, ta.dtype, ctx)
     body.append(f'    callvirt instance bool {il_set_type(ta.dtype, ctx.get("records"))}::Add(!0)')
@@ -115,8 +154,38 @@ def declare_set(name, ctx):
     ctx['infer_scope'].set(name, ta)
 
 
+def declare_frozenset(name, src, ctx):
+    """FIRST_PASS_WALK helper: khai bao local HashSet<T> cho 'fs =
+    frozenset(lst)' - dtype phan tu LAY THANG tu dtype cua 'lst' (khac
+    declare_set: khong can suy tu .add() vi da co du lieu san). 'lst'
+    PHAI da duoc first-pass xu ly XONG truoc do (rang buoc thu tu khai
+    bao van ban cua plan 6.8/frozenset) - neu chua co trong infer_scope,
+    day la loi that (khong defer, khac declare_set: gia tri phan tu cua
+    'lst' KHONG the doi sau khi da khai bao)."""
+    declared_names = ctx['declared_names']
+    if name in declared_names:
+        return
+    try:
+        src_ta = ctx['infer_scope'][src][2]
+    except KeyError:
+        raise SyntaxError(
+            f"il_codegen: frozenset({src}) - '{src}' chua duoc khai bao TRUOC dong nay "
+            f"(frozenset can list nguon khai bao truoc trong van ban)")
+    if src_ta.shape != 'list':
+        raise SyntaxError(
+            f"il_codegen: frozenset({src}) can '{src}' la list (dang co shape={src_ta.shape!r})")
+    ta = ctx['TypeAnn'](src_ta.dtype, 'frozenset')
+    declared_names.add(name)
+    ctx['locals_decl'].append((name, ta))
+    ctx['infer_scope'].set(name, ta)
+
+
 def fpw_assign_set_new(stmt, ctx):
     declare_set(stmt['name'], ctx)
+
+
+def fpw_assign_frozenset_new(stmt, ctx):
+    declare_frozenset(stmt['name'], stmt['src'], ctx)
 
 
 def fpw_set_add(stmt, ctx):
@@ -126,8 +195,11 @@ def fpw_set_add(stmt, ctx):
 # Dang ky vao il_dispatch NGAY LUC MODULE NAP (il_dispatch.py khong phu
 # thuoc il_codegen.py nen import truc tiep an toan, khong circular).
 register_assign_rhs_parser('set_new', try_rhs_set_new)
+register_assign_rhs_parser('frozenset_new', try_rhs_frozenset_new)
 register_line_parser('set_add', try_parse_set_add)
 register_stmt_codegen('assign_set_new', codegen_assign_set_new)
+register_stmt_codegen('assign_frozenset_new', codegen_assign_frozenset_new)
 register_stmt_codegen('set_add', codegen_set_add)
 register_first_pass_walk('assign_set_new', fpw_assign_set_new)
+register_first_pass_walk('assign_frozenset_new', fpw_assign_frozenset_new)
 register_first_pass_walk('set_add', fpw_set_add)

@@ -418,7 +418,7 @@ def try_parse_list_remove(line, lines, pos, indent_level, sig, known_shapes, par
     la list thu THEO THU TU dang ky, file nay import TRUOC nen luon thang
     neu khong co dieu kien nay)."""
     m = _LIST_REMOVE_RE.match(line)
-    if not m or known_shapes.get(m.group(1)) == 'set':
+    if not m or known_shapes.get(m.group(1)) in ('set', 'frozenset'):
         return None
     name, arg_expr = m.groups()
     return {'kind': 'list_remove', 'name': name, 'value_node': parse_expr(arg_expr)}, pos + 1

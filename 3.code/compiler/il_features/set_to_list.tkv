@@ -42,3 +42,12 @@ def compile_set_to_list(node, scope, out, dtype, ctx):
 
 register_expr_method('set', 'to_list', compile_set_to_list,
                       return_ta_fn=_to_list_return_ta, result_shape='list')
+# frozenset (2026-08-13, muc 6.8 1/4): dung CHUNG compile_set_to_list -
+# ham chi doc scope[name][2].dtype (bat ke shape la 'set' hay 'frozenset')
+# nen tai su dung an toan, khong can viet lai. Can rieng vi EXPR_METHOD_
+# CODEGEN khoa CHINH XAC theo shape_key (xem register_expr_method trong
+# il_dispatch.py) - 'for x in fs:' can duong nay giong het 'for x in s:'
+# (macro for-in KHONG ho tro set/frozenset truc tiep, xem set_type.py's
+# comment o il_codegen.py:1152).
+register_expr_method('frozenset', 'to_list', compile_set_to_list,
+                      return_ta_fn=_to_list_return_ta, result_shape='list')

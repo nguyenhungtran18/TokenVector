@@ -116,9 +116,9 @@ def _agg_arg_ta(args, scope, fname, max_args=1):
         ta = scope[name][2]
     except KeyError:
         raise SyntaxError(f"il_codegen: {fname}({name}) - '{name}' chua duoc khai bao")
-    if ta.shape not in ('list', 'set'):
+    if ta.shape not in ('list', 'set', 'frozenset'):
         raise SyntaxError(
-            f"il_codegen: {fname}({name}) can '{name}' la list hoac set (dang co "
+            f"il_codegen: {fname}({name}) can '{name}' la list, set hoac frozenset (dang co "
             f"shape={ta.shape!r})")
     return name, ta
 
@@ -157,7 +157,7 @@ def _temps_agg(node, ctx, prefix, res_dtype_fn):
         ta = ctx['infer_scope'][args[0][1]][2]
     except KeyError:
         return
-    if ta.shape not in ('list', 'set'):
+    if ta.shape not in ('list', 'set', 'frozenset'):
         return
     TypeAnn = ctx['TypeAnn']
     ctx['declare_named'](f'__{prefix}{id(args)}_src', TypeAnn(ta.dtype, 'list'))
@@ -177,7 +177,7 @@ def _loop_prelude(args, scope, out, ctx, prefix, fname, max_args=1):
         _int_type.ensure_class(ctx)
     list_type = il_list_type(ta.dtype, ctx.get('records'))
     ctx['load_var_ref'](name, scope, out)
-    if ta.shape == 'set':
+    if ta.shape in ('set', 'frozenset'):
         out.append(
             f'    newobj instance void {list_type}::.ctor(class '
             f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
