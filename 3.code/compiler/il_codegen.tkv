@@ -4125,7 +4125,8 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
                     records: dict = None, record_methods: dict = None,
                     extra_classes: list = None, record_bases: dict = None,
                     module_consts: dict = None, module_globals: dict = None,
-                    source_path: str = None, debug: bool = False) -> list:
+                    source_path: str = None, debug: bool = False,
+                    emitted_types: set = None) -> list:
     """Bien dich NHIEU ham/1 chuong trinh (danh sach (Signature, body_lines))
     thanh 1 CIL class hoan chinh - moi ham co the goi ham KHAC trong CUNG
     danh sach (func_table xay TRUOC, cho phep goi xuoi lan goi nguoc thu
@@ -4192,7 +4193,14 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
             sig.return_type = TypeAnn(sig.generator_class_name, 'generator')
         else:
             sig.is_generator = False
-    emitted_types = set()
+    # emitted_types (2026-08-13, sua cung __str__ record): NHAN tu caller
+    # neu co (tkv_compile.tkv truyen 1 set CHUNG voi gen_record_types de
+    # dedupe TkvStr/TkvInt/... tren CA chuong trinh, ke ca class sinh tu
+    # top-level va tu method cua record) - truoc day luon tao set RIENG o
+    # day, khien 1 dtype (vd TkvStr) bi ensure_class() 2 LAN doc lap ->
+    # '.class' trung ten -> ilasm bao 'Duplicate method declaration'.
+    if emitted_types is None:
+        emitted_types = set()
     if extra_classes is not None:
         # TkvInt duoc sinh VO DIEU KIEN tu 2026-08-05 (lat 4), khong con
         # theo yeu cau. Ly do: tu khi hang so nguyen mac dinh la 'int',

@@ -1572,11 +1572,19 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
     # closures.py) can ghep RIENG vao IL text, giong het cach lam voi
     # record_type_lines o duoi.
     extra_classes = []
+    # emitted_types (2026-08-13, sua cung __str__ record): 1 set CHUNG giua
+    # gen_il_program (ham top-level) va gen_record_types (method tren
+    # record) ben duoi - truoc day moi ham tu tao set RIENG, khien 1 dtype
+    # dung o CA hai noi (vd TkvStr, khi 1 record __str__ goi str()/+ ben
+    # trong than method) bi ensure_class() sinh '.class' 2 LAN -> ilasm loi
+    # 'Duplicate method declaration'. Xem il_codegen.tkv's gen_il_program.
+    emitted_types = set()
     method_lines = gen_il_program(sig_body_pairs, class_name=class_name, records=record_defs,
                                    record_methods=record_methods, extra_classes=extra_classes,
                                    record_bases=record_bases, module_consts=module_consts,
                                    module_globals=module_globals,
-                                   source_path=str(tkv_path), debug=debug)
+                                   source_path=str(tkv_path), debug=debug,
+                                   emitted_types=emitted_types)
     main_method = build_generic_main(func_table[entry_name], class_name, module_globals=module_globals)
     record_type_lines = gen_record_types(record_defs, record_method_bodies=record_method_bodies,
                                           record_methods=record_methods, class_name=class_name,
@@ -1592,6 +1600,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
                                           # record can ghi '.class' closure
                                           # cua no vao day.
                                           extra_classes=extra_classes,
+                                          emitted_types=emitted_types,
                                           source_path=str(tkv_path), debug=debug)
     extra_class_lines = [line for block in extra_classes for line in block]
 

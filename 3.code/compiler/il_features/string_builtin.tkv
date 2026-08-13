@@ -114,10 +114,19 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
         ctx['load_var_ref'](arg[1], scope, out)
         out.append('    callvirt instance string [mscorlib]System.Exception::get_Message()')
         return
-    if var_ta.dtype == 'object' or (ctx and var_ta.dtype in ctx.get('records', {})):
+    if var_ta.dtype == 'object':
         ctx['load_var_ref'](arg[1], scope, out)
         out.append('    callvirt instance string [mscorlib]System.Object::ToString()')
         return
+    if ctx and var_ta.dtype in ctx.get('records', {}):
+        # record co __str__ (6.5, 2026-08-13): di CHUNG duong voi cac dtype
+        # khac qua emit_to_str (diem dispatch chung) - truoc day nhanh nay
+        # goi thang ToString() mac dinh (chi in ten class, khong dung
+        # __str__ nguoi dung dinh nghia). emit_to_str tu validate + raise
+        # SyntaxError ro rang neu record khong co __str__.
+        import il_features.tkvstr as _tkvstr
+        ctx['load_var_ref'](arg[1], scope, out)
+        return _tkvstr.emit_to_str(var_ta.dtype, out, ctx)
     if var_ta.dtype not in (int_dtypes | float_dtypes) or var_ta.shape is not None:
         raise SyntaxError(
             f"il_codegen: str() chi nhan bien so vo huong (f32/f64/i32/i64), "
