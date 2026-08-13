@@ -232,6 +232,13 @@ def compile_binop(node, scope, out, dtype, ctx=None):
             if dtype != 'f64':
                 ctx['widen_if_needed']('f64', dtype, out)
             return
+    if operand_dtype == 'complex':
+        # Muc 6.8 (2/4, 2026-08-13): '+'/'-'/'*'/'/' giua 2 gia tri
+        # 'complex' - uy quyen ra complex_type.py (goi static Add/Subtract/
+        # Multiply/Divide co san tren System.Numerics.Complex).
+        import il_features.complex_type as _complex_type
+        _complex_type.compile_binop(op, left, right, scope, out, ctx)
+        return
     compile_expr = ctx['compile_expr']
     if op == '**':
         # 'x ** y' (Wave 3, 2026-07-29) - tai dung THANG pow()'s codegen

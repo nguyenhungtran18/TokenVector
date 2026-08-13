@@ -69,7 +69,7 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
         _d = (ctx['infer_dtype'](arg, scope, ctx.get('func_table'), ctx.get('records'),
                                   ctx.get('record_methods'))
               or ctx.get('infer_literal_dtype', lambda n: None)(arg))
-        if _d in ('i32', 'i64', 'f32', 'f64', 'str'):
+        if _d in ('i32', 'i64', 'f32', 'f64', 'str', 'complex'):
             ctx['compile_expr'](arg, scope, out, _d, ctx)
             if _d == 'i32' and _is_bool_shaped(arg):
                 return _tkvstr.emit_to_str('bool', out, ctx)
@@ -118,6 +118,14 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
         ctx['load_var_ref'](arg[1], scope, out)
         out.append('    callvirt instance string [mscorlib]System.Object::ToString()')
         return
+    if var_ta.dtype == 'complex':
+        # Muc 6.8 (2/4, 2026-08-13): str(c) voi 'c' la 1 BIEN 'complex' -
+        # di CHUNG duong voi record/object o tren (nap gia tri qua
+        # load_var_ref roi uy quyen emit_to_str, TU do vao scratch local
+        # de lay dia chi truoc khi goi ToString() - xem tkvstr.py).
+        import il_features.tkvstr as _tkvstr
+        ctx['load_var_ref'](arg[1], scope, out)
+        return _tkvstr.emit_to_str(var_ta.dtype, out, ctx)
     if ctx and var_ta.dtype in ctx.get('records', {}):
         # record co __str__ (6.5, 2026-08-13): di CHUNG duong voi cac dtype
         # khac qua emit_to_str (diem dispatch chung) - truoc day nhanh nay

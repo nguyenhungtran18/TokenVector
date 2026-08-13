@@ -62,6 +62,12 @@ def emit_to_str(dtype, out, ctx):
         _int_type.ensure_class(ctx)
         out.append('    call string TkvInt::Str(valuetype TkvInt)')
         return
+    if dtype == 'complex':
+        # Muc 6.8 (2/4, 2026-08-13): str(c)/print(c) - gia tri DA nam
+        # tren stack, uy quyen ra complex_type.py (do vao local nhap
+        # SCRATCH_STR de lay dia chi, ToString() la instance method).
+        import il_features.complex_type as _complex_type
+        return _complex_type.emit_to_str(out, ctx)
     records = (ctx or {}).get('records') or {}
     if dtype in records:
         # __str__ cho record (6.5, dunder overload - muc dau tien,

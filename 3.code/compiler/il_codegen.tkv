@@ -58,6 +58,7 @@ from il_features.generator_feature import is_generator_body as _is_generator_bod
 from il_features.stdlib_math import _MATH_FUNCS as _stdlib_math_funcs_names  # THAM CHIEU DOC (khong con literal) - chi dung cho _infer_dtype's nhanh 'ham toan hoc 1-tham-so luon tra f64' (xem duoi), _expr_call KHONG con dung ten nay (di qua EXPR_BUILTIN_CODEGEN)
 from il_dispatch import STR_METHOD_RETURN_DTYPE as _STR_METHOD_RETURN_DTYPE
 import il_features.int_type as _int_type  # kieu 'int' vo han chu so nhu Python (moc 6 buoc 2, 2026-08-05)
+import il_features.complex_type as _complex_type  # kieu 'complex' qua System.Numerics.Complex (muc 6.8, 2/4, 2026-08-13)
 # import nay CUNG dang ky line-parser/expr-codegen/stmt-codegen/macro-
 # expander qua side-effect luc import (giong cac il_features khac).
 from il_features.record_feature import is_record_ctor_rhs as _record_is_record_ctor_rhs
@@ -406,6 +407,10 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
         # sai neu record field khac body_dtype (chi anh huong goi thieu
         # records, khong phai loi logic).
         obj_ta = scope[node[1]][2]
+        if obj_ta.dtype == 'complex' and node[2] in ('real', 'imag', 'magnitude'):
+            # Muc 6.8 (2/4, 2026-08-13): ca 3 thuoc tinh cua 'complex' deu
+            # tra f64 (xem complex_type.py's compile_attr).
+            return 'f64'
         if obj_ta.shape == 'dict_kvpair' and node[2] in ('key', 'val'):
             return obj_ta.key_dtype if node[2] == 'key' else obj_ta.dtype
         if records and (obj_ta.shape == 'record' or obj_ta.dtype in records):
@@ -3023,6 +3028,17 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
     # mot dieu kien khong bao gio du.
     if True:
         for _sname, _sdtype in _int_type.scratch_locals():
+            if _sname not in declared_names:
+                declared_names.add(_sname)
+                _sta = TypeAnn(_sdtype, None)
+                locals_decl.append((_sname, _sta))
+                infer_scope.set(_sname, _sta)
+        # Local nhap cua kieu 'complex' (muc 6.8, 2/4, 2026-08-13) -
+        # str(<bieu thuc complex>) can 1 dia chi (ToString() la instance
+        # method tren value type) - cap phat VO DIEU KIEN giong het 'int'
+        # o tren (cung ly do: suy "ham nay co dung 'complex' khong" tu
+        # tham so/local se bo sot cac duong gian tiep).
+        for _sname, _sdtype in _complex_type.scratch_locals():
             if _sname not in declared_names:
                 declared_names.add(_sname)
                 _sta = TypeAnn(_sdtype, None)

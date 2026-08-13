@@ -160,6 +160,12 @@ def fpw_attr_assign(stmt, ctx):
 def compile_attr(node, scope, out, dtype, ctx=None):
     obj_name, field_name = node[1], node[2]
     _, _, obj_ta = scope[obj_name]
+    if obj_ta.dtype == 'complex' and field_name in ('real', 'imag', 'magnitude'):
+        # '.real'/'.imag'/'.magnitude' tren 1 bien 'complex' (muc 6.8,
+        # 2/4, 2026-08-13) - uy quyen ra complex_type.py (dia chi qua
+        # ctx['load_var_addr'], KHONG hardcode ten slot IL).
+        import il_features.complex_type as _complex_type
+        return _complex_type.compile_attr(obj_name, field_name, scope, out, dtype, ctx)
     if obj_ta.shape == 'dict_kvpair' and field_name in ('key', 'val'):
         # KeyValuePair<K,V> la VALUE TYPE - can DIA CHI (ldloca/ldarga) de
         # goi get_Key()/get_Value(), giong ky thuat da dung cho enumerator
