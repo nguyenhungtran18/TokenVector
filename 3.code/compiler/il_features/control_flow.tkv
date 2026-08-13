@@ -1060,6 +1060,140 @@ def codegen_with_open(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
     body.append(f'  {end_lbl}:')
 
 
+_WITH_CTX_RE = re.compile(r'^with\s+(.+?)\s+as\s+(\w+)\s*:\s*$')
+
+
+def try_parse_with_ctx(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """'with <bieu_thuc_record> as v:' (6.6, context manager tuy bien,
+    2026-08-13) - CHI ho tro (a) goi constructor truc tiep 'with Lock() as lk:'
+    hoac (b) 1 bien DA khai bao kieu record 'with existing as lk:'. Dang ky
+    SAU with_open trong LINE_PARSERS (khong sua with_open) - 'with open(...)'
+    van di duong cu vi _WITH_OPEN_RE khop TRUOC (thu tu LINE_PARSERS o
+    il_codegen.py). Xem docs/superpowers/plans/2026-08-13-context-manager.md."""
+    m = _WITH_CTX_RE.match(line)
+    if not m:
+        return None
+    expr_text, var_name = m.groups()
+    if expr_text.strip().startswith('open('):
+        # 'with open(...)' KHONG khop _WITH_OPEN_RE (vd thieu dau ngoac
+        # dung, mode sai) se roi xuong day - bao loi RO thay vi hieu nham
+        # thanh with_ctx (se that bai o buoc validate record ben duoi voi
+        # thong bao khong lien quan).
+        return None
+    expr_node = parse_expr(expr_text.strip())
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(
+            f"il_codegen: 'with {expr_text} as {var_name}:' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return {'kind': 'with_ctx', 'expr_node': expr_node, 'var': var_name,
+            'body': body}, pos
+
+
+def fpw_with_ctx(stmt, ctx):
+    ctx['collect_ternary_temps'](stmt['expr_node'])
+    declared_names = ctx['declared_names']
+    infer_scope = ctx['infer_scope']
+    records = ctx.get('records') or {}
+    record_methods = ctx.get('record_methods') or {}
+    expr_node = stmt['expr_node']
+    if expr_node[0] == 'call' and expr_node[1] in records:
+        record_name = expr_node[1]
+    elif expr_node[0] == 'var':
+        _, _, var_ta = infer_scope[expr_node[1]]
+        if var_ta.shape != 'record':
+            raise SyntaxError(
+                f"il_codegen: 'with {expr_node[1]} as {stmt['var']}:' - '{expr_node[1]}' "
+                f"khong phai bien kieu record")
+        record_name = var_ta.dtype
+    else:
+        raise SyntaxError(
+            f"il_codegen: 'with <bieu_thuc> as {stmt['var']}:' - chi ho tro goi "
+            f"constructor record truc tiep (vd 'with Lock() as lk:') hoac 1 bien "
+            f"da khai bao kieu record, khong ho tro bieu thuc phuc tap khac")
+    enter_m = record_methods.get(record_name, {}).get('__enter__')
+    exit_m = record_methods.get(record_name, {}).get('__exit__')
+    if enter_m is None or exit_m is None:
+        raise SyntaxError(
+            f"il_codegen: record '{record_name}' can dinh nghia CA __enter__ VA "
+            f"__exit__ de dung trong 'with' (dang thieu: "
+            f"{'__enter__' if enter_m is None else ''}"
+            f"{'__exit__' if exit_m is None else ''})")
+    if enter_m.params or enter_m.return_type is None:
+        raise SyntaxError(
+            f"il_codegen: record '{record_name}' co __enter__ nhung chu ky sai - "
+            f"can dung 0 tham so va tra ve 1 kieu bat ky "
+            f"('def __enter__(self) -> \"T\":')")
+    if exit_m.params or exit_m.return_type is None:
+        raise SyntaxError(
+            f"il_codegen: record '{record_name}' co __exit__ nhung chu ky sai - "
+            f"can dung 0 tham so va tra ve 1 kieu bat ky "
+            f"('def __exit__(self) -> \"U\":')")
+    stmt['_record_name'] = record_name
+    stmt['_enter_ta'] = enter_m.return_type
+    if stmt['var'] not in declared_names:
+        declared_names.add(stmt['var'])
+        ctx['locals_decl'].append((stmt['var'], enter_m.return_type))
+        infer_scope.set(stmt['var'], enter_m.return_type)
+    hidden = f"__ctxmgr{id(stmt)}"
+    stmt['_hidden'] = hidden
+    if hidden not in declared_names:
+        declared_names.add(hidden)
+        record_ta = ctx['TypeAnn'](record_name, 'record')
+        ctx['locals_decl'].append((hidden, record_ta))
+        infer_scope.set(hidden, record_ta)
+    if _contains_return(stmt['body']):
+        ctx['needs_epilogue'][0] = True
+    ctx['walk_fn'](stmt['body'])
+
+
+def fpp_with_ctx(stmt, ctx):
+    ctx['prescan_fn'](stmt['body'])
+
+
+def codegen_with_ctx(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    var, hidden = stmt['var'], stmt['_hidden']
+    record_name = stmt['_record_name']
+    compile_expr = ctx['compile_expr']
+    records = ctx.get('records') or {}
+    # Sinh record instance (constructor hoac load bien) roi giu 1 BAN SAO
+    # vao hidden local - can THIET vi __exit__ phai goi tren RECORD GOC,
+    # con 'var' nhan ket qua __enter__ (co the la KIEU KHAC).
+    compile_expr(stmt['expr_node'], scope, body, record_name, ctx)
+    ctx['store_var'](hidden, scope, body)
+    from il_features.record_feature import _method_owner_class
+    enter_owner = _method_owner_class(ctx, record_name, '__enter__')
+    enter_il = ctx['il_type_str'](stmt['_enter_ta'], records)
+    ctx['load_var_ref'](hidden, scope, body)
+    body.append(f'    callvirt instance {enter_il} {enter_owner}::__enter__()')
+    ctx['store_var'](var, scope, body)
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    end_lbl = f'{sig.name}_WithCtx{n}_end'
+    body.append('    .try')
+    body.append('    {')
+    ctx['try_depth'] = ctx.get('try_depth', 0) + 1
+    codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+    ctx['try_depth'] -= 1
+    if not _stmts_end_in_return(stmt['body']):
+        body.append(f'      leave {end_lbl}')
+    body.append('    }')
+    body.append('    finally')
+    body.append('    {')
+    record_methods = ctx.get('record_methods') or {}
+    exit_m = record_methods[record_name]['__exit__']
+    exit_owner = _method_owner_class(ctx, record_name, '__exit__')
+    exit_il = ctx['il_type_str'](exit_m.return_type, records)
+    ctx['load_var_ref'](hidden, scope, body)
+    body.append(f'      callvirt instance {exit_il} {exit_owner}::__exit__()')
+    if exit_il != 'void':
+        body.append('      pop')
+    body.append('      endfinally')
+    body.append('    }')
+    body.append(f'  {end_lbl}:')
+
+
 def codegen_raise(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     if stmt.get('bare'):
         if not ctx.get('in_except_handler', 0):
@@ -1123,6 +1257,7 @@ register_line_parser('continue', try_parse_continue)
 register_line_parser('return', try_parse_return)
 register_line_parser('raise', try_parse_raise)
 register_line_parser('with_open', try_parse_with_open)
+register_line_parser('with_ctx', try_parse_with_ctx)
 register_first_pass_walk('for', fpw_for)
 register_first_pass_walk('while', fpw_while)
 register_first_pass_walk('if', fpw_if)
@@ -1130,11 +1265,13 @@ register_first_pass_walk('try', fpw_try)
 register_first_pass_walk('return', fpw_return)
 register_first_pass_walk('raise', fpw_raise)
 register_first_pass_walk('with_open', fpw_with_open)
+register_first_pass_walk('with_ctx', fpw_with_ctx)
 register_first_pass_prescan('for', fpp_for)
 register_first_pass_prescan('while', fpp_while_if)
 register_first_pass_prescan('if', fpp_while_if)
 register_first_pass_prescan('try', fpp_try)
 register_first_pass_prescan('with_open', fpp_with_open)
+register_first_pass_prescan('with_ctx', fpp_with_ctx)
 def codegen_block(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     codegen_stmts_fn(stmt['stmts'], scope, body, body_dtype, ctx, sig)
 
@@ -1159,6 +1296,7 @@ register_stmt_codegen('try', codegen_try)
 register_stmt_codegen('return', codegen_return)
 register_stmt_codegen('raise', codegen_raise)
 register_stmt_codegen('with_open', codegen_with_open)
+register_stmt_codegen('with_ctx', codegen_with_ctx)
 register_stmt_codegen('block', codegen_block)
 register_first_pass_walk('block', fpw_block)
 register_first_pass_prescan('block', fpp_block)
