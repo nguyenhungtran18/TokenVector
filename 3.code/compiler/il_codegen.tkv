@@ -1889,6 +1889,47 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             f"cung khong phai builtin thu vien nao (str/pow/re_*/path_*/...), "
             f"cung khong co trong chuong trinh dang bien dich)")
     callee = func_table[name]
+    # Task 4/5 (2026-08-17, duck-typing-inference): resolve tham so
+    # 'inferred' truoc khi dung tiep callee.params/callee.return_type/
+    # callee.name ben duoi (xem compiler/il_features/duck_typing.py).
+    if any(p.type_ann is not None and p.type_ann.dtype == 'inferred' for p in callee.params):
+        from il_features.duck_typing import resolve_call_site, mangle_name
+        concrete_arg_types = {}
+        for arg_node, p in zip(args, callee.params):
+            if p.type_ann is not None and p.type_ann.dtype == 'inferred':
+                concrete_arg_types[p.name] = _infer_dtype(
+                    arg_node, scope, func_table, records,
+                    (ctx or {}).get('record_methods'))
+        inferred_param_names = tuple(
+            p.name for p in callee.params
+            if p.type_ann is not None and p.type_ann.dtype == 'inferred')
+        cache_key = (name, tuple(concrete_arg_types.get(pn) for pn in inferred_param_names))
+        monomorphize_cache = (ctx or {}).get('monomorphize_cache')
+        pending_monomorphize = (ctx or {}).get('pending_monomorphize')
+        if monomorphize_cache is not None and cache_key in monomorphize_cache:
+            callee = monomorphize_cache[cache_key]
+        else:
+            resolved = resolve_call_site(
+                sig=callee, concrete_arg_types=concrete_arg_types,
+                records=records, record_methods=(ctx or {}).get('record_methods') or {},
+                record_bases=(ctx or {}).get('record_bases') or {},
+                call_site_info={'caller_name': (ctx or {}).get('prefix') or '?'})
+            if monomorphize_cache is not None:
+                monomorphize_cache[cache_key] = resolved
+            if pending_monomorphize is not None:
+                body_lookup = (ctx or {}).get('monomorphize_body_of') or {}
+                orig_body = body_lookup.get(name)
+                if orig_body is None:
+                    raise SyntaxError(
+                        f"il_codegen (loi noi bo): khong tim thay body goc cua ham "
+                        f"'inferred' '{name}' trong ctx['monomorphize_body_of'] - pipeline "
+                        f"(gen_il_program/tkv_compile.py) chua dang ky day du.")
+                else:
+                    orig_body_lines, orig_start_line = orig_body
+                    already_pending = any(s.name == resolved.name for s, _bl, _sl in pending_monomorphize)
+                    if not already_pending:
+                        pending_monomorphize.append((resolved, orig_body_lines, orig_start_line))
+            callee = resolved
     # *args/**kwargs (Phase 5.1, 2026-08-11).
     normal_params = [p for p in callee.params if not (p.is_vararg or p.is_kwarg)]
     vararg_param = next((p for p in callee.params if p.is_vararg), None)
@@ -1938,7 +1979,9 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         ret_il = il_type_str(callee.return_type)
     params_il = ', '.join(il_type_str(p.type_ann) for p in callee.params)
     class_name = (ctx or {}).get('class_name') or 'Program'
-    out.append(f'    call {ret_il} {class_name}::{_il_ident(name)}({params_il})')
+    # RUI RO SO 1 (Task 1 report): dung `callee.name` (co the da mangle qua
+    # resolve_call_site o tren), KHONG PHAI `name` goc.
+    out.append(f'    call {ret_il} {class_name}::{_il_ident(callee.name)}({params_il})')
     _widen_if_needed(callee.return_type.dtype if not getattr(callee, 'is_async', False) else callee.return_type.dtype, dtype, out)
     return
 
@@ -3788,7 +3831,9 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
                      record_bases: dict = None, module_consts: dict = None,
                      record_methods_own: dict = None, module_globals: dict = None,
                      source_path: str = None, debug: bool = False,
-                     body_start_line: int = None) -> list:
+                     body_start_line: int = None, monomorphize_cache: dict = None,
+                     pending_monomorphize: list = None,
+                     monomorphize_body_of: dict = None) -> list:
     """Sinh 1 CIL `.method` HOAN CHINH (bao goi .method/.locals/instructions/
     .maxstack/}) tu Signature + than ham (body_lines - CUNG dinh dang dung
     cho csharp_codegen.py). Tra ve list dong.
@@ -3966,7 +4011,11 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
            'load_boxed_cell_ref': _load_boxed_cell_ref, 'il_scalar': IL_SCALAR,
            'gen_il_function': gen_il_function,
            'extra_classes': extra_classes if extra_classes is not None else [],
-           'emitted_types': emitted_types if emitted_types is not None else set()}
+           'emitted_types': emitted_types if emitted_types is not None else set(),
+           # Task 4/5 (2026-08-17, duck-typing-inference).
+           'monomorphize_cache': monomorphize_cache if monomorphize_cache is not None else {},
+           'pending_monomorphize': pending_monomorphize if pending_monomorphize is not None else [],
+           'monomorphize_body_of': monomorphize_body_of if monomorphize_body_of is not None else {}}
     ctx['source_path_il'] = (
         source_path.replace('\\', '\\\\').replace("'", "\\'") if (debug and source_path) else None
     )
@@ -4276,7 +4325,8 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
                     extra_classes: list = None, record_bases: dict = None,
                     module_consts: dict = None, module_globals: dict = None,
                     source_path: str = None, debug: bool = False,
-                    emitted_types: set = None) -> list:
+                    emitted_types: set = None, monomorphize_cache: dict = None,
+                    pending_monomorphize: list = None) -> list:
     """Bien dich NHIEU ham/1 chuong trinh (danh sach (Signature, body_lines))
     thanh 1 CIL class hoan chinh - moi ham co the goi ham KHAC trong CUNG
     danh sach (func_table xay TRUOC, cho phep goi xuoi lan goi nguoc thu
@@ -4331,6 +4381,12 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
     # func_table[name].return_type deu thay dung kieu class state-machine,
     # khong can sua rieng tung noi goi.
     for sig, body_lines, _start in sig_body_pairs:
+        if hasattr(sig, 'is_generator'):
+            # Task 4/5 (2026-08-17): gen_il_program co the duoc goi NHIEU
+            # LAN tren CUNG 1 sig_body_pairs dang lon dan (vong lap
+            # fixpoint monomorphize) - 1 Signature DA xu ly khong duoc xu
+            # ly lai.
+            continue
         if _is_generator_body(body_lines):
             if sig.return_type is None or sig.return_type.shape != 'list':
                 raise SyntaxError(
@@ -4351,6 +4407,18 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
     # '.class' trung ten -> ilasm bao 'Duplicate method declaration'.
     if emitted_types is None:
         emitted_types = set()
+    # Task 4/5 (2026-08-17, duck-typing-inference): 3 bang CHIA SE qua MOI
+    # lan goi gen_il_function trong CUNG 1 lan goi gen_il_program - tu tao
+    # moi RONG neu caller khong truyen. monomorphize_body_of LUON xay LAI
+    # tu sig_body_pairs hien tai.
+    if monomorphize_cache is None:
+        monomorphize_cache = {}
+    if pending_monomorphize is None:
+        pending_monomorphize = []
+    monomorphize_body_of = {}
+    for sig, body_lines, start_line in sig_body_pairs:
+        if any(p.type_ann is not None and p.type_ann.dtype == 'inferred' for p in sig.params):
+            monomorphize_body_of[sig.name] = (body_lines, start_line)
     if extra_classes is not None:
         # TkvInt duoc sinh VO DIEU KIEN tu 2026-08-05 (lat 4), khong con
         # theo yeu cau. Ly do: tu khi hang so nguyen mac dinh la 'int',
@@ -4371,6 +4439,11 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
     for gname, (gdtype, _gval) in (module_globals or {}).items():
         all_lines.append(f"  .field private static {IL_SCALAR[gdtype]} {_il_ident(gname)}")
     for sig, body_lines, start_line in sig_body_pairs:
+        if any(p.type_ann is not None and p.type_ann.dtype == 'inferred' for p in sig.params):
+            # Task 4/5 (2026-08-17): ham co tham so 'inferred' la 1 khuon
+            # mau - KHONG sinh CIL truc tiep, chi dung lam nguon body cho
+            # ctx['monomorphize_body_of'] (xem tren).
+            continue
         if getattr(sig, 'is_generator', False):
             all_lines.extend(gen_il_generator_function(
                 sig, body_lines, func_table=func_table, class_name=class_name,
@@ -4385,7 +4458,10 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
                                               module_consts=module_consts,
                                               module_globals=module_globals,
                                               source_path=source_path, debug=debug,
-                                              body_start_line=start_line))
+                                              body_start_line=start_line,
+                                              monomorphize_cache=monomorphize_cache,
+                                              pending_monomorphize=pending_monomorphize,
+                                              monomorphize_body_of=monomorphize_body_of))
     import il_features.ffi_feature as _ffi
     import il_features.dynamic_exec as _dyn
     import il_features.stdlib_bcl as _bcl

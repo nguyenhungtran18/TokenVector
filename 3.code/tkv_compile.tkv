@@ -2066,12 +2066,43 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
         # trong than method) bi ensure_class() sinh '.class' 2 LAN -> ilasm loi
         # 'Duplicate method declaration'. Xem il_codegen.tkv's gen_il_program.
         emitted_types = set()
+        # Task 4/5 (2026-08-17, duck-typing-inference): monomorphize cua
+        # tham so 'inferred' - bien CUC BO cua chinh lan goi nay (khong ro
+        # ri qua lan goi compile_tkv_cli tiep theo). Vong lap FIXPOINT: 1
+        # ham monomorphize moi co the tu no goi tiep 1 ham 'inferred'
+        # khac, sinh them phan tu vao pending_monomorphize - lap lai cho
+        # toi khi rong. CHI ket qua cua LAN GOI CUOI CUNG duoc dung lam
+        # method_lines (khong noi chuoi tich luy qua cac lan goi).
+        _MAX_MONOMORPHIZE_ROUNDS = 1000
+        monomorphize_cache = {}
+        pending_monomorphize = []
         method_lines = gen_il_program(sig_body_pairs, class_name=class_name, records=record_defs,
                                        record_methods=record_methods, extra_classes=extra_classes,
                                        record_bases=record_bases, module_consts=module_consts,
                                        module_globals=module_globals,
                                        source_path=str(tkv_path), debug=debug,
-                                       emitted_types=emitted_types)
+                                       emitted_types=emitted_types,
+                                       monomorphize_cache=monomorphize_cache,
+                                       pending_monomorphize=pending_monomorphize)
+        _monomorphize_rounds = 0
+        while pending_monomorphize:
+            _monomorphize_rounds += 1
+            if _monomorphize_rounds > _MAX_MONOMORPHIZE_ROUNDS:
+                raise CliError(
+                    f"tkv build: vong lap monomorphize tham so 'inferred' vuot qua "
+                    f"{_MAX_MONOMORPHIZE_ROUNDS} vong lap - nghi ngo co bug logic gay "
+                    f"de quy vo han giua cac ham dung tham so kieu suy tu dong.")
+            new_pairs = pending_monomorphize[:]
+            pending_monomorphize.clear()
+            sig_body_pairs.extend(new_pairs)
+            method_lines = gen_il_program(sig_body_pairs, class_name=class_name, records=record_defs,
+                                           record_methods=record_methods, extra_classes=extra_classes,
+                                           record_bases=record_bases, module_consts=module_consts,
+                                           module_globals=module_globals,
+                                           source_path=str(tkv_path), debug=debug,
+                                           emitted_types=emitted_types,
+                                           monomorphize_cache=monomorphize_cache,
+                                           pending_monomorphize=pending_monomorphize)
         main_method = build_generic_main(func_table[entry_name], class_name, module_globals=module_globals)
         record_type_lines = gen_record_types(record_defs, record_method_bodies=record_method_bodies,
                                               record_methods=record_methods, class_name=class_name,
