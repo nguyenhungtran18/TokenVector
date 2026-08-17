@@ -817,6 +817,20 @@ _EXTERN_DTYPE_TO_IL = {'i32': 'int32', 'i64': 'int64', 'f32': 'float32',
 # ten .NET, chi chan cac gia tri ro rang sai/injection vao chuoi IL).
 _EXTERN_CLASS_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$')
 _EXTERN_METHOD_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+# Regex ten assembly .NET hop le (vd 'System.Math', 'MyLib.Foo_Bar') - dung de
+# validate buoc (1) cua _validate_and_register_extern_method (fix review
+# finding M2: 'assembly' truoc day chi check membership, khong check FORMAT -
+# cung dang regex voi _EXTERN_CLASS_NAME_RE vi ten assembly .NET cung theo
+# quy tac chu/so/gach duoi/dau cham).
+_EXTERN_ASSEMBLY_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$')
+
+# 3 assembly .NET GAC mac dinh LUON co san (khong can nguoi dung khai bao qua
+# __tkv_extern_assembly__) - hang so module-level DUY NHAT, dung CHUNG boi ca
+# declared_assembly_names (validate __tkv_extern_method__) LAN seen_extern
+# (dedupe '.assembly extern' phat sinh) trong compile_tkv_cli (fix review
+# finding M4: truoc day 2 noi tu viet lai literal set nay, de lech neu sua 1
+# cho ma quen cho kia).
+_DEFAULT_GAC_ASSEMBLIES = frozenset({'mscorlib', 'System', 'System.Core'})
 
 
 def _make_extern_static_call_codegen(assembly, dotnet_class, method_name,
@@ -831,7 +845,7 @@ def _make_extern_static_call_codegen(assembly, dotnet_class, method_name,
     call_prefix NGOAI closure (chi tinh 1 lan luc dang ky, khong tinh lai
     moi lan goi bieu thuc)."""
     il_param_types = [_EXTERN_DTYPE_TO_IL[d] for d in param_dtypes]
-    il_ret_type = 'void' if return_dtype == 'void' else _EXTERN_DTYPE_TO_IL[return_dtype]
+    il_ret_type = _EXTERN_DTYPE_TO_IL[return_dtype]
     call_prefix = f'    call {il_ret_type} [{assembly}]{dotnet_class}::{method_name}'
 
     def _codegen(args, scope, out, dtype, ctx):
@@ -865,8 +879,13 @@ def _validate_and_register_extern_method(decl, declared_assembly_names):
     params = decl['params']
     returns = decl['returns']
 
-    # (1) assembly phai da duoc khai bao (extern_assemblies hoac 3 assembly
-    # mac dinh luon co san mscorlib/System/System.Core).
+    # (1) assembly phai khop regex ten assembly .NET hop le (fix M2), ROI
+    # phai da duoc khai bao (extern_assemblies hoac 3 assembly mac dinh luon
+    # co san mscorlib/System/System.Core).
+    if not _EXTERN_ASSEMBLY_NAME_RE.match(assembly):
+        raise TranspileError(
+            f"__tkv_extern_method__ '{name}': 'assembly' = {assembly!r} khong phai ten assembly "
+            f".NET hop le (vd 'System.Xml' - chu/so/gach duoi/dau cham, bat dau bang chu hoac gach duoi)")
     if assembly not in declared_assembly_names:
         raise TranspileError(
             f"__tkv_extern_method__ '{name}': assembly '{assembly}' chua duoc khai bao qua "
@@ -887,11 +906,18 @@ def _validate_and_register_extern_method(decl, declared_assembly_names):
             raise TranspileError(
                 f"__tkv_extern_method__ '{name}': params[{i}] = {p!r} khong phai dtype hop le - "
                 f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)}")
-    # (5) returns phai la 'void' hoac nam trong bang dtype.
-    if returns != 'void' and returns not in _EXTERN_DTYPE_TO_IL:
+    # (5) returns phai nam trong bang dtype scalar - 'void' KHONG duoc ho tro
+    # o Phase 1 (fix review finding I1): duong goi ham-void-dang-lenh-doc-lap
+    # thuc te (file_io.py::codegen_call_stmt) chi tra func_table + 1 bang
+    # dispatch RIENG cho cac builtin void co san, KHONG tra EXPR_BUILTIN_
+    # CODEGEN - nen truoc day khai 'returns':'void' se dang ky duoc nhung
+    # KHONG THE GOI THAT o dang lenh doc lap. Pham vi Phase 1 nay CHI ho tro
+    # ham CO gia tri tra ve, dung trong bieu thuc.
+    if returns not in _EXTERN_DTYPE_TO_IL:
         raise TranspileError(
             f"__tkv_extern_method__ '{name}': returns = {returns!r} khong phai dtype hop le - "
-            f"chi ho tro 'void' hoac {sorted(_EXTERN_DTYPE_TO_IL)}")
+            f"'void' chua duoc ho tro o Phase 1 (chi ham co gia tri tra ve dung trong bieu thuc) - "
+            f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)}")
     # (6) name phai la identifier Python hop le (dung lam ten builtin goi
     # duoc trong code .tkv).
     if not name.isidentifier():
@@ -901,7 +927,7 @@ def _validate_and_register_extern_method(decl, declared_assembly_names):
     # co san trong register_expr_builtin se tu bung ValueError neu 'name'
     # da duoc dang ky boi builtin khac).
     codegen_fn = _make_extern_static_call_codegen(assembly, dotnet_class, method_name, params, returns)
-    register_expr_builtin(name, codegen_fn, None if returns == 'void' else returns)
+    register_expr_builtin(name, codegen_fn, returns)
 
 
 def _parse_program_ast(source_text):
@@ -1772,7 +1798,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
     # exception nao giua chung (ilasm loi, gen_il_program loi...) van phai
     # trigger pop, neu khong "ro ri" sang lan compile file khac tiep theo.
     declared_assembly_names = ({asm_name for asm_name, _pkt, _ver in extern_assemblies} |
-                                {'mscorlib', 'System', 'System.Core'})
+                                _DEFAULT_GAC_ASSEMBLIES)
     registered_extern_names = []
     try:
         for decl in extern_methods:
@@ -1842,9 +1868,8 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
         # ten (khong khai bao lai mscorlib/System/System.Core du nguoi dung
         # lo khai bao trung).
         _default_pubkeytoken = 'B7 7A 5C 56 19 34 E0 89'
-        _builtin_extern_names = {'mscorlib', 'System.Core', 'System'}
         extern_lines = []
-        seen_extern = set(_builtin_extern_names)
+        seen_extern = set(_DEFAULT_GAC_ASSEMBLIES)
         for asm_name, pubkeytoken, version in extern_assemblies:
             if asm_name in seen_extern:
                 continue
