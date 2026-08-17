@@ -757,6 +757,51 @@ def _desugar_property_reads(body_lines, property_names):
     return [prop_re.sub(lambda mo: f'{mo.group(1)}.{mo.group(2)}()', line) for line in body_lines]
 
 
+_EXTERN_METHOD_KEYS = {'name', 'assembly', 'class', 'method', 'params', 'returns'}
+_EXTERN_METHOD_REQUIRED = {'name', 'assembly', 'class', 'method', 'returns'}
+
+
+def _parse_extern_method_dict_literal(node):
+    """__tkv_extern_method__ (Task 2, 2026-08-14 - xem docs/superpowers/
+    plans/2026-08-14-extern-method.md): parse 1 phan tu dict-literal cua
+    pragma thanh dict Python thuong ({'name':..., 'assembly':..., 'class':
+    ..., 'method':..., 'params': [...], 'returns':...}) - validate SHAPE
+    (dict, key hop le, value dung kieu) o day; validate NGHIEP VU (dtype
+    hop le, assembly da khai bao, trung ten builtin...) la Task 3."""
+    if not isinstance(node, ast.Dict):
+        raise TranspileError(
+            "__tkv_extern_method__: moi phan tu phai la 1 dict voi cac key "
+            "name/assembly/class/method/params/returns")
+    result = {}
+    for k, v in zip(node.keys, node.values):
+        if not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
+            raise TranspileError("__tkv_extern_method__: key dict phai la chuoi")
+        key = k.value
+        if key not in _EXTERN_METHOD_KEYS:
+            raise TranspileError(
+                f"__tkv_extern_method__: key '{key}' khong hop le - chi chap nhan "
+                f"{sorted(_EXTERN_METHOD_KEYS)}")
+        if key == 'params':
+            if not isinstance(v, ast.List):
+                raise TranspileError("__tkv_extern_method__: 'params' phai la 1 list chuoi")
+            params = []
+            for elt in v.elts:
+                if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
+                    raise TranspileError("__tkv_extern_method__: moi phan tu 'params' phai la chuoi")
+                params.append(elt.value)
+            result['params'] = params
+        else:
+            if not (isinstance(v, ast.Constant) and isinstance(v.value, str)):
+                raise TranspileError(f"__tkv_extern_method__: gia tri '{key}' phai la chuoi")
+            result[key] = v.value
+    result.setdefault('params', [])
+    missing = _EXTERN_METHOD_REQUIRED - result.keys()
+    if missing:
+        raise TranspileError(
+            f"__tkv_extern_method__: thieu key bat buoc {sorted(missing)}")
+    return result
+
+
 def _parse_program_ast(source_text):
     """Parse THUAN 1 file nguon TokenVector (`.tkv`) THAT - KHONG doc file
     nao khac, KHONG resolve import - chi tra ve THANG PHAN NOI DUNG cua
@@ -782,6 +827,7 @@ def _parse_program_ast(source_text):
     pairs = []
     import_names = []
     extern_assemblies = []
+    extern_methods = []
     # Decorator tuy bien tren ham top-level (Phase 4, 2026-08-11, xem
     # _expand_custom_decorator): pre-pass tim MOI ham top-level duoc dung
     # lam '@deco' - ham do la 1 TEMPLATE thuan tuy (macro luc bien dich),
@@ -904,6 +950,19 @@ def _parse_program_ast(source_text):
                         "__tkv_extern_assembly__ phai la 1 chuoi/list chuoi (ten assembly .NET "
                         "Framework GAC chuan, vd 'System.Xml') hoac tuple 3 phan tu (ten, "
                         "publickeytoken_hex_or_None, version_or_None) cho assembly rieng")
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and node.targets[0].id == '__tkv_extern_method__':
+            # Pragma khai bao goi 1 static method .NET NGOAI (Task 2,
+            # 2026-08-14 - xem docs/superpowers/plans/2026-08-14-extern-
+            # method.md): moi phan tu la 1 dict-literal shape co dinh, chi
+            # PARSE SHAPE o day (validate nghiep vu + dang ky dong builtin
+            # la Task 3, trong compile_tkv_cli, sau khi co ca
+            # extern_assemblies de doi chieu 'assembly' da khai bao chua).
+            v = node.value
+            if not isinstance(v, ast.List):
+                raise TranspileError("__tkv_extern_method__ phai la 1 list cac dict")
+            for elt in v.elts:
+                extern_methods.append(_parse_extern_method_dict_literal(elt))
         elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and \
                 isinstance(node.value.value, str):
             continue  # module docstring
@@ -1007,7 +1066,7 @@ def _parse_program_ast(source_text):
 
     _resolve_record_field_types(record_defs)
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            import_names, extern_assemblies, module_consts, module_globals)
+            import_names, extern_assemblies, extern_methods, module_consts, module_globals)
 
 
 def _resolve_record_field_types(record_defs):
@@ -1051,7 +1110,7 @@ def extract_program(source_text):
     muc de tim file import - dung extract_program_file() / compile_tkv_cli()
     / transpile_file() cho truong hop do)."""
     (record_defs, record_methods_raw, record_bases, record_interfaces,
-     interface_defs, pairs, import_names, extern_assemblies,
+     interface_defs, pairs, import_names, extern_assemblies, extern_methods,
      module_consts, module_globals) = _parse_program_ast(source_text)
     if import_names:
         raise TranspileError(
@@ -1059,7 +1118,7 @@ def extract_program(source_text):
             f"(source_text) (khong co duong dan file that) - dung extract_program_file(tkv_path) "
             f"hoac compile_tkv_cli()/transpile_file() (co duong dan) de import cheo file hoat dong")
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            extern_assemblies, module_consts, module_globals)
+            extern_assemblies, extern_methods, module_consts, module_globals)
 
 
 _PROJECT_ROOT = Path(__file__).parent.resolve()
@@ -1117,7 +1176,7 @@ def extract_program_file(tkv_path, _visited=None):
     _visited.add(str(tkv_path))
     source_text = tkv_path.read_text(encoding='utf-8')
     (record_defs, record_methods_raw, record_bases, record_interfaces,
-     interface_defs, pairs, import_names, extern_assemblies,
+     interface_defs, pairs, import_names, extern_assemblies, extern_methods,
      module_consts, module_globals) = _parse_program_ast(source_text)
     func_names = {m.group(1) for sig_line, _, _start in pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
@@ -1131,7 +1190,7 @@ def extract_program_file(tkv_path, _visited=None):
             continue
         _visited.add(str(imp_path))
         (imp_record_defs, imp_record_methods_raw, imp_record_bases, imp_record_interfaces,
-         imp_interface_defs, imp_pairs, imp_extern_assemblies,
+         imp_interface_defs, imp_pairs, imp_extern_assemblies, imp_extern_methods,
          imp_module_consts, imp_module_globals) = extract_program_file(imp_path, _visited)
         imp_func_names = {m.group(1) for sig_line, _, _start in imp_pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
@@ -1159,6 +1218,7 @@ def extract_program_file(tkv_path, _visited=None):
         record_interfaces.update(imp_record_interfaces)
         interface_defs.update(imp_interface_defs)
         extern_assemblies.extend(imp_extern_assemblies)
+        extern_methods.extend(imp_extern_methods)
         # Hang so cap module cua file IMPORT dung duoc trong file goc (giong
         # ham/record) - trung ten thi file GOC thang (khai bao gan hon).
         for k, v in imp_module_consts.items():
@@ -1169,7 +1229,7 @@ def extract_program_file(tkv_path, _visited=None):
             module_globals.setdefault(k, v)
 
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            extern_assemblies, module_consts, module_globals)
+            extern_assemblies, extern_methods, module_consts, module_globals)
 
 
 def _build_record_methods(record_defs, record_methods_raw, record_bases=None):
@@ -1268,7 +1328,7 @@ def transpile_program(source_text, class_name='Program', with_guards=True,
     value' cua record (xem compile_tkv_cli, noi ghep gen_record_types()
     RIENG ben ngoai class chuong trinh chinh). KHONG ho tro '__tkv_import__'
     (xem extract_program) - dung transpile_file() cho file co import cheo."""
-    (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea,
+    (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em,
      module_consts, module_globals) = extract_program(source_text)
     return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
                                  module_consts=module_consts, extra_classes=extra_classes,
@@ -1280,7 +1340,7 @@ def transpile_file(tkv_path, class_name='Program', with_guards=True,
     """Nhu transpile_program, nhung doc THANG tu file (co duong dan) nen
     ho tro '__tkv_import__' (khoang trong ngon ngu #3 - import module
     TokenVector khac) qua extract_program_file()."""
-    (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea,
+    (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em,
      module_consts, module_globals) = extract_program_file(tkv_path)
     return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
                                  module_consts=module_consts, extra_classes=extra_classes,
@@ -1577,7 +1637,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
     entry_name co the la ham dinh nghia trong file IMPORT, khong chi file
     goc (func_table gop CA HAI)."""
     (record_defs, record_methods_raw, record_bases, record_interfaces,
-     interface_defs, pairs, extern_assemblies, module_consts,
+     interface_defs, pairs, extern_assemblies, extern_methods, module_consts,
      module_globals) = extract_program_file(tkv_path)
     record_methods, record_method_bodies, record_methods_own = _build_record_methods(
         record_defs, record_methods_raw, record_bases=record_bases)
