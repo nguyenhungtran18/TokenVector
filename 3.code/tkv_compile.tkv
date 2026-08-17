@@ -236,6 +236,11 @@ def _expand_custom_decorator(node, deco_node, source_lines):
             f"voi chu ky '{public_name}' ({', '.join(orig_param_types)} -> {orig_ret_t}) - "
             f"decorator tuy bien hien CHI ho tro cung chu ky (khong doi kieu tham so/tra ve)")
 
+    if deco_node.args.args[0].annotation is None:
+        raise TranspileError(
+            f"ham '{deco_name}': tham so '{param_name}' thieu annotation kieu DSL (ham dung lam "
+            f"'@deco' PHAI khai annotation day du, KHONG duoc dung tham so kieu suy tu dong "
+            f"'inferred')")
     deco_param_ann = _annotation_to_type_str(
         deco_node.args.args[0].annotation, f"ham '{deco_name}' tham so '{param_name}'")
     if deco_node.returns is None:
