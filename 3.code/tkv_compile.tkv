@@ -56,6 +56,10 @@ from il_core import IL_SCALAR, IL_LDC_OP  # noqa: E402
 from tokenvector_compile import (ILASM, assemble_il_to_exe,  # noqa: E402
                                   TokenVectorError)
 from il_features.stdlib_sqlite import uses_sqlite as _uses_sqlite, SQLITE_PINVOKE_DECL_LINES  # noqa: E402
+# Task 3/5 (duck-typing-inference, 2026-08-17): thu thap rang buoc "interface
+# an" tu than ham cho tham so 'inferred' - xem _parse_program_ast's vong lap
+# tree.body va compiler/il_features/duck_typing.py's docstring.
+from il_features.duck_typing import collect_inferred_constraints  # noqa: E402
 # --- BEGIN GEMINI ADDED CODE: cJSON Plugin Import ---
 from il_features.stdlib_cjson import uses_cjson as _uses_cjson, CJSON_PINVOKE_DECL_LINES  # noqa: E402
 from il_dispatch import (register_expr_builtin, EXPR_BUILTIN_CODEGEN,  # noqa: E402
@@ -1114,6 +1118,21 @@ def _parse_program_ast(source_text):
     record_interfaces = {}
     interface_defs = {}
     pairs = []
+    # Task 3/5 (duck-typing-inference, 2026-08-17): dict ten-ham-top-level ->
+    # ast.FunctionDef/AsyncFunctionDef GOC (CHI gom ham co >=1 tham so thieu
+    # annotation, tuc se thanh dtype 'inferred'). Luu AST GOC (chua goi
+    # collect_inferred_constraints() ngay o day) vi tai DAY record_defs CHUA
+    # day du (vong lap tree.body con dang chay, record khai bao SAU chua
+    # thay) - _params_with_defaults's dtype 'inferred' khong can record_names
+    # de PARSE, nhung 1 tham so KHAC (co annotation) cua CUNG ham co the
+    # tham chieu record khai bao sau -> parse_typed_signature() se that bai
+    # neu goi som. Doi den luc sig_body_pairs duoc xay (compile_tkv_cli/
+    # _transpile_extracted, sau khi TOAN BO file/import da duyet xong,
+    # record_defs day du) moi parse Signature that va goi
+    # collect_inferred_constraints(), gan ket qua vao sig.inferred_constraints
+    # - gan CUNG kieu voi module_consts/module_globals (dict cap-module
+    # threading xuyen extract_program/extract_program_file/compile_tkv_cli).
+    inferred_ast_nodes_by_func = {}
     import_names = []
     extern_assemblies = []
     extern_methods = []
@@ -1150,6 +1169,11 @@ def _parse_program_ast(source_text):
                     f"'def deco(f: \"func(...)->...\") -> \"func(...)->...\":' voi than gom DUNG "
                     f"1 'def wrapper(...):' long + 'return wrapper' (xem _expand_custom_decorator)")
             sig_line = _extract_signature_line(node, allow_varargs=True, allow_inferred=True)
+            if any(a.annotation is None for a in node.args.args):
+                # Task 3/5 (duck-typing-inference): giu lai AST GOC de goi
+                # collect_inferred_constraints() sau, xem ghi chu
+                # inferred_ast_nodes_by_func o tren.
+                inferred_ast_nodes_by_func[node.name] = node
             hoisted = []
             body_lines = _body_source_lines(source_lines, node, hoisted=hoisted)
             pairs.append((sig_line, body_lines, node.body[0].lineno))
@@ -1369,7 +1393,8 @@ def _parse_program_ast(source_text):
 
     _resolve_record_field_types(record_defs)
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            import_names, extern_assemblies, extern_methods, extern_pinvokes, module_consts, module_globals)
+            import_names, extern_assemblies, extern_methods, extern_pinvokes, module_consts, module_globals,
+            inferred_ast_nodes_by_func)
 
 
 def _resolve_record_field_types(record_defs):
@@ -1414,14 +1439,16 @@ def extract_program(source_text):
     / transpile_file() cho truong hop do)."""
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies, extern_methods,
-     extern_pinvokes, module_consts, module_globals) = _parse_program_ast(source_text)
+     extern_pinvokes, module_consts, module_globals,
+     inferred_ast_nodes_by_func) = _parse_program_ast(source_text)
     if import_names:
         raise TranspileError(
             f"file co '__tkv_import__' = {import_names!r} nhung duoc goi qua extract_program"
             f"(source_text) (khong co duong dan file that) - dung extract_program_file(tkv_path) "
             f"hoac compile_tkv_cli()/transpile_file() (co duong dan) de import cheo file hoat dong")
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            extern_assemblies, extern_methods, extern_pinvokes, module_consts, module_globals)
+            extern_assemblies, extern_methods, extern_pinvokes, module_consts, module_globals,
+            inferred_ast_nodes_by_func)
 
 
 _PROJECT_ROOT = Path(__file__).parent.resolve()
@@ -1480,7 +1507,8 @@ def extract_program_file(tkv_path, _visited=None):
     source_text = tkv_path.read_text(encoding='utf-8')
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies, extern_methods,
-     extern_pinvokes, module_consts, module_globals) = _parse_program_ast(source_text)
+     extern_pinvokes, module_consts, module_globals,
+     inferred_ast_nodes_by_func) = _parse_program_ast(source_text)
     func_names = {m.group(1) for sig_line, _, _start in pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
     for imp_name in import_names:
@@ -1494,7 +1522,8 @@ def extract_program_file(tkv_path, _visited=None):
         _visited.add(str(imp_path))
         (imp_record_defs, imp_record_methods_raw, imp_record_bases, imp_record_interfaces,
          imp_interface_defs, imp_pairs, imp_extern_assemblies, imp_extern_methods,
-         imp_extern_pinvokes, imp_module_consts, imp_module_globals) = extract_program_file(imp_path, _visited)
+         imp_extern_pinvokes, imp_module_consts, imp_module_globals,
+         imp_inferred_ast_nodes_by_func) = extract_program_file(imp_path, _visited)
         imp_func_names = {m.group(1) for sig_line, _, _start in imp_pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
         dup_funcs = func_names & imp_func_names
@@ -1531,9 +1560,14 @@ def extract_program_file(tkv_path, _visited=None):
         # ten thi file GOC thang.
         for k, v in imp_module_globals.items():
             module_globals.setdefault(k, v)
+        # Task 3/5 (duck-typing-inference): AST goc cua ham 'inferred' o
+        # file IMPORT - dup_funcs o tren da dam bao khong trung ten voi file
+        # goc nen .update() an toan (khong ghi de nham).
+        inferred_ast_nodes_by_func.update(imp_inferred_ast_nodes_by_func)
 
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            extern_assemblies, extern_methods, extern_pinvokes, module_consts, module_globals)
+            extern_assemblies, extern_methods, extern_pinvokes, module_consts, module_globals,
+            inferred_ast_nodes_by_func)
 
 
 def _build_record_methods(record_defs, record_methods_raw, record_bases=None):
@@ -1609,14 +1643,42 @@ def _build_record_methods(record_defs, record_methods_raw, record_bases=None):
     return record_methods, record_method_bodies, record_methods_own
 
 
+def _build_sig_body_pairs(pairs, record_defs, record_methods, inferred_ast_nodes_by_func=None):
+    """Parse TOAN BO `pairs` (sig_line VAN BAN) thanh Signature THAT, GAN
+    THEM `sig.inferred_constraints` (Task 3/5, duck-typing-inference,
+    2026-08-17) cho MOI Signature co >=1 tham so dtype 'inferred' - goi
+    collect_inferred_constraints() voi AST GOC luu trong
+    `inferred_ast_nodes_by_func` (xem _parse_program_ast). Dat RIENG ham
+    nay (thay vi lap lai list-comprehension o 2 noi) de compile_tkv_cli va
+    _transpile_extracted dung CHUNG 1 logic, tranh 2 noi lech nhau.
+
+    `sig.inferred_constraints` LUON duoc gan (dict[param_name -> list[Constraint]],
+    RONG {} neu ham khong co tham so inferred nao hoac inferred_ast_nodes_by_func
+    khong duoc truyen) - Task 4 co the doc thang `sig.inferred_constraints`
+    ma khong can hasattr()."""
+    inferred_ast_nodes_by_func = inferred_ast_nodes_by_func or {}
+    sig_body_pairs = []
+    for sig_line, body_lines, start_line in pairs:
+        sig = parse_typed_signature(sig_line, record_names=set(record_defs))
+        func_node = inferred_ast_nodes_by_func.get(sig.name)
+        if func_node is not None:
+            sig.inferred_constraints = collect_inferred_constraints(
+                sig, func_node, record_defs, record_methods)
+        else:
+            sig.inferred_constraints = {}
+        sig_body_pairs.append((sig, body_lines, start_line))
+    return sig_body_pairs
+
+
 def _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
-                          module_consts=None, extra_classes=None, module_globals=None):
+                          module_consts=None, extra_classes=None, module_globals=None,
+                          inferred_ast_nodes_by_func=None):
     """Phan CHUNG cua transpile_program/transpile_file - nhan ket qua da
     extract (tu 1 file don le HOAC da gop nhieu file qua
     extract_program_file/__tkv_import__), sinh CIL method that."""
     record_methods, _, _ = _build_record_methods(record_defs, record_methods_raw)
-    sig_body_pairs = [(parse_typed_signature(sig_line, record_names=set(record_defs)), body_lines, start_line)
-                       for sig_line, body_lines, start_line in pairs]
+    sig_body_pairs = _build_sig_body_pairs(pairs, record_defs, record_methods,
+                                            inferred_ast_nodes_by_func)
     return gen_il_program(sig_body_pairs, class_name=class_name, with_guards=with_guards,
                            records=record_defs, record_methods=record_methods,
                            module_consts=module_consts, extra_classes=extra_classes,
@@ -1633,10 +1695,11 @@ def transpile_program(source_text, class_name='Program', with_guards=True,
     RIENG ben ngoai class chuong trinh chinh). KHONG ho tro '__tkv_import__'
     (xem extract_program) - dung transpile_file() cho file co import cheo."""
     (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em, _ep,
-     module_consts, module_globals) = extract_program(source_text)
+     module_consts, module_globals, inferred_ast_nodes_by_func) = extract_program(source_text)
     return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
                                  module_consts=module_consts, extra_classes=extra_classes,
-                                 module_globals=module_globals)
+                                 module_globals=module_globals,
+                                 inferred_ast_nodes_by_func=inferred_ast_nodes_by_func)
 
 
 def transpile_file(tkv_path, class_name='Program', with_guards=True,
@@ -1645,10 +1708,11 @@ def transpile_file(tkv_path, class_name='Program', with_guards=True,
     ho tro '__tkv_import__' (khoang trong ngon ngu #3 - import module
     TokenVector khac) qua extract_program_file()."""
     (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em, _ep,
-     module_consts, module_globals) = extract_program_file(tkv_path)
+     module_consts, module_globals, inferred_ast_nodes_by_func) = extract_program_file(tkv_path)
     return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
                                  module_consts=module_consts, extra_classes=extra_classes,
-                                 module_globals=module_globals)
+                                 module_globals=module_globals,
+                                 inferred_ast_nodes_by_func=inferred_ast_nodes_by_func)
 
 
 # ============================================================
@@ -1942,12 +2006,12 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
     goc (func_table gop CA HAI)."""
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, extern_assemblies, extern_methods, extern_pinvokes,
-     module_consts, module_globals) = extract_program_file(tkv_path)
+     module_consts, module_globals, inferred_ast_nodes_by_func) = extract_program_file(tkv_path)
     record_methods, record_method_bodies, record_methods_own = _build_record_methods(
         record_defs, record_methods_raw, record_bases=record_bases)
     record_overrides = _compute_record_overrides(record_bases, record_methods)
-    sig_body_pairs = [(parse_typed_signature(sig_line, record_names=set(record_defs)), body_lines, start_line)
-                      for sig_line, body_lines, start_line in pairs]
+    sig_body_pairs = _build_sig_body_pairs(pairs, record_defs, record_methods,
+                                            inferred_ast_nodes_by_func)
     func_table = {sig.name: sig for sig, _, _start in sig_body_pairs}
 
     if entry_name is None:

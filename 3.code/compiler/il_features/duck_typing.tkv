@@ -1,0 +1,232 @@
+"""Duck-typing qua type-inference tinh (Task 3/5, 2026-08-17, plan
+duck-typing-inference) - thu thap "interface an" tu than ham cho MOI tham
+so ham top-level mang dtype 'inferred' (xem tkv_compile.py's
+INFERRED_DTYPE_MARKER, gan boi _params_with_defaults khi allow_inferred=True
+va annotation thieu, Task 2/5).
+
+Module nay CHI lam buoc THU THAP (quet AST goc cua than ham, ghi lai CACH
+tham so 'inferred' duoc dung TRUC TIEP - doc field/goi method/toan tu nhi
+nguyen) - CHUA lam resolve tai call-site/monomorphize (Task 4). Dat CUNG
+cap voi operators.py/record_feature.py (compiler/il_features/*.py) theo
+dung de xuat Task 1 report, muc 6.
+
+Vi sao quet tren ast.FunctionDef GOC (khong phai body_lines text da dedent/
+rewrite): AST co san cau truc Attribute/Call/BinOp/Compare day du, khong can
+re-parse text qua il_core.py's _ExprParser (khac voi cach il_codegen.py xu
+ly bieu thuc luc CODEGEN, o day chi can XAC DINH HINH DANG usage, khong can
+sinh CIL) - dung dung thoi diem con AST (truoc khi _body_source_lines()
+chuyen thanh danh sach dong text trong tkv_compile.py's vong lap
+tree.body, xem _parse_program_ast)."""
+
+import ast
+
+
+class Constraint:
+    """Lop co so cho 3 dang rang buoc - dung __eq__/__hash__ mac dinh cua
+    dataclass-like tuple de _add_constraint() khu trung lap don gian (vd
+    'p.x' xuat hien 2 lan trong than ham chi ghi 1 FieldConstraint('x'))."""
+
+
+class FieldConstraint(Constraint):
+    """Tham so doc TRUC TIEP 1 thuoc tinh: 'param.field'."""
+
+    __slots__ = ('name',)
+
+    def __init__(self, name):
+        self.name = name
+
+    def __eq__(self, other):
+        return isinstance(other, FieldConstraint) and self.name == other.name
+
+    def __hash__(self):
+        return hash(('field', self.name))
+
+    def __repr__(self):
+        return f'FieldConstraint({self.name!r})'
+
+
+class MethodConstraint(Constraint):
+    """Tham so goi TRUC TIEP 1 method: 'param.method(a, b)' -> arity=2."""
+
+    __slots__ = ('name', 'arity')
+
+    def __init__(self, name, arity):
+        self.name = name
+        self.arity = arity
+
+    def __eq__(self, other):
+        return (isinstance(other, MethodConstraint) and self.name == other.name
+                and self.arity == other.arity)
+
+    def __hash__(self):
+        return hash(('method', self.name, self.arity))
+
+    def __repr__(self):
+        return f'MethodConstraint({self.name!r}, arity={self.arity})'
+
+
+class OperatorConstraint(Constraint):
+    """Tham so dung TRUC TIEP lam mot ve cua 1 toan tu nhi nguyen/so sanh:
+    'param + x' / 'x + param' / 'param == y' / ... - `op` la ky hieu toan
+    tu van ban ('+', '==', ...), KHONG phan biet ve trai/phai (ca hai deu
+    can cung 1 dunder/toan tu ho tro tai buoc resolve o Task 4)."""
+
+    __slots__ = ('op',)
+
+    def __init__(self, op):
+        self.op = op
+
+    def __eq__(self, other):
+        return isinstance(other, OperatorConstraint) and self.op == other.op
+
+    def __hash__(self):
+        return hash(('operator', self.op))
+
+    def __repr__(self):
+        return f'OperatorConstraint({self.op!r})'
+
+
+_BINOP_TO_STR = {
+    ast.Add: '+', ast.Sub: '-', ast.Mult: '*', ast.Div: '/',
+    ast.FloorDiv: '//', ast.Mod: '%', ast.Pow: '**',
+}
+
+_CMPOP_TO_STR = {
+    ast.Eq: '==', ast.NotEq: '!=', ast.Lt: '<', ast.LtE: '<=',
+    ast.Gt: '>', ast.GtE: '>=',
+}
+
+
+class _ConstraintVisitor(ast.NodeVisitor):
+    """Duyet than ham 1 lan, ghi nhan MOI usage TRUC TIEP hop le cua cac
+    tham so 'inferred' (fields/methods/operators - dung dung 3 shape brief
+    quy dinh), danh dau (qua `id(node)`, node AST khong hashable-value nhung
+    object identity la duy nhat trong 1 cay) MOI node ast.Name(param) da
+    duoc 'xu ly' boi 1 trong 3 nhanh do. Sau khi duyet xong,
+    collect_inferred_constraints() quet lai TOAN BO cay bang ast.walk() -
+    bat ky ast.Name(param, Load) nao CHUA duoc danh dau la 1 usage GIAN
+    TIEP (argument cua ham/method KHAC, chi so [], gan lai bien, ...) ->
+    raise TranspileError NGAY (dung thiet ke 'khong lan truyen')."""
+
+    def __init__(self, param_names):
+        self.param_names = param_names
+        self.constraints = {p: [] for p in param_names}
+        self.handled_ids = set()
+
+    def _add(self, param, constraint):
+        lst = self.constraints[param]
+        if constraint not in lst:
+            lst.append(constraint)
+
+    def visit_Attribute(self, node):
+        if isinstance(node.value, ast.Name) and node.value.id in self.param_names:
+            self.handled_ids.add(id(node.value))
+            self._add(node.value.id, FieldConstraint(node.attr))
+            return
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        func = node.func
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) \
+                and func.value.id in self.param_names:
+            self.handled_ids.add(id(func.value))
+            self._add(func.value.id, MethodConstraint(func.attr, len(node.args)))
+            # Van duyet tiep cac argument (co the tu chua 1 usage khac cua
+            # 1 tham so inferred KHAC - hoac usage GIAN TIEP can bi bat,
+            # vd 'p.method(q)' voi q cung la 1 tham so inferred khac -
+            # KHONG duoc coi la truc tiep, se bi flag o buoc quet cuoi).
+            for a in node.args:
+                self.visit(a)
+            for kw in node.keywords:
+                self.visit(kw.value)
+            return
+        self.generic_visit(node)
+
+    def visit_BinOp(self, node):
+        op_str = _BINOP_TO_STR.get(type(node.op))
+        left_is_param = isinstance(node.left, ast.Name) and node.left.id in self.param_names
+        right_is_param = isinstance(node.right, ast.Name) and node.right.id in self.param_names
+        if op_str and (left_is_param or right_is_param):
+            if left_is_param:
+                self.handled_ids.add(id(node.left))
+                self._add(node.left.id, OperatorConstraint(op_str))
+            else:
+                self.visit(node.left)
+            if right_is_param:
+                self.handled_ids.add(id(node.right))
+                self._add(node.right.id, OperatorConstraint(op_str))
+            else:
+                self.visit(node.right)
+            return
+        self.generic_visit(node)
+
+    def visit_Compare(self, node):
+        operands = [node.left] + list(node.comparators)
+        for op, a, b in zip(node.ops, operands, operands[1:]):
+            op_str = _CMPOP_TO_STR.get(type(op))
+            if op_str is None:
+                continue
+            if isinstance(a, ast.Name) and a.id in self.param_names:
+                self.handled_ids.add(id(a))
+                self._add(a.id, OperatorConstraint(op_str))
+            if isinstance(b, ast.Name) and b.id in self.param_names:
+                self.handled_ids.add(id(b))
+                self._add(b.id, OperatorConstraint(op_str))
+        for operand in operands:
+            if not (isinstance(operand, ast.Name) and operand.id in self.param_names):
+                self.visit(operand)
+
+
+def collect_inferred_constraints(sig, func_node_ast, records, record_methods):
+    """sig: Signature DA parse (typed_dsl_parser.py) cua CHINH ham
+    func_node_ast - dung de xac dinh tham so nao dtype == 'inferred'
+    (INFERRED_DTYPE_MARKER, gan boi tkv_compile.py's _params_with_defaults
+    khi allow_inferred=True). func_node_ast: ast.FunctionDef/AsyncFunctionDef
+    GOC cua CHINH ham do (truoc khi chuyen sang body_lines text).
+
+    records/record_methods: NHAN de khop dung chu ky brief (Task 1 report,
+    muc 6) - o buoc THU THAP nay CHUA can dung toi (khong resolve kieu cu
+    the, chi ghi lai HINH DANG usage) - viec kiem tra field/method/toan tu
+    do co ton tai tren 1 kieu CU THE nao khong la viec cua Task 4's
+    resolve_call_site(), tai dung dung co che tra cuu dunder cua
+    operators.py's compile_binop/compile_compare (xem Task 1 report muc 4).
+    Giu tham so o day de khong phai doi chu ky khi Task 4 can mo rong
+    (vd validate ten field/method KHONG rong ngay luc collect).
+
+    Tra ve: dict[param_name(str), list[Constraint]] - CHI gom cac tham so
+    co dtype == 'inferred' trong `sig`. Tham so inferred KHONG dung usage
+    truc tiep hop le nao van co mat trong dict voi list RONG (vd tham so
+    inferred nhung khong dung gi trong than ham - hop le, se khong resolve
+    duoc gi o Task 4 nhung khong phai loi o day).
+
+    raise: TranspileError (lazy-import tu tkv_compile de tranh circular
+    import - module nay duoc tkv_compile.py import o muc module-level,
+    xem ghi chu dau file) NGAY khi gap 1 usage ast.Name(param, Load) KHONG
+    thuoc 3 shape truc tiep (field/method/operator) - vd tham so truyen lam
+    argument cua 1 loi goi ham/method KHAC, dung lam chi so 'param[i]', hoac
+    gan lai 'x = param' roi dung 'x' thay the."""
+    from tkv_compile import TranspileError  # tranh circular import (xem docstring)
+
+    inferred_params = {p.name for p in sig.params
+                        if p.type_ann is not None and p.type_ann.dtype == 'inferred'}
+    if not inferred_params:
+        return {}
+
+    visitor = _ConstraintVisitor(inferred_params)
+    for stmt in func_node_ast.body:
+        visitor.visit(stmt)
+
+    for node in ast.walk(func_node_ast):
+        if isinstance(node, ast.Name) and node.id in inferred_params \
+                and isinstance(node.ctx, ast.Load) and id(node) not in visitor.handled_ids:
+            raise TranspileError(
+                f"ham '{sig.name}': tham so '{node.id}' (dtype 'inferred', suy kieu qua "
+                f"cach dung) o dong ~{getattr(node, 'lineno', '?')} dung theo cach GIAN TIEP "
+                f"khong suy duoc kieu (vd truyen lam argument cho 1 loi goi ham/method KHAC, "
+                f"dung lam chi so 'param[i]', hoac gan lai 'x = param' roi dung 'x' thay the) - "
+                f"chi ho tro dung TRUC TIEP: doc thuoc tinh 'param.field', goi method "
+                f"'param.method(...)', hoac toan tu nhi nguyen/so sanh 'param + x'/'param == x'. "
+                f"Neu can dung theo cach khac, khai kieu tuong minh cho tham so nay thay vi de "
+                f"trong (bo annotation).")
+
+    return visitor.constraints
