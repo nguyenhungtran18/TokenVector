@@ -317,7 +317,7 @@ def mangle_name(func_name, concrete_types):
     'inferred'. Tra ve 1 ten ham MOI, DUY NHAT cho tung to hop (func_name,
     concrete_types) - dung lam '.name' cua Signature monomorphize VA lam
     khoa cache (cung voi func_name) trong _expr_call/il_codegen.py."""
-    return f'{func_name}$T${"_".join(concrete_types)}'
+    return f'{func_name}$T${"$".join(concrete_types)}'
 
 
 def _ancestors(record_bases, type_name):

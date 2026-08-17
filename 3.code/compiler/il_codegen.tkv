@@ -4089,7 +4089,10 @@ def _max_stack_for(body):
 def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict = None,
                                class_name: str = None, records: dict = None,
                                record_methods: dict = None, record_bases: dict = None,
-                               extra_classes: list = None, emitted_types: set = None) -> list:
+                               extra_classes: list = None, emitted_types: set = None,
+                               monomorphize_cache: dict = None,
+                               pending_monomorphize: list = None,
+                               monomorphize_body_of: dict = None) -> list:
     """Sinh 1 GENERATOR LAZY THAT (Wave 3, 2026-07-29 - thay the hoan toan
     B2(c)'s eager-list desugar, xem project-tokenvector-wave2-status
     memory) - than ham 'def gen(...): ... yield x ...' tro thanh 1 '.class'
@@ -4186,6 +4189,9 @@ def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict
            'gen_il_function': gen_il_function,
            'extra_classes': extra_classes if extra_classes is not None else [],
            'emitted_types': emitted_types if emitted_types is not None else set(),
+           'monomorphize_cache': monomorphize_cache if monomorphize_cache is not None else {},
+           'pending_monomorphize': pending_monomorphize if pending_monomorphize is not None else [],
+           'monomorphize_body_of': monomorphize_body_of if monomorphize_body_of is not None else {},
            'gen_ctx': gen_ctx}
 
     body_code = []
@@ -4448,7 +4454,10 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
             all_lines.extend(gen_il_generator_function(
                 sig, body_lines, func_table=func_table, class_name=class_name,
                 records=records, record_methods=record_methods, record_bases=record_bases,
-                extra_classes=extra_classes, emitted_types=emitted_types))
+                extra_classes=extra_classes, emitted_types=emitted_types,
+                monomorphize_cache=monomorphize_cache,
+                pending_monomorphize=pending_monomorphize,
+                monomorphize_body_of=monomorphize_body_of))
         else:
             all_lines.extend(gen_il_function(sig, body_lines, with_guards=with_guards,
                                               func_table=func_table, class_name=class_name,

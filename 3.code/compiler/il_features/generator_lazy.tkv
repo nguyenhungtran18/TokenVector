@@ -133,6 +133,11 @@ def fpw_for_in_generator(stmt, ctx):
             f"goi TRUC TIEP 1 ham generator, khong ho tro list/dict thuong o day (gan ra 1 bien "
             f"roi 'for x in bien:' voi list/dict thuong)")
     callee = func_table[callee_name]
+    if any(p.type_ann is not None and p.type_ann.dtype == 'inferred' for p in callee.params):
+        raise SyntaxError(
+            f"il_codegen: goi ham-generator '{callee_name}' co tham so kieu suy tu dong "
+            f"'inferred' qua 'for {stmt['var']} in {callee_name}(...):' chua duoc ho tro "
+            f"(gioi han da biet - dung tham so kieu cu the cho ham generator goi qua 'for...in')")
     TypeAnn = ctx['TypeAnn']
     ctx['declare_named'](stmt['var'], TypeAnn(callee.generator_elem_dtype, None))
     ctx['declare_named'](f'__geniter{id(stmt)}', TypeAnn(callee.generator_class_name, 'generator'))
