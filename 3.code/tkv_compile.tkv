@@ -911,6 +911,87 @@ def _make_extern_static_call_codegen(assembly, dotnet_class, method_name,
     return _codegen
 
 
+_EXTERN_CONVENTIONS = {'cdecl', 'stdcall'}
+
+
+def _make_extern_pinvoke_call_codegen(hidden_name, param_dtypes, return_dtype):
+    """Task 3 (2026-08-17, __tkv_extern_pinvoke__): goi hidden method
+    pinvokeimpl BEN TRONG class chuong trinh hien tai (khac
+    _make_extern_static_call_codegen goi [assembly]class ben ngoai).
+    return_dtype co the la None (ham void)."""
+    il_param_types = [_EXTERN_DTYPE_TO_IL[d] for d in param_dtypes]
+    il_ret_type = 'void' if return_dtype is None else _EXTERN_DTYPE_TO_IL[return_dtype]
+
+    def _class_name(ctx):
+        return (ctx or {}).get('class_name') or 'Program'
+
+    def _codegen(args, scope, out, dtype, ctx):
+        if len(args) != len(param_dtypes):
+            raise SyntaxError(
+                f"il_codegen: '{hidden_name}' (extern pinvoke) can dung "
+                f"{len(param_dtypes)} tham so, duoc goi voi {len(args)}")
+        compile_expr = ctx['compile_expr']
+        for arg_node, want_dtype in zip(args, param_dtypes):
+            compile_expr(arg_node, scope, out, want_dtype, ctx)
+        out.append(f'    call {il_ret_type} {_class_name(ctx)}::{hidden_name}'
+                    f'({", ".join(il_param_types)})')
+    return _codegen
+
+
+_EXTERN_DLL_NAME_RE = re.compile(r'^[\w\-. ]+\.dll$')
+_EXTERN_SYMBOL_NAME_RE = re.compile(r'^[A-Za-z_]\w*$')
+
+
+def _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines_out):
+    """Task 3 (2026-08-17, __tkv_extern_pinvoke__): validate 6 buoc, roi
+    sinh hidden method '__pinvoke_{name}' + dang ky builtin (returns='void'
+    -> return_dtype=None, KHAC Phase 1)."""
+    name = decl['name']
+    dll = decl['dll']
+    symbol = decl['symbol']
+    convention = decl['convention']
+    params = decl['params']
+    returns = decl['returns']
+
+    if not _EXTERN_DLL_NAME_RE.match(dll):
+        raise TranspileError(
+            f"__tkv_extern_pinvoke__ '{name}': 'dll' = {dll!r} khong phai ten file .dll hop le "
+            f"(vd 'msvcrt.dll' - chu/so/gach duoi/gach ngang/dau cham/khoang trang, phai ket "
+            f"thuc '.dll', khong duoc chua duong dan)")
+    if not _EXTERN_SYMBOL_NAME_RE.match(symbol):
+        raise TranspileError(
+            f"__tkv_extern_pinvoke__ '{name}': 'symbol' = {symbol!r} khong phai identifier C "
+            f"hop le (vd 'sqrt')")
+    if convention not in _EXTERN_CONVENTIONS:
+        raise TranspileError(
+            f"__tkv_extern_pinvoke__ '{name}': 'convention' = {convention!r} khong hop le - "
+            f"chi ho tro {sorted(_EXTERN_CONVENTIONS)}")
+    for i, p in enumerate(params):
+        if p not in _EXTERN_DTYPE_TO_IL:
+            raise TranspileError(
+                f"__tkv_extern_pinvoke__ '{name}': params[{i}] = {p!r} khong phai dtype hop le - "
+                f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)}")
+    if returns != 'void' and returns not in _EXTERN_DTYPE_TO_IL:
+        raise TranspileError(
+            f"__tkv_extern_pinvoke__ '{name}': returns = {returns!r} khong phai dtype hop le - "
+            f"chi ho tro 'void' hoac {sorted(_EXTERN_DTYPE_TO_IL)}")
+    if not name.isidentifier():
+        raise TranspileError(
+            f"__tkv_extern_pinvoke__: 'name' = {name!r} khong phai identifier hop le")
+
+    hidden_name = f'__pinvoke_{name}'
+    return_dtype = None if returns == 'void' else returns
+    il_ret_type = 'void' if return_dtype is None else _EXTERN_DTYPE_TO_IL[return_dtype]
+    il_param_types = [_EXTERN_DTYPE_TO_IL[p] for p in params]
+    il_param_list = ', '.join(il_param_types)
+    pinvoke_decl_lines_out.append(
+        f'.method public hidebysig static pinvokeimpl("{dll}" as "{symbol}" {convention})\n'
+        f'    {il_ret_type} {hidden_name}({il_param_list}) cil managed preservesig {{}}')
+
+    codegen_fn = _make_extern_pinvoke_call_codegen(hidden_name, params, return_dtype)
+    register_expr_builtin(name, codegen_fn, return_dtype)
+
+
 def _validate_and_register_extern_method(decl, declared_assembly_names):
     """Task 3 (2026-08-14): validate 1 decl da parse SHAPE boi
     _parse_extern_method_dict_literal, roi dang ky dong qua
@@ -1860,10 +1941,18 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
     declared_assembly_names = ({asm_name for asm_name, _pkt, _ver in extern_assemblies} |
                                 _DEFAULT_GAC_ASSEMBLIES)
     registered_extern_names = []
+    pinvoke_decl_lines = []
+    registered_pinvoke_names = []
     try:
         for decl in extern_methods:
             _validate_and_register_extern_method(decl, declared_assembly_names)
             registered_extern_names.append(decl['name'])
+
+        # Task 3 (2026-08-17, __tkv_extern_pinvoke__): dang ky dong CAC
+        # builtin pinvoke - CUNG khoi try/finally voi extern_methods o tren.
+        for decl in extern_pinvokes:
+            _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines)
+            registered_pinvoke_names.append(decl['name'])
 
         # extra_classes (Buoc 4 - closure that, 2026-07-29): OUT-parameter cua
         # gen_il_program - moi 'def long' trong chuong trinh se append vao day
@@ -1966,6 +2055,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             # --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Injection ---
             + '\n'.join(cjson_decl_lines) + ('\n' if cjson_decl_lines else '')
             # --- END GEMINI ADDED CODE ---
+            + '\n'.join(pinvoke_decl_lines) + ('\n' if pinvoke_decl_lines else '')
             + '}\n'
         )
         # Di qua assemble_il_to_exe (tokenvector_compile.py) chu khong tu goi
@@ -1977,6 +2067,9 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             raise CliError(str(e))
     finally:
         for _nm in registered_extern_names:
+            EXPR_BUILTIN_CODEGEN.pop(_nm, None)
+            EXPR_BUILTIN_DTYPE.pop(_nm, None)
+        for _nm in registered_pinvoke_names:
             EXPR_BUILTIN_CODEGEN.pop(_nm, None)
             EXPR_BUILTIN_DTYPE.pop(_nm, None)
 

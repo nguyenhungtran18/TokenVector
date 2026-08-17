@@ -9,7 +9,8 @@ _lp_call_stmt/_CALL_STMT_RE o core), va 2 nhanh read_file/file_exists
 long trong tag 'call' dung chung o core (goi lai qua ham rieng, giong
 str() cua string_feature.py). Quy uoc dependency-injection qua `ctx`
 nhu cac buoc truoc."""
-from il_dispatch import register_stmt_codegen, register_expr_builtin
+from il_dispatch import (register_stmt_codegen, register_expr_builtin,
+                          EXPR_BUILTIN_CODEGEN, EXPR_BUILTIN_DTYPE)
 # logging/pickle (Phase 4 backlog, phien 5, 2026-08-11) - nhap KHONG TRE
 # o day (khong phai trong ham) de dam bao register_expr_builtin ben
 # trong pickle_feature.py (cho pickle_load_X) LUON chay du chuong trinh
@@ -105,14 +106,17 @@ def codegen_call_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
         # seed(n) (batch 5.5, 2026-08-12) - xem il_features/stdlib_random.py.
         # Ham VOID, dispatch qua day giong log_X/pickle_dump_X/sys_exit.
         _stdlib_random.RANDOM_STMT_CODEGEN[name](call_args, scope, body, ctx)
+    elif name in EXPR_BUILTIN_CODEGEN:
+        # Task 3 (2026-08-17, __tkv_extern_pinvoke__) - builtin dang ky qua
+        # register_expr_builtin (Phase 1/2 cac pragma extern) truoc day CHI
+        # goi duoc trong BIEU THUC, khong goi duoc DANG LENH DOC LAP. Nhanh
+        # nay dat SAU 4 bang builtin void rieng o tren, TRUOC nhanh else.
+        codegen_fn = EXPR_BUILTIN_CODEGEN[name]
+        return_dtype = EXPR_BUILTIN_DTYPE.get(name)
+        codegen_fn(call_args, scope, body, return_dtype, ctx)
+        if return_dtype is not None:
+            body.append('    pop')
     else:
-        from il_dispatch import EXPR_BUILTIN_DTYPE
-        if name in EXPR_BUILTIN_DTYPE:
-            ret_dtype = EXPR_BUILTIN_DTYPE[name]
-            compile_expr(stmt['call_node'], scope, body, ret_dtype, ctx)
-            if ret_dtype and ret_dtype != 'void':
-                body.append('    pop')
-            return
         func_table = (ctx or {}).get('func_table') or {}
         sig = func_table.get(name)
         if sig is None:
