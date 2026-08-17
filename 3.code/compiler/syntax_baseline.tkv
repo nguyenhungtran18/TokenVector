@@ -510,6 +510,7 @@ class _BaselineVisitor(ast.NodeVisitor):
     # 'dict literal with content') cho gia tri cua chung.
     _PRAGMA_ASSIGN_NAMES = frozenset({
         '__tkv_import__', '__tkv_extern_assembly__', '__tkv_extern_method__',
+        '__tkv_extern_pinvoke__',
     })
 
     def visit_Assign(self, node):
