@@ -146,6 +146,14 @@ _SUGGESTIONS = {
 _SUPPORTED_AUGASSIGN_OPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod)
 
 
+# Field ten KHONG duoc hoist qua 'expr_hoist.py' (cu phap kich thuoc mang
+# dac biet 'a.shape[0]', bien luc bien dich) - khop
+# 'expr_hoist.py:_NO_HOIST_FIELDS'. Dung trong '_collect_exempt_attr_chains'
+# de loai tru field nay khoi mien tru "nested attribute" (Critical-2
+# finding 1).
+_NO_HOIST_FIELDS = ('shape',)
+
+
 def _is_items_call(node):
     """True neu node la 'ast.Call' dang '<expr>.items()' (khong tham so) -
     ngoai le DUY NHAT cho phep tuple-unpack 'for k, v in d.items():'
@@ -156,33 +164,53 @@ def _is_items_call(node):
             and not node.args and not node.keywords)
 
 
-def _is_enumerate_call(node):
+def _is_enumerate_call(node, target):
     """True neu node la 'enumerate(ten)' - 1 doi so DUY NHAT la 1 TEN
     (khop '_FOR_ENUMERATE_RE', stdlib_itertools.py:19) - ngoai le THEM
     cho tuple-unpack 'for i, x in enumerate(lst):' (Task 4, phat hien
-    qua regression - Task 1 bo sot macro text-level nay)."""
+    qua regression - Task 1 bo sot macro text-level nay).
+
+    Sua Critical-2 finding 3 (review sau Task 4): '_FOR_ENUMERATE_RE' khop
+    CHUNG DUNG 2 target ('(\\w+)\\s*,\\s*(\\w+)') - 'for i, x, y in
+    enumerate(a):' (3 target) KHONG khop regex do, compiler tu choi that
+    su. Vi vay them dieu kien 'target' (ve trai cua 'for') PHAI la
+    'ast.Tuple' voi DUNG 2 phan tu."""
     return (isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name) and node.func.id == 'enumerate'
             and len(node.args) == 1 and isinstance(node.args[0], ast.Name)
-            and not node.keywords)
+            and not node.keywords
+            and isinstance(target, ast.Tuple) and len(target.elts) == 2)
 
 
-def _is_zip_call(node):
+def _is_zip_call(node, target):
     """True neu node la 'zip(ten1, ten2, ...)' - MOI doi so la 1 TEN
     (khop '_FOR_ZIP_RE', stdlib_itertools.py:45) - ngoai le THEM cho
-    tuple-unpack 'for a, b, ... in zip(lst1, lst2, ...):' (Task 4)."""
+    tuple-unpack 'for a, b, ... in zip(lst1, lst2, ...):' (Task 4).
+
+    Sua Critical-2 finding 3: 'try_expand_for_zip' (stdlib_itertools.py:68)
+    tu choi ('return None' - khong mo rong macro) khi 'len(var_names) !=
+    len(list_names)' HOAC 'len(list_names) < 2' - vi du 'for x, y in
+    zip(a):' (1 list, 2 target) hay 'for x, y, z in zip(a, b):' (2 list, 3
+    target) deu KHONG duoc ho tro thuc su. Vi vay them dieu kien so khop
+    CHINH XAC giua so doi so 'zip(...)' va so phan tu cua 'target' (tuple
+    ve trai 'for'), VA it nhat 2 doi so."""
     return (isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name) and node.func.id == 'zip'
-            and len(node.args) >= 1
+            and len(node.args) >= 2
             and all(isinstance(a, ast.Name) for a in node.args)
-            and not node.keywords)
+            and not node.keywords
+            and isinstance(target, ast.Tuple)
+            and len(target.elts) == len(node.args))
 
 
-def _is_exempt_tuple_unpack_iter(node):
+def _is_exempt_tuple_unpack_iter(node, target):
     """True neu 'node' (bieu thuc 've phai cua for') la 1 trong 3 shape
     macro text-level THUC SU ho tro tuple-unpack (Task 4): '.items()',
-    'enumerate(ten)', 'zip(ten1, ten2, ...)'."""
-    return _is_items_call(node) or _is_enumerate_call(node) or _is_zip_call(node)
+    'enumerate(ten)', 'zip(ten1, ten2, ...)'. 'target' la 've trai cua
+    for' (node.target cua 'ast.For') - can de xac nhan dung so luong bien
+    dich (Critical-2 finding 3)."""
+    return (_is_items_call(node) or _is_enumerate_call(node, target)
+            or _is_zip_call(node, target))
 
 
 def _is_valid_toplevel_decorator_shape(deco_func_name, module_body):
@@ -212,24 +240,80 @@ def _is_valid_toplevel_decorator_shape(deco_func_name, module_body):
 
 
 def _collect_exempt_attr_chains(tree):
-    """Quet TOAN BO cay 1 lan, tra ve set id() cua cac 'ast.Attribute'
+    """Quet TOAN BO cay, tra ve set id() cua cac 'ast.Attribute'
     chuoi-2-tang (`ten.field1.field2`, base la 1 TEN DON) dang duoc dung
     LAM DOI TUONG NHAN cua 1 loi goi method (`....(`) hoac 1 chi so
     (`....[`) - khop dung shape ma `_hoist_attr_receiver`/
     `_hoist_attr_index` (il_features/expr_hoist.py) THUC SU ho tro (Task
     4, phat hien qua regression). Doc field THUAN TUY (khong goi/khong
     chi so) hoac chuoi 3+ tang KHONG duoc mien tru - van bi chan dung
-    (xac nhan qua spike that: `SyntaxError` tu compiler)."""
+    (xac nhan qua spike that: `SyntaxError` tu compiler).
+
+    Sua Critical-2 finding 1 (review sau Task 4, xac nhan qua compile
+    THAT): 'try_expand_expr_hoist' (expr_hoist.py:151-153) TU CHOI hoist
+    khi dong la HEADER cua 1 khoi ('if'/'while'/'elif'/'with'/'else'/
+    'try'/'except'/'finally') - vi bien tam phai dat o dong TRUOC, nhung
+    header khoi khong the "tach" nhu vay. Vi vay CAN biet ngu canh
+    statement chua attribute chain (KHONG chi doc AST phang qua
+    'ast.walk' nhu truoc) - dung 1 lan quet de quy TU VIET, danh dau
+    header=True cho: 'test' cua 'ast.If'/'ast.While', 'context_expr' cua
+    moi 'ast.withitem' trong 'ast.With', va 'type' cua moi
+    'ast.ExceptHandler'. Node nam trong 'header=True' se KHONG duoc mien
+    tru (van bi flag 'nested attribute').
+
+    Cung sua: field ten 'shape' (vd 'b.a.shape[0]') KHONG duoc mien tru
+    du dung LAM chi so/doi tuong nhan - 'expr_hoist.py'
+    '_NO_HOIST_FIELDS = (\\'shape\\',)' tu choi hoist rieng cho field nay
+    (cu phap kich thuoc mang dac biet, biet luc bien dich) - khong duoc
+    ho tro qua duong vong hoist."""
     exempt = set()
-    for node in ast.walk(tree):
+
+    def visit(node, header):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             f = node.func
-            if isinstance(f.value, ast.Attribute) and isinstance(f.value.value, ast.Name):
+            if (not header and isinstance(f.value, ast.Attribute)
+                    and isinstance(f.value.value, ast.Name)
+                    and f.value.attr not in _NO_HOIST_FIELDS):
                 exempt.add(id(f))
         elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute):
             v = node.value
-            if isinstance(v.value, ast.Attribute) and isinstance(v.value.value, ast.Name):
+            if (not header and isinstance(v.value, ast.Attribute)
+                    and isinstance(v.value.value, ast.Name)
+                    and v.attr not in _NO_HOIST_FIELDS):
                 exempt.add(id(v))
+
+        if isinstance(node, (ast.If, ast.While)):
+            visit(node.test, True)
+            for stmt in node.body:
+                visit(stmt, False)
+            for stmt in node.orelse:
+                visit(stmt, False)
+            return
+        if isinstance(node, ast.With):
+            for item in node.items:
+                visit(item.context_expr, True)
+                if item.optional_vars is not None:
+                    visit(item.optional_vars, False)
+            for stmt in node.body:
+                visit(stmt, False)
+            return
+        if isinstance(node, ast.Try):
+            for stmt in node.body:
+                visit(stmt, False)
+            for handler in node.handlers:
+                if handler.type is not None:
+                    visit(handler.type, True)
+                for stmt in handler.body:
+                    visit(stmt, False)
+            for stmt in node.orelse:
+                visit(stmt, False)
+            for stmt in node.finalbody:
+                visit(stmt, False)
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child, header)
+
+    visit(tree, False)
     return exempt
 
 
@@ -265,6 +349,18 @@ def _collect_exempt_comprehensions(tree):
                 and isinstance(node.targets[0], ast.Name)):
             continue
         val = node.value
+        # Critical-2 finding 2 (review sau Task 4, xac nhan qua compile
+        # THAT): macro 'comprehension.py' khop CHI 1 DONG VAN BAN VAT LY
+        # ('_LIST_COMP_OUTER_RE'/'_DICT_COMP_OUTER_RE' dang '^...$', khong
+        # co 'DOTALL'/multiline) - comprehension TRAI DAI NHIEU dong
+        # (vd 'ys = [\n    x * 2 for x in xs\n]') KHONG khop, macro tu
+        # choi mo rong, compiler bao loi that. AST thuan khong phan biet 1
+        # dong hay nhieu dong nen phai kiem tra rieng qua 'end_lineno'
+        # (Python 3.8+): comprehension CHI duoc mien tru khi 'lineno' cua
+        # bieu thuc comprehension bang 'end_lineno' cua no (nam tron ven
+        # tren 1 dong).
+        if val.lineno != getattr(val, 'end_lineno', val.lineno):
+            continue
         if isinstance(val, ast.ListComp) and len(val.generators) == 1 \
                 and _comp_generator_ok(val.generators[0], allow_tuple_target=False):
             exempt.add(id(val))
@@ -280,11 +376,32 @@ def _collect_exempt_comprehensions(tree):
 _FSTRING_SPEC_RE = re.compile(r'^\.\d+f$')
 
 
+def _fstring_uses_single_quote(seg):
+    """True neu doan van ban goc cua 1 f-string ('_tkv_src_seg', doc qua
+    'ast.get_source_segment') bat dau bang nhay DON ('f\\'...\\'') thay vi
+    nhay KEP ('f"..."'). Bo qua tien to 'r'/'R' (raw, hiem gap chung voi
+    f-string trong DSL nay nhung xu ly cho chac) truoc ky tu 'f'/'F'.
+    Tra ve False neu khong doc duoc doan van ban goc (an toan - khong bi
+    flag oan neu khong the xac dinh, tranh false-positive)."""
+    if not seg:
+        return False
+    i = 0
+    while i < len(seg) and seg[i] in 'fFrR':
+        i += 1
+    return i < len(seg) and seg[i] == "'"
+
+
 def _is_exempt_fstring(node):
     """True neu 'ast.JoinedStr' khop dung gioi han ho tro cua macro
     text-level 'fstring.py' (Task 4, phat hien qua regression): MOI
     'ast.FormattedValue' ben trong CHI chua 1 IDENT tran ('ast.Name'),
-    format spec (neu co) la 1 hang so dang '.Nf' (N la 1+ chu so)."""
+    format spec (neu co) la 1 hang so dang '.Nf' (N la 1+ chu so).
+
+    Critical-2 finding 4: cung doi hoi doan van ban goc (neu doc duoc qua
+    '_tkv_src_seg', xem '_annotate_source_segments') KHONG bat dau bang
+    nhay don ('f\\'...\\'') - macro 'fstring.py' CHI trigger tren 'f"'."""
+    if _fstring_uses_single_quote(getattr(node, '_tkv_src_seg', None)):
+        return False
     spec_re = _FSTRING_SPEC_RE
     for part in node.values:
         if not isinstance(part, ast.FormattedValue):
@@ -432,7 +549,7 @@ class _BaselineVisitor(ast.NodeVisitor):
         if isinstance(node.target, ast.Tuple):
             is_known_items_var = (isinstance(node.iter, ast.Name)
                                    and node.iter.id in self._known_items_vars)
-            if not (_is_exempt_tuple_unpack_iter(node.iter) or is_known_items_var):
+            if not (_is_exempt_tuple_unpack_iter(node.iter, node.target) or is_known_items_var):
                 self._flag(node, 'tuple-unpack in for-loop (for a, b in ...)')
         self.generic_visit(node)
 
@@ -566,10 +683,26 @@ def _annotate_source_segments(tree, source_text):
     """Gan '_tkv_src_seg' cho moi 'ast.Constant' so (int/float) bang
     'ast.get_source_segment', de _BaselineVisitor.visit_Constant phat hien
     dung dang literal dac biet (1e10/0x1F/1_000) ma khong the phan biet
-    qua gia tri Python thuan tuy (repr() mat thong tin format goc)."""
+    qua gia tri Python thuan tuy (repr() mat thong tin format goc).
+
+    Cung gan '_tkv_src_seg' cho moi 'ast.JoinedStr' (f-string) - Critical-2
+    finding 4 (review sau Task 4): sau khi 'ast.parse', 'f"..."' va
+    'f\\'...\\'' deu ra CUNG 1 dang 'ast.JoinedStr' (AST khong giu lai nhay
+    don/nhay kep goc) - nhung macro text-level THAT ('fstring.py') CHI
+    trigger tren 'f"' (nhay KEP, xem 'try_expand_fstring' - kiem tra ky
+    tu ke tiep la '\"'); 'f\\'...\\' ' (nhay don) KHONG duoc mo rong, bi
+    compiler bao loi that. Doc lai SOURCE TEXT goc qua 'get_source_segment'
+    la cach DUY NHAT phan biet duoc 2 dang nay tu AST."""
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) \
                 and not isinstance(node.value, bool):
+            try:
+                seg = ast.get_source_segment(source_text, node)
+            except Exception:
+                seg = None
+            if seg is not None:
+                node._tkv_src_seg = seg
+        elif isinstance(node, ast.JoinedStr):
             try:
                 seg = ast.get_source_segment(source_text, node)
             except Exception:
