@@ -22,9 +22,11 @@ import ast
 
 
 class Constraint:
-    """Lop co so cho 3 dang rang buoc - dung __eq__/__hash__ mac dinh cua
-    dataclass-like tuple de _add_constraint() khu trung lap don gian (vd
-    'p.x' xuat hien 2 lan trong than ham chi ghi 1 FieldConstraint('x'))."""
+    """Lop co so cho 3 dang rang buoc - MOI subclass (FieldConstraint/
+    MethodConstraint/OperatorConstraint) TU VIET __eq__/__hash__ rieng
+    (KHONG phai __eq__/__hash__ mac dinh cua dataclass-like tuple) de
+    _add_constraint() khu trung lap don gian (vd 'p.x' xuat hien 2 lan
+    trong than ham chi ghi 1 FieldConstraint('x'))."""
 
 
 class FieldConstraint(Constraint):
@@ -119,6 +121,22 @@ class _ConstraintVisitor(ast.NodeVisitor):
             lst.append(constraint)
 
     def visit_Attribute(self, node):
+        # 'param.field' (doc, ctx=Load) VA 'param.field = x' (ghi, ctx=Store)
+        # deu duoc coi la FieldConstraint('field') GIONG NHAU - buoc THU
+        # THAP nay khong phan biet field CO THE GHI duoc hay khong (chi can
+        # field TON TAI tren kieu cu the, Task 4's resolve_call_site() se
+        # tu quyet dinh gan duoc hay khong). Luu y: day la Attribute node
+        # (node.value la Name(param)) - KHAC voi ast.Name(param, ctx=Store)
+        # o collect_inferred_constraints() (gan lai CHINH bien param, vd
+        # 'param = x') - truong hop do van bi raise, KHONG duoc lan voi
+        # truong hop field-write hop le nay.
+        #
+        # Chi field TANG 1 ('param.field') duoc bat truc tiep o day - field
+        # LONG NHAU ('param.field.sub') CHI dung lai o '.field' (FieldConstraint
+        # 'field'), phan '.sub' KHONG duoc phan tich them o buoc THU THAP
+        # nay (day la HANH VI CO Y, khong phai thieu sot: '.sub' se duoc
+        # resolve tren KIEU CUA field do o Task 4, sau khi kieu cu the cua
+        # 'field' da xac dinh).
         if isinstance(node.value, ast.Name) and node.value.id in self.param_names:
             self.handled_ids.add(id(node.value))
             self._add(node.value.id, FieldConstraint(node.attr))
@@ -130,7 +148,13 @@ class _ConstraintVisitor(ast.NodeVisitor):
         if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) \
                 and func.value.id in self.param_names:
             self.handled_ids.add(id(func.value))
-            self._add(func.value.id, MethodConstraint(func.attr, len(node.args)))
+            # arity gom CA node.args LAN node.keywords (vd 'p.m(1, k=2)' ->
+            # arity=2) - Task 4 chi can so luong tham so TRUYEN VAO de doi
+            # chieu voi method that; validate rieng ten keyword co khop
+            # tham so cua method that hay khong la pham vi cua Task 4's
+            # resolve_call_site(), khong phai buoc THU THAP nay.
+            self._add(func.value.id,
+                      MethodConstraint(func.attr, len(node.args) + len(node.keywords)))
             # Van duyet tiep cac argument (co the tu chua 1 usage khac cua
             # 1 tham so inferred KHAC - hoac usage GIAN TIEP can bi bat,
             # vd 'p.method(q)' voi q cung la 1 tham so inferred khac -
@@ -215,6 +239,48 @@ def collect_inferred_constraints(sig, func_node_ast, records, record_methods):
     visitor = _ConstraintVisitor(inferred_params)
     for stmt in func_node_ast.body:
         visitor.visit(stmt)
+
+    # Gan lai/xoa CHINH bien tham so ('param = x' hoac 'del param') - ctx
+    # Store/Del cua ast.Name(param) - KHONG duoc bo qua nhu truoc (truoc day
+    # chi loc ctx=Load nen 'param = 5; return param + 1' bi ghi nhan SAI
+    # OperatorConstraint('+') cua int 5 thay vi cua tham so, va 'param += 1'
+    # bi nuot hoan toan khong raise). Day la 1 dang usage GIAN TIEP (redefine/
+    # shadow bien) - raise NGAY, thong diep RIENG de khong lan voi cac usage
+    # gian tiep khac. LUU Y PHAN BIET: day la ast.Name('param', Store) (gan
+    # lai CHINH bien) - KHAC HOAN TOAN voi ast.Attribute(value=Name('param'),
+    # attr='f', ctx=Store) (gan vao FIELD cua param, vd 'param.f = 1') - truong
+    # hop field-write van HOP LE (FieldConstraint, xem visit_Attribute), vi
+    # node.value (Name('param')) trong Attribute do co ctx=Load, KHONG phai
+    # Store, nen KHONG bi bat boi vong nay.
+    # AugAssign tren CHINH tham so ('param += x', 'param -= x', ...) duoc
+    # kiem tra TRUOC vong Store/Del ben duoi (target cua AugAssign cung la
+    # ast.Name(param, ctx=Store) ve mat ky thuat) de thong diep loi RO RANG
+    # hon (khac voi gan lai binh thuong) - nguoi dung hieu DUNG nguyen nhan
+    # la "augmented assign chua ho tro" chu khong nham voi "truyen vao ham
+    # khac" hay "gan lai binh thuong".
+    augassign_target_ids = set()
+    for node in ast.walk(func_node_ast):
+        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name) \
+                and node.target.id in inferred_params:
+            augassign_target_ids.add(id(node.target))
+            raise TranspileError(
+                f"ham '{sig.name}': tham so '{node.target.id}' (dtype 'inferred', suy kieu qua "
+                f"cach dung) dung augmented assign ('param += x' hoac tuong tu) o dong "
+                f"~{getattr(node, 'lineno', '?')} - augmented assign tren tham so kieu suy tu "
+                f"dong (inferred) CHUA duoc ho tro. Neu can gan lai gia tri, khai kieu tuong "
+                f"minh cho tham so nay thay vi de trong (bo annotation).")
+
+    for node in ast.walk(func_node_ast):
+        if isinstance(node, ast.Name) and node.id in inferred_params \
+                and isinstance(node.ctx, (ast.Store, ast.Del)) \
+                and id(node) not in augassign_target_ids:
+            action = 'xoa (del)' if isinstance(node.ctx, ast.Del) else 'gan lai'
+            raise TranspileError(
+                f"ham '{sig.name}': tham so '{node.id}' (dtype 'inferred', suy kieu qua "
+                f"cach dung) bi {action} o dong ~{getattr(node, 'lineno', '?')} - gan lai/xoa "
+                f"CHINH bien tham so (vd 'param = x' hoac 'del param') lam mat kha nang suy kieu "
+                f"tu cach dung ban dau, chua duoc ho tro. Neu can gan lai gia tri, khai kieu "
+                f"tuong minh cho tham so nay thay vi de trong (bo annotation).")
 
     for node in ast.walk(func_node_ast):
         if isinstance(node, ast.Name) and node.id in inferred_params \
