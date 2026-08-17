@@ -58,6 +58,8 @@ from tokenvector_compile import (ILASM, assemble_il_to_exe,  # noqa: E402
 from il_features.stdlib_sqlite import uses_sqlite as _uses_sqlite, SQLITE_PINVOKE_DECL_LINES  # noqa: E402
 # --- BEGIN GEMINI ADDED CODE: cJSON Plugin Import ---
 from il_features.stdlib_cjson import uses_cjson as _uses_cjson, CJSON_PINVOKE_DECL_LINES  # noqa: E402
+from il_dispatch import (register_expr_builtin, EXPR_BUILTIN_CODEGEN,  # noqa: E402
+                          EXPR_BUILTIN_DTYPE)
 # --- END GEMINI ADDED CODE ---
 
 
@@ -800,6 +802,106 @@ def _parse_extern_method_dict_literal(node):
         raise TranspileError(
             f"__tkv_extern_method__: thieu key bat buoc {sorted(missing)}")
     return result
+
+
+# Task 3 (2026-08-14, __tkv_extern_method__): bang dtype DSL -> ten kieu CIL
+# dung trong chu ky 'call' - doi chieu IL_SCALAR (il_core.py) de khong lech
+# chinh ta ('int32'/'float64'/'string'...). Khong dua 'object'/'thread' vao
+# day - Phase 1 CHI ho tro scalar co ban (xem spec "Pham vi KHONG lam").
+_EXTERN_DTYPE_TO_IL = {'i32': 'int32', 'i64': 'int64', 'f32': 'float32',
+                        'f64': 'float64', 'str': 'string'}
+
+# Regex ten class .NET hop le (vd 'System.Math', 'MyLib.Foo_Bar') va ten
+# method don gian (khong dau cham, vd 'Pow') - dung de validate buoc 2/3
+# cua _validate_and_register_extern_method (KHONG phai validate day du CLI
+# ten .NET, chi chan cac gia tri ro rang sai/injection vao chuoi IL).
+_EXTERN_CLASS_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$')
+_EXTERN_METHOD_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+
+def _make_extern_static_call_codegen(assembly, dotnet_class, method_name,
+                                      param_dtypes, return_dtype):
+    """Factory tra ve codegen_fn dung chu ky EXPR_BUILTIN_CODEGEN hien co
+    (fn(args, scope, out, dtype, ctx), doi chieu
+    il_features/stdlib_math.py::_make_math_func_compiler) - goi 1 static
+    method .NET NGOAI qua 'call'. KHAC _make_math_func_compiler: MOI tham
+    so ep theo dung dtype khai bao RIENG vi tri cua no (params_dtypes[i]),
+    khong ep dong loat 1 dtype - vd System.Math::Pow(f64,f64) nhung 1 ham
+    khac co the la (i32,f64). Tinh truoc il_param_types/il_ret_type/
+    call_prefix NGOAI closure (chi tinh 1 lan luc dang ky, khong tinh lai
+    moi lan goi bieu thuc)."""
+    il_param_types = [_EXTERN_DTYPE_TO_IL[d] for d in param_dtypes]
+    il_ret_type = 'void' if return_dtype == 'void' else _EXTERN_DTYPE_TO_IL[return_dtype]
+    call_prefix = f'    call {il_ret_type} [{assembly}]{dotnet_class}::{method_name}'
+
+    def _codegen(args, scope, out, dtype, ctx):
+        if len(args) != len(param_dtypes):
+            raise SyntaxError(
+                f"il_codegen: '{method_name}' (extern [{assembly}]{dotnet_class}) can dung "
+                f"{len(param_dtypes)} tham so, duoc goi voi {len(args)}")
+        compile_expr = ctx['compile_expr']
+        for arg_node, want_dtype in zip(args, param_dtypes):
+            compile_expr(arg_node, scope, out, want_dtype, ctx)
+        out.append(f'{call_prefix}({", ".join(il_param_types)})')
+        # Khong can widen thu cong o day (khac compile_pow/...): builtin nay
+        # dang ky voi return_dtype != None (xem _validate_and_register_
+        # extern_method), nen dispatch chung _expr_call (il_codegen.py) TU
+        # goi widen_if_needed(return_dtype, dtype, out) sau khi ham nay tra
+        # ve - xem chu thich o register_expr_builtin('pow', ...) giai thich
+        # vi sao widen 2 lan la BUG.
+    return _codegen
+
+
+def _validate_and_register_extern_method(decl, declared_assembly_names):
+    """Task 3 (2026-08-14): validate 1 decl da parse SHAPE boi
+    _parse_extern_method_dict_literal, roi dang ky dong qua
+    register_expr_builtin (il_dispatch.py) - 7 buoc THEO DUNG THU TU trong
+    spec, moi buoc fail rieng 1 TranspileError liet ke ro gia tri sai +
+    gia tri hop le mong doi."""
+    name = decl['name']
+    assembly = decl['assembly']
+    dotnet_class = decl['class']
+    method_name = decl['method']
+    params = decl['params']
+    returns = decl['returns']
+
+    # (1) assembly phai da duoc khai bao (extern_assemblies hoac 3 assembly
+    # mac dinh luon co san mscorlib/System/System.Core).
+    if assembly not in declared_assembly_names:
+        raise TranspileError(
+            f"__tkv_extern_method__ '{name}': assembly '{assembly}' chua duoc khai bao qua "
+            f"__tkv_extern_assembly__ - cac assembly da biet: {sorted(declared_assembly_names)}")
+    # (2) class phai khop regex ten class .NET hop le.
+    if not _EXTERN_CLASS_NAME_RE.match(dotnet_class):
+        raise TranspileError(
+            f"__tkv_extern_method__ '{name}': 'class' = {dotnet_class!r} khong phai ten class "
+            f".NET hop le (vd 'System.Math' - chu/so/gach duoi/dau cham, bat dau bang chu hoac gach duoi)")
+    # (3) method phai khop regex identifier don gian (khong dau cham).
+    if not _EXTERN_METHOD_NAME_RE.match(method_name):
+        raise TranspileError(
+            f"__tkv_extern_method__ '{name}': 'method' = {method_name!r} khong phai identifier "
+            f".NET don gian hop le (vd 'Pow' - khong duoc chua dau cham)")
+    # (4) moi params phai nam trong bang dtype ho tro.
+    for i, p in enumerate(params):
+        if p not in _EXTERN_DTYPE_TO_IL:
+            raise TranspileError(
+                f"__tkv_extern_method__ '{name}': params[{i}] = {p!r} khong phai dtype hop le - "
+                f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)}")
+    # (5) returns phai la 'void' hoac nam trong bang dtype.
+    if returns != 'void' and returns not in _EXTERN_DTYPE_TO_IL:
+        raise TranspileError(
+            f"__tkv_extern_method__ '{name}': returns = {returns!r} khong phai dtype hop le - "
+            f"chi ho tro 'void' hoac {sorted(_EXTERN_DTYPE_TO_IL)}")
+    # (6) name phai la identifier Python hop le (dung lam ten builtin goi
+    # duoc trong code .tkv).
+    if not name.isidentifier():
+        raise TranspileError(
+            f"__tkv_extern_method__: 'name' = {name!r} khong phai identifier hop le")
+    # (7) qua het validate - tao codegen + dang ky (guard chong trung ten
+    # co san trong register_expr_builtin se tu bung ValueError neu 'name'
+    # da duoc dang ky boi builtin khac).
+    codegen_fn = _make_extern_static_call_codegen(assembly, dotnet_class, method_name, params, returns)
+    register_expr_builtin(name, codegen_fn, None if returns == 'void' else returns)
 
 
 def _parse_program_ast(source_text):
@@ -1658,117 +1760,140 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
     if entry_name not in func_table:
         raise CliError(f"tkv build: khong tim thay ham entry '{entry_name}' trong {tkv_path}")
 
-    # extra_classes (Buoc 4 - closure that, 2026-07-29): OUT-parameter cua
-    # gen_il_program - moi 'def long' trong chuong trinh se append vao day
-    # 1 hoac nhieu khoi '.class' MOI (cell/closure, xem il_features/
-    # closures.py) can ghep RIENG vao IL text, giong het cach lam voi
-    # record_type_lines o duoi.
-    extra_classes = []
-    # emitted_types (2026-08-13, sua cung __str__ record): 1 set CHUNG giua
-    # gen_il_program (ham top-level) va gen_record_types (method tren
-    # record) ben duoi - truoc day moi ham tu tao set RIENG, khien 1 dtype
-    # dung o CA hai noi (vd TkvStr, khi 1 record __str__ goi str()/+ ben
-    # trong than method) bi ensure_class() sinh '.class' 2 LAN -> ilasm loi
-    # 'Duplicate method declaration'. Xem il_codegen.tkv's gen_il_program.
-    emitted_types = set()
-    method_lines = gen_il_program(sig_body_pairs, class_name=class_name, records=record_defs,
-                                   record_methods=record_methods, extra_classes=extra_classes,
-                                   record_bases=record_bases, module_consts=module_consts,
-                                   module_globals=module_globals,
-                                   source_path=str(tkv_path), debug=debug,
-                                   emitted_types=emitted_types)
-    main_method = build_generic_main(func_table[entry_name], class_name, module_globals=module_globals)
-    record_type_lines = gen_record_types(record_defs, record_method_bodies=record_method_bodies,
-                                          record_methods=record_methods, class_name=class_name,
-                                          func_table=func_table, record_bases=record_bases,
-                                          record_overrides=record_overrides,
-                                          record_interfaces=record_interfaces,
-                                          interface_defs=interface_defs,
-                                          module_consts=module_consts,
-                                          record_methods_own=record_methods_own,
-                                          # Task 3 (2026-08-12): CUNG 1 list
-                                          # extra_classes voi gen_il_program o
-                                          # tren - 'async def' method tren
-                                          # record can ghi '.class' closure
-                                          # cua no vao day.
-                                          extra_classes=extra_classes,
-                                          emitted_types=emitted_types,
-                                          source_path=str(tkv_path), debug=debug)
-    extra_class_lines = [line for block in extra_classes for line in block]
-
-    # DB that qua P/Invoke sqlite3.dll (Wave 3, 2026-07-29 - xem
-    # il_features/stdlib_sqlite.py) - CHI ghep 6 khai bao pinvokeimpl vao
-    # class chuong trinh KHI THAT SU dung it nhat 1 ham db_* (tranh khai
-    # bao pinvoke thua/doi hoi sqlite3.dll canh file .exe cho chuong
-    # trinh khong dung DB).
-    sqlite_decl_lines = (SQLITE_PINVOKE_DECL_LINES
-                          if any(_uses_sqlite(body_lines) for _sig, body_lines, _start in pairs)
-                          else [])
-
-    # --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Extraction ---
-    cjson_decl_lines = (CJSON_PINVOKE_DECL_LINES
-                          if any(_uses_cjson(body_lines) for _sig, body_lines, _start in pairs)
-                          else [])
-    # --- END GEMINI ADDED CODE ---
-
-    # Co che MO RONG (Wave 3, 2026-07-29, "package ecosystem" - xem
-    # __tkv_extern_assembly__ trong _parse_program_ast, project-tokenvector-
-    # wave2-status memory): THEM cac '.assembly extern' do nguoi dung khai
-    # bao, ngoai 3 assembly LUON CO SAN (mscorlib/System.Core/System).
-    # 'DEFAULT'/'DEFAULT' = dung publickeytoken+version CHUAN .NET Framework
-    # (da xac minh THAT qua ilasm.exe voi System.Xml - CUNG 1 token/ver
-    # ap dung cho moi assembly GAC chuan cua Framework 4.0). Dedupe theo
-    # ten (khong khai bao lai mscorlib/System/System.Core du nguoi dung
-    # lo khai bao trung).
-    _default_pubkeytoken = 'B7 7A 5C 56 19 34 E0 89'
-    _builtin_extern_names = {'mscorlib', 'System.Core', 'System'}
-    extern_lines = []
-    seen_extern = set(_builtin_extern_names)
-    for asm_name, pubkeytoken, version in extern_assemblies:
-        if asm_name in seen_extern:
-            continue
-        seen_extern.add(asm_name)
-        if pubkeytoken == 'DEFAULT' and version == 'DEFAULT':
-            extern_lines.append(
-                f'.assembly extern {asm_name} {{ .publickeytoken = ({_default_pubkeytoken} ) .ver 4:0:0:0 }}\n')
-        elif pubkeytoken:
-            extern_lines.append(
-                f'.assembly extern {asm_name} {{ .publickeytoken = ({pubkeytoken} ) .ver {version} }}\n')
-        else:
-            extern_lines.append(f'.assembly extern {asm_name} {{}}\n')
-
-    il_text = (
-        f'.assembly extern mscorlib {{}}\n'
-        f'.assembly extern System.Core {{ .publickeytoken = (B7 7A 5C 56 19 34 E0 89 ) .ver 4:0:0:0 }}\n'
-        # System.Text.RegularExpressions.Regex (re_match/re_sub, Wave 2
-        # 2026-07-29) nam trong assembly "System" (KHAC "System.Core" o
-        # tren) - can khai bao rieng, xac minh THAT qua ilasm.exe (thieu
-        # se FileNotFoundException luc CHAY, khong phai luc assemble).
-        f'.assembly extern System {{ .publickeytoken = (B7 7A 5C 56 19 34 E0 89 ) .ver 4:0:0:0 }}\n'
-        # System.Numerics.BigInteger - duong CHAM cua kieu 'int' (so nguyen
-        # vo han chu so, moc 6 buoc 2 2026-08-05, xem il_features/int_type.py).
-        # Khai bao LUON: 1 dong '.assembly extern' khong dung den khong ton
-        # gi luc chay va re hon la doi khai bao theo tung chuong trinh.
-        f'.assembly extern System.Numerics {{ .publickeytoken = (B7 7A 5C 56 19 34 E0 89 ) .ver 4:0:0:0 }}\n'
-        + ''.join(extern_lines)
-        + f'.assembly {class_name} {{}}\n.module {class_name}.exe\n\n'
-        + '\n'.join(record_type_lines) + ('\n\n' if record_type_lines else '')
-        + '\n'.join(extra_class_lines) + ('\n\n' if extra_class_lines else '')
-        + f'.class public auto ansi {class_name} extends [mscorlib]System.Object\n{{\n'
-        + '\n'.join(method_lines) + '\n' + '\n'.join(main_method) + '\n'
-        + '\n'.join(sqlite_decl_lines) + ('\n' if sqlite_decl_lines else '')
-        # --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Injection ---
-        + '\n'.join(cjson_decl_lines) + ('\n' if cjson_decl_lines else '')
-        # --- END GEMINI ADDED CODE ---
-        + '}\n'
-    )
-    # Di qua assemble_il_to_exe (tokenvector_compile.py) chu khong tu goi
-    # ilasm: o do co buoc 'on dinh' tranh duong tinh gia cua Defender voi
-    # mot PE vua dung xong - xem docstring cua no.
+    # Task 3 (2026-08-14, __tkv_extern_method__): dang ky dong CAC builtin
+    # extern method NGAY TRUOC gen_il_program (de dung duoc TRONG CUNG luot
+    # compile nay) - declared_assembly_names gop ten cac assembly da khai
+    # bao qua __tkv_extern_assembly__ (extern_assemblies LUON la list tuple
+    # 3 phan tu (ten, pubkeytoken_or_'DEFAULT'_or_None, version_or_'DEFAULT'
+    # _or_None) - xem Task 1's dieu tra) voi 3 assembly mac dinh luon co san.
+    # try/finally BOC TOAN BO phan con lai cua ham (khong chi gen_il_program)
+    # - EXPR_BUILTIN_CODEGEN/EXPR_BUILTIN_DTYPE la dict CAP MODULE, khong tu
+    # reset giua 2 lan goi compile_tkv_cli trong CUNG process; bat cu
+    # exception nao giua chung (ilasm loi, gen_il_program loi...) van phai
+    # trigger pop, neu khong "ro ri" sang lan compile file khac tiep theo.
+    declared_assembly_names = ({asm_name for asm_name, _pkt, _ver in extern_assemblies} |
+                                {'mscorlib', 'System', 'System.Core'})
+    registered_extern_names = []
     try:
-        return assemble_il_to_exe(il_text, out_exe, debug=debug)
-    except TokenVectorError as e:
-        raise CliError(str(e))
+        for decl in extern_methods:
+            _validate_and_register_extern_method(decl, declared_assembly_names)
+            registered_extern_names.append(decl['name'])
+
+        # extra_classes (Buoc 4 - closure that, 2026-07-29): OUT-parameter cua
+        # gen_il_program - moi 'def long' trong chuong trinh se append vao day
+        # 1 hoac nhieu khoi '.class' MOI (cell/closure, xem il_features/
+        # closures.py) can ghep RIENG vao IL text, giong het cach lam voi
+        # record_type_lines o duoi.
+        extra_classes = []
+        # emitted_types (2026-08-13, sua cung __str__ record): 1 set CHUNG giua
+        # gen_il_program (ham top-level) va gen_record_types (method tren
+        # record) ben duoi - truoc day moi ham tu tao set RIENG, khien 1 dtype
+        # dung o CA hai noi (vd TkvStr, khi 1 record __str__ goi str()/+ ben
+        # trong than method) bi ensure_class() sinh '.class' 2 LAN -> ilasm loi
+        # 'Duplicate method declaration'. Xem il_codegen.tkv's gen_il_program.
+        emitted_types = set()
+        method_lines = gen_il_program(sig_body_pairs, class_name=class_name, records=record_defs,
+                                       record_methods=record_methods, extra_classes=extra_classes,
+                                       record_bases=record_bases, module_consts=module_consts,
+                                       module_globals=module_globals,
+                                       source_path=str(tkv_path), debug=debug,
+                                       emitted_types=emitted_types)
+        main_method = build_generic_main(func_table[entry_name], class_name, module_globals=module_globals)
+        record_type_lines = gen_record_types(record_defs, record_method_bodies=record_method_bodies,
+                                              record_methods=record_methods, class_name=class_name,
+                                              func_table=func_table, record_bases=record_bases,
+                                              record_overrides=record_overrides,
+                                              record_interfaces=record_interfaces,
+                                              interface_defs=interface_defs,
+                                              module_consts=module_consts,
+                                              record_methods_own=record_methods_own,
+                                              # Task 3 (2026-08-12): CUNG 1 list
+                                              # extra_classes voi gen_il_program o
+                                              # tren - 'async def' method tren
+                                              # record can ghi '.class' closure
+                                              # cua no vao day.
+                                              extra_classes=extra_classes,
+                                              emitted_types=emitted_types,
+                                              source_path=str(tkv_path), debug=debug)
+        extra_class_lines = [line for block in extra_classes for line in block]
+
+        # DB that qua P/Invoke sqlite3.dll (Wave 3, 2026-07-29 - xem
+        # il_features/stdlib_sqlite.py) - CHI ghep 6 khai bao pinvokeimpl vao
+        # class chuong trinh KHI THAT SU dung it nhat 1 ham db_* (tranh khai
+        # bao pinvoke thua/doi hoi sqlite3.dll canh file .exe cho chuong
+        # trinh khong dung DB).
+        sqlite_decl_lines = (SQLITE_PINVOKE_DECL_LINES
+                              if any(_uses_sqlite(body_lines) for _sig, body_lines, _start in pairs)
+                              else [])
+
+        # --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Extraction ---
+        cjson_decl_lines = (CJSON_PINVOKE_DECL_LINES
+                              if any(_uses_cjson(body_lines) for _sig, body_lines, _start in pairs)
+                              else [])
+        # --- END GEMINI ADDED CODE ---
+
+        # Co che MO RONG (Wave 3, 2026-07-29, "package ecosystem" - xem
+        # __tkv_extern_assembly__ trong _parse_program_ast, project-tokenvector-
+        # wave2-status memory): THEM cac '.assembly extern' do nguoi dung khai
+        # bao, ngoai 3 assembly LUON CO SAN (mscorlib/System.Core/System).
+        # 'DEFAULT'/'DEFAULT' = dung publickeytoken+version CHUAN .NET Framework
+        # (da xac minh THAT qua ilasm.exe voi System.Xml - CUNG 1 token/ver
+        # ap dung cho moi assembly GAC chuan cua Framework 4.0). Dedupe theo
+        # ten (khong khai bao lai mscorlib/System/System.Core du nguoi dung
+        # lo khai bao trung).
+        _default_pubkeytoken = 'B7 7A 5C 56 19 34 E0 89'
+        _builtin_extern_names = {'mscorlib', 'System.Core', 'System'}
+        extern_lines = []
+        seen_extern = set(_builtin_extern_names)
+        for asm_name, pubkeytoken, version in extern_assemblies:
+            if asm_name in seen_extern:
+                continue
+            seen_extern.add(asm_name)
+            if pubkeytoken == 'DEFAULT' and version == 'DEFAULT':
+                extern_lines.append(
+                    f'.assembly extern {asm_name} {{ .publickeytoken = ({_default_pubkeytoken} ) .ver 4:0:0:0 }}\n')
+            elif pubkeytoken:
+                extern_lines.append(
+                    f'.assembly extern {asm_name} {{ .publickeytoken = ({pubkeytoken} ) .ver {version} }}\n')
+            else:
+                extern_lines.append(f'.assembly extern {asm_name} {{}}\n')
+
+        il_text = (
+            f'.assembly extern mscorlib {{}}\n'
+            f'.assembly extern System.Core {{ .publickeytoken = (B7 7A 5C 56 19 34 E0 89 ) .ver 4:0:0:0 }}\n'
+            # System.Text.RegularExpressions.Regex (re_match/re_sub, Wave 2
+            # 2026-07-29) nam trong assembly "System" (KHAC "System.Core" o
+            # tren) - can khai bao rieng, xac minh THAT qua ilasm.exe (thieu
+            # se FileNotFoundException luc CHAY, khong phai luc assemble).
+            f'.assembly extern System {{ .publickeytoken = (B7 7A 5C 56 19 34 E0 89 ) .ver 4:0:0:0 }}\n'
+            # System.Numerics.BigInteger - duong CHAM cua kieu 'int' (so nguyen
+            # vo han chu so, moc 6 buoc 2 2026-08-05, xem il_features/int_type.py).
+            # Khai bao LUON: 1 dong '.assembly extern' khong dung den khong ton
+            # gi luc chay va re hon la doi khai bao theo tung chuong trinh.
+            f'.assembly extern System.Numerics {{ .publickeytoken = (B7 7A 5C 56 19 34 E0 89 ) .ver 4:0:0:0 }}\n'
+            + ''.join(extern_lines)
+            + f'.assembly {class_name} {{}}\n.module {class_name}.exe\n\n'
+            + '\n'.join(record_type_lines) + ('\n\n' if record_type_lines else '')
+            + '\n'.join(extra_class_lines) + ('\n\n' if extra_class_lines else '')
+            + f'.class public auto ansi {class_name} extends [mscorlib]System.Object\n{{\n'
+            + '\n'.join(method_lines) + '\n' + '\n'.join(main_method) + '\n'
+            + '\n'.join(sqlite_decl_lines) + ('\n' if sqlite_decl_lines else '')
+            # --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Injection ---
+            + '\n'.join(cjson_decl_lines) + ('\n' if cjson_decl_lines else '')
+            # --- END GEMINI ADDED CODE ---
+            + '}\n'
+        )
+        # Di qua assemble_il_to_exe (tokenvector_compile.py) chu khong tu goi
+        # ilasm: o do co buoc 'on dinh' tranh duong tinh gia cua Defender voi
+        # mot PE vua dung xong - xem docstring cua no.
+        try:
+            return assemble_il_to_exe(il_text, out_exe, debug=debug)
+        except TokenVectorError as e:
+            raise CliError(str(e))
+    finally:
+        for _nm in registered_extern_names:
+            EXPR_BUILTIN_CODEGEN.pop(_nm, None)
+            EXPR_BUILTIN_DTYPE.pop(_nm, None)
 
 
 def install_package_cli(pkg_name: str, target_dir: Path = None):
