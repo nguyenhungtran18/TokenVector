@@ -94,15 +94,33 @@ def _default_literal_to_str(node, ctx_name):
         f"gap {ast.dump(node)}")
 
 
-def _params_with_defaults(func_node, args_to_check, ctx_name):
+INFERRED_DTYPE_MARKER = 'inferred'
+
+
+def _params_with_defaults(func_node, args_to_check, ctx_name, allow_inferred=False):
     """args_to_check da bo 'self' (neu co, xem _extract_record_method_sig_line) -
     func_node.args.defaults CANH PHAI (right-aligned) voi TOAN BO
     func_node.args.args, nhung vi 'self' KHONG BAO GIO co default, cat
-    duoi (tail) cua args_to_check van dung voi defaults."""
+    duoi (tail) cua args_to_check van dung voi defaults.
+
+    allow_inferred (Task 2/5, duck-typing-inference, 2026-08-17): True CHI
+    cho ham top-level THAT - khi True VA a.annotation is None, KHONG raise
+    loi - gan dtype dac biet INFERRED_DTYPE_MARKER ('inferred') thay vi
+    annotation DSL that. Mac dinh False, giu nguyen hanh vi cu."""
     n_defaults = len(func_node.args.defaults)
     parts = []
     for i, a in enumerate(args_to_check):
         if a.annotation is None:
+            if allow_inferred:
+                arg_name = _rename_reserved_identifiers(a.arg)
+                default_idx = i - (len(args_to_check) - n_defaults)
+                if default_idx >= 0:
+                    lit = _default_literal_to_str(func_node.args.defaults[default_idx],
+                                                   f"{ctx_name} tham so '{a.arg}'")
+                    parts.append(f"{arg_name}: {INFERRED_DTYPE_MARKER} = {lit}")
+                else:
+                    parts.append(f"{arg_name}: {INFERRED_DTYPE_MARKER}")
+                continue
             raise TranspileError(f"{ctx_name}: tham so '{a.arg}' thieu annotation kieu DSL")
         t = _annotation_to_type_str(a.annotation, f"{ctx_name} tham so '{a.arg}'")
         arg_name = _rename_reserved_identifiers(a.arg)
@@ -116,13 +134,16 @@ def _params_with_defaults(func_node, args_to_check, ctx_name):
     return parts
 
 
-def _extract_signature_line(func_node, allow_varargs=False):
-    """allow_varargs (Phase 5.1, 2026-08-11): True CHI cho ham top-level."""
+def _extract_signature_line(func_node, allow_varargs=False, allow_inferred=False):
+    """allow_varargs (Phase 5.1, 2026-08-11): True CHI cho ham top-level.
+    allow_inferred (Task 2/5, duck-typing-inference, 2026-08-17): True CHI
+    cho ham top-level THAT - truyen xuong _params_with_defaults."""
     if func_node.args.kwonlyargs:
         raise TranspileError(f"ham '{func_node.name}': chua ho tro tham so keyword-only")
     if not allow_varargs and (func_node.args.vararg or func_node.args.kwarg):
         raise TranspileError(f"ham '{func_node.name}': chi ho tro tham so thuong (khong *args/**kwargs/keyword-only)")
-    parts = _params_with_defaults(func_node, func_node.args.args, f"ham '{func_node.name}'")
+    parts = _params_with_defaults(func_node, func_node.args.args, f"ham '{func_node.name}'",
+                                   allow_inferred=allow_inferred)
     if allow_varargs:
         if func_node.args.vararg is not None:
             va = func_node.args.vararg
@@ -1123,7 +1144,7 @@ def _parse_program_ast(source_text):
                     f"khi 'deco' la 1 ham top-level KHAC duoc khai bao trong CUNG file, dang "
                     f"'def deco(f: \"func(...)->...\") -> \"func(...)->...\":' voi than gom DUNG "
                     f"1 'def wrapper(...):' long + 'return wrapper' (xem _expand_custom_decorator)")
-            sig_line = _extract_signature_line(node, allow_varargs=True)
+            sig_line = _extract_signature_line(node, allow_varargs=True, allow_inferred=True)
             hoisted = []
             body_lines = _body_source_lines(source_lines, node, hoisted=hoisted)
             pairs.append((sig_line, body_lines, node.body[0].lineno))

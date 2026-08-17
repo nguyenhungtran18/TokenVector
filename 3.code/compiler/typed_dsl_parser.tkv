@@ -24,6 +24,10 @@ import re
 # giu nguyen y nghia cu (do rong co dinh, tran thi nem OverflowException)
 # - ma .tkv cu khong doi hanh vi.
 DTYPES = {'f32', 'f64', 'i32', 'i64', 'str', 'int', 'datetime', 'timedelta', 'complex'}
+# 'inferred' (Task 2/5, duck-typing-inference, 2026-08-17): dtype dac biet
+# gan boi tkv_compile.py's _params_with_defaults(allow_inferred=True) -
+# chi di qua NGUYEN VEN o tang parse nay.
+DTYPES.add('inferred')
 
 TOKEN_RE = re.compile(r'''
     \s*(?:
