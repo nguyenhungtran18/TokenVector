@@ -63,6 +63,14 @@ def compile_file_exists(args, scope, out, dtype, ctx):
     ctx['widen_if_needed']('i32', dtype, out)
 
 
+def _extern_void_builtin_names():
+    """Fix Critical (2026-08-17) - tra ve EXTERN_VOID_BUILTIN_NAMES
+    (tkv_compile.py). Import LUC GOI (khong o dau file) de tranh circular
+    import (tkv_compile.py -> il_codegen.py -> file_io.py o cap module)."""
+    import tkv_compile
+    return tkv_compile.EXTERN_VOID_BUILTIN_NAMES
+
+
 def codegen_call_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     """STMT_CODEGEN entry TRON VEN cho kind 'call_stmt' - CHI gom
     write_file/append_file (goi ham nhu 1 LENH DOC LAP, khong gan bien) -
@@ -106,16 +114,17 @@ def codegen_call_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
         # seed(n) (batch 5.5, 2026-08-12) - xem il_features/stdlib_random.py.
         # Ham VOID, dispatch qua day giong log_X/pickle_dump_X/sys_exit.
         _stdlib_random.RANDOM_STMT_CODEGEN[name](call_args, scope, body, ctx)
-    elif name in EXPR_BUILTIN_CODEGEN:
+    elif name in EXPR_BUILTIN_CODEGEN and name in _extern_void_builtin_names():
         # Task 3 (2026-08-17, __tkv_extern_pinvoke__) - builtin dang ky qua
         # register_expr_builtin (Phase 1/2 cac pragma extern) truoc day CHI
         # goi duoc trong BIEU THUC, khong goi duoc DANG LENH DOC LAP. Nhanh
         # nay dat SAU 4 bang builtin void rieng o tren, TRUOC nhanh else.
+        # SUA CRITICAL (2026-08-17): dieu kien 'return_dtype is not None'
+        # SAI nghia void - dung EXTERN_VOID_BUILTIN_NAMES rieng thay the
+        # (xem file_io.py ban goc / _extern_void_builtin_names() o tren).
         codegen_fn = EXPR_BUILTIN_CODEGEN[name]
         return_dtype = EXPR_BUILTIN_DTYPE.get(name)
         codegen_fn(call_args, scope, body, return_dtype, ctx)
-        if return_dtype is not None:
-            body.append('    pop')
     else:
         func_table = (ctx or {}).get('func_table') or {}
         sig = func_table.get(name)

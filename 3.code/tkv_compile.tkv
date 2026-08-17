@@ -913,6 +913,12 @@ def _make_extern_static_call_codegen(assembly, dotnet_class, method_name,
 
 _EXTERN_CONVENTIONS = {'cdecl', 'stdcall'}
 
+# Fix Critical (2026-08-17, review Task 3 __tkv_extern_pinvoke__): tap ten
+# builtin THAT SU la void - xem ban goc tkv_compile.py o goc repo cho chu
+# thich day du. _validate_and_register_extern_pinvoke tu them vao khi dang
+# ky (returns == 'void'), va tu don trong finally cua compile_tkv_cli.
+EXTERN_VOID_BUILTIN_NAMES = set()
+
 
 def _make_extern_pinvoke_call_codegen(hidden_name, param_dtypes, return_dtype):
     """Task 3 (2026-08-17, __tkv_extern_pinvoke__): goi hidden method
@@ -990,6 +996,9 @@ def _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines_out):
 
     codegen_fn = _make_extern_pinvoke_call_codegen(hidden_name, params, return_dtype)
     register_expr_builtin(name, codegen_fn, return_dtype)
+    if return_dtype is None:
+        # Fix Critical (2026-08-17): danh dau RIENG "ham nay THAT SU void".
+        EXTERN_VOID_BUILTIN_NAMES.add(name)
 
 
 def _validate_and_register_extern_method(decl, declared_assembly_names):
@@ -2072,6 +2081,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
         for _nm in registered_pinvoke_names:
             EXPR_BUILTIN_CODEGEN.pop(_nm, None)
             EXPR_BUILTIN_DTYPE.pop(_nm, None)
+            EXTERN_VOID_BUILTIN_NAMES.discard(_nm)
 
 
 def install_package_cli(pkg_name: str, target_dir: Path = None):
