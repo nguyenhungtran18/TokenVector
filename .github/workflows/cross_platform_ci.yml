@@ -35,7 +35,7 @@ jobs:
 
       - name: Build tkvc.exe from source (PyInstaller)
         run: |
-          python -m PyInstaller --onefile --name tkvc --distpath dist tkv_compile.py
+          python -m PyInstaller --onefile --name tkvc --distpath dist --paths compiler tkv.py
           if (Test-Path "dist\tkvc.exe") {
             Write-Host "[OK] dist\tkvc.exe built successfully"
           } else {
