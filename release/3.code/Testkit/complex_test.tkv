@@ -1,0 +1,48 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    a = complex(3.0, 4.0)
+    b = complex(1.0, 2.0)
+
+    tested = tested + 1
+    total = total + check("complex_real", str(a.real), "3.0")
+    tested = tested + 1
+    total = total + check("complex_imag", str(a.imag), "4.0")
+    tested = tested + 1
+    total = total + check("complex_magnitude", str(a.magnitude), "5.0")
+
+    s = a + b
+    tested = tested + 1
+    total = total + check("complex_add_real", str(s.real), "4.0")
+    tested = tested + 1
+    total = total + check("complex_add_imag", str(s.imag), "6.0")
+
+    d = a - b
+    tested = tested + 1
+    total = total + check("complex_sub_real", str(d.real), "2.0")
+    tested = tested + 1
+    total = total + check("complex_sub_imag", str(d.imag), "2.0")
+
+    p = a * b
+    tested = tested + 1
+    total = total + check("complex_mul_real", str(p.real), "-5.0")
+    tested = tested + 1
+    total = total + check("complex_mul_imag", str(p.imag), "10.0")
+
+    q = a / b
+    tested = tested + 1
+    total = total + check("complex_div_real", str(q.real), "2.2")
+    tested = tested + 1
+    total = total + check("complex_div_imag", str(q.imag), "-0.4")
+
+    txt = str(a)
+    nonempty = "0"
+    if txt != "":
+        nonempty = "1"
+    tested = tested + 1
+    total = total + check("complex_str_no_crash", nonempty, "1")
+
+    return test_summary("complex_test", total, tested)

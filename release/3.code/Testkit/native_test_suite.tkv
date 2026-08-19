@@ -1,0 +1,320 @@
+# -*- coding: utf-8 -*-
+"""Bo test tu-kiem-tra THUAN TokenVector (khong Python) - bien dich bang
+chinh tkvc.exe thanh 1 file .exe DOC LAP, moi ca tu so sanh ket qua voi
+gia tri mong doi NGAY TRONG CODE (if/else + print PASS/FAIL), khong can
+Python hay may chay ben ngoai de doi chieu. Chay: tkvc.exe build
+native_test_suite.tkv --entry run; native_test_suite.exe
+
+Dung chung check()/test_summary() tu tkv_test_lib.tkv (xem Testkit/
+README.md - day la KHUON MAU cho moi file test .tkv trong tuong lai,
+khong copy-paste rieng cho tung file)."""
+
+__tkv_import__ = "tkv_test_lib"
+
+
+class Animal:
+    name: "str"
+    def __init__(self, name):
+        self.name = name
+    def speak(self) -> "str":
+        return self.name + " makes a sound"
+
+class Dog(Animal):
+    def __init__(self, name):
+        super().__init__(name)
+    def bark(self) -> "str":
+        return self.name + " woof"
+
+class Engine:
+    hp: "i32"
+    def start_engine(self) -> "str":
+        return "ENGINE_ON"
+
+class GPS:
+    lat: "f64"
+    def get_location(self) -> "str":
+        return "LOC_OK"
+
+class SmartCar(Engine, GPS):
+    def drive(self) -> "str":
+        return self.start_engine() + "|" + self.get_location()
+
+
+def check_file(path: "str") -> "i32":
+    """Phan tich TINH (khong bien dich that) 1 file .tkv bat ky - doc noi
+    dung bang read_file(), quet tim cac pattern DA BIET tung gay bug that
+    (xem docs/BUGS_TODO.md), canh bao TRUOC khi build that bang tkvc.exe.
+    Muc tieu: cong cu tien-kiem-tra nhanh cho nhieu file .tkv se viet lam
+    thu vien/engine trong tuong lai, khong thay the bien dich that (chi
+    bat pattern TINH, khong bat het moi loi that co the co)."""
+    content = read_file(path)
+    lines = content.split("\n")
+    n = len(lines)
+    warnings = 0
+
+    i = 0
+    while i < n:
+        raw = lines[i]
+        trimmed = raw.strip()
+
+        # 1. 'class X:' (KHONG co lop cha trong ngoac - 'class X(Y):' thi
+        # ke thua field tu Y, KHONG can field rieng, khong tinh la nghi
+        # van) ma dong TIEP THEO (khong tinh dong trong) la 'def' ngay -
+        # nghi van thieu khai bao field (TokenVector BAT BUOC moi class
+        # phai co >=1 field RIENG hoac KE THUA, khac Python) -> se loi
+        # bien dich that 'record khong co field nao'.
+        is_plain_class = 0
+        if trimmed.startswith("class ") and trimmed.endswith(":"):
+            if trimmed.find("(") < 0:
+                is_plain_class = 1
+        if is_plain_class == 1:
+            j = i + 1
+            while j < n and len(lines[j].strip()) == 0:
+                j = j + 1
+            if j < n:
+                next_trimmed = lines[j].strip()
+                if next_trimmed.startswith("def "):
+                    print("CANH BAO dong " + str(i + 1) + ": '" + trimmed +
+                          "' - dong ngay sau la 'def', KHONG phai khai bao field. " +
+                          "TokenVector bat buoc moi class phai co it nhat 1 field " +
+                          "(vd 'ten: \"str\"') truoc method dau tien, khac Python.")
+                    warnings = warnings + 1
+
+        # 2. 'import re'/'import json'/'import os'/... - cac builtin nay
+        # la HAM TOAN CUC (re_replace/json_dumps/os_getenv...), KHONG can
+        # (va KHONG DUOC) import - se loi bien dich that 'import module
+        # khong tim thay'.
+        is_bad_import = 0
+        if trimmed.startswith("import re"):
+            is_bad_import = 1
+        if trimmed.startswith("import json"):
+            is_bad_import = 1
+        if trimmed.startswith("import os"):
+            is_bad_import = 1
+        if trimmed.startswith("import random"):
+            is_bad_import = 1
+        if trimmed.startswith("import datetime"):
+            is_bad_import = 1
+        if trimmed.startswith("import hashlib"):
+            is_bad_import = 1
+        if is_bad_import == 1:
+            print("CANH BAO dong " + str(i + 1) + ": '" + trimmed +
+                  "' - cac ham nay la BUILTIN TOAN CUC trong TokenVector, " +
+                  "KHONG can 'import' (se loi bien dich 'import module khong tim thay').")
+            warnings = warnings + 1
+
+        # 3. 'from X import Y' (cu phap Python thuong, KHAC __tkv_import__)
+        # - compiler co the tu resolve X thanh 1 file .tkv khac cung thu
+        # muc va co bien dich CA file do, ngay ca khi X chi la file helper
+        # danh rieng cho phia CPython (chua ham khong co annotation kieu
+        # DSL) -> loi bien dich that ve thieu annotation kieu DSL tai 1 ham
+        # nguoi dung khong he goi truc tiep. An toan hon: dung bien module
+        # __tkv_import__ gan ten module (khong co duoi file) cho import
+        # cheo file THAT trong TokenVector.
+        if trimmed.startswith("from ") and trimmed.find(" import ") >= 0:
+            print("CANH BAO dong " + str(i + 1) + ": '" + trimmed +
+                  "' - 'from X import Y' co the khien compiler tu bien dich " +
+                  "CA file X (ke ca ham khong co annotation kieu DSL, chi danh " +
+                  "cho phia CPython) -> loi 'thieu annotation kieu DSL'. Dung " +
+                  "'__tkv_import__ = \"ten_module\"' cho import cheo file that.")
+            warnings = warnings + 1
+
+        # 4. Bien cuc bo co annotation kieu kem gia tri mac dinh (ten, hai
+        # cham, chuoi kieu, dau bang, gia tri) BEN TRONG than ham -
+        # annotation dang nay CHI hop le cho THAM SO HAM (gia tri mac
+        # dinh), dung cho bien cuc bo se loi bien dich that 'khong dich
+        # duoc dong'. Heuristic: dong bat dau bang 1 tu (khong phai
+        # def/class), theo sau la hai-cham-cach-nhay-kep, roi co dau bang
+        # o dong do (khong phai bat dau ham) va khong nam trong ngoac don.
+        if not trimmed.startswith("def "):
+            if not trimmed.startswith("class "):
+                colon_quote_pos = trimmed.find(": \"")
+                if colon_quote_pos > 0:
+                    has_paren_before = trimmed.find("(") >= 0
+                    tail = trimmed[colon_quote_pos:len(trimmed)]
+                    has_eq_after = tail.find("=") >= 0
+                    if has_eq_after and not has_paren_before:
+                        print("CANH BAO dong " + str(i + 1) + ": '" + trimmed +
+                              "' - annotation kieu ('ten: \"kieu\" = gia_tri') CHI hop le " +
+                              "cho THAM SO HAM, KHONG hop le cho bien cuc bo trong than ham " +
+                              "(se loi 'khong dich duoc dong'). Bo annotation, chi gan tran " +
+                              "('ten = gia_tri'), compiler tu suy kieu.")
+                        warnings = warnings + 1
+
+        i = i + 1
+
+    print("")
+    print("=== " + path + ": " + str(n) + " dong, " + str(warnings) + " canh bao ===")
+    if warnings > 0:
+        return 1
+    return 0
+
+
+def make_counter(start: "i32") -> "func() -> i32":
+    count = start
+    def increment() -> "i32":
+        nonlocal count
+        count = count + 1
+        return count
+    return increment
+
+
+def worker_task() -> "i64":
+    s = 0
+    for i in range(5000000):
+        s = s + i
+    return s
+
+
+def sub_numbers() -> "list[i32]":
+    yield 10
+    yield 20
+
+def main_numbers() -> "list[i32]":
+    yield 1
+    yield from sub_numbers()
+    yield 2
+
+
+async def async_worker(x: "i32") -> "i32":
+    thread_sleep(5)
+    return x * 2
+
+
+def lcm_via_gcd(a: "i32", b: "i32") -> "i32":
+    """Nguyen ban tu test/sample_manual_chat_math12.tkv - GIU NGUYEN cau
+    truc that tung phat hien bug ep kieu ngam f64->i32 (xem
+    docs/BUGS_TODO.md muc H). KHONG sua thanh int(...) o day - muc dich
+    file nay la BAT bug hoi quy, sua di se lam mat kha nang phat hien."""
+    if a == 0:
+        return 0
+    if b == 0:
+        return 0
+    x = a
+    y = b
+    while y != 0:
+        temp = y
+        y = x % y
+        x = temp
+    gcd_val = x
+    res = a * b / gcd_val
+    return res
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    # 1. Record + ke thua don, truy cap field ke thua
+    d = Dog("Rex")
+    tested = tested + 1
+    total = total + check("inherited_field_access", d.bark(), "Rex woof")
+
+    # 2. Da ke thua lop that (2 base khong lien quan)
+    car = SmartCar(200, 10.77)
+    tested = tested + 1
+    total = total + check("multi_inheritance", car.drive(), "ENGINE_ON|LOC_OK")
+
+    # 3. Closure
+    inc = make_counter(10)
+    v1 = inc()
+    v2 = inc()
+    v3 = inc()
+    tested = tested + 1
+    total = total + check("closure", str(v1) + "," + str(v2) + "," + str(v3), "11,12,13")
+
+    # 4. List/dict
+    scores = [80.0, 90.0, 100.0]
+    scores.append(70.0)
+    total_score = 0.0
+    for s in scores:
+        total_score = total_score + s
+    avg = total_score / float(len(scores))
+    tested = tested + 1
+    total = total + check("list_avg", str(avg), "85.0")
+
+    d2 = {}
+    d2["a"] = 1
+    d2["b"] = 2
+    tested = tested + 1
+    total = total + check("dict_len", str(len(d2)), "2")
+
+    # 5. try/except/finally
+    result = ""
+    try:
+        raise ValueError("boom")
+    except ValueError as e:
+        result = "caught:" + str(e)
+    finally:
+        result = result + "|finally"
+    tested = tested + 1
+    total = total + check("try_except_finally", result, "caught:boom|finally")
+
+    # 6. Generator yield / yield from
+    out = ""
+    for v in main_numbers():
+        out = out + str(v) + ","
+    tested = tested + 1
+    total = total + check("generator_yield_from", out, "1,10,20,2,")
+
+    # 7. Threading - thread_join tra dung gia tri (da sua 2026-08-10)
+    t1 = thread_spawn(worker_task)
+    t2 = thread_spawn(worker_task)
+    r1 = thread_join(t1)
+    r2 = thread_join(t2)
+    tested = tested + 1
+    total = total + check("thread_join_value", str(r1 + r2), "24999995000000")
+
+    # 8. FFI - c_puts (goi C that qua P/Invoke)
+    status = c_puts("native ffi call")
+    tested = tested + 1
+    total = total + check("ffi_c_puts", str(status), "0")
+
+    # 9. String builtin
+    s9 = "CODE1234TEST"
+    sub9 = s9[0:4]
+    tested = tested + 1
+    total = total + check("string_slice", sub9, "CODE")
+
+    # 10. Async/await
+    a1 = await async_worker(21)
+    tested = tested + 1
+    total = total + check("async_await", str(a1), "42")
+
+    # 11. json_dumps - dict, list, ghep trong bieu thuc (ca 3 dang tung bi
+    # bao sai dau cach trong _results.json cu, gio dung ca 3 - xem
+    # docs/PARITY_GAPS_2026-08-04.md)
+    jd = {}
+    jd["a"] = 1
+    tested = tested + 1
+    total = total + check("json_dumps_dict", json_dumps(jd), "{\"a\":1}")
+
+    jl = [1, 2, 3]
+    tested = tested + 1
+    total = total + check("json_dumps_list", json_dumps(jl), "[1,2,3]")
+
+    jl2 = [1, 2]
+    tested = tested + 1
+    total = total + check("json_dumps_in_expr", json_dumps(jl2) + "|end", "[1,2]|end")
+
+    # 12. Slicing vuot gioi han - tung crash ArgumentOutOfRangeException,
+    # nay tu clamp dung nhu Python (xem docs/PARITY_GAPS_2026-08-04.md
+    # muc 2). Boc try/except de neu hoi quy ve crash thi bao FAIL thay vi
+    # lam sap ca bo test.
+    slice_result = ""
+    try:
+        s12 = "ab"
+        slice_result = s12[0:5]
+    except Exception as e12:
+        slice_result = "CRASH:" + str(e12)
+    tested = tested + 1
+    total = total + check("slice_out_of_range_clamp", slice_result, "ab")
+
+    # 13. [DA SUA 2026-08-10] '/' tren i32 tra ve f64 THAT (dung Python),
+    # ep NGAM ve i32 luc return/gan bien nay dung 'conv.ovf.i4'/'conv.ovf.i8'
+    # (cat cut ve 0 + nem OverflowException neu vuot pham vi - xem
+    # docs/BUGS_TODO.md muc H) - da chuyen vao total/tested chinh thuc.
+    tested = tested + 1
+    total = total + check("lcm_via_gcd_implicit_narrow", str(lcm_via_gcd(4, 6)), "12")
+
+    return test_summary("native_test_suite", total, tested)

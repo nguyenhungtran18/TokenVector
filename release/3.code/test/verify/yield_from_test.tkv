@@ -1,0 +1,41 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 31: Generator Nang cao (yield from)."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_yield_from():
+    p = '''def sub_gen() -> "list[i32]":
+    yield 10
+    yield 20
+    yield 30
+
+def main_gen() -> "list[i32]":
+    yield 100
+    yield from sub_gen()
+    yield 200
+
+def run() -> "str":
+    res = ""
+    for v in main_gen():
+        res = res + str(v) + ","
+    return res'''
+    
+    SRC = Path('scratch/m31_yield_from.tkv')
+    EXE = Path('scratch/m31_yield_from.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "100,10,20,30,200,", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_yield_from", tkv_val)
+
+if __name__ == '__main__':
+    test_yield_from()
+    print("ALL MOC 31 TESTS PASSED!")

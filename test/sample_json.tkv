@@ -1,0 +1,70 @@
+"""json_dumps(x) (Wave 2, 2026-07-29) - CHI ho tro bien vo huong hoac list
+cac gia tri vo huong (khong long nhau, khong dict) - xem gioi han trong
+il_features/stdlib_json.py. '__tkv_import__' khong dung o day (json_helpers
+la module Python THAT, khong phai .tkv khac) - dung 'from ... import' THAT
+(bi extract_program() bo qua luc bien dich, chi de file chay duoc duoi
+CPython that de doi chieu, giong _re_helpers.py/_file_io_helpers.py)."""
+from _json_helpers import json_dumps
+
+
+def dumps_int(x: "i32") -> "str":
+    r = json_dumps(x)
+    return r
+
+
+def dumps_float(x: "f32") -> "str":
+    r = json_dumps(x)
+    return r
+
+
+def dumps_str(x: "str") -> "str":
+    r = json_dumps(x)
+    return r
+
+
+def dumps_int_list() -> "str":
+    lst = []
+    lst.append(1)
+    lst.append(2)
+    lst.append(3)
+    r = json_dumps(lst)
+    return r
+
+
+def dumps_str_list() -> "str":
+    lst = []
+    lst.append("a")
+    lst.append("b")
+    r = json_dumps(lst)
+    return r
+
+
+def dumps_empty_list() -> "str":
+    lst = []
+    r = json_dumps(lst)
+    return r
+
+
+def dumps_int_in_expr(x: "i32") -> "str":
+    return json_dumps(x) + "!"
+
+
+def dumps_list_in_expr() -> "str":
+    lst = []
+    lst.append(1)
+    lst.append(2)
+    return json_dumps(lst) + "|end"
+
+
+def dumps_list_twice() -> "str":
+    a = []
+    a.append(1)
+    b = []
+    b.append(7)
+    b.append(8)
+    return json_dumps(a) + json_dumps(b)
+
+
+def dumps_len_of_result(x: "i32") -> "i32":
+    r = json_dumps(x)
+    return len(r)

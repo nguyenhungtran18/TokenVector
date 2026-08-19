@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 28: Bien dich & Thuc thi Dong tai Runtime (eval_code / exec_code)."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_dynamic_eval_exec():
+    p = '''def run() -> "str":
+    v = eval_code("1020")
+    s = exec_code("val = 100")
+    return str(v) + "|" + s'''
+    
+    SRC = Path('scratch/m28_exec.tkv')
+    EXE = Path('scratch/m28_exec.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "1020|EXEC_OK:val = 100", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_dynamic_eval_exec", tkv_val)
+
+if __name__ == '__main__':
+    test_dynamic_eval_exec()
+    print("ALL MOC 28 TESTS PASSED!")

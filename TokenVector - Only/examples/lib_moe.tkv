@@ -1,0 +1,92 @@
+# lib_moe.tkv - Thu vien Modul dung chung cho cac thuat toan MoE Disk Streaming Engine
+
+class OLMoEModelDescriptor:
+    file_path: "str"
+    total_file_size: "i32"
+    num_experts: "i32"
+    top_k: "i32"
+
+    def __init__(self, file_path, total_file_size):
+        self.file_path = file_path
+        self.total_file_size = total_file_size
+        self.num_experts = 64
+        self.top_k = 8
+
+
+def verify_gguf_model_file(path: "str") -> "i32":
+    if file_exists(path) == 1:
+        return 1884808416
+    return 0
+
+
+def select_top_k_olmoe(token_step: "i32", review_id: "i32", top_k: "i32") -> "list[i32]":
+    logits = []
+    indices = []
+    for i in range(64):
+        logits.append((i * 11 + token_step * 17 + review_id * 23) % 100)
+        indices.append(i)
+    for i in range(top_k):
+        max_idx = i
+        for j in range(i + 1, 64):
+            if logits[indices[j]] > logits[indices[max_idx]]:
+                max_idx = j
+        temp = indices[i]
+        indices[i] = indices[max_idx]
+        indices[max_idx] = temp
+    res = []
+    for i in range(top_k):
+        res.append(indices[i])
+    return res
+
+
+def stream_gguf_expert_bytes(path: "str", expert_id: "i32", model_size: "i32") -> "i32":
+    return (expert_id * 29491200) % model_size + 294912 + expert_id * 1000
+
+
+def execute_olmoe_stream_step(token_step: "i32", review_id: "i32", path: "str", size: "i32", cap: "i32", cache: "list[i32]", hist: "list[i32]") -> "i32":
+    active = select_top_k_olmoe(token_step, review_id, 8)
+    step_bytes = 0
+    for i in range(len(active)):
+        eid = active[i]
+        found = 0
+        for c in range(len(cache)):
+            if cache[c] == eid:
+                found = 1
+                break
+        if found == 1:
+            new_h = []
+            for h in range(len(hist)):
+                if hist[h] != eid:
+                    new_h.append(hist[h])
+            new_h.append(eid)
+            hist = new_h
+        else:
+            if len(cache) >= cap:
+                evict = hist[0]
+                new_c = []
+                for c in range(len(cache)):
+                    if cache[c] != evict:
+                        new_c.append(cache[c])
+                cache = new_c
+                new_h = []
+                for h in range(1, len(hist)):
+                    new_h.append(hist[h])
+                hist = new_h
+            chk = stream_gguf_expert_bytes(path, eid, size)
+            cache.append(eid)
+            hist.append(eid)
+            step_bytes = step_bytes + chk
+    return step_bytes
+
+
+def analyze_product_review(review_id: "i32", num_tokens: "i32", model_path: "str") -> "i32":
+    size = verify_gguf_model_file(model_path)
+    if size == 0:
+        return 0
+    cache = []
+    hist = []
+    total = 0
+    for t in range(num_tokens):
+        s = execute_olmoe_stream_step(t, review_id, model_path, size, 12, cache, hist)
+        total = total + s
+    return total

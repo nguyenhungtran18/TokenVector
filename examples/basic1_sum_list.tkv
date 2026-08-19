@@ -1,0 +1,8 @@
+def sum_range(n: "i32") -> "i32":
+    nums = []
+    for i in range(n):
+        nums.append(i * i)
+    total = 0
+    for x in nums:
+        total = total + x
+    return total + len(nums)

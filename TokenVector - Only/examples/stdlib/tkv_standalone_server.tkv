@@ -1,0 +1,15 @@
+# tkv_standalone_server.tkv - Standalone Native Executable for TokenVector Universal AI Compressor
+__tkv_import__ = "universal_context_compressor"
+__tkv_import__ = "http_server"
+
+def main() -> "i32":
+    # Demonstration of native stand-alone processing entrypoint
+    sample_code = "# Native Standalone TokenVector Test\nimport sys\nimport os\n\ndef run_native() -> bool:\n    # Core logic\n    return True\n"
+    
+    comp = format_universal_ai_request("Antigravity-Native-EXE", sample_code)
+    
+    # Save active state marker to file
+    state_file = "C:\\Users\\Nguyen Hung\\.gemini\\antigravity\\scratch\\tkv_native_compressor_active.txt"
+    write_file(state_file, "TOKENVECTOR_STANDALONE_NATIVE_EXE_ACTIVE")
+    
+    return 1

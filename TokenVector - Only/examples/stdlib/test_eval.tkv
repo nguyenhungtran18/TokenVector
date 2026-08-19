@@ -1,0 +1,20 @@
+# test_eval.tkv - Test cho eval.tkv (port System.Data.DataTable.Compute)
+#
+# 2026-08-03: 3 ca dau giu NGUYEN tu ban test cu (Pratt parser viet tay)
+# de chung minh ban moi KHONG lam mat nang luc nao. 3 ca sau la thu ban
+# cu KHONG lam duoc: chia THUC, so am, so thuc, so sanh.
+__tkv_import__ = "eval"
+
+def main() -> "i32":
+    val1 = eval_int("10 + 20 * 3")
+    val2 = eval_int("(10 + 20) * 3")
+    val3 = eval_int("100 - 25 * 2 + 10")
+
+    half = eval_str("7/2")
+    neg = eval_str("-3 + 1.5")
+    cmp_res = eval_str("2 > 1")
+
+    if val1 == 70 and val2 == 90 and val3 == 60:
+        if half == 3.5 and neg == -1.5 and cmp_res == 1.0:
+            return 1
+    return 0

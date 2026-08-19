@@ -1,0 +1,21 @@
+"""Tuple / nhieu gia tri tra ve - CHI ho tro DUNG 2 phan tu (gioi han co
+chu dich, xem STATUS.md). Chu ky return type dang "(dtype, dtype)".
+Chi dung cap (a,b) la BOI SO CHINH XAC (Buoc 6: '/' tren i32 khac Python
+'/' that su) de tranh giao thoa voi gioi han da biet, khong lien quan
+gi den tuple."""
+
+
+def make_pair(a: "i32", b: "i32") -> "(i32, f32)":
+    return a / b, a + b
+
+
+def use_pair(a: "i32", b: "i32") -> "f32":
+    q, s = make_pair(a, b)
+    return q + s
+
+
+def swap_test(a: "i32", b: "i32") -> "i32":
+    x = a
+    y = b
+    x, y = y, x
+    return x - y

@@ -1,0 +1,24 @@
+def check(name: "str", got: "str", want: "str") -> "i32":
+    if got == want:
+        print("PASS " + name)
+        return 1
+    print("FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+
+def run() -> "i32":
+    tested = 0
+    total = 0
+
+    seed(42)
+    a1 = randint(1, 1000000)
+    a2 = randint(1, 1000000)
+    seed(42)
+    b1 = randint(1, 1000000)
+    b2 = randint(1, 1000000)
+    tested = tested + 1
+    total = total + check("seed_reproducible",
+                           str(a1) + "," + str(a2), str(b1) + "," + str(b2))
+
+    print("SUMMARY " + str(total) + "/" + str(tested))
+    return 0

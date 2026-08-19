@@ -1,0 +1,26 @@
+"""Set/frozenset dong (Tang 1, 2026-07-28) - HashSet<T> that (probe
+rieng truoc: il_test/probe_hashset.il, xac nhan HashSet nam o assembly
+System.Core khong phai mscorlib - khac List/Dictionary). Ho tro:
+s = set(), s.add(x), x in s, len(s), va set comprehension
+{expr for x in iterable (if cond)}."""
+
+
+def count_unique_mod(n: "i32", m: "i32") -> "i32":
+    s = set()
+    for i in range(n):
+        s.add(i % m)
+    return len(s)
+
+
+def contains_test(n: "i32", target: "i32") -> "i32":
+    s = set()
+    for i in range(n):
+        s.add(i)
+    if target in s:
+        return 1
+    return 0
+
+
+def set_comp_evens(n: "i32") -> "i32":
+    s = {i for i in range(n) if i % 2 == 0}
+    return len(s)

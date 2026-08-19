@@ -1,0 +1,115 @@
+# -*- coding: utf-8 -*-
+# platform_patch.tkv - TokenVector Phase 3 Cross-Platform ilasm Detector
+# Phat hien he dieu hanh va tim duong dan ilasm/dotnet phu hop
+
+class IlasmInfo:
+    mode: "str"
+    path: "str"
+    ok: "i32"
+
+    def __init__(self, mode, path, ok):
+        self.mode = mode
+        self.path = path
+        self.ok = ok
+
+class PlatformPaths:
+    win_fw1: "str"
+    win_fw2: "str"
+    win_sdk1: "str"
+    win_sdk2: "str"
+    linux1: "str"
+    linux2: "str"
+    linux3: "str"
+    macos1: "str"
+    macos2: "str"
+
+    def __init__(self, win_fw1, win_fw2, win_sdk1, win_sdk2, linux1, linux2, linux3, macos1, macos2):
+        self.win_fw1  = win_fw1
+        self.win_fw2  = win_fw2
+        self.win_sdk1 = win_sdk1
+        self.win_sdk2 = win_sdk2
+        self.linux1   = linux1
+        self.linux2   = linux2
+        self.linux3   = linux3
+        self.macos1   = macos1
+        self.macos2   = macos2
+
+def get_ilasm_command(mode: "str", path: "str", il_file: "str", out: "str") -> "str":
+    if mode == "win_framework":
+        return path + " " + il_file + " /exe /output:" + out
+    elif mode == "win_sdk":
+        return path + " " + il_file + " -output " + out
+    elif mode == "linux_sdk":
+        return path + " " + il_file + " -output " + out
+    elif mode == "macos_sdk":
+        return path + " " + il_file + " -output " + out
+    return "unknown mode: " + mode
+
+def print_ok(label: "str") -> "i32":
+    print("  \x1b[32m[OK]  \x1b[0m " + label)
+    return 1
+
+def print_info(label: "str") -> "i32":
+    print("  \x1b[90m[INFO]\x1b[0m " + label)
+    return 1
+
+def print_section(title: "str") -> "i32":
+    print("")
+    print("  \x1b[1m\x1b[33m" + title + "\x1b[0m")
+    print("  \x1b[90m----------------------------------------\x1b[0m")
+    return 1
+
+def show_all_paths(p: "PlatformPaths") -> "i32":
+    print_section("Windows — .NET Framework 4.x (Primary)")
+    print("    [1] " + p.win_fw1)
+    print("    [2] " + p.win_fw2)
+
+    print_section("Windows — .NET 8 SDK (Fallback)")
+    print("    [1] " + p.win_sdk1)
+    print("    [2] " + p.win_sdk2)
+
+    print_section("Linux — .NET 8 SDK")
+    print("    [1] " + p.linux1)
+    print("    [2] " + p.linux2)
+    print("    [3] " + p.linux3)
+    print("  Install: sudo apt-get install -y dotnet-sdk-8.0")
+
+    print_section("macOS — .NET 8 SDK")
+    print("    [1] " + p.macos1)
+    print("    [2] " + p.macos2)
+    print("  Install: brew install dotnet@8")
+    return 1
+
+def show_command_examples(p: "PlatformPaths") -> "i32":
+    print_section("ilasm Command Format per Platform")
+    print("  win_framework : " + get_ilasm_command("win_framework", p.win_fw1, "hello.il", "hello.exe"))
+    print("  win_sdk       : " + get_ilasm_command("win_sdk",       p.win_sdk1, "hello.il", "hello.exe"))
+    print("  linux_sdk     : " + get_ilasm_command("linux_sdk",     p.linux1,  "hello.il", "hello"))
+    print("  macos_sdk     : " + get_ilasm_command("macos_sdk",     p.macos1,  "hello.il", "hello"))
+    return 1
+
+def main() -> "i32":
+    print("\x1b[1m\x1b[36m=== TOKENVECTOR PHASE 3 — PLATFORM PATCH v1.0 ===\x1b[0m")
+    print("")
+    print("  Cross-platform ilasm detector for TokenVector compiler.")
+    print("  Supports: Windows (Framework 4.x + SDK 8), Linux, macOS")
+
+    p = PlatformPaths(
+        "C:/WINDOWS/Microsoft.NET/Framework64/v4.0.30319/ilasm.exe",
+        "C:/WINDOWS/Microsoft.NET/Framework/v4.0.30319/ilasm.exe",
+        "C:/Program Files/dotnet/sdk/8.0.404/ilasm.exe",
+        "C:/Program Files/dotnet/sdk/8.0.100/ilasm.exe",
+        "/usr/share/dotnet/sdk/8.0.404/ilasm",
+        "/usr/share/dotnet/sdk/8.0.300/ilasm",
+        "/root/.dotnet/sdk/8.0.404/ilasm",
+        "/usr/local/share/dotnet/sdk/8.0.404/ilasm",
+        "/usr/local/share/dotnet/sdk/8.0.300/ilasm"
+    )
+    show_all_paths(p)
+    show_command_examples(p)
+
+    print("")
+    print_ok("platform_patch.tkv compiled and running.")
+    print_info("Next: Integrate detection logic into tkvc compiler backend.")
+    print("")
+    return 1

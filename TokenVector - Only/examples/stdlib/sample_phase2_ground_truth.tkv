@@ -1,0 +1,50 @@
+# -*- coding: utf-8 -*-
+"""Driver cho stdlib_regression_test.py phan D (Giai doan 2, 2026-08-03):
+IN RA gia tri that de doi chieu voi csv/functools/eval cua CPython.
+
+Moi ham nhan tham so tu dong lenh va in ket qua - ben Python moi la nguoi
+phan xu dung/sai, KHONG phai file .tkv tu tuyen bo."""
+__tkv_import__ = ["csv", "functools", "eval"]
+
+
+def csv_roundtrip(line: "str") -> "str":
+    # Tach roi ghep lai: ket qua phai la dang chuan RFC-4180 cua chinh
+    # dong do (giong ''.join(csv.writer) sau csv.reader ben Python).
+    fields = parse_csv_line(line)
+    return format_csv_line(fields)
+
+
+def csv_field_count(line: "str") -> "i32":
+    fields = parse_csv_line(line)
+    return len(fields)
+
+
+def csv_nth_field(line: "str", idx: "i32") -> "str":
+    fields = parse_csv_line(line)
+    return fields[idx]
+
+
+def add2(a: "i32", b: "i32") -> "i32":
+    return a + b
+
+
+def mul2(a: "i32", b: "i32") -> "i32":
+    return a * b
+
+
+def reduce_sum(n: "i32", init: "i32") -> "i32":
+    xs = []
+    for i in range(n):
+        xs.append(i + 1)
+    return reduce_i32(xs, add2, init)
+
+
+def reduce_product(n: "i32") -> "i32":
+    xs = []
+    for i in range(n):
+        xs.append(i + 1)
+    return reduce_i32_nostart(xs, mul2)
+
+
+def eval_value(expr: "str") -> "f64":
+    return eval_str(expr)

@@ -1,0 +1,9 @@
+# test_ffi.tkv - Test module ffi.tkv
+__tkv_import__ = "ffi"
+
+def main() -> "i32":
+    h = ffi_load_library("kernel32.dll")
+    res = ffi_call_symbol(h, "Beep", 10)
+    if len(h) > 0 and res == 20:
+        return 1
+    return 0

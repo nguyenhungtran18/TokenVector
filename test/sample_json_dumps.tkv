@@ -1,0 +1,33 @@
+# -*- coding: utf-8 -*-
+"""json_dumps: thoat ky tu dac biet + nhan dict (2026-08-03).
+
+Truoc do: chuoi KHONG duoc thoat (1 dau nhay kep trong du lieu la sinh ra
+JSON HONG - loi am tham, chi vo khi ben nhan parse), va dict KHONG duoc
+ho tro (chi vo huong + list vo huong)."""
+
+
+def dump_str(s: "str") -> "str":
+    return json_dumps(s)
+
+
+def dump_list(a: "str", b: "str") -> "str":
+    xs = [a, b]
+    return json_dumps(xs)
+
+
+def dump_dict_str(k1: "str", v1: "str", k2: "str", v2: "str") -> "str":
+    d = {}
+    d[k1] = v1
+    d[k2] = v2
+    return json_dumps(d)
+
+
+def dump_dict_int(k1: "str", n1: "i32", k2: "str", n2: "i32") -> "str":
+    d = {}
+    d[k1] = n1
+    d[k2] = n2
+    return json_dumps(d)
+
+
+def dump_in_expr(s: "str") -> "str":
+    return "[" + json_dumps(s) + "]"

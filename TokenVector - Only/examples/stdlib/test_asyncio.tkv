@@ -1,0 +1,10 @@
+# test_asyncio.tkv - Test module asyncio.tkv
+__tkv_import__ = "asyncio"
+
+def main() -> "i32":
+    res = run_task(101, "payload")
+    out = await_task(res)
+    
+    if out == "task_101_done:payload":
+        return 1
+    return 0

@@ -1,0 +1,22 @@
+# gui_app.tkv - TokenVector Web UI Desktop Dashboard Application
+__tkv_import__ = "http_server"
+
+def render_ui_dashboard(title: "str", status: "str") -> "str":
+    html = "<!DOCTYPE html><html><head><title>" + title + "</title>"
+    html = html + "<style>body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }"
+    html = html + ".card { background: #1e293b; padding: 40px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); text-align: center; border: 1px solid #334155; }"
+    html = html + "h1 { color: #38bdf8; font-size: 2.5rem; margin-bottom: 10px; }"
+    html = html + ".badge { background: #10b981; color: #022c22; padding: 8px 16px; border-radius: 9999px; font-weight: bold; display: inline-block; margin-top: 15px; }"
+    html = html + "</style></head><body>"
+    html = html + "<div class='card'><h1>🚀 " + title + "</h1><p>Giao diện người dùng viết 100% bằng ngôn ngữ <b>TokenVector (.tkv)</b></p>"
+    html = html + "<div class='badge'>Trạng thái: " + status + "</div></div></body></html>"
+    return html
+
+
+def main() -> "i32":
+    ui_html = render_ui_dashboard("TokenVector Native App", "Đã sẵn sàng (100% .tkv)")
+    resp = build_http_response(200, ui_html)
+    
+    if len(resp) > 0 and len(ui_html) > 0:
+        return 1
+    return 0

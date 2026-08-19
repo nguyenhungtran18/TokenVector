@@ -1,0 +1,10 @@
+# hashlib.tkv - TokenVector Standard Library Wrapper cho Cryptographic Hashing (SHA256 & MD5)
+
+def sha256(data: "str") -> "str":
+    h = sha256_hex(data)
+    return h
+
+
+def md5(data: "str") -> "str":
+    h = md5_hex(data)
+    return h

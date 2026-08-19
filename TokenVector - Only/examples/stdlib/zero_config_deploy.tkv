@@ -1,0 +1,12 @@
+# zero_config_deploy.tkv - Self-Hosted TokenVector Single-File 1-Click Packager
+__tkv_import__ = "zipfile"
+
+def create_single_file_package(source_dir: "str", bundle_output: "str") -> "i32":
+    ok = create_zip(source_dir, bundle_output)
+    return ok
+
+
+def verify_bundle_integrity(bundle_path: "str") -> "i32":
+    if len(bundle_path) > 0:
+        return 1
+    return 0

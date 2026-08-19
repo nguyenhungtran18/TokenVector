@@ -1,0 +1,10 @@
+def compute(n: "i32") -> "i32":
+    lst = []
+    for i in range(n):
+        lst.append(i)
+    lst.remove(2)
+    lst.reverse()
+    total = 0
+    for i in range(len(lst)):
+        total = total + lst[i] * (i + 1)
+    return total

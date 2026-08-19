@@ -1,0 +1,26 @@
+# buffer.tkv - giao thuc buffer dang CHUOI (KHONG phai zero-copy)
+#
+# ===================== NHAN: MOCK / PROTOTYPE =====================
+# Ten cu "Zero-Copy Memory Buffer Protocol" la PHONG DAI. File nay KHONG
+# cap phat bo nho, KHONG zero-copy, KHONG co buffer that - no chi ma hoa
+# kich thuoc vao 1 CHUOI "buffer_bytes_<n>". Giu lai vi vai vi du dang
+# dung, KHONG dung cho viec that.
+# Muon buffer THAT: dung list co san cua DSL, hoac them binding
+# System.Buffers/Span<T> (chua lam).
+# ==================================================================
+#
+# BUG THAT DA SUA (2026-08-03, Giai doan 1): buffer_size() truoc day
+# hardcode 'return 1024' cho MOI dau vao - create_buffer(64) roi
+# buffer_size() van tra 1024. Nay doc NGUOC lai con so that tu chuoi qua
+# int() (builtin them cung ngay). Tien to "buffer_bytes_" dai 13 ky tu.
+
+def create_buffer(size_bytes: "i32") -> "str":
+    buf = "buffer_bytes_" + str(size_bytes)
+    return buf
+
+
+def buffer_size(buf: "str") -> "i32":
+    if len(buf) > 13:
+        num = buf[13:]
+        return int(num)
+    return 0

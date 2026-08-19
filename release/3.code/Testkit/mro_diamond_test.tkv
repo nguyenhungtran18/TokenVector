@@ -1,0 +1,132 @@
+# -*- coding: utf-8 -*-
+"""Spec 2026-08-13 (mro-diamond-fix, muc 6.10): 'class D(B1, B2, ...):'
+khi 1 method trung ten override o nhieu base, D PHAI dung dung ban cua
+base DAU TIEN co dinh nghia (khop CPython that, da xac nhan qua spike
+truc tiep) thay vi base CUOI (bug goc: '_build_record_methods' vong lap
+'bases[1:]' chi copy tu base[1:] vao record_methods_own[rname], bo sot
+base[0])."""
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class Animal:
+    tag: "str"
+
+    def speak(self) -> "str":
+        return "animal-speak"
+
+
+class Flyer(Animal):
+    def speak(self) -> "str":
+        return "flyer-speak"
+
+
+class Swimmer(Animal):
+    def speak(self) -> "str":
+        return "swimmer-speak"
+
+
+class Duck(Flyer, Swimmer):
+    quack_level: "i32"
+
+
+def two_base_override_first_wins() -> "str":
+    d = Duck("x", 1)
+    return d.speak()
+
+
+class Base1:
+    val: "str"
+
+    def greet(self) -> "str":
+        return "base1-greet"
+
+
+class Mid1(Base1):
+    mid1_tag: "i32"
+
+
+class Mid2(Base1):
+    def greet(self) -> "str":
+        return "mid2-greet"
+
+
+class GrandChild(Mid1, Mid2):
+    grand_tag: "i32"
+
+
+def three_tier_multi_base_propagation() -> "str":
+    g = GrandChild("y", 1, 2)
+    return g.greet()
+
+
+class WingPart:
+    span: "f64"
+
+    def part_name(self) -> "str":
+        return "wing"
+
+
+class FinPart:
+    length: "f64"
+
+    def part_name_fin(self) -> "str":
+        return "fin"
+
+
+class HybridNoConflict(WingPart, FinPart):
+    def describe(self) -> "str":
+        return self.part_name() + "+" + self.part_name_fin()
+
+
+def diamond_no_name_conflict_regression() -> "str":
+    h = HybridNoConflict(1.5, 2.5)
+    return h.describe()
+
+
+class TriBaseA:
+    a_flag: "i32"
+
+    def which(self) -> "str":
+        return "A"
+
+
+class TriBaseB:
+    b_flag: "i32"
+
+    def which(self) -> "str":
+        return "B"
+
+
+class TriBaseC:
+    c_flag: "i32"
+
+    def which(self) -> "str":
+        return "C"
+
+
+class TriChild(TriBaseA, TriBaseB, TriBaseC):
+    tri_tag: "i32"
+
+
+def three_plus_base_first_always_wins() -> "str":
+    t = TriChild(9, 8, 7, 1)
+    return t.which()
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("two_base_override_first_wins", two_base_override_first_wins(), "flyer-speak")
+
+    tested = tested + 1
+    total = total + check("three_tier_multi_base_propagation", three_tier_multi_base_propagation(), "mid2-greet")
+
+    tested = tested + 1
+    total = total + check("diamond_no_name_conflict_regression", diamond_no_name_conflict_regression(), "wing+fin")
+
+    tested = tested + 1
+    total = total + check("three_plus_base_first_always_wins", three_plus_base_first_always_wins(), "A")
+
+    return test_summary("mro_diamond_test", total, tested)

@@ -1,0 +1,87 @@
+# -*- coding: utf-8 -*-
+"""Cac cach viet Python THUONG NGAY, do THAT bang scratch/probe_confidence.py
+ngay 2026-08-03 roi sua het trong cung ngay:
+
+- '//' va '%' tren so AM: truoc day cat ve 0 (giong C#) => SAI AM THAM so
+  voi Python (floor). Day la lop loi te nhat: bien dich duoc, chay duoc,
+  chi sai khi gap so am.
+- 'elif', 'True'/'False', '"x" in s', '"x" in lst', '"-" * n',
+  '", ".join(xs)', hang so cap module: truoc day KHONG bien dich duoc.
+
+File nay la Python HOP LE - bo test chay no bang CHINH CPython roi doi
+chieu voi .exe."""
+
+MAX_LEN = 10
+PREFIX = "tkv"
+
+
+def floor_div(a: "i32", b: "i32") -> "i32":
+    return a // b
+
+
+def modulo(a: "i32", b: "i32") -> "i32":
+    return a % b
+
+
+def div_and_mod(a: "i32", b: "i32") -> "i32":
+    return (a // b) * 1000 + (a % b)
+
+
+def grade(n: "i32") -> "i32":
+    if n > 10:
+        return 3
+    elif n > 5:
+        return 2
+    elif n > 0:
+        return 1
+    else:
+        return 0
+
+
+def flags(n: "i32") -> "i32":
+    ok = True
+    bad = False
+    if ok and not bad:
+        return n
+    return 0
+
+
+def has_sub(s: "str") -> "i32":
+    if "xy" in s:
+        return 1
+    return 0
+
+
+def has_field(s: "str") -> "i32":
+    xs = s.split(",")
+    if "b" in xs:
+        return 1
+    return 0
+
+
+def bar(n: "i32") -> "str":
+    return "-" * n
+
+
+def joined(s: "str") -> "str":
+    xs = s.split(",")
+    return ", ".join(xs)
+
+
+def with_consts(n: "i32") -> "str":
+    total = n + MAX_LEN
+    return PREFIX + ":" + str(total)
+
+
+def uses_helper(n: "i32") -> "i32":
+    def double(x: "i32") -> "i32":
+        return x * 2
+    return double(n) + 1
+
+
+def pair_of(n: "i32") -> "(i32, i32)":
+    return n, n * 2
+
+
+def with_default(a: "i32", b: "i32" = 3) -> "i32":
+    return a + b

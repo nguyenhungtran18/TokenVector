@@ -1,0 +1,123 @@
+# -*- coding: utf-8 -*-
+"""Field CONTAINER cua class (2026-08-03): 'list[...]' / 'dict[k,v]'.
+
+Field container KHONG nam trong tham so khoi tao - chung duoc tao RONG
+tu dong, dung nhu '__init__' that viet 'self.items = []'. Trong than
+method, 'self.<field>' dung THANG duoc voi moi phep tren list/dict."""
+
+
+class Store:
+    """Chi co field container - khoi tao khong tham so."""
+
+    keys: "list[str]"
+
+    def __init__(self):
+        self.keys = []
+
+    def add_key(self, k: "str") -> "i32":
+        self.keys.append(k)
+        return len(self.keys)
+
+    def first_key(self) -> "str":
+        return self.keys[0]
+
+    def label(self) -> "str":
+        return "store:" + ",".join(self.keys)
+
+
+class TaggedStore(Store):
+    """Ke thua: dung field container CUA LOP CHA + them field cua minh."""
+
+    tag: "str"
+    counts: "dict[str,i32]"
+
+    def __init__(self, tag):
+        super().__init__()
+        self.tag = tag
+        self.counts = {}
+
+    def bump(self, k: "str") -> "i32":
+        n = 0
+        if k in self.counts:
+            n = self.counts[k]
+        self.counts[k] = n + 1
+        return self.counts[k]
+
+    def count_of(self, k: "str") -> "i32":
+        if k in self.counts:
+            return self.counts[k]
+        return 0
+
+    def label(self) -> "str":
+        """Ghi de method cua lop cha - dispatch ao that."""
+        return self.tag + ":" + ",".join(self.keys)
+
+
+class Bag:
+    """Tron field vo huong VA field container; duyet 'for x in self.f'."""
+
+    items: "list[str]"
+    scores: "dict[str,f64]"
+    n: "i32"
+
+    def __init__(self, n):
+        self.items = []
+        self.scores = {}
+        self.n = n
+
+    def put(self, s: "str", v: "f64") -> "i32":
+        self.items.append(s)
+        self.scores[s] = v
+        self.n = self.n + 1
+        return self.n
+
+    def size(self) -> "i32":
+        return len(self.items)
+
+    def total(self) -> "f64":
+        out = 0.0
+        for x in self.items:
+            out = out + self.scores[x]
+        return out
+
+    def dump(self) -> "str":
+        out = []
+        for x in self.items:
+            out.append(x + "=" + str(self.scores[x]))
+        return ",".join(out)
+
+
+def outside_access(b: "Bag") -> "str":
+    """Doc field container tu NGOAI class - phai dat bi danh truoc (gioi
+    han da biet: chi 'self.<field>' moi duoc hoist tu dong)."""
+    xs = b.items
+    return str(len(xs)) + ":" + ",".join(xs)
+
+
+def main(n: "i32") -> "str":
+    s = Store()
+    k = s.add_key("x")
+    t = TaggedStore("T")
+    k = t.add_key("y")
+    k = t.add_key("z")
+    c = t.bump("y")
+    c = t.bump("y")
+    c = t.bump("z")
+    shapes = []
+    shapes.append(s)
+    shapes.append(t)
+    labels = []
+    for sh in shapes:
+        labels.append(sh.label())
+    b = Bag(n)
+    k = b.put("a", 1.5)
+    k = b.put("b", 2.25)
+    parts = []
+    parts.append(";".join(labels))
+    parts.append(s.first_key() + t.first_key())
+    parts.append(str(t.count_of("y")) + "/" + str(t.count_of("zz")))
+    parts.append(b.dump())
+    parts.append(str(b.total()))
+    parts.append(str(b.size()) + "/" + str(k))
+    parts.append(outside_access(b))
+    return "|".join(parts)

@@ -1,0 +1,46 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 14: Nhom C (String methods rfind, removeprefix, removesuffix & Group C features)."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / 'parity'))
+import arbiter
+
+def test_string_removeprefix():
+    p = '''def run() -> "str":
+    s = "PREFIX_Hello_World"
+    s1 = s.removeprefix("PREFIX_")
+    s2 = s.removeprefix("NOPE_")
+    return s1 + "|" + s2'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    assert res[2]['value'] == "Hello_World|PREFIX_Hello_World", f"Mismatch: {res[2]['value']}"
+    print("PASS: test_string_removeprefix", res[2]['value'])
+
+def test_string_removesuffix():
+    p = '''def run() -> "str":
+    s = "Hello_World_SUFFIX"
+    s1 = s.removesuffix("_SUFFIX")
+    s2 = s.removesuffix("_NOPE")
+    return s1 + "|" + s2'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    assert res[2]['value'] == "Hello_World|Hello_World_SUFFIX", f"Mismatch: {res[2]['value']}"
+    print("PASS: test_string_removesuffix", res[2]['value'])
+
+def test_string_rfind():
+    p = '''def run() -> "str":
+    s = "banana"
+    idx1 = s.rfind("a")
+    idx2 = s.rfind("x")
+    return str(idx1) + "|" + str(idx2)'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    assert res[2]['value'] == "5|-1", f"Mismatch: {res[2]['value']}"
+    print("PASS: test_string_rfind", res[2]['value'])
+
+if __name__ == '__main__':
+    test_string_removeprefix()
+    test_string_removesuffix()
+    test_string_rfind()
+    print("ALL MOC 14 TESTS PASSED!")

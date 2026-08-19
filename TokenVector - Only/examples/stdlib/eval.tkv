@@ -1,0 +1,25 @@
+# eval.tkv - danh gia bieu thuc so hoc trong chuoi luc CHAY (2026-08-03)
+#
+# THAT SU CHAY, khong con la mock: port thang System.Data.DataTable.Compute
+# cua .NET qua builtin loi 'eval_arith' (compiler/il_features/stdlib_eval.py).
+# Ban Pratt parser viet tay truoc day giu o eval_pratt_legacy.tkv lam vi du
+# hoc thuat - no chi lam duoc so nguyen khong dau va chia lay nguyen.
+#
+# LAM DUOC: + - * / % , ngoac, uu tien toan tu, so thuc, so am, so sanh
+#   ("2 > 1" -> 1.0). Chia THUC: "7/2" -> 3.5 (giong Python), khac ban cu.
+# KHONG LAM DUOC (khac Python, ghi ro): bien, goi ham, chuoi, ** (luy
+#   thua). Bieu thuc sai cu phap NEM loi thay vi tra ve gia tri.
+# KHONG phai eval() tong quat cua Python va se khong bao gio la vay -
+#   chay ma nguon dong trong ngon ngu kieu tinh la buc tuong kien truc da
+#   ket luan loai vinh vien (ROADMAP.md).
+__tkv_extern_assembly__ = "System.Data"
+
+
+def eval_str(expr: "str") -> "f64":
+    val = eval_arith(expr)
+    return val
+
+
+def eval_int(expr: "str") -> "i32":
+    val = eval_arith(expr)
+    return int(val)

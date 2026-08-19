@@ -1,0 +1,26 @@
+# graphics_2d.tkv - Self-Hosted TokenVector 2D Graphics & SVG Chart Renderer
+
+def render_svg_rect(x: "i32", y: "i32", w: "i32", h: "i32", fill_color: "str") -> "str":
+    sx = str(x)
+    sy = str(y)
+    sw = str(w)
+    sh = str(h)
+    svg = "<rect x='" + sx + "' y='" + sy + "' width='" + sw + "' height='" + sh + "' fill='" + fill_color + "' />"
+    return svg
+
+
+def render_svg_circle(cx: "i32", cy: "i32", r: "i32", fill_color: "str") -> "str":
+    scx = str(cx)
+    scy = str(cy)
+    sr = str(r)
+    svg = "<circle cx='" + scx + "' cy='" + scy + "' r='" + sr + "' fill='" + fill_color + "' />"
+    return svg
+
+
+def render_chart_svg(title: "str", val1: "i32", val2: "i32") -> "str":
+    r1 = render_svg_rect(20, 50, val1, 30, "#38bdf8")
+    r2 = render_svg_rect(20, 100, val2, 30, "#10b981")
+    c1 = render_svg_circle(250, 65, 15, "#f59e0b")
+    
+    svg_out = "<svg width='400' height='200' xmlns='http://www.w3.org/2000/svg'>" + r1 + r2 + c1 + "</svg>"
+    return svg_out

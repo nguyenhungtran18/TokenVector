@@ -1,0 +1,50 @@
+# string_utils.tkv - Self-Hosted TokenVector String Processing Utilities
+
+def str_is_digit(s: "str") -> "i32":
+    n = len(s)
+    if n == 0:
+        return 0
+    i = 0
+    while i < n:
+        ch = s[i]
+        if ch < "0" or ch > "9":
+            return 0
+        i = i + 1
+    return 1
+
+
+def str_is_alpha(s: "str") -> "i32":
+    n = len(s)
+    if n == 0:
+        return 0
+    i = 0
+    while i < n:
+        ch = s[i]
+        is_lower = (ch >= "a" and ch <= "z")
+        is_upper = (ch >= "A" and ch <= "Z")
+        if not is_lower and not is_upper:
+            return 0
+        i = i + 1
+    return 1
+
+
+def str_strip(s: "str") -> "str":
+    n = len(s)
+    if n == 0:
+        return ""
+    start = 0
+    while start < n:
+        ch = s[start]
+        if ch != " " and ch != "\t" and ch != "\n" and ch != "\r":
+            break
+        start = start + 1
+    end = n
+    while end > start:
+        ch = s[end - 1]
+        if ch != " " and ch != "\t" and ch != "\n" and ch != "\r":
+            break
+        end = end - 1
+    if start >= end:
+        return ""
+    res = s[start:end]
+    return res

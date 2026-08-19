@@ -1,0 +1,35 @@
+interface = lambda cls: cls
+
+
+@interface
+class Flyable:
+    def fly(self) -> "i32":
+        pass
+
+
+class Animal:
+    sound: "i32"
+
+    def __init__(self, sound):
+        self.sound = sound
+
+    def speak(self) -> "i32":
+        return self.sound
+
+
+class Bird(Animal, Flyable):
+    def __init__(self, sound):
+        super().__init__(sound)
+
+    def fly(self) -> "i32":
+        return self.sound * 10
+
+
+def bench_multi(n: "i32") -> "i32":
+    b = Bird(3)
+    total = 0
+    i = 0
+    while i < n:
+        total = total + ((b.speak() + b.fly()) % 1000)
+        i = i + 1
+    return total

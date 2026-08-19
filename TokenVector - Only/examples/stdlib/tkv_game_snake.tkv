@@ -1,0 +1,34 @@
+# tkv_game_snake.tkv - Retro Arcade Mini Game written in 100% Native TokenVector (.tkv)
+__tkv_import__ = ["random", "collections", "os"]
+
+def render_game_frame(player_pos: "i32", obstacle_pos: "i32", score: "i32") -> "str":
+    frame = "["
+    i = 0
+    while i < 10:
+        if i == player_pos:
+            frame = frame + "P"
+        else:
+            if i == obstacle_pos:
+                frame = frame + "X"
+            else:
+                frame = frame + "."
+        i = i + 1
+    frame = frame + "] Score: " + str(score)
+    return frame
+
+
+def update_game_state(player_pos: "i32", move_direction: "i32", obstacle_pos: "i32") -> "i32":
+    new_pos = player_pos + move_direction
+    if new_pos < 0:
+        new_pos = 0
+    if new_pos > 9:
+        new_pos = 9
+    if new_pos == obstacle_pos:
+        return -1
+    return new_pos
+
+
+def save_game_high_score(high_score_file: "str", score: "i32") -> "i32":
+    data = str(score)
+    write_file(high_score_file, data)
+    return 1

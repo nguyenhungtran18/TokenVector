@@ -1,0 +1,13 @@
+# -*- coding: utf-8 -*-
+"""Kiem chung co che MO RONG '__tkv_extern_assembly__' (Wave 3, 2026-07-29,
+"package ecosystem" - xem tkv_compile.py's _parse_program_ast + project-
+tokenvector-wave2-status memory). xml_encode_name() dung System.Xml -
+assembly KHONG co san mac dinh (khac http_get dung 'System' da luon co
+san) - NEU BO dong khai bao duoi day, ilasm.exe se assemble OK nhung
+CHAY se nem FileNotFoundException (da tu xac minh that truoc khi viet
+co che nay)."""
+__tkv_extern_assembly__ = "System.Xml"
+
+
+def encode(s: "str") -> "str":
+    return xml_encode_name(s)

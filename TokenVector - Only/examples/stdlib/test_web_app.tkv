@@ -1,0 +1,13 @@
+# test_web_app.tkv - Test module web_framework.tkv
+__tkv_import__ = "web_framework"
+
+def main() -> "i32":
+    resp_root = web_route_handler("/")
+    resp_api = web_route_handler("/api/status")
+    
+    n_root = len(resp_root)
+    n_api = len(resp_api)
+    
+    if n_root > 50 and n_api > 30:
+        return 1
+    return 0

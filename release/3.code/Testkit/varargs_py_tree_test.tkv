@@ -1,0 +1,42 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def sum_extra(base: "i32", *nums: "i32") -> "i32":
+    total = base
+    for n in nums:
+        total = total + n
+    return total
+
+
+def count_names(*names: "str") -> "i32":
+    return len(names)
+
+
+def with_kwargs(x: "i32", **opts: "str") -> "i32":
+    return x + len(opts)
+
+
+def no_extra(*nums: "i32") -> "i32":
+    return len(nums)
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("sum_extra_3", str(sum_extra(10, 1, 2, 3)), "16")
+
+    tested = tested + 1
+    total = total + check("sum_extra_0", str(sum_extra(7)), "7")
+
+    tested = tested + 1
+    total = total + check("count_names", str(count_names("x", "y", "z")), "3")
+
+    tested = tested + 1
+    total = total + check("with_kwargs_empty", str(with_kwargs(5)), "5")
+
+    tested = tested + 1
+    total = total + check("no_extra", str(no_extra()), "0")
+
+    return test_summary("varargs_py_tree_test", total, tested)

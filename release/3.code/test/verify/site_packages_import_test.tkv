@@ -1,0 +1,49 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 35: System site-packages Search Path & Module Resolution."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_site_packages_import():
+    # Tao 1 dummy package 'dummy_pkg' va file 'dummy_mod.py' trong scratch
+    pkg_dir = Path('scratch/dummy_pkg')
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (pkg_dir / '__init__.py').write_text('''def pkg_func() -> "str":
+    return "DUMMY_PKG_OK"''', encoding='utf-8')
+    
+    (Path('scratch/dummy_mod.py')).write_text('''def mod_func() -> "str":
+    return "DUMMY_MOD_OK"''', encoding='utf-8')
+    
+    p = '''import dummy_pkg
+import dummy_mod
+
+def run() -> "str":
+    a = pkg_func()
+    b = mod_func()
+    return a + "|" + b'''
+    
+    SRC = Path('scratch/m35_site_pkg.tkv')
+    EXE = Path('scratch/m35_site_pkg.exe')
+    SRC.write_text(p, encoding='utf-8')
+    
+    # Them scratch vao sys.path de gia lap site-packages
+    sys.path.insert(0, str(Path('scratch').resolve()))
+    try:
+        compile_tkv_cli(SRC, EXE, entry_name='run')
+        proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+        tkv_val = proc.stdout.strip()
+        assert tkv_val == "DUMMY_PKG_OK|DUMMY_MOD_OK", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+        print("PASS: test_site_packages_import", tkv_val)
+    finally:
+        if str(Path('scratch').resolve()) in sys.path:
+            sys.path.remove(str(Path('scratch').resolve()))
+
+if __name__ == '__main__':
+    test_site_packages_import()
+    print("ALL MOC 35 TESTS PASSED!")

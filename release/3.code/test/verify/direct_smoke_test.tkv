@@ -1,0 +1,81 @@
+# -*- coding: utf-8 -*-
+"""Smoke test chay TRUC TIEP bang '.tkv' (khong doi '.py', khong import
+tkv_compile/compiler noi bo) - chi goi subprocess ra dist/tkvc.exe co san
+(duong THAT nguoi dung dung, compile_tkv_cli), bien dich nhieu file .tkv
+mau that trong 'test/' (goc repo) roi doi chieu ket qua tay. Muc dich:
+do suc khoe COMPILER THAT qua duong build .exe THAT, khong di qua
+transpile_program/_build_record_methods (duong noi bo dung boi da so
+test/verify/*_test.py, da phat hien co bug rieng khong lien quan
+compile_tkv_cli - xem docs/BUGS_TODO.md muc F)."""
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).parent.parent.parent  # release/3.code
+ROOT_TEST = HERE.parent.parent / 'test'  # goc repo, noi co ~115 file sample_*.tkv
+TKVC = HERE / 'dist' / 'tkvc.exe'
+OUT_DIR = HERE / 'test' / '_direct_smoke_out'
+
+
+def compile_and_run(src_path, entry, run_args=None):
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    exe = OUT_DIR / (src_path.stem + '.exe')
+    cmd = [str(TKVC), 'build', str(src_path), '--out', str(exe), '--entry', entry]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        return False, f"bien dich loi: {proc.stderr or proc.stdout}"
+    proc_run = subprocess.run([str(exe)] + (run_args or []), capture_output=True, text=True)
+    if proc_run.returncode != 0:
+        return False, f"chay loi (rc={proc_run.returncode}): {proc_run.stderr or proc_run.stdout}"
+    return True, proc_run.stdout
+
+
+# (ten sample, entry, run_args) - chon dai dien nhieu nhom tinh nang,
+# UU TIEN cac sample da biet TUNG loi qua transpile_program (while, class)
+# de xac nhan duong compile_tkv_cli THAT khong bi anh huong.
+CASES = [
+    ('sample_while.tkv', 'factorial', ['6']),
+    ('sample_break_continue.tkv', 'sum_odds', ['10']),
+    ('sample_list.tkv', None, []),
+    ('sample_dict.tkv', None, []),
+    ('sample_inheritance.tkv', 'demo_inheritance', []),
+    ('sample_closure_return.tkv', 'demo_closure_return', []),
+    ('sample_for_in_list.tkv', 'sum_list_direct', ['5']),
+    ('sample_for_in_dict.tkv', 'sum_dict_items', ['5', '2.0']),
+]
+
+
+def main():
+    if not TKVC.exists():
+        print(f"SKIP: khong tim thay {TKVC}")
+        return 0
+    ok_count = 0
+    fail_count = 0
+    for name, entry, run_args in CASES:
+        src = ROOT_TEST / name
+        if not src.exists():
+            print(f"SKIP [{name}]: khong co trong {ROOT_TEST}")
+            continue
+        if entry is None:
+            # File nhieu ham, khong ro entry - chi kiem TRA BIEN DICH duoc,
+            # khong chay (tranh loi 'khong ro entry point').
+            proc = subprocess.run([str(TKVC), 'build', str(src), '--out',
+                                    str(OUT_DIR / (src.stem + '_MULTI.exe'))],
+                                   capture_output=True, text=True)
+            success = proc.returncode == 0
+            msg = proc.stdout if success else (proc.stderr or proc.stdout)
+        else:
+            success, msg = compile_and_run(src, entry, run_args)
+        if success:
+            print(f"PASS [{name}]")
+            ok_count += 1
+        else:
+            print(f"FAIL [{name}]: {msg.strip()[:200]}")
+            fail_count += 1
+    print(f"\n=== {ok_count} PASS / {fail_count} FAIL (qua duong compile_tkv_cli THAT, "
+          f"khong qua transpile_program) ===")
+    return 0 if fail_count == 0 else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

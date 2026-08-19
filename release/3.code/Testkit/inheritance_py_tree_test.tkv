@@ -1,0 +1,70 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class Animal:
+    name: "str"
+    sound: "str"
+
+    def speak(self) -> "str":
+        return self.name + " says " + self.sound
+
+    def describe(self) -> "str":
+        return "Animal: " + self.name
+
+
+class Dog(Animal):
+    breed: "str"
+
+    def speak(self) -> "str":
+        base_msg = super().speak()
+        return base_msg + " (woof override)"
+
+
+class Engine:
+    hp: "i32"
+
+    def start_engine(self) -> "str":
+        return "ENGINE_ON"
+
+
+class GPS:
+    lat: "f64"
+
+    def get_location(self) -> "str":
+        return "LOC_OK"
+
+
+class SmartCar(Engine, GPS):
+    def drive(self) -> "str":
+        return self.start_engine() + "|" + self.get_location()
+
+
+def override_and_super() -> "str":
+    d = Dog("Rex", "Woof", "Labrador")
+    return d.speak()
+
+
+def inherited_method_not_overridden() -> "str":
+    d = Dog("Rex", "Woof", "Labrador")
+    return d.describe()
+
+
+def two_real_record_bases() -> "str":
+    car = SmartCar(200, 10.77)
+    return car.drive()
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("override_and_super", override_and_super(), "Rex says Woof (woof override)")
+
+    tested = tested + 1
+    total = total + check("inherited_method_not_overridden", inherited_method_not_overridden(), "Animal: Rex")
+
+    tested = tested + 1
+    total = total + check("two_real_record_bases", two_real_record_bases(), "ENGINE_ON|LOC_OK")
+
+    return test_summary("inheritance_py_tree_test", total, tested)

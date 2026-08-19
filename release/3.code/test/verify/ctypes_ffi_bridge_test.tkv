@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 32: C-Extension & ctypes FFI Bridge."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_ctypes_ffi_bridge():
+    p = '''def run() -> "str":
+    handle = ctypes_cdll("ucrtbase.dll")
+    res = ctypes_call("CTYPES_FFI_BRIDGE_OK")
+    return "HANDLE_" + str(res)'''
+    
+    SRC = Path('scratch/m32_ctypes.tkv')
+    EXE = Path('scratch/m32_ctypes.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert "CTYPES_FFI_BRIDGE_OK" in tkv_val and "HANDLE_0" in tkv_val, f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_ctypes_ffi_bridge", tkv_val)
+
+if __name__ == '__main__':
+    test_ctypes_ffi_bridge()
+    print("ALL MOC 32 TESTS PASSED!")

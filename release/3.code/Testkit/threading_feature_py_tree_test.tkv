@@ -1,0 +1,32 @@
+def worker_task() -> "i64":
+    total = 0
+    for i in range(1000000):
+        total = total + i
+    return total
+
+
+def check(name: "str", got: "str", want: "str") -> "i32":
+    if got == want:
+        print("PASS " + name)
+        return 1
+    print("FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+
+def run() -> "i32":
+    tested = 0
+    total = 0
+
+    t1 = thread_spawn(worker_task)
+    t2 = thread_spawn(worker_task)
+    r1 = thread_join(t1)
+    r2 = thread_join(t2)
+    tested = tested + 1
+    total = total + check("thread_join_value", str(r1 + r2), "999999000000")
+
+    before = thread_sleep(10)
+    tested = tested + 1
+    total = total + check("thread_sleep_returns_0", str(before), "0")
+
+    print("SUMMARY " + str(total) + "/" + str(tested))
+    return 0

@@ -1,0 +1,26 @@
+# mock_access_pdf.tkv - 2 ham GIA tach ra tu office_db_suite.tkv (2026-08-03)
+#
+# ===================== NHAN: MOCK / PROTOTYPE =====================
+# Hai ham duoi day KHONG lam gi that - chi noi chuoi:
+# - connect_access_database(): tra ve 1 chuoi ket noi OLEDB dung cu phap
+#   nhung KHONG mo ket noi nao, KHONG kiem tra file, KHONG can driver
+#   ACE.OLEDB co ton tai hay khong.
+# - parse_pdf_text_stream(): KHONG doc file PDF nao, KHONG co parser PDF -
+#   chi noi "pdf_stream_parsed:" vao truoc duong dan.
+#
+# Vi sao tach: chung nam chung file voi create_office_docx_template() -
+# ham THAT SU tao file .docx mo duoc - lam ca file trong nhu da lam duoc
+# Office + Access + PDF. Nay office_db_suite.tkv chi con phan that.
+#
+# Muon lam THAT: Access -> dung db_* (sqlite3.dll qua P/Invoke, DA co va
+# da kiem chung); PDF -> can 1 thu vien that (chua co binding nao).
+# ==================================================================
+
+def connect_access_database(db_path: "str") -> "str":
+    conn_str = "Provider=Microsoft.ACE.OLEDB.12.0;Data Source=" + db_path
+    return conn_str
+
+
+def parse_pdf_text_stream(pdf_path: "str") -> "str":
+    conn = "pdf_stream_parsed:" + pdf_path
+    return conn

@@ -1,0 +1,69 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 12: Thu tu chen dict & json_dumps (Dict insertion order & json_dumps escaping)."""
+import sys
+import json
+import subprocess
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / 'parity'))
+import arbiter
+
+def test_dict_insertion_order():
+    p = '''def run() -> "str":
+    d = {}
+    d["z"] = 100
+    d["a"] = 200
+    d["m"] = 300
+    d["b"] = 400
+    d["a"] = 250
+    _out = []
+    for k, v in d.items():
+        _out.append(k + ":" + str(v))
+    return "|".join(_out)'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    assert res[2]['value'] == "z:100|a:250|m:300|b:400", f"Mismatch: {res[2]['value']}"
+    print("PASS: test_dict_insertion_order", res[2]['value'])
+
+def test_json_dumps_escaping_and_separators():
+    p = '''def run() -> "str":
+    d = {}
+    d["name"] = "Alice\\nBob"
+    d["path"] = "C:\\\\Program Files\\\\TKV"
+    d["quote"] = "Hello \\"world\\""
+    return json_dumps(d)'''
+    
+    from tkv_compile import compile_tkv_cli
+    SRC = Path('scratch/m12_json.tkv')
+    EXE = Path('scratch/m12_json.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(str(SRC), str(EXE))
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    
+    expected = json.dumps({"name": "Alice\nBob", "path": "C:\\Program Files\\TKV", "quote": 'Hello "world"'}, separators=(',', ':'))
+    assert tkv_val == expected, f"Mismatch!\nGot:      {tkv_val!r}\nExpected: {expected!r}"
+    print("PASS: test_json_dumps_escaping_and_separators", tkv_val)
+
+def test_json_dumps_list_of_scalars():
+    p = '''def run() -> "str":
+    lst = [10, 20, 30, 40]
+    return json_dumps(lst)'''
+    
+    from tkv_compile import compile_tkv_cli
+    SRC = Path('scratch/m12_lst.tkv')
+    EXE = Path('scratch/m12_lst.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(str(SRC), str(EXE))
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    
+    expected = json.dumps([10, 20, 30, 40], separators=(',', ':'))
+    assert tkv_val == expected, f"Mismatch!\nGot:      {tkv_val!r}\nExpected: {expected!r}"
+    print("PASS: test_json_dumps_list_of_scalars", tkv_val)
+
+if __name__ == '__main__':
+    test_dict_insertion_order()
+    test_json_dumps_escaping_and_separators()
+    test_json_dumps_list_of_scalars()
+    print("ALL MOC 12 TESTS PASSED!")

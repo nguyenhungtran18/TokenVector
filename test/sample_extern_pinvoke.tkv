@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+"""Kiem chung '__tkv_extern_pinvoke__' (Task 4/4, 2026-08-17 - xem docs/
+superpowers/plans/2026-08-17-extern-pinvoke.md). Khai 3 ham P/Invoke DLL
+native THAT qua pragma (khong sua compiler):
+- c_sqrt: msvcrt.dll::sqrt, cdecl, f64->f64 (Step 1, test tich cuc cdecl).
+- c_getpid: kernel32.dll::GetCurrentProcessId, stdcall, khong tham so ->
+  i32 (Step 2, test tich cuc stdcall - process ID phai la so duong hop
+  ly).
+- c_srand: msvcrt.dll::srand, cdecl, i32->void (Step 3, test returns=
+  'void' goi dang lenh doc lap).
+
+Khong can __tkv_extern_assembly__ - day la P/Invoke DLL native, khong
+phai .NET managed assembly."""
+__tkv_extern_pinvoke__ = [
+    {"name": "c_sqrt", "dll": "msvcrt.dll", "symbol": "sqrt",
+     "convention": "cdecl", "params": ["f64"], "returns": "f64"},
+    {"name": "c_getpid", "dll": "kernel32.dll", "symbol": "GetCurrentProcessId",
+     "convention": "stdcall", "params": [], "returns": "i32"},
+    {"name": "c_srand", "dll": "msvcrt.dll", "symbol": "srand",
+     "convention": "cdecl", "params": ["i32"], "returns": "void"},
+]
+
+
+def run_sqrt(a: "str") -> "str":
+    x = float(a)
+    return str(c_sqrt(x))
+
+
+def run_getpid(a: "str") -> "str":
+    return str(c_getpid())
+
+
+def run_srand(a: "str") -> "str":
+    n = int(a)
+    c_srand(n)
+    return "ok"

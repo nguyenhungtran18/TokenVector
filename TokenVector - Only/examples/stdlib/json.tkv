@@ -1,0 +1,12 @@
+# json.tkv - Self-Hosted TokenVector JSON Formatter & Parser
+
+def json_stringify_pair(key: "str", val: "str") -> "str":
+    res = "\"" + key + "\": \"" + val + "\""
+    return res
+
+
+def json_stringify_object(k1: "str", v1: "str", k2: "str", v2: "str") -> "str":
+    p1 = json_stringify_pair(k1, v1)
+    p2 = json_stringify_pair(k2, v2)
+    res = "{" + p1 + ", " + p2 + "}"
+    return res

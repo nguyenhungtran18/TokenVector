@@ -1,0 +1,15 @@
+def sigmoid(x: "f32") -> "f32":
+    e = 2.718281828
+    return 1.0 / (1.0 + e ** (0.0 - x))
+
+
+def neuron_forward(n: "i32", bias: "f32") -> "f32":
+    inputs = []
+    weights = []
+    for i in range(n):
+        inputs.append((i + 1) * 0.1)
+        weights.append(0.5)
+    total = bias
+    for i in range(n):
+        total = total + inputs[i] * weights[i]
+    return sigmoid(total)

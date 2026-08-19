@@ -1,0 +1,50 @@
+# -*- coding: utf-8 -*-
+"""Ke thua that + da hinh tren record (B1, 2026-07-29, xem project-
+tokenvector-wave2-status memory) - record gio la REFERENCE TYPE (class,
+khong con struct), ho tro 1 base class DUY NHAT. 'speak()' bi override o
+Dog/Cat - goi qua bien khai bao kieu Animal (base) van phai chay DUNG
+method cua Dog/Cat (virtual dispatch that qua callvirt, xem
+probe_inheritance.il da xac minh)."""
+
+
+class Animal:
+    sound_code: "i32"
+
+    def __init__(self, sound_code):
+        self.sound_code = sound_code
+
+    def speak(self) -> "i32":
+        return self.sound_code
+
+    def describe(self) -> "i32":
+        # method KHONG override o Dog/Cat - ke thua NGUYEN VEN, goi duoc
+        # qua bien kieu Dog/Cat (chi dinh nghia o Animal).
+        return self.speak() + 100
+
+
+class Dog(Animal):
+    name_code: "i32"
+
+    def __init__(self, sound_code, name_code):
+        super().__init__(sound_code)
+        self.name_code = name_code
+
+    def speak(self) -> "i32":
+        return self.sound_code + self.name_code
+
+
+class Cat(Animal):
+    def __init__(self, sound_code):
+        super().__init__(sound_code)
+
+    def speak(self) -> "i32":
+        return self.sound_code * 2
+
+
+def demo_inheritance() -> "i32":
+    a = Animal(1)
+    d = Dog(2, 10)
+    c = Cat(3)
+    total = a.speak() + d.speak() + c.speak()
+    total = total + a.describe() + d.describe() + c.describe()
+    return total

@@ -1,0 +1,42 @@
+"""Chi so am HANG SO cho mang co dinh (Wave 3, 2026-07-29) + slice voi
+bien am hang so ('lst[-2:]'/'s[:-1]') - xem il_codegen.py's _expr_index
+(nhanh mang) va il_features/slicing.py's compile_slice."""
+import numpy as np
+
+
+def arr_last() -> "f32":
+    x = np.zeros(4, dtype=np.float32)
+    x[0] = 1.0
+    x[1] = 2.0
+    x[2] = 3.0
+    x[3] = 4.0
+    return x[-1]
+
+
+def arr_second_last() -> "f32":
+    x = np.zeros(4, dtype=np.float32)
+    x[0] = 1.0
+    x[1] = 2.0
+    x[2] = 3.0
+    x[3] = 4.0
+    return x[-2]
+
+
+def slice_list_last2() -> "i32":
+    lst = []
+    lst.append(1)
+    lst.append(2)
+    lst.append(3)
+    lst.append(4)
+    part = lst[-2:]
+    return part[0] * 10 + part[1]
+
+
+def slice_str_all_but_last(s: "str") -> "str":
+    part = s[:-1]
+    return part
+
+
+def slice_str_last2(s: "str") -> "str":
+    part = s[-2:]
+    return part

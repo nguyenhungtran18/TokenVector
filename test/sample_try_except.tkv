@@ -1,0 +1,25 @@
+"""Vi du THAT kiem chung try/except vua them vao il_codegen.py.
+Chi dung cap (a, b) la BOI SO CHINH XAC cua nhau (tru truong hop b=0 co
+tinh) de tranh giao thoa voi gioi han THAT da biet: '/' tren i32 la chia
+NGUYEN (CIL div) con Python '/' that la chia THUC - 2 ngu nghia khac nhau
+that su (xem STATUS.md Buoc 6), khong lien quan gi den try/except."""
+
+
+def safe_div(a: "i32", b: "i32") -> "i32":
+    # return NGAY BEN TRONG try/except - can epilogue (__ret_tmp + leave).
+    try:
+        return a / b
+    except:
+        return -1
+
+
+def try_get_or_fallback(x: "i32", divisor: "i32", fallback: "i32") -> "i32":
+    # KHONG co 'return' ben trong try/except (chi gan lai bien), return
+    # THAT su nam SAU try/except - khong can epilogue, dung nhanh
+    # 'leave end_lbl' binh thuong.
+    result = fallback
+    try:
+        result = x / divisor
+    except:
+        result = fallback
+    return result

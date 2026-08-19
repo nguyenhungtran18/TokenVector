@@ -1,0 +1,21 @@
+# random.tkv - Self-Hosted TokenVector Pseudo-Random Generator (LCG Algorithm)
+__tkv_import__ = "datetime"
+
+def rand_next(seed: "i32") -> "i32":
+    a = 1103515245
+    c = 12345
+    next_val = (a * seed + c) % 2147483647
+    if next_val < 0:
+        next_val = 0 - next_val
+    return next_val
+
+
+def randint(min_val: "i32", max_val: "i32") -> "i32":
+    t = datetime_ticks()
+    seed = t % 2147483647
+    r = rand_next(seed)
+    span = max_val - min_val + 1
+    if span <= 0:
+        return min_val
+    res = min_val + (r % span)
+    return res

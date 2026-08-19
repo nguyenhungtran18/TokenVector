@@ -1,0 +1,10 @@
+# asyncio.tkv - Self-Hosted TokenVector Task Execution & Event Loop State Machine
+# [MOCK/PROTOTYPE - khong lam viec that, chi la khung ten trung Python]
+
+def run_task(task_id: "i32", param: "str") -> "str":
+    res = "task_" + str(task_id) + "_done:" + param
+    return res
+
+
+def await_task(task_result: "str") -> "str":
+    return task_result

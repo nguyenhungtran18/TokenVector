@@ -1,0 +1,58 @@
+# -*- coding: utf-8 -*-
+# tkv_json.tkv - TokenVector JSON Encoder/Decoder Module (Phase 2 - Web UI)
+# Serialize va Deserialize du lieu JSON thuan TokenVector, khong phu thuoc thu vien ngoai
+
+class JsonField:
+    key: "str"
+    value: "str"
+
+    def __init__(self, key, value):
+        self.key = key
+        self.value = value
+
+def quote(s: "str") -> "str":
+    return "\"" + s + "\""
+
+def encode_str(key: "str", value: "str") -> "str":
+    return quote(key) + ": " + quote(value)
+
+def encode_int(key: "str", value: "i32") -> "str":
+    return quote(key) + ": " + str(value)
+
+def encode_float(key: "str", value: "f64") -> "str":
+    return quote(key) + ": " + str(value)
+
+def encode_bool(key: "str", value: "i32") -> "str":
+    if value == 1:
+        return quote(key) + ": true"
+    return quote(key) + ": false"
+
+def wrap_object(fields: "str") -> "str":
+    return "{" + fields + "}"
+
+def wrap_array_item(item: "str") -> "str":
+    return "{" + item + "}"
+
+def encode_response(status: "str", message: "str", code: "i32") -> "str":
+    fields = encode_str("status", status) + ", " + encode_str("message", message) + ", " + encode_int("code", code)
+    return wrap_object(fields)
+
+def encode_kv(key: "str", val: "str") -> "str":
+    return wrap_object(encode_str(key, val))
+
+def main() -> "i32":
+    print("=== TKV_JSON MODULE TEST ===")
+    r1 = encode_response("success", "Build complete", 200)
+    print("Response 1: " + r1)
+    r2 = encode_response("error", "File not found", 404)
+    print("Response 2: " + r2)
+    r3 = encode_kv("language", "TokenVector")
+    print("Response 3: " + r3)
+    info = wrap_object(
+        encode_str("name", "TokenVector") + ", " +
+        encode_str("version", "2026.1.0") + ", " +
+        encode_int("speed_multiplier", 10) + ", " +
+        encode_bool("no_gil", 1)
+    )
+    print("Package Info: " + info)
+    return 1

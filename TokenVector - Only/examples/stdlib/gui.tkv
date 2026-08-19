@@ -1,0 +1,6 @@
+# gui.tkv - Self-Hosted TokenVector Desktop GUI Library (WinForms)
+__tkv_extern_assembly__ = "System.Windows.Forms"
+
+def alert(message: "str", title: "str") -> "i32":
+    res = gui_msgbox(message, title)
+    return res

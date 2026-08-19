@@ -1,0 +1,16 @@
+# web_framework.tkv - Self-Hosted TokenVector Full-Stack Web Application Framework
+__tkv_import__ = ["http_server", "json"]
+
+def web_route_handler(path: "str") -> "str":
+    if path == "/":
+        html = "<html><head><title>TokenVector Web App</title></head><body style='background:#0f172a;color:#fff;'><h1>TokenVector Native Web App</h1></body></html>"
+        resp = build_http_response("200 OK", html)
+        return resp
+        
+    if path == "/api/status":
+        json_data = json_stringify_pair("server", "TokenVector Native 2.0 AOT")
+        resp = build_http_response("200 OK", json_data)
+        return resp
+        
+    resp_404 = build_http_response("404 Not Found", "404 Page Not Found")
+    return resp_404

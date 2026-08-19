@@ -1,0 +1,58 @@
+# -*- coding: utf-8 -*-
+"""Cac cach viet CO MAT TRONG MOI FILE THAT ma truoc 2026-08-03 khong
+bien dich duoc (hoac bien dich ra ket qua SAI am tham). Moi ham o day
+tuong ung 1 bug that tim duoc khi viet cong cu tools/codestat.tkv."""
+
+LIMIT = 50
+RATIO = 1.5
+
+
+def docstring_and_comment(n: "i32") -> "i32":
+    """Docstring trong than ham - truoc day bao 'khong dich duoc dong'."""
+    # chu thich thuong
+    total = 0
+    for i in range(n):
+        '''Docstring nhieu dong o giua than ham
+        van phai duoc bo qua.'''
+        total = total + i
+    return total
+
+
+def method_on_expression(s: "str") -> "str":
+    """Method goi tren BIEU THUC (slice / loi goi / chuoi method)."""
+    head = s[0:3].strip()
+    tail = s[3:].strip().upper()
+    both = s.strip().lower()
+    return head + "|" + tail + "|" + both
+
+
+def str_of_expression(a: "i32", b: "i32") -> "str":
+    """str() cua bieu thuc, cua hang so module, cua so am."""
+    return (str(a + b) + "," + str(a * 2 - 1) + "," + str(LIMIT) + ","
+            + str(RATIO) + "," + str(a // b) + "," + str(0 - a))
+
+
+def line_continuation(x: "i32") -> "str":
+    """Bieu thuc trai nhieu dong trong ngoac."""
+    parts = []
+    parts.append("x=" + str(x)
+                 + ";x2=" + str(x * 2)
+                 + ";x3=" + str(x * 3))
+    return ",".join(parts)
+
+
+def reserved_words_in_strings(n: "i32") -> "str":
+    """Tu khoa ILASM ('method', 'field', 'class', 'value') nam TRONG chuoi
+    hang phai giu NGUYEN VAN - truoc day bi doi thanh 'method_'..."""
+    out = "method|field|class|value|" + str(n)
+    return out + " method) field] class}"
+
+
+def main(n: "i32") -> "str":
+    lines = []
+    lines.append(str(docstring_and_comment(n)))
+    lines.append(method_on_expression("  abcdefg  "))
+    lines.append(str_of_expression(n, 3))
+    lines.append(line_continuation(n))
+    lines.append(reserved_words_in_strings(n))
+    return "\n".join(lines)

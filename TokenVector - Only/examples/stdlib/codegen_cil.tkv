@@ -1,0 +1,19 @@
+# codegen_cil.tkv - Self-Hosted TokenVector CIL Code Generator
+
+def emit_header(func_name: "str", ret_type: "str") -> "str":
+    h = "  .method public static " + ret_type + " " + func_name + "() cil managed\n  {\n    .maxstack 8"
+    return h
+
+
+def emit_footer() -> "str":
+    return "  }"
+
+
+def emit_ret_int(val: "i32") -> "str":
+    if val == 0:
+        return "    ldc.i4.0\n    ret"
+    if val == 1:
+        return "    ldc.i4.1\n    ret"
+    s = str(val)
+    res = "    ldc.i4 " + s + "\n    ret"
+    return res

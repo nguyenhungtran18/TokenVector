@@ -1,0 +1,32 @@
+# -*- coding: utf-8 -*-
+"""TokenVector Native Automatic Code Transpiler Tool (.tkv).
+Trình chuyển đổi hai chiều tự động giữa Python (.py) và TokenVector (.tkv)
+được viết 100% bằng ngôn ngữ TokenVector Native!
+"""
+
+def py_to_tkv(code_text: "str") -> "str":
+    header = "# -*- coding: utf-8 -*-\n# TokenVector Native Transpiled Code (.tkv)\n"
+    res = re_replace(code_text, ": int", ": i64")
+    res = re_replace(res, ": float", ": f64")
+    res = re_replace(res, "-> int", "-> i64")
+    res = re_replace(res, "-> float", "-> f64")
+    return header + res
+
+def tkv_to_py(code_text: "str") -> "str":
+    header = "# -*- coding: utf-8 -*-\n# Python Standard Transpiled Code (.py)\n"
+    res = re_replace(code_text, ": i64", ": int")
+    res = re_replace(res, ": f64", ": float")
+    res = re_replace(res, "-> i64", "-> int")
+    res = re_replace(res, "-> f64", "-> float")
+    return header + res
+
+def run_transpile_demo() -> "str":
+    py_sample = "def add(a: int, b: float) -> float:\n    return a + b"
+    converted_tkv = py_to_tkv(py_sample)
+    reconverted_py = tkv_to_py(converted_tkv)
+    return "TKV_CODE:\n" + converted_tkv + "\n\nRECONVERTED_PY:\n" + reconverted_py
+
+def run() -> "str":
+    res = run_transpile_demo()
+    print(res)
+    return res

@@ -1,0 +1,61 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def apply_int(f: "func(i32)->i32", x: "i32") -> "i32":
+    return f(x)
+
+def two_lambdas_one_func() -> "i32":
+    a = 3
+    b = 4
+    r1 = apply_int(lambda x: x + a, 1)
+    r2 = apply_int(lambda x: x * b, 1)
+    return r1 + r2
+
+def no_capture() -> "i32":
+    return apply_int(lambda x: x * 2, 21)
+
+def capture_list() -> "i32":
+    weights = [1, 2, 3]
+    total = 0
+    for v in weights:
+        total = total + v
+    return apply_int(lambda x: x * total, 10)
+
+def capture_in_loop() -> "i32":
+    threshold = 5
+    lst = [1, 8, 2, 9, 3]
+    count = 0
+    for v in lst:
+        above = apply_int(lambda x: x - threshold, v)
+        if above > 0:
+            count = count + 1
+    return count
+
+def fn_a() -> "i32":
+    return apply_int(lambda x: x + 1, 10)
+
+def fn_b() -> "i32":
+    return apply_int(lambda x: x * 100, 10)
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("multi_capture_two_lambdas", str(two_lambdas_one_func()), "8")
+
+    tested = tested + 1
+    total = total + check("no_capture_still_works", str(no_capture()), "42")
+
+    tested = tested + 1
+    total = total + check("capture_reftype_list", str(capture_list()), "60")
+
+    tested = tested + 1
+    total = total + check("capture_in_loop_condition", str(capture_in_loop()), "2")
+
+    tested = tested + 1
+    total = total + check("cross_function_no_collision_a", str(fn_a()), "11")
+
+    tested = tested + 1
+    total = total + check("cross_function_no_collision_b", str(fn_b()), "1000")
+
+    return test_summary("lambda_capture_test", total, tested)

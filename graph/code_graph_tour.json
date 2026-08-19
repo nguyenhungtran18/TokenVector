@@ -1,0 +1,57 @@
+{
+ "tour": [
+  {"order":1,"title":"foundation - compiler","nodeIds":[
+    "file:compiler/il_dispatch.py",
+    "file:compiler/il_core.py",
+    "file:compiler/typed_dsl_parser.py",
+    "file:compiler/il_features/generator_feature.py"
+   ]},
+  {"order":2,"title":"foundation - compiler/il_features","nodeIds":[
+    "file:compiler/il_features/stdlib_math_trig.py",
+    "file:compiler/il_features/stdlib_path.py",
+    "file:compiler/il_features/stdlib_re.py",
+    "file:compiler/il_features/stdlib_xml.py"
+   ]},
+  {"order":3,"title":"foundation - compiler/il_features","nodeIds":[
+    "file:compiler/il_features/string_methods_batch4.py",
+    "file:test/verify/_manifest.py",
+    "file:tkv_compile.py",
+    "file:compiler/il_features/list_type.py"
+   ]},
+  {"order":4,"title":"core - goc du an","nodeIds":[
+    "file:tokenvector_compile.py",
+    "file:test/verify/_tkv_arbiter.py",
+    "file:compiler/il_features/int_type.py",
+    "file:compiler/il_codegen.py"
+   ]},
+  {"order":5,"title":"core - compiler/il_features","nodeIds":[
+    "file:compiler/il_features/dict_type.py",
+    "file:compiler/il_features/tkvstr.py",
+    "file:alphaai_codegen.py",
+    "file:test/parity/arbiter.py"
+   ]},
+  {"order":6,"title":"core - test/parity","nodeIds":[
+    "file:test/parity/generator.py",
+    "file:compiler/il_features/control_flow.py",
+    "file:compiler/il_features/list_count_index.py",
+    "file:compiler/il_features/record_feature.py"
+   ]},
+  {"order":7,"title":"core - compiler/il_features","nodeIds":[
+    "file:compiler/il_features/set_type.py",
+    "file:compiler/il_features/stdlib_math.py",
+    "file:cli.py",
+    "file:tkv.py"
+   ]},
+  {"order":8,"title":"entry - benchmark_phase_c","nodeIds":[
+    "file:benchmark_phase_c/run_bench_full.py",
+    "file:compiler/il_features/win32_gui_window.py",
+    "file:docs/spikes/spike_int_repr.py",
+    "file:scratch/probe_confidence.py"
+   ]},
+  {"order":9,"title":"entry - scratch","nodeIds":[
+    "file:scratch/probe_runtime.py",
+    "file:test/run_tests.py"
+   ]}
+ ],
+ "stats": {"steps":9,"files":34,"foundation":10,"core":16,"entry":8,"layer_entries_read":252}
+}

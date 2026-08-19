@@ -1,0 +1,25 @@
+# -*- coding: utf-8 -*-
+"""Thu vien dung chung THAT (khong phai vi du) - cac ham tien ich toan
+hoc pho bien, dung __tkv_import__ tu file khac trong CUNG thu muc (xem
+lib_demo.tkv). Ban than file nay KHONG co entry point rieng (khong dung
+tkvc.exe build truc tiep file nay) - CHI de import."""
+
+
+def clamp(x: "f32", lo: "f32", hi: "f32") -> "f32":
+    if x < lo:
+        return lo
+    if x > hi:
+        return hi
+    return x
+
+
+def max2(a: "f32", b: "f32") -> "f32":
+    if a > b:
+        return a
+    return b
+
+
+def min2(a: "f32", b: "f32") -> "f32":
+    if a < b:
+        return a
+    return b

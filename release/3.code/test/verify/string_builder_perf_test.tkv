@@ -1,0 +1,39 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 18: Toi uu hieu nang don chuoi StringBuilder trong vong lap."""
+import sys
+import time
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_string_builder_accum():
+    p = '''def run() -> "str":
+    s = ""
+    i = 0
+    while i < 10000:
+        s = s + "a"
+        i = i + 1
+    return str(len(s))'''
+    
+    SRC = Path('scratch/m18_sb.tkv')
+    EXE = Path('scratch/m18_sb.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    
+    t0 = time.perf_counter()
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    t1 = time.perf_counter()
+    
+    tkv_val = proc.stdout.strip()
+    duration_ms = (t1 - t0) * 1000
+    assert tkv_val == "10000", f"Mismatch: {repr(tkv_val)}"
+    print(f"PASS: test_string_builder_accum (10,000 iterations in {duration_ms:.2f}ms), result={tkv_val}")
+
+if __name__ == '__main__':
+    test_string_builder_accum()
+    print("ALL MOC 18 TESTS PASSED!")

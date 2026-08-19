@@ -1,0 +1,134 @@
+Ban dang viet THAN HAM (khong viet dong chu ky) cho mot
+ngon ngu DSL nho (TokenVector/AetherTypedDSL) bien dich thang ra CIL.
+Cu phap HOP LE (chi duoc dung dung cac dang sau, KHONG duoc bia them):
+
+- Gan bien vo huong:      ten = bieu_thuc
+- Tao mang 1 chieu:       ten = np.zeros(N, dtype=np.float32)
+- Gan phan tu mang:       ten[i] = bieu_thuc
+- Vong lap for range:     for i in range(N):
+                              <than vong lap, thut le 4 dau cach>
+- Vong lap qua list:      for x in lst:
+- Vong lap qua dict:      for k, v in d.items():
+- break / continue        (hop le trong for/while, KHONG hop le trong finally:)
+- Vong lap while:         while dieu_kien:
+- Re nhanh:               if bieu_thuc:
+                              <than>
+                          else:
+                              <than>
+- Tra ve 1 gia tri:       return bieu_thuc
+- Tra ve 2 gia tri:       return bieu_thuc1, bieu_thuc2   (chi khi chu ky co
+                          return type dang "(dtype, dtype)")
+- Giai nen/gan song song: x, y = f(...)   hoac   x, y = a, b   (ke ca hoan doi)
+- Bieu thuc: so, ten bien, ten[i], ten[i, j], chuoi "..." trong dau ngoac
+  kep, + - * / % (cong chuoi CHI dung '+', KHONG dung % cho string), so
+  sanh (> < >= <= == !=), and/or, "not bieu_thuc" (phu dinh boolean),
+  ba-ngoi KIEU C (KHONG phai kieu Python): "cond ? gia_tri_dung : gia_tri_sai"
+  (vi du "x >= lo and x <= hi ? x : lo" - TUYET DOI KHONG duoc viet
+  "x if cond else lo" kieu Python, DSL nay KHONG ho tro cu phap do), ham
+  toan hoc exp/sqrt/tanh/sin/cos, dau am unary, "key in d" (kiem tra khoa
+  co trong dict).
+- Gan rut gon:            ten += bieu_thuc   (cung vay voi -= *= /= %=;
+                          dung duoc tren bien thuong, "obj.field += x",
+                          va "lst[i] += x")
+- Tu nem loi:             raise <Loai>("thong diep")   (Loai: Exception,
+                          ZeroDivisionError, KeyError, IndexError,
+                          ValueError, OverflowError - GIONG loai dung
+                          duoc trong "except <Loai>:")
+- List DONG:     lst = []                       # tao list rong
+                 lst.append(gia_tri)             # them phan tu
+                 lst[i]                          # doc theo chi so
+                 len(lst)                        # so phan tu
+- Dict DONG:     d = {}                          # tao dict rong
+                 d[key] = gia_tri                # ghi
+                 d[key]                          # doc
+                 key in d                        # kiem tra ton tai
+                 len(d)                          # so phan tu
+- String:        s[i]                            # 1 ky tu (van la string do dai 1)
+                 len(s)                          # do dai
+                 s1 + s2                          # noi chuoi
+                 str(so)                          # doi so -> chuoi
+- File I/O:      read_file(path)                  # -> str (bieu thuc)
+                 file_exists(path)                # -> i32 0/1 (bieu thuc)
+                 write_file(path, content)        # LENH DOC LAP (khong gan bien)
+                 append_file(path, content)       # LENH DOC LAP (khong gan bien)
+- try/except/finally:
+      try:
+          <than>
+      except <Ten loai loi hoac de trong>:        # vd 'except ZeroDivisionError:'
+          <than>                                  # loai ho tro: Exception,
+      finally:                                     # ZeroDivisionError, KeyError,
+          <than>                                   # IndexError, ValueError, OverflowError
+- MACRO co san CHO MANG CO DINH (chi dung khi dung ngu nghia):
+    ten = normalize(x, x_min, x_max)         # (x-min)/(max-min) tung phan tu
+    ten = dense(x, w, b, 'tanh')             # 'tanh'|'sigmoid'|'relu'|'none'
+    ten = argmax(x)                          # tra ve CHI SO (float) phan tu lon nhat
+    ten = add(a, b) / sub(a, b) / mul(a, b)  # cong/tru/nhan tung phan tu, cung shape
+    ten = scale(x, k)                        # nhan vo huong
+    ten = matvec(w, x)                       # ma tran x vector
+    ten = apply(x, 'tanh')                   # ap ham len tung phan tu
+
+KHONG duoc dung cu phap Python khac (list/dict comprehension, class, def,
+import, lambda, generator/yield, decorator, raise tuy y). Class dang record
+(field-only) va tham so/return kieu record CHUA duoc AlphaAI nay ho tro
+sinh (can ctx rieng, xem STATUS.md) - KHONG viet code dung "obj.field" hay
+goi "TenClass(...)" nhu constructor.
+CHI tra ve than ham (khong co dong chu ky 'ten(...) -> ...:' o dau), moi
+dong 1 lenh, dat trong 1 khoi ma ```dsl ... ``` duy nhat.
+
+QUAN TRONG: MOI macro mang co dinh (normalize/dense/argmax/add/sub/mul/
+scale/matvec/apply) CHI duoc dung o dang GAN TRUC TIEP cho 1 bien:
+"ten = macro(...)". TUYET DOI KHONG duoc goi macro long trong bieu thuc
+khac hay truc tiep trong "return" (vi du "return argmax(o)" LA SAI cu
+phap - phai viet "best_idx = argmax(o)" roi dong ke tiep "return best_idx").
+
+Ban se viet THAN HAM cho 12 chu ky duoi day, MOI ham dat trong 1 khoi rieng
+dang ```dsl:<ten_ham> ... ``` (dung dung ten ham lam nhan, de toi tach ra de).
+CHI viet than ham (khong lap lai dong chu ky). Domain: toan hoc/so hoc co ban.
+
+1. Chu ky: is_prime(n: i32) -> i32:
+   Yeu cau: Kiem tra n co phai so nguyen to khong (chi chia het cho 1 va chinh no, n<2 la khong phai), tra ve 1 neu la so nguyen to, 0 neu khong. Dung vong lap for tu 2 den n-1 (hoac toi uu hon neu muon) kiem tra chia het bang %.
+   -> dat trong khoi ```dsl:is_prime ... ```
+
+2. Chu ky: count_primes_upto(n: i32) -> i32:
+   Yeu cau: Dem so luong so nguyen to nho hon n (tu 2 den n-1), tra ve so luong do. Co the viet ham phu is_prime_inline logic ngay trong vong lap (khong goi ham ngoai, DSL nay chua ho tro goi ham tu dinh nghia khac trong cung 1 doan).
+   -> dat trong khoi ```dsl:count_primes_upto ... ```
+
+3. Chu ky: gcd_euclid(a: i32, b: i32) -> i32:
+   Yeu cau: Tinh uoc chung lon nhat (GCD) cua a va b bang thuat toan Euclid (vong lap while, dung phep chia lay du %).
+   -> dat trong khoi ```dsl:gcd_euclid ... ```
+
+4. Chu ky: lcm_via_gcd(a: i32, b: i32) -> i32:
+   Yeu cau: Tinh boi chung nho nhat (LCM) cua a va b, dung cong thuc LCM = a*b/gcd(a,b). Tinh gcd truoc bang vong lap while (thuat toan Euclid) ngay trong than ham nay, roi tinh LCM.
+   -> dat trong khoi ```dsl:lcm_via_gcd ... ```
+
+5. Chu ky: is_perfect_square(n: i32) -> i32:
+   Yeu cau: Kiem tra n co phai so chinh phuong khong (co can bac 2 nguyen), tra ve 1 neu co 0 neu khong. Dung vong lap for i tu 0, kiem tra i*i == n hoac i*i > n thi dung (khong dung ham sqrt de tranh sai so).
+   -> dat trong khoi ```dsl:is_perfect_square ... ```
+
+6. Chu ky: sum_of_digits(n: i32) -> i32:
+   Yeu cau: Tinh tong cac chu so cua n (so nguyen duong), dung vong lap while lay chu so cuoi bang % 10 roi chia nguyen cho 10 (dung phep / cho i32 la chia nguyen).
+   -> dat trong khoi ```dsl:sum_of_digits ... ```
+
+7. Chu ky: reverse_number(n: i32) -> i32:
+   Yeu cau: Dao nguoc cac chu so cua so nguyen duong n (vd 123 -> 321), dung vong lap while, % 10 va / 10.
+   -> dat trong khoi ```dsl:reverse_number ... ```
+
+8. Chu ky: is_palindrome_number(n: i32) -> i32:
+   Yeu cau: Kiem tra n co phai so doi xung (palindrome) khong bang cach dao nguoc no roi so sanh voi n ban dau, tra ve 1 neu doi xung 0 neu khong.
+   -> dat trong khoi ```dsl:is_palindrome_number ... ```
+
+9. Chu ky: power_int(base: i32, exp: i32) -> i32:
+   Yeu cau: Tinh base mu exp (exp >= 0) bang vong lap nhan don gian (khong dung ham pow co san, DSL chua ho tro), tra ve ket qua.
+   -> dat trong khoi ```dsl:power_int ... ```
+
+10. Chu ky: fibonacci_nth(n: i32) -> i32:
+   Yeu cau: Tinh so Fibonacci thu n (F(0)=0, F(1)=1, F(2)=1,...) bang vong lap (khong de quy), dung 2 bien luu 2 so lien tiep.
+   -> dat trong khoi ```dsl:fibonacci_nth ... ```
+
+11. Chu ky: collatz_steps(n: i32) -> i32:
+   Yeu cau: Dem so buoc trong day Collatz bat dau tu n cho den khi ve 1 (neu chan chia 2, neu le nhan 3 cong 1), tra ve so buoc.
+   -> dat trong khoi ```dsl:collatz_steps ... ```
+
+12. Chu ky: digital_root(n: i32) -> i32:
+   Yeu cau: Tinh can so hoc (digital root) cua n: cong lien tuc cac chu so cho den khi con 1 chu so (dung vong lap while ket hop ham tinh tong chu so ben trong).
+   -> dat trong khoi ```dsl:digital_root ... ```

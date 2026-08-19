@@ -1,0 +1,17 @@
+# -*- coding: utf-8 -*-
+"""DB that qua P/Invoke sqlite3.dll (Wave 3, 2026-07-29, hang muc cuoi
+cung con lai cua "web/DB" - xem project-tokenvector-wave2-status memory).
+CAN co file 'sqlite3.dll' (ban CHINH THUC tu sqlite.org, 3.53.4) CANH
+file .exe da bien dich - da dat san trong TokenVector/test/."""
+
+
+def run_db(dbpath: "str") -> "str":
+    h = db_open(dbpath)
+    rc1 = db_exec(h, "DROP TABLE IF EXISTS people")
+    rc2 = db_exec(h, "CREATE TABLE people (id INTEGER, name TEXT)")
+    rc3 = db_exec(h, "INSERT INTO people VALUES (1, 'Alice')")
+    rc4 = db_exec(h, "INSERT INTO people VALUES (2, 'Bob')")
+    name = db_query_text(h, "SELECT name FROM people WHERE id = 2")
+    cnt = db_query_int(h, "SELECT COUNT(*) FROM people")
+    rc5 = db_close(h)
+    return name + "_" + str(cnt)

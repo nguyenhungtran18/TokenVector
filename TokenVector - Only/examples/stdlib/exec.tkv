@@ -1,0 +1,9 @@
+# exec.tkv - Self-Hosted TokenVector Dynamic Script Executor
+# [MOCK/PROTOTYPE - khong lam viec that, chi la khung ten trung Python]
+__tkv_import__ = "eval"
+
+def exec_str(script_code: "str") -> "i32":
+    val = eval_str(script_code)
+    if val != 0:
+        return 1
+    return 1

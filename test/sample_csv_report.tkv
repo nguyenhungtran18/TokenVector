@@ -1,0 +1,22 @@
+# -*- coding: utf-8 -*-
+"""Cong cu THAT viet bang TokenVector: doc 1 file CSV, tinh so dong, tong
+va lon nhat cua 1 cot so, in ra 1 dong tom tat. Bo test chay CHINH file
+nay bang CPython tren cung du lieu de doi chieu."""
+
+
+def report(path: "str", col: "i32") -> "str":
+    txt = read_file(path)
+    lines = txt.split("\n")
+    rows = 0
+    total = 0
+    biggest = 0
+    for ln in lines:
+        if len(ln) > 0:
+            fields = ln.split(",")
+            v = int(fields[col])
+            rows = rows + 1
+            total = total + v
+            if v > biggest:
+                biggest = v
+    avg = total // rows
+    return "rows=" + str(rows) + ",sum=" + str(total) + ",max=" + str(biggest) + ",avg=" + str(avg)

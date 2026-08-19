@@ -1,0 +1,39 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+async def async_worker(x: "i32") -> "i32":
+    return x * 2
+
+
+async def async_string(s: "str") -> "str":
+    return s + "!"
+
+
+def simple_await() -> "i32":
+    a1 = await async_worker(21)
+    return a1
+
+
+def await_in_expr() -> "i32":
+    total = await async_worker(5) + await async_worker(10)
+    return total
+
+
+def await_string() -> "str":
+    return await async_string("hi")
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("simple_await", str(simple_await()), "42")
+
+    tested = tested + 1
+    total = total + check("await_in_expr", str(await_in_expr()), "30")
+
+    tested = tested + 1
+    total = total + check("await_string", await_string(), "hi!")
+
+    return test_summary("async_await_py_tree_test", total, tested)

@@ -1,0 +1,18 @@
+"""String manh hon: index s[i] (tra ve 1 chuoi do dai 1, KHONG phai kieu
+char - dung ngu nghia Python that) va len(s) (String.Length)."""
+
+
+def first_char(s: "str") -> "str":
+    return s[0]
+
+
+def last_char(s: "str") -> "str":
+    return s[len(s) - 1]
+
+
+def str_length(s: "str") -> "i32":
+    return len(s)
+
+
+def char_at(s: "str", i: "i32") -> "str":
+    return s[i]

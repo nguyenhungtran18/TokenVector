@@ -1,0 +1,33 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 24: Async / Await Native."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_async_await():
+    p = '''async def fetch_message() -> "str":
+    thread_sleep(10)
+    return "ASYNC_OK"
+
+def run() -> "str":
+    msg = await fetch_message()
+    return msg'''
+    
+    SRC = Path('scratch/m24_async.tkv')
+    EXE = Path('scratch/m24_async.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "ASYNC_OK", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_async_await", tkv_val)
+
+if __name__ == '__main__':
+    test_async_await()
+    print("ALL MOC 24 TESTS PASSED!")

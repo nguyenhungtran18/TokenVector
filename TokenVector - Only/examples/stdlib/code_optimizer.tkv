@@ -1,0 +1,17 @@
+# code_optimizer.tkv - 2 phep tinh so hoc, KHONG doc AST nao
+#
+# ===================== NHAN: MOCK / PROTOTYPE =====================
+# Ten "AST Code Optimizer & Dead Code Eliminator" la PHONG DAI.
+# optimize_ast_dead_code_elimination() chi lam phep TRU 2 so; KHONG he
+# nhan AST, KHONG duyet cay, KHONG xoa gi. inline_function_call() chi
+# lam phep CONG. Trinh toi uu THAT (neu lam) phai nam trong compiler
+# Python (compiler/il_*.py), khong phai o day.
+# ==================================================================
+def optimize_ast_dead_code_elimination(func_count: "i32", used_count: "i32") -> "i32":
+    removed = func_count - used_count
+    return removed
+
+
+def inline_function_call(outer_val: "i32", inner_val: "i32") -> "i32":
+    fast_result = outer_val + inner_val
+    return fast_result

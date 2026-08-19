@@ -1,0 +1,9 @@
+# test_json.tkv - Test module json.tkv
+__tkv_import__ = "json"
+
+def main() -> "i32":
+    obj_str = json_stringify_object("status", "ok", "code", "200")
+    
+    if len(obj_str) > 0:
+        return 1
+    return 0

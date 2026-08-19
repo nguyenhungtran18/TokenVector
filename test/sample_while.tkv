@@ -1,0 +1,18 @@
+"""Vi du THAT kiem chung 'while' vua them vao il_codegen.py."""
+
+
+def factorial(n: "i32") -> "i32":
+    result = 1
+    i = 1
+    while i <= n:
+        result = result * i
+        i = i + 1
+    return result
+
+
+def count_down_sum(n: "i32") -> "i32":
+    total = 0
+    while n > 0:
+        total = total + n
+        n = n - 1
+    return total

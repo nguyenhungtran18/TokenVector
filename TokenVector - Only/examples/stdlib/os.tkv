@@ -1,0 +1,15 @@
+# os.tkv - TokenVector Standard Library Wrapper cho OS & FileSystem Operations
+
+def getenv(name: "str") -> "str":
+    v = os_getenv(name)
+    return v
+
+
+def mkdir(path: "str") -> "i32":
+    res = os_mkdir(path)
+    return res
+
+
+def list_files(path: "str") -> "list[str]":
+    files = os_list_files(path)
+    return files

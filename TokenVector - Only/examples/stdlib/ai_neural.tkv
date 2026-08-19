@@ -1,0 +1,32 @@
+# ai_neural.tkv - MLP do choi tren so nguyen, KHONG phai suy luan that
+#
+# ===================== NHAN: MOCK / PROTOTYPE =====================
+# Ten "AI & Neural Network Inference Engine" la PHONG DAI. sigmoid_approx()
+# la ham TUYEN TINH chan 2 dau (KHONG phai sigmoid), toan bo tinh tren
+# i32 nhan 100 lan, trong so hardcode, KHONG nap duoc model nao.
+# Suy luan MLP THAT cua du an nam o duong khac va DA doi chieu 100% voi
+# sklearn: xem cli.py/tokenvector_compile.py + self_host_classify (STATUS.md).
+# ==================================================================
+__tkv_import__ = "math"
+
+def sigmoid_approx(x: "i32") -> "i32":
+    if x > 5:
+        return 990
+    if x < -5:
+        return 10
+    val = (x * 100) + 500
+    res = clamp(val, 0, 1000)
+    return res
+
+
+def neural_layer_forward(input_val: "i32", weight: "i32", bias: "i32") -> "i32":
+    dot = input_val * weight + bias
+    out = sigmoid_approx(dot)
+    return out
+
+
+def run_ai_prediction(x1: "i32", x2: "i32") -> "i32":
+    h1 = neural_layer_forward(x1, 2, 1)
+    h2 = neural_layer_forward(x2, -1, 0)
+    out_score = h1 + h2
+    return out_score

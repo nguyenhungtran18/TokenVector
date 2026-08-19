@@ -1,0 +1,319 @@
+# -*- coding: utf-8 -*-
+"""Record (struct) - phan attr_assign/attr/method_call (Phase 1 buoc 8,
+2026-07-28). File nay so huu: _ATTR_ASSIGN_RE + macro _COMPOUND_ATTR_RE
+('obj.field += expr'); parse+codegen+first-pass cho 'attr_assign'
+(p.x = expr); tag 'attr' (doc field, p.x) va 'method_call' (p.method(...))
+cua _compile_expr. declare_scalar VAN O CORE (dung chung moi feature,
+dong goi state locals_decl/declared_names) nhung nhanh phat hien
+record-constructor cua no (p = Point(1.0, 2.0)) goi ra is_record_ctor_rhs
+o day - tri thuc "the nao la 1 record constructor" tach ra, closure
+dung chung o lai. Quy uoc dependency-injection qua `ctx` nhu cac buoc
+truoc (them 'il_type_str' - ham public API cua il_codegen.py, khong the
+import truc tiep vi tranh circular import)."""
+import re
+
+from il_core import IL_SCALAR, parse_expr
+from il_dispatch import (
+    register_expr_codegen, register_line_parser, register_stmt_codegen,
+    register_first_pass_walk, register_macro_expander,
+    EXPR_METHOD_CODEGEN,
+)
+from il_features.string_methods_batch2 import STR_METHODS as _STR_METHODS_BASE
+from il_features.string_methods_batch3 import STR_METHODS_EXTRA as _STR_METHODS_EXTRA
+from il_features.string_methods_batch4 import STR_METHODS_EXTRA2 as _STR_METHODS_EXTRA2
+from il_features.string_methods_batch5 import STR_METHODS_EXTRA3 as _STR_METHODS_EXTRA3
+# 2026-07-29 (Huong A stdlib mo rong, dang module rieng): nhom ham moi
+# dang ky qua dict rieng o batch3/batch4/batch5, merge vao day - KHONG sua
+# batch2.py/batch3.py, giu tinh plug-and-play (nhom moi = file moi + 1
+# dong merge).
+_STR_METHODS = {**_STR_METHODS_BASE, **_STR_METHODS_EXTRA, **_STR_METHODS_EXTRA2, **_STR_METHODS_EXTRA3}
+from il_features.list_pop import compile_list_method_pop as _compile_list_method_pop
+from il_features.dict_get import compile_dict_method_get as _compile_dict_method_get
+from il_features.dict_pop import compile_dict_method_pop as _compile_dict_method_pop
+from il_features.dict_setdefault import compile_dict_method_setdefault as _compile_dict_method_setdefault
+from il_features.list_count_index import compile_list_method_index as _compile_list_method_index
+from il_features.control_flow import compile_file_method_call as _compile_file_method_call
+
+_ATTR_ASSIGN_RE = re.compile(r'^(\w+)\.(\w+)\s*=\s*(.+)$')
+_COMPOUND_ASSIGN_OPS = {'+=': '+', '-=': '-', '*=': '*', '/=': '/', '%=': '%'}
+_COMPOUND_OP_PATTERN = r'(\+=|-=|\*=|/=|%=)'
+_COMPOUND_ATTR_RE = re.compile(r'^(\w+)\.(\w+)\s*' + _COMPOUND_OP_PATTERN + r'\s*(.+)$')
+
+
+def _field_owner_class(ctx, record_name, field_name):
+    """B1 (2026-07-29): tra ve TEN CLASS THAT SU khai bao 'field_name'
+    trong ca pha he ke thua cua 'record_name' (chinh no hoac 1 to tien) -
+    BAT BUOC cho ldfld/stfld dung: CIL doi hoi field reference PHAI ghi
+    dung class KHAI BAO field do (khong phai class con ke thua) - da xac
+    minh THAT qua loi runtime "MissingFieldException: Dog.sound_code"
+    (field 'sound_code' khai bao o Animal, KHONG duoc khai bao lai o Dog -
+    xem gen_record_types's own_fields). record_bases rong (khong ke thua,
+    truong hop pho bien nhat) -> tra ve THANG record_name (hanh vi CU,
+    khong doi 1 buoc nao)."""
+    records = ctx.get('records') or {}
+    record_bases = ctx.get('record_bases') or {}
+    visited = set()
+    queue = [record_name]
+    while queue:
+        cur = queue.pop(0)
+        if cur in visited:
+            continue
+        visited.add(cur)
+        bases = record_bases.get(cur)
+        # records[cur] la fields DA FLATTEN (field cua base TRUOC, xem
+        # gen_record_types) - PHAI tru field cua base DAU TIEN (base con
+        # lai trong list, neu co, la interface KHONG dong gop field) truoc
+        # khi so sanh, neu khong 'own_fields' se luon chua field ke thua va
+        # cur (lop con) bi nham la chu so huu THAT (bug goc: MissingField-
+        # Exception 'Dog.name' du 'name' khai bao o Animal).
+        base0 = bases[0] if isinstance(bases, list) and bases else (
+            bases if isinstance(bases, str) else None)
+        base_fields = records.get(base0, []) if base0 else []
+        own_fields = records.get(cur, [])[len(base_fields):]
+        if any(fn == field_name for fn, _ in own_fields):
+            return cur
+        if isinstance(bases, list):
+            queue.extend(bases)
+        elif bases:
+            queue.append(bases)
+    return record_name
+
+
+def _method_owner_class(ctx, record_name, method_name):
+    record_methods_own = ctx.get('record_methods_own') or {}
+    mdict = record_methods_own.get(record_name, {})
+    if method_name in mdict:
+        return record_name
+    record_bases = ctx.get('record_bases') or {}
+    base = record_bases.get(record_name)
+    if isinstance(base, str) and base:
+        bmdict = record_methods_own.get(base, {})
+        if method_name in bmdict:
+            return base
+    return record_name
+
+
+def is_record_ctor_rhs(rhs_node, records):
+    """declare_scalar (o core) goi ham nay de phat hien 'p = Point(1.0,
+    2.0)' - ve phai la loi goi ham TRUNG TEN voi 1 record da khai bao,
+    khac gan vo huong thong thuong."""
+    return bool(records) and rhs_node[0] == 'call' and rhs_node[1] in records
+
+
+def try_expand_compound_attr(line):
+    """MACRO_EXPANDERS entry - 'obj.field += expr' mo rong THANH VAN BAN
+    sang dang gan-lai binh thuong (attr_assign), khong can codegen moi."""
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _COMPOUND_ATTR_RE.match(stripped)
+    if not m:
+        return None
+    obj, field, cop, rhs = m.groups()
+    op = _COMPOUND_ASSIGN_OPS[cop]
+    return f'{ind}{obj}.{field} = {obj}.{field} {op} ({rhs})'
+
+
+def try_parse_attr_assign(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    m = _ATTR_ASSIGN_RE.match(line)
+    if not m:
+        return None
+    # 'p.x = expr' - ghi 1 field cua record; KIEM TRA THAT record co
+    # field nay hay khong duoc hoan lai codegen (can bang 'records',
+    # chua co o day - chi parse cu phap tho).
+    obj_name, field_name, rhs = m.groups()
+    return {'kind': 'attr_assign', 'obj_name': obj_name, 'field_name': field_name,
+            'value_node': parse_expr(rhs)}, pos + 1
+
+
+def codegen_attr_assign(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    obj_name, field_name = stmt['obj_name'], stmt['field_name']
+    _, _, obj_ta = scope[obj_name]
+    if obj_ta.shape != 'record':
+        raise SyntaxError(
+            f"il_codegen: '.{field_name}' chi dung duoc tren bien kieu record, "
+            f"'{obj_name}' co shape={obj_ta.shape!r}")
+    records = ctx.get('records') or {}
+    field_dtypes = dict(records.get(obj_ta.dtype, []))
+    if field_name not in field_dtypes:
+        raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co field '{field_name}'")
+    field_dtype = field_dtypes[field_name]
+    # B1 (2026-07-29): record gio la REFERENCE TYPE (class, khong con
+    # valuetype/struct) - stfld chi can 1 REFERENCE tren stack (load_var_ref),
+    # khong can dia chi (load_var_addr) nua nhu luc con la struct.
+    ctx['load_var_ref'](obj_name, scope, body)
+    if not isinstance(field_dtype, str):
+        # Field CONTAINER (2026-08-03): gan lai ca doi tuong container.
+        ctx['compile_expr'](stmt['value_node'], scope, body, field_dtype.dtype, ctx)
+        owner = _field_owner_class(ctx, obj_ta.dtype, field_name)
+        body.append(f'    stfld {ctx["il_type_str"](field_dtype, records)} '
+                    f'{owner}::{ctx["il_ident"](field_name)}')
+        return
+    ctx['compile_expr'](stmt['value_node'], scope, body, field_dtype, ctx)
+    owner = _field_owner_class(ctx, obj_ta.dtype, field_name)
+    body.append(f'    stfld {IL_SCALAR[field_dtype]} {owner}::{ctx["il_ident"](field_name)}')
+
+
+def fpw_attr_assign(stmt, ctx):
+    ctx['collect_ternary_temps'](stmt['value_node'])
+
+
+def compile_attr(node, scope, out, dtype, ctx=None):
+    obj_name, field_name = node[1], node[2]
+    _, _, obj_ta = scope[obj_name]
+    if obj_ta.dtype == 'complex' and field_name in ('real', 'imag', 'magnitude'):
+        # '.real'/'.imag'/'.magnitude' tren 1 bien 'complex' (muc 6.8,
+        # 2/4, 2026-08-13) - uy quyen ra complex_type.py (dia chi qua
+        # ctx['load_var_addr'], KHONG hardcode ten slot IL).
+        import il_features.complex_type as _complex_type
+        return _complex_type.compile_attr(obj_name, field_name, scope, out, dtype, ctx)
+    if obj_ta.shape == 'dict_kvpair' and field_name in ('key', 'val'):
+        # KeyValuePair<K,V> la VALUE TYPE - can DIA CHI (ldloca/ldarga) de
+        # goi get_Key()/get_Value(), giong ky thuat da dung cho enumerator
+        # 'cur' trong dict_type.py's codegen_for_in_dict_items (2026-07-29,
+        # dict.items()-as-assign, xem dict_items_list.py). Dung '.val'
+        # (KHONG phai '.value') VI 'value' nam trong _IL_RESERVED_WORDS
+        # (il_core.py) - bi tu dong doi thanh 'value_' TRUOC khi parse
+        # (bug that phat hien qua test dau tien: SyntaxError field '.value_'
+        # khong ton tai), tranh dung cach doi ten reserved-word dai dong.
+        kv_type = ctx['il_type_str'](obj_ta, (ctx or {}).get('records'))
+        ctx['load_var_addr'](obj_name, scope, out)
+        if field_name == 'key':
+            out.append(f'    call instance !0 {kv_type}::get_Key()')
+            ctx['widen_if_needed'](obj_ta.key_dtype, dtype, out)
+        else:
+            out.append(f'    call instance !1 {kv_type}::get_Value()')
+            ctx['widen_if_needed'](obj_ta.dtype, dtype, out)
+        return
+    if obj_ta.shape != 'record':
+        raise SyntaxError(
+            f"il_codegen: '.{field_name}' chi dung duoc tren bien kieu record, "
+            f"'{obj_name}' co shape={obj_ta.shape!r}")
+    records = (ctx or {}).get('records') or {}
+    field_dtypes = dict(records.get(obj_ta.dtype, []))
+    if field_name not in field_dtypes:
+        raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co field '{field_name}'")
+    field_dtype = field_dtypes[field_name]
+    ctx['load_var_ref'](obj_name, scope, out)
+    owner = _field_owner_class(ctx, obj_ta.dtype, field_name)
+    if not isinstance(field_dtype, str):
+        # Field CONTAINER (2026-08-03): kieu IL lay tu TypeAnn, va KHONG
+        # widen (List/Dictionary la kieu tham chieu).
+        out.append(f'    ldfld {ctx["il_type_str"](field_dtype, records)} '
+                   f'{owner}::{ctx["il_ident"](field_name)}')
+        return
+    out.append(f'    ldfld {IL_SCALAR[field_dtype]} {owner}::{ctx["il_ident"](field_name)}')
+    ctx['widen_if_needed'](field_dtype, dtype, out)
+
+
+def compile_method_call(node, scope, out, dtype, ctx=None):
+    obj_name, method_name, args = node[1], node[2], node[3]
+    if isinstance(obj_name, tuple) and len(obj_name) >= 2 and obj_name[0] == 'call' and obj_name[1] == 'super':
+        current_record = ctx.get('current_record')
+        record_bases = ctx.get('record_bases') or {}
+        base_name = record_bases.get(current_record)
+        record_methods = ctx.get('record_methods') or {}
+        base_methods = record_methods.get(base_name, {})
+        if method_name not in base_methods:
+            raise SyntaxError(f"il_codegen: class base '{base_name}' khong co method '{method_name}'")
+        m_sig = base_methods[method_name]
+        out.append('    ldarg.0')
+        compile_expr = ctx['compile_expr']
+        for arg_node, p in zip(args, m_sig.params):
+            compile_expr(arg_node, scope, out, p.type_ann.dtype, ctx)
+        for p in m_sig.params[len(args):]:
+            compile_expr(p.default_node, scope, out, p.type_ann.dtype, ctx)
+        il_type_str = ctx['il_type_str']
+        ret_il = il_type_str(m_sig.return_type) if m_sig.return_type else 'void'
+        params_il = ', '.join(il_type_str(p.type_ann) for p in m_sig.params)
+        out.append(f'    call instance {ret_il} {base_name}::{ctx["il_ident"](method_name)}({params_il})')
+        if m_sig.return_type:
+            ctx['widen_if_needed'](m_sig.return_type.dtype, dtype, out)
+        return
+    _, _, obj_ta = scope[obj_name]
+    registered = EXPR_METHOD_CODEGEN.get((obj_ta.shape or obj_ta.dtype, method_name))
+    if registered:
+        # Giai doan 0.2 nhom 3 (2026-08-03): method can hidden local +
+        # nhan IL, dang ky qua register_expr_method (xem il_dispatch.py) -
+        # hidden local da duoc first-pass cap phat theo id(node).
+        return registered(node, scope, out, dtype, ctx)
+    if obj_ta.shape is None and obj_ta.dtype == 'str' and method_name in _STR_METHODS:
+        # string la REFERENCE TYPE (giong List/Dictionary) - khac nhanh
+        # record ben duoi (STRUCT, can dia chi qua load_var_addr) - noi
+        # rieng o day (khong dung chung code ben duoi).
+        return _STR_METHODS[method_name](node, scope, out, dtype, ctx)
+    if obj_ta.shape == 'list' and method_name == 'pop':
+        return _compile_list_method_pop(node, scope, out, dtype, ctx)
+    if obj_ta.shape == 'list' and method_name == 'index':
+        return _compile_list_method_index(node, scope, out, dtype, ctx)
+    if obj_ta.shape == 'dict' and method_name == 'get':
+        return _compile_dict_method_get(node, scope, out, dtype, ctx)
+    if obj_ta.shape == 'dict' and method_name == 'pop':
+        return _compile_dict_method_pop(node, scope, out, dtype, ctx)
+    if obj_ta.shape == 'dict' and method_name == 'setdefault':
+        return _compile_dict_method_setdefault(node, scope, out, dtype, ctx)
+    if obj_ta.shape == 'file':
+        return _compile_file_method_call(node, scope, out, dtype, ctx)
+    if obj_ta.shape != 'record':
+        raise SyntaxError(
+            f"il_codegen: '.{method_name}(...)' chi dung duoc tren bien kieu record, string "
+            f"({sorted(_STR_METHODS)}), list.pop()/list.index(), dict.get()/dict.pop(), file-handle "
+            f"('.write(x)'/'.read()'), hoac 'x = lst.count(...)' (chi RHS truc tiep 1 phep "
+            f"gan) - '{obj_name}' co shape={obj_ta.shape!r} dtype={obj_ta.dtype!r}")
+    record_methods = (ctx or {}).get('record_methods') or {}
+    methods = record_methods.get(obj_ta.dtype, {})
+    if method_name not in methods:
+        raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co method '{method_name}'")
+    m_sig = methods[method_name]
+    n_required = sum(1 for p in m_sig.params if p.default_node is None)
+    if not (n_required <= len(args) <= len(m_sig.params)):
+        raise SyntaxError(
+            f"il_codegen: goi '{obj_name}.{method_name}(...)' voi {len(args)} tham so "
+            f"nhung method can {n_required}"
+            + (f'-{len(m_sig.params)}' if n_required != len(m_sig.params) else '')
+            + " tham so")
+    if m_sig.return_type is None:
+        raise SyntaxError(
+            f"il_codegen: method '{method_name}' khong co return type (void) - chua ho "
+            f"tro dung trong bieu thuc, chi dung duoc nhu 1 lenh doc lap")
+    # '@staticmethod' (Wave 1 Nhom B, 2026-07-29): KHONG nap 'self' -
+    # goi Python that van hop le qua instance ('obj.static_method(...)'),
+    # nhung CIL phia duoi la 1 loi goi 'static' thuan, khong 'this'.
+    is_static = getattr(m_sig, 'is_static', False)
+    if not is_static:
+        # B1 (2026-07-29): record gio la REFERENCE TYPE - 'call instance'
+        # chi can 1 REFERENCE (load_var_ref), khong can dia chi nua.
+        ctx['load_var_ref'](obj_name, scope, out)
+    compile_expr = ctx['compile_expr']
+    for arg_node, p in zip(args, m_sig.params):
+        compile_expr(arg_node, scope, out, p.type_ann.dtype, ctx)
+    for p in m_sig.params[len(args):]:
+        compile_expr(p.default_node, scope, out, p.type_ann.dtype, ctx)
+    il_type_str = ctx['il_type_str']
+    if getattr(m_sig, 'is_async', False):
+        # 'async def' method tren record (Task 3, 2026-08-12) - kieu tra ve
+        # THAT cua .method la Task<T> (xem _gen_async_def), giong cach ham
+        # top-level 'async def' duoc goi.
+        ret_il = f'class [mscorlib]System.Threading.Tasks.Task`1<{il_type_str(m_sig.return_type)}>'
+    else:
+        ret_il = il_type_str(m_sig.return_type)
+    params_il = ', '.join(il_type_str(p.type_ann) for p in m_sig.params)
+    # B1 (2026-07-29): dung 'callvirt' DONG LOAT cho method non-static (moi
+    # method record gio la 'virtual', xem gen_record_types) - an toan theo
+    # ECMA-335 tren CA method khong override (chi them 1 null-check), tranh
+    # 2 duong dan 'call'/'callvirt' khac nhau tuy record co ke thua hay
+    # khong (xem spike probe_inheritance.il da xac nhan callvirt dispatch
+    # dung).
+    call_op = 'call' if is_static else 'callvirt'
+    call_kind = '' if is_static else 'instance '
+    owner_cls = _method_owner_class(ctx, obj_ta.dtype, method_name)
+    out.append(f'    {call_op} {call_kind}{ret_il} {owner_cls}::{ctx["il_ident"](method_name)}({params_il})')
+    ctx['widen_if_needed'](m_sig.return_type.dtype, dtype, out)
+
+
+# Dang ky vao il_dispatch NGAY LUC MODULE NAP.
+register_macro_expander('compound_attr', try_expand_compound_attr)
+register_line_parser('attr_assign', try_parse_attr_assign)
+register_stmt_codegen('attr_assign', codegen_attr_assign)
+register_first_pass_walk('attr_assign', fpw_attr_assign)
+register_expr_codegen('attr', compile_attr)
+register_expr_codegen('method_call', compile_method_call)

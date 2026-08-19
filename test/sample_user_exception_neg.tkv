@@ -1,0 +1,9 @@
+# Ca AM: Point KHONG ke thua Exception -> "raise Point(1)" phai bi
+# TU CHOI luc bien dich (khong duoc de den luc chay moi vo).
+class Point:
+    x: "i32"
+
+
+def bad() -> "i32":
+    raise Point(1)
+    return 0

@@ -1,0 +1,8 @@
+# test_ai.tkv - Test module ai_neural.tkv
+__tkv_import__ = "ai_neural"
+
+def main() -> "i32":
+    score = run_ai_prediction(3, 2)
+    if score > 0:
+        return 1
+    return 0

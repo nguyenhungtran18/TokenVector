@@ -1,0 +1,38 @@
+--- unique_char_count(s: str) -> i32:
+    success=False attempts=1 time=4.1s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97850, Requested 2708. Please try again in 8m2.111999999s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+--- list_max(a: i32, b: i32, c: i32) -> i32:
+    success=False attempts=1 time=1.0s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97850, Requested 2732. Please try again in 8m22.847999999s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+--- list_count_even(n: i32) -> i32:
+    success=False attempts=1 time=1.0s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97848, Requested 2728. Please try again in 8m17.664s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+--- dict_sum_values(a: i32, b: i32, c: i32) -> i32:
+    success=False attempts=1 time=1.0s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97847, Requested 2734. Please try again in 8m21.984s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+--- dict_has_key_report(a: i32, key_present: i32) -> str:
+    success=False attempts=1 time=1.1s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97845, Requested 2746. Please try again in 8m30.624s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+--- list_of_squares_sum(n: i32) -> i32:
+    success=False attempts=1 time=1.1s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97844, Requested 2725. Please try again in 8m11.616s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+--- gcd_like_mod(a: i32, b: i32) -> i32:
+    success=False attempts=1 time=1.1s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97843, Requested 2745. Please try again in 8m28.032s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+--- clamp_report(x: i32, lo: i32, hi: i32) -> str:
+    success=False attempts=1 time=1.0s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97842, Requested 2750. Please try again in 8m31.488s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+--- safe_index_report(n: i32, idx: i32) -> str:
+    success=False attempts=1 time=1.0s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97841, Requested 2769. Please try again in 8m47.04s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+--- count_not_equal(a: i32, n: i32) -> i32:
+    success=False attempts=1 time=1.0s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97840, Requested 2733. Please try again in 8m15.072s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+--- running_total_capped(n: i32, cap: i32) -> i32:
+    success=False attempts=1 time=1.0s
+    LOI CUOI CUNG: AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97839, Requested 2740. Please try again in 8m20.256s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+
+=== LAN NAY (11 ham resume): 0/11 thanh cong ===
+=== TONG CA 18 HAM: 5/18 thanh cong ===
+=== Thoi gian lan resume: 14.6s ===
+Ket qua chi tiet: C:\Claude AI Project\TokenVector\test\alphaai_batch_port_18_results.json

@@ -1,0 +1,282 @@
+# -*- coding: utf-8 -*-
+"""Ham toan hoc KHONG khop khuon 1-tham-so cua _MATH_FUNCS trong core
+(2026-07-28) - pow(x, y) nhan 2 tham so, khac han sqrt/sin/floor/... chi
+nhan 1. floor/ceil/log/round o LAI core (chi la them entry vao dict
+_MATH_FUNCS co san, tai dung nguyen ven co che conv.r8/conv-nguoc-lai da
+verify qua sqrt/sin/... - khong can code moi). Quy uoc dependency-
+injection qua `ctx` nhu cac il_features/*.py khac."""
+from il_core import IL_LDC_OP
+
+IPOW_CLASS = 'TkvIPow'
+_INT_DTYPES = ('i32', 'i64')
+
+
+def _ensure_ipow_class(ctx):
+    """Chen .class TkvIPow DUNG MOT LAN - cung co che ensure_class cua
+    int_type.py."""
+    emitted = ctx.get('emitted_types')
+    if emitted is None or IPOW_CLASS in emitted:
+        return
+    emitted.add(IPOW_CLASS)
+    ctx['extra_classes'].append(_gen_ipow_class_il())
+
+
+def _gen_ipow_class_il():
+    """Luy thua NGUYEN chinh xac tuyet doi, binh phuong lien tiep.
+
+    'mul.ovf' chu khong phai 'mul': tran phai ON AO. Day la dung tinh
+    than buoc 1 cua moc 6 (a5ce8d2) - so nguyen i32/i64 khong the ngang
+    bang Python, nhung it nhat phai bao thay vi quan vong lang le."""
+    return [
+        f'.class public abstract sealed auto ansi {IPOW_CLASS}',
+        '       extends [mscorlib]System.Object',
+        '{',
+        '  .method public static int64 Pow(int64 b, int64 e) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int64 r, int64 bb, int64 ee)',
+        '    ldarg.1', '    ldc.i8 0', '    blt IPOW_NEG',
+        '    ldc.i8 1', '    stloc.s r',
+        '    ldarg.0', '    stloc.s bb',
+        '    ldarg.1', '    stloc.s ee',
+        '  IPOW_LOOP:',
+        '    ldloc.s ee', '    ldc.i8 0', '    ble IPOW_DONE',
+        # bit thap cua so mu == 1 -> nhan ket qua voi luy thua hien tai
+        '    ldloc.s ee', '    ldc.i8 1', '    and',
+        '    ldc.i8 0', '    beq IPOW_SQ',
+        '    ldloc.s r', '    ldloc.s bb', '    mul.ovf', '    stloc.s r',
+        '  IPOW_SQ:',
+        '    ldloc.s ee', '    ldc.i4.1', '    shr', '    stloc.s ee',
+        # Thoat TRUOC khi binh phuong not: vong cuoi khong can binh phuong
+        # nua, va lam thua se nem OverflowException GIA (vd 3**40 dung ra
+        # phai bao tran o phep nhan ket qua, khong phai o co so).
+        '    ldloc.s ee', '    ldc.i8 0', '    ble IPOW_DONE',
+        '    ldloc.s bb', '    ldloc.s bb', '    mul.ovf', '    stloc.s bb',
+        '    br IPOW_LOOP',
+        '  IPOW_DONE:',
+        '    ldloc.s r', '    ret',
+        '  IPOW_NEG:',
+        '    ldstr "so nguyen ** so mu am tra ve float trong Python '
+        '(2 ** -1 == 0.5) - doi ve f64 truoc khi luy thua."',
+        '    newobj instance void [mscorlib]System.NotSupportedException'
+        '::.ctor(string)',
+        '    throw',
+        '  }',
+        '}',
+    ]
+
+
+GCD_CLASS = 'TkvGcd'
+
+
+def _ensure_gcd_class(ctx):
+    """Chen .class TkvGcd DUNG MOT LAN (Phase 2.3, 2026-08-11) - .NET
+    Framework 4.0 (muc tieu build cua du an) KHONG co Math.Gcd (chi tu
+    .NET Core/Standard sau nay), nen viet tay 1 ham tinh Euclid, cung co
+    che voi TkvIPow ben tren."""
+    emitted = ctx.get('emitted_types')
+    if emitted is None or GCD_CLASS in emitted:
+        return
+    emitted.add(GCD_CLASS)
+    ctx['extra_classes'].append(_gen_gcd_class_il())
+
+
+def _gen_gcd_class_il():
+    """gcd(a,b) - thuat toan Euclid, tra ve GIA TRI TUYET DOI (khop
+    Python math.gcd() - luon >= 0 du dau vao am, khac dau '%' cua ngon
+    ngu nay co the am)."""
+    return [
+        f'.class public abstract sealed auto ansi {GCD_CLASS}',
+        '       extends [mscorlib]System.Object',
+        '{',
+        '  .method public static int64 Gcd(int64 a, int64 b) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int64 t)',
+        '    ldarg.0', '    ldc.i8 0', '    bge GCD_A_OK',
+        '    ldarg.0', '    neg', '    starg.s 0',
+        '  GCD_A_OK:',
+        '    ldarg.1', '    ldc.i8 0', '    bge GCD_B_OK',
+        '    ldarg.1', '    neg', '    starg.s 1',
+        '  GCD_B_OK:',
+        '  GCD_LOOP:',
+        '    ldarg.1', '    ldc.i8 0', '    beq GCD_DONE',
+        '    ldarg.1', '    stloc.s t',
+        '    ldarg.0', '    ldarg.1', '    rem', '    starg.s 1',
+        '    ldloc.s t', '    starg.s 0',
+        '    br GCD_LOOP',
+        '  GCD_DONE:',
+        '    ldarg.0', '    ret',
+        '  }',
+        '}',
+    ]
+
+
+def compile_math_pi(args, scope, out, dtype, ctx):
+    """math_pi() -> f64, hang so pi (Phase 2.3, 2026-08-11). DSL khong co
+    cu phap 'module.attr' (chi ten ham tran, xem docstring dau
+    stdlib_path.py) nen dat ten dang ham 0-tham-so, giong quy uoc cac
+    builtin khac trong file nay."""
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: math_pi() khong nhan tham so")
+    out.append(f'    ldc.r8 {repr(3.141592653589793)}')
+    ctx['widen_if_needed']('f64', dtype, out)
+
+
+def compile_math_e(args, scope, out, dtype, ctx):
+    """math_e() -> f64, hang so e."""
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: math_e() khong nhan tham so")
+    out.append(f'    ldc.r8 {repr(2.718281828459045)}')
+    ctx['widen_if_needed']('f64', dtype, out)
+
+
+def compile_math_gcd(args, scope, out, dtype, ctx):
+    """math_gcd(a, b) -> i32/i64, uoc chung lon nhat (thuat toan Euclid,
+    tra ve TUYET DOI - khop Python math.gcd())."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: math_gcd(a, b) chi nhan dung 2 tham so")
+    _ensure_gcd_class(ctx)
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, 'i64', ctx)
+    compile_expr(args[1], scope, out, 'i64', ctx)
+    out.append(f'    call int64 {GCD_CLASS}::Gcd(int64, int64)')
+    ctx['widen_if_needed']('i64', dtype, out)
+
+
+def compile_pow(args, scope, out, dtype, ctx):
+    """pow(x, y) va 'x ** y'.
+
+    SUA 2026-08-05 (moc 6 lat 2): duong SO NGUYEN truoc day cung di
+    System.Math::Pow, tuc float64, tuc XAP XI - roi conv.i8 cat phan le.
+    Sai AM THAM, do that tren ban chua sua:
+
+        3**35  TokenVector 50031545098999704    CPython 50031545098999707
+        3**38  TokenVector 1350851717672992000  CPython 1350851717672992089
+        7**20  TokenVector 79792266297612000    CPython 79792266297612001
+        2**62  KHOP
+
+    Luy thua cua 2 luon khop (float64 bieu dien chinh xac) - do la ly do
+    bug nay song sot lau den vay: ai thu '2**n' se thay moi thu on.
+
+    Nay so nguyen di TkvIPow::Pow (binh phuong lien tiep, mul.ovf). dtype
+    THUC (f32/f64) giu nguyen duong Math::Pow cu - o do float64 la dung
+    ngu nghia, khong phai xap xi ngoai y muon."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: pow(x, y) chi nhan dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    if dtype in _INT_DTYPES:
+        _ensure_ipow_class(ctx)
+        compile_expr(args[0], scope, out, dtype, ctx)
+        if dtype == 'i32':
+            out.append('    conv.i8')
+        compile_expr(args[1], scope, out, dtype, ctx)
+        if dtype == 'i32':
+            out.append('    conv.i8')
+        out.append(f'    call int64 {IPOW_CLASS}::Pow(int64, int64)')
+        if dtype == 'i32':
+            # 'conv.ovf.i4' chu khong phai 'conv.i4': ket qua khong vua
+            # i32 phai NEM, khong duoc cat am tham.
+            out.append('    conv.ovf.i4')
+        return
+    compile_expr(args[0], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    compile_expr(args[1], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    out.append('    call float64 [mscorlib]System.Math::Pow(float64, float64)')
+    if dtype != 'f64':
+        out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+
+
+from il_dispatch import register_expr_builtin
+
+# _MATH_FUNCS (2026-08-12, Phase tach tkvc.exe thanh plugin): danh sach
+# ham 1-tham-so goi thang System.Math, TRUOC DAY dinh nghia LITERAL
+# trong il_codegen.py roi .update() them tu stdlib_math_trig.py's
+# EXTRA_FUNCS - nay CHUYEN HAN vao day (module thu vien) de il_codegen.py
+# khong con giu literal nao ve danh sach ham toan hoc, chi con 1 diem
+# dang ky trung tam. GIU NGUYEN cach anh xa cu (chi co overload float64,
+# conv.r8 truoc goi / conv nguoc lai sau goi neu dtype!='f64').
+# SUA (2026-08-12, fix bug collision 'round'): XOA 'round': 'Round' khoi
+# dict nay - float_builtin.tkv's push_round_builtin (Moc 15, 2026-08-09)
+# da dang ky 'round' voi ngu nghia DAY DU HON (Python round() that: Banker's
+# Rounding, nhan 1 HOAC 2 tham so, tra ve i32/f64 tuy so tham so) - trong
+# khi ban o day chi la 1 trong 9 ham anh xa 1-tham-so->System.Math thang,
+# lam tron THUONG (khong phai half-to-even) va SE GHI DE/TRUNG voi ban
+# day du hon khi 2 module cung nap (il_dispatch's collision guard bung
+# ValueError). Cay .py doi chung: compiler/il_features/float_builtin.py
+# CHUA co push_round_builtin (Moc 15 chi moi vao cay .tkv, chua port
+# nguoc ve .py) nen 'round' o cay .py hien VAN chi di qua stdlib_math.py's
+# ban don gian nay - do la DIVERGENCE CO SAN tu truoc, KHONG thuoc pham
+# vi fix nay (khong dong vao cay .py). Giu ban day du hon o float_builtin.tkv.
+_MATH_FUNCS = {'exp': 'Exp', 'sqrt': 'Sqrt', 'tanh': 'Tanh', 'sin': 'Sin', 'cos': 'Cos',
+               'floor': 'Floor', 'ceil': 'Ceiling', 'log': 'Log'}
+
+
+def register_math_extra_funcs(extra_dict):
+    """Goi boi stdlib_math_trig.py (va bat ky module 'ham toan hoc 1-tham-
+    so' nao khac sau nay) de gop them vao _MATH_FUNCS - THAY THE cho
+    cach cu 'il_codegen.py tu import EXTRA_FUNCS roi .update() thang vao
+    dict cua chinh no' (doi huong phu thuoc: truoc day il_codegen.py biet
+    ve stdlib_math_trig, nay stdlib_math_trig biet ve stdlib_math qua
+    ham nay, il_codegen.py khong can biet ca hai).
+
+    SUA (review fix Task 3, 2026-08-12): TRUOC DAY ham nay CHI .update()
+    dict, roi trong cay hy vong _register_all_math_funcs() (chay luc
+    stdlib_math.py nap module) se "bat" duoc cac ten them sau - nhung
+    _register_all_math_funcs() da chay TRUOC khi stdlib_math_trig.py kip
+    import xong va goi ham nay (Python chay het than module stdlib_math.py,
+    RO stdlib_math_trig.py moi goi register_math_extra_funcs), nen cac ten
+    trig-extra (tan/asin/acos/atan/sinh/cosh/log10/trunc) bi update() vao
+    dict nhung KHONG BAO GIO duoc register_expr_builtin - mat hoan toan
+    khoi EXPR_BUILTIN_CODEGEN. Nay TU dang ky ngay cac ten trong
+    extra_dict qua register_expr_builtin, khong con dua vao thu tu
+    module-load nua."""
+    for name, method_name in extra_dict.items():
+        _MATH_FUNCS[name] = method_name
+        register_expr_builtin(name, _make_math_func_compiler(method_name), None)
+
+
+def _make_math_func_compiler(method_name):
+    def _compile(args, scope, out, dtype, ctx):
+        if len(args) != 1:
+            raise SyntaxError(f"il_codegen: ham toan hoc chi nhan dung 1 tham so")
+        ctx['compile_expr'](args[0], scope, out, dtype, ctx)
+        out.append('    conv.r8')
+        out.append(f'    call float64 [mscorlib]System.Math::{method_name}(float64)')
+        if dtype != 'f64':
+            out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+    return _compile
+
+
+def _register_all_math_funcs():
+    """Dang ky cac ham CO SAN trong _MATH_FUNCS luc stdlib_math.py nap
+    module (chi 9 ham co ban - exp/sqrt/tanh/sin/cos/floor/ceil/log/
+    round). SUA (review fix Task 3, 2026-08-12): TRUOC DAY docstring nay
+    tuyen bo se "bat" duoc ca cac ten trig-extra do stdlib_math_trig.py
+    them sau qua register_math_extra_funcs() - SAI, vi ham nay chay va
+    KET THUC truoc khi stdlib_math_trig.py kip import xong. Nay
+    register_math_extra_funcs() tu dang ky lay phan cua no (xem dinh
+    nghia phia tren) - ham nay chi con dang ky dung 9 ten co ban, khong
+    dam bao gi ve cac module extra. return_dtype=None vi ham tu widen
+    theo dtype yeu cau (giong pow/math_pi/... ben duoi), khong can
+    EXPR_BUILTIN_DTYPE lam gi them."""
+    for name, method_name in _MATH_FUNCS.items():
+        register_expr_builtin(name, _make_math_func_compiler(method_name), None)
+
+
+# return_dtype=None ca 4 dong duoi: compile_pow/compile_math_pi/
+# compile_math_e/compile_math_gcd deu TU GOI ctx['widen_if_needed'](...)
+# ben trong than ham (xem dinh nghia phia tren) de dua ket qua ve dung
+# 'dtype' yeu cau - neu khai bao return_dtype khac None o day, dispatch
+# chung (_expr_call's nhanh EXPR_BUILTIN_CODEGEN trong il_codegen.py) se
+# GOI THEM 1 lan _widen_if_needed(actual, dtype, out) sau khi ham da tu
+# widen roi -> widen 2 LAN chong nhau, sinh IL sai (BUG THAT phat hien
+# qua math_extra_test.tkv: 'math_gcd' dang ky voi 'i64' truoc day lam
+# gcd_basic/gcd_negative_arg/gcd_zero_arg deu FAIL, ket qua rac
+# 15722056 thay vi 6/6/5).
+register_expr_builtin('pow', compile_pow, None)
+register_expr_builtin('math_pi', compile_math_pi, None)
+register_expr_builtin('math_e', compile_math_e, None)
+register_expr_builtin('math_gcd', compile_math_gcd, None)
+_register_all_math_funcs()

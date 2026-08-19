@@ -1,0 +1,10 @@
+# test_os.tkv - Test module os.tkv
+__tkv_import__ = "os"
+
+def main() -> "i32":
+    path_val = getenv("PATH")
+    ok = mkdir("test_tmp_dir")
+    files = list_files(".")
+    if len(path_val) > 0 and ok == 1 and len(files) > 0:
+        return 1
+    return 0

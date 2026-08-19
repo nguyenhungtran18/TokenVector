@@ -1,0 +1,67 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 23: OOP Ke thua & Da hinh (class Child(Parent)), super(), virtual method overriding."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_oop_inheritance():
+    p = '''class Shape:
+    name: "str"
+    def area(self) -> "f64":
+        return 0.0
+
+class Circle(Shape):
+    radius: "f64"
+    def area(self) -> "f64":
+        return 3.141592653589793 * self.radius * self.radius
+
+def run() -> "str":
+    c = Circle("MyCircle", 5.0)
+    a = c.area()
+    n = c.name
+    return n + "|" + str(a)'''
+    
+    SRC = Path('scratch/m23_oop.tkv')
+    EXE = Path('scratch/m23_oop.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "MyCircle|78.53981633974483", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_oop_inheritance", tkv_val)
+
+def test_super_call():
+    p = '''class BaseLogger:
+    prefix: "str"
+    def get_tag(self) -> "str":
+        return "[" + self.prefix + "]"
+
+class AppLogger(BaseLogger):
+    def get_tag(self) -> "str":
+        tag = super().get_tag()
+        return tag + ":LOG"
+
+def run() -> "str":
+    logger = AppLogger("TOKENVECTOR")
+    res = logger.get_tag()
+    return res'''
+    
+    SRC = Path('scratch/m23_super.tkv')
+    EXE = Path('scratch/m23_super.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "[TOKENVECTOR]:LOG", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_super_call", tkv_val)
+
+if __name__ == '__main__':
+    test_oop_inheritance()
+    test_super_call()
+    print("ALL MOC 23 TESTS PASSED!")

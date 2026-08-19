@@ -1,0 +1,189 @@
+# -*- coding: utf-8 -*-
+"""tour - cong cu THAT viet bang TokenVector.
+
+Sinh lo trinh doc ma nguon: nen doc file nao truoc, file nao sau.
+
+Thu tu suy TU DO THI, khong hoi LLM:
+  1. Tang `foundation` truoc - khong phu thuoc file noi bo nao, doc duoc
+     ngay ma khong can biet gi khac.
+  2. Roi `core` - hieu duoc sau khi da nam foundation.
+  3. Cuoi cung `entry` - diem bat dau chay, ghep moi thu lai.
+  Trong moi tang, file duoc NHIEU NGUOI IMPORT NHAT dung truoc: hieu no
+  thi hieu duoc nhieu cho khac.
+
+Bo qua tang `test` va `isolated`: khong nam trong mach phu thuoc.
+
+Dung:
+    tour.exe <manifest.txt> <import_edges.json> <layers.json> <tour.json>
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def tour_size() -> "i32":
+    """So file dua vao lo trinh."""
+    return 40
+
+
+def per_step() -> "i32":
+    """So file moi buoc. 40/4 = 10 buoc, nam trong khoang 5-15 hop ly."""
+    return 4
+
+
+def max_degree() -> "i32":
+    """Bac vao toi da xet toi khi xep hang."""
+    return 200
+
+
+def edge_side(line: "str", key: "str") -> "str":
+    """Duong dan o dau 'source'/'target' cua mot dong canh JSON."""
+    pat = "\"" + key + "\":\"file:"
+    at = line.find(pat)
+    if at < 0:
+        return ""
+    rest = line[at + len(pat):len(line)]
+    return cut_at(rest, "\"")
+
+
+def dir_of(rel: "str") -> "str":
+    """Thu muc chua file, '' neu o goc."""
+    cut = -1
+    i = 0
+    while i < len(rel):
+        if rel[i] == "/":
+            cut = i
+        i = i + 1
+    if cut < 0:
+        return ""
+    return rel[0:cut]
+
+
+def read_layers(text: "str", into: "dict[str,str]") -> "i32":
+    """Doc layers.json (mot id moi dong) thanh duong_dan -> ten tang."""
+    n = 0
+    cur = ""
+    lines = text.split("\n")
+    for ln in lines:
+        if ln.find("\"nodeIds\"") >= 0:
+            cur = str_field_name(ln)
+        at = ln.find("\"file:")
+        if at < 0:
+            continue
+        tail = ln[at + 6:len(ln)]
+        path = cut_at(tail, "\"")
+        if len(path) == 0:
+            continue
+        into[path] = cur
+        n = n + 1
+    return n
+
+
+def str_field_name(line: "str") -> "str":
+    """Gia tri cua truong 'name' tren mot dong JSON."""
+    pat = "\"name\":\""
+    at = line.find(pat)
+    if at < 0:
+        return ""
+    rest = line[at + len(pat):len(line)]
+    return cut_at(rest, "\"")
+
+
+def rank_layer(paths: "list[str]", layer: "str", assigned: "dict[str,str]", indeg: "dict[str,str]", out: "list[str]", cap: "i32") -> "i32":
+    """Them toi da `cap` file cua `layer` vao `out`, bac vao giam dan.
+
+    PHAI co han ngach rieng tung tang: `foundation` co 98 file, neu cho
+    lay tu do se chiem tron 40 suat va lo trinh khong bao gio den `core`
+    hay `entry` - doc xong van khong biet chuong trinh bat dau tu dau."""
+    n = 0
+    deg = max_degree()
+    while deg >= 0:
+        for rel in paths:
+            if assigned.get(rel, "") != layer:
+                continue
+            if indeg.get(rel, "0") != str(deg):
+                continue
+            if n >= cap:
+                return n
+            if len(out) >= tour_size():
+                return n
+            out.append(rel)
+            n = n + 1
+        deg = deg - 1
+    return n
+
+
+def step_title(layer: "str", rel: "str") -> "str":
+    """Tieu de buoc: ten tang + thu muc cua file dau buoc."""
+    d = dir_of(rel)
+    if len(d) == 0:
+        return layer + " - goc du an"
+    return layer + " - " + d
+
+
+def run(manifest: "str", edges_path: "str", layers_path: "str", out_path: "str") -> "str":
+    """Sinh lo trinh doc va ghi ra JSON."""
+    paths = []
+    raw = read_file(manifest)
+    rows = raw.split("\n")
+    for r in rows:
+        p = norm_slashes(r.strip())
+        if len(p) > 0:
+            paths.append(p)
+
+    indeg = {}
+    edoc = read_file(edges_path)
+    elines = edoc.split("\n")
+    for ln in elines:
+        if ln.find("\"type\":\"imports\"") < 0:
+            continue
+        tgt = edge_side(ln, "target")
+        if len(tgt) == 0:
+            continue
+        cur = indeg.get(tgt, "0")
+        indeg[tgt] = str(int(cur) + 1)
+
+    assigned = {}
+    ldoc = read_file(layers_path)
+    n_lay = read_layers(ldoc, assigned)
+
+    # Han ngach 16/16/8: doc nen truoc, roi tang giua, cuoi cung la diem
+    # bat dau chay - du de thay ca mach, khong sa vao mot tang.
+    ordered = []
+    n_f = rank_layer(paths, "foundation", assigned, indeg, ordered, 16)
+    n_c = rank_layer(paths, "core", assigned, indeg, ordered, 16)
+    n_e = rank_layer(paths, "entry", assigned, indeg, ordered, 8)
+
+    blocks = []
+    i = 0
+    order = 0
+    while i < len(ordered):
+        order = order + 1
+        ids = []
+        j = i
+        stop = i + per_step()
+        more = 1
+        while more == 1:
+            if j >= len(ordered):
+                more = 0
+            elif j >= stop:
+                more = 0
+            else:
+                ids.append("\n    \"file:" + ordered[j] + "\"")
+                j = j + 1
+        head = ordered[i]
+        title = step_title(assigned.get(head, ""), head)
+        blk = "  {\"order\":" + str(order) + ",\"title\":\"" + title + "\",\"nodeIds\":["
+        blk = blk + ",".join(ids) + "\n   ]}"
+        blocks.append(blk)
+        i = i + per_step()
+
+    doc = "{\n \"tour\": [\n" + ",\n".join(blocks) + "\n ],\n \"stats\": {"
+    doc = doc + "\"steps\":" + str(len(blocks))
+    doc = doc + ",\"files\":" + str(len(ordered))
+    doc = doc + ",\"foundation\":" + str(n_f)
+    doc = doc + ",\"core\":" + str(n_c)
+    doc = doc + ",\"entry\":" + str(n_e)
+    doc = doc + ",\"layer_entries_read\":" + str(n_lay)
+    doc = doc + "}\n}\n"
+    write_file(out_path, doc)
+    return "steps=" + str(len(blocks)) + " files=" + str(len(ordered)) + " foundation=" + str(n_f) + " core=" + str(n_c) + " entry=" + str(n_e)

@@ -1,0 +1,6 @@
+def parse_all(s: "str", f: "f64", big: "i64") -> "i32":
+    a = int(s)
+    b = int(f)
+    c = int(big)
+    d = int(s) + 1
+    return a + b + c + d

@@ -1,0 +1,20 @@
+# -*- coding: utf-8 -*-
+"""Bang chung: nhieu 'thu vien' (string/dict/http/db) da duoc DONG GOI
+SAN vao tkvc.exe - file .tkv nay dung CA string method, dict, VA http_get
+trong 1 ham, bien dich+chay tu thu muc KHONG CO file .py nao ca."""
+
+
+def proof(url: "str") -> "str":
+    s = "  Hello TokenVector  "
+    s1 = s.strip()
+    s2 = s1.upper()
+    counts = {}
+    for ch in s2:
+        if ch in counts:
+            counts[ch] = counts[ch] + 1
+        else:
+            counts[ch] = 1
+    body = http_get(url)
+    dict_size = len(counts)
+    http_len = len(body)
+    return s2 + " | dict_size=" + str(dict_size) + " | http_len=" + str(http_len)

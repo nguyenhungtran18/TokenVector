@@ -1,0 +1,21 @@
+"""f-string + list.count()/list.index() (Wave 2, 2026-07-29). f-string:
+macro text-level (xem il_features/fstring.py), CHI ho tro '{ten_bien}'
+tran. list.count(x): CHI ho tro RHS truc tiep 1 phep gan don (giong
+slicing.py), soan boi Gemini + Claude viet lai vong lap CIL that.
+list.index(x): dung List<T>.IndexOf() co san (Gemini viet, dung ngay)."""
+
+
+def greet(name: "str", age: "i32") -> "str":
+    return f"Hello {name}, ban {age} tuoi"
+
+
+def count_and_find(target: "i32") -> "i32":
+    lst = []
+    lst.append(3)
+    lst.append(7)
+    lst.append(3)
+    lst.append(3)
+    lst.append(9)
+    c = lst.count(target)
+    i = lst.index(7)
+    return c * 100 + i

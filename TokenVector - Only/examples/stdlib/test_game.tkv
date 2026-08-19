@@ -1,0 +1,14 @@
+# test_game.tkv - Executable launcher for Mini Game written in TokenVector
+__tkv_import__ = "tkv_game_snake"
+
+def main() -> "i32":
+    frame_text = render_game_frame(3, 7, 150)
+    new_pos = update_game_state(3, 1, 8)
+    
+    hs_file = "C:\\Claude AI Project\\TokenVector\\TokenVector - Only\\examples\\stdlib\\highscore.txt"
+    ok = save_game_high_score(hs_file, 150)
+    
+    n_frame = len(frame_text)
+    if n_frame > 10 and new_pos == 4 and ok == 1:
+        return 1
+    return 0

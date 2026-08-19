@@ -1,0 +1,13 @@
+# parallel.tkv - Self-Hosted TokenVector Multi-Core Parallel Engine (NO GIL)
+# [MOCK/PROTOTYPE - khong lam viec that, chi la khung ten trung Python]
+
+def parallel_map_i32(items: "list[i32]") -> "list[i32]":
+    res = []
+    n = len(items)
+    i = 0
+    while i < n:
+        val = items[i]
+        doubled = val * 2
+        res.append(doubled)
+        i = i + 1
+    return res

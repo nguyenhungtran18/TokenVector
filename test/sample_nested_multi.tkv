@@ -1,0 +1,20 @@
+# -*- coding: utf-8 -*-
+"""Phase C.2 (2026-07-29, xem project-tokenvector-wave2-status memory) -
+nhieu def long SONG SONG trong CUNG 1 ham ngoai (vd tao ca 'tang' va
+'giam' tu 1 counter chung)."""
+
+
+def make_pair(start: "i32") -> "i32":
+    base = start
+
+    def inc(x: "i32") -> "i32":
+        nonlocal base
+        return base + x
+
+    def dec(x: "i32") -> "i32":
+        nonlocal base
+        return base - x
+
+    a = inc(3)
+    b = dec(1)
+    return a + b

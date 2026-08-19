@@ -1,0 +1,152 @@
+# -*- coding: utf-8 -*-
+# build_multiplatform.tkv - TokenVector Phase 3 Multi-Platform Build Guide
+# Huong dan dong goi tkvc cho tung nen tang
+
+class BuildTarget:
+    name: "str"
+    platform: "str"
+    output: "str"
+    ready: "i32"
+
+    def __init__(self, name, platform, output, ready):
+        self.name = name
+        self.platform = platform
+        self.output = output
+        self.ready = ready
+
+class RequirementItem:
+    label: "str"
+    status: "str"
+    hint: "str"
+
+    def __init__(self, label, status, hint):
+        self.label = label
+        self.status = status
+        self.hint = hint
+
+def print_header() -> "i32":
+    print("\x1b[36m==================================================\x1b[0m")
+    print("\x1b[1m\x1b[36m  TOKENVECTOR PHASE 3 — MULTI-PLATFORM BUILD\x1b[0m")
+    print("\x1b[36m==================================================\x1b[0m")
+    return 1
+
+def print_section(title: "str") -> "i32":
+    print("")
+    print("  \x1b[1m\x1b[33m" + title + "\x1b[0m")
+    print("  \x1b[90m----------------------------------------\x1b[0m")
+    return 1
+
+def print_req(req: "RequirementItem") -> "i32":
+    if req.status == "OK":
+        print("  \x1b[32m[OK]  \x1b[0m " + req.label)
+    elif req.status == "WARN":
+        print("  \x1b[33m[WARN]\x1b[0m " + req.label + " — " + req.hint)
+    else:
+        print("  \x1b[31m[FAIL]\x1b[0m " + req.label)
+        print("         " + req.hint)
+    return 1
+
+def print_target(t: "BuildTarget") -> "i32":
+    if t.ready == 1:
+        print("  \x1b[32m[READY]\x1b[0m " + t.name + " (" + t.platform + ")")
+        print("          Output: \x1b[36m" + t.output + "\x1b[0m")
+    else:
+        print("  \x1b[33m[PENDING]\x1b[0m " + t.name + " (" + t.platform + ")")
+        print("            Output: " + t.output)
+    return 1
+
+def print_step(num: "i32", desc: "str", cmd: "str") -> "i32":
+    print("  \x1b[1m[" + str(num) + "]\x1b[0m " + desc)
+    print("      \x1b[90m$ \x1b[36m" + cmd + "\x1b[0m")
+    return 1
+
+def show_requirements() -> "i32":
+    print_section("Platform Requirements")
+
+    r1 = RequirementItem("Python >= 3.10",     "OK",   "")
+    r2 = RequirementItem("PyInstaller 6.x",    "OK",   "")
+    r3 = RequirementItem(".NET Framework 4.8 (Windows)", "OK", "")
+    r4 = RequirementItem(".NET 8 SDK (Linux/macOS)",     "WARN", "Run: install_dotnet_wsl.sh")
+
+    print_req(r1)
+    print_req(r2)
+    print_req(r3)
+    print_req(r4)
+    return 1
+
+def show_build_targets() -> "i32":
+    print_section("Build Targets")
+
+    win = BuildTarget("Windows x64",    "win32",  "dist/tkvc.exe",        1)
+    lin = BuildTarget("Linux x86-64",   "linux",  "dist/linux/tkvc",      0)
+    mac = BuildTarget("macOS ARM64",    "darwin", "dist/macos/tkvc",      0)
+
+    print_target(win)
+    print("")
+    print_target(lin)
+    print("")
+    print_target(mac)
+    return 1
+
+def show_windows_steps() -> "i32":
+    print_section("Windows Build Steps")
+    print_step(1, "Verify .NET Framework available",
+               "dir C:\\WINDOWS\\Microsoft.NET\\Framework64")
+    print_step(2, "Run PyInstaller to package tkvc.exe",
+               "python -m PyInstaller --onefile --name tkvc tkv_compile.py")
+    print_step(3, "Verify output",
+               "dist\\tkvc.exe build hello.tkv")
+    return 1
+
+def show_linux_steps() -> "i32":
+    print_section("Linux Build Steps (WSL2 / GitHub Actions)")
+    print_step(1, "Install .NET 8 SDK",
+               "sudo apt-get install -y dotnet-sdk-8.0")
+    print_step(2, "Verify ilasm available",
+               "find /usr/share/dotnet/sdk -name ilasm")
+    print_step(3, "Install PyInstaller",
+               "pip3 install pyinstaller")
+    print_step(4, "Build tkvc ELF binary",
+               "python3 -m PyInstaller --onefile --name tkvc tkv_compile.py")
+    print_step(5, "Verify output",
+               "./dist/tkvc build hello.tkv")
+    return 1
+
+def show_macos_steps() -> "i32":
+    print_section("macOS Build Steps (GitHub Actions macos-latest)")
+    print_step(1, "Install .NET 8 SDK via Homebrew",
+               "brew install dotnet@8")
+    print_step(2, "Verify dotnet version",
+               "dotnet --version")
+    print_step(3, "Build tkvc Mach-O binary",
+               "python3 -m PyInstaller --onefile --name tkvc tkv_compile.py")
+    print_step(4, "Verify output",
+               "./dist/tkvc build hello.tkv")
+    return 1
+
+def show_ci_steps() -> "i32":
+    print_section("GitHub Actions CI (Auto — push to main branch)")
+    print("  File: \x1b[36m.github/workflows/cross_platform_ci.yml\x1b[0m")
+    print("")
+    print("  Jobs:")
+    print("    \x1b[32mbuild-windows\x1b[0m  runs-on: windows-latest")
+    print("    \x1b[33mbuild-linux  \x1b[0m  runs-on: ubuntu-latest")
+    print("    \x1b[35mbuild-macos  \x1b[0m  runs-on: macos-latest")
+    print("")
+    print("  Trigger: push or pull_request to main")
+    print("  Cost   : FREE (GitHub Actions public repo)")
+    return 1
+
+def main() -> "i32":
+    print_header()
+    show_requirements()
+    show_build_targets()
+    show_windows_steps()
+    show_linux_steps()
+    show_macos_steps()
+    show_ci_steps()
+    print("")
+    print("  \x1b[32m[OK]\x1b[0m build_multiplatform.tkv loaded.")
+    print("  \x1b[90m  Push to GitHub to trigger CI on all 3 platforms.\x1b[0m")
+    print("")
+    return 1

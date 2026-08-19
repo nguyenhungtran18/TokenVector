@@ -1,0 +1,57 @@
+# -*- coding: utf-8 -*-
+"""sum/min/max/sorted/any/all goi duoc o MOI vi tri bieu thuc, va nhan ca
+SET (2026-08-03). Truoc do 6 ham nay CHI dung duoc o RHS 1 phep gan don
+le ('t = sum(xs)') va CHI nhan list.
+
+File nay la Python HOP LE - bo test chay no bang CHINH CPython roi doi
+chieu voi .exe."""
+
+
+def sum_plus(a: "i32", b: "i32", c: "i32") -> "i32":
+    xs = [a, b, c]
+    return sum(xs) + 10
+
+
+def max_gate(a: "i32", b: "i32", c: "i32") -> "i32":
+    xs = [a, b, c]
+    if max(xs) > 5:
+        return 1
+    return 0
+
+
+def span(a: "i32", b: "i32", c: "i32") -> "i32":
+    xs = [a, b, c]
+    return max(xs) - min(xs)
+
+
+def sorted_first(a: "i32", b: "i32", c: "i32") -> "i32":
+    xs = [a, b, c]
+    return sorted(xs)[0]
+
+
+def sorted_keeps_source(a: "i32", b: "i32", c: "i32") -> "i32":
+    xs = [a, b, c]
+    ys = sorted(xs)
+    return xs[0] * 100 + ys[0]
+
+
+def any_all_combo(a: "i32", b: "i32") -> "i32":
+    xs = [a, b]
+    return any(xs) * 10 + all(xs)
+
+
+def sum_of_set(a: "i32", b: "i32", c: "i32") -> "i32":
+    s = set()
+    s.add(a)
+    s.add(b)
+    s.add(c)
+    return sum(s)
+
+
+def sorted_set_first(a: "i32", b: "i32", c: "i32") -> "i32":
+    s = set()
+    s.add(a)
+    s.add(b)
+    s.add(c)
+    xs = sorted(s)
+    return xs[0] * 10 + len(xs)

@@ -1,0 +1,21 @@
+# -*- coding: utf-8 -*-
+"""HTTP day du (Giai doan 3, 2026-08-03): POST mac dinh JSON, POST voi
+Content-Type tu chon, PUT, DELETE. Server that trong test se ghi lai
+method + Content-Type + body ma no NHAN DUOC roi tra ve, nen ket qua in
+ra la bang chung tu PHIA SERVER, khong phai tu phia client tu noi."""
+
+
+def do_post(url: "str", payload: "str") -> "str":
+    return http_post(url, payload)
+
+
+def do_post_type(url: "str", payload: "str", ctype: "str") -> "str":
+    return http_post_type(url, payload, ctype)
+
+
+def do_put(url: "str", payload: "str", ctype: "str") -> "str":
+    return http_put(url, payload, ctype)
+
+
+def do_delete(url: "str") -> "str":
+    return http_delete(url)
