@@ -1,0 +1,3 @@
+def compute(s: "str") -> "str":
+    result = s.capitalize()
+    return result

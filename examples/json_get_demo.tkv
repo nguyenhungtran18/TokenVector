@@ -1,0 +1,3 @@
+def get_name(json_text: "str") -> "str":
+    name = json_get_str(json_text, "name")
+    return name

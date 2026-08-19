@@ -1,0 +1,24 @@
+# -*- coding: utf-8 -*-
+"""Word-frequency text analyzer - mot APP THAT nho (khong phai test cua
+compiler), bien dich + chay CHI bang tkvc.exe (khong can Python luc chay).
+Dung chung: string.split(), dict, for-loop, if/else, va dict.items()."""
+
+
+def analyze(text: "str") -> "str":
+    words = text.split(" ")
+    word_count = len(words)
+    char_count = len(text)
+    counts = {}
+    for w in words:
+        if w in counts:
+            counts[w] = counts[w] + 1
+        else:
+            counts[w] = 1
+    best_word = ""
+    best_count = 0
+    items_list = counts.items()
+    for k, v in items_list:
+        if v > best_count:
+            best_count = v
+            best_word = k
+    return "words=" + str(word_count) + " chars=" + str(char_count) + " most_common=" + best_word + "(x" + str(best_count) + ")"

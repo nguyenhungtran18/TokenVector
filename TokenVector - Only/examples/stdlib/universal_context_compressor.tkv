@@ -1,0 +1,427 @@
+# universal_context_compressor.tkv - Universal AI Context Compression Engine for TokenVector
+
+# Dau hieu MANH cua ma nguon: phai o DAU dong (khong phai xuat hien bat ky
+# dau trong file) - day la khac biet chinh so voi ban cu.
+def is_code_line(trimmed: "str") -> "i32":
+    if trimmed.startswith("def ") or trimmed.startswith("async def ") or trimmed.startswith("class "):
+        return 1
+    if trimmed.startswith("import ") or trimmed.startswith("from ") or trimmed.startswith("#include"):
+        return 1
+    if trimmed.startswith("function ") or trimmed.startswith("export ") or trimmed.startswith("const ") or trimmed.startswith("let ") or trimmed.startswith("var "):
+        return 1
+    if trimmed.startswith("public ") or trimmed.startswith("private ") or trimmed.startswith("static ") or trimmed.startswith("func "):
+        return 1
+    if trimmed.startswith("return ") or trimmed.startswith("if ") or trimmed.startswith("while ") or trimmed.startswith("for "):
+        return 1
+    return 0
+
+
+# Dong log THAT gan nhu luon bat dau bang timestamp (chu so) HOAC chua 1 muc
+# do log VIET HOA. CHI dua vao chu 'Error'/'Exception' xuat hien dau do (nhu
+# ban cu) la SAI: moi file ma nguon co xu ly ngoai le deu bi nhan nham la log
+# roi bi cat nat.
+def is_log_line(trimmed: "str") -> "i32":
+    n = len(trimmed)
+    if n == 0:
+        return 0
+    c = trimmed[0]
+    starts_digit = (c >= "0" and c <= "9")
+    if starts_digit and trimmed.find(":") >= 0:
+        return 1
+    if trimmed.find("INFO") >= 0 or trimmed.find("DEBUG") >= 0 or trimmed.find("WARN") >= 0:
+        return 1
+    if trimmed.find("CRITICAL") >= 0 or trimmed.find("Traceback") >= 0:
+        return 1
+    return 0
+
+
+# Dem BANG CHUNG tren tung dong roi so sanh, thay vi 'thay 1 chuoi bat ky la
+# ket luan ngay' - ma nguon duoc uu tien khi hoa (an toan hon: nham log->code
+# chi mat it ty le nen, nham code->log lam MAT MA).
+def detect_content_type(payload: "str") -> "str":
+    n = len(payload)
+    if n == 0:
+        return "text"
+
+    if (payload[0] == "{" and payload[n - 1] == "}") or (payload[0] == "[" and payload[n - 1] == "]"):
+        return "json"
+
+    lines = payload.split("\n")
+    i = 0
+    num_lines = len(lines)
+    code_hits = 0
+    log_hits = 0
+    while i < num_lines:
+        raw_line = lines[i]
+        trimmed = raw_line.strip()
+        code_hits = code_hits + is_code_line(trimmed)
+        log_hits = log_hits + is_log_line(trimmed)
+        i = i + 1
+
+    if code_hits > 0 and code_hits >= log_hits:
+        return "code"
+    if log_hits >= 2:
+        return "log"
+    if code_hits > 0:
+        return "code"
+    return "text"
+
+
+# NGUYEN TAC: KHONG BAO GIO bo 1 dong MA THAT. Chi bo dong trong va dong CHI
+# CO comment. GIU NGUYEN thut dau dong (bat buoc voi Python/TokenVector - mat
+# thut dau dong la mat ca cau truc khoi lenh). Ban cu bo moi dong dai >= 60 ky
+# tu -> xoa mat phan lon ma that, ty le 'nen' cao nhung noi dung khong con dung.
+def compress_code(code_str: "str") -> "str":
+    lines = code_str.split("\n")
+    res = ""
+
+    i = 0
+    num_lines = len(lines)
+    while i < num_lines:
+        raw_line = lines[i]
+        line_item = raw_line.rstrip()
+        trimmed = line_item.strip()
+
+        if len(trimmed) == 0:
+            i = i + 1
+            continue
+
+        if trimmed.startswith("#") or trimmed.startswith("//"):
+            i = i + 1
+            continue
+
+        res = res + line_item + "\n"
+        i = i + 1
+
+    return res
+
+
+# CHE DO 'structure' (them 2026-08-02): compress_code + bo ca DOCSTRING.
+# Do bang tiktoken tren ma nguon that: bo comment thoi = tiet kiem 10-26%
+# token, bo them docstring = 39-51% - docstring la khoan headroom LON NHAT
+# con lai. Nhung docstring o codebase nay chua LY DO THIET KE, nen day la
+# 1 CHE DO RIENG (compress_struct_cli.exe), KHONG phai mac dinh: dung khi
+# chi can biet file co nhung gi / ham nam o dau, khong dung khi can hieu
+# TAI SAO code viet nhu vay.
+# Nhan dien: chi coi la docstring khi dong bat dau bang 3 dau nhay VA dang o
+# VI TRI docstring - tuc dong ma truoc do ket thuc bang ':' (ngay sau def/
+# class/if...), hoac chua co dong ma nao (docstring dau module).
+# BAT BUOC phai co dieu kien vi tri: typed_dsl_parser.py co dong 33 la
+# "''', re.VERBOSE)" - DONG dong cua 1 chuoi regex nhieu dong, no CUNG bat
+# dau bang 3 nhay. Neu chi xet '3 nhay o dau dong' thi no bi hieu la MO
+# docstring va nuot sach 265 dong con lai cua file (do that: "savings 98%",
+# thuc ra la mat file). Xu ly ca docstring 1 dong lan nhieu dong.
+def compress_code_nodoc(code_str: "str") -> "str":
+    tq_d = "\"\"\""
+    tq_s = "'''"
+    lines = code_str.split("\n")
+    res = ""
+
+    i = 0
+    in_doc = 0
+    doc_mark = ""
+    prev_code = ""
+    seen_code = 0
+    num_lines = len(lines)
+    while i < num_lines:
+        raw_line = lines[i]
+        line_item = raw_line.rstrip()
+        trimmed = line_item.strip()
+
+        if in_doc == 1:
+            if trimmed.find(doc_mark) >= 0:
+                in_doc = 0
+            i = i + 1
+            continue
+
+        if len(trimmed) == 0:
+            i = i + 1
+            continue
+
+        if trimmed.startswith("#") or trimmed.startswith("//"):
+            i = i + 1
+            continue
+
+        starts_d = trimmed.startswith(tq_d)
+        starts_s = trimmed.startswith(tq_s)
+        is_doc_pos = (seen_code == 0 or prev_code.endswith(":"))
+        if (starts_d or starts_s) and is_doc_pos:
+            doc_mark = tq_s
+            if starts_d:
+                doc_mark = tq_d
+            rest = trimmed[3:]
+            if rest.find(doc_mark) < 0:
+                in_doc = 1
+            i = i + 1
+            continue
+
+        res = res + line_item + "\n"
+        prev_code = trimmed
+        seen_code = 1
+        i = i + 1
+
+    return res
+
+
+# CHE DO 'numbered' (2026-08-02): nhu compress_code_nodoc nhung GIU SO DONG
+# GOC o dau moi dong ('1435: ...'). Ly do: ban nen bo dong trong/comment/
+# docstring nen so dong LECH het so voi file goc - doc xong khong sua file
+# duoc nua, phai doc lai ban goc = ton GAP DOI. Co so dong goc thi ban nen
+# dung duoc cho CA viec sua code, khong chi doc hieu.
+# strip_doc=1: bo docstring (che do structure). strip_doc=0: giu docstring.
+# Dau phan cach so dong la 1 DAU CACH, KHONG phai ': ' - do that bang tiktoken
+# tren 15 file: ': ' ton them 4,101 token so voi ' ' (2.30 -> 1.20 token/dong
+# cho phan danh so). Doi 1 ky tu, duoc them 4.5 diem % - dung doi lai cho
+# 'de nhin' hon.
+def compress_code_num(code_str: "str", strip_doc: "i32") -> "str":
+    tq_d = "\"\"\""
+    tq_s = "'''"
+    lines = code_str.split("\n")
+    res = ""
+
+    i = 0
+    in_doc = 0
+    doc_mark = ""
+    prev_code = ""
+    seen_code = 0
+    num_lines = len(lines)
+    while i < num_lines:
+        raw_line = lines[i]
+        line_item = raw_line.rstrip()
+        trimmed = line_item.strip()
+
+        if in_doc == 1:
+            if trimmed.find(doc_mark) >= 0:
+                in_doc = 0
+            i = i + 1
+            continue
+
+        if len(trimmed) == 0:
+            i = i + 1
+            continue
+
+        if trimmed.startswith("#") or trimmed.startswith("//"):
+            i = i + 1
+            continue
+
+        starts_d = trimmed.startswith(tq_d)
+        starts_s = trimmed.startswith(tq_s)
+        is_doc_pos = (seen_code == 0 or prev_code.endswith(":"))
+        if strip_doc == 1 and (starts_d or starts_s) and is_doc_pos:
+            doc_mark = tq_s
+            if starts_d:
+                doc_mark = tq_d
+            rest = trimmed[3:]
+            if rest.find(doc_mark) < 0:
+                in_doc = 1
+            i = i + 1
+            continue
+
+        lineno = i + 1
+        res = res + str(lineno) + " " + line_item + "\n"
+        prev_code = trimmed
+        seen_code = 1
+        i = i + 1
+
+    return res
+
+
+def compress_universal_num(payload: "str", strip_doc: "i32") -> "str":
+    ctype = detect_content_type(payload)
+    if ctype == "code":
+        return pick_smaller(payload, compress_code_num(payload, strip_doc))
+    return compress_universal(payload)
+
+
+def compress_universal_struct(payload: "str") -> "str":
+    ctype = detect_content_type(payload)
+    if ctype == "code":
+        return pick_smaller(payload, compress_code_nodoc(payload))
+    return compress_universal(payload)
+
+
+def compress_json(json_str: "str") -> "str":
+    lines = json_str.split("\n")
+    res = ""
+    
+    i = 0
+    num_lines = len(lines)
+    while i < num_lines:
+        line_item = lines[i]
+        trimmed = line_item.strip()
+        
+        if len(trimmed) == 0:
+            i = i + 1
+            continue
+            
+        if trimmed.find(": null") >= 0 or trimmed.find(": \"\"") >= 0 or trimmed.find(": {}") >= 0:
+            i = i + 1
+            continue
+            
+        res = res + trimmed
+        i = i + 1
+        
+    return res
+
+
+# Chuan hoa 1 dong log de phat hien 2 dong "cung dang" (nguyen ly hoc tu
+# Headroom's log_compressor._dedupe_similar, Apache-2.0 - hoc cach lam, khong
+# chep code): GIU NGUYEN phan dau (den dau ':' hoac '=' dau tien) va CHI chuan
+# hoa phan duoi - moi chuoi chu so lien tiep gom lai thanh 'N'.
+# Vi sao khong chuan hoa ca dong: lam vay se gom nham 2 loai loi KHAC NHAU chi
+# vi chung giong nhau o phan duoi. Giu phan dau = giu danh tinh cua dong.
+# Vd: '12:04:02 free=244.1MB total=3919.5MB' -> '12:N:N free=N.NMB total=N.NMB'
+# nen 2000 dong do RAM khac gia tri gom thanh 1 dang duy nhat.
+def normalize_for_dedupe(text: "str") -> "str":
+    n = len(text)
+    split_at = n
+    i = 0
+    while i < n:
+        c = text[i]
+        if c == ":" or c == "=":
+            split_at = i
+            break
+        i = i + 1
+
+    res = text[0:split_at]
+    i = split_at
+    in_digit = 0
+    while i < n:
+        c = text[i]
+        is_digit = (c >= "0" and c <= "9")
+        if is_digit:
+            if in_digit == 0:
+                res = res + "N"
+                in_digit = 1
+        else:
+            in_digit = 0
+            res = res + c
+        i = i + 1
+    return res
+
+
+# Log la kieu nen CO MAT MAT (co y): chi giu dong quan trong. Hai rao an toan:
+# 1. LUON giu 30 dong CUOI (khi file > 60 dong) - khong co no, 1 file log
+#    615KB toan dong INFO nen ra 85 byte, tuc khong con gi de doc.
+# 2. DEDUPE theo dang (normalize_for_dedupe) TRONG so dong da chon - 30 dong
+#    cuoi cua 1 log giam sat thuong la 30 bien the cua CUNG 1 dong, doc 1 dong
+#    la du. Dedupe chi ap dung cho dong DA duoc chon giu (giong thu tu cua
+#    Headroom: chon truoc, dedupe sau), khong dung de "cuu" dong da bi loai.
+# Cuoi ra co 1 dong tong ket so dong da bo - de nguoi doc biet minh dang xem
+# ban rut gon bao nhieu, khong tuong day la toan bo log.
+def compress_log(log_str: "str") -> "str":
+    lines = log_str.split("\n")
+    res = ""
+
+    i = 0
+    num_lines = len(lines)
+    tail_start = num_lines - 30
+    if num_lines <= 60:
+        tail_start = num_lines
+    seen = set()
+    dropped_dup = 0
+    dropped_unimportant = 0
+    while i < num_lines:
+        line_item = lines[i]
+        trimmed = line_item.strip()
+
+        if len(trimmed) == 0:
+            i = i + 1
+            continue
+
+        is_important = (trimmed.find("Error") >= 0 or trimmed.find("Exception") >= 0 or trimmed.find("Traceback") >= 0 or trimmed.find("FAILED") >= 0 or trimmed.find("CRITICAL") >= 0 or trimmed.find("WARN") >= 0)
+
+        if is_important or i >= tail_start:
+            shape = normalize_for_dedupe(trimmed)
+            if shape in seen:
+                dropped_dup = dropped_dup + 1
+            else:
+                seen.add(shape)
+                res = res + trimmed + "\n"
+        else:
+            dropped_unimportant = dropped_unimportant + 1
+
+        i = i + 1
+
+    total_dropped = dropped_dup + dropped_unimportant
+    if total_dropped > 0:
+        res = res + "... (da bo " + str(dropped_unimportant) + " dong khong quan trong + " + str(dropped_dup) + " dong trung dang)\n"
+    return res
+
+
+# Ghi chu lich su: dong 'while j + 1 < n and lines[j + 1] == lines[i]' ben duoi
+# tung lam crash vi 'and' trong TokenVector KHONG short-circuit (tinh ca 2 ve).
+# Da SUA o compiler ngay 2026-08-02 (compile_boolop sinh nhanh nhay; xem
+# test/verify/short_circuit_test.py) nen mau canh-gac kieu Python nay gio dung.
+# Gom cac dong GIONG HET nhau lien tiep (>=2) thanh 1 dong + '... (lap N lan)'
+# - quy uoc syslog, hoc tu Headroom's lossless_compaction.collapse_runs. Day la
+# phep bien doi DAO NGUOC DUOC (doc xong biet chinh xac co bao nhieu ban sao),
+# khac han voi viec lang le xoa bot.
+def collapse_runs(text: "str") -> "str":
+    lines = text.split("\n")
+    n = len(lines)
+    res = ""
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and lines[j + 1] == lines[i]:
+            j = j + 1
+        run_len = j - i + 1
+        res = res + lines[i] + "\n"
+        if run_len >= 2:
+            res = res + "... (lap " + str(run_len) + " lan)\n"
+        i = j + 1
+    return res
+
+
+# RAO AN TOAN (nguyen ly 'fail open' cua Headroom's compact_lossless): neu ban
+# 'nen' KHONG nho hon ban goc thi tra ve NGUYEN BAN. Truoc day 1 file JSON 38
+# byte nen ra 65 byte va van duoc dung - nen ma phinh to la vo nghia.
+def pick_smaller(original: "str", compressed: "str") -> "str":
+    if len(compressed) >= len(original):
+        return original
+    return compressed
+
+
+def compress_universal(payload: "str") -> "str":
+    ctype = detect_content_type(payload)
+    if ctype == "code":
+        return pick_smaller(payload, compress_code(payload))
+    if ctype == "json":
+        return pick_smaller(payload, compress_json(payload))
+    if ctype == "log":
+        return pick_smaller(payload, compress_log(payload))
+
+    lines = payload.split("\n")
+    res = ""
+    i = 0
+    n = len(lines)
+    while i < n:
+        line_item = lines[i]
+        l = line_item.strip()
+        if len(l) > 0:
+            res = res + l + "\n"
+        i = i + 1
+    return pick_smaller(payload, collapse_runs(res))
+
+
+def calculate_savings_percentage(orig_len: "i32", comp_len: "i32") -> "i32":
+    if orig_len <= 0:
+        return 0
+    if comp_len >= orig_len:
+        return 0
+    saved = orig_len - comp_len
+    pct = (saved * 100) // orig_len
+    return pct
+
+
+def format_universal_ai_request(client_name: "str", raw_prompt: "str") -> "str":
+    ctype = detect_content_type(raw_prompt)
+    compressed = compress_universal(raw_prompt)
+    
+    orig_len = len(raw_prompt)
+    comp_len = len(compressed)
+    savings = calculate_savings_percentage(orig_len, comp_len)
+    
+    header = "[tkv-compressor|" + client_name + "|type:" + ctype + "|savings:" + str(savings) + "%]\n"
+    return header + compressed

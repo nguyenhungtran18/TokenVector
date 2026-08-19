@@ -1,0 +1,31 @@
+class Doubler:
+    factor: "i32"
+
+    def __init__(self, factor: "i32"):
+        self.factor = factor
+
+    async def compute(self, x: "i32") -> "i32":
+        slept = thread_sleep(50)
+        return x * self.factor
+
+
+def check(name: "str", got: "str", want: "str") -> "i32":
+    if got == want:
+        print("PASS " + name)
+        return 1
+    print("FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+
+def run() -> "i32":
+    tested = 0
+    total = 0
+
+    d = Doubler(3)
+    t = d.compute(10)
+    r = await t
+    tested = tested + 1
+    total = total + check("async_method_self_capture", str(r), "30")
+
+    print("SUMMARY " + str(total) + "/" + str(tested))
+    return 0

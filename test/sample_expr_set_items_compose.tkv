@@ -1,0 +1,127 @@
+"""Vi du THAT kiem chung Giai doan 0.2 nhom 6 (2026-08-03): d.items() va
+set.union()/intersection()/difference() chuyen sang duong bieu thuc
+THONG NHAT (assign_scalar + ham phan giai kieu + bien an), thay cho
+duong ASSIGN_RHS_PARSERS rieng da bi bo.
+
+GIOI HAN DA XAC NHAN (khong phai loi nhom 6): voi set, vi tri bieu thuc
+kha dung hien CHI co phep gan - (a) cu phap chu thich kieu KHONG co
+'set[...]' (chi list/dict/func/tuple, xem typed_dsl_parser.parse_type_ann)
+nen khong truyen set vao ham duoc, (b) len() chi nhan 1 BIEN don le, va
+(c) 'for x in <set>' KHONG chay (macro for-in gian thanh doc chi so, ma
+set khong index duoc). Ca 3 la gioi han RIENG, doc lap voi 0.2 - o day
+tieu thu set bang len() va phep 'in' (deu khop Python that, va KHONG
+phu thuoc thu tu liet ke - .NET HashSet khong dam bao thu tu giong
+Python, bai hoc tu nhom 5).
+
+'union_twice' la ca dang chu y: 2 loi goi set.union() trong CUNG 1 ham ->
+2 bien an rieng theo id(node), khong de len nhau."""
+
+
+def items_assign(n: "i32") -> "i32":
+    d = {}
+    d[10] = 1
+    d[20] = 2
+    its = d.items()
+    total = 0
+    for k, v in its:
+        total = total + k + v
+    return total + n
+
+
+def union_assign(n: "i32") -> "i32":
+    a = set()
+    a.add(1)
+    a.add(2)
+    b = set()
+    b.add(2)
+    b.add(4)
+    u = a.union(b)
+    total = len(u)
+    if 1 in u:
+        total = total + 10
+    if 4 in u:
+        total = total + 100
+    return total + n
+
+
+def intersection_assign(n: "i32") -> "i32":
+    a = set()
+    a.add(1)
+    a.add(2)
+    b = set()
+    b.add(2)
+    b.add(4)
+    u = a.intersection(b)
+    total = len(u)
+    if 2 in u:
+        total = total + 10
+    if 1 in u:
+        total = total + 100
+    return total + n
+
+
+def difference_assign(n: "i32") -> "i32":
+    a = set()
+    a.add(1)
+    a.add(2)
+    b = set()
+    b.add(2)
+    b.add(4)
+    u = a.difference(b)
+    total = len(u)
+    if 1 in u:
+        total = total + 10
+    if 2 in u:
+        total = total + 100
+    return total + n
+
+
+def union_twice(n: "i32") -> "i32":
+    a = set()
+    a.add(1)
+    b = set()
+    b.add(2)
+    c = set()
+    c.add(4)
+    u1 = a.union(b)
+    u2 = a.union(c)
+    total = len(u1) + len(u2)
+    if 2 in u1:
+        total = total + 10
+    if 2 in u2:
+        total = total + 1000
+    if 4 in u2:
+        total = total + 100
+    return total + n
+
+
+def union_leaves_sources_intact(n: "i32") -> "i32":
+    a = set()
+    a.add(1)
+    a.add(2)
+    b = set()
+    b.add(4)
+    u = a.union(b)
+    total = len(u) + len(a) + len(b)
+    if 4 in a:
+        total = total + 1000
+    return total + n
+
+
+def ks_sum_of_copy(n: "i32") -> "i32":
+    xs = [3, 1, 2]
+    ys = xs.copy()
+    t = sum(ys)
+    return t + n
+
+
+def ks_sorted_of_split(s: "str") -> "str":
+    parts = s.split(",")
+    srt = sorted(parts)
+    return srt[0]
+
+
+def ks_count_on_split(s: "str") -> "i32":
+    parts = s.split(",")
+    c = parts.count("a")
+    return c

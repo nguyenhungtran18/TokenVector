@@ -1,0 +1,9 @@
+# -*- coding: utf-8 -*-
+"""Vi du dung THAT __tkv_import__ (thu vien dung chung qua nhieu file
+.tkv) - goi ham tu lib_math.tkv (CUNG thu muc) ma khong can viet lai."""
+__tkv_import__ = "lib_math"
+
+
+def score_clamped(raw_score: "f32") -> "f32":
+    c = clamp(raw_score, 0.0, 100.0)
+    return max2(c, min2(c, 100.0))

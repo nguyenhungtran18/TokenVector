@@ -1,0 +1,41 @@
+"""Vi du THAT kiem chung Giai doan 0.2 nhom 4 (2026-08-03): builtin/method
+tra ve CONTAINER (s.split(sep) -> list[str], os_list_files(p) -> list[str])
+goi duoc NGAY TRONG bieu thuc (lam DOI SO 1 loi goi ham khac), khong chi
+o RHS 1 phep gan don le.
+
+GIOI HAN DA BIET (khong phai loi cua nhom 4): 'len(s.split(sep))' KHONG
+chay duoc vi len() hien chi nhan 1 BIEN don le (xem _expr_call), va
+'s.split(sep)[0]' cung khong vi parse_factor chi gan '[i]' vao 1 TEN
+bien - ca 2 la gioi han RIENG, doc lap voi viec compose builtin."""
+
+
+def count_items(xs: "list[str]") -> "i32":
+    return len(xs)
+
+
+def join_first_two(xs: "list[str]") -> "str":
+    if len(xs) < 2:
+        return ""
+    return xs[0] + "-" + xs[1]
+
+
+def split_assign(s: "str", sep: "str") -> "i32":
+    parts = s.split(sep)
+    return len(parts)
+
+
+def split_in_call(s: "str", sep: "str") -> "i32":
+    return count_items(s.split(sep))
+
+
+def split_in_call_join(s: "str", sep: "str") -> "str":
+    return join_first_two(s.split(sep))
+
+
+def list_files_assign(p: "str") -> "i32":
+    files = os_list_files(p)
+    return len(files)
+
+
+def list_files_in_call(p: "str") -> "i32":
+    return count_items(os_list_files(p))

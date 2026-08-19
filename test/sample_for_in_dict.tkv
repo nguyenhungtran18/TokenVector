@@ -1,0 +1,29 @@
+"""'for k, v in d.items():' - lap TRUC TIEP qua dict (Dictionary<K,V>
+khong co chi so vi tri nhu List nen phai dung enumerator CIL that -
+GetEnumerator/MoveNext/Current/Key/Value, xac minh THAT bang probe .il
+truoc khi viet, xem STATUS.md)."""
+
+
+def sum_dict_items(n: "i32", scale: "f32") -> "f32":
+    d = {}
+    for i in range(n):
+        if i > 0:
+            d[i] = scale + i
+    total = 0.0
+    for k, v in d.items():
+        total = total + k + v
+    return total
+
+
+def sum_nested_dict_items(n: "i32", m: "i32") -> "f32":
+    outer = {}
+    for i in range(n):
+        outer[i] = i
+    total = 0.0
+    for k1, v1 in outer.items():
+        inner = {}
+        for j in range(m):
+            inner[j] = j
+        for k2, v2 in inner.items():
+            total = total + k1 + v1 + k2 + v2
+    return total

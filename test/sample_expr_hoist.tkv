@@ -1,0 +1,73 @@
+# -*- coding: utf-8 -*-
+"""Bieu thuc o vi tri truoc day CHI nhan 1 TEN BIEN (2026-08-03, dot 2).
+
+Moi ham duoi day truoc day deu bao loi "chi ho tro 1 BIEN don" hoac
+"khong dich duoc dong", bat nguoi viet dat bien tam bang tay."""
+
+
+class Bag:
+    items: "list[str]"
+    scores: "dict[str,f64]"
+    n: "i32"
+
+    def __init__(self, n):
+        self.items = []
+        self.scores = {}
+        self.n = n
+
+
+def make_names(n: "i32") -> "list[str]":
+    out = []
+    for i in range(n):
+        out.append("n" + str(i))
+    return out
+
+
+def sum_of(n: "i32") -> "list[i32]":
+    out = []
+    for i in range(n):
+        out.append(i * i)
+    return out
+
+
+def container_field_from_outside(n: "i32") -> "str":
+    """Doc/ghi field container tu NGOAI class - khong can bi danh."""
+    b = Bag(n)
+    b.items.append("x")
+    b.items.append("y")
+    b.scores["x"] = 1.5
+    b.scores["y"] = 2.5
+    first = b.items[0]
+    got = b.scores["y"]
+    return first + "," + str(got) + "," + str(len(b.items))
+
+
+def wrapper_over_expression() -> "str":
+    """sorted()/sum()/max()/len() nhan 1 BIEU THUC."""
+    d = {}
+    d["b"] = 2
+    d["a"] = 1
+    d["c"] = 3
+    keys = sorted(d.keys())
+    total = sum(d.values())
+    biggest = max(d.values())
+    return ",".join(keys) + "|" + str(total) + "|" + str(biggest) + "|" + str(len(d.keys()))
+
+
+def for_over_call(n: "i32") -> "str":
+    """'for x in f(...):' voi f tra ve list thuong."""
+    parts = []
+    for nm in make_names(n):
+        parts.append(nm.upper())
+    total = 0
+    for v in sum_of(n):
+        total = total + v
+    return ",".join(parts) + "|" + str(total)
+
+
+def main(n: "i32") -> "str":
+    parts = []
+    parts.append(container_field_from_outside(n))
+    parts.append(wrapper_over_expression())
+    parts.append(for_over_call(n))
+    return "|".join(parts)

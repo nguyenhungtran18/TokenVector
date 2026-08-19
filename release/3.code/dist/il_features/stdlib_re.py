@@ -1,0 +1,73 @@
+# -*- coding: utf-8 -*-
+"""re_match(pattern, s) / re_sub(pattern, repl, s) (Wave 2, 2026-07-29,
+soan boi Gemini) - anh xa System.Text.RegularExpressions.Regex. Ten HAM
+PHANG (khong 're.match'/'re.sub' co dau cham) - GIONG quy uoc da co cua
+path_join/file_exists/read_file (khong mo phong 'module.func()' vi cu
+phap DSL hien tai hieu 'x.y(...)' la METHOD_CALL tren 1 BIEN ten 'x' da
+khai bao, khong phai goi ham module-level).
+
+GIOI HAN DA BIET: re_match neo dau chuoi bang cach tu them '^' vao dau
+pattern (Regex.IsMatch KHONG neo dau nhu Python re.match); re_sub's
+'repl' la chuoi THUONG (khong dich backreference \\1 -> $1)."""
+
+
+def compile_re_match(args, scope, out, dtype, ctx):
+    """re_match(pattern, s) -> i32 (0/1) - .NET Regex.IsMatch(input, pattern)
+    tim khop O BAT KY DAU (khac Python neo dau) nen phai tu noi '^' vao
+    dau pattern truoc khi goi."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: re.match(pattern, s) can dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[1], scope, out, 'str', ctx)
+    out.append('    ldstr "^"')
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    out.append('    call bool [System]System.Text.RegularExpressions.Regex::IsMatch(string, string)')
+
+
+def compile_re_search(args, scope, out, dtype, ctx):
+    """re_search(pattern, s) -> i32 (0/1) - .NET Regex.IsMatch(input, pattern)
+    tim khop O BAT KY DAU trong chuoi, dung THANG (khong can tu them '^'
+    nhu re_match) - day CHINH LA ngu nghia goc cua Python re.search()."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: re_search(pattern, s) can dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[1], scope, out, 'str', ctx)
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call bool [System]System.Text.RegularExpressions.Regex::IsMatch(string, string)')
+
+
+def compile_re_fullmatch(args, scope, out, dtype, ctx):
+    """re_fullmatch(pattern, s) -> i32 (0/1) - Python re.fullmatch() doi
+    hoi khop TOAN BO chuoi; Regex.IsMatch mac dinh chi can khop 1 phan nen
+    tu neo CA HAI DAU ('^' + pattern + '$') truoc khi goi."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: re_fullmatch(pattern, s) can dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[1], scope, out, 'str', ctx)
+    out.append('    ldstr "^"')
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    out.append('    ldstr "$"')
+    out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    out.append('    call bool [System]System.Text.RegularExpressions.Regex::IsMatch(string, string)')
+
+
+def compile_re_sub(args, scope, out, dtype, ctx):
+    """re_sub(pattern, repl, s) -> str - .NET Regex.Replace(input, pattern,
+    replacement) - CHU Y thu tu tham so KHAC Python (input truoc)."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: re.sub(pattern, repl, s) can dung 3 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[2], scope, out, 'str', ctx)
+    compile_expr(args[0], scope, out, 'str', ctx)
+    compile_expr(args[1], scope, out, 'str', ctx)
+    out.append('    call string [System]System.Text.RegularExpressions.Regex::Replace(string, string, string)')
+
+
+from il_dispatch import register_expr_builtin
+
+register_expr_builtin('re_match', compile_re_match, 'i32')
+register_expr_builtin('re_search', compile_re_search, 'i32')
+register_expr_builtin('re_fullmatch', compile_re_fullmatch, 'i32')
+register_expr_builtin('re_sub', compile_re_sub, 'str')

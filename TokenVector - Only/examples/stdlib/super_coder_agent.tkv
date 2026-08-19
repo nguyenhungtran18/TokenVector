@@ -1,0 +1,29 @@
+# super_coder_agent.tkv - noi chuoi + vong lap goi exec_str (dang MOCK)
+#
+# ===================== NHAN: MOCK / PROTOTYPE =====================
+# Ten "Autonomous Super Coder Engine" la PHONG DAI. super_coder_analyze_
+# requirement() chi noi chuoi; super_coder_deploy_artifact() chi them
+# ".exe" vao ten. Vong lap tu sua dua HOAN TOAN vao exec_str() cua
+# exec.tkv - von cung la mock (DSL nay KHONG the exec/eval dong: da ket
+# luan la buc tuong kien truc, loai vinh vien - xem ROADMAP.md).
+# ==================================================================
+__tkv_import__ = ["exec", "eval", "os"]
+
+def super_coder_analyze_requirement(req_text: "str") -> "str":
+    plan = "super_coder_plan_for:" + req_text
+    return plan
+
+
+def super_coder_auto_fix_loop(code_str: "str", max_retries: "i32") -> "i32":
+    i = 0
+    while i < max_retries:
+        status = exec_str(code_str)
+        if status == 1:
+            return 1
+        i = i + 1
+    return 0
+
+
+def super_coder_deploy_artifact(app_name: "str") -> "str":
+    artifact_file = app_name + ".exe"
+    return artifact_file

@@ -1,0 +1,11 @@
+# -*- coding: utf-8 -*-
+"""TokenVector Native Standard Library - Math Module."""
+
+def sqrt(x: "f64") -> "f64":
+    return sqrt(x)
+
+def pow(x: "f64", y: "f64") -> "f64":
+    return pow(x, y)
+
+def abs(x: "f64") -> "f64":
+    return abs(x)

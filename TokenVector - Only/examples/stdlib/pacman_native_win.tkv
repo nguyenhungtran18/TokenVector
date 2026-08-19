@@ -1,0 +1,27 @@
+# pacman_native_win.tkv - 100% Pure Native TokenVector (.tkv) Pac-Man Game Engine
+__tkv_import__ = ["random", "os"]
+
+def render_pacman_win_map(px: "i32", py: "i32", score: "i32") -> "str":
+    line1 = "██████████████████████████████████████"
+    line2 = "█ · · · · · · · · · · · · · · · · · · █"
+    line3 = "█ · █ █ █ · █ █ █ · █ █ █ · █ █ █ · · █"
+    line4 = "█ · █   █ · █ 👻 █ · █ 👻 █ · █   █ · · █"
+    line5 = "█ · · · · · · · 🟡 · · · · · · · · · █"
+    line6 = "██████████████████████████████████████"
+    
+    score_str = str(score)
+    header = "🟡 TOKENVECTOR PAC-MAN NATIVE WINDOWS GAME (SCORE: " + score_str + ")\n"
+    
+    p1 = header + line1 + "\n"
+    p2 = p1 + line2 + "\n"
+    p3 = p2 + line3 + "\n"
+    p4 = p3 + line4 + "\n"
+    p5 = p4 + line5 + "\n"
+    full_map = p5 + line6
+    return full_map
+
+
+def main() -> "i32":
+    game_screen = render_pacman_win_map(5, 5, 250)
+    write_file("pacman_win_screen.txt", game_screen)
+    return 1

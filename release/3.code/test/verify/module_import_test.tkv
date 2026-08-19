@@ -1,0 +1,40 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 29: Co che Import Da Tep & Module System (import module / from mod import func)."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_module_import():
+    # 1. Create auxiliary module scratch/m29_helper.tkv
+    helper_code = '''def compute_square(n: "i32") -> "i32":
+    return n * n'''
+    
+    # 2. Create main program scratch/m29_main.tkv
+    main_code = '''import m29_helper
+
+def run() -> "str":
+    val = compute_square(9)
+    return "IMPORT_OK:" + str(val)'''
+    
+    HELPER_PATH = Path('scratch/m29_helper.tkv')
+    MAIN_PATH = Path('scratch/m29_main.tkv')
+    EXE_PATH = Path('scratch/m29_main.exe')
+    
+    HELPER_PATH.write_text(helper_code, encoding='utf-8')
+    MAIN_PATH.write_text(main_code, encoding='utf-8')
+    
+    compile_tkv_cli(MAIN_PATH, EXE_PATH, entry_name='run')
+    proc = subprocess.run([str(EXE_PATH)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "IMPORT_OK:81", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_module_import", tkv_val)
+
+if __name__ == '__main__':
+    test_module_import()
+    print("ALL MOC 29 TESTS PASSED!")

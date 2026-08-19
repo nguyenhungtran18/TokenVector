@@ -1,0 +1,25 @@
+# -*- coding: utf-8 -*-
+"""Kiem chung '__tkv_extern_class__' (Task 5, 2026-08-18 - xem docs/
+superpowers/plans/2026-08-18-extern-class.md + docs/superpowers/specs/
+2026-08-18-extern-class-design.md). Khai 1 handle-type NGOAI qua pragma
+(khong sua compiler): System.Text.StringBuilder voi constructor 1-arg,
+method scalar-return (ToString), method chaining-return (Append tra ve
+chinh Sb), dung lam fixture mau cho test tong hop (extern_class_test.py).
+
+'mscorlib' luon co san mac dinh (khong can __tkv_extern_assembly__)."""
+__tkv_extern_class__ = [
+    {
+        "name": "Sb", "assembly": "mscorlib", "class": "System.Text.StringBuilder",
+        "ctor": ["str"],
+        "methods": [
+            {"name": "Append", "params": ["str"], "returns": "Sb"},
+            {"name": "ToString", "params": [], "returns": "str"},
+        ],
+    },
+]
+
+
+def run_concat(a: "str", b: "str") -> "str":
+    s = Sb(a)
+    t = s.Append(b)
+    return t.ToString()

@@ -1,0 +1,52 @@
+# compressor_daemon.tkv - Persistent HTTP Daemon for Universal AI Context Compressor
+# Native .NET HttpListener - runs indefinitely, 0 Python dependency
+__tkv_import__ = "universal_context_compressor"
+__tkv_extern_assembly__ = "System.Net"
+
+def write_status(msg: "str") -> "i32":
+    state_file = "C:\\Users\\Nguyen Hung\\.gemini\\antigravity\\scratch\\tokenvector_native_service.status"
+    write_file(state_file, msg)
+    return 1
+
+def main() -> "i32":
+    status_msg = "STATUS=OK\nENGINE=TokenVector-Daemon-v1\nPORT=8888\nPYTHON_ALLOWED=FALSE\nMODE=HTTP_LISTENER"
+    write_status(status_msg)
+
+    listener_prefix = "http://localhost:8888/"
+    listener = System.Net.HttpListener()
+    listener.Prefixes.Add(listener_prefix)
+    listener.Start()
+
+    print("TokenVector Universal Compressor Daemon running on port 8888")
+
+    while True:
+        ctx = listener.GetContext()
+        req = ctx.Request
+        resp = ctx.Response
+
+        path = req.Url.AbsolutePath
+        method = req.InputStream
+
+        body = ""
+        if req.HasEntityBody:
+            reader = System.IO.StreamReader(req.InputStream)
+            body = reader.ReadToEnd()
+
+        out_str = ""
+        if path == "/compress":
+            compressed = compress_universal(body)
+            orig_len = len(body)
+            comp_len = len(compressed)
+            savings = calculate_savings_percentage(orig_len, comp_len)
+            savings_str = str(savings)
+            out_str = "[tkv-daemon|savings:" + savings_str + "%]\n" + compressed
+        else:
+            out_str = "{\"status\":\"ok\",\"engine\":\"TokenVector-Native-Daemon\",\"port\":8888,\"python\":false}"
+
+        resp.ContentType = "text/plain; charset=utf-8"
+        out_bytes = System.Text.Encoding.UTF8.GetBytes(out_str)
+        resp.ContentLength64 = len(out_bytes)
+        resp.OutputStream.Write(out_bytes, 0, len(out_bytes))
+        resp.Close()
+
+    return 0

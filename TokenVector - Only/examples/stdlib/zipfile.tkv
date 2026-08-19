@@ -1,0 +1,11 @@
+# zipfile.tkv - TokenVector Standard Library Wrapper cho Nén/Giải nén tệp Zip
+__tkv_extern_assembly__ = "System.IO.Compression.FileSystem"
+
+def create_zip(folder_path: "str", zip_path: "str") -> "i32":
+    res = zip_create(folder_path, zip_path)
+    return res
+
+
+def extract_zip(zip_path: "str", dest_folder: "str") -> "i32":
+    res = zip_extract(zip_path, dest_folder)
+    return res

@@ -1,0 +1,10 @@
+def compute(x: "f64") -> "f64":
+    a = tan(x)
+    b = asin(x)
+    c = acos(x)
+    d = atan(x)
+    e = sinh(x)
+    f = cosh(x)
+    g = log10(x)
+    h = trunc(x)
+    return a + b + c + d + e + f + g + h

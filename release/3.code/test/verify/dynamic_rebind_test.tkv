@@ -1,0 +1,32 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 26: Gan bien doi kieu dong (Dynamic Variable Re-binding)."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_dynamic_rebind():
+    p = '''def run() -> "str":
+    x = 42
+    res = str(x)
+    x = "DYNAMIC_REBIND_OK"
+    res = res + "|" + str(x)
+    return res'''
+    
+    SRC = Path('scratch/m26_rebind.tkv')
+    EXE = Path('scratch/m26_rebind.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "42|DYNAMIC_REBIND_OK", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_dynamic_rebind", tkv_val)
+
+if __name__ == '__main__':
+    test_dynamic_rebind()
+    print("ALL MOC 26 TESTS PASSED!")

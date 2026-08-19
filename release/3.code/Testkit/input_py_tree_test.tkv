@@ -1,0 +1,24 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def greet() -> "str":
+    name = input("name: ")
+    return "hello " + name
+
+
+def echo_line() -> "str":
+    line = input()
+    return line
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("input_with_prompt", greet(), "hello world")
+
+    tested = tested + 1
+    total = total + check("input_no_prompt", echo_line(), "second")
+
+    return test_summary("input_py_tree_test", total, tested)

@@ -1,0 +1,10 @@
+# datetime.tkv - TokenVector Standard Library Wrapper cho Date & Time
+
+def now_utc() -> "str":
+    s = datetime_now_utc()
+    return s
+
+
+def ticks() -> "i64":
+    t = datetime_ticks()
+    return t

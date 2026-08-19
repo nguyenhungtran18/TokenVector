@@ -1,0 +1,32 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 33: Mo Rong Thu Vien Chuan PyStdlib (re, datetime, random)."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_pystdlib_bcl():
+    p = '''def run() -> "str":
+    s = re_replace("hello 123 world 456", "[0-9]+", "NUM")
+    dt = datetime()
+    rnd = random_randint(10, 50)
+    is_rnd_ok = rnd >= 10
+    return s + "|" + str(is_rnd_ok)'''
+    
+    SRC = Path('scratch/m33_bcl.tkv')
+    EXE = Path('scratch/m33_bcl.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val in ("hello NUM world NUM|1", "hello NUM world NUM|True"), f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_pystdlib_bcl", tkv_val)
+
+if __name__ == '__main__':
+    test_pystdlib_bcl()
+    print("ALL MOC 33 TESTS PASSED!")

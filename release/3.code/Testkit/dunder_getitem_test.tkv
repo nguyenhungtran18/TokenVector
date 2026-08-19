@@ -1,0 +1,60 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class Box:
+    a: "i32"
+    b: "i32"
+    c: "i32"
+
+    def __getitem__(self, i: "i32") -> "i32":
+        if i == 0:
+            return self.a
+        if i == 1:
+            return self.b
+        return self.c
+
+
+class BoxStr:
+    a: "str"
+    b: "str"
+
+    def __getitem__(self, i: "i32") -> "str":
+        if i == 0:
+            return self.a
+        return self.b
+
+
+class Base:
+    a: "i32"
+    b: "i32"
+    c: "i32"
+
+    def __getitem__(self, i: "i32") -> "i32":
+        if i == 0:
+            return self.a
+        if i == 1:
+            return self.b
+        return self.c
+
+
+class SubBox(Base):
+    extra: "i32"
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    box = Box(10, 20, 30)
+    tested = tested + 1
+    total = total + check("getitem_i32", str(box[0]) + "," + str(box[2]), "10,30")
+
+    bs = BoxStr("hello", "world")
+    tested = tested + 1
+    total = total + check("getitem_str_not_coerced", bs[0] + "," + bs[1], "hello,world")
+
+    sb = SubBox(7, 8, 9, 99)
+    tested = tested + 1
+    total = total + check("inherited_dunder_getitem", str(sb[1]), "8")
+
+    return test_summary("dunder_getitem_test", total, tested)

@@ -1,0 +1,14 @@
+# test_super_coder.tkv - Test module super_coder_agent.tkv
+__tkv_import__ = "super_coder_agent"
+
+def main() -> "i32":
+    plan = super_coder_analyze_requirement("Build High Speed Web API")
+    status = super_coder_auto_fix_loop("10 + 20", 3)
+    art = super_coder_deploy_artifact("web_app")
+    
+    n_p = len(plan)
+    n_a = len(art)
+    
+    if n_p > 10 and status == 1 and n_a > 5:
+        return 1
+    return 0

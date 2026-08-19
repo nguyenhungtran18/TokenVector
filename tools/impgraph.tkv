@@ -1,0 +1,361 @@
+# -*- coding: utf-8 -*-
+"""impgraph - cong cu THAT viet bang TokenVector.
+
+Doc 1 manifest (danh sach duong dan file .py, moi dong 1 duong dan, tuong
+doi so voi goc repo), trich cac cau lenh import cua tung file, RESOLVE ten
+module ve duong dan file trong repo, roi sinh danh sach canh (edge) dang
+JSON cho knowledge graph.
+
+Day la mat xich con thieu cua graphifi_scanner.py: no trich duoc
+`module_name` nhung `target_file` luon null -> 0 canh -> khong phai graph.
+
+Nguyen tac: KHONG doan. Module nao khong xac dinh duy nhat duoc thi ghi
+"ambiguous"/"external", khong gan bua vao 1 file.
+
+File nay la Python HOP LE: chay duoc bang CPython (chi can shim
+`read_file`/`write_file`) de doi chieu voi .exe da bien dich.
+
+Dung:
+    impgraph.exe <manifest.txt> <out.json>
+"""
+
+def ambig_mark() -> "str":
+    """Sentinel danh dau module trung ten (khong resolve duoc duy nhat).
+    Dung ham thay hang module-level vi TokenVector chi cho hang SO o cap
+    module, chua cho hang CHUOI."""
+    return "?"
+
+
+def norm_slashes(s: "str") -> "str":
+    """Doi '\\' thanh '/' (TokenVector chua co str.replace)."""
+    out = ""
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "\\":
+            out = out + "/"
+        else:
+            out = out + ch
+        i = i + 1
+    return out
+
+
+def dir_of_rel(rel: "str") -> "str":
+    """'a/b/c.py' -> 'a/b'; 'c.py' -> ''."""
+    cut = -1
+    i = 0
+    while i < len(rel):
+        if rel[i] == "/":
+            cut = i
+        i = i + 1
+    if cut < 0:
+        return ""
+    return rel[0:cut]
+
+
+def dotted_from_rel(rel: "str") -> "str":
+    """'a/b/c.py' -> 'a.b.c'; 'a/b/__init__.py' -> 'a.b'."""
+    body = rel
+    if body.endswith(".py"):
+        body = body[0:len(body) - 3]
+    if body.endswith("/__init__"):
+        body = body[0:len(body) - 9]
+    elif body == "__init__":
+        return ""
+    out = ""
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if ch == "/":
+            out = out + "."
+        else:
+            out = out + ch
+        i = i + 1
+    return out
+
+
+def last_seg(dotted: "str") -> "str":
+    """'a.b.c' -> 'c'."""
+    cut = -1
+    i = 0
+    while i < len(dotted):
+        if dotted[i] == ".":
+            cut = i
+        i = i + 1
+    return dotted[cut + 1:len(dotted)]
+
+
+def drop_last_seg(dotted: "str") -> "str":
+    """'a.b.c' -> 'a.b'; 'a' -> ''."""
+    cut = -1
+    i = 0
+    while i < len(dotted):
+        if dotted[i] == ".":
+            cut = i
+        i = i + 1
+    if cut < 0:
+        return ""
+    return dotted[0:cut]
+
+
+def leading_dots(s: "str") -> "i32":
+    """So dau '.' o dau chuoi (do sau import tuong doi)."""
+    n = 0
+    while n < len(s):
+        if s[n] != ".":
+            return n
+        n = n + 1
+    return n
+
+
+def cut_at(s: "str", stops: "str") -> "str":
+    """Cat chuoi tai ky tu dau tien nam trong `stops`."""
+    out = ""
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        j = 0
+        while j < len(stops):
+            if ch == stops[j]:
+                return out
+            j = j + 1
+        out = out + ch
+        i = i + 1
+    return out
+
+
+def imported_module(line: "str") -> "str":
+    """Trich ten module tu 1 dong import; '' neu khong phai import.
+    'import a.b as c' -> 'a.b'; 'from a.b import c, d' -> 'a.b';
+    'from . import x' -> '.'; 'from ..a import x' -> '..a'."""
+    body = line.strip()
+    if body.startswith("import "):
+        rest = body[7:len(body)].strip()
+        return cut_at(rest, " ,;#")
+    if body.startswith("from "):
+        rest = body[5:len(body)].strip()
+        return cut_at(rest, " ,;#")
+    return ""
+
+
+def imported_modules(line: "str") -> "list[str]":
+    """Nhu imported_module nhung tra ve MOI module tren dong.
+    Can thiet cho 'import a, b, c' - ban cu chi lay 'a' (bo sot 2)."""
+    out = []
+    body = line.strip()
+    if not body.startswith("import "):
+        mod = imported_module(line)
+        if len(mod) > 0:
+            out.append(mod)
+        return out
+    rest = cut_at(body[7:len(body)], "#;")
+    parts = rest.split(",")
+    for part in parts:
+        piece = part.strip()
+        if len(piece) == 0:
+            continue
+        out.append(cut_at(piece, " "))
+    return out
+
+
+def count_marker(line: "str", mark: "str") -> "i32":
+    """So lan xuat hien cua `mark` (dai 3) trong 1 dong."""
+    n = 0
+    i = 0
+    # LUU Y parity: TokenVector KHONG clamp slice nhu Python - s[i:i+3] khi
+    # i+3 > len(s) nem ArgumentOutOfRangeException thay vi cat ngan. Phai
+    # tu chan bien.
+    while i + 3 <= len(line):
+        if line[i:i + 3] == mark:
+            n = n + 1
+            i = i + 3
+        else:
+            i = i + 1
+    return n
+
+
+def count_triple(line: "str") -> "i32":
+    """Tong so dau nhay ba, ca kieu \" lan kieu ' (31 file dung kieu ')."""
+    a = count_marker(line, "\"\"\"")
+    b = count_marker(line, "'''")
+    return a + b
+
+
+def build_index(paths: "list[str]") -> "dict[str,str]":
+    """dotted module -> duong dan file. Trung ten -> danh dau AMBIG."""
+    idx = {}
+    for rel in paths:
+        dotted = dotted_from_rel(rel)
+        if len(dotted) == 0:
+            continue
+        if dotted in idx:
+            idx[dotted] = ambig_mark()
+        else:
+            idx[dotted] = rel
+    return idx
+
+
+def build_base_index(paths: "list[str]") -> "dict[str,str]":
+    """ten module tran (segment cuoi) -> duong dan. Trung -> AMBIG."""
+    idx = {}
+    for rel in paths:
+        dotted = dotted_from_rel(rel)
+        if len(dotted) == 0:
+            continue
+        base = last_seg(dotted)
+        if base in idx:
+            idx[base] = ambig_mark()
+        else:
+            idx[base] = rel
+    return idx
+
+
+def resolve_abs(mod: "str", idx: "dict[str,str]", base_idx: "dict[str,str]") -> "str":
+    """Resolve module tuyet doi. Tra ve duong dan, hoac sentinel "?", hoac ''."""
+    probe = mod
+    while len(probe) > 0:
+        hit = idx.get(probe, "")
+        if len(hit) > 0:
+            return hit
+        probe = drop_last_seg(probe)
+    base = last_seg(mod)
+    hit2 = base_idx.get(base, "")
+    if len(hit2) > 0:
+        return hit2
+    return ""
+
+
+def resolve_rel(mod: "str", src_rel: "str", idx: "dict[str,str]") -> "str":
+    """Resolve import tuong doi ('.x', '..a.b') so voi file nguon."""
+    lvl = leading_dots(mod)
+    tail = mod[lvl:len(mod)]
+    base = dir_of_rel(src_rel)
+    up = lvl - 1
+    while up > 0:
+        base = dir_of_rel(base)
+        up = up - 1
+    pkg = ""
+    if len(base) > 0:
+        pkg = dotted_from_rel(base + "/x.py")
+        pkg = drop_last_seg(pkg)
+    full = pkg
+    if len(tail) > 0:
+        if len(full) > 0:
+            full = full + "." + tail
+        else:
+            full = tail
+    if len(full) == 0:
+        return ""
+    probe = full
+    while len(probe) > 0:
+        hit = idx.get(probe, "")
+        if len(hit) > 0:
+            return hit
+        probe = drop_last_seg(probe)
+    return ""
+
+
+def edge_json(src: "str", dst: "str") -> "str":
+    """1 canh imports theo quy uoc id 'file:<path>'."""
+    return "{\"source\":\"file:" + src + "\",\"target\":\"file:" + dst + "\",\"type\":\"imports\",\"weight\":0.7}"
+
+
+def scan_file(rel: "str", idx: "dict[str,str]", base_idx: "dict[str,str]") -> "list[str]":
+    """Doc 1 file, tra ve list ket qua 'trangthai|dich' cho tung import."""
+    out = []
+    text = read_file(rel)
+    lines = text.split("\n")
+    in_doc = 0
+    for ln in lines:
+        # Bo qua dong nam trong docstring/chuoi nhieu dong: chung chua
+        # vi du 'import ...' gay dem thua (da do bang ast, +62 dong).
+        tri = count_triple(ln)
+        was_doc = in_doc
+        if tri > 0:
+            if tri % 2 == 1:
+                in_doc = 1 - in_doc
+        if was_doc == 1:
+            continue
+        if tri > 0 and in_doc == 1:
+            continue
+        mods = imported_modules(ln)
+        for mod in mods:
+            if mod.startswith("."):
+                hit = resolve_rel(mod, rel, idx)
+            else:
+                hit = resolve_abs(mod, idx, base_idx)
+            if len(hit) == 0:
+                out.append("external|" + mod)
+            elif hit == ambig_mark():
+                out.append("ambiguous|" + mod)
+            elif hit == rel:
+                out.append("self|" + mod)
+            else:
+                out.append("internal|" + hit)
+    return out
+
+
+def main(manifest: "str", out_path: "str") -> "str":
+    """Doc manifest, sinh file JSON canh, tra ve dong thong ke."""
+    raw = read_file(manifest)
+    rows = raw.split("\n")
+    paths = []
+    for r in rows:
+        p = norm_slashes(r.strip())
+        if len(p) > 0:
+            paths.append(p)
+    idx = build_index(paths)
+    base_idx = build_base_index(paths)
+
+    n_total = 0
+    n_int = 0
+    n_ext = 0
+    n_amb = 0
+    n_self = 0
+    n_dup = 0
+    edges = []
+    seen = set()
+    for rel in paths:
+        results = scan_file(rel, idx, base_idx)
+        for res in results:
+            n_total = n_total + 1
+            kind = cut_at(res, "|")
+            target = res[len(kind) + 1:len(res)]
+            if kind == "internal":
+                n_int = n_int + 1
+                # Khu trung: 'from x import a' + 'from x import b' la 2
+                # cau lenh nhung CHI 1 canh file->file.
+                key = rel + ">" + target
+                if key in seen:
+                    n_dup = n_dup + 1
+                    continue
+                seen.add(key)
+                edges.append(edge_json(rel, target))
+            elif kind == "external":
+                n_ext = n_ext + 1
+            elif kind == "ambiguous":
+                n_amb = n_amb + 1
+            else:
+                n_self = n_self + 1
+
+    # Gom bang list + join MOT lan. Don chuoi trong vong lap
+    # (`body = body + ...`) cham gap ~68 lan tren du lieu that - da do.
+    pieces = []
+    i = 0
+    while i < len(edges):
+        pieces.append("  " + edges[i])
+        i = i + 1
+    body = ",\n".join(pieces)
+    doc = "{\n \"edges\": [\n" + body + "\n ],\n \"stats\": {"
+    doc = doc + "\"files\":" + str(len(paths))
+    doc = doc + ",\"imports\":" + str(n_total)
+    doc = doc + ",\"internal\":" + str(n_int)
+    doc = doc + ",\"external\":" + str(n_ext)
+    doc = doc + ",\"ambiguous\":" + str(n_amb)
+    doc = doc + ",\"self\":" + str(n_self)
+    doc = doc + ",\"dup_dropped\":" + str(n_dup)
+    doc = doc + ",\"edges\":" + str(len(edges))
+    doc = doc + "}\n}\n"
+    write_file(out_path, doc)
+
+    return "files=" + str(len(paths)) + " imports=" + str(n_total) + " internal=" + str(n_int) + " external=" + str(n_ext) + " ambiguous=" + str(n_amb) + " self=" + str(n_self) + " dup=" + str(n_dup) + " edges=" + str(len(edges))

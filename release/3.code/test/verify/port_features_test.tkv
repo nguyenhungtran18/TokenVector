@@ -1,0 +1,33 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 15: Port round() Banker's rounding & randint()."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / 'parity'))
+import arbiter
+
+def test_round_bankers_even_rounding():
+    p = '''def run() -> "str":
+    r1 = round(2.5)
+    r2 = round(3.5)
+    r3 = round(2.567, 2)
+    return str(r1) + "|" + str(r2) + "|" + str(r3)'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    assert res[2]['value'] == "2|4|2.57", f"Mismatch: {res[2]['value']}"
+    print("PASS: test_round_bankers_even_rounding", res[2]['value'])
+
+def test_random_functions():
+    p = '''def run() -> "str":
+    val = randint(1, 10)
+    ok = "1" if 1 <= val <= 10 else "0"
+    return ok'''
+    res = arbiter.probe(p)
+    assert res[3]['run_ok'] is True, f"TokenVector run failed: {res[3]}"
+    assert res[3]['value'] == "1", f"Mismatch: {res[3]['value']}"
+    print("PASS: test_random_functions", res[3]['value'])
+
+if __name__ == '__main__':
+    test_round_bankers_even_rounding()
+    test_random_functions()
+    print("ALL MOC 15 TESTS PASSED!")

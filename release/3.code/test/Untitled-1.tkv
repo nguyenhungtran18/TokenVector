@@ -1,0 +1,42 @@
+ # -*- coding: utf-8 -*-                                                                   
+    # TokenVector Native AOT Code Example (Untitled-1.tkv)                                    
+                                                                                              
+    class DataAnalyzer:                                                                       
+        def __init__(self, name: "str", baseline: "f64"):                                     
+            self.name = name                                                                  
+            self.baseline = baseline                                                          
+                                                                                              
+        def compute_performance(self, scores: "list[f64]") -> "f64":                          
+            total = 0.0                                                                       
+            n = len(scores)                                                                   
+            if n == 0:                                                                        
+                return 0.0                                                                    
+                                                                                              
+            for score in scores:                                                              
+                total = total + score                                                         
+                                                                                              
+            avg = total / float(n)                                                            
+            return avg - self.baseline                                                        
+                                                                                              
+    def process_numbers(limit: "i32") -> "i64":                                               
+        sum_val: "i64" = 0                                                                    
+        for i in range(1, limit + 1):                                                         
+            sum_val = sum_val + i                                                             
+        return sum_val                                                                        
+                                                                                              
+    def run() -> "str":                                                                       
+        print("=== TOKENVECTOR NATIVE AOT EXECUTION ===")                                     
+                                                                                              
+        # 1. Khởi tạo Lớp OOP Native                                                          
+        analyzer = DataAnalyzer("TokenVector Core", 50.0)                                     
+        scores = [85.5, 90.0, 95.5, 89.0]                                                     
+        perf_delta = analyzer.compute_performance(scores)                                     
+                                                                                              
+        # 2. Tính toán chuỗi vòng lặp CPU                                                     
+        total_sum = process_numbers(100)                                                      
+                                                                                              
+        print("Analyzer Name: " + analyzer.name)                                              
+        print("Performance Delta: " + str(perf_delta))                                        
+        print("Total Sum (1..100): " + str(total_sum))                                        
+                                                                                              
+        return "TOKENVECTOR_EXECUTION_SUCCESS|DELTA:" + str(perf_delta) 

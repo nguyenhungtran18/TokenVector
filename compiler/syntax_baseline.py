@@ -1,0 +1,795 @@
+# -*- coding: utf-8 -*-
+"""Pre-flight syntax baseline linter (#4 Tuong thich cu phap,
+docs/superpowers/specs/2026-08-17-syntax-baseline-linter-design.md).
+Quet TOAN BO AST cua 1 file .tkv nguon, doi chieu voi whitelist cac
+construct compiler THAT SU ho tro (suy ra tu tkv_compile.py/il_codegen.py/
+compiler/il_features/*.py - xem
+D:\\Claude AI Project\\.superpowers\\sdd\\task-1-report.md). KHONG dung/sua
+bat ky file compiler pipeline nao - chi doc AST bang module `ast` chuan
+cua Python, doc-only.
+
+Task 4 (regression, 2026-08-17) phat hien va sua 4 nhom FALSE-POSITIVE
+thuc su qua build+chay THAT bang `tkv_compile.compile_tkv_cli` tren
+`test/sample_*.tkv`/`release/3.code/Testkit/*.tkv` (khong chi doan AST
+tinh): Task 1's dieu tra chi doc `il_core.py` (grammar bieu thuc CAP
+THAP) va KHONG phat hien cac macro TEXT-LEVEL chay TRUOC no
+(`il_features/comprehension.py`, `il_features/fstring.py`,
+`il_features/expr_hoist.py`, `il_features/stdlib_itertools.py`) - cac
+macro nay VIET LAI van ban nguon thanh dang for-loop/if tuong duong
+TRUOC khi `il_core.py`'s parser thay - nen 1 so construct Task 1 ghi
+"Khong ho tro" THUC RA duoc ho tro qua duong vong macro, VOI SHAPE HEP
+(khong phai moi bien the AST tuong duong):
+- List/dict/set comprehension: CHI khi la` RHS DUY NHAT cua 1 phep gan
+  don bien (`ten = [...]`/`ten = {...}`), 1 generator DUY NHAT, toi da
+  1 `if`; list/set-comp target PHAI la 1 ten don (khong tuple); dict-comp
+  target co the la tuple (`k, v`) NHUNG CHI khi iterable la `.items()`
+  (xem `_hoist_container_fields`/`stdlib_itertools.py` - quy tac giong
+  het tuple-unpack for-loop thuong).
+- f-string: CHI khi MOI `{...}` ben trong la 1 IDENT tran, format spec
+  (neu co) dang `.Nf` co dinh - khop dung gioi han co san cua
+  `fstring.py` (xem docstring file do).
+- Nested attribute (obj.a.b): CHI khi CHUOI DUNG 2 TANG (`ten.field1.field2`,
+  base la 1 TEN DON - khong sau hon, khong bieu thuc phuc tap) VA duoc
+  dung LAM DOI TUONG NHAN cua 1 LOI GOI METHOD (`ten.field1.field2(...)`)
+  hoac 1 CHI SO (`ten.field1.field2[...]`) - khop dung
+  `_ATTR_RECV_RE`/`_ATTR_INDEX_RE` trong `il_features/expr_hoist.py`.
+  Doc field THUAN TUY (`x = ten.field1.field2`, khong goi/khong chi so)
+  VAN bi chan that (xac nhan qua spike: `SyntaxError`).
+- Tuple-unpack for-loop: ngoai `.items()` da co, THEM `enumerate(ten)`
+  (1 doi so, la 1 TEN) va `zip(ten1, ten2, ...)` (N doi so, TAT CA la
+  TEN) - khop `_FOR_ENUMERATE_RE`/`_FOR_ZIP_RE` trong
+  `il_features/stdlib_itertools.py`.
+
+Quyet dinh implementer tu dua ra (xem task-2-report.md de biet chi tiet):
+- Chuoi nhay don '...' KHONG duoc kiem tra o day: sau khi `ast.parse`,
+  `'...'` va "..." deu thanh `ast.Constant(str)` GIONG HET nhau - khong
+  the phan biet duoc qua AST node type ma khong doc lai SOURCE TEXT gom
+  ca comment/docstring (rui ro false-positive cao, vd docstring dung
+  nhay don ben trong 1 chuoi nhay kep). Loi ich thap so voi do phuc tap -
+  BO QUA co chu dich, nhu brief cho phep.
+- `ast.Pass`: KHONG bi flag. Bang chung tinh (khong tim thay line-parser
+  rieng cho 'pass' trong LINE_PARSERS) khong ket luan duoc hanh vi that
+  su; nhung co 1 file that trong repo (test/sample_multi_inherit.tkv,
+  dong 14) dung 'pass' lam than method stub trong 1 class '@interface' va
+  duoc coi la file HOP LE (dung trong test tich cuc Step 6). De tranh
+  false-positive tren pattern dang hoat dong nay, linter khong chan
+  'pass' o bat ky dau; loi that (neu co, o than ham THUONG khong phai
+  interface stub) se lo ra ro rang tu chinh compiler pipeline.
+"""
+import ast
+import re
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class SyntaxFinding:
+    line: int
+    construct_name: str
+    suggestion: Optional[str] = None
+
+
+# Ban anh xa construct khong ho tro -> goi y thay the (theo danh sach
+# "XAC NHAN KHONG ho tro" cuoi bao cao Task 1).
+_SUGGESTIONS = {
+    'list comprehension':
+        "dung vong 'for' tuong minh + '.append()'/gan chi so thay vi '[x for x in y]'",
+    'dict comprehension':
+        "dung vong 'for' tuong minh thay vi '{k:v for k in y}'",
+    'set comprehension':
+        "dung vong 'for' tuong minh thay vi '{x for x in y}'",
+    'generator expression':
+        "dung vong 'for' tuong minh, hoac generator tu dinh nghia cua DSL ('yield' trong ham)",
+    'f-string':
+        "dung '.format()' hoac noi chuoi bang '+'",
+    'walrus operator (:=)':
+        "tach thanh 2 cau lenh rieng (gan roi dung)",
+    'match/case statement':
+        "dung chuoi if/elif/else",
+    'multiple-target assignment (a = b = c)':
+        "tach thanh nhieu dong gan rieng ('a = c' roi 'b = c')",
+    'augmented assign operator not supported':
+        "viet tuong minh 'x = x // y' / 'x = x ** y' / v.v. "
+        "(chi '+=,-=,*=,/=,%=' duoc ho tro)",
+    'decorator (stacked, or with arguments, on top-level function)':
+        "gop logic vao 1 decorator don dang '@deco' (khop shape "
+        "'1 wrapper long' - khong tham so, khong xep chong), hoac inline "
+        "logic truc tiep vao ham",
+    'decorator (not @staticmethod/@property) on class method':
+        "viet method thuong, chuyen logic decorator vao ben trong than method",
+    'decorator (@staticmethod + @property together)':
+        "chon 1 trong 2 ('@staticmethod' hoac '@property')",
+    'ternary expression (a if cond else b)':
+        "dung cu phap rieng cua DSL: 'cond ? a : b'",
+    'nested attribute (obj.a.b, 2+ levels)':
+        "gan 'tmp = obj.a' roi dung 'tmp.b'",
+    'dict literal with content ({...})':
+        "khoi tao rong ('d = {}') roi gan/them tung phan tu",
+    'set literal with content ({...})':
+        "khoi tao rong ('s = set()') roi '.add()' tung phan tu",
+    'slice with step (x[a:b:c])':
+        "khong co duong vong truc tiep - viet vong lap 'for' thu cong voi buoc nhay",
+    'tuple-unpack in for-loop (for a, b in ...)':
+        "dung 'for k, v in d.items():' neu la dict, hoac lap qua index roi tu tach 'a, b = pair'",
+    'with-statement with multiple context managers':
+        "long 2 khoi 'with' rieng",
+    'special number literal (1e10 / 0x1F / 1_000)':
+        "viet so thap phan/nguyen thuong, khong ky hieu mu/hex/underscore-separator",
+    'starred expression (*args / *rest)':
+        "khong co duong vong truc tiep - liet ke tuong minh tung tham so/phan tu",
+    'nested class definition':
+        "tach thanh 2 record doc lap cap top-level",
+    'vararg/kwarg in class-method signature':
+        "chi ham TOP-LEVEL moi duoc dung '*args'/'**kwargs' trong chu ky "
+        "(co annotation kieu DSL); method trong class thi khong",
+    'keyword-only argument':
+        "khong dung dau '*' tach rieng - liet ke tham so thuong, dat default neu can",
+    'lambda truyen inline vao map/filter/reduce':
+        "dat ten ham top-level, hoac gan lambda 1-bieu-thuc vao bien kieu "
+        "'func(...)->...' TRUOC roi truyen TEN bien do (vd "
+        "g: \"func(i32)->i32\" = lambda x: x*2  roi  map(g, xs))",
+    'lambda inline trong sort(key=...)':
+        "dat ten ham top-level, hoac gan lambda 1-bieu-thuc vao bien kieu "
+        "'func(...)->...' TRUOC roi truyen TEN bien do (vd "
+        "g: \"func(i32)->i32\" = lambda x: x*2  roi  xs.sort(key=g))",
+    'if/for/while/try/with o cap top-level (ngoai ham/class)':
+        "chuyen logic vao trong 1 ham top-level (vd 'def main() -> None:')",
+    'goi ham/bieu thuc doc lap o cap top-level':
+        "chuyen loi goi/bieu thuc vao trong 1 ham top-level",
+    'AnnAssign khong hop le o cap top-level (chi ho tro dtype scalar co gia tri)':
+        "chi dung dang 'ten: \"i32/i64/f32/f64/str\" = gia_tri' o cap top-level; "
+        "cac dtype container (list/dict/...) hoac khong co gia tri phai dat trong ham",
+}
+
+
+# Cac toan tu augmented-assign THAT SU duoc ho tro (operators.py:25-28).
+_SUPPORTED_AUGASSIGN_OPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod)
+
+
+# Field ten KHONG duoc hoist qua 'expr_hoist.py' (cu phap kich thuoc mang
+# dac biet 'a.shape[0]', bien luc bien dich) - khop
+# 'expr_hoist.py:_NO_HOIST_FIELDS'. Dung trong '_collect_exempt_attr_chains'
+# de loai tru field nay khoi mien tru "nested attribute" (Critical-2
+# finding 1).
+_NO_HOIST_FIELDS = ('shape',)
+
+
+def _is_items_call(node):
+    """True neu node la 'ast.Call' dang '<expr>.items()' (khong tham so) -
+    ngoai le DUY NHAT cho phep tuple-unpack 'for k, v in d.items():'
+    (dict_type.py:564)."""
+    return (isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'items'
+            and not node.args and not node.keywords)
+
+
+def _is_enumerate_call(node, target):
+    """True neu node la 'enumerate(ten)' - 1 doi so DUY NHAT la 1 TEN
+    (khop '_FOR_ENUMERATE_RE', stdlib_itertools.py:19) - ngoai le THEM
+    cho tuple-unpack 'for i, x in enumerate(lst):' (Task 4, phat hien
+    qua regression - Task 1 bo sot macro text-level nay).
+
+    Sua Critical-2 finding 3 (review sau Task 4): '_FOR_ENUMERATE_RE' khop
+    CHUNG DUNG 2 target ('(\\w+)\\s*,\\s*(\\w+)') - 'for i, x, y in
+    enumerate(a):' (3 target) KHONG khop regex do, compiler tu choi that
+    su. Vi vay them dieu kien 'target' (ve trai cua 'for') PHAI la
+    'ast.Tuple' voi DUNG 2 phan tu."""
+    return (isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name) and node.func.id == 'enumerate'
+            and len(node.args) == 1 and isinstance(node.args[0], ast.Name)
+            and not node.keywords
+            and isinstance(target, ast.Tuple) and len(target.elts) == 2)
+
+
+def _is_zip_call(node, target):
+    """True neu node la 'zip(ten1, ten2, ...)' - MOI doi so la 1 TEN
+    (khop '_FOR_ZIP_RE', stdlib_itertools.py:45) - ngoai le THEM cho
+    tuple-unpack 'for a, b, ... in zip(lst1, lst2, ...):' (Task 4).
+
+    Sua Critical-2 finding 3: 'try_expand_for_zip' (stdlib_itertools.py:68)
+    tu choi ('return None' - khong mo rong macro) khi 'len(var_names) !=
+    len(list_names)' HOAC 'len(list_names) < 2' - vi du 'for x, y in
+    zip(a):' (1 list, 2 target) hay 'for x, y, z in zip(a, b):' (2 list, 3
+    target) deu KHONG duoc ho tro thuc su. Vi vay them dieu kien so khop
+    CHINH XAC giua so doi so 'zip(...)' va so phan tu cua 'target' (tuple
+    ve trai 'for'), VA it nhat 2 doi so."""
+    return (isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name) and node.func.id == 'zip'
+            and len(node.args) >= 2
+            and all(isinstance(a, ast.Name) for a in node.args)
+            and not node.keywords
+            and isinstance(target, ast.Tuple)
+            and len(target.elts) == len(node.args))
+
+
+def _is_exempt_tuple_unpack_iter(node, target):
+    """True neu 'node' (bieu thuc 've phai cua for') la 1 trong 3 shape
+    macro text-level THUC SU ho tro tuple-unpack (Task 4): '.items()',
+    'enumerate(ten)', 'zip(ten1, ten2, ...)'. 'target' la 've trai cua
+    for' (node.target cua 'ast.For') - can de xac nhan dung so luong bien
+    dich (Critical-2 finding 3)."""
+    return (_is_items_call(node) or _is_enumerate_call(node, target)
+            or _is_zip_call(node, target))
+
+
+def _is_valid_toplevel_decorator_shape(deco_func_name, module_body):
+    """Kiem tra shape decorator DON tren ham top-level: phai la 1 ten don
+    ('ast.Name'), duoc khai bao la 1 ham top-level CUNG file, than dung
+    dang '1 def wrapper long + return wrapper' (tkv_compile.py:986-1001).
+    Day chi la kiem tra SHAPE o muc AST-linter (khong the ep chinh xac
+    100% nhu compiler that, vi 1 vai chi tiet nam ngoai pham vi AST-shape
+    - nhung du de bat cac loi pho bien)."""
+    target = None
+    for stmt in module_body:
+        if isinstance(stmt, ast.FunctionDef) and stmt.name == deco_func_name:
+            target = stmt
+            break
+    if target is None:
+        return False
+    inner_defs = [s for s in target.body if isinstance(s, ast.FunctionDef)]
+    if len(inner_defs) != 1:
+        return False
+    wrapper_name = inner_defs[0].name
+    last = target.body[-1]
+    if not isinstance(last, ast.Return):
+        return False
+    if not (isinstance(last.value, ast.Name) and last.value.id == wrapper_name):
+        return False
+    return True
+
+
+def _collect_exempt_attr_chains(tree):
+    """Quet TOAN BO cay, tra ve set id() cua cac 'ast.Attribute'
+    chuoi-2-tang (`ten.field1.field2`, base la 1 TEN DON) dang duoc dung
+    LAM DOI TUONG NHAN cua 1 loi goi method (`....(`) hoac 1 chi so
+    (`....[`) - khop dung shape ma `_hoist_attr_receiver`/
+    `_hoist_attr_index` (il_features/expr_hoist.py) THUC SU ho tro (Task
+    4, phat hien qua regression). Doc field THUAN TUY (khong goi/khong
+    chi so) hoac chuoi 3+ tang KHONG duoc mien tru - van bi chan dung
+    (xac nhan qua spike that: `SyntaxError` tu compiler).
+
+    Sua Critical-2 finding 1 (review sau Task 4, xac nhan qua compile
+    THAT): 'try_expand_expr_hoist' (expr_hoist.py:151-153) TU CHOI hoist
+    khi dong la HEADER cua 1 khoi ('if'/'while'/'elif'/'with'/'else'/
+    'try'/'except'/'finally') - vi bien tam phai dat o dong TRUOC, nhung
+    header khoi khong the "tach" nhu vay. Vi vay CAN biet ngu canh
+    statement chua attribute chain (KHONG chi doc AST phang qua
+    'ast.walk' nhu truoc) - dung 1 lan quet de quy TU VIET, danh dau
+    header=True cho: 'test' cua 'ast.If'/'ast.While', 'context_expr' cua
+    moi 'ast.withitem' trong 'ast.With', va 'type' cua moi
+    'ast.ExceptHandler'. Node nam trong 'header=True' se KHONG duoc mien
+    tru (van bi flag 'nested attribute').
+
+    Cung sua: field ten 'shape' (vd 'b.a.shape[0]') KHONG duoc mien tru
+    du dung LAM chi so/doi tuong nhan - 'expr_hoist.py'
+    '_NO_HOIST_FIELDS = (\\'shape\\',)' tu choi hoist rieng cho field nay
+    (cu phap kich thuoc mang dac biet, biet luc bien dich) - khong duoc
+    ho tro qua duong vong hoist."""
+    exempt = set()
+
+    def visit(node, header):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            f = node.func
+            if (not header and isinstance(f.value, ast.Attribute)
+                    and isinstance(f.value.value, ast.Name)
+                    and f.value.attr not in _NO_HOIST_FIELDS):
+                exempt.add(id(f))
+        elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute):
+            v = node.value
+            if (not header and isinstance(v.value, ast.Attribute)
+                    and isinstance(v.value.value, ast.Name)
+                    and v.attr not in _NO_HOIST_FIELDS):
+                exempt.add(id(v))
+
+        if isinstance(node, (ast.If, ast.While)):
+            visit(node.test, True)
+            for stmt in node.body:
+                visit(stmt, False)
+            for stmt in node.orelse:
+                visit(stmt, False)
+            return
+        if isinstance(node, ast.With):
+            for item in node.items:
+                visit(item.context_expr, True)
+                if item.optional_vars is not None:
+                    visit(item.optional_vars, False)
+            for stmt in node.body:
+                visit(stmt, False)
+            return
+        if isinstance(node, ast.Try):
+            for stmt in node.body:
+                visit(stmt, False)
+            for handler in node.handlers:
+                if handler.type is not None:
+                    visit(handler.type, True)
+                for stmt in handler.body:
+                    visit(stmt, False)
+            for stmt in node.orelse:
+                visit(stmt, False)
+            for stmt in node.finalbody:
+                visit(stmt, False)
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child, header)
+
+    visit(tree, False)
+    return exempt
+
+
+def _comp_generator_ok(gen, allow_tuple_target):
+    """1 'ast.comprehension' (generator cua List/Dict/SetComp) hop le
+    theo shape macro text-level (comprehension.py) neu: khong async,
+    toi da 1 'if', va target la 1 TEN DON (hoac 1 TUPLE ten don khi
+    'allow_tuple_target' - CHI danh cho dict-comp - VA iterable phai la
+    '.items()', giong het quy tac tuple-unpack for-loop thuong)."""
+    if gen.is_async:
+        return False
+    if len(gen.ifs) > 1:
+        return False
+    if isinstance(gen.target, ast.Name):
+        return True
+    if allow_tuple_target and isinstance(gen.target, ast.Tuple) \
+            and all(isinstance(e, ast.Name) for e in gen.target.elts) \
+            and _is_items_call(gen.iter):
+        return True
+    return False
+
+
+def _collect_exempt_comprehensions(tree):
+    """Quet 'tree.body' + than moi ham/class (KHONG chi top-level) tim
+    'ast.Assign' dang '<ten_don> = [...]/{...}/{...}' voi 1 comprehension
+    DUY NHAT lam RHS, khop dung shape 3 macro text-level
+    ('try_expand_list_comp'/'try_expand_dict_or_set_comp',
+    il_features/comprehension.py) - CHI shape nay moi thuc su duoc ho
+    tro (Task 4, phat hien qua regression)."""
+    exempt = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            continue
+        val = node.value
+        # Critical-2 finding 2 (review sau Task 4, xac nhan qua compile
+        # THAT): macro 'comprehension.py' khop CHI 1 DONG VAN BAN VAT LY
+        # ('_LIST_COMP_OUTER_RE'/'_DICT_COMP_OUTER_RE' dang '^...$', khong
+        # co 'DOTALL'/multiline) - comprehension TRAI DAI NHIEU dong
+        # (vd 'ys = [\n    x * 2 for x in xs\n]') KHONG khop, macro tu
+        # choi mo rong, compiler bao loi that. AST thuan khong phan biet 1
+        # dong hay nhieu dong nen phai kiem tra rieng qua 'end_lineno'
+        # (Python 3.8+): comprehension CHI duoc mien tru khi 'lineno' cua
+        # bieu thuc comprehension bang 'end_lineno' cua no (nam tron ven
+        # tren 1 dong).
+        if val.lineno != getattr(val, 'end_lineno', val.lineno):
+            continue
+        if isinstance(val, ast.ListComp) and len(val.generators) == 1 \
+                and _comp_generator_ok(val.generators[0], allow_tuple_target=False):
+            exempt.add(id(val))
+        elif isinstance(val, ast.SetComp) and len(val.generators) == 1 \
+                and _comp_generator_ok(val.generators[0], allow_tuple_target=False):
+            exempt.add(id(val))
+        elif isinstance(val, ast.DictComp) and len(val.generators) == 1 \
+                and _comp_generator_ok(val.generators[0], allow_tuple_target=True):
+            exempt.add(id(val))
+    return exempt
+
+
+_FSTRING_SPEC_RE = re.compile(r'^\.\d+f$')
+
+
+def _fstring_uses_single_quote(seg):
+    """True neu doan van ban goc cua 1 f-string ('_tkv_src_seg', doc qua
+    'ast.get_source_segment') bat dau bang nhay DON ('f\\'...\\'') thay vi
+    nhay KEP ('f"..."'). Bo qua tien to 'r'/'R' (raw, hiem gap chung voi
+    f-string trong DSL nay nhung xu ly cho chac) truoc ky tu 'f'/'F'.
+    Tra ve False neu khong doc duoc doan van ban goc (an toan - khong bi
+    flag oan neu khong the xac dinh, tranh false-positive)."""
+    if not seg:
+        return False
+    i = 0
+    while i < len(seg) and seg[i] in 'fFrR':
+        i += 1
+    return i < len(seg) and seg[i] == "'"
+
+
+def _is_exempt_fstring(node):
+    """True neu 'ast.JoinedStr' khop dung gioi han ho tro cua macro
+    text-level 'fstring.py' (Task 4, phat hien qua regression): MOI
+    'ast.FormattedValue' ben trong CHI chua 1 IDENT tran ('ast.Name'),
+    format spec (neu co) la 1 hang so dang '.Nf' (N la 1+ chu so).
+
+    Critical-2 finding 4: cung doi hoi doan van ban goc (neu doc duoc qua
+    '_tkv_src_seg', xem '_annotate_source_segments') KHONG bat dau bang
+    nhay don ('f\\'...\\'') - macro 'fstring.py' CHI trigger tren 'f"'."""
+    if _fstring_uses_single_quote(getattr(node, '_tkv_src_seg', None)):
+        return False
+    spec_re = _FSTRING_SPEC_RE
+    for part in node.values:
+        if not isinstance(part, ast.FormattedValue):
+            continue
+        if not isinstance(part.value, ast.Name):
+            return False
+        if part.format_spec is not None:
+            if not isinstance(part.format_spec, ast.JoinedStr):
+                return False
+            if len(part.format_spec.values) != 1:
+                return False
+            spec_const = part.format_spec.values[0]
+            if not (isinstance(spec_const, ast.Constant) and isinstance(spec_const.value, str)
+                    and spec_re.match(spec_const.value)):
+                return False
+    return True
+
+
+class _BaselineVisitor(ast.NodeVisitor):
+    def __init__(self, module_body, exempt_attr_chains=frozenset(),
+                 exempt_comprehensions=frozenset()):
+        self.findings = []
+        self._module_body = module_body
+        self._in_class_depth = 0
+        self._exempt_attr_chains = exempt_attr_chains
+        self._exempt_comprehensions = exempt_comprehensions
+        self._known_items_vars = set()
+
+    def _flag(self, node, construct_name):
+        self.findings.append(SyntaxFinding(
+            line=node.lineno,
+            construct_name=construct_name,
+            suggestion=_SUGGESTIONS.get(construct_name),
+        ))
+
+    # -- comprehension / generator ---------------------------------
+    def visit_ListComp(self, node):
+        if id(node) in self._exempt_comprehensions:
+            self.generic_visit(node)  # van quet phan tu con (vd nested attr trong elt)
+            return
+        self._flag(node, 'list comprehension')
+        # KHONG generic_visit - tranh bao trung lap cho node con ben trong
+
+    def visit_DictComp(self, node):
+        if id(node) in self._exempt_comprehensions:
+            self.generic_visit(node)
+            return
+        self._flag(node, 'dict comprehension')
+
+    def visit_SetComp(self, node):
+        if id(node) in self._exempt_comprehensions:
+            self.generic_visit(node)
+            return
+        self._flag(node, 'set comprehension')
+
+    def visit_GeneratorExp(self, node):
+        self._flag(node, 'generator expression')
+
+    # -- string / literal --------------------------------------------
+    def visit_JoinedStr(self, node):
+        if _is_exempt_fstring(node):
+            return
+        self._flag(node, 'f-string')
+
+    def visit_Constant(self, node):
+        # So dang mu/hex/underscore-separator: '1e10'/'0x1F'/'1_000'
+        # (il_core.py:150 - token NUM chi khop '\d+\.\d+|\d+', khong co
+        # dang mu/hex/underscore). Dung repr() cua gia tri Python KHONG du
+        # (vd 1_000 -> repr la '1000', mat thong tin) - o day ta khong co
+        # source text goc trong linter don gian nay nen dung heuristic:
+        # so nguyen/thuc RAT LON hoac gia tri khong the sinh lai dung tu
+        # '\d+(\.\d+)?' khong the phat hien qua repr thuan tuy. Vi vay
+        # dung 'ast.get_source_segment' qua node co san trong cay (module
+        # duoc parse 1 lan, node giu end_col_offset) neu co the.
+        if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+            seg = getattr(node, '_tkv_src_seg', None)
+            if seg is not None and self._is_special_number_literal(seg):
+                self._flag(node, 'special number literal (1e10 / 0x1F / 1_000)')
+        self.generic_visit(node)
+
+    @staticmethod
+    def _is_special_number_literal(seg):
+        s = seg.strip()
+        if not s:
+            return False
+        low = s.lower()
+        if low.startswith('0x') or low.startswith('0o') or low.startswith('0b'):
+            return True
+        if '_' in s:
+            return True
+        # ky hieu mu (chua 'e'/'E' giua cac chu so, khong phai ten bien)
+        idx = -1
+        for ch in ('e', 'E'):
+            if ch in s:
+                idx = s.index(ch)
+                break
+        if idx > 0 and s[:idx].replace('.', '', 1).isdigit():
+            return True
+        return False
+
+    # -- assignment ----------------------------------------------------
+    # Ten pragma top-level dac biet (tkv_compile.py:1029-1098): gia tri
+    # cua chung (dict-literal ben trong list, tuple...) duoc compiler tu
+    # dien giai RIENG, KHONG di qua tang bieu thuc/statement thong thuong
+    # - vi vay khong ap dung whitelist AST-shape thong thuong (vd
+    # 'dict literal with content') cho gia tri cua chung.
+    _PRAGMA_ASSIGN_NAMES = frozenset({
+        '__tkv_import__', '__tkv_extern_assembly__', '__tkv_extern_method__',
+        '__tkv_extern_pinvoke__',
+    })
+
+    def visit_Assign(self, node):
+        if len(node.targets) > 1:
+            self._flag(node, 'multiple-target assignment (a = b = c)')
+        if (self._in_class_depth == 0 and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id in self._PRAGMA_ASSIGN_NAMES):
+            return  # KHONG generic_visit vao value cua pragma
+        # 'ten = <expr>.items()' - nho lai TEN nay la "bien items" (Task 4,
+        # phat hien qua regression: 'items_list = d.items()' roi
+        # 'for k, v in items_list:' o dong sau CUNG duoc ho tro that su -
+        # compiler khong theo doi RIENG dtype nhung ket qua chay dung vi
+        # ca 2 deu la List<KeyValuePair> - heuristic don gian, tich luy
+        # CA HAM/FILE, khong scope chinh xac theo nhanh if/else, du dung
+        # cho pattern thang hang pho bien).
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+                and _is_items_call(node.value):
+            self._known_items_vars.add(node.targets[0].id)
+        self.generic_visit(node)
+
+    def visit_AugAssign(self, node):
+        if not isinstance(node.op, _SUPPORTED_AUGASSIGN_OPS):
+            self._flag(node, 'augmented assign operator not supported')
+        self.generic_visit(node)
+
+    def visit_NamedExpr(self, node):
+        self._flag(node, 'walrus operator (:=)')
+        self.generic_visit(node)
+
+    # -- control flow ----------------------------------------------------
+    def visit_Match(self, node):
+        self._flag(node, 'match/case statement')
+        # KHONG generic_visit sau - tranh bao lan qua cac 'case' con
+
+    def visit_For(self, node):
+        if isinstance(node.target, ast.Tuple):
+            is_known_items_var = (isinstance(node.iter, ast.Name)
+                                   and node.iter.id in self._known_items_vars)
+            if not (_is_exempt_tuple_unpack_iter(node.iter, node.target) or is_known_items_var):
+                self._flag(node, 'tuple-unpack in for-loop (for a, b in ...)')
+        self.generic_visit(node)
+
+    def visit_With(self, node):
+        if len(node.items) > 1:
+            self._flag(node, 'with-statement with multiple context managers')
+        self.generic_visit(node)
+
+    # -- expression -----------------------------------------------------
+    def visit_IfExp(self, node):
+        self._flag(node, 'ternary expression (a if cond else b)')
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node):
+        if isinstance(node.value, ast.Attribute):
+            if id(node) in self._exempt_attr_chains:
+                # Chuoi 2-tang 'ten.field1.field2' lam doi tuong nhan cua
+                # 1 loi goi method/1 chi so - THUC SU duoc ho tro qua
+                # macro hoist (expr_hoist.py, xem _collect_exempt_attr_chains).
+                self.generic_visit(node)
+                return
+            self._flag(node, 'nested attribute (obj.a.b, 2+ levels)')
+            # KHONG generic_visit vao node.value - tranh flag lap lai cho
+            # tung tang con cua CUNG 1 chuoi attribute (obj.a.b.c chi bao
+            # 1 lan duy nhat, o node ngoai cung).
+            return
+        self.generic_visit(node)
+
+    _INLINE_LAMBDA_HOF_NAMES = frozenset({'map', 'filter', 'reduce'})
+
+    def visit_Call(self, node):
+        if (isinstance(node.func, ast.Name)
+                and node.func.id in self._INLINE_LAMBDA_HOF_NAMES
+                and any(isinstance(a, ast.Lambda) for a in node.args)):
+            self._flag(node, 'lambda truyen inline vao map/filter/reduce')
+        if isinstance(node.func, ast.Attribute) and node.func.attr == 'sort':
+            for kw in node.keywords:
+                if kw.arg == 'key' and isinstance(kw.value, ast.Lambda):
+                    self._flag(node, 'lambda inline trong sort(key=...)')
+                    break
+        self.generic_visit(node)
+
+    def visit_Dict(self, node):
+        if len(node.keys) > 0:
+            self._flag(node, 'dict literal with content ({...})')
+        self.generic_visit(node)
+
+    def visit_Set(self, node):
+        # Bat ky 'ast.Set' nao cung CO noi dung (Python khong co cu phap
+        # literal '{}' rong cho set - rong la 'set()', 1 'ast.Call', khong
+        # phai 'ast.Set').
+        self._flag(node, 'set literal with content ({...})')
+        self.generic_visit(node)
+
+    def visit_Slice(self, node):
+        if node.step is not None:
+            self._flag(node, 'slice with step (x[a:b:c])')
+        self.generic_visit(node)
+
+    def visit_Starred(self, node):
+        self._flag(node, 'starred expression (*args / *rest)')
+        self.generic_visit(node)
+
+    # -- class / function definitions -----------------------------------
+    def visit_ClassDef(self, node):
+        if self._in_class_depth > 0:
+            self._flag(node, 'nested class definition')
+        self._in_class_depth += 1
+        for stmt in node.body:
+            if isinstance(stmt, ast.FunctionDef):
+                self._check_class_method(stmt)
+        self.generic_visit(node)
+        self._in_class_depth -= 1
+
+    def _check_class_method(self, func_node):
+        decos = func_node.decorator_list
+        deco_names = []
+        for d in decos:
+            if isinstance(d, ast.Name):
+                deco_names.append(d.id)
+            else:
+                deco_names.append(None)  # decorator co tham so/khong phai ten don
+        allowed = {'staticmethod', 'property'}
+        if set(deco_names) - allowed or None in deco_names:
+            # co decorator KHONG phai staticmethod/property (kể ca
+            # decorator co tham so/khong phai ten don) - trừ khi ĐÚNG
+            # {'staticmethod','property'} thi khong flag o day (xu ly
+            # rieng ben duoi cho to hop 2 cai).
+            if not (set(deco_names) == allowed and None not in deco_names):
+                self._flag(func_node, 'decorator (not @staticmethod/@property) on class method')
+        if set(deco_names) == allowed and None not in deco_names:
+            self._flag(func_node, 'decorator (@staticmethod + @property together)')
+        # *args/**kwargs trong chu ky method trong class - KHONG ho tro
+        # (allow_varargs=False mac dinh, tkv_compile.py:126-127).
+        if func_node.args.vararg is not None or func_node.args.kwarg is not None:
+            self._flag(func_node, 'vararg/kwarg in class-method signature')
+        if func_node.args.kwonlyargs:
+            self._flag(func_node, 'keyword-only argument')
+
+    def visit_FunctionDef(self, node):
+        if self._in_class_depth == 0:
+            self._check_toplevel_function(node)
+        if node.args.kwonlyargs:
+            # kwonlyargs KHONG duoc ho tro o bat ky dau (ca top-level lan
+            # method) - tkv_compile.py:124-125 (kiem tra TRUOC ca
+            # allow_varargs).
+            self._flag(node, 'keyword-only argument')
+        self.generic_visit(node)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def _check_toplevel_function(self, node):
+        decos = node.decorator_list
+        if len(decos) == 0:
+            return
+        if len(decos) > 1:
+            self._flag(node, 'decorator (stacked, or with arguments, on top-level function)')
+            return
+        d = decos[0]
+        if not isinstance(d, ast.Name):
+            # decorator co tham so (ast.Call) hoac dang khac (ast.Attribute...)
+            self._flag(node, 'decorator (stacked, or with arguments, on top-level function)')
+            return
+        if not _is_valid_toplevel_decorator_shape(d.id, self._module_body):
+            self._flag(node, 'decorator (stacked, or with arguments, on top-level function)')
+        # *args/**kwargs O HAM TOP-LEVEL DUOC ho tro (allow_varargs=True,
+        # tkv_compile.py:1007) - KHONG flag o day.
+
+
+def _annotate_source_segments(tree, source_text):
+    """Gan '_tkv_src_seg' cho moi 'ast.Constant' so (int/float) bang
+    'ast.get_source_segment', de _BaselineVisitor.visit_Constant phat hien
+    dung dang literal dac biet (1e10/0x1F/1_000) ma khong the phan biet
+    qua gia tri Python thuan tuy (repr() mat thong tin format goc).
+
+    Cung gan '_tkv_src_seg' cho moi 'ast.JoinedStr' (f-string) - Critical-2
+    finding 4 (review sau Task 4): sau khi 'ast.parse', 'f"..."' va
+    'f\\'...\\'' deu ra CUNG 1 dang 'ast.JoinedStr' (AST khong giu lai nhay
+    don/nhay kep goc) - nhung macro text-level THAT ('fstring.py') CHI
+    trigger tren 'f"' (nhay KEP, xem 'try_expand_fstring' - kiem tra ky
+    tu ke tiep la '\"'); 'f\\'...\\' ' (nhay don) KHONG duoc mo rong, bi
+    compiler bao loi that. Doc lai SOURCE TEXT goc qua 'get_source_segment'
+    la cach DUY NHAT phan biet duoc 2 dang nay tu AST."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) \
+                and not isinstance(node.value, bool):
+            try:
+                seg = ast.get_source_segment(source_text, node)
+            except Exception:
+                seg = None
+            if seg is not None:
+                node._tkv_src_seg = seg
+        elif isinstance(node, ast.JoinedStr):
+            try:
+                seg = ast.get_source_segment(source_text, node)
+            except Exception:
+                seg = None
+            if seg is not None:
+                node._tkv_src_seg = seg
+
+
+_TOPLEVEL_SCALAR_DTYPES = frozenset({'i32', 'i64', 'f32', 'f64', 'str'})
+
+
+def _is_toplevel_scalar_annassign(node):
+    """True neu 'ast.AnnAssign' o cap top-level HOP LE: co gia tri VA
+    annotation la 1 chuoi hang so voi dtype scalar (Bang 1, task-1-report.md).
+    """
+    if node.value is None:
+        return False
+    ann = node.annotation
+    if not (isinstance(ann, ast.Constant) and isinstance(ann.value, str)):
+        return False
+    return ann.value in _TOPLEVEL_SCALAR_DTYPES
+
+
+def _classify_toplevel_nodes(module_body, findings):
+    """Duyet CHI 'tree.body' (khong de quy sau) va tach thanh 2 nhom:
+    node duoc phep de quy tiep (whitelist top-level, Bang 1 task-1-report.md)
+    va node bi flag NGAY (khong de quy sau vao no nua). Tra ve list cac
+    node duoc phep de quy tiep bang '_BaselineVisitor' nhu cu."""
+    allowed = []
+    for node in module_body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                              ast.ClassDef, ast.Import, ast.ImportFrom)):
+            allowed.append(node)
+        elif isinstance(node, (ast.If, ast.For, ast.While, ast.Try, ast.With)):
+            kind = {
+                ast.If: 'if', ast.For: 'for', ast.While: 'while',
+                ast.Try: 'try', ast.With: 'with',
+            }[type(node)]
+            findings.append(SyntaxFinding(
+                line=node.lineno,
+                construct_name='if/for/while/try/with o cap top-level (ngoai ham/class)',
+                suggestion=_SUGGESTIONS.get(
+                    'if/for/while/try/with o cap top-level (ngoai ham/class)'),
+            ))
+        elif isinstance(node, ast.Expr):
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                pass  # docstring - hop le
+            else:
+                findings.append(SyntaxFinding(
+                    line=node.lineno,
+                    construct_name='goi ham/bieu thuc doc lap o cap top-level',
+                    suggestion=_SUGGESTIONS.get(
+                        'goi ham/bieu thuc doc lap o cap top-level'),
+                ))
+        elif isinstance(node, ast.AnnAssign):
+            if _is_toplevel_scalar_annassign(node):
+                allowed.append(node)
+            else:
+                findings.append(SyntaxFinding(
+                    line=node.lineno,
+                    construct_name='AnnAssign khong hop le o cap top-level '
+                                    '(chi ho tro dtype scalar co gia tri)',
+                    suggestion=_SUGGESTIONS.get(
+                        'AnnAssign khong hop le o cap top-level '
+                        '(chi ho tro dtype scalar co gia tri)'),
+                ))
+        else:
+            # Assign va cac node top-level khac (pragma, hang so module...)
+            # - giao lai cho '_BaselineVisitor' xu ly nhu truoc (khong
+            # thuoc pham vi Finding 2).
+            allowed.append(node)
+    return allowed
+
+
+def check_syntax_baseline(source_text):
+    """Tra ve list[SyntaxFinding] - RONG neu khong co gi vi pham whitelist
+    construct compiler TokenVector THAT SU ho tro (xem task-1-report.md)."""
+    tree = ast.parse(source_text)
+    _annotate_source_segments(tree, source_text)
+    findings = []
+    allowed_toplevel = _classify_toplevel_nodes(tree.body, findings)
+    exempt_attr_chains = _collect_exempt_attr_chains(tree)
+    exempt_comprehensions = _collect_exempt_comprehensions(tree)
+    visitor = _BaselineVisitor(tree.body, exempt_attr_chains=exempt_attr_chains,
+                                exempt_comprehensions=exempt_comprehensions)
+    for node in allowed_toplevel:
+        visitor.visit(node)
+    findings.extend(visitor.findings)
+    return sorted(findings, key=lambda f: f.line)

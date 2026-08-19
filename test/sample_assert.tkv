@@ -1,0 +1,18 @@
+"""assert cond / assert cond, "msg" (Wave 3, 2026-07-29) - macro text-
+level, viet lai thanh 'if not (cond): raise Exception(msg)' (xem
+il_features/control_flow.py's try_expand_assert)."""
+
+
+def check_positive(x: "i32") -> "i32":
+    assert x > 0
+    return x * 2
+
+
+def check_positive_msg(x: "i32") -> "i32":
+    assert x > 0, "x phai duong"
+    return x * 3
+
+
+def check_range(x: "i32", lo: "i32", hi: "i32") -> "i32":
+    assert x >= lo and x <= hi, "x ngoai khoang"
+    return x

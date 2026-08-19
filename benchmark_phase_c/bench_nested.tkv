@@ -1,0 +1,23 @@
+def make_deep(a_param: "i32") -> "i32":
+    a = a_param
+
+    def mid(b_param: "i32") -> "i32":
+        nonlocal a
+        b = b_param
+
+        def inner(c: "i32") -> "i32":
+            nonlocal a, b
+            return a + b + c
+
+        return inner(10)
+
+    return mid(1)
+
+
+def bench_nested(n: "i32") -> "i32":
+    total = 0
+    i = 0
+    while i < n:
+        total = total + (make_deep(i) % 1000)
+        i = i + 1
+    return total

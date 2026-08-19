@@ -1,0 +1,25 @@
+# collections.tkv - TokenVector Standard Library: Counter Pattern
+
+def counter_add(counts: "dict[str,i32]", key: "str") -> "dict[str,i32]":
+    if key in counts:
+        counts[key] = counts[key] + 1
+    else:
+        counts[key] = 1
+    return counts
+
+
+def counter_get(counts: "dict[str,i32]", key: "str") -> "i32":
+    if key in counts:
+        return counts[key]
+    return 0
+
+
+def counter_most_common(counts: "dict[str,i32]") -> "str":
+    best_key = ""
+    best_count = 0
+    items_list = counts.items()
+    for k, v in items_list:
+        if v > best_count:
+            best_count = v
+            best_key = k
+    return best_key

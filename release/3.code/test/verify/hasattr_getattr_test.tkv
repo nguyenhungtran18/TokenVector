@@ -1,0 +1,41 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 17: hasattr() & getattr() metaprogramming."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_hasattr_and_getattr():
+    p = '''class Item:
+    name: "str"
+    price: "i32"
+
+    def __init__(self, name, price):
+        self.name = name
+        self.price = price
+
+def run() -> "str":
+    it = Item("Phone", 500)
+    has_name = 1 if hasattr(it, "name") else 0
+    has_unknown = 1 if hasattr(it, "unknown") else 0
+    val_name = getattr(it, "name", "N/A")
+    val_default = getattr(it, "unknown", "DEFAULT_VAL")
+    return str(has_name) + "|" + str(has_unknown) + "|" + val_name + "|" + val_default'''
+    
+    SRC = Path('scratch/m17_meta.tkv')
+    EXE = Path('scratch/m17_meta.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "1|0|Phone|DEFAULT_VAL", f"Mismatch: {repr(tkv_val)} (rc={proc.returncode}, err={proc.stderr!r})"
+    print("PASS: test_hasattr_and_getattr", tkv_val)
+
+if __name__ == '__main__':
+    test_hasattr_and_getattr()
+    print("ALL MOC 17 TESTS PASSED!")

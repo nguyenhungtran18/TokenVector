@@ -33,22 +33,21 @@ jobs:
             exit 1
           }
 
-      - name: Setup tkvc.exe (use committed binary or build from source)
+      - name: Build tkvc.exe from source (PyInstaller)
         run: |
+          python -m PyInstaller --onefile --name tkvc --distpath dist --paths compiler tkv.py
           if (Test-Path "dist\tkvc.exe") {
-            Write-Host "[OK] dist\tkvc.exe already in repo, skipping build"
-          } elseif (Test-Path "tkv_compile.py") {
-            Write-Host "[INFO] Building tkvc.exe from source via PyInstaller..."
-            python -m PyInstaller --onefile --name tkvc --distpath dist tkv_compile.py
-            if (-not (Test-Path "dist\tkvc.exe")) {
-              Write-Host "[FAIL] PyInstaller did not produce dist\tkvc.exe"
-              exit 1
-            }
             Write-Host "[OK] dist\tkvc.exe built successfully"
           } else {
-            Write-Host "[FAIL] dist\tkvc.exe not found and tkv_compile.py not committed"
+            Write-Host "[FAIL] dist\tkvc.exe not created"
             exit 1
           }
+          # compiler/plugin_loader.py's frozen-mode discover_plugin_dir()
+          # loads library feature modules (binop/list/dict/... codegen
+          # registration) from an 'il_features' dir NEXT TO the running
+          # .exe - PyInstaller does not stage this itself, so copy it in.
+          Copy-Item -Recurse -Force "compiler\il_features" "dist\il_features"
+          Write-Host "[OK] dist\il_features staged ($((Get-ChildItem dist\il_features -Filter *.py).Count) files)"
 
       - name: Smoke test — compile inline hello.tkv
         run: |

@@ -1,0 +1,59 @@
+# Build artifacts (.exe/.il sinh ra khi compile lai tu .tkv/.py) - KHONG track,
+# khong phai "san pham". Dat theo pattern TOAN CAY (khong khoa duong dan cu the)
+# vi artifact nam rai o test/, examples/, va "TokenVector - Only/examples/**".
+*.exe
+*.il
+*.pdb
+
+# Du lieu/ket qua sinh ra khi chay test, khong phai nguon
+test/*.db
+test/**/*.db
+test/verify/*_results.json
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Ket qua CHAY cua vi du (sinh lai duoc bang cach chay lai vi du tuong ung)
+TokenVector - Only/examples/stdlib/doc_output.docx
+TokenVector - Only/examples/stdlib/sample_doc.docx
+TokenVector - Only/examples/stdlib/presentation.pptx
+TokenVector - Only/examples/stdlib/document.xml
+TokenVector - Only/examples/stdlib/docx_dir/
+TokenVector - Only/examples/stdlib/game_screen.txt
+TokenVector - Only/examples/stdlib/highscore.txt
+TokenVector - Only/examples/stdlib/sample_test.txt
+test/*.pkl
+TokenVector - Only/examples/stdlib/_compress_in.txt
+TokenVector - Only/examples/stdlib/_compress_out.txt
+
+# sqlite3.dll (thu vien ngoai, 3.2MB): CHI giu 1 ban trong goi phat hanh
+# "TokenVector - Only", cac ban copy trong repo goc/test khong track.
+sqlite3.dll
+!TokenVector - Only/sqlite3.dll
+
+# PyInstaller intermediate build output (dist/tkvc.exe la san pham, rebuild qua build_tkvc.ps1)
+build/pyinstaller/
+*.spec
+dist/
+
+# Thu muc tam / dau ra cua cong cu, khong phai nguon
+scratch/
+graphify-out/
+TokenVector - Only/examples/stdlib/ppt_dir/
+
+# Ngoai le: tkvc.exe la SAN PHAM phat hanh trong ban "TokenVector - Only"
+# (khong phai artifact test), giu lai du co luat *.exe o tren.
+!TokenVector - Only/tkvc.exe
+
+# Thu muc tam do group8_expr_test.py tao ra (zip_create/zip_extract)
+test/g8_zipsrc/
+test/g8_zipsrc_out/
+test/*.zip
+
+test/csv_report_data.csv
+
+# Chuong trinh .tkv TAM do test/parity/fuzz.py sinh ra khi chay (bo do
+# lech, moc 8) - khong phai nguon, sinh lai duoc bat cu luc nao.
+test/_fuzz_tmp/
+test/parity/_fuzz_run.log

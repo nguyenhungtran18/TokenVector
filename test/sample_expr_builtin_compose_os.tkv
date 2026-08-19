@@ -1,0 +1,31 @@
+"""Vi du THAT kiem chung Giai doan 0.2 nhom 2 (2026-08-03): os_getenv/
+os_mkdir goi duoc NGAY TRONG bieu thuc. os_getenv co nhan IL rieng
+('os_getenv_end') - 'getenv_twice' kiem tra CHINH XAC truong hop de gay
+loi nhat (2 lan goi os_getenv() TRONG CUNG 1 ham/bieu thuc) khong con
+trung lap nhan sau khi sua."""
+
+
+def getenv_direct(name: "str") -> "str":
+    v = os_getenv(name)
+    return v
+
+
+def getenv_compose(name: "str") -> "str":
+    return os_getenv(name)
+
+
+def getenv_compose_concat(name: "str") -> "str":
+    return os_getenv(name) + "!"
+
+
+def getenv_twice(a: "str", b: "str") -> "str":
+    return os_getenv(a) + os_getenv(b)
+
+
+def mkdir_direct(path: "str") -> "i32":
+    r = os_mkdir(path)
+    return r
+
+
+def mkdir_compose(path: "str") -> "i32":
+    return os_mkdir(path) + 1

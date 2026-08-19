@@ -1,0 +1,28 @@
+"""Container long nhau (Wave 2, 2026-07-29): List<List<T>> va
+Dictionary<K, List<T>>. Chi ho tro doc/ghi qua BIEN TRUNG GIAN ('row =
+outer[i]' roi 'row[j]'), CHUA ho tro chi so long truc tiep 'outer[i][j]'
+trong CUNG 1 bieu thuc (gioi han da biet, xem STATUS.md)."""
+
+
+def sum_nested_list() -> "i32":
+    a = []
+    a.append(1)
+    a.append(2)
+    b = []
+    b.append(9)
+    b.append(8)
+    outer = []
+    outer.append(a)
+    outer[0] = b
+    row0 = outer[0]
+    return row0[0] + row0[1]
+
+
+def sum_dict_of_list() -> "i32":
+    g1 = []
+    g1.append(100)
+    g1.append(200)
+    groups = {}
+    groups[1] = g1
+    row = groups[1]
+    return row[0] + row[1]

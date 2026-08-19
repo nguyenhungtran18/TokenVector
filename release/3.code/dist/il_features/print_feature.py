@@ -1,0 +1,43 @@
+# -*- coding: utf-8 -*-
+"""print(...) - moc 7 (2026-08-05).
+
+Truoc ban va nay 'print' KHONG TON TAI trong DSL: mot file .tkv chay
+duoc bang CPython nhung khong bien dich duoc neu no in bat cu thu gi -
+tuc bat bien cot loi cua du an ("cung mot file, hai duong chay, cung ket
+qua") khong the kiem chung tren chinh cach quan sat pho bien nhat.
+
+Ngu nghia lay dung cua Python: cac doi so duoc str() roi noi bang MOT
+dau cach, ket thuc bang xuong dong. Moi doi so di qua CUNG mot duong
+chuyen chuoi voi str() (tkvstr.emit_to_str) - do la yeu cau cua chinh
+moc 7: hai duong dinh dang so thuc song song thi chac chan lech nhau.
+"""
+import il_features.tkvstr as _tkvstr
+from il_features.string_builtin import _is_bool_shaped
+
+
+def compile_print(call_node, scope, body, ctx):
+    args = call_node[2]
+    if not args:
+        body.append('    call void [mscorlib]System.Console::WriteLine()')
+        return
+    for k, arg in enumerate(args):
+        if k:
+            body.append('    ldstr " "')
+        dtype = ctx['infer_dtype'](arg, scope, ctx.get('func_table'), ctx.get('records'),
+                                    ctx.get('record_methods'))
+        if dtype is None:
+            # ctx cua pass 2 khong co 'infer_literal_dtype' (no la moc cua
+            # first-pass) - hang so tu suy tai cho, dung quy uoc CHUNG:
+            # co dau '.' la f64, con lai la 'int'.
+            dtype = ('f64' if (isinstance(arg, tuple) and arg[0] == 'num' and '.' in arg[1])
+                     else 'int')
+        ctx['compile_expr'](arg, scope, body, dtype, ctx)
+        # xem string_feature.py's _is_bool_shaped: compare/boolop/not/in/
+        # all/any/startswith/endswith deu dtype='i32' nhung mang nghia
+        # logic - print() phai in "True"/"False" nhu Python, khong phai so.
+        _tkvstr.emit_to_str('bool' if (dtype == 'i32' and _is_bool_shaped(arg)) else dtype,
+                             body, ctx)
+        if k:
+            body.append('    call string [mscorlib]System.String::Concat(string, string)')
+            body.append('    call string [mscorlib]System.String::Concat(string, string)')
+    body.append('    call void [mscorlib]System.Console::WriteLine(string)')

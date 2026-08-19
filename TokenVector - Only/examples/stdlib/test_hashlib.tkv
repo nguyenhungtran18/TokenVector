@@ -1,0 +1,9 @@
+# test_hashlib.tkv - Test module hashlib.tkv (SHA256 & MD5)
+__tkv_import__ = "hashlib"
+
+def main() -> "i32":
+    h_sha = sha256("hello tokenvector")
+    h_md5 = md5("hello tokenvector")
+    if len(h_sha) == 64 and len(h_md5) == 32:
+        return 1
+    return 0

@@ -1,0 +1,24 @@
+# pathlib.tkv - Self-Hosted TokenVector Object-Oriented Path Utility
+__tkv_import__ = "os"
+
+def path_basename(path_str: "str") -> "str":
+    parts = path_str.split("\\")
+    n = len(parts)
+    if n > 0:
+        b = parts[n - 1]
+        sub = b.split("/")
+        sn = len(sub)
+        if sn > 0:
+            res = sub[sn - 1]
+            return res
+    return path_str
+
+
+def path_extension(path_str: "str") -> "str":
+    base = path_basename(path_str)
+    parts = base.split(".")
+    n = len(parts)
+    if n > 1:
+        ext = "." + parts[n - 1]
+        return ext
+    return ""

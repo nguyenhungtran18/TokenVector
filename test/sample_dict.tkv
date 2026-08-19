@@ -1,0 +1,14 @@
+"""Vi du THAT kiem chung Dict dong (System.Collections.Generic.Dictionary<K,V>)
+vua them vao il_codegen.py: {}, d[k] = v (ghi), d[k] (doc), 'key in d'."""
+
+
+def sum_via_dict(n: "i32", scale: "f32") -> "f32":
+    d = {}
+    for i in range(n):
+        if i > 0:
+            d[i] = scale + i
+    total = 0.0
+    for j in range(n):
+        if j in d:
+            total = total + d[j]
+    return total

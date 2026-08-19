@@ -1,0 +1,21 @@
+# database_kv.tkv - Self-Hosted TokenVector In-Memory Database & Query Engine
+
+def db_create_table() -> "dict[str, str]":
+    tbl = {}
+    tbl["_schema_version"] = "1.0"
+    return tbl
+
+
+def db_insert(tbl: "dict[str, str]", key: "str", val: "str") -> "i32":
+    tbl[key] = val
+    return 1
+
+
+def db_query(tbl: "dict[str, str]", key: "str") -> "str":
+    res = tbl[key]
+    return res
+
+
+def db_count_keys(tbl: "dict[str, str]") -> "i32":
+    n = len(tbl)
+    return n

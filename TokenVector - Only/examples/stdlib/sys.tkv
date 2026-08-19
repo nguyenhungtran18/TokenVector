@@ -1,0 +1,12 @@
+# sys.tkv - Self-Hosted TokenVector System Info & CLI Arguments Library
+
+def get_platform() -> "str":
+    return "win32_cil"
+
+
+def get_version() -> "str":
+    return "TokenVector 2.0 Native AOT (CIL)"
+
+
+def sys_exit(code: "i32") -> "i32":
+    return code

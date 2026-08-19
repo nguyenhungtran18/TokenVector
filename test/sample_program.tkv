@@ -1,0 +1,31 @@
+"""Vi du: file NAY la Python THAT (chay duoc thang duoi CPython, annotation
+kieu DSL chi la string nen khong bi Python ep kieu/loi luc runtime) - dong
+thoi la input TRUC TIEP cho TokenVector (tkv_compile.py) de bien dich
+thanh .exe doc lap. Day la minh chung "Python tien hoa thanh TokenVector":
+KHONG can viet lai ngon ngu rieng, chi can annotation kieu DSL + chi dung
+tap con cu phap da ho tro (for/if/return/assign, khong list/dict/class)."""
+
+
+def square(x: "f32") -> "f32":
+    return x * x
+
+
+def sum_of_squares(a: "f32", b: "f32") -> "f32":
+    sa = square(a)
+    sb = square(b)
+    return sa + sb
+
+
+def clamp(x: "f32", lo: "f32", hi: "f32") -> "f32":
+    if x < lo:
+        return lo
+    else:
+        if x > hi:
+            return hi
+        else:
+            return x
+
+
+def sum_clamped_squares(a: "f32", b: "f32") -> "f32":
+    total = sum_of_squares(a, b)
+    return clamp(total, 0.0, 100.0)

@@ -1,0 +1,56 @@
+# -*- coding: utf-8 -*-
+"""Truyen dict[str,i32] lam THAM SO ham - truoc 2026-08-04 la SEGFAULT.
+
+Bien dich THANH CONG, chay -> Segmentation fault (exit 139), khong loi bien
+dich, khong exception .NET. Chet im lang la kieu hong te nhat co the co: moi
+bo dem `dict[str,i32]` truyen qua ham deu dinh.
+
+Nguyen nhan: `counts = {}` trong ham GOI khong co dong `counts[k] = v` nao,
+nen `declare_dict` roi ve `body_dtype` (kieu TRA VE cua chinh ham dang bien
+dich) cho ca khoa lan gia tri -> dung `Dictionary<string,string>` roi truyen
+cho ham nhan `Dictionary<string,int32>`. Hai kieu generic khac nhau tren
+cung mot vung nho = hong bo nho.
+
+Cach sua: suy kieu tu CHU THICH THAM SO cua ham nhan (xem
+find_first_dict_arg_param_ta trong dict_type.py) — cung khuon voi
+find_first_dict_reassign_call_ta da co san cho mau `c = f(c)`.
+"""
+
+
+def sc(counts: "dict[str,i32]") -> "i32":
+    counts["a"] = 5
+    counts["b"] = 7
+    return len(counts)
+
+
+def total(counts: "dict[str,i32]") -> "i32":
+    counts["x"] = 3
+    s = 0
+    ks = counts.keys()
+    for k in ks:
+        s = s + counts[k]
+    return s
+
+
+def r_len(a: "str") -> "str":
+    """Dict rong truyen thang lam tham so - ca tren."""
+    counts = {}
+    return str(sc(counts))
+
+
+def r_sum(a: "str") -> "str":
+    """Doc lai gia tri sau khi ham nhan da ghi vao."""
+    counts = {}
+    n = total(counts)
+    return str(n)
+
+
+def r_str_dict(a: "str") -> "str":
+    """dict[str,str] lam tham so van phai chay dung nhu truoc."""
+    d = {}
+    return str(sd(d))
+
+
+def sd(d: "dict[str,str]") -> "i32":
+    d["k"] = "v"
+    return len(d)

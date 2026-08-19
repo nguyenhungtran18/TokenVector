@@ -1,0 +1,33 @@
+# -*- coding: utf-8 -*-
+"""Verification Test: Bidirectional Automatic Transpiler (.py <-> .tkv)."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tools.tkv_transpiler import py_to_tkv, tkv_to_py
+
+def test_transpiler():
+    py_code = '''def compute_sum(a: int, b: float) -> float:
+    return float(a) + b'''
+    
+    # 1. Test py -> tkv
+    tkv_converted = py_to_tkv(py_code)
+    assert ': "i64"' in tkv_converted
+    assert ': "f64"' in tkv_converted
+    assert '-> "f64"' in tkv_converted
+    print("PASS: py2tkv conversion verified")
+
+    # 2. Test tkv -> py
+    py_reconverted = tkv_to_py(tkv_converted)
+    assert ': int' in py_reconverted
+    assert ': float' in py_reconverted
+    assert '-> float' in py_reconverted
+    print("PASS: tkv2py conversion verified")
+
+if __name__ == '__main__':
+    test_transpiler()
+    print("ALL TRANSPILER TESTS PASSED!")

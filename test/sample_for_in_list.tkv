@@ -1,0 +1,32 @@
+"""Huong #2 sau ROADMAP.md 9 buoc: 'for x in lst:' - lap TRUC TIEP qua
+list (khong can 'for i in range(len(lst)): x = lst[i]' nhu truoc day)."""
+
+
+def sum_list_direct(n: "i32") -> "f32":
+    lst = []
+    i = 0.0
+    while i < n:
+        lst.append(i * 1.5)
+        i = i + 1.0
+    total = 0.0
+    for x in lst:
+        total = total + x
+    return total
+
+
+def sum_nested_list_direct(n: "i32", m: "i32") -> "f32":
+    outer = []
+    i = 0.0
+    while i < n:
+        outer.append(i)
+        i = i + 1.0
+    total = 0.0
+    for x in outer:
+        inner = []
+        j = 0.0
+        while j < m:
+            inner.append(j)
+            j = j + 1.0
+        for y in inner:
+            total = total + x + y
+    return total

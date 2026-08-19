@@ -1,0 +1,35 @@
+"""Vi du THAT kiem chung Giai doan 0.2 nhom 3 (2026-08-03): method chuoi
+CAN VONG LAP + hidden local (.count()/.title()/.zfill()) goi duoc NGAY
+TRONG bieu thuc, khong chi o RHS 1 phep gan don le. Doi chieu THANG voi
+CPython that (3 method nay co tuong duong Python 1:1)."""
+
+
+def count_in_expr(s: "str", sub: "str") -> "i32":
+    return s.count(sub) + 100
+
+
+def count_twice(s: "str", a: "str", b: "str") -> "i32":
+    return s.count(a) + s.count(b)
+
+
+def count_in_cond(s: "str", sub: "str") -> "i32":
+    if s.count(sub) > 1:
+        return 1
+    return 0
+
+
+def title_in_expr(s: "str") -> "str":
+    return s.title() + "!"
+
+
+def zfill_in_expr(s: "str", w: "i32") -> "str":
+    return s.zfill(w) + "|"
+
+
+def title_and_zfill(s: "str", w: "i32") -> "str":
+    return s.title() + s.zfill(w)
+
+
+def count_of_title(s: "str", sub: "str") -> "i32":
+    t = s.title()
+    return t.count(sub)

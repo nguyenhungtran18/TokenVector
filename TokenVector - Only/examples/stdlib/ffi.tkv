@@ -1,0 +1,12 @@
+# ffi.tkv - Self-Hosted TokenVector Foreign Function Interface
+# [MOCK/PROTOTYPE - khong lam viec that, chi la khung ten trung Python]
+
+def ffi_load_library(lib_name: "str") -> "str":
+    handle = "loaded:" + lib_name
+    return handle
+
+
+def ffi_call_symbol(handle: "str", sym: "str", arg: "i32") -> "i32":
+    if len(handle) > 0 and len(sym) > 0:
+        return arg * 2
+    return 0

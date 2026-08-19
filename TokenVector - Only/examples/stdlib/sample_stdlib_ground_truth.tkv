@@ -1,0 +1,26 @@
+# -*- coding: utf-8 -*-
+"""Driver cho stdlib_regression_test.py phan B (2026-08-03, Giai doan 1):
+IN RA GIA TRI THAT de doi chieu tung ky tu voi hashlib/base64 cua CPython.
+
+Vi sao can: cac test_*.tkv cu chi tra 1/0 sau khi TU kiem tra ben trong
+(vd 'len(h_sha) == 64') - dung do dai thi PASS ke ca khi noi dung hash
+sai hoan toan. O day gia tri di thang ra stdout, ben Python moi la nguoi
+phan xu."""
+__tkv_import__ = ["hashlib", "base64"]
+
+
+def gt_sha256(s: "str") -> "str":
+    return sha256(s)
+
+
+def gt_md5(s: "str") -> "str":
+    return md5(s)
+
+
+def gt_b64(s: "str") -> "str":
+    return b64encode(s)
+
+
+def gt_b64_roundtrip(s: "str") -> "str":
+    enc = b64encode(s)
+    return b64decode(enc)

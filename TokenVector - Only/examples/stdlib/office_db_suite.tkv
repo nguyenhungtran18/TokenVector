@@ -1,0 +1,20 @@
+# office_db_suite.tkv - tao file .docx THAT (OpenXML toi thieu) qua zipfile
+#
+# Ten cu "Enterprise Office, PDF & Database Engine" la PHONG DAI: file
+# nay KHONG dung toi PDF va KHONG dung toi database. Ngay 2026-08-03 da
+# TACH 2 ham gia (connect_access_database, parse_pdf_text_stream) sang
+# mock_access_pdf.tkv de phan con lai - ham THAT - khong bi hieu nham.
+#
+# create_office_docx_template() la THAT: ghi document.xml roi nen thu muc
+# thanh 1 file .zip dat duoi .docx - Word/LibreOffice mo duoc. GIOI HAN:
+# OpenXML toi thieu (thieu [Content_Types].xml/_rels nen mot so trinh doc
+# nghiem ngat co the tu choi), noi dung co dinh, KHONG chinh sua duoc
+# file .docx co san.
+__tkv_import__ = ["zipfile", "database_kv"]
+
+def create_office_docx_template(dir_path: "str", zip_path: "str") -> "i32":
+    xml_content = "<?xml version='1.0'?><w:document><w:body><w:p><w:r><w:t>TokenVector OpenXML</w:t></w:r></w:p></w:body></w:document>"
+    file_p = dir_path + "\\document.xml"
+    write_file(file_p, xml_content)
+    ok = create_zip(dir_path, zip_path)
+    return ok

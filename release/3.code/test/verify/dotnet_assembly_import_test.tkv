@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 38: Automatic .NET Ecosystem Interop (__tkv_extern_assembly__)."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_dotnet_assembly_import():
+    p = '''__tkv_extern_assembly__("System.Xml", "DEFAULT", "DEFAULT")
+
+def run() -> "str":
+    return "DOTNET_ASSEMBLY_INTEROP_OK"'''
+    
+    SRC = Path('scratch/m38_dotnet_asm.tkv')
+    EXE = Path('scratch/m38_dotnet_asm.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "DOTNET_ASSEMBLY_INTEROP_OK", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_dotnet_assembly_import", tkv_val)
+
+if __name__ == '__main__':
+    test_dotnet_assembly_import()
+    print("ALL MOC 38 TESTS PASSED!")

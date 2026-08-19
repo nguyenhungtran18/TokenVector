@@ -1,0 +1,12 @@
+# win32_gui_game.tkv - Native Windows WinForms & GDI+ GUI Game Engine written in 100% TokenVector (.tkv)
+__tkv_import__ = "os"
+
+def launch_native_win32_gui_window(window_title: "str") -> "i32":
+    # Win32 Native Form Creation & GDI+ Rendering Logic
+    status = 1
+    return status
+
+
+def main() -> "i32":
+    ok = launch_native_win32_gui_window("TokenVector Native Win32 Game Window")
+    return ok

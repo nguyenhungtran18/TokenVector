@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+"""Verification Test: Importing Native TokenVector (.tkv) Standard Libraries."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_native_tkv_stdlib():
+    # Test importing native .tkv library from stdlib/
+    main_code = '''import math
+import pystdlib
+
+def run() -> "str":
+    s = sqrt(16.0)
+    replaced = tkv_re_replace("test123abc", "[0-9]+", "NUM")
+    return "MATH_SQRT:" + str(s) + "|RE:" + replaced'''
+    
+    MAIN_PATH = Path('scratch/native_stdlib_main.tkv')
+    EXE_PATH = Path('scratch/native_stdlib_main.exe')
+    
+    MAIN_PATH.write_text(main_code, encoding='utf-8')
+    compile_tkv_cli(MAIN_PATH, EXE_PATH, entry_name='run')
+    
+    proc = subprocess.run([str(EXE_PATH)], capture_output=True, text=True)
+    out = proc.stdout.strip()
+    assert out == "MATH_SQRT:4.0|RE:testNUMabc", f"Mismatch: {repr(out)} (err={proc.stderr!r})"
+    print("PASS: test_native_tkv_stdlib", out)
+
+if __name__ == '__main__':
+    test_native_tkv_stdlib()
+    print("ALL NATIVE TKV STDLIB TESTS PASSED!")

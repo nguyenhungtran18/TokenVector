@@ -1,0 +1,18 @@
+# compress_struct_cli.tkv - CHE DO 'structure': nhu compress_cli.tkv nhung
+# voi ma nguon thi BO CA DOCSTRING (tiet kiem 39-51% token thay vi 10-26%).
+# Dung khi chi can biet file co nhung gi / ham nam o dau; KHONG dung khi can
+# hieu TAI SAO code viet nhu vay (docstring o day chua ly do thiet ke).
+# Ngon ngu chua co argv nen dung chung 2 duong dan co dinh voi compress_cli.
+__tkv_import__ = "universal_context_compressor"
+
+def main() -> "i32":
+    in_path = "D:\\Claude AI Project\\TokenVector\\TokenVector - Only\\examples\\stdlib\\_compress_in.txt"
+    out_path = "D:\\Claude AI Project\\TokenVector\\TokenVector - Only\\examples\\stdlib\\_compress_out.txt"
+
+    payload = read_file(in_path)
+    compressed = compress_universal_struct(payload)
+    savings = calculate_savings_percentage(len(payload), len(compressed))
+
+    header = "[tkv-struct|type:" + detect_content_type(payload) + "|savings_byte:" + str(savings) + "%]\n"
+    write_file(out_path, header + compressed)
+    return savings

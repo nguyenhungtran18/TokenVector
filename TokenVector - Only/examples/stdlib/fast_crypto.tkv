@@ -1,0 +1,11 @@
+# fast_crypto.tkv - TokenVector Fast Direct Memory Crypto Hashing
+__tkv_import__ = "hashlib"
+
+def sha256_fast_direct(data: "str") -> "str":
+    h = sha256(data)
+    return h
+
+
+def md5_fast_direct(data: "str") -> "str":
+    h = md5(data)
+    return h

@@ -1,0 +1,36 @@
+"""Chi so am HANG SO tai compile-time (Wave 3, 2026-07-29) - 'lst[-1]'/
+'s[-1]' rat pho bien trong Python that. CHI ho tro HANG SO (khong ho tro
+bieu thuc am dong nhu 'lst[-i]') - xem il_core.py's emit_index_value."""
+
+
+def last_of_list() -> "i32":
+    lst = []
+    lst.append(10)
+    lst.append(20)
+    lst.append(30)
+    return lst[-1]
+
+
+def second_last_of_list() -> "i32":
+    lst = []
+    lst.append(10)
+    lst.append(20)
+    lst.append(30)
+    lst.append(40)
+    return lst[-2]
+
+
+def last_char(s: "str") -> "str":
+    return s[-1]
+
+
+def second_last_char(s: "str") -> "str":
+    return s[-2]
+
+
+def mix_pos_neg() -> "i32":
+    lst = []
+    lst.append(1)
+    lst.append(2)
+    lst.append(3)
+    return lst[0] * 100 + lst[-1]

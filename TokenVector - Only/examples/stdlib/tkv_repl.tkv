@@ -1,0 +1,21 @@
+# tkv_repl.tkv - 2 ham noi chuoi quanh eval_str (dang MOCK)
+#
+# ===================== NHAN: MOCK / PROTOTYPE =====================
+# Ten "REPL Interactive Terminal Shell" la PHONG DAI. KHONG co vong lap
+# doc lenh, KHONG doc stdin, KHONG giu trang thai phien. Toan bo phu
+# thuoc eval_str() cua eval.tkv - hien cung la mock (bieu thuc dong
+# khong danh gia duoc trong ngon ngu kieu tinh; ke hoach Giai doan 2 la
+# port System.Data.DataTable.Compute cho tap bieu thuc so hoc HUU HAN).
+# ==================================================================
+__tkv_import__ = "eval"
+
+def repl_eval_line(line: "str") -> "str":
+    val = eval_str(line)
+    res = str(val)
+    return res
+
+
+def repl_prompt(input_cmd: "str") -> "str":
+    out = repl_eval_line(input_cmd)
+    prompt_str = ">>> " + input_cmd + " = " + out
+    return prompt_str

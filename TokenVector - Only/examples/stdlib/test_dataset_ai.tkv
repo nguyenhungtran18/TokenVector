@@ -1,0 +1,8 @@
+# test_dataset_ai.tkv - Test module dataset_ai.tkv
+__tkv_import__ = "dataset_ai"
+
+def main() -> "i32":
+    train_num = dataset_split_ratio(1000)
+    if train_num == 800:
+        return 1
+    return 0

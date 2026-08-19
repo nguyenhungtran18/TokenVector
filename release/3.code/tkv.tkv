@@ -1,0 +1,59 @@
+# -*- coding: utf-8 -*-
+"""TokenVector CLI that: `python tkv.py build file.tkv [--entry NAME] [--out out.exe]`
+Bien dich 1 file `.tkv` THAT (van la Python hop le) thanh 1 `.exe` doc lap
+GOI DUOC TU DONG LENH TRUC TIEP - khong can tu tay viet IL Main() nhu moi
+vi du/test truoc day trong du an (xem tkv_compile.compile_tkv_cli)."""
+import argparse
+import sys
+from pathlib import Path
+
+from tkv_compile import compile_tkv_cli, CliError, TranspileError
+
+
+def main():
+    ap = argparse.ArgumentParser(description="TokenVector CLI: .tkv -> .exe doc lap")
+    sub = ap.add_subparsers(dest='cmd', required=True)
+
+    build = sub.add_parser('build', help='Bien dich 1 file .tkv thanh .exe')
+    build.add_argument('source', help='Duong dan file .tkv nguon')
+    build.add_argument('--entry', default=None,
+                        help="Ten ham lam entry point (mac dinh: ham duy nhat, hoac ham ten 'main')")
+    build.add_argument('--out', default=None,
+                        help='Duong dan .exe dau ra (mac dinh: cung ten voi source, doi duoi .exe)')
+    build.add_argument('--debug', action='store_true', default=False,
+                        help='Sinh them file .pdb (Windows PDB) cho phep dat breakpoint that trong Visual Studio')
+    build.add_argument('--no-lint', action='store_true', default=False,
+                        help='Tat pre-flight syntax baseline linter (chi dung khi debug linter bao sai)')
+
+    args = ap.parse_args()
+
+    if args.cmd == 'build':
+        src = Path(args.source)
+        if not src.exists():
+            print(f"[tkv] Loi: khong tim thay file '{src}'", file=sys.stderr)
+            sys.exit(1)
+        if not args.no_lint:
+            from compiler.syntax_baseline import check_syntax_baseline
+            source_text = src.read_text(encoding='utf-8')
+            findings = check_syntax_baseline(source_text)
+            if findings:
+                print(f"[tkv] Syntax baseline linter: tim thay {len(findings)} loi cu phap khong ho tro:", file=sys.stderr)
+                for f in findings:
+                    msg = f"  dong {f.line}: {f.construct_name}"
+                    if f.suggestion:
+                        msg += f" - goi y: {f.suggestion}"
+                    print(msg, file=sys.stderr)
+                print("[tkv] Sua cac loi tren truoc khi build, hoac dung --no-lint de bo qua (khong khuyen nghi).", file=sys.stderr)
+                sys.exit(1)
+        out_exe = Path(args.out) if args.out else src.with_suffix('.exe')
+        try:
+            result = compile_tkv_cli(src, out_exe, entry_name=args.entry, debug=args.debug)
+        except (CliError, TranspileError) as e:
+            print(f"[tkv] Loi: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"[tkv] Da bien dich: {result}")
+        print(f"[tkv] Chay thu: {result} <tham_so_1> <tham_so_2> ...")
+
+
+if __name__ == '__main__':
+    main()

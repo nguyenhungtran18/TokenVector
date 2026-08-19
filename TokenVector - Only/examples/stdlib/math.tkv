@@ -1,0 +1,43 @@
+# math.tkv - Self-Hosted TokenVector Advanced Math Library
+
+def factorial(n: "i32") -> "i32":
+    if n <= 1:
+        return 1
+    res = 1
+    i = 2
+    while i <= n:
+        res = res * i
+        i = i + 1
+    return res
+
+
+def gcd(a: "i32", b: "i32") -> "i32":
+    x = a
+    y = b
+    if x < 0:
+        x = 0 - x
+    if y < 0:
+        y = 0 - y
+    while y != 0:
+        t = y
+        y = x % y
+        x = t
+    return x
+
+
+def lcm(a: "i32", b: "i32") -> "i32":
+    if a == 0 or b == 0:
+        return 0
+    g = gcd(a, b)
+    prod = a * b
+    if prod < 0:
+        prod = 0 - prod
+    return prod / g
+
+
+def clamp(val: "i32", min_val: "i32", max_val: "i32") -> "i32":
+    if val < min_val:
+        return min_val
+    if val > max_val:
+        return max_val
+    return val

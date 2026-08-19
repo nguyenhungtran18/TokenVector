@@ -1,0 +1,32 @@
+"""Chi so LONG ngoac vuong (bug that tim thay tu AI-port quy mo lon
+2026-07-28: 'count_dict[s[i]] += 1' bi tu choi vi regex chi so goc
+'[^\\]]+' khong khop dc chi so chua ']' ben trong, vd s[i]). Kiem chung
+ca gan thuong 'd[lst[i]] = x' lan gan rut gon 'd[lst[i]] += x'."""
+
+
+def unique_char_count(s: "str") -> "i32":
+    count_dict = {}
+    for i in range(len(s)):
+        if s[i] in count_dict:
+            count_dict[s[i]] += 1
+        else:
+            count_dict[s[i]] = 1
+    result = 0
+    for k, v in count_dict.items():
+        result += 1
+    return result
+
+
+def sum_at_nested_index(n: "i32") -> "i32":
+    lst = []
+    idx_lst = []
+    for i in range(n):
+        lst.append(i * 10)
+        idx_lst.append(n - 1 - i)
+    d = {}
+    for i in range(n):
+        d[i] = lst[idx_lst[i]]
+    total = 0
+    for i in range(n):
+        total += d[i]
+    return total

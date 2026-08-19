@@ -1,0 +1,7 @@
+# pacman_winforms_gui.tkv - 100% Native Windows Forms GUI Pac-Man Game Engine
+__tkv_extern_assembly__ = "System.Windows.Forms"
+__tkv_extern_assembly__ = "System.Drawing"
+
+def main() -> "i32":
+    res = show_native_winforms_gui("TokenVector Native Pac-Man Game")
+    return res

@@ -1,0 +1,58 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class Point:
+    x: "i32"
+    y: "i32"
+
+    def __add__(self, other: "Point") -> "Point":
+        return Point(self.x + other.x, self.y + other.y)
+
+    def sum_scalar(self, other: "Point") -> "i32":
+        return self.x + other.x + self.y + other.y
+
+
+class Base:
+    val: "i32"
+
+    def __add__(self, other: "Base") -> "Base":
+        return Base(self.val + other.val)
+
+
+class Sub(Base):
+    extra: "i32"
+
+
+class Scalar:
+    v: "i32"
+
+    def __add__(self, other: "Scalar") -> "i32":
+        return self.v + other.v
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    p1 = Point(1, 2)
+    p2 = Point(3, 4)
+    p3 = p1 + p2
+    tested = tested + 1
+    total = total + check("add_record_result", str(p3.x) + "," + str(p3.y), "4,6")
+
+    tested = tested + 1
+    total = total + check("add_scalar_return_not_coerced", str(p1.sum_scalar(p2)), "10")
+
+    s1 = Sub(5, 1)
+    s2 = Sub(5, 2)
+    s3 = s1 + s2
+    tested = tested + 1
+    total = total + check("inherited_dunder_add", str(s3.val), "10")
+
+    a = Scalar(7)
+    b = Scalar(8)
+    x = a + b
+    tested = tested + 1
+    total = total + check("add_new_var_scalar_return_dtype", str(x), "15")
+
+    return test_summary("dunder_add_test", total, tested)

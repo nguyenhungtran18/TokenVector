@@ -1,0 +1,10 @@
+{
+ "approved": true,
+ "issues": [
+
+ ],
+ "warnings": [
+  "co 11 file khong dinh vao canh nao (mo coi)"
+ ],
+ "stats": {"files":252,"edges_read":1881,"edges_valid":1881,"issues":0,"warnings":1,"orphan_files":11,"nodes_in_layers":252,"nodes_in_tour":34,"by_type":{"imports":364,"contains":878,"calls":637,"inherits":2}}
+}

@@ -1,0 +1,19 @@
+# reflection.tkv - Self-Hosted TokenVector Dynamic Reflection & Attribute Inspector
+# [MOCK/PROTOTYPE - khong lam viec that, chi la khung ten trung Python]
+
+def get_field_str(d: "dict[str, str]", key: "str") -> "str":
+    if key in d:
+        v = d[key]
+        return v
+    return ""
+
+
+def set_field_str(d: "dict[str, str]", key: "str", val: "str") -> "i32":
+    d[key] = val
+    return 1
+
+
+def has_field_str(d: "dict[str, str]", key: "str") -> "i32":
+    if key in d:
+        return 1
+    return 0

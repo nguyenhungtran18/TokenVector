@@ -1,0 +1,22 @@
+"""Tuple >2 phan tu (Tang 1, 2026-07-28) - tong quat hoa ValueTuple`2 co
+san (chi ho tro dung 2) thanh ValueTuple`2..`7 (probe rieng xac nhan
+Item1..ItemN cung 1 pattern cho moi arity: il_test/probe_tuple3.il).
+'return a, b, c' / 'x, y, z = f(...)' / gan song song va hoan doi (kha
+'x, y, z = z, x, y')."""
+
+
+def divmod3(a: "i32", b: "i32") -> "(i32, i32, i32)":
+    q = a / b
+    r = a % b
+    return q, r, a + b
+
+
+def unpack3(a: "i32", b: "i32") -> "i32":
+    q, r, s = divmod3(a, b)
+    return q + r + s
+
+
+def rotate3(a: "i32", b: "i32", c: "i32") -> "i32":
+    x, y, z = a, b, c
+    x, y, z = z, x, y
+    return x * 100 + y * 10 + z

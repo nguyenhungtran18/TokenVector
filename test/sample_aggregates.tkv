@@ -1,0 +1,47 @@
+"""min(a,b)/max(a,b) + sum(lst)/min(lst)/max(lst)/sorted(lst) (Wave 3
+quick-win, 2026-07-29) - xem il_features/stdlib_aggregates.py. min/max
+2-tham-so la macro text-level (dung duoc long trong bieu thuc khac, vd
+'min(max(x, lo), hi)'); 4 ham con lai CHI dung duoc o RHS truc tiep 1
+phep gan don (giong list.count())."""
+
+
+def clip_val(x: "i32", lo: "i32", hi: "i32") -> "i32":
+    r = min(max(x, lo), hi)
+    return r
+
+
+def sum_list_i32() -> "i32":
+    lst = []
+    lst.append(3)
+    lst.append(7)
+    lst.append(2)
+    s = sum(lst)
+    return s
+
+
+def min_list_i32() -> "i32":
+    lst = []
+    lst.append(3)
+    lst.append(7)
+    lst.append(2)
+    m = min(lst)
+    return m
+
+
+def max_list_f32() -> "f32":
+    lst = []
+    lst.append(3.5)
+    lst.append(7.25)
+    lst.append(2.0)
+    m = max(lst)
+    return m
+
+
+def sorted_first_last() -> "i32":
+    lst = []
+    lst.append(5)
+    lst.append(1)
+    lst.append(4)
+    lst.append(2)
+    s = sorted(lst)
+    return s[0] * 100 + s[3]

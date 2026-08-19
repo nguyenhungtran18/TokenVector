@@ -1,0 +1,25 @@
+"""'with open(path, mode) as f:' (Wave 2, 2026-07-29) - file-handle THAT
+(System.IO.StreamWriter/StreamReader), tu dong Dispose() luc thoat khoi
+(tai dung ha tang try/finally da co, xem il_features/control_flow.py's
+codegen_with_open). CHI ho tro f.write(x) (mode w/a, goi nhieu lan trong
+vong lap) va f.read() (mode r, doc TOAN BO 1 lan) - khong ho tro 'for
+line in f:' (doc tung dong lap, de danh Wave sau)."""
+
+
+def write_n_lines(path: "str", n: "i32") -> "i32":
+    with open(path, "w") as fw:
+        for i in range(n):
+            fw.write("x")
+    with open(path, "r") as fr:
+        text = fr.read()
+    return len(text)
+
+
+def append_then_read(path: "str", first: "str", second: "str") -> "str":
+    with open(path, "w") as fw:
+        fw.write(first)
+    with open(path, "a") as fw:
+        fw.write(second)
+    with open(path, "r") as fr:
+        text = fr.read()
+    return text

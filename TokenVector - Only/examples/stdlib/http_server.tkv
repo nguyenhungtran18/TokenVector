@@ -1,0 +1,20 @@
+# http_server.tkv - Self-Hosted TokenVector HTTP Web Server & Router
+
+def parse_http_request(raw_req: "str") -> "dict[str, str]":
+    lines = raw_req.split("\n")
+    req_info = {}
+    if len(lines) > 0:
+        first_line = lines[0]
+        parts = first_line.split(" ")
+        if len(parts) >= 2:
+            req_info["method"] = parts[0]
+            req_info["path"] = parts[1]
+    return req_info
+
+
+def build_http_response(status_code: "i32", body: "str") -> "str":
+    status_str = str(status_code)
+    n = len(body)
+    body_len = str(n)
+    resp = "HTTP/1.1 " + status_str + " OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " + body_len + "\r\n\r\n" + body
+    return resp

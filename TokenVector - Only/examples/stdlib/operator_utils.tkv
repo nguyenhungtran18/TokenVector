@@ -1,0 +1,21 @@
+# operator_utils.tkv - Self-Hosted TokenVector Operator Helpers & Overload Handlers
+
+def op_add_i32(a: "i32", b: "i32") -> "i32":
+    res = a + b
+    return res
+
+
+def op_sub_i32(a: "i32", b: "i32") -> "i32":
+    res = a - b
+    return res
+
+
+def op_mul_i32(a: "i32", b: "i32") -> "i32":
+    res = a * b
+    return res
+
+
+def op_eq_str(a: "str", b: "str") -> "i32":
+    if a == b:
+        return 1
+    return 0

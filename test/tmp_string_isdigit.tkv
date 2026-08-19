@@ -1,0 +1,12 @@
+def mk() -> "str":
+    return "42"
+
+
+def run() -> "str":
+    xs = ["", "123", "12a", "007"]
+    out = []
+    for s in xs:
+        out.append(str(s.isdigit()))
+    out.append(str(mk().isdigit()))
+    out.append(str("abc".isdigit()))
+    return "|".join(out)

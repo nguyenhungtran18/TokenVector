@@ -1,0 +1,22 @@
+"""File I/O co ban - read_file/write_file/append_file/file_exists anh xa
+thang System.IO.File.*; nhap tu module rieng (_file_io_helpers.py) de
+file nay van la Python THAT chay duoc (xem ghi chu trong module do)."""
+from _file_io_helpers import read_file, write_file, append_file, file_exists
+
+
+def save_and_check(path: "str", content: "str") -> "i32":
+    write_file(path, content)
+    return file_exists(path)
+
+
+def save_read_length(path: "str", content: "str") -> "i32":
+    write_file(path, content)
+    result = read_file(path)
+    return len(result)
+
+
+def append_twice(path: "str", content: "str") -> "i32":
+    write_file(path, content)
+    append_file(path, content)
+    result = read_file(path)
+    return len(result)

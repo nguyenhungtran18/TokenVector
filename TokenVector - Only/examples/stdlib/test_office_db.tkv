@@ -1,0 +1,25 @@
+# test_office_db.tkv - Test module office_db_suite.tkv
+#
+# 2026-08-03: BO 2 loi goi connect_access_database/parse_pdf_text_stream
+# (da tach sang mock_access_pdf.tkv). Kiem tra 'len(chuoi) > 10' tren ket
+# qua noi chuoi KHONG phai la 1 phep kiem thu - no PASS ke ca khi ham
+# khong lam gi, va dung la 2 ham do khong lam gi that. Test nay nay CHI
+# con kiem phan THAT: file .docx co duoc tao ra khong (phia Python doc lai
+# file do bang zipfile - xem stdlib_regression_test.py).
+__tkv_import__ = ["office_db_suite", "os"]
+
+def main() -> "i32":
+    # 2026-08-04: duong dan TUYET DOI tro thang vao ban checkout goc
+    # ("C:\\Claude AI Project\\...") - nen khi chay tu mot git worktree,
+    # .exe ghi file vao REPO GOC con test lai tim trong worktree, va bao
+    # truot mai. Nay dung duong dan TUONG DOI: ca hai phia (test lan .exe)
+    # deu chay voi cwd = thu muc stdlib nay.
+    dir_p = "docx_dir"
+    ok_dir = os_mkdir(dir_p)
+
+    zip_p = "doc_output.docx"
+    ok1 = create_office_docx_template(dir_p, zip_p)
+
+    if ok1 == 1:
+        return 1
+    return 0

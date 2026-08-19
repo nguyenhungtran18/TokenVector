@@ -1,0 +1,1475 @@
+# -*- coding: utf-8 -*-
+"""Control-flow: if/for/while/try/break/continue/return/raise (Phase 1
+buoc 9, 2026-07-28) - buoc CUOI CUNG, rui ro cao nhat vi if/for/while/
+try LONG MOI tinh nang khac ben trong. File nay so huu: regex
+_FOR_RANGE_RE/_WHILE_RE/_IF_RE/_ELSE_RE/_BREAK_RE/_CONTINUE_RE/_TRY_RE/
+_EXCEPT_RE/_EXCEPT_TYPED_RE/_FINALLY_RE/_RETURN_RE/_RAISE_RE/
+_FOR_IN_LIST_RE + _EXC_TYPE_MAP; macro 'for_in_list' (desugar
+'for x in lst:'); parse+codegen+first-pass cho if/for/while/try/break/
+continue/raise; helper _contains_return/_contains_break_continue/
+_stmts_end_in_return/gen_il_guard_lines.
+
+_RETURN_RE/_lp_return dung CHUNG cho ca 'return' (scalar) VA
+'return_tuple' (CHI phan biet duoc SAU KHI parse xong danh sach bieu
+thuc - khong the tach 2 line-parser ma khong parse 2 lan) - tuple_type.py
+so huu codegen/first-pass cua 'return_tuple', nhung line-parser nay MOI
+la noi tao ra ca 2 kind, nen tu Phase 1 buoc 9 (file nay ra doi) day la
+dich DUNG cua no (truoc do tam o core, xem ghi chu lich su trong
+tuple_type.py). Quy uoc dependency-injection qua `ctx` nhu cac buoc
+truoc - TypeAnn import THANG tu typed_dsl_parser (khong phai qua ctx)
+vi day la kieu du lieu goc, khong phai logic tinh toan cua core."""
+import re
+
+from typed_dsl_parser import TypeAnn
+from il_core import parse_expr, parse_expr_list
+from il_features.tuple_type import MAX_TUPLE_ARITY
+from il_features.str_accum import plan_str_accum, emit_sb_setup, emit_sb_flush
+from il_dispatch import (
+    register_line_parser, register_macro_expander, register_stmt_codegen,
+    register_first_pass_walk, register_first_pass_prescan,
+)
+
+_FOR_RANGE_RE = re.compile(r'^for\s+(\w+)\s+in\s+range\((.+)\)\s*:\s*$')
+_WHILE_RE = re.compile(r'^while\s+(.+):\s*$')
+_IF_RE = re.compile(r'^if\s+(.+):\s*$')
+_ELSE_RE = re.compile(r'^else\s*:\s*$')
+_ELIF_RE = re.compile(r'^elif\s+(.+):\s*$')
+_RETURN_RE = re.compile(r'^return\s+(.+)$')
+_BREAK_RE = re.compile(r'^break\s*$')
+_CONTINUE_RE = re.compile(r'^continue\s*$')
+_TRY_RE = re.compile(r'^try\s*:\s*$')
+_EXCEPT_RE = re.compile(r'^except\s*:\s*$')
+# 'except <Loai>:' hoac 'except <Loai> as <ten>:' (2026-08-03) - dang
+# 'as' la cach viet BINH THUONG cua Python that khi can doc thong diep loi.
+_EXCEPT_TYPED_RE = re.compile(r'^except\s+(\w+)(?:\s+as\s+(\w+))?\s*:\s*$')
+_FINALLY_RE = re.compile(r'^finally\s*:\s*$')
+_RAISE_RE = re.compile(r'^raise\s+(\w+)\((.*)\)(?:\s+from\s+(\w+))?\s*$')
+# 'raise' TRAN (khong ten loi/tham so, Phase 6.3, 2026-08-12) - nem LAI
+# CHINH exception dang duoc bat, CHI hop le ben trong 1 khoi 'except'
+# (xem codegen_raise's rethrow + ctx['in_except_handler']).
+_BARE_RAISE_RE = re.compile(r'^raise\s*$')
+_FOR_IN_LIST_RE = re.compile(r'^for\s+(\w+)\s+in\s+(\w+)\s*:\s*$')
+# B5 (sua doc lap tren 2 nhanh, gop lai - ban tong quat hon duoc giu):
+# 'for x in <bieu thuc>:' vd 'for x in v1.split(","):' - container KHONG
+# con la 1 TEN BIEN TRAN. (?!\w+\s*\() loai tru CHINH XAC 2 dang da co
+# line-parser RIENG chay SAU macro-expansion (khong duoc "cuop" mat
+# truoc khi toi luot chung): 'for x in range(n):' va 'for x in
+# ten_ham(args):' (_FOR_IN_GEN_RE) - ca hai co dang 'TEN(' ngay sau
+# 'in'; 'v1.split(",")' bat dau bang 'v1.' (dau cham, khong phai dau
+# ngoac) nen KHONG khop lookahead, duoc macro nay nhan. '.+?' khong tham
+# (lazy) + neo ':$' de khong an dau ':' nam trong chinh bieu thuc (vd
+# chuoi ky tu chua ':').
+_FOR_IN_EXPR_RE = re.compile(r'^for\s+(\w+)\s+in\s+(?!\w+\s*\()(.+?)\s*:\s*$')
+
+# Anh xa ten loai loi Python THAT -> kieu CLR THAT tuong ung (chi cac loai
+# THAT SU co the xay ra tu code TokenVector sinh ra - DSL khong co 'raise'
+# nen khong the nem loi tuy y, chi bat duoc loi runtime THAT tu cac phep
+# toan da ho tro: chia cho 0, truy cap list/mang qua chi so, tra khoa
+# khong ton tai trong dict).
+_EXC_TYPE_MAP = {
+    'Exception': '[mscorlib]System.Exception',
+    'ZeroDivisionError': '[mscorlib]System.DivideByZeroException',
+    'KeyError': '[mscorlib]System.Collections.Generic.KeyNotFoundException',
+    'IndexError': '[mscorlib]System.ArgumentOutOfRangeException',
+    'ValueError': '[mscorlib]System.FormatException',
+    'OverflowError': '[mscorlib]System.OverflowException',
+}
+
+
+def _derives_from_exception(name, record_bases):
+    """Record 'name' co ke thua System.Exception khong - XET CA CHUOI base
+    (2026-08-03): code that hay co PHAN CAP loi ('class CalcError(Exception)'
+    roi 'class LexError(CalcError)'), truoc day chi chap nhan base TRUC TIEP
+    la 'Exception' nen lop chau bi tu choi luc 'raise'/'except'."""
+    seen = set()
+    cur = name
+    while cur is not None and cur not in seen:
+        seen.add(cur)
+        base = record_bases.get(cur)
+        if base == 'Exception':
+            return True
+        cur = base
+    return False
+
+
+def _resolve_exc_clr_type(exc_name, ctx, where):
+    """Ten loai loi trong DSL -> ten kieu CLR dung trong IL. 3 nguon, theo
+    thu tu: (a) _EXC_TYPE_MAP (loai co san, anh xa sang class BCL); (b)
+    record NGUOI DUNG tu dinh nghia co base 'Exception' ('class
+    MyError(Exception):', Giai doan 3 2026-08-03); (c) khong hop le -> bao
+    loi RO RANG ngay, liet ke ca 2 nhom hop le.
+
+    Chi record co base DUNG la 'Exception' moi duoc chap nhan: 1 record
+    thuong ('class Point:') KHONG ke thua System.Exception nen 'throw' no
+    se lam CLR nem InvalidProgramException luc CHAY - phai chan luc bien
+    dich."""
+    if exc_name in _EXC_TYPE_MAP:
+        return _EXC_TYPE_MAP[exc_name]
+    records = (ctx or {}).get('records') or {}
+    record_bases = (ctx or {}).get('record_bases') or {}
+    if exc_name in records and _derives_from_exception(exc_name, record_bases):
+        return f'class {exc_name}'
+    user_excs = sorted(n for n in records if _derives_from_exception(n, record_bases))
+    raise SyntaxError(
+        f"il_codegen: {where} - loai loi '{exc_name}' khong hop le. Loai co san: "
+        f"{sorted(_EXC_TYPE_MAP)}. Loai tu dinh nghia trong chuong trinh nay: "
+        f"{user_excs} (khai bao bang 'class {exc_name}(Exception):' voi field dau "
+        f"tien kieu str lam thong diep).")
+
+
+def declare_scalar_int(name, locals_decl, declared_names, infer_scope=None):
+    if name not in declared_names:
+        declared_names.add(name)
+        ta = TypeAnn('i32', None)
+        locals_decl.append((name, ta))
+        if infer_scope is not None:
+            infer_scope.set(name, ta)
+
+
+def _contains_break_continue(stmts):
+    """True neu co 'break'/'continue' o BAT KY DAU trong cay - dung de
+    chan 'break'/'continue' BEN TRONG 'finally:' luc parse: giong 'return',
+    'br' thuan tuy KHONG duoc phep thoat khoi mot khoi finally (chi
+    'endfinally'), nen chua ho tro thay vi sinh IL sai."""
+    for stmt in stmts:
+        if stmt['kind'] in ('break', 'continue'):
+            return True
+        if stmt['kind'] == 'try':
+            if _contains_break_continue(stmt['body']):
+                return True
+            if any(_contains_break_continue(hb) for _, hb in stmt['handlers']):
+                return True
+            if stmt['finally_body'] is not None and _contains_break_continue(stmt['finally_body']):
+                return True
+        else:
+            for sub_key in ('body', 'else_body'):
+                sub = stmt.get(sub_key)
+                if sub and _contains_break_continue(sub):
+                    return True
+    return False
+
+
+def _contains_return(stmts):
+    """True neu co it nhat 1 'return' o BAT KY DAU trong cay (duyet ca
+    for/while/if/try long nhau) - dung de biet 1 khoi try/except co CAN
+    epilogue (bien tam __ret_tmp + nhan cuoi ham) hay khong: 'ret' truc
+    tiep BEN TRONG .try/catch la SAI cu phap CIL that su (ECMA-335 III.3.64
+    'leave' - da xac minh THAT bang probe.il/probe2.il rieng, khong doan) -
+    return ben trong try/except phai luu gia tri roi 'leave' toi 1 nhan O
+    NGOAI ca .try LAN .catch, noi moi duoc 'ret' that su."""
+    for stmt in stmts:
+        if stmt['kind'] in ('return', 'return_tuple'):
+            return True
+        if stmt['kind'] == 'try':
+            if _contains_return(stmt['body']):
+                return True
+            if any(_contains_return(handler_body) for _, handler_body in stmt['handlers']):
+                return True
+            # 'finally_body' CO THE co return that su tu chinh no (chinh
+            # loi nay se bi chan RIENG luc parse) nen o day CHI can quan
+            # tam 'try'/'except' co return de biet co can epilogue hay
+            # khong; finally_body KHONG duoc tinh vi return trong do da
+            # bi cam hoan toan.
+        else:
+            for sub_key in ('body', 'else_body'):
+                sub = stmt.get(sub_key)
+                if sub and _contains_return(sub):
+                    return True
+    return False
+
+
+def _stmts_end_in_return(stmts):
+    """True neu KHOI lenh nay CHAC CHAN ket thuc bang 'return' tren MOI
+    duong di (dung de biet 1 dong 'br' ngay sau do co unreachable hay
+    khong). 'for' KHONG bao gio duoc tinh la chac chan return (vong lap co
+    the chay 0 lan)."""
+    if not stmts:
+        return False
+    last = stmts[-1]
+    if last['kind'] in ('return', 'return_tuple', 'raise'):
+        # 'raise' (thuong LAN tran, Phase 6.3, 2026-08-12) - 'throw'/'rethrow'
+        # cung la 1 dang ket thuc khoi HOP LE (giong 'ret'), them 1 lenh
+        # 'leave' NGAY SAU no la code khong bao gio toi (unreachable) - voi
+        # 'rethrow' con te hon: phat sinh IL sai (da xac nhan THAT gay
+        # AccessViolationException luc chay, khong chi ly thuyet).
+        return True
+    if last['kind'] == 'if' and last['else_body'] is not None:
+        return _stmts_end_in_return(last['body']) and _stmts_end_in_return(last['else_body'])
+    return False
+
+
+def gen_il_guard_lines(sig, label_prefix, label_counter):
+    """Guard-check runtime (GIONG muc dich gen_csharp_guard_lines): kiem tra
+    kich thuoc THAT cua tham so luc goi ham khop voi shape khai bao - VAN
+    CAN runtime GetLength() (khac voi tinh kich thuoc mang tam trong than
+    ham, cai do da biet hang so luc codegen)."""
+    out = []
+    for arg_idx, p in enumerate(sig.params):
+        ta = p.type_ann
+        # BUG THAT phat hien qua tham so kieu 'func' (Wave 3, 2026-07-29):
+        # ta.shape KHONG PHAI luon la list[int] (kich thuoc mang co dinh) -
+        # con co the la 1 CHUOI sentinel ('list'/'dict'/'record'/'file'/
+        # 'tuple'/'set'/'func'/...) cho cac shape khac. `if ta.shape is
+        # None: continue` truoc day chi loai duoc truong hop scalar, con
+        # 'for dim_idx, dim_size in enumerate(ta.shape)' voi ta.shape la 1
+        # CHUOI se lap qua TUNG KY TU cua chuoi do (vd 'func' -> 'f','u',
+        # 'n','c') va sinh IL guard SAI/vo nghia - chua tung lo truoc day
+        # vi khong co test nao dung list/dict/record/file lam THAM SO ham
+        # (chi dung lam bien local trong than ham). Guard nay CHI co y
+        # nghia cho mang co dinh that (list[int]).
+        if not isinstance(ta.shape, list):
+            continue
+        for dim_idx, dim_size in enumerate(ta.shape):
+            label_counter[0] += 1
+            lbl = f'{label_prefix}_guard_ok_{label_counter[0]}'
+            out.append(f'    ldarg.s {arg_idx}')
+            out.append(f'    ldc.i4 {dim_idx}')
+            out.append('    callvirt instance int32 [mscorlib]System.Array::GetLength(int32)')
+            out.append(f'    ldc.i4 {dim_size}')
+            out.append(f'    beq {lbl}')
+            out.append(f'    ldstr "{p.name} phai co kich thuoc chieu {dim_idx} = {dim_size}"')
+            out.append('    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)')
+            out.append('    throw')
+            out.append(f'  {lbl}:')
+    return out
+
+
+_me_for_in_list_counter = [0]
+
+# B1 (docs/BUGS_TODO.md): 'for k in d:' (d la dict) truoc day LOT QUA
+# macro nay nhu the d la list -> 'd[idx]' voi idx SO NGUYEN tren
+# Dictionary<string,...> -> nem exception LUC CHAY, khong bao gi luc
+# bien dich. Macro CHI thay VAN BAN (chua co known_shapes) nen khong tu
+# biet d la dict - can 1 tap ten bien "da biet la dict" duoc quet TRUOC
+# (xem set_known_dict_vars, goi tu _expand_macros trong il_codegen.py)
+# bang cach quet '<ten> = {}' o CA THAN HAM truoc khi macro chay.
+_known_dict_vars = set()
+
+
+def set_known_dict_vars(names):
+    """Goi 1 LAN moi than ham (tu _expand_macros) TRUOC khi macro chay,
+    voi tap ten bien duoc gan '{} ' truc tiep trong than ham nay. Dict
+    module-level nen PHAI duoc goi lai (kha ca voi tap RONG) cho MOI than
+    ham - khong duoc de sot tap cua than ham truoc."""
+    global _known_dict_vars
+    _known_dict_vars = set(names)
+
+
+# 6.7 (iterator protocol tuy bien, 2026-08-13): 'for x in <bien_record>:'
+# CUNG khop CHINH XAC _FOR_IN_LIST_RE (regex do la '\w+' don gian, khong
+# phan biet list/dict/record) - neu khong chan o day, macro nay se VIET
+# LAI NHAM record thanh 'for i in range(len(r)): x = r[i]' TRUOC KHI line-
+# parser 'for_in_iter' (try_parse_for_in_record, o duoi file nay) kip
+# chay, pha vo hoan toan tinh nang moi (loi bien dich mo ho tu len()/index
+# tren 1 record thay vi __iter__/__next__). Giong het co che _known_dict_vars
+# o tren: 1 tap ten bien "da biet la record" duoc quet TRUOC (xem
+# set_known_record_vars, goi tu _expand_macros trong il_codegen.py) tu (a)
+# tham so ham co kieu record VA (b) local gan truc tiep tu 1 loi goi
+# constructor record ('r = Res(...)').
+_known_record_vars = set()
+
+
+def set_known_record_vars(names):
+    """Goi 1 LAN moi than ham (tu _expand_macros) TRUOC khi macro chay,
+    voi tap ten bien DA BIET la kieu record trong than ham nay (tham so
+    kieu record + local gan tu constructor record). PHAI goi lai (ke ca
+    voi tap RONG) cho MOI than ham - khong duoc de sot tap cua than ham
+    truoc, giong set_known_dict_vars."""
+    global _known_record_vars
+    _known_record_vars = set(names)
+
+
+def try_expand_for_in_list(line):
+    # for x in lst: - lap TRUC TIEP qua list - KHONG can codegen moi:
+    # List<T> da ho tro doc theo chi so (get_Item/get_Count), nen chi can
+    # khai trien THANH VAN BAN sang dang for-range+doc-chi-so da co san.
+    # Khong kiem tra `container` co THAT la list o day (thuan text, chua
+    # co known_shapes) - neu sai, loi se lo RO RANG sau o len()/index cua
+    # _compile_expr (khong am tham). Regex nay KHONG khop 'for i in
+    # range(n):' (container phai la 1 TEN BIEN TRAN).
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _FOR_IN_LIST_RE.match(stripped)
+    if m:
+        var, container = m.groups()
+        if container in _known_record_vars:
+            # 6.7: container DA BIET la 1 bien kieu record (khong phai
+            # list/dict/set) - KHONG duoc viet lai thanh range(len())/
+            # index (record khong co len()/get_Item) - de nguyen VAN BAN,
+            # nhuong lai cho line-parser 'for_in_iter' (try_parse_for_in_
+            # record) o tang parse xu ly qua __iter__/__next__.
+            return None
+        if container in _known_dict_vars:
+            # B1: container la dict da biet -> phai kiem tra o DAY, TRUOC
+            # nhanh list-index ngay ben duoi (container la '\w+' don gian
+            # nen KHOP CA HAI regex - neu kiem o nhanh EXPR o duoi thi
+            # khong bao gio toi luot vi nhanh nay da return truoc). Viet
+            # lai thanh dang '.keys()' - vong lap _expand_macros (co diem
+            # dung) se tu khop lai o CHINH macro nay o VONG SAU (regex B5
+            # nhan bat ky bieu thuc, ke ca '<ten>.keys()'), tai dung ha
+            # tang List<K> da co san cua dict.keys().
+            return f'{ind}for {var} in {container}.keys():'
+        n = _me_for_in_list_counter[0]
+        _me_for_in_list_counter[0] += 1
+        idx = f'__iterlist{n}_idx'
+        return f'{ind}for {idx} in range(len({container})):\n{ind}    {var} = {container}[{idx}]'
+    # B5 (2026-08-05): container la 1 BIEU THUC (vd 'v1.split(",")'),
+    # khong phai ten bien tran - _FOR_IN_LIST_RE o tren khong khop. Phai
+    # do KET QUA ra 1 bien tam TRUOC khi lap: Python chi goi bieu thuc
+    # MOT LAN (danh gia iterable 1 lan roi lap qua ket qua), viet lai
+    # thang thanh range(len(expr)) + expr[idx] se GOI LAI expr moi vong
+    # lap - sai neu expr co side-effect (vd ham thay doi trang thai) va
+    # cham hon O(n^2) khong can thiet. Giao Gemini nghien cuu regex loai
+    # tru 'range(...)'/'ten_ham(...)' (co line-parser rieng chay SAU
+    # macro-expansion, khong duoc macro nay cuop mat).
+    m2 = _FOR_IN_EXPR_RE.match(stripped)
+    if not m2:
+        return None
+    var, expr = m2.groups()
+    if expr in _known_dict_vars:
+        # B1: container la dict da biet -> lap qua KHOA, dung dung ngu
+        # nghia Python ('for k in d:' == 'for k in d.keys():'). Viet lai
+        # thanh dang '.keys()' - vong lap _expand_macros (co diem dung)
+        # se tu khop lai o CHINH macro nay o VONG SAU (regex B5 nhan bat
+        # ky bieu thuc, ke ca '<ten>.keys()'), tai dung ha tang List<K> da
+        # co san cua dict.keys().
+        return f'{ind}for {var} in {expr}.keys():'
+    n = _me_for_in_list_counter[0]
+    _me_for_in_list_counter[0] += 1
+    tmp = f'__iterexpr{n}_tmp'
+    idx = f'__iterexpr{n}_idx'
+    return (f'{ind}{tmp} = {expr}\n'
+            f'{ind}for {idx} in range(len({tmp})):\n'
+            f'{ind}    {var} = {tmp}[{idx}]')
+
+
+_ASSERT_RE = re.compile(r'^assert\s+(.+)$')
+
+
+def _split_top_level_comma(text):
+    """Tach 'text' tai dau ',' O TOP-LEVEL (do sau ngoac '('/'[' bang 0,
+    bo qua dau ',' BEN TRONG chuoi "...") - dung cho 'assert cond, msg'
+    de tach dung ke ca khi cond CHINH NO co dau ',' long (vd 'assert
+    f(a, b) == c, \"loi\"'). Tra ve 1 phan tu neu khong co ',' top-level
+    (khong co msg tuy chon)."""
+    depth = 0
+    in_str = False
+    for i, c in enumerate(text):
+        if in_str:
+            if c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c in '([':
+            depth += 1
+        elif c in ')]':
+            depth -= 1
+        elif c == ',' and depth == 0:
+            return [text[:i].strip(), text[i + 1:].strip()]
+    return [text.strip()]
+
+
+def try_expand_assert(line):
+    """'assert cond' / 'assert cond, "msg"' (Wave 3, 2026-07-29, muc
+    tieu Claude tu tin dung viet code that - assert RAT pho bien trong
+    validation/test) - macro TEXT-LEVEL, viet lai THANH 'if not (cond):
+    raise Exception(msg)' (tai dung HOAN TOAN ha tang if/raise co san,
+    KHONG can codegen/AssertionError rieng - .NET khong co lop
+    AssertionError chuan trong mscorlib nen dung Exception chung, giong
+    _EXC_TYPE_MAP's 'Exception' catch-all)."""
+    stripped = line.strip()
+    m = _ASSERT_RE.match(stripped)
+    if not m:
+        return None
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    parts = _split_top_level_comma(m.group(1))
+    cond = parts[0]
+    msg_expr = parts[1] if len(parts) == 2 else '"AssertionError"'
+    return f'{ind}if not ({cond}):\n{ind}    raise Exception({msg_expr})'
+
+
+def try_parse_if(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    m_if = _IF_RE.match(line)
+    if not m_if:
+        return None
+    cond_node = parse_expr(m_if.group(1))
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(f"il_codegen: 'if {m_if.group(1)}:' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    else_body = None
+    if pos < len(lines) and lines[pos][0] == indent_level and _ELIF_RE.match(lines[pos][1]):
+        # 'elif' (2026-08-03) = 'else:' chua DUNG 1 lenh 'if' - dung y
+        # nghia cua Python. Parse DE QUY chinh try_parse_if tu dong 'elif'
+        # (coi no nhu 1 'if' o CUNG muc thut le) roi boc ket qua lam
+        # else_body => chuoi elif dai bao nhieu cung duoc, va KHONG can
+        # them 'kind' moi nao cho codegen/first-pass.
+        elif_line = lines[pos][1].replace('elif', 'if', 1)
+        sub_lines = list(lines)
+        sub_lines[pos] = (lines[pos][0], elif_line)
+        elif_stmt, pos = try_parse_if(elif_line, sub_lines, pos, indent_level, sig,
+                                       known_shapes, parse_block_fn)
+        else_body = [elif_stmt]
+    elif pos < len(lines) and lines[pos][0] == indent_level and _ELSE_RE.match(lines[pos][1]):
+        pos += 1
+        if pos >= len(lines) or lines[pos][0] <= indent_level:
+            raise SyntaxError("il_codegen: 'else:' khong co than khoi (block rong)")
+        else_body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return {'kind': 'if', 'cond_node': cond_node, 'body': body, 'else_body': else_body}, pos
+
+
+def _split_all_top_level_commas(text):
+    """Tach 'text' tai MOI dau ',' o TOP-LEVEL (do sau ngoac '('/'[' bang
+    0, bo qua dau ',' trong chuoi "...") - dung cho 'range(a, b, c)' (co
+    the 1-3 tham so, tham so co the la bieu thuc long ngoac)."""
+    depth = 0
+    in_str = False
+    parts = []
+    start = 0
+    for i, c in enumerate(text):
+        if in_str:
+            if c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c in '([':
+            depth += 1
+        elif c in ')]':
+            depth -= 1
+        elif c == ',' and depth == 0:
+            parts.append(text[start:i].strip())
+            start = i + 1
+    parts.append(text[start:].strip())
+    return parts
+
+
+def _literal_step_int(step_node):
+    """'range(...)' step CHI ho tro HANG SO NGUYEN tai compile-time (Wave
+    3, 2026-07-29 - hoan tat muc 'range() co step am' con thieu tu Wave
+    2's ke hoach goc) - can biet DAU (duong/am) NGAY LUC BIEN DICH de
+    chon dung lenh nhay (bge/ble, xem codegen_for), khac bound/start co
+    the la bieu thuc DONG BAT KY (chi can dung IL). Bieu thuc step DONG
+    (vd 'range(0, n, k)' voi k la tham so) CHUA duoc ho tro - gioi han
+    co y thuc, bao loi ro rang thay vi doan sai huong vong lap."""
+    if step_node[0] == 'num' and '.' not in step_node[1]:
+        return int(step_node[1])
+    if (step_node[0] == 'neg' and isinstance(step_node[1], tuple)
+            and step_node[1][0] == 'num' and '.' not in step_node[1][1]):
+        return -int(step_node[1][1])
+    raise SyntaxError(
+        "il_codegen: 'range(start, stop, step)' - step CHI ho tro hang so nguyen "
+        "tai compile-time (vd -1, 2), chua ho tro bieu thuc step DONG (vd 1 tham so)")
+
+
+def try_parse_for(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    m_for = _FOR_RANGE_RE.match(line)
+    if not m_for:
+        return None
+    var, args_text = m_for.group(1), m_for.group(2)
+    parts = _split_all_top_level_commas(args_text)
+    if len(parts) == 1:
+        start_node, bound_expr, step = None, parts[0], 1
+    elif len(parts) == 2:
+        start_node, bound_expr, step = parse_expr(parts[0]), parts[1], 1
+    elif len(parts) == 3:
+        start_node, bound_expr = parse_expr(parts[0]), parts[1]
+        step = _literal_step_int(parse_expr(parts[2]))
+        if step == 0:
+            raise SyntaxError("il_codegen: 'range(...)' step khong duoc bang 0")
+    else:
+        raise SyntaxError(f"il_codegen: 'range(...)' nhan 1-3 tham so (start, stop, step), gap {len(parts)}")
+    bound_node = parse_expr(bound_expr)
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(f"il_codegen: 'for {var} in range(...):' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return {'kind': 'for', 'var': var, 'start_node': start_node, 'bound_node': bound_node,
+            'step': step, 'body': body}, pos
+
+
+def try_parse_while(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    m_while = _WHILE_RE.match(line)
+    if not m_while:
+        return None
+    cond_node = parse_expr(m_while.group(1))
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(f"il_codegen: 'while {m_while.group(1)}:' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return {'kind': 'while', 'cond_node': cond_node, 'body': body}, pos
+
+
+def try_parse_try(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    if not _TRY_RE.match(line):
+        return None
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError("il_codegen: 'try:' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+
+    # 0 hoac nhieu 'except <Loai>:' (theo THU TU, giong Python - loai
+    # KHOP DAU TIEN thang), sau do TOI DA 1 'except:' tran (bat MOI loai,
+    # PHAI la cai CUOI CUNG neu co - dung Python that: 'except:' sau 1
+    # 'except <Loai>:' khac la hop le, nguoc lai thi khong).
+    handlers = []
+    handler_vars = []
+    bare_seen = False
+    while pos < len(lines) and lines[pos][0] == indent_level:
+        next_line = lines[pos][1]
+        m_typed = _EXCEPT_TYPED_RE.match(next_line)
+        m_bare = _EXCEPT_RE.match(next_line)
+        if bare_seen:
+            break  # da gap 'except:' tran, khong con except nao duoc phep sau no
+        if m_typed:
+            exc_name = m_typed.group(1)
+            bind_name = m_typed.group(2)
+            # KHONG kiem tra ten o day nua (Giai doan 3, 2026-08-03): tu khi
+            # co exception TU DINH NGHIA ('class MyError(Exception):'), tinh
+            # hop le phu thuoc danh sach record - thu chi biet duoc o tang
+            # CODEGEN (ctx['records']/ctx['record_bases']), khong phai luc
+            # parse tung dong. Kiem tra da chuyen sang _resolve_exc_clr_type.
+            pos += 1
+            if pos >= len(lines) or lines[pos][0] <= indent_level:
+                raise SyntaxError(f"il_codegen: 'except {exc_name}:' khong co than khoi (block rong)")
+            handler_body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+            handlers.append((exc_name, handler_body))
+            handler_vars.append(bind_name)
+        elif m_bare:
+            bare_seen = True
+            pos += 1
+            if pos >= len(lines) or lines[pos][0] <= indent_level:
+                raise SyntaxError("il_codegen: 'except:' khong co than khoi (block rong)")
+            handler_body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+            handlers.append((None, handler_body))
+            handler_vars.append(None)
+        else:
+            break
+
+    finally_body = None
+    if pos < len(lines) and lines[pos][0] == indent_level and _FINALLY_RE.match(lines[pos][1]):
+        pos += 1
+        if pos >= len(lines) or lines[pos][0] <= indent_level:
+            raise SyntaxError("il_codegen: 'finally:' khong co than khoi (block rong)")
+        finally_body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+
+    if not handlers and finally_body is None:
+        raise SyntaxError(
+            "il_codegen: 'try:' phai co it nhat 1 'except' hoac 1 'finally:' theo sau")
+    if finally_body is not None and _contains_return(finally_body):
+        raise SyntaxError(
+            "il_codegen: 'return' ben trong 'finally:' chua duoc ho tro (CIL khong "
+            "cho phep thoat som khoi finally - chi 'endfinally' duoc phep; Python "
+            "that cung khuyen cao khong nen return trong finally)")
+    if finally_body is not None and _contains_break_continue(finally_body):
+        # DON GIAN HOA CO CHU DICH: chan CA truong hop break/continue long
+        # trong 1 for/while dinh nghia BEN TRONG chinh finally (thuc ra van
+        # hop le, vi khong "thoat" khoi finally) - chua phan biet duoc 2
+        # truong hop nay o day, thanh ra tu choi rong hon can thiet, nhung
+        # AN TOAN (khong bao gio sinh IL sai) hon la co gang phan biet ma sai.
+        raise SyntaxError(
+            "il_codegen: 'break'/'continue' ben trong 'finally:' chua duoc ho tro "
+            "(CIL khong cho phep 'br' thuan tuy thoat khoi finally, chi 'endfinally' "
+            "- ke ca khi vong lap dinh nghia BEN TRONG finally cung chua phan biet "
+            "duoc o buoc nay, tu choi RONG HON can thiet de dam bao an toan)")
+    return {'kind': 'try', 'body': body, 'handlers': handlers,
+            'handler_vars': handler_vars, 'finally_body': finally_body}, pos
+
+
+def try_parse_break(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    if not _BREAK_RE.match(line):
+        return None
+    return {'kind': 'break'}, pos + 1
+
+
+def try_parse_continue(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    if not _CONTINUE_RE.match(line):
+        return None
+    return {'kind': 'continue'}, pos + 1
+
+
+def try_parse_return(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    m_ret = _RETURN_RE.match(line)
+    if not m_ret:
+        return None
+    expr_text = m_ret.group(1)
+    expr_nodes = parse_expr_list(expr_text)
+    if len(expr_nodes) == 1:
+        return {'kind': 'return', 'expr_node': expr_nodes[0], 'expr_text': expr_text}, pos + 1
+    if 2 <= len(expr_nodes) <= MAX_TUPLE_ARITY:
+        # 'return a, b, ...' - tra ve tuple 2-7 phan tu.
+        return {'kind': 'return_tuple', 'expr_nodes': expr_nodes, 'expr_text': expr_text}, pos + 1
+    raise SyntaxError(
+        f"il_codegen: 'return {expr_text}' co {len(expr_nodes)} gia tri - "
+        f"tuple tra ve ho tro 2-{MAX_TUPLE_ARITY} gia tri")
+
+
+def try_parse_raise(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    if _BARE_RAISE_RE.match(line):
+        return {'kind': 'raise', 'exc_type': None, 'msg_node': None, 'bare': True}, pos + 1
+    m_raise = _RAISE_RE.match(line)
+    if not m_raise:
+        return None
+    # 'raise ValueError("thong diep")' - TU nem 1 exception (khac 'except'
+    # chi BAT loi CLR tu nem tu 1 phep toan that) - dung LAI CHINH
+    # _EXC_TYPE_MAP da co cho 'except <Loai>:'. Msg co the rong ('raise
+    # ValueError()' - .ctor khong tham so). '... from err' (exception
+    # chaining, 2026-08-12) - 'err' PHAI la 1 bien da khai bao kieu
+    # Exception-tuong-thich (sentinel 'Exception' tu 'except BuiltinType
+    # as e:' HOAC 1 record tu dinh nghia ke thua Exception) - tinh hop le
+    # kiem o CODEGEN (giong _resolve_exc_clr_type), o day chi tach van ban.
+    exc_type, msg_text, from_name = m_raise.groups()
+    # Tinh hop le cua ten kiem tra o CODEGEN (_resolve_exc_clr_type) - xem
+    # ghi chu tuong tu o nhanh 'except' phia tren.
+    msg_text = msg_text.strip()
+    msg_node = parse_expr(msg_text) if msg_text else None
+    return {'kind': 'raise', 'exc_type': exc_type, 'msg_node': msg_node,
+            'from_name': from_name}, pos + 1
+
+
+def fpw_for(stmt, ctx):
+    declare_scalar_int(stmt['var'], ctx['locals_decl'], ctx['declared_names'], ctx['infer_scope'])
+    if stmt.get('start_node') is not None:
+        ctx['collect_ternary_temps'](stmt['start_node'])
+    ctx['collect_ternary_temps'](stmt['bound_node'])
+    # PHAI chay TRUOC walk_fn: no doi kind cua cac cau lenh don chuoi
+    # thanh 'sb_append', va walk_fn phai thay kind MOI.
+    plan_str_accum(stmt, ctx)
+    ctx['walk_fn'](stmt['body'])
+
+
+def fpw_while(stmt, ctx):
+    ctx['collect_ternary_temps'](stmt['cond_node'])
+    plan_str_accum(stmt, ctx)
+    ctx['walk_fn'](stmt['body'])
+
+
+def fpw_if(stmt, ctx):
+    ctx['collect_ternary_temps'](stmt['cond_node'])
+    ctx['walk_fn'](stmt['body'])
+    if stmt['else_body'] is not None:
+        ctx['walk_fn'](stmt['else_body'])
+
+
+def fpw_try(stmt, ctx):
+    if _contains_return(stmt['body']) or \
+            any(_contains_return(hb) for _, hb in stmt['handlers']):
+        ctx['needs_epilogue'][0] = True
+    ctx['walk_fn'](stmt['body'])
+    # 'except E as e:' - khai bao 'e' nhu 1 local kieu record E (voi
+    # exception TU DINH NGHIA) hoac kieu sentinel 'Exception' (voi loai co
+    # san cua BCL - vd ValueError/KeyError/... - Phase 6.9/6.3, 2026-08-12,
+    # port tu cay .tkv tu-host: str(e) doc duoc .Message qua nhanh moi trong
+    # string_feature.py, khong con bao loi nhu truoc).
+    records = ctx.get('records') or {}
+    for (exc_name, _hb), bind in zip(stmt['handlers'], stmt.get('handler_vars') or []):
+        if bind is None:
+            continue
+        if exc_name in records:
+            ctx['declare_named'](bind, TypeAnn(exc_name, 'record'))
+        else:
+            ctx['declare_named'](bind, TypeAnn('Exception', None))
+    for _, handler_body in stmt['handlers']:
+        ctx['walk_fn'](handler_body)
+    if stmt['finally_body'] is not None:
+        ctx['walk_fn'](stmt['finally_body'])
+
+
+def fpw_return(stmt, ctx):
+    ctx['collect_ternary_temps'](stmt['expr_node'])
+
+
+def fpw_raise(stmt, ctx):
+    if stmt['msg_node'] is not None:
+        ctx['collect_ternary_temps'](stmt['msg_node'])
+
+
+def fpp_for(stmt, ctx):
+    infer_scope = ctx['infer_scope']
+    if stmt['var'] not in infer_scope._d:
+        infer_scope.set(stmt['var'], TypeAnn('i32', None))
+    ctx['prescan_fn'](stmt['body'])
+
+
+def fpp_while_if(stmt, ctx):
+    ctx['prescan_fn'](stmt['body'])
+    if stmt.get('else_body') is not None:
+        ctx['prescan_fn'](stmt['else_body'])
+
+
+def fpp_try(stmt, ctx):
+    ctx['prescan_fn'](stmt['body'])
+    for _, handler_body in stmt['handlers']:
+        ctx['prescan_fn'](handler_body)
+    if stmt.get('finally_body') is not None:
+        ctx['prescan_fn'](stmt['finally_body'])
+
+
+def codegen_for(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    var, bound_node = stmt['var'], stmt['bound_node']
+    start_node = stmt.get('start_node')
+    step = stmt.get('step', 1)
+    compile_expr, load_var_ref, store_var = ctx['compile_expr'], ctx['load_var_ref'], ctx['store_var']
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    start_lbl, end_lbl = f'{sig.name}_L{n}_start', f'{sig.name}_L{n}_end'
+    # 'continue' phai nhay toi PHAN TANG bien vong lap (khong phai
+    # start_lbl - dieu kien kiem tra ban dau), giu dung ngu nghia Python:
+    # continue van tang bien roi kiem tra dieu kien lai, khong bo qua buoc
+    # tang.
+    cont_lbl = f'{sig.name}_L{n}_cont'
+    if start_node is None:
+        body.append('    ldc.i4.0')
+    else:
+        compile_expr(start_node, scope, body, 'i32', ctx)
+    store_var(var, scope, body)
+    emit_sb_setup(stmt, scope, body, ctx)
+    body.append(f'  {start_lbl}:')
+    load_var_ref(var, scope, body)
+    compile_expr(bound_node, scope, body, 'i32', ctx)
+    # step > 0 (mac dinh, hoac 'range(a,b)'): dung 'while var < stop'
+    # (bge nhay toi end khi var>=stop). step < 0 ('range(a,b,-k)', Wave 3
+    # 2026-07-29): dao nguoc thanh 'while var > stop' (ble nhay toi end
+    # khi var<=stop) - giong het ngu nghia range() nghich cua Python that.
+    body.append(f'    {"bge" if step > 0 else "ble"} {end_lbl}')
+    ctx['loop_stack'].append((cont_lbl, end_lbl))
+    codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+    ctx['loop_stack'].pop()
+    body.append(f'  {cont_lbl}:')
+    load_var_ref(var, scope, body)
+    if step >= 0:
+        body.append(f'    ldc.i4 {step}')
+        body.append('    add')
+    else:
+        body.append(f'    ldc.i4 {-step}')
+        body.append('    sub')
+    store_var(var, scope, body)
+    body.append(f'    br {start_lbl}')
+    body.append(f'  {end_lbl}:')
+    # SAU nhan ket thuc: 'break' nhay toi day nen van duoc dong bo.
+    emit_sb_flush(stmt, scope, body, ctx)
+
+
+def codegen_while(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    start_lbl, end_lbl = f'{sig.name}_W{n}_start', f'{sig.name}_W{n}_end'
+    # 'continue' trong while nhay THANG ve start_lbl (kiem tra dieu kien
+    # lai) - khac 'for' vi while khong co buoc tang rieng.
+    emit_sb_setup(stmt, scope, body, ctx)
+    body.append(f'  {start_lbl}:')
+    _compile_cond(stmt['cond_node'], scope, body, body_dtype, ctx)
+    body.append(f'    brfalse {end_lbl}')
+    ctx['loop_stack'].append((start_lbl, end_lbl))
+    codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+    ctx['loop_stack'].pop()
+    body.append(f'    br {start_lbl}')
+    body.append(f'  {end_lbl}:')
+    # SAU nhan ket thuc: 'break' nhay toi day nen van duoc dong bo.
+    emit_sb_flush(stmt, scope, body, ctx)
+
+
+def _compile_cond(cond_node, scope, body, body_dtype, ctx):
+    """Dieu kien cua if/while - 'brfalse' doi mot int32 tren stack.
+
+    BUG THAT (moc 6 lat 3, 2026-08-05): truoc day dieu kien duoc bien
+    dich voi body_dtype, tuc trong mot ham tra ve 'int' thi dieu kien
+    duoc YEU CAU kieu 'int'. Bieu thuc nao co gia tri THAT la i32 -
+    'any(xs)', 'k in d', mot ham tra i32 - deu bi _widen_if_needed nang
+    len TkvInt, roi 'brfalse' nhin mot STRUCT nhu mot dia chi:
+    AccessViolationException, khong phai mot loi bien dich. Cac dieu kien
+    so sanh ('i <= n') sONG SOT chi vi chung tu sinh i32 va khong di qua
+    duong widen - tuc lop bug nay AN NAP sau cai ve ngoai "if/while chay
+    tot voi int".
+
+    Nay: trong ngu canh 'int', dieu kien duoc bien dich o kieu TU NHIEN
+    cua no (i32) - tru khi chinh no la mot gia tri 'int', luc do dung
+    ngu nghia truthy cua Python (khac 0 la dung) qua TkvInt::IsZero."""
+    if body_dtype != 'int':
+        return ctx['compile_expr'](cond_node, scope, body, body_dtype, ctx)
+    import il_features.int_type as _int_type
+    natural = ctx['infer_dtype'](cond_node, scope, ctx.get('func_table'),
+                                 ctx.get('records'), ctx.get('record_methods'))
+    if natural == 'int':
+        ctx['compile_expr'](cond_node, scope, body, 'int', ctx)
+        _int_type.emit_is_zero(body)
+        body.append('    ldc.i4.0')
+        body.append('    ceq')
+        return
+    return ctx['compile_expr'](cond_node, scope, body, 'i32', ctx)
+
+
+def codegen_break(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    if not ctx['loop_stack']:
+        raise SyntaxError("il_codegen: 'break' o ngoai vong lap for/while")
+    body.append(f'    br {ctx["loop_stack"][-1][1]}')
+
+
+def codegen_continue(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    if not ctx['loop_stack']:
+        raise SyntaxError("il_codegen: 'continue' o ngoai vong lap for/while")
+    body.append(f'    br {ctx["loop_stack"][-1][0]}')
+
+
+def codegen_if(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    else_lbl = f'{sig.name}_If{n}_else'
+    end_lbl = f'{sig.name}_If{n}_end'
+    _compile_cond(stmt['cond_node'], scope, body, body_dtype, ctx)
+    body.append(f'    brfalse {else_lbl}')
+    codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+    if stmt['else_body'] is not None:
+        # Neu than if da ket thuc bang 'return' (ret), 1 dong 'br end_lbl'
+        # ngay sau do la KHONG BAO GIO CHAY TOI (unreachable sau ret) -
+        # bug that tim thay: CLR verifier nem InvalidProgramException voi
+        # mau nay. Bo qua 'br' thua trong truong hop nay.
+        if not _stmts_end_in_return(stmt['body']):
+            body.append(f'    br {end_lbl}')
+        body.append(f'  {else_lbl}:')
+        codegen_stmts_fn(stmt['else_body'], scope, body, body_dtype, ctx, sig)
+        body.append(f'  {end_lbl}:')
+    else:
+        body.append(f'  {else_lbl}:')
+
+
+def codegen_try(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    handlers = stmt['handlers']
+    finally_body = stmt['finally_body']
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+
+    def _emit_try_and_handlers(end_lbl):
+        # Khoi .try{...}catch{...}catch{...} (0..N handler that - xem
+        # _EXC_TYPE_MAP) - dung CHUNG cho ca truong hop "chi except" LAN
+        # "except + finally" (goi tu nhanh duoi).
+        body.append('    .try')
+        body.append('    {')
+        ctx['try_depth'] = ctx.get('try_depth', 0) + 1
+        codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+        ctx['try_depth'] -= 1
+        # Bo qua 'leave' thua neu than try da chac chan thoat qua 'return'
+        # (da tu emit 'leave epilogue' rieng) - cung ly do voi bug 'br
+        # thua sau ret' da sua o nhanh if/else (_stmts_end_in_return).
+        if not _stmts_end_in_return(stmt['body']):
+            body.append(f'      leave {end_lbl}')
+        body.append('    }')
+        binds = stmt.get('handler_vars') or [None] * len(handlers)
+        for (exc_name, handler_body), bind in zip(handlers, binds):
+            clr_type = (_resolve_exc_clr_type(exc_name, ctx, f"'except {exc_name}:'")
+                        if exc_name else '[mscorlib]System.Exception')
+            body.append(f'    catch {clr_type}')
+            body.append('    {')
+            if bind is None:
+                body.append('      pop')
+            else:
+                # 'except E as e:' - luu doi tuong loi vao local 'e' thay
+                # vi bo di, de than handler doc duoc field/method cua no.
+                _, bind_idx, _ = scope[bind]
+                body.append(f'      stloc.s {bind_idx}')
+            ctx['try_depth'] = ctx.get('try_depth', 0) + 1
+            ctx['in_except_handler'] = ctx.get('in_except_handler', 0) + 1
+            codegen_stmts_fn(handler_body, scope, body, body_dtype, ctx, sig)
+            ctx['in_except_handler'] -= 1
+            ctx['try_depth'] -= 1
+            if not _stmts_end_in_return(handler_body):
+                body.append(f'      leave {end_lbl}')
+            body.append('    }')
+
+    if handlers and finally_body is not None:
+        # LONG: .try (ngoai, cho finally) { .try (trong, cho cac catch)
+        # {...} catch {...} ... INNER_END: leave OUTER_END } finally
+        # {...endfinally} OUTER_END: - 'leave' tu ben trong try/catch
+        # LONG NHAU van tu dong kich hoat finally cua khoi ben ngoai
+        # dung 1 lan, ke ca khi co ngoai le duoc bat hoac khong.
+        inner_end_lbl = f'{sig.name}_Try{n}_end'
+        outer_end_lbl = f'{sig.name}_TryF{n}_end'
+        body.append('    .try')
+        body.append('    {')
+        _emit_try_and_handlers(inner_end_lbl)
+        body.append(f'  {inner_end_lbl}:')
+        body.append(f'    leave {outer_end_lbl}')
+        body.append('    }')
+        body.append('    finally')
+        body.append('    {')
+        codegen_stmts_fn(finally_body, scope, body, body_dtype, ctx, sig)
+        body.append('      endfinally')
+        body.append('    }')
+        body.append(f'  {outer_end_lbl}:')
+    elif finally_body is not None:
+        # 'try: ... finally:' KHONG co 'except' nao - Python cho phep dang
+        # nay (finally luon chay, khong bat loi).
+        end_lbl = f'{sig.name}_TryF{n}_end'
+        body.append('    .try')
+        body.append('    {')
+        ctx['try_depth'] = ctx.get('try_depth', 0) + 1
+        codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+        ctx['try_depth'] -= 1
+        if not _stmts_end_in_return(stmt['body']):
+            body.append(f'      leave {end_lbl}')
+        body.append('    }')
+        body.append('    finally')
+        body.append('    {')
+        codegen_stmts_fn(finally_body, scope, body, body_dtype, ctx, sig)
+        body.append('      endfinally')
+        body.append('    }')
+        body.append(f'  {end_lbl}:')
+    else:
+        # Chi except (0 finally) - N handler (>= 1, da kiem tra luc parse),
+        # tong quat hoa ban bare-except-1-handler cu.
+        end_lbl = f'{sig.name}_Try{n}_end'
+        _emit_try_and_handlers(end_lbl)
+        body.append(f'  {end_lbl}:')
+
+
+def codegen_return(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    compile_expr, store_var = ctx['compile_expr'], ctx['store_var']
+    if sig.return_type is None:
+        # CIL cam `ret` mang gia tri tu 1 ham khai bao void - neu khong
+        # chan o day, ILASM van assemble (khong xac minh), nhung CLR se
+        # raise InvalidProgramException LUC CHAY dau tien - chan SOM o
+        # Python thay vi de loi ro tan CLR.
+        raise SyntaxError(
+            f"il_codegen: ham '{sig.name}' khong khai bao return type (vd thieu "
+            f"'-> f32') nhung than ham co 'return {stmt['expr_text']}' - CIL khong "
+            f"cho phep 'ret' mang gia tri tu ham void. Them '-> <type>' vao chu ky.")
+    if ctx.get('try_depth', 0) > 0:
+        # 'ret' TRUC TIEP ben trong .try/.catch la SAI cu phap CIL that su
+        # (ECMA-335 III.3.64): phai luu gia tri vao __ret_tmp roi 'leave'
+        # toi 1 nhan NGOAI ca try/catch (epilogue cuoi ham), noi moi 'ret'
+        # THAT su.
+        compile_expr(stmt['expr_node'], scope, body, body_dtype, ctx)
+        store_var(ctx['ret_tmp_name'], scope, body)
+        body.append(f'    leave {ctx["epilogue_lbl"]}')
+    else:
+        compile_expr(stmt['expr_node'], scope, body, body_dtype, ctx)
+        body.append('    ret')
+
+
+_WITH_OPEN_RE = re.compile(r'^with\s+open\((.+),\s*"(\w)"\)\s+as\s+(\w+)\s*:\s*$')
+
+
+def il_file_type(mode: str) -> str:
+    """Kieu IL cua 1 file-handle (Wave 2, 2026-07-29) - StreamReader cho
+    mode 'r', StreamWriter cho 'w'/'a' (ca 2 nam trong [mscorlib])."""
+    return ('class [mscorlib]System.IO.StreamReader' if mode == 'r'
+            else 'class [mscorlib]System.IO.StreamWriter')
+
+
+def try_parse_with_open(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """'with open(path, "w"/"r"/"a") as f:' (Wave 2, 2026-07-29) - CHI ho
+    tro mo file THAT (khong ho tro context-manager tong quat khac). Desugar
+    THANH 1 stmt kind 'with_open' rieng, nhung CODEGEN cua no (xem
+    codegen_with_open) phat sinh IL .try/finally Y HET nhanh 'finally_body
+    is not None' cua codegen_try - tai dung ha tang try/finally DA XAC
+    MINH (khong viet lai tu dau) de dam bao dong file/Dispose LUON chay du
+    co return/loi trong khoi hay khong. `_contains_return`/
+    `_contains_break_continue` (o tren) da TU DONG nhan dien 'with_open'
+    qua nhanh else chung (kiem tra stmt.get('body')), KHONG can sua rieng -
+    chi 'try' moi can nhanh dac biet (co 'handlers'/'finally_body' khac
+    cau truc)."""
+    m = _WITH_OPEN_RE.match(line)
+    if not m:
+        return None
+    path_expr, mode, var_name = m.groups()
+    if mode not in ('r', 'w', 'a'):
+        raise SyntaxError(
+            f"il_codegen: 'with open(..., \"{mode}\")' - mode chi ho tro "
+            f"'r' (doc)/'w' (ghi de)/'a' (ghi noi tiep)")
+    path_node = parse_expr(path_expr.strip())
+    known_shapes[var_name] = 'file'
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(
+            f"il_codegen: 'with open(...) as {var_name}:' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return {'kind': 'with_open', 'var': var_name, 'mode': mode,
+            'path_node': path_node, 'body': body}, pos
+
+
+def fpw_with_open(stmt, ctx):
+    ctx['collect_ternary_temps'](stmt['path_node'])
+    declared_names = ctx['declared_names']
+    infer_scope = ctx['infer_scope']
+    if stmt['var'] not in declared_names:
+        declared_names.add(stmt['var'])
+        ta = ctx['TypeAnn'](stmt['mode'], 'file')
+        ctx['locals_decl'].append((stmt['var'], ta))
+        infer_scope.set(stmt['var'], ta)
+    else:
+        # Bien 'f' dung LAI cho 1 'with open(...) as f:' KHAC trong CUNG
+        # ham - CIL local slot da co san 1 KIEU CO DINH tu lan khai bao
+        # DAU TIEN (StreamWriter hoac StreamReader), khac Python that (co
+        # the gan lai bat ky object nao vao 1 ten) - neu mode lan nay
+        # KHAC mode lan dau, gan vao CUNG slot se SAI KIEU (stloc mismatch,
+        # CLR verifier tu choi luc chay) - chan RO RANG o day thay vi de
+        # loi kho hieu tu ilasm/CLR, giong tinh than guard cua _expr_index.
+        _, _, existing_ta = infer_scope[stmt['var']]
+        prior_mode = existing_ta.dtype
+        same_class = (prior_mode == stmt['mode']) or (prior_mode in ('w', 'a') and stmt['mode'] in ('w', 'a'))
+        if not same_class:
+            raise SyntaxError(
+                f"il_codegen: 'with open(..., \"{stmt['mode']}\") as {stmt['var']}:' - bien "
+                f"'{stmt['var']}' da dung cho mode '{prior_mode}' truoc do trong CUNG ham - "
+                f"file-handle tai dung 1 ten PHAI cung nhom mode (r rieng, w/a chung nhau vi "
+                f"cung la StreamWriter) vi CIL local co kieu CO DINH; dung ten bien KHAC neu "
+                f"can mode khac nhom")
+    if _contains_return(stmt['body']):
+        # Giong fpw_try: 'return' BEN TRONG khoi try/finally (o day la
+        # khoi try/finally NGAM cua with) can epilogue (__ret_tmp + nhan
+        # cuoi ham) - xem codegen_return/gen_il_function.
+        ctx['needs_epilogue'][0] = True
+    ctx['walk_fn'](stmt['body'])
+
+
+def fpp_with_open(stmt, ctx):
+    ctx['prescan_fn'](stmt['body'])
+
+
+_FILE_WRITE_METHODS = {'write'}
+_FILE_READ_METHODS = {'read'}
+
+
+def compile_file_method_call(node, scope, out, dtype, ctx):
+    """'f.write(x)'/'f.read()' tren 1 file-handle (TypeAnn shape='file',
+    dtype='r'/'w'/'a' - mode mo file) - dang ky boi record_feature.py's
+    compile_method_call VA il_codegen.py's _stmt_method_call_stmt (dung
+    duoc CA trong bieu thuc LAN nhu 1 lenh doc lap, khac list.count() CHI
+    RHS vi khong can hidden-local/vong lap o day)."""
+    obj_name, method_name, args = node[1], node[2], node[3]
+    _, _, obj_ta = scope[obj_name]
+    mode = obj_ta.dtype
+    compile_expr = ctx['compile_expr']
+    if method_name in _FILE_WRITE_METHODS:
+        if mode == 'r':
+            raise SyntaxError(
+                f"il_codegen: '{obj_name}.write(...)' - file mo o mode 'r' (chi doc), "
+                f"khong ghi duoc")
+        if len(args) != 1:
+            raise SyntaxError("il_codegen: f.write(text) chi nhan dung 1 tham so")
+        ctx['load_var_ref'](obj_name, scope, out)
+        compile_expr(args[0], scope, out, 'str', ctx)
+        out.append('    callvirt instance void [mscorlib]System.IO.TextWriter::Write(string)')
+        return
+    if method_name in _FILE_READ_METHODS:
+        if mode != 'r':
+            raise SyntaxError(
+                f"il_codegen: '{obj_name}.read()' - file mo o mode '{mode}' (chi ghi), "
+                f"khong doc duoc")
+        if args:
+            raise SyntaxError("il_codegen: f.read() khong nhan tham so (chi doc TOAN BO phan con lai)")
+        ctx['load_var_ref'](obj_name, scope, out)
+        out.append('    callvirt instance string [mscorlib]System.IO.TextReader::ReadToEnd()')
+        ctx['widen_if_needed']('str', dtype, out)
+        return
+    raise SyntaxError(
+        f"il_codegen: file-handle chi ho tro '.write(x)' (mode w/a) hoac '.read()' "
+        f"(mode r), gap '.{method_name}(...)'")
+
+
+def codegen_with_open(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    var, mode = stmt['var'], stmt['mode']
+    compile_expr = ctx['compile_expr']
+    compile_expr(stmt['path_node'], scope, body, 'str', ctx)
+    if mode == 'r':
+        body.append(f'    newobj instance void {il_file_type("r")}::.ctor(string)')
+    else:
+        # StreamWriter(string path, bool append) - 'w' ghi de (append=
+        # false), 'a' ghi noi tiep (append=true).
+        body.append('    ldc.i4.1' if mode == 'a' else '    ldc.i4.0')
+        body.append(f'    newobj instance void {il_file_type("w")}::.ctor(string, bool)')
+    ctx['store_var'](var, scope, body)
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    end_lbl = f'{sig.name}_With{n}_end'
+    # Y HET nhanh 'try: ... finally:' (khong 'except') cua codegen_try -
+    # Dispose() (dong file, tu dong Flush) LUON chay du than co return
+    # hay khong, tai dung ha tang try/finally da xac minh THAT.
+    body.append('    .try')
+    body.append('    {')
+    ctx['try_depth'] = ctx.get('try_depth', 0) + 1
+    codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+    ctx['try_depth'] -= 1
+    if not _stmts_end_in_return(stmt['body']):
+        body.append(f'      leave {end_lbl}')
+    body.append('    }')
+    body.append('    finally')
+    body.append('    {')
+    ctx['load_var_ref'](var, scope, body)
+    body.append('      callvirt instance void [mscorlib]System.IDisposable::Dispose()')
+    body.append('      endfinally')
+    body.append('    }')
+    body.append(f'  {end_lbl}:')
+
+
+_FOR_IN_NAME_RE = re.compile(r'^for\s+(\w+)\s+in\s+(\w+)\s*:\s*$')
+
+
+def try_parse_for_in_record(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """'for x in <bien_record>:' (6.7, iterator protocol tuy bien,
+    2026-08-13) - CHI khop khi ve phai la 1 TEN don (khong 'range(...)').
+    An toan LAC QUAN chap nhan o day: macro text-level 'for_in_list'
+    (list/dict/set) da chay TRUOC va rewrite HET moi truong hop list/
+    dict/set thanh 'for i in range(len(name)): x = name[i]' roi - bat ky
+    'for x in <name>:' con SOT lai luc LINE_PARSERS chay CHAC CHAN
+    khong phai list/dict/set. Validate that (co phai record hop le,
+    co __iter__/__next__ hay khong) hoan toan HOAN sang first-pass-walk
+    (fpw_for_in_iter), giong cach with_ctx (6.6) da lam."""
+    m = _FOR_IN_NAME_RE.match(line)
+    if not m:
+        return None
+    var, record_var = m.groups()
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(f"il_codegen: 'for {var} in {record_var}:' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return {'kind': 'for_in_iter', 'var': var, 'record_var': record_var, 'body': body}, pos
+
+
+def fpw_for_in_iter(stmt, ctx):
+    var, record_var = stmt['var'], stmt['record_var']
+    infer_scope = ctx['infer_scope']
+    declared_names = ctx['declared_names']
+    records = ctx.get('records') or {}
+    record_methods = ctx.get('record_methods') or {}
+    if record_var not in infer_scope._d:
+        raise SyntaxError(
+            f"il_codegen: 'for {var} in {record_var}:' - '{record_var}' chua duoc khai bao")
+    _, _, record_ta = infer_scope[record_var]
+    if record_ta.shape != 'record':
+        raise SyntaxError(
+            f"il_codegen: 'for {var} in {record_var}:' - '{record_var}' khong phai bien "
+            f"kieu record (khong phai list/dict/set/range - cac dang do da duoc xu ly "
+            f"o macro/parser rieng)")
+    record_type = record_ta.dtype
+    iter_m = record_methods.get(record_type, {}).get('__iter__')
+    if iter_m is None or iter_m.params or iter_m.return_type is None:
+        raise SyntaxError(
+            f"il_codegen: record '{record_type}' can dinh nghia "
+            f"'def __iter__(self) -> \"IterT\": ...' (0 tham so, co return type) "
+            f"de dung trong 'for {var} in {record_var}:'")
+    iter_ta = iter_m.return_type
+    if iter_ta.shape != 'record' or iter_ta.dtype not in records:
+        raise SyntaxError(
+            f"il_codegen: record '{record_type}' co __iter__ nhung kieu tra ve "
+            f"'{iter_ta.dtype}' khong phai 1 record hop le")
+    next_m = record_methods.get(iter_ta.dtype, {}).get('__next__')
+    if next_m is None or next_m.params or next_m.return_type is None or \
+            next_m.return_type.shape != 'tuple' or \
+            len(next_m.return_type.tuple_dtypes) != 2 or \
+            next_m.return_type.tuple_dtypes[1] != 'i32':
+        raise SyntaxError(
+            f"il_codegen: record '{iter_ta.dtype}' can dinh nghia "
+            f"'def __next__(self) -> \"(T, i32)\": ...' (0 tham so, tra ve tuple 2 "
+            f"phan tu, phan tu thu 2 la i32 - co con/het) de dung trong "
+            f"'for {var} in {record_var}:'")
+    elem_dtype = next_m.return_type.tuple_dtypes[0]
+    stmt['_iter_type'] = iter_ta.dtype
+    stmt['_elem_dtype'] = elem_dtype
+    if var not in declared_names:
+        declared_names.add(var)
+        elem_ta = ctx['TypeAnn'](elem_dtype, None)
+        ctx['locals_decl'].append((var, elem_ta))
+        infer_scope.set(var, elem_ta)
+    iterobj = f"__iterobj{id(stmt)}"
+    nexttmp = f"__iternext{id(stmt)}"
+    stmt['_iterobj'] = iterobj
+    stmt['_nexttmp'] = nexttmp
+    if iterobj not in declared_names:
+        declared_names.add(iterobj)
+        iter_local_ta = ctx['TypeAnn'](iter_ta.dtype, 'record')
+        ctx['locals_decl'].append((iterobj, iter_local_ta))
+        infer_scope.set(iterobj, iter_local_ta)
+    if nexttmp not in declared_names:
+        declared_names.add(nexttmp)
+        tuple_ta = ctx['TypeAnn'](elem_dtype, 'tuple', tuple_dtypes=[elem_dtype, 'i32'])
+        ctx['locals_decl'].append((nexttmp, tuple_ta))
+        infer_scope.set(nexttmp, tuple_ta)
+    plan_str_accum(stmt, ctx)
+    ctx['walk_fn'](stmt['body'])
+
+
+def fpp_for_in_iter(stmt, ctx):
+    ctx['prescan_fn'](stmt['body'])
+
+
+def codegen_for_in_iter(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    var, record_var = stmt['var'], stmt['record_var']
+    iter_type, elem_dtype = stmt['_iter_type'], stmt['_elem_dtype']
+    iterobj, nexttmp = stmt['_iterobj'], stmt['_nexttmp']
+    records = ctx.get('records') or {}
+    record_type = scope[record_var][2].dtype
+    from il_features.record_feature import _method_owner_class
+    from il_features.tuple_type import il_tupleN_type
+
+    iter_owner = _method_owner_class(ctx, record_type, '__iter__')
+    iter_il = ctx['il_type_str'](TypeAnn(iter_type, 'record'), records)
+    ctx['load_var_ref'](record_var, scope, body)
+    body.append(f'    callvirt instance {iter_il} {iter_owner}::__iter__()')
+    ctx['store_var'](iterobj, scope, body)
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    start_lbl, end_lbl = f'{sig.name}_ForIter{n}_start', f'{sig.name}_ForIter{n}_end'
+    tuple_type_il = il_tupleN_type([elem_dtype, 'i32'])
+    next_owner = _method_owner_class(ctx, iter_type, '__next__')
+
+    emit_sb_setup(stmt, scope, body, ctx)
+    body.append(f'  {start_lbl}:')
+    ctx['load_var_ref'](iterobj, scope, body)
+    body.append(f'    callvirt instance {tuple_type_il} {next_owner}::__next__()')
+    ctx['store_var'](nexttmp, scope, body)
+    ctx['load_var_ref'](nexttmp, scope, body)
+    body.append(f'    ldfld !1 {tuple_type_il}::Item2')
+    body.append(f'    brfalse {end_lbl}')
+    ctx['load_var_ref'](nexttmp, scope, body)
+    body.append(f'    ldfld !0 {tuple_type_il}::Item1')
+    ctx['store_var'](var, scope, body)
+    ctx['loop_stack'].append((start_lbl, end_lbl))
+    codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+    ctx['loop_stack'].pop()
+    body.append(f'    br {start_lbl}')
+    body.append(f'  {end_lbl}:')
+    emit_sb_flush(stmt, scope, body, ctx)
+
+
+_WITH_CTX_RE = re.compile(r'^with\s+(.+?)\s+as\s+(\w+)\s*:\s*$')
+
+
+def try_parse_with_ctx(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """'with <bieu_thuc_record> as v:' (6.6, context manager tuy bien,
+    2026-08-13) - CHI ho tro (a) goi constructor truc tiep 'with Lock() as lk:'
+    hoac (b) 1 bien DA khai bao kieu record 'with existing as lk:'. Dang ky
+    SAU with_open trong LINE_PARSERS (khong sua with_open) - 'with open(...)'
+    van di duong cu vi _WITH_OPEN_RE khop TRUOC (thu tu LINE_PARSERS o
+    il_codegen.py). Xem docs/superpowers/plans/2026-08-13-context-manager.md."""
+    m = _WITH_CTX_RE.match(line)
+    if not m:
+        return None
+    expr_text, var_name = m.groups()
+    if expr_text.strip().startswith('open('):
+        # 'with open(...)' KHONG khop _WITH_OPEN_RE (vd thieu dau ngoac
+        # dung, mode sai) se roi xuong day - bao loi RO thay vi hieu nham
+        # thanh with_ctx (se that bai o buoc validate record ben duoi voi
+        # thong bao khong lien quan).
+        return None
+    expr_node = parse_expr(expr_text.strip())
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(
+            f"il_codegen: 'with {expr_text} as {var_name}:' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return {'kind': 'with_ctx', 'expr_node': expr_node, 'var': var_name,
+            'body': body}, pos
+
+
+def fpw_with_ctx(stmt, ctx):
+    ctx['collect_ternary_temps'](stmt['expr_node'])
+    declared_names = ctx['declared_names']
+    infer_scope = ctx['infer_scope']
+    records = ctx.get('records') or {}
+    record_methods = ctx.get('record_methods') or {}
+    expr_node = stmt['expr_node']
+    if expr_node[0] == 'call' and expr_node[1] in records:
+        record_name = expr_node[1]
+    elif expr_node[0] == 'var':
+        _, _, var_ta = infer_scope[expr_node[1]]
+        if var_ta.shape != 'record':
+            raise SyntaxError(
+                f"il_codegen: 'with {expr_node[1]} as {stmt['var']}:' - '{expr_node[1]}' "
+                f"khong phai bien kieu record")
+        record_name = var_ta.dtype
+    else:
+        raise SyntaxError(
+            f"il_codegen: 'with <bieu_thuc> as {stmt['var']}:' - chi ho tro goi "
+            f"constructor record truc tiep (vd 'with Lock() as lk:') hoac 1 bien "
+            f"da khai bao kieu record, khong ho tro bieu thuc phuc tap khac")
+    enter_m = record_methods.get(record_name, {}).get('__enter__')
+    exit_m = record_methods.get(record_name, {}).get('__exit__')
+    if enter_m is None or exit_m is None:
+        raise SyntaxError(
+            f"il_codegen: record '{record_name}' can dinh nghia CA __enter__ VA "
+            f"__exit__ de dung trong 'with' (dang thieu: "
+            f"{'__enter__' if enter_m is None else ''}"
+            f"{'__exit__' if exit_m is None else ''})")
+    if enter_m.params or enter_m.return_type is None:
+        raise SyntaxError(
+            f"il_codegen: record '{record_name}' co __enter__ nhung chu ky sai - "
+            f"can dung 0 tham so va tra ve 1 kieu bat ky "
+            f"('def __enter__(self) -> \"T\":')")
+    if exit_m.params or exit_m.return_type is None:
+        raise SyntaxError(
+            f"il_codegen: record '{record_name}' co __exit__ nhung chu ky sai - "
+            f"can dung 0 tham so va tra ve 1 kieu bat ky "
+            f"('def __exit__(self) -> \"U\":')")
+    stmt['_record_name'] = record_name
+    stmt['_enter_ta'] = enter_m.return_type
+    if stmt['var'] not in declared_names:
+        declared_names.add(stmt['var'])
+        ctx['locals_decl'].append((stmt['var'], enter_m.return_type))
+        infer_scope.set(stmt['var'], enter_m.return_type)
+    hidden = f"__ctxmgr{id(stmt)}"
+    stmt['_hidden'] = hidden
+    if hidden not in declared_names:
+        declared_names.add(hidden)
+        record_ta = ctx['TypeAnn'](record_name, 'record')
+        ctx['locals_decl'].append((hidden, record_ta))
+        infer_scope.set(hidden, record_ta)
+    if _contains_return(stmt['body']):
+        ctx['needs_epilogue'][0] = True
+    ctx['walk_fn'](stmt['body'])
+
+
+def fpp_with_ctx(stmt, ctx):
+    ctx['prescan_fn'](stmt['body'])
+
+
+def codegen_with_ctx(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    var, hidden = stmt['var'], stmt['_hidden']
+    record_name = stmt['_record_name']
+    compile_expr = ctx['compile_expr']
+    records = ctx.get('records') or {}
+    # Sinh record instance (constructor hoac load bien) roi giu 1 BAN SAO
+    # vao hidden local - can THIET vi __exit__ phai goi tren RECORD GOC,
+    # con 'var' nhan ket qua __enter__ (co the la KIEU KHAC).
+    compile_expr(stmt['expr_node'], scope, body, record_name, ctx)
+    ctx['store_var'](hidden, scope, body)
+    from il_features.record_feature import _method_owner_class
+    enter_owner = _method_owner_class(ctx, record_name, '__enter__')
+    enter_il = ctx['il_type_str'](stmt['_enter_ta'], records)
+    ctx['load_var_ref'](hidden, scope, body)
+    body.append(f'    callvirt instance {enter_il} {enter_owner}::__enter__()')
+    ctx['store_var'](var, scope, body)
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    end_lbl = f'{sig.name}_WithCtx{n}_end'
+    body.append('    .try')
+    body.append('    {')
+    ctx['try_depth'] = ctx.get('try_depth', 0) + 1
+    codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+    ctx['try_depth'] -= 1
+    if not _stmts_end_in_return(stmt['body']):
+        body.append(f'      leave {end_lbl}')
+    body.append('    }')
+    body.append('    finally')
+    body.append('    {')
+    record_methods = ctx.get('record_methods') or {}
+    exit_m = record_methods[record_name]['__exit__']
+    exit_owner = _method_owner_class(ctx, record_name, '__exit__')
+    exit_il = ctx['il_type_str'](exit_m.return_type, records)
+    ctx['load_var_ref'](hidden, scope, body)
+    body.append(f'      callvirt instance {exit_il} {exit_owner}::__exit__()')
+    if exit_il != 'void':
+        body.append('      pop')
+    body.append('      endfinally')
+    body.append('    }')
+    body.append(f'  {end_lbl}:')
+
+
+def codegen_raise(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    if stmt.get('bare'):
+        # 'raise' TRAN (Phase 6.3, 2026-08-12) - 'rethrow' CHI hop le VE
+        # MAT CU PHAP IL khi nam TRUC TIEP trong 1 khoi 'catch{}' (xem
+        # ctx['in_except_handler'], dat boi codegen_try quanh than handler).
+        if not ctx.get('in_except_handler', 0):
+            raise SyntaxError(
+                "il_codegen: 'raise' (khong ten loi) chi hop le BEN TRONG 1 khoi 'except' "
+                "(nem lai chinh exception dang bat) - Python that cung bao RuntimeError "
+                "neu dung 'raise' tran ben ngoai 1 handler dang xu ly loi")
+        body.append('    rethrow')
+        return
+    # 'raise ValueError("msg")' - TU xay dung + 'throw' 1 exception THAT
+    # (khac 'except' chi BAT loi CLR tu nem) - da xac minh THAT bang
+    # probe_raise.il: .ctor(string) gan dung Message (voi System.Exception),
+    # va code SAU 'throw' (khong branch) khong bi verifier tu choi ('throw'
+    # la 1 dang ket thuc khoi HOP LE, khong can 'br').
+    # LUU Y (gioi han da biet, khong sua): ArgumentOutOfRangeException
+    # (anh xa cua IndexError) dung .ctor(string) 1 tham so se gan gia tri
+    # do vao 'paramName', KHONG PHAI 'Message' - quy uoc rieng cua chinh
+    # class do trong .NET, khong phai loi codegen.
+    clr_type = _resolve_exc_clr_type(stmt['exc_type'], ctx,
+                                      f"'raise {stmt['exc_type']}(...)'")
+    from_name = stmt.get('from_name')
+    if from_name is not None:
+        # 'raise X(...) from err' (exception chaining, 2026-08-12) - dung
+        # .ctor(string, Exception) - CO SAN tren MOI class trong
+        # _EXC_TYPE_MAP/record tu dinh nghia ke thua Exception (xac minh
+        # THAT qua PowerShell reflection truoc khi viet, khong gia dinh:
+        # System.Exception/DivideByZeroException/KeyNotFoundException/
+        # ArgumentOutOfRangeException/FormatException/OverflowException
+        # DEU co ctor nay). 'err' phai la 1 bien kieu Exception-tuong-thich
+        # (sentinel 'Exception' hoac record ke thua Exception) - KHONG
+        # kiem tra dtype cua record TU DINH NGHIA hien tai (throw() cho no
+        # deu hop le, xem _resolve_exc_clr_type) nen chi can xac nhan
+        # 'err' THAT la 1 trong 2 dang do, khong quan he gi voi loai dang
+        # raise (Python that cung cho phep chain 2 loai loi khac nhau
+        # hoan toan).
+        _, _, from_ta = scope[from_name]
+        records = ctx.get('records') or {}
+        record_bases = ctx.get('record_bases') or {}
+        is_exc_compatible = (from_ta.dtype == 'Exception' and from_ta.shape is None) or (
+            from_ta.dtype in records and _derives_from_exception(from_ta.dtype, record_bases))
+        if not is_exc_compatible:
+            raise SyntaxError(
+                f"il_codegen: 'raise {stmt['exc_type']}(...) from {from_name}' - '{from_name}' "
+                f"phai la 1 bien kieu Exception (tu 'except ... as {from_name}:' hoac 1 "
+                f"record ke thua Exception), dang co dtype={from_ta.dtype!r} shape={from_ta.shape!r}")
+        if stmt['msg_node'] is not None:
+            ctx['compile_expr'](stmt['msg_node'], scope, body, 'str', ctx)
+        else:
+            body.append('    ldstr ""')
+        ctx['load_var_ref'](from_name, scope, body)
+        body.append(
+            f'    newobj instance void {clr_type}::.ctor(string, class [mscorlib]System.Exception)')
+        body.append('    throw')
+        return
+    if stmt['msg_node'] is not None:
+        ctx['compile_expr'](stmt['msg_node'], scope, body, 'str', ctx)
+        body.append(f'    newobj instance void {clr_type}::.ctor(string)')
+    else:
+        body.append(f'    newobj instance void {clr_type}::.ctor()')
+    body.append('    throw')
+
+
+# Dang ky vao il_dispatch NGAY LUC MODULE NAP.
+register_macro_expander('for_in_list', try_expand_for_in_list)
+register_macro_expander('assert', try_expand_assert)
+register_line_parser('if', try_parse_if)
+register_line_parser('for', try_parse_for)
+register_line_parser('while', try_parse_while)
+register_line_parser('try', try_parse_try)
+register_line_parser('break', try_parse_break)
+register_line_parser('continue', try_parse_continue)
+register_line_parser('return', try_parse_return)
+register_line_parser('raise', try_parse_raise)
+register_line_parser('with_open', try_parse_with_open)
+register_line_parser('with_ctx', try_parse_with_ctx)
+register_line_parser('for_in_iter', try_parse_for_in_record)
+register_first_pass_walk('for', fpw_for)
+register_first_pass_walk('while', fpw_while)
+register_first_pass_walk('if', fpw_if)
+register_first_pass_walk('try', fpw_try)
+register_first_pass_walk('return', fpw_return)
+register_first_pass_walk('raise', fpw_raise)
+register_first_pass_walk('with_open', fpw_with_open)
+register_first_pass_walk('with_ctx', fpw_with_ctx)
+register_first_pass_walk('for_in_iter', fpw_for_in_iter)
+register_first_pass_prescan('for', fpp_for)
+register_first_pass_prescan('while', fpp_while_if)
+register_first_pass_prescan('if', fpp_while_if)
+register_first_pass_prescan('try', fpp_try)
+register_first_pass_prescan('with_open', fpp_with_open)
+register_first_pass_prescan('with_ctx', fpp_with_ctx)
+register_first_pass_prescan('for_in_iter', fpp_for_in_iter)
+register_stmt_codegen('for', codegen_for)
+register_stmt_codegen('while', codegen_while)
+register_stmt_codegen('break', codegen_break)
+register_stmt_codegen('continue', codegen_continue)
+register_stmt_codegen('if', codegen_if)
+register_stmt_codegen('try', codegen_try)
+register_stmt_codegen('return', codegen_return)
+register_stmt_codegen('raise', codegen_raise)
+register_stmt_codegen('with_open', codegen_with_open)
+register_stmt_codegen('with_ctx', codegen_with_ctx)
+register_stmt_codegen('for_in_iter', codegen_for_in_iter)

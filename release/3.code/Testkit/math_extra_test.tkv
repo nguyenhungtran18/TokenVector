@@ -1,0 +1,22 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("math_pi_value", str(math_pi()), "3.141592653589793")
+
+    tested = tested + 1
+    total = total + check("math_e_value", str(math_e()), "2.718281828459045")
+
+    tested = tested + 1
+    total = total + check("gcd_basic", str(math_gcd(48, 18)), "6")
+
+    tested = tested + 1
+    total = total + check("gcd_negative_arg", str(math_gcd(-48, 18)), "6")
+
+    tested = tested + 1
+    total = total + check("gcd_zero_arg", str(math_gcd(0, 5)), "5")
+
+    return test_summary("math_extra_test", total, tested)

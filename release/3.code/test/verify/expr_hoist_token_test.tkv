@@ -1,0 +1,45 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 13: Hoist bieu thuc tren Token & Chuoi ky tu (String-masked expression hoisting)."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / 'parity'))
+import arbiter
+
+def test_hoist_in_string_literal():
+    p = '''def run() -> "str":
+    s = "b.items.append(1) and sorted(d.keys())"
+    return s'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    assert res[2]['value'] == 'b.items.append(1) and sorted(d.keys())', f"Mismatch: {res[2]['value']}"
+    print("PASS: test_hoist_in_string_literal", res[2]['value'])
+
+def test_hoist_expanded_wrapper_calls():
+    p = '''def run() -> "str":
+    d = {}
+    d["b"] = 2
+    d["a"] = 1
+    v = len(d.keys())
+    m = max(d.values())
+    return str(v) + "|" + str(m)'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    assert res[2]['value'] == '2|2', f"Mismatch: {res[2]['value']}"
+    print("PASS: test_hoist_expanded_wrapper_calls", res[2]['value'])
+
+def test_hoist_attr_receiver_and_index():
+    p = '''def run() -> "str":
+    lst = [10, 20, 30, 40]
+    s = str(len(lst[1:-1]))
+    return s'''
+    res = arbiter.probe(p)
+    assert res[0] is None, f"FAIL: {res}"
+    assert res[2]['value'] == '2', f"Mismatch: {res[2]['value']}"
+    print("PASS: test_hoist_attr_receiver_and_index", res[2]['value'])
+
+if __name__ == '__main__':
+    test_hoist_in_string_literal()
+    test_hoist_expanded_wrapper_calls()
+    test_hoist_attr_receiver_and_index()
+    print("ALL MOC 13 TESTS PASSED!")

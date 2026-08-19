@@ -1,0 +1,23 @@
+# nuget_interop.tkv - CHUOI GIA LAP, KHONG tai duoc goi NuGet nao
+#
+# ===================== NHAN: MOCK / PROTOTYPE =====================
+# Ten "Foreign Package & Assembly Linker" la PHONG DAI. KHONG co logic
+# tai/giai nen/phan giai phu thuoc NuGet nao ca: load_external_package()
+# chi noi chuoi "linked_package:" + ten, call_package_symbol() chi kiem
+# tra chuoi rong hay khong. Hai dong __tkv_extern_assembly__ la THAT
+# (them assembly BCL vao IL), phan con lai KHONG.
+# Muon dung assembly ngoai THAT: khai bao __tkv_extern_assembly__ truc
+# tiep trong file cua ban; NuGet that thi chua ho tro.
+# ==================================================================
+__tkv_extern_assembly__ = "System.Numerics"
+__tkv_extern_assembly__ = "System.Xml"
+
+def load_external_package(package_name: "str") -> "str":
+    res = "linked_package:" + package_name
+    return res
+
+
+def call_package_symbol(package_ref: "str", symbol_name: "str") -> "i32":
+    if len(package_ref) > 0 and len(symbol_name) > 0:
+        return 1
+    return 0

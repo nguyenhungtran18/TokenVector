@@ -1,0 +1,47 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+counter: "i32" = 0
+label: "str" = "start"
+
+
+def bump() -> "i32":
+    global counter
+    counter = counter + 1
+    return counter
+
+
+def bump_twice() -> "i32":
+    global counter
+    counter = counter + 1
+    counter = counter + 1
+    return counter
+
+
+def read_only() -> "i32":
+    global counter
+    return counter
+
+
+def set_label(s: "str") -> "str":
+    global label
+    label = s
+    return label
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("bump_first", str(bump()), "1")
+
+    tested = tested + 1
+    total = total + check("bump_twice", str(bump_twice()), "3")
+
+    tested = tested + 1
+    total = total + check("read_only_after_writes", str(read_only()), "3")
+
+    tested = tested + 1
+    total = total + check("set_label", set_label("done"), "done")
+
+    return test_summary("global_py_tree_test", total, tested)

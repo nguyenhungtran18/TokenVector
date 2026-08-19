@@ -1,0 +1,42 @@
+[
+  {
+    "signature": "count_vowels_str(s: str) -> i32:",
+    "task": "Dem so ky tu nguyen am (a, e, i, o, u - chu thuong) trong chuoi s, tra ve so luong.",
+    "success": false,
+    "attempts_used": 1,
+    "body_lines": null,
+    "error": "AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97648, Requested 2711. Please try again in 5m10.176s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+  },
+  {
+    "signature": "most_frequent_char(s: str) -> str:",
+    "task": "Tim ky tu XUAT HIEN NHIEU NHAT trong chuoi s (dung dict dem tan suat tung ky tu), tra ve ky tu do dang 1 chuoi do dai 1. Neu s rong, tra ve chuoi rong \"\".",
+    "success": false,
+    "attempts_used": 1,
+    "body_lines": null,
+    "error": "AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97647, Requested 2733. Please try again in 5m28.32s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+  },
+  {
+    "signature": "fib_sum_upto(n: i32) -> i32:",
+    "task": "Tinh day Fibonacci (0, 1, 1, 2, 3, 5, ...) co n so dau tien (dung list de luu day so), roi tra ve TONG cua ca day (dung vong lap qua list de cong don).",
+    "success": false,
+    "attempts_used": 1,
+    "body_lines": null,
+    "error": "AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97645, Requested 2738. Please try again in 5m30.912s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+  },
+  {
+    "signature": "safe_divide_report(a: f32, b: f32) -> str:",
+    "task": "Chia a cho b trong khoi try. Neu b = 0 se nem ZeroDivisionError - bat loi do bang \"except ZeroDivisionError:\" va tra ve chuoi \"loi: chia cho 0\". Neu khong loi, tra ve chuoi \"ket qua: \" noi voi str(ket qua chia).",
+    "success": false,
+    "attempts_used": 1,
+    "body_lines": null,
+    "error": "AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97644, Requested 2748. Please try again in 5m38.688s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+  },
+  {
+    "signature": "range_stats(n: i32) -> (i32, i32):",
+    "task": "Duyet i tu 0 den n-1. Dem SO LUONG i sao cho i lon hon n chia 2 (dung phep so sanh, KHONG dung phep chia lay du vi DSL khong ho tro %) vao 1 bien dem, va TONG tat ca i thoa dieu kien do vao 1 bien tong khac. Tra ve (tong, dem) dang tuple 2 phan tu.",
+    "success": false,
+    "attempts_used": 1,
+    "body_lines": null,
+    "error": "AI Connect loi: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01kw4jb0nbfr9r29n39c23yxpr` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97642, Requested 2777. Please try again in 6m2.016s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}"
+  }
+]

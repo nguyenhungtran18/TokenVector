@@ -1,0 +1,23 @@
+# itertools.tkv - Self-Hosted TokenVector High-Performance Iterators
+
+def take_i32(lst: "list[i32]", count: "i32") -> "list[i32]":
+    res = []
+    n = len(lst)
+    limit = count
+    if limit > n:
+        limit = n
+    i = 0
+    while i < limit:
+        val = lst[i]
+        res.append(val)
+        i = i + 1
+    return res
+
+
+def repeat_i32(val: "i32", times: "i32") -> "list[i32]":
+    res = []
+    i = 0
+    while i < times:
+        res.append(val)
+        i = i + 1
+    return res

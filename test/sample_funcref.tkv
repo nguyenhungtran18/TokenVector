@@ -1,0 +1,38 @@
+"""'function reference' hep (Wave 3, 2026-07-29) - truyen 1 ham top-level
+lam tham so cho 1 ham khac (khong phai closure that - khong bat bien, xem
+plan indexed-meandering-lampson.md + memory project-tokenvector-wave2-status).
+Cu phap: tham so kieu 'func(dtype,...) -> dtype', truyen TEN ham truc tiep
+tai diem goi, goi qua bien nhu 1 loi goi ham binh thuong ben trong than ham."""
+
+
+def double_it(x: "i32") -> "i32":
+    return x * 2
+
+
+def square_it(x: "i32") -> "i32":
+    return x * x
+
+
+def apply(f: "func(i32)->i32", x: "i32") -> "i32":
+    return f(x)
+
+
+def apply_twice(f: "func(i32)->i32", x: "i32") -> "i32":
+    y = apply(f, x)
+    return apply(f, y)
+
+
+# Ham "bao" (wrapper) voi chu ky CHI toan scalar - can THIET de test qua
+# CLI (build_generic_main sinh Main tu args dong lenh, khong bieu dien duoc
+# 1 tham so kieu 'func' tu chuoi CLI - phai chon san 1 ham cu the trong
+# than ham thay vi de entry-point tu nhan 'f' tu ben ngoai).
+def apply_double(x: "i32") -> "i32":
+    return apply(double_it, x)
+
+
+def apply_square(x: "i32") -> "i32":
+    return apply(square_it, x)
+
+
+def apply_twice_double(x: "i32") -> "i32":
+    return apply_twice(double_it, x)

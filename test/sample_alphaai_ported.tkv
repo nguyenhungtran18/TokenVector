@@ -1,0 +1,77 @@
+"""5 ham do AlphaAI (Groq) sinh SONG SONG trong luc Claude lam khoang
+trong #1 (2026-07-28) - dung tu vung MOI (string/dict/list/try-except/
+tuple) lan dau tien AlphaAI dung thu. 4/5 dung ngay; 1/5 (most_frequent_char)
+lam lo 1 bug THAT trong il_codegen.py (dict value dtype suy sai thanh
+'str' khi gia tri that su la so nguyen - da sua, xem STATUS.md) - GIU
+NGUYEN code AlphaAI sinh o day (khong sua tay) de test nay chinh la bang
+chung fix dung."""
+
+
+def count_vowels_str(s: "str") -> "i32":
+    vowels = "aeiou"
+    count = 0
+    for i in range(len(s)):
+        check = 0
+        for j in range(len(vowels)):
+            if s[i] == vowels[j]:
+                check = 1
+        if check == 1:
+            count = count + 1
+    return count
+
+
+def most_frequent_char(s: "str") -> "str":
+    d = {}
+    for i in range(len(s)):
+        c = s[i]
+        if c in d:
+            d[c] = d[c] + 1
+        else:
+            d[c] = 1
+    max_count = 0
+    max_char = ""
+    for k, v in d.items():
+        if v > max_count:
+            max_count = v
+            max_char = k
+    return max_char
+
+
+def fib_sum_upto(n: "i32") -> "i32":
+    fib_list = []
+    fib_list.append(0)
+    fib_list.append(1)
+    i = 2
+    while i < n:
+        fib_list.append(fib_list[i - 1] + fib_list[i - 2])
+        i = i + 1
+    sum_fib = 0
+    for x in fib_list:
+        sum_fib = sum_fib + x
+    return sum_fib
+
+
+def safe_divide_report(a: "f32", b: "f32") -> "str":
+    result = ""
+    try:
+        ket_qua = a / b
+        ket_qua_str = str(ket_qua)
+        result = "ket qua: " + ket_qua_str
+    except ZeroDivisionError:
+        result = "loi: chia cho 0"
+    return result
+
+
+def range_stats(n: "i32") -> "(i32, i32)":
+    dem = 0
+    tong = 0
+    for i in range(n):
+        if i > n / 2.0:
+            dem = dem + 1
+            tong = tong + i
+    return tong, dem
+
+
+def range_stats_sum(n: "i32") -> "i32":
+    tong, dem = range_stats(n)
+    return tong + dem

@@ -1,0 +1,24 @@
+"""'lst * n' + 'repeat_str(s, n)' (Wave 3, 2026-07-29, hoan tat nhom A
+con thieu) - xem il_features/stdlib_repeat.py."""
+from _repeat_helpers import repeat_str
+
+
+def repeat_list_sum(n: "i32") -> "i32":
+    lst = []
+    lst.append(1)
+    lst.append(2)
+    lst.append(3)
+    rep = lst * n
+    total = sum(rep)
+    return total
+
+
+def repeat_str_len(s: "str", n: "i32") -> "i32":
+    r = repeat_str(s, n)
+    return len(r)
+
+
+def repeat_str_value() -> "str":
+    s = "ab"
+    r = repeat_str(s, 3)
+    return r

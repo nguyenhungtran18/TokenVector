@@ -1,0 +1,10 @@
+# test_pathlib.tkv - Test module pathlib.tkv
+__tkv_import__ = "pathlib"
+
+def main() -> "i32":
+    b = path_basename("C:\\projects\\app.tkv")
+    e = path_extension("C:\\projects\\app.tkv")
+    
+    if b == "app.tkv" and e == ".tkv":
+        return 1
+    return 0

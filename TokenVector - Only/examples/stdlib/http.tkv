@@ -1,0 +1,80 @@
+# http.tkv - Web client: GET / POST / PUT / DELETE
+#
+# 2026-08-03 (Giai doan 3): them post_type/put/delete. Truoc do chi co
+# GET va POST voi Content-Type CO DINH 'application/json' - khong goi
+# duoc API dung form-urlencoded/xml, va thieu 2 dong tu REST co ban.
+#
+# Ban *_h nhan them 1 dict[str,str] header TUY Y (Authorization,
+# User-Agent, X-Api-Key...). Voi POST/PUT, 'Content-Type: application/json'
+# duoc dat truoc nen dict co the GHI DE.
+#
+# CAN status code / header TRA VE thi dung request() o cuoi file: no tra
+# ve 1 dict[str,str] voi cac khoa "status", "body", "header:<ten>" va
+# KHONG nem loi khi ma >= 400. Cac ham con lai (WebClient) van nem
+# WebException voi ma >= 400 - bat bang 'except Exception:'.
+
+def get(url: "str") -> "str":
+    resp = http_get(url)
+    return resp
+
+
+def post(url: "str", payload: "str") -> "str":
+    resp = http_post(url, payload)
+    return resp
+
+
+def post_type(url: "str", payload: "str", content_type: "str") -> "str":
+    resp = http_post_type(url, payload, content_type)
+    return resp
+
+
+def put(url: "str", payload: "str", content_type: "str") -> "str":
+    resp = http_put(url, payload, content_type)
+    return resp
+
+
+def delete(url: "str") -> "str":
+    resp = http_delete(url)
+    return resp
+
+
+def get_h(url: "str", headers: "dict[str,str]") -> "str":
+    resp = http_get_h(url, headers)
+    return resp
+
+
+def post_h(url: "str", payload: "str", headers: "dict[str,str]") -> "str":
+    resp = http_post_h(url, payload, headers)
+    return resp
+
+
+def put_h(url: "str", payload: "str", headers: "dict[str,str]") -> "str":
+    resp = http_put_h(url, payload, headers)
+    return resp
+
+
+def delete_h(url: "str", headers: "dict[str,str]") -> "str":
+    resp = http_delete_h(url, headers)
+    return resp
+
+
+def get_full(url: "str", headers: "dict[str,str]") -> "dict[str,str]":
+    # Tra ve dict co "status", "body", "header:<ten viet thuong>".
+    # KHONG nem loi khi ma >= 400 (khac get()/post()).
+    resp = http_request("GET", url, "", headers)
+    return resp
+
+
+def post_full(url: "str", payload: "str", headers: "dict[str,str]") -> "dict[str,str]":
+    resp = http_request("POST", url, payload, headers)
+    return resp
+
+
+def put_full(url: "str", payload: "str", headers: "dict[str,str]") -> "dict[str,str]":
+    resp = http_request("PUT", url, payload, headers)
+    return resp
+
+
+def delete_full(url: "str", headers: "dict[str,str]") -> "dict[str,str]":
+    resp = http_request("DELETE", url, "", headers)
+    return resp

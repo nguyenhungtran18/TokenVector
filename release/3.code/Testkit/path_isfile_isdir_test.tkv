@@ -1,0 +1,20 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    this_file = "path_isfile_isdir_test.tkv"
+    tested = tested + 1
+    total = total + check("isfile_true", str(path_isfile(this_file)), "1")
+
+    tested = tested + 1
+    total = total + check("isfile_false_for_dir", str(path_isfile(".")), "0")
+
+    tested = tested + 1
+    total = total + check("isdir_true", str(path_isdir(".")), "1")
+
+    tested = tested + 1
+    total = total + check("isdir_false_for_file", str(path_isdir(this_file)), "0")
+
+    return test_summary("path_isfile_isdir_test", total, tested)

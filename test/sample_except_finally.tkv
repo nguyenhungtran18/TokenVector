@@ -1,0 +1,40 @@
+"""except <Loai>: + finally - CIL that: nhieu catch tren 1 .try, va
+.try/finally long trong .try/catch (mine bang probe .il rieng, xem
+STATUS.md) truoc khi viet codegen. Chi dung cap (a,b) la BOI SO CHINH
+XAC (tru b=0) de tranh giao thoa voi gioi han that '/' tren i32 (Buoc 6)."""
+from _file_io_helpers import append_file
+
+
+def safe_div_multi(a: "i32", b: "i32") -> "i32":
+    try:
+        return a / b
+    except ZeroDivisionError:
+        return -1
+    except Exception:
+        return -2
+
+
+def dict_get_or_default(d_size: "i32", key: "i32") -> "i32":
+    d = {}
+    for i in range(d_size):
+        d[i] = i
+    try:
+        return d[key]
+    except KeyError:
+        return -1
+
+
+def div_with_finally(a: "i32", b: "i32", counter_path: "str") -> "i32":
+    try:
+        return a / b
+    finally:
+        append_file(counter_path, "x")
+
+
+def div_with_except_and_finally(a: "i32", b: "i32", counter_path: "str") -> "i32":
+    try:
+        return a / b
+    except ZeroDivisionError:
+        return -1
+    finally:
+        append_file(counter_path, "x")

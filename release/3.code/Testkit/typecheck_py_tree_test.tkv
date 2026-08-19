@@ -1,0 +1,97 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class Animal:
+    name: "str"
+
+    def speak(self) -> "str":
+        return self.name
+
+
+class Dog(Animal):
+    breed: "str"
+
+
+class Cat(Animal):
+    lives: "i32"
+
+
+def scalar_isinstance_true(x: "i32") -> "i32":
+    return isinstance(x, int)
+
+
+def scalar_isinstance_false(x: "i32") -> "i32":
+    return isinstance(x, str)
+
+
+def str_isinstance_true(s: "str") -> "i32":
+    return isinstance(s, str)
+
+
+def record_isinstance_own_class() -> "i32":
+    d = Dog("Rex", "Labrador")
+    return isinstance(d, Dog)
+
+
+def record_isinstance_base_class() -> "i32":
+    d = Dog("Rex", "Labrador")
+    return isinstance(d, Animal)
+
+
+def record_isinstance_sibling_false() -> "i32":
+    d = Dog("Rex", "Labrador")
+    return isinstance(d, Cat)
+
+
+def issubclass_true() -> "i32":
+    return issubclass(Dog, Animal)
+
+
+def issubclass_false() -> "i32":
+    return issubclass(Cat, Dog)
+
+
+def issubclass_self() -> "i32":
+    return issubclass(Animal, Animal)
+
+
+def type_of_record() -> "str":
+    d = Dog("Rex", "Labrador")
+    return type(d)
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("scalar_isinstance_true", str(scalar_isinstance_true(5)), "1")
+
+    tested = tested + 1
+    total = total + check("scalar_isinstance_false", str(scalar_isinstance_false(5)), "0")
+
+    tested = tested + 1
+    total = total + check("str_isinstance_true", str(str_isinstance_true("hello")), "1")
+
+    tested = tested + 1
+    total = total + check("record_isinstance_own_class", str(record_isinstance_own_class()), "1")
+
+    tested = tested + 1
+    total = total + check("record_isinstance_base_class", str(record_isinstance_base_class()), "1")
+
+    tested = tested + 1
+    total = total + check("record_isinstance_sibling_false", str(record_isinstance_sibling_false()), "0")
+
+    tested = tested + 1
+    total = total + check("issubclass_true", str(issubclass_true()), "1")
+
+    tested = tested + 1
+    total = total + check("issubclass_false", str(issubclass_false()), "0")
+
+    tested = tested + 1
+    total = total + check("issubclass_self", str(issubclass_self()), "1")
+
+    tested = tested + 1
+    total = total + check("type_of_record", type_of_record(), "Dog")
+
+    return test_summary("typecheck_py_tree_test", total, tested)

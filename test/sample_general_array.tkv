@@ -1,0 +1,45 @@
+"""Muc tieu #3 (ma tran/vector cho AI) - xac nhan phep toan mang TONG
+QUAT (cong/nhan tung phan tu tren list kich thuoc RUNTIME, khong chi 3
+macro dat ten san add/sub/mul/scale/matvec) DA HOAT DONG qua cu phap
+list dong co san (khong can tinh nang compiler moi). Cung lo ra 1 bug
+that (2026-07-28): '.append(i * 1.0)' bi suy sai dtype phan tu (xem
+STATUS.md) - da sua trong _find_first_append_dtype/_find_first_dict_assign_dtypes."""
+
+
+def elementwise_add_runtime(n: "i32") -> "f32":
+    a = []
+    b = []
+    for i in range(n):
+        a.append(i * 1.0)
+        b.append(i * 2.0)
+    c = []
+    for i in range(n):
+        c.append(a[i] + b[i])
+    total = 0.0
+    for i in range(n):
+        total = total + c[i]
+    return total
+
+
+def elementwise_mul_runtime(n: "i32") -> "f32":
+    a = []
+    b = []
+    for i in range(n):
+        a.append(i * 1.0 + 1.0)
+        b.append(i * 1.0 + 2.0)
+    total = 0.0
+    for i in range(n):
+        total = total + a[i] * b[i]
+    return total
+
+
+def dot_product_runtime(n: "i32") -> "f32":
+    a = []
+    b = []
+    for i in range(n):
+        a.append(i * 1.0 + 1.0)
+        b.append(i * 1.0 + 2.0)
+    acc = 0.0
+    for i in range(n):
+        acc += a[i] * b[i]
+    return acc

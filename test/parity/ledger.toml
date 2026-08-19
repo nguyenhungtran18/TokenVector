@@ -1,0 +1,2182 @@
+# So lech CodeGraph/TokenVector - SINH + GHI BOI test/parity/*.
+# KHONG sua tay gia tri python_value/tokenvector_value/kind -
+# doi status thi sua status, con lai de fuzz.py/ledger.py ghi.
+
+[[entry]]
+id = "P001"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=1"
+discovered = "2026-08-05"
+templates = ["tmpl_method_on_call"]
+note = "py='abc|0' tkv='abc|'"
+repro = """
+def mk1() -> "str":
+    return "abc"
+
+
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(mk1().find("a")))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P002"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=6"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_method_on_call", "tmpl_round"]
+note = "SyntaxError: il_codegen: ham 'round' chi nhan dung 1 tham so [repro sua lai: reducer truoc do vo tinh xoa khai bao bien]"
+repro = """
+def run() -> "str":
+    _out = []
+    v3 = 3.14159
+    try:
+        _out.append(str(round(v3, 2)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P003"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=8"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_method_on_call"]
+note = "py='0' tkv=''"
+repro = """
+def mk3() -> "str":
+    return "abc"
+
+
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(mk3().find("a")))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P004"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=12"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_for_in_expr"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x6 in v3.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    i2 = 0
+    while i2 < 4:
+        v3 = "c_Fc"
+        i2 = i2 + 1
+    acc5 = 0
+    for x6 in v3.split(","):
+        acc5 = acc5 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P005"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=14"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_dict_new", "tmpl_list_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"bb'"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2["bb,Fa"] = -40
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P006"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=17"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_compare_bool", "tmpl_decl_scalar", "tmpl_list_new"]
+note = "py='True' tkv='1'"
+repro = """
+def run() -> "str":
+    _out = []
+    i2 = 0
+    while i2 < 4:
+        v3 = -25
+        i2 = i2 + 1
+    try:
+        _out.append(str(i2 != v3))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P007"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=18"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "\nUnhandled Exception: System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n   at System.ThrowHelper.ThrowKeyNotFoundException()\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[-13] = 8
+    acc2 = 0
+    for _k in d1:
+        acc2 = acc2 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P008"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=19"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_method_on_var"]
+note = "py='b ab,-Db ab,-bb ab,-Db ab,-bb ab,-' tkv='ERR'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = "DbDb"
+    try:
+        _out.append(str(v1.replace("", "b ab,-")))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P009"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=21"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_method_on_call"]
+note = "py='0|0|0' tkv='||'"
+repro = """
+def mk2() -> "str":
+    return "abc"
+
+
+def run() -> "str":
+    _out = []
+    i1 = 0
+    while i1 < 3:
+        try:
+            _out.append(str(mk2().find("a")))
+        except:
+            _out.append("ERR")
+        i1 = i1 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P010"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=22"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2["- -a,"] = -48
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P011"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=24"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_list_new", "tmpl_method_on_call"]
+note = "py='0' tkv=''"
+repro = """
+def mk4() -> "str":
+    return "abc"
+
+
+def run() -> "str":
+    _out = []
+    i3 = 0
+    while i3 < 1:
+        try:
+            _out.append(str(mk4().find("a")))
+        except:
+            _out.append("ERR")
+        i3 = i3 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P012"
+kind = "compile_gap"
+severity = "loud"
+status = "open"
+site = "fuzz.py:seed=25"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_int_div"]
+note = "SyntaxError: il_codegen: '/' tren kieu 'int' chua ho tro - Python tra ve float o day (7/2 == 3.5) va duong int->float la moc 10. Dung '//' neu that su muon chia nguyen."
+repro = """
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(v1 / i2))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P013"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=26"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_dict_new", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = 49
+    if v1 == 0:
+        d3 = {}
+        d3["D-a.Dc"] = -34
+        d3[","] = 11
+        d3[" FD,aa"] = 44
+        d3["||"] = -35
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P014"
+kind = "compile_gap"
+severity = "loud"
+status = "open"
+site = "fuzz.py:seed=27"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_list_new", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: bien 'v3' chua duoc khai bao/tham so"
+repro = """
+def mk4() -> "str":
+    return v3
+
+
+def run() -> "str":
+    _out = []
+    i2 = 0
+    while i2 < 1:
+        v3 = "Fa."
+        try:
+            _out.append(str(mk4().find("a")))
+        except:
+            _out.append("ERR")
+        i2 = i2 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P015"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=30"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_method_on_var", "tmpl_set_new_membership"]
+note = "SyntaxError: il_codegen: ky vong ')', gap 'not'"
+repro = """
+def run() -> "str":
+    _out = []
+    i2 = 0
+    if i2 < 0:
+        v3 = 22
+        s4 = set()
+        s4.add(i2)
+        s4.add(v3)
+        try:
+            _out.append(str((i2 not in s4)))
+        except:
+            _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P016"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=32"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"-_F'"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1["-_F,"] = -50
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P017"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=34"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_list_new", "tmpl_round"]
+note = "py='43' tkv='43.0'"
+repro = """
+def run() -> "str":
+    _out = []
+    v3 = 43.375
+    try:
+        _out.append(str(round(v3)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P018"
+kind = "compile_gap"
+severity = "loud"
+status = "open"
+site = "fuzz.py:seed=35"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: bien 'v1' chua duoc khai bao/tham so"
+repro = """
+def mk3() -> "str":
+    return v1
+
+
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(mk3().upper()))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P019"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=36"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "\nUnhandled Exception: System.ArgumentNullException: Value cannot be null.\nParameter name: key\n   at System.ThrowHelper.ThrowArgumentNullException(ExceptionArgument argument)\n   at System.Collections.Generic.Dictionary`2.FindEntry(TKey key)\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2["D|Ec_"] = 40
+    acc3 = 0
+    for _k in d2:
+        acc3 = acc3 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P020"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=38"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_for_in_expr", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x4 in v1.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = "c,FFE"
+    acc3 = 0
+    for x4 in v1.split(","):
+        acc3 = acc3 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P021"
+kind = "compile_gap"
+severity = "loud"
+status = "open"
+site = "fuzz.py:seed=39"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_set_new_membership"]
+note = "SyntaxError: il_codegen: ky vong ')', gap 'not'"
+repro = """
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str((v3 not in s4)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P022"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=40"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[","] = 40
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P023"
+kind = "compile_gap"
+severity = "loud"
+status = "open"
+site = "fuzz.py:seed=45"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_int_div", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: '/' tren kieu 'int' chua ho tro - Python tra ve float o day (7/2 == 3.5) va duong int->float la moc 10. Dung '//' neu that su muon chia nguyen."
+repro = """
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(v3 / v2))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P024"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=49"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_for_in_expr"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x4 in v1.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = "c_"
+    acc3 = 0
+    for x4 in v1.split(","):
+        acc3 = acc3 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P025"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=51"
+discovered = "2026-08-05"
+templates = ["tmpl_agg", "tmpl_list_new"]
+note = "py='False' tkv='0'"
+repro = """
+def run() -> "str":
+    _out = []
+    lst1 = []
+    try:
+        _out.append(str(all(lst1)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P026"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=54"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"|_'"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2["|_,b|F"] = 16
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P027"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=56"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_round"]
+note = "py='15' tkv='15.0'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = 15.310
+    try:
+        _out.append(str(round(v1)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P028"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=58"
+discovered = "2026-08-05"
+templates = ["tmpl_compare_bool", "tmpl_decl_scalar", "tmpl_list_new"]
+note = "py='True' tkv='1'"
+repro = """
+def run() -> "str":
+    _out = []
+    v3 = 50
+    v4 = -13
+    try:
+        _out.append(str((v3 < v4) or (v4 < v3)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P029"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=60"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_dict_new", "tmpl_dict_order_probe"]
+note = "\nUnhandled Exception: System.ArgumentNullException: Value cannot be null.\nParameter name: key\n   at System.ThrowHelper.ThrowArgumentNullException(ExceptionArgument argument)\n   at System.Collections.Generic.Dictionary`2.FindEntry(TKey key)\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    i2 = 0
+    while i2 < 2:
+        d1[""] = 22
+        ks3 = []
+        for _k in d1:
+            ks3.append(str(_k))
+        try:
+            _out.append(str("-".join(ks3)))
+        except:
+            _out.append("ERR")
+        i2 = i2 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P030"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=63"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"aa'"
+repro = """
+def run() -> "str":
+    _out = []
+    d3 = {}
+    d3[",|  .F"] = 12
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P031"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=68"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "\nUnhandled Exception: System.ArgumentNullException: Value cannot be null.\nParameter name: key\n   at System.ThrowHelper.ThrowArgumentNullException(ExceptionArgument argument)\n   at System.Collections.Generic.Dictionary`2.FindEntry(TKey key)\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1["ba|-_"] = -37
+    acc2 = 0
+    for _k in d1:
+        acc2 = acc2 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P032"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=71"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_compare_bool", "tmpl_decl_scalar"]
+note = "py='True' tkv='1'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = 48.286
+    i2 = 0
+    while i2 < 2:
+        v3 = 14.833
+        i2 = i2 + 1
+    try:
+        _out.append(str(v3 < v1))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P033"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=73"
+discovered = "2026-08-05"
+templates = ["tmpl_list_new", "tmpl_method_on_call"]
+note = "py='0' tkv=''"
+repro = """
+def mk2() -> "str":
+    return "abc"
+
+
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(mk2().find("a")))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P034"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=76"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    d3 = {}
+    d3[" ,, -"] = -20
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P035"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=78"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_for_in_expr"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x3 in v1.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = "."
+    acc2 = 0
+    for x3 in v1.split(","):
+        acc2 = acc2 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P036"
+kind = "compile_gap"
+severity = "loud"
+status = "open"
+site = "fuzz.py:seed=85"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_method_on_var"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(v2.isdigit()))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P037"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=86"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_for_in_expr"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x4 in v2.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    v2 = "DDFac "
+    acc3 = 0
+    for x4 in v2.split(","):
+        acc3 = acc3 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P038"
+kind = "compile_gap"
+severity = "loud"
+status = "open"
+site = "fuzz.py:seed=89"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: bien 'v2' chua duoc khai bao/tham so"
+repro = """
+def mk3() -> "str":
+    return v2
+
+
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(mk3().strip()))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P039"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=95"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_for_in_expr"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x4 in v2.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = -49
+    if v1 > 0:
+        v2 = "|,D.."
+        acc3 = 0
+        for x4 in v2.split(","):
+            acc3 = acc3 + 1
+        try:
+            _out.append(str(acc3))
+        except:
+            _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P040"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=96"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_list_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"b|E'"
+repro = """
+def run() -> "str":
+    _out = []
+    d3 = {}
+    d3["b|E,."] = -17
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P041"
+kind = "compile_gap"
+severity = "loud"
+status = "open"
+site = "fuzz.py:seed=97"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_method_on_var"]
+note = "SyntaxError: il_codegen: '.isdigit(...)' chi dung duoc tren bien kieu record, string (['capitalize', 'endswith', 'find', 'join', 'lower', 'lstrip', 'replace', 'rstrip', 'startswith', 'strip', 'upper']), list.pop()/list.index(), dict.get()/dict.pop(), file-handle ('.write(x)'/'.read()'), hoac 'x = lst.count(...)' (chi RHS truc tiep 1 phep gan) - 'v1' co shape=None dtype='str'"
+repro = """
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(v1.isdigit()))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P042"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=104"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "\nUnhandled Exception: System.ArgumentNullException: Value cannot be null.\nParameter name: key\n   at System.ThrowHelper.ThrowArgumentNullException(ExceptionArgument argument)\n   at System.Collections.Generic.Dictionary`2.FindEntry(TKey key)\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[""] = -32
+    i2 = 0
+    while i2 < 1:
+        acc3 = 0
+        for _k in d1:
+            acc3 = acc3 + 1
+        try:
+            _out.append(str(acc3))
+        except:
+            _out.append("ERR")
+        i2 = i2 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P043"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=105"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_for_in_list", "tmpl_list_new", "tmpl_round"]
+note = "py='2|34' tkv='2.0|34'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = 2.404
+    try:
+        _out.append(str(round(v1)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P044"
+kind = "compile_gap"
+severity = "loud"
+status = "open"
+site = "fuzz.py:seed=106"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_method_on_call", "tmpl_method_on_var"]
+note = "SyntaxError: il_codegen: bien 'v1' chua duoc khai bao/tham so"
+repro = """
+def run() -> "str":
+    _out = []
+    i3 = 0
+    while i3 < 3:
+        try:
+            _out.append(str(v1.replace(".cc", "F_")))
+        except:
+            _out.append("ERR")
+        i3 = i3 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P045"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=109"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_dict_order_probe"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[",|"] = -40
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P046"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=114"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_dict_order_probe"]
+note = "\nUnhandled Exception: System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n   at System.ThrowHelper.ThrowKeyNotFoundException()\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[18] = 50
+    ks2 = []
+    for _k in d1:
+        ks2.append(str(_k))
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P047"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=118"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_round"]
+note = "SyntaxError: il_codegen: ham 'round' chi nhan dung 1 tham so [repro sua lai: reducer truoc do vo tinh xoa khai bao bien]"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = 3.14159
+    try:
+        _out.append(str(round(v1, 2)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P048"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=120"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "\nUnhandled Exception: System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n   at System.ThrowHelper.ThrowKeyNotFoundException()\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[-23] = -22
+    acc2 = 0
+    for _k in d1:
+        acc2 = acc2 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P049"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=122"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_dict_order_probe"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[",cbE_"] = 41
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P050"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=124"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_for_in_expr"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x6 in v3.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    v3 = ", a"
+    acc5 = 0
+    for x6 in v3.split(","):
+        acc5 = acc5 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P051"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=125"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_list_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"cFc'"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1["cFc,E"] = 28
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P052"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=130"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "\nUnhandled Exception: System.ArgumentNullException: Value cannot be null.\nParameter name: key\n   at System.ThrowHelper.ThrowArgumentNullException(ExceptionArgument argument)\n   at System.Collections.Generic.Dictionary`2.FindEntry(TKey key)\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    i1 = 0
+    while i1 < 4:
+        d2 = {}
+        d2[".|"] = 35
+        d2["b|..D"] = -5
+        i1 = i1 + 1
+    i4 = 0
+    while i4 < 4:
+        acc5 = 0
+        for _k in d2:
+            acc5 = acc5 + 1
+        try:
+            _out.append(str(acc5))
+        except:
+            _out.append("ERR")
+        i4 = i4 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P053"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=131"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_method_on_call", "tmpl_round"]
+note = "SyntaxError: il_codegen: ham 'round' chi nhan dung 1 tham so [repro sua lai: reducer truoc do vo tinh xoa khai bao bien]"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = 3.14159
+    try:
+        _out.append(str(round(v1, 0)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P054"
+kind = "value_mismatch"
+severity = "silent"
+status = "open"
+site = "fuzz.py:seed=135"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_arith_binop", "tmpl_decl_scalar"]
+note = "py='2.0907515812876897e-07' tkv='ERR'"
+repro = """
+def run() -> "str":
+    _out = []
+    i1 = 0
+    while i1 < 3:
+        v2 = "cF.EFF"
+        i1 = i1 + 1
+    v3 = -14
+    try:
+        _out.append(str(i1 ** v3))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P055"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=140"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_for_in_expr"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x4 in v2.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    v2 = "Da|D-"
+    acc3 = 0
+    for x4 in v2.split(","):
+        acc3 = acc3 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P056"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=141"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_dict_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    i2 = 0
+    while i2 < 1:
+        d3 = {}
+        d3[",-"] = 11
+        d3["|cc-FF"] = 22
+        d3[","] = 45
+        d3["E_|_"] = -17
+        i2 = i2 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P057"
+kind = "compile_gap"
+severity = "loud"
+status = "open"
+site = "fuzz.py:seed=144"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_dict_new", "tmpl_list_index", "tmpl_list_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"D'"
+repro = """
+def run() -> "str":
+    _out = []
+    i4 = 0
+    while i4 < 4:
+        try:
+            _out.append(str(lst2[1:-1]))
+        except:
+            _out.append("ERR")
+        i4 = i4 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P058"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=146"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_round"]
+note = "SyntaxError: il_codegen: ham 'round' chi nhan dung 1 tham so [repro sua lai: reducer truoc do vo tinh xoa khai bao bien]"
+repro = """
+def run() -> "str":
+    _out = []
+    v2 = 3.14159
+    v1 = 34
+    if v1 < 0:
+        try:
+            _out.append(str(round(v2, 1)))
+        except:
+            _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P059"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=148"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_dict_new", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    d3 = {}
+    d3[",c|bE"] = -19
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P060"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=151"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_list_new", "tmpl_method_on_call"]
+note = "py='0|0' tkv='|'"
+repro = """
+def mk2() -> "str":
+    return "abc"
+
+
+def run() -> "str":
+    _out = []
+    i1 = 0
+    while i1 < 2:
+        try:
+            _out.append(str(mk2().find("a")))
+        except:
+            _out.append("ERR")
+        i1 = i1 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P061"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=152"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_method_on_call"]
+note = "py='0|0' tkv='|'"
+repro = """
+def mk3() -> "str":
+    return "abc"
+
+
+def run() -> "str":
+    _out = []
+    i1 = 0
+    while i1 < 2:
+        i2 = 0
+        while i2 < 1:
+            try:
+                _out.append(str(mk3().find("a")))
+            except:
+                _out.append("ERR")
+            i2 = i2 + 1
+        i1 = i1 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P062"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=153"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_list_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1["_.ca,"] = -29
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P063"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=166"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_method_on_call"]
+note = "py='0|0|0|0' tkv='|||'"
+repro = """
+def mk3() -> "str":
+    return "abc"
+
+
+def run() -> "str":
+    _out = []
+    i1 = 0
+    while i1 < 4:
+        v2 = 34.614
+        try:
+            _out.append(str(mk3().find("a")))
+        except:
+            _out.append("ERR")
+        i1 = i1 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P064"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=170"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_round"]
+note = "py='41|41' tkv='41.0|41.0'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = 40.706
+    try:
+        _out.append(str(round(v1)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P065"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=177"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_method_on_call", "tmpl_round"]
+note = "SyntaxError: il_codegen: ham 'round' chi nhan dung 1 tham so [repro sua lai: reducer truoc do vo tinh xoa khai bao bien]"
+repro = """
+def run() -> "str":
+    _out = []
+    v2 = 3.14159
+    try:
+        _out.append(str(round(v2, 1)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P066"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=181"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_dict_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"'"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2[", "] = -4
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P067"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=187"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"_c'"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2["||  ,"] = -27
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P068"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=188"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"..'"
+repro = """
+def run() -> "str":
+    _out = []
+    d3 = {}
+    d3["..,"] = -41
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P069"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=189"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_round"]
+note = "py='20' tkv='20.0'"
+repro = """
+def run() -> "str":
+    _out = []
+    v3 = 19.869
+    try:
+        _out.append(str(round(v3)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P070"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=192"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "\nUnhandled Exception: System.ArgumentNullException: Value cannot be null.\nParameter name: key\n   at System.ThrowHelper.ThrowArgumentNullException(ExceptionArgument argument)\n   at System.Collections.Generic.Dictionary`2.FindEntry(TKey key)\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1["."] = -17
+    acc2 = 0
+    for _k in d1:
+        acc2 = acc2 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P071"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=194"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_list_new", "tmpl_method_on_call"]
+note = "py='0' tkv=''"
+repro = """
+def mk4() -> "str":
+    return "abc"
+
+
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(mk4().find("a")))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P072"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=199"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"a|'"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2[","] = 38
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P073"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=203"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_round"]
+note = "SyntaxError: il_codegen: ham 'round' chi nhan dung 1 tham so [repro sua lai: reducer truoc do vo tinh xoa khai bao bien]"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = 3.14159
+    try:
+        _out.append(str(round(v1, 1)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P074"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=210"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_dict_order_probe"]
+note = "\nUnhandled Exception: System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n   at System.ThrowHelper.ThrowKeyNotFoundException()\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2[-8] = 49
+    ks3 = []
+    for _k in d2:
+        ks3.append(str(_k))
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P075"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=213"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "\nUnhandled Exception: System.ArgumentNullException: Value cannot be null.\nParameter name: key\n   at System.ThrowHelper.ThrowArgumentNullException(ExceptionArgument argument)\n   at System.Collections.Generic.Dictionary`2.FindEntry(TKey key)\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1["EcF "] = 16
+    acc2 = 0
+    for _k in d1:
+        acc2 = acc2 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P076"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=217"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "\nUnhandled Exception: System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n   at System.ThrowHelper.ThrowKeyNotFoundException()\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[-31] = -16
+    acc2 = 0
+    for _k in d1:
+        acc2 = acc2 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P077"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=220"
+discovered = "2026-08-05"
+templates = ["tmpl_builtin_arity1", "tmpl_decl_scalar", "tmpl_dict_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"F'"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1["F ,"] = -26
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P078"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=221"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\".-'"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[".-,"] = -42
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P079"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=224"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_dict_order_probe"]
+note = "\nUnhandled Exception: System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n   at System.ThrowHelper.ThrowKeyNotFoundException()\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2[42] = -29
+    ks3 = []
+    for _k in d2:
+        ks3.append(str(_k))
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P080"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=225"
+discovered = "2026-08-05"
+templates = ["tmpl_agg", "tmpl_decl_scalar", "tmpl_list_new"]
+note = "py='True' tkv='1'"
+repro = """
+def run() -> "str":
+    _out = []
+    lst1 = []
+    try:
+        _out.append(str(any(lst1)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P081"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=226"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_for_in_expr"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x3 in v1.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = ",,ac"
+    acc2 = 0
+    for x3 in v1.split(","):
+        acc2 = acc2 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P082"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=228"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_dict_order_probe"]
+note = "\nUnhandled Exception: System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n   at System.ThrowHelper.ThrowKeyNotFoundException()\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[-11] = -4
+    ks2 = []
+    for _k in d1:
+        ks2.append(str(_k))
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P083"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=234"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_dict_order_probe"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"_'"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2["_,"] = -41
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P084"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=237"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"-a_'"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2["-a_,"] = -39
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P085"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=238"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_dict_new", "tmpl_list_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"c.|.'"
+repro = """
+def run() -> "str":
+    _out = []
+    d4 = {}
+    d4["c.|.,,"] = 39
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P086"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=240"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_dict_new", "tmpl_dict_order_probe"]
+note = "\nUnhandled Exception: System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n   at System.ThrowHelper.ThrowKeyNotFoundException()\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = -10
+    if v1 < 0:
+        d4 = {}
+        d4[15] = 30
+        d4[24] = 2
+        d4[29] = -39
+    ks5 = []
+    for _k in d4:
+        ks5.append(str(_k))
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P087"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=247"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_method_on_var"]
+note = "SyntaxError: il_codegen: '.rfind(...)' chi dung duoc tren bien kieu record, string (['capitalize', 'endswith', 'find', 'join', 'lower', 'lstrip', 'replace', 'rstrip', 'startswith', 'strip', 'upper']), list.pop()/list.index(), dict.get()/dict.pop(), file-handle ('.write(x)'/'.read()'), hoac 'x = lst.count(...)' (chi RHS truc tiep 1 phep gan) - 'v2' co shape=None dtype='str'"
+repro = """
+def run() -> "str":
+    _out = []
+    v2 = "aF.EaEbb"
+    try:
+        _out.append(str(v2.rfind("aF.EaE")))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P088"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=251"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"D|'"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1["D|,"] = 44
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P089"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=260"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_for_in_expr", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x6 in v2.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    v2 = "E bE,b"
+    i4 = 0
+    while i4 < 3:
+        acc5 = 0
+        for x6 in v2.split(","):
+            acc5 = acc5 + 1
+        try:
+            _out.append(str(acc5))
+        except:
+            _out.append("ERR")
+        i4 = i4 + 1
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P090"
+kind = "runtime_crash"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=264"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_dict_new", "tmpl_for_in_dict_bare"]
+note = "\nUnhandled Exception: System.Collections.Generic.KeyNotFoundException: The given key was not present in the dictionary.\n   at System.ThrowHelper.ThrowKeyNotFoundException()\n   at System.Collections.Generic.Dictionary`2.get_Item(TKey key)\n   at TKVApp.run()\n   at TKVApp.Main(String[] args)\n"
+repro = """
+def run() -> "str":
+    _out = []
+    d1 = {}
+    d1[43] = -4
+    acc4 = 0
+    for _k in d1:
+        acc4 = acc4 + 1
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P091"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=266"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_for_in_expr"]
+note = "SyntaxError: il_codegen: khong dich duoc dong: 'for x4 in v2.split(\",\"):'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = -39
+    v2 = "a,b"
+    if v1 > 0:
+        acc3 = 0
+        for x4 in v2.split(","):
+            acc3 = acc3 + 1
+        try:
+            _out.append(str(acc3))
+        except:
+            _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P092"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=267"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_method_on_var"]
+note = "SyntaxError: il_codegen: '.rfind(...)' chi dung duoc tren bien kieu record, string (['capitalize', 'endswith', 'find', 'join', 'lower', 'lstrip', 'replace', 'rstrip', 'startswith', 'strip', 'upper']), list.pop()/list.index(), dict.get()/dict.pop(), file-handle ('.write(x)'/'.read()'), hoac 'x = lst.count(...)' (chi RHS truc tiep 1 phep gan) - 'v3' co shape=None dtype='str'"
+repro = """
+def run() -> "str":
+    _out = []
+    v3 = "Fb Fb Fb"
+    try:
+        _out.append(str(v3.rfind("Fb")))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P093"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=286"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_method_on_call", "tmpl_round"]
+note = "SyntaxError: il_codegen: ham 'round' chi nhan dung 1 tham so [repro sua lai: reducer truoc do vo tinh xoa khai bao bien]"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = 3.14159
+    v2 = -47
+    if v2 == 0:
+        try:
+            _out.append(str(round(v1, 2)))
+        except:
+            _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P094"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=287"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_list_index", "tmpl_list_new"]
+note = "KeyError: 'infer_literal_dtype'"
+repro = """
+def run() -> "str":
+    _out = []
+    try:
+        _out.append(str(lst2[-1:5]))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P095"
+kind = "compile_gap"
+severity = "loud"
+status = "fixed"
+site = "fuzz.py:seed=293"
+discovered = "2026-08-05"
+templates = ["tmpl_dict_new", "tmpl_method_on_call"]
+note = "SyntaxError: il_codegen: khong tokenize duoc bieu thuc tai '\"F'"
+repro = """
+def run() -> "str":
+    _out = []
+    d2 = {}
+    d2["F,-"] = -24
+    try:
+        _out.append(str("end"))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P096"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=294"
+discovered = "2026-08-05"
+templates = ["<lambda>", "tmpl_decl_scalar", "tmpl_dict_new", "tmpl_round"]
+note = "py='43' tkv='43.0'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = 42.842
+    try:
+        _out.append(str(round(v1)))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""
+
+[[entry]]
+id = "P097"
+kind = "value_mismatch"
+severity = "silent"
+status = "fixed"
+site = "fuzz.py:seed=297"
+discovered = "2026-08-05"
+templates = ["tmpl_decl_scalar", "tmpl_list_new", "tmpl_method_on_var"]
+note = "py='False' tkv='0'"
+repro = """
+def run() -> "str":
+    _out = []
+    v1 = "bb"
+    try:
+        _out.append(str(v1.startswith("E|")))
+    except:
+        _out.append("ERR")
+    return "|".join(_out)
+"""

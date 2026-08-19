@@ -1,0 +1,10 @@
+# base64.tkv - TokenVector Standard Library Wrapper cho Base64 Encoding/Decoding
+
+def b64encode(data: "str") -> "str":
+    res = base64_encode(data)
+    return res
+
+
+def b64decode(data: "str") -> "str":
+    res = base64_decode(data)
+    return res

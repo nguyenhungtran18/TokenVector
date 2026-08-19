@@ -1,0 +1,5 @@
+# shutil.tkv - TokenVector Standard Library Wrapper cho Shutil Operations
+
+def rmtree(dir_path: "str") -> "i32":
+    res = shutil_rmtree(dir_path)
+    return res

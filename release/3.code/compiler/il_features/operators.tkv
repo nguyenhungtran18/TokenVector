@@ -1,0 +1,623 @@
+# -*- coding: utf-8 -*-
+"""Toan tu so hoc/boolean/so sanh (Phase 1 buoc 6, 2026-07-28) - tag
+'binop'/'boolop'/'neg'/'not'/'compare' cua _compile_expr (TRU nhanh
+string, da chuyen sang string_feature.py o buoc 5 - file nay GOI LAI
+qua ctx['compile_binop_concat']/ctx['compile_compare_str'] duoc tiem tu
+core, giu dung tinh than 'binop'/'compare' O DAY vi day la tag SO HOC
+CO BAN (string la truong hop dac biet duoc uy quyen ra ngoai, khac
+index/in noi list/dict/set moi la chu so huu chinh); cong voi ho macro
+TEXT-LEVEL dense/normalize/argmax/add/sub/mul/scale/matvec/apply +
+compound-assign +=/-=/... tren bien/chi-so (KHONG bao gom compound-assign
+tren field record, thuoc record_feature.py).
+
+Quy uoc dependency-injection qua `ctx` giong cac buoc truoc. Macro
+_COMPOUND_ATTR_RE (dung chung constant _COMPOUND_ASSIGN_OPS) o
+record_feature.py se dinh nghia LAI cung 1 dict nho nay - chap nhan
+trung lap 1 dict hang so 5 phan tu thay vi import cheo giua 2 feature
+file."""
+import re
+
+from il_core import IL_LDC_OP
+import il_features.int_type as _int_type
+from il_dispatch import register_macro_expander, register_expr_codegen
+from il_features.stdlib_math import compile_pow as _compile_pow
+
+_COMPOUND_ASSIGN_OPS = {'+=': '+', '-=': '-', '*=': '*', '/=': '/', '%=': '%'}
+_COMPOUND_OP_PATTERN = r'(\+=|-=|\*=|/=|%=)'
+_COMPOUND_INDEX_RE = re.compile(r'^(\w+)\[(.+)\]\s*' + _COMPOUND_OP_PATTERN + r'\s*(.+)$')
+_COMPOUND_VAR_RE = re.compile(r'^(\w+)\s*' + _COMPOUND_OP_PATTERN + r'\s*(.+)$')
+
+_DENSE_RE = re.compile(r"^(\w+)\s*=\s*dense\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*['\"](\w+)['\"]\s*\)\s*$")
+_DENSE_ACTIVATIONS = {'none', 'tanh', 'sigmoid', 'relu'}
+_NORMALIZE_RE = re.compile(r'^(\w+)\s*=\s*normalize\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*\)\s*$')
+_ARGMAX_RE = re.compile(r'^(\w+)\s*=\s*argmax\(\s*(\w+)\s*\)\s*$')
+_BINOP_MACRO_RE = re.compile(r'^(\w+)\s*=\s*(add|sub|mul)\(\s*(\w+)\s*,\s*(\w+)\s*\)\s*$')
+_BINOP_MACRO_OP = {'add': '+', 'sub': '-', 'mul': '*'}
+_SCALE_RE = re.compile(r'^(\w+)\s*=\s*scale\(\s*(\w+)\s*,\s*([\w.\-]+)\s*\)\s*$')
+_MATVEC_RE = re.compile(r'^(\w+)\s*=\s*matvec\(\s*(\w+)\s*,\s*(\w+)\s*\)\s*$')
+_APPLY_RE = re.compile(r"^(\w+)\s*=\s*apply\(\s*(\w+)\s*,\s*['\"](\w+)['\"]\s*\)\s*$")
+_APPLY_FUNCS = {'tanh', 'sigmoid', 'relu', 'exp', 'sqrt', 'sin', 'cos', 'abs'}
+
+
+def _emit_int_floor_div_or_mod(node, op, left, right, scope, out, dtype, ctx):
+    """'//' va '%' tren SO NGUYEN theo dung ngu nghia Python (2026-08-03).
+
+    CIL 'div'/'rem' cat VE 0 (giong C#); Python lam tron VE AM VO CUC:
+        Python: -7 // 2 == -4, -7 % 3 == 2
+        CIL   : -7 /  2 == -3, -7 rem 3 == -1
+    Voi 2 toan hang CUNG DAU thi trung nhau - vi vay bug nay AM THAM:
+    bien dich duoc, chay duoc, chi sai khi gap so am. Do THAT bang cach
+    doi chieu CPython (scratch/probe_confidence.py) moi lo ra.
+
+    Sua theo dung cong thuc chuan:
+        q = a / b ; r = a rem b
+        neu r != 0 VA (a XOR b) < 0  ->  q = q - 1   (floor div)
+        neu r != 0 VA (r XOR b) < 0  ->  r = r + b   (modulo)
+    'a XOR b < 0' = "hai toan hang KHAC DAU" (bit dau khac nhau) - re hon
+    2 phep so sanh rieng.
+
+    Can 4 o nho vi moi toan hang dung LAI nhieu lan; chung duoc cap phat o
+    first-pass qua _walk_intdiv_nodes (il_codegen.py) voi khoa id(node)."""
+    compile_expr = ctx['compile_expr']
+    try:
+        _, a_idx, _ = scope[f'__idiv{id(node)}_a']
+        _, b_idx, _ = scope[f'__idiv{id(node)}_b']
+        _, q_idx, _ = scope[f'__idiv{id(node)}_q']
+        _, r_idx, _ = scope[f'__idiv{id(node)}_r']
+    except KeyError:
+        raise SyntaxError(
+            "il_codegen: '//' hoac '%' tren so nguyen thieu o nho tam - bieu thuc nay "
+            "khong di qua first-pass (bao loi thay vi sinh ma cat-ve-0 SAI am tham)")
+
+    zero = '    ldc.i4.0' if dtype == 'i32' else '    ldc.i8 0'
+    one = '    ldc.i4.1' if dtype == 'i32' else '    ldc.i8 1'
+
+    compile_expr(left, scope, out, dtype, ctx)
+    out.append(f'    stloc.s {a_idx}')
+    compile_expr(right, scope, out, dtype, ctx)
+    out.append(f'    stloc.s {b_idx}')
+    out.append(f'    ldloc.s {a_idx}')
+    out.append(f'    ldloc.s {b_idx}')
+    out.append('    div')
+    out.append(f'    stloc.s {q_idx}')
+    out.append(f'    ldloc.s {a_idx}')
+    out.append(f'    ldloc.s {b_idx}')
+    out.append('    rem')
+    out.append(f'    stloc.s {r_idx}')
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    done_lbl = f"{ctx['prefix']}_idiv{n}_done"
+
+    # Khong can chinh khi r == 0 (chia het).
+    out.append(f'    ldloc.s {r_idx}')
+    out.append(zero)
+    out.append(f'    beq {done_lbl}')
+    # Khong can chinh khi 2 ve CUNG DAU.
+    if op == '//':
+        out.append(f'    ldloc.s {a_idx}')
+    else:
+        out.append(f'    ldloc.s {r_idx}')
+    out.append(f'    ldloc.s {b_idx}')
+    out.append('    xor')
+    out.append(zero)
+    out.append(f'    bge {done_lbl}')
+    if op == '//':
+        out.append(f'    ldloc.s {q_idx}')
+        out.append(one)
+        out.append('    sub')
+        out.append(f'    stloc.s {q_idx}')
+    else:
+        out.append(f'    ldloc.s {r_idx}')
+        out.append(f'    ldloc.s {b_idx}')
+        out.append('    add')
+        out.append(f'    stloc.s {r_idx}')
+    out.append(f'  {done_lbl}:')
+    out.append(f'    ldloc.s {q_idx if op == "//" else r_idx}')
+
+
+def _narrow_int_result(dtype, out, ctx):
+    """BUG THAT (2026-08-05 lat 4): cac nhanh 'int' cua compile_binop day
+    len stack mot TkvInt va TRA VE NGAY, bo qua `dtype` ma NGU CANH yeu
+    cau. Truoc khi 'int' la mac dinh toan cuc dieu do vo hai vi chi ma
+    trong ham '-> int' moi di vao day. Nay 'a * 100 + b' trong mot ham
+    '-> i32' sinh 'ret' voi mot STRUCT tren stack o cho khai bao int32:
+    ilasm nuot, chuong trinh in ra 0 - SAI AM THAM, dung lop nguy hiem
+    nhat. Thu hep CO KIEM TRA qua chinh _widen_if_needed."""
+    if dtype is not None and dtype != 'int':
+        ctx['widen_if_needed']('int', dtype, out)
+
+
+def compile_binop(node, scope, out, dtype, ctx=None):
+    """EXPR_CODEGEN entry cho tag 'binop' - nhanh string uy quyen ra
+    ctx['compile_binop_concat'] (string_feature.py), phan con lai (so
+    hoc +-*/%) o day."""
+    op, left, right = node[1], node[2], node[3]
+    infer_dtype = ctx['infer_dtype']
+    func_table = (ctx or {}).get('func_table')
+    # Suy dtype THAT cua toan hang tu chinh no (khong dua vao `dtype`
+    # ben ngoai) - can THIET khi ham co CA bien so lan bien string: vd
+    # ham numeric goi 1 bieu thuc con la string-concat, `dtype` truyen
+    # vao la numeric nhung toan hang '+' o day la 2 string.
+    left_dtype = infer_dtype(left, scope, func_table)
+    right_dtype = infer_dtype(right, scope, func_table)
+    operand_dtype = left_dtype or right_dtype or dtype
+    records = (ctx or {}).get('records') or {}
+    if op == '+' and operand_dtype in records:
+        # __add__ cho record (6.5, dunder overload - muc 5/5, 2026-08-13):
+        # a + b tren 2 gia tri CUNG kieu record co
+        # __add__(self, other) -> T goi callvirt. KHONG co fallback mac
+        # dinh nhu __eq__ - thieu __add__ la loi RO, khong ROI xuong
+        # nhanh 'add' CIL tren 2 object reference (vo nghia/crash).
+        record_methods = (ctx or {}).get('record_methods') or {}
+        dunder = record_methods.get(operand_dtype, {}).get('__add__')
+        if dunder is None:
+            raise SyntaxError(
+                f"il_codegen: record '{operand_dtype}' khong co __add__ - "
+                f"'+' tren record can dinh nghia "
+                f"'def __add__(self, other) -> \"T\": ...' (T la kieu tra ve tuy chon)")
+        record_bases = (ctx or {}).get('record_bases') or {}
+        ancestors = {operand_dtype}
+        walk = operand_dtype
+        while isinstance(record_bases.get(walk), str) and record_bases.get(walk):
+            walk = record_bases[walk]
+            ancestors.add(walk)
+        if len(dunder.params) != 1 or \
+                dunder.params[0].type_ann.dtype not in ancestors or \
+                dunder.params[0].type_ann.shape != 'record' or \
+                dunder.return_type is None:
+            raise SyntaxError(
+                f"il_codegen: record '{operand_dtype}' co __add__ nhung chu ky sai - "
+                f"can dung 1 tham so CUNG kieu record (hoac to tien) va tra ve 1 kieu "
+                f"bat ky ('def __add__(self, other) -> \"T\":')")
+        compile_expr = ctx['compile_expr']
+        compile_expr(left, scope, out, operand_dtype, ctx)
+        compile_expr(right, scope, out, operand_dtype, ctx)
+        from il_features.record_feature import _method_owner_class
+        owner = _method_owner_class(ctx, operand_dtype, '__add__')
+        param_il = ctx['il_type_str'](dunder.params[0].type_ann, records)
+        ret_dtype, ret_shape = dunder.return_type.dtype, dunder.return_type.shape
+        ret_il = ctx['il_type_str'](dunder.return_type, records)
+        out.append(f'    callvirt instance {ret_il} {owner}::__add__({param_il})')
+        if ret_shape is None:
+            ctx['widen_if_needed'](ret_dtype, dtype, out)
+        return
+    if operand_dtype == 'str' or (op == '*' and 'str' in (left_dtype, right_dtype)):
+        # '"ab" * 3' VA '3 * "ab"' (2026-08-03): Python cho phep ca 2
+        # chieu. Chieu thu hai co left_dtype='i32' nen KHONG loc duoc bang
+        # operand_dtype - phai xet ca hai ve, neu khong no roi xuong nhanh
+        # so hoc va sinh 'mul' tren 1 tham chieu chuoi (AccessViolation
+        # luc chay - da gap THAT khi test).
+        return ctx['compile_binop_concat'](op, left, right, scope, out, ctx)
+    if dtype == 'int' and operand_dtype in ('i32', 'i64'):
+        # BUG THAT (2026-08-05 lat 4): khi NGU CANH doi 'int' nhung ca hai
+        # toan hang suy ra i32/i64 (vd 'lst[i] * (i + 1)' voi lst la
+        # list[i32]), nhanh so-may ben duoi bien dich TUNG toan hang voi
+        # dtype='int' - tuc moi ben bi nang thanh TkvInt - roi sinh
+        # 'mul.ovf'/'add.ovf' TREN HAI STRUCT. ilasm nuot, CLR nem
+        # BadImageFormatException luc chay (list_batch3_test). Tinh o kieu
+        # 'int' moi la dung ca ve IL lan ve ngu nghia Python.
+        operand_dtype = 'int'
+    if operand_dtype == 'int' and op in ('+', '-', '*'):
+        # Kieu 'int' vo han chu so (moc 6 buoc 2, 2026-08-05) - duong
+        # nhanh noi tuyen + duong cham BigInteger, xem int_type.py.
+        _int_type.compile_binop(op, left, right, scope, out, ctx)
+        return _narrow_int_result(dtype, out, ctx)
+    if operand_dtype == 'int':
+        # Moc 6 lat 2 (2026-08-05). Ba phep nay di helper chu khong noi
+        # tuyen - xem int_type.compile_divmod_pow.
+        if op in ('//', '%', '**'):
+            _int_type.compile_divmod_pow(op, left, right, scope, out, ctx)
+            return _narrow_int_result(dtype, out, ctx)
+        if op == '/':
+            # Python: '/' giua hai so nguyen (hoac float) LUON tra ve FLOAT (f64) (7/2 == 3.5, 6/2 == 3.0).
+            # (Moc 10, 2026-08-08)
+            compile_expr = ctx['compile_expr']
+            if operand_dtype == 'int':
+                compile_expr(left, scope, out, 'int', ctx)
+                out.append(f'    call float64 {_int_type.TKVINT_CLASS}::ToF64(valuetype {_int_type.TKVINT_CLASS})')
+                compile_expr(right, scope, out, 'int', ctx)
+                out.append(f'    call float64 {_int_type.TKVINT_CLASS}::ToF64(valuetype {_int_type.TKVINT_CLASS})')
+                out.append('    div')
+            elif operand_dtype in ctx['int_dtypes']:
+                compile_expr(left, scope, out, operand_dtype, ctx)
+                out.append('    conv.r8')
+                compile_expr(right, scope, out, operand_dtype, ctx)
+                out.append('    conv.r8')
+                out.append('    div')
+            else:
+                compile_expr(left, scope, out, 'f64', ctx)
+                compile_expr(right, scope, out, 'f64', ctx)
+                out.append('    div')
+            if dtype != 'f64':
+                ctx['widen_if_needed']('f64', dtype, out)
+            return
+    if operand_dtype == 'complex':
+        # Muc 6.8 (2/4, 2026-08-13): '+'/'-'/'*'/'/' giua 2 gia tri
+        # 'complex' - uy quyen ra complex_type.py (goi static Add/Subtract/
+        # Multiply/Divide co san tren System.Numerics.Complex).
+        import il_features.complex_type as _complex_type
+        _complex_type.compile_binop(op, left, right, scope, out, ctx)
+        return
+    compile_expr = ctx['compile_expr']
+    if op == '**':
+        # 'x ** y' (Wave 3, 2026-07-29) - tai dung THANG pow()'s codegen
+        # (System.Math::Pow, chi co overload float64) - KHONG viet lai.
+        return _compile_pow([left, right], scope, out, dtype, ctx)
+    if op in ('//', '%') and operand_dtype in ctx['int_dtypes']:
+        # SUA 2026-08-03: truoc day dung THANG 'div'/'rem' cua CIL (cat ve
+        # 0) va ghi chu do la "gioi han co y thuc" - nhung do la SAI AM
+        # THAM voi so am, khong phai gioi han chap nhan duoc. Nay sinh dung
+        # ngu nghia floor cua Python.
+        return _emit_int_floor_div_or_mod(node, op, left, right, scope, out,
+                                           operand_dtype, ctx)
+    if op == '//':
+        # Con lai: dtype THUC (f32/f64) - Math.Floor(a/b), khong co van de
+        # dau (Floor dung nghia THAT).
+        float_dtypes = ctx['float_dtypes']
+        compile_expr(left, scope, out, dtype, ctx)
+        compile_expr(right, scope, out, dtype, ctx)
+        out.append('    div')
+        if operand_dtype in float_dtypes:
+            if dtype != 'f64':
+                out.append('    conv.r8')
+            out.append('    call float64 [mscorlib]System.Math::Floor(float64)')
+            if dtype != 'f64':
+                out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+        return
+    compile_expr(left, scope, out, dtype, ctx)
+    compile_expr(right, scope, out, dtype, ctx)
+    if operand_dtype in ctx['int_dtypes'] and op in ('+', '-', '*'):
+        # TRAN SO PHAI BAO, KHONG DUOC IM LANG (2026-08-04).
+        #
+        # Python co so nguyen VO HAN chu so; TokenVector chi co i32/i64.
+        # Truoc ban va nay, 'add'/'sub'/'mul' cua CIL QUAN VONG lang le:
+        #   fact(13) -> CPython 6227020800, TokenVector 1932053504
+        #   fact(20) -> CPython 2432902008176640000, TokenVector -2102132736
+        #   2**31    -> CPython 2147483648, TokenVector -2147483648  (AM!)
+        # 13! la mot phep tinh HET SUC BINH THUONG, va no da sai san.
+        #
+        # 'add.ovf'/'sub.ovf'/'mul.ovf' nem OverflowException thay vi tra
+        # so rac. Day CHUA phai ngang bang Python (Python tra dung ket qua,
+        # khong nem), nhung theo dung thu tu uu tien cua du an: sai AM THAM
+        # nguy hiem hon han loi ON AO. Buoc sau moi doi bieu dien sang
+        # BigInteger de ngang bang that.
+        #
+        # KHONG ap cho '/' va '%': '//' va '%' so nguyen di duong rieng
+        # (_emit_int_floor_div_or_mod) va phep chia khong the tran, tru
+        # MIN_VALUE / -1 - truong hop do CIL da tu nem roi.
+        out.append({'+': '    add.ovf', '-': '    sub.ovf',
+                    '*': '    mul.ovf'}[op])
+        return
+    out.append({'+': '    add', '-': '    sub', '*': '    mul', '/': '    div', '%': '    rem'}[op])
+
+
+def compile_boolop(node, scope, out, dtype, ctx=None):
+    """EXPR_CODEGEN entry cho tag 'boolop' - toan hang la ket qua so
+    sanh (int32 0/1) - dung dtype='i32' rieng cho ca 2 ve (khac
+    'compare', noi TOAN HANG dung dtype that con KET QUA moi la i32).
+
+    SHORT-CIRCUIT (2026-08-02): ban truoc sinh THANG 'and'/'or' bitwise
+    cua CIL, tuc TINH CA HAI VE roi moi hop nhat - SAI ngu nghia Python
+    va la loi THAT da xac minh: 'i < len(lst) and lst[i] == x' nem
+    ArgumentOutOfRangeException khi i == len(lst), du ve trai da sai.
+    Probe: test/sc_probe.tkv.
+
+    Nay sinh nhanh nhay theo mau CIL chuan, KHONG can bien tam (khac
+    ternary): 'dup' giu lai gia tri ve trai lam KET QUA neu nhay tat.
+        a and b:  <a> dup brfalse END pop <b> END:
+        a or  b:  <a> dup brtrue  END pop <b> END:
+    Ca 2 duong vao END deu de dung 1 gia tri i32 tren stack nen stack
+    hop le. Ve phai CHI chay khi ve trai khong quyet dinh duoc ket qua.
+    """
+    op, left, right = node[1], node[2], node[3]
+    compile_expr = ctx['compile_expr']
+    if ctx is None or 'label_counter' not in ctx:
+        # Khong co bo dem nhan (duong goi phu, vd _eval_const_dim) -
+        # giu hanh vi cu, khong short-circuit. An toan vi cac duong nay
+        # chi tinh hang so, khong co truy cap phan tu.
+        compile_expr(left, scope, out, 'i32', ctx)
+        compile_expr(right, scope, out, 'i32', ctx)
+        out.append('    and' if op == 'and' else '    or')
+        return
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    end_lbl = f"{ctx.get('prefix', 'expr')}_sc{n}_end"
+    compile_expr(left, scope, out, 'i32', ctx)
+    out.append('    dup')
+    out.append(f"    {'brfalse' if op == 'and' else 'brtrue'} {end_lbl}")
+    out.append('    pop')
+    compile_expr(right, scope, out, 'i32', ctx)
+    out.append(f'  {end_lbl}:')
+
+
+def compile_neg(node, scope, out, dtype, ctx=None):
+    if dtype == 'int':
+        # 'neg' cua CIL an mot SO MAY, kieu 'int' la struct - xem
+        # int_type.compile_neg.
+        return _int_type.compile_neg(node[1], scope, out, ctx)
+    ctx['compile_expr'](node[1], scope, out, dtype, ctx)
+    out.append('    neg')
+
+
+def compile_not(node, scope, out, dtype, ctx=None):
+    """'not expr' - phu dinh boolean, toan hang la ket qua 0/1 (i32,
+    giong 'boolop') - 'ceq' voi 0 la cach CIL chuan lat 0/1 (khong co
+    opcode 'not' rieng cho boolean, chi co 'not' bitwise tren so nguyen
+    - dung sai o day se lat SAI bit thay vi lat gia tri 0/1)."""
+    ctx['compile_expr'](node[1], scope, out, 'i32', ctx)
+    out.append('    ldc.i4.0')
+    out.append('    ceq')
+
+
+def compile_compare(node, scope, out, dtype, ctx=None):
+    """EXPR_CODEGEN entry cho tag 'compare' - nhanh string uy quyen ra
+    ctx['compile_compare_str'] (string_feature.py), phan con lai (so
+    sanh so hoc) o day. Ket qua LUON la int32 0/1 (khong phai dtype cua
+    toan hang) - dung ceq/cgt/clt CHUAN CIL, cac toan tu con lai
+    (!=,>=,<=) suy tu 3 cai do bang 1 lan phu dinh (ldc.i4.0; ceq).
+    __eq__ cho record (6.5, dunder overload - muc 2, 2026-08-13): '=='/
+    '!=' tren 2 gia tri CUNG kieu record co __eq__(self, other) -> "i32"
+    goi callvirt thay vi ceq (reference-compare mac dinh)."""
+    op, left, right = node[1], node[2], node[3]
+    operand_dtype = ctx['resolve_compare_operand_dtype'](
+        left, right, scope, (ctx or {}).get('func_table'), dtype,
+        (ctx or {}).get('records'), (ctx or {}).get('record_methods'))
+    if operand_dtype == 'str':
+        return ctx['compile_compare_str'](op, left, right, scope, out, ctx)
+    if operand_dtype == 'int':
+        return _int_type.compile_compare(op, left, right, scope, out, ctx)
+    compile_expr = ctx['compile_expr']
+    records = (ctx or {}).get('records') or {}
+    if op in ('==', '!=') and operand_dtype in records:
+        record_methods = (ctx or {}).get('record_methods') or {}
+        dunder = record_methods.get(operand_dtype, {}).get('__eq__')
+        if dunder is not None:
+            record_bases = (ctx or {}).get('record_bases') or {}
+            ancestors = {operand_dtype}
+            walk = operand_dtype
+            while isinstance(record_bases.get(walk), str) and record_bases.get(walk):
+                walk = record_bases[walk]
+                ancestors.add(walk)
+            if len(dunder.params) != 1 or dunder.params[0].type_ann.dtype not in ancestors or \
+                    dunder.params[0].type_ann.shape != 'record' or \
+                    dunder.return_type is None or dunder.return_type.dtype != 'i32' or \
+                    dunder.return_type.shape is not None:
+                raise SyntaxError(
+                    f"il_codegen: record '{operand_dtype}' co __eq__ nhung chu ky sai - can "
+                    f"dung 1 tham so CUNG kieu record va tra ve \"i32\" "
+                    f"('def __eq__(self, other) -> \"i32\":')")
+            compile_expr(left, scope, out, operand_dtype, ctx)
+            compile_expr(right, scope, out, operand_dtype, ctx)
+            from il_features.record_feature import _method_owner_class
+            owner = _method_owner_class(ctx, operand_dtype, '__eq__')
+            param_il = ctx['il_type_str'](dunder.params[0].type_ann, records)
+            out.append(f'    callvirt instance int32 {owner}::__eq__({param_il})')
+            if op == '!=':
+                out.append('    ldc.i4.0')
+                out.append('    ceq')
+            return
+    compile_expr(left, scope, out, operand_dtype, ctx)
+    compile_expr(right, scope, out, operand_dtype, ctx)
+    compare_opcode, compare_negated = ctx['compare_opcode'], ctx['compare_negated']
+    if op in compare_opcode:
+        out.append(f'    {compare_opcode[op]}')
+    else:
+        out.append(f'    {compare_negated[op]}')
+        out.append('    ldc.i4.0')
+        out.append('    ceq')
+
+
+def try_expand_compound_index(line):
+    """MACRO_EXPANDERS entry: 'lst[i] += expr'."""
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _COMPOUND_INDEX_RE.match(stripped)
+    if not m:
+        return None
+    name, idx, cop, rhs = m.groups()
+    op = _COMPOUND_ASSIGN_OPS[cop]
+    return f'{ind}{name}[{idx}] = {name}[{idx}] {op} ({rhs})'
+
+
+def try_expand_compound_var(line):
+    """MACRO_EXPANDERS entry: 'x += expr'."""
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _COMPOUND_VAR_RE.match(stripped)
+    if not m:
+        return None
+    name, cop, rhs = m.groups()
+    op = _COMPOUND_ASSIGN_OPS[cop]
+    return f'{ind}{name} = {name} {op} ({rhs})'
+
+
+def try_expand_dense(line):
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _DENSE_RE.match(stripped)
+    if not m:
+        return None
+    name, inp, w, b, act = m.groups()
+    if act not in _DENSE_ACTIVATIONS:
+        raise SyntaxError(f"il_codegen: dense() activation {act!r} khong ho tro "
+                           f"(chi: {sorted(_DENSE_ACTIVATIONS)})")
+    n = _dense_counter[0]
+    _dense_counter[0] += 1
+    pj, pi, ps, pv = f'__dense{n}_j', f'__dense{n}_i', f'__dense{n}_s', f'__dense{n}_v'
+    lines_out = [
+        f'{ind}{name} = np.zeros({w}.shape[1], dtype=np.float32)',
+        f'{ind}for {pj} in range({w}.shape[1]):',
+        f'{ind}    {ps} = 0.0',
+        f'{ind}    for {pi} in range({w}.shape[0]):',
+        f'{ind}        {ps} = {ps} + {inp}[{pi}] * {w}[{pi}, {pj}]',
+    ]
+    if act == 'none':
+        lines_out.append(f'{ind}    {name}[{pj}] = {ps} + {b}[{pj}]')
+    elif act == 'tanh':
+        lines_out.append(f'{ind}    {name}[{pj}] = tanh({ps} + {b}[{pj}])')
+    elif act == 'sigmoid':
+        lines_out.append(f'{ind}    {name}[{pj}] = 1.0 / (1.0 + exp(-({ps} + {b}[{pj}])))')
+    elif act == 'relu':
+        lines_out.append(f'{ind}    {pv} = {ps} + {b}[{pj}]')
+        lines_out.append(f'{ind}    {name}[{pj}] = ({pv} > 0.0) ? {pv} : 0.0')
+    return '\n'.join(lines_out)
+
+
+_dense_counter = [0]
+
+
+def try_expand_normalize(line):
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _NORMALIZE_RE.match(stripped)
+    if not m:
+        return None
+    name, x, x_min, x_max = m.groups()
+    n = _normalize_counter[0]
+    _normalize_counter[0] += 1
+    pi = f'__norm{n}_i'
+    return (f'{ind}{name} = np.zeros({x}.shape[0], dtype=np.float32)\n'
+            f'{ind}for {pi} in range({x}.shape[0]):\n'
+            f'{ind}    {name}[{pi}] = ({x}[{pi}] - {x_min}[{pi}]) / ({x_max}[{pi}] - {x_min}[{pi}])')
+
+
+_normalize_counter = [0]
+
+
+def try_expand_argmax(line):
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _ARGMAX_RE.match(stripped)
+    if not m:
+        return None
+    name, arr = m.groups()
+    n = _argmax_counter[0]
+    _argmax_counter[0] += 1
+    pk, pbest = f'__argmax{n}_k', f'__argmax{n}_bestval'
+    return (f'{ind}{pbest} = {arr}[0]\n'
+            f'{ind}{name} = 0.0\n'
+            f'{ind}for {pk} in range({arr}.shape[0]):\n'
+            f'{ind}    if {arr}[{pk}] > {pbest}:\n'
+            f'{ind}        {pbest} = {arr}[{pk}]\n'
+            f'{ind}        {name} = {pk}')
+
+
+_argmax_counter = [0]
+
+
+def try_expand_binop_macro(line):
+    # add/sub/mul: c = a OP b, elementwise, CUNG shape (khong kiem tra
+    # shape o day - guard-check cua ham goi da lam viec do; macro nay chi
+    # gia dinh a/b CUNG do dai, dung shape cua `a` lam bien vong lap,
+    # giong het quy uoc dense() dung shape cua tham so dau).
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _BINOP_MACRO_RE.match(stripped)
+    if not m:
+        return None
+    name, macro, a, b = m.groups()
+    op = _BINOP_MACRO_OP[macro]
+    n = _binop_macro_counter[0]
+    _binop_macro_counter[0] += 1
+    pi = f'__{macro}{n}_i'
+    return (f'{ind}{name} = np.zeros({a}.shape[0], dtype=np.float32)\n'
+            f'{ind}for {pi} in range({a}.shape[0]):\n'
+            f'{ind}    {name}[{pi}] = {a}[{pi}] {op} {b}[{pi}]')
+
+
+_binop_macro_counter = [0]
+
+
+def try_expand_scale(line):
+    # scale: c = a * s (s la scalar - so hoac ten bien scalar).
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _SCALE_RE.match(stripped)
+    if not m:
+        return None
+    name, a, s = m.groups()
+    n = _scale_counter[0]
+    _scale_counter[0] += 1
+    pi = f'__scale{n}_i'
+    return (f'{ind}{name} = np.zeros({a}.shape[0], dtype=np.float32)\n'
+            f'{ind}for {pi} in range({a}.shape[0]):\n'
+            f'{ind}    {name}[{pi}] = {a}[{pi}] * {s}')
+
+
+_scale_counter = [0]
+
+
+def try_expand_matvec(line):
+    # matvec: c = W . x (nhan ma tran-vector THUAN, khong bias/
+    # activation - giong dense() nhung tru phan do; input TRUOC, trong so
+    # SAU, giong quy uoc dense(input, W, ...)).
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _MATVEC_RE.match(stripped)
+    if not m:
+        return None
+    name, x, w = m.groups()
+    n = _matvec_counter[0]
+    _matvec_counter[0] += 1
+    pj, pi, ps = f'__mv{n}_j', f'__mv{n}_i', f'__mv{n}_s'
+    return (f'{ind}{name} = np.zeros({w}.shape[1], dtype=np.float32)\n'
+            f'{ind}for {pj} in range({w}.shape[1]):\n'
+            f'{ind}    {ps} = 0.0\n'
+            f'{ind}    for {pi} in range({w}.shape[0]):\n'
+            f'{ind}        {ps} = {ps} + {x}[{pi}] * {w}[{pi}, {pj}]\n'
+            f'{ind}    {name}[{pj}] = {ps}')
+
+
+_matvec_counter = [0]
+
+
+def try_expand_apply(line):
+    # apply: c = FN(a) tung phan tu (activation dung rieng, khong qua
+    # dense() - vd chi can kich hoat lai 1 mang co san, khong phai vua
+    # nhan ma tran vua kich hoat).
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _APPLY_RE.match(stripped)
+    if not m:
+        return None
+    name, a, fn = m.groups()
+    if fn not in _APPLY_FUNCS:
+        raise SyntaxError(f"il_codegen: apply() ham {fn!r} khong ho tro "
+                           f"(chi: {sorted(_APPLY_FUNCS)})")
+    n = _apply_counter[0]
+    _apply_counter[0] += 1
+    pi, pv = f'__apply{n}_i', f'__apply{n}_v'
+    lines_out = [
+        f'{ind}{name} = np.zeros({a}.shape[0], dtype=np.float32)',
+        f'{ind}for {pi} in range({a}.shape[0]):',
+    ]
+    if fn == 'sigmoid':
+        lines_out.append(f'{ind}    {name}[{pi}] = 1.0 / (1.0 + exp(-({a}[{pi}])))')
+    elif fn == 'relu':
+        lines_out.append(f'{ind}    {pv} = {a}[{pi}]')
+        lines_out.append(f'{ind}    {name}[{pi}] = ({pv} > 0.0) ? {pv} : 0.0')
+    else:
+        lines_out.append(f'{ind}    {name}[{pi}] = {fn}({a}[{pi}])')
+    return '\n'.join(lines_out)
+
+
+_apply_counter = [0]
+
+
+# Dang ky vao il_dispatch NGAY LUC MODULE NAP.
+register_expr_codegen('binop', compile_binop)
+register_expr_codegen('boolop', compile_boolop)
+register_expr_codegen('neg', compile_neg)
+register_expr_codegen('not', compile_not)
+register_expr_codegen('compare', compile_compare)
+register_macro_expander('compound_index', try_expand_compound_index)
+register_macro_expander('compound_var', try_expand_compound_var)
+register_macro_expander('dense', try_expand_dense)
+register_macro_expander('normalize', try_expand_normalize)
+register_macro_expander('argmax', try_expand_argmax)
+register_macro_expander('binop_macro', try_expand_binop_macro)
+register_macro_expander('scale', try_expand_scale)
+register_macro_expander('matvec', try_expand_matvec)
+register_macro_expander('apply', try_expand_apply)

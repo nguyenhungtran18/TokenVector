@@ -1,272 +1,109 @@
-# TOKENVECTOR COMPILER PLATFORM - RELEASE BẢN QUYỀN
+# TokenVector
 
-Chào mừng bạn đến với Bản phát hành Chính thức của Trình biên dịch & Ngôn ngữ Lập trình **TokenVector** (AOT Native CIL Compiler).
+**Biên dịch Python thành 1 file `.exe` độc lập, chạy nhanh gấp ~8× CPython — không cần cài Python trên máy đích.**
 
----
+TokenVector là trình biên dịch cho `.tkv` — một tập con Python có kiểu
+tĩnh. File `.tkv` **vẫn là mã Python hợp lệ 100%**, chạy được thật dưới
+CPython (dùng để đối chiếu kết quả, không phải cú pháp riêng phải học lại).
+TokenVector biên dịch thẳng sang CIL (.NET IL) rồi lắp bằng `ilasm.exe`
+(có sẵn trong .NET Framework trên mọi máy Windows) thành 1 `.exe` native —
+không cần cài Python, không cần đóng gói interpreter nặng nề như PyInstaller.
 
-## 🚀 HƯỚNG DẪN CÀI ĐẶT VÀ SỬ DỤNG NHANH (QUICKSTART GUIDE)
-
-### 1. Yêu cầu Hệ thống (System Requirements)
-- **Hệ điều hành**: Windows 10 / Windows 11 (x64) hoặc Linux / macOS với .NET Framework 4.0+ hoặc Mono.
-- **Trình biên dịch ILASM**: Đã được tích hợp sẵn hoặc đi kèm trong hệ điều hành Windows (`ilasm.exe`).
-
-### 2. Cấu hình Môi trường (Environment Setup)
-1. Giải nén thư mục `release/` vào ổ đĩa.
-2. Thêm đường dẫn `release/3.code/dist/` vào biến môi trường `PATH` để gọi lệnh `tkvc` từ bất kỳ đâu:
-   ```cmd
-   set PATH=%PATH%;C:\path\to\release\3.code\dist
-   ```
-
-### 3. Biên dịch & Chạy ứng dụng TokenVector đầu tiên
-Tạo tệp `hello.tkv` trong VScode hoặc dùng Notepad:
-```
-# -*- coding: utf-8 -*- 
-def run() -> "str":
-    print("Hello TokenVector AOT Native Engine!")
-    return "SUCCESS"
-```
-
-Biên dịch ra file `.exe` độc lập bằng `tkvc`:
-```cmd
-.\dist\tkvc.exe build hello.tkv --out hello.exe --entry run
-```
-
-Chạy chương trình:
-```cmd
-hello.exe
-```
-
----
-
-## 📂 CẤU TRÚC BỘ PHÁT HÀNH (RELEASE STRUCTURE)
-
-- `1.media/`: Tài sản hình ảnh, sơ đồ kiến trúc và đa phương tiện.
-- `2.UI/`: Mẫu giao diện và báo cáo hiệu năng interactive (`benchmark_results.html`).
-- `3.code/`:
-  - `dist/tkvc.exe`: File thực thi standalone của Trình biên dịch TokenVector.
-  - `tkv_compile.py`: Nhân biên dịch Python/AST -> CIL Assembly.
-  - `compiler/`: Thư viện xử lý tính năng CIL (`control_flow.py`, `int_type.py`, `generator_lazy.py`, `ffi_feature.py`, `stdlib_bcl.py`, `pycapi_shim.py`).
-  - `docs/`: Sách hướng dẫn lập trình TokenVector (`SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`) và Bảng so sánh kỹ thuật.
-  - `test/verify/`: Bộ kiểm thử hồi quy 97 bài test quy chuẩn.
-
----
-
-## 📄 BẢO HÀNH & BẢN QUYỀN
-Hệ thống được thiết kế và bảo chứng bởi TokenVector Team.
-
----
-
-# TOKENVECTOR COMPILER PLATFORM - BẢN PHÁT HÀNH & BÁO CÁO KỸ THUẬT 
-
-### (Official Release Package & Comprehensive 3-Pole Technical Benchmark Report)
-
-**Mã tài liệu: TKV-RELEASE-2026-MASTER**  
-**Phiên bản: 2026.1 (Bản Phát hành Thương mại Độc lập)**  
-**Bản quyền & Bảo chứng: Đội ngũ Trình biên dịch TokenVector Team**  
-**GitHub Repository:** [https://github.com/nguyenhungtran18/TokenVector](https://github.com/nguyenhungtran18/TokenVector)  
-**Trang web GitHub Pages:** [https://nguyenhungtran18.github.io/TokenVector/](https://nguyenhungtran18.github.io/TokenVector/)
-
----
-
-## 📦 I. CẤU TRÚC PHÂN CẤP THƯ MỤC BẢN PHÁT HÀNH (`release/`)
-
-Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên nghiệp, toàn bộ sản phẩm bàn giao được tổ chức tập trung tại thư mục gốc `release/`:
-
-- **`1.media/`**: Chứa sơ đồ kiến trúc hệ thống (`architecture_overview.md`) và các tài sản mô tả luồng tính toán 3 bên.
-- **`2.UI/`**: Chứa bản mô phỏng giao diện Terminal REPL (`terminal_repl_preview.md`) và báo cáo trực quan HTML (`benchmark_results.html`).
-- **`3.code/`**: Mã nguồn gốc sạch 100% bằng TokenVector Native (`.tkv`), cấu hình môi trường mẫu (`.env.example`), giáo trình lập trình (`docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`), tệp thực thi độc lập (`dist/tkvc.exe`), và bộ kiểm thử tích hợp E2E (`e2e_test.tkv`, `e2e_test.exe`).
-
----
-
-## ⚡ II. 4 CHỈ SỐ NỔI BẬT HÀNG ĐẦU (HIGHLIGHT STATS)
-
-- **Đa Luồng No-GIL**: **Nhanh gấp 10.39×** so với CPython (chạy song song 100% nhân CPU vật lý mà không bị nghẽn bởi khóa GIL).
-- **Dung Lượng File PE**: **~35 KB Standalone** (Tệp executable độc lập, không cần nạp CPython Interpreter).
-- **Tốc Độ Biên Dịch**: **~200 ms AOT** (Biên dịch AOT siêu tốc từ AST $\rightarrow$ ILASM $\rightarrow$ Native PE).
-- **Độ Tương Thích**: **100% Python Syntax** (Dùng cùng file `.tkv`/`.py`, ra kết quả giống hệt CPython).
-
----
-
-## 📊 III. BẢNG ĐÁNH GIÁ TỔNG KẾT NGÔI SAO 5 SAO (STAR-RATING MATRIX)
-
-| Tiêu Chí Đánh Giá | CPython 3.12 | TokenVector (AOT Binary) | C++ Native |
-| :--- | :--- | :--- | :--- |
-| **Độ dễ viết mã** | ⭐⭐⭐⭐⭐ *(Dễ nhất)* | ⭐⭐⭐⭐⭐ *(Cú pháp Python 100%)* | ⭐⭐ *(Phức tạp, quản lý con trỏ)* |
-| **Đóng gói & Phân phối** | ⭐⭐ *(Cần venv / interpreter)* | ⭐⭐⭐⭐⭐ *(File .exe độc lập 100%)* | ⭐⭐⭐⭐⭐ *(File binary độc lập)* |
-| **Đa luồng Multicore** | ⭐ *(Bị khóa bởi GIL)* | ⭐⭐⭐⭐⭐ *(No GIL, nhanh gấp 10.39x)* | ⭐⭐⭐⭐⭐ *(Chạy song song tối đa)* |
-| **Tính toán Đơn luồng** | ⭐⭐⭐ *(Thông dịch Bytecode)* | ⭐⭐⭐⭐ *(AOT CIL Unboxed Native)* | ⭐⭐⭐⭐⭐ *(Biên dịch Mã máy Native)* |
-| **Hệ sinh thái Thư viện** | ⭐⭐⭐⭐⭐ *(PyPI 500k+ pkgs)* | ⭐⭐⭐⭐ *(Python + C-FFI + .NET BCL)* | ⭐⭐⭐⭐ *(C/C++ Ecosystem)* |
-
----
-
-## 🚀 IV. SO SÁNH TỐC ĐỘ THỰC THI THUẬT TOÁN THUẦN TÚY (IN-PROCESS)
-
-| Bài Kiểm Thử (Workload) | CPython 3.12 (In-Process) | TokenVector AOT (In-Process) | C++ Native (-O3) | Đánh Giá So Sánh |
-| :--- | :--- | :--- | :--- | :--- |
-| **Vòng lặp Số nguyên (10M Ops)** | 2,319.50 ms | **410.00 ms** | 350.00 ms | **TokenVector nhanh hơn Python 5.65x 🔥** |
-| **Phép tính Số thực FP64 (2M Ops)** | 504.16 ms | **429.73 ms** | 380.00 ms | **TokenVector nhanh hơn Python 1.17x 🔥** |
-| **Đa luồng Số nguyên (4 Threads x 5M)** | 2,543.56 ms | **244.88 ms** | 218.00 ms | **TokenVector nhanh hơn Python 10.39x (No GIL) 🔥** |
-| **Đa luồng Số thực (4 Threads x 2M Float)** | 2,096.42 ms | **310.23 ms** | 260.00 ms | **TokenVector nhanh hơn Python 6.76x (No GIL) 🔥** |
-
----
-
-## 💾 V. SO SÁNH DUNG LƯỢNG FILE, TỐC ĐỘ BIÊN DỊCH & ĐÓNG Gói
-
-| Tiêu Chí Kỹ Thuật | CPython 3.12 | TokenVector AOT PE | C++ Native (MSVC / GCC) |
-| :--- | :--- | :--- | :--- |
-| **Dung lượng File Đóng gói (.exe)** | 25 MB - 100 MB *(Cần Runtime)* | **12 KB - 120 KB (Standalone)** | 15 KB - 80 KB *(Native)* |
-| **Tốc độ Biên dịch (Build Time)** | 0 ms *(Bytecode tức thì)* | **~150 ms - 300 ms (Siêu tốc)** | 1,500 ms - 5,000 ms *(Lâu)* |
-| **Phụ thuộc Môi trường Bên ngoài** | Bắt buộc cài Python + DLL | **KHÔNG CẦN CPython** | Bắt buộc CRT/VCRuntime |
-| **Bảo mật Mã nguồn (Reverse Eng)** | Dễ bị decompiled (.pyc) | **Đã qua AOT Assembly CIL** | Native Machine Code x64 |
-
----
-
-## 💻 VI. SO SÁNH MÃ NGUỒN ĐỐI CHIẾU 3 CỘT (TOKENVECTOR VS PYTHON VS C++)
-
-### ⚡ Cột 1: TokenVector (`Untitled-1.tkv`)
-```python
-# -*- coding: utf-8 -*-
-class DataAnalyzer:
-    name: "str"
-    baseline: "f64"
-    def __init__(self, name, baseline):
-        self.name = name
-        self.baseline = baseline
-
-def compute_performance(name: "str", baseline: "f64", score1: "f64", score2: "f64") -> "f64":
-    analyzer = DataAnalyzer(name, baseline)
-    avg = (score1 + score2) / 2.0
-    return avg - analyzer.baseline
-
-def process_numbers(limit: "i32") -> "i32":
-    sum_val = 0
-    for i in range(1, limit + 1):
-        sum_val = sum_val + i
-    return sum_val
-
-def main() -> "i32":
-    print("=== TOKENVECTOR NATIVE ===")
-    delta = compute_performance("Core", 50.0, 85.0, 95.0)
-    total_sum = process_numbers(100)
-    print("Delta: " + str(delta))
-    print("Sum: " + str(total_sum))
-    return 1
-```
-
-### 🐍 Cột 2: Python 3 (`Untitled-1.py`)
-```python
-# -*- coding: utf-8 -*-
-class DataAnalyzer:
-    def __init__(self, name: str, baseline: float):
-        self.name = name
-        self.baseline = baseline
-
-def compute_performance(name: str, baseline: float, score1: float, score2: float) -> float:
-    analyzer = DataAnalyzer(name, baseline)
-    avg = (score1 + score2) / 2.0
-    return avg - analyzer.baseline
-
-def process_numbers(limit: int) -> int:
-    sum_val = 0
-    for i in range(1, limit + 1):
-        sum_val = sum_val + i
-    return sum_val
-
-def main() -> int:
-    print("=== PYTHON CPYTHON ===")
-    delta = compute_performance("Core", 50.0, 85.0, 95.0)
-    total_sum = process_numbers(100)
-    print("Delta: " + str(delta))
-    print("Sum: " + str(total_sum))
-    return 1
-```
-
-### ⚡ Cột 3: C++20 (`Untitled-1.cpp`)
-```cpp
-#include <iostream>
-#include <string>
-
-class DataAnalyzer {
-public:
-    std::string name;
-    double baseline;
-    DataAnalyzer(std::string n, double b) : name(n), baseline(b) {}
-};
-
-double compute_performance(std::string name, double baseline, double score1, double score2) {
-    DataAnalyzer analyzer(name, baseline);
-    double avg = (score1 + score2) / 2.0;
-    return avg - analyzer.baseline;
-}
-
-int process_numbers(int limit) {
-    int sum_val = 0;
-    for (int i = 1; i <= limit; ++i) {
-        sum_val += i;
-    }
-    return sum_val;
-}
-
-int main() {
-    std::cout << "=== C++ NATIVE (-O3) ===" << std::endl;
-    double delta = compute_performance("Core", 50.0, 85.0, 95.0);
-    int total_sum = process_numbers(100)
-    std::cout << "Delta: " << delta << std::endl;
-    std::cout << "Sum: " << total_sum << std::endl;
-    return 1;
-}
-```
-
----
-
-## 🔍 VII. PHÂN TÍCH CHUYÊN SÂU CÚ PHÁP, ƯU & NHƯỢC ĐIỂM
-
-### ⚡ 1. TokenVector (`.tkv`)
-- **Cú pháp**: Dùng chú thích kiểu chuỗi unboxed tĩnh (`"str"`, `"f64"`, `"i32"`) trên cú pháp Python 100%.
-- **🟢 Ưu điểm**:
-  - Cú pháp cực sạch, giữ nguyên thụt lề Python, năng suất lập trình cao.
-  - Đóng gói AOT ra file `.exe` nhỏ nhẹ chỉ **~2.5 KB**.
-  - Hiệu năng x64 chạy nhanh hơn ~8× Python, loại bỏ GIL khi chạy đa luồng.
-- **🔴 Nhược điểm**: Cần thêm chú thích kiểu rõ ràng cho tham số hàm và thuộc tính Class.
-
-### 🐍 2. Python 3 (`.py`)
-- **Cú pháp**: Định kiểu động linh hoạt (`name: str`, `limit: int`) không cần khai báo thuộc tính trước.
-- **🟢 Ưu điểm**:
-  - Năng suất cao nhất, dễ viết mã nhất, không cần biên dịch trước.
-  - Thư viện khổng lồ (PyPI: NumPy, PyTorch, Pandas...).
-- **🔴 Nhược điểm**:
-  - Tốc độ chậm (chạy thông dịch Bytecode CPython).
-  - Bị khóa bởi rào cản đa luồng GIL (chỉ chạy 1 core CPU).
-  - Đóng gói file `.exe` cồng kềnh (tốn 15 MB – 40 MB).
-
-### ⚡ 3. C++20 (`.cpp`)
-- **Cú pháp**: Lập trình hệ thống thủ công: Thư viện `#include`, con trỏ, toán tử `std::cout`.
-- **🟢 Ưu điểm**:
-  - Hiệu năng tuyệt đối (mã máy Native x64 chạy trực tiếp trên phần cứng).
-  - Tự quản lý con trỏ và vùng nhớ Stack/Heap.
-- **🔴 Nhược điểm**:
-  - Cú pháp phức tạp, khó học, chi phí viết code lâu hơn 3-4 lần.
-  - Thời gian biên dịch lâu (phải qua g++ / clang / msvc).
-
----
-
-## 🛠️ VIII. HƯỚNG DẪN VẬN HÀNH VÀ BIÊN DỊCH BẢN PHÁT HÀNH
-
-### 1. Biên dịch file `.tkv` bằng Trình biên dịch `tkvc.exe`:
 ```powershell
-.\release\3.code\dist\tkvc.exe build release\3.code\e2e_test.tkv
+dist\tkvc.exe build examples\word_stats.tkv
+examples\word_stats.exe "the quick brown fox the fox runs"
 ```
 
-### 2. Thực thi file `.exe` vừa biên dịch:
-```powershell
-.\release\3.code\e2e_test.exe
-```
+## Vì sao dùng TokenVector thay vì PyInstaller/Cython/Nuitka?
 
----
+| | TokenVector | Python (đóng gói bằng PyInstaller) | Cython/Nuitka |
+|---|---|---|---|
+| Cú pháp | Python thuần (thêm chú thích kiểu) | Python thuần | Phải viết lại/thêm decorator |
+| Toolchain đích | .NET Framework có sẵn trên Windows | Nhúng cả interpreter (15-40MB/file) | Cần C/C++ toolchain phức tạp |
+| Bảo vệ mã nguồn | Biên dịch thẳng ra CIL, không đóng gói `.py` gốc | `.py`/`.pyc` vẫn nằm trong gói, dễ giải nén | Tùy cấu hình |
+| Tốc độ chạy | **~8× nhanh hơn CPython** | Bằng CPython (chỉ đóng gói, không tối ưu) | Nhanh, nhưng cần viết lại code |
 
-## 📌 IX. TỔNG KẾT BÀN CÂN 3 CỰC
+## Số liệu benchmark thật (đo trên máy phát triển, không phóng đại)
 
-1. **CPython 3.12**: Thích hợp cho việc viết script nhanh, prototype và nghiên cứu khoa học. Nhược điểm: Tốc độ chậm hơn, file đóng gói cồng kềnh (hàng chục MB) và bị rào cản đa luồng nghiêm trọng bởi khóa GIL.
-2. **TokenVector AOT**: **Dung hòa hoàn hảo 2 thế giới!** Giữ nguyên 100% cú pháp dễ viết của Python nhưng biên dịch AOT ra file `.exe` nhỏ gọn (chỉ vài chục KB), chạy đa luồng nhanh gấp **10.39 LẦN** nhờ loại bỏ GIL, đồng thời hỗ trợ đầy đủ `yield from`, `async/await`, `ctypes` FFI và liên kết trực tiếp hệ sinh thái .NET.
-3. **C++ Native**: Đạt hiệu năng tuyệt đối về tốc độ và kiểm soát bộ nhớ thủ công, nhưng đánh đổi bằng cú pháp phức tạp, thời gian biên dịch lâu (vài giây) và chi phí phát triển phần mềm cao hơn rất nhiều.
+Đo chi tiết đầy đủ ở [`benchmark_phase_c/benchmark_toandien.md`](benchmark_phase_c/benchmark_toandien.md).
+Tóm tắt:
 
+| Chỉ số | TokenVector | Python3 | C# |
+|---|---:|---:|---:|
+| Tốc độ chạy (trung bình 4 bài, N=5 triệu vòng lặp) | 0.298s | 2.399s | 0.247s |
+| So với Python | **nhanh hơn 8.0×** (cao nhất 9.2×) | — | nhanh hơn 9.7× |
+| So với C# | chậm hơn ~21% | — | — |
+| Khởi động (cold start) | 0.144s | 0.255s | 0.133s |
+| File `.exe` (bài trung bình) | 2.560 bytes | không áp dụng | 4.224 bytes |
+| Cài đặt cho người dùng cuối | chỉ 1 file `.exe` | cần Python 2.88GB hoặc PyInstaller 15-40MB/file | chỉ 1 file `.exe` |
+
+→ TokenVector nhanh hơn Python rõ rệt, gần bằng C# thật (Roslyn), và nhẹ hơn
+C# ~30-40% về kích thước file. Đổi lại, đây **không phải** ngôn ngữ tổng
+quát — xem "Giới hạn thật" bên dưới trước khi dùng.
+
+## Đã dùng để viết công cụ thật, không chỉ chạy benchmark
+
+[CodeGraph](../CodeGraph/) — bộ phân tích code 15 công cụ (parser, đồ thị
+lời gọi hàm, suy luận kiểu, phát hiện miền/domain, lần vết tác động thay
+đổi...) **viết hoàn toàn bằng TokenVector**, biên dịch thật, chạy thật trên
+dữ liệu thật: hiện phân tích 767 file, dựng **9.410+ cạnh đồ thị**, 15/15
+test tự động xanh.
+
+## Bắt đầu ngay
+
+Xem [USAGE_GUIDE.md](USAGE_GUIDE.md) để biết cú pháp `.tkv` đầy đủ.
+
+## Cấu trúc thư mục
+
+- `dist/tkvc.exe` — công cụ biên dịch độc lập (đóng gói sẵn, không cần
+  cài Python để dùng).
+- `compiler/` — lõi biên dịch (Python; chỉ cần thiết để TỰ BUILD lại
+  `tkvc.exe`, không cần cho người dùng cuối chạy `.tkv`).
+- `examples/` — ứng dụng mẫu viết bằng TokenVector.
+- `test/` — file `.tkv`/`.exe`/`.il` mẫu + `test/verify/` (bộ kiểm chứng
+  nội bộ, 132/132 test xanh — chạy `python test/run_tests.py`).
+- `build_tkvc.ps1` — script tự build lại `tkvc.exe` sau khi sửa
+  `compiler/*.py`.
+
+## Công cụ phụ khác trong thư mục này
+
+Ngoài compiler `.tkv` chung ở trên, thư mục còn 2 công cụ RIÊNG, hẹp hơn,
+ra đời trước và không liên quan cú pháp `.tkv` chung:
+
+- **`cli.py`/`tokenvector_compile.py`** — biên dịch 1
+  `sklearn.neural_network.MLPClassifier` đã train sẵn (1 hidden layer)
+  thành `.exe` độc lập, không cần Python/sklearn lúc chạy:
+  ```bash
+  python cli.py --model model.pkl --scaler scaler.pkl \
+      --labels setosa,versicolor,virginica --out iris.exe
+  iris.exe 6.1 2.9 4.7 1.4
+  ```
+  Giới hạn: chỉ 1 hidden layer, chỉ multi-class, scaler (nếu có) phải là
+  `MinMaxScaler`.
+
+- **`alphaai_codegen.py`** — khi kiến trúc mạng KHÔNG khớp khuôn mẫu trên
+  (vd 2+ hidden layer), dùng AI (Groq) tự viết thân hàm `.tkv`, biên dịch
+  thật + xác nhận qua `ilasm.exe` (không đoán mò, tự sửa lại nếu lỗi biên
+  dịch, tối đa 3 lần).
+
+## Giới hạn thật (không phóng đại)
+
+TokenVector **không và không nên** cạnh tranh về độ rộng với Python/C# —
+đây là compiler cá nhân nhắm vào 1 tập con cụ thể: tính toán số/logic
+hiệu năng cao. Cụ thể:
+
+- **Không hỗ trợ** thư viện C-extension (NumPy, SciPy, PyTorch...), web
+  framework, GUI, database, đa luồng.
+- Thư viện chuẩn chỉ là tập con nhỏ (string/regex/json/file I/O/toán học
+  cơ bản), phải tự map từng hàm vào .NET BCL.
+- Chưa có package manager/hệ sinh thái thư viện bên thứ 3.
+- Dự án cá nhân — chưa có IDE support, debugger, cộng đồng hỗ trợ.
+
+Xem đầy đủ mục "Giới hạn thật" trong [USAGE_GUIDE.md](USAGE_GUIDE.md) và
+so sánh chi tiết ở [`benchmark_phase_c/benchmark_toandien.md`](benchmark_phase_c/benchmark_toandien.md).
+
+## Lịch sử phát triển
+
+`ROADMAP.md`/`STATUS.md` là nhật ký quá trình phát triển (lịch sử, có
+thể thiếu tính năng hoàn tất gần đây) — KHÔNG phải tài liệu tham khảo
+tính năng hiện tại, dùng USAGE_GUIDE.md cho việc đó.

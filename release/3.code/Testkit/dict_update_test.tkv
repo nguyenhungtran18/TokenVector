@@ -1,0 +1,22 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    d = {}
+    d["a"] = 1
+    d["b"] = 2
+    other = {}
+    other["b"] = 20
+    other["c"] = 30
+    d.update(other)
+
+    tested = tested + 1
+    total = total + check("update_unaffected_key", str(d["a"]), "1")
+    tested = tested + 1
+    total = total + check("update_overwritten_key", str(d["b"]), "20")
+    tested = tested + 1
+    total = total + check("update_new_key", str(d["c"]), "30")
+
+    return test_summary("dict_update_test", total, tested)

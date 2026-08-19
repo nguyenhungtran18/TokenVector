@@ -1,0 +1,7 @@
+# olmoe_main_app.tkv - Ung dung chinh SIEU NHONGAN (chi 8 dong code) nhieu __tkv_import__
+__tkv_import__ = "lib_moe"
+
+def main(review_id: "i32", num_tokens: "i32") -> "i32":
+    path = "C:\\Claude AI Project\\ai_native_os\\models\\olmoe-1b-7b-instruct-iq2_xxs.gguf"
+    res = analyze_product_review(review_id, num_tokens, path)
+    return res

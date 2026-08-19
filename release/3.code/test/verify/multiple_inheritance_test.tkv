@@ -1,0 +1,46 @@
+# -*- coding: utf-8 -*-
+"""Kiem thu Moc 30: Da Ke Thua Lop (class Child(ParentA, ParentB))."""
+import sys
+import subprocess
+from pathlib import Path
+
+sys_path = Path(__file__).parent.parent.parent
+if str(sys_path) not in sys.path:
+    sys.path.insert(0, str(sys_path))
+
+from tkv_compile import compile_tkv_cli
+
+def test_multiple_inheritance():
+    p = '''class Phone:
+    phone_name: "str"
+    def make_call(self) -> "str":
+        return "CALLING:" + self.phone_name
+
+class Camera:
+    resolution: "i32"
+    def take_photo(self) -> "str":
+        return "PHOTO_" + str(self.resolution) + "MP"
+
+class SmartPhone(Phone, Camera):
+    def get_info(self) -> "str":
+        c = self.make_call()
+        p = self.take_photo()
+        return c + "|" + p
+
+def run() -> "str":
+    sp = SmartPhone("iPhone", 48)
+    res = sp.get_info()
+    return res'''
+    
+    SRC = Path('scratch/m30_multi_oop.tkv')
+    EXE = Path('scratch/m30_multi_oop.exe')
+    SRC.write_text(p, encoding='utf-8')
+    compile_tkv_cli(SRC, EXE, entry_name='run')
+    proc = subprocess.run([str(EXE)], capture_output=True, text=True)
+    tkv_val = proc.stdout.strip()
+    assert tkv_val == "CALLING:iPhone|PHOTO_48MP", f"Mismatch: {repr(tkv_val)} (err={proc.stderr!r})"
+    print("PASS: test_multiple_inheritance", tkv_val)
+
+if __name__ == '__main__':
+    test_multiple_inheritance()
+    print("ALL MOC 30 TESTS PASSED!")

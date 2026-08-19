@@ -1,0 +1,38 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class Point:
+    x: "i32"
+    y: "i32"
+
+    def __str__(self) -> "str":
+        return "Point(" + str(self.x) + ", " + str(self.y) + ")"
+
+
+class Animal:
+    name: "str"
+
+    def __str__(self) -> "str":
+        return "Animal:" + self.name
+
+
+class Dog(Animal):
+    breed: "str"
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    p = Point(3, 4)
+    tested = tested + 1
+    total = total + check("str_calls_dunder", str(p), "Point(3, 4)")
+
+    tested = tested + 1
+    total = total + check("print_uses_dunder_via_str", str(p), "Point(3, 4)")
+
+    d = Dog("Rex", "Labrador")
+    tested = tested + 1
+    total = total + check("inherited_dunder_str", str(d), "Animal:Rex")
+
+    return test_summary("dunder_str_test", total, tested)

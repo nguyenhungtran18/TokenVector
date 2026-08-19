@@ -1,0 +1,2 @@
+def greet(name: "str", age: "i32") -> "str":
+    return f"{name} is {age} years old"

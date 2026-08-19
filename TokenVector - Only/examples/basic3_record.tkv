@@ -1,0 +1,15 @@
+class Rect:
+    w: "f32"
+    h: "f32"
+
+    def __init__(self, w, h):
+        self.w = w
+        self.h = h
+
+    def area(self) -> "f32":
+        return self.w * self.h
+
+
+def compute(w: "f32", h: "f32") -> "f32":
+    r = Rect(w, h)
+    return r.area()

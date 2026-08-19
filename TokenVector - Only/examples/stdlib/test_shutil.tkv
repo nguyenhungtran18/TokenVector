@@ -1,0 +1,12 @@
+# test_shutil.tkv - Test module shutil.tkv (rmtree)
+__tkv_import__ = "os"
+__tkv_import__ = "shutil"
+
+def main() -> "i32":
+    temp_dir = "temp_shutil_test"
+    r1 = os_mkdir(temp_dir)
+    if r1 == 1:
+        r2 = rmtree(temp_dir)
+        if r2 == 1:
+            return 1
+    return 0

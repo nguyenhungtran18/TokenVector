@@ -1,0 +1,138 @@
+# moe_disk_streamer.tkv - MoE Offloading Disk Streaming Engine in TokenVector
+
+class ExpertDescriptor:
+    expert_id: "i32"
+    offset: "i32"
+    size_bytes: "i32"
+    is_cached: "i32"
+    access_count: "i32"
+
+    def __init__(self, expert_id, offset, size_bytes):
+        self.expert_id = expert_id
+        self.offset = offset
+        self.size_bytes = size_bytes
+        self.is_cached = 0
+        self.access_count = 0
+
+    def touch(self) -> "i32":
+        self.access_count = self.access_count + 1
+        return self.access_count
+
+
+class MoEEngineConfig:
+    num_experts: "i32"
+    top_k: "i32"
+    cache_capacity: "i32"
+
+    def __init__(self, num_experts, top_k, cache_capacity):
+        self.num_experts = num_experts
+        self.top_k = top_k
+        self.cache_capacity = cache_capacity
+
+
+def prepare_expert_files_on_disk(num_experts: "i32") -> "i32":
+    for i in range(num_experts):
+        path = f"expert_{i}.bin"
+        if file_exists(path) == 0:
+            content = f"EXPERT_WEIGHT_MATRIX_RAW_BYTES_BLOCK_{i}_PADDING_BYTE_DATA_STREAM"
+            write_file(path, content)
+    return 1
+
+
+def create_sample_router_logits(num_experts: "i32", token_step: "i32") -> "list[i32]":
+    logits = []
+    for i in range(num_experts):
+        val = (i * 7 + token_step * 13) % 100
+        logits.append(val)
+    return logits
+
+
+def select_top_k_indices(logits: "list[i32]", top_k: "i32") -> "list[i32]":
+    n = len(logits)
+    indices = []
+    for i in range(n):
+        indices.append(i)
+    
+    for i in range(top_k):
+        max_idx = i
+        for j in range(i + 1, n):
+            if logits[indices[j]] > logits[indices[max_idx]]:
+                max_idx = j
+        temp = indices[i]
+        indices[i] = indices[max_idx]
+        indices[max_idx] = temp
+        
+    result = []
+    for i in range(top_k):
+        result.append(indices[i])
+    return result
+
+
+def stream_expert_from_disk(expert_id: "i32") -> "i32":
+    path = f"expert_{expert_id}.bin"
+    if file_exists(path) == 1:
+        data = read_file(path)
+        return len(data) + expert_id * 100
+    return expert_id * 1000 + 42
+
+
+def execute_moe_offloading_step(token_step: "i32", config_num_experts: "i32", config_top_k: "i32", config_cache_capacity: "i32", cache_ids: "list[i32]", access_history: "list[i32]") -> "i32":
+    logits = create_sample_router_logits(config_num_experts, token_step)
+    active_experts = select_top_k_indices(logits, config_top_k)
+    
+    step_checksum = 0
+
+    for i in range(len(active_experts)):
+        eid = active_experts[i]
+        
+        found_in_cache = 0
+        for c in range(len(cache_ids)):
+            if cache_ids[c] == eid:
+                found_in_cache = 1
+                break
+                
+        if found_in_cache == 1:
+            new_hist = []
+            for h in range(len(access_history)):
+                if access_history[h] != eid:
+                    new_hist.append(access_history[h])
+            new_hist.append(eid)
+            access_history = new_hist
+        else:
+            if len(cache_ids) >= config_cache_capacity:
+                evict_id = access_history[0]
+                new_cache = []
+                for c in range(len(cache_ids)):
+                    if cache_ids[c] != evict_id:
+                        new_cache.append(cache_ids[c])
+                cache_ids = new_cache
+                
+                new_hist = []
+                for h in range(1, len(access_history)):
+                    new_hist.append(access_history[h])
+                access_history = new_hist
+            
+            bytes_count = stream_expert_from_disk(eid)
+            cache_ids.append(eid)
+            access_history.append(eid)
+            step_checksum = step_checksum + bytes_count
+
+    return step_checksum
+
+
+def main(num_tokens: "i32", cache_capacity: "i32") -> "i32":
+    num_experts = 8
+    top_k = 2
+    
+    dummy_ok = prepare_expert_files_on_disk(num_experts)
+    
+    cache_ids = []
+    access_history = []
+    
+    total_checksum = 0
+    
+    for t in range(num_tokens):
+        chk = execute_moe_offloading_step(t, num_experts, top_k, cache_capacity, cache_ids, access_history)
+        total_checksum = total_checksum + chk
+        
+    return total_checksum

@@ -1,0 +1,42 @@
+# functools.tkv - TokenVector Standard Library: Higher-Order Functions
+#
+# 2026-08-03 (Giai doan 2.1): them reduce_i32 - port THANG dinh nghia
+# functools.reduce cua Python (acc = f(acc, x) tren tung phan tu). Ban 3
+# tham so (co 'init') tuong duong functools.reduce(f, lst, init); ban 2
+# tham so cua Python (lay phan tu dau lam init) la reduce_i32_nostart.
+
+def map_i32(lst: "list[i32]", f: "func(i32) -> i32") -> "list[i32]":
+    result = []
+    for i in range(len(lst)):
+        val = f(lst[i])
+        result.append(val)
+    return result
+
+
+def filter_i32(lst: "list[i32]", f: "func(i32) -> i32") -> "list[i32]":
+    result = []
+    for i in range(len(lst)):
+        item = lst[i]
+        cond = f(item)
+        if cond != 0:
+            result.append(item)
+    return result
+
+
+def reduce_i32(lst: "list[i32]", f: "func(i32,i32) -> i32", init: "i32") -> "i32":
+    acc = init
+    for x in lst:
+        acc = f(acc, x)
+    return acc
+
+
+def reduce_i32_nostart(lst: "list[i32]", f: "func(i32,i32) -> i32") -> "i32":
+    # KHAC Python: list rong tra ve 0 thay vi nem TypeError (code nguoi
+    # dung viet trong DSL nay chua co cach nem loi). Ghi ro, khong giau.
+    if len(lst) == 0:
+        return 0
+    acc = lst[0]
+    for i in range(len(lst)):
+        if i > 0:
+            acc = f(acc, lst[i])
+    return acc

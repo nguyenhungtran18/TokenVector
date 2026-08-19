@@ -1,0 +1,205 @@
+# -*- coding: utf-8 -*-
+"""nodemeta - cong cu THAT viet bang TokenVector.
+
+Sinh phan META cua nut file trong knowledge graph: `summary`, `tags`,
+`complexity` - va chi ra CHINH XAC nhung file con thieu summary de danh
+cho LLM.
+
+Nguyen tac (bai hoc "deterministic truoc, LLM sau"):
+  - `complexity` : thuan deterministic, tinh tu so dong ma thuc.
+  - `tags`       : thuan deterministic, suy tu duong dan / ten file.
+  - `summary`    : LAY TU module-docstring co san. Do 80% file trong repo
+                   nay da co docstring, LLM chi phai lam 20% con lai.
+
+Nho vay khoi luong can LLM giam tu 874 file xuong con ~175.
+
+Dung:
+    nodemeta.exe <manifest.txt> <nodes.json> <need_llm.txt>
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def base_of(rel: "str") -> "str":
+    """'a/b/c.py' -> 'c.py'."""
+    cut = -1
+    i = 0
+    while i < len(rel):
+        if rel[i] == "/":
+            cut = i
+        i = i + 1
+    return rel[cut + 1:len(rel)]
+
+
+def is_doc_open(body: "str") -> "i32":
+    """1 neu dong (da strip) bat dau bang dau nhay ba."""
+    if body.startswith("\"\"\""):
+        return 1
+    if body.startswith("'''"):
+        return 1
+    return 0
+
+
+def skip_line(body: "str") -> "i32":
+    """1 neu dong khong tinh la ma (rong / chu thich)."""
+    if len(body) == 0:
+        return 1
+    if body.startswith("#"):
+        return 1
+    return 0
+
+
+def module_doc(text: "str") -> "str":
+    """Noi dung module-docstring, '' neu file khong co."""
+    lines = text.split("\n")
+    started = 0
+    acc = []
+    i = 0
+    while i < len(lines):
+        body = lines[i].strip()
+        if started == 0:
+            if skip_line(body) == 1:
+                i = i + 1
+                continue
+            if is_doc_open(body) == 0:
+                return ""
+            started = 1
+            rest = body[3:len(body)]
+            # Docstring MOT DONG: dau dong nam ngay tren cung dong. Phai
+            # tim dau dong o BAT KY vi tri nao, khong chi dau chuoi -
+            # ban cu nuot ca `"""` roi doc lan sang code ben duoi.
+            close_at = rest.find("\"\"\"")
+            if close_at < 0:
+                close_at = rest.find("'''")
+            if close_at >= 0:
+                return rest[0:close_at]
+            acc.append(rest)
+            i = i + 1
+            continue
+        if count_triple(lines[i]) > 0:
+            head = cut_at(body, "\"'")
+            acc.append(head)
+            return " ".join(acc)
+        acc.append(body)
+        i = i + 1
+    return ""
+
+
+def first_sentence(doc: "str") -> "str":
+    """Cau dau tien cua docstring, cat toi da 200 ky tu."""
+    txt = doc.strip()
+    stop = txt.find(". ")
+    if stop > 0:
+        txt = txt[0:stop + 1]
+    if len(txt) > 200:
+        txt = txt[0:200]
+    return txt.strip()
+
+
+def json_escape(s: "str") -> "str":
+    """Thoat ky tu cho chuoi JSON (nhay kep va gach nguoc)."""
+    parts = s.split("\\")
+    step1 = "\\\\".join(parts)
+    parts2 = step1.split("\"")
+    return "\\\"".join(parts2)
+
+
+def code_lines(text: "str") -> "i32":
+    """So dong khong rong, khong phai chu thich."""
+    n = 0
+    lines = text.split("\n")
+    for ln in lines:
+        if skip_line(ln.strip()) == 0:
+            n = n + 1
+    return n
+
+
+def complexity_of(n: "i32") -> "str":
+    """Nguong theo so dong ma - deterministic, khong can LLM."""
+    if n < 50:
+        return "simple"
+    if n < 200:
+        return "moderate"
+    return "complex"
+
+
+def tags_of(rel: "str") -> "str":
+    """Nhan suy tu duong dan/ten file. Chi giu luat chac chan."""
+    acc = []
+    name = base_of(rel)
+    acc.append("python")
+    if name.startswith("test_"):
+        acc.append("test")
+    elif name.endswith("_test.py"):
+        acc.append("test")
+    elif rel.find("/tests/") >= 0:
+        acc.append("test")
+    if name == "__init__.py":
+        acc.append("entry-point")
+        acc.append("barrel")
+    if name == "setup.py":
+        acc.append("build-system")
+    if name == "manage.py":
+        acc.append("entry-point")
+    if name == "__main__.py":
+        acc.append("entry-point")
+    if rel.find("/tools/") >= 0:
+        acc.append("tooling")
+    if rel.find("/compiler/") >= 0:
+        acc.append("compiler")
+    if rel.find("/benchmark") >= 0:
+        acc.append("benchmark")
+    return "\",\"".join(acc)
+
+
+def node_json(rel: "str", summary: "str", tags: "str", cx: "str", src: "str") -> "str":
+    """Mot nut file dang JSON."""
+    out = "{\"id\":\"file:" + rel + "\",\"type\":\"file\""
+    out = out + ",\"summary\":\"" + json_escape(summary) + "\""
+    out = out + ",\"tags\":[\"" + tags + "\"]"
+    out = out + ",\"complexity\":\"" + cx + "\""
+    out = out + ",\"summary_source\":\"" + src + "\"}"
+    return out
+
+
+def run(manifest: "str", nodes_out: "str", need_out: "str") -> "str":
+    """Sinh meta cho moi nut file; liet ke file con thieu summary."""
+    paths = []
+    raw = read_file(manifest)
+    rows = raw.split("\n")
+    for r in rows:
+        p = norm_slashes(r.strip())
+        if len(p) > 0:
+            paths.append(p)
+
+    nodes = []
+    need = []
+    n_doc = 0
+    for rel in paths:
+        text = read_file(rel)
+        doc = module_doc(text)
+        src = "docstring"
+        summary = ""
+        # Nguong 16 ap len CA docstring, khong phai len cau dau: docstring
+        # "Utils cho X. Chi tiet..." co cau dau ngan van la docstring hop le.
+        if len(doc.strip()) < 16:
+            src = "missing"
+            need.append(rel)
+        else:
+            summary = first_sentence(doc)
+            if len(summary) < 8:
+                summary = doc.strip()
+                if len(summary) > 200:
+                    summary = summary[0:200]
+            n_doc = n_doc + 1
+        cx = complexity_of(code_lines(text))
+        nodes.append("  " + node_json(rel, summary, tags_of(rel), cx, src))
+
+    doc_out = "{\n \"nodes\": [\n" + ",\n".join(nodes) + "\n ],\n \"stats\": {"
+    doc_out = doc_out + "\"files\":" + str(len(paths))
+    doc_out = doc_out + ",\"summary_tu_docstring\":" + str(n_doc)
+    doc_out = doc_out + ",\"can_llm\":" + str(len(need))
+    doc_out = doc_out + "}\n}\n"
+    write_file(nodes_out, doc_out)
+    write_file(need_out, "\n".join(need))
+    return "files=" + str(len(paths)) + " summary_tu_docstring=" + str(n_doc) + " can_llm=" + str(len(need))

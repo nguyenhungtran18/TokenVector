@@ -1,0 +1,332 @@
+# -*- coding: utf-8 -*-
+"""ctxpack - cong cu THAT viet bang TokenVector.
+
+Goi NGU CANH cho mot nhiem vu: dua vao mot file (hoac nut) dang phai sua,
+tra ve TAP FILE TOI THIEU can doc, xep theo do lien quan, CAT THEO HAN MUC
+token. Muc dich: sua code ma khong phai doc lai ca du an.
+
+Cach chon, deterministic, khong hoi LLM:
+
+  vong 0  file muc tieu                      -> doc DAY DU
+  vong 1  file dinh truc tiep voi no (import hai chieu + calls hai chieu)
+  vong 2  file dinh voi vong 1
+  con lai KHONG dua vao goi
+
+Trong moi vong, file nao noi voi muc tieu bang NHIEU canh hon thi xep truoc
+- day la thu bac cua do lien quan, do duoc, khong phai cam tinh.
+
+Han muc: uoc luong 1 token ~ 4 ky tu. File nao con lot vao han muc thi
+"doc day du"; het han muc thi chi lay MOT DONG summary. Nho vay goi ngu
+canh khong bao gio vuot tran, va phan bi cat van duoc NHAC TEN chu khong
+bien mat im lang - biet la co thu minh chua doc thi khac han voi tuong la
+khong co gi.
+
+Dung:
+    ctxpack.exe <nodes_full.json> <import_edges.json> <call_edges.json> <muc_tieu> <han_muc_token> <out.json>
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def ring_limit() -> "i32":
+    """So vong mo rong. 2 vong: xa hon thi do lien quan loang het."""
+    return 2
+
+
+def json_str(line: "str", key: "str") -> "str":
+    """Gia tri chuoi cua mot khoa trong mot dong JSON."""
+    pat = "\"" + key + "\":\""
+    at = line.find(pat)
+    if at < 0:
+        return ""
+    rest = line[at + len(pat):len(line)]
+    return cut_at(rest, "\"")
+
+
+def edge_type(line: "str") -> "str":
+    """Loai canh cua mot dong."""
+    return json_str(line, "type")
+
+
+def node_file(nid: "str") -> "str":
+    """File chua mot nut, tra ve dang 'file:<path>'."""
+    if nid.startswith("file:"):
+        return nid
+    at = nid.find(":")
+    if at < 0:
+        return ""
+    rest = nid[at + 1:len(nid)]
+    cut = -1
+    i = 0
+    while i < len(rest):
+        if rest[i] == ":":
+            cut = i
+        i = i + 1
+    if cut < 0:
+        return "file:" + rest
+    return "file:" + rest[0:cut]
+
+
+def bump(d: "dict[str,str]", k: "str") -> "i32":
+    """Tang bo dem cua khoa k len 1."""
+    cur = d.get(k, "0")
+    d[k] = str(int(cur) + 1)
+    return 1
+
+
+def num(d: "dict[str,str]", k: "str") -> "i32":
+    """Bo dem dang so."""
+    return int(d.get(k, "0"))
+
+
+def blob_add(blob: "str", val: "str") -> "str":
+    """Them phan tu vao blob '|a|b|' neu chua co."""
+    if len(blob) == 0:
+        blob = "|"
+    if blob.find("|" + val + "|") >= 0:
+        return blob
+    return blob + val + "|"
+
+
+def blob_items(blob: "str") -> "list[str]":
+    """Cac phan tu cua blob."""
+    out = []
+    parts = blob.split("|")
+    i = 0
+    while i < len(parts):
+        if len(parts[i]) > 0:
+            out.append(parts[i])
+        i = i + 1
+    return out
+
+
+def link(adj: "dict[str,str]", a: "str", b: "str") -> "i32":
+    """Noi hai file theo CA HAI chieu: doc code thi ai goi ai deu can biet."""
+    if a == b:
+        return 0
+    adj[a] = blob_add(adj.get(a, ""), b)
+    adj[b] = blob_add(adj.get(b, ""), a)
+    return 1
+
+
+def seen_at(d: "dict[str,str]", k: "str") -> "i32":
+    """1 neu khoa da co (dung dict thay set: `not in <set>` khong parse duoc)."""
+    if len(d.get(k, "")) == 0:
+        return 0
+    return 1
+
+
+def est_tokens(text: "str") -> "i32":
+    """Uoc luong token: ~4 ky tu mot token. Uoc luong THIEU thi tran han muc,
+    nen lam tron LEN."""
+    return len(text) // 4 + 1
+
+
+def pick_hottest(cands: "list[str]", cnt: "dict[str,str]", used: "dict[str,str]") -> "str":
+    """File chua lay co nhieu canh noi voi vung dang xet nhat."""
+    best = ""
+    best_n = -1
+    i = 0
+    while i < len(cands):
+        c = cands[i]
+        if seen_at(used, c) == 0:
+            n = num(cnt, c)
+            if n > best_n:
+                best = c
+                best_n = n
+        i = i + 1
+    return best
+
+
+def order_by_heat(cands: "list[str]", cnt: "dict[str,str]") -> "list[str]":
+    """Xep giam dan theo so canh noi. Chon truc tiep - moi vong chi vai chuc
+    phan tu, khong can sap xep that."""
+    used = {}
+    out = []
+    i = 0
+    while i < len(cands):
+        pick = pick_hottest(cands, cnt, used)
+        if len(pick) == 0:
+            i = len(cands)
+        if len(pick) > 0:
+            used[pick] = "1"
+            out.append(pick)
+            i = i + 1
+    return out
+
+
+def esc(s: "str") -> "str":
+    """Thoat chuoi cho JSON."""
+    step = s.replace("\\", "\\\\")
+    return step.replace("\"", "\\\"")
+
+
+def entry_json(fid: "str", mode: "str", ring: "i32", tok: "i32", summary: "str") -> "str":
+    """Mot muc trong goi ngu canh."""
+    out = "  {\"file\":\"" + fid + "\",\"doc\":\"" + mode + "\""
+    out = out + ",\"vong\":" + str(ring)
+    out = out + ",\"token\":" + str(tok)
+    out = out + ",\"summary\":\"" + esc(summary) + "\"}"
+    return out
+
+
+def layer_bonus(layer: "str") -> "i32":
+    """Diem cong theo tang. Khi hai file cung so canh noi (rat hay xay ra:
+    109 file cung import mot file thi tat ca deu bang 1), phai co tieu chi
+    thu hai - neu khong thu tu se la thu tu tinh co cua bo quet, va goi ngu
+    canh day file `scratch/` trong khi bo qua file loi."""
+    if layer == "foundation":
+        return 3
+    if layer == "core":
+        return 3
+    if layer == "entry":
+        return 1
+    return 0
+
+
+def run(nodes_path: "str", imports_path: "str", calls_path: "str", layers_path: "str", target: "str", budget: "str", out_path: "str") -> "str":
+    """Dung goi ngu canh cho `target` trong han muc `budget` token."""
+    cap = int(budget)
+
+    summ = {}
+    ndoc = read_file(nodes_path)
+    nrows = ndoc.split("\n")
+    for ln in nrows:
+        nid = json_str(ln, "id")
+        if len(nid) == 0:
+            continue
+        if nid.startswith("file:"):
+            summ[nid] = json_str(ln, "summary")
+
+    # Tang cua tung file, de pha the khi so canh noi bang nhau.
+    layer_of = {}
+    ldoc = read_file(layers_path)
+    lrows = ldoc.split("\n")
+    cur_layer = ""
+    for lr in lrows:
+        nm = json_str(lr, "name")
+        if len(nm) > 0:
+            cur_layer = nm
+        at = lr.find("\"file:")
+        if at >= 0:
+            rest = lr[at + 1:len(lr)]
+            fid0 = cut_at(rest, "\"")
+            layer_of[fid0] = cur_layer
+
+    adj = {}
+    idoc = read_file(imports_path)
+    # PARITY: `for x in expr.split(...)` khong dich duoc - phai gan ra bien.
+    irows = idoc.split("\n")
+    for ln2 in irows:
+        if edge_type(ln2) != "imports":
+            continue
+        a = json_str(ln2, "source")
+        b = json_str(ln2, "target")
+        if len(a) > 0:
+            link(adj, node_file(a), node_file(b))
+
+    cdoc = read_file(calls_path)
+    crows = cdoc.split("\n")
+    for ln3 in crows:
+        kind = edge_type(ln3)
+        if kind == "contains":
+            continue
+        if len(kind) == 0:
+            continue
+        a2 = json_str(ln3, "source")
+        b2 = json_str(ln3, "target")
+        if len(a2) > 0:
+            link(adj, node_file(a2), node_file(b2))
+
+    seed = node_file(target)
+    picked = {}
+    # Vong 0 = chinh file muc tieu.
+    picked[seed] = "0"
+    order = []
+    order.append(seed)
+    rings = []
+    rings.append(seed)
+
+    frontier = []
+    frontier.append(seed)
+    ring = 1
+    while ring <= ring_limit():
+        heat = {}
+        cands = []
+        i = 0
+        while i < len(frontier):
+            nb = blob_items(adj.get(frontier[i], ""))
+            j = 0
+            while j < len(nb):
+                f = nb[j]
+                if seen_at(picked, f) == 0:
+                    bump(heat, f)
+                    if num(heat, f) == 1:
+                        cands.append(f)
+                j = j + 1
+            i = i + 1
+        z = 0
+        while z < len(cands):
+            fz = cands[z]
+            score = num(heat, fz) * 10 + layer_bonus(layer_of.get(fz, ""))
+            heat[fz] = str(score)
+            z = z + 1
+        ranked = order_by_heat(cands, heat)
+        k = 0
+        while k < len(ranked):
+            picked[ranked[k]] = str(ring)
+            order.append(ranked[k])
+            k = k + 1
+        if len(ranked) == 0:
+            ring = ring_limit()
+        frontier = ranked
+        ring = ring + 1
+
+    # Do han muc: file nao con lot thi doc day du, het thi chi lay summary.
+    entries = []
+    spent = 0
+    n_full = 0
+    n_sum = 0
+    m = 0
+    while m < len(order):
+        fid = order[m]
+        rel = fid[5:len(fid)]
+        text = read_file(rel)
+        tok = est_tokens(text)
+        s = summ.get(fid, "")
+        r = int(picked.get(fid, "9"))
+        mode = "tom-tat"
+        cost = 0
+        # File MUC TIEU luon doc day du, ke ca khi mot minh no da vuot han
+        # muc - goi ngu canh ma thieu chinh file dang sua thi vo nghia.
+        if fid == seed:
+            mode = "day-du"
+            cost = tok
+            spent = spent + tok
+            n_full = n_full + 1
+        if spent + tok <= cap:
+            if mode == "tom-tat":
+                mode = "day-du"
+                cost = tok
+                spent = spent + tok
+                n_full = n_full + 1
+        if mode == "tom-tat":
+            n_sum = n_sum + 1
+        entries.append(entry_json(fid, mode, r, cost, s))
+        m = m + 1
+
+    doc = "{\n \"target\": \"" + target + "\",\n \"budget\": " + str(cap)
+    doc = doc + ",\n \"used\": " + str(spent)
+    doc = doc + ",\n \"files\": [\n" + ",\n".join(entries) + "\n ],\n"
+    doc = doc + " \"stats\": {\"tong\":" + str(len(order))
+    doc = doc + ",\"doc_day_du\":" + str(n_full)
+    doc = doc + ",\"chi_tom_tat\":" + str(n_sum)
+    # File muc tieu luon duoc doc day du, nen goi CO THE vuot han muc. Phai
+    # noi ra: vuot ma im lang la lam nguoi dung tin nham vao con so han muc.
+    over = 0
+    if spent > cap:
+        over = 1
+    doc = doc + ",\"token\":" + str(spent)
+    doc = doc + ",\"vuot_han_muc\":" + str(over) + "}\n}\n"
+    write_file(out_path, doc)
+    return "file=" + str(len(order)) + " day_du=" + str(n_full) + " tom_tat=" + str(n_sum) + " token=" + str(spent) + "/" + str(cap)

@@ -1,0 +1,25 @@
+"""Vi du THAT kiem chung list literal CO PHAN TU (Giai doan 0.1,
+2026-08-03, dong Python-parity-gap v2): 'xs = [3, 1, 2]' - truoc day chi
+'[]' roi '.append()' moi hoat dong."""
+
+
+def int_list_sum(n: "i32") -> "i32":
+    xs = [3, 1, 2]
+    total = 0
+    for j in range(len(xs)):
+        total = total + xs[j]
+    return total + n
+
+
+def float_list_sum(n: "i32") -> "f32":
+    ys = [1.5, 2.5, 3.5]
+    total = 0.0
+    for j in range(len(ys)):
+        total = total + ys[j]
+    return total + n * 1.0
+
+
+def str_list_pick(n: "i32") -> "str":
+    zs = ["alpha", "beta", "gamma"]
+    idx = n % 3
+    return zs[idx]

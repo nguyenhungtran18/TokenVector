@@ -1,0 +1,18 @@
+# cross_platform.tkv - Self-Hosted TokenVector Cross-Platform Compiler Target Selector
+
+def get_target_binary_extension(target_os: "str") -> "str":
+    if target_os == "windows":
+        return ".exe"
+    if target_os == "linux":
+        return ".elf"
+    if target_os == "macos":
+        return ".macho"
+    if target_os == "web":
+        return ".wasm"
+    return ".bin"
+
+
+def build_cross_target_binary(source_tkv: "str", target_os: "str") -> "str":
+    ext = get_target_binary_extension(target_os)
+    output_binary = source_tkv + ext
+    return output_binary
