@@ -42,6 +42,12 @@ jobs:
             Write-Host "[FAIL] dist\tkvc.exe not created"
             exit 1
           }
+          # compiler/plugin_loader.py's frozen-mode discover_plugin_dir()
+          # loads library feature modules (binop/list/dict/... codegen
+          # registration) from an 'il_features' dir NEXT TO the running
+          # .exe - PyInstaller does not stage this itself, so copy it in.
+          Copy-Item -Recurse -Force "compiler\il_features" "dist\il_features"
+          Write-Host "[OK] dist\il_features staged ($((Get-ChildItem dist\il_features -Filter *.py).Count) files)"
 
       - name: Smoke test — compile inline hello.tkv
         run: |
