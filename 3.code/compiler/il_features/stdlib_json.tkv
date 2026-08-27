@@ -27,7 +27,7 @@ trong khi Python bao dam thu tu CHEN tu 3.7 - xem ke hoach 'thu tu chen
 cua dict'."""
 from il_core import IL_SCALAR
 from il_dispatch import register_expr_builtin
-from il_features.list_type import il_list_type
+from il_features.list_type import il_list_type, reject_if_handle_type_elem
 
 
 # Cap (ky tu THAT, dang da thoat trong JSON) - THU TU QUAN TRONG: dau
@@ -184,6 +184,10 @@ def temps_json_dumps(node, ctx):
 
 def _push_json_dumps_list(args, arg_name, scope, out, ctx):
     list_ta = scope[arg_name][2]
+    reject_if_handle_type_elem(list_ta, ctx.get('extern_class_defs'), 'json_dumps')
+    # reject o tren da chan handle type khi ctx co extern_class_defs; neu ctx
+    # thieu key nay se roi ve message loi cu mo ho hon - xem
+    # test/verify/list_handle_type_reject_test.py
     list_type = il_list_type(list_ta.dtype, ctx.get('records'))
     load_var_ref = ctx['load_var_ref']
     _, res_idx, _ = scope[f'__jsond{id(args)}_res']

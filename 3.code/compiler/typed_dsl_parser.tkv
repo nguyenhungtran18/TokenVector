@@ -25,8 +25,10 @@ import re
 # - ma .tkv cu khong doi hanh vi.
 DTYPES = {'f32', 'f64', 'i32', 'i64', 'str', 'int', 'datetime', 'timedelta', 'complex'}
 # 'inferred' (Task 2/5, duck-typing-inference, 2026-08-17): dtype dac biet
-# gan boi tkv_compile.py's _params_with_defaults(allow_inferred=True) -
-# chi di qua NGUYEN VEN o tang parse nay.
+# gan boi tkv_compile.py's _params_with_defaults(allow_inferred=True) cho
+# tham so ham top-level THIEU annotation - chi di qua NGUYEN VEN o tang
+# parse nay (khong resolve/validate gi them), Task 3/4 se thay the bang
+# kieu cu the tai call-site (xem il_codegen.py::_expr_call).
 DTYPES.add('inferred')
 
 TOKEN_RE = re.compile(r'''
@@ -101,7 +103,12 @@ class Param:
         # khac (Python cho phep nhung mac dinh chi tinh 1 lan luc dinh
         # nghia ham, DSL nay chua co khai niem do - gioi han co y thuc).
         self.default_node = default_node
-        # is_vararg/is_kwarg (Phase 5.1, 2026-08-11): '*name: T'/'**name: T'.
+        # is_vararg/is_kwarg (Phase 5.1, 2026-08-11): '*name: T'/'**name: T'
+        # - THAM SO CUOI CUNG cua ham top-level, dong nhat kieu (tat ca gia
+        # tri du them cung 1 dtype T). type_ann o day KHONG con la scalar T
+        # nua ma da la 'list' (vararg) / 'dict' key='str' (kwarg) - xem
+        # parse_param. Gioi han co y thuc: khong ho tro tren decorator/method
+        # (chi ham top-level, xem tkv_compile.py's _extract_signature_line).
         self.is_vararg = is_vararg
         self.is_kwarg = is_kwarg
 
@@ -110,13 +117,27 @@ class Param:
 
 
 class Signature:
-    def __init__(self, name, params, return_type, body_mode, body_expr=None, is_static=False, is_async=False):
+    def __init__(self, name, params, return_type, body_mode, body_expr=None, is_static=False,
+                 is_async=False):
         self.name = name
         self.params = params                # list[Param]
         self.return_type = return_type      # TypeAnn hoac None
         self.body_mode = body_mode          # 'expr' | 'block'
         self.body_expr = body_expr          # str hoac None (chi co khi 'expr')
+        # is_static: True cho method record co '@staticmethod' (Wave 1,
+        # 2026-07-29) - KHONG bind 'self', gen_il_method goi gen_il_function
+        # voi self_type_ann=None (giong ham top-level), xem tkv_compile.py's
+        # _extract_record_method_sig_line/compile_method_call.
         self.is_static = is_static
+        # is_async: True cho 'async def' (Phase 4, 2026-08-11 - port tu cay
+        # .tkv tu-host, thiet ke da co san va CHAY DUOC that: KHONG phai
+        # state-machine/continuation that, ham 'async def' van chay DONG BO
+        # den het roi ket qua duoc boc vao 1 Task<T> DA HOAN TAT qua
+        # Task.FromResult<T>(...) truoc 'ret' (xem il_features/control_flow.py's
+        # codegen_return) - 'await' o phia goi chi don gian goi .get_Result()
+        # dong bo (xem il_features/async_await.py). Giu dung cu phap Python
+        # that (async def/await) nhung KHONG co overlap/concurrency THAT -
+        # du cho code CPU-bound, ngoai pham vi lam concurrency that.
         self.is_async = is_async
 
     def __repr__(self):
@@ -125,11 +146,16 @@ class Signature:
 
 
 class Parser:
-    def __init__(self, tokens, src, record_names=frozenset()):
+    def __init__(self, tokens, src, record_names=frozenset(), extern_class_names=frozenset()):
         self.tokens = tokens
         self.src = src
         self.i = 0
         self.record_names = record_names  # ten cac 'class dang record' da khai bao trong file
+        # extern_class_names (Task 2, extern-class, 2026-08-18): ten cac
+        # handle-type khai bao qua __tkv_extern_class__ trong CUNG file -
+        # chap nhan y het record_names (dtype vo huong, shape rieng), xem
+        # nhanh cuoi parse_type_ann.
+        self.extern_class_names = extern_class_names
 
     def peek(self):
         return self.tokens[self.i]
@@ -270,6 +296,13 @@ class Parser:
                 # vo huong (shape='record'), tham chieu THANG ten class
                 # (khong ho tro mang/list/dict cua record trong pham vi nay).
                 return TypeAnn(value, 'record')
+            if kind == 'IDENT' and value in self.extern_class_names:
+                # Ten 1 handle-type khai bao qua __tkv_extern_class__ (Task 2,
+                # extern-class, 2026-08-18) - dung nhu 1 dtype vo huong
+                # (shape='extern_class'), giong het record o tren nhung
+                # tra ve .NET class NGOAI (assembly-qualified) thay vi class
+                # do compiler TU SINH - xem il_type_str's nhanh moi.
+                return TypeAnn(value, 'extern_class')
             raise SyntaxError(f"Ky vong dtype (f32/f64/i32/i64/str), gap {value!r} (vi tri ~{pos})")
         dtype = value
         shape = None
@@ -318,9 +351,11 @@ class Parser:
 
     def parse_param(self) -> Param:
         """param := IDENT ':' type_ann ('=' default_literal)?
-                   | '*' IDENT ':' type_ann | '**' IDENT ':' type_ann
-        '*name: T'/'**name: T' (Phase 5.1, 2026-08-11): type_ann THAT su la
-        'list[T]' (vararg) / 'dict[str,T]' (kwarg)."""
+                   | '*' IDENT ':' type_ann
+                   | '**' IDENT ':' type_ann
+        '*name: T'/'**name: T' (Phase 5.1, 2026-08-11): dong nhat kieu T
+        cho MOI gia tri du them - type_ann THAT su cua Param la 'list[T]'
+        (vararg) / 'dict[str,T]' (kwarg), khong phai T thuan."""
         kind0, value0, _ = self.peek()
         if kind0 == 'OP' and value0 in ('*', '**'):
             self.advance()
@@ -377,6 +412,10 @@ class Parser:
                     f"il_codegen: tham so '{p.name}' khong co gia tri mac dinh nhung dung "
                     f"SAU 1 tham so da co default - tat ca tham so sau tham so co default "
                     f"dau tien cung phai co default (giong Python)")
+        # '*args' phai truoc '**kwargs', ca 2 phai o CUOI danh sach tham so
+        # (Phase 5.1, 2026-08-11) - khong ho tro tham so thuong SAU vararg
+        # (khac Python cho phep keyword-only sau '*args', DSL nay chua co
+        # khai niem keyword-only rieng).
         vararg_idx = next((i for i, p in enumerate(params) if p.is_vararg), None)
         kwarg_idx = next((i for i, p in enumerate(params) if p.is_kwarg), None)
         if vararg_idx is not None and kwarg_idx is not None and vararg_idx > kwarg_idx:
@@ -391,6 +430,8 @@ class Parser:
         return params
 
     def parse_signature(self) -> Signature:
+        # 'async def foo(...)' (Phase 4, 2026-08-11) - prefix 'async' TRUOC
+        # ten ham, xem docstring Signature.is_async.
         is_async = False
         k0, v0, _ = self.peek()
         if k0 == 'IDENT' and v0 == 'async':
@@ -419,22 +460,28 @@ class Parser:
                            f"sau chu ky, gap {kind} {value!r}")
 
 
-def parse_typed_signature(line: str, record_names=frozenset()) -> Signature:
+def parse_typed_signature(line: str, record_names=frozenset(), extern_class_names=frozenset()) -> Signature:
     """Ham tien ich chinh: parse 1 DONG chu ky co kieu, tra ve Signature.
     Nem SyntaxError neu dong khong dung ngu phap typed_sig.
     record_names: ten cac 'class dang record' da khai bao trong CUNG file
-    (de chap nhan chung nhu 1 dtype tham so/return type, vd 'p: "Point"')."""
+    (de chap nhan chung nhu 1 dtype tham so/return type, vd 'p: "Point"').
+    extern_class_names: ten cac handle-type khai bao qua
+    __tkv_extern_class__ trong CUNG file (Task 2, extern-class, 2026-08-18)
+    - chap nhan y het record_names."""
     tokens = tokenize(line)
-    return Parser(tokens, line, record_names=record_names).parse_signature()
+    return Parser(tokens, line, record_names=record_names,
+                  extern_class_names=extern_class_names).parse_signature()
 
 
-def parse_type_ann_str(text: str, record_names=frozenset()) -> TypeAnn:
+def parse_type_ann_str(text: str, record_names=frozenset(), extern_class_names=frozenset()) -> TypeAnn:
     """Parse 1 CHUOI kieu don le ('list[str]', 'dict[str,i32]', 'f64')
     thanh TypeAnn - dung cho FIELD cua class (2026-08-03, field chua
     container). Tach rieng khoi parse_typed_signature vi o day khong co
-    chu ky ham nao ca, chi 1 kieu."""
+    chu ky ham nao ca, chi 1 kieu. extern_class_names: xem
+    parse_typed_signature."""
     tokens = tokenize(text)
-    parser = Parser(tokens, text, record_names=record_names)
+    parser = Parser(tokens, text, record_names=record_names,
+                     extern_class_names=extern_class_names)
     ta = parser.parse_type_ann()
     k, v, pos = parser.peek()
     if k != 'EOF':

@@ -133,7 +133,7 @@ def compile_index_counter(name, indices, scope, out, dtype, ctx):
     ctx['widen_if_needed']('i32', dtype, out)
 
 
-def _most_common_result_dtype(args, scope):
+def _most_common_result_dtype(args, scope, func_table=None):
     # EXPR_BUILTIN_DTYPE_FN (best-effort, khong co ctx day du - cung gioi
     # han nhu stdlib_functional.py's _map_result_dtype).
     return None

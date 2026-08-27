@@ -20,12 +20,24 @@ from il_dispatch import (
 from il_features.list_type import il_list_elem_ilstr, find_first_append_dtype
 
 
-def il_set_type(dtype: str, records: dict = None) -> str:
+def il_set_type(dtype: str, records: dict = None, extern_class_defs: dict = None) -> str:
     """Kieu IL cua 1 HashSet<T> DONG - xac minh THAT qua probe_hashset.il
     (2026-07-28): HashSet`1 nam trong assembly [System.Core], KHONG PHAI
     [mscorlib] nhu List`1/Dictionary`2 - bug that gap luc probe dau tien
     (TypeLoadException khi de nham [mscorlib]). '.assembly extern
-    System.Core' phai duoc khai bao o dau file .il (xem tkv_compile.py)."""
+    System.Core' phai duoc khai bao o dau file .il (xem tkv_compile.py).
+
+    `extern_class_defs` (muc P, 2026-08-19): set/frozenset KHONG ho tro
+    phan tu la handle type - HashSet<T> dua vao GetHashCode/Equals mac dinh
+    (reference equality), rui ro tuong tu handle type lam khoa dict (da bi
+    chan cung ly do o Phase 6). Tu choi RO RANG thay vi de roi vao nhanh
+    loi chung cua il_list_elem_ilstr."""
+    if extern_class_defs and dtype in extern_class_defs:
+        raise SyntaxError(
+            f"il_codegen: set/frozenset khong ho tro phan tu la handle type "
+            f"('{dtype}' da khai qua __tkv_extern_class__) - HashSet<T> dua "
+            f"vao GetHashCode/Equals mac dinh (reference equality), rui ro "
+            f"tuong tu handle type lam khoa dict (da bi chan cung ly do)")
     return f'class [System.Core]System.Collections.Generic.HashSet`1<{il_list_elem_ilstr(dtype, records)}>'
 
 
@@ -40,7 +52,7 @@ def compile_in_set(key_node, coll_name, scope, out, ctx):
     _, _, coll_ta = scope[coll_name]
     ctx['load_var_ref'](coll_name, scope, out)
     ctx['compile_expr'](key_node, scope, out, coll_ta.dtype, ctx)
-    set_type = il_set_type(coll_ta.dtype, (ctx or {}).get('records'))
+    set_type = il_set_type(coll_ta.dtype, (ctx or {}).get('records'), (ctx or {}).get('extern_class_defs'))
     out.append(f'    callvirt instance bool {set_type}::Contains(!0)')
 
 
@@ -86,7 +98,7 @@ def try_parse_set_add(line, lines, pos, indent_level, sig, known_shapes, parse_b
 def codegen_assign_set_new(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     """STMT_CODEGEN entry: 's = set()'."""
     _, _, ta = scope[stmt['name']]
-    body.append(f'    newobj instance void {il_set_type(ta.dtype, ctx.get("records"))}::.ctor()')
+    body.append(f'    newobj instance void {il_set_type(ta.dtype, ctx.get("records"), ctx.get("extern_class_defs"))}::.ctor()')
     ctx['store_var'](stmt['name'], scope, body)
 
 
@@ -100,7 +112,7 @@ def codegen_assign_frozenset_new(stmt, scope, body, body_dtype, ctx, sig, codege
     _, _, ta = scope[stmt['name']]
     ctx['load_var_ref'](stmt['src'], scope, body)
     body.append(
-        f'    newobj instance void {il_set_type(ta.dtype, ctx.get("records"))}::.ctor(class '
+        f'    newobj instance void {il_set_type(ta.dtype, ctx.get("records"), ctx.get("extern_class_defs"))}::.ctor(class '
         f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
     ctx['store_var'](stmt['name'], scope, body)
 
@@ -115,7 +127,7 @@ def codegen_set_add(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
             f"il_codegen: '{stmt['name']}' la frozenset (bat bien) - khong the .add()")
     ctx['load_var_ref'](stmt['name'], scope, body)
     ctx['compile_expr'](stmt['value_node'], scope, body, ta.dtype, ctx)
-    body.append(f'    callvirt instance bool {il_set_type(ta.dtype, ctx.get("records"))}::Add(!0)')
+    body.append(f'    callvirt instance bool {il_set_type(ta.dtype, ctx.get("records"), ctx.get("extern_class_defs"))}::Add(!0)')
     body.append('    pop')
 
 

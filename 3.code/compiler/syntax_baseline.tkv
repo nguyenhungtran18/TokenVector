@@ -277,8 +277,13 @@ def _collect_exempt_attr_chains(tree):
                 exempt.add(id(f))
         elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute):
             v = node.value
-            if (not header and isinstance(v.value, ast.Attribute)
-                    and isinstance(v.value.value, ast.Name)
+            # Sua muc J (docs/BUGS_TODO.md, 2026-08-17): CHI mien tru chuoi
+            # DUNG 2 tang 'ten.field[...]' (v.value la 1 ast.Name TRUC TIEP)
+            # - macro that '_ATTR_INDEX_RE' (expr_hoist.py) CHI khop dung 2
+            # tang, KHONG khop 3 tang tro len ('b.a.vals[0]'). Dieu kien cu
+            # (v.value la Attribute co .value la Name) mien tru NHAM chuoi 3
+            # tang, khien linter im lang cho qua trong khi compile THAT loi.
+            if (not header and isinstance(v.value, ast.Name)
                     and v.attr not in _NO_HOIST_FIELDS):
                 exempt.add(id(v))
 

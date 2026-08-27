@@ -7,7 +7,6 @@ GIOI HAN DA BIET (giong path_exists()): key_node duoc compile_expr HAI
 LAN (1 lan ContainsKey, 1 lan get_Item neu nhanh do chay) - an toan neu k
 la 1 bien/hang, co the tinh lai sai neu k la 1 bieu thuc phuc tap co
 side-effect."""
-from il_features.dict_type import il_dict_type
 
 
 def compile_dict_method_get(node, scope, out, dtype, ctx):
@@ -18,7 +17,7 @@ def compile_dict_method_get(node, scope, out, dtype, ctx):
     if ta.shape != 'dict':
         raise SyntaxError(f"il_codegen: '{obj_name}.get(...)' can '{obj_name}' la dict")
     key_node, default_node = args[0], args[1]
-    dict_type = il_dict_type(ta.key_dtype, ta.dtype, (ctx or {}).get('records'))
+    dict_type = ctx['il_type_str'](ta, ctx.get('records'))
     compile_expr = ctx['compile_expr']
     load_var_ref = ctx['load_var_ref']
 

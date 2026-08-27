@@ -16,7 +16,6 @@ CHO) CO THAT qua PowerShell reflection tren List`1[int].GetMethods()."""
 import re
 
 from il_dispatch import register_line_parser, register_stmt_codegen, register_first_pass_walk
-from il_features.list_type import il_list_type
 
 _LIST_REVERSE_RE = re.compile(r'^(\w+)\.reverse\(\)\s*$')
 
@@ -34,7 +33,7 @@ def codegen_list_reverse(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_
     tham so, dao nguoc TAI CHO - dung ngu nghia Python list.reverse())."""
     _, _, ta = scope[stmt['name']]
     ctx['load_var_ref'](stmt['name'], scope, body)
-    body.append(f'    callvirt instance void {il_list_type(ta.dtype, ctx.get("records"))}::Reverse()')
+    body.append(f'    callvirt instance void {ctx["il_type_str"](ta, ctx.get("records"))}::Reverse()')
 
 
 def fpw_list_reverse(stmt, ctx):

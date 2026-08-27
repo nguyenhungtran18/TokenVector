@@ -144,7 +144,7 @@ def compile_choice(args, scope, out, dtype, ctx):
     _, _, ta = scope[var_name]
     if ta.shape != 'list':
         raise SyntaxError(f"il_codegen: choice(lst) can '{var_name}' la list (shape={ta.shape!r})")
-    list_type = il_list_type(ta.dtype, (ctx or {}).get('records'))
+    list_type = il_list_type(ta.dtype, (ctx or {}).get('records'), (ctx or {}).get('extern_class_defs'))
     load_var_ref = ctx['load_var_ref']
     ensure_class(ctx)
 
@@ -165,7 +165,7 @@ def compile_choice(args, scope, out, dtype, ctx):
     # bug Task 3 tung gap voi stdlib_math).
 
 
-def _choice_dtype_fn(args, scope):
+def _choice_dtype_fn(args, scope, func_table=None):
     """dtype tra ve cua choice(lst) PHU THUOC dtype phan tu 'lst' - khong
     co dinh, giong het cach _agg_elem_dtype cua stdlib_aggregates.py xu
     ly cho sum/min/max. Tra None neu chua suy duoc (fallback ve None ->
@@ -283,7 +283,7 @@ def codegen_shuffle_stmt(call_args, scope, body, ctx):
     _, _, ta = scope[var_name]
     if ta.shape != 'list':
         raise SyntaxError(f"il_codegen: shuffle(lst) can '{var_name}' la list (shape={ta.shape!r})")
-    list_type = il_list_type(ta.dtype, (ctx or {}).get('records'))
+    list_type = il_list_type(ta.dtype, (ctx or {}).get('records'), (ctx or {}).get('extern_class_defs'))
     load_var_ref = ctx['load_var_ref']
     ensure_class(ctx)
 
@@ -340,7 +340,7 @@ def compile_sample(args, scope, out, dtype, ctx):
     _, _, ta = scope[var_name]
     if ta.shape != 'list':
         raise SyntaxError(f"il_codegen: sample(lst, k) can '{var_name}' la list (shape={ta.shape!r})")
-    list_type = il_list_type(ta.dtype, (ctx or {}).get('records'))
+    list_type = il_list_type(ta.dtype, (ctx or {}).get('records'), (ctx or {}).get('extern_class_defs'))
     ensure_class(ctx)
     load_var_ref = ctx['load_var_ref']
     compile_expr = ctx['compile_expr']
@@ -380,7 +380,7 @@ def compile_sample(args, scope, out, dtype, ctx):
         f'{list_type}::GetRange(int32, int32)')
 
 
-def _sample_dtype_fn(args, scope):
+def _sample_dtype_fn(args, scope, func_table=None):
     """dtype tra ve cua sample(lst, k) PHU THUOC dtype 'lst' - giong het
     _choice_dtype_fn."""
     if len(args) != 2 or args[0][0] != 'var':

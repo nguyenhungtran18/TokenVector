@@ -26,7 +26,6 @@ from il_dispatch import (
     register_assign_rhs_parser, register_expr_codegen,
     register_first_pass_walk, register_stmt_codegen,
 )
-from il_features.list_type import il_list_type
 
 _SLICE_RHS_RE = re.compile(r'^(\w+)\[[^\[\]]*:[^\[\]]*\]$')
 
@@ -49,15 +48,26 @@ def try_rhs_list_slice(rhs, name, known_shapes):
 
 def compile_slice(node, scope, out, dtype, ctx):
     """EXPR_CODEGEN entry cho tag 'slice' - dung CHUNG list/string.
-    (Moc 11, 2026-08-08: Ho tro kep bien & chi so AM DONG tai runtime chuan Python)"""
+
+    THU TU STACK: tinh 'start' TRUOC, luu vao local AN (can dung 2 lan);
+    nap nguon, nap start (lam tham so 1), tinh 'stop' (mac dinh =
+    get_Count()/get_Length() cua nguon neu vang mat), nap lai start tu
+    local, 'sub' de duoc count=stop-start - dung THU TU nay (KHONG phai
+    'start-stop') vi IL 'sub' tinh (gia_tri_duoi - gia_tri_tren) tren 2
+    phan tu DINH stack, da xac minh THAT qua ilasm.exe compile+run doi
+    chieu ket qua voi Python that (xem STATUS.md)."""
     src_name, start_node, stop_node = node[1], node[2], node[3]
     _, _, src_ta = scope[src_name]
     compile_expr = ctx['compile_expr']
     load_var_ref = ctx['load_var_ref']
 
     if src_ta.shape == 'list':
-        list_type = il_list_type(src_ta.dtype, (ctx or {}).get('records'))
+        list_type = ctx['il_type_str'](src_ta, (ctx or {}).get('records'))
         count_call = f'callvirt instance int32 {list_type}::get_Count()'
+        # QUAN TRONG (giong get_Item's '!0'): return type cua GetRange()
+        # duoc dinh nghia TREN generic type MO (List`1<!0>), KHONG phai
+        # kieu da thay the (vd List`1<int32>) - metadata phai ghi dung
+        # nhu vay, bug that phat hien qua ilasm.exe chay (MissingMethodException).
         slice_call = (
             f'callvirt instance class [mscorlib]System.Collections.Generic.List`1<!0> '
             f'{list_type}::GetRange(int32, int32)')
@@ -70,69 +80,35 @@ def compile_slice(node, scope, out, dtype, ctx):
             f"'{src_name}' co shape={src_ta.shape!r} dtype={src_ta.dtype!r}")
 
     _, start_idx, _ = scope[f'__slice{id(node)}_start']
-    _, stop_idx, _ = scope[f'__slice{id(node)}_stop']
-    _, count_idx, _ = scope[f'__slice{id(node)}_count']
 
-    def _emit_bound_clamped(bnode, is_stop):
+    def _emit_bound(bnode, default_is_count):
+        # Chi so am HANG SO tai compile-time (vd -2) -> Count/Length - N,
+        # giong emit_index_value cua il_core.py (chi so don, khong
+        # slice) - xem gioi han o docstring dau file.
         if bnode is None:
-            if is_stop:
+            if default_is_count:
                 load_var_ref(src_name, scope, out)
                 out.append(f'    {count_call}')
             else:
                 out.append('    ldc.i4.0')
             return
-
-        ctx['label_counter'][0] += 1
-        cnt = ctx['label_counter'][0]
-        lbl_neg_done = f"{ctx.get('prefix', 'expr')}_slc_neg_{cnt}"
-        lbl_clamp_done = f"{ctx.get('prefix', 'expr')}_slc_clamp_{cnt}"
-
+        n = ctx['neg_literal_int'](bnode)
+        if n is not None:
+            load_var_ref(src_name, scope, out)
+            out.append(f'    {count_call}')
+            out.append(f'    ldc.i4 {n}')
+            out.append('    sub')
+            return
         compile_expr(bnode, scope, out, 'i32', ctx)
-        out.append('    dup')
-        out.append('    ldc.i4.0')
-        out.append(f'    bge.s {lbl_neg_done}')
-        load_var_ref(src_name, scope, out)
-        out.append(f'    {count_call}')
-        out.append('    add')
-        out.append('    dup')
-        out.append('    ldc.i4.0')
-        out.append(f'    bge.s {lbl_neg_done}')
-        out.append('    pop')
-        out.append('    ldc.i4.0')
-        out.append(f'  {lbl_neg_done}:')
-        out.append('    dup')
-        load_var_ref(src_name, scope, out)
-        out.append(f'    {count_call}')
-        out.append(f'    ble.s {lbl_clamp_done}')
-        out.append('    pop')
-        load_var_ref(src_name, scope, out)
-        out.append(f'    {count_call}')
-        out.append(f'  {lbl_clamp_done}:')
 
-    _emit_bound_clamped(start_node, is_stop=False)
+    _emit_bound(start_node, default_is_count=False)
     out.append(f'    stloc.s {start_idx}')
-
-    _emit_bound_clamped(stop_node, is_stop=True)
-    out.append(f'    stloc.s {stop_idx}')
-
-    ctx['label_counter'][0] += 1
-    cnt_lbl = ctx['label_counter'][0]
-    lbl_count_done = f"{ctx.get('prefix', 'expr')}_slc_cnt_{cnt_lbl}"
-
-    out.append(f'    ldloc.s {stop_idx}')
-    out.append(f'    ldloc.s {start_idx}')
-    out.append('    sub')
-    out.append('    dup')
-    out.append('    ldc.i4.0')
-    out.append(f'    bge.s {lbl_count_done}')
-    out.append('    pop')
-    out.append('    ldc.i4.0')
-    out.append(f'  {lbl_count_done}:')
-    out.append(f'    stloc.s {count_idx}')
 
     load_var_ref(src_name, scope, out)
     out.append(f'    ldloc.s {start_idx}')
-    out.append(f'    ldloc.s {count_idx}')
+    _emit_bound(stop_node, default_is_count=True)
+    out.append(f'    ldloc.s {start_idx}')
+    out.append('    sub')
     out.append(f'    {slice_call}')
 
 
@@ -142,8 +118,6 @@ def fpw_assign_list_slice(stmt, ctx):
     ta = ctx['TypeAnn'](src_ta.dtype, 'list')
     ctx['declare_named'](stmt['name'], ta)
     ctx['declare_named'](f'__slice{id(stmt["slice_node"])}_start', ctx['TypeAnn']('i32', None))
-    ctx['declare_named'](f'__slice{id(stmt["slice_node"])}_stop', ctx['TypeAnn']('i32', None))
-    ctx['declare_named'](f'__slice{id(stmt["slice_node"])}_count', ctx['TypeAnn']('i32', None))
     start_node, stop_node = stmt['slice_node'][2], stmt['slice_node'][3]
     if start_node is not None:
         ctx['collect_ternary_temps'](start_node)

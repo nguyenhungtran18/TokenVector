@@ -35,7 +35,7 @@ rong (list[0] tu nhien throw - KHONG gia lap ValueError cua Python)."""
 import re
 
 from il_dispatch import register_macro_expander, register_expr_builtin
-from il_features.list_type import il_list_type
+from il_features.list_type import il_list_type, reject_if_handle_type_elem
 import il_features.int_type as _int_type
 
 # ---------------------------------------------------------------------
@@ -123,7 +123,7 @@ def _agg_arg_ta(args, scope, fname, max_args=1):
     return name, ta
 
 
-def _agg_elem_dtype(args, scope):
+def _agg_elem_dtype(args, scope, func_table=None):
     """EXPR_BUILTIN_DTYPE_FN: sum/min/max/sorted deu mang dtype PHAN TU cua
     nguon. Tra None khi chua suy duoc (caller tu fallback). sum(xs, start)
     (2026-08-12): args[1:] (start) khong anh huong dtype ket qua - VAN
@@ -170,11 +170,15 @@ def _loop_prelude(args, scope, out, ctx, prefix, fname, max_args=1):
     (list_type, ta, cac chi so local, 3 nhan) - dung chung cho
     sum/min/max/any/all."""
     name, ta = _agg_arg_ta(args, scope, fname, max_args=max_args)
+    reject_if_handle_type_elem(ta, ctx.get('extern_class_defs'), fname)
     if ta.dtype == 'int':
         # Ham co the KHONG dung phep so hoc 'int' nao khac ngoai sum(xs)
         # - luc do khong ai khac goi ensure_class va .class TkvInt se
         # thieu han khoi file IL.
         _int_type.ensure_class(ctx)
+    # reject o tren da chan handle type khi ctx co extern_class_defs; neu ctx
+    # thieu key nay se roi ve message loi cu mo ho hon - xem
+    # test/verify/list_handle_type_reject_test.py
     list_type = il_list_type(ta.dtype, ctx.get('records'))
     ctx['load_var_ref'](name, scope, out)
     if ta.shape in ('set', 'frozenset'):
@@ -319,6 +323,10 @@ def push_sorted(args, scope, out, dtype, ctx):
     """KHONG can bien an nao: List moi nam san tren stack, 'dup' de goi
     Sort() (tra void) roi van con chinh no lam ket qua bieu thuc."""
     name, ta = _agg_arg_ta(args, scope, 'sorted')
+    reject_if_handle_type_elem(ta, ctx.get('extern_class_defs'), 'sorted')
+    # reject o tren da chan handle type khi ctx co extern_class_defs; neu ctx
+    # thieu key nay se roi ve message loi cu mo ho hon - xem
+    # test/verify/list_handle_type_reject_test.py
     list_type = il_list_type(ta.dtype, ctx.get('records'))
     ctx['load_var_ref'](name, scope, out)
     out.append(

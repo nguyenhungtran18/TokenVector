@@ -341,8 +341,15 @@ def _check_constraint(func_name, param_name, constraint, concrete_type,
     co che tra cuu dunder cua operators.py's compile_binop/compile_compare
     (Task 1 report muc 4) - KHONG viet lai logic khac."""
     from tkv_compile import TranspileError
+    import il_codegen
     loc = (f"ham '{func_name}': tham so '{param_name}' (kieu cu the "
            f"'{concrete_type}', suy ra tu loi goi trong ham '{caller_desc}')")
+
+    if concrete_type in il_codegen._EXTERN_CLASS_DEFS:
+        raise TranspileError(
+            f"duck-typing: tham so 'inferred' khong the la extern-class handle type "
+            f"{concrete_type!r} - handle type khong tham gia co che suy kieu nay, "
+            f"khai annotation tuong minh")
 
     if isinstance(constraint, FieldConstraint):
         if concrete_type not in records:
@@ -457,6 +464,24 @@ def resolve_call_site(sig, concrete_arg_types, records, record_methods, record_b
                 f"kieu tinh). Khai kieu tuong minh cho tham so nay, hoac dung 1 bien don "
                 f"gian lam doi so.")
         resolved_by_param[p.name] = concrete_type
+        # Tham so 'inferred' KHONG duoc nhan extern-class handle type - kiem
+        # tra NAY phai chay VO DIEU KIEN (khong phu thuoc constraints.get(p.name))
+        # vi 1 tham so 'inferred' HOP LE co the KHONG co rang buoc nao (than
+        # than KHONG dung trong body - xem docstring collect_inferred_constraints
+        # o Task 3), khien vong for c in constraints.get(...) o duoi khong
+        # chay lan nao va _check_constraint (noi dang co kiem tra
+        # _EXTERN_CLASS_DEFS) khong bao gio duoc goi cho tham so do - handle
+        # type se lot qua het qua khoi resolve_call_site va gay KeyError o
+        # il_type_str sau nay (xem 5th instance cua bug class trong
+        # docs/BUGS_TODO.md muc O). Import cham (tranh vong lap import voi
+        # il_codegen o module-load-time, giong cach _check_constraint lam).
+        import il_codegen
+        if concrete_type in il_codegen._EXTERN_CLASS_DEFS:
+            raise TranspileError(
+                f"ham '{sig.name}': tham so 'inferred' '{p.name}' khong the la "
+                f"extern-class handle type {concrete_type!r} (tai loi goi trong ham "
+                f"'{caller_desc}') - handle type khong tham gia co che suy kieu nay, "
+                f"du tham so co dung trong than ham hay khong. Khai annotation tuong minh.")
         for c in constraints.get(p.name, []):
             _check_constraint(sig.name, p.name, c, concrete_type,
                                records, record_methods, record_bases, caller_desc)

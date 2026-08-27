@@ -31,7 +31,6 @@ import re
 
 from il_core import parse_expr
 from il_dispatch import register_line_parser, register_stmt_codegen, register_first_pass_walk
-from il_features.list_type import il_list_type
 from il_features.tuple_type import il_tupleN_type
 from il_features.stdlib_functional import _resolve_func_ta
 
@@ -116,7 +115,7 @@ def codegen_list_sort(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
     dinh (not stable) khi trung key, khac Python that (giu thu tu goc)."""
     name = stmt['name']
     _, _, ta = scope[name]
-    list_type = il_list_type(ta.dtype, ctx.get('records'))
+    list_type = ctx['il_type_str'](ta, ctx.get('records'))
     if not stmt.get('key_name'):
         ctx['load_var_ref'](name, scope, body)
         body.append(f'    callvirt instance void {list_type}::Sort()')
@@ -229,7 +228,7 @@ def codegen_list_extend(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_f
         raise SyntaxError(
             f"il_codegen: '{name}.extend({other_name})' - dtype phan tu khac nhau "
             f"({ta.dtype!r} vs {ta_other.dtype!r})")
-    list_type = il_list_type(ta.dtype, ctx.get("records"))
+    list_type = ctx['il_type_str'](ta, ctx.get("records"))
     ctx['load_var_ref'](name, scope, body)
     ctx['load_var_ref'](other_name, scope, body)
     body.append(

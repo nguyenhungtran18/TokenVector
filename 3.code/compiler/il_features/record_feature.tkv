@@ -21,18 +21,18 @@ from il_dispatch import (
 from il_features.string_methods_batch2 import STR_METHODS as _STR_METHODS_BASE
 from il_features.string_methods_batch3 import STR_METHODS_EXTRA as _STR_METHODS_EXTRA
 from il_features.string_methods_batch4 import STR_METHODS_EXTRA2 as _STR_METHODS_EXTRA2
-from il_features.string_methods_batch5 import STR_METHODS_EXTRA3 as _STR_METHODS_EXTRA3
 # 2026-07-29 (Huong A stdlib mo rong, dang module rieng): nhom ham moi
-# dang ky qua dict rieng o batch3/batch4/batch5, merge vao day - KHONG sua
+# dang ky qua dict rieng o batch3/batch4, merge vao day - KHONG sua
 # batch2.py/batch3.py, giu tinh plug-and-play (nhom moi = file moi + 1
 # dong merge).
-_STR_METHODS = {**_STR_METHODS_BASE, **_STR_METHODS_EXTRA, **_STR_METHODS_EXTRA2, **_STR_METHODS_EXTRA3}
+_STR_METHODS = {**_STR_METHODS_BASE, **_STR_METHODS_EXTRA, **_STR_METHODS_EXTRA2}
 from il_features.list_pop import compile_list_method_pop as _compile_list_method_pop
 from il_features.dict_get import compile_dict_method_get as _compile_dict_method_get
 from il_features.dict_pop import compile_dict_method_pop as _compile_dict_method_pop
 from il_features.dict_setdefault import compile_dict_method_setdefault as _compile_dict_method_setdefault
 from il_features.list_count_index import compile_list_method_index as _compile_list_method_index
 from il_features.control_flow import compile_file_method_call as _compile_file_method_call
+from il_features.list_type import value_dtype_spec_for_ta as _value_dtype_spec_for_ta
 
 _ATTR_ASSIGN_RE = re.compile(r'^(\w+)\.(\w+)\s*=\s*(.+)$')
 _COMPOUND_ASSIGN_OPS = {'+=': '+', '-=': '-', '*=': '*', '/=': '/', '%=': '%'}
@@ -128,6 +128,31 @@ def try_parse_attr_assign(line, lines, pos, indent_level, sig, known_shapes, par
 def codegen_attr_assign(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     obj_name, field_name = stmt['obj_name'], stmt['field_name']
     _, _, obj_ta = scope[obj_name]
+    if obj_ta.shape == 'extern_class':
+        # Task 3 (extern-class-property, 2026-08-18): ghi property qua
+        # set_X (callvirt void) - doi xung voi nhanh doc get_X trong
+        # compile_attr o tren (cung file). Import il_codegen CUC BO (tranh
+        # circular import, cung ly do voi nhanh doc).
+        import il_codegen as _ilc
+        from tkv_compile import TranspileError
+        decl = _ilc._EXTERN_CLASS_DEFS.get(obj_ta.dtype)
+        prop = next((p for p in (decl.get('properties') or []) if p['name'] == field_name), None) \
+            if decl else None
+        if prop is None:
+            raise SyntaxError(
+                f"il_codegen: '.{field_name}' khong phai property da khai cua "
+                f"handle type {obj_ta.dtype!r}")
+        if prop['readonly']:
+            raise TranspileError(
+                f"il_codegen: property {field_name!r} cua {obj_ta.dtype!r} la "
+                f"readonly, khong the gan gia tri")
+        registered = EXPR_METHOD_CODEGEN.get(('extern_class', f'set_{field_name}'))
+        if registered is None:
+            raise SyntaxError(
+                f"il_codegen: setter cho property {field_name!r} chua duoc dang ky")
+        fake_node = ('method_call', obj_name, f'set_{field_name}', [stmt['value_node']])
+        registered(fake_node, scope, body, None, ctx)
+        return
     if obj_ta.shape != 'record':
         raise SyntaxError(
             f"il_codegen: '.{field_name}' chi dung duoc tren bien kieu record, "
@@ -143,7 +168,10 @@ def codegen_attr_assign(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_f
     ctx['load_var_ref'](obj_name, scope, body)
     if not isinstance(field_dtype, str):
         # Field CONTAINER (2026-08-03): gan lai ca doi tuong container.
-        ctx['compile_expr'](stmt['value_node'], scope, body, field_dtype.dtype, ctx)
+        # Round 3 (2026-08-19): shape-string convention khi gan list-literal
+        # long nhau vao field ('self.m = [[1,2],[3,4]]').
+        ctx['compile_expr'](stmt['value_node'], scope, body,
+                            _value_dtype_spec_for_ta(field_dtype, stmt['value_node']), ctx)
         owner = _field_owner_class(ctx, obj_ta.dtype, field_name)
         body.append(f'    stfld {ctx["il_type_str"](field_dtype, records)} '
                     f'{owner}::{ctx["il_ident"](field_name)}')
@@ -184,6 +212,30 @@ def compile_attr(node, scope, out, dtype, ctx=None):
             out.append(f'    call instance !1 {kv_type}::get_Value()')
             ctx['widen_if_needed'](obj_ta.dtype, dtype, out)
         return
+    if obj_ta.shape == 'extern_class':
+        # Task 2 (extern-class-property, 2026-08-18): doc property qua
+        # get_X (callvirt) - tai dung TOAN BO pipeline method da co
+        # (EXPR_METHOD_CODEGEN[('extern_class', 'get_X')], dang ky dong
+        # trong tkv_compile.py) bang cach dung LAI CHINH fake_node shape
+        # 'method_call' that (node[1]/node[2]/node[3], xac nhan qua
+        # compile_method_call o duoi - obj_name/method_name/args). Import
+        # il_codegen CUC BO (khong o top-level) de tranh circular import
+        # (xem docstring dau file - ly do da dung ctx['il_type_str'] thay vi
+        # import truc tiep o cac nhanh khac).
+        import il_codegen as _ilc
+        decl = _ilc._EXTERN_CLASS_DEFS.get(obj_ta.dtype)
+        prop = next((p for p in (decl.get('properties') or []) if p['name'] == field_name), None) \
+            if decl else None
+        if prop is None:
+            raise SyntaxError(
+                f"il_codegen: '.{field_name}' khong phai property da khai cua "
+                f"handle type {obj_ta.dtype!r}")
+        registered = EXPR_METHOD_CODEGEN.get(('extern_class', f'get_{field_name}'))
+        if registered is None:
+            raise SyntaxError(
+                f"il_codegen: getter cho property {field_name!r} chua duoc dang ky")
+        fake_node = ('method_call', obj_name, f'get_{field_name}', [])
+        return registered(fake_node, scope, out, dtype, ctx)
     if obj_ta.shape != 'record':
         raise SyntaxError(
             f"il_codegen: '.{field_name}' chi dung duoc tren bien kieu record, "
@@ -219,9 +271,13 @@ def compile_method_call(node, scope, out, dtype, ctx=None):
         out.append('    ldarg.0')
         compile_expr = ctx['compile_expr']
         for arg_node, p in zip(args, m_sig.params):
-            compile_expr(arg_node, scope, out, p.type_ann.dtype, ctx)
+            # Round 3 (2026-08-19): shape-string convention cho list-literal
+            # long nhau lam doi so cua super().method(...).
+            compile_expr(arg_node, scope, out,
+                         _value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
         for p in m_sig.params[len(args):]:
-            compile_expr(p.default_node, scope, out, p.type_ann.dtype, ctx)
+            compile_expr(p.default_node, scope, out,
+                         _value_dtype_spec_for_ta(p.type_ann, p.default_node), ctx)
         il_type_str = ctx['il_type_str']
         ret_il = il_type_str(m_sig.return_type) if m_sig.return_type else 'void'
         params_il = ', '.join(il_type_str(p.type_ann) for p in m_sig.params)
@@ -229,6 +285,28 @@ def compile_method_call(node, scope, out, dtype, ctx=None):
         if m_sig.return_type:
             ctx['widen_if_needed'](m_sig.return_type.dtype, dtype, out)
         return
+    if obj_name not in scope:
+        # Phase 9d Part A, Task 3 (2026-08-26): 'ClassName.Method()' - static
+        # method tren 1 __tkv_extern_class__ da khai bao, KHONG phai bien.
+        # Parser dung CHUNG 1 node ('method_call', obj_name, method_name,
+        # args) cho ca 2 truong hop ('obj.method()' voi obj la bien, va
+        # 'ClassName.Method()' voi ClassName la ten class) - phan biet o
+        # DAY qua obj_name co trong scope hay khong (khac han nhanh
+        # 'super().method()' o tren, luon nhan dien qua hinh dang node).
+        # Import CUC BO giong cac nhanh 'attr'/'attr_ren' o tren (tranh
+        # circular import voi il_codegen).
+        import il_codegen as _ilc
+        if obj_name in _ilc._EXTERN_CLASS_DEFS:
+            # tkv_compile.py so huu logic codegen dong ('extern-class' method
+            # resolution) - import CUC BO (tkv_compile da nap xong tai thoi
+            # diem ham nay duoc GOI, chi khong the import o dau file vi
+            # tkv_compile.py TU import il_codegen luc module-load, circular).
+            import tkv_compile as _tkv_compile
+            return _tkv_compile._compile_extern_static_class_method_call(
+                node, scope, out, dtype, ctx, obj_name, method_name, args)
+        raise SyntaxError(
+            f"il_codegen: '{obj_name}' khong phai bien da khai bao va cung "
+            f"khong phai 1 extern-class da khai qua __tkv_extern_class__")
     _, _, obj_ta = scope[obj_name]
     registered = EXPR_METHOD_CODEGEN.get((obj_ta.shape or obj_ta.dtype, method_name))
     if registered:
@@ -285,14 +363,20 @@ def compile_method_call(node, scope, out, dtype, ctx=None):
         ctx['load_var_ref'](obj_name, scope, out)
     compile_expr = ctx['compile_expr']
     for arg_node, p in zip(args, m_sig.params):
-        compile_expr(arg_node, scope, out, p.type_ann.dtype, ctx)
+        # Round 3 (2026-08-19): shape-string convention cho list-literal long
+        # nhau lam doi so method o VI TRI BIEU THUC ('n = h.sum2([[5,6]])').
+        compile_expr(arg_node, scope, out,
+                     _value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
     for p in m_sig.params[len(args):]:
-        compile_expr(p.default_node, scope, out, p.type_ann.dtype, ctx)
+        compile_expr(p.default_node, scope, out,
+                     _value_dtype_spec_for_ta(p.type_ann, p.default_node), ctx)
     il_type_str = ctx['il_type_str']
     if getattr(m_sig, 'is_async', False):
         # 'async def' method tren record (Task 3, 2026-08-12) - kieu tra ve
-        # THAT cua .method la Task<T> (xem _gen_async_def), giong cach ham
-        # top-level 'async def' duoc goi.
+        # THAT cua .method la Task<T> (xem _gen_async_def), giong het cach
+        # ham top-level 'async def' duoc goi (xem compile_expr's nhanh
+        # 'is_async' o il_codegen.py ~dong 1750) - lenh 'call'/'callvirt'
+        # phai khai bao dung Task<T>, KHONG phai T thuan.
         ret_il = f'class [mscorlib]System.Threading.Tasks.Task`1<{il_type_str(m_sig.return_type)}>'
     else:
         ret_il = il_type_str(m_sig.return_type)

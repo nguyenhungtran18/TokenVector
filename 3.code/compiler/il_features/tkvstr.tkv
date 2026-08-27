@@ -108,12 +108,10 @@ def emit_to_str(dtype, out, ctx):
         # builtin), tranh lat lai bug AccessViolationException cu (TkvInt
         # nhan nham gia tri i32 tho, xem tkvstr.py mot doan tren).
         out.append(f'    call string {TKVSTR_CLASS}::Bool(int32)')
-    elif dtype == 'object':
-        out.append('    callvirt instance string [mscorlib]System.Object::ToString()')
     else:
         raise SyntaxError(
             f"il_codegen: chua co duong chuyen '{dtype}' sang chuoi "
-            f"(chi ho tro i32/i64/f32/f64/int/str/bool/object)")
+            f"(chi ho tro i32/i64/f32/f64/int/str/bool, hoac 1 record co __str__)")
 
 
 def _m(sig, *body):

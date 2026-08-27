@@ -36,71 +36,13 @@ _ATTR_RECV_RE = re.compile(r'(?<![\w.])(\w+)\.(\w+)\.(\w+)\(')
 _ATTR_INDEX_RE = re.compile(r'(?<![\w.])(\w+)\.(\w+)\[')
 
 # 'sorted(<bieu thuc>)' - CHI hoist khi doi so KHONG phai 1 ten don.
-_WRAPPER_CALLS = ('sorted', 'sum', 'max', 'min', 'any', 'all', 'len', 'json_dumps')
+_WRAPPER_CALLS = ('sorted', 'sum', 'max', 'min', 'any', 'all', 'len')
 
 _SIMPLE_NAME_RE = re.compile(r'^\w+$')
 
 # 'a.shape[0]' la CU PHAP RIENG (kich thuoc mang, biet luc bien dich) -
 # hoist no ra bien tam se pha cu phap. Khong dung cho field nguoi dung.
 _NO_HOIST_FIELDS = ('shape',)
-
-
-def _mask_strings_and_comments(line):
-    """Thay the tat ca string literal ('...' hoac "...") va comment (#...)
-    bang placeholder an '__STR_LIT_N__' de regex hoisting khong bao gio
-    quet trung va lam hong chuoi ky tu (Moc 13, 2026-08-08)."""
-    placeholders = []
-    comment_pos = -1
-    in_quote = None
-    for i, ch in enumerate(line):
-        if in_quote:
-            if ch == '\\':
-                pass
-            elif ch == in_quote:
-                in_quote = None
-        else:
-            if ch in ('"', "'"):
-                in_quote = ch
-            elif ch == '#':
-                comment_pos = i
-                break
-
-    code_part = line[:comment_pos] if comment_pos >= 0 else line
-    comment_part = line[comment_pos:] if comment_pos >= 0 else ""
-
-    result = []
-    i = 0
-    while i < len(code_part):
-        ch = code_part[i]
-        if ch in ('"', "'"):
-            quote = ch
-            start = i
-            i += 1
-            while i < len(code_part):
-                if code_part[i] == '\\':
-                    i += 2
-                    continue
-                if code_part[i] == quote:
-                    i += 1
-                    break
-                i += 1
-            lit = code_part[start:i]
-            idx = len(placeholders)
-            ph = f"__STR_LIT_{idx}__"
-            placeholders.append((ph, lit))
-            result.append(ph)
-        else:
-            result.append(ch)
-            i += 1
-
-    masked_line = "".join(result) + comment_part
-    return masked_line, placeholders
-
-
-def _unmask_strings(text, placeholders):
-    for ph, lit in reversed(placeholders):
-        text = text.replace(ph, lit)
-    return text
 
 
 def _find_close(text, open_idx):
@@ -143,6 +85,10 @@ def _hoist_attr_receiver(stripped):
     obj, field, _method = m.groups()
     if field in _NO_HOIST_FIELDS:
         return None
+    # 'self.<field>' KHONG bi loai tru: field CONTAINER cua self da duoc
+    # doi ten thanh '__self_<field>' TRUOC khi macro chay (xem
+    # _hoist_container_fields), nen 'self.x' con lai o day la field vo
+    # huong hoac field kieu record - hoist duoc binh thuong.
     tmp = _next_name()
     target = f'{obj}.{field}'
     new_line = stripped.replace(target + '.', tmp + '.', 1)
@@ -179,6 +125,8 @@ def _hoist_wrapper_arg(stripped):
         arg = stripped[open_idx + 1:close_idx].strip()
         if not arg or _SIMPLE_NAME_RE.match(arg) or ',' in arg:
             continue
+        # Chi hoist khi doi so la 1 LOI GOI / thuoc tinh (co '.' hoac '(')
+        # - bieu thuc so hoc thi cac duong hien co da xu ly duoc.
         if '.' not in arg and '(' not in arg:
             continue
         tmp = _next_name()
@@ -196,17 +144,18 @@ def try_expand_expr_hoist(line):
         return None
     if stripped.startswith(('"""', "'''")):
         return None
+    # Dong mo khoi ('for'/'if'/'while'/'with'/'elif') KHONG hoist duoc theo
+    # cach nay: bien tam phai dat TRUOC dong, nhung voi 'while' thi no chi
+    # duoc tinh 1 lan - sai ngu nghia. Chi cho 'for ... in ...:' vi ve phai
+    # cua 'for' cung chi duoc tinh 1 lan trong Python.
     is_block = re.match(r'^(if|while|elif|with|else|try|except|finally)\b', stripped)
     if is_block:
         return None
     indent = ' ' * (len(line) - len(line.lstrip(' ')))
-    masked_line, placeholders = _mask_strings_and_comments(stripped)
     for fn in (_hoist_attr_receiver, _hoist_attr_index, _hoist_wrapper_arg):
-        got = fn(masked_line)
+        got = fn(stripped)
         if got:
             prologue, new_line = got
-            prologue = _unmask_strings(prologue, placeholders)
-            new_line = _unmask_strings(new_line, placeholders)
             return f'{indent}{prologue}\n{indent}{new_line}'
     return None
 

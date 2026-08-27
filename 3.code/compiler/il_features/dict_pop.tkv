@@ -12,7 +12,6 @@ compile_expr BA LAN (ContainsKey/get_Item/Remove) - an toan voi bien/hang,
 co the tinh lai sai neu la bieu thuc phuc tap co side-effect (DSL nay
 khong co side-effect trong bieu thuc nen an toan THAT SU, giong ghi chu
 cua get())."""
-from il_features.dict_type import il_dict_type
 
 
 def compile_dict_method_pop(node, scope, out, dtype, ctx):
@@ -23,7 +22,7 @@ def compile_dict_method_pop(node, scope, out, dtype, ctx):
     if ta.shape != 'dict':
         raise SyntaxError(f"il_codegen: '{obj_name}.pop(...)' can '{obj_name}' la dict")
     key_node, default_node = args[0], args[1]
-    dict_type = il_dict_type(ta.key_dtype, ta.dtype, (ctx or {}).get('records'))
+    dict_type = ctx['il_type_str'](ta, ctx.get('records'))
     compile_expr = ctx['compile_expr']
     load_var_ref = ctx['load_var_ref']
 

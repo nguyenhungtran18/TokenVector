@@ -106,58 +106,6 @@ def codegen_os_list_files(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts
     ctx['store_var'](stmt['name'], scope, body)
 
 
-def _push_os_list_files_rec(args, scope, out, dtype, ctx):
-    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
-    out.append('    ldstr "*"')
-    out.append('    ldc.i4.1')  # SearchOption.AllDirectories = 1
-    out.append('    call string[] [mscorlib]System.IO.Directory::GetFiles(string, string, valuetype [mscorlib]System.IO.SearchOption)')
-    out.append('    newobj instance void class [mscorlib]System.Collections.Generic.List`1<string>::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
-
-
-def try_rhs_os_list_files_rec(rhs, name, known_shapes):
-    m = re.match(r'^os_list_files_rec\((.+)\)$', rhs.strip())
-    if not m:
-        return None
-    known_shapes[name] = 'list'
-    return {'kind': 'assign_os_list_files_rec', 'name': name, 'arg_node': parse_expr(m.group(1))}
-
-
-def fpw_os_list_files_rec(stmt, ctx):
-    ta = ctx['TypeAnn']('str', 'list')
-    ctx['declare_named'](stmt['name'], ta)
-    ctx['collect_ternary_temps'](stmt['arg_node'])
-
-
-def codegen_os_list_files_rec(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
-    _push_os_list_files_rec([stmt['arg_node']], scope, body, 'str', ctx)
-    ctx['store_var'](stmt['name'], scope, body)
-
-
-def _push_os_list_dirs(args, scope, out, dtype, ctx):
-    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
-    out.append('    call string[] [mscorlib]System.IO.Directory::GetDirectories(string)')
-    out.append('    newobj instance void class [mscorlib]System.Collections.Generic.List`1<string>::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
-
-
-def try_rhs_os_list_dirs(rhs, name, known_shapes):
-    m = re.match(r'^os_list_dirs\((.+)\)$', rhs.strip())
-    if not m:
-        return None
-    known_shapes[name] = 'list'
-    return {'kind': 'assign_os_list_dirs', 'name': name, 'arg_node': parse_expr(m.group(1))}
-
-
-def fpw_os_list_dirs(stmt, ctx):
-    ta = ctx['TypeAnn']('str', 'list')
-    ctx['declare_named'](stmt['name'], ta)
-    ctx['collect_ternary_temps'](stmt['arg_node'])
-
-
-def codegen_os_list_dirs(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
-    _push_os_list_dirs([stmt['arg_node']], scope, body, 'str', ctx)
-    ctx['store_var'](stmt['name'], scope, body)
-
-
 register_assign_rhs_parser('os_getenv', try_rhs_os_getenv)
 register_first_pass_walk('assign_os_getenv', fpw_os_getenv)
 register_stmt_codegen('assign_os_getenv', codegen_os_getenv)
@@ -172,13 +120,3 @@ register_expr_builtin('os_list_files', _push_os_list_files, 'str', return_shape=
 register_assign_rhs_parser('os_list_files', try_rhs_os_list_files)
 register_first_pass_walk('assign_os_list_files', fpw_os_list_files)
 register_stmt_codegen('assign_os_list_files', codegen_os_list_files)
-
-register_expr_builtin('os_list_files_rec', _push_os_list_files_rec, 'str', return_shape='list')
-register_assign_rhs_parser('os_list_files_rec', try_rhs_os_list_files_rec)
-register_first_pass_walk('assign_os_list_files_rec', fpw_os_list_files_rec)
-register_stmt_codegen('assign_os_list_files_rec', codegen_os_list_files_rec)
-
-register_expr_builtin('os_list_dirs', _push_os_list_dirs, 'str', return_shape='list')
-register_assign_rhs_parser('os_list_dirs', try_rhs_os_list_dirs)
-register_first_pass_walk('assign_os_list_dirs', fpw_os_list_dirs)
-register_stmt_codegen('assign_os_list_dirs', codegen_os_list_dirs)

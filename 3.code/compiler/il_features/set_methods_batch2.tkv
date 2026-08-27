@@ -76,7 +76,7 @@ def _codegen_set_remove_like(stmt, scope, body, body_dtype, ctx, sig, codegen_st
             f"il_codegen: '{stmt['name']}' la frozenset (bat bien) - khong the .{method}()")
     ctx['load_var_ref'](stmt['name'], scope, body)
     ctx['compile_expr'](stmt['value_node'], scope, body, ta.dtype, ctx)
-    body.append(f'    callvirt instance bool {il_set_type(ta.dtype, ctx.get("records"))}::Remove(!0)')
+    body.append(f'    callvirt instance bool {il_set_type(ta.dtype, ctx.get("records"), (ctx or {}).get("extern_class_defs"))}::Remove(!0)')
     if stmt['kind'] == 'set_discard':
         body.append('    pop')
     else:
@@ -117,7 +117,7 @@ def _compile_set_combine(node, scope, out, dtype, ctx, op):
             f"il_codegen: '{a_name}.{op}({b_name})' can '{b_name}' la set cung "
             f"dtype ({a_ta.dtype!r})")
     _, res_idx, _ = scope[f'__setcomb{id(node)}_res']
-    set_type = il_set_type(a_ta.dtype, ctx.get('records'))
+    set_type = il_set_type(a_ta.dtype, ctx.get('records'), (ctx or {}).get('extern_class_defs'))
 
     # res = new HashSet<T>(a)  (ban sao - KHONG sua 2 set nguon)
     ctx['load_var_ref'](a_name, scope, out)

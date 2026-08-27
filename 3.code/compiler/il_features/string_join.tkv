@@ -77,7 +77,40 @@ def _compile_str_method_on_expr(base_node, name, args, scope, out, dtype, ctx):
         del scope.vars[recv]
 
 
+def _compile_method_on_expr_generic(base_node, name, args, scope, out, dtype, ctx, obj_ta):
+    """Tong quat hoa _compile_str_method_on_expr (Task 4, extern-class,
+    2026-08-18): '<bieu thuc extern-class>.Method(...)' - vd
+    's.Append("y").ToString()' (base_node = ('method_call', 's', 'Append',
+    [...]), obj_ta = TypeAnn('Sb', 'extern_class') suy tu ket qua Append).
+    KHAC _compile_str_method_on_expr (tra cuu rieng qua _STR_METHODS): o
+    day nhan obj_ta LAM THAM SO va di THANG qua dispatcher DAY DU
+    compile_method_call (record_feature.py) - do la NGUON SU THAT DUY
+    NHAT cho MOI shape (str/list/dict/file/record/extern_class...), tranh
+    viet lai 1 ban tra cuu rieng chi cho extern_class o day."""
+    import il_features.record_feature as _rf
+    recv = f'{_RECV}{id(base_node)}'
+    inner = ('method_call', recv, name, args)
+    scope.vars[recv] = ('__expr__', None, obj_ta)
+    real_load = ctx['load_var_ref']
+
+    def _load(nm, sc, o):
+        if nm == recv:
+            ctx['compile_expr'](base_node, sc, o, obj_ta.dtype, ctx)
+            return
+        real_load(nm, sc, o)
+
+    sub_ctx = dict(ctx)
+    sub_ctx['load_var_ref'] = _load
+    try:
+        _rf.compile_method_call(inner, scope, out, dtype, sub_ctx)
+    finally:
+        del scope.vars[recv]
+
+
 def compile_method_call_expr(node, scope, out, dtype, ctx):
+    """Tag 'method_call_expr' (2026-08-03): method goi tren 1 BIEU THUC
+    thay vi 1 ten bien. '<chuoi>.join(lst)' co duong rieng ben duoi; moi
+    method CHUOI khac di qua _compile_str_method_on_expr."""
     base_node, name, args = node[1], node[2], node[3]
     if isinstance(base_node, tuple) and len(base_node) >= 2 and base_node[0] == 'call' and base_node[1] == 'super':
         import il_features.record_feature as _rf
@@ -85,6 +118,17 @@ def compile_method_call_expr(node, scope, out, dtype, ctx):
     if name != 'join':
         base_dtype = ctx['infer_dtype'](base_node, scope, ctx.get('func_table'),
                                         ctx.get('records'), ctx.get('record_methods'))
+        # Task 4 (extern-class, 2026-08-18): '<bieu thuc extern-class>.Method(...)'
+        # - vd 's.Append("y").ToString()'. infer_dtype tag 'method_call' da
+        # tra dung TEN CLASS (vd 'Sb') qua EXPR_METHOD_SHAPE (dang ky o
+        # tkv_compile.py's compile_tkv_cli) - CHI can nhan dien ten do co
+        # phai 1 extern-class DA khai bao khong (import tri hoan tranh
+        # circular import, giong nhanh 'super' o tren).
+        import il_codegen as _ilc
+        if base_dtype in _ilc._EXTERN_CLASS_DEFS:
+            _compile_method_on_expr_generic(base_node, name, args, scope, out, dtype, ctx,
+                                             TypeAnn(base_dtype, 'extern_class'))
+            return
         if base_dtype != 'str':
             raise SyntaxError(
                 f"il_codegen: '<bieu thuc>.{name}(...)' hien chi ho tro khi bieu thuc nhan "

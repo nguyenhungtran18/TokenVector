@@ -210,28 +210,14 @@ def compile_binop(node, scope, out, dtype, ctx=None):
             _int_type.compile_divmod_pow(op, left, right, scope, out, ctx)
             return _narrow_int_result(dtype, out, ctx)
         if op == '/':
-            # Python: '/' giua hai so nguyen (hoac float) LUON tra ve FLOAT (f64) (7/2 == 3.5, 6/2 == 3.0).
-            # (Moc 10, 2026-08-08)
-            compile_expr = ctx['compile_expr']
-            if operand_dtype == 'int':
-                compile_expr(left, scope, out, 'int', ctx)
-                out.append(f'    call float64 {_int_type.TKVINT_CLASS}::ToF64(valuetype {_int_type.TKVINT_CLASS})')
-                compile_expr(right, scope, out, 'int', ctx)
-                out.append(f'    call float64 {_int_type.TKVINT_CLASS}::ToF64(valuetype {_int_type.TKVINT_CLASS})')
-                out.append('    div')
-            elif operand_dtype in ctx['int_dtypes']:
-                compile_expr(left, scope, out, operand_dtype, ctx)
-                out.append('    conv.r8')
-                compile_expr(right, scope, out, operand_dtype, ctx)
-                out.append('    conv.r8')
-                out.append('    div')
-            else:
-                compile_expr(left, scope, out, 'f64', ctx)
-                compile_expr(right, scope, out, 'f64', ctx)
-                out.append('    div')
-            if dtype != 'f64':
-                ctx['widen_if_needed']('f64', dtype, out)
-            return
+            # Python: '/' giua hai so nguyen tra FLOAT (7/2 == 3.5). Duong
+            # int->float la moc 10; cho toi luc do BAO LOI, vi neu de roi
+            # xuong nhanh chung ben duoi thi sinh 'div' tren mot struct -
+            # ilasm co the van nuot, va loi se hien ra luc CHAY.
+            raise SyntaxError(
+                "il_codegen: '/' tren kieu 'int' chua ho tro - Python tra ve "
+                "float o day (7/2 == 3.5) va duong int->float la moc 10. "
+                "Dung '//' neu that su muon chia nguyen.")
     if operand_dtype == 'complex':
         # Muc 6.8 (2/4, 2026-08-13): '+'/'-'/'*'/'/' giua 2 gia tri
         # 'complex' - uy quyen ra complex_type.py (goi static Add/Subtract/

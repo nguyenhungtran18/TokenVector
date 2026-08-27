@@ -88,18 +88,17 @@ def _list_arg_ta(arg_node, scope, fname, argpos):
 # map(f, xs) -> list[f.dtype]
 # ---------------------------------------------------------------------
 
-def _map_result_dtype(args, scope):
-    # EXPR_BUILTIN_DTYPE_FN chi nhan (args, scope) - KHONG co func_table
-    # (xem _infer_dtype/_expr_call trong il_codegen.py, cung gioi han nhu
-    # _agg_elem_dtype). Vi vay o day CHI giai quyet duoc 'f' dang la 1 bien
-    # kieu 'func' DA CO SAN trong scope - 'f' la TEN 1 ham top-level (khong
-    # nam trong scope) se tra None (best-effort, giong cac nhanh suy dtype
-    # khac trong codebase khi thieu 1 phan ngu canh) - KHONG anh huong toi
-    # push_map (codegen that su, co ctx day du gom ca func_table).
+def _map_result_dtype(args, scope, func_table=None):
+    # Gap #4 (2026-08-19): EXPR_BUILTIN_DTYPE_FN gio DA truyen func_table
+    # (xem _infer_dtype/_shaped_return_ta_of_call/_expr_call trong
+    # il_codegen.py) - dung 'func_table or {}' de suy dung dtype ca khi 'f'
+    # la TEN 1 ham top-level (khong nam trong scope, chi nam trong
+    # func_table), thay vi luon tra None nhu truoc (gay 'ys' bi mac dinh ve
+    # i32 sai kieu khi f la ham top-level).
     if len(args) != 2:
         return None
     try:
-        f_ta = _resolve_func_ta(args[0], scope, {}, 'map')
+        f_ta = _resolve_func_ta(args[0], scope, func_table or {}, 'map')
         _, lst_ta = _list_arg_ta(args[1], scope, 'map', 2)
     except SyntaxError:
         return None
@@ -142,8 +141,8 @@ def push_map(args, scope, out, dtype, ctx):
     _, src_idx, _ = scope[f'__map{key}_src']
     _, idx_idx, _ = scope[f'__map{key}_idx']
     _, res_idx, _ = scope[f'__map{key}_res']
-    src_list_type = il_list_type(lst_ta.dtype, ctx.get('records'))
-    res_list_type = il_list_type(f_ta.dtype, ctx.get('records'))
+    src_list_type = il_list_type(lst_ta.dtype, ctx.get('records'), ctx.get('extern_class_defs'))
+    res_list_type = il_list_type(f_ta.dtype, ctx.get('records'), ctx.get('extern_class_defs'))
     func_il = ctx['il_type_str'](f_ta, ctx.get('records'))
     ctx['compile_funcref_arg'](f_node, f_ta, scope, out, ctx)
     out.append(f'    stloc.s {f_idx}')
@@ -222,7 +221,7 @@ def push_filter(args, scope, out, dtype, ctx):
     _, src_idx, _ = scope[f'__filter{key}_src']
     _, idx_idx, _ = scope[f'__filter{key}_idx']
     _, res_idx, _ = scope[f'__filter{key}_res']
-    list_type = il_list_type(lst_ta.dtype, ctx.get('records'))
+    list_type = il_list_type(lst_ta.dtype, ctx.get('records'), ctx.get('extern_class_defs'))
     func_il = ctx['il_type_str'](f_ta, ctx.get('records'))
     ctx['compile_funcref_arg'](f_node, f_ta, scope, out, ctx)
     out.append(f'    stloc.s {f_idx}')
@@ -267,12 +266,13 @@ def push_filter(args, scope, out, dtype, ctx):
 # reduce(f, xs, init) -> f.dtype (functools.reduce)
 # ---------------------------------------------------------------------
 
-def _reduce_result_dtype(args, scope):
-    # Cung gioi han nhu _map_result_dtype: khong co func_table o day.
+def _reduce_result_dtype(args, scope, func_table=None):
+    # Gap #4 (2026-08-19): xem ghi chu _map_result_dtype - gio da co
+    # func_table de suy dung dtype khi 'f' la ten 1 ham top-level.
     if len(args) != 3:
         return None
     try:
-        f_ta = _resolve_func_ta(args[0], scope, {}, 'reduce')
+        f_ta = _resolve_func_ta(args[0], scope, func_table or {}, 'reduce')
     except SyntaxError:
         return None
     return f_ta.dtype
@@ -313,7 +313,7 @@ def push_reduce(args, scope, out, dtype, ctx):
     _, src_idx, _ = scope[f'__reduce{key}_src']
     _, idx_idx, _ = scope[f'__reduce{key}_idx']
     _, res_idx, _ = scope[f'__reduce{key}_res']
-    list_type = il_list_type(lst_ta.dtype, ctx.get('records'))
+    list_type = il_list_type(lst_ta.dtype, ctx.get('records'), ctx.get('extern_class_defs'))
     func_il = ctx['il_type_str'](f_ta, ctx.get('records'))
     ctx['compile_expr'](init_node, scope, out, f_ta.dtype, ctx)
     out.append(f'    stloc.s {res_idx}')
@@ -348,7 +348,11 @@ def push_reduce(args, scope, out, dtype, ctx):
     out.append(f'    ldloc.s {res_idx}')
 
 
-def _filter_result_dtype(args, scope):
+def _filter_result_dtype(args, scope, func_table=None):
+    # func_table khong can dung o day - dtype ket qua cua filter() la dtype
+    # phan tu cua chinh list dau vao (xs), khong phu thuoc chu ky cua 'f'.
+    # Tham so nay chi de khop chu ky chung voi cac ham dang ky qua
+    # return_dtype_fn khac (xem Gap #4).
     if len(args) != 2:
         return None
     try:

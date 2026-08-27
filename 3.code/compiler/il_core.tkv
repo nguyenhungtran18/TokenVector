@@ -7,6 +7,7 @@ il_features/*.py)."""
 import re
 
 IL_SCALAR = {'f32': 'float32', 'f64': 'float64', 'i32': 'int32', 'i64': 'int64', 'str': 'string', 'object': 'object',
+             'bool': 'bool',
              # 'thread' (sua 2026-08-10, xem docs/BUGS_TODO.md muc G): 1
              # bien 'thread' co the giu Task<T> VOI T KHAC NHAU trong CUNG
              # 1 ham (vd worker tra i64 va worker tra str) - CIL doi hoi
@@ -67,31 +68,26 @@ def emit_index_scalar(idx_node, scope, out, ctx):
 
 
 def emit_index_value(name, idx_node, scope, out, ctx, count_getter_il):
-    """Day gia tri CHI SO len stack cho 'name[idx_node]' voi ho tro chi so AM DONG
-    tai runtime (Moc 11, 2026-08-08).
-    Neu idx >= 0: giu nguyen idx.
-    Neu idx < 0: chuyen thanh idx + len(name)."""
+    """Day gia tri CHI SO len stack cho 'name[idx_node]' (Wave 3, 2026-
+    07-29 - chi so am tai compile-time, vd 'lst[-1]'/'s[-1]', muc tieu
+    Claude tu tin dung viet code that). GOI SAU KHI 'name' da duoc
+    load_var_ref 1 LAN (cho chinh lenh index/get_Item/get_Chars sap
+    goi) - truong hop hang so am can load THEM 1 LAN NUA rieng (cho
+    get_Count/get_Length), ham nay tu lo, khong gia dinh gi khac tren
+    stack. `count_getter_il` la chuoi IL DAY DU cua lenh callvirt lay do
+    dai (vd 'callvirt instance int32 ...::get_Count()'). CHI ho tro hang
+    so am TAI COMPILE-TIME - bieu thuc am DONG ('lst[-i]') van dung
+    duong nguyen (se throw ArgumentOutOfRangeException luc chay, giong
+    .NET that, KHONG gia lap wraparound cua Python) - gioi han co y
+    thuc, xem _neg_literal_int trong il_codegen.py."""
     n = ctx['neg_literal_int'](idx_node)
-    if n is not None:
-        ctx['load_var_ref'](name, scope, out)
-        out.append(f'    {count_getter_il}')
-        out.append(f'    ldc.i4 {n}')
-        out.append('    sub')
+    if n is None:
+        emit_index_scalar(idx_node, scope, out, ctx)
         return
-    ctx['compile_expr'](idx_node, scope, out, 'i32', ctx)
-    ctx['label_counter'][0] += 1
-    cnt = ctx['label_counter'][0]
-    lbl_pos = f"{ctx.get('prefix', 'expr')}_idx_pos_{cnt}"
-    lbl_end = f"{ctx.get('prefix', 'expr')}_idx_end_{cnt}"
-    out.append('    dup')
-    out.append('    ldc.i4.0')
-    out.append(f'    bge.s {lbl_pos}')
     ctx['load_var_ref'](name, scope, out)
     out.append(f'    {count_getter_il}')
-    out.append('    add')
-    out.append(f'    br.s {lbl_end}')
-    out.append(f'  {lbl_pos}:')
-    out.append(f'  {lbl_end}:')
+    out.append(f'    ldc.i4 {n}')
+    out.append('    sub')
 
 
 # Tu khoa ILASM hop le lam ten bien Python (out la tu khoa dinh huong
@@ -214,6 +210,35 @@ def _tokenize_expr(s):
         if not m or m.end() == pos:
             if s[pos:].strip() == '':
                 break
+            if s[pos] == "'":
+                # Muc I (docs/BUGS_TODO.md, phat hien 2026-08-10/11): string
+                # literal CHI chap nhan dau nhay KEP ("..."), KHONG ho tro
+                # nhay DON ('...') lam dau phan cach (khac Python). Truoc day
+                # loi tokenize chung chung khong chi thang nguyen nhan, gay
+                # mat thoi gian debug - bao ro rang o day.
+                raise SyntaxError(
+                    f"il_codegen: khong tokenize duoc bieu thuc tai {s[pos:]!r} - "
+                    f"chuoi ky tu (string literal) trong ngon ngu nay CHI ho tro "
+                    f"dau nhay KEP (\"...\"), KHONG ho tro dau nhay DON ('...') - "
+                    f"doi '...' thanh \"...\"")
+            if s[pos] == '=':
+                # Phat hien 2026-08-20 (roadmap dong khoang cach Python,
+                # Phase 11): dau '=' DON LE (khong phai '=='/'>='/... - cac
+                # to hop do da duoc _EXPR_TOKEN_RE bat truoc, khong roi toi
+                # day) trong 1 bieu thuc GAN NHU LUON la nguoi dung dang thu
+                # cu phap goi ham bang KEYWORD ARGUMENT ('ten_tham_so=gia_tri'
+                # trong dau ngoac lenh goi ham, vd 'f(a=1, b=2)') - ngon ngu
+                # nay hien CHI ho tro tham so VI TRI (positional), khong ho
+                # tro keyword argument o BAT KY lenh goi ham nao (khong rieng
+                # gi ham co '**kwargs') - bao ro nguyen nhan thay vi loi
+                # tokenize chung chung.
+                raise SyntaxError(
+                    f"il_codegen: khong tokenize duoc bieu thuc tai {s[pos:]!r} - "
+                    f"dau '=' don le trong 1 bieu thuc thuong la do dang thu cu phap "
+                    f"goi ham bang KEYWORD ARGUMENT ('ten_tham_so=gia_tri', vd "
+                    f"'f(a=1, b=2)') - ngon ngu nay hien CHUA ho tro keyword argument "
+                    f"o bat ky loi goi ham nao, CHI ho tro tham so theo VI TRI "
+                    f"(positional) - doi thanh 'f(1, 2)'")
             raise SyntaxError(f'il_codegen: khong tokenize duoc bieu thuc tai {s[pos:]!r}')
         pos = m.end()
         kind = m.lastgroup
@@ -311,27 +336,15 @@ class _ExprParser:
         return ('lambda', params, body)
 
     def parse_ternary(self):
-        """ternary := bool_or ('?' expr ':' expr)?
-                   | bool_or ('if' bool_or 'else' expr)?
-        Ho tro ca cu phap Python 'a if cond else b' (Moc 9, 2026-08-08) lan
-        cu phap kieu C 'cond ? a : b' cu."""
-        first = self.parse_bool_or()
+        cond = self.parse_bool_or()
         k, v = self.peek()
         if k == 'OP' and v == '?':
             self.advance()
             true_e = self.parse_expr()
             self.expect_op(':')
             false_e = self.parse_expr()
-            return ('ternary', first, true_e, false_e)
-        if k == 'ID' and v == 'if':
-            self.advance()  # 'if'
-            cond = self.parse_bool_or()
-            k2, v2 = self.advance()
-            if k2 != 'ID' or v2 != 'else':
-                raise SyntaxError(f"il_codegen: ky vong 'else' trong bieu thuc ternary 'a if cond else b', gap {v2!r}")
-            false_e = self.parse_expr()
-            return ('ternary', cond, first, false_e)
-        return first
+            return ('ternary', cond, true_e, false_e)
+        return cond
 
     def parse_bool_or(self):
         node = self.parse_bool_and()
@@ -462,11 +475,9 @@ class _ExprParser:
             return ('binop', '**', base, exponent)
         return base
 
-    # Cac dang node duoc phep di kem hau to '.method(...)' (2026-08-03, mo rong 2026-08-08).
+    # Cac dang node duoc phep di kem hau to '.method(...)' (2026-08-03).
     _POSTFIX_METHOD_BASES = ('str_lit', 'slice', 'index', 'index_expr',
-                             'call', 'method_call', 'method_call_expr',
-                             'binop', 'ternary', 'boolop', 'compare', 'neg', 'not', 'in',
-                             'var', 'num', 'list_literal', 'attr', 'tuple_lit')
+                             'call', 'method_call', 'method_call_expr')
 
     def parse_factor(self):
         """2026-08-03: boc them 1 vong HAU TO cho phep '[i]' di sau 1 LOI
@@ -489,10 +500,18 @@ class _ExprParser:
                 continue
             if not (k == 'OP' and v == '['):
                 return node
-            if node[0] in ('var', 'index', 'slice', 'shape'):
+            if node[0] in ('var', 'slice', 'shape'):
                 # Cac dang nay da co duong xu ly RIENG (nhieu chieu, slice,
                 # mang co san) - khong chen vao, tra ve nguyen de nhanh cu
                 # bao loi/xu ly nhu truoc.
+                # 'index' DA BI BO KHOI DAY (Phase 7, 2026-08-19,
+                # list[list[T]]): truoc day 'm[0][0]' (chi so kep lien
+                # tiep) bi CHAN o day (thoat som, de lai '[0]' thu 2 chua
+                # parse -> loi "con thua token"). Gio 'index' roi xuong
+                # nhanh 'index_expr' ben duoi, tao
+                # ('index_expr', ('index','m',[0]), ('num','0')) - cho
+                # phep chi so kep. 'var'/'slice'/'shape' GIU NGUYEN (khong
+                # lien quan gap nay).
                 return node
             self.advance()
             idx_node = self.parse_expr()
@@ -555,16 +574,19 @@ class _ExprParser:
             return ('num', v)
         if k == 'ID':
             if v == 'await':
-                # Dung parse_factor() (KHONG PHAI parse_expr()) - 'await'
-                # phai bat CHAT nhu 1 toan tu mot ngoi (giong '-'/'not'),
-                # giong dung Python that. BUG THAT phat hien khi port sang
-                # cay .py (phien Phase 4, 2026-08-11) va test qua
-                # 'await f(5) + await f(10)' - parse_expr() (uu tien THAP
-                # NHAT) nuot NHAM ca '+ await f(10)' vao trong await dau
-                # tien, sinh IL sai kieu (add.ovf tren 1 tham chieu Task),
-                # crash NullReferenceException luc chay. Chua tung lo o
-                # day vi test goc CHI dung 1 await don le - sua CA 2 cay
-                # de giu dong bo, khong chi rieng cay .py.
+                # 'await task_expr' (Phase 4, 2026-08-11) - xem
+                # il_features/async_await.py's compile_await_expr. Dung
+                # parse_factor() (KHONG PHAI parse_expr()) - 'await' phai
+                # bat CHAT nhu 1 toan tu mot ngoi (giong '-'/'not'), giong
+                # dung Python that (await binds tighter than binary ops).
+                # BUG THAT phat hien qua test (chua tung lo o cay .tkv goc
+                # vi test o do CHI dung 1 await don le): dung parse_expr()
+                # (uu tien THAP NHAT) khien 'await f(5) + await f(10)' bi
+                # nuot NHAM thanh 'await (f(5) + await f(10))' - toan hang
+                # trai KHONG duoc unwrap Task, sinh IL sai kieu (add.ovf
+                # tren 1 tham chieu Task), crash NullReferenceException
+                # luc chay (2 lenh 'call' Task chay lien tiep, 1 callvirt
+                # xen giua, callvirt thua o cuoi).
                 return ('await', self.parse_factor())
             if v == 'None':
                 # 'None' (2026-08-03, dot 1) - tham chieu rong. Can cho do
