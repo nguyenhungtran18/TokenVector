@@ -188,6 +188,117 @@ def compile_pow(args, scope, out, dtype, ctx):
         out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
 
 
+def compile_math_atan2(args, scope, out, dtype, ctx):
+    """atan2(y, x) -> f64, System.Math::Atan2(float64, float64) (Phase 10,
+    2026-08-28). CHU Y THU TU tham so: Python math.atan2(y, x) nhan y
+    TRUOC, x SAU (da xac nhan THAT: `python -c "import math;
+    print(math.atan2(1.0, 0.0))"` == 1.5707963267948966 == pi/2, khop
+    huong (0,1) tren truc, KHONG phai atan2(x,y)). .NET Math.Atan2(y, x)
+    dung CHINH XAC cung thu tu - anh xa 1:1 THANG."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: atan2(y, x) chi nhan dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    compile_expr(args[1], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    out.append('    call float64 [mscorlib]System.Math::Atan2(float64, float64)')
+    if dtype != 'f64':
+        out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+
+
+def compile_math_hypot(args, scope, out, dtype, ctx):
+    """hypot(x, y) -> f64, sqrt(x*x + y*y) (Phase 10, 2026-08-28).
+    KHONG dung 'System.Math::Hypot' - da PROBE THAT bang 1 file .il rieng
+    qua ilasm.exe/chay .exe: ilasm KHONG bao loi luc assemble (chi phat
+    ra call-token, khong kiem tra method ton tai), nhung chay .exe nem
+    'System.MissingMethodException: Method not found: Double
+    System.Math.Hypot(Double, Double)' - .NET Framework 4.0
+    (C:\\WINDOWS\\Microsoft.NET\\Framework64\\v4.0.30319, muc tieu build
+    cua du an) KHONG co Math.Hypot (chi co tu .NET Core 2.1+). Fallback
+    sqrt(x*x+y*y) khop math.hypot(3.0,4.0)==5.0 da xac nhan THAT."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: hypot(x, y) chi nhan dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    compile_expr(args[0], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    out.append('    mul')
+    compile_expr(args[1], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    compile_expr(args[1], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    out.append('    mul')
+    out.append('    add')
+    out.append('    call float64 [mscorlib]System.Math::Sqrt(float64)')
+    if dtype != 'f64':
+        out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+
+
+FACTORIAL_CLASS = 'TkvFactorial'
+
+
+def _ensure_factorial_class(ctx):
+    """Chen .class TkvFactorial DUNG MOT LAN - cung co che ensure_class
+    cua TkvIPow/TkvGcd o tren."""
+    emitted = ctx.get('emitted_types')
+    if emitted is None or FACTORIAL_CLASS in emitted:
+        return
+    emitted.add(FACTORIAL_CLASS)
+    ctx['extra_classes'].append(_gen_factorial_class_il())
+
+
+def _gen_factorial_class_il():
+    """factorial(n) -> n!, vong lap nhan don gian (Phase 10, 2026-08-28).
+    Python math.factorial() raise ValueError cho n am va n khong nguyen -
+    TokenVector 'n' luon i32/i64 (kieu tinh, khong the khong nguyen), nen
+    CHI can chan n < 0 (raise loi runtime, mau theo IPOW_NEG's throw)."""
+    return [
+        f'.class public abstract sealed auto ansi {FACTORIAL_CLASS}',
+        '       extends [mscorlib]System.Object',
+        '{',
+        '  .method public static int64 Factorial(int64 n) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int64 r, int64 i)',
+        '    ldarg.0', '    ldc.i8 0', '    blt FACT_NEG',
+        '    ldc.i8 1', '    stloc.s r',
+        '    ldc.i8 1', '    stloc.s i',
+        '  FACT_LOOP:',
+        '    ldloc.s i', '    ldarg.0', '    bgt FACT_DONE',
+        '    ldloc.s r', '    ldloc.s i', '    mul.ovf', '    stloc.s r',
+        '    ldloc.s i', '    ldc.i8 1', '    add', '    stloc.s i',
+        '    br FACT_LOOP',
+        '  FACT_DONE:',
+        '    ldloc.s r', '    ret',
+        '  FACT_NEG:',
+        '    ldstr "factorial() khong dinh nghia cho so am"',
+        '    newobj instance void [mscorlib]System.ArgumentException'
+        '::.ctor(string)',
+        '    throw',
+        '  }',
+        '}',
+    ]
+
+
+def compile_math_factorial(args, scope, out, dtype, ctx):
+    """factorial(n) -> i32/i64 (cung dtype voi 'n'), TkvFactorial::Factorial
+    (Phase 10, 2026-08-28). math.factorial(5) == 120 da xac nhan THAT."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: factorial(n) chi nhan dung 1 tham so")
+    if dtype not in _INT_DTYPES:
+        raise SyntaxError("il_codegen: factorial(n) chi ho tro dtype i32/i64")
+    _ensure_factorial_class(ctx)
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, dtype, ctx)
+    if dtype == 'i32':
+        out.append('    conv.i8')
+    out.append(f'    call int64 {FACTORIAL_CLASS}::Factorial(int64)')
+    if dtype == 'i32':
+        out.append('    conv.ovf.i4')
+
+
 from il_dispatch import register_expr_builtin
 
 # _MATH_FUNCS (2026-08-12, Phase tach tkvc.exe thanh plugin): danh sach
@@ -267,4 +378,7 @@ register_expr_builtin('pow', compile_pow, None)
 register_expr_builtin('math_pi', compile_math_pi, None)
 register_expr_builtin('math_e', compile_math_e, None)
 register_expr_builtin('math_gcd', compile_math_gcd, None)
+register_expr_builtin('atan2', compile_math_atan2, None)
+register_expr_builtin('hypot', compile_math_hypot, None)
+register_expr_builtin('factorial', compile_math_factorial, None)
 _register_all_math_funcs()

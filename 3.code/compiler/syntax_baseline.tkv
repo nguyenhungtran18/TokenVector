@@ -204,18 +204,23 @@ def _is_zip_call(node, target):
 
 
 def _is_zip_or_enumerate_call(node):
-    """True neu node la 1 loi goi 'zip(...)'/'enumerate(...)' BAT KY -
-    KHONG kiem tra so luong/kieu doi so khop target (khac
-    '_is_zip_call'/'_is_enumerate_call' o tren) vi ham nay dung o THOI
-    DIEM GAN ('z = zip(a, b)'/'z: "list[(i32,i32)]" = zip(a, b)'), truoc
-    khi biet cau truc target unpack o dong 'for' phia sau (Phase 11b,
-    2026-08-28: 'for x, y in z:' tren 1 bien da GAN tu zip()/enumerate()
-    tu dong ho tro that su - compiler doc field tuple Item1/Item2 qua
-    'record_feature.py's nhanh '.key'/'.val' tren shape='tuple'). Dung
-    de tich luy vao '_known_items_vars' - CUNG co che voi
-    '_is_items_call' o duoi (dict.items() gan ra bien truoc)."""
+    """True neu node la 1 loi goi 'zip(...)'/'enumerate(...)'/'product(...)'/
+    'combinations(...)' BAT KY - KHONG kiem tra so luong/kieu doi so khop
+    target (khac '_is_zip_call'/'_is_enumerate_call' o tren) vi ham nay
+    dung o THOI DIEM GAN ('z = zip(a, b)'/'z: "list[(i32,i32)]" = zip(a,
+    b)'), truoc khi biet cau truc target unpack o dong 'for' phia sau
+    (Phase 11b, 2026-08-28: 'for x, y in z:' tren 1 bien da GAN tu
+    zip()/enumerate() tu dong ho tro that su - compiler doc field tuple
+    Item1/Item2 qua 'record_feature.py's nhanh '.key'/'.val' tren
+    shape='tuple'). 'product'/'combinations' them vao (Phase 10, Task 2,
+    2026-08-29) - CUNG tra ve list[(T1,T2)] qua 'stdlib_itertools_real.py',
+    CUNG can exempt giong zip/enumerate ('chain' KHONG can - tra ve
+    list[T] phang, khong phai tuple-list, khong bao gio xuat hien trong
+    'for a, b in <bien>:'). Dung de tich luy vao '_known_items_vars' -
+    CUNG co che voi '_is_items_call' o duoi (dict.items() gan ra bien
+    truoc)."""
     return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-            and node.func.id in ('zip', 'enumerate'))
+            and node.func.id in ('zip', 'enumerate', 'product', 'combinations'))
 
 
 def _is_exempt_tuple_unpack_iter(node, target):

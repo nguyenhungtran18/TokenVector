@@ -1,101 +1,174 @@
 # -*- coding: utf-8 -*-
-"""String methods batch 5 (Moc 14, 2026-08-09): s.removeprefix(prefix), s.removesuffix(suffix), s.rfind(sub)."""
+"""s.center(width)/s.center(width, fillchar), s.rjust(width[, fillchar]),
+s.ljust(width[, fillchar]) (Phase 10, 2026-08-28). File RIENG (khong sua
+batch2/3/4.py) - dang ky qua register_expr_method (il_dispatch.py), CHAY
+DUOC O MOI VI TRI BIEU THUC (giong zfill/copy, KHONG con gioi han
+"chi RHS truc tiep 1 phep gan" cua STR_METHODS_EXTRA cu).
+
+Ngu nghia Python THAT da xac nhan bang `python -c` truoc khi viet code
+(khong doan tu tai lieu, xem test/verify/string_center_rjust_ljust_test.py):
+    'ab'.center(5)      == '  ab '   (do dai 5-2=3, phan du 1 ky tu di ve
+                                       BEN TRAI - left=2, right=1; SUA lai
+                                       1 gia dinh SAI ban dau tuong la
+                                       "uu tien ben phai" - xem ham
+                                       compile_str_method_center ben duoi
+                                       de biet chi tiet phat hien)
+    'ab'.center(6)      == '  ab  '  (do dai 6-2=4 chia deu, left=2,right=2)
+    'ab'.rjust(5)       == '   ab'
+    'ab'.ljust(5, '*')  == 'ab***'
+
+.rjust/.ljust anh xa 1:1 THANG sang String::PadLeft(int32,char)/
+PadRight(int32,char) (da XAC NHAN CO THAT trong .NET Framework 4.0 qua
+grep compiler/il_features/tkvstr.py dong ~240 - PadRight(int32,char) da
+duoc dung san o do). '.center(width)' KHONG co san trong .NET - tu viet:
+s.PadLeft(len(s)+left_pad, fillchar).PadRight(width, fillchar) (mau IL
+lay tu stdlib_string_zfill.py's ky thuat hidden-local + get_Chars(0) de
+lay char tu 1 chuoi 1-ky-tu, giong string_split.py's cach lay ky tu dau
+cua separator)."""
 from il_dispatch import register_expr_method
 
-def _validate_str_method_caller(obj_name, scope):
+_SPACE_CHAR_CODE = 32  # ' '
+
+
+def _validate_str_caller(obj_name, scope):
     ta = scope[obj_name][2]
     if ta.dtype != 'str' or ta.shape is not None:
         raise SyntaxError(f"il_codegen: '{obj_name}' khong phai la bien string vo huong")
 
-def compile_str_method_removeprefix(node, scope, out, dtype, ctx):
+
+def _push_fillchar(args, idx, scope, out, ctx):
+    """Day 1 gia tri 'char' len stack: neu co args[idx] (bieu thuc str,
+    lay ky tu DAU TIEN qua get_Chars(0) - giong string_split.py's cach xu
+    ly separator), nguoc lai day char literal mac dinh ' ' (32)."""
+    if len(args) > idx:
+        ctx['compile_expr'](args[idx], scope, out, 'str', ctx)
+        out.append('    ldc.i4.0')
+        out.append('    callvirt instance char [mscorlib]System.String::get_Chars(int32)')
+    else:
+        out.append(f'    ldc.i4.s {_SPACE_CHAR_CODE}')
+
+
+def compile_str_method_rjust(node, scope, out, dtype, ctx):
+    """s.rjust(width) / s.rjust(width, fillchar) -
+    String::PadLeft(int32, char)."""
     obj_name, args = node[1], node[3]
-    if len(args) != 1:
-        raise SyntaxError("il_codegen: s.removeprefix(prefix) nhan dung 1 tham so")
-    _validate_str_method_caller(obj_name, scope)
-    prefix_arg = args[0]
+    if len(args) not in (1, 2):
+        raise SyntaxError("il_codegen: s.rjust(width) hoac s.rjust(width, fillchar) can 1 hoac 2 tham so")
+    _validate_str_caller(obj_name, scope)
+    ctx['load_var_ref'](obj_name, scope, out)
+    ctx['compile_expr'](args[0], scope, out, 'i32', ctx)
+    _push_fillchar(args, 1, scope, out, ctx)
+    out.append('    callvirt instance string [mscorlib]System.String::PadLeft(int32, char)')
+
+
+def compile_str_method_ljust(node, scope, out, dtype, ctx):
+    """s.ljust(width) / s.ljust(width, fillchar) -
+    String::PadRight(int32, char)."""
+    obj_name, args = node[1], node[3]
+    if len(args) not in (1, 2):
+        raise SyntaxError("il_codegen: s.ljust(width) hoac s.ljust(width, fillchar) can 1 hoac 2 tham so")
+    _validate_str_caller(obj_name, scope)
+    ctx['load_var_ref'](obj_name, scope, out)
+    ctx['compile_expr'](args[0], scope, out, 'i32', ctx)
+    _push_fillchar(args, 1, scope, out, ctx)
+    out.append('    callvirt instance string [mscorlib]System.String::PadRight(int32, char)')
+
+
+def temps_str_center(node, ctx):
+    """FIRST PASS: hidden locals cho s.center(width[, fillchar]) - khoa =
+    id(node) (giong y het temps_string_count/temps_string_zfill - AST
+    parse DUY NHAT 1 lan, id() la khoa tin cay giua pass 1/pass 2, khong
+    dua vao id(args) hay so luong tham so o day). Can 'left_pad' (i32,
+    tinh 1 lan, dung lai cho PadLeft) va 'fillc' (char luu duoi dang i32,
+    dung lai fillchar 2 lan - PadLeft roi PadRight - tranh compile_expr
+    lai bieu thuc fillchar 2 lan neu no co side-effect)."""
+    TypeAnn = ctx['TypeAnn']
+    ctx['declare_named'](f'__ctr{id(node)}_leftpad', TypeAnn('i32', None))
+    ctx['declare_named'](f'__ctr{id(node)}_fillc', TypeAnn('i32', None))
+    ctx['declare_named'](f'__ctr{id(node)}_totalpad', TypeAnn('i32', None))
+
+
+def compile_str_method_center(node, scope, out, dtype, ctx):
+    """s.center(width) / s.center(width, fillchar) - .NET KHONG co san,
+    tu viet: total_pad = width - len(s); neu <= 0 tra nguyen s; nguoc lai
+    chia total_pad thanh left_pad/right_pad. XAC NHAN THAT bang
+    `python -c "print(repr('ab'.center(5)))"` == '  ab ' (2 space TRUOC,
+    1 SAU 'ab') -> left_pad=2, right_pad=1 cho total_pad=3 - TUC LA
+    PHAN DU 1 KY TU DI VE BEN TRAI (khac gia dinh ban dau trong plan
+    "ưu tiên bên PHẢI" - da SUA lai theo ket qua THAT do test THAT that
+    bai phat hien, khong phai suy doan tu tai lieu). Cong thuc: right_pad
+    = total_pad / 2 (chia nguyen huong ve 0, total_pad>0 nen an toan),
+    left_pad = total_pad - right_pad (nhan phan du neu co)."""
+    obj_name, args = node[1], node[3]
+    if len(args) not in (1, 2):
+        raise SyntaxError("il_codegen: s.center(width) hoac s.center(width, fillchar) can 1 hoac 2 tham so")
+    _validate_str_caller(obj_name, scope)
     load_var_ref = ctx['load_var_ref']
     compile_expr = ctx['compile_expr']
 
-    ctx['label_counter'][0] += 1
-    n = ctx['label_counter'][0]
-    starts_lbl = f"{ctx['prefix']}_rempref{n}_starts"
-    end_lbl = f"{ctx['prefix']}_rempref{n}_end"
-
-    load_var_ref(obj_name, scope, out)
-    compile_expr(prefix_arg, scope, out, 'str', ctx)
-    out.append('    callvirt instance bool [mscorlib]System.String::StartsWith(string)')
-    out.append(f'    brtrue {starts_lbl}')
-    
-    # False: return original s
-    load_var_ref(obj_name, scope, out)
-    out.append(f'    br {end_lbl}')
-
-    # True: return s.Substring(prefix.Length)
-    out.append(f'  {starts_lbl}:')
-    load_var_ref(obj_name, scope, out)
-    compile_expr(prefix_arg, scope, out, 'str', ctx)
-    out.append('    callvirt instance int32 [mscorlib]System.String::get_Length()')
-    out.append('    callvirt instance string [mscorlib]System.String::Substring(int32)')
-
-    out.append(f'  {end_lbl}:')
-
-def compile_str_method_removesuffix(node, scope, out, dtype, ctx):
-    obj_name, args = node[1], node[3]
-    if len(args) != 1:
-        raise SyntaxError("il_codegen: s.removesuffix(suffix) nhan dung 1 tham so")
-    _validate_str_method_caller(obj_name, scope)
-    suffix_arg = args[0]
-    load_var_ref = ctx['load_var_ref']
-    compile_expr = ctx['compile_expr']
+    _, leftpad_idx, _ = scope[f'__ctr{id(node)}_leftpad']
+    _, fillc_idx, _ = scope[f'__ctr{id(node)}_fillc']
+    _, totalpad_idx, _ = scope[f'__ctr{id(node)}_totalpad']
 
     ctx['label_counter'][0] += 1
     n = ctx['label_counter'][0]
-    ends_lbl = f"{ctx['prefix']}_remsuff{n}_ends"
-    end_lbl = f"{ctx['prefix']}_remsuff{n}_end"
+    nopad_lbl = f"{ctx['prefix']}_ctr{n}_nopad"
+    end_lbl = f"{ctx['prefix']}_ctr{n}_end"
 
-    load_var_ref(obj_name, scope, out)
-    compile_expr(suffix_arg, scope, out, 'str', ctx)
-    out.append('    callvirt instance bool [mscorlib]System.String::EndsWith(string)')
-    out.append(f'    brtrue {ends_lbl}')
-    
-    # False: return original s
-    load_var_ref(obj_name, scope, out)
-    out.append(f'    br {end_lbl}')
+    # fillc = 1 ky tu (default ' ') - tinh TRUOC, dung lai 2 lan.
+    _push_fillchar(args, 1, scope, out, ctx)
+    out.append(f'    stloc.s {fillc_idx}')
 
-    # True: return s.Substring(0, s.Length - suffix.Length)
-    out.append(f'  {ends_lbl}:')
+    # total_pad = width - len(s) - luu vao local NGAY (khong dung 'dup'
+    # tren stack qua branch - tranh loi verifier InvalidProgramException
+    # da gap phai khi thu cach do, xem lich su sua doi file nay).
+    compile_expr(args[0], scope, out, 'i32', ctx)
     load_var_ref(obj_name, scope, out)
-    out.append('    ldc.i4.0')
-    load_var_ref(obj_name, scope, out)
-    out.append('    callvirt instance int32 [mscorlib]System.String::get_Length()')
-    compile_expr(suffix_arg, scope, out, 'str', ctx)
     out.append('    callvirt instance int32 [mscorlib]System.String::get_Length()')
     out.append('    sub')
-    out.append('    callvirt instance string [mscorlib]System.String::Substring(int32, int32)')
+    out.append(f'    stloc.s {totalpad_idx}')
+
+    out.append(f'    ldloc.s {totalpad_idx}')
+    out.append('    ldc.i4.0')
+    out.append(f'    ble {nopad_lbl}')
+
+    # right_pad = total_pad / 2; left_pad = total_pad - right_pad (nhan
+    # phan du - da xac nhan THAT phan du di ve TRAI, xem docstring).
+    out.append(f'    ldloc.s {totalpad_idx}')
+    out.append('    ldc.i4.2')
+    out.append('    div')
+    out.append(f'    stloc.s {leftpad_idx}')  # tam: leftpad_idx dang giu right_pad
+    out.append(f'    ldloc.s {totalpad_idx}')
+    out.append(f'    ldloc.s {leftpad_idx}')
+    out.append('    sub')
+    out.append(f'    stloc.s {leftpad_idx}')  # nay leftpad_idx = left_pad thuc su
+
+    # ket qua = s.PadLeft(len(s)+leftpad, fillc).PadRight(width, fillc)
+    # CHU Y: PadLeft la instance method - can push 's' HAI LAN: 1 lan lam
+    # RECEIVER cua callvirt, 1 lan rieng de tinh get_Length() (bug THAT da
+    # gap phai luc dau: chi push 's' MOT LAN cho get_Length() roi quen
+    # receiver, stack thieu 1 phan tu -> InvalidProgramException luc
+    # chay, da xac nhan qua probe .il doc lap truoc khi sua).
+    load_var_ref(obj_name, scope, out)
+    load_var_ref(obj_name, scope, out)
+    out.append('    callvirt instance int32 [mscorlib]System.String::get_Length()')
+    out.append(f'    ldloc.s {leftpad_idx}')
+    out.append('    add')
+    out.append(f'    ldloc.s {fillc_idx}')
+    out.append('    callvirt instance string [mscorlib]System.String::PadLeft(int32, char)')
+    compile_expr(args[0], scope, out, 'i32', ctx)
+    out.append(f'    ldloc.s {fillc_idx}')
+    out.append('    callvirt instance string [mscorlib]System.String::PadRight(int32, char)')
+    out.append(f'    br {end_lbl}')
+
+    out.append(f'  {nopad_lbl}:')
+    # total_pad <= 0: tra nguyen s.
+    load_var_ref(obj_name, scope, out)
 
     out.append(f'  {end_lbl}:')
 
-def compile_str_method_rfind(node, scope, out, dtype, ctx):
-    obj_name, args = node[1], node[3]
-    if len(args) != 1:
-        raise SyntaxError("il_codegen: s.rfind(sub) nhan dung 1 tham so")
-    _validate_str_method_caller(obj_name, scope)
-    sub_arg = args[0]
-    load_var_ref = ctx['load_var_ref']
-    compile_expr = ctx['compile_expr']
 
-    load_var_ref(obj_name, scope, out)
-    compile_expr(sub_arg, scope, out, 'str', ctx)
-    out.append('    callvirt instance int32 [mscorlib]System.String::LastIndexOf(string)')
-    if dtype == 'i64':
-        out.append('    conv.i8')
-
-STR_METHODS_EXTRA3 = {
-    'removeprefix': compile_str_method_removeprefix,
-    'removesuffix': compile_str_method_removesuffix,
-    'rfind': compile_str_method_rfind,
-}
-
-register_expr_method('str', 'removeprefix', compile_str_method_removeprefix, return_dtype='str')
-register_expr_method('str', 'removesuffix', compile_str_method_removesuffix, return_dtype='str')
-register_expr_method('str', 'rfind', compile_str_method_rfind, return_dtype='i32')
+register_expr_method('str', 'rjust', compile_str_method_rjust, 'str')
+register_expr_method('str', 'ljust', compile_str_method_ljust, 'str')
+register_expr_method('str', 'center', compile_str_method_center, 'str',
+                      temps_str_center)

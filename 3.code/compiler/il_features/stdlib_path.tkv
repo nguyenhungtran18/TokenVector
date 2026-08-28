@@ -126,6 +126,40 @@ def compile_path_splitext(args, scope, out, dtype, ctx):
                 '[mscorlib]System.ValueTuple`2<string, string>::.ctor(!0, !1)')
 
 
+def compile_path_abspath(args, scope, out, dtype, ctx):
+    """path_abspath(p) - System.IO.Path::GetFullPath(string) (Phase 10,
+    2026-08-28). Khop 1:1 THAT voi os.path.abspath() - ca 2 deu chuan hoa
+    ('.'/'..') VA noi voi thu muc lam viec hien tai neu 'p' la duong dan
+    tuong doi (da xac nhan THAT: `python -c "import os.path;
+    print(os.path.abspath('a/b'))"` -> duong dan tuyet doi day du)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_abspath(p) chi nhan dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.IO.Path::GetFullPath(string)')
+
+
+# path_normpath: KHONG IMPLEMENT (Phase 10, 2026-08-28) - da DIEU TRA THAT
+# theo dung Global Constraints cua ke hoach nay, khong tu y doi ngu nghia
+# am tham. Python os.path.normpath() CHI chuan hoa ('.'/'..'/dau '/' thua),
+# KHONG tuyet doi hoa duong dan tuong doi (da xac nhan THAT:
+# `python -c "import os.path;
+# print(os.path.normpath('a/./b/../c'))"` -> 'a\\c', VAN la duong dan
+# TUONG DOI). .NET Framework 4.0/4.8 (muc tieu build cua du an,
+# C:\WINDOWS\Microsoft.NET\Framework64\v4.0.30319) KHONG co API nao lam
+# CHI VIEC nay: 'System.IO.Path::GetFullPath' lam CA 2 viec (chuan hoa +
+# tuyet doi hoa theo CurrentDirectory) - dung no se TRA VE SAI ngu nghia
+# (duong dan TUYET DOI thay vi TUONG DOI khi input tuong doi), la sai
+# khac am tham NGUOI DUNG PHAI DUOC BIET truoc, khong duoc chap nhan
+# ngam. Cac API .NET Core/Standard sau nay (Path.GetRelativePath,
+# Path.TrimEndingDirectorySeparator, ...) co the giai quyet duoc nhung
+# KHONG TON TAI trong .NET Framework 4.0/4.8 - da grep xac nhan
+# 'System.IO.Path::' trong compiler/ (dong tren file nay) khong co dau
+# vet API nao khac phu hop. KET LUAN: DUNG LAI, KHONG bien dich
+# 'path_normpath' - bao cao ro trong PR/commit message, cho quyet dinh
+# tu nguoi dung (co the: (a) chap nhan sai khac ngu nghia va lam
+# path_abspath-only, (b) tu viet thuat toan normalize thu cong bang
+# string split/join tren '/' - CHUA lam vi ngoai pham vi "1:1 mapping"
+# cua Task 1 nay).
 register_expr_builtin('path_join', compile_path_join, 'str')
 # return_dtype=None cho path_exists/path_isfile/path_isdir: ham tu goi
 # ctx['widen_if_needed']('i32', dtype, out) o BEN TRONG minh (xem than ham
@@ -140,3 +174,4 @@ register_expr_builtin('path_isdir', compile_path_isdir, None)
 register_expr_builtin('path_splitext', compile_path_splitext, None,
                        temps_fn=_splitext_temps,
                        return_ta=TypeAnn('str', 'tuple', tuple_dtypes=['str', 'str']))
+register_expr_builtin('path_abspath', compile_path_abspath, 'str')
