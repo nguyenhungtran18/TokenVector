@@ -33,6 +33,7 @@ from il_features.dict_setdefault import compile_dict_method_setdefault as _compi
 from il_features.list_count_index import compile_list_method_index as _compile_list_method_index
 from il_features.control_flow import compile_file_method_call as _compile_file_method_call
 from il_features.list_type import value_dtype_spec_for_ta as _value_dtype_spec_for_ta
+from il_features import kwarg_resolve
 
 _ATTR_ASSIGN_RE = re.compile(r'^(\w+)\.(\w+)\s*=\s*(.+)$')
 _COMPOUND_ASSIGN_OPS = {'+=': '+', '-=': '-', '*=': '*', '/=': '/', '%=': '%'}
@@ -362,6 +363,9 @@ def compile_method_call(node, scope, out, dtype, ctx=None):
     if method_name not in methods:
         raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co method '{method_name}'")
     m_sig = methods[method_name]
+    # Phase 11a (2026-08-28): keyword argument cho method record - resolve
+    # NGAY o day (truoc logic n_required/zip ben duoi deu doc `args`).
+    args = kwarg_resolve.resolve_call_args(m_sig.params, args, f'{obj_name}.{method_name}')
     n_required = sum(1 for p in m_sig.params if p.default_node is None)
     if not (n_required <= len(args) <= len(m_sig.params)):
         raise SyntaxError(

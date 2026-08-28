@@ -53,6 +53,7 @@ duoc load_plugins() nap - dao NGUOC thu tu cascade, gay loi bien dich sai
 tkv_compile.py PHAI goi load_plugins() TRUOC dong 'from il_codegen import
 ...' (xem tkv_compile.py, Task 11)."""
 import importlib.util
+import importlib.machinery
 import os
 import sys
 
@@ -94,7 +95,14 @@ def load_plugins(plugin_dir=None):
         raise thang ra ngoai (loi that trong noi dung plugin, khong
         retry)."""
         fpath = os.path.join(plugin_dir, fname)
-        stem = fname[:-3]
+        # 2026-08-28: stem duoc tinh qua os.path.splitext (KHONG con
+        # 'fname[:-3]' cung cho duoi 3 ky tu) - ho tro ca '.py' (3 ky tu)
+        # LAN '.tkv' (4 ky tu, dung file 'release/3.code/dist/il_features/'
+        # doi ten sang de khong con hien nhu file Python tren GitHub, xem
+        # build_tkvc.ps1's nhom LIBRARY) - noi dung 2 duoi HOAN TOAN giong
+        # nhau (.tkv van la Python that, xem docstring tkv_compile.py),
+        # chi khac ten hien thi.
+        stem = os.path.splitext(fname)[0]
         mod_name = f'_tkv_plugin_{stem}'
         real_name = f'il_features.{stem}'
         if mod_name in sys.modules or real_name in sys.modules:
@@ -103,7 +111,17 @@ def load_plugins(plugin_dir=None):
             # tranh exec lai lan 2 gay dang ky trung (xem docstring dau
             # file).
             return True, None
-        spec = importlib.util.spec_from_file_location(mod_name, fpath)
+        # 2026-08-28: 'spec_from_file_location' tu suy loader dua tren
+        # DUOI FILE da biet ('.py'/'.pyc'/...) - voi '.tkv' (duoi la),
+        # no KHONG tim duoc loader phu hop va tra ve spec.loader=None,
+        # lam 'module_from_spec'/'exec_module' sau do fail voi
+        # "AttributeError: 'NoneType' object has no attribute 'loader'"
+        # (bug that phat hien luc build tkvc.exe voi thu vien doi ten
+        # sang .tkv - xac nhan qua chay THAT, khong doan). Truyen THANG
+        # 'SourceFileLoader' (noi dung .tkv luon la Python that, giong
+        # .py - chi khac ten hien thi) de bo qua buoc tu suy do.
+        loader = importlib.machinery.SourceFileLoader(mod_name, fpath)
+        spec = importlib.util.spec_from_file_location(mod_name, fpath, loader=loader)
         module = importlib.util.module_from_spec(spec)
         sys.modules[mod_name] = module
         try:
@@ -145,7 +163,7 @@ def load_plugins(plugin_dir=None):
         return True, None
 
     pending = [f for f in sorted(os.listdir(plugin_dir))
-               if f.endswith('.py') and not f.startswith('_')]
+               if (f.endswith('.py') or f.endswith('.tkv')) and not f.startswith('_')]
     loaded = []
     last_exc = None
     while pending:

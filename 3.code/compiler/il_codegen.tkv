@@ -36,6 +36,7 @@ from il_core import (
     il_array_rank_type, rename_reserved_identifiers as _rename_reserved_identifiers,
     parse_expr, parse_expr_list, _split_expr_list,
 )
+import il_features.kwarg_resolve as kwarg_resolve  # Phase 11a (2026-08-28): keyword argument resolve dung chung
 from il_features.list_type import (
     il_list_elem_ilstr, il_list_type, compile_index_list as _list_compile_index_list,
     value_dtype_spec_for_ta as _value_dtype_spec_for_ta,
@@ -2544,6 +2545,11 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             f"cung khong phai builtin thu vien nao (str/pow/re_*/path_*/...), "
             f"cung khong co trong chuong trinh dang bien dich)")
     callee = func_table[name]
+    # Phase 11a (2026-08-28): keyword argument ('f(a=1, b=2)') - resolve
+    # NGAY o day (truoc logic duck-typing/monomorphize/n_required ben
+    # duoi, tat ca deu doc `args` tu diem nay tro di) thanh 1 list
+    # positional thuan, dung thu tu callee.params, da lap default_node.
+    args = kwarg_resolve.resolve_call_args(callee.params, args, name)
     # Task 4/5 (2026-08-17, duck-typing-inference): tham so 'inferred'
     # (dtype gan boi Task 2, rang buoc thu thap boi Task 3's
     # collect_inferred_constraints -> callee.inferred_constraints) can duoc
@@ -4250,6 +4256,9 @@ def _stmt_method_call_stmt(stmt, scope: _Scope, body: list, body_dtype: str, ctx
     if method_name not in methods:
         raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co method '{method_name}'")
     m_sig = methods[method_name]
+    # Phase 11a (2026-08-28): keyword argument cho method record - resolve
+    # NGAY o day (truoc logic n_required/zip ben duoi deu doc `m_args`).
+    m_args = kwarg_resolve.resolve_call_args(m_sig.params, m_args, f'{obj_name}.{method_name}')
     n_required = sum(1 for p in m_sig.params if p.default_node is None)
     if not (n_required <= len(m_args) <= len(m_sig.params)):
         raise SyntaxError(

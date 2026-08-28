@@ -1,0 +1,76 @@
+# -*- coding: utf-8 -*-
+"""Phase 11a (2026-08-28): giai quyet keyword argument trong loi goi ham
+top-level VA method record - dung CHUNG 1 ham cho ca 2 diem goi (tranh
+trung lap logic o il_codegen.py + record_feature.py, xem plan Task 2).
+
+Khong ho tro *args/**kwargs (sig_params co is_vararg/is_kwarg o cuoi) -
+tu choi RO RANG neu goi ham co keyword argument tren 1 chu ky co vararg/
+kwarg (out of scope Phase 11a, xem Global Constraints cua plan)."""
+
+
+def resolve_call_args(sig_params, arg_nodes, call_desc):
+    """Tra ve list node bieu thuc POSITIONAL thuan, dung thu tu
+    sig_params, da lap default_node cho cho trong. Raise SyntaxError ro
+    rang cho: vararg/kwarg trong chu ky (tu choi keyword hoan toan),
+    positional dat SAU keyword, keyword trung ten, keyword khong ton tai
+    trong chu ky, thieu tham so bat buoc (khong default, khong duoc
+    truyen ca vi tri lan keyword), thua tham so (nhieu positional hon so
+    tham so ham nhan)."""
+    has_kwarg_in_call = any(isinstance(a, tuple) and a[0] == 'kwarg' for a in arg_nodes)
+    if not has_kwarg_in_call:
+        return arg_nodes  # hanh vi CU, khong doi - duong nhanh, khong lam gi them
+
+    if any(p.is_vararg or p.is_kwarg for p in sig_params):
+        raise SyntaxError(
+            f"il_codegen: '{call_desc}' co '*args'/'**kwargs' trong chu ky - "
+            f"KHONG ho tro keyword argument luc goi ham nay (Phase 11a chua "
+            f"mo rong pham vi nay), dung tham so VI TRI")
+
+    seen_kw = set()
+    positional_count = 0
+    by_name = {}
+    for a in arg_nodes:
+        if isinstance(a, tuple) and a[0] == 'kwarg':
+            _, name, expr = a
+            if name in seen_kw:
+                raise SyntaxError(
+                    f"il_codegen: '{call_desc}' - tham so '{name}' duoc truyen "
+                    f"KEYWORD ARGUMENT 2 lan (trung ten)")
+            seen_kw.add(name)
+            by_name[name] = expr
+        else:
+            if seen_kw:
+                raise SyntaxError(
+                    f"il_codegen: '{call_desc}' - tham so VI TRI (positional) "
+                    f"khong duoc dat SAU tham so KEYWORD ARGUMENT (giong quy tac "
+                    f"Python that) - doi thanh dang tuong minh 'ten=gia_tri' hoac "
+                    f"dua len truoc")
+            if positional_count >= len(sig_params):
+                raise SyntaxError(
+                    f"il_codegen: '{call_desc}' - qua nhieu tham so VI TRI "
+                    f"(chu ky chi co {len(sig_params)} tham so)")
+            by_name[sig_params[positional_count].name] = a
+            positional_count += 1
+
+    param_names = {p.name for p in sig_params}
+    unknown = seen_kw - param_names
+    if unknown:
+        raise SyntaxError(
+            f"il_codegen: '{call_desc}' - keyword argument {sorted(unknown)!r} "
+            f"khong khop bat ky tham so nao trong chu ky (cac tham so hop le: "
+            f"{[p.name for p in sig_params]!r})")
+
+    result = []
+    missing = []
+    for p in sig_params:
+        if p.name in by_name:
+            result.append(by_name[p.name])
+        elif p.default_node is not None:
+            result.append(p.default_node)
+        else:
+            missing.append(p.name)
+    if missing:
+        raise SyntaxError(
+            f"il_codegen: '{call_desc}' - thieu tham so bat buoc {missing!r} "
+            f"(khong co gia tri mac dinh, khong duoc truyen vi tri lan keyword)")
+    return result

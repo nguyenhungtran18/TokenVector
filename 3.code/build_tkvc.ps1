@@ -13,7 +13,11 @@
 #   - staging/il_features_library/   : nhom LIBRARY (con lai) - KHONG
 #     nam trong package 'compiler', PyInstaller KHONG thay nen KHONG
 #     dong goi vao exe - sau khi build xong, COPY THANG sang dist/il_features/
-#     (canh tkvc.exe) de plugin_loader.py nap dong luc chay.
+#     (canh tkvc.exe) de plugin_loader.py nap dong luc chay. Nhom nay
+#     GIU duoi '.tkv' (khong doi sang '.py' nhu nhom CORE - 2026-08-28,
+#     xem plugin_loader.py da sua de nhan ca 2 duoi) vi day la thu vien
+#     PHAT HANH cong khai canh tkvc.exe, khong phai module Python duoc
+#     PyInstaller import truc tiep nhu nhom core.
 #
 # Chay: powershell -File build_tkvc.ps1
 
@@ -78,8 +82,15 @@ foreach ($f in $coreFiles) {
     Copy-Item $src (Join-Path $staging "compiler\il_features\$destName")
 }
 foreach ($f in $libraryFiles) {
+    # 2026-08-28: nhom LIBRARY (dist/il_features/, NAP DONG luc chay qua
+    # plugin_loader.py, KHONG duoc PyInstaller dong bang truc tiep) doi
+    # duoi ".tkv" (khac nhom CORE o tren van giu ".py" - CORE duoc
+    # PyInstaller import THAT nen bat buoc phai la ".py") - de khi public
+    # len GitHub khong con hien nhu file Python "lo lieu" (noi dung VAN
+    # la Python that, chi khac ten hien thi) - plugin_loader.py da duoc
+    # sua de nhan ca 2 duoi.
     $src = Join-Path $root "compiler\il_features\$f"
-    $destName = [System.IO.Path]::ChangeExtension($f, ".py")
+    $destName = [System.IO.Path]::ChangeExtension($f, ".tkv")
     Copy-Item $src (Join-Path $staging "il_features_library\$destName")
 }
 
@@ -100,7 +111,7 @@ try {
 $distIlFeatures = Join-Path $root "dist\il_features"
 if (Test-Path $distIlFeatures) { Remove-Item -Recurse -Force $distIlFeatures }
 New-Item -ItemType Directory -Force -Path $distIlFeatures | Out-Null
-Copy-Item (Join-Path $staging "il_features_library\*.py") $distIlFeatures
+Copy-Item (Join-Path $staging "il_features_library\*.tkv") $distIlFeatures
 
 Write-Output "Da build: $(Join-Path $root 'dist\tkvc.exe')"
 Write-Output "Thu vien (${libraryFiles.Count} file) o: $distIlFeatures"

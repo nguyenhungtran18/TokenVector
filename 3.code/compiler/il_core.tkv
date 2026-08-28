@@ -153,7 +153,7 @@ _EXPR_TOKEN_RE = re.compile(r'''
       | (?P<CMPOP>>=|<=|==|!=)
       | (?P<POW>\*\*)
       | (?P<FLOORDIV>//)
-      | (?P<OP>[+\-*/%(),\[\].?:><])
+      | (?P<OP>[+\-*/%(),\[\].?:><=])
     )
 ''', re.VERBOSE)
 
@@ -221,24 +221,6 @@ def _tokenize_expr(s):
                     f"chuoi ky tu (string literal) trong ngon ngu nay CHI ho tro "
                     f"dau nhay KEP (\"...\"), KHONG ho tro dau nhay DON ('...') - "
                     f"doi '...' thanh \"...\"")
-            if s[pos] == '=':
-                # Phat hien 2026-08-20 (roadmap dong khoang cach Python,
-                # Phase 11): dau '=' DON LE (khong phai '=='/'>='/... - cac
-                # to hop do da duoc _EXPR_TOKEN_RE bat truoc, khong roi toi
-                # day) trong 1 bieu thuc GAN NHU LUON la nguoi dung dang thu
-                # cu phap goi ham bang KEYWORD ARGUMENT ('ten_tham_so=gia_tri'
-                # trong dau ngoac lenh goi ham, vd 'f(a=1, b=2)') - ngon ngu
-                # nay hien CHI ho tro tham so VI TRI (positional), khong ho
-                # tro keyword argument o BAT KY lenh goi ham nao (khong rieng
-                # gi ham co '**kwargs') - bao ro nguyen nhan thay vi loi
-                # tokenize chung chung.
-                raise SyntaxError(
-                    f"il_codegen: khong tokenize duoc bieu thuc tai {s[pos:]!r} - "
-                    f"dau '=' don le trong 1 bieu thuc thuong la do dang thu cu phap "
-                    f"goi ham bang KEYWORD ARGUMENT ('ten_tham_so=gia_tri', vd "
-                    f"'f(a=1, b=2)') - ngon ngu nay hien CHUA ho tro keyword argument "
-                    f"o bat ky loi goi ham nao, CHI ho tro tham so theo VI TRI "
-                    f"(positional) - doi thanh 'f(1, 2)'")
             raise SyntaxError(f'il_codegen: khong tokenize duoc bieu thuc tai {s[pos:]!r}')
         pos = m.end()
         kind = m.lastgroup
@@ -479,6 +461,24 @@ class _ExprParser:
     _POSTFIX_METHOD_BASES = ('str_lit', 'slice', 'index', 'index_expr',
                              'call', 'method_call', 'method_call_expr')
 
+    def _parse_one_call_arg(self):
+        """Phase 11a (2026-08-28): 1 arg trong loi goi ham co the la
+        positional (bieu thuc thuong) hoac keyword ('IDENT=expr'). Lookahead
+        2 token: ID roi '=' don le (khong phai '==' - da gop thanh 1 token
+        OP rieng boi CMPOP, khong bao gio tach thanh 2 token '=' o day)."""
+        k, v = self.peek()
+        if k == 'ID':
+            try:
+                k2, v2 = self.tokens[self.i + 1]
+            except IndexError:
+                k2, v2 = None, None
+            if k2 == 'OP' and v2 == '=':
+                self.advance()  # ID (ten tham so)
+                self.advance()  # '='
+                expr = self.parse_expr()
+                return ('kwarg', v, expr)
+        return self.parse_expr()
+
     def parse_factor(self):
         """2026-08-03: boc them 1 vong HAU TO cho phep '[i]' di sau 1 LOI
         GOI ('s.split(",")[0]', 'd.items()[0]') chu khong chi sau 1 TEN
@@ -621,12 +621,12 @@ class _ExprParser:
                     m_args = []
                     k5, v5 = self.peek()
                     if not (k5 == 'OP' and v5 == ')'):
-                        m_args.append(self.parse_expr())
+                        m_args.append(self._parse_one_call_arg())
                         while True:
                             k6, v6 = self.peek()
                             if k6 == 'OP' and v6 == ',':
                                 self.advance()
-                                m_args.append(self.parse_expr())
+                                m_args.append(self._parse_one_call_arg())
                             else:
                                 break
                     self.expect_op(')')
@@ -673,12 +673,12 @@ class _ExprParser:
                 args = []
                 k6, v6 = self.peek()
                 if not (k6 == 'OP' and v6 == ')'):
-                    args.append(self.parse_expr())
+                    args.append(self._parse_one_call_arg())
                     while True:
                         k7, v7 = self.peek()
                         if k7 == 'OP' and v7 == ',':
                             self.advance()
-                            args.append(self.parse_expr())
+                            args.append(self._parse_one_call_arg())
                         else:
                             break
                 self.expect_op(')')
