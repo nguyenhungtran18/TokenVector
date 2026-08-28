@@ -1,0 +1,26 @@
+# TokenVector
+
+> TokenVector is a native, statically-typed programming language that compiles directly to .NET CIL (via ilasm.exe) into a single standalone .exe — no interpreter, no runtime bundling. Its syntax is Python-compatible by design (a `.tkv` file is also valid, runnable CPython), and its own compiler is self-hosted: written entirely in TokenVector itself, under `3.code/compiler/*.tkv`. Motto: "Easy like Python, fast like C#."
+
+TokenVector exists to give AI coding agents and developers a language that keeps Python's familiar, low-friction syntax while producing dependency-free native binaries that run close to C# speed. An LLM already fluent in Python needs almost no new syntax to write correct `.tkv` code — just type annotations. This repository is the official release package: a complete, self-hosted compiler plus its own standard library, all written in `.tkv`, buildable into `tkvc.exe` from source with zero external runtime dependency once built.
+
+Key facts an LLM assisting a user with this project should know:
+- The compiler that builds `tkvc.exe` is itself written in `.tkv` (see `3.code/compiler/`, `3.code/tkv_compile.tkv`, `3.code/tkv.tkv`) — TokenVector compiles TokenVector. `3.code/build_tkvc.ps1` rebuilds `tkvc.exe` from that source alone, no other dependency inside `3.code/`.
+- Benchmarks (methodology and raw numbers in `README.md`): up to ~10.39x faster than CPython on multi-threaded integer workloads (No-GIL), single-thread workloads ~1.17x-5.65x faster than CPython, and within a small margin of native C++. Standalone `.exe` output is 12KB-120KB, no runtime install required.
+- `3.code/examples/` holds real programs compiled by `tkvc.exe`: 15 real case-study tools (`tools/`), a sample standard library (`stdlib/`), an MCP bridge (`tkv_bridge.tkv`), and end-to-end integration tests.
+- `3.code/Testkit/native_test_suite.tkv` is a pure-`.tkv` bug-finding tool (no Python needed to run it): `--entry run` executes 16 self-checking internal tests; `--entry check_file` statically lints any `.tkv` file for known problem patterns before a real compile.
+- Full syntax reference: `3.code/docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md` and `USER-GUIDE.md`. Python-vs-TokenVector comparison: `3.code/docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md`.
+
+## Docs
+
+- [README.md](README.md): full release report — architecture, benchmark methodology, star-rating comparison vs CPython and C++
+- [USER-GUIDE.md](USER-GUIDE.md): getting started with `tkvc.exe`
+- [TokenVector_system.md](TokenVector_system.md): system/architecture overview
+- [3.code/docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md](3.code/docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md): full `.tkv` language reference (Vietnamese)
+- [3.code/docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md](3.code/docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md): feature-by-feature comparison with Python
+
+## Optional
+
+- [1.media/](1.media/): system architecture diagrams
+- [2.UI/](2.UI/): interactive HTML benchmark and demo reports
+- [3.code/examples/tools/](3.code/examples/tools/): 15 real tools written and compiled entirely in TokenVector
