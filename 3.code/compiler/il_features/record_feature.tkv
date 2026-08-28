@@ -236,6 +236,26 @@ def compile_attr(node, scope, out, dtype, ctx=None):
                 f"il_codegen: getter cho property {field_name!r} chua duoc dang ky")
         fake_node = ('method_call', obj_name, f'get_{field_name}', [])
         return registered(fake_node, scope, out, dtype, ctx)
+    if obj_ta.shape == 'tuple' and field_name in ('key', 'val') and \
+            obj_ta.tuple_dtypes is not None and len(obj_ta.tuple_dtypes) == 2:
+        # Phase 11b (2026-08-28): '.key'/'.val' tren 1 bien TUPLE 2 phan
+        # tu THAT (KHONG phai dict_kvpair record) - macro text-level
+        # 'for_in_kvlist.py' ('for a, b in <ten bien tran>:') khong biet
+        # dtype container luc khai trien, luon phat sinh '.key'/'.val'
+        # bat ke container la List<KeyValuePair> (dict.items()-as-assign,
+        # nhanh dict_kvpair o TREN) hay List<(T1,T2)> (list-of-tuple that
+        # tu zip()/enumerate(), Phase 5.3). Nhanh nay la 'ben do' ngu
+        # nghia cho truong hop tuple: '.key' == Item1 (phan tu 0),
+        # '.val' == Item2 (phan tu 1) - CHI alias cho tuple DUNG 2 phan
+        # tu (macro nay khong bao gio sinh ra tren tuple >2 phan tu).
+        import il_features.tuple_type as _tuple_type
+        i = 0 if field_name == 'key' else 1
+        field_dtype = obj_ta.tuple_dtypes[i]
+        tuple_il_type = _tuple_type.il_tupleN_type(obj_ta.tuple_dtypes)
+        ctx['load_var_ref'](obj_name, scope, out)
+        out.append(f'    ldfld !{i} {tuple_il_type}::Item{i + 1}')
+        ctx['widen_if_needed'](field_dtype, dtype, out)
+        return
     if obj_ta.shape != 'record':
         raise SyntaxError(
             f"il_codegen: '.{field_name}' chi dung duoc tren bien kieu record, "

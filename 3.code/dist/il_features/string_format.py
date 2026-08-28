@@ -14,29 +14,36 @@ GIOI HAN DA BIET (co chu dich, giong tinh than gioi han cua fstring.py):
   tuong minh, cho phep "index reorder" - dung lai chi so nhieu lan/dao
   thu tu), '{N:.Mf}'/'{:.Mf}' (spec so thap phan co dinh, viet lai thanh
   fmt_float(arg, M) NEU arg la 1 BIEN don, nguoc lai fmt_float bao loi
-  ro rang - gioi han sinh tu chinh fmt_float(), xem string_feature.py).
-  KHONG ho tro '{name}' (keyword args - cu phap goi ham DSL hien tai
-  khong ho tro tham so dang 'name=value'), KHONG ho tro spec khac ('.Nf'
-  la spec DUY NHAT co san qua fmt_float(), vd '{:>10}'/'{:,}' se KHONG
-  duoc nhan dang, macro se BO QUA dong do - giu nguyen '.format(' de
-  parser sau bao loi ro rang "khong nhan dang duoc method 'format'" thay
-  vi am tham sinh sai)."""
+  ro rang - gioi han sinh tu chinh fmt_float(), xem string_feature.py),
+  '{name}' + '.format(name=value)' (keyword args, batch 5.5b muc 3,
+  2026-08-13 - '=' KHONG theo sau boi '=' khac de tranh khop nham
+  '=='/'>='/'<='/'!=', positional+keyword tron lan duoc). KHONG ho tro
+  spec khac ('.Nf' la spec DUY NHAT co san qua fmt_float(), vd
+  '{:>10}'/'{:,}' se KHONG duoc nhan dang, macro se BO QUA dong do - giu
+  nguyen '.format(' de parser sau bao loi ro rang "khong nhan dang duoc
+  method 'format'" thay vi am tham sinh sai)."""
 import re
 
 from il_dispatch import register_macro_expander
 
-_PLACEHOLDER_RE = re.compile(r'\{(\d*)(:\.(\d+)f)?\}')
+_PLACEHOLDER_RE = re.compile(r'\{(\w*)(:\.(\d+)f)?\}')
+
+_KWARG_RE = re.compile(r'^(\w+)\s*=(?!=)(.*)$', re.DOTALL)
 
 
 def _split_top_level_args(s: str):
-    """Tach 's' (noi dung ben trong '(...)') thanh danh sach bieu thuc
-    con theo dau phay O MUC NGOAI CUNG - bo qua dau phay nam trong
-    ngoac/chuoi con long ben trong (vd 'f(a, b)' hay '"a, b"' la 1 tham
-    so, khong phai 2). Rong -> [] (ham .format() khong tham so)."""
+    """Tach 's' (noi dung ben trong '(...)') thanh (positional, kwargs)
+    theo dau phay O MUC NGOAI CUNG - bo qua dau phay nam trong ngoac/
+    chuoi con long ben trong (vd 'f(a, b)' hay '"a, b"' la 1 tham so,
+    khong phai 2). Rong -> ([], {}) (ham .format() khong tham so).
+    Moi phan tach duoc PHAN LOAI positional/keyword bang _KWARG_RE
+    ('name=value', dau '=' KHONG theo sau boi '=' khac - tranh kop nham
+    '=='/'>='/'<='/'!=' ben trong bieu thuc doi so) - batch 5.5b muc 3,
+    2026-08-13."""
     s = s.strip()
     if not s:
-        return []
-    parts = []
+        return [], {}
+    raw_parts = []
     depth = 0
     quote = None
     start = 0
@@ -54,11 +61,20 @@ def _split_top_level_args(s: str):
         elif ch in ')]}':
             depth -= 1
         elif ch == ',' and depth == 0:
-            parts.append(s[start:i].strip())
+            raw_parts.append(s[start:i].strip())
             start = i + 1
         i += 1
-    parts.append(s[start:].strip())
-    return parts
+    raw_parts.append(s[start:].strip())
+
+    positional = []
+    kwargs = {}
+    for part in raw_parts:
+        m = _KWARG_RE.match(part)
+        if m:
+            kwargs[m.group(1)] = m.group(2).strip()
+        else:
+            positional.append(part)
+    return positional, kwargs
 
 
 def _find_matching_paren(line: str, open_idx: int):
@@ -87,11 +103,12 @@ def _find_matching_paren(line: str, open_idx: int):
     return None
 
 
-def _format_content_to_concat_expr(content: str, format_args) -> str:
+def _format_content_to_concat_expr(content: str, format_args, kwargs) -> str:
     """'content' la noi dung BEN TRONG dau nhay cua chuoi format (khong
-    kem dau nhay), 'format_args' la danh sach bieu thuc (dang chuoi da
-    tach) truyen vao .format(...). Tra ve bieu thuc noi chuoi tuong
-    duong, CUNG khuon voi fstring.py's _fstring_to_concat_expr."""
+    kem dau nhay), 'format_args' la danh sach bieu thuc POSITIONAL,
+    'kwargs' la dict TEN -> bieu thuc KEYWORD (batch 5.5b muc 3,
+    2026-08-13). Tra ve bieu thuc noi chuoi tuong duong, CUNG khuon voi
+    fstring.py's _fstring_to_concat_expr."""
     pieces = _PLACEHOLDER_RE.split(content)
     parts = []
     auto_idx = 0
@@ -103,16 +120,27 @@ def _format_content_to_concat_expr(content: str, format_args) -> str:
         if i + 1 >= len(pieces):
             break
         idx_str, _full_spec, precision = pieces[i + 1], pieces[i + 2], pieces[i + 3]
-        if idx_str:
-            idx = int(idx_str)
-        else:
-            idx = auto_idx
+        if idx_str == '':
+            arg_expr = format_args[auto_idx] if auto_idx < len(format_args) else None
+            if arg_expr is None:
+                raise SyntaxError(
+                    f"il_codegen: .format() thieu tham so cho placeholder tu dong "
+                    f"chi so {auto_idx} (chi truyen {len(format_args)} tham so positional)")
             auto_idx += 1
-        if idx >= len(format_args):
-            raise SyntaxError(
-                f"il_codegen: .format() thieu tham so cho placeholder chi so {idx} "
-                f"(chi truyen {len(format_args)} tham so)")
-        arg_expr = format_args[idx]
+        else:
+            try:
+                idx = int(idx_str)
+            except ValueError:
+                if idx_str not in kwargs:
+                    raise SyntaxError(
+                        f"il_codegen: .format() thieu tham so keyword '{idx_str}'")
+                arg_expr = kwargs[idx_str]
+            else:
+                if idx >= len(format_args):
+                    raise SyntaxError(
+                        f"il_codegen: .format() thieu tham so cho placeholder chi so {idx} "
+                        f"(chi truyen {len(format_args)} tham so positional)")
+                arg_expr = format_args[idx]
         if precision is not None:
             parts.append(f'fmt_float({arg_expr}, {precision})')
         else:
@@ -151,8 +179,8 @@ def try_expand_format(line: str):
                 close_idx = _find_matching_paren(line, open_idx)
                 if close_idx is not None:
                     args_str = line[open_idx + 1:close_idx]
-                    format_args = _split_top_level_args(args_str)
-                    out.append(_format_content_to_concat_expr(content, format_args))
+                    format_args, format_kwargs = _split_top_level_args(args_str)
+                    out.append(_format_content_to_concat_expr(content, format_args, format_kwargs))
                     i = close_idx + 1
                     changed = True
                     continue

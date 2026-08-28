@@ -7,7 +7,6 @@ Count chưa đổi) để gọi RemoveAt() sau.
 GIOI HAN DA BIET: chi ho tro dang KHONG tham so (list.pop(i) co chi so
 KHONG duoc ho tro). List rong -> .NET nem ArgumentOutOfRangeException luc
 CHAY (khac IndexError cua Python) - khong tu vay."""
-from il_features.list_type import il_list_type
 
 
 def compile_list_method_pop(node, scope, out, dtype, ctx):
@@ -17,7 +16,7 @@ def compile_list_method_pop(node, scope, out, dtype, ctx):
     _, _, ta = scope[obj_name]
     if ta.shape != 'list':
         raise SyntaxError(f"il_codegen: '{obj_name}.pop()' can '{obj_name}' la list")
-    list_type = il_list_type(ta.dtype, (ctx or {}).get('records'))
+    list_type = ctx['il_type_str'](ta, (ctx or {}).get('records'))
     load_var_ref = ctx['load_var_ref']
 
     # Buoc 1: lay phan tu cuoi (idx=Count-1), list CHUA thay doi.

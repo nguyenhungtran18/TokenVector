@@ -96,8 +96,6 @@ def ensure_class(ctx):
     emitted = ctx.get('emitted_types')
     if emitted is None or TKVINT_CLASS in emitted:
         return
-    import il_features.tkvstr as _tkvstr
-    _tkvstr.ensure_class(ctx)
     emitted.add(TKVINT_CLASS)
     ctx['extra_classes'].append(_gen_tkvint_class_il())
 
@@ -411,7 +409,7 @@ def _gen_tkvint_class_il():
 
     lines += _m(
         f'string Str({v} a)',
-        f'    .locals init (int64 x, valuetype {BIG} b, float64 d)',
+        f'    .locals init (int64 x, valuetype {BIG} b)',
         '    ldarga.s a', f'    ldfld object {TKVINT_CLASS}::big',
         '    brtrue.s SLOWPATH',
         '    ldarga.s a', f'    ldfld int64 {TKVINT_CLASS}::lo', '    stloc.s x',
@@ -422,21 +420,12 @@ def _gen_tkvint_class_il():
         'class [mscorlib]System.IFormatProvider)',
         '    ret',
         '  SLOWPATH:',
-        '    ldarga.s a', f'    ldfld object {TKVINT_CLASS}::big',
-        '    isinst [mscorlib]System.Double',
-        '    brtrue.s DOUBLEPATH',
         '    ldarg.0', f'    call valuetype {BIG} {TKVINT_CLASS}::ToBig({v})',
         '    stloc.s b', '    ldloca.s b',
         '    call class [mscorlib]System.Globalization.CultureInfo '
         '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()',
         f'    call instance string {BIG}::ToString('
         'class [mscorlib]System.IFormatProvider)',
-        '    ret',
-        '  DOUBLEPATH:',
-        '    ldarga.s a',
-        '    ldfld object TkvInt::big',
-        '    unbox.any float64',
-        '    call string TkvStr::F64(float64)',
         '    ret')
 
     # Thu hep CO KIEM TRA ve int32 - CHI dung o vi tri chi so (xem
@@ -475,12 +464,6 @@ def _gen_tkvint_class_il():
         '    ldarga.s a', f'    ldfld int64 {TKVINT_CLASS}::lo',
         '    conv.r8', '    ret',
         '  TOF64_BIG:',
-        '    ldarga.s a', f'    ldfld object {TKVINT_CLASS}::big',
-        '    isinst [mscorlib]System.Double',
-        '    brfalse TOF64_NOT_DBL',
-        '    ldarga.s a', f'    ldfld object {TKVINT_CLASS}::big',
-        '    unbox.any float64', '    ret',
-        '  TOF64_NOT_DBL:',
         '    ldarg.0', f'    call valuetype {BIG} {TKVINT_CLASS}::ToBig({v})',
         '    stloc.s b', '    ldloc.s b',
         f'    call float64 {BIG}::op_Explicit(valuetype {BIG})', '    stloc.s d',
@@ -507,10 +490,6 @@ def _gen_tkvint_class_il():
         '    .override [mscorlib]System.IComparable::CompareTo',
         '    ldarg.0', f'    ldobj {v}', '    ldarg.1', f'    unbox.any {v}',
         f'    call int32 {TKVINT_CLASS}::Cmp({v}, {v})', '    ret', '  }',
-        '  .method public hidebysig virtual instance string ToString() cil managed',
-        '  {', '    .maxstack 8',
-        '    ldarg.0', f'    ldobj {v}',
-        f'    call string {TKVINT_CLASS}::Str({v})', '    ret', '  }',
     ]
 
     lines += _gen_floordiv_mod(v)
@@ -643,7 +622,7 @@ def _gen_pow_neg(v):
     tien 'am tham nguy hiem hon on ao' cua du an."""
     lines = _m(
         f'{v} Pow({v} a, {v} b)',
-        f'    .locals init (int64 e, float64 d, {v} r)',
+        '    .locals init (int64 e)',
         '    ldarga.s b', f'    ldfld object {TKVINT_CLASS}::big',
         '    brtrue PW_HUGE',
         '    ldarga.s b', f'    ldfld int64 {TKVINT_CLASS}::lo', '    stloc.s e',
@@ -654,16 +633,15 @@ def _gen_pow_neg(v):
         f'    call valuetype {BIG} {BIG}::Pow(valuetype {BIG}, int32)',
         f'    call {v} {TKVINT_CLASS}::FromBig(valuetype {BIG})', '    ret',
         '  PW_NEG:',
-        '    ldarg.0', f'    call float64 {TKVINT_CLASS}::ToF64({v})',
-        '    ldarg.1', f'    call float64 {TKVINT_CLASS}::ToF64({v})',
-        '    call float64 [mscorlib]System.Math::Pow(float64, float64)', '    stloc.s d',
-        '    ldloca.s r', '    ldc.i8 0', f'    stfld int64 {TKVINT_CLASS}::lo',
-        '    ldloca.s r', '    ldloc.s d', '    box float64', f'    stfld object {TKVINT_CLASS}::big',
-        '    ldloc.s r', '    ret',
+        '    ldstr "int ** so mu am tra ve float trong Python - TokenVector '
+        'chua co duong int->float (moc 10). Doi ve f64 truoc khi luy thua."',
+        '    newobj instance void [mscorlib]System.NotSupportedException'
+        '::.ctor(string)', '    throw',
         '  PW_HUGE:',
-        '    ldstr "int ** so mu qua lon (> 2^31-1): ket qua khong the vua bo nho."',
-        '    newobj instance void [mscorlib]System.OverflowException::.ctor(string)',
-        '    throw')
+        '    ldstr "int ** so mu qua lon (> 2^31-1): ket qua khong the vua '
+        'bo nho."',
+        '    newobj instance void [mscorlib]System.OverflowException'
+        '::.ctor(string)', '    throw')
 
     lines += _m(
         f'{v} Neg({v} a)',

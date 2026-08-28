@@ -22,16 +22,23 @@ return_ta_fn (xem il_dispatch.py) - day chinh la ly do nhom 5 phai tong
 quat hoa EXPR_METHOD_SHAPE tu cap (dtype, shape) TINH sang HAM."""
 
 from il_dispatch import register_expr_method
-from il_features.dict_type import il_dict_type
-from il_features.list_type import il_list_type
 from typed_dsl_parser import TypeAnn
 
 
 def _compile_dict_collection(dict_name, scope, out, ctx, which):
     _, _, dict_ta = scope[dict_name]
-    dict_type = il_dict_type(dict_ta.key_dtype, dict_ta.dtype, (ctx or {}).get('records'))
+    dict_type = ctx['il_type_str'](dict_ta, ctx.get('records'))
     elem_dtype = dict_ta.key_dtype if which == 'keys' else dict_ta.dtype
-    list_type = il_list_type(elem_dtype, (ctx or {}).get('records'))
+    # C2 fix (final-review round 2, 2026-08-19): truoc day goi truc tiep
+    # il_list_type(..., ctx.get('extern_class_defs')) - CUNG loai bug voi
+    # C1 (codegen_for_in_dict_items o dict_type.py): kenh ctx['extern_class_defs']
+    # la 1 chan RIENG, de bi quen thiet lap o 1 ctx moi (vd gen_il_generator_function's
+    # ctx tung thieu khoa nay -> None -> loi khi V=extern class TRONG generator).
+    # Fix: dinh tuyen qua CUNG dispatcher ctx['il_type_str'] nhu C1 da lam cho
+    # dict_enumerator/dict_kvpair - il_type_str's nhanh shape=='list' (il_codegen.py)
+    # doc _EXTERN_CLASS_DEFS module-level TRUC TIEP, khong qua ctx, nen KHONG
+    # the thieu duoc nua du ctx duoc xay dung o dau.
+    list_type = ctx['il_type_str'](TypeAnn(dtype=elem_dtype, shape='list'), ctx.get('records'))
     coll_name = 'KeyCollection' if which == 'keys' else 'ValueCollection'
     getter = 'get_Keys' if which == 'keys' else 'get_Values'
     coll_type_ph = (

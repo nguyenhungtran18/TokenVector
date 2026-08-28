@@ -30,10 +30,19 @@ def compile_string_split(node, scope, out, dtype, ctx):
     ghi vao mang (stelem.i2, opcode danh cho mang phan tu 16-bit nhu
     System.Char) -> goi String.Split(char[]) -> boc ket qua string[]
     thanh List<str> qua .ctor(IEnumerable<!0>) (cung ky thuat da verify
-    voi dict_keys_values.py - string[] TU NO da implement IEnumerable<string>)."""
+    voi dict_keys_values.py - string[] TU NO da implement IEnumerable<string>).
+
+    's.split(sep, maxsplit)' (2 tham so, 2026-08-20 - roadmap dong khoang
+    cach Python, mo rong tu nhanh 1 tham so): .NET's String.Split(char[],
+    int32 count) khop DUNG ngu nghia Python maxsplit qua phep doi
+    count = maxsplit + 1 (da doi chieu THAT voi CPython: maxsplit=2 tren
+    'a,b,c,d' -> 3 phan, maxsplit=0 -> 1 phan (khong tach), maxsplit vuot
+    qua so phan co san -> tach het nhu binh thuong - ca 3 case deu khop
+    .NET's 'count la SO PHAN TOI DA, phan CUOI giu nguyen phan con lai
+    chua tach' - cung 1 ngu nghia, chi khac ten tham so)."""
     src_name, args = node[1], node[3]
-    if len(args) != 1:
-        raise SyntaxError("il_codegen: str.split() chi nhan dung 1 tham so")
+    if len(args) not in (1, 2):
+        raise SyntaxError("il_codegen: str.split() hoac str.split(sep, maxsplit) can 1 hoac 2 tham so")
     compile_expr = ctx['compile_expr']
     load_var_ref = ctx['load_var_ref']
 
@@ -46,7 +55,13 @@ def compile_string_split(node, scope, out, dtype, ctx):
     out.append('    ldc.i4.0')
     out.append('    callvirt instance char [mscorlib]System.String::get_Chars(int32)')
     out.append('    stelem.i2')
-    out.append('    callvirt instance string[] [mscorlib]System.String::Split(char[])')
+    if len(args) == 2:
+        compile_expr(args[1], scope, out, 'i32', ctx)
+        out.append('    ldc.i4.1')
+        out.append('    add')
+        out.append('    callvirt instance string[] [mscorlib]System.String::Split(char[], int32)')
+    else:
+        out.append('    callvirt instance string[] [mscorlib]System.String::Split(char[])')
     list_type = il_list_type('str', ctx.get('records'))
     out.append(
         f'    newobj instance void {list_type}::.ctor(class '

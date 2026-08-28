@@ -60,6 +60,7 @@ from il_features.stdlib_math import _MATH_FUNCS as _stdlib_math_funcs_names  # T
 from il_dispatch import STR_METHOD_RETURN_DTYPE as _STR_METHOD_RETURN_DTYPE
 import il_features.int_type as _int_type  # kieu 'int' vo han chu so nhu Python (moc 6 buoc 2, 2026-08-05)
 import il_features.complex_type as _complex_type  # kieu 'complex' qua System.Numerics.Complex (muc 6.8, 2/4, 2026-08-13)
+import il_features.nested_array_extern as _nested_array_extern  # Phase 9i (2026-08-28): marshal array[array[T]] <-> list[list[T]] cho __tkv_extern_class__
 # import nay CUNG dang ky line-parser/expr-codegen/stmt-codegen/macro-
 # expander qua side-effect luc import (giong cac il_features khac).
 from il_features.record_feature import is_record_ctor_rhs as _record_is_record_ctor_rhs
@@ -426,6 +427,55 @@ def _walk_intdiv_nodes(node):
 
 
 
+def _method_call_expr_receiver_ta(base_node, scope, func_table=None, records=None,
+                                   record_methods=None):
+    """TypeAnn DAY DU (dtype=ten class THUC + shape) cua NGUOI NHAN 1
+    'method_call_expr' ('<base_node>.method(...)') - dung RIENG cho
+    _infer_dtype's nhanh 'method_call_expr' (bug fix, 2026-08-28) de nhan
+    dien duoc truong hop nguoi nhan la 1 extern-class (handle-type) lay ra
+    tu 1 bieu thuc index ('row2[0].getValue()') thay vi chi la chuoi hang/
+    ket qua ham nhu gia dinh ban dau cua tag nay. Tra None neu khong xac
+    dinh duoc (caller fallback ve bang string-method nhu truoc)."""
+    if not isinstance(base_node, tuple):
+        return None
+    tag0 = base_node[0]
+    if tag0 == 'index':
+        # 'row2[0]' - TypeAnn cua PHAN TU chinh la elem_ta cua TypeAnn khai
+        # container (list[HandleType] luu elem_ta=TypeAnn(class,'extern_class'),
+        # xem typed_dsl_parser.py's nhanh 'list'); container scalar thuong
+        # (vd list[i32]) khong co elem_ta -> ghep tam TypeAnn(dtype, None).
+        try:
+            container_ta = scope[base_node[1]][2]
+        except (KeyError, SyntaxError):
+            return None
+        if container_ta.shape == 'record':
+            # Cung quy uoc voi nhanh 'index' o duoi (dong ~456): TypeAnn
+            # cua 1 bien record LA TEN CLASS, khong phai dtype phan tu -
+            # khong lien quan extern-class, tra None cho caller fallback.
+            return None
+        if container_ta.elem_ta is not None:
+            return container_ta.elem_ta
+        return TypeAnn(container_ta.dtype, None)
+    if tag0 == 'index_expr':
+        return _index_expr_result_ta(base_node, scope, func_table, records)
+    # Boc try/except (dong bo voi _index_expr_result_ta dong ~1862 va
+    # _compile_len_of_expr dong ~1887 - cung 1 loi goi _infer_dtype de quy
+    # tren mot base_node BAT KY): receiver phuc tap (vd ket qua 1 method
+    # call khac chua ho tro suy dtype) co the khien _infer_dtype raise loi
+    # la (KeyError/SyntaxError tu scope tra cuu ben trong) thay vi tra None
+    # gon gang - khong bat se lam lo traceback la ra ngoai caller thay vi
+    # fallback an toan ve None nhu quy uoc cua ham nay.
+    try:
+        base_dtype = _infer_dtype(base_node, scope, func_table, records, record_methods)
+    except Exception:
+        base_dtype = None
+    if base_dtype is None:
+        return None
+    if _EXTERN_CLASS_DEFS and base_dtype in _EXTERN_CLASS_DEFS:
+        return TypeAnn(base_dtype, 'extern_class')
+    return TypeAnn(base_dtype, None)
+
+
 def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None, nested_closures=None):
     """Suy ra dtype THAT cua 1 bieu thuc tu chinh no (khong dua vao dtype
     'boi canh' tu ben ngoai truyen vao) - can THEM khi them 'str' vao DSL,
@@ -470,6 +520,55 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
         # KHONG sinh ma chuyen doi, cong i32 tho vao thang list[str]. Tra
         # cuu GIONG HET nhanh 'method_call' o duoi (dong ~554) - MOT
         # nguon su that duy nhat, khong hardcode rieng.
+        #
+        # Bug fix (2026-08-28): _POSTFIX_METHOD_BASES (il_core.py:479)
+        # cho phep '.method()' di sau CA 1 'index' ('row2[0].getValue()',
+        # row2: list[HandleType]) - node nay CUNG di qua tag
+        # 'method_call_expr' (khong chi chuoi hang/ket qua ham nhu comment
+        # cu gia dinh). Hardcode 'str' o tren SAI HOAN TOAN cho truong hop
+        # nay: 'getValue' khong phai string-method nen roi vao nhanh mac
+        # dinh 'str', khien 'call ... System.Console::WriteLine(string)'
+        # duoc phat cho 1 gia tri i32 THAT tren stack -> ilasm khong kiem
+        # tra generic argument nen van assemble duoc, runtime doc nham bit
+        # int32 thanh string reference (NullReferenceException hoac in
+        # dong trong). Phai tra cuu dung kieu THAT cua NGUOI NHAN truoc khi
+        # fallback ve bang string-method: neu nguoi nhan la 1 extern-class
+        # (handle-type khai qua __tkv_extern_class__, vd phan tu cua
+        # list[HandleType] roi qua index), dung LAI CHINH bang tra cuu
+        # EXPR_METHOD_SHAPE/EXPR_METHOD_DTYPE ma nhanh 'method_call' o duoi
+        # (dong ~764) dung cho 'obj.Method()' thong thuong - MOT nguon su
+        # that duy nhat, khong tu suy lai rieng o day.
+        recv_ta = _method_call_expr_receiver_ta(node[1], scope, func_table, records, record_methods)
+        if recv_ta is not None and recv_ta.shape == 'extern_class':
+            # Finding 1 (review fix, 2026-08-28): mirror CHINH XAC guard cua
+            # nhanh 'method_call' o duoi (dong ~819-829) - neu method la
+            # 'returns':'void' THAT SU (khong co entry trong EXPR_METHOD_DTYPE/
+            # EXPR_METHOD_SHAPE nhung DA dang ky trong EXPR_METHOD_CODEGEN) thi
+            # phai bao loi RO RANG ngay tai day. Thieu guard nay: 'v =
+            # r[0].Bump()' (Bump void, receiver la 1 phan tu index cua
+            # list[HandleType]) compile SACH nhung declare_scalar fallback ve
+            # body_dtype (return None roi xuong _STR_METHOD_RETURN_DTYPE cu bi
+            # bo qua vi nhanh nay return truoc) - trong khi codegen_fn THAT SU
+            # chi sinh 'callvirt instance void ...' (khong day gia tri len
+            # stack) -> 'stloc' sau do doc gia tri KHONG TON TAI tren stack ->
+            # InvalidProgramException luc chay (am tham qua ilasm).
+            _mkey1 = (_shape_key(recv_ta), node[2])
+            if (_mkey1 not in EXPR_METHOD_DTYPE
+                    and _mkey1 not in EXPR_METHOD_SHAPE
+                    and _mkey1 in EXPR_METHOD_CODEGEN):
+                import tkv_compile
+                raise tkv_compile.TranspileError(
+                    f"il_codegen: method {node[2]!r} tren __tkv_extern_class__ la "
+                    f"'returns':'void' - khong co gia tri de dung trong bieu thuc "
+                    f"(vd gan bien '= <expr>.{node[2]}(...)'), chi goi duoc dang "
+                    f"LENH DOC LAP ('<expr>.{node[2]}(...)' mot minh tren 1 dong)")
+            resolver = EXPR_METHOD_SHAPE.get((_shape_key(recv_ta), node[2]))
+            if resolver:
+                return resolver(recv_ta).dtype
+            registered = EXPR_METHOD_DTYPE.get((_shape_key(recv_ta), node[2]))
+            if registered:
+                return registered
+            return None
         return _STR_METHOD_RETURN_DTYPE.get(node[2], 'str')
     if tag == 'index_expr':
         # '<bieu thuc>[i]' (2026-08-03) - dtype phan tu cua container ma
@@ -882,6 +981,35 @@ def _shaped_return_ta_of_call(rhs_node, func_table, infer_scope=None, records=No
         try:
             _, _, obj_ta = infer_scope[rhs_node[1]]
         except KeyError:
+            # Important 2 (review Phase 9g, 2026-08-27): rhs_node[1] khong
+            # nam trong scope co nghia day la 'ClassName.Method()' (static
+            # method tren 1 extern-class), KHONG phai 'obj.method()' - mirror
+            # CHINH XAC logic _infer_dtype's nhanh 'method_call' (dong ~727
+            # phia tren, xem chu thich C1 o do ve ly do try/except KeyName)
+            # NHUNG tra ve TypeAnn DAY DU (shape dung) thay vi 1 dtype string
+            # tho. Thieu nhanh nay: 'names = ArrayApi.MakeNames(3)' (static
+            # method tra 'array[str]', quy doi 'list[str]' qua
+            # _tokenvector_facing_dtype) se roi xuong nhanh else cua
+            # declare_scalar (_infer_dtype tra ve chuoi 'list[str]' THO,
+            # khong TypeAnn) -> declare_scalar's kiem tra o duoi (dong
+            # ~3433-3439) khong nhan dien 'list[str]' la 1 container (chi
+            # kiem _EXTERN_CLASS_DEFS/records) -> TypeAnn(dtype='list[str]',
+            # shape=None) SAI -> KeyError IL_SCALAR['list[str]'] luc khai
+            # bao local, DUNG BUG PATTERN Step 3's
+            # _make_extern_class_method_return_ta da tung sua (tkv_compile.py).
+            decl = _EXTERN_CLASS_DEFS.get(rhs_node[1])
+            if decl is None:
+                return None
+            m = next((mm for mm in decl.get('static_methods', [])
+                      if mm['name'] == rhs_node[2]), None)
+            if m is None:
+                return None
+            import tkv_compile
+            ret = tkv_compile._tokenvector_facing_dtype(m['returns'])
+            if ret in _EXTERN_CLASS_DEFS:
+                return TypeAnn(ret, 'extern_class')
+            if isinstance(ret, str) and (ret.startswith('list[') or ret.startswith('dict[')):
+                return parse_type_ann_str(ret, extern_class_names=set(_EXTERN_CLASS_DEFS))
             return None
         resolver = EXPR_METHOD_SHAPE.get((_shape_key(obj_ta), rhs_node[2]))
         if resolver:
@@ -1448,6 +1576,38 @@ def _expr_index(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             f"il_codegen: '{name}[...]' - '{name}' khong phai list/dict/string/mang, "
             f"hoac kieu long nhau khong suy dung duoc do thu tu khai bao (container "
             f"duoc THAM CHIEU phai khai bao TRUOC container CHUA no trong van ban nguon)")
+    if type_ann.shape == 'tuple':
+        # Phase 11b (2026-08-28): 'p[i]' tren 1 BIEN dtype tuple (vd bien
+        # vong lap don 'for p in z:' voi z: list[(T1,T2)] tu zip()) - PHAI
+        # chan TRUOC 'rank = len(type_ann.shape)' ngay duoi day, vi
+        # 'shape' o day la CHUOI 'tuple' (khong phai list so dim nhu mang
+        # that) - 'len("tuple")' == 5 se lot xuong nhanh else va bao loi
+        # kho hieu 'chi ho tro mang rank 1 hoac 2'. Tuple co kich thuoc
+        # CO DINH tai compile-time (khac mang) nen CHI ho tro chi so HANG
+        # SO NGUYEN DUONG van ban (khong ho tro bieu thuc chi so dong,
+        # giong gioi han co chu dich cua _neg_literal_int o cac nhanh
+        # tren) - doc field ItemN qua cung pattern da xac minh THAT trong
+        # tuple_type.py's codegen_tuple_assign (ldloc gia tri roi ldfld
+        # truc tiep, KHONG can dia chi).
+        if len(indices) != 1:
+            raise SyntaxError(f"il_codegen: '{name}[...]' tren tuple chi ho tro 1 chi so")
+        idx_node = indices[0]
+        if not (isinstance(idx_node, tuple) and idx_node[0] == 'num' and '.' not in idx_node[1]):
+            raise SyntaxError(
+                f"il_codegen: '{name}[i]' tren tuple chi ho tro chi so HANG SO nguyen "
+                f"duong tai compile-time (vd '{name}[0]'), khong ho tro chi so dong/am")
+        i = int(idx_node[1])
+        dtypes = type_ann.tuple_dtypes
+        if not dtypes or not (0 <= i < len(dtypes)):
+            raise SyntaxError(
+                f"il_codegen: '{name}[{i}]' vuot qua so phan tu tuple "
+                f"({len(dtypes) if dtypes else 0})")
+        from il_features.tuple_type import il_tupleN_type
+        tuple_il_type = il_tupleN_type(dtypes)
+        _load_var_ref(name, scope, out)
+        out.append(f'    ldfld !{i} {tuple_il_type}::Item{i + 1}')
+        _widen_if_needed(dtypes[i], dtype, out)
+        return
     rank = len(type_ann.shape)
     _load_var_ref(name, scope, out)
     for dim_i, idx_node in enumerate(indices):
@@ -1924,6 +2084,47 @@ def _compile_round_builtin(args, scope, out, dtype, ctx):
     raise SyntaxError("il_codegen: round() nhan 1 hoac 2 tham so")
 
 
+def _il_array_elem_type(elem, extern_class_defs=None):
+    """Phase 9h (2026-08-27): IL text cua 1 PHAN TU mang 'array[T]' - T la
+    1 trong 5 scalar Phase 9g (_EXTERN_DTYPE_TO_IL) HOAC 1 handle-type da
+    khai (extern_class_defs, cung cong thuc 'class [assembly]ClassName'
+    ma il_container_type_of_spec da dung cho list[HandleType], xem
+    list_type.py dong 81-83). Goi sau khi da qua validate
+    (_validate_extern_class_container_dtype) nen elem CHAC CHAN khop 1
+    trong 2 tap (hoac Phase 9i: 1 chuoi 'array[T]' con - xem duoi) -
+    KeyError o day la loi logic that (validate lech), khong phai input
+    nguoi dung sai.
+
+    extern_class_defs: nhan qua tham so (Minor 2, review Phase 9h) thay vi
+    doc thang module-global _EXTERN_CLASS_DEFS, dong bo voi _il_ctor_param_type
+    (ham goi ham nay) da co san tham so nay trong scope. Mac dinh None ->
+    fallback ve module-global _EXTERN_CLASS_DEFS de giu tuong thich nguoc cho
+    2 diem goi con lai (_compile_extern_object_arg/_marshal_extern_return_array)
+    khong truyen tham so nay.
+
+    Phase 9i (2026-08-28): 'elem' CHINH NO co the la 1 chuoi 'array[T]'
+    (vd goi tu _il_ctor_param_type('array[array[i32]]', ...) -> elem o do
+    la 'array[i32]') - de quy 1 lan, tra ve IL text cua T[] (1 cap). Chi
+    can DUY NHAT dieu kien nay o day (khong can ham rieng) vi
+    _il_ctor_param_type's nhanh 'array[' da tu dong cong them 1 dau '[]'
+    NUA o ben ngoai (xem il_codegen.py dong ~2016: 'return
+    _il_array_elem_type(elem, extern_class_defs) + '[]''), nen ket qua
+    cuoi cung cho 'array[array[i32]]' la 'int32[]' + '[]' = 'int32[][]'
+    (jagged array 2 chieu DUNG cu phap ilasm) MA KHONG CAN sua
+    _il_ctor_param_type gi them - _EXTERN_NESTED_ARRAY_DTYPE_RE (Task 1
+    Step 1/4) da chan CHAT o tang validate nen elem o day KHONG BAO GIO
+    sau hon 1 lop 'array[' (khong de quy vo han)."""
+    if isinstance(elem, str) and elem.startswith('array['):
+        inner_elem = elem[len('array['):-1]
+        return _il_array_elem_type(inner_elem, extern_class_defs) + '[]'
+    import tkv_compile
+    if elem in tkv_compile._EXTERN_DTYPE_TO_IL:
+        return tkv_compile._EXTERN_DTYPE_TO_IL[elem]
+    defs = extern_class_defs if extern_class_defs is not None else _EXTERN_CLASS_DEFS
+    d = defs[elem]
+    return f"class [{d['assembly']}]{d['class']}"
+
+
 def _il_ctor_param_type(dtype_name, extern_class_defs):
     """Kieu CIL cua 1 tham so constructor/method handle-type - hoac 1
     handle-type KHAC, list[T]/dict[K,V] (ke ca long nhau 1 lop), hoac 1
@@ -1952,6 +2153,15 @@ def _il_ctor_param_type(dtype_name, extern_class_defs):
         # mirror y het nhanh 'enum:...' ngay tren, TRANH sua IL_SCALAR
         # (Global Constraint cua plan nay).
         return 'class [mscorlib]System.Type'
+    if isinstance(dtype_name, str) and dtype_name.startswith('array['):
+        # Phase 9g (2026-08-27): 'array[T]' CHI ton tai o bien extern (chu
+        # ky IL goi method .NET that su nhan/tra CLR array T[]) - KHONG di
+        # qua _il_container_type_of_spec (ham do chi biet 'list[T]' TokenVector
+        # that, se hieu nham 'array[' la 1 spec la roi loi). Uy quyen sang
+        # _il_array_elem_type (ham helper moi Task 1) de tra IL text cua
+        # phan tu T, mirror pattern nhanh 'enum:...' ngay tren.
+        elem = dtype_name[len('array['):-1]
+        return _il_array_elem_type(elem, extern_class_defs) + '[]'
     return _il_container_type_of_spec(dtype_name, records=None,
                                        extern_class_defs=extern_class_defs)
 
@@ -2010,6 +2220,107 @@ def _compile_extern_object_arg(arg_node, scope, out, want_dtype, ctx):
     if want_dtype == 'object' and actual in _EXTERN_ARG_VALUE_DTYPES:
         il_type = tkv_compile._EXTERN_DTYPE_TO_IL[actual]
         out.append(f'    box {il_type}')
+    elif isinstance(want_dtype, str) and want_dtype.startswith('array['):
+        # Phase 9g (2026-08-27): _compile_expr o tren da day 1 List<T>
+        # TokenVector len stack (dtype PHIA TOKENVECTOR cua 'array[T]' la
+        # 'list[T]', xem _tokenvector_facing_dtype) - method .NET that su
+        # nhan CLR array T[] (chu ky IL da khai T[] qua _il_ctor_param_type),
+        # nen phai goi List<T>.ToArray() NGAY SAU khi doi tuong nam tren
+        # dinh stack de chuyen doi truoc khi nap vao vi tri tham so.
+        #
+        # Important 1 (review Phase 9g, 2026-08-27): 'actual' (dtype SUY RA
+        # THAT cua bieu thuc doi so, tinh o tren qua _infer_dtype) PHAI
+        # khop dung 'list[T]' CUNG mot T voi want_dtype - neu khong (vd 1
+        # bien 'lst = [1,2,3,4]' KHONG annotation suy ra 'list[int]'
+        # (TkvInt, bignum) thay vi 'list[i32]' truyen vao tham so khai
+        # 'array[i32]'), ilasm VAN chap nhan callvirt sinh ra (chi la 1
+        # method-ref, khong xac minh generic argument that su cua object
+        # tren stack) nhung .NET runtime nem ArrayTypeMismatchException
+        # ngay trong List<T>.ToArray() luc CHAY (object THAT la
+        # List<TkvInt>, khong phai List<int32>) - loi am tham, kho debug.
+        # Chan NGAY luc bien dich bang TranspileError ro rang, mirror phong
+        # cach nhanh 'want_dtype == 'type' and actual != 'type'' o tren.
+        elem = want_dtype[len('array['):-1]
+        want_list_dtype = tkv_compile._tokenvector_facing_dtype(want_dtype)
+        # actual is None: bieu thuc "boi hinh" (vd list-literal INLINE
+        # truc tiep tai vi tri doi so, KHONG qua 1 bien trung gian) -
+        # _infer_dtype KHONG co nhanh rieng cho tag 'list_literal' (giong
+        # het so nguyen/thuc "boi hinh" o docstring _infer_dtype), tra ve
+        # None CO CHU DICH vi _compile_expr o TREN (dong truoc do trong ham
+        # nay) DA duoc truyen dung want_dtype lam ngu canh - codegen_expr_
+        # list_literal (list_type.py) UU TIEN dtype ngu canh nay de quyet
+        # dtype phan tu, nen ket qua THAT SU tren stack CHAC CHAN dung
+        # list[T] mong doi, AN TOAN bo qua check (None != la "khong xac
+        # dinh duoc tinh", khong phai "sai kieu").
+        if actual is not None and actual != want_list_dtype:
+            # Fix (review Phase 9i Task 2): thong bao loi cu hardcode
+            # 'list[T]' bat ke muc long thuc te cua want_dtype - voi
+            # 'array[array[T]]' (2 cap), dtype TokenVector-facing that su
+            # la 'list[list[T]]' (xem _tokenvector_facing_dtype), noi
+            # "marshal tu list[T]" gay hieu lam sai muc long. Dung
+            # want_list_dtype (da tinh dung qua _tokenvector_facing_dtype
+            # phia tren, dung cho CA 1 cap lan 2 cap) thay vi chuoi
+            # 'list[T]' co dinh.
+            raise tkv_compile.TranspileError(
+                f"il_codegen: tham so khai dtype {want_dtype!r} (mang .NET, marshal tu "
+                f"{want_list_dtype!r} TokenVector) nhung doi so truyen vao co dtype THAT la "
+                f"{actual!r}, khong khop {want_list_dtype!r} - vd 1 list-literal khong "
+                f"annotation kieu mac dinh suy 'list[int]' (TkvInt, bignum) chu khong "
+                f"phai {want_list_dtype!r}, truyen vao day se gay ArrayTypeMismatchException "
+                f"luc chay (khong phai loi bien dich ro rang)")
+        if isinstance(elem, str) and elem.startswith('array['):
+            # Phase 9i (2026-08-28): 'array[array[T]]' - KHONG co method
+            # BCL 1-dong nao lam List<List<T>> -> T[][] (khac 1 cap) -
+            # phat 1 vong lap IL that qua module nested_array_extern.
+            inner_elem = elem[len('array['):-1]
+            extern_class_defs = (ctx or {}).get('extern_class_defs') or _EXTERN_CLASS_DEFS
+            _nested_array_extern.emit_arg_marshal_loop(inner_elem, extern_class_defs, ctx, out)
+        else:
+            il_elem = _il_array_elem_type(elem)
+            list_il = f"class [mscorlib]System.Collections.Generic.List`1<{il_elem}>"
+            # Ghi chu IL: kieu tra ve cua 1 method tren generic type CU THE hoa
+            # phai viet theo dang generic-parameter mo (!0), khong phai kieu da
+            # thay the (il_elem) - dung quy uoc ilasm cho method tren 1 dong
+            # generic instantiation (khac han kieu tham so cua .ctor, noi !0 la
+            # ban than kieu generic parameter cua List`1 khai bao).
+            out.append(f'    callvirt instance !0[] {list_il}::ToArray()')
+
+
+def _marshal_extern_return_array(dtype_name, out, ctx=None):
+    """Phase 9g (2026-08-27): neu dtype_name la 'array[T]', gia tri THAT
+    SU tren stack NGAY SAU callvirt/call la 1 CLR array T[] (chu ky IL da
+    khai T[] qua _il_ctor_param_type) - nhung phia TokenVector coi day la
+    1 list[T] (List<T>, xem _tokenvector_facing_dtype). Boc array thanh
+    List<T> NGAY SAU khi gia tri nam tren dinh stack, TRUOC widen_if_needed
+    (no-op an toan voi dtype khong phai so) - dung idiom newobj
+    List`1::.ctor(IEnumerable`1<!0>) DA CO SAN trong codebase (xem
+    compiler/il_features/list_copy.py - CLR array cai dat IEnumerable<T>,
+    verifiable, khong can castclass). No-op (khong append gi) neu
+    dtype_name KHONG phai 'array[T]' - AN TOAN goi VO DIEU KIEN tai moi
+    diem tra ve non-void, khong can if rieng o noi goi.
+
+    Phase 9i (2026-08-28): them tham so 'ctx=None' (optional, tuong thich
+    nguoc - loi goi cu KHONG truyen ctx van hoat dong y het truoc day CHI
+    voi dtype 1 cap; dtype 2 cap 'array[array[T]]' BAT BUOC can ctx (dung
+    ctx['label_counter']/ctx['prefix'] de sinh nhan vong lap qua
+    nested_array_extern.emit_return_marshal_loop) - neu goi voi dtype 2
+    cap ma ctx=None se AssertionError ro rang thay vi loi ky la o cho
+    khac, xem nhanh 'assert ctx is not None' duoi."""
+    if not (isinstance(dtype_name, str) and dtype_name.startswith('array[')):
+        return
+    elem = dtype_name[len('array['):-1]
+    if isinstance(elem, str) and elem.startswith('array['):
+        assert ctx is not None, (
+            "_marshal_extern_return_array: dtype 'array[array[T]]' can ctx "
+            "(label_counter/prefix) de phat vong lap marshal - diem goi thieu ctx")
+        inner_elem = elem[len('array['):-1]
+        _nested_array_extern.emit_return_marshal_loop(inner_elem, _EXTERN_CLASS_DEFS, ctx, out)
+        return
+    il_elem = _il_array_elem_type(elem)
+    list_il = f"class [mscorlib]System.Collections.Generic.List`1<{il_elem}>"
+    out.append(
+        f'    newobj instance void {list_il}::.ctor(class '
+        f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
 
 
 def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
@@ -3587,6 +3898,16 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
         # o tren (cung ly do: suy "ham nay co dung 'complex' khong" tu
         # tham so/local se bo sot cac duong gian tiep).
         for _sname, _sdtype in _complex_type.scratch_locals():
+            if _sname not in declared_names:
+                declared_names.add(_sname)
+                _sta = TypeAnn(_sdtype, None)
+                locals_decl.append((_sname, _sta))
+                infer_scope.set(_sname, _sta)
+        # Local scratch cho marshal 'array[array[T]]' (Phase 9i,
+        # 2026-08-28) - cap phat VO DIEU KIEN giong het 'int'/'complex' o
+        # tren (cung ly do: dieu kien "ham co dung array[array[T]] khong"
+        # de bo sot).
+        for _sname, _sdtype in _nested_array_extern.scratch_locals():
             if _sname not in declared_names:
                 declared_names.add(_sname)
                 _sta = TypeAnn(_sdtype, None)

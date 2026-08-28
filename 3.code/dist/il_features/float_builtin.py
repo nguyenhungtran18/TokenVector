@@ -46,32 +46,3 @@ def push_float_builtin(args, scope, out, dtype, ctx):
 
 
 register_expr_builtin('float', push_float_builtin, 'f64')
-
-
-def push_round_builtin(args, scope, out, dtype, ctx):
-    """round(x) / round(x, n) - Python Banker's Rounding (half-to-even) (Moc 15, 2026-08-09).
-    1 tham so: tra ve int32 (conv.i4).
-    2 tham so: tra ve float64."""
-    if len(args) < 1 or len(args) > 2:
-        raise SyntaxError("il_codegen: round(x) hoac round(x, n) nhan 1 hoac 2 tham so")
-    compile_expr = ctx['compile_expr']
-    if len(args) == 1:
-        compile_expr(args[0], scope, out, 'f64', ctx)
-        out.append('    call float64 [mscorlib]System.Math::Round(float64)')
-        if dtype in ('int', 'i32') or dtype is None:
-            out.append('    conv.i4')
-        elif dtype == 'i64':
-            out.append('    conv.i8')
-    else:
-        compile_expr(args[0], scope, out, 'f64', ctx)
-        compile_expr(args[1], scope, out, 'i32', ctx)
-        out.append('    call float64 [mscorlib]System.Math::Round(float64, int32)')
-
-
-def _round_dtype_fn(args, scope):
-    if len(args) == 1:
-        return 'i32'
-    return 'f64'
-
-
-register_expr_builtin('round', push_round_builtin, 'f64', return_dtype_fn=_round_dtype_fn)

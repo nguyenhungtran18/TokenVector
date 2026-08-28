@@ -20,7 +20,6 @@ builtin list() nhan container.
 THU TU phan tu: theo thu tu duyet cua HashSet<T> - KHONG dam bao, giong
 het set cua Python. Can thu tu on dinh thi tu sap xep sau."""
 from il_dispatch import register_expr_method
-from il_features.list_type import il_list_type
 from typed_dsl_parser import TypeAnn
 
 
@@ -33,7 +32,7 @@ def compile_set_to_list(node, scope, out, dtype, ctx):
         raise SyntaxError("il_codegen: set.to_list() khong nhan tham so")
     set_name = node[1]
     set_ta = scope[set_name][2]
-    list_type = il_list_type(set_ta.dtype, ctx.get('records'))
+    list_type = ctx['il_type_str'](_to_list_return_ta(set_ta), ctx.get('records'))
     ctx['load_var_ref'](set_name, scope, out)
     out.append(
         f'    newobj instance void {list_type}::.ctor(class '
@@ -41,4 +40,13 @@ def compile_set_to_list(node, scope, out, dtype, ctx):
 
 
 register_expr_method('set', 'to_list', compile_set_to_list,
+                      return_ta_fn=_to_list_return_ta, result_shape='list')
+# frozenset (2026-08-13, muc 6.8 1/4): dung CHUNG compile_set_to_list -
+# ham chi doc scope[name][2].dtype (bat ke shape la 'set' hay 'frozenset')
+# nen tai su dung an toan, khong can viet lai. Can rieng vi EXPR_METHOD_
+# CODEGEN khoa CHINH XAC theo shape_key (xem register_expr_method trong
+# il_dispatch.py) - 'for x in fs:' can duong nay giong het 'for x in s:'
+# (macro for-in KHONG ho tro set/frozenset truc tiep, xem set_type.py's
+# comment o il_codegen.py:1152).
+register_expr_method('frozenset', 'to_list', compile_set_to_list,
                       return_ta_fn=_to_list_return_ta, result_shape='list')

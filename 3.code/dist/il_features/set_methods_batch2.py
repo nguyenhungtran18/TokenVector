@@ -9,11 +9,11 @@ Da xac minh truoc khi viet (PowerShell reflection tren
 HashSet`1[int].GetMethods()): Remove(T) tra bool, UnionWith/IntersectWith/
 ExceptWith(IEnumerable<T>) deu CO THAT.
 
-remove()/discard(): GIOI HAN DA BIET (giong list.remove() da chap nhan
-truoc do) - CA HAI cung anh xa Remove(T) (tra bool, BI CO Y BO QUA) -
-Python that: remove() nem KeyError neu thieu, discard() KHONG nem gi ca -
-o day CA HAI deu KHONG nem loi (hanh vi giong discard() that su, remove()
-la 'gioi han' chua gia lap KeyError).
+remove()/discard() (2026-08-13, batch 5.5b muc cuoi): CA HAI cung goi
+Remove(T) (tra bool). discard() BO QUA ket qua (hanh vi im lang giong
+Python that). remove() KIEM TRA ket qua - neu False (phan tu khong co
+trong set) nem KeyNotFoundException, khop voi 'except KeyError:' co san
+trong DSL (xem _EXC_TYPE_MAP trong control_flow.py).
 
 union/intersection/difference: tra ve 1 SET MOI (KHONG sua 2 set nguon) -
 tao ban sao tu set thu 1 (HashSet<T>::.ctor(IEnumerable<T>), giong ky
@@ -54,7 +54,7 @@ def _make_set_remove_parser(re_pattern, kind):
 
     def fn(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
         m = re_pattern.match(line)
-        if not m or known_shapes.get(m.group(1)) != 'set':
+        if not m or known_shapes.get(m.group(1)) not in ('set', 'frozenset'):
             return None
         name, arg_expr = m.groups()
         return {'kind': kind, 'name': name, 'value_node': parse_expr(arg_expr)}, pos + 1
@@ -62,11 +62,31 @@ def _make_set_remove_parser(re_pattern, kind):
 
 
 def _codegen_set_remove_like(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """set.discard(x): giu nguyen hanh vi cu (Remove(T) roi pop, khong
+    kiem tra ket qua). set.remove(x) (batch 5.5b, muc cuoi, 2026-08-13):
+    kiem tra bool tra ve tu Remove(T) - neu False (phan tu KHONG co
+    trong set), nem KeyNotFoundException (gan nghia nhat voi KeyError
+    cua Python - .NET khong co exception ten 'KeyError'). Khong tu viet
+    message chua gia tri thieu - chap nhan sai khac nho ve loai/noi dung
+    exception, giong tien le sample()/RFind da chap nhan truoc do."""
     _, _, ta = scope[stmt['name']]
+    if ta.shape == 'frozenset':
+        method = 'remove' if stmt['kind'] == 'set_remove' else 'discard'
+        raise SyntaxError(
+            f"il_codegen: '{stmt['name']}' la frozenset (bat bien) - khong the .{method}()")
     ctx['load_var_ref'](stmt['name'], scope, body)
     ctx['compile_expr'](stmt['value_node'], scope, body, ta.dtype, ctx)
-    body.append(f'    callvirt instance bool {il_set_type(ta.dtype, ctx.get("records"))}::Remove(!0)')
-    body.append('    pop')
+    body.append(f'    callvirt instance bool {il_set_type(ta.dtype, ctx.get("records"), (ctx or {}).get("extern_class_defs"))}::Remove(!0)')
+    if stmt['kind'] == 'set_discard':
+        body.append('    pop')
+    else:
+        ctx['label_counter'][0] += 1
+        n = ctx['label_counter'][0]
+        ok_lbl = f"{ctx['prefix']}_setrm{n}_ok"
+        body.append(f'    brtrue {ok_lbl}')
+        body.append('    newobj instance void [mscorlib]System.Collections.Generic.KeyNotFoundException::.ctor()')
+        body.append('    throw')
+        body.append(f'  {ok_lbl}:')
 
 
 def _fpw_set_remove_like(stmt, ctx):
@@ -97,7 +117,7 @@ def _compile_set_combine(node, scope, out, dtype, ctx, op):
             f"il_codegen: '{a_name}.{op}({b_name})' can '{b_name}' la set cung "
             f"dtype ({a_ta.dtype!r})")
     _, res_idx, _ = scope[f'__setcomb{id(node)}_res']
-    set_type = il_set_type(a_ta.dtype, ctx.get('records'))
+    set_type = il_set_type(a_ta.dtype, ctx.get('records'), (ctx or {}).get('extern_class_defs'))
 
     # res = new HashSet<T>(a)  (ban sao - KHONG sua 2 set nguon)
     ctx['load_var_ref'](a_name, scope, out)

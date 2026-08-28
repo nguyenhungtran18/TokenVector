@@ -142,6 +142,46 @@ def compile_binop(node, scope, out, dtype, ctx=None):
     left_dtype = infer_dtype(left, scope, func_table)
     right_dtype = infer_dtype(right, scope, func_table)
     operand_dtype = left_dtype or right_dtype or dtype
+    records = (ctx or {}).get('records') or {}
+    if op == '+' and operand_dtype in records:
+        # __add__ cho record (6.5, dunder overload - muc 5/5, 2026-08-13):
+        # a + b tren 2 gia tri CUNG kieu record co
+        # __add__(self, other) -> T goi callvirt. KHONG co fallback mac
+        # dinh nhu __eq__ - thieu __add__ la loi RO, khong ROI xuong
+        # nhanh 'add' CIL tren 2 object reference (vo nghia/crash).
+        record_methods = (ctx or {}).get('record_methods') or {}
+        dunder = record_methods.get(operand_dtype, {}).get('__add__')
+        if dunder is None:
+            raise SyntaxError(
+                f"il_codegen: record '{operand_dtype}' khong co __add__ - "
+                f"'+' tren record can dinh nghia "
+                f"'def __add__(self, other) -> \"T\": ...' (T la kieu tra ve tuy chon)")
+        record_bases = (ctx or {}).get('record_bases') or {}
+        ancestors = {operand_dtype}
+        walk = operand_dtype
+        while isinstance(record_bases.get(walk), str) and record_bases.get(walk):
+            walk = record_bases[walk]
+            ancestors.add(walk)
+        if len(dunder.params) != 1 or \
+                dunder.params[0].type_ann.dtype not in ancestors or \
+                dunder.params[0].type_ann.shape != 'record' or \
+                dunder.return_type is None:
+            raise SyntaxError(
+                f"il_codegen: record '{operand_dtype}' co __add__ nhung chu ky sai - "
+                f"can dung 1 tham so CUNG kieu record (hoac to tien) va tra ve 1 kieu "
+                f"bat ky ('def __add__(self, other) -> \"T\":')")
+        compile_expr = ctx['compile_expr']
+        compile_expr(left, scope, out, operand_dtype, ctx)
+        compile_expr(right, scope, out, operand_dtype, ctx)
+        from il_features.record_feature import _method_owner_class
+        owner = _method_owner_class(ctx, operand_dtype, '__add__')
+        param_il = ctx['il_type_str'](dunder.params[0].type_ann, records)
+        ret_dtype, ret_shape = dunder.return_type.dtype, dunder.return_type.shape
+        ret_il = ctx['il_type_str'](dunder.return_type, records)
+        out.append(f'    callvirt instance {ret_il} {owner}::__add__({param_il})')
+        if ret_shape is None:
+            ctx['widen_if_needed'](ret_dtype, dtype, out)
+        return
     if operand_dtype == 'str' or (op == '*' and 'str' in (left_dtype, right_dtype)):
         # '"ab" * 3' VA '3 * "ab"' (2026-08-03): Python cho phep ca 2
         # chieu. Chieu thu hai co left_dtype='i32' nen KHONG loc duoc bang
@@ -170,28 +210,21 @@ def compile_binop(node, scope, out, dtype, ctx=None):
             _int_type.compile_divmod_pow(op, left, right, scope, out, ctx)
             return _narrow_int_result(dtype, out, ctx)
         if op == '/':
-            # Python: '/' giua hai so nguyen (hoac float) LUON tra ve FLOAT (f64) (7/2 == 3.5, 6/2 == 3.0).
-            # (Moc 10, 2026-08-08)
-            compile_expr = ctx['compile_expr']
-            if operand_dtype == 'int':
-                compile_expr(left, scope, out, 'int', ctx)
-                out.append(f'    call float64 {_int_type.TKVINT_CLASS}::ToF64(valuetype {_int_type.TKVINT_CLASS})')
-                compile_expr(right, scope, out, 'int', ctx)
-                out.append(f'    call float64 {_int_type.TKVINT_CLASS}::ToF64(valuetype {_int_type.TKVINT_CLASS})')
-                out.append('    div')
-            elif operand_dtype in ctx['int_dtypes']:
-                compile_expr(left, scope, out, operand_dtype, ctx)
-                out.append('    conv.r8')
-                compile_expr(right, scope, out, operand_dtype, ctx)
-                out.append('    conv.r8')
-                out.append('    div')
-            else:
-                compile_expr(left, scope, out, 'f64', ctx)
-                compile_expr(right, scope, out, 'f64', ctx)
-                out.append('    div')
-            if dtype != 'f64':
-                ctx['widen_if_needed']('f64', dtype, out)
-            return
+            # Python: '/' giua hai so nguyen tra FLOAT (7/2 == 3.5). Duong
+            # int->float la moc 10; cho toi luc do BAO LOI, vi neu de roi
+            # xuong nhanh chung ben duoi thi sinh 'div' tren mot struct -
+            # ilasm co the van nuot, va loi se hien ra luc CHAY.
+            raise SyntaxError(
+                "il_codegen: '/' tren kieu 'int' chua ho tro - Python tra ve "
+                "float o day (7/2 == 3.5) va duong int->float la moc 10. "
+                "Dung '//' neu that su muon chia nguyen.")
+    if operand_dtype == 'complex':
+        # Muc 6.8 (2/4, 2026-08-13): '+'/'-'/'*'/'/' giua 2 gia tri
+        # 'complex' - uy quyen ra complex_type.py (goi static Add/Subtract/
+        # Multiply/Divide co san tren System.Numerics.Complex).
+        import il_features.complex_type as _complex_type
+        _complex_type.compile_binop(op, left, right, scope, out, ctx)
+        return
     compile_expr = ctx['compile_expr']
     if op == '**':
         # 'x ** y' (Wave 3, 2026-07-29) - tai dung THANG pow()'s codegen
@@ -309,7 +342,10 @@ def compile_compare(node, scope, out, dtype, ctx=None):
     ctx['compile_compare_str'] (string_feature.py), phan con lai (so
     sanh so hoc) o day. Ket qua LUON la int32 0/1 (khong phai dtype cua
     toan hang) - dung ceq/cgt/clt CHUAN CIL, cac toan tu con lai
-    (!=,>=,<=) suy tu 3 cai do bang 1 lan phu dinh (ldc.i4.0; ceq)."""
+    (!=,>=,<=) suy tu 3 cai do bang 1 lan phu dinh (ldc.i4.0; ceq).
+    __eq__ cho record (6.5, dunder overload - muc 2, 2026-08-13): '=='/
+    '!=' tren 2 gia tri CUNG kieu record co __eq__(self, other) -> "i32"
+    goi callvirt thay vi ceq (reference-compare mac dinh)."""
     op, left, right = node[1], node[2], node[3]
     operand_dtype = ctx['resolve_compare_operand_dtype'](
         left, right, scope, (ctx or {}).get('func_table'), dtype,
@@ -319,6 +355,35 @@ def compile_compare(node, scope, out, dtype, ctx=None):
     if operand_dtype == 'int':
         return _int_type.compile_compare(op, left, right, scope, out, ctx)
     compile_expr = ctx['compile_expr']
+    records = (ctx or {}).get('records') or {}
+    if op in ('==', '!=') and operand_dtype in records:
+        record_methods = (ctx or {}).get('record_methods') or {}
+        dunder = record_methods.get(operand_dtype, {}).get('__eq__')
+        if dunder is not None:
+            record_bases = (ctx or {}).get('record_bases') or {}
+            ancestors = {operand_dtype}
+            walk = operand_dtype
+            while isinstance(record_bases.get(walk), str) and record_bases.get(walk):
+                walk = record_bases[walk]
+                ancestors.add(walk)
+            if len(dunder.params) != 1 or dunder.params[0].type_ann.dtype not in ancestors or \
+                    dunder.params[0].type_ann.shape != 'record' or \
+                    dunder.return_type is None or dunder.return_type.dtype != 'i32' or \
+                    dunder.return_type.shape is not None:
+                raise SyntaxError(
+                    f"il_codegen: record '{operand_dtype}' co __eq__ nhung chu ky sai - can "
+                    f"dung 1 tham so CUNG kieu record va tra ve \"i32\" "
+                    f"('def __eq__(self, other) -> \"i32\":')")
+            compile_expr(left, scope, out, operand_dtype, ctx)
+            compile_expr(right, scope, out, operand_dtype, ctx)
+            from il_features.record_feature import _method_owner_class
+            owner = _method_owner_class(ctx, operand_dtype, '__eq__')
+            param_il = ctx['il_type_str'](dunder.params[0].type_ann, records)
+            out.append(f'    callvirt instance int32 {owner}::__eq__({param_il})')
+            if op == '!=':
+                out.append('    ldc.i4.0')
+                out.append('    ceq')
+            return
     compile_expr(left, scope, out, operand_dtype, ctx)
     compile_expr(right, scope, out, operand_dtype, ctx)
     compare_opcode, compare_negated = ctx['compare_opcode'], ctx['compare_negated']

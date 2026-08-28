@@ -1,15 +1,22 @@
 # -*- coding: utf-8 -*-
-"""Lap trinh Bat dong bo Native (Moc 24, 2026-08-09) - async def & await.
+"""Lap trinh bat dong bo (Phase 4, 2026-08-11) - `async def` & `await`,
+port NGUYEN VEN tu cay `.tkv` tu-host (da co san, chay dung, xem
+`native_test_suite.tkv`'s `async_await` test) - KHONG thiet ke lai.
 
-Cung mot file .tkv, 2 duong chay (CPython & TokenVector .exe), cung ket qua 100%.
-"""
+Mo hinh GIA-BAT-DONG-BO (khong phai state machine/continuation that):
+ham `async def` van chay DONG BO den het, ket qua duoc boc vao 1 Task<T>
+DA HOAN TAT qua `Task.FromResult<T>(...)` truoc `ret` (xem
+il_features/control_flow.py's codegen_return, dieu kien theo
+ctx['is_async']) - `await` o phia goi (file nay) chi don gian goi
+`.get_Result()` DONG BO tren Task<T> do. Giu dung cu phap Python that
+nhung KHONG co overlap/concurrency THAT - du cho code CPU-bound, lam
+concurrency that ngoai pham vi (rui ro cao, khong can thiet)."""
 from il_core import IL_SCALAR
 from il_dispatch import register_expr_codegen
 
+
 def compile_await_expr(node, scope, out, dtype, ctx):
-    """await task_expr -> task.get_Result().
-    AST for await: ('await', expr_node).
-    """
+    """'await task_expr' -> task.get_Result(). AST: ('await', expr_node)."""
     task_node = node[1]
     func_table = ctx.get('func_table', {})
     records = ctx.get('records', {})
@@ -22,5 +29,6 @@ def compile_await_expr(node, scope, out, dtype, ctx):
     out.append(f'    callvirt instance !0 class [mscorlib]System.Threading.Tasks.Task`1<{il_t}>::get_Result()')
     if dtype:
         ctx['widen_if_needed'](task_dtype, dtype, out)
+
 
 register_expr_codegen('await', compile_await_expr)

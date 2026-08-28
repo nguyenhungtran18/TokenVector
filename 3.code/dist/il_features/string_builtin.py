@@ -15,7 +15,7 @@ from il_dispatch import register_expr_builtin, EXPR_BUILTIN_TEMPS
 
 
 _BOOL_SHAPED_CALL_NAMES = ('all', 'any')
-_BOOL_SHAPED_METHOD_NAMES = ('startswith', 'endswith')
+_BOOL_SHAPED_METHOD_NAMES = ('startswith', 'endswith', 'isdigit')
 
 
 def _is_bool_shaped(node):
@@ -23,8 +23,8 @@ def _is_bool_shaped(node):
     (Python se in "True"/"False", khong phai so). compare/boolop/not/in
     LUON tra ve i32 0/1 (xem _infer_dtype trong il_codegen.py - co tinh
     khai cung de tranh AccessViolationException voi TkvInt); all()/any()
-    va .startswith()/.endswith() cung tra i32 0/1 cung ly do (dang ky
-    dtype='i32' trong stdlib_aggregates.py / string_methods_batch3.py).
+    va .startswith()/.endswith()/.isdigit() cung tra i32 0/1 cung ly do
+    (dang ky dtype='i32' trong stdlib_aggregates.py / string_methods_batch3.py).
     KHONG bao gom .find() - do la CHI SO that, khong phai co/khong."""
     tag = node[0]
     if tag in ('compare', 'boolop', 'not', 'in'):
@@ -69,7 +69,7 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
         _d = (ctx['infer_dtype'](arg, scope, ctx.get('func_table'), ctx.get('records'),
                                   ctx.get('record_methods'))
               or ctx.get('infer_literal_dtype', lambda n: None)(arg))
-        if _d in ('i32', 'i64', 'f32', 'f64', 'str'):
+        if _d in ('i32', 'i64', 'f32', 'f64', 'str', 'complex'):
             ctx['compile_expr'](arg, scope, out, _d, ctx)
             if _d == 'i32' and _is_bool_shaped(arg):
                 return _tkvstr.emit_to_str('bool', out, ctx)
@@ -110,14 +110,36 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
                 else repr(float(var_idx)))
         out.append(f'    ldstr "{text}"')
         return
-    if var_ta.dtype == 'Exception' or (ctx and var_ta.dtype in ctx.get('records', {}) and ctx.get('record_bases', {}).get(var_ta.dtype) == 'Exception'):
+    if var_ta.dtype == 'Exception' or (ctx and var_ta.dtype in ctx.get('records', {}) and
+                                        ctx.get('record_bases', {}).get(var_ta.dtype) == 'Exception'):
+        # str(e) voi 'e' la bien loi ('except ... as e:', xem control_flow.py's
+        # fpw_try) - ca 'Exception' (BCL, chua ep record) lan record TU DINH
+        # NGHIA ke thua Exception deu dung .Message (port tu cay .tkv tu-host,
+        # Phase 6.3/6.9, 2026-08-12).
         ctx['load_var_ref'](arg[1], scope, out)
         out.append('    callvirt instance string [mscorlib]System.Exception::get_Message()')
         return
-    if var_ta.dtype == 'object' or (ctx and var_ta.dtype in ctx.get('records', {})):
+    if var_ta.dtype == 'object':
         ctx['load_var_ref'](arg[1], scope, out)
         out.append('    callvirt instance string [mscorlib]System.Object::ToString()')
         return
+    if var_ta.dtype == 'complex':
+        # Muc 6.8 (2/4, 2026-08-13): str(c) voi 'c' la 1 BIEN 'complex' -
+        # di CHUNG duong voi record/object o tren (nap gia tri qua
+        # load_var_ref roi uy quyen emit_to_str, TU do vao scratch local
+        # de lay dia chi truoc khi goi ToString() - xem tkvstr.py).
+        import il_features.tkvstr as _tkvstr
+        ctx['load_var_ref'](arg[1], scope, out)
+        return _tkvstr.emit_to_str(var_ta.dtype, out, ctx)
+    if ctx and var_ta.dtype in ctx.get('records', {}):
+        # record co __str__ (6.5, 2026-08-13): di CHUNG duong voi cac dtype
+        # khac qua emit_to_str (diem dispatch chung) - truoc day nhanh nay
+        # goi thang ToString() mac dinh (chi in ten class, khong dung
+        # __str__ nguoi dung dinh nghia). emit_to_str tu validate + raise
+        # SyntaxError ro rang neu record khong co __str__.
+        import il_features.tkvstr as _tkvstr
+        ctx['load_var_ref'](arg[1], scope, out)
+        return _tkvstr.emit_to_str(var_ta.dtype, out, ctx)
     if var_ta.dtype not in (int_dtypes | float_dtypes) or var_ta.shape is not None:
         raise SyntaxError(
             f"il_codegen: str() chi nhan bien so vo huong (f32/f64/i32/i64), "
@@ -141,16 +163,16 @@ def _str_of_slot(var_kind, var_idx, var_ta, out, ctx, int_dtypes, float_dtypes):
     instance method 'ToString(IFormatProvider)') -> MissingMethodException
     THAT luc chay ('str(1)', 'str(i+1)' voi i la 'int' deu vo). TkvInt
     KHONG co ToString(IFormatProvider) - chi co ham STATIC rieng
-    'TkvInt::Str(valuetype TkvInt)' (xem int_type.py's compile_str_of_int)."""
+    'TkvInt::Str(valuetype TkvInt)' (xem int_type.py's compile_str_of_int,
+    duong DUY NHAT truoc day hoat dong dung la khi ca node la 1 BIEN da
+    biet dtype='int' NGAY TU DAU, di qua nhanh rieng o string_feature.py's
+    compile_str_builtin truoc khi toi ham nay - nhanh do KHONG bao phu
+    truong hop bieu thuc/hang so can qua local an nhu o day)."""
     if var_ta.dtype == 'int':
         import il_features.int_type as _int_type
         _int_type.ensure_class(ctx)
         out.append(f'    {"ldarg.s" if var_kind == "arg" else "ldloc.s"} {var_idx}')
         out.append(f'    call string {_int_type.TKVINT_CLASS}::Str(valuetype {_int_type.TKVINT_CLASS})')
-        return
-    if var_ta.dtype == 'object':
-        out.append(f'    {"ldarg.s" if var_kind == "arg" else "ldloc.s"} {var_idx}')
-        out.append('    callvirt instance string [mscorlib]System.Object::ToString()')
         return
     out.append(f'    {"ldarga.s" if var_kind == "arg" else "ldloca.s"} {var_idx}')
     if var_ta.dtype == 'f64':

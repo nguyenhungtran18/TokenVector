@@ -24,26 +24,13 @@ file nay CHI so huu 2 cu phap nguoi dung go THAT:
 import re
 
 from il_core import parse_expr, parse_expr_list
-from il_dispatch import (
-    register_line_parser, register_first_pass_walk, register_stmt_codegen,
-    register_expr_builtin
-)
+from il_dispatch import register_line_parser, register_first_pass_walk, register_stmt_codegen
 
-_YIELD_FROM_RE = re.compile(r'^yield\s+from\s+(.+)$')
 _YIELD_RE = re.compile(r'^yield\s+(.+)$')
 _FOR_IN_GEN_RE = re.compile(r'^for\s+(\w+)\s+in\s+(\w+)\((.*)\)\s*:\s*$')
 
 
 def try_parse_yield(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
-    mf = _YIELD_FROM_RE.match(line)
-    if mf:
-        sub_expr = mf.group(1)
-        sub_lines = [
-            (0, f"for __item in {sub_expr}:"),
-            (4, "yield __item")
-        ]
-        sub_stmts, _ = parse_block_fn(sub_lines, 0, 0, sig, known_shapes)
-        return {'kind': 'block', 'stmts': sub_stmts}, pos + 1
     m = _YIELD_RE.match(line)
     if not m:
         return None
@@ -133,6 +120,31 @@ def fpw_for_in_generator(stmt, ctx):
             f"goi TRUC TIEP 1 ham generator, khong ho tro list/dict thuong o day (gan ra 1 bien "
             f"roi 'for x in bien:' voi list/dict thuong)")
     callee = func_table[callee_name]
+    # Important fix (2026-08-18, duck-typing-inference): 'for x in gen(...):'
+    # DI THANG toi codegen_for_in_generator (KHONG qua _expr_call), nen
+    # KHONG co resolve_call_site nao chay cho tham so 'inferred' - neu goi
+    # 1 ham-generator co con tham so 'inferred', il_type_str(p.type_ann) ben
+    # duoi (codegen_for_in_generator) se KeyError 'inferred' - crash Python
+    # THO thay vi loi bien dich ro rang. Chan SOM o day (first-pass walk,
+    # truoc khi codegen chay) - GIOI HAN DA BIET, chua ho tro resolve day du
+    # qua duong nay (khac Critical 1/_expr_call).
+    if any(p.type_ann is not None and p.type_ann.dtype == 'inferred' for p in callee.params):
+        # Muc K item 1 (docs/BUGS_TODO.md, task4-critical-fix-report.md):
+        # dinh so dong nguon vao message NEU co du thong tin (thong ke
+        # 'src_line' chi duoc _parse_block gan cho statement o TOP-LEVEL
+        # than ham - xem docstring _parse_block, il_codegen.py - statement
+        # long trong if/for khac CHUA co, giu nguyen message cu trong
+        # truong hop do, khong bat buoc).
+        loc_suffix = ''
+        src_line = stmt.get('src_line')
+        source_path = ctx.get('source_path')
+        if src_line is not None and source_path:
+            loc_suffix = f" (o dong {src_line} cua file {source_path})"
+        raise SyntaxError(
+            f"il_codegen: goi ham-generator '{callee_name}' co tham so kieu suy tu dong "
+            f"'inferred' qua 'for {stmt['var']} in {callee_name}(...):' chua duoc ho tro "
+            f"(gioi han da biet - dung tham so kieu cu the cho ham generator goi qua "
+            f"'for...in'){loc_suffix}")
     TypeAnn = ctx['TypeAnn']
     ctx['declare_named'](stmt['var'], TypeAnn(callee.generator_elem_dtype, None))
     ctx['declare_named'](f'__geniter{id(stmt)}', TypeAnn(callee.generator_class_name, 'generator'))
@@ -152,8 +164,14 @@ def codegen_for_in_generator(stmt, scope, body, body_dtype, ctx, sig, codegen_st
     gen_class = il_type_str(iter_ta, ctx.get('records'))
     elem_iltype = ctx['il_scalar'].get(callee.generator_elem_dtype, callee.generator_elem_dtype)
 
+    # Lazy import (cung ky thuat da dung o fpw_for_in_call_list, dong ~99)
+    # de tranh circular import list_type <-> generator_lazy.
+    from il_features.list_type import value_dtype_spec_for_ta
     for arg_node, p in zip(stmt['arg_nodes'], callee.params):
-        compile_expr(arg_node, scope, body, p.type_ann.dtype, ctx)
+        # Round 3 (2026-08-19): shape-string convention cho list-literal
+        # long nhau lam doi so generator ('for x in gen([[1,2],[3,4]]):').
+        compile_expr(arg_node, scope, body,
+                     value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
     callee_params_il = ', '.join(il_type_str(p.type_ann) for p in callee.params)
     class_name = ctx.get('class_name') or 'Program'
     body.append(f'    call {gen_class} {class_name}::{stmt["callee_name"]}({callee_params_il})')

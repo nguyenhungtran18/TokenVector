@@ -62,6 +62,34 @@ def emit_to_str(dtype, out, ctx):
         _int_type.ensure_class(ctx)
         out.append('    call string TkvInt::Str(valuetype TkvInt)')
         return
+    if dtype == 'complex':
+        # Muc 6.8 (2/4, 2026-08-13): str(c)/print(c) - gia tri DA nam
+        # tren stack, uy quyen ra complex_type.py (do vao local nhap
+        # SCRATCH_STR de lay dia chi, ToString() la instance method).
+        import il_features.complex_type as _complex_type
+        return _complex_type.emit_to_str(out, ctx)
+    records = (ctx or {}).get('records') or {}
+    if dtype in records:
+        # __str__ cho record (6.5, dunder overload - muc dau tien,
+        # 2026-08-13). str()/print() DI QUA CHUNG diem nay nen sua 1 cho
+        # lam CA HAI hoat dong. Validate chu ky TRUOC khi sinh IL - tranh
+        # sinh callvirt sai kieu am tham (khac SyntaxError ro rang).
+        record_methods = (ctx or {}).get('record_methods') or {}
+        methods = record_methods.get(dtype, {})
+        dunder = methods.get('__str__')
+        if dunder is None:
+            raise SyntaxError(
+                f"il_codegen: record '{dtype}' khong co __str__ - str()/print() tren "
+                f"record can dinh nghia 'def __str__(self) -> \"str\": ...'")
+        if dunder.params or dunder.return_type is None or \
+                dunder.return_type.dtype != 'str' or dunder.return_type.shape is not None:
+            raise SyntaxError(
+                f"il_codegen: record '{dtype}' co __str__ nhung chu ky sai - can dung "
+                f"0 tham so va tra ve \"str\" ('def __str__(self) -> \"str\":')")
+        from il_features.record_feature import _method_owner_class
+        owner = _method_owner_class(ctx, dtype, '__str__')
+        out.append(f'    callvirt instance string {owner}::__str__()')
+        return
     ensure_class(ctx)
     if dtype == 'f64':
         out.append(f'    call string {TKVSTR_CLASS}::F64(float64)')
@@ -80,12 +108,10 @@ def emit_to_str(dtype, out, ctx):
         # builtin), tranh lat lai bug AccessViolationException cu (TkvInt
         # nhan nham gia tri i32 tho, xem tkvstr.py mot doan tren).
         out.append(f'    call string {TKVSTR_CLASS}::Bool(int32)')
-    elif dtype == 'object':
-        out.append('    callvirt instance string [mscorlib]System.Object::ToString()')
     else:
         raise SyntaxError(
             f"il_codegen: chua co duong chuyen '{dtype}' sang chuoi "
-            f"(chi ho tro i32/i64/f32/f64/int/str/bool/object)")
+            f"(chi ho tro i32/i64/f32/f64/int/str/bool, hoac 1 record co __str__)")
 
 
 def _m(sig, *body):
@@ -295,6 +321,90 @@ def _gen_class_il():
         '  RP_NORMAL:',
         '    ldarg.0', '    ldarg.1', '    ldarg.2',
         f'    callvirt instance string {_STR}::Replace(string, string)',
+        '    ret')
+
+    # ReplaceCount: '.replace(old, new, count)' (batch 5.5b, 2026-08-13)
+    # - gioi han so lan thay the TOI DA 'count' lan tinh tu trai. count<0
+    # coi nhu KHONG gioi han (goi lai Replace() da co, tai dung nhanh
+    # old="" cua no). old="" voi count cu the: chen newStr TRUOC moi ky
+    # tu, dung SAU khi da chen du count lan (ke ca gap SAU ky tu cuoi neu
+    # count > do dai src) - khop 'aaa'.replace('', '-', 2) Python ->
+    # '-a-aa'. old!="": vong lap IndexOf(oldStr, pos) tim tung khop, dung
+    # khi du count lan hoac het khop.
+    lines += _m(
+        'string ReplaceCount(string src, string oldStr, string newStr, int32 count)',
+        '    .locals init (int32 i, int32 n, int32 pos, int32 replaced, int32 idx, '
+        'class [mscorlib]System.Text.StringBuilder sb)',
+        '    ldarg.3', '    ldc.i4.0', '    bge RC_NONNEG',
+        '    ldarg.0', '    ldarg.1', '    ldarg.2',
+        f'    call string {TKVSTR_CLASS}::Replace(string, string, string)',
+        '    ret',
+        '  RC_NONNEG:',
+        '    ldarg.1', f'    callvirt instance int32 {_STR}::get_Length()',
+        '    brtrue RC_OLDNONEMPTY',
+        # old == "": chen newStr truoc toi da 'count' ky tu dau, dung du
+        # thi thoi (khong lap het chuoi nhu Replace() lam khi khong gioi
+        # han).
+        '    ldarg.0', f'    callvirt instance int32 {_STR}::get_Length()', '    stloc.s n',
+        '    newobj instance void [mscorlib]System.Text.StringBuilder::.ctor()',
+        '    stloc.s sb',
+        '    ldc.i4.0', '    stloc.s i',
+        '  RC_EMPTY_LOOP:',
+        '    ldloc.s i', '    ldarg.3', '    bge RC_EMPTY_TAIL',
+        '    ldloc.s i', '    ldloc.s n', '    bge RC_EMPTY_TAIL',
+        '    ldloc.s sb', '    ldarg.2',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '    ldloc.s sb', '    ldarg.0', '    ldloc.s i',
+        f'    callvirt instance char {_STR}::get_Chars(int32)',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(char)', '    pop',
+        '    ldloc.s i', '    ldc.i4.1', '    add', '    stloc.s i',
+        '    br RC_EMPTY_LOOP',
+        '  RC_EMPTY_TAIL:',
+        # neu count > do dai src: con 1 gap SAU ky tu cuoi chua chen.
+        '    ldarg.3', '    ldloc.s n', '    ble RC_EMPTY_NOEXTRA',
+        '    ldloc.s sb', '    ldarg.2',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '  RC_EMPTY_NOEXTRA:',
+        '    ldloc.s sb', '    ldarg.0', '    ldloc.s i',
+        f'    callvirt instance string {_STR}::Substring(int32)',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '    ldloc.s sb',
+        '    callvirt instance string [mscorlib]System.Text.StringBuilder::ToString()',
+        '    ret',
+        '  RC_OLDNONEMPTY:',
+        # old != "": vong lap IndexOf(oldStr, pos), thay toi da 'count' lan.
+        '    ldc.i4.0', '    stloc.s pos',
+        '    ldc.i4.0', '    stloc.s replaced',
+        '    newobj instance void [mscorlib]System.Text.StringBuilder::.ctor()',
+        '    stloc.s sb',
+        '  RC_LOOP:',
+        '    ldloc.s replaced', '    ldarg.3', '    bge RC_TAIL',
+        '    ldarg.0', '    ldarg.1', '    ldloc.s pos',
+        f'    callvirt instance int32 {_STR}::IndexOf(string, int32)',
+        '    stloc.s idx',
+        '    ldloc.s idx', '    ldc.i4.0', '    blt RC_TAIL',
+        '    ldloc.s sb', '    ldarg.0', '    ldloc.s pos', '    ldloc.s idx', '    ldloc.s pos', '    sub',
+        f'    callvirt instance string {_STR}::Substring(int32, int32)',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '    ldloc.s sb', '    ldarg.2',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '    ldloc.s idx', '    ldarg.1', f'    callvirt instance int32 {_STR}::get_Length()', '    add',
+        '    stloc.s pos',
+        '    ldloc.s replaced', '    ldc.i4.1', '    add', '    stloc.s replaced',
+        '    br RC_LOOP',
+        '  RC_TAIL:',
+        '    ldloc.s sb', '    ldarg.0', '    ldloc.s pos',
+        f'    callvirt instance string {_STR}::Substring(int32)',
+        '    callvirt instance class [mscorlib]System.Text.StringBuilder '
+        '[mscorlib]System.Text.StringBuilder::Append(string)', '    pop',
+        '    ldloc.s sb',
+        '    callvirt instance string [mscorlib]System.Text.StringBuilder::ToString()',
         '    ret')
 
     # RFind: '.rfind(sub)' - String::LastIndexOf(string) cua .NET tra ve

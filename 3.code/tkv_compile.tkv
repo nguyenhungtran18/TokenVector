@@ -1161,7 +1161,42 @@ def _tokenvector_facing_dtype(dtype):
         return 'i32'
     if isinstance(dtype, str) and dtype.startswith('enum:'):
         return 'i32'
+    if isinstance(dtype, str) and dtype.startswith('array['):
+        # Phase 9g (2026-08-27): dtype khai bao la 1 mang .NET that (dung
+        # cho chu ky IL that su goi method .NET), nhung PHIA TOKENVECTOR
+        # (type inference, bien nhan ket qua, code nguoi dung thao tac)
+        # LUON thay day la 1 list[T] binh thuong - gia tri THAT SU tren
+        # stack da duoc marshal thanh List<T> ngay sau loi goi (xem
+        # il_codegen._marshal_extern_return_array), nen quy doi dtype ve
+        # 'list[T]' o day la DUNG voi gia tri thuc te tai thoi diem dtype
+        # nay duoc dung cho type inference/khai bao bien.
+        #
+        # Phase 9i (2026-08-28): DOI thanh DE QUY (truoc day slice PHANG
+        # 'list[' + dtype[7:] - SAI voi 'array[array[i32]]' vi con thua 1
+        # dau ']' cua lop ngoai chua bi cat, vd cho ket qua sai
+        # 'list[array[i32]]]' co 3 dau ']' khong khop 2 dau '['). De quy:
+        # 'array[array[i32]]' -> inner='array[i32]' -> de quy tiep ->
+        # 'list[i32]' -> boc 1 lop 'list[...]' nua -> 'list[list[i32]]'
+        # DUNG. Voi dtype 1 cap cu ('array[i32]'), inner='i32' KHONG bat
+        # dau 'array[' nen de quy tra ve 'i32' nguyen ven (khop dieu kien
+        # dung 'return dtype' o cuoi ham) - HANH VI CU 100% khong doi.
+        inner = dtype[len('array['):-1]
+        return 'list[' + _tokenvector_facing_dtype(inner) + ']'
     return dtype
+
+
+# Phase 9g (2026-08-27): grammar CHUOI GON cho dtype 'array[T]' - CHI 5
+# kieu scalar {i32,i64,f32,f64,str} (KHONG 'bool' - xem Global Constraints
+# cua plan nay), KHONG dung _parse_type_ann_str (khac han 'list[T]' - do
+# la kieu TokenVector THAT, con 'array[T]' CHI ton tai o bien extern, khong
+# co gia tri "TypeAnn shape='array'" nao trong he thong kieu TokenVector).
+_EXTERN_ARRAY_DTYPE_RE = re.compile(r'^array\[(i32|i64|f32|f64|str)\]$')
+# Phase 9i (2026-08-28): grammar cho 'array[array[T]]' - DUNG DUY NHAT 1
+# cap long (T van chi 5 scalar, khong ho tro long them 1 cap nua - vd
+# 'array[array[array[i32]]]' KHONG khop regex nay, tu dong bi tu choi o
+# _validate_extern_class_container_dtype ma khong can code rieng chan).
+_EXTERN_NESTED_ARRAY_DTYPE_RE = re.compile(
+    r'^array\[array\[(i32|i64|f32|f64|str)\]\]$')
 
 
 def _validate_extern_class_container_dtype(_dtype, extern_class_defs, ctx_label):
@@ -1239,6 +1274,40 @@ def _validate_extern_class_container_dtype(_dtype, extern_class_defs, ctx_label)
                 f"__tkv_extern_class__: {ctx_label} dung dtype {_dtype!r} - KHONG ho tro "
                 f"container-cua-container (list/dict long nhau)")
         return True
+    if _dtype.startswith('array['):
+        if _EXTERN_ARRAY_DTYPE_RE.match(_dtype):
+            return True
+        # Phase 9i (2026-08-28): 'array[array[T]]' - DUNG 1 cap long, T
+        # van chi 5 scalar (KHONG handle-type, KHONG bool/enum, KHONG long
+        # them 1 cap nua - regex da tu gioi han dieu do, xem dinh nghia
+        # _EXTERN_NESTED_ARRAY_DTYPE_RE). Check TRUOC nhanh handle-type
+        # ben duoi - neu khong, '_elem' se la 'array[i32]' (khong nam
+        # trong extern_class_defs) va bi rot xuong raise nham.
+        if _EXTERN_NESTED_ARRAY_DTYPE_RE.match(_dtype):
+            return True
+        # Phase 9j (2026-08-28): 'array[array[Widget]]' - T (phan tu
+        # TRONG) la 1 handle-type DA khai (khong phai 5 scalar) - mo rong
+        # Phase 9i giong het cach Phase 9h mo rong array[T] 1 cap. KHONG
+        # sua nested_array_extern.py (codegen da tong quat theo inner_elem
+        # tu Phase 9i, xem dieu tra plan nay) - CHI can cho qua validate.
+        if _dtype.startswith('array[array[') and _dtype.endswith(']]'):
+            _inner = _dtype[len('array[array['):-2]
+            if _inner in extern_class_defs:
+                return True
+        # Phase 9h (2026-08-27): 'array[T]' voi T la 1 handle-type DA khai
+        # (nam trong extern_class_defs) - mo rong ngoai 5 scalar Phase 9g,
+        # dung idiom marshal GIONG HET (ToArray()/List<T>::.ctor(IEnumerable<T>)),
+        # chi khac IL text phan tu (xem _il_array_elem_type, il_codegen.py).
+        _elem = _dtype[len('array['):-1]
+        if _elem in extern_class_defs:
+            return True
+        raise TranspileError(
+            f"__tkv_extern_class__: {ctx_label} dung dtype {_dtype!r} khong hop le - "
+            f"'array[T]' chi ho tro T la 1 trong {{'i32','i64','f32','f64','str'}}, "
+            f"'array[array[T]]' (T cung tap do, DUNG 1 cap long), 1 handle-type DA khai "
+            f"qua __tkv_extern_class__ trong file nay, hoac 'array[array[HandleType]]' "
+            f"(HandleType DA khai, DUNG 1 cap long) (khong ho tro "
+            f"bool/enum/handle-type CHUA khai/mang 2 chieu vuong T[,]/long qua 1 cap)")
     return False
 
 # Regex ten class .NET hop le (vd 'System.Math', 'MyLib.Foo_Bar') va ten
@@ -1389,6 +1458,13 @@ def _make_extern_class_method_return_ta(method_name):
         ret = m['returns']
         if ret in il_codegen._EXTERN_CLASS_DEFS:
             return TypeAnn(ret, 'extern_class')
+        # Phase 9g (2026-08-27): quy doi 'array[T]' -> 'list[T]' TRUOC khi
+        # check startswith, de dtype nay CUNG di qua nhanh _parse_type_ann_str
+        # ben duoi (TypeAnn shape='list' dung) thay vi roi xuong nhanh cuoi
+        # (TypeAnn(dtype='list[str]', shape=None) SAI - gay KeyError khi
+        # dung bien do sau nay, giong bug da ghi nhan o Task 2 extern-class-list).
+        # Identity voi 'list[T]'/'dict[K,V]' that (khong doi hanh vi cu).
+        ret = _tokenvector_facing_dtype(ret)
         if ret.startswith('list[') or ret.startswith('dict['):
             # Task 2 (extern-class-list, 2026-08-18) + Task 2 (extern-
             # class-dict, 2026-08-19): method/property-getter tra ve
@@ -1442,6 +1518,7 @@ def _make_extern_class_method_codegen(method_name):
         out.append(
             f"    callvirt instance {il_ret_type} {call_target}::{method_name}"
             f"({', '.join(il_params)})")
+        il_codegen._marshal_extern_return_array(m['returns'], out, ctx)
         # widen_if_needed la no-op an toan khi actual_dtype la 1 ten class
         # handle-type (khong khop int/float set nao ca, xem _widen_if_needed
         # trong il_codegen.py dong 1044) - goi VO DIEU KIEN, khong can if
@@ -1594,6 +1671,7 @@ def _compile_extern_static_class_method_call(node, scope, out, dtype, ctx,
     out.append(
         f"    call {il_ret_type} {call_target}::{method_name}"
         f"({', '.join(il_params)})")
+    il_codegen._marshal_extern_return_array(m['returns'], out, ctx)
     ctx['widen_if_needed'](_tokenvector_facing_dtype(m['returns']), dtype, out)
 
 

@@ -9,7 +9,8 @@ _lp_call_stmt/_CALL_STMT_RE o core), va 2 nhanh read_file/file_exists
 long trong tag 'call' dung chung o core (goi lai qua ham rieng, giong
 str() cua string_feature.py). Quy uoc dependency-injection qua `ctx`
 nhu cac buoc truoc."""
-from il_dispatch import register_stmt_codegen, register_expr_builtin
+from il_dispatch import (register_stmt_codegen, register_expr_builtin,
+                          EXPR_BUILTIN_CODEGEN, EXPR_BUILTIN_DTYPE)
 # logging/pickle (Phase 4 backlog, phien 5, 2026-08-11) - nhap KHONG TRE
 # o day (khong phai trong ham) de dam bao register_expr_builtin ben
 # trong pickle_feature.py (cho pickle_load_X) LUON chay du chuong trinh
@@ -18,6 +19,7 @@ from il_dispatch import register_stmt_codegen, register_expr_builtin
 import il_features.logging_feature as _logging_feature
 import il_features.pickle_feature as _pickle_feature
 import il_features.stdlib_sys as _stdlib_sys
+import il_features.stdlib_random as _stdlib_random
 
 
 def compile_read_file(args, scope, out, dtype, ctx):
@@ -61,6 +63,19 @@ def compile_file_exists(args, scope, out, dtype, ctx):
     ctx['widen_if_needed']('i32', dtype, out)
 
 
+def _extern_void_builtin_names():
+    """Fix Critical (2026-08-17, review Task 3 __tkv_extern_pinvoke__) - tra
+    ve EXTERN_VOID_BUILTIN_NAMES (tkv_compile.py), tap ten builtin THAT SU
+    void. Import LUC GOI (khong o dau file) vi tkv_compile.py -> il_codegen.py
+    -> file_io.py (module nay) o CAP MODULE, import nguoc tkv_compile ngay
+    dau file_io.py se circular. Khi ham nay duoc goi (codegen_call_stmt chay
+    trong luc compile_tkv_cli dang thuc thi, SAU khi toan bo chuoi import da
+    xong), tkv_compile da co san TRON VEN trong sys.modules nen import lazy
+    o day an toan (giong quy uoc 'import il_features.print_feature' o duoi)."""
+    import tkv_compile
+    return tkv_compile.EXTERN_VOID_BUILTIN_NAMES
+
+
 def codegen_call_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     """STMT_CODEGEN entry TRON VEN cho kind 'call_stmt' - CHI gom
     write_file/append_file (goi ham nhu 1 LENH DOC LAP, khong gan bien) -
@@ -100,14 +115,41 @@ def codegen_call_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
         # stdlib_sys.py. Cung la ham VOID, dispatch qua day giong log_X/
         # pickle_dump_X o tren.
         _stdlib_sys.SYS_STMT_CODEGEN[name](call_args, scope, body, ctx)
+    elif name in _stdlib_random.RANDOM_STMT_CODEGEN:
+        # seed(n) (batch 5.5, 2026-08-12) - xem il_features/stdlib_random.py.
+        # Ham VOID, dispatch qua day giong log_X/pickle_dump_X/sys_exit.
+        _stdlib_random.RANDOM_STMT_CODEGEN[name](call_args, scope, body, ctx)
+    elif name in EXPR_BUILTIN_CODEGEN and name in _extern_void_builtin_names():
+        # Task 3 (2026-08-17, __tkv_extern_pinvoke__) - sua tan goc gioi han
+        # cu: builtin dang ky qua register_expr_builtin (Phase 1/2 cac pragma
+        # extern) truoc day CHI goi duoc trong BIEU THUC, khong goi duoc
+        # DANG LENH DOC LAP (vd ham __tkv_extern_pinvoke__ tra ve 'void').
+        # Nhanh nay dat SAU 4 bang builtin void rieng o tren, TRUOC nhanh
+        # else (goi ham nguoi dung) - de builtin dang ky dong duoc uu tien
+        # tra TRUOC khi roi vao loi "khong tim thay ham nay".
+        #
+        # SUA CRITICAL (2026-08-17, review): TRUOC DAY dieu kien nhanh nay
+        # la don thuan 'name in EXPR_BUILTIN_CODEGEN', va dtype None duoc
+        # coi la "void". SAI: ~27 builtin co san (pow/sorted/random/sum/min/
+        # max/...) CUNG dang ky return_dtype=None trong EXPR_BUILTIN_DTYPE
+        # nhung vi ly do "khong suy duoc dtype tinh TU CHINH NO" (dtype phu
+        # thuoc ngu canh/tham so goi), KHONG PHAI vi ham void - chung VAN
+        # day gia tri THAT len stack. Heuristic cu khi gap builtin nay goi
+        # DOC LAP se KHONG pop -> lech ngan xep IL (crash luc chay) hoac
+        # KeyError luc compile (builtin can dtype that de tu suy, vd pow).
+        # Nay dung EXTERN_VOID_BUILTIN_NAMES (tkv_compile.py) - tap RIENG,
+        # TUONG MINH, chi chua ten builtin THAT SU void (hien tai: extern
+        # pinvoke voi returns='void') - xem _extern_void_builtin_names() duoi.
+        codegen_fn = EXPR_BUILTIN_CODEGEN[name]
+        return_dtype = EXPR_BUILTIN_DTYPE.get(name)
+        codegen_fn(call_args, scope, body, return_dtype, ctx)
+        # Khong pop: nhanh nay CHI chay cho builtin void that (khong tra
+        # gia tri gi), nen khong con logic pop co dieu kien nhu truoc.
     else:
-        from il_dispatch import EXPR_BUILTIN_DTYPE
-        if name in EXPR_BUILTIN_DTYPE:
-            ret_dtype = EXPR_BUILTIN_DTYPE[name]
-            compile_expr(stmt['call_node'], scope, body, ret_dtype, ctx)
-            if ret_dtype and ret_dtype != 'void':
-                body.append('    pop')
-            return
+        # 2026-08-03: goi 1 ham NGUOI DUNG nhu 1 lenh doc lap ('luu(x)',
+        # 'stack.push(...)') la cach viet BINH THUONG cua Python - truoc
+        # day bao loi. Bien dich nhu 1 bieu thuc roi 'pop' gia tri tra ve
+        # (neu co) de ngan xep can bang; ham void thi khong pop.
         func_table = (ctx or {}).get('func_table') or {}
         sig = func_table.get(name)
         if sig is None:

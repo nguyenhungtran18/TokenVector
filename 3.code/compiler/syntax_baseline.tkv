@@ -203,6 +203,21 @@ def _is_zip_call(node, target):
             and len(target.elts) == len(node.args))
 
 
+def _is_zip_or_enumerate_call(node):
+    """True neu node la 1 loi goi 'zip(...)'/'enumerate(...)' BAT KY -
+    KHONG kiem tra so luong/kieu doi so khop target (khac
+    '_is_zip_call'/'_is_enumerate_call' o tren) vi ham nay dung o THOI
+    DIEM GAN ('z = zip(a, b)'/'z: "list[(i32,i32)]" = zip(a, b)'), truoc
+    khi biet cau truc target unpack o dong 'for' phia sau (Phase 11b,
+    2026-08-28: 'for x, y in z:' tren 1 bien da GAN tu zip()/enumerate()
+    tu dong ho tro that su - compiler doc field tuple Item1/Item2 qua
+    'record_feature.py's nhanh '.key'/'.val' tren shape='tuple'). Dung
+    de tich luy vao '_known_items_vars' - CUNG co che voi
+    '_is_items_call' o duoi (dict.items() gan ra bien truoc)."""
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id in ('zip', 'enumerate'))
+
+
 def _is_exempt_tuple_unpack_iter(node, target):
     """True neu 'node' (bieu thuc 've phai cua for') la 1 trong 3 shape
     macro text-level THUC SU ho tro tuple-unpack (Task 4): '.items()',
@@ -533,8 +548,19 @@ class _BaselineVisitor(ast.NodeVisitor):
         # CA HAM/FILE, khong scope chinh xac theo nhanh if/else, du dung
         # cho pattern thang hang pho bien).
         if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
-                and _is_items_call(node.value):
+                and (_is_items_call(node.value) or _is_zip_or_enumerate_call(node.value)):
             self._known_items_vars.add(node.targets[0].id)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node):
+        # Phase 11b (2026-08-28): 'z: "list[(i32,i32)]" = zip(a, b)' -
+        # cung 1 heuristic voi 'visit_Assign' o tren, chi khac 'Assign'
+        # thuong khong co chu thich kieu tuong minh dung duoc voi zip()/
+        # enumerate() (xem stdlib_itertools_expr.py) nen thuong viet dang
+        # 'AnnAssign', khong phai 'Assign' thuong.
+        if node.value is not None and isinstance(node.target, ast.Name) \
+                and (_is_items_call(node.value) or _is_zip_or_enumerate_call(node.value)):
+            self._known_items_vars.add(node.target.id)
         self.generic_visit(node)
 
     def visit_AugAssign(self, node):

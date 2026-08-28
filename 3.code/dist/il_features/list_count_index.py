@@ -15,7 +15,7 @@ import re
 
 from il_core import parse_expr
 from il_dispatch import register_assign_rhs_parser, register_first_pass_walk, register_stmt_codegen
-from il_features.list_type import il_list_type
+from il_features.list_type import reject_if_nested_container_elem
 
 
 def compile_list_method_index(node, scope, out, dtype, ctx):
@@ -30,7 +30,8 @@ def compile_list_method_index(node, scope, out, dtype, ctx):
     _, _, ta = scope[obj_name]
     if ta.shape != 'list':
         raise SyntaxError(f"il_codegen: '{obj_name}.index(...)' can '{obj_name}' la list")
-    list_type = il_list_type(ta.dtype, (ctx or {}).get('records'))
+    reject_if_nested_container_elem(ta, f'{obj_name}.index')
+    list_type = ctx['il_type_str'](ta, (ctx or {}).get('records'))
     ctx['load_var_ref'](obj_name, scope, out)
     ctx['compile_expr'](args[0], scope, out, ta.dtype, ctx)
     out.append(f'    callvirt instance int32 {list_type}::IndexOf(!0)')
@@ -58,6 +59,7 @@ def fpw_assign_list_count(stmt, ctx):
     _, _, list_ta = ctx['infer_scope'][stmt['list_name']]
     if list_ta.shape != 'list':
         raise SyntaxError(f"il_codegen: '{stmt['list_name']}.count(...)' can '{stmt['list_name']}' la list")
+    reject_if_nested_container_elem(list_ta, f"{stmt['list_name']}.count")
     ctx['declare_named'](stmt['name'], ctx['TypeAnn']('i32', None))
     ctx['declare_named'](f'__count{id(stmt)}_target', ctx['TypeAnn'](list_ta.dtype, None))
     ctx['declare_named'](f'__count{id(stmt)}_idx', ctx['TypeAnn']('i32', None))
@@ -72,7 +74,7 @@ def codegen_assign_list_count(stmt, scope, body, body_dtype, ctx, sig, codegen_s
     counter, khoi tao 0 va cong don truc tiep - tiet kiem 1 local, van
     an toan (khong ai doc 'name' truoc khi vong lap ket thuc)."""
     _, _, list_ta = scope[stmt['list_name']]
-    list_type = il_list_type(list_ta.dtype, ctx.get('records'))
+    list_type = ctx['il_type_str'](list_ta, ctx.get('records'))
     compile_expr = ctx['compile_expr']
     load_var_ref = ctx['load_var_ref']
     store_var = ctx['store_var']

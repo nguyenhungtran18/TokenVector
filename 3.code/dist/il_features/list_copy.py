@@ -15,7 +15,6 @@ Duong ASSIGN_RHS_PARSERS/FIRST_PASS_WALK/STMT_CODEGEN cu da BO HAN. Kieu
 tra ve la DUNG kieu cua list nguon (tra THANG obj_ta - giu nguyen ca
 elem_ta khi nguon la container long nhau, dung nhu ban cu lam)."""
 from il_dispatch import register_expr_method
-from il_features.list_type import il_list_type
 
 
 def compile_list_copy(node, scope, out, dtype, ctx):
@@ -23,7 +22,7 @@ def compile_list_copy(node, scope, out, dtype, ctx):
         raise SyntaxError("il_codegen: list.copy() khong nhan tham so")
     list_name = node[1]
     list_ta = scope[list_name][2]
-    list_type = il_list_type(list_ta.dtype, ctx.get('records'))
+    list_type = ctx['il_type_str'](list_ta, ctx.get('records'))
     ctx['load_var_ref'](list_name, scope, out)
     out.append(
         f'    newobj instance void {list_type}::.ctor(class '
