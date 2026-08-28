@@ -138,28 +138,14 @@ def compile_path_abspath(args, scope, out, dtype, ctx):
     out.append('    call string [mscorlib]System.IO.Path::GetFullPath(string)')
 
 
-# path_normpath: KHONG IMPLEMENT (Phase 10, 2026-08-28) - da DIEU TRA THAT
-# theo dung Global Constraints cua ke hoach nay, khong tu y doi ngu nghia
-# am tham. Python os.path.normpath() CHI chuan hoa ('.'/'..'/dau '/' thua),
-# KHONG tuyet doi hoa duong dan tuong doi (da xac nhan THAT:
-# `python -c "import os.path;
-# print(os.path.normpath('a/./b/../c'))"` -> 'a\\c', VAN la duong dan
-# TUONG DOI). .NET Framework 4.0/4.8 (muc tieu build cua du an,
-# C:\WINDOWS\Microsoft.NET\Framework64\v4.0.30319) KHONG co API nao lam
-# CHI VIEC nay: 'System.IO.Path::GetFullPath' lam CA 2 viec (chuan hoa +
-# tuyet doi hoa theo CurrentDirectory) - dung no se TRA VE SAI ngu nghia
-# (duong dan TUYET DOI thay vi TUONG DOI khi input tuong doi), la sai
-# khac am tham NGUOI DUNG PHAI DUOC BIET truoc, khong duoc chap nhan
-# ngam. Cac API .NET Core/Standard sau nay (Path.GetRelativePath,
-# Path.TrimEndingDirectorySeparator, ...) co the giai quyet duoc nhung
-# KHONG TON TAI trong .NET Framework 4.0/4.8 - da grep xac nhan
-# 'System.IO.Path::' trong compiler/ (dong tren file nay) khong co dau
-# vet API nao khac phu hop. KET LUAN: DUNG LAI, KHONG bien dich
-# 'path_normpath' - bao cao ro trong PR/commit message, cho quyet dinh
-# tu nguoi dung (co the: (a) chap nhan sai khac ngu nghia va lam
-# path_abspath-only, (b) tu viet thuat toan normalize thu cong bang
-# string split/join tren '/' - CHUA lam vi ngoai pham vi "1:1 mapping"
-# cua Task 1 nay).
+# path_normpath: Phase 10 (2026-08-28) DA de trong vi khong tim duoc API
+# .NET Framework 4.0/4.8 nao lam CHI VIEC normalize ma khong tuyet doi hoa
+# (System.IO.Path::GetFullPath lam CA 2 viec cung luc, sai ngu nghia).
+# Nguoi dung xac nhan huong (b) trong 2 lua chon da neu: TU VIET thuat toan
+# normalize thu cong (khong qua GetFullPath) - xem NORMPATH_CLASS/
+# _gen_normpath_class_il() ben duoi, dich lai chinh xac CPython
+# ntpath.normpath() (da doi chieu THAT qua `python -c "import ntpath..."`
+# truoc khi viet IL, 11 truong hop trong test/verify/path_normpath_test.py).
 register_expr_builtin('path_join', compile_path_join, 'str')
 # return_dtype=None cho path_exists/path_isfile/path_isdir: ham tu goi
 # ctx['widen_if_needed']('i32', dtype, out) o BEN TRONG minh (xem than ham
@@ -175,3 +161,193 @@ register_expr_builtin('path_splitext', compile_path_splitext, None,
                        temps_fn=_splitext_temps,
                        return_ta=TypeAnn('str', 'tuple', tuple_dtypes=['str', 'str']))
 register_expr_builtin('path_abspath', compile_path_abspath, 'str')
+
+
+NORMPATH_CLASS = 'TkvNormPath'
+
+
+def _ensure_normpath_class(ctx):
+    """Chen .class TkvNormPath DUNG MOT LAN - cung co che voi
+    TkvFactorial/TkvIPow (xem stdlib_math.py)."""
+    emitted = ctx.get('emitted_types')
+    if emitted is None or NORMPATH_CLASS in emitted:
+        return
+    emitted.add(NORMPATH_CLASS)
+    ctx['extra_classes'].append(_gen_normpath_class_il())
+
+
+def _gen_normpath_class_il():
+    """path_normpath(p) tu viet thuat toan (Phase 10 tiep theo, 2026-08-29)
+    - THAY vi goi System.IO.Path::GetFullPath (sai ngu nghia, xem comment
+    cu ben tren da xoa). Dich lai CHINH XAC thuat toan CPython that
+    'ntpath.normpath()' (doc Lib/ntpath.py that, KHONG doan) sang static
+    method IL tay, theo dung mau _gen_factorial_class_il()/IPOW_CLASS.
+
+    Da doi chieu THAT qua `python -c "import ntpath; ..."` (KHONG doan)
+    11 truong hop truoc khi viet IL, xem test/verify/path_normpath_test.py.
+
+    GIOI HAN CO Y THUC (khac ntpath that o 1 diem hep, chap nhan duoc -
+    khong sai ngam vi da ghi ro o day): UNC path (\\\\server\\share\\...)
+    VA device path (\\\\.\\, \\\\?\\) KHONG duoc xu ly rieng - chi ho tro
+    drive-letter ('C:...') va path thuong (co/khong dau '\\'/'/' dau,
+    relative/absolute) - la 2 dang PHO BIEN nhat trong thuc te, UNC hiem
+    gap trong code AI sinh ra. Neu p bat dau bang '\\\\server\\...', ham
+    van chay (khong crash) nhung KHONG tach dung prefix UNC nhu CPython -
+    chi coi '\\\\server' la 1 thanh phan thuong, ket qua co the SAI khac
+    voi Python that cho truong hop nay.
+
+    Thuat toan (khop 1:1 voi CPython ntpath.normpath cho pham vi tren):
+    1. p = path thay '/' -> '\\'.
+    2. Neu p[1] == ':' (co drive letter) -> prefix = p[0:2], rest = p[2:].
+       Nguoc lai prefix = "", rest = p.
+    3. isAbs = rest bat dau bang '\\'. Neu isAbs: prefix += '\\',
+       rest = rest.TrimStart('\\').
+    4. comps = rest.Split('\\') (List<string>).
+    5. Duyet i tu 0, voi comps[i]:
+       - rong hoac "." -> xoa phan tu tai i (KHONG tang i).
+       - ".." -> neu i>0 VA comps[i-1] != ".." -> xoa CA 2 (i va i-1),
+         i -= 1. Neu i==0 VA isAbs -> xoa phan tu tai i (KHONG tang i).
+         Nguoc lai -> i += 1 (giu nguyen ".." vi khong the pop, path
+         relative khong du thanh phan phia truoc).
+       - khac -> i += 1.
+    6. Neu prefix rong VA comps rong -> them "." vao comps.
+    7. Tra ve prefix + String.Join("\\", comps)."""
+    return [
+        f'.class public abstract sealed auto ansi {NORMPATH_CLASS}',
+        '       extends [mscorlib]System.Object',
+        '{',
+        '  .method public static string NormPath(string path) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (string p, string prefix, string rest, bool isAbs,',
+        '                  class [mscorlib]System.Collections.Generic.List`1<string> comps,',
+        '                  int32 i, string c, char[] sep1)',
+        # sep1 = new char[]{'\\'}
+        '    ldc.i4.1', '    newarr [mscorlib]System.Char', '    dup',
+        '    ldc.i4.0', '    ldc.i4.s 92', '    stelem.i2',
+        '    stloc.s sep1',
+        # p = path.Replace('/', '\\')
+        '    ldarg.0', '    ldc.i4.s 47', '    ldc.i4.s 92',
+        '    callvirt instance string [mscorlib]System.String::Replace(char, char)',
+        '    stloc.0',
+        '    ldstr ""', '    stloc.1',
+        '    ldloc.0', '    stloc.2',
+        # if p.Length >= 2 && p[1] == ':'
+        '    ldloc.0', '    callvirt instance int32 [mscorlib]System.String::get_Length()',
+        '    ldc.i4.2', '    blt NP_NODRIVE',
+        '    ldloc.0', '    ldc.i4.1',
+        '    callvirt instance char [mscorlib]System.String::get_Chars(int32)',
+        '    ldc.i4.s 58', '    bne.un NP_NODRIVE',
+        '    ldloc.0', '    ldc.i4.0', '    ldc.i4.2',
+        '    callvirt instance string [mscorlib]System.String::Substring(int32, int32)',
+        '    stloc.1',
+        '    ldloc.0', '    ldc.i4.2',
+        '    callvirt instance string [mscorlib]System.String::Substring(int32)',
+        '    stloc.2',
+        '  NP_NODRIVE:',
+        # isAbs = rest.Length > 0 && rest[0] == '\\'
+        '    ldc.i4.0', '    stloc.3',
+        '    ldloc.2', '    callvirt instance int32 [mscorlib]System.String::get_Length()',
+        '    ldc.i4.0', '    ble NP_NOABS',
+        '    ldloc.2', '    ldc.i4.0',
+        '    callvirt instance char [mscorlib]System.String::get_Chars(int32)',
+        '    ldc.i4.s 92', '    bne.un NP_NOABS',
+        '    ldc.i4.1', '    stloc.3',
+        '  NP_NOABS:',
+        '    ldloc.3', '    brfalse NP_SKIPABS',
+        '    ldloc.1', '    ldstr "\\\\"',
+        '    call string [mscorlib]System.String::Concat(string, string)',
+        '    stloc.1',
+        '    ldloc.2', '    ldloc.s sep1',
+        '    callvirt instance string [mscorlib]System.String::TrimStart(char[])',
+        '    stloc.2',
+        '  NP_SKIPABS:',
+        # comps = new List<string>(rest.Split(sep1))
+        '    ldloc.2', '    ldloc.s sep1',
+        '    callvirt instance string[] [mscorlib]System.String::Split(char[])',
+        '    newobj instance void class [mscorlib]System.Collections.Generic.List`1<string>'
+        '::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)',
+        '    stloc.s comps',
+        '    ldc.i4.0', '    stloc.s i',
+        '  NP_LOOP:',
+        '    ldloc.s i', '    ldloc.s comps',
+        '    callvirt instance int32 class '
+        '[mscorlib]System.Collections.Generic.List`1<string>::get_Count()',
+        '    bge NP_DONE',
+        '    ldloc.s comps', '    ldloc.s i',
+        '    callvirt instance !0 class '
+        '[mscorlib]System.Collections.Generic.List`1<string>::get_Item(int32)',
+        '    stloc.s c',
+        '    ldloc.s c', '    callvirt instance int32 [mscorlib]System.String::get_Length()',
+        '    brfalse NP_REMOVE_CUR',
+        '    ldloc.s c', '    ldstr "."',
+        '    call bool [mscorlib]System.String::op_Equality(string, string)',
+        '    brtrue NP_REMOVE_CUR',
+        '    ldloc.s c', '    ldstr ".."',
+        '    call bool [mscorlib]System.String::op_Equality(string, string)',
+        '    brtrue NP_DOTDOT',
+        '    br NP_INC',
+        '  NP_REMOVE_CUR:',
+        '    ldloc.s comps', '    ldloc.s i',
+        '    callvirt instance void class '
+        '[mscorlib]System.Collections.Generic.List`1<string>::RemoveAt(int32)',
+        '    br NP_LOOP',
+        '  NP_DOTDOT:',
+        '    ldloc.s i', '    ldc.i4.0', '    ble NP_DOTDOT_ELSE1',
+        '    ldloc.s comps', '    ldloc.s i', '    ldc.i4.1', '    sub',
+        '    callvirt instance !0 class '
+        '[mscorlib]System.Collections.Generic.List`1<string>::get_Item(int32)',
+        '    ldstr ".."',
+        '    call bool [mscorlib]System.String::op_Equality(string, string)',
+        '    brtrue NP_DOTDOT_ELSE1',
+        '    ldloc.s comps', '    ldloc.s i',
+        '    callvirt instance void class '
+        '[mscorlib]System.Collections.Generic.List`1<string>::RemoveAt(int32)',
+        '    ldloc.s comps', '    ldloc.s i', '    ldc.i4.1', '    sub',
+        '    callvirt instance void class '
+        '[mscorlib]System.Collections.Generic.List`1<string>::RemoveAt(int32)',
+        '    ldloc.s i', '    ldc.i4.1', '    sub', '    stloc.s i',
+        '    br NP_LOOP',
+        '  NP_DOTDOT_ELSE1:',
+        '    ldloc.s i', '    brtrue NP_INC',
+        '    ldloc.3', '    brfalse NP_INC',
+        '    ldloc.s comps', '    ldloc.s i',
+        '    callvirt instance void class '
+        '[mscorlib]System.Collections.Generic.List`1<string>::RemoveAt(int32)',
+        '    br NP_LOOP',
+        '  NP_INC:',
+        '    ldloc.s i', '    ldc.i4.1', '    add', '    stloc.s i',
+        '    br NP_LOOP',
+        '  NP_DONE:',
+        '    ldloc.1', '    callvirt instance int32 [mscorlib]System.String::get_Length()',
+        '    brtrue NP_JOIN',
+        '    ldloc.s comps',
+        '    callvirt instance int32 class '
+        '[mscorlib]System.Collections.Generic.List`1<string>::get_Count()',
+        '    brtrue NP_JOIN',
+        '    ldloc.s comps', '    ldstr "."',
+        '    callvirt instance void class '
+        '[mscorlib]System.Collections.Generic.List`1<string>::Add(!0)',
+        '  NP_JOIN:',
+        '    ldloc.1', '    ldstr "\\\\"', '    ldloc.s comps',
+        '    callvirt instance !0[] class '
+        '[mscorlib]System.Collections.Generic.List`1<string>::ToArray()',
+        '    call string [mscorlib]System.String::Join(string, string[])',
+        '    call string [mscorlib]System.String::Concat(string, string)',
+        '    ret',
+        '  }',
+        '}',
+    ]
+
+
+def compile_path_normpath(args, scope, out, dtype, ctx):
+    """path_normpath(p) -> str, TkvNormPath::NormPath (2026-08-29, tiep
+    Phase 10). Xem docstring day du o _gen_normpath_class_il()."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_normpath(p) chi nhan dung 1 tham so")
+    _ensure_normpath_class(ctx)
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append(f'    call string {NORMPATH_CLASS}::NormPath(string)')
+
+
+register_expr_builtin('path_normpath', compile_path_normpath, 'str')
