@@ -62,12 +62,14 @@ Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên 
 
 **Đo thật ngày 2026-08-31** (median 3 lần chạy, cùng máy, `tkvc.exe` self-hosted vs CPython 3.12.10). **Không có cột C++**: môi trường đo không cài `g++`/`cl.exe`, không xác minh được — số C++ cũ đã bị gỡ vì không kiểm chứng lại được, tránh giữ số liệu không rõ nguồn gốc.
 
+*(Bài đa luồng FP64 ban đầu làm lộ ra 1 bug compiler thật — `thread_join()` ép sai kiểu khi worker trả `f64`, gây `InvalidCastException` lúc chạy — đã vá xong cùng ngày, xem `docs/BUGS_TODO.md`.)*
+
 | Bài Kiểm Thử (Workload) | CPython 3.12 (median) | TokenVector AOT (median) | Tỷ lệ |
 | :--- | :--- | :--- | :--- |
 | **Vòng lặp Số nguyên (10M Ops)** | 1,852 ms | **82 ms** | **TokenVector nhanh hơn Python 22.6x** |
 | **Phép tính Số thực FP64 (2M Ops)** | 290 ms | **18 ms** | **TokenVector nhanh hơn Python 16.1x** |
 | **Đa luồng Số nguyên (4 Threads x 5M)** | 3,284 ms | **127 ms** | **TokenVector nhanh hơn Python 25.9x (No GIL)** |
-| **Đa luồng Số thực (4 Threads x 2M Float)** | 1,222 ms | ⚠️ **Lỗi compiler đã biết** | `thread_join()` ép sai kiểu khi worker trả về `f64` (giới hạn ghi ở `docs/BUGS_TODO.md`, mục thread — first-pass gán tĩnh `i64` cho biến nhận trước khi tra được kiểu thật) — chưa đo được cho tới khi vá |
+| **Đa luồng Số thực (4 Threads x 2M Float)** | 1,222 ms | **65 ms** | **TokenVector nhanh hơn Python 18.8x (No GIL)** |
 
 ---
 

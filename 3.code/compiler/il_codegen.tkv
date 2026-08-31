@@ -3693,6 +3693,19 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
     for ex_name, ex_ta in (extra_declared or {}).items():
         declared_names.add(ex_name)
         infer_scope.set(ex_name, ex_ta)
+    # thread_ret_types (2026-08-31, BUGS_TODO.md muc thread_join): 'h1 =
+    # thread_spawn(worker)' roi 'r1 = thread_join(h1)' - EXPR_BUILTIN_DTYPE
+    # cua 'thread_join' la HANG SO TINH 'i64' (khong biet worker THAT su tra
+    # kieu gi), khien 'r1' bi khai bao SAI kieu ngay o FIRST PASS neu worker
+    # tra 'f64'/'i32'/... khac 'i64' - loi CHI lo ra khi ilasm assemble xong,
+    # chay THAT (InvalidCastException Task<Double> -> Task<Int64>), khong bi
+    # bat luc bien dich. Dict nay ghi lai dtype THAT cua worker theo TEN BIEN
+    # duoc gan ('h1') NGAY LUC declare_scalar xu ly 'thread_spawn' (truoc ca
+    # khi gap 'thread_join(h1)' vi cac cau lenh duoc duyet THEO THU TU van
+    # ban) - declare_scalar tra cuu lai o day thay vi dua vao EXPR_BUILTIN_
+    # DTYPE_FN (chu ky (args, scope, func_table) khong biet TEN bien dang
+    # duoc GAN nen khong the lam nguoc lai tu 'thread_join(h1)').
+    thread_ret_types = {}
 
     def declare_scalar(name, rhs_node):
         if name not in declared_names:
@@ -3723,6 +3736,26 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
                 # tren bien kieu record/string/...". Doi xung HOAN TOAN voi
                 # nhanh record ngay tren.
                 ta = TypeAnn(rhs_node[1], 'extern_class')
+            elif (rhs_node[0] == 'call' and rhs_node[1] == 'thread_spawn'
+                  and len(rhs_node[2]) == 1 and rhs_node[2][0][0] == 'var'):
+                # 'h1 = thread_spawn(worker)' - ghi lai dtype THAT cua worker
+                # (khong phai 'thread', do la nhan cua BIEN GIU HANDLE - xem
+                # thread_ret_types o dau ham) de 'thread_join(h1)' sau nay
+                # tra cuu lai, TRUOC KHI ban than no roi vao nhanh 'else' suy
+                # qua EXPR_BUILTIN_DTYPE ('thread', dung cho CHINH bien nay).
+                fn_sig = (func_table or {}).get(rhs_node[2][0][1])
+                if fn_sig is not None and fn_sig.return_type is not None:
+                    thread_ret_types[name] = fn_sig.return_type.dtype
+                ta = TypeAnn('thread', None)
+            elif (rhs_node[0] == 'call' and rhs_node[1] == 'thread_join'
+                  and len(rhs_node[2]) == 1 and rhs_node[2][0][0] == 'var'):
+                # 'r1 = thread_join(h1)' - dtype THAT cua 'r1' la dtype worker
+                # DA GHI o nhanh 'thread_spawn' ngay tren (cau lenh gan h1
+                # LUON dung TRUOC theo thu tu van ban) - fallback 'i64' giu
+                # nguyen hanh vi cu neu khong tra cuu duoc (vd handle truyen
+                # qua tham so ham, chua ho tro tong quat).
+                real_dtype = thread_ret_types.get(rhs_node[2][0][1], 'i64')
+                ta = TypeAnn(real_dtype, None)
             elif rhs_node[0] == 'index' and _index_src_is_nested_container(rhs_node[1], infer_scope):
                 # Wave 2 (2026-07-29), container long nhau: 'row = outer[i]'
                 # khi 'outer' la List<List<T>>/List<Dict<K,V>> - phan tu
@@ -4500,6 +4533,16 @@ def _stmt_assign_scalar(stmt, scope: _Scope, body: list, body_dtype: str, ctx: d
         _compile_funcref_arg(stmt['rhs_node'], var_ta, scope, body, ctx)
         _store_var(name, scope, body)
         return
+    # '_assign_target_name' (2026-08-31, BUGS_TODO.md muc thread_join): ghi
+    # TEN bien dang duoc gan TRUOC khi bien dich ve phai - threading_feature.
+    # py's compile_thread_spawn doc lai qua ctx.get('_assign_target_name')
+    # de biet dtype THAT cua worker nen luu vao dau (ctx['_thread_ret_types']),
+    # dung boi compile_thread_join sau do de castclass dung Task<T> - truoc
+    # day KHONG co diem nao thuc su GHI khoa nay (chi co noi DOC), khien
+    # ctx['_thread_ret_types'] luon rong va thread_join() luon castclass sai
+    # ve Task<int64> mac dinh (InvalidCastException that khi worker tra ve
+    # kieu khac i64, vd f64).
+    ctx['_assign_target_name'] = name
     _compile_expr(stmt['rhs_node'], scope, body, var_ta.dtype, ctx)
     _store_var(name, scope, body)
 
