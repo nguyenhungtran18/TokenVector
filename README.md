@@ -17,7 +17,7 @@ Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên 
 - **`1.media/`**: Chứa sơ đồ kiến trúc hệ thống (`architecture_overview.md`).
 - **`2.UI/`**: Báo cáo trực quan HTML (`benchmark_results.html`, `enterprise_demo.html`).
 - **`3.code/`**: Mã nguồn tự-host bằng TokenVector Native.
-  - `compiler/` (+ `compiler.zip`) — **thư viện chức năng thật của `tkvc.exe`** (82 file `.tkv`: `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `compiler/il_codegen.tkv` + toàn bộ `il_features/*.tkv`). Chỉ cần đúng các file này (+ `build_tkvc.ps1`) là build lại được `tkvc.exe`, không phụ thuộc gì bên ngoài `3.code/`.
+  - `compiler/` (+ `compiler.zip`) — **thư viện chức năng thật của `tkvc.exe`** (102 file `.tkv`: `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `compiler/il_codegen.tkv` + toàn bộ `il_features/*.tkv`). Chỉ cần đúng các file này (+ `build_tkvc.ps1`) là build lại được `tkvc.exe`, không phụ thuộc gì bên ngoài `3.code/` — **toàn bộ compiler này được viết bằng chính TokenVector (tự-host), không còn phụ thuộc Python runtime để chạy production.**
   - `examples/` — chương trình **mẫu** do `tkvc.exe` biên dịch (KHÔNG phải mã nguồn của `tkvc.exe`): `tools/` (15 công cụ case-study thật), `stdlib/` (thư viện tiện ích mẫu), `e2e_test.tkv`/`.exe` (kiểm thử tích hợp E2E), `tkv_bridge.tkv` (MicroLM MCP bridge), `spike_int_repr.tkv`.
   - `Testkit/native_test_suite.tkv` — **công cụ dò bug thuần TokenVector** (không dùng Python lúc test), 1 file nguồn, 2 cách build:
     - `--entry run` → bộ 16 test nội bộ, tự so sánh kết quả với giá trị mong đợi ngay trong code (`if/else` + in `PASS`/`FAIL`), dùng để kiểm tra nhanh compiler còn đúng không trước khi viết thêm thư viện/engine `.tkv` mới:
@@ -36,12 +36,13 @@ Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên 
 
 ---
 
-## ⚡ II. 4 CHỈ SỐ NỔI BẬT HÀNG ĐẦU (HIGHLIGHT STATS)
+## ⚡ II. 5 CHỈ SỐ NỔI BẬT HÀNG ĐẦU (HIGHLIGHT STATS)
 
+- **Tự-host (Self-hosted)**: Compiler `tkvc.exe` được viết **bằng chính TokenVector** (102 file `.tkv`), không phụ thuộc Python runtime khi chạy production.
 - **Đa Luồng No-GIL**: **Nhanh gấp 10.39×** so với CPython (chạy song song 100% nhân CPU vật lý mà không bị nghẽn bởi khóa GIL).
-- **Dung Lượng File PE**: **~35 KB Standalone** (Tệp executable độc lập, không cần nạp CPython Interpreter).
+- **Dung Lượng File PE**: **~8 KB - vài chục KB Standalone** cho chương trình biên dịch bằng `tkvc.exe` (không cần nạp CPython Interpreter).
 - **Tốc Độ Biên Dịch**: **~200 ms AOT** (Biên dịch AOT siêu tốc từ AST $\rightarrow$ ILASM $\rightarrow$ Native PE).
-- **Độ Tương Thích**: **100% Python Syntax** (Dùng cùng file `.tkv`/`.py`, ra kết quả giống hệt CPython).
+- **Độ Tương Thích**: **100% Python Syntax** (Dùng cùng file `.tkv`/`.py`, ra kết quả giống hệt CPython) **+ Tương tác trực tiếp hệ sinh thái .NET/NuGet** (xem mục X).
 
 ---
 
@@ -222,7 +223,20 @@ int main() {
 
 ---
 
-## 📌 IX. TỔNG KẾT BÀN CÂN 3 CỰC
+## 🔗 IX. TƯƠNG TÁC HỆ SINH THÁI .NET (.NET INTEROP)
+
+Ngoài việc biên dịch AOT thuần Python-syntax, TokenVector còn gọi thẳng được **bất kỳ thư viện .NET/NuGet nào**, không cần viết wrapper thủ công:
+
+- **`__tkv_extern_class__`**: khai báo & gọi constructor, method, property (get/set) của 1 class .NET ngoài (`newobj`/`callvirt` trực tiếp), kể cả method chaining/fluent API.
+- **`__tkv_extern_pinvoke__`**: gọi P/Invoke (Win32 API / DLL native) qua khai báo, hỗ trợ cả cdecl/stdcall.
+- **`ffi_feature`**: FFI kiểu `ctypes` (nạp DLL động qua `LoadLibraryA`/`GetProcAddress` lúc runtime).
+- **tkv-bind**: công cụ tự sinh khai báo binding từ **reflection** của bất kỳ DLL .NET nào — đã kiểm chứng thật trên `System.dll` (.NET Framework BCL) và NuGet `Newtonsoft.Json` (case study đầy đủ: [`outreach/nuget-tkv-bind-case-study.md`](outreach/nuget-tkv-bind-case-study.md)).
+
+**Bằng chứng thực tế**: **RamGuard** — dịch vụ giám sát & tự động trim RAM chạy nền trên Windows, viết lại 100% bằng `.tkv` (không còn dòng Python nào), dùng `Process`/`ComputerInfo` của .NET BCL qua `__tkv_extern_class__`, đã chạy thật và kiểm chứng end-to-end (log, cooldown, xử lý lỗi try/except) — không phải demo, là ứng dụng dùng thật (project riêng, chưa công bố public).
+
+---
+
+## 📌 X. TỔNG KẾT BÀN CÂN 3 CỰC
 
 1. **CPython 3.12**: Thích hợp cho việc viết script nhanh, prototype và nghiên cứu khoa học. Nhược điểm: Tốc độ chậm hơn, file đóng gói cồng kềnh (hàng chục MB) và bị rào cản đa luồng nghiêm trọng bởi khóa GIL.
 2. **TokenVector AOT**: **Dung hòa hoàn hảo 2 thế giới!** Giữ nguyên 100% cú pháp dễ viết của Python nhưng biên dịch AOT ra file `.exe` nhỏ gọn (chỉ vài chục KB), chạy đa luồng nhanh gấp **10.39 LẦN** nhờ loại bỏ GIL, đồng thời hỗ trợ đầy đủ `yield from`, `async/await`, `ctypes` FFI và liên kết trực tiếp hệ sinh thái .NET.
