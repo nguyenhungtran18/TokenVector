@@ -64,6 +64,71 @@ the self-hosting bootstrap, or the CIL codegen.
 
 ---
 
+## r/dotnet draft (2026-08-31 — self-text post, shortened for Reddit)
+
+Ghi chú trước khi đăng: KHÔNG tự xác nhận được rule hiện tại của
+r/dotnet qua công cụ (không fetch được reddit.com trực tiếp trong phiên
+này) — bạn tự đọc sidebar/wiki của subreddit trước khi đăng để chắc
+không vi phạm quy định self-promotion/flair bắt buộc. Theo thông lệ
+chung của các subreddit kỹ thuật: dùng self-text post (nội dung nằm
+NGAY trong bài, không chỉ link-drop), không đăng lặp lại nhiều subreddit
+cùng lúc trong thời gian ngắn, chọn đúng flair nếu subreddit yêu cầu
+(thường có "Show and tell"/"Discussion").
+
+Title: I pointed my language's .NET binding generator at a real NuGet package for the first time — found 3 bugs
+
+Flair gợi ý: Show and tell (hoặc tương đương gần nhất subreddit có)
+
+Body (self-text, không phải link post):
+
+I'm building TokenVector — a statically-typed, Python-syntax language
+that compiles ahead-of-time to CIL (no interpreter, no GIL, standalone
+`.exe`). Its compiler is self-hosted.
+
+One of its tools, `tkv-bind`, auto-generates interop bindings by
+reflecting any `.dll` — meant to avoid hand-writing bindings for every
+.NET library by hand. Until this week I'd only run it against the BCL.
+This week I pointed it at a real NuGet package for the first time:
+Newtonsoft.Json 13.0.3, downloaded straight from nuget.org.
+
+It worked out of the box for most of the surface (~40 classes bound,
+zero code changes), but `JsonConvert.SerializeObject`/`DeserializeObject`
+— the two most-used methods in the library — were both skipped.
+
+Turned out to be 3 real bugs, found over a couple hours of actually
+running it, not guessing:
+
+- A stale validation check was blocking `object`/`type` parameters even
+  though the codegen to handle them (boxing, correct CIL type text) was
+  already built and tested elsewhere.
+- The generated `.assembly extern` reference silently dropped the
+  version number for unsigned third-party DLLs — the CLR resolved that
+  as version `0.0.0.0` and rejected the real `13.0.0.0` DLL outright
+  (`FileLoadException`).
+- Fixing #1 exposed a second, unrelated regression in a completely
+  different code path, caught by a months-old test written for
+  something else.
+
+After the fixes: 253 → 248 skipped members, and a real round-trip
+through the actual DLL, compiled to a standalone .exe:
+
+    $ ./program.exe '{"a":1,"b":"x"}'
+    {"a":1,"b":"x"}
+
+Full writeup (before/after, the actual fixes) is in the repo:
+release/outreach/nuget-tkv-bind-case-study.md
+
+Known rough edges I'm not hiding: passing a numeric literal straight
+into an `object` param currently throws an unhelpful KeyError (works
+fine through a variable); generic methods aren't bound yet.
+
+Repo: https://github.com/nguyenhungtran18/TokenVector
+
+Happy to answer questions about the reflection approach or what it'd
+take to point this at a different package.
+
+---
+
 ## Show HN draft (v1, archived — self-hosting-first pitch, kept for reference)
 
 Title: Show HN: TokenVector – a self-hosted, Python-syntax language that compiles to native .NET CIL
