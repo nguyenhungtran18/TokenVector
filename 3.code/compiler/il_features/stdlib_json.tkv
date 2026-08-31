@@ -328,3 +328,344 @@ def push_json_dumps(args, scope, out, dtype, ctx):
 
 register_expr_builtin('json_dumps', push_json_dumps, 'str',
                        temps_fn=temps_json_dumps)
+
+
+# ============================================================
+# json_loads(text, RecordName) (Task 1, RamGuard rewrite, 2026-08-31):
+# parse 1 chuoi JSON object PHANG (khong long nhau) vao 1 record DA khai
+# kieu TRUOC do. Ngon ngu nay la kieu TINH (khong co "dynamic" nhu Python
+# that) nen json_loads BAT BUOC biet TRUOC record dich (tham so thu 2) de
+# sinh IL doc dung tung field theo dtype - tham so nay la 1 TEN record
+# BIET TAI COMPILE-TIME (giong pattern typeof(ClassName) trong
+# il_codegen.py, Phase 9d Part B), KHONG phai 1 bieu thuc runtime.
+#
+# GIOI HAN (ghi ro giong json_dumps o tren): CHI ho tro record co field
+# vo huong THAT SU ton tai trong DSL nay (i32/i64/f32/f64/str) -
+# list/dict/record long nhau CHUA ho tro, bao SyntaxError NGAY luc bien
+# dich (khong phai runtime) khi record dung cho json_loads co field
+# container. Gia tri chuoi trong JSON KHONG duoc un-escape (JSON input o
+# pham vi Task nay khong co ky tu escape trong gia tri chuoi - neu co,
+# hanh vi khong xac dinh).
+#
+# LUU Y quan trong (sai khac THAT so voi brief task-1, xac nhan bang
+# compile THU: `class Config: active: "bool"` -> TranspileError "dtype
+# 'bool' khong hop le" - xem tkv_compile.py's DTYPES/typed_dsl_parser.py's
+# DTYPES, ca 2 deu KHONG co 'bool'): TokenVector KHONG co kieu 'bool'
+# rieng cho bien/field nguoi dung khai bao (chi 'i32/i64/f32/f64/str' -
+# xem tkv_compile.py dong ~1035 "TokenVector KHONG co kieu bool rieng -
+# gia tri phia TokenVector LUON la i32 (0/1)"; 'True'/'False' TU KHOA tu
+# duoc parse thang thanh literal so ('num','1')/('num','0'), xem
+# il_core.py dong ~596). Vi vay field "kieu bool" trong 1 record PHAI
+# khai 'i32' (quy uoc CHINH cua ngon ngu: 0/1) - json_loads() nhan dien
+# gia tri JSON dang bool ('true'/'false', KHONG dau nhay) cho 1 field
+# i32/i64 va tu dong doi thanh 1/0 (xem nhanh rieng trong
+# push_json_loads ben duoi), THAY VI can 1 dtype 'bool' tach biet nhu
+# brief gia dinh.
+#
+# Thuat toan (moi field, THEO THU TU khai bao trong record):
+#   1. Tim '"field_name":' trong text bang String::IndexOf(string).
+#   2. Neu KHONG thay (-1): bo qua field nay, GIU gia tri mac dinh
+#      (0/0.0/"").
+#   3. Neu thay: tu vi tri NGAY SAU dau ':'
+#        - str: tim dau '"' MO dau tien SAU vi tri do, roi dau '"' DONG
+#          tiep theo (2 lan IndexOf) - gia tri la substring GIUA 2 dau
+#          nhay kep (KHONG can bo qua khoang trang thu cong, IndexOf tu
+#          tim dung vi tri dau nhay bat ke co khoang trang truoc no).
+#        - so (i32/i64/f32/f64): token la substring tu ngay sau ':' toi
+#          dau ',' hoac '}' dau tien (2 lan IndexOf + Math.Min chon vi
+#          tri gan hon, xu ly ca truong hop 1 trong 2 khong ton tai) roi
+#          .Trim() (bo khoang trang).
+#            + Neu dtype la i32/i64 VA token dung y het "true"/"false"
+#              (JSON bool khong dau nhay): gan 1/0 truc tiep (String::
+#              Equals) - quy uoc bool=i32 cua chinh ngon ngu nay.
+#            + Nguoc lai (token la 1 chuoi so THAT): goi LAI builtin
+#              int(str)/float(str) DA CO SAN (int_builtin.py's
+#              push_int_builtin/float_builtin.py's push_float_builtin,
+#              dang ky qua register_expr_builtin('int'/'float')) qua 1
+#              node cu phap gia ('call', 'int'/'float', [('var', <local
+#              chua token>)]) di qua ctx['compile_expr'] - TAI DUNG dung
+#              logic Parse+widen co san, KHONG viet lai.
+#   4. Gan vao 1 local RIENG cho tung field (theo thu tu field). Sau khi
+#      xu ly xong CA record, goi 1 LAN newobj vao dung .ctor(field1,
+#      field2, ...) THAT cua class record (xem gen_record_types va
+#      nhanh "if name in records" cua _compile_expr - CA HAI cung dung 1
+#      pattern .ctor duy nhat).
+#
+# LUU Y (sai khac so voi gia dinh ban dau cua brief task-1): brief gia
+# dinh "khoi tao record RONG roi stfld tung field" - nhung THAT SU record
+# trong DSL nay CHI CO 1 .ctor DUY NHAT, nhan TOAN BO field vo huong lam
+# tham so THEO THU TU khai bao (field container, neu co, duoc khoi tao
+# rong NGAY BEN TRONG .ctor do, khong phai tham so) - xem gen_record_types
+# (~dong 4652: "ctor_fields = [(fn, fd) for fn, fd in fields if not
+# _is_container_field(fd)]") va nhanh "if name in records" cua
+# _compile_expr (~dong 2452, xu ly 'Point(1.0, 2.0)'). KHONG CO duong
+# "newobj rong" nao ca. json_loads da CHAN moi field container tu buoc
+# validate record (buoc 1) nen dieu nay khong anh huong: MOI field cua 1
+# record hop le cho json_loads deu la tham so .ctor, dung THEO THU TU
+# 'records[record_name]' - vi vay thiet ke ben duoi tinh GIA TRI CUOI
+# CUNG (mac dinh hoac parse duoc) cua tung field vao 1 local rieng TRUOC,
+# roi newobj 1 LAN o cuoi (thay vi stfld tung field sau 1 newobj rong).
+# ============================================================
+_JSON_LOADS_ALLOWED_DTYPES = {'i32', 'i64', 'f32', 'f64', 'str'}
+
+
+def _json_loads_parse_args(args):
+    if len(args) != 2:
+        raise SyntaxError(
+            "il_codegen: json_loads(text, RecordName) can DUNG 2 tham so "
+            "(1 chuoi JSON va 1 TEN record da khai)")
+    if args[1][0] != 'var':
+        raise SyntaxError(
+            "il_codegen: json_loads(text, RecordName) - tham so thu 2 phai "
+            "la TEN 1 record da khai bang cu phap 'record' (vd "
+            "'json_loads(text, Config)'), khong phai 1 bieu thuc runtime")
+    return args[0], args[1][1]
+
+
+def _json_loads_validate_record(record_name, records):
+    if record_name not in records:
+        raise SyntaxError(
+            f"il_codegen: json_loads(..., {record_name}) - {record_name!r} "
+            f"khong phai 1 record da duoc khai bao")
+    for fn, fd in records[record_name]:
+        if not isinstance(fd, str) or fd not in _JSON_LOADS_ALLOWED_DTYPES:
+            raise SyntaxError(
+                f"il_codegen: json_loads() - field {fn!r} cua record "
+                f"{record_name!r} co dtype khong hop le cho json_loads (chi "
+                f"ho tro field vo huong i32/i64/f32/f64/str - KHONG ho "
+                f"tro list/dict/record long nhau)")
+
+
+def temps_json_loads(node, ctx):
+    """FIRST PASS: khai bao hidden local (dong xung EXPR_BUILTIN_TEMPS voi
+    json_dumps o tren). KHOA = id(node[2]) (danh sach tham so, cung 1
+    object AST giua 2 pass, giong het json_dumps)."""
+    args = node[2]
+    text_node, record_name = _json_loads_parse_args(args)
+    records = ctx.get('records') or {}
+    _json_loads_validate_record(record_name, records)
+    TypeAnn = ctx['TypeAnn']
+    declare_named = ctx['declare_named']
+    key = id(args)
+    declare_named(f'__jsonl{key}_text', TypeAnn('str', None))
+    declare_named(f'__jsonl{key}_pos', TypeAnn('i32', None))
+    declare_named(f'__jsonl{key}_a', TypeAnn('i32', None))
+    declare_named(f'__jsonl{key}_b', TypeAnn('i32', None))
+    declare_named(f'__jsonl{key}_end', TypeAnn('i32', None))
+    declare_named(f'__jsonl{key}_tok', TypeAnn('str', None))
+    for fn, fd in records[record_name]:
+        declare_named(f'__jsonl{key}_f_{fn}', TypeAnn(fd, None))
+
+
+def _json_loads_push_default(fdtype, out):
+    if fdtype == 'i32':
+        out.append('    ldc.i4.0')
+    elif fdtype == 'i64':
+        out.append('    ldc.i8 0')
+    elif fdtype == 'f32':
+        out.append('    ldc.r4 0.0')
+    elif fdtype == 'f64':
+        out.append('    ldc.r8 0.0')
+    else:
+        # 'str'
+        out.append('    ldstr ""')
+
+
+def push_json_loads(args, scope, out, dtype, ctx):
+    text_node, record_name = _json_loads_parse_args(args)
+    records = ctx.get('records') or {}
+    _json_loads_validate_record(record_name, records)
+    if dtype and dtype != record_name:
+        raise SyntaxError(
+            f"il_codegen: json_loads(..., {record_name}) - kieu khai bao ben "
+            f"trai ({dtype!r}) khong khop voi record {record_name!r}")
+    fields = records[record_name]
+    key = id(args)
+    _, text_idx, _ = scope[f'__jsonl{key}_text']
+    _, pos_idx, _ = scope[f'__jsonl{key}_pos']
+    _, a_idx, _ = scope[f'__jsonl{key}_a']
+    _, b_idx, _ = scope[f'__jsonl{key}_b']
+    _, end_idx, _ = scope[f'__jsonl{key}_end']
+    _, tok_idx, _ = scope[f'__jsonl{key}_tok']
+    tok_name = f'__jsonl{key}_tok'
+
+    # text = <bieu thuc tham so dau tien>
+    ctx['compile_expr'](text_node, scope, out, 'str', ctx)
+    out.append(f'    stloc.s {text_idx}')
+
+    for fn, fd in fields:
+        _, field_idx, _ = scope[f'__jsonl{key}_f_{fn}']
+        ctx['label_counter'][0] += 1
+        n = ctx['label_counter'][0]
+        skip_lbl = f"{ctx['prefix']}_jsonl{n}_skip"
+        end_lbl = f"{ctx['prefix']}_jsonl{n}_end"
+        prefix = f'"{fn}":'
+        # IL text can '\"' (khong phai '"' tho) de nam TRONG 1 chuoi ldstr -
+        # BUG THAT tim thay o vong dau (ilasm.exe that bai "syntax error at
+        # token '\":\"'"): '"' tho trong ldstr dong chuoi SOM, pha vo cu phap
+        # IL - phai thoat giong het cach json_dumps._emit_escape_json_string
+        # da lam voi dau nhay kep.
+        prefix_il = f'\\"{fn}\\":'
+
+        # gia tri mac dinh TRUOC (giu nguyen neu KHONG tim thay field).
+        _json_loads_push_default(fd, out)
+        out.append(f'    stloc.s {field_idx}')
+
+        # pos = text.IndexOf("\"fn\":")
+        out.append(f'    ldloc.s {text_idx}')
+        out.append(f'    ldstr "{prefix_il}"')
+        out.append('    callvirt instance int32 [mscorlib]System.String::IndexOf(string)')
+        out.append(f'    stloc.s {pos_idx}')
+        out.append(f'    ldloc.s {pos_idx}')
+        out.append('    ldc.i4.m1')
+        out.append(f'    beq {skip_lbl}')
+
+        if fd == 'str':
+            # a = text.IndexOf("\"", pos + len(prefix)) - dau nhay MO.
+            out.append(f'    ldloc.s {text_idx}')
+            out.append('    ldstr "\\""')
+            out.append(f'    ldloc.s {pos_idx}')
+            out.append(f'    ldc.i4 {len(prefix)}')
+            out.append('    add')
+            out.append('    callvirt instance int32 [mscorlib]System.String::IndexOf(string, int32)')
+            out.append(f'    stloc.s {a_idx}')
+            # b = text.IndexOf("\"", a + 1) - dau nhay DONG.
+            out.append(f'    ldloc.s {text_idx}')
+            out.append('    ldstr "\\""')
+            out.append(f'    ldloc.s {a_idx}')
+            out.append('    ldc.i4.1')
+            out.append('    add')
+            out.append('    callvirt instance int32 [mscorlib]System.String::IndexOf(string, int32)')
+            out.append(f'    stloc.s {b_idx}')
+            # field = text.Substring(a + 1, b - a - 1)
+            out.append(f'    ldloc.s {text_idx}')
+            out.append(f'    ldloc.s {a_idx}')
+            out.append('    ldc.i4.1')
+            out.append('    add')
+            out.append(f'    ldloc.s {b_idx}')
+            out.append(f'    ldloc.s {a_idx}')
+            out.append('    sub')
+            out.append('    ldc.i4.1')
+            out.append('    sub')
+            out.append('    callvirt instance string [mscorlib]System.String::Substring(int32, int32)')
+            out.append(f'    stloc.s {field_idx}')
+        else:
+            # a = text.IndexOf(",", pos+len(prefix)); b = text.IndexOf("}", pos+len(prefix))
+            out.append(f'    ldloc.s {text_idx}')
+            out.append('    ldstr ","')
+            out.append(f'    ldloc.s {pos_idx}')
+            out.append(f'    ldc.i4 {len(prefix)}')
+            out.append('    add')
+            out.append('    callvirt instance int32 [mscorlib]System.String::IndexOf(string, int32)')
+            out.append(f'    stloc.s {a_idx}')
+            out.append(f'    ldloc.s {text_idx}')
+            out.append('    ldstr "}"')
+            out.append(f'    ldloc.s {pos_idx}')
+            out.append(f'    ldc.i4 {len(prefix)}')
+            out.append('    add')
+            out.append('    callvirt instance int32 [mscorlib]System.String::IndexOf(string, int32)')
+            out.append(f'    stloc.s {b_idx}')
+            # end = (a==-1) ? b : (b==-1 ? a : Math.Min(a,b))
+            has_a_lbl = f"{ctx['prefix']}_jsonl{n}_hasa"
+            not_b_lbl = f"{ctx['prefix']}_jsonl{n}_notb"
+            pick_lbl = f"{ctx['prefix']}_jsonl{n}_pick"
+            out.append(f'    ldloc.s {a_idx}')
+            out.append('    ldc.i4.m1')
+            out.append(f'    bne.un {has_a_lbl}')
+            out.append(f'    ldloc.s {b_idx}')
+            out.append(f'    br {pick_lbl}')
+            out.append(f'  {has_a_lbl}:')
+            out.append(f'    ldloc.s {b_idx}')
+            out.append('    ldc.i4.m1')
+            out.append(f'    bne.un {not_b_lbl}')
+            out.append(f'    ldloc.s {a_idx}')
+            out.append(f'    br {pick_lbl}')
+            out.append(f'  {not_b_lbl}:')
+            out.append(f'    ldloc.s {a_idx}')
+            out.append(f'    ldloc.s {b_idx}')
+            out.append('    call int32 [mscorlib]System.Math::Min(int32, int32)')
+            out.append(f'  {pick_lbl}:')
+            out.append(f'    stloc.s {end_idx}')
+            # tok = text.Substring(pos+len(prefix), end-(pos+len(prefix))).Trim()
+            out.append(f'    ldloc.s {text_idx}')
+            out.append(f'    ldloc.s {pos_idx}')
+            out.append(f'    ldc.i4 {len(prefix)}')
+            out.append('    add')
+            out.append(f'    ldloc.s {end_idx}')
+            out.append(f'    ldloc.s {pos_idx}')
+            out.append(f'    ldc.i4 {len(prefix)}')
+            out.append('    add')
+            out.append('    sub')
+            out.append('    callvirt instance string [mscorlib]System.String::Substring(int32, int32)')
+            out.append('    callvirt instance string [mscorlib]System.String::Trim()')
+            out.append(f'    stloc.s {tok_idx}')
+            if fd in ('i32', 'i64'):
+                # TokenVector KHONG co kieu 'bool' rieng (xem LUU Y o dau
+                # khoi nay) - 1 field i32/i64 CO THE dai dien 1 gia tri
+                # JSON bool ('true'/'false', KHONG dau nhay): nhan dien
+                # truoc 2 token nay bang String::Equals, chi roi vao
+                # int(str) khi token KHONG phai "true"/"false".
+                true_lbl = f"{ctx['prefix']}_jsonl{n}_true"
+                false_lbl = f"{ctx['prefix']}_jsonl{n}_false"
+                num_lbl = f"{ctx['prefix']}_jsonl{n}_num"
+                donenum_lbl = f"{ctx['prefix']}_jsonl{n}_donenum"
+                out.append(f'    ldloc.s {tok_idx}')
+                out.append('    ldstr "true"')
+                out.append('    call bool [mscorlib]System.String::Equals(string, string)')
+                out.append(f'    brtrue {true_lbl}')
+                out.append(f'    ldloc.s {tok_idx}')
+                out.append('    ldstr "false"')
+                out.append('    call bool [mscorlib]System.String::Equals(string, string)')
+                out.append(f'    brtrue {false_lbl}')
+                out.append(f'    br {num_lbl}')
+                out.append(f'  {true_lbl}:')
+                out.append('    ldc.i4.1' if fd == 'i32' else '    ldc.i8 1')
+                out.append(f'    stloc.s {field_idx}')
+                out.append(f'    br {donenum_lbl}')
+                out.append(f'  {false_lbl}:')
+                out.append('    ldc.i4.0' if fd == 'i32' else '    ldc.i8 0')
+                out.append(f'    stloc.s {field_idx}')
+                out.append(f'    br {donenum_lbl}')
+                out.append(f'  {num_lbl}:')
+                # Tai dung int(str) builtin DA CO SAN (khong viet lai logic
+                # Parse) qua 1 node cu phap gia tham chieu local 'tok' -
+                # ctx['compile_expr'] tu widen dung theo 'fd'.
+                synth = ('call', 'int', [('var', tok_name)])
+                ctx['compile_expr'](synth, scope, out, fd, ctx)
+                out.append(f'    stloc.s {field_idx}')
+                out.append(f'  {donenum_lbl}:')
+            else:
+                # f32/f64: tai dung float(str) builtin DA CO SAN, giong het
+                # cach lam voi int(str) o tren.
+                synth = ('call', 'float', [('var', tok_name)])
+                ctx['compile_expr'](synth, scope, out, fd, ctx)
+                out.append(f'    stloc.s {field_idx}')
+        out.append(f'    br {end_lbl}')
+        out.append(f'  {skip_lbl}:')
+        out.append(f'  {end_lbl}:')
+
+    # newobj Record::.ctor(field1, field2, ...) - DUNG .ctor THAT (xem
+    # docstring o dau khoi nay), tham so THEO THU TU khai bao field.
+    ctor_types = []
+    for fn, fd in fields:
+        _, field_idx, _ = scope[f'__jsonl{key}_f_{fn}']
+        out.append(f'    ldloc.s {field_idx}')
+        ctor_types.append(IL_SCALAR[fd])
+    out.append(f'    newobj instance void {record_name}::.ctor({", ".join(ctor_types)})')
+
+
+def _json_loads_dtype_fn(args, scope, func_table):
+    """EXPR_BUILTIN_DTYPE_FN (il_dispatch.py) - dtype TRA VE cua json_loads
+    PHU THUOC tham so thu 2 (ten record), khong co dinh nhu da so builtin
+    khac. Ham nay duoc GOI O 2 NOI (xem il_codegen.py):
+    _shaped_return_ta_of_call (luc SUY KIEU cho 'cfg = json_loads(text,
+    Config)' KHONG co annotation tuong minh - giong het 'cfg = Point(...)',
+    record CHI khai bao duoc qua suy dtype tu RHS, xem _lp_typed_local_decl
+    o tren TU CHOI shape='record' cho cu phap 'cfg: "Config" = ...') va
+    nhanh EXPR_BUILTIN_CODEGEN cua _compile_expr (luc widen SAU codegen -
+    o day widen la no-op vi actual == dtype, record la reference type)."""
+    return args[1][1]
+
+
+register_expr_builtin('json_loads', push_json_loads, None, return_shape='record',
+                       return_dtype_fn=_json_loads_dtype_fn, temps_fn=temps_json_loads)

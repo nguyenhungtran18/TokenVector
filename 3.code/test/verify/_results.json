@@ -1,0 +1,1145 @@
+{
+ "schema": 1,
+ "git_sha": "894ad29",
+ "python": "3.12.10",
+ "excluded_tags": [
+  "native",
+  "net",
+  "repo"
+ ],
+ "summary": {
+  "pass": 123,
+  "fail": 7,
+  "skip": 7,
+  "total": 137,
+  "seconds": 1745.5
+ },
+ "tests": [
+  {
+   "name": "aggregates_expr_test.py",
+   "status": "pass",
+   "seconds": 20.21,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  sum_plus(1, 2, 3) -> exe='16' CPython='16'\n  max_gate(4, 9, 2) -> exe='1' CPython='1'\n  max_gate(1, 2, 3) -> exe='0' CPython='0'\n  span(4, 9, 2) -> exe='7' CPython='7'\n  sorted_first(3, 1, 2) -> exe='1' CPython='1'\n  sorted_keeps_source(3, 1, 2) -> exe='301' CPython='301'\n  any_all_combo(0, 1) -> exe='10' CPython='10'\n  any_all_combo(1, 1) -> exe='11' CPython='11'\n  any_all_combo(0, 0) -> exe='0' CPython='0'\n  sum_of_set(2, 3, 2) -> exe='5' CPython='5'\n  sorted_set_first(5, 1, 5) -> exe='12' CPython='12'\nsum/min/max/sorted/any/all trong bieu thuc + set (doi chieu CPython): PASS - dung 100%.\n"
+  },
+  {
+   "name": "aggregates_test.py",
+   "status": "pass",
+   "seconds": 13.02,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 8\nKhop (exe == CPython that): 8/8\nAGGREGATES SUPPORT: PASS - min/max/sum/sorted bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "alphaai_codegen_test.py",
+   "status": "pass",
+   "seconds": 23.47,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Giai doan: done\nThan ham DSL do AlphaAI sinh ra:\n  h1 = dense(x, w1, b1, 'relu')\n  h2 = dense(h1, w2, b2, 'relu')\n  o = dense(h2, w3, b3, 'none')\n  best_idx = argmax(o)\n  return best_idx\nSo mau doi chieu so hoc: 10\nKhop (exe == numpy): 10/10\nALPHAAI-CODEGEN: PASS - code do AI sinh ra bien dich THAT va cho ket qua dung 100%.\n"
+  },
+  {
+   "name": "alphaai_ported_test.py",
+   "status": "pass",
+   "seconds": 19.0,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "(GHI NHAN, khong tinh vao so mau) 7.0/0.0: Python that='loi: chia cho 0', exe (CLR float div-by-zero khong nem exception)='ket qua: inf'\nSo mau doi chieu: 23\nKhop (exe == CPython that): 23/23\nALPHAAI-PORTED SUPPORT: PASS - 5 ham AlphaAI sinh (string/dict/list/try-except/tuple) khop CPython that 100%.\n"
+  },
+  {
+   "name": "assert_test.py",
+   "status": "pass",
+   "seconds": 85.08,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 8\nKhop (exe == CPython that): 8/8\nASSERT SUPPORT: PASS - bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "b3_closure_test.py",
+   "status": "pass",
+   "seconds": 1.72,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 20\nexe bien dich: 20\nB3 (closure nhan tham so 'func' + tra ve): PASS - dung 100%.\n"
+  },
+  {
+   "name": "bigint_builtins_test.py",
+   "status": "pass",
+   "seconds": 9.65,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "bigint_builtins_test: dat (23 ca, 3 phia doi chieu)\n"
+  },
+  {
+   "name": "bigint_container_test.py",
+   "status": "pass",
+   "seconds": 64.36,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "bigint_container_test: dat (9 ca + 3 ca phai nem, 3 phia doi chieu)\n"
+  },
+  {
+   "name": "bigint_divmod_test.py",
+   "status": "pass",
+   "seconds": 8.42,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "bigint_divmod_test: dat (23 ca, 3 phia doi chieu)\n"
+  },
+  {
+   "name": "bigint_test.py",
+   "status": "pass",
+   "seconds": 6.13,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "bigint_test: dat (15 ca, 3 phia doi chieu)\n"
+  },
+  {
+   "name": "break_continue_test.py",
+   "status": "pass",
+   "seconds": 5.38,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da transpile 4 ham tu sample_break_continue.tkv\nSo mau doi chieu: 16\nKhop (exe == CPython that): 16/16\nBREAK/CONTINUE SUPPORT: PASS - break/continue (for+while) bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "cli_test.py",
+   "status": "pass",
+   "seconds": 11.07,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 20\nKhop (exe == CPython that): 20/20\nCLI TU DONG: PASS - tkv build sinh Main() tu dong (i32/f32/str param+return, gom ca 2 ham AlphaAI sinh) khop CPython that 100%.\n"
+  },
+  {
+   "name": "closure_arg_test.py",
+   "status": "pass",
+   "seconds": 3.63,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "make_adder_demo: CPython that=15, exe bien dich=15\ndemo_closure_var_as_arg: CPython that=105, exe bien dich=105\nCLOSURE LAM THAM SO (A1): PASS - ca 2 truong hop (ten truc tiep + bien trung gian) dung 100%.\n"
+  },
+  {
+   "name": "closure_multi_test.py",
+   "status": "pass",
+   "seconds": 3.33,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 22\nexe bien dich: 22\nCLOSURE MULTI-CAPTURE SUPPORT: PASS - 2 bien bi bat, mutation dung 100%.\n"
+  },
+  {
+   "name": "closure_return_test.py",
+   "status": "pass",
+   "seconds": 1.63,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 6\nexe bien dich: 6\nCLOSURE TRA VE GIA TRI (b1): PASS - goi tu NGOAI ham tao ra no, mutation + song sot dung 100%.\n"
+  },
+  {
+   "name": "closure_test.py",
+   "status": "pass",
+   "seconds": 3.02,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 6\nexe bien dich: 6\nCLOSURE SUPPORT (slice dau tien): PASS - mutation + song sot qua 3 lan goi dung 100%.\n"
+  },
+  {
+   "name": "codestat_test.py",
+   "status": "pass",
+   "seconds": 7.03,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  OK codestat.tkv: 13 dong bao cao khop\n  OK sample_csv_report.tkv: 13 dong bao cao khop\n  OK tkv_compile.py: 20 dong bao cao khop\n  OK slicing.py: 13 dong bao cao khop\n  OK typed_dsl_parser.py: 17 dong bao cao khop\ncodestat (cong cu that ~300 dong): PASS - khop CPython tren tat ca file thu.\n"
+  },
+  {
+   "name": "comprehension_test.py",
+   "status": "pass",
+   "seconds": 17.56,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 16\nKhop (exe == CPython that): 16/16\nCOMPREHENSION SUPPORT: PASS - list/dict comprehension bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "container_fields_test.py",
+   "status": "pass",
+   "seconds": 5.19,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  OK n=0: store:x;T:y,z|xy|2/0|a=1.5,b=2.25|3.75|2/2|2:a,b\n  OK n=5: store:x;T:y,z|xy|2/0|a=1.5,b=2.25|3.75|2/7|2:a,b\n  OK n=-3: store:x;T:y,z|xy|2/0|a=1.5,b=2.25|3.75|2/-1|2:a,b\nField container cua class (list/dict, ke thua, for-in, dict[k]): PASS - khop CPython.\n"
+  },
+  {
+   "name": "container_record_test.py",
+   "status": "pass",
+   "seconds": 9.47,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 9\nKhop (exe == CPython that): 9/9\nCONTAINER-RECORD SUPPORT: PASS - List<Point>/Dictionary<i32,Point> bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "csv_report_test.py",
+   "status": "pass",
+   "seconds": 1.98,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  exe    : rows=5,sum=37,max=25,avg=7\n  CPython: rows=5,sum=37,max=25,avg=7\nCong cu CSV that viet bang TokenVector: PASS - khop CPython 100%.\n"
+  },
+  {
+   "name": "ctxpack_test.py",
+   "status": "fail",
+   "seconds": 3.2,
+   "returncode": 1,
+   "tags": [],
+   "stdout_tail": "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Claude AI Project\\TokenVector\\test\\verify\\_tkv_arbiter.py\", line 161, in _run_compiled\n    compile_tkv_cli(Path(tkv_path), exe, entry_name=entry)\n  File \"C:\\Claude AI Project\\TokenVector\\tkv_compile.py\", line 1225, in compile_tkv_cli\n    method_lines = gen_il_program(sig_body_pairs, class_name=class_name, records=record_defs,\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Claude AI Project\\TokenVector\\compiler\\il_codegen.py\", line 3811, in gen_il_program\n    all_lines.extend(gen_il_function(sig, body_lines, with_guards=with_guards,\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Claude AI Project\\TokenVector\\compiler\\il_codegen.py\", line 3373, in gen_il_function\n    _first_pass_collect_locals(stmts, sig, body_dtype, func_table, records, record_methods,\n  File \"C:\\Claude AI Project\\TokenVector\\compiler\\il_codegen.py\", line 2690, in _first_pass_collect_locals\n    _pre_register_infer_scope(stmts)\n  File \"C:\\Claude AI Project\\TokenVector\\compiler\\il_codegen.py\", line 2683, in _pre_register_infer_scope\n    fn(st, prescan_ctx)\n  File \"C:\\Claude AI Project\\TokenVector\\compiler\\il_features\\control_flow.py\", line 646, in fpp_while_if\n    ctx['prescan_fn'](stmt['body'])\n  File \"C:\\Claude AI Project\\TokenVector\\compiler\\il_codegen.py\", line 2683, in _pre_register_infer_scope\n    fn(st, prescan_ctx)\n  File \"C:\\Claude AI Project\\TokenVector\\compiler\\il_codegen.py\", line 2886, in _fpp_assign_scalar\n    inferred = (_infer_dtype(rhs_node, infer_scope, ctx['func_table'], records, ctx['record_methods'])\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Claude AI Project\\TokenVector\\compiler\\il_codegen.py\", line 412, in _infer_dtype\n    raise SyntaxError(f\"il_codegen: bien '{src}' chua duoc khai bao/tham so\")\nSyntaxError: il_codegen: bien 'fid' chua duoc khai bao/tham so\n"
+  },
+  {
+   "name": "db_test.py",
+   "status": "skip",
+   "seconds": 0.0,
+   "tags": [
+    "native"
+   ],
+   "reason": "can sqlite3.dll; khong co trong PATH tren may nay",
+   "skipped_by": [
+    "native"
+   ]
+  },
+  {
+   "name": "default_args_itertools_test.py",
+   "status": "pass",
+   "seconds": 14.25,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 10\nKhop (exe == CPython that): 10/10\nDEFAULT-ARGS + ENUMERATE/ZIP SUPPORT: PASS - bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "defmeta_test.py",
+   "status": "pass",
+   "seconds": 4.86,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "RESULT: functions=9 classes=3 docstring=9 trong=3 id_trung=0\n   class:app/x.py:Inner         missing   \n   class:app/x.py:Other         missing   \n   class:app/x.py:Thing         docstring Mot thu gi do co ich.\n   function:app/x.py:Inner.deep docstring Method cua lop long.\n   function:app/x.py:Other.after_nested docstring Dinh nghia SAU lop long - van phai thuoc Other.\n   function:app/x.py:Other.method docstring Trung ten voi Thing.method - phai la nut RIENG.\n   function:app/x.py:Other.with_nested docstring Co mot lop dinh nghia ngay trong than ham.\n   function:app/x.py:Thing.method docstring Method cua Thing.\n   function:app/x.py:multi      docstring Cong hai so lai voi nhau.\n   function:app/x.py:no_doc     missing   \n   function:app/x.py:one_line   docstring Tra ve mot gia tri co dinh.\n   function:app/x.py:sharp      docstring Dich sang C# roi bien dich lai.\nPASS: docstring cac dang / chu ky nhieu dong / def trong chuoi / id co ten lop\n"
+  },
+  {
+   "name": "dict_items_list_test.py",
+   "status": "pass",
+   "seconds": 2.63,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 4\nKhop (exe == CPython that): 4/4\nDICT_ITEMS_LIST (items_list = d.items(); for k,v in items_list): PASS - dung 100%.\n"
+  },
+  {
+   "name": "dict_order_and_json_test.py",
+   "status": "pass",
+   "seconds": 8.18,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "PASS: test_dict_insertion_order z:100|a:250|m:300|b:400\nPASS: test_json_dumps_escaping_and_separators {\"name\": \"Alice\\nBob\", \"path\": \"C:\\\\Program Files\\\\TKV\", \"quote\": \"Hello \\\"world\\\"\"}\nPASS: test_json_dumps_list_of_scalars [10, 20, 30, 40]\nALL MOC 12 TESTS PASSED!\n"
+  },
+  {
+   "name": "dict_param_test.py",
+   "status": "pass",
+   "seconds": 4.38,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu voi CPython: 3\nKhop: 3/3\nPASS: dict[str,i32] truyen lam tham so chay dung, khong con hong bo nho\n"
+  },
+  {
+   "name": "dict_pop_test.py",
+   "status": "pass",
+   "seconds": 4.46,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 4\nKhop (exe == CPython that): 4/4\nDICT_POP (d.pop(k, default)): PASS - dung 100%.\n"
+  },
+  {
+   "name": "dict_setdefault_test.py",
+   "status": "pass",
+   "seconds": 3.71,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 3\nKhop (exe == CPython that): 3/3\nDICT_SETDEFAULT (d.setdefault(k, default)): PASS - dung 100%.\n"
+  },
+  {
+   "name": "dict_test.py",
+   "status": "pass",
+   "seconds": 2.65,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da transpile 1 ham (sum_via_dict) tu sample_dict.tkv\nSo mau doi chieu: 4\nKhop (exe == CPython that): 4/4\nDICT SUPPORT: PASS - Dict dong ({}, ghi/doc, 'in') bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "domain_test.py",
+   "status": "pass",
+   "seconds": 28.84,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "RESULT: domains=4 files=6 cross=3 pairs=3\nPASS: dap an dung, ca 5 phep bom loi deu lam ket qua doi dung nhu du kien\n"
+  },
+  {
+   "name": "except_finally_test.py",
+   "status": "pass",
+   "seconds": 31.23,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 18\nKhop (exe == CPython that): 18/18\nEXCEPT-TYPED/FINALLY SUPPORT: PASS - except <Loai>: va finally: bien dich THAT va dung 100% (finally da xac nhan CHAY THAT qua file phu).\n"
+  },
+  {
+   "name": "expr_builtin_compose_os_test.py",
+   "status": "pass",
+   "seconds": 16.0,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 10\nKhop: 10/10\nEXPR_BUILTIN_COMPOSE nhom 2 (os_getenv/os_mkdir): PASS - goi builtin trong bieu thuc dung 100%, nhan IL rieng bung khong trung lap.\n"
+  },
+  {
+   "name": "expr_builtin_compose_test.py",
+   "status": "skip",
+   "seconds": 0.0,
+   "tags": [
+    "net"
+   ],
+   "reason": "co nhanh http_get that",
+   "skipped_by": [
+    "net"
+   ]
+  },
+  {
+   "name": "expr_container_compose_test.py",
+   "status": "pass",
+   "seconds": 12.98,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 17\nKhop: 17/17\nEXPR_CONTAINER_COMPOSE nhom 4 (s.split()/os_list_files() tra ve list trong bieu thuc): PASS - dung 100%.\n"
+  },
+  {
+   "name": "expr_hoist_test.py",
+   "status": "pass",
+   "seconds": 4.75,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  OK n=0: x,2.5,2|a,b,c|6|3|3||0\n  OK n=1: x,2.5,2|a,b,c|6|3|3|N0|0\n  OK n=4: x,2.5,2|a,b,c|6|3|3|N0,N1,N2,N3|14\nHoist bieu thuc (field container ngoai class, wrapper tren bieu thuc, for-over-call): PASS - khop CPython.\n"
+  },
+  {
+   "name": "expr_hoist_token_test.py",
+   "status": "pass",
+   "seconds": 5.59,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "PASS: test_hoist_in_string_literal b.items.append(1) and sorted(d.keys())\nPASS: test_hoist_expanded_wrapper_calls 2|2\nPASS: test_hoist_attr_receiver_and_index 2\nALL MOC 13 TESTS PASSED!\n"
+  },
+  {
+   "name": "expr_len_index_test.py",
+   "status": "pass",
+   "seconds": 14.63,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  count_fields('a,b,c') -> exe='3' CPython='3'\n  count_fields('solo') -> exe='1' CPython='1'\n  first_field('a,b,c') -> exe='a' CPython='a'\n  nth_field('x,y,z', 1) -> exe='y' CPython='y'\n  len_of_nth('a,bcd,e', 1) -> exe='3' CPython='3'\n  fields_plus_ten('a,b') -> exe='12' CPython='12'\n  len_of_concat('ab', 'cde') -> exe='5' CPython='5'\nlen(<bieu thuc>) + <bieu thuc>[i] (doi chieu CPython): PASS - dung 100%.\n"
+  },
+  {
+   "name": "expr_method_compose_test.py",
+   "status": "pass",
+   "seconds": 20.4,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 18\nKhop (exe == CPython that): 18/18\nEXPR_METHOD_COMPOSE nhom 3 (.count()/.title()/.zfill() trong bieu thuc): PASS - dung 100% so voi CPython that.\n"
+  },
+  {
+   "name": "expr_recv_dependent_test.py",
+   "status": "pass",
+   "seconds": 11.19,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 10\nKhop (exe == CPython that): 10/10\nEXPR_RECV_DEPENDENT nhom 5 (d.keys()/d.values()/lst.copy() trong bieu thuc, kieu tra ve phu thuoc doi tuong nhan): PASS - dung 100%.\n"
+  },
+  {
+   "name": "expr_set_items_compose_test.py",
+   "status": "pass",
+   "seconds": 21.45,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 16\nKhop (exe == CPython that): 16/16\nEXPR_SET_ITEMS nhom 6 (d.items() + set.union/intersection/difference qua duong bieu thuc thong nhat): PASS - dung 100%.\n"
+  },
+  {
+   "name": "extern_assembly_test.py",
+   "status": "pass",
+   "seconds": 3.84,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 3\nKhop: 3/3\nEXTERN_ASSEMBLY (__tkv_extern_assembly__ = 'System.Xml'): PASS - dung 100%.\n"
+  },
+  {
+   "name": "file_io_test.py",
+   "status": "pass",
+   "seconds": 4.27,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 3\nKhop (exe == CPython that): 3/3\nFILE I/O SUPPORT: PASS - read_file/write_file/append_file/file_exists bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "for_in_dict_test.py",
+   "status": "pass",
+   "seconds": 3.45,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da transpile 2 ham tu sample_for_in_dict.tkv\nSo mau doi chieu: 8\nKhop (exe == CPython that): 8/8\nFOR-IN-DICT-ITEMS SUPPORT: PASS - 'for k, v in d.items():' (gom ca long nhau) bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "for_in_list_test.py",
+   "status": "pass",
+   "seconds": 4.2,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da transpile 2 ham tu sample_for_in_list.tkv\nSo mau doi chieu: 8\nKhop (exe == CPython that): 8/8\nFOR-IN-LIST SUPPORT: PASS - 'for x in lst:' (gom ca long nhau) bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "fstring_count_index_test.py",
+   "status": "pass",
+   "seconds": 5.55,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 6\nKhop (exe == CPython that): 6/6\nF-STRING + LIST.COUNT/INDEX SUPPORT: PASS - bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "funcref_test.py",
+   "status": "pass",
+   "seconds": 9.46,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 8\nKhop (exe == CPython that): 8/8\nFUNCREF SUPPORT: PASS - function reference hep bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "general_array_test.py",
+   "status": "pass",
+   "seconds": 8.09,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 9\nKhop (exe == CPython that): 9/9\nGENERAL-ARRAY SUPPORT: PASS - cong/nhan/dot-product tren list runtime-size khop CPython that 100%.\n"
+  },
+  {
+   "name": "generator_test.py",
+   "status": "pass",
+   "seconds": 3.1,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 23\nexe bien dich: 23\nGENERATOR LAZY THAT (yield long trong if/for): PASS - dung 100%.\n"
+  },
+  {
+   "name": "generator_wide_test.py",
+   "status": "pass",
+   "seconds": 4.63,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu voi CPython: 2\nKhop: 2/2\nPASS: generator 9 tham so va loi goi 9 doi so trong than generator deu chay dung\n"
+  },
+  {
+   "name": "golden_path_test.py",
+   "status": "pass",
+   "seconds": 39.01,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Tong so mau test: 45\nKhop (exe == sklearn): 45/45\nGOLDEN PATH: PASS - .exe khop 100% voi sklearn model goc.\n"
+  },
+  {
+   "name": "grammar_coverage_test.py",
+   "status": "pass",
+   "seconds": 0.83,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "grammar_coverage_test: dat (37 builtin, 5 method chuoi da dang ky deu duoc generator cham toi)\n"
+  },
+  {
+   "name": "graphreview_test.py",
+   "status": "pass",
+   "seconds": 149.21,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "da thu 8 ca hong + 4 ca phan tang + 3 ca lo trinh + 1 ca sach\nPASS: bat dung ca 8 kieu hong, khong bao dong gia tren graph sach\n"
+  },
+  {
+   "name": "graphstale_test.py",
+   "status": "pass",
+   "seconds": 38.8,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "PASS: bat dung SUA/THEM/XOA/thieu-van-tay, khong bao dong gia\n"
+  },
+  {
+   "name": "group8_expr_test.py",
+   "status": "skip",
+   "seconds": 0.0,
+   "tags": [
+    "native",
+    "net"
+   ],
+   "reason": "can sqlite3.dll VA http_post ra Internet",
+   "skipped_by": [
+    "native",
+    "net"
+   ]
+  },
+  {
+   "name": "http_get_test.py",
+   "status": "skip",
+   "seconds": 0.0,
+   "tags": [
+    "net"
+   ],
+   "reason": "goi https://example.com that",
+   "skipped_by": [
+    "net"
+   ]
+  },
+  {
+   "name": "http_headers_test.py",
+   "status": "pass",
+   "seconds": 23.56,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  PASS post_with_auth: server nhan POST {'authorization': 'Bearer tok-xyz-123', 'x-api-key': 'abc123', 'content-type': 'application/json'} body='{\"a\":1}'\n  PASS get_with_auth: server nhan GET {'authorization': 'Bearer tok-xyz-123'} body=''\n  PASS put_override_ctype: server nhan PUT {'content-type': 'text/xml', 'x-trace': 't-1'} body='<x>1</x>'\n  PASS delete_with_header: server nhan DELETE {'x-reason': 'cleanup'} body=''\n  PASS get_with_user_agent: server nhan GET {'user-agent': 'TokenVector/1.0', 'accept': 'application/json'} body=''\nHeader tuy y qua dict[str,str] (server THAT xac nhan): PASS - dung 100%.\n"
+  },
+  {
+   "name": "http_request_test.py",
+   "status": "skip",
+   "seconds": 0.0,
+   "tags": [
+    "net"
+   ],
+   "reason": "goi HTTP that",
+   "skipped_by": [
+    "net"
+   ]
+  },
+  {
+   "name": "http_verbs_test.py",
+   "status": "pass",
+   "seconds": 16.64,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  PASS do_post: server nhan {'method': 'POST', 'ctype': 'application/json', 'body': '{\"a\":1}'}\n  PASS do_post_type: server nhan {'method': 'POST', 'ctype': 'application/x-www-form-urlencoded', 'body': 'a=1&b=2'}\n  PASS do_put: server nhan {'method': 'PUT', 'ctype': 'text/xml', 'body': '<x>1</x>'}\n  PASS do_delete: server nhan {'method': 'DELETE', 'ctype': '', 'body': ''}\nHTTP POST/PUT/DELETE + Content-Type (server THAT xac nhan): PASS - dung 100%.\n"
+  },
+  {
+   "name": "il_reserved_name_test.py",
+   "status": "pass",
+   "seconds": 2.76,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "reduce_i32 voi tham so ten 'init' -> '20' (ky vong '20')\nTen trung tu khoa ILASM ('init'): PASS - bien dich va chay dung.\n"
+  },
+  {
+   "name": "impact_test.py",
+   "status": "pass",
+   "seconds": 34.01,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "RESULT: nut=5 file=5 test=2 tang=3\nPASS: lan nguoc dung tang, cat o tang 4, test qua goi-thang va qua import, chu trinh khong treo, muc tieu la khong bia\n"
+  },
+  {
+   "name": "impgraph_test.py",
+   "status": "pass",
+   "seconds": 35.33,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "RESULT: files=6 imports=10 internal=7 external=3 ambiguous=0 self=0 dup=0 edges=7\nPASS: ham vo huong + main() doi chieu o dang DA BIEN DICH; ham nhan list/dict chi chay duoc duoi CPython (xem GIOI HAN)\n"
+  },
+  {
+   "name": "import_test.py",
+   "status": "pass",
+   "seconds": 8.72,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 7\nKhop (exe == CPython that): 7/7\nIMPORT SUPPORT: PASS - '__tkv_import__' gop 2 file .tkv (record + ham) bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "infer_dtype_test.py",
+   "status": "pass",
+   "seconds": 4.77,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  OK n=0: 3,6,3,1,3,7,42,2.5,2,3.0,3|2,3.0,c2,hello,1,2|a1,b2|4.5|a1,b3,c1|111|0,0|0\n  OK n=7: 3,6,3,1,3,7,42,2.5,2,3.0,3|2,3.0,c2,hello,1,2|a1,b2|4.5|a1,b3,c1|111|0,0|7\nBay suy kieu (builtin/method/list-cua-method/word-count/so sanh): PASS - khop CPython.\n"
+  },
+  {
+   "name": "inheritance_test.py",
+   "status": "pass",
+   "seconds": 1.65,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 338\nexe bien dich: 338\nKE THUA + DA HINH (B1): PASS - dung 100%.\n"
+  },
+  {
+   "name": "int_builtin_test.py",
+   "status": "pass",
+   "seconds": 2.97,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "int('42'), int(3.7), int(5) -> '93' (CPython: 93)\nint('-7'), int(-3.7), int(100) -> '84' (CPython: 84)\nint('0'), int(0.9), int(-1) -> '0' (CPython: 0)\nint() (str/f64/i64 -> i32, doi chieu CPython): PASS - dung 100%.\n"
+  },
+  {
+   "name": "int_overflow_test.py",
+   "status": "pass",
+   "seconds": 7.39,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau: 12\nDat: 12/12\nPASS: khop CPython tung chu so o MOI do lon, ke ca vuot int64\n"
+  },
+  {
+   "name": "ipow_test.py",
+   "status": "pass",
+   "seconds": 67.14,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "ipow_test: dat (15 ca + 3 ca phai nem, 3 phia doi chieu)\n"
+  },
+  {
+   "name": "json_dumps_test.py",
+   "status": "fail",
+   "seconds": 17.16,
+   "returncode": 1,
+   "tags": [],
+   "stdout_tail": "  dump_str(['xin chao'])\n     got='\"xin chao\"'\n     py ='\"xin chao\"'\n  dump_str(['co \"nhay kep\"'])\n     got='\"co \\\\\"nhay kep\\\\\"\"'\n     py ='\"co \\\\\"nhay kep\\\\\"\"'\n  dump_str(['co\\\\backslash'])\n     got='\"co\\\\\\\\backslash\"'\n     py ='\"co\\\\\\\\backslash\"'\n  dump_str(['dong1\\ndong2'])\n     got='\"dong1\\\\ndong2\"'\n     py ='\"dong1\\\\ndong2\"'\n  dump_str(['tab\\there'])\n     got='\"tab\\\\there\"'\n     py ='\"tab\\\\there\"'\n  dump_list(['a\"b', 'c\\\\d'])\n     got='[\"a\\\\\"b\", \"c\\\\\\\\d\"]'\n     py ='[\"a\\\\\"b\",\"c\\\\\\\\d\"]'\n  dump_dict_str(['k1', 'v\"1', 'k2', 'dong\\n2'])\n     got='{\"k1\": \"v\\\\\"1\", \"k2\": \"dong\\\\n2\"}'\n     py ='{\"k1\":\"v\\\\\"1\",\"k2\":\"dong\\\\n2\"}'\n  dump_dict_int(['a', '1', 'b', '-2'])\n     got='{\"a\": 1, \"b\": -2}'\n     py ='{\"a\":1,\"b\":-2}'\n  dump_in_expr(['x\"y'])\n     got='[\"x\\\\\"y\"]'\n     py ='[\"x\\\\\"y\"]'\nSAI LECH:\n  ('dump_list', ['a\"b', 'c\\\\d'], '[\"a\\\\\"b\",\"c\\\\\\\\d\"]', '[\"a\\\\\"b\", \"c\\\\\\\\d\"]', 0, '')\n  ('dump_dict_str', ['k1', 'v\"1', 'k2', 'dong\\n2'], '{\"k1\":\"v\\\\\"1\",\"k2\":\"dong\\\\n2\"}', '{\"k1\": \"v\\\\\"1\", \"k2\": \"dong\\\\n2\"}', 0, '')\n  ('dump_dict_int', ['a', '1', 'b', '-2'], '{\"a\":1,\"b\":-2}', '{\"a\": 1, \"b\": -2}', 0, '')\n"
+  },
+  {
+   "name": "json_test.py",
+   "status": "fail",
+   "seconds": 30.95,
+   "returncode": 1,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 18\nKhop (exe == json module CPython that): 14/18\nSAI LECH:\n  ('dumps_int_list', (), '[1,2,3]', '[1, 2, 3]', '[1, 2, 3]\\n', '')\n  ('dumps_str_list', (), '[\"a\",\"b\"]', '[\"a\", \"b\"]', '[\"a\", \"b\"]\\n', '')\n  ('dumps_list_in_expr', (), '[1,2]|end', '[1, 2]|end', '[1, 2]|end\\n', '')\n  ('dumps_list_twice', (), '[1][7,8]', '[1][7, 8]', '[1][7, 8]\\n', '')\n"
+  },
+  {
+   "name": "lambda_arg_test.py",
+   "status": "pass",
+   "seconds": 4.92,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 21\nexe bien dich: 21\nLAMBDA LAM THAM SO TRUC TIEP (A2): PASS - dung 100%.\n"
+  },
+  {
+   "name": "layers_test.py",
+   "status": "pass",
+   "seconds": 9.62,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "RESULT: files=5 \"foundation\":1 \"core\":1 \"entry\":1 \"test\":1 \"isolated\":1\nPASS: phan tang dung, moi file thuoc dung 1 tang, chi dem canh imports\n"
+  },
+  {
+   "name": "ledger_test.py",
+   "status": "pass",
+   "seconds": 0.54,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "ledger_test: dat (0 muc open, tat ca van lech DUNG loai da ghi; 97 muc tong cong trong so)\n"
+  },
+  {
+   "name": "list_batch3_test.py",
+   "status": "pass",
+   "seconds": 5.11,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 4\nKhop (exe == CPython that): 4/4\nLIST_BATCH3 (list.reverse()/list.remove(x)): PASS - dung 100%.\n"
+  },
+  {
+   "name": "list_copy_test.py",
+   "status": "pass",
+   "seconds": 3.29,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 4\nKhop (exe == CPython that): 4/4\nLIST_COPY (lst.copy(), doc lap that): PASS - dung 100%.\n"
+  },
+  {
+   "name": "list_literal_test.py",
+   "status": "pass",
+   "seconds": 6.12,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 10\nKhop (exe == CPython that): 10/10\nLIST_LITERAL SUPPORT: PASS - '[3,1,2]' co phan tu bien dich THAT va dung 100% (int/float/str).\n"
+  },
+  {
+   "name": "list_return_test.py",
+   "status": "pass",
+   "seconds": 2.91,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 6\nexe bien dich: 6\nHAM TRA VE list[dtype] (B2(a)+(b)): PASS - dung 100%.\n"
+  },
+  {
+   "name": "list_test.py",
+   "status": "pass",
+   "seconds": 2.14,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da transpile 1 ham (sum_scaled) tu sample_list.tkv\nSo mau doi chieu: 4\nKhop (exe == CPython that): 4/4\nLIST SUPPORT: PASS - List dong ([], append, [i], len) bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "manual_chat_11_test.py",
+   "status": "pass",
+   "seconds": 25.0,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 40\nKhop (exe == CPython that): 40/40\nMANUAL-CHAT-11 SUPPORT: PASS - 11 ham Gemini sinh thu cong bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "manual_chat_math12_test.py",
+   "status": "fail",
+   "seconds": 30.18,
+   "returncode": 1,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 47\nKhop (exe == CPython that): 45/47\nSAI LECH:\n  ('lcm_via_gcd', (4, 6), 12, '2', 0, '')\n  ('lcm_via_gcd', (21, 6), 42, '3', 0, '')\n"
+  },
+  {
+   "name": "math_ext_test.py",
+   "status": "pass",
+   "seconds": 3.16,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 4\nKhop (exe == CPython that): 4/4\nMATH_EXT (tan/asin/acos/atan/sinh/cosh/log10/trunc): PASS - dung 100%.\n"
+  },
+  {
+   "name": "mergedefs_test.py",
+   "status": "pass",
+   "seconds": 6.03,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "RESULT: tsv=12 nhan=6 tu_choi=5 da_co_san=1\nPASS: khoa id dai chinh xac, chan 4 loai rac, khong ghi de docstring\n"
+  },
+  {
+   "name": "mergemeta_test.py",
+   "status": "pass",
+   "seconds": 6.47,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "RESULT: tsv=8 nhan=3 tu_choi=4 da_co_san=1\nPASS: nhan summary tot, chan 4 loai rac, khong ghi de docstring\n"
+  },
+  {
+   "name": "multi_inherit_test.py",
+   "status": "pass",
+   "seconds": 3.02,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 33\nexe bien dich: 33\nDa ke thua qua CIL interface (Phase C.4): PASS - dung 100%.\n"
+  },
+  {
+   "name": "neg_slice_array_test.py",
+   "status": "pass",
+   "seconds": 14.66,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 7\nKhop (exe == CPython that): 7/7\nNEG-SLICE/ARRAY SUPPORT: PASS - bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "negative_index_test.py",
+   "status": "pass",
+   "seconds": 9.84,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 7\nKhop (exe == CPython that): 7/7\nNEGATIVE-INDEX SUPPORT: PASS - lst[-N]/s[-N] bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "nested_container_test.py",
+   "status": "pass",
+   "seconds": 3.97,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So ham doi chieu: 2\nKhop (exe == CPython that): 2/2\nNESTED CONTAINER SUPPORT: PASS - List<List<T>>/Dictionary<K,List<T>> bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "nested_deep_test.py",
+   "status": "pass",
+   "seconds": 2.01,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 111\nexe bien dich: 111\nDef long trong def long (2 tang, Phase C.2): PASS - dung 100%.\n"
+  },
+  {
+   "name": "nested_index_test.py",
+   "status": "pass",
+   "seconds": 4.84,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 8\nKhop (exe == CPython that): 8/8\nNESTED-INDEX SUPPORT: PASS - 'd[lst[i]] = x' / 'd[lst[i]] += x' bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "nested_multi_test.py",
+   "status": "pass",
+   "seconds": 2.47,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 202\nexe bien dich: 202\nNhieu def long song song (Phase C.2): PASS - dung 100%.\n"
+  },
+  {
+   "name": "nodemeta_test.py",
+   "status": "pass",
+   "seconds": 26.71,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "RESULT: files=6 summary_tu_docstring=4 can_llm=2\nPASS: docstring 4 dang, '#' giua cau, thoat JSON, complexity theo dong that, tags\n"
+  },
+  {
+   "name": "object_graph_test.py",
+   "status": "pass",
+   "seconds": 3.53,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  OK n=0: 1|2|0 0 1|6|me:applex2,pearx5|5/0|2\n  OK n=3: 37|2|3 30 4|6|me:applex2,pearx5|5/0|2\n  OK n=-2: -23|2|-2 -20 -1|6|me:applex2,pearx5|5/0|2\nDo thi doi tuong (cay tu tham chieu, danh sach lien ket, list[Record]/dict[str,Record] lam field): PASS - khop CPython.\n"
+  },
+  {
+   "name": "operators_test.py",
+   "status": "pass",
+   "seconds": 16.82,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 21\nKhop (exe == CPython that): 21/21\nOPERATORS SUPPORT: PASS - %, +=/-=/*=, not, raise<Loai>(msg) bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "parity_traps_test.py",
+   "status": "pass",
+   "seconds": 14.36,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu voi CPython: 18\nKhop: 18/18\nPASS: chuoi ket thuc bang 'f' khong con bi doc nham la f-string, f-string that van chay, ham 9 va 12 tham so chay dung\n"
+  },
+  {
+   "name": "print_float_test.py",
+   "status": "pass",
+   "seconds": 16.16,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "print_float_test: dat (24 gia tri x 2 duong + 4 ca print)\n"
+  },
+  {
+   "name": "property_test.py",
+   "status": "pass",
+   "seconds": 3.63,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "CPython that: 16.0\nexe bien dich: 16.0\n@property (Phase C.3): PASS - dung 100%.\n"
+  },
+  {
+   "name": "python_idioms_test.py",
+   "status": "pass",
+   "seconds": 45.88,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da doi chieu 42 ca voi CPython, sai lech: 0\nCach viet Python thuong ngay (// % am, elif, True/False, in, *, join, hang so module, def long, tuple entry, tham so mac dinh): PASS - dung 100%.\n"
+  },
+  {
+   "name": "pytok_test.py",
+   "status": "skip",
+   "seconds": 0.0,
+   "tags": [
+    "repo"
+   ],
+   "reason": "doc CodeGraph/graph/code_graph_manifest.txt tro ra ngoai TokenVector; worktree khong co cac file do",
+   "skipped_by": [
+    "repo"
+   ]
+  },
+  {
+   "name": "pytok_typegraph_compiled_test.py",
+   "status": "pass",
+   "seconds": 17.1,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "pytok : tokens=89 dong_logic=15\ntypegraph: files=1 edges=10 self=0 module=0 lop=0 ham_tran=3 ngoai_tam=0\nPASS: pytok va typegraph chay dung o dang DA BIEN DICH (canh contains/calls/inherits, khong nhan 'def' trong chuoi)\n"
+  },
+  {
+   "name": "read_file_crlf_test.py",
+   "status": "pass",
+   "seconds": 3.73,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu voi CPython: 5\nKhop: 5/5\nPASS: read_file chuan hoa CRLF va CR don le thanh LF giong universal newlines cua Python\n"
+  },
+  {
+   "name": "real_code_idioms_test.py",
+   "status": "pass",
+   "seconds": 2.31,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  OK n=5\n  OK n=1\n  OK n=12\nCach viet code THAT (6 nhom): PASS - khop CPython.\n"
+  },
+  {
+   "name": "record_method_test.py",
+   "status": "pass",
+   "seconds": 8.92,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 7\nKhop (exe == CPython that): 7/7\nRECORD-METHOD SUPPORT: PASS - method khong mutate/mutate/nhan record khac lam tham so bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "record_test.py",
+   "status": "pass",
+   "seconds": 8.0,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 7\nKhop (exe == CPython that): 7/7\nRECORD SUPPORT: PASS - class dang record (field-only): khoi tao/doc/ghi field bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "repeat_test.py",
+   "status": "pass",
+   "seconds": 7.99,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 6\nKhop (exe == CPython that): 6/6\nREPEAT SUPPORT: PASS - lst*n/repeat_str(s,n) bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "reserved_names_test.py",
+   "status": "pass",
+   "seconds": 4.01,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  OK n=0: 0,10,15,12,12,3,0,GET/3/1,method) field] class} value: get set add remove\n  OK n=7: 7,10,15,12,12,17,21,GET/3/1,method) field] class} value: get set add remove\nTen trung tu khoa ILASM (class/ham/method/field/bien + chuoi hang): PASS.\n"
+  },
+  {
+   "name": "self_host_test.py",
+   "status": "pass",
+   "seconds": 73.65,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da transpile classify_manual (DSL THO, khong macro) tu sample_self_host_classify.tkv\nTong so mau doi chieu: 150\nKhop (self-host .exe == sklearn that): 150/150\nSELF-HOST: PASS - logic inference cua TokenVector viet lai bang chinh DSL (khong dung macro dense/normalize/argmax), bien dich qua tkv_compile.py, khop 100% voi sklearn model that.\n"
+  },
+  {
+   "name": "set_annotation_test.py",
+   "status": "pass",
+   "seconds": 7.32,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  sum_via_to_list(2, 3) -> '5' (ky vong '5')\n  sum_via_to_list(4, 4) -> '4' (ky vong '4')\n  count_after_roundtrip(7, 9) -> '2' (ky vong '2')\n  count_after_roundtrip(7, 7) -> '1' (ky vong '1')\n  PASS ca am: il_codegen: 's[...]' - 's' la set, ma set KHONG lay duoc theo chi so (giong Python). Neu ban dang vi...\nset[dtype] + set.to_list(): PASS - dung 100%.\n"
+  },
+  {
+   "name": "set_batch2_test.py",
+   "status": "pass",
+   "seconds": 4.48,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 4\nKhop (exe == CPython that): 4/4\nSET_BATCH2 (remove/discard/union/intersection/difference): PASS - dung 100%.\n"
+  },
+  {
+   "name": "set_test.py",
+   "status": "pass",
+   "seconds": 7.49,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 9\nKhop (exe == CPython that): 9/9\nSET SUPPORT: PASS - set() dong (add/in/len/comprehension) bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "short_circuit_test.py",
+   "status": "pass",
+   "seconds": 6.84,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 12\nKhop (exe == CPython that): 12/12\n"
+  },
+  {
+   "name": "slice_negative_bounds_test.py",
+   "status": "pass",
+   "seconds": 6.5,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "PASS: test_list_dynamic_negative_indexing 50|40|10\nPASS: test_string_dynamic_negative_indexing d|w\nPASS: test_list_slice_dynamic_negative_and_clamping 3|2|5|0\nPASS: test_string_slice_dynamic_negative_and_clamping ntigravi|ty|antigravity|\nALL MOC 11 TESTS PASSED!\n"
+  },
+  {
+   "name": "stdlib_re_test.py",
+   "status": "pass",
+   "seconds": 5.24,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 7\nKhop (exe == CPython that): 7/7\nSTDLIB RE SUPPORT: PASS - re_match/re_sub bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "stdlib_regression_test.py",
+   "status": "pass",
+   "seconds": 79.0,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": ".tkv\n  PASS test_datetime.tkv\n  PASS test_os.tkv\n  PASS test_hashlib.tkv\n  PASS test_exception.tkv\n  PASS test_base64.tkv\n  PASS test_shutil.tkv\n  PASS test_zipfile.tkv\n  PASS test_http_server.tkv\n  PASS test_buffer.tkv\n  PASS test_office_db.tkv\n--- B) Doi chieu GIA TRI THAT voi thu vien chuan CPython ---\n  PASS gt_sha256: 2ae116d4bac7441f12aa6aac9fd3887610177191c8d972a80937cb2b91c0f4c9\n  PASS gt_md5: 840912d6a0c543006678269d608f7782\n  PASS gt_b64: VG9rZW5WZWN0b3IgMjAyNg==\n  PASS gt_b64_roundtrip: TokenVector 2026\n--- D) csv / functools / eval doi chieu CPython (Giai doan 2) ---\n  PASS csv_field_count('a,\"x,y\",b'): '3'\n  PASS csv_nth_field('a,\"x,y\",b', 0): 'a'\n  PASS csv_roundtrip('a,\"x,y\",b'): 'a,\"x,y\",b'\n  PASS csv_field_count('a,,b'): '3'\n  PASS csv_nth_field('a,,b', 0): 'a'\n  PASS csv_roundtrip('a,,b'): 'a,,b'\n  PASS csv_field_count('\"he said \"\"hi\"\"\",2'): '2'\n  PASS csv_nth_field('\"he said \"\"hi\"\"\",2', 0): 'he said \"hi\"'\n  PASS csv_roundtrip('\"he said \"\"hi\"\"\",2'): '\"he said \"\"hi\"\"\",2'\n  PASS csv_field_count('plain'): '1'\n  PASS csv_nth_field('plain', 0): 'plain'\n  PASS csv_roundtrip('plain'): 'plain'\n  PASS csv_field_count('\"chi mot truong, co phay\"'): '1'\n  PASS csv_nth_field('\"chi mot truong, co phay\"', 0): 'chi mot truong, co phay'\n  PASS csv_roundtrip('\"chi mot truong, co phay\"'): '\"chi mot truong, co phay\"'\n  PASS reduce_i32(1..4, add, 10): '20'\n  PASS reduce_i32(1..1, add, 0): '1'\n  PASS reduce_i32(1..6, add, -3): '18'\n  PASS reduce_i32_nostart(1..5, mul): '120'\n  PASS reduce_i32_nostart(1..1, mul): '1'\n  PASS reduce_i32_nostart(1..3, mul): '6'\n  PASS eval_str('7/2'): '3.5'\n  PASS eval_str('(10 + 20) * 3'): '90.0'\n  PASS eval_str('100 - 25 * 2 + 10'): '60.0'\n  PASS eval_str('-3 + 1.5'): '-1.5'\n  PASS eval_str('10 % 3'): '1.0'\n--- C) File .docx do office_db_suite tao ra co MO duoc khong ---\n  PASS doc_output.docx mo duoc, chua ['document.xml']\n\nstdlib regression: PASS toan bo (14 module tu kiem tra + 4 gia tri doi chieu CPython + 1 file .docx doc lai duoc).\n"
+  },
+  {
+   "name": "str_capitalize_test.py",
+   "status": "pass",
+   "seconds": 4.88,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 5\nKhop (exe == CPython that): 5/5\nSTR_CAPITALIZE (s.capitalize()): PASS - dung 100%.\n"
+  },
+  {
+   "name": "str_ext_test.py",
+   "status": "pass",
+   "seconds": 2.51,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 4\nKhop (exe == CPython that): 4/4\nSTR_EXT (startswith/endswith/find/lstrip/rstrip): PASS - dung 100%.\n"
+  },
+  {
+   "name": "str_title_test.py",
+   "status": "pass",
+   "seconds": 5.03,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 6\nKhop (exe == CPython that): 6/6\nSTR_TITLE (s.title()): PASS - dung 100%.\n"
+  },
+  {
+   "name": "string_compare_test.py",
+   "status": "pass",
+   "seconds": 14.91,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 14\nKhop (exe == CPython that): 14/14\nSTRING-COMPARE SUPPORT: PASS - >,<,>=,<= tren chuoi bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "string_count_test.py",
+   "status": "pass",
+   "seconds": 3.92,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 5\nKhop (exe == CPython that): 5/5\nSTRING_COUNT (s.count(sub), khong chong lap): PASS - dung 100%.\n"
+  },
+  {
+   "name": "string_index_test.py",
+   "status": "pass",
+   "seconds": 10.69,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 13\nKhop (exe == CPython that): 13/13\nSTRING INDEX/LEN SUPPORT: PASS - s[i] va len(s) bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "string_isdigit_test.py",
+   "status": "pass",
+   "seconds": 3.43,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "expected='False|True|False|True|True|False'\ngot='False|True|False|True|True|False'\nstring_isdigit_test: PASS\n"
+  },
+  {
+   "name": "string_test.py",
+   "status": "pass",
+   "seconds": 4.74,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da transpile 3 ham (greet/describe_temp/is_admin) tu sample_program_str.tkv\nSo bo test case: 3\nKhop (exe == CPython that): 3/3\nSTRING SUPPORT: PASS - noi chuoi/str(so)/so sanh chuoi bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "string_zfill_test.py",
+   "status": "pass",
+   "seconds": 5.58,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 6\nKhop (exe == CPython that): 6/6\nSTRING_ZFILL (s.zfill(width)): PASS - dung 100%.\n"
+  },
+  {
+   "name": "ternary_ifexp_test.py",
+   "status": "pass",
+   "seconds": 5.0,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "expected='high|medium|low|active|42'\ngot='high|medium|low|active|42'\nternary_ifexp_test: PASS\n"
+  },
+  {
+   "name": "tkv_compile_test.py",
+   "status": "pass",
+   "seconds": 13.49,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da transpile 4 ham tu sample_program.tkv\nSo mau doi chieu: 12\nKhop (exe == CPython that): 12/12\nTKV-COMPILE: PASS - file .tkv THAT (chay duoc duoi CPython) bien dich thang qua TokenVector, goi ham cheo nhau dung 100%.\n"
+  },
+  {
+   "name": "tkvcalc_ast_test.py",
+   "status": "fail",
+   "seconds": 1.89,
+   "returncode": 1,
+   "tags": [],
+   "stdout_tail": "Traceback (most recent call last):\n  File \"C:\\Claude AI Project\\TokenVector\\test\\verify\\tkvcalc_ast_test.py\", line 30, in <module>\n    exe.unlink()\n  File \"C:\\Users\\Nguyen Hung\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py\", line 1342, in unlink\n    os.unlink(self)\nPermissionError: [WinError 5] Access is denied: 'C:\\\\Claude AI Project\\\\TokenVector\\\\tools\\\\tkvcalc.exe'\n"
+  },
+  {
+   "name": "tkvcalc_test.py",
+   "status": "fail",
+   "seconds": 2.24,
+   "returncode": 1,
+   "tags": [],
+   "stdout_tail": "Traceback (most recent call last):\n  File \"C:\\Claude AI Project\\TokenVector\\test\\verify\\tkvcalc_test.py\", line 23, in <module>\n    exe.unlink()\n  File \"C:\\Users\\Nguyen Hung\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\pathlib.py\", line 1342, in unlink\n    os.unlink(self)\nPermissionError: [WinError 5] Access is denied: 'C:\\\\Claude AI Project\\\\TokenVector\\\\tools\\\\tkvcalc.exe'\n"
+  },
+  {
+   "name": "tour_test.py",
+   "status": "pass",
+   "seconds": 10.02,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "RESULT: steps=1 files=4 foundation=2 core=1 entry=1\nthu tu: ['app/base_hot.py', 'app/base_cold.py', 'app/mid.py', 'app/main.py']\nPASS: thu tu dung mach phu thuoc, loai test/isolated, order lien tuc\n"
+  },
+  {
+   "name": "try_except_test.py",
+   "status": "pass",
+   "seconds": 5.46,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da transpile 2 ham tu sample_try_except.tkv\nSo mau doi chieu: 10\nKhop (exe == CPython that): 10/10\nTRY/EXCEPT SUPPORT: PASS - try/except (return trong/ngoai khoi) bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "tuple3_test.py",
+   "status": "fail",
+   "seconds": 6.8,
+   "returncode": 1,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 6\nKhop (exe == CPython that): 3/6\nSAI LECH:\n  ('unpack3', (17, 5), 27, '26', 0, '')\n  ('unpack3', (10, 3), 17, '15', 0, '')\n  ('unpack3', (1, 1), 3, '2', 0, '')\n"
+  },
+  {
+   "name": "tuple_test.py",
+   "status": "pass",
+   "seconds": 7.86,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 8\nKhop (exe == CPython that): 8/8\nTUPLE SUPPORT: PASS - return a,b / x,y=f(...) / x,y=y,x bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "typegraph_test.py",
+   "status": "skip",
+   "seconds": 0.0,
+   "tags": [
+    "repo"
+   ],
+   "reason": "nhu pytok_test — can cay repo day du",
+   "skipped_by": [
+    "repo"
+   ]
+  },
+  {
+   "name": "user_exception_test.py",
+   "status": "pass",
+   "seconds": 6.7,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "  check_age(-1) -> exe='bat_validation' CPython='bat_validation'\n  check_age(30) -> exe='ok' CPython='ok'\n  check_age(500) -> exe='bat_notfound' CPython='bat_notfound'\n  uncaught_goes_to_generic(-1) -> exe='bat_generic' CPython='bat_generic'\n  uncaught_goes_to_generic(30) -> exe='ok' CPython='ok'\n  uncaught_goes_to_generic(500) -> exe='ok' CPython='ok'\n  PASS ca am: bao loi dung -> il_codegen: 'raise Point(...)' - loai loi 'Point' khong hop le. Loai co san: ['Exception',...\nException tu dinh nghia (raise/except theo LOAI, doi chieu CPython): PASS - dung 100%.\n"
+  },
+  {
+   "name": "wave3_batch_test.py",
+   "status": "pass",
+   "seconds": 28.67,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 17\nKhop (exe == CPython that): 17/17\nWAVE3-BATCH SUPPORT: PASS - bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "while_test.py",
+   "status": "pass",
+   "seconds": 4.27,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "Da transpile 2 ham (factorial/count_down_sum) tu sample_while.tkv\nSo mau doi chieu: 5\nKhop (exe == CPython that): 5/5\nWHILE SUPPORT: PASS - vong lap while bien dich THAT va dung 100%.\n"
+  },
+  {
+   "name": "whylink_test.py",
+   "status": "pass",
+   "seconds": 13.22,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "RESULT: ghi_chu=4 co_lien_ket=3 path=1 domain=3 file_duoc_nhac=1\nPASS: doi sanh nguyen van, khong bat ten gan giong, thong ke dung\n"
+  },
+  {
+   "name": "with_open_test.py",
+   "status": "pass",
+   "seconds": 4.76,
+   "returncode": 0,
+   "tags": [],
+   "stdout_tail": "So mau doi chieu: 7\nKhop (exe == CPython that): 7/7\nWITH-OPEN SUPPORT: PASS - bien dich THAT va dung 100%.\n"
+  }
+ ]
+}

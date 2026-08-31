@@ -522,11 +522,25 @@ class _ExprParser:
     def _parse_postfix_method(self, node):
         """'.ten(...)' di sau 1 bieu thuc KHONG phai ten bien - vd
         '",".join(xs)' (2026-08-03). Tag RIENG 'method_call_expr' vi tag
-        'method_call' mang TEN BIEN o node[1]."""
+        'method_call' mang TEN BIEN o node[1].
+
+        BUGS_TODO.md muc U (2026-08-31): '.ten' KHONG theo sau boi '(' la
+        1 PROPERTY (khong phai method) tren 1 bieu thuc KHONG phai ten
+        bien don - vd 'arr[i].Prop' ('arr[i]' la 1 'index_expr', khong
+        phai 1 'var'). Truoc day nhanh nay LUON gia dinh la method-call
+        (goi cung expect_op('(')), gay SyntaxError sai vi tri khi gap
+        property that su. Peek 1 token TRUOC khi doi hoi '(' - neu KHONG
+        phai '(' thi day la doc property, tra ve node 'attr_expr' (mirror
+        dung cach 'attr' xu ly '.ten' sau 1 TEN BIEN don, nhung base o day
+        la 1 NODE bieu thuc thay vi 1 ten bien - xem compile_attr_expr,
+        compiler/il_features/record_feature.py)."""
         self.advance()
         k, name = self.advance()
         if k != 'ID':
             raise SyntaxError(f'il_codegen: ky vong ten method sau ".", gap {name!r}')
+        k0, v0 = self.peek()
+        if not (k0 == 'OP' and v0 == '('):
+            return ('attr_expr', node, name)
         self.expect_op('(')
         args = []
         k2, v2 = self.peek()

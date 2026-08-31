@@ -630,6 +630,30 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
         # bieu thuc ben trai tra ve (vd s.split(",")[0] -> 'str').
         res_ta = _index_expr_result_ta(node, scope, func_table, records)
         return res_ta.dtype if res_ta is not None else None
+    if tag == 'attr_expr':
+        # 'expr[i].Prop' (BUGS_TODO.md muc U, 2026-08-31) - THIEU nhanh nay
+        # se khien _infer_dtype tra None cho 1 bien MOI gan ('best_ram =
+        # procs[i].WorkingSet64') -> declare_scalar fallback SAI ve
+        # body_dtype cua HAM DANG BIEN DICH (vd 'OptimizeResult' neu ham do
+        # tra ve record) thay vi dtype THAT cua property - bug that phat
+        # hien khi don gian hoa RamGuard.tkv dung attr_expr truc tiep trong
+        # trigger_direct_trim() (body_dtype='OptimizeResult'): loi
+        # "'+' tren record can dinh nghia __add__" cho 1 phep gan KHONG he
+        # co '+'. Mirror CHINH XAC nhanh 'method_call_expr' o tren (dong
+        # ~596-627) - tra cuu qua _method_call_expr_receiver_ta (dung
+        # CHUNG voi codegen compile_attr_expr trong record_feature.py, MOT
+        # nguon su that duy nhat) roi EXPR_METHOD_SHAPE/EXPR_METHOD_DTYPE
+        # voi khoa ('extern_class', 'get_<field>').
+        recv_ta = _method_call_expr_receiver_ta(node[1], scope, func_table, records, record_methods)
+        if recv_ta is not None and recv_ta.shape == 'extern_class':
+            _mkey2 = ('extern_class', f'get_{node[2]}')
+            resolver2 = EXPR_METHOD_SHAPE.get(_mkey2)
+            if resolver2:
+                return resolver2(recv_ta).dtype
+            registered2 = EXPR_METHOD_DTYPE.get(_mkey2)
+            if registered2:
+                return registered2
+        return None
     if tag == 'attr':
         # 'obj.field' - can bang records (ten class -> danh sach field) de
         # tra dtype THAT cua field do; khong co bang nay (vd cac noi goi
@@ -2231,6 +2255,15 @@ def _il_ctor_param_type(dtype_name, extern_class_defs):
         # mirror y het nhanh 'enum:...' ngay tren, TRANH sua IL_SCALAR
         # (Global Constraint cua plan nay).
         return 'class [mscorlib]System.Type'
+    if dtype_name == 'u64':
+        # Task 3 (RamGuard TokenVector Rewrite, 2026-08-31): dtype co dinh
+        # 'u64' (System.UInt64, vd ComputerInfo.AvailablePhysicalMemory)
+        # KHONG nam trong IL_SCALAR (mirror ly do 'type' o tren - tranh sua
+        # IL_SCALAR, Global Constraint cua plan nay) - short-circuit rieng,
+        # uy quyen sang tkv_compile._extern_il_type_text (da biet 'u64' qua
+        # _EXTERN_DTYPE_TO_IL['u64'] = 'unsigned int64').
+        import tkv_compile
+        return tkv_compile._extern_il_type_text(dtype_name)
     if isinstance(dtype_name, str) and dtype_name.startswith('array['):
         # Phase 9g (2026-08-27): 'array[T]' CHI ton tai o bien extern (chu
         # ky IL goi method .NET that su nhan/tra CLR array T[]) - KHONG di

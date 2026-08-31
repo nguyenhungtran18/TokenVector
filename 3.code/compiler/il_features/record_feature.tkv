@@ -26,6 +26,15 @@ from il_features.string_methods_batch4 import STR_METHODS_EXTRA2 as _STR_METHODS
 # batch2.py/batch3.py, giu tinh plug-and-play (nhom moi = file moi + 1
 # dong merge).
 _STR_METHODS = {**_STR_METHODS_BASE, **_STR_METHODS_EXTRA, **_STR_METHODS_EXTRA2}
+# Phase 10 (2026-08-28): center/rjust/ljust dang ky qua register_expr_method
+# (khong phai dict STR_METHODS_EXTRA cu), CHAY DUOC O MOI VI TRI BIEU THUC
+# ngay tu dau - KHONG can merge vao _STR_METHODS o day (import chi de
+# module string_methods_batch5.py duoc NAP, kich hoat cac dong
+# register_expr_method o cuoi file do). Xem compile_method_call ben duoi:
+# _STR_METHODS chi la 1 nhanh fallback (danh sach method CU), nhanh
+# EXPR_METHOD_CODEGEN (goi truoc trong il_codegen.py) da bat duoc
+# center/rjust/ljust truoc khi roi xuong day.
+import il_features.string_methods_batch5  # noqa: F401
 from il_features.list_pop import compile_list_method_pop as _compile_list_method_pop
 from il_features.dict_get import compile_dict_method_get as _compile_dict_method_get
 from il_features.dict_pop import compile_dict_method_pop as _compile_dict_method_pop
@@ -278,6 +287,68 @@ def compile_attr(node, scope, out, dtype, ctx=None):
     ctx['widen_if_needed'](field_dtype, dtype, out)
 
 
+def compile_attr_expr(node, scope, out, dtype, ctx=None):
+    """'.ten' (KHONG dau ngoac) sau 1 BIEU THUC (khong phai ten bien don)
+    - vd 'arr[i].Prop' (BUGS_TODO.md muc U, 2026-08-31, xac nhan root
+    cause: '_parse_postfix_method' truoc day LUON gia dinh la method-call,
+    gio co fallback tra ve node 'attr_expr' khi khong co '(' theo sau -
+    xem il_core.py). Mirror phan extern_class cua compile_attr o tren,
+    nhung obj KHONG phai 1 ten bien (khong co memory slot dat ten) - phai
+    suy TypeAnn cua bieu thuc co so roi BIEN DICH NO len stack lam
+    receiver truoc khi goi property getter, thay vi
+    ctx['load_var_ref'](obj_name, ...) nhu compile_attr lam.
+
+    Pham vi HIEN TAI: chi ho tro obj co shape 'extern_class' (dung cho
+    case that RamGuard.tkv can: 'procs[j].Id') - cac shape khac (record/
+    tuple/dict_kvpair) chua lam, bao loi ro rang de nguoi dung gan ra bien
+    truoc (cach vong da xac nhan hoat dong dung, khong phai bat buoc doi
+    voi cac shape do)."""
+    import il_codegen as _ilc
+    base_node, field_name = node[1], node[2]
+    func_table = (ctx or {}).get('func_table') or {}
+    records = (ctx or {}).get('records') or {}
+    record_methods = (ctx or {}).get('record_methods') or {}
+    # Dung LAI DUNG helper cua nhanh 'method_call_expr' (il_codegen.py) -
+    # da xu ly ca 3 dang co so THAT ('index' vd 'procs[0].Prop', 'index_expr'
+    # vd 's.split(",")[0].Prop', va fallback _infer_dtype cho call/method_call
+    # khac) - KHONG viet lai rieng, tranh bo sot dang 'index' (chi so don
+    # tren 1 bien - truong hop THAT SU pho bien nhat, vd RamGuard.tkv's
+    # 'procs[j].Id').
+    obj_ta = _ilc._method_call_expr_receiver_ta(base_node, scope, func_table, records, record_methods)
+    if obj_ta is None or obj_ta.shape != 'extern_class':
+        raise SyntaxError(
+            f"il_codegen: '.{field_name}' sau 1 bieu thuc phuc tap (khong phai ten "
+            f"bien don) hien CHI ho tro khi bieu thuc do la 1 handle-type "
+            f"(__tkv_extern_class__, vd 'arr[i].{field_name}') - gan bieu thuc ra 1 "
+            f"bien truoc roi doc property tren bien do (xem BUGS_TODO.md muc U)")
+    decl = _ilc._EXTERN_CLASS_DEFS.get(obj_ta.dtype)
+    prop = next((p for p in (decl.get('properties') or []) if p['name'] == field_name), None) \
+        if decl else None
+    if prop is None:
+        raise SyntaxError(
+            f"il_codegen: '.{field_name}' khong phai property da khai cua "
+            f"handle type {obj_ta.dtype!r}")
+    ctx['compile_expr'](base_node, scope, out, obj_ta.dtype, ctx)
+    prop_dtype = prop['dtype']
+    ret_il = _ilc._il_ctor_param_type(prop_dtype, _ilc._EXTERN_CLASS_DEFS)
+    call_target = f"[{decl['assembly']}]{decl['class']}"
+    out.append(f"    callvirt instance {ret_il} {call_target}::get_{field_name}()")
+    # Dtype PHIA TOKENVECTOR (mirror _tokenvector_facing_dtype cua
+    # tkv_compile.py) - KHONG import truc tiep tu tkv_compile.py de tranh
+    # circular import (compiler.il_features -> tkv_compile ->
+    # compiler.il_codegen -> compiler.il_features...) - chi 3 nhanh nho,
+    # trung lap co y thuc, ghi ro o day de dong bo neu tkv_compile.py's
+    # ham goc thay doi.
+    facing_dtype = prop_dtype
+    if prop_dtype == 'bool':
+        facing_dtype = 'i32'
+    elif prop_dtype == 'u64':
+        facing_dtype = 'i64'
+    elif isinstance(prop_dtype, str) and prop_dtype.startswith('enum:'):
+        facing_dtype = 'i32'
+    ctx['widen_if_needed'](facing_dtype, dtype, out)
+
+
 def compile_method_call(node, scope, out, dtype, ctx=None):
     obj_name, method_name, args = node[1], node[2], node[3]
     if isinstance(obj_name, tuple) and len(obj_name) >= 2 and obj_name[0] == 'call' and obj_name[1] == 'super':
@@ -424,4 +495,5 @@ register_line_parser('attr_assign', try_parse_attr_assign)
 register_stmt_codegen('attr_assign', codegen_attr_assign)
 register_first_pass_walk('attr_assign', fpw_attr_assign)
 register_expr_codegen('attr', compile_attr)
+register_expr_codegen('attr_expr', compile_attr_expr)
 register_expr_codegen('method_call', compile_method_call)

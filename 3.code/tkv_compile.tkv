@@ -1040,6 +1040,15 @@ def _parse_extern_pinvoke_dict_literal(node):
 # khong can sua gi them o codegen.
 _EXTERN_DTYPE_TO_IL = {'i32': 'int32', 'i64': 'int64', 'f32': 'float32',
                         'f64': 'float64', 'str': 'string', 'bool': 'bool',
+                        # Task 3 (RamGuard TokenVector Rewrite, 2026-08-31):
+                        # 'u64' - mirror 'bool'/'enum:...', can vi 1 so
+                        # property BCL that (vd ComputerInfo.
+                        # AvailablePhysicalMemory) tra ve System.UInt64,
+                        # callvirt doi khop CHINH XAC chu ky 'unsigned
+                        # int64' - dung 'int64' gay MissingMethodException
+                        # (xem task-3-report.md). Gia tri PHIA TOKENVECTOR
+                        # van la i64 thuong qua _tokenvector_facing_dtype.
+                        'u64': 'unsigned int64',
                         # Phase 9d Part B (2026-08-27): 'object' CHAP NHAN
                         # BAT KY handle-type __tkv_extern_class__ nao lam
                         # tham so (System.Object passthrough) - dtype nay
@@ -1159,6 +1168,13 @@ def _tokenvector_facing_dtype(dtype):
     rieng, gia tri LUON la i32 phia goi/nhan."""
     if dtype == 'bool':
         return 'i32'
+    if dtype == 'u64':
+        # Task 3 (RamGuard TokenVector Rewrite, 2026-08-31): mirror 'bool' -
+        # TokenVector khong co kieu unsigned rieng, gia tri PHIA TOKENVECTOR
+        # LUON la i64 thuong (IL_SCALAR chi co i32/i64/f32/f64). 'u64' o
+        # day CHI la nhan cho chu ky IL (_EXTERN_DTYPE_TO_IL), khong phai
+        # 1 dtype TokenVector moi.
+        return 'i64'
     if isinstance(dtype, str) and dtype.startswith('enum:'):
         return 'i32'
     if isinstance(dtype, str) and dtype.startswith('array['):

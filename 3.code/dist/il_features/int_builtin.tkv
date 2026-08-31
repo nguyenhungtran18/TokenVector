@@ -41,8 +41,19 @@ def push_int_builtin(args, scope, out, dtype, ctx):
         ctx['compile_expr'](args[0], scope, out, 'str', ctx)
         out.append('    call class [mscorlib]System.Globalization.CultureInfo '
                    '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
-        out.append('    call int32 [mscorlib]System.Int32::Parse(string, '
-                   'class [mscorlib]System.IFormatProvider)')
+        if dtype == 'i64':
+            # BUGS_TODO.md muc T.1 (2026-08-31): truoc day LUON dung
+            # Int32.Parse roi nho _widen_if_needed nang len i64 sau -
+            # nhung Int32.Parse tu no da NEM OverflowException that voi
+            # gia tri > i32.MaxValue (vd datetime_ticks() dang chuoi) TRUOC
+            # KHI kip widen. Khi ngu canh goi (dtype tham so nay) THAT SU
+            # can i64 (vd 'x: "i64" = int(s)'), goi thang Int64.Parse -
+            # khong di qua Int32 nua.
+            out.append('    call int64 [mscorlib]System.Int64::Parse(string, '
+                       'class [mscorlib]System.IFormatProvider)')
+        else:
+            out.append('    call int32 [mscorlib]System.Int32::Parse(string, '
+                       'class [mscorlib]System.IFormatProvider)')
         return
     if src in float_dtypes or src == 'i64':
         ctx['compile_expr'](args[0], scope, out, src, ctx)
