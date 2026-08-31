@@ -1548,7 +1548,13 @@ def _expr_walrus(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     name = node[1]
     rhs_node = node[2]
     _, _, type_ann = scope[name]
-    _compile_expr(rhs_node, scope, out, type_ann.dtype, ctx)
+    # value_dtype_spec_for_ta (KHONG PHAI type_ann.dtype PHANG) - phat
+    # hien qua list_dtype_spec_convention_guard_test.py (2026-08-29):
+    # neu 'NAME' co kieu list-long-nhau (vd 'list[list[i32]]') va ve phai
+    # la 1 list-literal, '.dtype' PHANG se mat lop long nhau, sinh sai IL
+    # (cung loai bug da sua o Critical round 2, 2026-08-19 - xem docstring
+    # value_dtype_spec_for_ta).
+    _compile_expr(rhs_node, scope, out, _value_dtype_spec_for_ta(type_ann, rhs_node), ctx)
     out.append('    dup')
     _store_var(name, scope, out)
     _widen_if_needed(type_ann.dtype, dtype, out)
