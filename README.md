@@ -39,10 +39,10 @@ Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên 
 ## ⚡ II. 5 CHỈ SỐ NỔI BẬT HÀNG ĐẦU (HIGHLIGHT STATS)
 
 - **Tự-host (Self-hosted)**: Compiler `tkvc.exe` được viết **bằng chính TokenVector** (102 file `.tkv`), không phụ thuộc Python runtime khi chạy production.
-- **Đa Luồng No-GIL**: **Nhanh gấp 10.39×** so với CPython (chạy song song 100% nhân CPU vật lý mà không bị nghẽn bởi khóa GIL).
-- **Dung Lượng File PE**: **~8 KB - vài chục KB Standalone** cho chương trình biên dịch bằng `tkvc.exe` (không cần nạp CPython Interpreter).
-- **Tốc Độ Biên Dịch**: **~200 ms AOT** (Biên dịch AOT siêu tốc từ AST $\rightarrow$ ILASM $\rightarrow$ Native PE).
-- **Độ Tương Thích**: **100% Python Syntax** (Dùng cùng file `.tkv`/`.py`, ra kết quả giống hệt CPython) **+ Tương tác trực tiếp hệ sinh thái .NET/NuGet** (xem mục X).
+- **Đa Luồng No-GIL**: **Nhanh gấp ~25.9×** so với CPython trên workload đa luồng số nguyên (4 luồng × 5M ops, đo thật 2026-08-31 — xem mục IV), nhờ chạy song song thật trên nhiều nhân CPU, không bị khóa GIL.
+- **Dung Lượng File PE**: chương trình `.tkv` biên dịch ra file `.exe` **~8.5 - 9 KB** (đo thật, không cần nạp CPython Interpreter).
+- **Tốc Độ Biên Dịch**: **~2.3 - 3.9 giây/lần** (đo thật qua `tkvc.exe`; phần lớn là overhead khởi động PyInstaller-frozen exe, không phải logic biên dịch — xem ghi chú mục V).
+- **Độ Tương Thích**: **100% Python Syntax** (Dùng cùng file `.tkv`/`.py`, ra kết quả giống hệt CPython) **+ Tương tác trực tiếp hệ sinh thái .NET/NuGet** (xem mục IX).
 
 ---
 
@@ -51,8 +51,8 @@ Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên 
 | Tiêu Chí Đánh Giá | CPython 3.12 | TokenVector (AOT Binary) | C++ Native |
 | :--- | :--- | :--- | :--- |
 | **Độ dễ viết mã** | ⭐⭐⭐⭐⭐ *(Dễ nhất)* | ⭐⭐⭐⭐⭐ *(Cú pháp Python 100%)* | ⭐⭐ *(Phức tạp, quản lý con trỏ)* |
-| **Đóng gói & Phân phối** | ⭐⭐ *(Cần venv / interpreter)* | ⭐⭐⭐⭐⭐ *(File .exe độc lập 100%)* | ⭐⭐⭐⭐⭐ *(File binary độc lập)* |
-| **Đa luồng Multicore** | ⭐ *(Bị khóa bởi GIL)* | ⭐⭐⭐⭐⭐ *(No GIL, nhanh gấp 10.39x)* | ⭐⭐⭐⭐⭐ *(Chạy song song tối đa)* |
+| **Đóng gói & Phân phối** | ⭐⭐ *(Cần venv / interpreter)* | ⭐⭐⭐⭐⭐ *(File .exe độc lập, ~8.5-9 KB đo thật)* | ⭐⭐⭐⭐⭐ *(File binary độc lập)* |
+| **Đa luồng Multicore** | ⭐ *(Bị khóa bởi GIL)* | ⭐⭐⭐⭐⭐ *(No GIL, nhanh gấp ~25.9x đo thật trên workload int)* | ⭐⭐⭐⭐⭐ *(Chạy song song tối đa)* |
 | **Tính toán Đơn luồng** | ⭐⭐⭐ *(Thông dịch Bytecode)* | ⭐⭐⭐⭐ *(AOT CIL Unboxed Native)* | ⭐⭐⭐⭐⭐ *(Biên dịch Mã máy Native)* |
 | **Hệ sinh thái Thư viện** | ⭐⭐⭐⭐⭐ *(PyPI 500k+ pkgs)* | ⭐⭐⭐⭐ *(Python + C-FFI + .NET BCL)* | ⭐⭐⭐⭐ *(C/C++ Ecosystem)* |
 
@@ -60,23 +60,27 @@ Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên 
 
 ## 🚀 IV. SO SÁNH TỐC ĐỘ THỰC THI THUẬT TOÁN THUẦN TÚY (IN-PROCESS)
 
-| Bài Kiểm Thử (Workload) | CPython 3.12 (In-Process) | TokenVector AOT (In-Process) | C++ Native (-O3) | Đánh Giá So Sánh |
-| :--- | :--- | :--- | :--- | :--- |
-| **Vòng lặp Số nguyên (10M Ops)** | 2,319.50 ms | **410.00 ms** | 350.00 ms | **TokenVector nhanh hơn Python 5.65x 🔥** |
-| **Phép tính Số thực FP64 (2M Ops)** | 504.16 ms | **429.73 ms** | 380.00 ms | **TokenVector nhanh hơn Python 1.17x 🔥** |
-| **Đa luồng Số nguyên (4 Threads x 5M)** | 2,543.56 ms | **244.88 ms** | 218.00 ms | **TokenVector nhanh hơn Python 10.39x (No GIL) 🔥** |
-| **Đa luồng Số thực (4 Threads x 2M Float)** | 2,096.42 ms | **310.23 ms** | 260.00 ms | **TokenVector nhanh hơn Python 6.76x (No GIL) 🔥** |
+**Đo thật ngày 2026-08-31** (median 3 lần chạy, cùng máy, `tkvc.exe` self-hosted vs CPython 3.12.10). **Không có cột C++**: môi trường đo không cài `g++`/`cl.exe`, không xác minh được — số C++ cũ đã bị gỡ vì không kiểm chứng lại được, tránh giữ số liệu không rõ nguồn gốc.
+
+| Bài Kiểm Thử (Workload) | CPython 3.12 (median) | TokenVector AOT (median) | Tỷ lệ |
+| :--- | :--- | :--- | :--- |
+| **Vòng lặp Số nguyên (10M Ops)** | 1,852 ms | **82 ms** | **TokenVector nhanh hơn Python 22.6x** |
+| **Phép tính Số thực FP64 (2M Ops)** | 290 ms | **18 ms** | **TokenVector nhanh hơn Python 16.1x** |
+| **Đa luồng Số nguyên (4 Threads x 5M)** | 3,284 ms | **127 ms** | **TokenVector nhanh hơn Python 25.9x (No GIL)** |
+| **Đa luồng Số thực (4 Threads x 2M Float)** | 1,222 ms | ⚠️ **Lỗi compiler đã biết** | `thread_join()` ép sai kiểu khi worker trả về `f64` (giới hạn ghi ở `docs/BUGS_TODO.md`, mục thread — first-pass gán tĩnh `i64` cho biến nhận trước khi tra được kiểu thật) — chưa đo được cho tới khi vá |
 
 ---
 
 ## 💾 V. SO SÁNH DUNG LƯỢNG FILE, TỐC ĐỘ BIÊN DỊCH & ĐÓNG Gói
 
-| Tiêu Chí Kỹ Thuật | CPython 3.12 | TokenVector AOT PE | C++ Native (MSVC / GCC) |
-| :--- | :--- | :--- | :--- |
-| **Dung lượng File Đóng gói (.exe)** | 25 MB - 100 MB *(Cần Runtime)* | **12 KB - 120 KB (Standalone)** | 15 KB - 80 KB *(Native)* |
-| **Tốc độ Biên dịch (Build Time)** | 0 ms *(Bytecode tức thì)* | **~150 ms - 300 ms (Siêu tốc)** | 1,500 ms - 5,000 ms *(Lâu)* |
-| **Phụ thuộc Môi trường Bên ngoài** | Bắt buộc cài Python + DLL | **KHÔNG CẦN CPython** | Bắt buộc CRT/VCRuntime |
-| **Bảo mật Mã nguồn (Reverse Eng)** | Dễ bị decompiled (.pyc) | **Đã qua AOT Assembly CIL** | Native Machine Code x64 |
+**Đo thật ngày 2026-08-31.** Không có cột C++ (lý do như mục IV).
+
+| Tiêu Chí Kỹ Thuật | CPython 3.12 | TokenVector AOT PE |
+| :--- | :--- | :--- |
+| **Dung lượng File Đóng gói (.exe của chương trình biên dịch)** | 25 MB - 100 MB *(Cần Runtime)* | **~8.5 - 9 KB (Standalone, đo thật)** |
+| **Tốc độ Biên dịch (Build Time qua `tkvc.exe`)** | 0 ms *(Bytecode tức thì)* | **~2.3 - 3.9 giây (đo thật)** — phần lớn là overhead khởi động PyInstaller-frozen `tkvc.exe` (compiler viết bằng `.tkv` nhưng vẫn chạy trên CPython đóng gói, KHÔNG phải compile-to-native chính nó), không phải logic biên dịch AST→IL |
+| **Phụ thuộc Môi trường Bên ngoài** | Bắt buộc cài Python + DLL | **KHÔNG CẦN CPython** (chương trình `.tkv` biên dịch ra chạy độc lập; bản thân `tkvc.exe` thì có, xem trên) |
+| **Bảo mật Mã nguồn (Reverse Eng)** | Dễ bị decompiled (.pyc) | **Chương trình biên dịch ra đã qua AOT Assembly CIL** |
 
 ---
 
@@ -239,5 +243,5 @@ Ngoài việc biên dịch AOT thuần Python-syntax, TokenVector còn gọi th�
 ## 📌 X. TỔNG KẾT BÀN CÂN 3 CỰC
 
 1. **CPython 3.12**: Thích hợp cho việc viết script nhanh, prototype và nghiên cứu khoa học. Nhược điểm: Tốc độ chậm hơn, file đóng gói cồng kềnh (hàng chục MB) và bị rào cản đa luồng nghiêm trọng bởi khóa GIL.
-2. **TokenVector AOT**: **Dung hòa hoàn hảo 2 thế giới!** Giữ nguyên 100% cú pháp dễ viết của Python nhưng biên dịch AOT ra file `.exe` nhỏ gọn (chỉ vài chục KB), chạy đa luồng nhanh gấp **10.39 LẦN** nhờ loại bỏ GIL, đồng thời hỗ trợ đầy đủ `yield from`, `async/await`, `ctypes` FFI và liên kết trực tiếp hệ sinh thái .NET.
+2. **TokenVector AOT**: **Dung hòa hoàn hảo 2 thế giới!** Giữ nguyên 100% cú pháp dễ viết của Python nhưng biên dịch AOT ra file `.exe` nhỏ gọn (chỉ vài chục KB), chạy đa luồng nhanh gấp **~25.9 LẦN** (đo thật, workload số nguyên) nhờ loại bỏ GIL, đồng thời hỗ trợ đầy đủ `yield from`, `async/await`, `ctypes` FFI và liên kết trực tiếp hệ sinh thái .NET.
 3. **C++ Native**: Đạt hiệu năng tuyệt đối về tốc độ và kiểm soát bộ nhớ thủ công, nhưng đánh đổi bằng cú pháp phức tạp, thời gian biên dịch lâu (vài giây) và chi phí phát triển phần mềm cao hơn rất nhiều.
