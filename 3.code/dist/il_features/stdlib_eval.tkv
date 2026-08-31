@@ -48,3 +48,152 @@ def push_eval_arith(args, scope, out, dtype, ctx):
 
 
 register_expr_builtin('eval_arith', push_eval_arith, 'f64')
+
+
+# ---------------------------------------------------------------------
+# eval_expr(expr, name=value, ...) - Phase 12 (2026-08-29): mo rong eval
+# co KIEM SOAT, cho phep bieu thuc chuoi luc chay THAM CHIEU bien da khai
+# bao TRUOC (kieu so) trong ngu canh tinh. KHONG phai eval() Python tong
+# quat: khong dinh nghia ham moi, khong import module moi, khong goi ham
+# nguoi dung ben trong chuoi bieu thuc - chi bien so (i32/i64/f32/f64) da
+# duoc TRUYEN VAO qua keyword-argument tai vi tri goi (quyet dinh thiet
+# ke da chot voi nguoi dung 2026-08-29: tai su dung co che keyword-
+# argument cua Phase 11a thay vi truyen list ten/list gia tri rieng).
+#
+# Ky thuat (DA SUA sau khi phat hien qua test THAT - xem duoi): dt.Columns
+# .Add(name, typeof(double)) cho MOI keyword-argument, tao 1 DataRow gan
+# gia tri tung cot, dt.Rows.Add(row), roi them 1 COT TINH TOAN moi qua
+# DataColumnCollection.Add(name, type, EXPRESSION) - 3-tham-so overload
+# nay gan DataColumn.Expression, duoc .NET tu dong TINH LAI cho MOI dong
+# da co san khi cot duoc them vao. Doc gia tri qua row["ten_cot_ket_qua"].
+#
+# GHI CHU QUAN TRONG (phat hien qua chay THAT, khong doan): ban dau tuong
+# 'DataTable.Compute(expr, filter)' (giong eval_arith) co the tham chieu
+# TEN COT truc tiep nhu 1 bien - SAI. Chay thu THAT nem
+# 'System.Data.EvaluateException: Cannot evaluate. Expression
+# ...NameNode... is not an aggregate' - .Compute() CHI cho phep tham
+# chieu ten cot BEN TRONG 1 ham aggregate (Sum/Avg/Min/Max/Count/...),
+# khong phai bieu thuc tinh theo TUNG DONG. DataColumn.Expression (gan
+# qua Add(name, type, expression)) moi la co che DUNG cho "tinh theo tung
+# dong tham chieu cot khac" - sua lai kien truc sau khi phat hien, KHONG
+# giu ket qua bia/gia dinh sai.
+#
+# GIOI HAN CO Y THUC (ghi ro, khong giau):
+# - Bien truyen vao PHAI la kieu so (i32/i64/f32/f64) - tuong tu
+#   eval_arith, DataTable.Compute khong ho tro chuoi/bool lam toan hang.
+# - Ten bien KHONG duoc trung nhau trong cung 1 loi goi.
+# - Tham so DAU TIEN (bieu thuc) BAT BUOC la vi tri (khong duoc la
+#   keyword-argument) - moi tham so SAU no BAT BUOC la keyword-argument.
+# - KHONG the dinh nghia ham/bien MOI ben trong chuoi eval, KHONG the
+#   import module moi luc chay - day la RANH GIOI THAT cua kien truc
+#   "compile tinh ra native exe", khong gia vo vuot qua duoc (xem
+#   docstring dau file va roadmap doc, muc Phase 12).
+def _eval_expr_temps(node, ctx):
+    """FIRST PASS: khai 2 local an (DataTable, DataRow) cho 1 loi goi
+    eval_expr(...) - giu qua nhieu buoc (them cot, tao dong, Compute)."""
+    args = node[2]
+    if len(args) < 1:
+        return
+    TypeAnn_ = ctx['TypeAnn']
+    key = id(args)
+    ctx['declare_named'](f'__evx{key}_dt', TypeAnn_('', 'datatable'))
+    ctx['declare_named'](f'__evx{key}_row', TypeAnn_('', 'datarow'))
+
+
+def compile_eval_expr(args, scope, out, dtype, ctx):
+    if len(args) < 1:
+        raise SyntaxError(
+            "il_codegen: eval_expr(expr, name=value, ...) can it nhat 1 tham so (bieu thuc)")
+    if args[0][0] == 'kwarg':
+        raise SyntaxError(
+            "il_codegen: eval_expr(expr, ...) - tham so DAU TIEN phai la bieu thuc chuoi "
+            "(khong duoc la keyword-argument)")
+    kwargs = args[1:]
+    seen = set()
+    int_dtypes = ctx['int_dtypes']
+    float_dtypes = ctx['float_dtypes']
+    infer_dtype = ctx['infer_dtype']
+    for a in kwargs:
+        if a[0] != 'kwarg':
+            raise SyntaxError(
+                "il_codegen: eval_expr(expr, name=value, ...) - moi tham so SAU bieu thuc "
+                "dau tien BAT BUOC la keyword-argument (name=value)")
+        _, vname, vexpr = a
+        if vname in seen:
+            raise SyntaxError(f"il_codegen: eval_expr(...) - ten bien '{vname}' bi lap lai")
+        seen.add(vname)
+        vdtype = infer_dtype(vexpr, scope, ctx.get('func_table'))
+        if vdtype not in int_dtypes and vdtype not in float_dtypes:
+            raise SyntaxError(
+                f"il_codegen: eval_expr(...) - bien '{vname}' phai la kieu so "
+                f"(i32/i64/f32/f64), gap '{vdtype}'")
+
+    key = id(args)
+    dt_idx = scope[f'__evx{key}_dt'][1]
+    row_idx = scope[f'__evx{key}_row'][1]
+    compile_expr = ctx['compile_expr']
+
+    out.append('    newobj instance void [System.Data]System.Data.DataTable::.ctor()')
+    out.append(f'    stloc.s {dt_idx}')
+
+    for a in kwargs:
+        _, vname, _vexpr = a
+        out.append(f'    ldloc.s {dt_idx}')
+        out.append('    callvirt instance class [System.Data]System.Data.DataColumnCollection '
+                    '[System.Data]System.Data.DataTable::get_Columns()')
+        out.append(f'    ldstr "{vname}"')
+        out.append('    ldtoken [mscorlib]System.Double')
+        out.append('    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle('
+                    'valuetype [mscorlib]System.RuntimeTypeHandle)')
+        out.append('    callvirt instance class [System.Data]System.Data.DataColumn '
+                    '[System.Data]System.Data.DataColumnCollection::Add(string, class [mscorlib]System.Type)')
+        out.append('    pop')
+
+    out.append(f'    ldloc.s {dt_idx}')
+    out.append('    callvirt instance class [System.Data]System.Data.DataRow '
+                '[System.Data]System.Data.DataTable::NewRow()')
+    out.append(f'    stloc.s {row_idx}')
+
+    for a in kwargs:
+        _, vname, vexpr = a
+        out.append(f'    ldloc.s {row_idx}')
+        out.append(f'    ldstr "{vname}"')
+        compile_expr(vexpr, scope, out, 'f64', ctx)
+        out.append('    box [mscorlib]System.Double')
+        out.append('    callvirt instance void [System.Data]System.Data.DataRow::set_Item(string, object)')
+
+    out.append(f'    ldloc.s {dt_idx}')
+    out.append('    callvirt instance class [System.Data]System.Data.DataRowCollection '
+                '[System.Data]System.Data.DataTable::get_Rows()')
+    out.append(f'    ldloc.s {row_idx}')
+    out.append('    callvirt instance void [System.Data]System.Data.DataRowCollection::Add('
+                'class [System.Data]System.Data.DataRow)')
+
+    # Them 1 cot TINH TOAN (DataColumn.Expression) - .NET tu tinh lai cho
+    # dong da co san khi cot duoc them (xem ghi chu 'GHI CHU QUAN TRONG'
+    # dau file). Ten cot ket qua gan theo 'key' (id(args)) de KHONG bao gio
+    # trung ten voi bien nguoi dung truyen vao qua keyword-argument.
+    result_col = f'__evx_result_{key}'
+    out.append(f'    ldloc.s {dt_idx}')
+    out.append('    callvirt instance class [System.Data]System.Data.DataColumnCollection '
+                '[System.Data]System.Data.DataTable::get_Columns()')
+    out.append(f'    ldstr "{result_col}"')
+    out.append('    ldtoken [mscorlib]System.Double')
+    out.append('    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle('
+                'valuetype [mscorlib]System.RuntimeTypeHandle)')
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    callvirt instance class [System.Data]System.Data.DataColumn '
+                '[System.Data]System.Data.DataColumnCollection::Add(string, '
+                'class [mscorlib]System.Type, string)')
+    out.append('    pop')
+
+    out.append(f'    ldloc.s {row_idx}')
+    out.append(f'    ldstr "{result_col}"')
+    out.append('    callvirt instance object [System.Data]System.Data.DataRow::get_Item(string)')
+    out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+                '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+    out.append('    call float64 [mscorlib]System.Convert::ToDouble(object, '
+                'class [mscorlib]System.IFormatProvider)')
+
+
+register_expr_builtin('eval_expr', compile_eval_expr, 'f64', temps_fn=_eval_expr_temps)

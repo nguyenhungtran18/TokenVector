@@ -224,6 +224,17 @@ def il_type_str(type_ann: TypeAnn, records: dict = None) -> str:
         # khong can, class .NET co san BAT BUOC can [assembly]Ten.Day.Du).
         decl = _EXTERN_CLASS_DEFS[type_ann.dtype]
         return f"class [{decl['assembly']}]{decl['class']}"
+    if type_ann.shape == 'datatable':
+        # eval_expr (Phase 12, 2026-08-29) - local AN giu 1 doi tuong
+        # System.Data.DataTable (reference type) qua nhieu buoc (them cot,
+        # tao dong, Compute) - cung mau voi 'regex_match'/'regex_matches'
+        # ben duoi (dat truoc trong file de tranh trung ten khoi if-chain).
+        return 'class [System.Data]System.Data.DataTable'
+    if type_ann.shape == 'datarow':
+        # eval_expr (Phase 12, 2026-08-29) - local AN giu 1 doi tuong
+        # System.Data.DataRow, dung de gan gia tri tung cot truoc khi them
+        # vao DataTable.Rows.
+        return 'class [System.Data]System.Data.DataRow'
     if type_ann.shape == 'regex_match':
         # json_get_str (2026-07-30, xem il_features/stdlib_json_get.py) -
         # local AN giu 1 doi tuong System.Text.RegularExpressions.Match
