@@ -35,6 +35,8 @@ _WHILE_RE = re.compile(r'^while\s+(.+):\s*$')
 _IF_RE = re.compile(r'^if\s+(.+):\s*$')
 _ELSE_RE = re.compile(r'^else\s*:\s*$')
 _ELIF_RE = re.compile(r'^elif\s+(.+):\s*$')
+_MATCH_RE = re.compile(r'^match\s+(.+):\s*$')
+_CASE_RE = re.compile(r'^case\s+(.+):\s*$')
 _RETURN_RE = re.compile(r'^return\s+(.+)$')
 _BREAK_RE = re.compile(r'^break\s*$')
 _CONTINUE_RE = re.compile(r'^continue\s*$')
@@ -345,6 +347,80 @@ def try_expand_for_in_list(line):
 
 
 _ASSERT_RE = re.compile(r'^assert\s+(.+)$')
+
+
+def try_parse_match(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """'match SUBJECT:' / 'case PATTERN:' (Phase 13, 2026-08-29) - DESUGAR
+    THANH chuoi if/elif/else LONG NHAU (tai su dung NGUYEN VEN {'kind':
+    'if', ...} da co, KHONG them kind moi/khong them STMT_CODEGEN/
+    FIRST_PASS_WALK moi) - dung y het ky thuat 'elif' -> 'if' de quy o
+    try_parse_if ben tren, chi khac o CHO desugar dien ra tren CAY STMT
+    (khong phai van ban tho) vi 'case' can gom nhieu dong con thanh 1
+    block truoc khi bien doi.
+
+    GIOI HAN CO Y THUC (ghi ro, khong am tham thu hep): CHI ho tro
+    'match'/'case' cho PHAN NHO cu phap that cua Python - khong phai
+    structural pattern matching day du:
+    - Pattern MOI 'case' CHI duoc la 1 HANG SO literal (so/chuoi/bool -
+      bool da tu quy ve 'num' 1/0 boi parse_expr, xem il_core.py) HOAC
+      wildcard '_'. KHONG ho tro capture-pattern ('case x:' gan bien),
+      class-pattern ('case Point(x=0, y=0):'), sequence-pattern
+      ('case [a, b]:'), OR-pattern ('case 1 | 2:'), guard ('case x if
+      cond:'). Ly do: cac dang do can 1 tang phan tich cau truc rieng
+      (khong the desugar THANG ve so sanh '==') - ngoai pham vi Phase 13,
+      danh cho phase sau neu can.
+    - 'case _:' (wildcard) NEU CO PHAI la case CUOI CUNG - giong Python
+      that (wildcard sau cung se lam 'case' phia sau khong bao gio chay
+      toi, CPython tu canh bao 'unreachable' - o day BAO LOI ro rang luc
+      bien dich thay vi am tham cho qua).
+    - PHAI co it nhat 1 'case' voi pattern hang so (ngoai wildcard)."""
+    m_match = _MATCH_RE.match(line)
+    if not m_match:
+        return None
+    subject_node = parse_expr(m_match.group(1))
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(f"il_codegen: 'match {m_match.group(1)}:' khong co 'case' nao (block rong)")
+    case_indent = lines[pos][0]
+    cases = []
+    default_body = None
+    while pos < len(lines) and lines[pos][0] == case_indent:
+        case_line = lines[pos][1]
+        m_case = _CASE_RE.match(case_line)
+        if not m_case:
+            raise SyntaxError(
+                f"il_codegen: ben trong 'match' chi duoc phep 'case PATTERN:', gap: {case_line!r}")
+        pattern_src = m_case.group(1).strip()
+        pos += 1
+        if pos >= len(lines) or lines[pos][0] <= case_indent:
+            raise SyntaxError(f"il_codegen: 'case {pattern_src}:' khong co than khoi (block rong)")
+        body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+        if pattern_src == '_':
+            if default_body is not None:
+                raise SyntaxError(
+                    "il_codegen: 'match' chi duoc co DUNG 1 'case _:' (wildcard)")
+            default_body = body
+        else:
+            if default_body is not None:
+                raise SyntaxError(
+                    "il_codegen: 'case _:' (wildcard) PHAI la 'case' CUOI CUNG trong 'match' "
+                    "(giong Python that - case sau wildcard khong bao gio chay toi)")
+            pattern_node = parse_expr(pattern_src)
+            if pattern_node[0] not in ('num', 'str_lit'):
+                raise SyntaxError(
+                    f"il_codegen: 'case {pattern_src}:' - Phase 13 CHI ho tro pattern la HANG SO "
+                    f"literal (so/chuoi/bool) hoac wildcard '_' - KHONG ho tro capture-pattern/"
+                    f"class-pattern/sequence-pattern/OR-pattern/guard")
+            cases.append((pattern_node, body))
+    if not cases:
+        raise SyntaxError(
+            "il_codegen: 'match' can it nhat 1 'case' voi pattern hang so (ngoai 'case _:')")
+    result = None
+    for pattern_node, body in reversed(cases):
+        cond_node = ('compare', '==', subject_node, pattern_node)
+        else_body = [result] if result is not None else default_body
+        result = {'kind': 'if', 'cond_node': cond_node, 'body': body, 'else_body': else_body}
+    return result, pos
 
 
 def _split_top_level_comma(text):
@@ -1444,6 +1520,7 @@ def codegen_raise(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
 # Dang ky vao il_dispatch NGAY LUC MODULE NAP.
 register_macro_expander('for_in_list', try_expand_for_in_list)
 register_macro_expander('assert', try_expand_assert)
+register_line_parser('match', try_parse_match)
 register_line_parser('if', try_parse_if)
 register_line_parser('for', try_parse_for)
 register_line_parser('while', try_parse_while)

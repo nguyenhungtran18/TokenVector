@@ -153,6 +153,7 @@ _EXPR_TOKEN_RE = re.compile(r'''
       | (?P<CMPOP>>=|<=|==|!=)
       | (?P<POW>\*\*)
       | (?P<FLOORDIV>//)
+      | (?P<WALRUS>:=)
       | (?P<OP>[+\-*/%(),\[\].?:><=])
     )
 ''', re.VERBOSE)
@@ -228,7 +229,7 @@ def _tokenize_expr(s):
         # '>' '<' 1 ky tu) deu xu ly nhu 1 toan tu 'OP' o tang parser -
         # gop lai de parser khong can biet phan biet cac group tokenizer
         # nay (Wave 3, 2026-07-29 - them '**'/'//').
-        if kind in ('CMPOP', 'POW', 'FLOORDIV'):
+        if kind in ('CMPOP', 'POW', 'FLOORDIV', 'WALRUS'):
             kind = 'OP'
         tokens.append((kind, m.group(m.lastgroup)))
     tokens.append(('EOF', None))
@@ -600,6 +601,22 @@ class _ExprParser:
                 # KHOA cua Python nen khong the trung ten bien nguoi dung.
                 return ('num', '1' if v == 'True' else '0')
             k2, v2 = self.peek()
+            if k2 == 'OP' and v2 == ':=':
+                # Walrus operator 'NAME := expr' (Phase 13, 2026-08-29) -
+                # bieu thuc gan-va-tra-gia-tri. Dat O DAY (ngay sau khi
+                # doc xong 1 IDENT don le, TRUOC nhanh '.'/'(' khac) vi
+                # ':=' chi hop le sau 1 TEN BIEN don, khong sau attr/index/
+                # call. GIOI HAN CO Y THUC: 'NAME' PHAI la 1 ten HOP LE
+                # (bien co san hoac bien MOI se duoc suy kieu tu ve phai,
+                # giong 'x = expr' thuong - xem declare_scalar trong
+                # collect_ternary_temps, il_codegen.py). Uu tien THAP
+                # (parse_expr() de quy cho ve phai) giong Python that
+                # (walrus binds looser than most operators) - nhung KHONG
+                # tao vong de quy vo han vi RHS khong the la 1 walrus khac
+                # cung ten (parse tu nhien se lo callback KHAC neu co).
+                self.advance()
+                rhs_node = self.parse_expr()
+                return ('walrus', v, rhs_node)
             if k2 == 'OP' and v2 == '.':
                 self.advance()
                 k3, v3 = self.advance()

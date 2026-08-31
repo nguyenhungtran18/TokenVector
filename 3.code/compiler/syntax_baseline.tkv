@@ -82,10 +82,16 @@ _SUGGESTIONS = {
         "dung vong 'for' tuong minh, hoac generator tu dinh nghia cua DSL ('yield' trong ham)",
     'f-string':
         "dung '.format()' hoac noi chuoi bang '+'",
-    'walrus operator (:=)':
-        "tach thanh 2 cau lenh rieng (gan roi dung)",
-    'match/case statement':
-        "dung chuoi if/elif/else",
+    # 'walrus operator (:=)' (khoa cu, Phase 13 2026-08-29 da ho tro THAT -
+    # xem visit_NamedExpr, khong con flag nua).
+    # 'match/case statement' (khoa cu, Phase 13 2026-08-29 da ho tro pattern
+    # hang so literal/wildcard '_' - xem 2 khoa moi ben duoi thay the).
+    "match/case voi guard ('case x if cond:') chua ho tro":
+        "chuyen dieu kien phu vao 1 cau lenh 'if' long BEN TRONG than 'case' thay vi viet sau 'if'",
+    "match/case pattern khong ho tro - CHI ho tro hang so literal "
+    "(so/chuoi/bool) hoac wildcard '_', khong ho tro capture-pattern/"
+    "class-pattern/sequence-pattern/OR-pattern":
+        "dung chuoi if/elif/else voi so sanh '==' tuong minh thay cho pattern phuc tap",
     'multiple-target assignment (a = b = c)':
         "tach thanh nhieu dong gan rieng ('a = c' roi 'b = c')",
     'augmented assign operator not supported':
@@ -573,14 +579,44 @@ class _BaselineVisitor(ast.NodeVisitor):
             self._flag(node, 'augmented assign operator not supported')
         self.generic_visit(node)
 
-    def visit_NamedExpr(self, node):
-        self._flag(node, 'walrus operator (:=)')
-        self.generic_visit(node)
+    # visit_NamedExpr (walrus operator ':=') XOA (Phase 13, 2026-08-29) -
+    # da duoc ho tro THAT trong compiler (il_core.py's parse_factor +
+    # il_codegen.py's _expr_walrus/collect_ternary_temps). ast.NamedExpr's
+    # 'target' LUON la 1 ast.Name (bao dam boi chinh ngu phap Python,
+    # khong can kiem tra rieng) nen KHONG can nhanh visit_NamedExpr nao
+    # nua - de generic_visit mac dinh cua NodeVisitor duyet tiep binh
+    # thuong (cung nguyen tac da ap dung cho match/case: sua tu 'luon bao
+    # loi' sang cho qua dung pham vi compiler that ho tro).
 
     # -- control flow ----------------------------------------------------
     def visit_Match(self, node):
-        self._flag(node, 'match/case statement')
-        # KHONG generic_visit sau - tranh bao lan qua cac 'case' con
+        """Phase 13 (2026-08-29): compiler THAT (control_flow.py's
+        try_parse_match) da ho tro 1 PHAN NHO cu phap match/case - pattern
+        CHI duoc la hang so literal (so/chuoi/bool) hoac wildcard '_',
+        KHONG guard. Linter nay PHAI khop DUNG pham vi do (khong duoc rong
+        hon compiler that chap nhan, khong duoc hep hon lam tu choi nham
+        cu phap hop le) - cung nguyen tac da ap dung cho zip/enumerate/
+        product/combinations (_is_zip_or_enumerate_call)."""
+        for case in node.cases:
+            if case.guard is not None:
+                self._flag(node, "match/case voi guard ('case x if cond:') chua ho tro")
+                return
+            pat = case.pattern
+            ok = (
+                (isinstance(pat, ast.MatchValue) and isinstance(pat.value, ast.Constant)
+                 and isinstance(pat.value.value, (int, float, str))
+                 and not isinstance(pat.value.value, bool))
+                or (isinstance(pat, ast.MatchSingleton) and isinstance(pat.value, bool))
+                or (isinstance(pat, ast.MatchAs) and pat.pattern is None and pat.name is None)
+            )
+            if not ok:
+                self._flag(
+                    node,
+                    "match/case pattern khong ho tro - CHI ho tro hang so literal "
+                    "(so/chuoi/bool) hoac wildcard '_', khong ho tro capture-pattern/"
+                    "class-pattern/sequence-pattern/OR-pattern")
+                return
+        self.generic_visit(node)
 
     def visit_For(self, node):
         if isinstance(node.target, ast.Tuple):

@@ -342,6 +342,44 @@ def _walk_ternaries_preorder(node):
     # 'num' / 'var' / 'shape' / 'attr': khong co node con
 
 
+def _walk_walrus_preorder(node):
+    """Duyet TIM MOI node 'walrus' (NAME := expr, Phase 13, 2026-08-29)
+    long nhau trong 1 AST - CUNG cau truc de quy voi
+    _walk_ternaries_preorder (giu song song, tach RIENG ham vi walrus
+    KHONG can thu tu pre-order lam "khoa" nhu ternary - moi node walrus
+    la 1 TEN BIEN duy nhat, khong xung dot chi so temp)."""
+    if not isinstance(node, tuple):
+        return
+    tag = node[0]
+    if tag == 'walrus':
+        yield node
+        yield from _walk_walrus_preorder(node[2])
+    elif tag == 'ternary':
+        yield from _walk_walrus_preorder(node[1])
+        yield from _walk_walrus_preorder(node[2])
+        yield from _walk_walrus_preorder(node[3])
+    elif tag in ('binop', 'compare', 'boolop'):
+        yield from _walk_walrus_preorder(node[2])
+        yield from _walk_walrus_preorder(node[3])
+    elif tag == 'in':
+        yield from _walk_walrus_preorder(node[1])
+        yield from _walk_walrus_preorder(node[2])
+    elif tag == 'index':
+        for idx_node in node[2]:
+            yield from _walk_walrus_preorder(idx_node)
+    elif tag == 'index_expr':
+        yield from _walk_walrus_preorder(node[1])
+        yield from _walk_walrus_preorder(node[2])
+    elif tag in ('neg', 'not'):
+        yield from _walk_walrus_preorder(node[1])
+    elif tag == 'call':
+        for arg_node in node[2]:
+            yield from _walk_walrus_preorder(arg_node)
+    elif tag == 'method_call':
+        for arg_node in node[3]:
+            yield from _walk_walrus_preorder(arg_node)
+
+
 def _shape_key(type_ann):
     """Khoa tra cuu EXPR_METHOD_* (Giai doan 0.2 nhom 3): container dung
     shape ('list'/'dict'/'set'), vo huong dung dtype ('str') - khop dung
@@ -503,6 +541,11 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
     if tag == 'str_lit':
         return 'str'
     if tag == 'var':
+        return scope[node[1]][2].dtype
+    if tag == 'walrus':
+        # 'NAME := expr' (Phase 13, 2026-08-29) - dtype cua CA bieu thuc
+        # walrus CHINH LA dtype cua bien 'NAME' (da duoc declare_scalar
+        # khai bao trong first-pass, xem collect_ternary_temps).
         return scope[node[1]][2].dtype
     if tag == 'index':
         # 'r[i]' - mac dinh dtype PHAN TU chinh la dtype cua TypeAnn cua
@@ -1491,6 +1534,23 @@ def _expr_var(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         return
     _load_var_ref(name, scope, out)
     _, _, type_ann = scope[name]
+    _widen_if_needed(type_ann.dtype, dtype, out)
+
+
+def _expr_walrus(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
+    """'NAME := expr' (Phase 13, 2026-08-29) - compile ve phai theo dung
+    dtype cua bien (da khai bao trong first-pass qua declare_scalar, xem
+    collect_ternary_temps), 'dup' de GIU 1 BAN SAO tren stack lam GIA TRI
+    cua CA bieu thuc walrus (Python that: '(x := 5)' vua GAN vua TRA VE
+    5), roi store ban con lai vao bien - dung ky thuat 'dup truoc khi
+    store' da dung o nhieu noi khac trong compiler nay (vd augmented
+    assign)."""
+    name = node[1]
+    rhs_node = node[2]
+    _, _, type_ann = scope[name]
+    _compile_expr(rhs_node, scope, out, type_ann.dtype, ctx)
+    out.append('    dup')
+    _store_var(name, scope, out)
     _widen_if_needed(type_ann.dtype, dtype, out)
 
 
@@ -2754,6 +2814,7 @@ register_expr_codegen('null', _expr_null)
 # 'str_lit' dang ky boi il_features/string_feature.py luc import (Phase
 # 1 buoc 5, 2026-07-28).
 register_expr_codegen('var', _expr_var)
+register_expr_codegen('walrus', _expr_walrus)
 register_expr_codegen('shape', _expr_shape)
 register_expr_codegen('index', _expr_index)
 register_expr_codegen('index_expr', _expr_index_expr)
@@ -3714,6 +3775,13 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
         moc moi rieng se bo sot vi tri."""
         _declare_slice_temps(expr_node, {'declare_named': declare_named,
                                          'TypeAnn': TypeAnn})
+        # Walrus 'NAME := expr' (Phase 13, 2026-08-29): tai dung NGUYEN
+        # VEN declare_scalar (dung boi 'x = expr' thuong) de suy dtype tu
+        # ve phai va khai bao local MOI neu 'NAME' chua tung xuat hien -
+        # neu 'NAME' da co san (walrus GAN LAI 1 bien cu) declare_scalar
+        # tu bo qua (kiem tra 'name not in declared_names' o dau ham).
+        for walrus_node in _walk_walrus_preorder(expr_node):
+            declare_scalar(walrus_node[1], walrus_node[2])
         for tern_node in _walk_ternaries_preorder(expr_node):
             tern_temp_of_id[id(tern_node)] = len(locals_decl)
             # BUG THAT sua 2026-08-12 (phat hien qua 'str(min(a,b))' voi
