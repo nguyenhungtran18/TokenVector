@@ -1871,21 +1871,19 @@ def _validate_and_register_extern_method(decl, declared_assembly_names):
                 f"__tkv_extern_method__ '{name}': params[{i}] = {p!r} khong phai dtype hop le - "
                 f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)} hoac 1 handle type da khai trong "
                 f"__tkv_extern_class__")
-        # Critical 2 (final review Phase 9d Part B, 2026-08-27):
-        # _extern_il_type_text (dung boi _make_extern_static_call_codegen o
-        # duoi, danh cho __tkv_extern_method__) KHONG duoc Task 2 day du
-        # short-circuit cho 'type' (chi _il_ctor_param_type/il_type_str -
-        # danh cho __tkv_extern_class__ - duoc sua) - dung 'object'/'type'
-        # o day se sinh chu ky IL sai (van ban 'type' theo nghia den, KHONG
-        # phai IL hop le) -> ilasm bao loi cu phap. Tu choi RO RANG tai
-        # dang ky (compile-time) thay vi de lot toi ilasm - object/type CHI
-        # ho tro tren __tkv_extern_class__ (method/ctor) trong Phase 9d
-        # Part B nay.
-        if p in ('object', 'type'):
-            raise TranspileError(
-                f"__tkv_extern_method__ '{name}': params[{i}] = {p!r} chua duoc ho tro tren "
-                f"__tkv_extern_method__ - dtype 'object'/'type' CHI ho tro tren "
-                f"__tkv_extern_class__ (method/ctor) trong Phase 9d Part B nay")
+        # (Phase 9k, 2026-08-31): 'object'/'type' truoc day BI TU CHOI o day
+        # vi _extern_il_type_text (dung boi _make_extern_static_call_codegen
+        # ben duoi) chua co short-circuit dung cho 'type', va codegen argument
+        # (_compile_extern_object_arg) chua ton tai. CA HAI da duoc bo sung
+        # tu Phase 9d Part B/9e (xem _extern_il_type_text's nhanh 'type' va
+        # il_codegen._compile_extern_object_arg - ca 2 da AN TOAN voi moi
+        # dtype, tu ghi ro trong chinh docstring cua chung la "phong thu cho
+        # tuong lai neu validate thay doi"). Phat hien qua tkv-bind chay THAT
+        # tren NuGet Newtonsoft.Json: JsonConvert.SerializeObject(object)
+        # bi bo qua vi gioi han nay - xac nhan ha tang codegen da san sang,
+        # chi con validate chan nham. Go bo chan, cho phep 'object'/'type'
+        # tren __tkv_extern_method__ giong het __tkv_extern_class__. Test
+        # compile+run that xac nhan (xem test/verify/extern_method_object_test.py).
     # (5) returns phai nam trong bang dtype scalar HOAC 'void' (Phase 9a mo
     # rong: void OK, nhung CHI khi ham duoc goi dang LENH DOC LAP - xem
     # buoc (7) duoi ve cach dang ky EXTERN_VOID_BUILTIN_NAMES, va
@@ -1898,11 +1896,10 @@ def _validate_and_register_extern_method(decl, declared_assembly_names):
             f"__tkv_extern_method__ '{name}': returns = {returns!r} khong phai dtype hop le - "
             f"chi ho tro 'void' hoac {sorted(_EXTERN_DTYPE_TO_IL)} hoac 1 handle type da khai "
             f"trong __tkv_extern_class__")
-    if returns in ('object', 'type'):
-        raise TranspileError(
-            f"__tkv_extern_method__ '{name}': returns = {returns!r} chua duoc ho tro tren "
-            f"__tkv_extern_method__ - dtype 'object'/'type' CHI ho tro tren "
-            f"__tkv_extern_class__ (method/ctor) trong Phase 9d Part B nay")
+    # (Phase 9k, 2026-08-31): xem chu thich tuong tu o nhanh params[i] ben
+    # tren - go bo chan 'object'/'type' cho returns, ha tang codegen da san
+    # sang (return_dtype 'object' di qua duong _expr_call/widen_if_needed
+    # CHUNG nhu moi extern-method khac, khong can nhanh rieng).
     # (6) name phai la identifier Python hop le (dung lam ten builtin goi
     # duoc trong code .tkv).
     if not name.isidentifier():
@@ -3416,9 +3413,24 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             if pubkeytoken == 'DEFAULT' and version == 'DEFAULT':
                 extern_lines.append(
                     f'.assembly extern {asm_name} {{ .publickeytoken = ({_default_pubkeytoken} ) .ver 4:0:0:0 }}\n')
-            elif pubkeytoken:
+            elif pubkeytoken and version:
                 extern_lines.append(
                     f'.assembly extern {asm_name} {{ .publickeytoken = ({pubkeytoken} ) .ver {version} }}\n')
+            elif version:
+                # (Phase 9k, 2026-08-31): phat hien qua compile+run THAT tren
+                # NuGet Newtonsoft.Json (khong ky ten manh/khong pubkeytoken,
+                # nhung CO version that 13.0.0.0) - truoc day nhanh nay KHONG
+                # TON TAI, 'version' bi ROI MAT khi pubkeytoken=None du nguoi
+                # dung DA khai qua tuple 3 phan tu - ilasm tu dien .ver
+                # 0:0:0:0 cho '.assembly extern X {}' (khong co dau '.ver'),
+                # CLR loader tu choi load file that (13.0.0.0 != 0.0.0.0) voi
+                # FileLoadException "manifest definition does not match".
+                # Assembly khong ky ten manh VAN can .ver khop dung de CLR
+                # bind (khong phai "khop bat ky version" nhu tung gia dinh).
+                extern_lines.append(f'.assembly extern {asm_name} {{ .ver {version} }}\n')
+            elif pubkeytoken:
+                extern_lines.append(
+                    f'.assembly extern {asm_name} {{ .publickeytoken = ({pubkeytoken} ) }}\n')
             else:
                 extern_lines.append(f'.assembly extern {asm_name} {{}}\n')
 

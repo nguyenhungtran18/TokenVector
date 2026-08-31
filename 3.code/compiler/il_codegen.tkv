@@ -2280,7 +2280,19 @@ def _compile_extern_object_arg(arg_node, scope, out, want_dtype, ctx):
     Voi cac want_dtype khac ('object'/'type' khong khop 2 nhanh tren, hoac
     scalar/enum/extern_class thuong), hanh vi giu NGUYEN 100% (chi goi
     compile_expr, khong box/validate gi them) - AN TOAN, khong thay doi
-    hanh vi da xac minh cua cac dtype khac."""
+    hanh vi da xac minh cua cac dtype khac.
+
+    GIOI HAN DA BIET (Phase 9k, 2026-08-31, phat hien qua test THAT):
+    truyen 1 HANG SO SO HOC TRUC TIEP (vd 'describe(1)', khong qua bien)
+    vao tham so want_dtype=='object' se raise KeyError ('object' khong
+    phai khoa hop le trong IL_LDC_OP) - _infer_dtype tra None cho hang so
+    "boi hinh" (num literal chua gan kieu cu the) nen nhanh box o duoi bi
+    bo qua, roi _compile_expr co gang sinh literal THEO DUNG dtype 'object'
+    (sai, khong ton tai 'ldc object'). CACH VONG: gan hang so vao 1 bien co
+    dtype cu the TRUOC ('x = 1; describe(x)') - _infer_dtype se tra ve
+    dtype that cua bien, nhanh box hoat dong dung. Chua sua tan goc (ngoai
+    pham vi Phase 9k - can suy dtype mac dinh cho literal truoc khi box,
+    de phase sau neu can)."""
     import tkv_compile
     func_table = (ctx or {}).get('func_table')
     records = (ctx or {}).get('records')
