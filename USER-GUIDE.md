@@ -1,4 +1,3 @@
-```markdown
 # TOKENVECTOR COMPILER PLATFORM - USER GUIDE & DETAILED TECHNICAL HANDBOOK
 ### (Comprehensive Official Technical Handbook for TokenVector Native AOT Compiler Platform)
 
