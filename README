@@ -1,12 +1,12 @@
-# TOKENVECTOR COMPILER PLATFORM - RELEASE PACKAGE & TECHNICAL REPORT 
+# TOKENVECTOR COMPILER PLATFORM - RELEASE PACKAGE & TECHNICAL REPORT
 
 ### (Official Release Package & Comprehensive 3-Pole Technical Benchmark Report)
 
 **Document Code: TKV-RELEASE-2026-MASTER**  
 **Version: 2026.1 (Independent Commercial Release)**  
 **Copyright & Validation: TokenVector Compiler Engineering Team & Antigravity AI Team**  
-**GitHub Repository:** [https://github.com/nguyenhungtran18/TokenVector](https://github.com/nguyenhungtran18/TokenVector)  
-**GitHub Pages Website:** [https://nguyenhungtran18.github.io/TokenVector/](https://nguyenhungtran18.github.io/TokenVector/)
+**GitHub Repository:** [TokenVector Repository](https://github.com/nguyenhungtran18/TokenVector)  
+**GitHub Pages Website:** [TokenVector Project Page](https://nguyenhungtran18.github.io/TokenVector/)
 
 ---
 
@@ -89,6 +89,7 @@ In compliance with professional software release management standards, all deliv
 ## 💻 VI. 3-WAY CODE COMPARISON MATRIX (TOKENVECTOR VS PYTHON VS C++)
 
 ### ⚡ Column 1: TokenVector (`Untitled-1.tkv`)
+
 ```python
 # -*- coding: utf-8 -*-
 class DataAnalyzer:
@@ -116,3 +117,158 @@ def main() -> "i32":
     print("Delta: " + str(delta))
     print("Sum: " + str(total_sum))
     return 1
+
+```
+
+### 🐍 Column 2: Python 3 (`Untitled-1.py`)
+
+```python
+# -*- coding: utf-8 -*-
+class DataAnalyzer:
+    def __init__(self, name: str, baseline: float):
+        self.name = name
+        self.baseline = baseline
+
+def compute_performance(name: str, baseline: float, score1: float, score2: float) -> float:
+    analyzer = DataAnalyzer(name, baseline)
+    avg = (score1 + score2) / 2.0
+    return avg - analyzer.baseline
+
+def process_numbers(limit: int) -> int:
+    sum_val = 0
+    for i in range(1, limit + 1):
+        sum_val = sum_val + i
+    return sum_val
+
+def main() -> int:
+    print("=== PYTHON CPYTHON ===")
+    delta = compute_performance("Core", 50.0, 85.0, 95.0)
+    total_sum = process_numbers(100)
+    print("Delta: " + str(delta))
+    print("Sum: " + str(total_sum))
+    return 1
+
+```
+
+### ⚡ Column 3: C++20 (`Untitled-1.cpp`)
+
+```cpp
+#include <iostream>
+#include <string>
+
+class DataAnalyzer {
+public:
+    std::string name;
+    double baseline;
+    DataAnalyzer(std::string n, double b) : name(n), baseline(b) {}
+};
+
+double compute_performance(std::string name, double baseline, double score1, double score2) {
+    DataAnalyzer analyzer(name, baseline);
+    double avg = (score1 + score2) / 2.0;
+    return avg - analyzer.baseline;
+}
+
+int process_numbers(int limit) {
+    int sum_val = 0;
+    for (int i = 1; i <= limit; ++i) {
+        sum_val += i;
+    }
+    return sum_val;
+}
+
+int main() {
+    std::cout << "=== C++ NATIVE (-O3) ===" << std::endl;
+    double delta = compute_performance("Core", 50.0, 85.0, 95.0);
+    int total_sum = process_numbers(100);
+    std::cout << "Delta: " << delta << std::endl;
+    std::cout << "Sum: " << total_sum << std::endl;
+    return 1;
+}
+
+```
+
+---
+
+## 🔍 VII. IN-DEPTH SYNTAX, ADVANTAGES & LIMITATIONS ANALYSIS
+
+### ⚡ 1. TokenVector (`.tkv`)
+
+* **Syntax**: Static unboxed string type annotations (`"str"`, `"f64"`, `"i32"`) evaluated over 100% Python syntax.
+* **🟢 Advantages**:
+* Extremely clean syntax, retains Python indentation mechanics, high development velocity.
+* Generates lightweight AOT `.exe` binaries at just **~2.5 KB**.
+* x64 native compute runs ~8× faster than Python; eliminates GIL bottlenecks in multithreaded execution.
+
+
+* **🔴 Limitations**: Requires explicit static type hints on function signatures and class fields.
+
+### 🐍 2. Python 3 (`.py`)
+
+* **Syntax**: Flexible dynamic typing (`name: str`, `limit: int`) with zero requirements for forward field declaration.
+* **🟢 Advantages**:
+* Maximum rapid prototyping productivity, minimal entry friction, zero pre-compilation steps.
+* Massive package ecosystem (PyPI: NumPy, PyTorch, Pandas...).
+
+
+* **🔴 Limitations**:
+* Lower execution velocity (CPython bytecode interpretation).
+* Constrained by the Global Interpreter Lock (GIL) to a single core for CPU workloads.
+* Bulky distribution footprint (15 MB – 40 MB runtime packaging).
+
+
+
+### ⚡ 3. C++20 (`.cpp`)
+
+* **Syntax**: Manual system-level programming: `#include` directives, pointer manipulation, and `std::cout` stream operators.
+* **🟢 Advantages**:
+* Absolute peak compute performance (bare-metal x64 machine instructions executed on hardware).
+* Full granular control over heap/stack memory lifecycles and raw pointers.
+
+
+* **🔴 Limitations**:
+* High syntactical complexity, steep learning curve, requiring 3-4x longer development cycles.
+* Lengthy compilation stages (via g++ / clang / msvc).
+
+
+
+---
+
+## 🛠️ VIII. OPERATIONAL & BUILD GUIDE
+
+### 1. Compiling a `.tkv` Source File via `tkvc.exe`:
+
+```powershell
+.\release\3.code\dist\tkvc.exe build release\3.code\examples\e2e_test.tkv
+
+```
+
+### 2. Executing the Compiled Native `.exe`:
+
+```powershell
+.\release\3.code\examples\e2e_test.exe
+
+```
+
+---
+
+## 🔗 IX. .NET ECOSYSTEM INTEROPERABILITY (.NET INTEROP)
+
+Beyond compiling native Python-syntax code ahead-of-time, TokenVector provides seamless direct invocation of **any .NET/NuGet library** without requiring manual C wrappers:
+
+* **`__tkv_extern_class__`**: Declare and invoke external .NET class constructors, instance methods, and properties (get/set) via direct `newobj`/`callvirt` operations, including method chaining and fluent API patterns.
+* **`__tkv_extern_pinvoke__`**: Directly bind P/Invoke targets (Win32 APIs / native C DLLs) declaratively, supporting both `cdecl` and `stdcall` calling conventions.
+* **`ffi_feature`**: Dynamic C-style runtime FFI via `ctypes` equivalents (`LoadLibraryA`/`GetProcAddress` invocation).
+* **tkv-bind**: Automated binding generation CLI consuming raw **reflection metadata** from any .NET assembly DLL — fully verified on `System.dll` (.NET Framework BCL) and NuGet's `Newtonsoft.Json` (comprehensive case study: [`outreach/nuget-tkv-bind-case-study.md`](https://www.google.com/search?q=outreach/nuget-tkv-bind-case-study.md)).
+
+**Production Verification**: **RamGuard** — an automated background RAM monitoring and working-set trimming service for Windows, re-engineered 100% in `.tkv` (zero Python code remaining). It leverages `Process` and `ComputerInfo` from the .NET BCL via `__tkv_extern_class__`, validated end-to-end (logging, cooldown loops, structured `try/except` error handling) — an operational utility, not a mock demo (private proprietary project).
+
+---
+
+## 📌 X. 3-POLE BENCHMARK SUMMARY
+
+1. **CPython 3.12**: Ideal for rapid automation scripting, exploratory prototyping, and data science research. Trade-offs: Lower execution speed, bloated distribution artifacts (tens of MBs), and severe multicore limitations due to GIL contention.
+2. **TokenVector AOT**: **The ideal bridge between both worlds!** Retains 100% of Python's developer ergonomics while generating ultra-compact `.exe` artifacts (tens of KBs), delivering **~25.9× FASTER** multithreaded integer execution (empirically measured) by eliminating the GIL, backed by native support for `yield from`, `async/await`, `ctypes` FFI, and first-class .NET ecosystem interop.
+3. **C++ Native**: Delivers unconstrained raw computational throughput and deterministic manual memory governance, but demands high syntactical friction, extended build cycles (multi-second toolchain latency), and significantly elevated development costs.
+
+```
