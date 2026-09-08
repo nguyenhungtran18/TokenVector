@@ -10,15 +10,12 @@
 
 ---
 
-<div >
-
 ### ⭐️ Support the Project
 If **TokenVector Media Downloader** saved your time, bandwidth, or helped your workflow, please consider giving it a **Star** on GitHub!  
 It helps the project gain visibility and motivates further development of the TokenVector ecosystem.
 
 [![GitHub stars](https://img.shields.io/github/stars/nguyenhungtran18/TokenVector-Media-Downloader?style=social)](https://github.com/nguyenhungtran18/TokenVector-Media-Downloader/stargazers)
 
-</div>
 
 ---
 
