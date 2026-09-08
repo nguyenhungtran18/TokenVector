@@ -1,0 +1,13 @@
+# 1. Bỏ qua các file sinh ra, thư mục build và mã IL Assembly khỏi thống kê ngôn ngữ
+*.il linguist-generated=true
+release/** linguist-generated=true
+2.UI/** linguist-generated=true
+*.exe binary
+
+# 2. Định nghĩa đuôi file .tkv được nhận diện là Python (để hiển thị syntax highlight và biểu đồ ngôn ngữ)
+*.tkv linguist-language=Python
+
+# 3. Loại trừ các tài liệu hoặc file cấu hình phụ trợ (nếu không muốn tính vào code)
+outreach/** linguist-documentation=true
+docs/** linguist-documentation=true
+llms.txt linguist-documentation=true
