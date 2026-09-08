@@ -10,12 +10,14 @@
 
 ---
 
+---
+
 ### ⭐️ Support the Project
-If **TokenVector Media Downloader** saved your time, bandwidth, or helped your workflow, please consider giving it a **Star** on GitHub!  
-It helps the project gain visibility and motivates further development of the TokenVector ecosystem.
 
-[![GitHub stars](https://img.shields.io/github/stars/nguyenhungtran18/TokenVector-Media-Downloader?style=social)](https://github.com/nguyenhungtran18/TokenVector-Media-Downloader/stargazers)
+If **TokenVector** empowers your development workflow, accelerates your execution speed, or provides a valuable alternative for high-performance computing, please consider giving it a **Star** on GitHub!  
+Your support boosts the project's visibility and fuels the ongoing development of the TokenVector compiler platform and its ecosystem.
 
+[![GitHub stars](https://img.shields.io/github/stars/nguyenhungtran18/TokenVector?style=social)](https://github.com/nguyenhungtran18/TokenVector)
 
 ---
 
