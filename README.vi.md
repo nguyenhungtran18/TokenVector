@@ -9,15 +9,11 @@
 **Trang web GitHub Pages:** [https://nguyenhungtran18.github.io/TokenVector/](https://nguyenhungtran18.github.io/TokenVector/)
 ---
 
-<div>
-
 ### ⭐️ Ủng hộ dự án
 Nếu **TokenVector Media Downloader** giúp ích cho công việc của bạn, hãy bấm **Star ⭐️** góc trên bên phải để ủng hộ tác giả!  
 Sự ủng hộ của bạn là động lực lớn để tiếp tục tối ưu và phát triển hệ sinh thái TokenVector.
 
 [![GitHub stars](https://img.shields.io/github/stars/nguyenhungtran18/TokenVector-Media-Downloader?style=social)](https://github.com/nguyenhungtran18/TokenVector-Media-Downloader/stargazers)
-
-</div>
 
 ---
 
