@@ -10,7 +10,7 @@
 
 ---
 
-<div align="center">
+<div >
 
 ### ⭐️ Support the Project
 If **TokenVector Media Downloader** saved your time, bandwidth, or helped your workflow, please consider giving it a **Star** on GitHub!  
