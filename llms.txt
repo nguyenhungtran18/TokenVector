@@ -43,7 +43,6 @@ else:
 
 while x > 0:
     x = x - 1
-
 ```
 
 ### Function Signatures
@@ -57,7 +56,6 @@ def calculate_sum(a: int, b: int) -> int:
 def main() -> void:
     total: int = calculate_sum(10, 20)
     print(total)
-
 ```
 
 ### Win32 Native Interop (P/Invoke)
@@ -67,7 +65,6 @@ Declare external OS APIs directly without C++ wrappers:
 ```text
 extern def MessageBoxA(hwnd: int, text: str, title: str, uType: int) -> int:
     from "user32.dll"
-
 ```
 
 ---
@@ -83,10 +80,6 @@ extern def MessageBoxA(hwnd: int, text: str, title: str, uType: int) -> int:
 * `USER-GUIDE.md`: CLI build flags, compiler options, and environment setup.
 * `TokenVector_system.md`: In-depth pipeline and execution specifications.
 * `3.code/docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`: Complete language specification manual.
-
-
-
-```
 
 ---
 
