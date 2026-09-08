@@ -1,13 +1,14 @@
-# 1. Bỏ qua các file sinh ra, thư mục build và mã IL Assembly khỏi thống kê ngôn ngữ
+# 1. Ẩn mã nguồn TokenVector và mã IL khỏi thống kê ngôn ngữ của GitHub
+*.tkv linguist-generated=true
 *.il linguist-generated=true
+
+# 2. Ẩn toàn bộ mã build, thư mục release, UI và công cụ phụ trợ
 release/** linguist-generated=true
 2.UI/** linguist-generated=true
+3.code/** linguist-generated=true
 *.exe binary
 
-# 2. Định nghĩa đuôi file .tkv được nhận diện là Python (để hiển thị syntax highlight và biểu đồ ngôn ngữ)
-*.tkv linguist-language=Python
-
-# 3. Loại trừ các tài liệu hoặc file cấu hình phụ trợ (nếu không muốn tính vào code)
-outreach/** linguist-documentation=true
+# 3. Đánh dấu tài liệu
 docs/** linguist-documentation=true
+outreach/** linguist-documentation=true
 llms.txt linguist-documentation=true
