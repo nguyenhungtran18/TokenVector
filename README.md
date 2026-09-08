@@ -10,8 +10,6 @@
 
 ---
 
----
-
 ### ⭐️ Support the Project
 
 If **TokenVector** empowers your development workflow, accelerates your execution speed, or provides a valuable alternative for high-performance computing, please consider giving it a **Star** on GitHub!  
