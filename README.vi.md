@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="README.md">English</a> | <strong>Tiếng Việt</strong>
+</p>
+
 # TOKENVECTOR COMPILER PLATFORM - BẢN PHÁT HÀNH & BÁO CÁO KỸ THUẬT 
 
 ### (Official Release Package & Comprehensive 3-Pole Technical Benchmark Report)
