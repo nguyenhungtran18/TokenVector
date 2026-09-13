@@ -30,7 +30,7 @@ In compliance with professional software release management standards, all deliv
 - **`1.media/`**: Contains system architecture diagrams (`architecture_overview.md`).
 - **`2.UI/`**: Visual HTML reports (`benchmark_results.html`, `enterprise_demo.html`).
 - **`3.code/`**: Native self-hosted source code of TokenVector.
-  - `compiler/` (+ `compiler.zip`) — **the actual functional library of `tkvc.exe`** (102 `.tkv` files: `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `compiler/il_codegen.tkv` + all `il_features/*.tkv`). Only these exact files (+ `build_tkvc.ps1`) are required to rebuild `tkvc.exe`, with zero dependencies outside of `3.code/` — **the entire compiler is written in TokenVector itself (self-hosted), completely removing any dependency on the Python runtime for production execution.**
+  - `compiler/` (+ `compiler.zip`) — **the actual functional library of `tkvc.exe`** (114 `.tkv` files: `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `compiler/il_codegen.tkv` + all `il_features/*.tkv`). Only these exact files (+ `build_tkvc.ps1`) are required to rebuild `tkvc.exe`, with zero dependencies outside of `3.code/` — **the entire compiler is written in TokenVector itself (self-hosted), completely removing any dependency on the Python runtime for production execution.**
   - `examples/` — **sample** programs compiled by `tkvc.exe` (NOT the source code of `tkvc.exe`): `tools/` (15 real-world case-study tools), `stdlib/` (sample utility library), `e2e_test.tkv`/`.exe` (E2E integration tests), `tkv_bridge.tkv` (MicroLM MCP bridge), `spike_int_repr.tkv`.
   - `Testkit/native_test_suite.tkv` — **pure TokenVector bug detection tool** (does not use Python during testing), 1 source file, 2 build targets:
     - `--entry run` → internal suite of 16 tests, self-verifying results against expected values directly in code (`if/else` + printing `PASS`/`FAIL`), used to rapidly sanity check the compiler before writing new `.tkv` libraries/engines:
@@ -51,7 +51,7 @@ In compliance with professional software release management standards, all deliv
 
 ## ⚡ II. TOP 5 HIGHLIGHT STATS
 
-- **Self-hosted**: The `tkvc.exe` compiler is written **entirely in TokenVector** (102 `.tkv` files), requiring zero Python runtime dependencies in production.
+- **Self-hosted**: The `tkvc.exe` compiler is written **entirely in TokenVector** (114 `.tkv` files), requiring zero Python runtime dependencies in production.
 - **No-GIL Multithreading**: **~25.9× faster** than CPython on integer multithreading workloads (4 threads × 5M ops, empirical benchmark 2026-08-31 — see Section IV), powered by true hardware multicore execution free of GIL lock contention.
 - **PE Binary Footprint**: Compiled `.tkv` source produces standalone `.exe` binaries of **~8.5 - 9 KB** (empirical measurement, no CPython interpreter bundling required).
 - **Compilation Latency**: **~2.3 - 3.9 seconds/build** (empirically measured via `tkvc.exe`; predominantly PyInstaller-frozen bootstrap startup overhead, not AST-to-IL compilation logic — see note in Section V).
@@ -278,10 +278,28 @@ Beyond compiling native Python-syntax code ahead-of-time, TokenVector provides s
 
 ---
 
-## 📌 X. 3-POLE BENCHMARK SUMMARY
+## 📚 X. BUILT-IN PYTHON STANDARD LIBRARY COVERAGE
+
+TokenVector includes out-of-the-box AOT compiled standard library plugins under `compiler/il_features/`:
+
+| Module | Key Functions & Features | Backend Mapping (.NET BCL) |
+| :--- | :--- | :--- |
+| **`os` / `sys`** | `os_getenv`, `os_mkdir`, `os_list_files`, `sys.argv`, `sys.exit` | `System.Environment`, `System.IO.Directory` |
+| **`pathlib`** | `path_stem`, `path_suffix`, `path_name`, `path_parent`, `path_read_text`, `path_write_text`, `path_join`, `path_exists`, `path_isfile`, `path_isdir` | `System.IO.Path`, `System.IO.File` |
+| **`json` / `csv`** | `json.loads`, `json.dumps`, `csv_parse_line`, `csv_read_lines`, `csv_join_row`, `csv_write_lines` | `System.String.Split`, `System.IO.File` |
+| **`concurrency`** | `async def` / `await` Tasks, `threading` (No-GIL OS threads), `asyncio_sleep_ms`, `asyncio_get_ticks` | `System.Threading.Tasks`, `System.Threading.Thread` |
+| **`multiprocessing`** | `multiprocessing_cpu_count`, `process_get_pid`, subprocess execution | `System.Diagnostics.Process`, `System.Environment` |
+| **`collections`** | `Counter`, `defaultdict`, `record`/namedtuple, `deque_reverse`, `deque_clear` | `System.Collections.Generic` |
+| **`functools` / `itertools`** | `functools_clamp_i32/f64`, `map`, `filter`, `fold`, `repeat`, `cycle`, `count`, `chain` | `System.Math`, `System.Linq` equivalents |
+| **`re`** | `re_search`, `re_match`, `re_replace` / `re.sub` | `System.Text.RegularExpressions.Regex` |
+| **`datetime`** | `datetime()`, `datetime_ticks`, `datetime_strptime`, `strftime`, `timedelta_*`, date arithmetic | `System.DateTime`, `System.TimeSpan` |
+| **`io` & `struct`** | `bytes_from_string`, `string_from_bytes`, `struct_i32_to_hex`, `struct_f64_to_hex` | `System.Text.Encoding`, `System.BitConverter` |
+| **`network` & `crypto`** | `http_get`, `http_post`, `socket_resolve_host`, `md5_hex`, `sha256_hex`, `base64_encode/decode` | `System.Net.Http`, `System.Net.Dns`, `System.Security.Cryptography` |
+
+---
+
+## 📌 XI. 3-POLE BENCHMARK SUMMARY
 
 1. **CPython 3.12**: Ideal for rapid automation scripting, exploratory prototyping, and data science research. Trade-offs: Lower execution speed, bloated distribution artifacts (tens of MBs), and severe multicore limitations due to GIL contention.
 2. **TokenVector AOT**: **The ideal bridge between both worlds!** Retains 100% of Python's developer ergonomics while generating ultra-compact `.exe` artifacts (tens of KBs), delivering **~25.9× FASTER** multithreaded integer execution (empirically measured) by eliminating the GIL, backed by native support for `yield from`, `async/await`, `ctypes` FFI, and first-class .NET ecosystem interop.
 3. **C++ Native**: Delivers unconstrained raw computational throughput and deterministic manual memory governance, but demands high syntactical friction, extended build cycles (multi-second toolchain latency), and significantly elevated development costs.
-
-```

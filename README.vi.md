@@ -29,7 +29,7 @@ Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên 
 - **`1.media/`**: Chứa sơ đồ kiến trúc hệ thống (`architecture_overview.md`).
 - **`2.UI/`**: Báo cáo trực quan HTML (`benchmark_results.html`, `enterprise_demo.html`).
 - **`3.code/`**: Mã nguồn tự-host bằng TokenVector Native.
-  - `compiler/` (+ `compiler.zip`) — **thư viện chức năng thật của `tkvc.exe`** (102 file `.tkv`: `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `compiler/il_codegen.tkv` + toàn bộ `il_features/*.tkv`). Chỉ cần đúng các file này (+ `build_tkvc.ps1`) là build lại được `tkvc.exe`, không phụ thuộc gì bên ngoài `3.code/` — **toàn bộ compiler này được viết bằng chính TokenVector (tự-host), không còn phụ thuộc Python runtime để chạy production.**
+  - `compiler/` (+ `compiler.zip`) — **thư viện chức năng thật của `tkvc.exe`** (114 file `.tkv`: `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `compiler/il_codegen.tkv` + toàn bộ `il_features/*.tkv`). Chỉ cần đúng các file này (+ `build_tkvc.ps1`) là build lại được `tkvc.exe`, không phụ thuộc gì bên ngoài `3.code/` — **toàn bộ compiler này được viết bằng chính TokenVector (tự-host), không còn phụ thuộc Python runtime để chạy production.**
   - `examples/` — chương trình **mẫu** do `tkvc.exe` biên dịch (KHÔNG phải mã nguồn của `tkvc.exe`): `tools/` (15 công cụ case-study thật), `stdlib/` (thư viện tiện ích mẫu), `e2e_test.tkv`/`.exe` (kiểm thử tích hợp E2E), `tkv_bridge.tkv` (MicroLM MCP bridge), `spike_int_repr.tkv`.
   - `Testkit/native_test_suite.tkv` — **công cụ dò bug thuần TokenVector** (không dùng Python lúc test), 1 file nguồn, 2 cách build:
     - `--entry run` → bộ 16 test nội bộ, tự so sánh kết quả với giá trị mong đợi ngay trong code (`if/else` + in `PASS`/`FAIL`), dùng để kiểm tra nhanh compiler còn đúng không trước khi viết thêm thư viện/engine `.tkv` mới:
@@ -50,7 +50,7 @@ Theo quy chuẩn quản lý bản phát hành sản phẩm phần mềm chuyên 
 
 ## ⚡ II. 5 CHỈ SỐ NỔI BẬT HÀNG ĐẦU (HIGHLIGHT STATS)
 
-- **Tự-host (Self-hosted)**: Compiler `tkvc.exe` được viết **bằng chính TokenVector** (102 file `.tkv`), không phụ thuộc Python runtime khi chạy production.
+- **Tự-host (Self-hosted)**: Compiler `tkvc.exe` được viết **bằng chính TokenVector** (114 file `.tkv`), không phụ thuộc Python runtime khi chạy production.
 - **Đa Luồng No-GIL**: **Nhanh gấp ~25.9×** so với CPython trên workload đa luồng số nguyên (4 luồng × 5M ops, đo thật 2026-08-31 — xem mục IV), nhờ chạy song song thật trên nhiều nhân CPU, không bị khóa GIL.
 - **Dung Lượng File PE**: chương trình `.tkv` biên dịch ra file `.exe` **~8.5 - 9 KB** (đo thật, không cần nạp CPython Interpreter).
 - **Tốc Độ Biên Dịch**: **~2.3 - 3.9 giây/lần** (đo thật qua `tkvc.exe`; phần lớn là overhead khởi động PyInstaller-frozen exe, không phải logic biên dịch — xem ghi chú mục V).
@@ -254,7 +254,27 @@ Ngoài việc biên dịch AOT thuần Python-syntax, TokenVector còn gọi th�
 
 ---
 
-## 📌 X. TỔNG KẾT BÀN CÂN 3 CỰC
+## 📚 X. ĐỘ PHỦ THƯ VIỆN CHUẨN PYTHON TÍCH HỢP SẴN (STDLIB COVERAGE)
+
+TokenVector tích hợp sẵn các plugin thư viện chuẩn biên dịch AOT Native tại `compiler/il_features/`:
+
+| Module Thư viện | Các Hàm & Tính năng Tiêu biểu | Ánh xạ .NET BCL / Engine |
+| :--- | :--- | :--- |
+| **`os` / `sys`** | `os_getenv`, `os_mkdir`, `os_list_files`, `sys.argv`, `sys.exit` | `System.Environment`, `System.IO.Directory` |
+| **`pathlib`** | `path_stem`, `path_suffix`, `path_name`, `path_parent`, `path_read_text`, `path_write_text`, `path_join`, `path_exists`, `path_isfile`, `path_isdir` | `System.IO.Path`, `System.IO.File` |
+| **`json` / `csv`** | `json.loads`, `json.dumps`, `csv_parse_line`, `csv_read_lines`, `csv_join_row`, `csv_write_lines` | `System.String.Split`, `System.IO.File` |
+| **`concurrency`** | `async def` / `await` Tasks, `threading` (Đa luồng No-GIL), `asyncio_sleep_ms`, `asyncio_get_ticks` | `System.Threading.Tasks`, `System.Threading.Thread` |
+| **`multiprocessing`** | `multiprocessing_cpu_count`, `process_get_pid`, thực thi lệnh tiến trình con | `System.Diagnostics.Process`, `System.Environment` |
+| **`collections`** | `Counter`, `defaultdict`, `record`/namedtuple, `deque_reverse`, `deque_clear` | `System.Collections.Generic` |
+| **`functools` / `itertools`** | `functools_clamp_i32/f64`, `map`, `filter`, `fold`, `repeat`, `cycle`, `count`, `chain` | `System.Math`, `System.Linq` |
+| **`re`** | `re_search`, `re_match`, `re_replace` / `re.sub` | `System.Text.RegularExpressions.Regex` |
+| **`datetime`** | `datetime()`, `datetime_ticks`, `datetime_strptime`, `strftime`, `timedelta_*`, tính toán ngày giờ | `System.DateTime`, `System.TimeSpan` |
+| **`io` & `struct`** | `bytes_from_string`, `string_from_bytes`, `struct_i32_to_hex`, `struct_f64_to_hex` | `System.Text.Encoding`, `System.BitConverter` |
+| **`network` & `crypto`** | `http_get`, `http_post`, `socket_resolve_host`, `md5_hex`, `sha256_hex`, `base64_encode/decode` | `System.Net.Http`, `System.Net.Dns`, `System.Security.Cryptography` |
+
+---
+
+## 📌 XI. TỔNG KẾT BÀN CÂN 3 CỰC
 
 1. **CPython 3.12**: Thích hợp cho việc viết script nhanh, prototype và nghiên cứu khoa học. Nhược điểm: Tốc độ chậm hơn, file đóng gói cồng kềnh (hàng chục MB) và bị rào cản đa luồng nghiêm trọng bởi khóa GIL.
 2. **TokenVector AOT**: **Dung hòa hoàn hảo 2 thế giới!** Giữ nguyên 100% cú pháp dễ viết của Python nhưng biên dịch AOT ra file `.exe` nhỏ gọn (chỉ vài chục KB), chạy đa luồng nhanh gấp **~25.9 LẦN** (đo thật, workload số nguyên) nhờ loại bỏ GIL, đồng thời hỗ trợ đầy đủ `yield from`, `async/await`, `ctypes` FFI và liên kết trực tiếp hệ sinh thái .NET.
