@@ -1,0 +1,26 @@
+# -*- coding: utf-8 -*-
+"""stdlib_multiprocessing.tkv - Module ho tro thong tin va quan ly Tien trinh (Process & Cores).
+
+Cung cap cac ham:
+- multiprocessing_cpu_count() -> i32 : Lay so luong nhan CPU (Logical Processors)
+- process_get_pid() -> i32           : Lay PID cua tien trinh hien tai
+"""
+
+from il_dispatch import register_expr_builtin
+
+
+def _push_multiprocessing_cpu_count(args, scope, out, dtype, ctx):
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: multiprocessing_cpu_count() khong nhan tham so")
+    out.append('    call int32 [mscorlib]System.Environment::get_ProcessorCount()')
+
+
+def _push_process_get_pid(args, scope, out, dtype, ctx):
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: process_get_pid() khong nhan tham so")
+    out.append('    call class [System]System.Diagnostics.Process [System]System.Diagnostics.Process::GetCurrentProcess()')
+    out.append('    callvirt instance int32 [System]System.Diagnostics.Process::get_Id()')
+
+
+register_expr_builtin('multiprocessing_cpu_count', _push_multiprocessing_cpu_count, return_dtype='i32')
+register_expr_builtin('process_get_pid', _push_process_get_pid, return_dtype='i32')

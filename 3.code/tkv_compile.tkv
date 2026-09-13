@@ -63,6 +63,7 @@ from il_features.stdlib_sqlite import uses_sqlite as _uses_sqlite, SQLITE_PINVOK
 from il_features.duck_typing import collect_inferred_constraints  # noqa: E402
 # --- BEGIN GEMINI ADDED CODE: cJSON Plugin Import ---
 from il_features.stdlib_cjson import uses_cjson as _uses_cjson, CJSON_PINVOKE_DECL_LINES  # noqa: E402
+from il_features.stdlib_http import HTTP_SERVER_CIL_DECL_LINES  # noqa: E402
 # --- END GEMINI ADDED CODE ---
 from il_dispatch import (register_expr_builtin, EXPR_BUILTIN_CODEGEN,  # noqa: E402
                           EXPR_BUILTIN_DTYPE, EXPR_METHOD_CODEGEN, EXPR_METHOD_SHAPE,
@@ -3408,6 +3409,11 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
         cjson_decl_lines = (CJSON_PINVOKE_DECL_LINES
                               if any(_uses_cjson(body_lines) for _sig, body_lines, _start in pairs)
                               else [])
+        http_server_decl_lines = (HTTP_SERVER_CIL_DECL_LINES
+                      if any('http_server_generate(' in line
+                         for _sig, body_lines, _start in pairs
+                         for line in body_lines)
+                      else [])
         # --- END GEMINI ADDED CODE ---
 
         # Co che MO RONG (Wave 3, 2026-07-29, "package ecosystem" - xem
@@ -3473,6 +3479,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             # --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Injection ---
             + '\n'.join(cjson_decl_lines) + ('\n' if cjson_decl_lines else '')
             # --- END GEMINI ADDED CODE ---
+            + '\n'.join(http_server_decl_lines) + ('\n' if http_server_decl_lines else '')
             + '\n'.join(pinvoke_decl_lines) + ('\n' if pinvoke_decl_lines else '')
             + '}\n'
         )

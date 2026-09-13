@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+"""stdlib_asyncio.tkv - Module ho tro cac tien ich cho Asyncio & Concurrency.
+
+Cung cap cac ham:
+- asyncio_sleep_ms(ms) -> i32 : Tam dung luong/task trong so miligiay chi dinh
+- asyncio_get_ticks() -> i64   : Lay timestamp thoi gian thuc dang ticks (100ns)
+"""
+
+from il_dispatch import register_expr_builtin
+
+
+def _push_asyncio_sleep_ms(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: asyncio_sleep_ms(ms) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'i32', ctx)
+    out.append('    call void [mscorlib]System.Threading.Thread::Sleep(int32)')
+    out.append('    ldc.i4.0')
+
+
+def _push_asyncio_get_ticks(args, scope, out, dtype, ctx):
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: asyncio_get_ticks() khong nhan tham so")
+    out.append('    call valuetype [mscorlib]System.DateTime [mscorlib]System.DateTime::get_UtcNow()')
+    out.append('    box [mscorlib]System.DateTime')
+    out.append('    unbox [mscorlib]System.DateTime')
+    out.append('    call instance int64 [mscorlib]System.DateTime::get_Ticks()')
+
+
+register_expr_builtin('asyncio_sleep_ms', _push_asyncio_sleep_ms, return_dtype='i32')
+register_expr_builtin('asyncio_get_ticks', _push_asyncio_get_ticks, return_dtype='i64')

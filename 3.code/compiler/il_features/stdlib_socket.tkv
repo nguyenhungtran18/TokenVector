@@ -1,0 +1,21 @@
+# -*- coding: utf-8 -*-
+"""stdlib_socket.tkv - Module ho tro giao tiep mang TCP va phan giai DNS.
+
+Cung cap cac ham:
+- socket_resolve_host(hostname) -> str : Tra cuu dia chi IP tu ten mien (System.Net.Dns)
+"""
+
+from il_dispatch import register_expr_builtin
+
+
+def _push_socket_resolve_host(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: socket_resolve_host(hostname) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call class [System]System.Net.IPAddress[] [System]System.Net.Dns::GetHostAddresses(string)')
+    out.append('    ldc.i4.0')
+    out.append('    ldelem.ref')
+    out.append('    callvirt instance string [mscorlib]System.Object::ToString()')
+
+
+register_expr_builtin('socket_resolve_host', _push_socket_resolve_host, return_dtype='str')

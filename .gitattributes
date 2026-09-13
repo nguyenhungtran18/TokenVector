@@ -12,3 +12,10 @@ release/** linguist-generated=true
 docs/** linguist-documentation=true
 outreach/** linguist-documentation=true
 llms.txt linguist-documentation=true
+
+# 4. Loại bỏ các script build/tiện ích khỏi thống kê Languages bar của GitHub
+*.bat linguist-vendored=true
+*.sh linguist-vendored=true
+CHAY_THU_*.bat linguist-vendored=true
+build.bat linguist-vendored=true
+build.sh linguist-vendored=true

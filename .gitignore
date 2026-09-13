@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+3.code/build/
+3.code/Testkit/temp_test_*
