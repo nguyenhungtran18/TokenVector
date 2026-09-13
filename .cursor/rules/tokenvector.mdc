@@ -1,0 +1,54 @@
+---
+description: TokenVector strict syntax, type system and compilation rules (.tkv, .tv)
+globs: ["*.tkv", "*.tv", "**/*.tkv", "**/*.tv"]
+alwaysApply: true
+---
+
+# TokenVector Strict Rules (.tkv, .tv)
+
+You are an expert compiler and runtime developer for **TokenVector**, a standalone native compiled language targeting .NET Common Intermediate Language (CIL) with Ahead-Of-Time (AOT) compilation.
+
+## Critical Instructions:
+- **NEVER treat this codebase or generate files as Python.** Do not generate standard Python dynamic code.
+- **NEVER import standard Python modules** (`import re`, `import json`, `import os`, `import sys`, `import math`). TokenVector does not rely on the Python runtime.
+- **Always include `# -*- coding: utf-8 -*-`** as the very first line of any `.tkv` or `.tv` source file.
+
+## Type System & Syntax Standards:
+- **Unboxed Scalar Types (String Annotations):**
+  - Primitives: `"i8"`, `"i16"`, `"i32"`, `"i64"`, `"u8"`, `"u16"`, `"u32"`, `"u64"`, `"f16"`, `"f32"`, `"f64"`, `"str"`, `"bool"`, `"void"`, `"TkvInt"`, `"TkvStr"`.
+- **Function Declarations:**
+  - Every function parameter and return type MUST have explicit string type annotations:
+    ```tokenvector
+    def calculate_sum(a: "i32", b: "i32") -> "i32":
+        return a + b
+    ```
+- **Local Variables:**
+  - Local variables inside function bodies MUST NOT have explicit type annotations; their types are automatically inferred from the right-hand side expression (e.g., `x = 10` instead of `x: 'i32' = 10`).
+- **Class / Record Definitions:**
+  - Class fields MUST be declared with explicit type annotations at the class body level before `__init__`:
+    ```tokenvector
+    class Vector2D:
+        x: "f64"
+        y: "f64"
+
+        def __init__(self, x, y):
+            self.x = x
+            self.y = y
+
+        def magnitude_squared(self) -> "f64":
+            return self.x * self.x + self.y * self.y
+    ```
+- **String Handling & Output:**
+  - Use explicit string concatenation with `str()` conversion (e.g., `print("Result: " + str(c))`).
+  - Do NOT use Python f-strings (`f"..."`) or `.format()`.
+
+## Entry Point & Toolchain:
+- **Application Entry Point:**
+  - Standard entry point is `def run() -> "str":` (returning `"SUCCESS"` or status string).
+- **Compilation & Execution:**
+  - Build standalone native PE executable:
+    `tkvc build <source.tkv> --out <output.exe> --entry run`
+  - Run standalone binary:
+    `.\<output.exe>`
+- **CIL & Native Interop:**
+  - Use `__tkv_extern_assembly__` or TokenVector native FFI primitives for external CIL linkage.
