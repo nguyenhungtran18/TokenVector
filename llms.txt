@@ -1,41 +1,45 @@
-# TokenVector (.tkv)
+# TokenVector (.tkv, .tv)
 
-> TokenVector is an ultra-lightweight, statically-typed native programming language compiling directly to .NET CIL assembly (via ilasm.exe) into standalone PE executables. Zero external runtime bundling, zero interpreter, zero CRT dependency.
-
-Motto: "Intuitive syntax, native execution, zero bloat."
+> TokenVector is an ultra-lightweight, statically-typed native programming language compiling directly to .NET CIL assembly (via ilasm.exe) into standalone PE executables. Zero external runtime bundling, zero interpreter, zero CRT/CPython dependency. True No-GIL multicore execution.
+> Motto: "Intuitive syntax, native execution, zero bloat."
 
 ---
 
 ## 1. Architectural Model & Compilation Pipeline
 
 TokenVector operates as a deterministic, single-pass Ahead-Of-Time (AOT) toolchain:
-- **Source (`.tkv`):** Statically-typed syntax with strict type annotations.
+- **Source (`.tkv`, `.tv`):** Statically-typed code with explicit unboxed scalar type hints. Always starts with `# -*- coding: utf-8 -*-`.
 - **AST & Validator:** Single-pass lexical analysis and deterministic AST parsing with static type enforcement.
 - **CIL Instruction Emitter:** Emits plain text CIL/MSIL bytecode directly mapped to .NET CTS types.
-- **Native Assembler (`ilasm.exe`):** Packs intermediate `.il` into native standalone `.exe` (12 KB – 120 KB) with immediate cold-start.
-- **Self-Hosted:** The core compiler (`tkvc.exe`) is implemented in `.tkv` (under `3.code/compiler/`, `3.code/tkv_compile.tkv`, `3.code/tkv.tkv`).
+- **Native Assembler (`ilasm.exe`):** Packs intermediate `.il` into native standalone `.exe` (8.5 KB – 120 KB) with immediate cold-start.
+- **Self-Hosted:** The core compiler (`tkvc.exe`) is implemented in TokenVector (under `3.code/compiler/`, `3.code/tkv_compile.tkv`, `3.code/tkv.tkv`).
 
 ---
 
-## 2. Syntax & Code Generation Rules for LLMs
+## 2. Strict Rules & Constraints for LLMs
 
-When generating or refactoring TokenVector (`.tkv`) code, LLMs must adhere to the following rules:
+When generating, analyzing, or refactoring TokenVector code, adhere to these constraints:
+- **NO Python Runtime:** Do NOT treat TokenVector as Python. Do NOT import standard Python libraries (`import os`, `import sys`, `import re`, `import json`, `import math`).
+- **NO Dynamic Typing:** All parameters, return types, and class fields MUST be statically typed.
+- **Unboxed String Annotations:** Primitive scalar types must use quoted string identifiers:
+  `"i8"`, `"i16"`, `"i32"`, `"i64"`, `"u8"`, `"u16"`, `"u32"`, `"u64"`, `"f16"`, `"f32"`, `"f64"`, `"str"`, `"bool"`, `"void"`, `"TkvInt"`, `"TkvStr"`.
+- **Local Variable Inference:** Inside function bodies, local variable types are automatically inferred from the right-hand side expression (do NOT use explicit local annotations like `x: "i32" = 10`).
+- **Standard Entry Point:** Executable applications require `def run() -> "str":` returning `"SUCCESS"` or a status code.
+- **Class Field Declarations:** All object attributes must be declared with type annotations at the class body level before `__init__`.
+- **String Concatenation:** Use explicit `+ str(...)` concatenation instead of Python f-strings or `.format()`.
 
-### Variable Declarations & Static Typing
-All variables require explicit type annotations:
-```text
-x: int = 42
-rate: float = 3.14159
-is_active: bool = True
-label: str = "Standalone Native Binary"
+---
 
-```
+## 3. Canonical Syntax Patterns
 
-### Control Flow
+### Scalar Variables & Basic Control Flow
+```tokenvector
+# -*- coding: utf-8 -*-
+x = 42
+rate = 3.14159
+is_active = True
+label = "TokenVector Standalone Binary"
 
-Supports standard branching and loop constructs:
-
-```text
 if x > 100:
     print("Above threshold")
 else:
@@ -45,47 +49,63 @@ while x > 0:
     x = x - 1
 ```
 
-### Function Signatures
-
-Functions are compiled into static methods without runtime dynamic dispatch overhead:
-
-```text
-def calculate_sum(a: int, b: int) -> int:
+### Functions & Entry Point
+```tokenvector
+# -*- coding: utf-8 -*-
+def calculate_sum(a: "i32", b: "i32") -> "i32":
     return a + b
 
-def main() -> void:
-    total: int = calculate_sum(10, 20)
-    print(total)
+def run() -> "str":
+    print("=== TokenVector Initialized ===")
+    total = calculate_sum(15, 25)
+    print("Computed: " + str(total))
+    return "SUCCESS"
+```
+
+### Object-Oriented Class with Typed Fields
+```tokenvector
+# -*- coding: utf-8 -*-
+class Vector2D:
+    x: "f64"
+    y: "f64"
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def magnitude_squared(self) -> "f64":
+        return self.x * self.x + self.y * self.y
 ```
 
 ### Win32 Native Interop (P/Invoke)
-
-Declare external OS APIs directly without C++ wrappers:
-
-```text
-extern def MessageBoxA(hwnd: int, text: str, title: str, uType: int) -> int:
-    from "user32.dll"
+```tokenvector
+# -*- coding: utf-8 -*-
+extern def MessageBoxA(hwnd: "i32", text: "str", title: "str", uType: "i32") -> "i32": from "user32.dll"
 ```
 
 ---
 
-## 3. Project Structure & Key References
+## 4. Toolchain & CLI Commands
 
-* **Compiler Core:** `3.code/compiler/` — Self-hosted lexer, parser, and code emitter.
+* **Build Executable (AOT):**
+  `tkvc build <source.tkv> --out <output.exe> --entry run`
+* **Build with Full Compiler Path:**
+  `.\3.code\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run`
+* **Run Validation Test Suite:**
+  `.\3.code\dist\tkvc.exe build 3.code\Testkit\native_test_suite.tkv --entry run --out test.exe && .\test.exe`
+* **Static Syntax Check:**
+  `.\3.code\dist\tkvc.exe build 3.code\Testkit\native_test_suite.tkv --entry check_file --out check.exe && .\check.exe <file.tkv>`
+
+---
+
+## 5. Project Structure & Key References
+
+* **Compiler Core:** `3.code/compiler/` — Self-hosted lexer, parser, and code emitter (102 `.tkv` files).
 * **CLI Driver:** `tkvc.exe` — Built via `3.code/build_tkvc.ps1`.
-* **Validation Testkit:** `3.code/Testkit/native_test_suite.tkv` — 16 self-checking compiler validations (`--entry run`) and static linter (`--entry check_file`).
-* **Examples & Tooling:** `3.code/examples/tools/` — 15 production utilities built with TokenVector.
+* **Validation Testkit:** `3.code/Testkit/native_test_suite.tkv` — 16 self-checking compiler validations and static linter.
+* **VS Code Extension:** `nguyenhungtran18.tokenvector-syntax` — Official TextMate grammar and snippets.
 * **Documentation:**
-* `README.md`: Architectural overview and multi-threaded performance benchmarks.
-* `USER-GUIDE.md`: CLI build flags, compiler options, and environment setup.
-* `TokenVector_system.md`: In-depth pipeline and execution specifications.
-* `3.code/docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`: Complete language specification manual.
-
----
-
-### Các điểm đã tối ưu cho LLM:
-* **Cung cấp cấu trúc cú pháp mẫu trực tiếp (Few-shot patterns):** LLM đọc vào sẽ nắm được ngay quy tắc khai báo biến, hàm, vòng lặp và P/Invoke của `.tkv` để sinh mã chính xác.
-* **Xác định rõ ràng vai trò tự lưu trữ (Self-hosted):** Hướng dẫn LLM hiểu rằng `tkvc.exe` tự biên dịch từ chính mã `.tkv` bên trong `3.code/`.
-* **Bản đồ chỉ mục tập trung:** Giúp các AI agent định vị chính xác file tài liệu cần tham chiếu (`SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`, `TokenVector_system.md`, `native_test_suite.tkv`).
-
-```
+  * `README.md`: Architecture overview and multi-threading performance benchmarks.
+  * `USER-GUIDE.md`: CLI build flags and compiler configuration.
+  * `TokenVector_system.md`: In-depth pipeline and execution specifications.
+  * `3.code/docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`: Complete language specification manual.
