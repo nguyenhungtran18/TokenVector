@@ -128,6 +128,25 @@ def _narrow_int_result(dtype, out, ctx):
         ctx['widen_if_needed']('int', dtype, out)
 
 
+def _float_literal_in(node):
+    """BUG THAT (2026-09-20, phat hien qua TokenVector.Data): True neu cay
+    con co hang so float nhin ro rang (co dau '.'). Ban sao local cua
+    _contains_float_literal (il_codegen) de tranh import vong tu plugin
+    LIBRARY nguoc lai vao il_codegen."""
+    if not isinstance(node, tuple):
+        return False
+    tag = node[0]
+    if tag == 'num':
+        return '.' in node[1]
+    if tag in ('binop', 'compare'):
+        return _float_literal_in(node[2]) or _float_literal_in(node[3])
+    if tag == 'neg':
+        return _float_literal_in(node[1])
+    if tag == 'ternary':
+        return _float_literal_in(node[2]) or _float_literal_in(node[3])
+    return False
+
+
 def compile_binop(node, scope, out, dtype, ctx=None):
     """EXPR_CODEGEN entry cho tag 'binop' - nhanh string uy quyen ra
     ctx['compile_binop_concat'] (string_feature.py), phan con lai (so
@@ -142,6 +161,29 @@ def compile_binop(node, scope, out, dtype, ctx=None):
     left_dtype = infer_dtype(left, scope, func_table)
     right_dtype = infer_dtype(right, scope, func_table)
     operand_dtype = left_dtype or right_dtype or dtype
+    # BUG THAT (2026-09-20): int OP float-literal -> Python tra float
+    # (3 * 0.5 == 1.5). Truoc day operand_dtype giu 'int'/'i32' theo toan
+    # hang BEN TRAI roi compile toan hang float literal duong 'int' -
+    # int_type.compile_literal nem ValueError int('0.5') (hoac ngam sinh
+    # gia tri rac khi literal nam sau trong cay con cua vong lap). Neu co
+    # float literal o bat ky dau thi promote CA BIEU THUC sang f64 (widen
+    # mot chieu, dung ngu nghia Python; toan hang int duoc widen qua
+    # _widen_if_needed/ToF64).
+    if operand_dtype in ('i32', 'i64', 'int') and \
+            (_float_literal_in(left) or _float_literal_in(right)):
+        operand_dtype = 'f64'
+    if operand_dtype == 'f64' and dtype in ('i32', 'i64', 'int'):
+        # 2026-09-20 (BUG-1 lat 2): ngu canh DOI KIEU int nhung bieu thuc co
+        # hang so float - Python se tra float o day ('k * 0.5' == 1.5). Hep
+        # nguoc float->int la THU HEP (mat du lieu) va _widen_if_needed chu
+        # dong khong ho tro - bao loi RO thay vi sinh ma rac/am tham (dung
+        # nguyen tac BUG-3: 'sai am tham nguy hiem hon loi on ao'). Bien moi
+        # (lan gan dau) da nhan 'f64' tu _infer_dtype (il_codegen, lat 2)
+        # nen duong nay chi con chan gan lai / ham khai kieu int that lech.
+        raise SyntaxError(
+            "il_codegen: bieu thuc co hang so float nhung ngu canh doi kieu "
+            f"int ('{dtype}') - Python se tra float o day (vd 'k * 0.5' == 1.5). "
+            "Dung bien/phan tu kieu float, hoac '//' neu muon chia nguyen")
     records = (ctx or {}).get('records') or {}
     if op == '+' and operand_dtype in records:
         # __add__ cho record (6.5, dunder overload - muc 5/5, 2026-08-13):

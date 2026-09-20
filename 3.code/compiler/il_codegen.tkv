@@ -697,7 +697,19 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
                     dunder = record_methods[operand_dtype].get('__add__')
                     if dunder and dunder.return_type:
                         return dunder.return_type.dtype
-        return left_dtype or right_dtype
+        # 2026-09-20 (BUG-1 lat 2, TokenVector.Data): int-family OP 1 cay
+        # con co HANG SO FLOAT -> Python tra float (3 * 0.5 == 1.5). Suy
+        # CA BIEU THUC la 'f64' de bien dich vao ngay lan gan dau duoc
+        # khai bao dung kieu float - dong bo voi promotion cung logic o
+        # compile_binop (operators.tkv). Truoc day 'v = k * 0.5' bi khai
+        # 'int' theo toan hang BEN TRAI roi compile ve phai duong int ->
+        # int('0.5') crash (hoac gia tri rac am tham khi literal nam sau
+        # trong cay con cua vong lap).
+        result = left_dtype or right_dtype
+        if result in (_INT_DTYPES | {'int'}) and \
+                (_contains_float_literal(node[2]) or _contains_float_literal(node[3])):
+            return 'f64'
+        return result
     if tag == 'ternary':
         return (_infer_dtype(node[2], scope, func_table, records, record_methods)
                 or _infer_dtype(node[3], scope, func_table, records, record_methods))
@@ -1523,7 +1535,7 @@ def _expr_num(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
 # (khong qua core), Phase 1 buoc 5, 2026-07-28.
 
 
-def _build_closure_delegate(name, info, scope: _Scope, out: list):
+def _build_closure_delegate(name, info, scope: _Scope, out: list, ctx: dict = None):
     """Nap 1 THE HIEN closure DA TAO (hidden_local, xem il_features/
     closures.py's codegen_nested_def) + tao 1 Func`N delegate tro toi than
     method cua no (ldftn instance + newobj Func::.ctor(object, native int) -
@@ -1538,11 +1550,17 @@ def _build_closure_delegate(name, info, scope: _Scope, out: list):
     _load_var_ref(info['hidden_local'], scope, out)
     callee_params = [p.type_ann.dtype for p in nested_sig.params]
     callee_ret = nested_sig.return_type.dtype if nested_sig.return_type else None
+    ret_ta = nested_sig.return_type
+    if ret_ta is not None and ret_ta.shape == 'list' and ctx is not None:
+        # Fix 2026-09-21: closure tra 'list[T]' -> delegate Func`1<List<T>>
+        # (truoc day IL_SCALAR['f64'] lam ldftn/newobj lech kieu that su).
+        ret_il = il_type_str(ret_ta, (ctx or {}).get('records'))
+    else:
+        ret_il = IL_SCALAR[callee_ret]
     params_il = ', '.join(IL_SCALAR[d] for d in callee_params)
-    ret_il = IL_SCALAR[callee_ret]
     out.append(f'    ldftn instance {ret_il} {info["closure_class"]}::{name}({params_il})')
-    generic_args = ', '.join([IL_SCALAR[d] for d in callee_params] + [IL_SCALAR[callee_ret]])
-    func_il = f'class [System.Core]System.Func`{len(callee_params) + 1}<{generic_args}>'
+    generic_args = ', '.join([IL_SCALAR[d] for d in callee_params] + [ret_il])
+    func_il = f'class [mscorlib]System.Func`{len(callee_params) + 1}<{generic_args}>'
     out.append(f'    newobj instance void {func_il}::.ctor(object, native int)')
     return callee_params, callee_ret
 
@@ -3745,7 +3763,12 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
                 # qua EXPR_BUILTIN_DTYPE ('thread', dung cho CHINH bien nay).
                 fn_sig = (func_table or {}).get(rhs_node[2][0][1])
                 if fn_sig is not None and fn_sig.return_type is not None:
-                    thread_ret_types[name] = fn_sig.return_type.dtype
+                    # Fix 2026-09-21: giu NGUYEN TypeAnn (dtype + shape) -
+                    # worker tra 'list[f64]' thi handle phai giu duoc shape
+                    # de 'thread_join' sau nay khai slot local dung kieu IL
+                    # List`1<f64> (truoc day chi lay .dtype 'f64' -> slot f64
+                    # scalar nhan object List -> IL sai kieu am tham).
+                    thread_ret_types[name] = fn_sig.return_type
                 ta = TypeAnn('thread', None)
             elif (rhs_node[0] == 'call' and rhs_node[1] == 'thread_join'
                   and len(rhs_node[2]) == 1 and rhs_node[2][0][0] == 'var'):
@@ -3754,8 +3777,13 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
                 # LUON dung TRUOC theo thu tu van ban) - fallback 'i64' giu
                 # nguyen hanh vi cu neu khong tra cuu duoc (vd handle truyen
                 # qua tham so ham, chua ho tro tong quat).
-                real_dtype = thread_ret_types.get(rhs_node[2][0][1], 'i64')
-                ta = TypeAnn(real_dtype, None)
+                real_ret = thread_ret_types.get(rhs_node[2][0][1], 'i64')
+                if isinstance(real_ret, str):
+                    ta = TypeAnn(real_ret, None)
+                else:
+                    # TypeAnn day du (worker tra container/list) - dung lai
+                    # nguyen de slot local khop kieu IL tren stack.
+                    ta = real_ret
             elif rhs_node[0] == 'index' and _index_src_is_nested_container(rhs_node[1], infer_scope):
                 # Wave 2 (2026-07-29), container long nhau: 'row = outer[i]'
                 # khi 'outer' la List<List<T>>/List<Dict<K,V>> - phan tu
@@ -3958,6 +3986,10 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
         'stmts': stmts, 'infer_dtype': _infer_dtype, 'infer_literal_dtype': _infer_literal_dtype,
         'container_arg_hints': _container_arg_hints(stmts, func_table, sig),
         'contains_float_literal': _contains_float_literal, 'int_dtypes': _INT_DTYPES,
+        # BUG-3 guard (2026-09-20): plugin list_type goi lai khi gan lai
+        # list literal len local list da khai - chan giao ho int/float.
+        'check_list_retype': _check_list_retype,
+        'build_closure_delegate': _build_closure_delegate,
         'TypeAnn': TypeAnn,
         # Closure that (Buoc 4, 2026-07-29) - xem il_features/closures.py's
         # fpw_nested_def/codegen_nested_def.
@@ -4458,12 +4490,61 @@ def _stmt_idx_assign(stmt, scope: _Scope, body: list, body_dtype: str, ctx: dict
 # codegen_attr_assign (Phase 1 buoc 8, 2026-07-28).
 
 
+def _retype_family(d):
+    """BUG-3 guard: gom dtype ve 2 ho 'int'/'float' de chi chan GIAO CHUYEN
+    HO (int <-> float), KHONG chan widen cung ho hop le (i32 <-> i64/int,
+    f32 <-> f64 - duong do truyen context dtype tu lau van dung)."""
+    if d in ('f32', 'f64'):
+        return 'float'
+    if d in _INT_DTYPES or d == 'int':
+        return 'int'
+    return None
+
+
+def _check_list_retype(name: str, var_ta, elem_nodes, scope, ctx):
+    """BUG-3 guard (a), 2026-09-20: local khai shape='list' PHAN TU
+    int-family, gan lai bang list_literal co phan tu FLOAT -> SyntaxError
+    ro rang. Huong nay TRUOC DAY crash that (int_type.compile_literal
+    nem ValueError int('0.5')). Huong nguoc (list f64 <- phan tu nguyen)
+    AN TOAN - codegen_list_append widen i32 -> f64 dung gia tri - nen
+    van GIU (widening 1 chieu, dung ngu nghia Python, giong fix BUG-1).
+    Chi guard HEP: khong dong den list_literal inline tai tham so (duong
+    do khong qua ham nay)."""
+    if _retype_family(var_ta.dtype) != 'int':
+        return
+    for el in elem_nodes:
+        d = _infer_dtype(el, scope, ctx.get('func_table'), ctx.get('records'),
+                         ctx.get('record_methods'))
+        if d is None:
+            d = _infer_literal_dtype(el)
+        if _retype_family(d) == 'float':
+            raise SyntaxError(
+                f"il_codegen: gan lai bien {name!r} (khai dtype phan tu "
+                f"{var_ta.dtype!r}) bang list co phan tu kieu {d!r} - 1 local "
+                f"giu 1 kieu duy nhat, dung ten bien moi hoac doi phan tu "
+                f"cung kieu")
+
+
 def _stmt_assign_scalar(stmt, scope: _Scope, body: list, body_dtype: str, ctx: dict, sig: Signature, codegen_stmts_fn):
     # Dung dtype THAT cua bien (da suy trong _first_pass_collect_locals),
     # KHONG phai body_dtype dong loat - can THIET tu khi co 'str'
     # (1 ham numeric van co the co local string, vd de xay message).
     name = stmt['name']
     kind, idx, var_ta = scope[name]
+    # BUG-3 guard (2026-09-20): gán lại local theo kieu khác -> chặn rõ ràng
+    # ngay lúc biên dịch (xem COMPILER_BUGS.md BUG-3). Chi cho local 'thuần'
+    # (global/boxed/closure_field giữ hành vi cũ).
+    if kind == 'local' and var_ta.shape == 'list' and \
+            stmt['rhs_node'][0] == 'list_literal':
+        _check_list_retype(name, var_ta, stmt['rhs_node'][1], scope, ctx)
+    if kind == 'local' and var_ta.shape is None and \
+            (var_ta.dtype in _INT_DTYPES or var_ta.dtype == 'int'):
+        rhs = stmt['rhs_node']
+        if _contains_float_literal(rhs):
+            raise SyntaxError(
+                f"il_codegen: gan lai bien {name!r} kieu {var_ta.dtype!r} bang "
+                f"bieu thuc chua so thuc - 1 local giu 1 kieu duy nhat, dung "
+                f"bien moi kieu f32/f64 hoac ep kieu ro rang")
     if kind == 'global':
         # Bien module-level GHI DUOC ('global x', 2026-08-11) - ghi qua
         # '.field private static' cua class chuong trinh (stsfld), khong
@@ -4848,6 +4929,7 @@ def _gen_async_def(sig, body_lines, class_name, records, record_methods,
 
     ctx_stub = {
         'gen_il_function': gen_il_function, 'il_type_str': il_type_str,
+        'build_closure_delegate': _build_closure_delegate,
         'class_name': class_name, 'records': records or {},
         'record_methods': record_methods or {}, 'record_methods_own': record_methods_own or {},
         'record_bases': record_bases or {}, 'func_table': func_table or {},
@@ -5067,6 +5149,7 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
            'compile_expr': _compile_expr, 'load_var_ref': _load_var_ref, 'il_ident': _il_ident,
            'load_var_addr': _load_var_addr, 'store_var': _store_var,
            'compile_funcref_arg': _compile_funcref_arg,
+           'build_closure_delegate': _build_closure_delegate,
            'widen_if_needed': _widen_if_needed, 'neg_literal_int': _neg_literal_int,
            # Them cho il_features/string_feature.py (Phase 1 buoc 5).
            'int_dtypes': _INT_DTYPES, 'float_dtypes': _FLOAT_DTYPES,
@@ -5267,6 +5350,7 @@ def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict
            'compile_expr': _compile_expr, 'load_var_ref': _load_var_ref, 'il_ident': _il_ident,
            'load_var_addr': _load_var_addr, 'store_var': _store_var,
            'compile_funcref_arg': _compile_funcref_arg,
+           'build_closure_delegate': _build_closure_delegate,
            'widen_if_needed': _widen_if_needed, 'neg_literal_int': _neg_literal_int,
            'int_dtypes': _INT_DTYPES, 'float_dtypes': _FLOAT_DTYPES,
            'compare_opcode': _COMPARE_OPCODE, 'compare_negated': _COMPARE_NEGATED,

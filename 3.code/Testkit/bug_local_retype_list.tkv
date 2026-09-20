@@ -1,0 +1,10 @@
+# Regression BUG-3 ca (a) - HUONG NGUY HIEM: local list phan tu int-family
+# gan lai bang list_literal co phan tu FLOAT - truoc khi sua crash
+# ValueError int('0.5'). PHAI bao SyntaxError RO RANG luc bien dich.
+# (Huong nguoc: list f64 <- phan tu nguyen la widen an toan, van duoc phep -
+# xem bug_local_retype_widen.tkv.)
+def main() -> "str":
+    a = [1, 2, 3]
+    a = [4.0, 5.0]
+    print(str(a[0]))
+    return "ok"

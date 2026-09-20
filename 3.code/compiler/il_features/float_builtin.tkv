@@ -36,6 +36,18 @@ def push_float_builtin(args, scope, out, dtype, ctx):
     if src == 'f64':
         ctx['compile_expr'](args[0], scope, out, 'f64', ctx)
         return
+    if src == 'int':
+        # BUG THAT (2026-09-20, phat hien qua TokenVector.Data - thong ke
+        # Welford): src == 'int' truoc day roi vao nhanh generic cuoi ham
+        # sinh 'conv.r8' tren mot TkvInt STRUCT - conv.r8 doc 8 byte dau
+        # cua struct (object ref null) -> float(counter) LUON tra 0.0 IM
+        # LANG, bien dem vong lap bien thanh chia cho 0 (mean = inf). Dung
+        # ToF64 co kiem tra cua TkvInt (nem khi int qua lon - giong Python).
+        import il_features.int_type as _int_type
+        _int_type.ensure_class(ctx)
+        ctx['compile_expr'](args[0], scope, out, 'int', ctx)
+        out.append('    call float64 TkvInt::ToF64(valuetype TkvInt)')
+        return
     if src is None:
         # Khong suy duoc kieu - bien dich thang sang f64, de _compile_expr
         # tu bao loi RO RANG neu that su khong hop le.

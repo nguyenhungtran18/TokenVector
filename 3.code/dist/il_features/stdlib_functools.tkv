@@ -13,9 +13,10 @@ def _push_clamp_i32(args, scope, out, dtype, ctx):
     if len(args) != 3:
         raise SyntaxError("il_codegen: functools_clamp_i32(val, min, max) can dung 3 tham so")
     compile_expr = ctx['compile_expr']
-    compile_expr(args[1], scope, out, 'i32', ctx)
-    compile_expr(args[0], scope, out, 'i32', ctx)
-    compile_expr(args[2], scope, out, 'i32', ctx)
+    # Math.Max(min_val, Math.Min(val, max_val))
+    compile_expr(args[1], scope, out, 'i32', ctx) # min_val
+    compile_expr(args[0], scope, out, 'i32', ctx) # val
+    compile_expr(args[2], scope, out, 'i32', ctx) # max_val
     out.append('    call int32 [mscorlib]System.Math::Min(int32, int32)')
     out.append('    call int32 [mscorlib]System.Math::Max(int32, int32)')
 

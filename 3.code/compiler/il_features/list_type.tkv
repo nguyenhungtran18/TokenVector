@@ -722,6 +722,16 @@ def codegen_assign_list_literal(stmt, scope, body, body_dtype, ctx, sig, codegen
     tai dung 100% codegen_assign_list_new (newobj + store) roi codegen_list_append
     tung phan tu (tuong duong 'xs = []' + N lan '.append()'), khong viet
     lai logic newobj/Add rieng - dung nguyen tac DRY."""
+    # BUG-3 guard (2026-09-20): gan lai list literal len local list DA
+    # khai phan tu int-family ma chua phan tu FLOAT -> bao loi ro rang
+    # (huong nguoc widen f64 <- int la an toan, van giu). Lan gan DAU
+    # TIEN khong bao gio fire vi dtype khai suy chinh tu cac phan tu do.
+    _retype_check = ctx.get('check_list_retype')
+    if _retype_check is not None:
+        try:
+            _retype_check(stmt['name'], scope[stmt['name']][2], stmt['elements'], scope, ctx)
+        except KeyError:
+            pass
     codegen_assign_list_new(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
     for el in stmt['elements']:
         codegen_list_append({'kind': 'list_append', 'name': stmt['name'], 'value_node': el},

@@ -1,0 +1,27 @@
+# Regression BUG-2 (2026-09-20): float(counter) voi counter kieu 'int'
+# (struct TkvInt) phai tra gia tri that, khong 0.0 am tham.
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    # Repro goc: mean = sum(fb[i] / float(cnt)) - truoc khi sua, float(cnt)
+    # tra 0.0 cho counter int -> chia 0 -> 'inf'. Tong dung = 1+1+1+1 = 4.0.
+    fb = [1.0, 2.0, 3.0, 4.0]
+    cnt = 0
+    mean = 0.0
+    for x in fb:
+        cnt = cnt + 1
+        fc = float(cnt)
+        mean = mean + x / fc
+    tested = tested + 1
+    total = total + check("float_int_counter_mean", str(mean), "4.0")
+
+    # Ca toi thieu: float(counter) truc tiep.
+    n = 0
+    n = n + 7
+    tested = tested + 1
+    total = total + check("float_int_counter_direct", str(float(n)), "7.0")
+
+    return test_summary("bug_float_counter_test", total, tested)

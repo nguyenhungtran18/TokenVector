@@ -24,15 +24,60 @@ def compile_thread_spawn(args, scope, out, dtype, ctx):
     fn_name = fn_node[1]
     class_name = ctx.get('class_name', 'TKVApp')
     func_table = ctx.get('func_table', {})
+    nested = ctx.get('nested_closures') or {}
+    if fn_name in nested and fn_name not in func_table:
+        # Fix 2026-09-21 (KERNEL_LAB 6.2 Gap B): worker la HAM LONG (closure)
+        # - dung dung co che delegate cua closure that: nap THE HIEN (hidden
+
+        # local) + ldftn INSTANCE method cua closure class. Truoc day roi vao
+
+        # nhanh ham top-level -> 'ldftn int64 TKVApp::worker_closure()'
+
+        # MissingMethodException luc chay.
+
+        _bcd = ctx.get('build_closure_delegate')
+
+        if _bcd is None:
+
+            raise SyntaxError('il_codegen: thread_spawn closure thieu build_closure_delegate trong ctx')
+
+        # Thu tu CIL: [factory] roi [delegate] -> callvirt StartNew -> Task<T>.
+        out.append('    call class [mscorlib]System.Threading.Tasks.TaskFactory '
+                   '[mscorlib]System.Threading.Tasks.Task::get_Factory()')
+        callee_params, callee_ret = _bcd(fn_name, nested[fn_name], scope, out, ctx)
+        _ret_ta = nested[fn_name]['nested_sig'].return_type
+        if _ret_ta is not None and _ret_ta.shape == 'list':
+            il_ret = ctx['il_type_str'](_ret_ta, ctx.get('records'))
+        else:
+            il_ret = IL_SCALAR.get(callee_ret, 'int64')
+        # Dung dung FORM da chay dung o duong ham top-level (Task`1<!!0> +
+        # StartNew<{il_ret}> + Func`1<!!0>) - cac form khac bi ilasm sinh
+        # method-ref ma runtime khong tra cuu duoc (MissingMethodException).
+        out.append(f'    callvirt instance class [mscorlib]System.Threading.Tasks.Task`1<!!0> '
+                   f'[mscorlib]System.Threading.Tasks.TaskFactory::StartNew<{il_ret}>('
+                   f'class [mscorlib]System.Func`1<!!0>)')
+        target_name = ctx.get('_assign_target_name')
+        if target_name:
+            ctx.setdefault('_thread_ret_types', {})[target_name] = _ret_ta if _ret_ta else callee_ret
+
+        return
+
     sig = func_table.get(fn_name)
-    ret_dtype = sig.return_type.dtype if (sig and sig.return_type) else 'i64'
-    il_ret = IL_SCALAR.get(ret_dtype, 'int64')
+    ret_ta = sig.return_type if sig else None
+    ret_dtype = ret_ta.dtype if ret_ta else 'i64'
+    if ret_ta is not None and ret_ta.shape == 'list':
+        # Fix 2026-09-21: worker tra 'list[T]' -> Task<List<T>> (khong con
+        # hardcode scalar) - mo duong da luong op sinh output (KERNEL_LAB 6.2).
+        il_ret = ctx['il_type_str'](ret_ta, ctx.get('records'))
+    else:
+        il_ret = IL_SCALAR.get(ret_dtype, 'int64')
     # Luu kieu tra ve THAT cua worker theo TEN BIEN se duoc gan ('t1' trong
     # 't1 = thread_spawn(worker)') - _stmt_assign_scalar (il_codegen.py) da
     # ghi san ctx['_assign_target_name'] TRUOC khi goi ham nay.
     target_name = ctx.get('_assign_target_name')
     if target_name:
-        ctx.setdefault('_thread_ret_types', {})[target_name] = ret_dtype
+        # Luu TypeAnn DAY DU (dtype + shape) cho compile_thread_join tra cuu.
+        ctx.setdefault('_thread_ret_types', {})[target_name] = ret_ta if ret_ta else 'i64'
     # Dung Task.Factory.StartNew<T>() thay vi Task.Run<T>() - Task.Run()
     # CHI co tu .NET Framework 4.5, trong khi ilasm.exe dang dung nam o
     # thu muc Framework v4.0.30319 (assemble doi voi mscorlib v4.0, KHONG
@@ -58,8 +103,15 @@ def compile_thread_join(args, scope, out, dtype, ctx):
         raise SyntaxError("il_codegen: thread_join() nhan 1 tham so la bien thread")
     t_node = args[0]
     var_name = t_node[1] if t_node[0] == 'var' else None
-    ret_dtype = ctx.get('_thread_ret_types', {}).get(var_name, 'i64')
-    il_ret = IL_SCALAR.get(ret_dtype, 'int64')
+    ret_info = ctx.get('_thread_ret_types', {}).get(var_name, 'i64')
+    if isinstance(ret_info, str):
+        ret_dtype = ret_info
+        il_ret = IL_SCALAR.get(ret_dtype, 'int64')
+    else:
+        # TypeAnn day du (worker tra 'list[T]'...) - il_ret phai la kieu IL
+        # that su cua ket qua (List`1<T>), khong phai IL_SCALAR cua dtype.
+        ret_dtype = ret_info.dtype
+        il_ret = ctx['il_type_str'](ret_info, ctx.get('records'))
     ctx['compile_expr'](t_node, scope, out, 'thread', ctx)
     out.append(f'    castclass class [mscorlib]System.Threading.Tasks.Task`1<{il_ret}>')
     out.append(f'    callvirt instance !0 class [mscorlib]System.Threading.Tasks.Task`1<{il_ret}>::get_Result()')

@@ -384,3 +384,155 @@ def compile_model(model, out_exe, scaler=None, class_labels=None):
         raise TokenVectorError(
             f"ilasm.exe that bai (code {result.returncode}):\n{result.stdout}\n{result.stderr}")
     return out_exe
+
+
+def assemble_il_to_dll(il_text, out_dll, debug=False):
+    """Bien dich IL text thanh .NET Assembly (.dll) bang ilasm.exe /dll.
+    Tra ve duong dan toi file .dll da bien dich."""
+    import os
+    from pathlib import Path
+
+    out_dll = Path(out_dll)
+    il_path = out_dll.with_suffix('.il')
+    il_path.write_text(il_text, encoding='utf-8')
+
+    ilasm_args = [ILASM, str(il_path), '/dll', f'/output:{out_dll}']
+    if debug:
+        ilasm_args.append('/debug')
+
+    result = subprocess.run(ilasm_args, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise TokenVectorError(
+            f"ilasm.exe /dll that bai (code {result.returncode}):\n"
+            f"{result.stdout}\n{result.stderr}")
+
+    return out_dll
+
+
+def compile_il_to_wasm(il_text, out_dir, project_name='TokenVectorWasm', debug=False):
+    """Bien dich IL text thanh WebAssembly (.wasm) thong qua .NET 8+ AOT.
+
+    Quy trinh:
+    1. Bien dich IL thanh .dll bang ilasm.exe /dll
+    2. Tao .csproj nho cho .NET 8+
+    3. Chay `dotnet publish -c Release -r wasm` voi wasm-tools
+
+    Yeu cau:
+    - .NET 8+ SDK
+    - `dotnet workload install wasm-tools`
+    - EMSCRIPTEN (tu workload wasm-tools)
+
+    Tra ve duong dan thu muc chua .wasm (out_dir/project_name.wasm)."""
+    import os
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Buoc 1: Bien dich IL -> .dll
+    dll_path = out_dir / f'{project_name}.dll'
+    assemble_il_to_dll(il_text, dll_path, debug=debug)
+
+    # Buoc 2: Tao .csproj nho
+    csproj = f'''<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <WasmMainProjectPath>$(MSBuildProjectDirectory)</WasmMainProjectPath>
+    <RunAOTCompilation>true</RunAOTCompilation>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="{project_name}.dll" />
+  </ItemGroup>
+</Project>'''
+
+    # Tao thu muc tam de build
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        proj_dir = tmpdir / project_name
+        proj_dir.mkdir()
+
+        # Ghi .dll vao thu muc du an
+        import shutil
+        shutil.copy2(dll_path, proj_dir / f'{project_name}.dll')
+
+        # Ghi .csproj
+        csproj_path = proj_dir / f'{project_name}.csproj'
+        csproj_path.write_text(csproj, encoding='utf-8')
+
+        # Tao Program.cs nho (entry point)
+        program_cs = f'''using System;
+
+namespace {project_name}
+{{
+    class Program
+    {{
+        static void Main(string[] args)
+        {{
+            // Entry point se duoc goi tu DLL
+            // (IL da co Main tu generate)
+        }}
+    }}
+}}
+'''
+        (proj_dir / 'Program.cs').write_text(program_cs, encoding='utf-8')
+
+        # Build va publish WASM
+        env = os.environ.copy()
+        env['DOTNET_CLI_TELEMETRY_OPTOUT'] = '1'
+
+        # Restore
+        result = subprocess.run(
+            ['dotnet', 'restore', str(csproj_path)],
+            capture_output=True, text=True, env=env
+        )
+        if result.returncode != 0:
+            raise TokenVectorError(
+                f"dotnet restore that bai:\n{result.stdout}\n{result.stderr}")
+
+        # Publish WASM
+        publish_args = [
+            'dotnet', 'publish', str(csproj_path),
+            '-c', 'Release' if not debug else 'Debug',
+            '-r', 'wasm',
+            '-o', str(out_dir / 'publish'),
+            '--no-restore'
+        ]
+        if debug:
+            publish_args.append('--self-contained')
+            publish_args.append('true')
+
+        result = subprocess.run(
+            publish_args,
+            capture_output=True, text=True, env=env
+        )
+        if result.returncode != 0:
+            raise TokenVectorError(
+                f"dotnet publish WASM that bai:\n{result.stdout}\n{result.stderr}")
+
+    # Copy .wasm ve out_dir
+    wasm_files = list(out_dir.glob('publish/**/*.wasm'))
+    if not wasm_files:
+        raise TokenVectorError("Khong tim thay file .wasm sau khi publish")
+
+    # Copy file .wasm chinh ve out_dir
+    main_wasm = out_dir / f'{project_name}.wasm'
+    shutil.copy2(wasm_files[0], main_wasm)
+
+    return main_wasm
+
+
+def compile_tkv_to_wasm(tkv_path, out_dir, entry_name=None, class_name='TKVApp', debug=False):
+    """Bien dich 1 file .tkv truc tiep thanh WebAssembly.
+
+    Tra ve duong dan toi file .wasm."""
+    from tkv_compile import compile_tkv_cli  # reuse existing logic
+
+    # Reuse logic tu compile_tkv_cli de sinh IL
+    # (Can refactor de re-use logic gen_il_program)
+    raise NotImplementedError("compile_tkv_to_wasm can duoc implement sau")
