@@ -142,12 +142,17 @@ def _il_scalar_or_handle(dtype):
     # 'func') VA _compile_funcref_arg (chu ky ldftn khi truyen thang 1 ten
     # ham lam callback, vd map(to_str, xs: list[Sb])) - ca 2 truoc day deu
     # tra thang IL_SCALAR[dtype], nem KeyError voi handle type.
+    # 2026-09-21 (TokenVector.Data groupby_apply): nhan them record class
+    # TU SINH (vd 'DataFrame', 'Series') - la 'class Ten' giong nhanh
+    # record cua il_type_str (tat ca deu reference type sau B1).
     elem = IL_SCALAR.get(dtype)
     if elem is not None:
         return elem
     if _EXTERN_CLASS_DEFS and dtype in _EXTERN_CLASS_DEFS:
         d = _EXTERN_CLASS_DEFS[dtype]
         return f"class [{d['assembly']}]{d['class']}"
+    if _RECORD_DEFS and dtype in _RECORD_DEFS:
+        return f'class {dtype}'
     raise SyntaxError(
         f"il_codegen: kieu {dtype!r} khong hop le cho tham so/tra ve cua "
         f"'func(...)' - phai la dtype vo huong hoac 1 handle type da khai "
@@ -1901,8 +1906,10 @@ def _compile_lambda_funcref(arg_node, target_ta, scope: _Scope, out: list, ctx: 
         emitted.add(class_name_l)
         ctx['extra_classes'].append(
             _gen_lambda_class_il(class_name_l, nested_sig, body_stmts, ctx, captures))
-    params_il = ', '.join(IL_SCALAR[d] for d in target_ta.func_params)
-    ret_il = IL_SCALAR[target_ta.dtype]
+    # 2026-09-21 (groupby_apply): tham so/tra ve co the la record class
+    # (vd 'DataFrame') - qua _il_scalar_or_handle thay IL_SCALAR truc tiep.
+    params_il = ', '.join(_il_scalar_or_handle(d) for d in target_ta.func_params)
+    ret_il = _il_scalar_or_handle(target_ta.dtype)
     func_il = il_type_str(target_ta, records)
     for name, _cap_ta, _fld_il in captures:
         _load_var_ref(name, scope, out)
@@ -2000,7 +2007,9 @@ def _compile_funcref_call(name, args, scope: _Scope, out: list, dtype: str, ctx:
     for arg_node, pdtype in zip(args, fta.func_params):
         _compile_expr(arg_node, scope, out, pdtype, ctx)
     n = len(fta.func_params)
-    generic_args = ', '.join([IL_SCALAR[p] for p in fta.func_params] + [IL_SCALAR[fta.dtype]])
+    # 2026-09-21 (groupby_apply): tham so/tra ve record class - qua
+    # _il_scalar_or_handle thay IL_SCALAR truc tiep.
+    generic_args = ', '.join([_il_scalar_or_handle(p) for p in fta.func_params] + [_il_scalar_or_handle(fta.dtype)])
     invoke_params = ', '.join(f'!{i}' for i in range(n))
     func_il = f'class [System.Core]System.Func`{n + 1}<{generic_args}>'
     out.append(f'    callvirt instance !{n} {func_il}::Invoke({invoke_params})')

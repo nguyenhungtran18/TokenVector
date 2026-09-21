@@ -272,7 +272,12 @@ class Parser:
             if not (k == 'OP' and v == ')'):
                 while True:
                     k2, v2, p2 = self.advance()
-                    if k2 != 'IDENT' or v2 not in DTYPES:
+                    # 2026-09-21 (TokenVector.Data groupby_apply): cho phep
+                    # record/extern_class name lam kieu tham so func - truoc
+                    # day CHI scalar DTYPES nen 'func(DataFrame)->DataFrame'
+                    # khong bien dich duoc. il_type_str da biet ten class
+                    # (kieu tham chieu) nen khong anh huong codegen cu.
+                    if k2 != 'IDENT' or (v2 not in DTYPES and v2 not in self.record_names and v2 not in self.extern_class_names):
                         raise SyntaxError(
                             f"il_codegen: ky vong dtype trong 'func(...)', gap {v2!r} (vi tri ~{p2})")
                     func_params.append(v2)
@@ -284,7 +289,7 @@ class Parser:
             self.expect('OP', ')')
             self.expect('ARROW')
             k4, v4, p4 = self.advance()
-            if k4 != 'IDENT' or v4 not in DTYPES:
+            if k4 != 'IDENT' or (v4 not in DTYPES and v4 not in self.record_names and v4 not in self.extern_class_names):
                 raise SyntaxError(
                     f"il_codegen: ky vong dtype tra ve sau '->' trong 'func(...)', "
                     f"gap {v4!r} (vi tri ~{p4})")

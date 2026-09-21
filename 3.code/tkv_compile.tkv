@@ -3296,6 +3296,9 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
     # voi EXPR_BUILTIN_CODEGEN/EXPR_BUILTIN_DTYPE o duoi) - xem giai thich
     # day du tai il_codegen.py's _EXTERN_CLASS_DEFS docstring.
     il_codegen._EXTERN_CLASS_DEFS = extern_class_defs
+    # 2026-09-21 (groupby_apply): cung set ban ghi record cho
+    # _il_scalar_or_handle - cho phep 'func(DataFrame)->DataFrame' v.v.
+    il_codegen._RECORD_DEFS = record_defs if record_defs else {}
     try:
         for decl in extern_methods:
             _validate_and_register_extern_method(decl, declared_assembly_names)
@@ -3510,3 +3513,4 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             EXPR_METHOD_SHAPE.pop(_key, None)
             EXPR_METHOD_RESULT_SHAPE.pop(_key, None)
         il_codegen._EXTERN_CLASS_DEFS = {}
+        il_codegen._RECORD_DEFS = {}
