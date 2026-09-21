@@ -134,6 +134,28 @@ def _cell_class_name(dtype: str) -> str:
 _EXTERN_CLASS_DEFS = {}
 
 
+def _norm_param_dtype(ta):
+    # 2026-09-21 (win_apply func(list[f64])): chuan hoa dtype cua 1 THAM SO
+    # /RETURN (TypeAnn) cua 1 chu ky ham de SO SANH voi func_params cua
+    # TypeAnn 'func'. Parser func() luu func_params dang CHUOI spec
+    # ('list[f64]', 'dict[str,i32]'...), con tham so that la TypeAnn co
+    # shape='list'/'dict' voi dtype = phan tu. Khong chuan hoa thi chu ky
+    # luon lech ('f64' != 'list[f64]') va _compile_funcref_arg tu choi
+    # callback hop le. Container long di qua elem_ta (xem TypeAnn).
+    if ta is None:
+        return None
+    if ta.shape == 'list':
+        if ta.elem_ta is not None:
+            return 'list[' + _norm_param_dtype(ta.elem_ta) + ']'
+        return 'list[' + str(ta.dtype) + ']'
+    if ta.shape == 'dict':
+        kd = ta.key_dtype or 'str'
+        if ta.elem_ta is not None:
+            return 'dict[' + kd + ',' + _norm_param_dtype(ta.elem_ta) + ']'
+        return 'dict[' + kd + ',' + str(ta.dtype) + ']'
+    return ta.dtype
+
+
 def _il_scalar_or_handle(dtype):
     # muc P follow-up (2026-08-19): tra kieu IL cho 1 dtype co the la vo
     # huong (qua IL_SCALAR) HOAC 1 handle type extern-class (qua
@@ -153,6 +175,12 @@ def _il_scalar_or_handle(dtype):
         return f"class [{d['assembly']}]{d['class']}"
     if _RECORD_DEFS and dtype in _RECORD_DEFS:
         return f'class {dtype}'
+    # 2026-09-21 (win_apply): nhan them dtype DANG CONTAINER 'list[T]' /
+    # 'dict[K,V]' - dung il_container_type_of_spec (de quy duoc).
+    if dtype.startswith('list[') or dtype.startswith('dict['):
+        return _il_container_type_of_spec(
+            dtype, _RECORD_DEFS if _RECORD_DEFS else None,
+            _EXTERN_CLASS_DEFS if _EXTERN_CLASS_DEFS else None)
     raise SyntaxError(
         f"il_codegen: kieu {dtype!r} khong hop le cho tham so/tra ve cua "
         f"'func(...)' - phai la dtype vo huong hoac 1 handle type da khai "
@@ -1948,8 +1976,8 @@ def _compile_funcref_arg(arg_node, target_ta, scope: _Scope, out: list, ctx: dic
     if name not in scope and name in nested_closures:
         info = nested_closures[name]
         nested_sig = info['nested_sig']
-        callee_params = [p.type_ann.dtype for p in nested_sig.params]
-        callee_ret = nested_sig.return_type.dtype if nested_sig.return_type else None
+        callee_params = [_norm_param_dtype(p.type_ann) for p in nested_sig.params]
+        callee_ret = _norm_param_dtype(nested_sig.return_type) if nested_sig.return_type else None
         if callee_params != target_ta.func_params or callee_ret != target_ta.dtype:
             raise SyntaxError(
                 f"il_codegen: chu ky ham long '{name}' (({', '.join(callee_params)}) -> "
@@ -1973,8 +2001,8 @@ def _compile_funcref_arg(arg_node, target_ta, scope: _Scope, out: list, ctx: dic
             f"il_codegen: '{name}' khong phai 1 ham da khai bao trong chuong trinh "
             f"(tham so kieu 'func')")
     callee = func_table[name]
-    callee_params = [p.type_ann.dtype for p in callee.params]
-    callee_ret = callee.return_type.dtype if callee.return_type else None
+    callee_params = [_norm_param_dtype(p.type_ann) for p in callee.params]
+    callee_ret = _norm_param_dtype(callee.return_type) if callee.return_type else None
     if callee_params != target_ta.func_params or callee_ret != target_ta.dtype:
         raise SyntaxError(
             f"il_codegen: chu ky ham '{name}' (({', '.join(callee_params)}) -> {callee_ret}) "
