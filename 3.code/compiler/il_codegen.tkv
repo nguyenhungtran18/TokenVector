@@ -1058,7 +1058,7 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
     return None  # 'num'/'shape'/'compare'/'boolop': dtype co dinh (numeric/i32), khong can suy
 
 
-def _shaped_return_ta_of_call(rhs_node, func_table, infer_scope=None, records=None):
+def _shaped_return_ta_of_call(rhs_node, func_table, infer_scope=None, records=None, record_methods=None):
     """Tra 1 gia tri CO SHAPE (list/dict/set/tuple/record/func/refclass...)
     ra tu 1 loi goi ham TOP-LEVEL (vd 'lst = make_list()'/'inc =
     make_counter()') - tra ve THANG TypeAnn day du cua callee.return_type
@@ -1167,6 +1167,17 @@ def _shaped_return_ta_of_call(rhs_node, func_table, infer_scope=None, records=No
             if isinstance(ret, str) and (ret.startswith('list[') or ret.startswith('dict[')):
                 return parse_type_ann_str(ret, extern_class_names=set(_EXTERN_CLASS_DEFS))
             return None
+        # 2026-09-22 (TokenVector.Data v1.5): method tren RECORD tra ve
+        # container (vd 'df.column_names()' -> list[str]) - nhanh resolver
+        # chi ap dung extern_class; record thi rot mat shape qua nhanh cu
+        # (_infer_dtype tra VE .dtype 'str' cua PHAN TU thay vi list) ->
+        # local khai bao kieu string, 'lst[0]' bien thanh String::get_Chars
+        # (doc ky tu) -> chuoi NUL. Tra cuu record_methods lay TypeAnn DAY
+        # DU cua return_type (shape='list' ...) giu nguyen cho local.
+        if obj_ta is not None and obj_ta.shape == 'record' and record_methods:
+            m_sig3 = dict(record_methods.get(obj_ta.dtype, {})).get(rhs_node[2])
+            if m_sig3 is not None and getattr(m_sig3.return_type, 'shape', None) is not None:
+                return m_sig3.return_type
         resolver = EXPR_METHOD_SHAPE.get((_shape_key(obj_ta), rhs_node[2]))
         if resolver:
             # Nhom 5 (2026-08-03): kieu tra ve PHU THUOC doi tuong nhan
@@ -1959,7 +1970,17 @@ def _compile_lambda_funcref(arg_node, target_ta, scope: _Scope, out: list, ctx: 
     # node AST lambda la 1 object Python rieng, id() duy nhat trong doi
     # chuong trinh dang bien dich) - cung quy uoc voi '__strtmp{id(arg)}'/
     # '__dictiter{id(stmt)}' da dung o noi khac trong file nay.
-    class_name_l = f"__Lambda_{id(arg_node)}"
+    # 2026-09-22 (TokenVector.Data strings_check): ten class lambda phai DUY NHAT theo chuong trinh.
+    # id(arg_node) khong an toan: node AST cua module import duoc parse lai
+    # trong cung 1 process co the nhan id trung (CPython tai su dung dia chi)
+    # => 2 lambda khac nhau cung 1 ten, class thu 2 bi bo qua vi 'da emit' va
+    # DUNG SAI than lambda (rstrip (0,1) chay body strip (1,1) => 'ab').
+    # Dem trong ctx['_lambda_seq'] (list 1 phan tu CHIA SE giua cac
+    # gen_il_function cung 1 program qua extra_classes/emitted_types).
+    _seq = 1 + sum(1 for _n in ctx['emitted_types'] if _n.startswith('__Lambda_'))
+    while f"__Lambda_{_seq}" in ctx['emitted_types']:
+        _seq += 1
+    class_name_l = f"__Lambda_{_seq}"
     params = [Param(n, TypeAnn(d, None)) for n, d in zip(param_names, target_ta.func_params)]
     nested_sig = Signature('invoke', params, TypeAnn(target_ta.dtype, None), 'block')
     body_stmts = [{'kind': 'return', 'expr_node': body_node, 'expr_text': '<lambda>'}]
@@ -3864,8 +3885,8 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
                 # tinh IL type se khop nhau tu dong).
                 _, _, outer_ta = infer_scope[rhs_node[1]]
                 ta = outer_ta.elem_ta
-            elif _shaped_return_ta_of_call(rhs_node, func_table, infer_scope, records) is not None:
-                ta = _shaped_return_ta_of_call(rhs_node, func_table, infer_scope, records)
+            elif _shaped_return_ta_of_call(rhs_node, func_table, infer_scope, records, record_methods) is not None:
+                ta = _shaped_return_ta_of_call(rhs_node, func_table, infer_scope, records, record_methods)
             else:
                 # Suy dtype THAT tu ve phai (vd = "chuoi" -> 'str') thay vi
                 # luon ep body_dtype - can THIET de 1 ham co the vua co bien
