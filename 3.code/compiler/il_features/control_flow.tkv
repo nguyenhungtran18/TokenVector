@@ -1111,7 +1111,7 @@ def fpp_with_open(stmt, ctx):
 
 
 _FILE_WRITE_METHODS = {'write'}
-_FILE_READ_METHODS = {'read'}
+_FILE_READ_METHODS = {'read', 'readline'}
 
 
 def compile_file_method_call(node, scope, out, dtype, ctx):
@@ -1140,6 +1140,25 @@ def compile_file_method_call(node, scope, out, dtype, ctx):
             raise SyntaxError(
                 f"il_codegen: '{obj_name}.read()' - file mo o mode '{mode}' (chi ghi), "
                 f"khong doc duoc")
+        if method_name == 'readline':
+            # 2026-09-22 (TokenVector.Data streaming): 'f.readline()' tra ve
+            # DONG KE TIEP (System.IO.TextReader::ReadLine) hoac NULL khi
+            # het file. Python-style: null -> '' (chuoi rong) lam tin hieu
+            # EOF - giong quy uoc input() da dung o stdlib_input.py, de
+            # vong 'while line != "":' khong can check null rieng.
+            if args:
+                raise SyntaxError("il_codegen: f.readline() khong nhan tham so")
+            ctx['load_var_ref'](obj_name, scope, out)
+            out.append('    callvirt instance string [mscorlib]System.IO.TextReader::ReadLine()')
+            out.append('    dup')
+            eof_lbl = f'__rl_notnull_{ctx["label_counter"][0]}'
+            ctx['label_counter'][0] += 1
+            out.append(f'    brtrue {eof_lbl}')
+            out.append('    pop')
+            out.append('    ldstr ""')
+            out.append(f'  {eof_lbl}:')
+            ctx['widen_if_needed']('str', dtype, out)
+            return
         if args:
             raise SyntaxError("il_codegen: f.read() khong nhan tham so (chi doc TOAN BO phan con lai)")
         ctx['load_var_ref'](obj_name, scope, out)

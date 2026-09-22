@@ -1038,7 +1038,7 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
             return 'i32'
         if obj_ta.shape == 'dict' and node[2] in ('get', 'pop', 'setdefault'):
             return obj_ta.dtype
-        if obj_ta.shape == 'file' and node[2] == 'read':
+        if obj_ta.shape == 'file' and node[2] in ('read', 'readline'):
             return 'str'
         if record_methods:
             m_sig = record_methods.get(obj_ta.dtype, {}).get(node[2])
