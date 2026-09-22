@@ -1030,7 +1030,11 @@ def codegen_return(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
         body.append('    ret')
 
 
+# 2026-09-22 (TokenVector.Data v1.6.3): ho tro encoding tuy chon cho mode
+# 'r': with open(path, "r", encoding="utf-8"/"latin-1") as f: - di kem
+# StreamReader ctor encoding; mac dinh (khong encoding=) giu nguyen hanh vi cu.
 _WITH_OPEN_RE = re.compile(r'^with\s+open\((.+),\s*"(\w)"\)\s+as\s+(\w+)\s*:\s*$')
+_WITH_OPEN_ENC_RE = re.compile(r'^with\s+open\((.+),\s*"(\w)"\s*,\s*encoding\s*=\s*"(\w[\w-]*)"\)\s+as\s+(\w+)\s*:\s*$')
 
 
 def il_file_type(mode: str) -> str:
@@ -1052,10 +1056,21 @@ def try_parse_with_open(line, lines, pos, indent_level, sig, known_shapes, parse
     qua nhanh else chung (kiem tra stmt.get('body')), KHONG can sua rieng -
     chi 'try' moi can nhanh dac biet (co 'handlers'/'finally_body' khac
     cau truc)."""
-    m = _WITH_OPEN_RE.match(line)
-    if not m:
-        return None
-    path_expr, mode, var_name = m.groups()
+    m = _WITH_OPEN_ENC_RE.match(line)
+    encoding = None
+    if m:
+        path_expr, mode, encoding, var_name = m.groups()
+        if mode != 'r':
+            raise SyntaxError(
+                f"il_codegen: 'with open(..., \"{mode}\", encoding=...)': encoding CHI ho tro voi mode 'r'")
+        if encoding not in ('utf-8', 'utf8', 'latin-1', 'latin1', 'ascii'):
+            raise SyntaxError(
+                f"il_codegen: encoding='{encoding}' chua ho tro - chi 'utf-8', 'latin-1', 'ascii'")
+    else:
+        m = _WITH_OPEN_RE.match(line)
+        if not m:
+            return None
+        path_expr, mode, var_name = m.groups()
     if mode not in ('r', 'w', 'a'):
         raise SyntaxError(
             f"il_codegen: 'with open(..., \"{mode}\")' - mode chi ho tro "
@@ -1068,6 +1083,7 @@ def try_parse_with_open(line, lines, pos, indent_level, sig, known_shapes, parse
             f"il_codegen: 'with open(...) as {var_name}:' khong co than khoi (block rong)")
     body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
     return {'kind': 'with_open', 'var': var_name, 'mode': mode,
+            'encoding': encoding,
             'path_node': path_node, 'body': body}, pos
 
 
@@ -1175,7 +1191,23 @@ def codegen_with_open(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
     compile_expr = ctx['compile_expr']
     compile_expr(stmt['path_node'], scope, body, 'str', ctx)
     if mode == 'r':
-        body.append(f'    newobj instance void {il_file_type("r")}::.ctor(string)')
+        enc = stmt.get('encoding')
+        if enc:
+            # StreamReader(path, Encoding) - BOM detect ON voi getEncoding
+            # (UTF8/ASCII/latin-1). .NET khong co Encoding.Latin1 (netfx),
+            # latin-1/latin1 dung static ISO-8859-1 khac (thuoc GetEncoding(28591)).
+            if enc in ('latin-1', 'latin1'):
+                body.append('    ldc.i4 28591')
+                body.append('    call class [mscorlib]System.Text.Encoding '
+                            '[mscorlib]System.Text.Encoding::GetEncoding(int32)')
+                body.append(f'    newobj instance void {il_file_type("r")}::.ctor(string, class [mscorlib]System.Text.Encoding)')
+            else:
+                enc_cls = 'UTF8' if enc in ('utf-8', 'utf8') else 'ASCII'
+                body.append(f'    call class [mscorlib]System.Text.Encoding '
+                            f'[mscorlib]System.Text.Encoding::get_{enc_cls}()')
+                body.append(f'    newobj instance void {il_file_type("r")}::.ctor(string, class [mscorlib]System.Text.Encoding)')
+        else:
+            body.append(f'    newobj instance void {il_file_type("r")}::.ctor(string)')
     else:
         # StreamWriter(string path, bool append) - 'w' ghi de (append=
         # false), 'a' ghi noi tiep (append=true).
