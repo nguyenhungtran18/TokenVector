@@ -556,6 +556,15 @@ def _method_call_expr_receiver_ta(base_node, scope, func_table=None, records=Non
         return None
     if _EXTERN_CLASS_DEFS and base_dtype in _EXTERN_CLASS_DEFS:
         return TypeAnn(base_dtype, 'extern_class')
+    # 2026-09-21 (TokenVector.Data v1.5 chain-method): dtype ten RECORD
+    # (vd 'Series', 'DataFrame' - class tu sinh) -> shape='record' de
+    # method_call_expr route dung qua compile_method_call thay vi raise
+    # "chi ho tro chuoi". _infer_dtype tra dtype THO ('Series') cho
+    # method_call tren record; doi chieu record_methods cho chac chan.
+    if record_methods and base_dtype in record_methods:
+        return TypeAnn(base_dtype, 'record')
+    if records and base_dtype in records:
+        return TypeAnn(base_dtype, 'record')
     return TypeAnn(base_dtype, None)
 
 
@@ -656,6 +665,16 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
             registered = EXPR_METHOD_DTYPE.get((_shape_key(recv_ta), node[2]))
             if registered:
                 return registered
+            return None
+        if recv_ta is not None and recv_ta.shape == 'record':
+            # 2026-09-21 (TokenVector.Data v1.5): method tren record TU SINH
+            # (vd 'df.col_at(c).is_null(i)' - Series.is_null -> i32) phai tra
+            # cuu record_methods, KHONG fallback ve _STR_METHOD_RETURN_DTYPE
+            # ('str') - khai bao bien lech kieu gay KeyError IL_LDC_OP['str'].
+            if record_methods:
+                m_sig2 = record_methods.get(recv_ta.dtype, {}).get(node[2])
+                if m_sig2 and m_sig2.return_type:
+                    return m_sig2.return_type.dtype
             return None
         return _STR_METHOD_RETURN_DTYPE.get(node[2], 'str')
     if tag == 'index_expr':
@@ -892,6 +911,19 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
         if func_table and name in func_table:
             callee = func_table[name]
             return callee.return_type.dtype if callee.return_type else None
+        # 2026-09-22 (TokenVector.Data groupby_filter): goi 1 tham so HAM
+        # ('pred: "func(DataFrame)->i32"') - 'pred' khong nam trong
+        # func_table (chi ham top-level) nen roi ve None -> caller fallback
+        # body_dtype SAI (dtype tra ve cua ham dang bien dich, vd DataFrame)
+        # -> so sánh 'pd_ret == 1' gap literal vs dtype DataFrame. Tra cuu
+        # tham so/local co TypeAnn.shape == 'func' trong scope: ket qua call
+        # la .dtype cua TypeAnn do (ret cua func).
+        try:
+            callee_ta = scope[name][2]
+            if callee_ta is not None and getattr(callee_ta, 'shape', None) == 'func':
+                return callee_ta.dtype
+        except Exception:
+            pass
         if nested_closures and name in nested_closures:
             # Closure that (Buoc 4): goi 1 ham long CUA CHINH ham dang bien
             # dich (vd 'a = inc()') - 'inc' KHONG nam trong func_table (chi
@@ -1556,6 +1588,8 @@ def _expr_null(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
 
 def _expr_num(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     text = node[1]
+    if dtype not in ('i32', 'i64', 'f32', 'f64', 'int'):
+        raise SyntaxError(f'literal {text!r} khong dung voi dtype {dtype!r}')
     if dtype == 'int':
         # Kieu 'int' khong co ma lenh 'ldc' rieng (la 1 struct) - xem
         # il_features/int_type.py.

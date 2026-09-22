@@ -277,6 +277,17 @@ class Parser:
                     # day CHI scalar DTYPES nen 'func(DataFrame)->DataFrame'
                     # khong bien dich duoc. il_type_str da biet ten class
                     # (kieu tham chieu) nen khong anh huong codegen cu.
+                    is_container = (k2 == 'IDENT' and v2 in ('list', 'dict')
+                                    and self._next_is_bracket())
+                    if is_container:
+                        # 'list[f64]' / 'dict[K,V]' lam kieu tham so func
+                        spec = self._parse_container_spec_str(v2)
+                        func_params.append(spec)
+                        k3, v3, _ = self.peek()
+                        if k3 == 'OP' and v3 == ',':
+                            self.advance()
+                            continue
+                        break
                     if k2 != 'IDENT' or (v2 not in DTYPES and v2 not in self.record_names and v2 not in self.extern_class_names):
                         raise SyntaxError(
                             f"il_codegen: ky vong dtype trong 'func(...)', gap {v2!r} (vi tri ~{p2})")
@@ -327,6 +338,36 @@ class Parser:
                     break
             self.expect('OP', ']')
         return TypeAnn(dtype, shape)
+
+    def _next_is_bracket(self) -> bool:
+        # peek token ke co phai '[' khong (dung cho func(list[...]))
+        k, v, _ = self.peek()
+        return k == 'OP' and v == '['
+
+    def _parse_container_spec_str(self, name) -> str:
+        # Parse phan '[...]' sau ten container DA DUOC TIEU THU boi caller
+        # (name='list'|'dict') va tra ve CHUOI spec ('list[f64]'...) -
+        # il_container_type_of_spec se parse de quy lai. Long duoc ho tro.
+        self.expect('OP', '[')
+        inner_parts = []
+        while True:
+            k2, v2, _ = self.advance()
+            if k2 == 'OP' and v2 == ']':
+                break
+            if k2 == 'OP' and v2 == ',':
+                inner_parts.append(',')
+                continue
+            if k2 == 'IDENT' and v2 in ('list', 'dict'):
+                # long: list[list[i32]] / list[dict[str,i32]]...
+                k3, v3, _ = self.peek()
+                if k3 == 'OP' and v3 == '[':
+                    inner_parts.append(self._parse_container_spec_str(v2))
+                    continue
+            if k2 != 'IDENT' or v2 not in DTYPES:
+                raise SyntaxError(
+                    f"il_codegen: ky vong dtype trong '{name}[...]', gap {v2!r}")
+            inner_parts.append(v2)
+        return name + '[' + ''.join(inner_parts) + ']'
 
     def parse_default_literal(self, dtype: str):
         """default := ['-'] NUMBER | STRING - CHI literal, khong tham

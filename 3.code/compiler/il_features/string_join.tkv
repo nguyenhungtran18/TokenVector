@@ -129,6 +129,16 @@ def compile_method_call_expr(node, scope, out, dtype, ctx):
             _compile_method_on_expr_generic(base_node, name, args, scope, out, dtype, ctx,
                                              TypeAnn(base_dtype, 'extern_class'))
             return
+        # 2026-09-21 (TokenVector.Data v1.5): dtype ten RECORD tu sinh
+        # (vd 'Series', 'DataFrame') - chain-method tren ket qua method_call
+        # (vd 'g.col_by_name("v").get_f64(0)') phai route qua dispatcher day
+        # du (compile_method_call), KHONG raise "chi ho tro chuoi".
+        _records = ctx.get('records') or {}
+        _record_methods = ctx.get('record_methods') or {}
+        if (base_dtype in _record_methods) or (base_dtype in _records):
+            _compile_method_on_expr_generic(base_node, name, args, scope, out, dtype, ctx,
+                                             TypeAnn(base_dtype, 'record'))
+            return
         if base_dtype != 'str':
             raise SyntaxError(
                 f"il_codegen: '<bieu thuc>.{name}(...)' hien chi ho tro khi bieu thuc nhan "
