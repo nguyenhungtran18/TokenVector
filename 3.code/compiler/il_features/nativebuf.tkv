@@ -17,6 +17,13 @@ C - khong co GC cho vung nay).
 - read_ansi(p, off, n) -> str: n bytes thanh chuoi ANSI.
 - read_i32(p, off) -> i32 / write_i32(p, off, v) -> i64.
 - read_i64(p, off) -> i64 / write_i64(p, off, v) -> i64.
+- vtable_cell(fn) -> i64: boc 1 con tro ham THO (vd tu 'callback_X(f)')
+  vao 1 o 1 muc (AllocHGlobal(8) + WriteInt64) - dung THANG lam 'base'
+  cho loi goi __tkv_vtable__ '"this": "false", slot 0' (emitter 1 muc
+  tuong: base TRO TOI MANG con tro ham -> fn[slot]). Tranh pattern thu
+  cong alloc_bytes(8) + write_i64(cell, 0, fn) (de truyen nham raw fn
+  lam base -> doc nham memory -> AV, xem _make_vtable_call_codegen).
+  Giai phong bang free_bytes nhu o thuong.
 """
 from il_dispatch import register_expr_builtin
 
@@ -138,6 +145,20 @@ def push_write_i64(args, scope, out, dtype, ctx):
     out.append('    ldc.i8 0')
 
 
+def push_vtable_cell(args, scope, out, dtype, ctx):
+    """'vtable_cell(fn)' (P1, 2026-09-23): boc con tro ham tho 'fn' (i64)
+    vao 1 o 1 muc - stack: [cell, cell, fn] -> WriteInt64(cell, fn) dan
+    2 phan tu tren, con lai [cell] -> conv.i8. Khong temp rieng (dup)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: vtable_cell(fn) can dung 1 tham so (con tro ham tho i64)")
+    out.append('    ldc.i4.8')
+    out.append(f'    call native int {_MARSHAL}::AllocHGlobal(int32)')
+    out.append('    dup')
+    ctx['compile_expr'](args[0], scope, out, 'i64', ctx)
+    out.append(f'    call void {_MARSHAL}::WriteInt64(native int, int64)')
+    out.append('    conv.i8')
+
+
 register_expr_builtin('alloc_bytes', push_alloc_bytes, 'i64')
 register_expr_builtin('free_bytes', push_free_bytes, 'i64')
 register_expr_builtin('read_u8', push_read_u8, 'i32')
@@ -147,3 +168,4 @@ register_expr_builtin('read_i32', push_read_i32, 'i32')
 register_expr_builtin('write_i32', push_write_i32, 'i64')
 register_expr_builtin('read_i64', push_read_i64, 'i64')
 register_expr_builtin('write_i64', push_write_i64, 'i64')
+register_expr_builtin('vtable_cell', push_vtable_cell, 'i64')

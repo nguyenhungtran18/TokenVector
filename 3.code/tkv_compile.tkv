@@ -855,12 +855,15 @@ def _parse_extern_method_dict_literal(node):
     return result
 
 
-_EXTERN_CLASS_KEYS = {'name', 'assembly', 'class', 'ctor', 'methods', 'properties', 'static_methods'}
+_EXTERN_CLASS_KEYS = {'name', 'assembly', 'class', 'ctor', 'methods', 'properties', 'static_methods',
+                     'static_fields'}
 _EXTERN_CLASS_REQUIRED = {'name', 'assembly', 'class', 'ctor', 'methods'}
 _EXTERN_CLASS_METHOD_KEYS = {'name', 'params', 'returns'}
 _EXTERN_CLASS_METHOD_REQUIRED = {'name', 'params', 'returns'}
 _EXTERN_CLASS_PROPERTY_KEYS = {'name', 'dtype', 'readonly'}
 _EXTERN_CLASS_PROPERTY_REQUIRED = {'name', 'dtype'}
+_EXTERN_CLASS_STATIC_FIELD_KEYS = {'name', 'dtype', 'value'}
+_EXTERN_CLASS_STATIC_FIELD_REQUIRED = {'name', 'dtype'}
 
 
 def _parse_str_list_literal(node, ctx_label):
@@ -930,6 +933,88 @@ def _parse_extern_class_property_dict_literal(node):
     return result
 
 
+def _parse_extern_class_static_field_dict_literal(node):
+    """__tkv_extern_class__ 'static_fields' (P1, 2026-09-23): parse 1 phan tu
+    dict-literal cua key 'static_fields' thanh dict Python thuong ({'name':...,
+    'dtype':...[, 'value':...]}) - field TINH cua class .NET (vd String.Empty,
+    Int32.MaxValue), doc qua 'ldsfld' (KHONG phai callvirt get_X nhu property).
+
+    'value' (tuy chon, string): hang so BIEN DICH cho field dang literal/const
+    (vd Int32.MaxValue = "2147483647") - const KHONG co dia chi runtime nen
+    'ldsfld' se nem MissingFieldException; co 'value' thi compiler noi tuyen
+    hang so (ldc/ldstr) thay vi doc field. CHI cho phep voi dtype vo huong/
+    string/enum; validate CHI TIET o compile_tkv_cli (can _is_valid_extern_dtype)."""
+    if not isinstance(node, ast.Dict):
+        raise TranspileError("__tkv_extern_class__'s 'static_fields': moi phan tu phai la 1 dict-literal")
+    result = {}
+    for k_node, v_node in zip(node.keys, node.values):
+        if not (isinstance(k_node, ast.Constant) and isinstance(k_node.value, str)):
+            raise TranspileError("__tkv_extern_class__'s static-field dict: key phai la string literal")
+        key = k_node.value
+        if key not in _EXTERN_CLASS_STATIC_FIELD_KEYS:
+            raise TranspileError(
+                f"__tkv_extern_class__'s static-field dict: key {key!r} khong hop le, "
+                f"chi chap nhan {sorted(_EXTERN_CLASS_STATIC_FIELD_KEYS)}")
+        if not (isinstance(v_node, ast.Constant) and isinstance(v_node.value, str)):
+            raise TranspileError(f"__tkv_extern_class__'s static-field dict: key {key!r} phai la string literal")
+        result[key] = v_node.value
+    missing = _EXTERN_CLASS_STATIC_FIELD_REQUIRED - set(result.keys())
+    if missing:
+        raise TranspileError(f"__tkv_extern_class__'s static-field dict thieu key bat buoc: {sorted(missing)}")
+    return result
+
+
+def _validate_extern_static_field_value(_f, _decl_name):
+    """Validate 'value' (hang so noi tuyen) cua 1 static field - goi tu
+    compile_tkv_cli SAU khi dtype da hop le. Tra None neu khong co 'value';
+    raise TranspileError neu dtype khong ho tro const noi tuyen hoac value
+    khong parse duoc ve dung kieu."""
+    if 'value' not in _f:
+        return None
+    _dtype, _val = _f['dtype'], _f['value']
+    if _dtype == 'str':
+        return None
+    if _dtype == 'bool':
+        if _val not in ('True', 'False', 'true', 'false', '1', '0'):
+            raise TranspileError(
+                f"__tkv_extern_class__: static field {_f['name']!r} cua {_decl_name!r} "
+                f"co 'value' {_val!r} khong phai bool (chi 'True'/'False'/'1'/'0')")
+        return None
+    if _dtype in ('i32', 'i64', 'u64') or (isinstance(_dtype, str) and _dtype.startswith('enum:')):
+        try:
+            _num = int(_val, 0)
+        except ValueError:
+            raise TranspileError(
+                f"__tkv_extern_class__: static field {_f['name']!r} cua {_decl_name!r} "
+                f"co 'value' {_val!r} khong phai so nguyen")
+        _lo, _hi = (-(2 ** 31), 2 ** 31 - 1) if _dtype == 'i32' else \
+            (0, 2 ** 64 - 1) if _dtype == 'u64' else (-(2 ** 63), 2 ** 63 - 1)
+        if _dtype.startswith('enum:'):
+            _lo, _hi = -(2 ** 31), 2 ** 31 - 1
+        if not (_lo <= _num <= _hi):
+            raise TranspileError(
+                f"__tkv_extern_class__: static field {_f['name']!r} cua {_decl_name!r} "
+                f"co 'value' {_val!r} ngoai khoang {_dtype} ({_lo}..{_hi})")
+        if _dtype == 'u64' and _num > 2 ** 63 - 1:
+            raise TranspileError(
+                f"__tkv_extern_class__: static field {_f['name']!r} cua {_decl_name!r} "
+                f"co 'value' {_val!r} vuot qua int64 - 'u64' const noi tuyen v1 chi ho tro "
+                f"gia tri vua int64 (lon hon can doc qua field that)")
+        return None
+    if _dtype in ('f32', 'f64'):
+        try:
+            float(_val)
+        except ValueError:
+            raise TranspileError(
+                f"__tkv_extern_class__: static field {_f['name']!r} cua {_decl_name!r} "
+                f"co 'value' {_val!r} khong phai so thuc")
+        return None
+    raise TranspileError(
+        f"__tkv_extern_class__: static field {_f['name']!r} cua {_decl_name!r} "
+        f"co 'value' nhung dtype {_dtype!r} khong ho tro const noi tuyen "
+        f"(chi i32/i64/u64/f32/f64/str/bool/enum) - bo 'value' de doc qua ldsfld")
+
+
 def _parse_extern_class_dict_literal(node):
     """__tkv_extern_class__ (Task 1, 2026-08-18 - xem docs/superpowers/
     plans/extern-class): parse 1 phan tu dict-literal cua pragma thanh dict
@@ -966,12 +1051,19 @@ def _parse_extern_class_dict_literal(node):
             if not isinstance(v_node, ast.List):
                 raise TranspileError("__tkv_extern_class__'s 'static_methods' phai la 1 list")
             result[key] = [_parse_extern_class_method_dict_literal(m) for m in v_node.elts]
+        elif key == 'static_fields':
+            # P1 (2026-09-23): 'static_fields' - field TINH (ldsfld), shape
+            # {'name','dtype'} qua ham parse rieng o tren.
+            if not isinstance(v_node, ast.List):
+                raise TranspileError("__tkv_extern_class__'s 'static_fields' phai la 1 list")
+            result[key] = [_parse_extern_class_static_field_dict_literal(f) for f in v_node.elts]
         else:
             if not (isinstance(v_node, ast.Constant) and isinstance(v_node.value, str)):
                 raise TranspileError(f"__tkv_extern_class__: key {key!r} phai la string literal")
             result[key] = v_node.value
     result.setdefault('properties', [])
     result.setdefault('static_methods', [])
+    result.setdefault('static_fields', [])
     missing = _EXTERN_CLASS_REQUIRED - set(result.keys())
     if missing:
         raise TranspileError(f"__tkv_extern_class__ thieu key bat buoc: {sorted(missing)}")
@@ -4657,6 +4749,11 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
                     f"__tkv_extern_class__: static method {_m['name']!r} cua {_decl['name']!r} "
                     f"TRUNG TEN voi 1 property DA khai trong 'properties' cua CHINH class nay - "
                     f"doi ten khac")
+            if _m['name'] in set(f['name'] for f in (_decl.get('static_fields') or [])):
+                raise TranspileError(
+                    f"__tkv_extern_class__: static method {_m['name']!r} cua {_decl['name']!r} "
+                    f"TRUNG TEN voi 1 static field DA khai trong 'static_fields' cua CHINH class "
+                    f"nay - doi ten khac")
             if not _EXTERN_METHOD_NAME_RE.match(_m['name']):
                 raise TranspileError(
                     f"__tkv_extern_class__: static method name {_m['name']!r} sai dinh dang")
@@ -4741,6 +4838,36 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
                     f"__tkv_extern_class__: property {_p['name']!r} cua {_decl['name']!r} "
                     f"sinh ten pseudo-method {_get_name!r}/{_set_name!r} TRUNG voi 1 method "
                     f"THAT da khai trong 'methods' - doi ten method hoac property")
+
+    # P1 (2026-09-23, static_fields): validate MOI static field cua MOI decl -
+    # dup ten (theo TUNG decl), dinh dang ten, dtype hop le (scalar/extern-
+    # class/container, KHONG 'void'), va collision voi methods/static_methods/
+    # properties CUNG decl (tranh nham lan 'Class.X' la field hay method).
+    for _decl in extern_classes:
+        _seen_names = (set(m['name'] for m in _decl['methods'])
+                       | set(m['name'] for m in (_decl.get('static_methods') or []))
+                       | set(p['name'] for p in _decl['properties']))
+        _seen_field_names = set()
+        for _f in _decl.get('static_fields') or []:
+            if _f['name'] in _seen_field_names:
+                raise TranspileError(
+                    f"__tkv_extern_class__: static field {_f['name']!r} khai TRUNG LAP "
+                    f"trong {_decl['name']!r}")
+            _seen_field_names.add(_f['name'])
+            if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', _f['name']):
+                raise TranspileError(f"__tkv_extern_class__: static field name {_f['name']!r} sai dinh dang")
+            if _f['name'] in _seen_names:
+                raise TranspileError(
+                    f"__tkv_extern_class__: static field {_f['name']!r} cua {_decl['name']!r} "
+                    f"TRUNG TEN voi 1 method/property DA khai cua CHINH class nay - doi ten khac")
+            if not _is_valid_extern_dtype(_f['dtype']) and _f['dtype'] not in extern_class_defs:
+                if not _validate_extern_class_container_dtype(
+                        _f['dtype'], extern_class_defs,
+                        f"static field {_f['name']!r} cua {_decl['name']!r}"):
+                    raise TranspileError(
+                        f"__tkv_extern_class__: static field {_f['name']!r} cua {_decl['name']!r} "
+                        f"dung dtype {_f['dtype']!r} khong ho tro")
+            _validate_extern_static_field_value(_f, _decl['name'])
 
     registered_extern_names = []
     pinvoke_decl_lines = []

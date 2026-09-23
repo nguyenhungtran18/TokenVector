@@ -137,6 +137,18 @@ def try_parse_attr_assign(line, lines, pos, indent_level, sig, known_shapes, par
 
 def codegen_attr_assign(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     obj_name, field_name = stmt['obj_name'], stmt['field_name']
+    if isinstance(obj_name, str) and obj_name not in scope:
+        # P1 (2026-09-23, static_fields): 'ClassName.Field = ...' - field
+        # TINH chi doc o v1 (const/readonly nhu String.Empty/Int32.MaxValue),
+        # bao loi ro rang thay vi KeyError tho tu scope[obj_name].
+        import il_codegen as _ilc
+        from tkv_compile import TranspileError
+        _decl = (_ilc._EXTERN_CLASS_DEFS or {}).get(obj_name)
+        if _decl is not None:
+            if any(f['name'] == field_name for f in (_decl.get('static_fields') or [])):
+                raise TranspileError(
+                    f"il_codegen: static field {field_name!r} cua {obj_name!r} la "
+                    f"chi doc, khong the gan gia tri")
     _, _, obj_ta = scope[obj_name]
     if obj_ta.shape == 'struct':
         # R1 (2026-09-22): ghi field cua struct (dung cho struct truyen-
@@ -215,6 +227,51 @@ def fpw_attr_assign(stmt, ctx):
 
 def compile_attr(node, scope, out, dtype, ctx=None):
     obj_name, field_name = node[1], node[2]
+    if isinstance(obj_name, str) and obj_name not in scope:
+        # P1 (2026-09-23, static_fields): 'ClassName.Field' - field TINH tren
+        # 1 __tkv_extern_class__ (vd String.Empty, Int32.MaxValue), doc qua
+        # 'ldsfld' (KHONG phai callvirt get_X nhu property). Mirror nhanh
+        # static-method trong compile_method_call o duoi (nhan dien qua
+        # obj_name khong trong scope nhung co trong _EXTERN_CLASS_DEFS).
+        import il_codegen as _ilc
+        _decl = (_ilc._EXTERN_CLASS_DEFS or {}).get(obj_name)
+        if _decl is not None:
+            _field = next((f for f in (_decl.get('static_fields') or [])
+                           if f['name'] == field_name), None)
+            if _field is None:
+                raise SyntaxError(
+                    f"il_codegen: '.{field_name}' khong phai static field da khai "
+                    f"(trong 'static_fields') cua extern-class {obj_name!r}")
+            import tkv_compile as _tkv_compile
+            _field_dtype = _field['dtype']
+            _facing = _tkv_compile._tokenvector_facing_dtype(_field_dtype)
+            if 'value' in _field:
+                # Const/noi tuyen (literal .NET nhu Int32.MaxValue KHONG co
+                # dia chi runtime - 'ldsfld' se nem MissingFieldException) -
+                # day hang so TRUC TIEP len stack (mirror literal thuong).
+                _v = _field['value']
+                if _field_dtype == 'str':
+                    _esc = _v.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+                    out.append(f'    ldstr "{_esc}"')
+                elif _field_dtype == 'bool':
+                    out.append('    ldc.i4.1' if _v in ('True', 'true', '1') else '    ldc.i4.0')
+                elif _field_dtype in ('i32',) or (isinstance(_field_dtype, str) and _field_dtype.startswith('enum:')):
+                    out.append(f'    ldc.i4 {int(_v, 0)}')
+                elif _field_dtype in ('i64', 'u64'):
+                    out.append(f'    ldc.i8 {int(_v, 0)}')
+                elif _field_dtype == 'f32':
+                    out.append(f'    ldc.r4 {float(_v)}')
+                elif _field_dtype == 'f64':
+                    out.append(f'    ldc.r8 {float(_v)}')
+                ctx['widen_if_needed'](_facing, dtype, out)
+                return
+            _ret_il = _ilc._il_ctor_param_type(_field_dtype, _ilc._EXTERN_CLASS_DEFS)
+            _call_target = f"[{_decl['assembly']}]{_decl['class']}"
+            out.append(f'    ldsfld {_ret_il} {_call_target}::{field_name}')
+            if isinstance(_field_dtype, str) and _field_dtype.startswith('array['):
+                _ilc._marshal_extern_return_array(_field_dtype, out, ctx)
+            ctx['widen_if_needed'](_facing, dtype, out)
+            return
     _, _, obj_ta = scope[obj_name]
     if obj_ta.dtype == 'complex' and field_name in ('real', 'imag', 'magnitude'):
         # '.real'/'.imag'/'.magnitude' tren 1 bien 'complex' (muc 6.8,

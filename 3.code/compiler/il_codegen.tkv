@@ -727,7 +727,30 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
         # duoc (None), caller fallback ve body_dtype - AN TOAN nhung co the
         # sai neu record field khac body_dtype (chi anh huong goi thieu
         # records, khong phai loi logic).
-        obj_ta = scope[node[1]][2]
+        try:
+            obj_ta = scope[node[1]][2]
+        except (KeyError, SyntaxError):
+            # P1 (2026-09-23, static_fields): 'ClassName.Field' - field TINH
+            # tren 1 extern-class (scope KHONG co ten class) - tra facing
+            # dtype THAT thay vi None (None khien declare_scalar fallback SAI
+            # ve body_dtype) hay KeyError/SyntaxError tho. Mirror nhanh
+            # 'method_call' static o tren (dong ~969-1011).
+            try:
+                _sdecl = (_EXTERN_CLASS_DEFS or {}).get(node[1])
+                _sfield = next((f for f in (_sdecl.get('static_fields') or [])
+                                if f['name'] == node[2]), None) if _sdecl else None
+                if _sfield is not None:
+                    import tkv_compile
+                    return tkv_compile._tokenvector_facing_dtype(_sfield['dtype'])
+                if _sdecl is not None:
+                    raise SyntaxError(
+                        f"il_codegen: '.{node[2]}' khong phai static field da khai "
+                        f"(trong 'static_fields') cua extern-class {node[1]!r}")
+            except SyntaxError:
+                raise
+            except (KeyError, TypeError, AttributeError):
+                pass
+            raise
         if obj_ta.dtype == 'complex' and node[2] in ('real', 'imag', 'magnitude'):
             # Muc 6.8 (2/4, 2026-08-13): ca 3 thuoc tinh cua 'complex' deu
             # tra f64 (xem complex_type.py's compile_attr).
@@ -1131,6 +1154,22 @@ def _shaped_return_ta_of_call(rhs_node, func_table, infer_scope=None, records=No
         try:
             obj_ta = infer_scope[rhs_node[1]][2]
         except KeyError:
+            # P1 (2026-09-23, static_fields): 'ClassName.Field' - field TINH
+            # (ten class KHONG trong infer_scope) - tra TypeAnn DAY DU neu
+            # dtype la handle/container de declare_scalar khai dung shape
+            # (mirror nhanh 'method_call' static ngay duoi); scalar thuong
+            # tra None de _infer_dtype xu ly (nhanh 'attr' cua no da biet
+            # static_fields).
+            _sdecl = (_EXTERN_CLASS_DEFS or {}).get(rhs_node[1])
+            _sfield = next((f for f in (_sdecl.get('static_fields') or [])
+                            if f['name'] == rhs_node[2]), None) if _sdecl else None
+            if _sfield is not None:
+                import tkv_compile
+                _ret = tkv_compile._tokenvector_facing_dtype(_sfield['dtype'])
+                if _ret in _EXTERN_CLASS_DEFS:
+                    return TypeAnn(_ret, 'extern_class')
+                if isinstance(_ret, str) and (_ret.startswith('list[') or _ret.startswith('dict[')):
+                    return parse_type_ann_str(_ret, extern_class_names=set(_EXTERN_CLASS_DEFS))
             return None
         # (a) 'xs = self.items' (2026-08-03): field CONTAINER cua record -
         # tra ve TypeAnn day du de bien ben trai duoc khai bao dung
@@ -4287,7 +4326,12 @@ def _probe_names_declared(node, infer_scope, func_table=None):
     if node and node[0] in ('var', 'attr', 'method_call', 'index', 'slice', 'shape', 'in'):
         if isinstance(node[1], str):
             if not (func_table and node[1] in func_table):
-                infer_scope[node[1]]
+                # P1 (2026-09-23, static_fields): TEN 1 extern-class (vd
+                # 'String' trong 'String.Empty') KHONG BAO GIO co trong
+                # infer_scope - bo qua nhu ten ham top-level, neu khong
+                # statement bi HOAN vo han nhu muc Q.
+                if node[1] not in (_EXTERN_CLASS_DEFS or {}):
+                    infer_scope[node[1]]
     for sub in node[1:]:
         if isinstance(sub, tuple):
             _probe_names_declared(sub, infer_scope, func_table)
