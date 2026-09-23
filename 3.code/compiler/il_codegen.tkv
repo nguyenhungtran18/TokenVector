@@ -133,6 +133,11 @@ def _cell_class_name(dtype: str) -> str:
 # EXPR_BUILTIN_CODEGEN/EXPR_BUILTIN_DTYPE).
 _EXTERN_CLASS_DEFS = {}
 
+# _STRUCT_DEFS (R1, 2026-09-22, __tkv_struct__): mirror _EXTERN_CLASS_DEFS -
+# ten struct -> {'fields': [(fname, dtype), ...]} (dtype trong
+# i16/i32/i64/f32/f64). Set/reset boi compile_tkv_cli nhu tren.
+_STRUCT_DEFS = {}
+
 
 def _norm_param_dtype(ta):
     # 2026-09-21 (win_apply func(list[f64])): chuan hoa dtype cua 1 THAM SO
@@ -257,6 +262,15 @@ def il_type_str(type_ann: TypeAnn, records: dict = None) -> str:
         # khong can, class .NET co san BAT BUOC can [assembly]Ten.Day.Du).
         decl = _EXTERN_CLASS_DEFS[type_ann.dtype]
         return f"class [{decl['assembly']}]{decl['class']}"
+    if type_ann.shape == 'struct':
+        # R1 (2026-09-22, __tkv_struct__): struct blittable cho pinvoke -
+        # valuetype THAT (khac record la class) de truyen dia chi qua
+        # pinvoke ('Point*' -> 'valuetype Point&').
+        if type_ann.dtype not in _STRUCT_DEFS:
+            raise SyntaxError(
+                f"il_codegen: kieu struct '{type_ann.dtype}' chua duoc khai bao qua "
+                f"__tkv_struct__ trong file nay")
+        return f'valuetype {type_ann.dtype}'
     if type_ann.shape == 'datatable':
         # eval_expr (Phase 12, 2026-08-29) - local AN giu 1 doi tuong
         # System.Data.DataTable (reference type) qua nhieu buoc (them cot,
@@ -720,6 +734,12 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
             return 'f64'
         if obj_ta.shape == 'dict_kvpair' and node[2] in ('key', 'val'):
             return obj_ta.key_dtype if node[2] == 'key' else obj_ta.dtype
+        if obj_ta.shape == 'struct':
+            # R1 (2026-09-22): field cua struct (__tkv_struct__) - dtype
+            # luu thang (khong TypeAnn container). i16 suy ve 'i32' (gia
+            # tri tren stack thuc te la int32).
+            fd = dict(_STRUCT_DEFS.get(obj_ta.dtype, {}).get('fields', [])).get(node[2])
+            return 'i32' if fd == 'i16' else fd
         if records and (obj_ta.shape == 'record' or obj_ta.dtype in records):
             # 'obj_ta.dtype in records' (2026-08-03): bien nhan ket qua 1
             # method tra ve record ('t = self.take(toks)') duoc khai bao
@@ -1272,7 +1292,7 @@ def _neg_literal_int(node):
     if isinstance(node, tuple) and node[0] == 'neg' and isinstance(node[1], tuple) and node[1][0] == 'num':
         text = node[1][1]
         if '.' not in text:
-            return int(text)
+            return int(text, 0)  # R6: ca hex literal am ('-0x10')
     return None
 
 
@@ -1605,6 +1625,12 @@ def _expr_num(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         # Kieu 'int' khong co ma lenh 'ldc' rieng (la 1 struct) - xem
         # il_features/int_type.py.
         return _int_type.compile_literal(text, out, ctx)
+    if text.lower().startswith('0x'):
+        # R6 (2026-09-22): hex literal - doi sang decimal truoc khi sinh
+        # ldc (khong phu thuoc ilasm co hieu '0x' hay khong). Vuot pham vi
+        # i32 (vd 0x80000002) o ngu canh i32 se bao loi ilasm ON AO - dung
+        # ngu canh 'int'/'i64' cho gia tri >2^31.
+        text = str(int(text, 16))
     out.append(f'    {IL_LDC_OP[dtype]} {text}')
 
 
@@ -4823,7 +4849,8 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
                       record_interfaces: dict = None, interface_defs: dict = None,
                       module_consts: dict = None, record_methods_own: dict = None,
                       extra_classes: list = None, emitted_types: set = None,
-                      source_path: str = None, debug: bool = False) -> list:
+                      source_path: str = None, debug: bool = False,
+                      com_class_attrs: dict = None) -> list:
     """Sinh 1 '.class public auto ansi <Ten> extends <Base>' RIENG (kieu
     top-level, SONG SONG voi class chuong trinh chinh, khong long ben
     trong) cho MOI 'class dang record' - 1 REFERENCE TYPE (khong con la
@@ -4909,6 +4936,10 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
         implements_clause = f' implements {", ".join(ifaces)}' if ifaces else ''
         out.append(f'.class public auto ansi {name} extends {extends}{implements_clause}')
         out.append('{')
+        if com_class_attrs and name in com_class_attrs:
+            # F4c (__tkv_com_class__): '.custom' COM (ComVisible/Guid) cho
+            # record lam coclass - phat ngay sau header class.
+            out.extend(com_class_attrs[name])
         for fn, fd in own_fields:
             out.append(f'  .field public {_field_il_type(fd, records)} {_il_ident(fn)}')
         out.append(f'  .method public hidebysig specialname rtspecialname instance void '
@@ -5223,6 +5254,15 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
         if name in boxed_names:
             return f'class {_cell_class_name(ta.dtype)}'
         return il_type_str(ta, records)
+    # R11 (2026-09-22): gioi han locals ro rang thay vi crash ngau nhien
+    # (D4 - slot aliasing khi vuot ~256 locals, tung phai chay tay
+    # tools/check_locals.py sau moi build). Nguong 240 (giong checker),
+    # dem ca bien nguoi dung lan hidden temp (locals_decl da gom het).
+    if len(locals_decl) > 240:
+        raise SyntaxError(
+            f"il_codegen: ham '{sig.name}' co {len(locals_decl)} locals (vuot gioi han 240) - "
+            f"se tran ldloc.s 1-byte gay crash ngau nhien luc chay (slot aliasing). "
+            f"Tach ham thanh nhieu ham nho (moi ham < 240 locals).")
     locals_sig = ', '.join(f'{_local_il_type(name, ta)} {_il_ident(name)}' for name, ta in locals_decl)
 
     body = []

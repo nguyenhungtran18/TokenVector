@@ -120,7 +120,8 @@ _SUGGESTIONS = {
     'with-statement with multiple context managers':
         "long 2 khoi 'with' rieng",
     'special number literal (1e10 / 0x1F / 1_000)':
-        "viet so thap phan/nguyen thuong, khong ky hieu mu/hex/underscore-separator",
+        "viet so thap phan/nguyen thuong, khong ky hieu mu/underscore-separator "
+        "(rieng hex '0x..' DUOC chap nhan tu R6)",
     'starred expression (*args / *rest)':
         "khong co duong vong truc tiep - liet ke tuong minh tung tham so/phan tu",
     'nested class definition':
@@ -498,7 +499,10 @@ class _BaselineVisitor(ast.NodeVisitor):
         self._flag(node, 'f-string')
 
     def visit_Constant(self, node):
-        # So dang mu/hex/underscore-separator: '1e10'/'0x1F'/'1_000'
+        # So dang mu/underscore-separator/0o/0b: '1e10'/'1_000'/'0o17'/'0b101'
+        # (il_core.py - token NUM khong co cac dang nay). HEX '0x1F' DUOC
+        # CHAP NHAN tu R6 (2026-09-22): token NUM khop '0x..', codegen doi
+        # sang decimal (int(text, 0)) truoc khi sinh ldc/FromI64.
         # (il_core.py:150 - token NUM chi khop '\d+\.\d+|\d+', khong co
         # dang mu/hex/underscore). Dung repr() cua gia tri Python KHONG du
         # (vd 1_000 -> repr la '1000', mat thong tin) - o day ta khong co
@@ -519,7 +523,10 @@ class _BaselineVisitor(ast.NodeVisitor):
         if not s:
             return False
         low = s.lower()
-        if low.startswith('0x') or low.startswith('0o') or low.startswith('0b'):
+        # R6 (2026-09-22): '0x..' hop le (hex literal) - khong flag.
+        if low.startswith('0x'):
+            return False
+        if low.startswith('0o') or low.startswith('0b'):
             return True
         if '_' in s:
             return True
@@ -541,7 +548,8 @@ class _BaselineVisitor(ast.NodeVisitor):
     # 'dict literal with content') cho gia tri cua chung.
     _PRAGMA_ASSIGN_NAMES = frozenset({
         '__tkv_import__', '__tkv_extern_assembly__', '__tkv_extern_method__',
-        '__tkv_extern_pinvoke__',
+        '__tkv_extern_pinvoke__', '__tkv_struct__', '__tkv_vtable__',
+        '__tkv_callback__', '__tkv_com_class__',
     })
 
     def visit_Assign(self, node):

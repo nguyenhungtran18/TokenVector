@@ -124,9 +124,10 @@ def _load_field(ctx, name, field, il_type, scope, out):
 def compile_literal(text, out, ctx):
     """Hang so nguyen o vi tri kieu 'int'. Hang so vua int64 di duong
     FromI64; hang so LON HON (Python viet duoc, vd 10**30 danh thang)
-    di duong Parse chuoi - khong the bieu dien bang ldc.i8."""
+    di duong Parse chuoi - khong the bieu dien bang ldc.i8. R6
+    (2026-09-22): nhan ca hex literal ('0x..' -> int(text, 0))."""
     ensure_class(ctx)
-    value = int(text)
+    value = int(text, 0)
     if -(2 ** 63) <= value < 2 ** 63:
         out.append(f'    ldc.i8 {value}')
         out.append(f'    call valuetype {TKVINT_CLASS} {TKVINT_CLASS}::FromI64(int64)')

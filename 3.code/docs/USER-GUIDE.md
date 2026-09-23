@@ -272,6 +272,24 @@ def run() -> "str":
     return "DOTNET_ASSEMBLY_LINKED_SUCCESS"
 ```
 
+Ba dạng khai báo `__tkv_extern_assembly__` (top-level, trước/sau `def` đều được):
+
+1. Chuỗi trần — CHỈ cho assembly GAC của Framework (`mscorlib`/`System`/`System.Core`
+   khỏi khai; `System.Xml`/`System.Drawing`... khai trần). Compiler đóng dấu identity
+   Framework (`PublicKeyToken=b77a...` + `Version=4.0.0.0`) — đúng cho GAC.
+2. Tuple `(tên, token_hoặc_None, version_hoặc_None)` — cho DLL riêng/không strong-name:
+   `__tkv_extern_assembly__ = [("R3Test", None, None)]`.
+3. Full identity ngay trong `"assembly"` của `__tkv_extern_method__`/`__tkv_extern_class__`
+   (R3) — khỏi khai riêng, compiler tự đăng ký:
+   `"assembly": "R3Test, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"`.
+
+> CẢNH BÁO footgun: khai bare string (dạng 1) cho DLL private unsigned sẽ nổ lúc CHẠY
+> (không phải lúc build): `FileLoadException: 'X, Version=4.0.0.0, ..., b77a...'`
+> dù file DLL nằm cạnh exe — fusion tìm thấy file nhưng từ chối vì identity lệch.
+> Gặp lỗi này thì đổi sang dạng 2 hoặc 3. Hồi quy khóa cả 3 dạng:
+> `3.code/test/verify/extern_assembly_identity_test.tkv` (bare → FileLoadException
+> đúng thiết kế; tuple/full → `Add42(8) = 50`).
+
 ---
 
 ## CHƯƠNG 10: QUY TRÌNH KIỂM THỬ NGHIỆM THU NATIVE (NATIVE SUITE)

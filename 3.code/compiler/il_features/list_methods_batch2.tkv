@@ -83,6 +83,9 @@ def try_parse_list_sort(line, lines, pos, indent_level, sig, known_shapes, parse
     m = _LIST_SORT_RE.match(line)
     if not m:
         return None
+    _sh = known_shapes.get(m.group(1))
+    if _sh is not None and _sh != 'list':
+        return None  # R4/D6: record co method 'sort' rieng
     name, args_text = m.groups()
     key_name, reverse = _parse_sort_kwargs(args_text, name)
     return {'kind': 'list_sort', 'name': name, 'key_name': key_name, 'reverse': reverse}, pos + 1
@@ -96,6 +99,9 @@ def try_parse_list_extend(line, lines, pos, indent_level, sig, known_shapes, par
     m = _LIST_EXTEND_RE.match(line)
     if not m:
         return None
+    _sh = known_shapes.get(m.group(1))
+    if _sh is not None and _sh != 'list':
+        return None  # R4/D6: record co method 'extend' rieng
     name, other_name = m.groups()
     return {'kind': 'list_extend', 'name': name, 'other_name': other_name}, pos + 1
 

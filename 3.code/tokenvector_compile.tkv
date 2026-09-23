@@ -77,7 +77,7 @@ class AvBlockedError(TokenVectorError):
     assemble_il_to_exe ve LY DO va CACH tranh."""
 
 
-def assemble_il_to_exe(il_text, out_exe, debug=False):
+def assemble_il_to_exe(il_text, out_exe, debug=False, subsystem=None):
     """Ghi IL ra file roi goi ilasm, TRANH khuon hanh vi ma Defender gan
     cho dropper malware (2026-08-05).
 
@@ -117,14 +117,24 @@ def assemble_il_to_exe(il_text, out_exe, debug=False):
 
     out_exe = Path(out_exe)
     il_path = out_exe.with_suffix('.il')
-    il_path.write_text(il_text, encoding='utf-8')
+    il_path.write_text(il_text, encoding='utf-8-sig')
 
     settle_ms = int(os.environ.get('TKV_EXE_SETTLE_MS', '150'))
     last_err = None
     for attempt in range(2):
         if out_exe.exists():
             out_exe.unlink()
+        # R9 (2026-09-22): file .il ghi UTF-8 CO BOM (utf-8-sig) de ilasm
+        # nhan dien dung string literal non-ASCII (vd "ê" U+00EA). Da thu
+        # '/utf8' nhung ilasm Framework 4.8 tren may nay bao 'Invalid
+        # Option' (flag do khong ton tai) - BOM la cach duy nhat. Khong
+        # co BOM, ilasm doc theo ANSI codepage (C3 AA -> "Ãª") - loi THAT
+        # khi verify chr(234) == "ê".
+        # R10 (2026-09-22): subsystem 2 = WINDOWS_GUI (khong console),
+        # 3 = WINDOWS_CUI (console) - truyen /SUBSYSTEM cho ilasm.
         ilasm_args = [ILASM, str(il_path), '/exe', f'/output:{out_exe}']
+        if subsystem in (2, 3):
+            ilasm_args.append(f'/SUBSYSTEM:{subsystem}')
         if debug:
             ilasm_args.append('/debug')
         result = subprocess.run(ilasm_args, capture_output=True, text=True)
@@ -374,7 +384,7 @@ def compile_model(model, out_exe, scaler=None, class_labels=None):
 
     out_exe = Path(out_exe)
     il_path = out_exe.with_suffix('.il')
-    il_path.write_text(il_text, encoding='utf-8')
+    il_path.write_text(il_text, encoding='utf-8-sig')
 
     result = subprocess.run(
         [ILASM, str(il_path), '/exe', f'/output:{out_exe}'],
@@ -386,7 +396,7 @@ def compile_model(model, out_exe, scaler=None, class_labels=None):
     return out_exe
 
 
-def assemble_il_to_dll(il_text, out_dll, debug=False):
+def assemble_il_to_dll(il_text, out_dll, debug=False, subsystem=None):
     """Bien dich IL text thanh .NET Assembly (.dll) bang ilasm.exe /dll.
     Tra ve duong dan toi file .dll da bien dich."""
     import os
@@ -394,11 +404,13 @@ def assemble_il_to_dll(il_text, out_dll, debug=False):
 
     out_dll = Path(out_dll)
     il_path = out_dll.with_suffix('.il')
-    il_path.write_text(il_text, encoding='utf-8')
+    il_path.write_text(il_text, encoding='utf-8-sig')
 
     ilasm_args = [ILASM, str(il_path), '/dll', f'/output:{out_dll}']
     if debug:
         ilasm_args.append('/debug')
+    if subsystem in (2, 3):
+        ilasm_args.append(f'/SUBSYSTEM:{subsystem}')
 
     result = subprocess.run(ilasm_args, capture_output=True, text=True)
     if result.returncode != 0:

@@ -25,6 +25,9 @@ def try_parse_list_reverse(line, lines, pos, indent_level, sig, known_shapes, pa
     m = _LIST_REVERSE_RE.match(line)
     if not m:
         return None
+    _sh = known_shapes.get(m.group(1))
+    if _sh is not None and _sh != 'list':
+        return None  # R4/D6: record co method 'reverse' rieng
     return {'kind': 'list_reverse', 'name': m.group(1)}, pos + 1
 
 

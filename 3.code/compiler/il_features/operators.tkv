@@ -147,6 +147,73 @@ def _float_literal_in(node):
     return False
 
 
+_BITWISE_OPCODE = {'&': 'and', '|': 'or', '<<': 'shl', '>>': 'shr'}
+
+
+def _compile_bitwise(op, left, right, scope, out, dtype, ctx):
+    """R5 (2026-09-22): '&' '|' '<<' '>>' tren so nguyen - opcode CIL
+    'and'/'or'/'shl'/'shr' THAT (khong con workaround %//).
+
+    Tinh TOAN BO tren int64 (nang i32 bang conv.i8 - lossless; 'int'
+    qua TkvInt::ToI64 - NEM ON AO neu vuot int64, dung nguyen tac
+    'sai am tham nguy hiem hon loi on ao'), roi ha ve dtype ngu canh:
+    'int' -> FromI64 (ve TkvInt), 'i32' -> conv.ovf.i4 (nem neu tran),
+    'i64'/None -> giu nguyen. Float/str/record -> SyntaxError ro rang.
+
+    GIOI HAN CO Y THUC (ghi ro de khoi dao lai): so luong dich bit phai
+    trong 0..63 (CIL lay count mod 64 - '1 << 65' se wrap am tham, khac
+    Python tra so lon; dung trong codec/blur thuong chi dich 0..32);
+    '>>' la dich so hoc (arithmetic - dung voi so khong am; so am vo han
+    chu so cua Python lech voi int64 2's-complement - truong hop hiem)."""
+    _int_type.ensure_class(ctx)
+    if dtype in ('f32', 'f64'):
+        raise SyntaxError(
+            f"il_codegen: toan tu bitwise {op!r} khong dung duoc tren so thuc "
+            f"(ngu canh doi kieu {dtype!r})")
+    records = (ctx or {}).get('records') or {}
+    infer_dtype = ctx['infer_dtype']
+    func_table = (ctx or {}).get('func_table')
+    for side in (left, right):
+        d = infer_dtype(side, scope, func_table)
+        if d in records or d == 'str' or d in ('f32', 'f64'):
+            raise SyntaxError(
+                f"il_codegen: toan tu bitwise {op!r} chi dung duoc tren so "
+                f"nguyen (i32/i64/int), gap toan hang kieu {d!r}")
+    operand_dtype = infer_dtype(left, scope, func_table) or \
+        infer_dtype(right, scope, func_table) or dtype
+    if operand_dtype in ('f32', 'f64', 'str') or operand_dtype in records:
+        raise SyntaxError(
+            f"il_codegen: toan tu bitwise {op!r} chi dung duoc tren so "
+            f"nguyen, gap kieu {operand_dtype!r}")
+    compile_expr = ctx['compile_expr']
+    for side in (left, right):
+        d = infer_dtype(side, scope, func_table) or 'i64'
+        if d == 'int':
+            compile_expr(side, scope, out, 'int', ctx)
+            out.append(f'    call int64 {_int_type.TKVINT_CLASS}::ToI64'
+                       f'(valuetype {_int_type.TKVINT_CLASS})')
+        elif d == 'i32':
+            compile_expr(side, scope, out, 'i32', ctx)
+            out.append('    conv.i8')
+        else:
+            compile_expr(side, scope, out, 'i64', ctx)
+    out.append(f'    {_BITWISE_OPCODE[op]}')
+    target = dtype
+    if target is None:
+        target = operand_dtype if operand_dtype in ('i32', 'i64', 'int') else 'i64'
+    if target == 'int':
+        out.append(f'    call valuetype {_int_type.TKVINT_CLASS} '
+                   f'{_int_type.TKVINT_CLASS}::FromI64(int64)')
+    elif target == 'i32':
+        out.append('    conv.ovf.i4')
+    elif target == 'i64':
+        pass
+    else:
+        raise SyntaxError(
+            f"il_codegen: toan tu bitwise {op!r} khong dung duoc voi ngu canh "
+            f"kieu {dtype!r} (chi i32/i64/int)")
+
+
 def compile_binop(node, scope, out, dtype, ctx=None):
     """EXPR_CODEGEN entry cho tag 'binop' - nhanh string uy quyen ra
     ctx['compile_binop_concat'] (string_feature.py), phan con lai (so
@@ -231,6 +298,10 @@ def compile_binop(node, scope, out, dtype, ctx=None):
         # so hoc va sinh 'mul' tren 1 tham chieu chuoi (AccessViolation
         # luc chay - da gap THAT khi test).
         return ctx['compile_binop_concat'](op, left, right, scope, out, ctx)
+    if op in ('&', '|', '<<', '>>'):
+        # R5 (2026-09-22): bitwise - di duong i64 rieng (xem
+        # _compile_bitwise), KHONG di chung duong so hoc ben duoi.
+        return _compile_bitwise(op, left, right, scope, out, dtype, ctx)
     if dtype == 'int' and operand_dtype in ('i32', 'i64'):
         # BUG THAT (2026-08-05 lat 4): khi NGU CANH doi 'int' nhung ca hai
         # toan hang suy ra i32/i64 (vd 'lst[i] * (i + 1)' voi lst la

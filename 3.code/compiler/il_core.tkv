@@ -148,13 +148,14 @@ _EXPR_TOKEN_RE = re.compile(r'''
     \s*(?:
         (?P<BYTES>b"(?:[^"\\]|\\.)*")
       | (?P<STR>"(?:[^"\\]|\\.)*")
-      | (?P<NUM>\d+\.\d+|\d+)
+      | (?P<NUM>0[xX][0-9a-fA-F]+|\d+\.\d+|\d+)
       | (?P<ID>[A-Za-z_]\w*)
+      | (?P<SHIFT><<|>>)
       | (?P<CMPOP>>=|<=|==|!=)
       | (?P<POW>\*\*)
       | (?P<FLOORDIV>//)
       | (?P<WALRUS>:=)
-      | (?P<OP>[+\-*/%(),\[\].?:><=])
+      | (?P<OP>[+\-*/%(),\[\].?:><=&|])
     )
 ''', re.VERBOSE)
 
@@ -225,11 +226,12 @@ def _tokenize_expr(s):
             raise SyntaxError(f'il_codegen: khong tokenize duoc bieu thuc tai {s[pos:]!r}')
         pos = m.end()
         kind = m.lastgroup
-        # CMPOP (>=,<=,==,!=)/POW ('**')/FLOORDIV ('//') va OP (gom ca
-        # '>' '<' 1 ky tu) deu xu ly nhu 1 toan tu 'OP' o tang parser -
-        # gop lai de parser khong can biet phan biet cac group tokenizer
-        # nay (Wave 3, 2026-07-29 - them '**'/'//').
-        if kind in ('CMPOP', 'POW', 'FLOORDIV', 'WALRUS'):
+        # CMPOP (>=,<=,==,!=)/POW ('**')/FLOORDIV ('//')/SHIFT ('<<','>>') va
+        # OP (gom ca '>' '<' 1 ky tu) deu xu ly nhu 1 toan tu 'OP' o tang
+        # parser - gop lai de parser khong can biet phan biet cac group
+        # tokenizer nay (Wave 3, 2026-07-29 - them '**'/'//'; R5 2026-09-22
+        # - them '<<'/'>>'/'&'/'|' cho bitwise).
+        if kind in ('CMPOP', 'POW', 'FLOORDIV', 'WALRUS', 'SHIFT'):
             kind = 'OP'
         tokens.append((kind, m.group(m.lastgroup)))
     tokens.append(('EOF', None))
@@ -364,7 +366,7 @@ class _ExprParser:
         return self.parse_compare()
 
     def parse_compare(self):
-        node = self.parse_arith()
+        node = self.parse_bitor()
         k, v = self.peek()
         if k == 'ID' and v == 'not':
             # 'x not in s' - long tag 'not' + tag 'in' co san (an toan
@@ -376,14 +378,14 @@ class _ExprParser:
             if nxt_k == 'ID' and nxt_v == 'in':
                 self.advance()  # 'not'
                 self.advance()  # 'in'
-                rhs = self.parse_arith()
+                rhs = self.parse_bitor()
                 return ('not', ('in', node, rhs))
         if k == 'ID' and v == 'in':
             # 'key in d' - kiem tra ton tai khoa trong dict (ContainsKey),
             # KHONG phai toan tu so sanh so hoc - node rieng 'in' (xem
             # _compile_expr) de tranh lam dep 'compare' (chi cho ceq/cgt/clt).
             self.advance()
-            rhs = self.parse_arith()
+            rhs = self.parse_bitor()
             return ('in', node, rhs)
         if not (k == 'OP' and v in _COMPARE_OPS):
             return node
@@ -398,7 +400,7 @@ class _ExprParser:
         comparisons = []
         while True:
             self.advance()
-            rhs = self.parse_arith()
+            rhs = self.parse_bitor()
             comparisons.append((v, node, rhs))
             node = rhs
             k, v = self.peek()
@@ -411,6 +413,47 @@ class _ExprParser:
         for op, left, right in comparisons[1:]:
             result = ('boolop', 'and', result, ('compare', op, left, right))
         return result
+
+    def parse_bitor(self):
+        """R5 (2026-09-22): 'a | b' - OR bitwise, uu tien THAP NHAT trong
+        nhom so hoc (giong Python: '|' < '&' < '<<'/'>>' < '+-' < '*/')."""
+        node = self.parse_bitand()
+        while True:
+            k, v = self.peek()
+            if k == 'OP' and v == '|':
+                self.advance()
+                rhs = self.parse_bitand()
+                node = ('binop', '|', node, rhs)
+            else:
+                break
+        return node
+
+    def parse_bitand(self):
+        """R5 (2026-09-22): 'a & b' - AND bitwise, chat hon '|'."""
+        node = self.parse_shift()
+        while True:
+            k, v = self.peek()
+            if k == 'OP' and v == '&':
+                self.advance()
+                rhs = self.parse_shift()
+                node = ('binop', '&', node, rhs)
+            else:
+                break
+        return node
+
+    def parse_shift(self):
+        """R5 (2026-09-22): 'a << n' / 'a >> n' - dich bit, chat hon '&'
+        nhung long hon '+-'. Ket hop TRAI (left-assoc) giong Python."""
+        node = self.parse_arith()
+        while True:
+            k, v = self.peek()
+            if k == 'OP' and v in ('<<', '>>'):
+                self.advance()
+                rhs = self.parse_arith()
+                node = ('binop', v, node, rhs)
+            else:
+                break
+        return node
 
     def parse_arith(self):
         node = self.parse_term()

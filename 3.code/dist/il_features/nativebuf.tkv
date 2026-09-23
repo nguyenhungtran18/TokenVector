@@ -1,0 +1,149 @@
+# -*- coding: utf-8 -*-
+"""Out-buffer native + doc/ghi bo nho khong quan ly (R2, 2026-09-22).
+
+Mo khoa: clipboard (GlobalLock + copy), vkEnumeratePhysicalDevices,
+RegQueryValueExA, HarfBuzz glyph arrays, GetWindowTextA - moi noi can
+cap phat + doc bo nho native tra ve qua con tro out-param (gap A2).
+
+Tat ca con tro la i64 (opaque handle, giong dia chi 64-bit). Bo nho cap
+boi AllocHGlobal - GIAI PHONG bang free_bytes (leak neu quen, giong
+C - khong co GC cho vung nay).
+
+- alloc_bytes(n) -> i64: cap n bytes, tra dia chi.
+- free_bytes(p) -> i64: giai phong, tra 0 (de goi dang lenh doc lap).
+- read_u8(p, off) -> i32: 1 byte (0-255).
+- write_u8(p, off, v) -> i64: ghi 1 byte (v bi cat u8 - dung conv.ovf.u1
+  nen vuot pham vi NEM chu khong cat am tham), tra 0.
+- read_ansi(p, off, n) -> str: n bytes thanh chuoi ANSI.
+- read_i32(p, off) -> i32 / write_i32(p, off, v) -> i64.
+- read_i64(p, off) -> i64 / write_i64(p, off, v) -> i64.
+"""
+from il_dispatch import register_expr_builtin
+
+_MARSHAL = '[mscorlib]System.Runtime.InteropServices.Marshal'
+
+
+def _compile_n_i32(n_node, scope, out, ctx):
+    """Bien dich 'n' (kich thuoc/offset) thanh int32: 'int' ha qua ToI32
+    co kiem tra, i64 ha qua conv.ovf.i4, con lai thang i32."""
+    n_dtype = ctx['infer_dtype'](n_node, scope, ctx.get('func_table'))
+    if n_dtype == 'i64':
+        ctx['compile_expr'](n_node, scope, out, 'i64', ctx)
+        out.append('    conv.ovf.i4')
+    else:
+        ctx['compile_expr'](n_node, scope, out, 'i32', ctx)
+
+
+def _compile_ptr(p_node, scope, out, ctx):
+    """Bien dich con tro i64 thanh 'native int' tren stack."""
+    ctx['compile_expr'](p_node, scope, out, 'i64', ctx)
+    out.append('    conv.i')
+
+
+def _compile_ptr_off(p_node, off_node, scope, out, ctx):
+    """'native int' cua p+off."""
+    ctx['compile_expr'](p_node, scope, out, 'i64', ctx)
+    _compile_n_i32(off_node, scope, out, ctx)
+    out.append('    conv.i8')
+    out.append('    add')
+    out.append('    conv.i')
+
+
+def push_alloc_bytes(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: alloc_bytes(n) can dung 1 tham so")
+    _compile_n_i32(args[0], scope, out, ctx)
+    out.append(f'    call native int {_MARSHAL}::AllocHGlobal(int32)')
+    out.append('    conv.i8')
+
+
+def push_free_bytes(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: free_bytes(p) can dung 1 tham so")
+    _compile_ptr(args[0], scope, out, ctx)
+    out.append(f'    call void {_MARSHAL}::FreeHGlobal(native int)')
+    out.append('    ldc.i8 0')
+
+
+def push_read_u8(args, scope, out, dtype, ctx):
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: read_u8(p, off) can dung 2 tham so")
+    _compile_ptr_off(args[0], args[1], scope, out, ctx)
+    out.append(f'    call uint8 {_MARSHAL}::ReadByte(native int)')
+
+
+def push_write_u8(args, scope, out, dtype, ctx):
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: write_u8(p, off, v) can dung 3 tham so")
+    # WriteByte(IntPtr, int32 offset, uint8 value) - 3 doi so RIENG (khac
+    # cac ham Read* 1-doi-so dung con tro da cong san): KHONG dung
+    # _compile_ptr_off o day (tung gop p+off thanh 1 con tro dan toi thieu
+    # 1 doi so -> InvalidProgram luc chay, phat hien qua verify R2).
+    _compile_ptr(args[0], scope, out, ctx)
+    _compile_n_i32(args[1], scope, out, ctx)
+    ctx['compile_expr'](args[2], scope, out, 'i32', ctx)
+    out.append('    conv.ovf.u1')
+    out.append(f'    call void {_MARSHAL}::WriteByte(native int, int32, uint8)')
+    out.append('    ldc.i8 0')
+
+
+def push_read_ansi(args, scope, out, dtype, ctx):
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: read_ansi(p, off, n) can dung 3 tham so")
+    _compile_ptr_off(args[0], args[1], scope, out, ctx)
+    _compile_n_i32(args[2], scope, out, ctx)
+    out.append(f'    call string {_MARSHAL}::PtrToStringAnsi(native int, int32)')
+    # PtrToStringAnsi tra null khi vung nho chua null o byte dau (title
+    # rong) - null.string se NullRef luc len()/so sanh. Chuan hoa ve ""
+    # (khong can temp: dup + nhay).
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    done = f"{ctx.get('prefix', 'buf')}_ansi{n}_nonnull"
+    out.append('    dup')
+    out.append(f'    brtrue {done}')
+    out.append('    pop')
+    out.append('    ldstr ""')
+    out.append(f'  {done}:')
+
+
+def push_read_i32(args, scope, out, dtype, ctx):
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: read_i32(p, off) can dung 2 tham so")
+    _compile_ptr_off(args[0], args[1], scope, out, ctx)
+    out.append(f'    call int32 {_MARSHAL}::ReadInt32(native int)')
+
+
+def push_write_i32(args, scope, out, dtype, ctx):
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: write_i32(p, off, v) can dung 3 tham so")
+    _compile_ptr_off(args[0], args[1], scope, out, ctx)
+    ctx['compile_expr'](args[2], scope, out, 'i32', ctx)
+    out.append(f'    call void {_MARSHAL}::WriteInt32(native int, int32)')
+    out.append('    ldc.i8 0')
+
+
+def push_read_i64(args, scope, out, dtype, ctx):
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: read_i64(p, off) can dung 2 tham so")
+    _compile_ptr_off(args[0], args[1], scope, out, ctx)
+    out.append(f'    call int64 {_MARSHAL}::ReadInt64(native int)')
+
+
+def push_write_i64(args, scope, out, dtype, ctx):
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: write_i64(p, off, v) can dung 3 tham so")
+    _compile_ptr_off(args[0], args[1], scope, out, ctx)
+    ctx['compile_expr'](args[2], scope, out, 'i64', ctx)
+    out.append(f'    call void {_MARSHAL}::WriteInt64(native int, int64)')
+    out.append('    ldc.i8 0')
+
+
+register_expr_builtin('alloc_bytes', push_alloc_bytes, 'i64')
+register_expr_builtin('free_bytes', push_free_bytes, 'i64')
+register_expr_builtin('read_u8', push_read_u8, 'i32')
+register_expr_builtin('write_u8', push_write_u8, 'i64')
+register_expr_builtin('read_ansi', push_read_ansi, 'str')
+register_expr_builtin('read_i32', push_read_i32, 'i32')
+register_expr_builtin('write_i32', push_write_i32, 'i64')
+register_expr_builtin('read_i64', push_read_i64, 'i64')
+register_expr_builtin('write_i64', push_write_i64, 'i64')

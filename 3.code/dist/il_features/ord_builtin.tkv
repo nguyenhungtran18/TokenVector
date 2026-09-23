@@ -1,0 +1,27 @@
+# -*- coding: utf-8 -*-
+"""ord(s) - builtin tra ve ma Unicode cua 1 ky tu (F-1, doi xung voi chr()).
+
+`ord("A")` -> 65, `ord("ê")` -> 234 (U+00EA), `ord("ệ")` -> 7887 (U+1EC7).
+
+Trien khai qua Char.ConvertToUtf32(string, 0) (lay codepoint tai index 0,
+xu ly dung ca surrogate pair - doi xung voi `chr()` dung
+Char.ConvertFromUtf32). Chuoi rong hoac index ngoai pham vi: .NET nem
+ArgumentException/ArgumentOutOfRange (on ao, giong `chr()` nem voi input
+ngoai pham vi, theo nguyen tac 'sai am tham nguy hiem hon loi on ao').
+
+Chuoi dai > 1 char: lay codepoint tai vi tri 0 (khong chan compile-time,
+vi do dai chi biet luc chay) - khac Python (doi dung 1 char) nhung du
+cho moi dung hien tai (group astral pair, lay ma bien surrogate...).
+"""
+from il_dispatch import register_expr_builtin
+
+
+def push_ord_builtin(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: ord() chi nhan dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    ldc.i4.0')
+    out.append('    call int32 [mscorlib]System.Char::ConvertToUtf32(string, int32)')
+
+
+register_expr_builtin('ord', push_ord_builtin, 'i32')

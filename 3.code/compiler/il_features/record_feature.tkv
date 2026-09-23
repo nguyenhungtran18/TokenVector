@@ -138,6 +138,24 @@ def try_parse_attr_assign(line, lines, pos, indent_level, sig, known_shapes, par
 def codegen_attr_assign(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     obj_name, field_name = stmt['obj_name'], stmt['field_name']
     _, _, obj_ta = scope[obj_name]
+    if obj_ta.shape == 'struct':
+        # R1 (2026-09-22): ghi field cua struct (dung cho struct truyen-
+        # vao: ghi fields truoc call). Can DIA CHI (ldloca) + stfld.
+        import il_codegen as _ilc
+        fields = dict((_ilc._STRUCT_DEFS.get(obj_ta.dtype) or {}).get('fields', []))
+        if field_name not in fields:
+            raise SyntaxError(
+                f"il_codegen: struct '{obj_ta.dtype}' khong co field '{field_name}'")
+        field_dtype = fields[field_name]
+        _struct_il = {'i16': 'int16', 'i32': 'int32', 'i64': 'int64',
+                      'f32': 'float32', 'f64': 'float64'}
+        ctx['load_var_addr'](obj_name, scope, body)
+        ctx['compile_expr'](stmt['value_node'], scope, body,
+                            'i32' if field_dtype == 'i16' else field_dtype, ctx)
+        if field_dtype == 'i16':
+            body.append('    conv.i2')
+        body.append(f'    stfld {_struct_il[field_dtype]} {obj_ta.dtype}::{ctx["il_ident"](field_name)}')
+        return
     if obj_ta.shape == 'extern_class':
         # Task 3 (extern-class-property, 2026-08-18): ghi property qua
         # set_X (callvirt void) - doi xung voi nhanh doc get_X trong
@@ -265,6 +283,26 @@ def compile_attr(node, scope, out, dtype, ctx=None):
         ctx['load_var_ref'](obj_name, scope, out)
         out.append(f'    ldfld !{i} {tuple_il_type}::Item{i + 1}')
         ctx['widen_if_needed'](field_dtype, dtype, out)
+        return
+    if obj_ta.shape == 'struct':
+        # R1 (2026-09-22): doc field cua struct (__tkv_struct__, valuetype
+        # blittable cho pinvoke). 'ldloc' tai gia tri (copy) roi 'ldfld' -
+        # hop le voi valuetype (khac record la class nhung cung mau).
+        # i16 CHI ton tai trong struct (DSL vo huong khong co i16) nen map
+        # rieng o day thay vi IL_SCALAR.
+        import il_codegen as _ilc
+        fields = dict((_ilc._STRUCT_DEFS.get(obj_ta.dtype) or {}).get('fields', []))
+        if field_name not in fields:
+            raise SyntaxError(
+                f"il_codegen: struct '{obj_ta.dtype}' khong co field '{field_name}'")
+        field_dtype = fields[field_name]
+        _struct_il = {'i16': 'int16', 'i32': 'int32', 'i64': 'int64',
+                      'f32': 'float32', 'f64': 'float64'}
+        ctx['load_var_ref'](obj_name, scope, out)
+        out.append(f'    ldfld {_struct_il[field_dtype]} {obj_ta.dtype}::{ctx["il_ident"](field_name)}')
+        # i16 tren stack THUC TE la int32 (CIL mo rong so nguyen nho) nen
+        # widen tu 'i32' de khop.
+        ctx['widen_if_needed']('i32' if field_dtype == 'i16' else field_dtype, dtype, out)
         return
     if obj_ta.shape != 'record':
         raise SyntaxError(

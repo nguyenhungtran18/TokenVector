@@ -558,6 +558,9 @@ def try_parse_container_clear(line, lines, pos, indent_level, sig, known_shapes,
     m = _CONTAINER_CLEAR_RE.match(line)
     if not m:
         return None
+    _sh = known_shapes.get(m.group(1))
+    if _sh is not None and _sh not in ('list', 'dict'):
+        return None  # R4/D6: record co method 'clear' rieng
     return {'kind': 'container_clear', 'name': m.group(1)}, pos + 1
 
 

@@ -145,6 +145,18 @@ def codegen_call_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
         codegen_fn(call_args, scope, body, return_dtype, ctx)
         # Khong pop: nhanh nay CHI chay cho builtin void that (khong tra
         # gia tri gi), nen khong con logic pop co dieu kien nhu truoc.
+    elif name in EXPR_BUILTIN_CODEGEN and EXPR_BUILTIN_DTYPE.get(name) is not None:
+        # R12 (2026-09-22): builtin CO GIA TRI voi dtype dang ky CU THE
+        # (reserve/chr/int64/...) goi dang lenh doc lap - bien dich nhu 1
+        # bieu thuc roi 'pop' (giong method goi doc lap, giong nhanh else
+        # cho ham nguoi dung). Dieu kien dtype cu the de LOAI cac builtin
+        # dtype-phu-thuoc-ngu-canh (sum/min/max/... dang ky None - goi doc
+        # lap cac ham do van bao loi nhu cu o nhanh else, tranh sinh IL
+        # sai kieu am tham).
+        codegen_fn = EXPR_BUILTIN_CODEGEN[name]
+        return_dtype = EXPR_BUILTIN_DTYPE.get(name)
+        codegen_fn(call_args, scope, body, return_dtype, ctx)
+        body.append('    pop')
     else:
         # 2026-08-03: goi 1 ham NGUOI DUNG nhu 1 lenh doc lap ('luu(x)',
         # 'stack.push(...)') la cach viet BINH THUONG cua Python - truoc

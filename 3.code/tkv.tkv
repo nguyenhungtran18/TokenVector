@@ -24,6 +24,10 @@ def main():
                         help='Sinh them file .pdb (Windows PDB) cho phep dat breakpoint that trong Visual Studio')
     build.add_argument('--no-lint', action='store_true', default=False,
                         help='Tat pre-flight syntax baseline linter (chi dung khi debug linter bao sai)')
+    build.add_argument('--target', default='exe', choices=('exe', 'library'),
+                        help="R10: 'exe' (mac dinh) hoac 'library' (ra managed DLL, khong .entrypoint)")
+    build.add_argument('--subsystem', default=None, choices=('windows', 'console'),
+                        help="R10: 'windows' (GUI, khong kem console) hoac 'console'")
 
     args = ap.parse_args()
 
@@ -47,8 +51,12 @@ def main():
                 sys.exit(1)
         out_exe = Path(args.out) if args.out else src.with_suffix('.exe')
         try:
-            result = compile_tkv_cli(src, out_exe, entry_name=args.entry, debug=args.debug)
-        except (CliError, TranspileError) as e:
+            result = compile_tkv_cli(src, out_exe, entry_name=args.entry, debug=args.debug,
+                                     target=args.target, subsystem=args.subsystem)
+        except (CliError, TranspileError, SyntaxError, ValueError) as e:
+            # R11 (2026-09-22): moi loi bien dich (ke ca SyntaxError tu
+            # codegen/inference) bao GON 1 dong tren stderr + exit 1, KHONG
+            # do traceback Python (tranh roi nguoi dung vao chi tiet noi bo).
             print(f"[tkv] Loi: {e}", file=sys.stderr)
             sys.exit(1)
         print(f"[tkv] Da bien dich: {result}")

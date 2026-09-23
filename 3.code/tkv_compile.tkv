@@ -54,7 +54,7 @@ plugin_loader.load_plugins()
 from il_codegen import gen_il_program, gen_record_types, il_type_str  # noqa: E402
 import il_codegen  # noqa: E402  (Task 2, extern-class: set/reset _EXTERN_CLASS_DEFS)
 from il_core import IL_SCALAR, IL_LDC_OP  # noqa: E402
-from tokenvector_compile import (ILASM, assemble_il_to_exe,  # noqa: E402
+from tokenvector_compile import (ILASM, assemble_il_to_exe, assemble_il_to_dll,  # noqa: E402
                                   TokenVectorError)
 from il_features.stdlib_sqlite import uses_sqlite as _uses_sqlite, SQLITE_PINVOKE_DECL_LINES  # noqa: E402
 # Task 3/5 (duck-typing-inference, 2026-08-17): thu thap rang buoc "interface
@@ -66,7 +66,8 @@ from il_features.stdlib_cjson import uses_cjson as _uses_cjson, CJSON_PINVOKE_DE
 from il_features.stdlib_http import HTTP_SERVER_CIL_DECL_LINES  # noqa: E402
 # --- END GEMINI ADDED CODE ---
 from il_dispatch import (register_expr_builtin, EXPR_BUILTIN_CODEGEN,  # noqa: E402
-                          EXPR_BUILTIN_DTYPE, EXPR_METHOD_CODEGEN, EXPR_METHOD_SHAPE,
+                          EXPR_BUILTIN_DTYPE, EXPR_BUILTIN_SHAPE, EXPR_BUILTIN_RESULT_SHAPE,
+                          EXPR_BUILTIN_TEMPS, EXPR_METHOD_CODEGEN, EXPR_METHOD_SHAPE,
                           EXPR_METHOD_RESULT_SHAPE, register_expr_method)
 
 
@@ -1022,6 +1023,146 @@ def _parse_extern_pinvoke_dict_literal(node):
     return result
 
 
+# R1 (2026-09-22, __tkv_struct__): struct blittable cho pinvoke 2 chieu.
+_STRUCT_FIELD_IL = {'i16': 'int16', 'i32': 'int32', 'i64': 'int64',
+                    'f32': 'float32', 'f64': 'float64'}
+_STRUCT_DTYPE_RE = re.compile(r'^[A-Za-z_]\w*$')
+_STRUCT_PTR_RE = re.compile(r'^([A-Za-z_]\w*)\*$')
+
+
+def _pinvoke_param_il(p):
+    """IL text cho 1 pinvoke param: scalar qua bang, 'Name*' (R1) thanh
+    'valuetype Name&' (managed pointer - blittable struct marshal truc
+    tiep, khong can pin/unmanaged copy), 'ptr' (F4a) thanh 'native int'
+    (con tro native opague: IntPtr/HWND/COM... - phia TokenVector la i64)."""
+    if p == 'ptr':
+        return 'native int'
+    _m = _STRUCT_PTR_RE.match(p) if isinstance(p, str) else None
+    if _m is not None:
+        return f'valuetype {_m.group(1)}&'
+    return _EXTERN_DTYPE_TO_IL[p]
+
+
+def _parse_struct_dict_literal(node):
+    """Parse 1 phan tu dict-literal cua __tkv_struct__ thanh
+    {'name':..., 'fields': [(fname, fdtype), ...]} - vd
+    {"name": "Point", "fields": [["x", "i32"], ["y", "i32"]]}.
+    Field dtype CHI 5 kieu blittable (i16/i32/i64/f32/f64) - dam bao
+    struct co the marshal thang qua pinvoke ma khong can custom marshaler."""
+    if not isinstance(node, ast.Dict):
+        raise TranspileError("__tkv_struct__: moi phan tu phai la 1 dict {'name', 'fields'}")
+    result = {}
+    for k, v in zip(node.keys, node.values):
+        if not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
+            raise TranspileError("__tkv_struct__: key dict phai la chuoi")
+        key = k.value
+        if key not in ('name', 'fields'):
+            raise TranspileError(
+                f"__tkv_struct__: key '{key}' khong hop le - chi chap nhan 'name'/'fields'")
+        if key == 'name':
+            if not (isinstance(v, ast.Constant) and isinstance(v.value, str)):
+                raise TranspileError("__tkv_struct__: 'name' phai la chuoi")
+            if not _STRUCT_DTYPE_RE.match(v.value):
+                raise TranspileError(
+                    f"__tkv_struct__: 'name' = {v.value!r} khong phai identifier hop le")
+            result['name'] = v.value
+        else:
+            if not isinstance(v, ast.List) or not v.elts:
+                raise TranspileError("__tkv_struct__: 'fields' phai la 1 list KHAC RONG cac [ten, kieu]")
+            fields = []
+            seen = set()
+            for elt in v.elts:
+                if not (isinstance(elt, ast.List) and len(elt.elts) == 2 and
+                        all(isinstance(e, ast.Constant) and isinstance(e.value, str)
+                            for e in elt.elts)):
+                    raise TranspileError(
+                        "__tkv_struct__: moi field phai la ['ten', 'kieu'] (chuoi), "
+                        "kieu trong i16/i32/i64/f32/f64")
+                fname, fdtype = elt.elts[0].value, elt.elts[1].value
+                if not _STRUCT_DTYPE_RE.match(fname):
+                    raise TranspileError(
+                        f"__tkv_struct__: ten field {fname!r} khong phai identifier hop le")
+                if fdtype not in _STRUCT_FIELD_IL:
+                    raise TranspileError(
+                        f"__tkv_struct__: field '{fname}' kieu {fdtype!r} khong ho tro - "
+                        f"chi {sorted(_STRUCT_FIELD_IL)} (blittable cho pinvoke)")
+                if fname in seen:
+                    raise TranspileError(
+                        f"__tkv_struct__: field '{fname}' khai TRUNG LAP")
+                seen.add(fname)
+                fields.append((fname, fdtype))
+            result['fields'] = fields
+    if set(result) != {'name', 'fields'}:
+        raise TranspileError("__tkv_struct__: moi dict can du 'name' + 'fields'")
+    return result
+
+
+def _struct_il_lines(struct_defs):
+    """Sinh khoi '.class ... sequential ... ValueType' cho MOI struct -
+    ghep vao extra_classes (ngoai class chuong trinh chinh) trong
+    compile_tkv_cli. Kem 1 .ctor nhan DU fields (de new_X(a, b) dung
+    newobj) - struct khong field thi chi co fields (dung newobj .ctor
+    mac dinh ngam)."""
+    lines = []
+    for sname, sdef in struct_defs.items():
+        fields = sdef['fields']
+        lines.append(f'.class public sequential ansi sealed beforefieldinit {sname}')
+        lines.append('       extends [mscorlib]System.ValueType')
+        lines.append('{')
+        for fname, fdtype in fields:
+            lines.append(f'  .field public {_STRUCT_FIELD_IL[fdtype]} \'{fname}\'')
+        params = ', '.join(f'{_STRUCT_FIELD_IL[t]} \'{n}\'' for n, t in fields)
+        lines.append(f'  .method public hidebysig specialname rtspecialname instance void .ctor({params}) cil managed')
+        lines.append('  {')
+        lines.append('    .maxstack 8')
+        for fname, fdtype in fields:
+            lines.append('    ldarg.0')
+            lines.append(f'    ldarg {_il_ctor_arg_index(fields, fname)}')
+            lines.append(f'    stfld {_STRUCT_FIELD_IL[fdtype]} {sname}::\'{fname}\'')
+        lines.append('    ret')
+        lines.append('  }')
+        lines.append('}')
+    return lines
+
+
+def _il_ctor_arg_index(fields, fname):
+    """Chi so ldarg (1-based, ke ca this=0) cua field trong .ctor."""
+    for i, (n, _t) in enumerate(fields):
+        if n == fname:
+            return i + 1
+    raise AssertionError(f"field {fname!r} khong ton tai (loi noi bo compiler)")
+
+
+def _make_struct_ctor_codegen(struct_name, fields):
+    """Factory codegen cho builtin 'new_<Struct>' (R1): new_Point(a, b) /
+    new_SystemTime() - newobj .ctor de lai 1 GIA TRI valuetype tren stack
+    (dung duoc o MOI vi tri bieu thuc, khong can temp). Chap nhan 0 arg
+    (zero-init: day defaults + full .ctor, tranh goi .ctor mac dinh ngam
+    cua valuetype chua kiem chung) hoac DU arg (theo thu tu fields)."""
+    il_param_types = [_STRUCT_FIELD_IL[t] for _n, t in fields]
+    _zero_il = {'i16': ['    ldc.i4.0'], 'i32': ['    ldc.i4.0'],
+                'i64': ['    ldc.i8 0'], 'f32': ['    ldc.r4 0.0'],
+                'f64': ['    ldc.r8 0.0']}
+
+    def _codegen(args, scope, out, dtype, ctx):
+        if len(args) != 0 and len(args) != len(fields):
+            raise SyntaxError(
+                f"il_codegen: 'new_{struct_name}(...)' can 0 hoac {len(fields)} tham so "
+                f"(theo thu tu fields {[n for n, _t in fields]}), duoc goi voi {len(args)}")
+        compile_expr = ctx['compile_expr']
+        if not args:
+            for _fname, fdtype in fields:
+                out.extend(_zero_il[fdtype])
+        else:
+            for arg_node, (fname, fdtype) in zip(args, fields):
+                compile_expr(arg_node, scope, out,
+                             'i32' if fdtype == 'i16' else fdtype, ctx)
+                if fdtype == 'i16':
+                    out.append('    conv.i2')
+        out.append(f'    newobj instance void {struct_name}::.ctor({", ".join(il_param_types)})')
+    return _codegen
+
+
 # Task 3 (2026-08-14, __tkv_extern_method__): bang dtype DSL -> ten kieu CIL
 # dung trong chu ky 'call' - doi chieu IL_SCALAR (il_core.py) de khong lech
 # chinh ta ('int32'/'float64'/'string'...). Khong dua 'object'/'thread' vao
@@ -1136,6 +1277,11 @@ def _extern_il_type_text(dtype):
         # _extern_il_type_text() TU THAN AN TOAN (defense-in-depth) neu co
         # diem goi moi trong tuong lai quen kiem tra truoc.
         return 'class [mscorlib]System.Type'
+    if dtype == 'ptr':
+        # F4a (2026-09-23): con tro native (IntPtr/HWND/COM interface* -
+        # vd Marshal.GetIUnknownForObject tra IntPtr) - chu ky IL
+        # 'native int', phia TokenVector la i64 (xem _tokenvector_facing_dtype).
+        return 'native int'
     if dtype in il_codegen._EXTERN_CLASS_DEFS:
         # Phase 9e (2026-08-27): handle-type (vd 'Sb') lam dtype cho
         # __tkv_extern_method__ - mirror y het IL text mau
@@ -1175,6 +1321,12 @@ def _tokenvector_facing_dtype(dtype):
         # LUON la i64 thuong (IL_SCALAR chi co i32/i64/f32/f64). 'u64' o
         # day CHI la nhan cho chu ky IL (_EXTERN_DTYPE_TO_IL), khong phai
         # 1 dtype TokenVector moi.
+        return 'i64'
+    if dtype == 'ptr':
+        # F4a (2026-09-23, __tkv_vtable__/IntPtr): con tro native (IL
+        # 'native int', vd IntPtr/HWND/COM interface*) - phia TokenVector
+        # LUON la i64 thuong (giong 'u64'/'bool': chi la nhan chu ky IL,
+        # khong phai 1 dtype TokenVector moi, KHONG dua vao DTYPES).
         return 'i64'
     if isinstance(dtype, str) and dtype.startswith('enum:'):
         return 'i32'
@@ -1348,6 +1500,88 @@ _EXTERN_ASSEMBLY_NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za
 # cho ma quen cho kia).
 _DEFAULT_GAC_ASSEMBLIES = frozenset({'mscorlib', 'System', 'System.Core'})
 
+# R3 (2026-09-22): full assembly identity cho extern_method/extern_class
+# (mo managed DLL rieng - C# shim OpenH264/AccessKit).
+_FULL_IDENTITY_VERSION_RE = re.compile(r'^\d+(\.\d+){0,3}$')
+_FULL_IDENTITY_TOKEN_RE = re.compile(r'^[0-9a-fA-F]+$')
+
+
+def _parse_full_assembly_identity(assembly_str, ctx_label):
+    """'OpenH264Shim, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null'
+    -> (simple_name, pubkeytoken, version) theo quy uoc tuple cua
+    __tkv_extern_assembly__ (ten, token_hex_or_None, version_or_None).
+    Ten don ('System.Xml') -> (ten, None, None) - goi TI THI (khong tu
+    dang ky, van phai khai bao/khac nhu cu). Culture duoc chap nhan va
+    bo qua (CLR bind khong can). PublicKeyToken=null/None (khong phan
+    biet hoa) -> None (khong ky ten manh). Token hex lien ('b77a...') duoc
+    chuyen sang dang byte-cach-nhau ('B7 7A ...') ma '.assembly extern'
+    doi hoi; dang da-cach-san giu nguyen."""
+    parts = [p.strip() for p in assembly_str.split(',')]
+    simple_name = parts[0]
+    if not _EXTERN_ASSEMBLY_NAME_RE.match(simple_name):
+        raise TranspileError(
+            f"{ctx_label}: ten assembly {simple_name!r} (trich tu {assembly_str!r}) khong phai ten "
+            f"assembly .NET hop le")
+    version = None
+    token = None
+    for part in parts[1:]:
+        if '=' not in part:
+            raise TranspileError(
+                f"{ctx_label}: phan {part!r} trong identity {assembly_str!r} phai dang 'Key=Value' "
+                f"(vd 'Version=1.0.0.0', 'Culture=neutral', 'PublicKeyToken=null')")
+        key, _, value = (s.strip() for s in part.partition('='))
+        lk = key.lower()
+        if lk == 'version':
+            if not _FULL_IDENTITY_VERSION_RE.match(value):
+                raise TranspileError(
+                    f"{ctx_label}: Version={value!r} khong hop le (can 'major[.minor[.build[.revision]]]' so)")
+            version = value
+        elif lk == 'publickeytoken':
+            if value.lower() in ('null', 'none'):
+                token = None
+            else:
+                compact = value.replace(' ', '')
+                if not _FULL_IDENTITY_TOKEN_RE.match(compact) or len(compact) % 2 != 0:
+                    raise TranspileError(
+                        f"{ctx_label}: PublicKeyToken={value!r} khong hop le (can chuoi hex chan do dai hoac 'null')")
+                token = ' '.join(compact[i:i + 2].upper() for i in range(0, len(compact), 2))
+        elif lk == 'culture':
+            continue  # CLR bind khong can culture cho .assembly extern
+        else:
+            raise TranspileError(
+                f"{ctx_label}: khoa {key!r} khong ho tro trong assembly identity "
+                f"(chi 'Version'/'Culture'/'PublicKeyToken')")
+    return simple_name, token, version
+
+
+def _ensure_extern_assembly(assembly_str, extern_assemblies, declared_assembly_names, ctx_label):
+    """Dung chung cho __tkv_extern_method__ VA __tkv_extern_class__ (R3).
+    Tra ve TEN DON dung cho '[asm]' refs. Ten don cu: doi chieu nhu cu
+    (khong tu dang ky). Full identity (co dau ','): tu them
+    (ten, token, version) vao extern_assemblies (de vong phat '.assembly
+    extern' phia sau sinh dung identity) + declared_assembly_names neu
+    ten chua co; neu ten DA co thi doi chieu token/version khop (lech ->
+    TranspileError ON AO thay vi FileLoadException luc chay)."""
+    if ',' not in assembly_str:
+        return assembly_str
+    simple_name, token, version = _parse_full_assembly_identity(assembly_str, ctx_label)
+    for asm_name, pkt, ver in extern_assemblies:
+        if asm_name == simple_name:
+            # 'DEFAULT' == token+version chuan .NET Framework GAC (xem vong
+            # phat '.assembly extern' trong compile_tkv_cli).
+            norm_pkt = 'B7 7A 5C 56 19 34 E0 89' if pkt == 'DEFAULT' else pkt
+            norm_ver = '4.0.0.0' if ver == 'DEFAULT' else ver
+            if norm_pkt != token or norm_ver != version:
+                raise TranspileError(
+                    f"{ctx_label}: identity {assembly_str!r} mau thuan voi khai bao "
+                    f"__tkv_extern_assembly__ truoc do cua '{simple_name}' "
+                    f"(token={norm_pkt!r}, version={norm_ver!r})")
+            declared_assembly_names.add(simple_name)
+            return simple_name
+    extern_assemblies.append((simple_name, token, version))
+    declared_assembly_names.add(simple_name)
+    return simple_name
+
 
 def _make_extern_static_call_codegen(assembly, dotnet_class, method_name,
                                       param_dtypes, return_dtype):
@@ -1380,8 +1614,17 @@ def _make_extern_static_call_codegen(assembly, dotnet_class, method_name,
             # 'object'/'type' (chi con lai de code tu-tai-lieu-hoa/phong thu
             # neu validate thay doi trong tuong lai, _compile_extern_object_arg
             # van AN TOAN goi duoc voi moi dtype khac).
+            # F4a: 'ptr' (con tro native) - phia TokenVector la i64, can
+            # 'conv.i' de thanh 'native int' dung chu ky call.
             il_codegen._compile_extern_object_arg(arg_node, scope, out, want_dtype, ctx)
+            if want_dtype == 'ptr':
+                out.append('    conv.i')
         out.append(f'{call_prefix}({", ".join(il_param_types)})')
+        # F4a: return 'ptr' - stack dang la 'native int', can 'conv.i8'
+        # thanh i64 phia TokenVector (dispatch chung sau do widen no-op
+        # an toan vi stack THAT SU la int64).
+        if return_dtype == 'ptr':
+            out.append('    conv.i8')
         # Khong can widen thu cong o day (khac compile_pow/...): builtin nay
         # dang ky voi return_dtype != None (xem _validate_and_register_
         # extern_method), nen dispatch chung _expr_call (il_codegen.py) TU
@@ -1720,9 +1963,10 @@ def _make_extern_pinvoke_call_codegen(hidden_name, param_dtypes, return_dtype):
     [assembly]class ben ngoai) - dung _class_name(ctx) giong cach
     stdlib_cjson.py lam (doc ctx['class_name'], fallback 'Program').
     return_dtype co the la None (ham 'void' - Phase 2 CHO PHEP, khac
-    Phase 1)."""
-    il_param_types = [_EXTERN_DTYPE_TO_IL[d] for d in param_dtypes]
-    il_ret_type = 'void' if return_dtype is None else _EXTERN_DTYPE_TO_IL[return_dtype]
+    Phase 1). R1 (2026-09-22): tham so struct 'Name*' truyen DIA CHI cua
+    1 bien struct (ldloca) - doi so PHAI la ten bien don kieu struct."""
+    il_param_types = [_pinvoke_param_il(d) for d in param_dtypes]
+    il_ret_type = 'void' if return_dtype is None else _pinvoke_param_il(return_dtype)
 
     def _class_name(ctx):
         return (ctx or {}).get('class_name') or 'Program'
@@ -1734,22 +1978,53 @@ def _make_extern_pinvoke_call_codegen(hidden_name, param_dtypes, return_dtype):
                 f"{len(param_dtypes)} tham so, duoc goi voi {len(args)}")
         compile_expr = ctx['compile_expr']
         for arg_node, want_dtype in zip(args, param_dtypes):
+            _pm = _STRUCT_PTR_RE.match(want_dtype) if isinstance(want_dtype, str) else None
+            if _pm is not None:
+                # Dia chi cua bien struct (managed pointer 'valuetype&').
+                if not (isinstance(arg_node, tuple) and arg_node[0] == 'var'):
+                    raise SyntaxError(
+                        f"il_codegen: tham so struct '{want_dtype}' can 1 ten bien struct don "
+                        f"(vd 'cur_pos(p)' - khong truyen truc tiep 'new_Point(...)' hay bieu thuc)")
+                try:
+                    _, _, _ta = scope[arg_node[1]]
+                except (KeyError, SyntaxError):
+                    raise SyntaxError(
+                        f"il_codegen: '{arg_node[1]}' khong phai bien struct da khai bao")
+                if _ta.shape != 'struct' or _ta.dtype != _pm.group(1):
+                    raise SyntaxError(
+                        f"il_codegen: tham so struct '{want_dtype}' can bien kieu struct "
+                        f"'{_pm.group(1)}', gap '{arg_node[1]}' kieu {_ta.dtype!r}/shape {_ta.shape!r}")
+                ctx['load_var_addr'](arg_node[1], scope, out)
+                continue
             # Phase 9b fix-of-fix (bool, 2026-08-25): il_param_types (tren) da
             # tinh SAN tu want_dtype THO (giu 'bool' cho chu ky IL) - o day
             # dtype truyen vao compile_expr phai la dtype PHIA TOKENVECTOR.
+            # F4a: 'ptr' (con tro native) - phia TokenVector la i64, can
+            # 'conv.i' de thanh 'native int' dung chu ky pinvoke.
             compile_expr(arg_node, scope, out, _tokenvector_facing_dtype(want_dtype), ctx)
+            if want_dtype == 'ptr':
+                out.append('    conv.i')
         out.append(f'    call {il_ret_type} {_class_name(ctx)}::{hidden_name}'
                     f'({", ".join(il_param_types)})')
+        # F4a: return 'ptr' - stack dang la 'native int', can 'conv.i8'
+        # thanh i64 phia TokenVector (dispatch chung sau do widen no-op
+        # an toan vi stack THAT SU la int64).
+        if return_dtype == 'ptr':
+            out.append('    conv.i8')
         # Khong widen thu cong o day - giong _make_extern_static_call_codegen,
         # dispatch chung (_expr_call/codegen_call_stmt) tu lo widen qua
         # return_dtype dang ky voi register_expr_builtin.
     return _codegen
 
 
-# Regex ten file DLL hop le (vd 'msvcrt.dll', 'my-lib_v2.dll') - chu/so/
-# gach duoi/gach ngang/dau cham/khoang trang, PHAI ket thuc '.dll', KHONG
+# Regex ten file thu vien native hop le (vd 'msvcrt.dll', 'my-lib_v2.dll',
+# 'libX11.so', 'libvulkan.so.1', 'libfoo.dylib') - chu/so/gach duoi/gach
+# ngang/dau cham/khoang trang, PHAI ket thuc '.dll' (Windows) HOAC '.so'
+# (Linux, kem version so '.so.1...' neu co) HOAC '.dylib' (macOS), KHONG
 # duoc chua '..'/'/'/'\\' (chan path traversal/injection vao chuoi IL).
-_EXTERN_DLL_NAME_RE = re.compile(r'^[\w\-. ]+\.dll$')
+# R7 (2026-09-22): mo rong tu '.dll'-only sang ca Linux/macOS (truoc day
+# linter tu choi cang libvulkan.so/libatspi.so ke ca khi chi build).
+_EXTERN_DLL_NAME_RE = re.compile(r'^[\w\-. ]+\.(dll|so(\.\d+)*|dylib)$')
 # Regex ten symbol C hop le (identifier C chuan).
 _EXTERN_SYMBOL_NAME_RE = re.compile(r'^[A-Za-z_]\w*$')
 
@@ -1769,12 +2044,12 @@ def _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines_out):
     params = decl['params']
     returns = decl['returns']
 
-    # (1) dll phai khop regex ten file .dll hop le.
+    # (1) dll phai khop regex ten file thu vien native hop le.
     if not _EXTERN_DLL_NAME_RE.match(dll):
         raise TranspileError(
-            f"__tkv_extern_pinvoke__ '{name}': 'dll' = {dll!r} khong phai ten file .dll hop le "
-            f"(vd 'msvcrt.dll' - chu/so/gach duoi/gach ngang/dau cham/khoang trang, phai ket "
-            f"thuc '.dll', khong duoc chua duong dan)")
+            f"__tkv_extern_pinvoke__ '{name}': 'dll' = {dll!r} khong phai ten file thu vien native hop le "
+            f"(vd 'msvcrt.dll'/'libX11.so'/'libfoo.dylib' - chu/so/gach duoi/gach ngang/dau cham/khoang trang, phai ket "
+            f"thuc '.dll'/'.so'/'.dylib', khong duoc chua duong dan)")
     # (2) symbol phai khop regex identifier C hop le.
     if not _EXTERN_SYMBOL_NAME_RE.match(symbol):
         raise TranspileError(
@@ -1785,12 +2060,22 @@ def _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines_out):
         raise TranspileError(
             f"__tkv_extern_pinvoke__ '{name}': 'convention' = {convention!r} khong hop le - "
             f"chi ho tro {sorted(_EXTERN_CONVENTIONS)}")
-    # (4) moi params phai nam trong bang dtype ho tro.
+    # (4) moi params phai nam trong bang dtype ho tro, HOAC la con tro
+    # struct 'Name*' (R1 - struct khai qua __tkv_struct__ trong CUNG chuong
+    # trinh, truyen dia chi managed 'valuetype Name&' - mo GetCursorPos/
+    # GetSystemTime/OpenH264...).
     for i, p in enumerate(params):
-        if p not in _EXTERN_DTYPE_TO_IL:
+        _pm = _STRUCT_PTR_RE.match(p) if isinstance(p, str) else None
+        if _pm is not None:
+            if _pm.group(1) not in il_codegen._STRUCT_DEFS:
+                raise TranspileError(
+                    f"__tkv_extern_pinvoke__ '{name}': params[{i}] = {p!r} - struct "
+                    f"'{_pm.group(1)}' chua duoc khai bao qua __tkv_struct__")
+        elif p != 'ptr' and p not in _EXTERN_DTYPE_TO_IL:
             raise TranspileError(
                 f"__tkv_extern_pinvoke__ '{name}': params[{i}] = {p!r} khong phai dtype hop le - "
-                f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)}")
+                f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)} hoac 'ptr' (con tro native) "
+                f"hoac con tro struct 'TenStruct*'")
         # Critical 2 (final review Phase 9d Part B, 2026-08-27): 'object'/
         # 'type' duoc Task 2 them vao _EXTERN_DTYPE_TO_IL de _il_ctor_
         # param_type/il_type_str (chi dung boi __tkv_extern_class__) short-
@@ -1808,10 +2093,10 @@ def _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines_out):
                 f"chua co thiet ke marshaling P/Invoke cho dtype nay (Phase 9d Part B)")
     # (5) returns phai la 'void' HOAC nam trong bang dtype scalar (KHAC
     # Phase 1 - Phase 2 CHO PHEP void).
-    if returns != 'void' and returns not in _EXTERN_DTYPE_TO_IL:
+    if returns != 'void' and returns != 'ptr' and returns not in _EXTERN_DTYPE_TO_IL:
         raise TranspileError(
             f"__tkv_extern_pinvoke__ '{name}': returns = {returns!r} khong phai dtype hop le - "
-            f"chi ho tro 'void' hoac {sorted(_EXTERN_DTYPE_TO_IL)}")
+            f"chi ho tro 'void' hoac {sorted(_EXTERN_DTYPE_TO_IL)} hoac 'ptr' (con tro native)")
     if returns in ('object', 'type'):
         raise TranspileError(
             f"__tkv_extern_pinvoke__ '{name}': returns = {returns!r} chua duoc ho tro - "
@@ -1824,8 +2109,13 @@ def _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines_out):
 
     hidden_name = f'__pinvoke_{name}'
     return_dtype = None if returns == 'void' else returns
-    il_ret_type = 'void' if return_dtype is None else _EXTERN_DTYPE_TO_IL[return_dtype]
-    il_param_types = [_EXTERN_DTYPE_TO_IL[p] for p in params]
+    if isinstance(returns, str) and _STRUCT_PTR_RE.match(returns):
+        raise TranspileError(
+            f"__tkv_extern_pinvoke__ '{name}': returns = {returns!r} - con tro struct lam gia tri "
+            f"tra ve CHUA ho tro (v1 chi ho tro struct* lam THAM SO out/in). "
+            f"Dung tham so out thay the.")
+    il_ret_type = 'void' if return_dtype is None else _pinvoke_param_il(return_dtype)
+    il_param_types = [_pinvoke_param_il(p) for p in params]
     il_param_list = ', '.join(il_param_types)
     pinvoke_decl_lines_out.append(
         f'.method public hidebysig static pinvokeimpl("{dll}" as "{symbol}" {convention})\n'
@@ -1847,7 +2137,550 @@ def _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines_out):
         EXTERN_VOID_BUILTIN_NAMES.add(name)
 
 
-def _validate_and_register_extern_method(decl, declared_assembly_names):
+# F4a (2026-09-23, __tkv_vtable__): goi ham qua con tro vtable (COM raw,
+# callback native) bang lenh CIL 'calli' - mo consume COM khong wrapper
+# (D3D11 truc tiep, IUnknown::AddRef/Release...). Khai bao:
+# __tkv_vtable__ = [{"name": "unk_addref", "convention": "stdcall",
+#                    "params": [], "returns": "i32"}]
+# Sinh builtin 'unk_addref(iface, fn, *args)' - iface/fn la i64 (con tro
+# opaque, ghep voi read_i64 (R2) de doc vtable: 'vtbl = read_i64(p, 0);
+# fn = read_i64(vtbl, 8); r = unk_addref(p, fn)'). 'this' (iface) luon
+# la doi so an dau tien cua chu ky calli ('native int'), KHONG khai
+# trong 'params' - 'params' chi mo ta cac doi so SAU 'this'.
+# 'ptr' (F4a): param/return la con tro native (IL 'native int', phia
+# TokenVector la i64) - dung cho IntPtr/HWND/COM... ma bang scalar
+# khong bieu dien duoc (int64 != native int tren IL stack).
+_VTABLE_KEYS = {'name', 'convention', 'params', 'returns'}
+_VTABLE_REQUIRED = {'name', 'convention', 'returns'}
+
+
+def _parse_vtable_dict_literal(node):
+    """__tkv_vtable__ (F4a): parse 1 phan tu dict-literal cua pragma thanh
+    dict Python thuong ({'name':..., 'convention':..., 'params': [...],
+    'returns':..., 'kind': 'vtable'}) - validate SHAPE (dict, key hop le,
+    value dung kieu) o day; validate NGHIEP VU (dtype, convention, dang ky
+    builtin calli...) la _validate_and_register_vtable. 'kind' la marker
+    noi bo de vong dang ky phan biet voi entry pinvoke (2 loai DI CHUNG
+    list 'extern_pinvokes' de KHONG phai sua tuple extract/merge - xem
+    nhanh pragma __tkv_vtable__ trong _parse_program_ast)."""
+    if not isinstance(node, ast.Dict):
+        raise TranspileError(
+            "__tkv_vtable__: moi phan tu phai la 1 dict voi cac key "
+            "name/convention/params/returns")
+    result = {}
+    for k, v in zip(node.keys, node.values):
+        if not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
+            raise TranspileError("__tkv_vtable__: key dict phai la chuoi")
+        key = k.value
+        if key not in _VTABLE_KEYS:
+            raise TranspileError(
+                f"__tkv_vtable__: key '{key}' khong hop le - chi chap nhan "
+                f"{sorted(_VTABLE_KEYS)}")
+        if key == 'params':
+            if not isinstance(v, ast.List):
+                raise TranspileError("__tkv_vtable__: 'params' phai la 1 list chuoi")
+            params = []
+            for elt in v.elts:
+                if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
+                    raise TranspileError("__tkv_vtable__: moi phan tu 'params' phai la chuoi")
+                params.append(elt.value)
+            result['params'] = params
+        else:
+            if not (isinstance(v, ast.Constant) and isinstance(v.value, str)):
+                raise TranspileError(f"__tkv_vtable__: gia tri '{key}' phai la chuoi")
+            result[key] = v.value
+    result.setdefault('params', [])
+    missing = _VTABLE_REQUIRED - result.keys()
+    if missing:
+        raise TranspileError(
+            f"__tkv_vtable__: thieu key bat buoc {sorted(missing)}")
+    result['kind'] = 'vtable'
+    return result
+
+
+def _vtable_il_sig(param_dtypes, return_dtype, convention):
+    """Chuoi callsite cho 'calli': 'unmanaged stdcall int32(native int,
+    ...)' - 'native int' DAU TIEN la 'this' (iface, ngam dinh), sau do
+    la params khai bao. 'ptr' -> 'native int', scalar qua bang."""
+    il_params = [_pinvoke_param_il(p) for p in param_dtypes]
+    il_ret = 'void' if return_dtype is None else _pinvoke_param_il(return_dtype)
+    callconv = 'stdcall' if convention == 'stdcall' else 'cdecl'
+    inner = ', '.join(['native int'] + il_params)
+    return f'unmanaged {callconv} {il_ret}({inner})'
+
+
+def _make_vtable_call_codegen(param_dtypes, return_dtype, convention):
+    """Factory codegen cho 1 entry __tkv_vtable__: builtin
+    'ten(iface, fn, *args)' - iface/fn la i64 (opaque). Thu tu stack cho
+    'calli' (ECMA-335: con tro ham nam TREN CUNG, sau cac doi so): day
+    'this' (iface->native int), day args, day fn (->native int), roi
+    'calli'. 'ptr' param: conv.i sau khi compile (i64->native int);
+    return 'ptr': conv.i8 sau calli (native int->i64 phia TokenVector)."""
+    callsite = _vtable_il_sig(param_dtypes, return_dtype, convention)
+
+    def _codegen(args, scope, out, dtype, ctx):
+        if len(args) != len(param_dtypes) + 2:
+            raise SyntaxError(
+                f"il_codegen: loi goi vtable can dung {len(param_dtypes) + 2} tham so "
+                f"(iface, fn, {len(param_dtypes)} doi so), duoc goi voi {len(args)}")
+        compile_expr = ctx['compile_expr']
+        compile_expr(args[0], scope, out, 'i64', ctx)
+        out.append('    conv.i')
+        for arg_node, want_dtype in zip(args[2:], param_dtypes):
+            compile_expr(arg_node, scope, out, _tokenvector_facing_dtype(want_dtype), ctx)
+            if want_dtype == 'ptr':
+                out.append('    conv.i')
+        compile_expr(args[1], scope, out, 'i64', ctx)
+        out.append('    conv.i')
+        out.append(f'    calli {callsite}')
+        if return_dtype == 'ptr':
+            out.append('    conv.i8')
+        # Giong pinvoke/extern_method: khong widen thu cong - dispatch
+        # chung tu lo qua return_dtype dang ky (facing).
+    return _codegen
+
+
+def _validate_and_register_vtable(decl):
+    """F4a: validate 1 decl __tkv_vtable__ da parse SHAPE, roi dang ky
+    builtin calli - mirror _validate_and_register_extern_pinvoke (KHONG
+    dll/symbol/pinvokeimpl - con tro ham den luc chay qua doi so 'fn').
+    'void' returns -> EXTERN_VOID_BUILTIN_NAMES (goi dang lenh doc lap)."""
+    name = decl['name']
+    convention = decl['convention']
+    params = decl['params']
+    returns = decl['returns']
+
+    if convention not in _EXTERN_CONVENTIONS:
+        raise TranspileError(
+            f"__tkv_vtable__ '{name}': 'convention' = {convention!r} khong hop le - "
+            f"chi ho tro {sorted(_EXTERN_CONVENTIONS)}")
+    for i, p in enumerate(params):
+        if p != 'ptr' and p not in _EXTERN_DTYPE_TO_IL:
+            raise TranspileError(
+                f"__tkv_vtable__ '{name}': params[{i}] = {p!r} khong phai dtype hop le - "
+                f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)} hoac 'ptr' (con tro native)")
+        if p in ('object', 'type'):
+            raise TranspileError(
+                f"__tkv_vtable__ '{name}': params[{i}] = {p!r} chua duoc ho tro - "
+                f"dtype 'object'/'type' khong co kieu IL on dinh cho chu ky 'calli'")
+    if returns != 'void' and returns != 'ptr' and returns not in _EXTERN_DTYPE_TO_IL:
+        raise TranspileError(
+            f"__tkv_vtable__ '{name}': returns = {returns!r} khong phai dtype hop le - "
+            f"chi ho tro 'void' hoac {sorted(_EXTERN_DTYPE_TO_IL)} hoac 'ptr'")
+    if returns in ('object', 'type'):
+        raise TranspileError(
+            f"__tkv_vtable__ '{name}': returns = {returns!r} chua duoc ho tro - "
+            f"dtype 'object'/'type' khong co kieu IL on dinh cho chu ky 'calli'")
+    if not name.isidentifier():
+        raise TranspileError(
+            f"__tkv_vtable__: 'name' = {name!r} khong phai identifier hop le")
+
+    return_dtype = None if returns == 'void' else returns
+    codegen_fn = _make_vtable_call_codegen(params, return_dtype, convention)
+    register_expr_builtin(name, codegen_fn, _tokenvector_facing_dtype(return_dtype))
+    if return_dtype is None:
+        EXTERN_VOID_BUILTIN_NAMES.add(name)
+
+
+# F4b (2026-09-23, __tkv_callback__): delegate non-generic cho callback
+# native (EnumWindows, UIA handler, D3D...). Ly do can class RIENG (thay
+# vi tai dung Func<...>): Marshal.GetFunctionPointerForDelegate TU CHOI
+# delegate generic (ArgumentException, xac minh that) - can 1 kieu
+# non-generic thua MulticastDelegate voi .ctor/Invoke 'runtime managed'.
+# Khai bao:
+# __tkv_callback__ = [{"name": "WndEnumProc", "params": ["i64", "i64"],
+#                      "returns": "i32"}]
+# Sinh (1) class 'WndEnumProcDelegate' (extra_classes) + (2) builtin
+# 'callback_WndEnumProc(f)' - f PHAI la TEN ham top-level khop chu ky
+# (ldnull + ldftn + newobj class rieng; KHONG nhan bien 'func'/lambda vi
+# instance Func<...> san KHONG cast duoc sang class rieng). Stub nguoc
+# mac dinh la stdcall/Winapi (dung moi API Win32; tren x64 moi convention
+# nhu nhau). Giu song bang GCHandle leak-by-design (xem builtin).
+# Gioi han v1: params/returns chi so (i32/i64/f32/f64, void cho returns)
+# - 'int' (struct TkvInt, KHONG blittable - stub that bai luc chay),
+# 'str'/'bool'/'ptr'/struct* chua ho tro.
+_CALLBACK_KEYS = {'name', 'params', 'returns'}
+_CALLBACK_REQUIRED = {'name', 'returns'}
+_CALLBACK_SCALARS = frozenset({'i32', 'i64', 'f32', 'f64'})
+
+
+def _parse_callback_dict_literal(node):
+    """__tkv_callback__ (F4b): parse 1 phan tu dict-literal thanh dict
+    Python ({'name':..., 'params': [...], 'returns':..., 'kind':
+    'callback'}) - validate SHAPE o day; validate NGHIEP VU + sinh class
+    delegate + dang ky builtin la _validate_and_register_callback."""
+    if not isinstance(node, ast.Dict):
+        raise TranspileError(
+            "__tkv_callback__: moi phan tu phai la 1 dict voi cac key "
+            "name/params/returns")
+    result = {}
+    for k, v in zip(node.keys, node.values):
+        if not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
+            raise TranspileError("__tkv_callback__: key dict phai la chuoi")
+        key = k.value
+        if key not in _CALLBACK_KEYS:
+            raise TranspileError(
+                f"__tkv_callback__: key '{key}' khong hop le - chi chap nhan "
+                f"{sorted(_CALLBACK_KEYS)}")
+        if key == 'params':
+            if not isinstance(v, ast.List):
+                raise TranspileError("__tkv_callback__: 'params' phai la 1 list chuoi")
+            params = []
+            for elt in v.elts:
+                if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
+                    raise TranspileError("__tkv_callback__: moi phan tu 'params' phai la chuoi")
+                params.append(elt.value)
+            result['params'] = params
+        else:
+            if not (isinstance(v, ast.Constant) and isinstance(v.value, str)):
+                raise TranspileError(f"__tkv_callback__: gia tri '{key}' phai la chuoi")
+            result[key] = v.value
+    result.setdefault('params', [])
+    missing = _CALLBACK_REQUIRED - result.keys()
+    if missing:
+        raise TranspileError(
+            f"__tkv_callback__: thieu key bat buoc {sorted(missing)}")
+    result['kind'] = 'callback'
+    return result
+
+
+def _callback_delegate_il_lines(decl):
+    """Khoi '.class' delegate non-generic cho 1 decl (ghep vao
+    extra_classes): thua MulticastDelegate, .ctor(object, native int) +
+    Invoke(...) 'runtime managed' (CLR tu sinh than). Ten class
+    '<name>Delegate' - tranh dung builtin 'callback_<name>'."""
+    cname = decl['name'] + 'Delegate'
+    params = decl['params']
+    returns = decl['returns']
+    il_params = [il_codegen._il_scalar_or_handle(p) for p in params]
+    il_ret = 'void' if returns == 'void' else il_codegen._il_scalar_or_handle(returns)
+    arg_list = ', '.join(f'{t} \'p{i}\'' for i, t in enumerate(il_params))
+    return [
+        f'.class public auto ansi sealed beforefieldinit {cname}',
+        '       extends [mscorlib]System.MulticastDelegate',
+        '{',
+        '  .method public hidebysig specialname rtspecialname',
+        '          instance void .ctor(object \'object\', native int \'method\') runtime managed',
+        '  {',
+        '  }',
+        '  .method public hidebysig virtual',
+        f'          instance {il_ret} Invoke({arg_list}) runtime managed',
+        '  {',
+        '  }',
+        '}',
+    ]
+
+
+def _make_callback_ctor_codegen(decl):
+    """Factory builtin 'callback_<name>(f)' (F4b): f la TEN ham top-level
+    khop chu ky khai bao -> ldnull + ldftn + newobj Delegate rieng ->
+    GCHandle.Alloc + pop (giu song, leak co chu y - native co the giu con
+    tro sau khi ham tra ve) -> GetFunctionPointerForDelegate -> i64."""
+    cname = decl['name'] + 'Delegate'
+    want_params = list(decl['params'])
+    want_ret = None if decl['returns'] == 'void' else decl['returns']
+
+    def _codegen(args, scope, out, dtype, ctx):
+        if len(args) != 1:
+            raise SyntaxError(
+                f"il_codegen: 'callback_{decl['name']}(...)' chi nhan dung 1 tham so "
+                f"(ten 1 ham top-level khop chu ky (({', '.join(want_params)}) -> "
+                f"{decl['returns']}))")
+        arg_node = args[0]
+        if not (isinstance(arg_node, tuple) and arg_node[0] == 'var'):
+            raise SyntaxError(
+                f"il_codegen: 'callback_{decl['name']}(...)' chi nhan TEN 1 ham top-level "
+                f"(khong nhan bien 'func'/lambda - instance Func<...> khong chuyen duoc "
+                f"sang delegate rieng '{cname}')")
+        fname = arg_node[1]
+        func_table = (ctx or {}).get('func_table') or {}
+        if fname not in func_table:
+            raise SyntaxError(
+                f"il_codegen: 'callback_{decl['name']}(...)' - '{fname}' khong phai 1 ham "
+                f"top-level da khai bao")
+        callee = func_table[fname]
+        callee_params = [il_codegen._norm_param_dtype(p.type_ann) for p in callee.params]
+        callee_ret = il_codegen._norm_param_dtype(callee.return_type) if callee.return_type else None
+        if callee_params != want_params or callee_ret != want_ret:
+            raise SyntaxError(
+                f"il_codegen: ham '{fname}' (({', '.join(callee_params)}) -> {callee_ret}) "
+                f"khong khop chu ky callback 'callback_{decl['name']}' "
+                f"((({', '.join(want_params)}) -> {decl['returns']})) - delegate binding "
+                f"doi khop CHINH XAC")
+        class_name = (ctx or {}).get('class_name') or 'Program'
+        params_il = ', '.join(il_codegen._il_scalar_or_handle(d) for d in callee_params)
+        ret_il = il_codegen._il_scalar_or_handle(callee_ret)
+        out.append('    ldnull')
+        out.append(f'    ldftn {ret_il} {class_name}::{il_codegen._il_ident(fname)}({params_il})')
+        out.append(f'    newobj instance void {cname}::.ctor(object, native int)')
+        out.append('    dup')
+        out.append('    call valuetype [mscorlib]System.Runtime.InteropServices.GCHandle '
+                   '[mscorlib]System.Runtime.InteropServices.GCHandle::Alloc(object)')
+        out.append('    pop')
+        out.append('    call native int [mscorlib]System.Runtime.InteropServices.Marshal::'
+                   'GetFunctionPointerForDelegate(class [mscorlib]System.Delegate)')
+        out.append('    conv.i8')
+    return _codegen
+
+
+def _validate_and_register_callback(decl):
+    """F4b: validate 1 decl __tkv_callback__ roi dang ky builtin
+    'callback_<name>' (tra i64 - con tro ham native). Ten class delegate
+    '<name>Delegate' + ten builtin duoc kiem trung toan cuc qua
+    register_expr_builtin (ValueError on ao)."""
+    name = decl['name']
+    params = decl['params']
+    returns = decl['returns']
+    if not name.isidentifier():
+        raise TranspileError(
+            f"__tkv_callback__: 'name' = {name!r} khong phai identifier hop le")
+    for i, p in enumerate(params):
+        if p not in _CALLBACK_SCALARS:
+            raise TranspileError(
+                f"__tkv_callback__ '{name}': params[{i}] = {p!r} khong ho tro - v1 chi "
+                f"{sorted(_CALLBACK_SCALARS)} (so blittable; 'int' la struct TkvInt khong "
+                f"blittable, 'str'/'bool'/'ptr' chua ho tro)")
+    if returns != 'void' and returns not in _CALLBACK_SCALARS:
+        raise TranspileError(
+            f"__tkv_callback__ '{name}': returns = {returns!r} khong ho tro - v1 chi "
+            f"'void' hoac {sorted(_CALLBACK_SCALARS)}")
+    codegen_fn = _make_callback_ctor_codegen(decl)
+    register_expr_builtin(f'callback_{name}', codegen_fn, 'i64')
+
+
+# F4c (2026-09-23, __tkv_com_class__): phoi 1 record ra COM (CCW) - mo
+# UIA provider that, D3D plugin... Khai bao:
+# __tkv_com_class__ = [{"record": "Answer", "guid": "AAAAAAAA-1111-...-...",
+#                       "interface": "IAnswer", "interface_guid": "BBBB-...",
+#                       "methods": [{"name": "GetAnswer", "params": [], "returns": "i32"}]}]
+# - 'record' PHAI la 1 class-record CUNG chuong trinh: method instance
+#   THAT bien dich qua pipeline record co san (tai dung 100%, khong
+#   pipeline moi); 'methods' la TAP CON method instance cua record, khop
+#   chu ky CHINH XAC (so sanh qua _norm_param_dtype, ke ca ten sau rename).
+# - Compiler: (1) them 'interface' vao record_interfaces[record] -> class
+#   co 'implements IFace' (co che san nhu @interface mixin); (2) phat
+#   '.custom ComVisible(true)+Guid' len class (qua com_attrs ->
+#   gen_record_types); (3) sinh '.class interface IFace' voi Guid +
+#   InterfaceType(IsIUnknown) + method abstract kem PreserveSig
+#   (extra_classes, giong struct lines R1).
+# - PreserveSig: giu chu ky native == managed (tat bien doi HRESULT/
+#   [out,retval] mac dinh cua interop) - bat buoc de F4a calli goi truc
+#   tiep dung chu ky khai bao.
+# - Gioi han v1: method params/returns CHI so blittable (i32/i64/f32/f64,
+#   +void cho returns) - 'bool' (CCW phoi VARIANT_BOOL 2-byte, lech voi
+#   'bool' 4-byte cua calli), 'str' (BSTR - calli khong giai phong dung
+#   allocator, corrupt heap), 'int' (struct TkvInt khong blittable),
+#   container/record/handle-type deu CAM. UIA can BSTR/HRESULT-out la
+#   F4c+ (di duong out-ptr + SysAllocString thu cong).
+_COM_KEYS = {'record', 'guid', 'interface', 'interface_guid', 'methods'}
+_COM_REQUIRED = {'record', 'guid', 'interface', 'interface_guid', 'methods'}
+_COM_METHOD_KEYS = {'name', 'params', 'returns'}
+_COM_METHOD_REQUIRED = {'name', 'params', 'returns'}
+_COM_DTYPES = frozenset({'i32', 'i64', 'f32', 'f64'})
+_COM_GUID_RE = re.compile(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+    r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+
+
+def _parse_com_method_dict_literal(node):
+    if not isinstance(node, ast.Dict):
+        raise TranspileError(
+            "__tkv_com_class__'s 'methods': moi phan tu phai la 1 dict-literal")
+    result = {}
+    for k_node, v_node in zip(node.keys, node.values):
+        if not (isinstance(k_node, ast.Constant) and isinstance(k_node.value, str)):
+            raise TranspileError("__tkv_com_class__'s method dict: key phai la string literal")
+        key = k_node.value
+        if key not in _COM_METHOD_KEYS:
+            raise TranspileError(
+                f"__tkv_com_class__'s method dict: key {key!r} khong hop le, "
+                f"chi chap nhan {sorted(_COM_METHOD_KEYS)}")
+        if key == 'params':
+            if not isinstance(v_node, ast.List):
+                raise TranspileError("__tkv_com_class__'s method 'params' phai la 1 list chuoi")
+            plist = []
+            for elt in v_node.elts:
+                if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
+                    raise TranspileError(
+                        "__tkv_com_class__'s method 'params': moi phan tu phai la chuoi")
+                plist.append(elt.value)
+            result['params'] = plist
+        else:
+            if not (isinstance(v_node, ast.Constant) and isinstance(v_node.value, str)):
+                raise TranspileError(
+                    f"__tkv_com_class__'s method dict: key {key!r} phai la string literal")
+            result[key] = v_node.value
+    result.setdefault('params', [])
+    missing = _COM_METHOD_REQUIRED - set(result.keys())
+    if missing:
+        raise TranspileError(
+            f"__tkv_com_class__'s method dict thieu key bat buoc: {sorted(missing)}")
+    return result
+
+
+def _parse_com_class_dict_literal(node):
+    """__tkv_com_class__ (F4c): parse 1 phan tu dict-literal thanh dict
+    Python - validate SHAPE o day; validate NGHIEP VU (record ton tai,
+    chu ky khop, guid dung dang) la _validate_and_register_com_class (can
+    record_defs/record_methods, chay trong compile_tkv_cli)."""
+    if not isinstance(node, ast.Dict):
+        raise TranspileError(
+            "__tkv_com_class__: moi phan tu phai la 1 dict voi cac key "
+            "record/guid/interface/interface_guid/methods")
+    result = {}
+    for k, v in zip(node.keys, node.values):
+        if not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
+            raise TranspileError("__tkv_com_class__: key dict phai la chuoi")
+        key = k.value
+        if key not in _COM_KEYS:
+            raise TranspileError(
+                f"__tkv_com_class__: key '{key}' khong hop le - chi chap nhan "
+                f"{sorted(_COM_KEYS)}")
+        if key == 'methods':
+            if not isinstance(v, ast.List) or not v.elts:
+                raise TranspileError(
+                    "__tkv_com_class__: 'methods' phai la 1 list KHAC RONG cac dict-literal")
+            result['methods'] = [_parse_com_method_dict_literal(m) for m in v.elts]
+        else:
+            if not (isinstance(v, ast.Constant) and isinstance(v.value, str)):
+                raise TranspileError(f"__tkv_com_class__: gia tri '{key}' phai la chuoi")
+            result[key] = v.value
+    missing = _COM_KEYS - set(result.keys())
+    if missing:
+        raise TranspileError(
+            f"__tkv_com_class__: thieu key bat buoc {sorted(missing)}")
+    return result
+
+
+def _com_guid_blob(guid):
+    """Phan blob SerString cho GuidAttribute: 1 byte do dai (guid LUON 36
+    ky tu -> 0x24) + 16 byte guid (bo gach noi, IN HOA, cach nhau)."""
+    raw = guid.replace('-', '')
+    hexpairs = ' '.join(raw[i:i + 2].upper() for i in range(0, 32, 2))
+    return f'24 {hexpairs}'
+
+
+def _com_custom_lines(kind, guid=None):
+    """Dong '.custom' (ECMA-335: prolog 01 00 + fixed args + 00 00 named)
+    cho 4 attribute COM v1 - blob co dinh, da doi chieu dinh dang .NET:
+    ComVisible(bool=true), Guid(string), InterfaceType(int32 IsIUnknown=1
+    - ComInterfaceType underlying int32), PreserveSig(void)."""
+    if kind == 'comvisible':
+        return ['  .custom instance void '
+                '[mscorlib]System.Runtime.InteropServices.ComVisibleAttribute'
+                '::.ctor(bool) = ( 01 00 01 00 00 )']
+    if kind == 'guid':
+        return [f'  .custom instance void '
+                f'[mscorlib]System.Runtime.InteropServices.GuidAttribute'
+                f'::.ctor(string) = ( 01 00 {_com_guid_blob(guid)} 00 00 )']
+    if kind == 'interfacetype':
+        return ['  .custom instance void '
+                '[mscorlib]System.Runtime.InteropServices.InterfaceTypeAttribute'
+                '::.ctor(int32) = ( 01 00 01 00 00 00 00 00 )']
+    if kind == 'preservesig':
+        return ['  .custom instance void '
+                '[mscorlib]System.Runtime.InteropServices.PreserveSigAttribute'
+                '::.ctor() = ( 01 00 00 00 )']
+    raise AssertionError(f"loai .custom COM khong ho tro: {kind!r} (loi noi bo compiler)")
+
+
+def _com_interface_il_lines(decl):
+    """Khoi '.class interface IFace' (ghep vao extra_classes): Guid +
+    InterfaceType(IsIUnknown) + method abstract kem PreserveSig. Chu ky
+    method DUNG helper _il_scalar_or_handle nhu phia record de 2 ben KHOP
+    nhau tuyet doi (dieu kien CLR map implicit interface impl)."""
+    iface = decl['interface']
+    lines = [f'.class interface public abstract auto ansi {iface}', '{']
+    lines.extend(_com_custom_lines('interfacetype'))
+    lines.extend(_com_custom_lines('guid', decl['interface_guid']))
+    for m in decl['methods']:
+        il_params = [il_codegen._il_scalar_or_handle(p) for p in m['params']]
+        il_ret = 'void' if m['returns'] == 'void' else il_codegen._il_scalar_or_handle(m['returns'])
+        arg_list = ', '.join(f"{t} 'p{i}'" for i, t in enumerate(il_params))
+        lines.append(f'  .method public hidebysig newslot abstract virtual instance '
+                     f"{il_ret} '{m['name']}'({arg_list}) cil managed")
+        lines.append('  {')
+        lines.extend(_com_custom_lines('preservesig'))
+        lines.append('  }')
+    lines.append('}')
+    return lines
+
+
+def _validate_and_register_com_class(decl, record_defs, record_methods, record_interfaces,
+                                     com_attrs_out, iface_lines_out):
+    """F4c: validate 1 decl __tkv_com_class__ (can record_defs/record_methods
+    nen chay trong compile_tkv_cli SAU _build_record_methods): record ton
+    tai; guid dung dang; method la TAP CON method instance (khong static)
+    cua record, khop chu ky CHINH XAC. Tac dong: (1) record_interfaces[rec]
+    += interface (class co 'implements'); (2) com_attrs_out[rec] += .custom
+    class; (3) iface_lines_out += khoi interface. KHONG dang ky builtin
+    (khong can finally-pop)."""
+    rec = decl['record']
+    iface = decl['interface']
+    if not rec.isidentifier():
+        raise TranspileError(f"__tkv_com_class__: 'record' = {rec!r} khong phai identifier hop le")
+    if rec not in record_defs:
+        raise TranspileError(
+            f"__tkv_com_class__: record {rec!r} chua duoc khai bao 'class {rec}(...)' "
+            f"trong chuong trinh")
+    if not iface.isidentifier():
+        raise TranspileError(f"__tkv_com_class__: 'interface' = {iface!r} khong phai identifier hop le")
+    if iface in record_defs:
+        raise TranspileError(
+            f"__tkv_com_class__: 'interface' = {iface!r} trung ten voi record/class da khai bao - "
+            f"doi ten khac")
+    if iface in EXPR_BUILTIN_CODEGEN:
+        raise TranspileError(
+            f"__tkv_com_class__: 'interface' = {iface!r} trung ten voi builtin co san - doi ten khac")
+    for gkey in ('guid', 'interface_guid'):
+        if not _COM_GUID_RE.match(decl[gkey]):
+            raise TranspileError(
+                f"__tkv_com_class__ '{rec}': '{gkey}' = {decl[gkey]!r} khong phai GUID hop le "
+                f"(can dang 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX' hex)")
+    seen_methods = set()
+    rec_methods = record_methods.get(rec, {})
+    for m in decl['methods']:
+        mname = m['name']
+        if not mname.isidentifier():
+            raise TranspileError(
+                f"__tkv_com_class__ '{rec}': ten method {mname!r} khong phai identifier hop le")
+        if mname in seen_methods:
+            raise TranspileError(
+                f"__tkv_com_class__ '{rec}': method {mname!r} khai TRUNG LAP")
+        seen_methods.add(mname)
+        for i, p in enumerate(m['params']):
+            if p not in _COM_DTYPES:
+                raise TranspileError(
+                    f"__tkv_com_class__ '{rec}': method {mname!r} params[{i}] = {p!r} khong ho tro - "
+                    f"v1 chi so blittable {sorted(_COM_DTYPES)}")
+        if m['returns'] != 'void' and m['returns'] not in _COM_DTYPES:
+            raise TranspileError(
+                f"__tkv_com_class__ '{rec}': method {mname!r} returns = {m['returns']!r} khong ho tro - "
+                f"v1 chi 'void' hoac so blittable {sorted(_COM_DTYPES)}")
+        if mname not in rec_methods:
+            raise TranspileError(
+                f"__tkv_com_class__ '{rec}': method {mname!r} khong ton tai tren record '{rec}' - "
+                f"cac method co san: {sorted(rec_methods)}")
+        msig = rec_methods[mname]
+        if getattr(msig, 'is_static', False):
+            raise TranspileError(
+                f"__tkv_com_class__ '{rec}': method {mname!r} la '@staticmethod' - COM can "
+                f"method instance (co 'self')")
+        got_params = [il_codegen._norm_param_dtype(p.type_ann) for p in msig.params]
+        got_ret = il_codegen._norm_param_dtype(msig.return_type) if msig.return_type else None
+        want_ret = None if m['returns'] == 'void' else m['returns']
+        if got_params != list(m['params']) or got_ret != want_ret:
+            raise SyntaxError(
+                f"il_codegen: method '{rec}.{mname}' (({', '.join(got_params)}) -> {got_ret}) "
+                f"khong khop khai bao COM (({', '.join(m['params'])}) -> {m['returns']}) - "
+                f"CLR doi khop CHINH XAC ten+chu ky cho implicit interface impl")
+    record_interfaces.setdefault(rec, []).append(iface)
+    com_attrs_out.setdefault(rec, []).extend(_com_custom_lines('comvisible'))
+    com_attrs_out[rec].extend(_com_custom_lines('guid', decl['guid']))
+    iface_lines_out.extend(_com_interface_il_lines(decl))
+
+
+def _validate_and_register_extern_method(decl, declared_assembly_names, extern_assemblies=None):
     """Task 3 (2026-08-14): validate 1 decl da parse SHAPE boi
     _parse_extern_method_dict_literal, roi dang ky dong qua
     register_expr_builtin (il_dispatch.py) - 7 buoc THEO DUNG THU TU trong
@@ -1860,6 +2693,18 @@ def _validate_and_register_extern_method(decl, declared_assembly_names):
     params = decl['params']
     returns = decl['returns']
 
+    # R3 (2026-09-22): 'assembly' full identity ("Shim, Version=1.0.0.0,
+    # Culture=neutral, PublicKeyToken=null") tu dang ky .assembly extern
+    # dung - mo managed DLL rieng (C# shim). Ten don van nhu cu.
+    if ',' in assembly:
+        if extern_assemblies is None:
+            raise TranspileError(
+                f"__tkv_extern_method__ '{name}': assembly full identity {assembly!r} can "
+                f"compile_tkv_cli truyen extern_assemblies (loi noi bo compiler)")
+        assembly = _ensure_extern_assembly(
+            assembly, extern_assemblies, declared_assembly_names,
+            f"__tkv_extern_method__ '{name}'")
+        decl['assembly'] = assembly
     # (1) assembly phai khop regex ten assembly .NET hop le (fix M2), ROI
     # phai da duoc khai bao (extern_assemblies hoac 3 assembly mac dinh luon
     # co san mscorlib/System/System.Core).
@@ -1881,12 +2726,12 @@ def _validate_and_register_extern_method(decl, declared_assembly_names):
         raise TranspileError(
             f"__tkv_extern_method__ '{name}': 'method' = {method_name!r} khong phai identifier "
             f".NET don gian hop le (vd 'Pow' - khong duoc chua dau cham)")
-    # (4) moi params phai nam trong bang dtype ho tro.
+    # (4) moi params phai nam trong bang dtype ho tro (F4a: them 'ptr').
     for i, p in enumerate(params):
-        if not _is_valid_extern_dtype(p) and p not in il_codegen._EXTERN_CLASS_DEFS:
+        if p != 'ptr' and not _is_valid_extern_dtype(p) and p not in il_codegen._EXTERN_CLASS_DEFS:
             raise TranspileError(
                 f"__tkv_extern_method__ '{name}': params[{i}] = {p!r} khong phai dtype hop le - "
-                f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)} hoac 1 handle type da khai trong "
+                f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)} hoac 'ptr' (con tro native) hoac 1 handle type da khai trong "
                 f"__tkv_extern_class__")
         # (Phase 9k, 2026-08-31): 'object'/'type' truoc day BI TU CHOI o day
         # vi _extern_il_type_text (dung boi _make_extern_static_call_codegen
@@ -1907,11 +2752,11 @@ def _validate_and_register_extern_method(decl, declared_assembly_names):
     # file_io.py::codegen_call_stmt ve cach dispatch. Goi ham void TRONG
     # bieu thuc (vd 'x = ten_ham()') se tu bao loi o nhanh khac (khong co
     # gia tri de gan) - khong can chan rieng o day.
-    if (returns != 'void' and not _is_valid_extern_dtype(returns)
+    if (returns != 'void' and returns != 'ptr' and not _is_valid_extern_dtype(returns)
             and returns not in il_codegen._EXTERN_CLASS_DEFS):
         raise TranspileError(
             f"__tkv_extern_method__ '{name}': returns = {returns!r} khong phai dtype hop le - "
-            f"chi ho tro 'void' hoac {sorted(_EXTERN_DTYPE_TO_IL)} hoac 1 handle type da khai "
+            f"chi ho tro 'void' hoac {sorted(_EXTERN_DTYPE_TO_IL)} hoac 'ptr' (con tro native) hoac 1 handle type da khai "
             f"trong __tkv_extern_class__")
     # (Phase 9k, 2026-08-31): xem chu thich tuong tu o nhanh params[i] ben
     # tren - go bo chan 'object'/'type' cho returns, ha tang codegen da san
@@ -1930,8 +2775,7 @@ def _validate_and_register_extern_method(decl, declared_assembly_names):
     # register_expr_builtin se tu bung ValueError neu 'name' da duoc dang
     # ky boi builtin khac.
     return_dtype = None if returns == 'void' else returns
-    codegen_fn = _make_extern_static_call_codegen(assembly, dotnet_class, method_name, params, return_dtype)
-    # Phase 9b (bool): 'return_dtype' o tren PHAI giu nguyen 'bool' (neu co)
+    codegen_fn = _make_extern_static_call_codegen(assembly, dotnet_class, method_name, params, return_dtype)    # Phase 9b (bool): 'return_dtype' o tren PHAI giu nguyen 'bool' (neu co)
     # cho codegen_fn - .NET runtime can thay dung 'bool' trong chu ky
     # call/callvirt de resolve method (xem Critical 2, Phase 9a). Nhung gia
     # tri dang ky voi register_expr_builtin la dtype PHIA TOKENVECTOR (dung
@@ -1950,7 +2794,439 @@ def _validate_and_register_extern_method(decl, declared_assembly_names):
         EXTERN_VOID_BUILTIN_NAMES.add(name)
 
 
-def _parse_program_ast(source_text):
+# R11 (D3): ten dac biet khong bao gio la bien local can kiem tra
+# (doc ma khong gan trong ham la hop le): cau lenh rieng (print/open),
+# ham dac biet KHONG qua registry (len/abs/typeof/bool/range...),
+# introspection, exception pho bien, ham cap cao co the khong nam trong
+# registry luc parse (enumerate/zip/...). Ten builtin dang ky that
+# (str/int/sum/...) lay dong tu EXPR_BUILTIN_CODEGEN luc goi. Tap nay
+# thua (generous) la AN TOAN: ten thua chi chuyen ve mach bao loi hien
+# co, khong bao gio bien code dung thanh loi.
+_R11_EXTRA_SKIP = frozenset({
+    'print', 'open', 'range', 'super', 'isinstance', 'hasattr', 'getattr',
+    'setattr', 'callable', 'enumerate', 'zip', 'map', 'filter', 'reversed',
+    'len', 'abs', 'typeof', 'bool', 'all', 'any', 'ord', 'repr', 'format',
+    'iter', 'next', 'id', 'dir', 'vars', 'globals', 'locals', 'issubclass',
+    'compile', 'eval', 'exec', 'input', 'exit', 'quit', 'help', 'hex',
+    'oct', 'bin', 'round', 'pow', 'divmod', 'sum', 'min', 'max', 'sorted',
+    'Exception', 'BaseException', 'ValueError', 'KeyError', 'TypeError',
+    'IndexError', 'AttributeError', 'RuntimeError', 'StopIteration',
+    'NotImplementedError', 'NotImplemented', 'OverflowError',
+    'ZeroDivisionError', 'ArithmeticError', 'LookupError', 'IOError',
+    'OSError', 'Ellipsis',
+    # Ten kieu dung trong isinstance()/tiep nhan (doc hop le, mach hien
+    # co tu quyet dinh co ho tro hay khong).
+    'bytearray', 'bytes', 'list', 'dict', 'set', 'frozenset', 'tuple',
+    'str', 'int', 'float', 'bool', 'complex', 'object', 'type',
+    'Counter', 'defaultdict', 'deque',
+})
+
+
+def _collect_imported_top_names(source_path, import_names, _depth=0, _visited=None):
+    """R11 (D3): ten top-level (ham/hang/class) cua cac file duoc import -
+    chung duoc GORP vao pham vi file hien tai (extract_program_file gop
+    pairs), nen doc trong ham la hop le. Chi phan tich NONG (ast.parse lay
+    ten, de quy import voi visited + depth cap), that bai o dau bo qua o
+    do (mach import hien co se bao loi that sau)."""
+    if _depth > 8:
+        return set()
+    if _visited is None:
+        _visited = set()
+    out = set()
+    try:
+        base_dir = Path(source_path).parent
+    except Exception:
+        return out
+    for imp_name in import_names or ():
+        try:
+            imp_path = _find_module_path(imp_name, base_dir)
+        except Exception:
+            continue
+        if imp_path is None or str(imp_path) in _visited:
+            continue
+        _visited.add(str(imp_path))
+        try:
+            imp_text = Path(imp_path).read_text(encoding='utf-8')
+            imp_tree = ast.parse(imp_text)
+        except Exception:
+            continue
+        for node in imp_tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                out.add(node.name)
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                    isinstance(node.targets[0], ast.Name):
+                out.add(node.targets[0].id)
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                out.add(node.target.id)
+        # De quy: ten tu import-cua-import (vd helper dung chung).
+        sub_imports = []
+        for node in imp_tree.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                    isinstance(node.targets[0], ast.Name) and \
+                    node.targets[0].id == '__tkv_import__':
+                v = node.value
+                if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                    sub_imports.append(v.value)
+                elif isinstance(v, ast.List):
+                    for e in v.elts:
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str):
+                            sub_imports.append(e.value)
+            elif isinstance(node, ast.Import):
+                for a in node.names:
+                    if a.name != 'tkv_import_hook':
+                        sub_imports.append((a.asname or a.name).split('.')[0])
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                sub_imports.append(node.module.split('.')[0])
+        out |= _collect_imported_top_names(imp_path, sub_imports, _depth + 1, _visited)
+    return out
+
+
+def _shallow_import_names(tree):
+    """Ten module import o cap top-level (nhe, chi phuc vu R11 skip) -
+    mirror tap hop ma vong lap _parse_program_ast thu thap (khong thay
+    the vong lap do)."""
+    names = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and \
+                node.targets[0].id == '__tkv_import__':
+            v = node.value
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                names.append(v.value)
+            elif isinstance(v, ast.List):
+                for e in v.elts:
+                    if isinstance(e, ast.Constant) and isinstance(e.value, str):
+                        names.append(e.value)
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name != 'tkv_import_hook':
+                    names.append(a.name.split('.')[0])
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.append(node.module.split('.')[0])
+    return names
+
+
+def _module_skip_names(tree):
+    """Ten cap module doc trong ham la hop le ma khong can gan trong ham:
+    hang so, ham/class, module import, ten extern (method/pinvoke/class
+    tu pragma - dang ky dong SAU luc parse)."""
+    names = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name):
+            tname = node.targets[0].id
+            names.add(tname)
+            # Ten extern/class that nam TRONG value cua pragma.
+            if tname in ('__tkv_extern_method__', '__tkv_extern_pinvoke__',
+                         '__tkv_extern_class__') and isinstance(node.value, ast.List):
+                for elt in node.value.elts:
+                    if isinstance(elt, ast.Dict):
+                        for k, v in zip(elt.keys, elt.values):
+                            if isinstance(k, ast.Constant) and k.value == 'name' and \
+                                    isinstance(v, ast.Constant) and isinstance(v.value, str):
+                                names.add(v.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                names.add(a.asname or a.name.split('.')[0])
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.name != '*':
+                    names.add(a.asname or a.name)
+    return names
+
+
+def _check_use_before_def(func_name, func_node, skip_names=None, inherited=None):
+    """R11 (2026-09-22, D3): bien doc TRUOC khi gan trong CUNG ham -> loi
+    compile ON AO thay vi chay voi gia tri mac dinh 0/null am tham
+    (truoc day 'if x == 1: ...; x = 1' van build+run, x ngam la 0).
+
+    Phan tich definite-assignment don gian tren ast THAT (file .tkv la
+    Python hop le): duyet statements theo thu tu, tap 'assigned' truyen
+    xuong cac block. Gop (merge) CHI o 2 cho chac chan: if/else (giao 2
+    nhanh) va try (giao body + MOI handler) + finally (luon chay). Vong
+    lap khong gop (co the khong chay lan nao). Bao 2 dang:
+    (a) forward-ref: ten DA DUOC gan o dau do trong ham nhung doc truoc
+        (chac chan bug - khong false-positive).
+    (b) never-resolved: ten khong gan o dau, khong phai param/global/
+        hang module/ham top-level/builtin/extern (bao thay cho KeyError
+        traceback xau xi cua mach suy kieu; message noi ro de phan biet).
+    Ham long/lambda: kiem tra RIENG voi seeds thua huong (lexical scope -
+    doc bien ngoai gan muon van hop le vi than ham chay sau); than
+    lambda khong soat (don gian, tranh bao oan).
+    """
+    stored = set()
+    for n in ast.walk(func_node):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            stored.add(n.id)
+        elif isinstance(n, ast.arg):
+            stored.add(n.arg)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if n is not func_node:
+                stored.add(n.name)
+        elif isinstance(n, (ast.Import,)):
+            for a in n.names:
+                stored.add(a.asname or a.name.split('.')[0])
+        elif isinstance(n, ast.ImportFrom):
+            for a in n.names:
+                if a.name != '*':
+                    stored.add(a.asname or a.name)
+    # ast.walk tim Store ca trong lambda/comprehension long - cac ten do
+    # co the chi la local-ben-trong, NHUNG van tinh vao 'stored' de tranh
+    # false-positive (chi lam giam phat hien, khong bao gio bao oan).
+    assigned = set(inherited or ())
+    for a in func_node.args.args:
+        assigned.add(a.arg)
+    if func_node.args.vararg:
+        assigned.add(func_node.args.vararg.arg)
+    if func_node.args.kwarg:
+        assigned.add(func_node.args.kwarg.arg)
+    for a in func_node.args.kwonlyargs:
+        assigned.add(a.arg)
+    skip_names = set(skip_names or ())
+    # Ten o vi tri GOI (ten ham/builtin/macro/cau lenh) thuoc khong gian
+    # ten RIENG (mach goi ham tu validate) - khong phai bien: 'check(...)',
+    # 'Counter(...)', 'seed(1)', 'np.zeros(...)' (lay ca root attribute).
+    for n in ast.walk(func_node):
+        if isinstance(n, ast.Call):
+            for m in ast.walk(n.func):
+                if isinstance(m, ast.Name):
+                    skip_names.add(m.id)
+
+    def _target_names(t):
+        out = []
+        for n in ast.walk(t):
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+                out.append(n.id)
+        return out
+
+    def _err(name, lineno, never):
+        if never:
+            raise TranspileError(
+                f"ham '{func_name}': bien '{name}' chua duoc khai bao (dong {lineno}) - "
+                f"khong phai tham so, bien local, hang so module, ham top-level hay builtin. "
+                f"Kiem tra ten bien (typo?) hoac gan gia tri truoc khi dung.")
+        raise TranspileError(
+            f"ham '{func_name}': bien '{name}' duoc dung truoc khi gan (dong {lineno}) - "
+            f"compiler cu tu gan gia tri mac dinh 0/null am tham. Gan bien truoc khi dung.")
+
+    def _is_dunder(name):
+        return len(name) > 4 and name.startswith('__') and name.endswith('__')
+
+    def _expr(e):
+        # Doc bieu thuc theo thu tu danh gia (gan don: NamedExpr value
+        # truoc, target sau; lambda: defaults truoc, than bo qua).
+        if e is None:
+            return
+        if isinstance(e, ast.Name):
+            if isinstance(e.ctx, ast.Load):
+                if e.id not in assigned and e.id not in skip_names and not _is_dunder(e.id):
+                    if e.id in stored:
+                        _err(e.id, getattr(e, 'lineno', '?'), False)
+                    else:
+                        _err(e.id, getattr(e, 'lineno', '?'), True)
+            elif isinstance(e.ctx, ast.Store):
+                assigned.add(e.id)
+            return
+        if isinstance(e, ast.NamedExpr):
+            _expr(e.value)
+            assigned.add(e.target.id)
+            return
+        if isinstance(e, ast.Lambda):
+            for d in e.args.defaults:
+                _expr(d)
+            for d in e.args.kw_defaults:
+                _expr(d)
+            return  # than lambda chay muon - khong soat
+        if isinstance(e, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            for gen in e.generators:
+                _expr(gen.iter)
+                for t in _target_names(gen.target):
+                    assigned.add(t)
+                for cond in gen.ifs:
+                    _expr(cond)
+            if isinstance(e, ast.DictComp):
+                _expr(e.key)
+                _expr(e.value)
+            else:
+                _expr(e.elt)
+            return
+        for child in ast.iter_child_nodes(e):
+            if isinstance(child, ast.expr):
+                _expr(child)
+
+    def _block(stmts):
+        for s in stmts:
+            _stmt(s)
+
+    def _stmt(s):
+        if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for d in s.args.defaults:
+                _expr(d)
+            for d in s.args.kw_defaults:
+                _expr(d)
+            # Decorator o day CHI duoc la ten ham top-level (validate rieng
+            # boi mach decorator) - khong soat nhu bien (tranh bao oan).
+            assigned.add(s.name)
+            # Kiem tra than ham long voi seeds thua huong (lexical scope).
+            _check_use_before_def(f"{func_name}.{s.name}", s, skip_names,
+                                  inherited=(stored | assigned | (inherited or frozenset())))
+            return
+        if isinstance(s, ast.ClassDef):
+            for dec in s.decorator_list:
+                _expr(dec)
+            for b in s.bases:
+                _expr(b)
+            assigned.add(s.name)
+            return
+        if isinstance(s, ast.Return):
+            _expr(s.value)
+            return
+        if isinstance(s, ast.Assign):
+            _expr(s.value)
+            for t in s.targets:
+                _expr(t)  # _expr Name-Store tu add (dung thu tu targets)
+            return
+        if isinstance(s, ast.AnnAssign):
+            if s.value is not None:
+                _expr(s.value)
+                _expr(s.target)
+            return  # khong value -> khong binding runtime, khong add
+        if isinstance(s, ast.AugAssign):
+            # 'x += e' vua doc vua ghi x: kiem tra doc truoc.
+            if isinstance(s.target, ast.Name):
+                t = s.target
+                _expr(ast.Name(id=t.id, ctx=ast.Load(), lineno=t.lineno,
+                               col_offset=t.col_offset))
+            else:
+                _expr(s.target)
+            _expr(s.value)
+            return
+        if isinstance(s, ast.Expr):
+            _expr(s.value)
+            return
+        if isinstance(s, ast.If):
+            _expr(s.test)
+            saved = set(assigned)
+            _block(s.body)
+            after_body = set(assigned)
+            assigned.clear()
+            assigned.update(saved)
+            _block(s.orelse)
+            after_else = set(assigned)
+            assigned.clear()
+            assigned.update(saved)
+            if s.orelse:
+                assigned.update(after_body & after_else)  # ca 2 nhanh gan
+            return
+        if isinstance(s, ast.While):
+            _expr(s.test)
+            saved = set(assigned)
+            _block(s.body)
+            assigned.clear()
+            assigned.update(saved)
+            _block(s.orelse)
+            assigned.clear()
+            assigned.update(saved)
+            return
+        if isinstance(s, (ast.For, ast.AsyncFor)):
+            _expr(s.iter)
+            saved = set(assigned)
+            for t in _target_names(s.target):
+                assigned.add(t)
+            _block(s.body)
+            assigned.clear()
+            assigned.update(saved)
+            _block(s.orelse)
+            assigned.clear()
+            assigned.update(saved)
+            return
+        if isinstance(s, ast.With):
+            for item in s.items:
+                _expr(item.context_expr)
+                if item.optional_vars:
+                    for t in _target_names(item.optional_vars):
+                        assigned.add(t)
+            _block(s.body)  # with-body luon chay (neu vao duoc) -> gop tiep
+            return
+        if isinstance(s, ast.Try):
+            saved = set(assigned)
+            _block(s.body)
+            body_set = set(assigned)
+            # orelse chay sau body (khong exception) -> thay body assigns.
+            assigned.clear()
+            assigned.update(body_set)
+            _block(s.orelse)
+            orelse_new = set(assigned) - body_set
+            handler_sets = []
+            for h in s.handlers:
+                assigned.clear()
+                assigned.update(saved)
+                if h.type:
+                    _expr(h.type)
+                if h.name:
+                    assigned.add(h.name)
+                _block(h.body)
+                handler_sets.append(set(assigned))
+            # Gop: (giao body + MOI handler) + (moi tu orelse) - truong hop
+            # pho bien 'try: x = int(s) except: x = 0' duoc gop dung.
+            merged = set(body_set)
+            for hs in handler_sets:
+                merged &= hs
+            merged |= orelse_new
+            assigned.clear()
+            assigned.update(saved)
+            assigned.update(merged)
+            saved2 = set(assigned)
+            _block(s.finalbody)  # finally luon chay -> gop tiep
+            return
+        if isinstance(s, ast.Raise):
+            _expr(s.exc)
+            _expr(s.cause)
+            return
+        if isinstance(s, ast.Assert):
+            _expr(s.test)
+            _expr(s.msg)
+            return
+        if isinstance(s, (ast.Import, ast.ImportFrom)):
+            for a in s.names:
+                if a.name == '*':
+                    continue
+                assigned.add(a.asname or (a.name.split('.')[0] if isinstance(s, ast.Import) else a.name))
+            return
+        if isinstance(s, ast.Global):
+            assigned.update(s.names)
+            return
+        if isinstance(s, ast.Nonlocal):
+            assigned.update(s.names)
+            return
+        if isinstance(s, ast.Delete):
+            return
+        if isinstance(s, (ast.Pass, ast.Break, ast.Continue)):
+            return
+        # Match/case (linter gioi han pattern hang so/wildcard - khong
+        # binding moi): soat scrutinee + cac body voi tap hien tai.
+        if hasattr(ast, 'Match') and isinstance(s, ast.Match):
+            _expr(s.subject)
+            for case in s.cases:
+                saved = set(assigned)
+                _block(case.body)
+                assigned.clear()
+                assigned.update(saved)
+            return
+        for child in ast.iter_child_nodes(s):
+            if isinstance(child, ast.expr):
+                _expr(child)
+            elif isinstance(child, ast.stmt):
+                _stmt(child)
+
+    _block(func_node.body)
+
+
+def _parse_program_ast(source_text, source_path=None):
     """Parse THUAN 1 file nguon TokenVector (`.tkv`) THAT - KHONG doc file
     nao khac, KHONG resolve import - chi tra ve THANG PHAN NOI DUNG cua
     CHINH file nay: (record_defs, record_methods_raw, record_bases, pairs,
@@ -1993,6 +3269,8 @@ def _parse_program_ast(source_text):
     extern_methods = []
     extern_pinvokes = []
     extern_classes = []
+    struct_defs = {}  # R1 (2026-09-22, __tkv_struct__): ten -> {'fields': [...]}
+    com_classes = []  # F4c (2026-09-23, __tkv_com_class__): list decl phoi record ra COM
     # Decorator tuy bien tren ham top-level (Phase 4, 2026-08-11, xem
     # _expand_custom_decorator): pre-pass tim MOI ham top-level duoc dung
     # lam '@deco' - ham do la 1 TEMPLATE thuan tuy (macro luc bien dich),
@@ -2000,6 +3278,21 @@ def _parse_program_ast(source_text):
     # dung 'func(...)->...' - shape ma parse_signature CHUA ho tro cho
     # tham so/return ham THAT, se bao loi neu di qua duong thuong).
     top_level_funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    # R11 (D3): tap ten duoc phep doc trong ham ma khong can gan trong ham
+    # (hang module/ham top-level/extern/builtin) - tinh 1 lan cho ca file.
+    try:
+        _r11_builtin_names = set(EXPR_BUILTIN_CODEGEN)
+    except NameError:
+        _r11_builtin_names = set()
+    r11_skip = _module_skip_names(tree) | _R11_EXTRA_SKIP | _r11_builtin_names
+    # R11 (D3): ten tu file import (gop pham vi luc merge) - can
+    # source_path de locate file; khong co thi bo qua (mach import hien
+    # co bao loi that sau, khong false-positive o day).
+    if source_path is not None:
+        try:
+            r11_skip |= _collect_imported_top_names(source_path, _shallow_import_names(tree))
+        except Exception:
+            pass
     decorator_template_names = set()
     for n in tree.body:
         if isinstance(n, ast.FunctionDef) and len(n.decorator_list) == 1 and \
@@ -2037,6 +3330,9 @@ def _parse_program_ast(source_text):
                 inferred_ast_nodes_by_func[node.name] = node
             hoisted = []
             body_lines = _body_source_lines(source_lines, node, hoisted=hoisted)
+            # R11 (2026-09-22, D3): bien doc truoc khi gan -> loi compile
+            # ON AO (thay vi chay voi gia tri mac dinh am tham).
+            _check_use_before_def(node.name, node, r11_skip)
             pairs.append((sig_line, body_lines, node.body[0].lineno))
             # 'def' long khong bat bien nao da duoc nang len top-level -
             # them vao chuong trinh nhu ham binh thuong.
@@ -2056,6 +3352,10 @@ def _parse_program_ast(source_text):
             record_methods_raw[node.name] = methods_raw
             record_bases[node.name] = base_info
             record_interfaces[node.name] = interface_names
+            # R11 (2026-09-22, D3): nhu ham top-level, ap cho moi method.
+            for _m in node.body:
+                if isinstance(_m, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _check_use_before_def(f"{node.name}.{_m.name}", _m, r11_skip)
         elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
                 isinstance(node.targets[0], ast.Name) and node.targets[0].id == '__tkv_import__':
             # Co che IMPORT RIENG cua TokenVector (khoang trong ngon ngu #3):
@@ -2151,6 +3451,62 @@ def _parse_program_ast(source_text):
                 raise TranspileError("__tkv_extern_class__ phai la 1 list cac dict")
             for elt in v.elts:
                 extern_classes.append(_parse_extern_class_dict_literal(elt))
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and node.targets[0].id == '__tkv_struct__':
+            # R1 (2026-09-22): pragma khai bao struct blittable cho pinvoke
+            # 2 chieu (mo H.264 decode, HarfBuzz full, text-measure chuan).
+            # Moi phan tu la 1 dict {'name', 'fields'} - chi PARSE SHAPE o
+            # day (validate nghiep vu + codegen o compile_tkv_cli).
+            v = node.value
+            if not isinstance(v, ast.List):
+                raise TranspileError("__tkv_struct__ phai la 1 list cac dict {'name', 'fields'}")
+            for elt in v.elts:
+                _sd = _parse_struct_dict_literal(elt)
+                if _sd['name'] in struct_defs:
+                    raise TranspileError(
+                        f"__tkv_struct__: struct {_sd['name']!r} khai bao TRUNG LAP")
+                struct_defs[_sd['name']] = {'fields': _sd['fields']}
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and node.targets[0].id == '__tkv_vtable__':
+            # F4a (2026-09-23): pragma khai bao goi ham qua con tro vtable
+            # bang 'calli' (COM raw/callback native). Moi phan tu la 1
+            # dict-literal shape co dinh, chi PARSE SHAPE o day. DI CHUNG
+            # list 'extern_pinvokes' voi marker 'kind'='vtable' (KHONG sua
+            # tuple extract/merge - vong dang ky re nhanh theo marker) -
+            # dedup trung ten am tham van ON AO qua register_expr_builtin
+            # giong het pinvoke (ValueError ro rang).
+            v = node.value
+            if not isinstance(v, ast.List):
+                raise TranspileError("__tkv_vtable__ phai la 1 list cac dict")
+            for elt in v.elts:
+                extern_pinvokes.append(_parse_vtable_dict_literal(elt))
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and node.targets[0].id == '__tkv_callback__':
+            # F4b (2026-09-23): pragma khai bao delegate non-generic cho
+            # callback native. DI CHUNG list 'extern_pinvokes' voi marker
+            # 'kind'='callback' (ly do nhu __tkv_vtable__ - khong sua tuple).
+            v = node.value
+            if not isinstance(v, ast.List):
+                raise TranspileError("__tkv_callback__ phai la 1 list cac dict")
+            for elt in v.elts:
+                extern_pinvokes.append(_parse_callback_dict_literal(elt))
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and \
+                isinstance(node.targets[0], ast.Name) and node.targets[0].id == '__tkv_com_class__':
+            # F4c (2026-09-23): pragma phoi 1 record ra COM (CCW). Moi phan
+            # tu la 1 dict-literal shape co dinh, chi PARSE SHAPE o day
+            # (validate nghiep vu can record_defs/record_methods nen lam o
+            # compile_tkv_cli, giong __tkv_struct__).
+            v = node.value
+            if not isinstance(v, ast.List):
+                raise TranspileError("__tkv_com_class__ phai la 1 list cac dict")
+            for elt in v.elts:
+                _cd = _parse_com_class_dict_literal(elt)
+                if any(d['record'] == _cd['record'] or d['interface'] == _cd['interface']
+                       for d in com_classes):
+                    raise TranspileError(
+                        f"__tkv_com_class__: record {_cd['record']!r} hoac interface "
+                        f"{_cd['interface']!r} khai bao TRUNG LAP")
+                com_classes.append(_cd)
         elif isinstance(node, ast.Import):
             # 'import X' (Phase 6.2, 2026-08-11) - port TU cay .tkv tu-host
             # (da co san, DA chay that - xem _find_module_path/
@@ -2278,8 +3634,8 @@ def _parse_program_ast(source_text):
 
     _resolve_record_field_types(record_defs, extern_class_names={d['name'] for d in extern_classes})
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            import_names, extern_assemblies, extern_methods, extern_pinvokes, extern_classes, module_consts,
-            module_globals, inferred_ast_nodes_by_func)
+            import_names, extern_assemblies, extern_methods, extern_pinvokes, extern_classes, struct_defs,
+            com_classes, module_consts, module_globals, inferred_ast_nodes_by_func)
 
 
 def _resolve_record_field_types(record_defs, extern_class_names=frozenset()):
@@ -2328,7 +3684,7 @@ def extract_program(source_text):
     / transpile_file() cho truong hop do)."""
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies, extern_methods,
-     extern_pinvokes, extern_classes, module_consts, module_globals,
+     extern_pinvokes, extern_classes, struct_defs, com_classes, module_consts, module_globals,
      inferred_ast_nodes_by_func) = _parse_program_ast(source_text)
     if import_names:
         raise TranspileError(
@@ -2337,8 +3693,8 @@ def extract_program(source_text):
             f"extract_program_file(tkv_path) hoac compile_tkv_cli()/transpile_file() (co duong "
             f"dan) de import cheo file hoat dong")
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            extern_assemblies, extern_methods, extern_pinvokes, extern_classes, module_consts,
-            module_globals, inferred_ast_nodes_by_func)
+            extern_assemblies, extern_methods, extern_pinvokes, extern_classes, struct_defs, com_classes,
+            module_consts, module_globals, inferred_ast_nodes_by_func)
 
 
 _PROJECT_ROOT = Path(__file__).parent.resolve()
@@ -2406,8 +3762,8 @@ def extract_program_file(tkv_path, _visited=None):
     source_text = tkv_path.read_text(encoding='utf-8')
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies, extern_methods,
-     extern_pinvokes, extern_classes, module_consts, module_globals,
-     inferred_ast_nodes_by_func) = _parse_program_ast(source_text)
+     extern_pinvokes, extern_classes, struct_defs, com_classes, module_consts, module_globals,
+     inferred_ast_nodes_by_func) = _parse_program_ast(source_text, tkv_path)
     func_names = {m.group(1) for sig_line, _, _start in pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
     for imp_name in import_names:
@@ -2421,7 +3777,8 @@ def extract_program_file(tkv_path, _visited=None):
         _visited.add(str(imp_path))
         (imp_record_defs, imp_record_methods_raw, imp_record_bases, imp_record_interfaces,
          imp_interface_defs, imp_pairs, imp_extern_assemblies, imp_extern_methods,
-         imp_extern_pinvokes, imp_extern_classes, imp_module_consts, imp_module_globals,
+         imp_extern_pinvokes, imp_extern_classes, imp_struct_defs, imp_com_classes, imp_module_consts,
+         imp_module_globals,
          imp_inferred_ast_nodes_by_func) = extract_program_file(imp_path, _visited)
         imp_func_names = {m.group(1) for sig_line, _, _start in imp_pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
@@ -2440,6 +3797,26 @@ def extract_program_file(tkv_path, _visited=None):
             raise TranspileError(
                 f"trung ten interface {sorted(dup_interfaces)} giua file '{tkv_path.name}' va "
                 f"import '{imp_name}.tkv'")
+        # R1: struct trung ten giua file goc va import -> loi ro rang.
+        dup_structs = set(struct_defs) & set(imp_struct_defs)
+        if dup_structs:
+            raise TranspileError(
+                f"trung ten struct {sorted(dup_structs)} giua file '{tkv_path.name}' va import "
+                f"'{imp_name}.tkv'")
+
+        # F4c: COM decl trung record/interface giua file goc va import.
+        dup_com_ifaces = {d['interface'] for d in com_classes} & \
+            {d['interface'] for d in imp_com_classes}
+        if dup_com_ifaces:
+            raise TranspileError(
+                f"trung ten COM interface {sorted(dup_com_ifaces)} giua file '{tkv_path.name}' va "
+                f"import '{imp_name}.tkv'")
+        dup_com_recs = {d['record'] for d in com_classes} & \
+            {d['record'] for d in imp_com_classes}
+        if dup_com_recs:
+            raise TranspileError(
+                f"trung record COM {sorted(dup_com_recs)} giua file '{tkv_path.name}' va "
+                f"import '{imp_name}.tkv' (moi record chi 1 decl COM)")
 
         pairs.extend(imp_pairs)
         func_names |= imp_func_names
@@ -2452,6 +3829,8 @@ def extract_program_file(tkv_path, _visited=None):
         extern_methods.extend(imp_extern_methods)
         extern_pinvokes.extend(imp_extern_pinvokes)
         extern_classes.extend(imp_extern_classes)
+        struct_defs.update(imp_struct_defs)
+        com_classes.extend(imp_com_classes)
         # Hang so cap module cua file IMPORT dung duoc trong file goc (giong
         # ham/record) - trung ten thi file GOC thang (khai bao gan hon).
         for k, v in imp_module_consts.items():
@@ -2466,8 +3845,8 @@ def extract_program_file(tkv_path, _visited=None):
         inferred_ast_nodes_by_func.update(imp_inferred_ast_nodes_by_func)
 
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-            extern_assemblies, extern_methods, extern_pinvokes, extern_classes, module_consts,
-            module_globals, inferred_ast_nodes_by_func)
+            extern_assemblies, extern_methods, extern_pinvokes, extern_classes, struct_defs, com_classes,
+            module_consts, module_globals, inferred_ast_nodes_by_func)
 
 
 def _build_record_methods(record_defs, record_methods_raw, record_bases=None,
@@ -2626,7 +4005,7 @@ def transpile_program(source_text, class_name='Program', with_guards=True,
     value' cua record (xem compile_tkv_cli, noi ghep gen_record_types()
     RIENG ben ngoai class chuong trinh chinh). KHONG ho tro '__tkv_import__'
     (xem extract_program) - dung transpile_file() cho file co import cheo."""
-    (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em, _ep, _ec,
+    (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em, _ep, _ec, _st, _cc,
      module_consts, module_globals, inferred_ast_nodes_by_func) = extract_program(source_text)
     return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
                                  module_consts=module_consts, extra_classes=extra_classes,
@@ -2639,7 +4018,7 @@ def transpile_file(tkv_path, class_name='Program', with_guards=True,
     """Nhu transpile_program, nhung doc THANG tu file (co duong dan) nen
     ho tro '__tkv_import__' (khoang trong ngon ngu #3 - import module
     TokenVector khac) qua extract_program_file()."""
-    (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em, _ep, _ec,
+    (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em, _ep, _ec, _st, _cc,
      module_consts, module_globals, inferred_ast_nodes_by_func) = extract_program_file(tkv_path)
     return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
                                  module_consts=module_consts, extra_classes=extra_classes,
@@ -2712,7 +4091,7 @@ def _global_init_lines(module_globals, class_name):
     return lines
 
 
-def _build_main_tuple(sig, class_name, body, module_globals=None):
+def _build_main_tuple(sig, class_name, body, module_globals=None, entrypoint=True):
     """Phan duoi cua build_generic_main cho ham tra ValueTuple: doc tung
     ItemN qua ldflda (field cua struct - can DIA CHI de goi ToString tren
     value type, cung ly do voi str() builtin) roi noi thanh '(a, b)'."""
@@ -2753,10 +4132,11 @@ def _build_main_tuple(sig, class_name, body, module_globals=None):
     method = [
         '  .method public static void Main(string[] args) cil managed',
         '  {',
-        '    .entrypoint',
-        '    .maxstack 8',
-        f'    .locals init ({tup_il} __cli_ret)',
     ]
+    if entrypoint:
+        method.append('    .entrypoint')
+    method.append('    .maxstack 8')
+    method.append(f'    .locals init ({tup_il} __cli_ret)')
     method += _global_init_lines(module_globals, class_name)
     method += body
     method.append('  }')
@@ -2782,11 +4162,12 @@ def _cli_default_literal(param, sig):
         f"Truyen du doi so khi chay, hoac doi mac dinh thanh 1 hang.")
 
 
-def build_generic_main(sig, class_name, module_globals=None):
+def build_generic_main(sig, class_name, module_globals=None, entrypoint=True):
     """Sinh 1 method Main(string[] args) TU DONG cho ham entry `sig`: doc
     N tham so vo huong tu argv THEO DUNG THU TU tham so (parse dung dtype,
     InvariantCulture cho f32/f64 - xem bug locale that da sua o Buoc 1-3),
-    goi ham, in ket qua ra stdout."""
+    goi ham, in ket qua ra stdout. R10 (2026-09-22): entrypoint=False cho
+    --target library (DLL khong co diem vao, Main chi la static method)."""
     for p in sig.params:
         if p.type_ann.shape is not None or p.type_ann.dtype not in _CLI_PARSE_SEQ:
             raise CliError(
@@ -2852,7 +4233,8 @@ def build_generic_main(sig, class_name, module_globals=None):
         # Ham tra TUPLE lam entry CLI (2026-08-03): in ra dang '(a, b)' -
         # dung het cua Python de doi chieu duoc THANG. Truoc day bi tu
         # choi hoan toan, du tuple dung NOI BO van chay tot.
-        return _build_main_tuple(sig, class_name, body, module_globals=module_globals)
+        return _build_main_tuple(sig, class_name, body, module_globals=module_globals,
+                                 entrypoint=entrypoint)
 
     ret_dtype = sig.return_type.dtype
     if ret_dtype == 'str':
@@ -2888,9 +4270,10 @@ def build_generic_main(sig, class_name, module_globals=None):
     method = [
         '  .method public static void Main(string[] args) cil managed',
         '  {',
-        '    .entrypoint',
-        '    .maxstack 8',
     ]
+    if entrypoint:
+        method.append('    .entrypoint')
+    method.append('    .maxstack 8')
     if locals_decl:
         method.append(f'    .locals init ({locals_decl} __cli_ret)')
     method += _global_init_lines(module_globals, class_name)
@@ -2933,7 +4316,8 @@ def _compute_record_overrides(record_bases, record_methods):
     return overrides
 
 
-def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', debug=False):
+def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', debug=False,
+                    target='exe', subsystem=None):
     """Bien dich 1 file `.tkv` THAT thanh `.exe` GOI DUOC TU DONG LENH
     TRUC TIEP (tu dong sinh Main(), khong can tu tay viet IL nhu moi vi
     du truoc day trong session) - argv[0..] anh xa THEO THU TU tham so
@@ -2943,10 +4327,18 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
     can co 1 ham ten 'main' hoac phai truyen entry_name ro rang. Ho tro
     '__tkv_import__' (khoang trong ngon ngu #3) qua extract_program_file -
     entry_name co the la ham dinh nghia trong file IMPORT, khong chi file
-    goc (func_table gop CA HAI)."""
+    goc (func_table gop CA HAI).
+
+    R10 (2026-09-22): target='library' ra managed DLL (khong .entrypoint,
+    Main chi la static method thuong - goi duoc tu assembly khac; bien
+    module-global chi duoc khoi tao khi Main duoc goi - chuong trinh dung
+    global nen tu goi Main() 1 lan luc khoi dong). target='exe' nhu cu.
+    subsystem='windows' (GUI, khong console) / 'console' / None (mac dinh
+    ilasm, console) - truyen thang /SUBSYSTEM cho ilasm."""
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, extern_assemblies, extern_methods, extern_pinvokes, extern_classes,
-     module_consts, module_globals, inferred_ast_nodes_by_func) = extract_program_file(tkv_path)
+     struct_defs, com_classes, module_consts, module_globals,
+     inferred_ast_nodes_by_func) = extract_program_file(tkv_path)
 
     # Task 2 (extern-class, 2026-08-18): extern_class_defs (ten handle-type
     # -> decl dict goc {'name','assembly','class','ctor','methods'}) - dung
@@ -2967,6 +4359,20 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
         extern_class_defs[_decl['name']] = _decl
     extern_class_names = frozenset(extern_class_defs)
 
+    # R1 (2026-09-22, __tkv_struct__): struct trung ten record/extern-class/
+    # builtin/ham top-level -> loi ro rang NGAY (tranh resolve nham am tham
+    # o cac tang sau). Dat day (sau khi extern_class_defs/record_defs du).
+    for _sname in struct_defs:
+        if _sname in record_defs:
+            raise TranspileError(
+                f"__tkv_struct__: struct {_sname!r} trung ten voi record/class cung ten - doi ten khac")
+        if _sname in extern_class_defs:
+            raise TranspileError(
+                f"__tkv_struct__: struct {_sname!r} trung ten voi extern-class cung ten - doi ten khac")
+        if _sname in EXPR_BUILTIN_CODEGEN:
+            raise TranspileError(
+                f"__tkv_struct__: struct {_sname!r} trung ten voi builtin co san - doi ten khac")
+
     record_methods, record_method_bodies, record_methods_own = _build_record_methods(
         record_defs, record_methods_raw, record_bases=record_bases,
         extern_class_names=extern_class_names)
@@ -2976,16 +4382,28 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
                                             extern_class_names=extern_class_names)
     func_table = {sig.name: sig for sig, _, _start in sig_body_pairs}
 
+    # R10 (2026-09-22): validate target/subsystem som (truoc khi bien dich).
+    if target not in ('exe', 'library'):
+        raise CliError(f"tkv build: --target {target!r} khong hop le (chi 'exe'/'library')")
+    _subsystem_map = {'windows': 2, 'console': 3, None: None}
+    if subsystem not in _subsystem_map:
+        raise CliError(f"tkv build: --subsystem {subsystem!r} khong hop le (chi 'windows'/'console')")
+    subsystem_flag = _subsystem_map[subsystem]
+
     if entry_name is None:
         if len(sig_body_pairs) == 1:
             entry_name = sig_body_pairs[0][0].name
         elif 'main' in func_table:
             entry_name = 'main'
+        elif target == 'library':
+            # Thu vien: khong bat buoc entry (xuat TAT CA ham top-level) -
+            # Main duoc bo qua, bien global khong tu khoi tao (xem docstring).
+            entry_name = None
         else:
             raise CliError(
                 f"tkv build: file co {len(sig_body_pairs)} ham ({', '.join(func_table)}), "
                 f"khong ro entry point nao - dat ten 1 ham la 'main' hoac chi ro entry_name.")
-    if entry_name not in func_table:
+    if entry_name is not None and entry_name not in func_table:
         raise CliError(f"tkv build: khong tim thay ham entry '{entry_name}' trong {tkv_path}")
 
     # Task 3 (2026-08-14, __tkv_extern_method__): dang ky dong CAC builtin
@@ -3017,6 +4435,11 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             raise ValueError(
                 f"__tkv_extern_class__: ten {_decl['name']!r} DA duoc dang ky truoc do "
                 f"(trung voi builtin hoac record co san) - doi ten khac")
+        # R3 (2026-09-22): 'assembly' full identity - giong extern_method.
+        if ',' in _decl['assembly']:
+            _decl['assembly'] = _ensure_extern_assembly(
+                _decl['assembly'], extern_assemblies, declared_assembly_names,
+                f"__tkv_extern_class__ {_decl['name']!r}")
         if _decl['assembly'] not in declared_assembly_names:
             raise TranspileError(
                 f"__tkv_extern_class__: assembly {_decl['assembly']!r} chua duoc khai qua "
@@ -3299,17 +4722,66 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
     # 2026-09-21 (groupby_apply): cung set ban ghi record cho
     # _il_scalar_or_handle - cho phep 'func(DataFrame)->DataFrame' v.v.
     il_codegen._RECORD_DEFS = record_defs if record_defs else {}
+    # R1 (2026-09-22, __tkv_struct__): ten struct -> {'fields'} cho
+    # il_type_str/compile_attr/attr_assign + validate pinvoke 'Name*'.
+    # Dat TRUOC dang ky extern (pinvoke can tra cuu).
+    il_codegen._STRUCT_DEFS = {k: {'fields': list(v['fields'])} for k, v in struct_defs.items()}
+    # R1: builtin 'new_<Struct>' dang ky dong (can truoc gen_il_program de
+    # dung duoc trong cung luot compile) - pop trong finally chung duoi.
+    registered_struct_names = []
+    for _sname, _sdef in struct_defs.items():
+        _ctor_name = f'new_{_sname}'
+        if _ctor_name in EXPR_BUILTIN_CODEGEN:
+            raise TranspileError(
+                f"__tkv_struct__: ten constructor '{_ctor_name}' trung voi builtin/ham co san - "
+                f"doi ten struct {_sname!r}")
+        register_expr_builtin(_ctor_name, _make_struct_ctor_codegen(_sname, _sdef['fields']),
+                              _sname, return_shape='struct')
+        registered_struct_names.append(_ctor_name)
+    # F4c: validate COM decls (can record_methods de doi chieu chu ky -
+    # record_methods da build xong o tren) + mutation record_interfaces
+    # (class co 'implements') + gom .custom class + interface IL. KHONG
+    # dang ky builtin (khong can finally-pop).
+    com_attrs = {}
+    com_interface_lines = []
+    seen_com_ifaces = set()
+    seen_com_records = set()
+    for _cdecl in com_classes:
+        _iname = _cdecl['interface']
+        _rname = _cdecl['record']
+        if _iname in seen_com_ifaces:
+            raise TranspileError(
+                f"__tkv_com_class__: interface {_iname!r} khai bao TRUNG LAP")
+        if _rname in seen_com_records:
+            raise TranspileError(
+                f"__tkv_com_class__: record {_rname!r} da co 1 khai bao COM (moi record chi 1 interface)")
+        seen_com_ifaces.add(_iname)
+        seen_com_records.add(_rname)
+        _validate_and_register_com_class(_cdecl, record_defs, record_methods, record_interfaces,
+                                         com_attrs, com_interface_lines)
     try:
         for decl in extern_methods:
-            _validate_and_register_extern_method(decl, declared_assembly_names)
+            _validate_and_register_extern_method(decl, declared_assembly_names, extern_assemblies)
             registered_extern_names.append(decl['name'])
 
         # Task 3 (2026-08-17, __tkv_extern_pinvoke__): dang ky dong CAC
         # builtin pinvoke - CUNG khoi try/finally voi extern_methods o tren
         # (khong tao try/finally rieng thu 2), pop trong CUNG finally duoi.
+        # F4a: entry mang marker 'kind'='vtable' di nhanh calli rieng.
+        # F4b: entry 'kind'='callback' sinh class delegate + builtin rieng.
+        callback_class_lines = []
         for decl in extern_pinvokes:
-            _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines)
-            registered_pinvoke_names.append(decl['name'])
+            kind = decl.get('kind')
+            if kind == 'vtable':
+                _validate_and_register_vtable(decl)
+                registered_pinvoke_names.append(decl['name'])
+            elif kind == 'callback':
+                _validate_and_register_callback(decl)
+                registered_pinvoke_names.append(f"callback_{decl['name']}")
+                callback_class_lines.extend(_callback_delegate_il_lines(decl))
+            else:
+                _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines)
+                registered_pinvoke_names.append(decl['name'])
 
         # extra_classes (Buoc 4 - closure that, 2026-07-29): OUT-parameter cua
         # gen_il_program - moi 'def long' trong chuong trinh se append vao day
@@ -3317,6 +4789,18 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
         # closures.py) can ghep RIENG vao IL text, giong het cach lam voi
         # record_type_lines o duoi.
         extra_classes = []
+        # R1: khoi '.class' valuetype cho MOI struct - chen DAU TIEN de
+        # khai bao kieu co mat truoc moi method su dung (ilasm khong doi
+        # hoi thu tu, nhung de doc IL de hon).
+        if struct_defs:
+            extra_classes.append(_struct_il_lines(struct_defs))
+        # F4b: class delegate non-generic cho MOI __tkv_callback__ - chen
+        # sau struct (khai bao kieu truoc method dung, de doc IL).
+        if callback_class_lines:
+            extra_classes.append(callback_class_lines)
+        # F4c: '.class interface' COM (Guid/InterfaceType/PreserveSig).
+        if com_interface_lines:
+            extra_classes.append(com_interface_lines)
         # emitted_types (2026-08-13, sua cung __str__ record): 1 set CHUNG giua
         # gen_il_program (ham top-level) va gen_record_types (method tren
         # record) ben duoi - truoc day moi ham tu tao set RIENG, khien 1 dtype
@@ -3377,7 +4861,9 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
                                            emitted_types=emitted_types,
                                            monomorphize_cache=monomorphize_cache,
                                            pending_monomorphize=pending_monomorphize)
-        main_method = build_generic_main(func_table[entry_name], class_name, module_globals=module_globals)
+        main_method = (build_generic_main(func_table[entry_name], class_name, module_globals=module_globals,
+                                              entrypoint=(target == 'exe'))
+                         if entry_name is not None else [])
         record_type_lines = gen_record_types(record_defs, record_method_bodies=record_method_bodies,
                                               record_methods=record_methods, class_name=class_name,
                                               func_table=func_table, record_bases=record_bases,
@@ -3386,6 +4872,8 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
                                               interface_defs=interface_defs,
                                               module_consts=module_consts,
                                               record_methods_own=record_methods_own,
+                                              # F4c: '.custom' COM cho record lam coclass.
+                                              com_class_attrs=com_attrs,
                                               # Task 3 (2026-08-12): CUNG 1 list
                                               # extra_classes voi gen_il_program o
                                               # tren - 'async def' method tren
@@ -3435,12 +4923,17 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             if asm_name in seen_extern:
                 continue
             seen_extern.add(asm_name)
+            # R3 (2026-09-22): '.ver' BAT BUOC dang dau HAI CHAM ('1:0:0:0')
+            # - ilasm bao 'syntax error at token 1.0' voi dau CHAM
+            # ('1.0.0.0', cach viet .NET thuong) - loi THAT khi verify
+            # TestShim (Phase 9k viet dots, chua verify end-to-end).
+            ver_il = version.replace('.', ':') if version and version != 'DEFAULT' else version
             if pubkeytoken == 'DEFAULT' and version == 'DEFAULT':
                 extern_lines.append(
                     f'.assembly extern {asm_name} {{ .publickeytoken = ({_default_pubkeytoken} ) .ver 4:0:0:0 }}\n')
             elif pubkeytoken and version:
                 extern_lines.append(
-                    f'.assembly extern {asm_name} {{ .publickeytoken = ({pubkeytoken} ) .ver {version} }}\n')
+                    f'.assembly extern {asm_name} {{ .publickeytoken = ({pubkeytoken} ) .ver {ver_il} }}\n')
             elif version:
                 # (Phase 9k, 2026-08-31): phat hien qua compile+run THAT tren
                 # NuGet Newtonsoft.Json (khong ky ten manh/khong pubkeytoken,
@@ -3452,7 +4945,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
                 # FileLoadException "manifest definition does not match".
                 # Assembly khong ky ten manh VAN can .ver khop dung de CLR
                 # bind (khong phai "khop bat ky version" nhu tung gia dinh).
-                extern_lines.append(f'.assembly extern {asm_name} {{ .ver {version} }}\n')
+                extern_lines.append(f'.assembly extern {asm_name} {{ .ver {ver_il} }}\n')
             elif pubkeytoken:
                 extern_lines.append(
                     f'.assembly extern {asm_name} {{ .publickeytoken = ({pubkeytoken} ) }}\n')
@@ -3473,7 +4966,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             # gi luc chay va re hon la doi khai bao theo tung chuong trinh.
             f'.assembly extern System.Numerics {{ .publickeytoken = (B7 7A 5C 56 19 34 E0 89 ) .ver 4:0:0:0 }}\n'
             + ''.join(extern_lines)
-            + f'.assembly {class_name} {{}}\n.module {class_name}.exe\n\n'
+            + f'.assembly {class_name} {{}}\n.module {class_name}.{"dll" if target == "library" else "exe"}\n\n'
             + '\n'.join(record_type_lines) + ('\n\n' if record_type_lines else '')
             + '\n'.join(extra_class_lines) + ('\n\n' if extra_class_lines else '')
             + f'.class public auto ansi {class_name} extends [mscorlib]System.Object\n{{\n'
@@ -3489,8 +4982,11 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
         # Di qua assemble_il_to_exe (tokenvector_compile.py) chu khong tu goi
         # ilasm: o do co buoc 'on dinh' tranh duong tinh gia cua Defender voi
         # mot PE vua dung xong - xem docstring cua no.
+        # R10 (2026-09-22): target library -> assemble /dll (khong Main).
         try:
-            return assemble_il_to_exe(il_text, out_exe, debug=debug)
+            if target == 'library':
+                return assemble_il_to_dll(il_text, out_exe, debug=debug, subsystem=subsystem_flag)
+            return assemble_il_to_exe(il_text, out_exe, debug=debug, subsystem=subsystem_flag)
         except TokenVectorError as e:
             raise CliError(str(e))
     finally:
@@ -3502,6 +4998,13 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             EXPR_BUILTIN_CODEGEN.pop(_nm, None)
             EXPR_BUILTIN_DTYPE.pop(_nm, None)
             EXTERN_VOID_BUILTIN_NAMES.discard(_nm)
+        # R1: go dang ky builtin 'new_<Struct>' + cleanup shape registry.
+        for _nm in registered_struct_names:
+            EXPR_BUILTIN_CODEGEN.pop(_nm, None)
+            EXPR_BUILTIN_DTYPE.pop(_nm, None)
+            EXPR_BUILTIN_SHAPE.pop(_nm, None)
+            EXPR_BUILTIN_RESULT_SHAPE.pop(_nm, None)
+            EXPR_BUILTIN_TEMPS.pop(_nm, None)
         for _mname in registered_extern_class_method_names:
             _key = ('extern_class', _mname)
             EXPR_METHOD_CODEGEN.pop(_key, None)
@@ -3514,3 +5017,4 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             EXPR_METHOD_RESULT_SHAPE.pop(_key, None)
         il_codegen._EXTERN_CLASS_DEFS = {}
         il_codegen._RECORD_DEFS = {}
+        il_codegen._STRUCT_DEFS = {}
