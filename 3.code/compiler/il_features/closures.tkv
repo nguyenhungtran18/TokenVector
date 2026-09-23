@@ -68,6 +68,16 @@ def _collect_var_names(node, names):
             return
         if node and node[0] == 'call' and isinstance(node[1], str):
             names.add(node[1])
+        if node and node[0] == 'index' and len(node) >= 2 and isinstance(node[1], str):
+            # BUG-4 (2026-09-23): node 'index' la ('index', TEN-BIEN-THO,
+            # indices) - co so la 1 CHUOI THO (khong boc ('var', ten) nhu
+            # moi bieu thuc khac) nen bi BO SOT khoi tap capture - vd ham
+            # long chi doc 'inp[i]' (khong doc 'inp' o dau khac) thi tap
+            # bien tu do rong -> bao sai "khong bat bien nao". Them co so
+            # vao 'names' nhu 1 UNG VIEN (an toan: fpw_nested_def CHI giu
+            # ten nam trong declared_names ham ngoai - ten kieu/global loai
+            # tu dong, giong ly luan B3 o nhanh 'call' tren).
+            names.add(node[1])
         for child in node[1:]:
             _collect_var_names(child, names)
     elif isinstance(node, list):
