@@ -3110,7 +3110,7 @@ def _module_skip_names(tree):
             names.add(tname)
             # Ten extern/class that nam TRONG value cua pragma.
             if tname in ('__tkv_extern_method__', '__tkv_extern_pinvoke__',
-                         '__tkv_extern_class__') and isinstance(node.value, ast.List):
+                         '__tkv_extern_class__', '__tkv_struct__') and isinstance(node.value, ast.List):
                 for elt in node.value.elts:
                     if isinstance(elt, ast.Dict):
                         for k, v in zip(elt.keys, elt.values):
@@ -4291,7 +4291,41 @@ def _global_init_lines(module_globals, class_name):
     return lines
 
 
-def _build_main_tuple(sig, class_name, body, module_globals=None, entrypoint=True):
+def _stathread_custom_line():
+    """1 dong '.custom' [STAThread] cho Main (P2, 2026-09-23 - UIA STA-only):
+    blob giong _com_custom_lines('preservesig') (attribute khong tham so)."""
+    return ('    .custom instance void [mscorlib]System.STAThreadAttribute'
+            '::.ctor() = ( 01 00 00 00 )')
+
+
+def _extract_apartment(tkv_path):
+    """Doc pragma module-level '__tkv_apartment__' tu file entry CHINH (P2,
+    2026-09-23): 'STA' -> 'STA' (Main gan [STAThread]); vang mat/'MTA' ->
+    None (mac dinh MTA, hanh vi cu). Gia tri khac -> TranspileError.
+    Trich RIENG ngoai _parse_program_ast (khong mo rong tuple plumbing)
+    vi day la thuoc tinh cua DIEM VAO (Main), chi file entry co y nghia."""
+    try:
+        _text = Path(tkv_path).read_text(encoding='utf-8')
+    except OSError:
+        return None
+    try:
+        _tree = ast.parse(_text)
+    except SyntaxError:
+        return None
+    for _node in _tree.body:
+        if isinstance(_node, ast.Assign) and len(_node.targets) == 1 and \
+                isinstance(_node.targets[0], ast.Name) and _node.targets[0].id == '__tkv_apartment__':
+            _v = _node.value
+            if not (isinstance(_v, ast.Constant) and isinstance(_v.value, str)):
+                raise TranspileError("__tkv_apartment__ phai la 1 chuoi ('STA' hoac 'MTA')")
+            if _v.value not in ('STA', 'MTA'):
+                raise TranspileError(
+                    f"__tkv_apartment__ = {_v.value!r} khong hop le (chi 'STA' hoac 'MTA')")
+            return 'STA' if _v.value == 'STA' else None
+    return None
+
+
+def _build_main_tuple(sig, class_name, body, module_globals=None, entrypoint=True, apartment=None):
     """Phan duoi cua build_generic_main cho ham tra ValueTuple: doc tung
     ItemN qua ldflda (field cua struct - can DIA CHI de goi ToString tren
     value type, cung ly do voi str() builtin) roi noi thanh '(a, b)'."""
@@ -4335,6 +4369,8 @@ def _build_main_tuple(sig, class_name, body, module_globals=None, entrypoint=Tru
     ]
     if entrypoint:
         method.append('    .entrypoint')
+    if entrypoint and apartment == 'STA':
+        method.append(_stathread_custom_line())
     method.append('    .maxstack 8')
     method.append(f'    .locals init ({tup_il} __cli_ret)')
     method += _global_init_lines(module_globals, class_name)
@@ -4362,12 +4398,14 @@ def _cli_default_literal(param, sig):
         f"Truyen du doi so khi chay, hoac doi mac dinh thanh 1 hang.")
 
 
-def build_generic_main(sig, class_name, module_globals=None, entrypoint=True):
+def build_generic_main(sig, class_name, module_globals=None, entrypoint=True, apartment=None):
     """Sinh 1 method Main(string[] args) TU DONG cho ham entry `sig`: doc
     N tham so vo huong tu argv THEO DUNG THU TU tham so (parse dung dtype,
     InvariantCulture cho f32/f64 - xem bug locale that da sua o Buoc 1-3),
     goi ham, in ket qua ra stdout. R10 (2026-09-22): entrypoint=False cho
-    --target library (DLL khong co diem vao, Main chi la static method)."""
+    --target library (DLL khong co diem vao, Main chi la static method).
+    apartment='STA' + entrypoint: gan [STAThread] len Main (P2, 2026-09-23,
+    COM STA-only nhu UIA - lay tu pragma __tkv_apartment__, xem _extract_apartment)."""
     for p in sig.params:
         if p.type_ann.shape is not None or p.type_ann.dtype not in _CLI_PARSE_SEQ:
             raise CliError(
@@ -4434,7 +4472,7 @@ def build_generic_main(sig, class_name, module_globals=None, entrypoint=True):
         # dung het cua Python de doi chieu duoc THANG. Truoc day bi tu
         # choi hoan toan, du tuple dung NOI BO van chay tot.
         return _build_main_tuple(sig, class_name, body, module_globals=module_globals,
-                                 entrypoint=entrypoint)
+                                 entrypoint=entrypoint, apartment=apartment)
 
     ret_dtype = sig.return_type.dtype
     if ret_dtype == 'str':
@@ -4473,6 +4511,8 @@ def build_generic_main(sig, class_name, module_globals=None, entrypoint=True):
     ]
     if entrypoint:
         method.append('    .entrypoint')
+    if entrypoint and apartment == 'STA':
+        method.append(_stathread_custom_line())
     method.append('    .maxstack 8')
     if locals_decl:
         method.append(f'    .locals init ({locals_decl} __cli_ret)')
@@ -5097,7 +5137,8 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
                                            monomorphize_cache=monomorphize_cache,
                                            pending_monomorphize=pending_monomorphize)
         main_method = (build_generic_main(func_table[entry_name], class_name, module_globals=module_globals,
-                                              entrypoint=(target == 'exe'))
+                                              entrypoint=(target == 'exe'),
+                                              apartment=_extract_apartment(tkv_path))
                          if entry_name is not None else [])
         record_type_lines = gen_record_types(record_defs, record_method_bodies=record_method_bodies,
                                               record_methods=record_methods, class_name=class_name,

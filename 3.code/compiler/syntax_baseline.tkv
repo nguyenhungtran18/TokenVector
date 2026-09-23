@@ -550,6 +550,7 @@ class _BaselineVisitor(ast.NodeVisitor):
         '__tkv_import__', '__tkv_extern_assembly__', '__tkv_extern_method__',
         '__tkv_extern_pinvoke__', '__tkv_extern_class__', '__tkv_struct__',
         '__tkv_vtable__', '__tkv_callback__', '__tkv_com_class__',
+        '__tkv_apartment__',
     })
 
     def visit_Assign(self, node):

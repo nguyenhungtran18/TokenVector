@@ -138,6 +138,12 @@ _EXTERN_CLASS_DEFS = {}
 # i16/i32/i64/f32/f64). Set/reset boi compile_tkv_cli nhu tren.
 _STRUCT_DEFS = {}
 
+# _RECORD_DEFS (P2, 2026-09-23, typeof): ten record -> fields - mirror 2
+# bang tren (set/reset boi compile_tkv_cli). Khai MAC DINH o day (truoc
+# day chi ton tai sau khi tkv_compile gan attribute - truy cap som se
+# NameError) de moi noi dung an toan nhu _EXTERN_CLASS_DEFS/_STRUCT_DEFS.
+_RECORD_DEFS = {}
+
 
 def _norm_param_dtype(ta):
     # 2026-09-21 (win_apply func(list[f64])): chuan hoa dtype cua 1 THAM SO
@@ -2755,8 +2761,8 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         return
     if name == 'typeof':
         # Phase 9d Part B (2026-08-27): typeof(ClassName) - ClassName la 1
-        # TEN __tkv_extern_class__ da khai (biet tai COMPILE-TIME, KHONG
-        # phai 1 bien runtime) - PHAI kiem tra truoc MOI nhanh dung
+        # TEN kieu biet tai COMPILE-TIME (P2 mo rong: them record/struct TKV,
+        # khong chi __tkv_extern_class__), KHONG phai 1 bien runtime - PHAI kiem tra truoc MOI nhanh dung
         # scope[...] (vd nhanh 'name in scope' ngay duoi day) vi args[0] la
         # ('var', ClassName) nhung ClassName KHONG nam trong scope (khong
         # phai 1 bien). Sinh CIL chuan giong C#'s typeof() bien dich ra
@@ -2765,14 +2771,26 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         if len(args) != 1 or args[0][0] != 'var':
             raise SyntaxError(
                 "il_codegen: typeof(...) chi nhan dung 1 doi so la TEN 1 "
-                "__tkv_extern_class__ da khai (vd 'typeof(Widget)')")
+                "__tkv_extern_class__/__tkv_struct__ da khai hay 1 record "
+                "(vd 'typeof(Widget)')")
         class_name = args[0][1]
-        if class_name not in _EXTERN_CLASS_DEFS:
+        if class_name in _EXTERN_CLASS_DEFS:
+            decl = _EXTERN_CLASS_DEFS[class_name]
+            class_ref = f"[{decl['assembly']}]{decl['class']}"
+        elif _RECORD_DEFS and class_name in _RECORD_DEFS:
+            # P2 (2026-09-23, typeof): record TKV la class top-level song
+            # song class chuong trinh (xem gen_record_types) - ldtoken
+            # thang ten class (cung assembly, khong can [assembly]).
+            class_ref = class_name
+        elif _STRUCT_DEFS and class_name in _STRUCT_DEFS:
+            # P2 (2026-09-23, typeof): struct TKV la valuetype top-level
+            # (xem _struct_il_lines) - ldtoken can prefix 'valuetype'.
+            class_ref = f'valuetype {class_name}'
+        else:
             raise SyntaxError(
                 f"il_codegen: typeof({class_name!r}) - {class_name!r} khong phai "
-                f"1 __tkv_extern_class__ da khai bao")
-        decl = _EXTERN_CLASS_DEFS[class_name]
-        class_ref = f"[{decl['assembly']}]{decl['class']}"
+                f"1 __tkv_extern_class__/__tkv_struct__ da khai bao hay 1 record "
+                f"trong chuong trinh")
         out.append(f"    ldtoken {class_ref}")
         out.append(
             "    call class [mscorlib]System.Type "
