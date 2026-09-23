@@ -3392,7 +3392,9 @@ def _check_use_before_def(func_name, func_node, skip_names=None, inherited=None)
     Python hop le): duyet statements theo thu tu, tap 'assigned' truyen
     xuong cac block. Gop (merge) CHI o 2 cho chac chan: if/else (giao 2
     nhanh) va try (giao body + MOI handler) + finally (luon chay). Vong
-    lap khong gop (co the khong chay lan nao). Bao 2 dang:
+    lap (for/while): body DUOC GOP xuoi (R3, 2026-09-24) - bien gan trong
+    body van nhin thay SAU loop, mirror ngu nghia codegen cu (local ton
+    tai sau loop, doc default 0/null neu loop khong chay lan nao). Bao 2 dang:
     (a) forward-ref: ten DA DUOC gan o dau do trong ham nhung doc truoc
         (chac chan bug - khong false-positive).
     (b) never-resolved: ten khong gan o dau, khong phai param/global/
@@ -3446,6 +3448,21 @@ def _check_use_before_def(func_name, func_node, skip_names=None, inherited=None)
             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
                 out.append(n.id)
         return out
+
+    def _block_diverges(stmts):
+        # True neu block CHAC CHAN khong roi xuong cau lenh tiep theo (moi
+        # duong deu return/raise/break/continue) - dung de gop assigned
+        # dung khi 1 nhanh divergent (vd 'else: raise ...' thi bien gan o
+        # cac nhanh if/elif van nhin thay sau, R3b 2026-09-24). Conservative:
+        # chi bao True khi chac chan (if thieu else -> False; vong lap/try ->
+        # False), khong bao gio sai theo huong bao oan.
+        for s in stmts:
+            if isinstance(s, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
+                return True
+            if isinstance(s, ast.If):
+                if s.orelse and _block_diverges(s.body) and _block_diverges(s.orelse):
+                    return True
+        return False
 
     def _err(name, lineno, never):
         if never:
@@ -3557,36 +3574,44 @@ def _check_use_before_def(func_name, func_node, skip_names=None, inherited=None)
             saved = set(assigned)
             _block(s.body)
             after_body = set(assigned)
+            body_div = _block_diverges(s.body)
             assigned.clear()
             assigned.update(saved)
             _block(s.orelse)
             after_else = set(assigned)
+            else_div = _block_diverges(s.orelse)
             assigned.clear()
             assigned.update(saved)
-            if s.orelse:
+            # R3b (2026-09-24): nhanh divergent (return/raise - vd 'else:
+            # raise ValueError') khong roi xuong -> gop tu nhanh CON LAI,
+            # khong giao (giao voi nhanh divergent se xoa oan bien gan o
+            # nhanh kia, vd 'b0' gan o MOI nhanh if/elif + else-raise).
+            if not s.orelse:
+                pass  # co the khong vao nhanh if -> khong gop
+            elif body_div and else_div:
+                pass  # khong toi duoc (giu saved, bao thu)
+            elif body_div:
+                assigned.update(after_else)
+            elif else_div:
+                assigned.update(after_body)
+            else:
                 assigned.update(after_body & after_else)  # ca 2 nhanh gan
             return
         if isinstance(s, ast.While):
             _expr(s.test)
-            saved = set(assigned)
+            # R3: body duoc gop xuoi (khong reset ve saved) - bien gan
+            # trong body nhin thay sau loop (mirror codegen cu). Test van
+            # kiem TRUOC body (lan dau chua chay body).
             _block(s.body)
-            assigned.clear()
-            assigned.update(saved)
             _block(s.orelse)
-            assigned.clear()
-            assigned.update(saved)
             return
         if isinstance(s, (ast.For, ast.AsyncFor)):
             _expr(s.iter)
-            saved = set(assigned)
             for t in _target_names(s.target):
                 assigned.add(t)
+            # R3: nhu While (bien gan trong body nhin thay sau loop).
             _block(s.body)
-            assigned.clear()
-            assigned.update(saved)
             _block(s.orelse)
-            assigned.clear()
-            assigned.update(saved)
             return
         if isinstance(s, ast.With):
             for item in s.items:
@@ -3670,7 +3695,7 @@ def _check_use_before_def(func_name, func_node, skip_names=None, inherited=None)
     _block(func_node.body)
 
 
-def _parse_program_ast(source_text, source_path=None):
+def _parse_program_ast(source_text, source_path=None, extra_r11_skip=None):
     """Parse THUAN 1 file nguon TokenVector (`.tkv`) THAT - KHONG doc file
     nao khac, KHONG resolve import - chi tra ve THANG PHAN NOI DUNG cua
     CHINH file nay: (record_defs, record_methods_raw, record_bases, pairs,
@@ -3729,6 +3754,11 @@ def _parse_program_ast(source_text, source_path=None):
     except NameError:
         _r11_builtin_names = set()
     r11_skip = _module_skip_names(tree) | _R11_EXTRA_SKIP | _r11_builtin_names
+    # R2 (2026-09-24): hop nhat skip ke thua tu file cha (toan cuc merge -
+    # ten cua MOI module trong closure import cua file GOC deu nhin thay
+    # duoc tu file nay, ke ca khong import truc tiep).
+    if extra_r11_skip:
+        r11_skip |= set(extra_r11_skip)
     # R11 (D3): ten tu file import (gop pham vi luc merge) - can
     # source_path de locate file; khong co thi bo qua (mach import hien
     # co bao loi that sau, khong false-positive o day).
@@ -4193,7 +4223,7 @@ def _find_module_path(imp_name, base_dir):
     return None
 
 
-def extract_program_file(tkv_path, _visited=None):
+def extract_program_file(tkv_path, _visited=None, _inherited_r11_skip=None):
     """Nhu extract_program(), nhung doc THANG tu 1 file that (co duong dan)
     va DE QUY giai quyet '__tkv_import__' (khoang trong ngon ngu #3 - chia
     du an thanh nhieu file .tkv) - tim file '<ten>.tkv' trong CUNG thu muc
@@ -4217,8 +4247,21 @@ def extract_program_file(tkv_path, _visited=None):
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies, extern_methods,
      extern_pinvokes, extern_classes, struct_defs, com_classes, module_consts, module_globals,
-     inferred_ast_nodes_by_func) = _parse_program_ast(source_text, tkv_path)
+     inferred_ast_nodes_by_func) = _parse_program_ast(source_text, tkv_path,
+                                                      extra_r11_skip=_inherited_r11_skip)
     func_names = {m.group(1) for sig_line, _, _start in pairs if (m := _FUNC_NAME_RE.match(sig_line))}
+    # R2 (2026-09-24): tap skip truyen cho file con = ke thua tu cha +
+    # tops cua CHINH file nay + closure import cua file nay (mo rong dan
+    # moi tang - file con nhin thay siblings qua closure cua cha).
+    try:
+        _own_tops = _module_skip_names(ast.parse(source_text))
+    except Exception:
+        _own_tops = set()
+    try:
+        _own_closure = _collect_imported_top_names(tkv_path, import_names)
+    except Exception:
+        _own_closure = set()
+    _child_r11_skip = set(_inherited_r11_skip or ()) | _own_tops | _own_closure
 
     for imp_name in import_names:
         imp_path = _find_module_path(imp_name, tkv_path.parent)
@@ -4233,7 +4276,8 @@ def extract_program_file(tkv_path, _visited=None):
          imp_interface_defs, imp_pairs, imp_extern_assemblies, imp_extern_methods,
          imp_extern_pinvokes, imp_extern_classes, imp_struct_defs, imp_com_classes, imp_module_consts,
          imp_module_globals,
-         imp_inferred_ast_nodes_by_func) = extract_program_file(imp_path, _visited)
+         imp_inferred_ast_nodes_by_func) = extract_program_file(imp_path, _visited,
+                                                            _child_r11_skip)
         imp_func_names = {m.group(1) for sig_line, _, _start in imp_pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
         dup_funcs = func_names & imp_func_names

@@ -3724,6 +3724,19 @@ class _DtypeOnlyScope:
         self._d[name] = type_ann
 
 
+def _module_const_type_ann(cval):
+    """TypeAnn cho 1 hang so cap module (R1, 2026-09-24): MAPPING DUY NHAT
+    dung chung boi first-pass (seed infer_scope) va second-pass (seed _Scope
+    that) - str->'str', float->'f64', con lai (int) ->'i32'.
+    LUU Y: hang 'int' o day la 'i32' (khong phai 'int'/TkvInt) - giu nguyen
+    hanh vi cu cua gen_il_function (hang so module luon vua i32)."""
+    if isinstance(cval, str):
+        return TypeAnn('str', None)
+    if isinstance(cval, float):
+        return TypeAnn('f64', None)
+    return TypeAnn('i32', None)
+
+
 # _find_first_append_dtype da chuyen sang il_features/list_type.py's
 # find_first_append_dtype() - Phase 1 buoc 1 (2026-07-28) - dung chung
 # boi ca list/set (set truyen kind='set_add').
@@ -3846,8 +3859,9 @@ def _container_arg_hints(stmts, func_table, sig=None):
 
 
 def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_table: dict = None,
-                                records: dict = None, record_methods: dict = None,
-                                extra_declared: dict = None, source_path: str = None):
+                                 records: dict = None, record_methods: dict = None,
+                                 extra_declared: dict = None, source_path: str = None,
+                                 module_consts: dict = None):
     """Duyet cay Stmt (KHONG parse lai bieu thuc - da parse 1 lan trong
     _parse_block), khai bao local (.locals init) + temp cho ternary long
     nhau. Tra ve (locals_decl, tern_temp_of_id, needs_epilogue, boxed_names,
@@ -3894,6 +3908,14 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
     for ex_name, ex_ta in (extra_declared or {}).items():
         declared_names.add(ex_name)
         infer_scope.set(ex_name, ex_ta)
+    # R1 (2026-09-24): seed hang so cap module (DA GOM import) vao
+    # infer_scope - neu khong, 'x = DT_I64' crash KeyError o _infer_dtype
+    # (scope micro khong co ten const) trong khi second-pass (_Scope that,
+    # co const) van xu ly dung. CHI seed infer_scope (cho _probe/_infer),
+    # KHONG them vao declared_names (local trung ten van duoc khai de
+    # shadow const, mirror _Scope.add_local ghi de add_const).
+    for cname, cval in (module_consts or {}).items():
+        infer_scope.set(cname, _module_const_type_ann(cval))
     # thread_ret_types (2026-08-31, BUGS_TODO.md muc thread_join): 'h1 =
     # thread_spawn(worker)' roi 'r1 = thread_join(h1)' - EXPR_BUILTIN_DTYPE
     # cua 'thread_join' la HANG SO TINH 'i64' (khong biet worker THAT su tra
@@ -5244,13 +5266,14 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
         # so tham so THAT (idx+1) giong het self_type_ann.
         param_idx_base = 1
     for cname, cval in (module_consts or {}).items():
+        # R1: dtype qua helper chung voi first-pass (khong drift).
+        c_ta = _module_const_type_ann(cval)
         if isinstance(cval, str):
-            c_ta = TypeAnn('str', None)
             c_repr = '"' + cval.replace(chr(92), chr(92)*2).replace('"', chr(92) + '"') + '"'
         elif isinstance(cval, float):
-            c_ta, c_repr = TypeAnn('f64', None), repr(cval)
+            c_repr = repr(cval)
         else:
-            c_ta, c_repr = TypeAnn('i32', None), str(cval)
+            c_repr = str(cval)
         scope.add_const(cname, c_repr, c_ta)
     for idx, p in enumerate(sig.params):
         scope.add_arg(p.name, idx + param_idx_base, p.type_ann)
@@ -5310,7 +5333,8 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
 
     locals_decl, tern_temp_of_id, needs_epilogue, boxed_names, nested_closures = \
         _first_pass_collect_locals(stmts, sig, body_dtype, func_table, records, record_methods,
-                                    extra_declared=extra_declared, source_path=source_path)
+                                    extra_declared=extra_declared, source_path=source_path,
+                                    module_consts=module_consts)
     for i, (name, ta) in enumerate(locals_decl):
         if name in boxed_names:
             scope.add_boxed(name, i, ta)
