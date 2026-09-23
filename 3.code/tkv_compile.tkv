@@ -1381,6 +1381,8 @@ def _extern_il_type_text(dtype):
         # (f"[{decl['assembly']}]{decl['class']}"), CHI khac 'class ' prefix
         # vi day la chu ky tham so/return, khong phai call_target.
         _decl = il_codegen._EXTERN_CLASS_DEFS[dtype]
+        if _decl['class'].startswith('generic:'):
+            return _extern_class_ref(_decl)
         return f"class [{_decl['assembly']}]{_decl['class']}"
     il = _EXTERN_DTYPE_TO_IL.get(dtype)
     if il is not None:
@@ -1389,6 +1391,129 @@ def _extern_il_type_text(dtype):
     if m is None:
         raise KeyError(dtype)
     return f"valuetype [{m.group('assembly')}]{m.group('full_name')}"
+
+
+# P2 (2026-09-23, generic BCL): kieu generic .NET trong 'class' cua
+# __tkv_extern_class__ - cu phap 'generic:<Full.Name`Arity>[arg1,arg2]':
+# vd 'generic:System.Collections.Generic.List`1[str]'. 'Full' van cam
+# injection nhu _EXTERN_CLASS_NAME_RE (them backtick+arity); arg v1 CHI
+# scalar/enum/handle (khong generic long/container - bao ro rang).
+_GENERIC_CLASS_RE = re.compile(
+    r'^generic:(?P<full>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*`[0-9]+)'
+    r'\[(?P<args>.+)\]$')
+
+
+def _split_generic_args(arg_text):
+    """Cat args generic theo dau phay CAP NGOAI (bo qua phay trong '[]'
+    long nhau de bao loi ro thay vi cat sai)."""
+    parts, depth, cur = [], 0, ''
+    for ch in arg_text:
+        if ch == '[':
+            depth += 1
+        elif ch == ']':
+            depth -= 1
+        if ch == ',' and depth == 0:
+            parts.append(cur.strip())
+            cur = ''
+        else:
+            cur += ch
+    parts.append(cur.strip())
+    return [p for p in parts if p != '']
+
+
+def _parse_generic_class_ref(class_str, ctx_label):
+    """Parse 'generic:...' thanh (full, [args]) - validate SHAPE (regex,
+    arity khop so args). Validate NGHIA (arg hop le) la
+    _validate_generic_class_ref (can extern_class_defs)."""
+    m = _GENERIC_CLASS_RE.match(class_str)
+    if m is None:
+        raise TranspileError(
+            f"{ctx_label}: 'class' {class_str!r} khong dung cu phap generic "
+            f"('generic:<Full.Name`Arity>[arg1,arg2]', vd "
+            f"'generic:System.Collections.Generic.List`1[str]')")
+    full = m.group('full')
+    args = _split_generic_args(m.group('args'))
+    try:
+        arity = int(full.rsplit('`', 1)[1])
+    except ValueError:
+        raise TranspileError(f"{ctx_label}: arity generic khong hop le trong {full!r}")
+    if len(args) != arity:
+        raise TranspileError(
+            f"{ctx_label}: generic {full!r} can dung {arity} type-args, nhan duoc "
+            f"{len(args)} ({args!r})")
+    if any(not a for a in args):
+        raise TranspileError(f"{ctx_label}: type-arg rong trong {class_str!r}")
+    return full, args
+
+
+def _validate_generic_class_ref(decl, extern_class_defs):
+    """Validate NGHIA type-args (scalar/enum/handle da khai) - goi tu
+    compile_tkv_cli SAU khi extern_class_defs du (giong validate dtype)."""
+    ctx_label = f"__tkv_extern_class__ {decl.get('name')!r}"
+    full, args = _parse_generic_class_ref(decl['class'], ctx_label)
+    for a in args:
+        if a.startswith('generic:') or '[' in a:
+            raise TranspileError(
+                f"{ctx_label}: type-arg {a!r} long nhau chua ho tro (v1 chi "
+                f"scalar/enum/handle don)")
+        if not _is_valid_extern_dtype(a) and a not in extern_class_defs:
+            if not _validate_extern_class_container_dtype(
+                    a, extern_class_defs, f"generic arg cua {ctx_label}"):
+                raise TranspileError(
+                    f"{ctx_label}: type-arg {a!r} khong hop le (chi scalar/enum "
+                    f"hoac 1 handle type da khai trong CUNG pragma)")
+    return full, args
+
+
+def _generic_arg_il(arg, extern_class_defs):
+    """IL text cho 1 type-arg (scalar/enum/handle don, da validate)."""
+    if arg in extern_class_defs:
+        _d = extern_class_defs[arg]
+        return f"class [{_d['assembly']}]{_d['class']}"
+    return _extern_il_type_text(arg)
+
+
+def _generic_placeholder_il(want_dtype, decl):
+    """IL text cho 1 param/return KHAI 'T' (type-arg) cua generic decl: '!' +
+    vi tri (vd Add(str) tren List`1[str] -> 'Add(!0)') - CLR resolve method
+    tren instantiation QUA placeholder (viet thang 'string' -> ilasm cho qua
+    nhung runtime MissingMethodException, da xac minh that). Tra None neu
+    khong phai generic hoac dtype khong phai type-arg (caller dung IL thuong)."""
+    if not decl['class'].startswith('generic:'):
+        return None
+    _full, _args = _parse_generic_class_ref(
+        decl['class'], f"__tkv_extern_class__ {decl.get('name')!r}")
+    if want_dtype in _args:
+        return f'!{_args.index(want_dtype)}'
+    return None
+
+
+def _extern_class_param_il(want_dtype, decl, extern_class_defs=None):
+    """IL text param/return cho method/ctor extern-class: placeholder '!N'
+    neu la type-arg generic, nguoc lai _il_ctor_param_type nhu cu."""
+    _ph = _generic_placeholder_il(want_dtype, decl)
+    if _ph is not None:
+        return _ph
+    return il_codegen._il_ctor_param_type(want_dtype, il_codegen._EXTERN_CLASS_DEFS)
+
+
+def _extern_class_ref(decl, extern_class_defs=None):
+    """Tham chieu kieu IL cho 1 decl (caller tu ghep '::method'/ldtoken -
+    KHONG tu them prefix). Non-generic: '[assembly]Full' (hanh vi cu).
+    Generic: 'class [assembly]Full<args>' - prefix 'class ' BAT BUOC khi
+    co instantiation '<...>' (ilasm khong parse duoc '<' sau tokem
+    assembly-qualified tran, da xac minh that), mirror cach e2e_test.il
+    goi List`1 (co prefix) - xem il_list_type (angle '<>', khong '[]')."""
+    _defs = extern_class_defs if extern_class_defs is not None else il_codegen._EXTERN_CLASS_DEFS
+    _cls = decl['class']
+    if _cls.startswith('generic:'):
+        _full, _args = _parse_generic_class_ref(_cls, f"__tkv_extern_class__ {decl.get('name')!r}")
+        _arg_ils = [_generic_arg_il(a, _defs) for a in _args]
+        # NGOAC NHON '<>' (khong phai '[]' - '[]' la array, vd 'int32[]') -
+        # mirror il_list_type (il_features/list_type.tkv). Prefix 'class '
+        # (xem docstring): bat buoc khi co '<...>'.
+        return f"class [{decl['assembly']}]{_full}<{','.join(_arg_ils)}>"
+    return f"[{decl['assembly']}]{_cls}"
 
 
 def _tokenvector_facing_dtype(dtype):
@@ -1857,7 +1982,7 @@ def _make_extern_class_method_codegen(method_name):
         ctx['load_var_ref'](obj_name, scope, out)
         il_params = []
         for arg_node, want_dtype in zip(args, param_dtypes):
-            il_params.append(il_codegen._il_ctor_param_type(want_dtype, il_codegen._EXTERN_CLASS_DEFS))
+            il_params.append(_extern_class_param_il(want_dtype, decl))
             # Phase 9b fix-of-fix (bool, 2026-08-25): il_params (chu ky IL)
             # giu want_dtype THO ('bool'); dtype truyen vao compile_expr phai
             # la dtype PHIA TOKENVECTOR - xem _tokenvector_facing_dtype.
@@ -1865,8 +1990,8 @@ def _make_extern_class_method_codegen(method_name):
             # gia tri value-type khi want_dtype=='object' + tu choi dtype
             # thuc te khac 'type' khi want_dtype=='type'.
             il_codegen._compile_extern_object_arg(arg_node, scope, out, want_dtype, ctx)
-        il_ret_type = il_codegen._il_ctor_param_type(m['returns'], il_codegen._EXTERN_CLASS_DEFS)
-        call_target = f"[{decl['assembly']}]{decl['class']}"
+        il_ret_type = _extern_class_param_il(m['returns'], decl)
+        call_target = _extern_class_ref(decl)
         out.append(
             f"    callvirt instance {il_ret_type} {call_target}::{method_name}"
             f"({', '.join(il_params)})")
@@ -1910,7 +2035,7 @@ def _make_extern_class_property_setter_codegen(method_name):
         ctx['load_var_ref'](obj_name, scope, out)
         il_params = []
         for arg_node, want_dtype in zip(args, param_dtypes):
-            il_params.append(il_codegen._il_ctor_param_type(want_dtype, il_codegen._EXTERN_CLASS_DEFS))
+            il_params.append(_extern_class_param_il(want_dtype, decl))
             # Phase 9b fix-of-fix (bool, 2026-08-25): xem chu thich tuong tu
             # o _make_extern_class_method_codegen - il_params giu want_dtype
             # THO, compile_expr nhan dtype PHIA TOKENVECTOR.
@@ -1918,7 +2043,7 @@ def _make_extern_class_property_setter_codegen(method_name):
             # gia tri value-type khi want_dtype=='object' + tu choi dtype
             # thuc te khac 'type' khi want_dtype=='type'.
             il_codegen._compile_extern_object_arg(arg_node, scope, out, want_dtype, ctx)
-        call_target = f"[{decl['assembly']}]{decl['class']}"
+        call_target = _extern_class_ref(decl)
         out.append(
             f"    callvirt instance void {call_target}::{method_name}"
             f"({', '.join(il_params)})")
@@ -1947,7 +2072,7 @@ def _make_extern_class_method_void_codegen(method_name):
         ctx['load_var_ref'](obj_name, scope, out)
         il_params = []
         for arg_node, want_dtype in zip(args, param_dtypes):
-            il_params.append(il_codegen._il_ctor_param_type(want_dtype, il_codegen._EXTERN_CLASS_DEFS))
+            il_params.append(_extern_class_param_il(want_dtype, decl))
             # Phase 9b fix-of-fix (bool, 2026-08-25): xem chu thich tuong tu
             # o _make_extern_class_method_codegen - il_params giu want_dtype
             # THO, compile_expr nhan dtype PHIA TOKENVECTOR.
@@ -1955,7 +2080,7 @@ def _make_extern_class_method_void_codegen(method_name):
             # gia tri value-type khi want_dtype=='object' + tu choi dtype
             # thuc te khac 'type' khi want_dtype=='type'.
             il_codegen._compile_extern_object_arg(arg_node, scope, out, want_dtype, ctx)
-        call_target = f"[{decl['assembly']}]{decl['class']}"
+        call_target = _extern_class_ref(decl)
         out.append(
             f"    callvirt instance void {call_target}::{method_name}"
             f"({', '.join(il_params)})")
@@ -1997,10 +2122,10 @@ def _compile_extern_static_class_method_call(node, scope, out, dtype, ctx,
         raise SyntaxError(
             f"il_codegen: static method {method_name!r} tren {class_name!r} "
             f"ky vong {len(param_dtypes)} tham so, nhan duoc {len(args)}")
-    call_target = f"[{decl['assembly']}]{decl['class']}"
+    call_target = _extern_class_ref(decl)
     il_params = []
     for arg_node, want_dtype in zip(args, param_dtypes):
-        il_params.append(il_codegen._il_ctor_param_type(want_dtype, il_codegen._EXTERN_CLASS_DEFS))
+        il_params.append(_extern_class_param_il(want_dtype, decl))
         # Phase 9b fix-of-fix (bool, 2026-08-25) convention: il_params (chu
         # ky IL) giu want_dtype THO ('bool'); dtype truyen vao compile_expr
         # phai la dtype PHIA TOKENVECTOR - xem _tokenvector_facing_dtype.
@@ -2019,7 +2144,7 @@ def _compile_extern_static_class_method_call(node, scope, out, dtype, ctx,
             f"({', '.join(il_params)})")
         # Khong widen: method void khong co gia tri tren stack.
         return
-    il_ret_type = il_codegen._il_ctor_param_type(m['returns'], il_codegen._EXTERN_CLASS_DEFS)
+    il_ret_type = _extern_class_param_il(m['returns'], decl)
     out.append(
         f"    call {il_ret_type} {call_target}::{method_name}"
         f"({', '.join(il_params)})")
@@ -2486,12 +2611,18 @@ def _validate_and_register_vtable(decl):
 # instance Func<...> san KHONG cast duoc sang class rieng). Stub nguoc
 # mac dinh la stdcall/Winapi (dung moi API Win32; tren x64 moi convention
 # nhu nhau). Giu song bang GCHandle leak-by-design (xem builtin).
+# P2 (2026-09-23): them (a) key 'convention' ('stdcall'/'cdecl', vang mat
+# = IL cu khong attribute) - phat .custom UnmanagedFunctionPointer (can
+# cho x86); (b) builtin 'callback_keep_<name>(f)' - root delegate trong
+# static list (thay vi GCHandle) + 'callback_free_all()' - giai phong TAT
+# CA delegate da keep (Clear) - lifetime co quan ly thay vi leak vinh vien.
 # Gioi han v1: params/returns chi so (i32/i64/f32/f64, void cho returns)
 # - 'int' (struct TkvInt, KHONG blittable - stub that bai luc chay),
 # 'str'/'bool'/'ptr'/struct* chua ho tro.
-_CALLBACK_KEYS = {'name', 'params', 'returns'}
+_CALLBACK_KEYS = {'name', 'params', 'returns', 'convention'}
 _CALLBACK_REQUIRED = {'name', 'returns'}
 _CALLBACK_SCALARS = frozenset({'i32', 'i64', 'f32', 'f64'})
+_CALLBACK_CONVENTIONS = frozenset({'stdcall', 'cdecl'})
 
 
 def _parse_callback_dict_literal(node):
@@ -2538,17 +2669,31 @@ def _callback_delegate_il_lines(decl):
     """Khoi '.class' delegate non-generic cho 1 decl (ghep vao
     extra_classes): thua MulticastDelegate, .ctor(object, native int) +
     Invoke(...) 'runtime managed' (CLR tu sinh than). Ten class
-    '<name>Delegate' - tranh dung builtin 'callback_<name>'."""
+    '<name>Delegate' - tranh dung builtin 'callback_<name>'.
+    P2: 'convention' hien -> .custom UnmanagedFunctionPointerAttribute
+    (cdecl=1/stdcall=2, enum CallingConvention int32) - can cho x86;
+    vang mat = IL cu (khong attribute)."""
     cname = decl['name'] + 'Delegate'
     params = decl['params']
     returns = decl['returns']
     il_params = [il_codegen._il_scalar_or_handle(p) for p in params]
     il_ret = 'void' if returns == 'void' else il_codegen._il_scalar_or_handle(returns)
     arg_list = ', '.join(f'{t} \'p{i}\'' for i, t in enumerate(il_params))
-    return [
+    lines = [
         f'.class public auto ansi sealed beforefieldinit {cname}',
         '       extends [mscorlib]System.MulticastDelegate',
         '{',
+    ]
+    _conv = decl.get('convention')
+    if _conv is not None:
+        _conv_val = '02 00 00 00' if _conv == 'stdcall' else '01 00 00 00'
+        lines.append(
+            '  .custom instance void '
+            '[mscorlib]System.Runtime.InteropServices.UnmanagedFunctionPointerAttribute'
+            '::.ctor(valuetype '
+            '[mscorlib]System.Runtime.InteropServices.CallingConvention)'
+            f' = ( 01 00 {_conv_val} 00 00 )')
+    lines.extend([
         '  .method public hidebysig specialname rtspecialname',
         '          instance void .ctor(object \'object\', native int \'method\') runtime managed',
         '  {',
@@ -2556,6 +2701,44 @@ def _callback_delegate_il_lines(decl):
         '  .method public hidebysig virtual',
         f'          instance {il_ret} Invoke({arg_list}) runtime managed',
         '  {',
+        '  }',
+        '}',
+    ])
+    return lines
+
+
+def _cb_keepalive_il_lines():
+    """1 class static 'CbKeepAlive' (P2, 2026-09-23): root cac delegate da
+    'callback_keep_X' trong 1 List<object> tinh (thay GCHandle leak) +
+    ReleaseAll() (Clear) cho 'callback_free_all()'. Phat 1 LAN/chuong
+    trinh co >=1 __tkv_callback__ (guard o diem goi)."""
+    _list = 'class [mscorlib]System.Collections.Generic.List`1<object>'
+    return [
+        '.class public auto ansi abstract sealed beforefieldinit CbKeepAlive',
+        '       extends [mscorlib]System.Object',
+        '{',
+        f'  .field private static {_list} _kept',
+        '  .method private hidebysig specialname rtspecialname static void .cctor() cil managed',
+        '  {',
+        '    .maxstack 8',
+        f'    newobj instance void {_list}::.ctor()',
+        f'    stsfld {_list} CbKeepAlive::_kept',
+        '    ret',
+        '  }',
+        '  .method public hidebysig static void Keep(object \'d\') cil managed',
+        '  {',
+        '    .maxstack 8',
+        f'    ldsfld {_list} CbKeepAlive::_kept',
+        '    ldarg.0',
+        f'    callvirt instance void {_list}::Add(!0)',
+        '    ret',
+        '  }',
+        '  .method public hidebysig static void ReleaseAll() cil managed',
+        '  {',
+        '    .maxstack 8',
+        f'    ldsfld {_list} CbKeepAlive::_kept',
+        f'    callvirt instance void {_list}::Clear()',
+        '    ret',
         '  }',
         '}',
     ]
@@ -2613,11 +2796,76 @@ def _make_callback_ctor_codegen(decl):
     return _codegen
 
 
+def _make_callback_keep_codegen(decl):
+    """Factory builtin 'callback_keep_<name>(f)' (P2): giong callback_<name>
+    (f phai la TEN ham top-level khop chu ky) nhung root delegate trong
+    CbKeepAlive (dup + Keep) thay vi GCHandle leak - giai phong sau bang
+    'callback_free_all()'. Tra i64 (con tro ham native) nhu ban goc."""
+    cname = decl['name'] + 'Delegate'
+    want_params = list(decl['params'])
+    want_ret = None if decl['returns'] == 'void' else decl['returns']
+
+    def _codegen(args, scope, out, dtype, ctx):
+        if len(args) != 1:
+            raise SyntaxError(
+                f"il_codegen: 'callback_keep_{decl['name']}(...)' chi nhan dung 1 tham so "
+                f"(ten 1 ham top-level khop chu ky (({', '.join(want_params)}) -> "
+                f"{decl['returns']}))")
+        arg_node = args[0]
+        if not (isinstance(arg_node, tuple) and arg_node[0] == 'var'):
+            raise SyntaxError(
+                f"il_codegen: 'callback_keep_{decl['name']}(...)' chi nhan TEN 1 ham top-level "
+                f"(khong nhan bien 'func'/lambda - instance Func<...> khong chuyen duoc "
+                f"sang delegate rieng '{cname}')")
+        fname = arg_node[1]
+        func_table = (ctx or {}).get('func_table') or {}
+        if fname not in func_table:
+            raise SyntaxError(
+                f"il_codegen: 'callback_keep_{decl['name']}(...)' - '{fname}' khong phai 1 ham "
+                f"top-level da khai bao")
+        callee = func_table[fname]
+        callee_params = [il_codegen._norm_param_dtype(p.type_ann) for p in callee.params]
+        callee_ret = il_codegen._norm_param_dtype(callee.return_type) if callee.return_type else None
+        if callee_params != want_params or callee_ret != want_ret:
+            raise SyntaxError(
+                f"il_codegen: ham '{fname}' (({', '.join(callee_params)}) -> {callee_ret}) "
+                f"khong khop chu ky callback 'callback_keep_{decl['name']}' "
+                f"((({', '.join(want_params)}) -> {decl['returns']})) - delegate binding "
+                f"doi khop CHINH XAC")
+        class_name = (ctx or {}).get('class_name') or 'Program'
+        params_il = ', '.join(il_codegen._il_scalar_or_handle(d) for d in callee_params)
+        ret_il = il_codegen._il_scalar_or_handle(callee_ret)
+        out.append('    ldnull')
+        out.append(f'    ldftn {ret_il} {class_name}::{il_codegen._il_ident(fname)}({params_il})')
+        out.append(f'    newobj instance void {cname}::.ctor(object, native int)')
+        out.append('    dup')
+        out.append('    call void CbKeepAlive::Keep(object)')
+        out.append('    call native int [mscorlib]System.Runtime.InteropServices.Marshal::'
+                   'GetFunctionPointerForDelegate(class [mscorlib]System.Delegate)')
+        out.append('    conv.i8')
+    return _codegen
+
+
+def _make_callback_free_all_codegen():
+    """Factory builtin 'callback_free_all()' (P2): CbKeepAlive.ReleaseAll()
+    (Clear - tha TAT CA delegate da keep, cho GC thu hoi) - tra 0 i64 de
+    goi dang lenh doc lap (mirror free_bytes)."""
+
+    def _codegen(args, scope, out, dtype, ctx):
+        if len(args) != 0:
+            raise SyntaxError("il_codegen: callback_free_all() khong nhan tham so")
+        out.append('    call void CbKeepAlive::ReleaseAll()')
+        out.append('    ldc.i8 0')
+    return _codegen
+
+
 def _validate_and_register_callback(decl):
     """F4b: validate 1 decl __tkv_callback__ roi dang ky builtin
-    'callback_<name>' (tra i64 - con tro ham native). Ten class delegate
+    'callback_<name>' (tra i64 - con tro ham native) + 'callback_keep_<name>'
+    (root delegate, tu giai phong bang 'callback_free_all'). Ten class delegate
     '<name>Delegate' + ten builtin duoc kiem trung toan cuc qua
-    register_expr_builtin (ValueError on ao)."""
+    register_expr_builtin (ValueError on ao). 'convention' (tuy chon):
+    'stdcall'/'cdecl' - hien tren class delegate (mac dinh vang mat)."""
     name = decl['name']
     params = decl['params']
     returns = decl['returns']
@@ -2634,8 +2882,14 @@ def _validate_and_register_callback(decl):
         raise TranspileError(
             f"__tkv_callback__ '{name}': returns = {returns!r} khong ho tro - v1 chi "
             f"'void' hoac {sorted(_CALLBACK_SCALARS)}")
+    if decl.get('convention') is not None and decl['convention'] not in _CALLBACK_CONVENTIONS:
+        raise TranspileError(
+            f"__tkv_callback__ '{name}': 'convention' = {decl['convention']!r} khong hop le - "
+            f"chi {sorted(_CALLBACK_CONVENTIONS)}")
     codegen_fn = _make_callback_ctor_codegen(decl)
     register_expr_builtin(f'callback_{name}', codegen_fn, 'i64')
+    keep_fn = _make_callback_keep_codegen(decl)
+    register_expr_builtin(f'callback_keep_{name}', keep_fn, 'i64')
 
 
 # F4c (2026-09-23, __tkv_com_class__): phoi 1 record ra COM (CCW) - mo
@@ -4685,9 +4939,14 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
                 f"__tkv_extern_class__: assembly {_decl['assembly']!r} chua duoc khai qua "
                 f"__tkv_extern_assembly__ - cac assembly da biet: {sorted(declared_assembly_names)}")
         if not _EXTERN_CLASS_NAME_RE.match(_decl['class']):
-            raise TranspileError(
-                f"__tkv_extern_class__: 'class' {_decl['class']!r} khong dung dinh dang ten "
-                f"class .NET hop le (vd 'System.Text.StringBuilder')")
+            if _decl['class'].startswith('generic:'):
+                # P2 (generic BCL): 'generic:Full`N[args]' - validate shape +
+                # type-args o ham rieng (can extern_class_defs cho handle).
+                _validate_generic_class_ref(_decl, extern_class_defs)
+            else:
+                raise TranspileError(
+                    f"__tkv_extern_class__: 'class' {_decl['class']!r} khong dung dinh dang ten "
+                    f"class .NET hop le (vd 'System.Text.StringBuilder')")
         for _pdtype in _decl['ctor']:
             if not _is_valid_extern_dtype(_pdtype) and _pdtype not in extern_class_defs:
                 if not _validate_extern_class_container_dtype(
@@ -5053,6 +5312,19 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
             elif kind == 'callback':
                 _validate_and_register_callback(decl)
                 registered_pinvoke_names.append(f"callback_{decl['name']}")
+                registered_pinvoke_names.append(f"callback_keep_{decl['name']}")
+                if not callback_class_lines:
+                    # P2: class root delegate + builtin free DUNG 1 LAN cho
+                    # ca chuong trinh (khong theo tung decl).
+                    if 'CbKeepAlive' in record_defs or 'CbKeepAlive' in extern_class_defs:
+                        raise TranspileError(
+                            "ten noi bo 'CbKeepAlive' (lop root delegate cho "
+                            "'callback_keep_*') trung voi record/extern-class cung ten - "
+                            "doi ten record/extern-class do")
+                    register_expr_builtin('callback_free_all',
+                                          _make_callback_free_all_codegen(), 'i64')
+                    registered_pinvoke_names.append('callback_free_all')
+                    callback_class_lines.extend(_cb_keepalive_il_lines())
                 callback_class_lines.extend(_callback_delegate_il_lines(decl))
             else:
                 _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines)

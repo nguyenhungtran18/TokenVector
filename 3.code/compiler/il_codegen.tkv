@@ -183,6 +183,9 @@ def _il_scalar_or_handle(dtype):
         return elem
     if _EXTERN_CLASS_DEFS and dtype in _EXTERN_CLASS_DEFS:
         d = _EXTERN_CLASS_DEFS[dtype]
+        if d['class'].startswith('generic:'):
+            import tkv_compile
+            return tkv_compile._extern_class_ref(d)
         return f"class [{d['assembly']}]{d['class']}"
     if _RECORD_DEFS and dtype in _RECORD_DEFS:
         return f'class {dtype}'
@@ -267,6 +270,9 @@ def il_type_str(type_ann: TypeAnn, records: dict = None) -> str:
         # 'record' o cho assembly-qualified (class do compiler TU SINH
         # khong can, class .NET co san BAT BUOC can [assembly]Ten.Day.Du).
         decl = _EXTERN_CLASS_DEFS[type_ann.dtype]
+        if decl['class'].startswith('generic:'):
+            import tkv_compile
+            return tkv_compile._extern_class_ref(decl)
         return f"class [{decl['assembly']}]{decl['class']}"
     if type_ann.shape == 'struct':
         # R1 (2026-09-22, __tkv_struct__): struct blittable cho pinvoke -
@@ -2654,13 +2660,15 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         # tham so/constructor (xem Critical 1, final review Phase 9b).
         il_params = []
         for arg_node, want_dtype in zip(args, ctor_dtypes):
-            il_params.append(_il_ctor_param_type(want_dtype, _EXTERN_CLASS_DEFS))
+            import tkv_compile as _tkv_compile4
+            il_params.append(_tkv_compile4._extern_class_param_il(want_dtype, decl))
             # Critical 1 + Important 1 (final review Phase 9d Part B): box
             # gia tri value-type khi tham so ctor khai 'object' + tu choi
             # dtype thuc te khac 'type' khi tham so khai 'type' - xem
             # docstring _compile_extern_object_arg.
             _compile_extern_object_arg(arg_node, scope, out, want_dtype, ctx)
-        class_ref = f"[{decl['assembly']}]{decl['class']}"
+        import tkv_compile as _tkv_compile3
+        class_ref = _tkv_compile3._extern_class_ref(decl)
         out.append(f"    newobj instance void {class_ref}::.ctor({', '.join(il_params)})")
         return
     if name in records:
@@ -2775,8 +2783,8 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
                 "(vd 'typeof(Widget)')")
         class_name = args[0][1]
         if class_name in _EXTERN_CLASS_DEFS:
-            decl = _EXTERN_CLASS_DEFS[class_name]
-            class_ref = f"[{decl['assembly']}]{decl['class']}"
+            import tkv_compile as _tkv_compile2
+            class_ref = _tkv_compile2._extern_class_ref(_EXTERN_CLASS_DEFS[class_name])
         elif _RECORD_DEFS and class_name in _RECORD_DEFS:
             # P2 (2026-09-23, typeof): record TKV la class top-level song
             # song class chuong trinh (xem gen_record_types) - ldtoken

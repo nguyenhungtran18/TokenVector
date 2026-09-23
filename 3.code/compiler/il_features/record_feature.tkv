@@ -265,8 +265,8 @@ def compile_attr(node, scope, out, dtype, ctx=None):
                     out.append(f'    ldc.r8 {float(_v)}')
                 ctx['widen_if_needed'](_facing, dtype, out)
                 return
-            _ret_il = _ilc._il_ctor_param_type(_field_dtype, _ilc._EXTERN_CLASS_DEFS)
-            _call_target = f"[{_decl['assembly']}]{_decl['class']}"
+            _ret_il = _tkv_compile._extern_class_param_il(_field_dtype, _decl)
+            _call_target = _tkv_compile._extern_class_ref(_decl)
             out.append(f'    ldsfld {_ret_il} {_call_target}::{field_name}')
             if isinstance(_field_dtype, str) and _field_dtype.startswith('array['):
                 _ilc._marshal_extern_return_array(_field_dtype, out, ctx)
