@@ -2142,9 +2142,9 @@ def _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines_out):
 # (D3D11 truc tiep, IUnknown::AddRef/Release...). Khai bao:
 # __tkv_vtable__ = [{"name": "unk_addref", "convention": "stdcall",
 #                    "params": [], "returns": "i32"}]
-# Sinh builtin 'unk_addref(iface, fn, *args)' - iface/fn la i64 (con tro
-# opaque, ghep voi read_i64 (R2) de doc vtable: 'vtbl = read_i64(p, 0);
-# fn = read_i64(vtbl, 8); r = unk_addref(p, fn)'). 'this' (iface) luon
+# Sinh builtin 'unk_addref(iface, slot, *args)' - iface/fn resolve NGAM
+# trong emitter ('fn = *(iface + slot*8)'): 'vtbl = read_i64(p, 0)' thu
+# cong KHONG can nua ('r = unk_addref(p, 1)' la du). 'this' (iface) luon
 # la doi so an dau tien cua chu ky calli ('native int'), KHONG khai
 # trong 'params' - 'params' chi mo ta cac doi so SAU 'this'.
 # 'ptr' (F4a): param/return la con tro native (IL 'native int', phia
@@ -2211,26 +2211,60 @@ def _vtable_il_sig(param_dtypes, return_dtype, convention):
 
 def _make_vtable_call_codegen(param_dtypes, return_dtype, convention):
     """Factory codegen cho 1 entry __tkv_vtable__: builtin
-    'ten(iface, fn, *args)' - iface/fn la i64 (opaque). Thu tu stack cho
-    'calli' (ECMA-335: con tro ham nam TREN CUNG, sau cac doi so): day
-    'this' (iface->native int), day args, day fn (->native int), roi
-    'calli'. 'ptr' param: conv.i sau khi compile (i64->native int);
+    'ten(iface, slot, *args)' - iface: i64 (con tro interface opaque),
+    slot: so thu tu slot vtable (i32, thuong la literal 0/1/2...), args
+    theo khai bao. Emitter TU resolve 'fn = *(iface + slot*8)' (doc that
+    2026-09-23: shape cu '(iface, fn-pointer)' la footgun - truyen nham
+    slot-number vao cho con tro la goi vao dia chi = slot -> AV cam).
+
+    Thu tu stack cho 'calli' (ECMA-335: con tro ham nam TREN CUNG): day
+    'this' truoc, day args, resolve fn CUOI (tranh double-eval: 'iface'
+    BAT BUOC la ten bien don - load local vo side-effect, nap lai lan 2
+    an toan; bieu thuc phuc tap thi gan ra bien truoc, bao loi ro rang).
+    So hoc con tro tren mien i64 (add int64 verifiable), chi conv.i tai
+    bien ReadInt64. 'ptr' param: conv.i sau khi compile (i64->native int);
     return 'ptr': conv.i8 sau calli (native int->i64 phia TokenVector)."""
     callsite = _vtable_il_sig(param_dtypes, return_dtype, convention)
+    _VT_MARSHAL = '[mscorlib]System.Runtime.InteropServices.Marshal'
 
     def _codegen(args, scope, out, dtype, ctx):
         if len(args) != len(param_dtypes) + 2:
             raise SyntaxError(
                 f"il_codegen: loi goi vtable can dung {len(param_dtypes) + 2} tham so "
-                f"(iface, fn, {len(param_dtypes)} doi so), duoc goi voi {len(args)}")
+                f"(iface, slot, {len(param_dtypes)} doi so), duoc goi voi {len(args)}")
         compile_expr = ctx['compile_expr']
-        compile_expr(args[0], scope, out, 'i64', ctx)
+        iface_node, slot_node = args[0], args[1]
+        if not (isinstance(iface_node, tuple) and iface_node[0] == 'var'):
+            raise SyntaxError(
+                f"il_codegen: doi so 'iface' cua loi goi vtable phai la 1 TEN BIEN don "
+                f"(vd 'p = get_iface(...); r = unk_addref(p, 1)' - khong truyen truc tiep "
+                f"bieu thuc vi emitter can nap lai dia chi interface khi resolve vtable)")
+        # 'this' (giua lai duoi day stack cho calli).
+        compile_expr(iface_node, scope, out, 'i64', ctx)
         out.append('    conv.i')
+        # Args khai bao.
         for arg_node, want_dtype in zip(args[2:], param_dtypes):
             compile_expr(arg_node, scope, out, _tokenvector_facing_dtype(want_dtype), ctx)
             if want_dtype == 'ptr':
                 out.append('    conv.i')
-        compile_expr(args[1], scope, out, 'i64', ctx)
+        # fn = *(iface + slot*8): nap lai iface (load local), doc vtbl,
+        # cong offset (toan i64), doc fn - fn nam TREN CUNG cho calli.
+        compile_expr(iface_node, scope, out, 'i64', ctx)
+        out.append('    conv.i')
+        out.append(f'    call int64 {_VT_MARSHAL}::ReadInt64(native int)')
+        out.append('    conv.i8')
+        try:
+            _slot_d = ctx['infer_dtype'](slot_node, scope, ctx.get('func_table'),
+                                         ctx.get('records'), ctx.get('record_methods'))
+        except Exception:
+            _slot_d = None
+        compile_expr(slot_node, scope, out, 'i64' if _slot_d == 'i64' else 'i32', ctx)
+        out.append('    conv.i8')
+        out.append('    ldc.i8 8')
+        out.append('    mul')
+        out.append('    add')
+        out.append('    conv.i')
+        out.append(f'    call int64 {_VT_MARSHAL}::ReadInt64(native int)')
         out.append('    conv.i')
         out.append(f'    calli {callsite}')
         if return_dtype == 'ptr':
