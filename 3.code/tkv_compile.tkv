@@ -2142,15 +2142,19 @@ def _validate_and_register_extern_pinvoke(decl, pinvoke_decl_lines_out):
 # (D3D11 truc tiep, IUnknown::AddRef/Release...). Khai bao:
 # __tkv_vtable__ = [{"name": "unk_addref", "convention": "stdcall",
 #                    "params": [], "returns": "i32"}]
-# Sinh builtin 'unk_addref(iface, slot, *args)' - iface/fn resolve NGAM
-# trong emitter ('fn = *(iface + slot*8)'): 'vtbl = read_i64(p, 0)' thu
-# cong KHONG can nua ('r = unk_addref(p, 1)' la du). 'this' (iface) luon
-# la doi so an dau tien cua chu ky calli ('native int'), KHONG khai
-# trong 'params' - 'params' chi mo ta cac doi so SAU 'this'.
+# Sinh builtin 'unk_addref(iface, slot, *args)' - iface: i64 bien don
+# (con tro interface opaque), slot: so thu tu slot vtable (i32), args
+# theo khai bao. Emitter TU resolve 'fn = *(iface + slot*8)' (doc that
+# 2026-09-23: shape cu '(iface, fn-pointer)' la footgun - truyen nham
+# slot-number vao cho con tro la goi vao dia chi = slot -> AV cam).
+# Mac dinh co 'this' an (COM method: iface la doi so dau tien). Ham
+# native TU DO (vd lay qua GetProcAddress - KHONG co this): them
+# '"this": "false"' vao decl - sig calli bo 'native int' dau, iface chi
+# dung de resolve fn (van can o dang cell 2 muc: cell->fn, xem rawfn).
 # 'ptr' (F4a): param/return la con tro native (IL 'native int', phia
 # TokenVector la i64) - dung cho IntPtr/HWND/COM... ma bang scalar
 # khong bieu dien duoc (int64 != native int tren IL stack).
-_VTABLE_KEYS = {'name', 'convention', 'params', 'returns'}
+_VTABLE_KEYS = {'name', 'convention', 'params', 'returns', 'this'}
 _VTABLE_REQUIRED = {'name', 'convention', 'returns'}
 
 
@@ -2198,33 +2202,45 @@ def _parse_vtable_dict_literal(node):
     return result
 
 
-def _vtable_il_sig(param_dtypes, return_dtype, convention):
-    """Chuoi callsite cho 'calli': 'unmanaged stdcall int32(native int,
-    ...)' - 'native int' DAU TIEN la 'this' (iface, ngam dinh), sau do
-    la params khai bao. 'ptr' -> 'native int', scalar qua bang."""
-    il_params = [_pinvoke_param_il(p) for p in param_dtypes]
-    il_ret = 'void' if return_dtype is None else _pinvoke_param_il(return_dtype)
+def _vtable_il_sig(param_dtypes, return_dtype, convention, has_this=True):
+    """Chuoi callsite cho 'calli': COM method (has_this) =
+    'unmanaged stdcall int32(native int, ...)' ('native int' DAU TIEN la
+    'this' ngam dinh); ham tu do (this=false) = khong co 'native int'
+    dau. 'ptr'/struct* -> 'native int' THO (KHAC pinvoke: pinvoke co
+    marshaling nen dung duoc managed 'valuetype&'; calli KHONG marshal -
+    byref managed trong chu ky unmanaged gay crash luc chay - phai truyen
+    dia chi tho + conv.i, an toan vi struct local la stack slot (GC khong
+    doi stack). Scalar qua bang. 'bool' CAM o day (BOOL 4-byte native vs
+    bool 1-byte IL - lech stack am tham; dung 'i32' cho BOOL/HRESULT)."""
+    il_params = [_vtable_param_il(p) for p in param_dtypes]
+    il_ret = 'void' if return_dtype is None else _vtable_param_il(return_dtype)
     callconv = 'stdcall' if convention == 'stdcall' else 'cdecl'
-    inner = ', '.join(['native int'] + il_params)
+    inner = ', '.join((['native int'] if has_this else []) + il_params)
     return f'unmanaged {callconv} {il_ret}({inner})'
 
 
-def _make_vtable_call_codegen(param_dtypes, return_dtype, convention):
-    """Factory codegen cho 1 entry __tkv_vtable__: builtin
-    'ten(iface, slot, *args)' - iface: i64 (con tro interface opaque),
-    slot: so thu tu slot vtable (i32, thuong la literal 0/1/2...), args
-    theo khai bao. Emitter TU resolve 'fn = *(iface + slot*8)' (doc that
-    2026-09-23: shape cu '(iface, fn-pointer)' la footgun - truyen nham
-    slot-number vao cho con tro la goi vao dia chi = slot -> AV cam).
+def _vtable_param_il(p):
+    """IL text cho 1 param/return cua __tkv_vtable__ (goi _pinvoke_param_il
+    cho scalar/'ptr', NHUNG struct* ve 'native int' - xem _vtable_il_sig)."""
+    _m = _STRUCT_PTR_RE.match(p) if isinstance(p, str) else None
+    if _m is not None:
+        return 'native int'
+    return _pinvoke_param_il(p)
 
-    Thu tu stack cho 'calli' (ECMA-335: con tro ham nam TREN CUNG): day
-    'this' truoc, day args, resolve fn CUOI (tranh double-eval: 'iface'
-    BAT BUOC la ten bien don - load local vo side-effect, nap lai lan 2
-    an toan; bieu thuc phuc tap thi gan ra bien truoc, bao loi ro rang).
+
+def _make_vtable_call_codegen(param_dtypes, return_dtype, convention, has_this=True):
+    """Factory codegen cho 1 entry __tkv_vtable__ (xem khoi comment F4a).
+    has_this=True (COM method): 'ten(iface, slot, *args)' - day 'this'
+    truoc, day args, resolve fn CUOI. has_this=False (ham tu do):
+    'ten(base, slot, *args)' - day args truoc, resolve fn CUOI (khong
+    can temp vi fn luon tinh sau cung tu base+slot). 'iface'/'base' BAT
+    BUOC la ten bien don (nap lai lan 2 vo side-effect).
+
+    Thu tu stack cho 'calli' (ECMA-335: con tro ham nam TREN CUNG).
     So hoc con tro tren mien i64 (add int64 verifiable), chi conv.i tai
-    bien ReadInt64. 'ptr' param: conv.i sau khi compile (i64->native int);
-    return 'ptr': conv.i8 sau calli (native int->i64 phia TokenVector)."""
-    callsite = _vtable_il_sig(param_dtypes, return_dtype, convention)
+    bien ReadInt64. 'ptr'/struct* param: dia chi tho + conv.i (i64->
+    native int); return 'ptr': conv.i8 sau calli."""
+    callsite = _vtable_il_sig(param_dtypes, return_dtype, convention, has_this)
     _VT_MARSHAL = '[mscorlib]System.Runtime.InteropServices.Marshal'
 
     def _codegen(args, scope, out, dtype, ctx):
@@ -2239,19 +2255,42 @@ def _make_vtable_call_codegen(param_dtypes, return_dtype, convention):
                 f"il_codegen: doi so 'iface' cua loi goi vtable phai la 1 TEN BIEN don "
                 f"(vd 'p = get_iface(...); r = unk_addref(p, 1)' - khong truyen truc tiep "
                 f"bieu thuc vi emitter can nap lai dia chi interface khi resolve vtable)")
-        # 'this' (giua lai duoi day stack cho calli).
-        compile_expr(iface_node, scope, out, 'i64', ctx)
-        out.append('    conv.i')
-        # Args khai bao.
+        # 'this' an (COM method): giua lai duoi day stack cho calli.
+        # Ham tu do: KHONG day this (sig calli khong co 'native int' dau).
+        if has_this:
+            compile_expr(iface_node, scope, out, 'i64', ctx)
+            out.append('    conv.i')
+        # Args khai bao ('ptr' + struct* xu ly rieng nhu pinvoke).
         for arg_node, want_dtype in zip(args[2:], param_dtypes):
+            _pm = _STRUCT_PTR_RE.match(want_dtype) if isinstance(want_dtype, str) else None
+            if _pm is not None:
+                if not (isinstance(arg_node, tuple) and arg_node[0] == 'var'):
+                    raise SyntaxError(
+                        f"il_codegen: tham so struct '{want_dtype}' can 1 ten bien struct don")
+                try:
+                    _, _, _ta = scope[arg_node[1]]
+                except (KeyError, SyntaxError):
+                    raise SyntaxError(
+                        f"il_codegen: '{arg_node[1]}' khong phai bien struct da khai bao")
+                if _ta.shape != 'struct' or _ta.dtype != _pm.group(1):
+                    raise SyntaxError(
+                        f"il_codegen: tham so struct '{want_dtype}' can bien kieu struct "
+                        f"'{_pm.group(1)}', gap '{arg_node[1]}' kieu {_ta.dtype!r}/shape {_ta.shape!r}")
+                # Dia chi THO (native int) cho calli - KHAC pinvoke (managed&
+                # + marshaling, crash luc chay): xem _vtable_il_sig.
+                ctx['load_var_addr'](arg_node[1], scope, out)
+                out.append('    conv.i')
+                continue
             compile_expr(arg_node, scope, out, _tokenvector_facing_dtype(want_dtype), ctx)
             if want_dtype == 'ptr':
                 out.append('    conv.i')
-        # fn = *(iface + slot*8): nap lai iface (load local), doc vtbl,
-        # cong offset (toan i64), doc fn - fn nam TREN CUNG cho calli.
+        # fn resolve: COM (has_this) = 2 muc (iface -> vtbl -> fn[slot]);
+        # ham tu do = 1 muc (base TRO TOI MANG con tro ham -> fn[slot]).
+        # Sau do thong nhat: slot*8 (i64), add, doc fn - fn TREN CUNG.
         compile_expr(iface_node, scope, out, 'i64', ctx)
         out.append('    conv.i')
-        out.append(f'    call int64 {_VT_MARSHAL}::ReadInt64(native int)')
+        if has_this:
+            out.append(f'    call int64 {_VT_MARSHAL}::ReadInt64(native int)')
         out.append('    conv.i8')
         try:
             _slot_d = ctx['infer_dtype'](slot_node, scope, ctx.get('func_table'),
@@ -2277,26 +2316,47 @@ def _make_vtable_call_codegen(param_dtypes, return_dtype, convention):
 def _validate_and_register_vtable(decl):
     """F4a: validate 1 decl __tkv_vtable__ da parse SHAPE, roi dang ky
     builtin calli - mirror _validate_and_register_extern_pinvoke (KHONG
-    dll/symbol/pinvokeimpl - con tro ham den luc chay qua doi so 'fn').
-    'void' returns -> EXTERN_VOID_BUILTIN_NAMES (goi dang lenh doc lap)."""
+    dll/symbol/pinvokeimpl - con tro ham resolve luc chay tu iface+slot).
+    'void' returns -> EXTERN_VOID_BUILTIN_NAMES (goi dang lenh doc lap).
+    'this'='false' (tuy chon): ham native tu do, sig calli khong co this."""
     name = decl['name']
     convention = decl['convention']
     params = decl['params']
     returns = decl['returns']
+    this_opt = decl.get('this', 'true')
+    if this_opt not in ('true', 'false'):
+        raise TranspileError(
+            f"__tkv_vtable__ '{name}': 'this' = {this_opt!r} khong hop le - "
+            f"chi 'true' (COM method, mac dinh) hoac 'false' (ham tu do)")
+    has_this = this_opt == 'true'
 
     if convention not in _EXTERN_CONVENTIONS:
         raise TranspileError(
             f"__tkv_vtable__ '{name}': 'convention' = {convention!r} khong hop le - "
             f"chi ho tro {sorted(_EXTERN_CONVENTIONS)}")
     for i, p in enumerate(params):
-        if p != 'ptr' and p not in _EXTERN_DTYPE_TO_IL:
+        _pm = _STRUCT_PTR_RE.match(p) if isinstance(p, str) else None
+        if _pm is not None:
+            # Struct blittable truyen dia chi THO (native int) - xem
+            # _vtable_il_sig (mo COM method co struct params, F-4a).
+            if _pm.group(1) not in il_codegen._STRUCT_DEFS:
+                raise TranspileError(
+                    f"__tkv_vtable__ '{name}': params[{i}] = {p!r} - struct "
+                    f"'{_pm.group(1)}' chua duoc khai bao qua __tkv_struct__")
+        elif p != 'ptr' and p not in _EXTERN_DTYPE_TO_IL:
             raise TranspileError(
                 f"__tkv_vtable__ '{name}': params[{i}] = {p!r} khong phai dtype hop le - "
-                f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)} hoac 'ptr' (con tro native)")
+                f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)}, 'ptr' (con tro native) "
+                f"hoac con tro struct 'TenStruct*'")
         if p in ('object', 'type'):
             raise TranspileError(
                 f"__tkv_vtable__ '{name}': params[{i}] = {p!r} chua duoc ho tro - "
                 f"dtype 'object'/'type' khong co kieu IL on dinh cho chu ky 'calli'")
+        if p == 'bool':
+            raise TranspileError(
+                f"__tkv_vtable__ '{name}': params[{i}] = 'bool' chua duoc ho tro - calli "
+                f"KHONG marshal (bool IL 1-byte vs BOOL native 4-byte lech stack am tham) - "
+                f"dung 'i32' cho BOOL/HRESULT/VARIANT_BOOL tuy truong hop")
     if returns != 'void' and returns != 'ptr' and returns not in _EXTERN_DTYPE_TO_IL:
         raise TranspileError(
             f"__tkv_vtable__ '{name}': returns = {returns!r} khong phai dtype hop le - "
@@ -2305,12 +2365,16 @@ def _validate_and_register_vtable(decl):
         raise TranspileError(
             f"__tkv_vtable__ '{name}': returns = {returns!r} chua duoc ho tro - "
             f"dtype 'object'/'type' khong co kieu IL on dinh cho chu ky 'calli'")
+    if returns == 'bool':
+        raise TranspileError(
+            f"__tkv_vtable__ '{name}': returns = 'bool' chua duoc ho tro - calli KHONG "
+            f"marshal (bool IL 1-byte vs BOOL native 4-byte) - dung 'i32'")
     if not name.isidentifier():
         raise TranspileError(
             f"__tkv_vtable__: 'name' = {name!r} khong phai identifier hop le")
 
     return_dtype = None if returns == 'void' else returns
-    codegen_fn = _make_vtable_call_codegen(params, return_dtype, convention)
+    codegen_fn = _make_vtable_call_codegen(params, return_dtype, convention, has_this)
     register_expr_builtin(name, codegen_fn, _tokenvector_facing_dtype(return_dtype))
     if return_dtype is None:
         EXTERN_VOID_BUILTIN_NAMES.add(name)
@@ -3431,7 +3495,17 @@ def _parse_program_ast(source_text, source_path=None):
             elts = v.elts if isinstance(v, ast.List) else [v]
             for e in elts:
                 if isinstance(e, ast.Constant) and isinstance(e.value, str):
-                    extern_assemblies.append((e.value, 'DEFAULT', 'DEFAULT'))
+                    if ',' in e.value:
+                        # F-3 remainder (2026-09-23): full identity string ngay
+                        # trong pragma assembly (vd "R3Test, Version=0.0.0.0,
+                        # Culture=neutral, PublicKeyToken=null") - parse ra
+                        # (ten, token, version) that thay vi de ten tho co dau
+                        # phay rot xuong IL gay loi assemble (truoc day).
+                        _sn, _tk, _ver = _parse_full_assembly_identity(
+                            e.value, '__tkv_extern_assembly__')
+                        extern_assemblies.append((_sn, _tk, _ver))
+                    else:
+                        extern_assemblies.append((e.value, 'DEFAULT', 'DEFAULT'))
                 elif isinstance(e, ast.Tuple) and len(e.elts) == 3:
                     parts = []
                     for sub in e.elts:
