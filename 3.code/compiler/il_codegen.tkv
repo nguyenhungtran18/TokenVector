@@ -2068,6 +2068,36 @@ def _expr_in(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         _compile_expr(key_node, scope, out, coll_ta.dtype, ctx)
         out.append(f'    callvirt instance bool {col_type}::Contains(!0)')
         return
+    if coll_ta.shape == 'record':
+        # 2026-09-28: 'x in rec' goi __contains__ cua record - giong het
+        # cach __eq__/__add__/__getitem__ duoc noi o compile_compare/
+        # compile_binop/_expr_index. Truoc day 'in' chi co nhanh
+        # dict/set/list/chuoi nen 'v in rec' bao loi.
+        records = (ctx or {}).get('records') or {}
+        record_methods = (ctx or {}).get('record_methods') or {}
+        dunder = record_methods.get(coll_ta.dtype, {}).get('__contains__')
+        if dunder is None:
+            raise SyntaxError(
+                f"il_codegen: 'in' tren record '{coll_ta.dtype}' can "
+                f"'__contains__(self, x)' de kiem tra - record do chua co. "
+                f"(chi dict/set/list/chuoi hoat dong ngay; record phai tu "
+                f"viet __contains__ nhu __eq__/__getitem__)")
+        if len(dunder.params) != 1 or dunder.return_type is None or \
+                dunder.return_type.dtype not in ('i32', 'bool') or \
+                dunder.return_type.shape is not None:
+            raise SyntaxError(
+                f"il_codegen: record '{coll_ta.dtype}' co __contains__ nhung "
+                f"chu ky sai - can dung DUNG 1 tham so va tra ve \"i32\" "
+                f"(vd 'def __contains__(self, x: \"i32\") -> \"i32\":')")
+        _compile_expr(coll_node, scope, out, coll_ta.dtype, ctx)
+        key_ta = dunder.params[0].type_ann
+        _compile_expr(key_node, scope, out,
+                      key_ta.dtype if key_ta.shape is None else key_ta.dtype, ctx)
+        from il_features.record_feature import _method_owner_class
+        owner = _method_owner_class(ctx, coll_ta.dtype, '__contains__')
+        out.append(f'    callvirt instance int32 {owner}::__contains__'
+                   f'({ctx["il_type_str"](key_ta, records)})')
+        return
     if coll_ta.shape != 'dict':
         raise SyntaxError(
             f"il_codegen: 'in' hien CHI ho tro dict/set/list/chuoi ('{coll_node[1]}' co "
