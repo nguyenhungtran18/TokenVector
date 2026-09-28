@@ -36,6 +36,10 @@ from il_features.stdlib_functional import _resolve_func_ta
 
 _LIST_SORT_RE = re.compile(r'^(\w+)\.sort\(\s*(.*?)\s*\)\s*$')
 _LIST_EXTEND_RE = re.compile(r'^(\w+)\.extend\((\w+)\)\s*$')
+# 'lst.extend(<bieu thuc>)' - dung de BAT loi ro rang chu khong phai ban
+# dau thu: regex that chi nhan TEN bien (xem ghi chu try_parse_list_extend),
+# nen dong co bieu thuc se lo qua im lang va bao loi chung chung o noi khac.
+_LIST_EXTEND_LOOSE_RE = re.compile(r'^(\w+)\.extend\(.+\)\s*$')
 
 
 def _parse_sort_kwargs(args_text, lst_name):
@@ -98,6 +102,19 @@ def try_parse_list_extend(line, lines, pos, indent_level, sig, known_shapes, par
     thuc bat ky khong dam bao chi la 1 ten bien)."""
     m = _LIST_EXTEND_RE.match(line)
     if not m:
+        # 2026-09-28: 'a.extend([2, 3])' truoc day rơi xuong het vong LINE_PARSERS
+        # va bao chung chung "khong dich duoc dong" - doc khong ra la gi.
+        # Giua hanh thi MOT HANG nua coi nhu loi cu phap. noi ro ngay.
+        m_loose = _LIST_EXTEND_LOOSE_RE.match(line)
+        if m_loose:
+            raise SyntaxError(
+                f"il_codegen: '{m_loose.group(1)}.extend(...)' chi nhan MOT TEN "
+                f"BIEN lam doi so, khong nhan bieu thuc. 'extend' doc "
+                f"scope[ten] de doi chieu kieu phan tu luc sinh ma nen phai "
+                f"biet kieu PHAI SU bien - mot list literal hay vi tri goi ham "
+                f"deu khong cho compiler biet truoc phan tu kieu la gi. "
+                f"Cach viet duoc: gan vao bien truoc roi truyen ten bien - "
+                f"vd `tmp = [2, 3]` roi `a.extend(tmp)`")
         return None
     _sh = known_shapes.get(m.group(1))
     if _sh is not None and _sh != 'list':

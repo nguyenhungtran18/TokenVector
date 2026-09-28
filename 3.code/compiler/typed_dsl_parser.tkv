@@ -304,6 +304,19 @@ class Parser:
             k_kind, k_val, k_pos = self.advance()
             if k_kind != 'IDENT' or k_val not in DTYPES:
                 raise SyntaxError(f"il_codegen: ky vong key_dtype trong 'dict[...]', gap {k_val!r} (vi tri ~{k_pos})")
+            # 2026-09-28: 'dict[K]' (thieu kieu gia tri) truoc day bao
+            # "Ky vong OP ',', gap OP ']'" - doc khong ra la thieu cai gi.
+            # KHONG tu gan kieu gia tri mac dinh: DSL nay khong co kieu
+            # 'any' (xem DTYPES) va 'Dictionary<K,V] trong .NET la kieu
+            # CUU - khong ton tai thu hien 'gia tri la gi ca'. Do la ly do
+            # ma ma nguon trong repo (Data) viet 'dict[str,i32]' day du.
+            if self.peek()[1] == ']':
+                raise SyntaxError(
+                    f"il_codegen: 'dict[{k_val}]' thieu kieu GIA TRI - phai viet "
+                    f"'dict[{k_val},<kieu>]' (vd 'dict[{k_val},str]' hoac "
+                    f"'dict[{k_val},i32]'). DSL nay khong co kieu 'any', va "
+                    f"Dictionary<K,V> cua .NET la kieu CUU nen khong co "
+                    f"'gia tri bat ky' mac dinh de gan vao")
             self.expect('OP', ',')
             val_ta = self.parse_type_ann()
             self.expect('OP', ']')
