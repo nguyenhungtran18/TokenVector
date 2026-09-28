@@ -4506,7 +4506,8 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
         (return/gan/dieu kien if-while/bien vong lap/doi so ham) - them
         moc moi rieng se bo sot vi tri."""
         _declare_slice_temps(expr_node, {'declare_named': declare_named,
-                                         'TypeAnn': TypeAnn})
+                                         'TypeAnn': TypeAnn,
+                                         'infer_scope': infer_scope})
         # Walrus 'NAME := expr' (Phase 13, 2026-08-29): tai dung NGUYEN
         # VEN declare_scalar (dung boi 'x = expr' thuong) de suy dtype tu
         # ve phai va khai bao local MOI neu 'NAME' chua tung xuat hien -
@@ -4792,6 +4793,25 @@ def _declare_slice_temps(node, ctx):
         # Truong hop list (assign_list_slice) tu khai bao rieng trong
         # slicing.py; khai bao thua o day chi ton 1 local i32 khong dung.
         ctx['declare_named'](f'__slice{id(node)}_start', ctx['TypeAnn']('i32', None))
+        # 2026-09-28: slice co buoc 'a[i:j:k]' - .NET GetRange/Substring khong
+        # buoc, phai sinh VONG LAP. Can them local: chi so chay, gia tri buoc,
+        # va ket qua (list moi / StringBuilder moi cho string).
+        if len(node) > 4 and node[4] is not None:
+            i32 = ctx['TypeAnn']('i32', None)
+            for suffix in ('_step', '_stop', '_idx'):
+                ctx['declare_named'](f'__slice{id(node)}{suffix}', i32)
+            # Ket qua: list moi cho list, StringBuilder moi cho string (roi
+            # moi ToString() - xem slicing.tkv's _compile_slice_step).
+            infer_scope = ctx.get('infer_scope')
+            # infer_scope la _DtypeOnlyScope - co __getitem__ va '_d', KHONG
+            # co '.get()' (xem slicing.tkv: `ctx['infer_scope'][src_name]`).
+            src_ta = (infer_scope[node[1]][2]
+                      if infer_scope is not None and node[1] in infer_scope._d else None)
+            if src_ta is not None and src_ta.shape == 'list':
+                out_ta = ctx['TypeAnn'](src_ta.dtype, 'list')
+            else:
+                out_ta = ctx['TypeAnn']('str', 'strbuf')
+            ctx['declare_named'](f'__slice{id(node)}_out', out_ta)
     for sub in node:
         if isinstance(sub, tuple):
             _declare_slice_temps(sub, ctx)

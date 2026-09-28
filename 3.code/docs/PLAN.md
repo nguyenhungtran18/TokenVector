@@ -113,7 +113,7 @@ Cổng: `Testkit/bool_type_test.tkv`, 20 check.
 | `return <giá trị>` trong generator | `StopIteration.value` |
 | ~~`for/else` + `while/else`~~ | ~~Đã xong 2026-09-28, xem Bước 4.~~ Dự đoán ban đầu ở đây ("CIL không có cờ, phải cấp biến cờ cho mỗi `break`") **sai** — dùng nhãn là xong, không cần cờ. |
 | ~~Comprehension lồng `[.. for x .. for y ..]`~~ | ~~Đã xong 2026-09-28, xem Bước 5.~~ |
-| Slice có bước `a[::2]` | |
+| ~~Slice có bước `a[::2]`~~ | ~~Đã xong 2026-09-28, xem Bước 6. Bước âm cố ý chưa làm.~~ |
 | Biểu thức điều kiện `a if c else b` | Và `c ? a : b` **cũng không hợp lệ**, dù chính thông báo lỗi của compiler bảo dùng cú pháp đó — cần sửa thông báo hoặc hỗ trợ cả hai |
 | Hàm lồng phải là câu lệnh **đầu tiên** | `def inner()` sau `k = 1` → lỗi |
 | Chuỗi nhiều dòng `"""..."""` | |
@@ -210,6 +210,40 @@ Hai chỗ phải sửa cùng lúc, nếu không thì lệch nhau:
 nhỏ hơn. Chỉ tìm `if` thì cắt sai `iterable` khi có vòng `for` thứ hai; chỉ tìm
 `for` thì cắt sai khi có `if`. Và `if` thuộc về vòng `for` **ngay trước nó**, nên
 trong `[x for x in a if p for y in b if q]`, cả `p` lẫn `q` đều thuộc vòng hai.
+
+### Bước 6 — ~~Slice có bước `a[i:j:k]`~~ *đã xong 2026-09-28*
+`Testkit/slice_step_test.tkv` 16/16, đối chiếu CPython 3.11 ở 8 ca list.
+
+.NET **không có** primitive cắt theo bước: `List<T>.GetRange(start, count)` và
+`String.Substring(start, count)` đều lấy contiguous. Nên phải sinh vòng lap:
+đọc từng phần tử vào `List<T>` mới, hoặc `StringBuilder` mới rồi `ToString()`.
+
+**Chốt phạm vi: bước DƯƠNG thôi.** Bước âm cần đổi chiều so sánh (`i > stop`
+thay vì `i < stop`), sửa mốc âm (Python `a[::-1]` lấy từ `-1` ngược về), và sửa
+điều kiện thoát vòng lặp. Nhiều trường hợp, mỗi trường hợp dễ sai — từ chối rõ
+ràng còn hơn sinh IL sai. Linter chặn `a[::-1]` ngay trước khi biên dịch.
+
+Ba chỗ phải sửa cùng lúc:
+
+1. `il_core.tkv` — node `slice` ghi thêm phần tử thứ 5 (bước). Không chỗ nào
+   unpack node slice thành số biến cố định (đều dùng `node[i]`), nên an toàn.
+2. `il_codegen.tkv` (`_declare_slice_temps`) — khai báo local ẩn cho vòng lặp:
+   chỉ số chạy, giá trị bước, mốc `stop`, và container kết quả.
+3. `il_features/slicing.tkv` — `_compile_slice_step` phát vòng lặp.
+4. `syntax_baseline.tkv` — `visit_Slice` chỉ chặn bước **âm**.
+
+Hai bẫy đã mắc trong lúc làm:
+
+- **`a[::2]`**: dấu `:` thứ hai **không** phải bắt đầu `stop` mà là dấu phân
+  cách bước. Đưa nó cho `parse_expr` là lỗi ngay. Phải tách nó ra **trước khi**
+  quyết định có parse `stop` hay không.
+- **`ast.Num`**: đã bị **xoá** từ Python 3.12 (máy này là 3.14). Dùng nó làm cả
+  linter chết với `AttributeError`, chứ không phải thông báo của linter. Phải
+  dùng `ast.Constant`.
+
+Ngoài ra `infer_scope` là `_DtypeOnlyScope` — có `__getitem__` và `._d`, **không
+có** `.get()`. Và `s[::1]` cố ý rơi về đường `GetRange`/`Substring` sẵn có, khỏi
+sinh vòng lặp.
 
 ### Bước 5 — `lambda` — ~~XONG, xem mục 8~~
 

@@ -87,10 +87,15 @@
   only allowed for dict comprehensions over `.items()`
   (`{k: v for k, v in d.items()}`). Each `if` becomes its own nested block, so
   `{k: v for k in a if p for v in b if q}` gives `p` to the second `for`.
+- **Slicing**: `a[i:j]` works on lists and strings, and `a[i:j:k]` adds a
+  **positive** step (`a[::2]`, `a[1:5:2]`). .NET has no strided primitive —
+  `GetRange`/`Substring` are contiguous — so a step is lowered to a loop. A
+  negative step (`a[::-1]`) is rejected; slices still only work as the direct
+  RHS of an assignment, and negative indices only as compile-time constants.
 - **Known gaps**: `yield from`,
   conditional expressions (`a if c else b` *and* `c ? a : b`
-  both fail, though an error message tells you to use the latter), slices with a
-  step, `del`, keyword-only and positional-only parameters,
+  both fail, though an error message tells you to use the latter),
+  `del`, keyword-only and positional-only parameters,
   set literals, nested/tuple literals, and call-site `*`/`**` unpacking (calls
   have statically known arity, so a run-time-length sequence cannot be passed).
   Full list with difficulty ranking in `3.code/docs/PLAN.md`; per-item status in

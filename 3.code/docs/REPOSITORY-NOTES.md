@@ -669,3 +669,22 @@ han cua *shape* ma macro khop duoc. No deu dung o linter va deu ro rang:
 - phai nằm trên **một dòng vật lý** (`_LIST_COMP_OUTER_RE`/`_DICT_COMP_OUTER_RE`
   là `^...$`, không `DOTALL`); linter kiem bang `end_lineno`
 - target nhiều biến chi danh cho dict-comp tren `.items()`
+
+## Slice co buoc `a[i:j:k]` (2026-09-28)
+
+Xong, gate 16/16, 8 ca list doi chieu CPython 3.11 khop het. Xem "Buoc 6" o
+`PLAN.md`.
+
+`ast.Num` da bi **XOA** tu Python 3.12, may nay chay 3.14. Neu dung no trong
+`syntax_baseline.tkv` thi ca pre-flight linter chet bang `AttributeError`, va
+`tkvc.exe` nem traceback thay vi in thong bao linter - trieu chung nhin KHONG
+giong loi cu phap ma rat kho doan. Dung `ast.Constant`.
+
+Mot loi khac cung dung loai nao, nen ghi lai: `infer_scope` la `_DtypeOnlyScope`,
+co `__getitem__` va thuoc tinh `._d`, **khong co** `.get()`. Goi `.get()` se
+AttributeError.
+
+Pham vi: chi buoc DUONG. `a[::-1]` bi `visit_Slice` chan truoc khi bien dich bat
+dau. Ly do khong lam: doi chieu so sanh, sua moc am, sua dieu kien thoat - nhieu
+truong hop de sai hon la sinh IL sai. Neu sau nay lam, phai sua ca ba, va
+phai khoa bang test kiem tra bien am (vd `a[5:0:-2]` -> [4, 2]).

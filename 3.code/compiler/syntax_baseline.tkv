@@ -697,8 +697,23 @@ class _BaselineVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Slice(self, node):
+        # 2026-09-28: buoc DUONG da ho tro (slicing.tkv sinh vong lap -
+        # .NET GetRange/Substring khong buoc). Chi buoc AM con bi chan: no
+        # can doi chieu so sanh va sua moc, chua lam.
+        #
+        # 'ast.Constant' chu KHONG phai 'ast.Num': Num da bi xoa tu Python
+        # 3.12 (mo truong nay la 3.14), dung no se AttributeError lam hong
+        # ca linter chu khong phai thong bao cua no.
         if node.step is not None:
-            self._flag(node, 'slice with step (x[a:b:c])')
+            n = node.step
+            neg = (isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub)
+                   and isinstance(n.operand, ast.Constant)
+                   and isinstance(n.operand.value, (int, float))
+                   and not isinstance(n.operand.value, bool))
+            if not neg:
+                self.generic_visit(node)
+                return
+            self._flag(node, 'slice with negative step (x[a:b:-c])')
         self.generic_visit(node)
 
     def visit_Starred(self, node):

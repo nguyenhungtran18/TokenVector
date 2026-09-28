@@ -834,9 +834,33 @@ class _ExprParser:
                     # (None = 'name[:stop]'/'name[start:]'/'name[:]').
                     self.advance()
                     k4, v4 = self.peek()
-                    stop_node = None if (k4 == 'OP' and v4 == ']') else self.parse_expr()
+                    # 2026-09-28: buoc 'name[start:stop:step]'. Node ghi them
+                    # phan tu thu 5 - khong cho nao dang unpack node slice
+                    # thanh so bien co dinh (deu dung node[i]), nen phia
+                    # duoi doc node[1..3] van y nguyen.
+                    #
+                    # 'a[::k]': dau ':' thu HAI khong phai bat dau 'stop' ma
+                    # la dau phan cach buoc - neu dua no cho parse_expr se
+                    # loi "khong parse duoc factor tai OP ':'". Phai tach
+                    # truoc khi quyet dinh co parse 'stop' hay khong.
+                    step_node = None
+                    if k4 == 'OP' and v4 == ':':
+                        stop_node = None
+                        self.advance()
+                        k6, v6 = self.peek()
+                        step_node = (None if (k6 == 'OP' and v6 == ']')
+                                     else self.parse_expr())
+                    else:
+                        stop_node = (None if (k4 == 'OP' and v4 == ']')
+                                     else self.parse_expr())
+                        k5, v5 = self.peek()
+                        if k5 == 'OP' and v5 == ':':
+                            self.advance()
+                            k6, v6 = self.peek()
+                            step_node = (None if (k6 == 'OP' and v6 == ']')
+                                         else self.parse_expr())
                     self.expect_op(']')
-                    return ('slice', v, start_node, stop_node)
+                    return ('slice', v, start_node, stop_node, step_node)
                 # Khong phai slice (khong gap ':' ngay sau phan tu dau) -
                 # roi ve nhanh index/multi-dim binh thuong nhu cu.
                 indices = [start_node]
