@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TokenVector Cross-Platform AI Media Player</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #07090e;
+      --panel-bg: rgba(15, 23, 42, 0.75);
+      --panel-border: rgba(255, 255, 255, 0.08);
+      --accent-cyan: #00f2fe;
+      --accent-blue: #4facfe;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-purple: #8b5cf6;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: radial-gradient(circle at 50% 20%, #171d31 0%, #07090e 80%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }
+
+    .app-container {
+      width: 100%;
+      max-width: 1200px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    /* HEADER */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.5rem;
+      background: var(--panel-bg);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--panel-border);
+      border-radius: 1rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-logo {
+      width: 2.25rem;
+      height: 2.25rem;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      border-radius: 0.6rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #000;
+      font-size: 1.1rem;
+    }
+
+    .brand-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(to right, #fff, var(--accent-cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.2rem 0.5rem;
+      border-radius: 2rem;
+      background: rgba(0, 242, 254, 0.15);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(0, 242, 254, 0.3);
+    }
+
+    /* MAIN STUDIO GRID */
+    .studio-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 900px) {
+      .studio-grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--panel-bg);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--panel-border);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    /* VISUALIZER & VIDEO VIEWPORT */
+    .viewport-container {
+      position: relative;
+      height: 280px;
+      background: #000;
+      border-radius: 0.75rem;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .viewport-overlay {
+      position: absolute;
+      top: 0.75rem;
+      left: 0.75rem;
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      background: rgba(0, 0, 0, 0.75);
+      padding: 0.2rem 0.5rem;
+      border-radius: 0.25rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--accent-cyan);
+    }
+
+    /* TRACK INFO & TIMELINE */
+    .track-meta {
+      margin-top: 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .track-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+
+    .track-artist {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 0.2rem;
+    }
+
+    .timeline-container {
+      margin-top: 1rem;
+    }
+
+    .time-bar {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 1rem;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .time-progress {
+      width: 25%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+      border-radius: 1rem;
+      position: relative;
+    }
+
+    .time-labels {
+      display: flex;
+      justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.4rem;
+    }
+
+    /* CONTROLS */
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 1.25rem;
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--panel-border);
+      color: var(--text-main);
+      padding: 0.6rem 1.2rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-play {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      color: #000;
+      border: none;
+      padding: 0.75rem 1.75rem;
+      font-size: 0.95rem;
+    }
+
+    .btn-play:hover {
+      opacity: 0.9;
+      transform: scale(1.02);
+    }
+
+    /* DSP RACK */
+    .dsp-rack {
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+    }
+
+    .dsp-card {
+      background: rgba(2, 6, 23, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 0.75rem;
+      padding: 0.9rem 1.1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s;
+    }
+
+    .dsp-card.active {
+      border-color: rgba(0, 242, 254, 0.4);
+      background: rgba(0, 242, 254, 0.04);
+    }
+
+    .dsp-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .dsp-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .dsp-desc {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* TOGGLE SWITCH */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+    }
+
+    .switch input { opacity: 0; width: 0; height: 0; }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(255, 255, 255, 0.15);
+      transition: .3s;
+      border-radius: 24px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(20px);
+      background-color: #000;
+    }
+
+    /* VU METER */
+    .vu-meter-container {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .vu-channel {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    .vu-bar-bg {
+      flex: 1;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .vu-bar-fill {
+      height: 100%;
+      width: 60%;
+      background: linear-gradient(90deg, var(--accent-emerald) 60%, var(--accent-amber) 85%, #ef4444 100%);
+      transition: width 0.05s ease-out;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- HEADER -->
+    <div class="header">
+      <div class="brand">
+        <div class="brand-logo">TV</div>
+        <div>
+          <div class="brand-title">TokenVector Studio MediaPlayer</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">Cross-Platform Native AI Audio & Vision Player</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <span class="brand-badge">.TKV NATIVE</span>
+        <span class="brand-badge" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); border-color: rgba(16, 185, 129, 0.3);">AVX2 SIMD</span>
+      </div>
+    </div>
+
+    <!-- MAIN GRID -->
+    <div class="studio-grid">
+      <!-- LEFT: VISUALIZER & PLAYBACK -->
+      <div class="card">
+        <div class="viewport-container">
+          <canvas id="visualizerCanvas"></canvas>
+          <div class="viewport-overlay">
+            <span class="tag">60 FPS FFT</span>
+            <span class="tag" style="color: var(--accent-emerald);">48kHz Hi-Fi</span>
+            <span class="tag" style="color: var(--accent-purple);">TOKENVECTOR.VISION</span>
+          </div>
+        </div>
+
+        <div class="track-meta">
+          <div>
+            <div class="track-title" id="trackTitle">Anh Chỉ Biết Câm Nín Nghe Tiếng Em Khóc</div>
+            <div class="track-artist">TokenVector Studio Master • 48kHz Stereo 320kbps</div>
+          </div>
+          <label class="btn" style="font-size: 0.75rem; cursor: pointer;">
+            📁 BROWSE...
+            <input type="file" id="fileInput" accept="audio/*,video/*" style="display: none;">
+          </label>
+        </div>
+
+        <div class="timeline-container">
+          <div class="time-bar" id="timeBar">
+            <div class="time-progress" id="timeProgress"></div>
+          </div>
+          <div class="time-labels">
+            <span id="currTime">01:05</span>
+            <span id="durTime">04:41</span>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button class="btn" id="btnPrev">⏮ PREV</button>
+          <button class="btn btn-play" id="btnPlay">▶ PLAY</button>
+          <button class="btn" id="btnStop">⏹ STOP</button>
+          <button class="btn" id="btnNext">⏭ NEXT</button>
+        </div>
+
+        <div class="vu-meter-container">
+          <div class="vu-channel">
+            <span>CH-L</span>
+            <div class="vu-bar-bg"><div class="vu-bar-fill" id="vuL" style="width: 72%;"></div></div>
+            <span id="vuLText">-6.2 dB</span>
+          </div>
+          <div class="vu-channel">
+            <span>CH-R</span>
+            <div class="vu-bar-bg"><div class="vu-bar-fill" id="vuR" style="width: 68%;"></div></div>
+            <span id="vuRText">-5.8 dB</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: LIVE DSP RACK -->
+      <div class="card">
+        <div style="font-weight: 700; font-size: 1.1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+          <span>🎛️ Real-Time Live DSP Rack</span>
+          <span style="font-size: 0.75rem; color: var(--accent-cyan); font-family: 'JetBrains Mono';">TokenVector.Audio</span>
+        </div>
+
+        <div class="dsp-rack">
+          <!-- 1. Harmonic Super-Resolution -->
+          <div class="dsp-card active">
+            <div class="dsp-info">
+              <div class="dsp-name">🚀 Harmonic Super-Resolution</div>
+              <div class="dsp-desc">Tái tạo dải cao 6k-24kHz Air Presence bằng Chebyshev T2-T5</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggleHsr" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- 2. Virtual Bass -->
+          <div class="dsp-card active">
+            <div class="dsp-info">
+              <div class="dsp-name">🔊 Psychoacoustic Virtual Bass</div>
+              <div class="dsp-desc">Bù âm trầm sâu (Missing Fundamental 2f0-4f0) cho loa nhỏ</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggleBass" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- 3. Stereo Widener -->
+          <div class="dsp-card active">
+            <div class="dsp-info">
+              <div class="dsp-name">🎚️ Dynamic Stereo Widener</div>
+              <div class="dsp-desc">Mở rộng trường âm thanh Mid-Side Matrix 125%</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggleStereo" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- 4. 3D Spatial Audio -->
+          <div class="dsp-card">
+            <div class="dsp-info">
+              <div class="dsp-name">🎧 3D Binaural Spatial Audio</div>
+              <div class="dsp-desc">Âm thanh vòm 360° xoay quanh đầu người nghe (HRTF)</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggle3D">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- 5. Karaoke Vocal Remover -->
+          <div class="dsp-card">
+            <div class="dsp-info">
+              <div class="dsp-name">🎤 Karaoke Vocal Remover</div>
+              <div class="dsp-desc">Triệt tiêu giọng ca sĩ trung tâm (Center Vocal Cancellation)</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggleKaraoke">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- 6. EBU R128 Normalizer -->
+          <div class="dsp-card active">
+            <div class="dsp-info">
+              <div class="dsp-name">📻 EBU R128 Master Limiter</div>
+              <div class="dsp-desc">Cân bằng âm lượng chuẩn phát hành -14.0 LUFS &amp; True-Peak</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggleLufs" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Visualizer Canvas Animation
+    const canvas = document.getElementById('visualizerCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+      canvas.width = canvas.parentElement.clientWidth * window.devicePixelRatio;
+      canvas.height = canvas.parentElement.clientHeight * window.devicePixelRatio;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    const numBands = 48;
+    let bands = new Array(numBands).fill(0.1);
+    let isPlaying = false;
+
+    function renderVisualizer() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const w = canvas.width;
+      const h = canvas.height;
+      const barWidth = w / numBands;
+
+      for (let i = 0; i < numBands; i++) {
+        if (isPlaying) {
+          // Dynamic frequency movement
+          const target = Math.sin(Date.now() * 0.005 + i * 0.2) * 0.4 + 0.5 + Math.random() * 0.15;
+          bands[i] = bands[i] * 0.8 + target * 0.2;
+        } else {
+          bands[i] = bands[i] * 0.9;
+        }
+
+        const barHeight = bands[i] * h * 0.85;
+        const x = i * barWidth;
+        const y = h - barHeight;
+
+        // Gradient color
+        const grad = ctx.createLinearGradient(0, y, 0, h);
+        grad.addColorStop(0, '#00f2fe');
+        grad.addColorStop(0.5, '#4facfe');
+        grad.addColorStop(1, '#8b5cf6');
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(x + 2, y, barWidth - 4, barHeight);
+      }
+
+      // VU Meter values
+      if (isPlaying) {
+        const vuL = Math.min(100, Math.max(20, bands[10] * 100 + (Math.random() * 10 - 5)));
+        const vuR = Math.min(100, Math.max(20, bands[12] * 100 + (Math.random() * 10 - 5)));
+        document.getElementById('vuL').style.width = vuL + '%';
+        document.getElementById('vuR').style.width = vuR + '%';
+        document.getElementById('vuLText').textContent = (-60 + (vuL * 0.6)).toFixed(1) + ' dB';
+        document.getElementById('vuRText').textContent = (-60 + (vuR * 0.6)).toFixed(1) + ' dB';
+      }
+
+      requestAnimationFrame(renderVisualizer);
+    }
+    renderVisualizer();
+
+    // Play/Pause button interaction
+    const btnPlay = document.getElementById('btnPlay');
+    btnPlay.addEventListener('click', () => {
+      isPlaying = !isPlaying;
+      btnPlay.textContent = isPlaying ? '⏸ PAUSE' : '▶ PLAY';
+    });
+
+    document.getElementById('btnStop').addEventListener('click', () => {
+      isPlaying = false;
+      btnPlay.textContent = '▶ PLAY';
+      document.getElementById('vuL').style.width = '0%';
+      document.getElementById('vuR').style.width = '0%';
+      document.getElementById('vuLText').textContent = '-60.0 dB';
+      document.getElementById('vuRText').textContent = '-60.0 dB';
+    });
+  </script>
+</body>
+</html>
