@@ -165,8 +165,8 @@ _EXPR_TOKEN_RE = re.compile(r'''
       | (?P<CMPOP>>=|<=|==|!=)
       | (?P<POW>\*\*)
       | (?P<FLOORDIV>//)
-      | (?P<WALRUS>:=)
-      | (?P<OP>[+\-*/%(),\[\].?:><=&|])
+        | (?P<WALRUS>:=)
+        | (?P<OP>[+\-*/%(),\[\].?:><=&|^~])
     )
 ''', re.VERBOSE)
 
@@ -427,20 +427,37 @@ class _ExprParser:
 
     def parse_bitor(self):
         """R5 (2026-09-22): 'a | b' - OR bitwise, uu tien THAP NHAT trong
-        nhom so hoc (giong Python: '|' < '&' < '<<'/'>>' < '+-' < '*/')."""
-        node = self.parse_bitand()
+        nhom so hoc (giong Python: '|' < '^' < '&' < '<<'/'>>' < '+-' < '*/')."""
+        node = self.parse_bitxor()
         while True:
             k, v = self.peek()
             if k == 'OP' and v == '|':
                 self.advance()
-                rhs = self.parse_bitand()
+                rhs = self.parse_bitxor()
                 node = ('binop', '|', node, rhs)
             else:
                 break
         return node
 
+    def parse_bitxor(self):
+        """R5 (2026-09-28): 'a ^ b' - XOR bitwise, uu tien giua '|' va '&'
+        (giong Python). Truoc day '^' KHONG co trong _EXPR_TOKEN_RE nen
+        'a ^ b' chet ngay o tokenizer voi loi chung chung, khong bao gio
+        biet la thieu toan tu - va cac probe ngon ngu deu coi la unsupported.
+        """
+        node = self.parse_bitand()
+        while True:
+            k, v = self.peek()
+            if k == 'OP' and v == '^':
+                self.advance()
+                rhs = self.parse_bitand()
+                node = ('binop', '^', node, rhs)
+            else:
+                break
+        return node
+
     def parse_bitand(self):
-        """R5 (2026-09-22): 'a & b' - AND bitwise, chat hon '|'."""
+        """R5 (2026-09-22): 'a & b' - AND bitwise, chat hon '|' va '^'."""
         node = self.parse_shift()
         while True:
             k, v = self.peek()

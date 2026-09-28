@@ -710,6 +710,22 @@ def try_parse_try(line, lines, pos, indent_level, sig, known_shapes, parse_block
             'handler_vars': handler_vars, 'finally_body': finally_body}, pos
 
 
+def try_parse_pass(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """`pass` - lệnh rỗng, sinh KHÔNG một lệnh IL nào.
+
+    Python dùng `pass` để thân hàm rỗng vẫn hợp lệ (và rất hay xuất hiện
+    trong stub). Ở đây nó thất bại với `khong dich duoc dong: 'pass'`.
+
+    Cố tình KHÔNG đăng ký STMT_CODEGEN cho kind 'nop': emitter tra
+    `STMT_CODEGEN.get(kind)` rồi `if fn:` - thieu khoá co nghia la bo qua
+    lệnh, dung thuoc tinh cua lenh no-op. Đăng ký một hàm rỗng cũng duoc
+    nhung it code hon va tranh them 1 nhanh vao duong dan nong.
+    """
+    if line != 'pass':
+        return None
+    return {'kind': 'nop'}, pos + 1
+
+
 def try_parse_break(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
     if not _BREAK_RE.match(line):
         return None
@@ -1637,6 +1653,7 @@ register_line_parser('while', try_parse_while)
 register_line_parser('try', try_parse_try)
 register_line_parser('break', try_parse_break)
 register_line_parser('continue', try_parse_continue)
+register_line_parser('pass', try_parse_pass)
 register_line_parser('return', try_parse_return)
 register_line_parser('raise', try_parse_raise)
 register_line_parser('with_open', try_parse_with_open)

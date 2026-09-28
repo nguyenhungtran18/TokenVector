@@ -184,7 +184,7 @@ def _float_literal_in(node):
     return False
 
 
-_BITWISE_OPCODE = {'&': 'and', '|': 'or', '<<': 'shl', '>>': 'shr'}
+_BITWISE_OPCODE = {'&': 'and', '|': 'or', '^': 'xor', '<<': 'shl', '>>': 'shr'}
 
 
 def _compile_bitwise(op, left, right, scope, out, dtype, ctx):
@@ -351,9 +351,11 @@ def compile_binop(node, scope, out, dtype, ctx=None):
         # so hoc va sinh 'mul' tren 1 tham chieu chuoi (AccessViolation
         # luc chay - da gap THAT khi test).
         return ctx['compile_binop_concat'](op, left, right, scope, out, ctx)
-    if op in ('&', '|', '<<', '>>'):
+    if op in ('&', '|', '^', '<<', '>>'):
         # R5 (2026-09-22): bitwise - di duong i64 rieng (xem
         # _compile_bitwise), KHONG di chung duong so hoc ben duoi.
+        # 2026-09-28: them '^' (XOR) vao cung duong nay, uu tien giua '|'
+        # va '&' nhu Python.
         return _compile_bitwise(op, left, right, scope, out, dtype, ctx)
     if dtype == 'int' and operand_dtype in ('i32', 'i64'):
         # BUG THAT (2026-08-05 lat 4): khi NGU CANH doi 'int' nhung ca hai

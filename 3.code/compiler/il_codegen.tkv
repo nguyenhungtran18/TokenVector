@@ -1729,10 +1729,28 @@ def _expr_num(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         return _int_type.compile_literal(text, out, ctx)
     if text.lower().startswith('0x'):
         # R6 (2026-09-22): hex literal - doi sang decimal truoc khi sinh
-        # ldc (khong phu thuoc ilasm co hieu '0x' hay khong). Vuot pham vi
-        # i32 (vd 0x80000002) o ngu canh i32 se bao loi ilasm ON AO - dung
-        # ngu canh 'int'/'i64' cho gia tri >2^31.
+        # ldc (khong phu thuoc ilasm co hieu '0x' hay khong).
         text = str(int(text, 16))
+    # 2026-09-28: BAT LOI IL SAI thay vi de ilasm bao loi cu phap.
+    # Ghi chu R6 o tren noi ro 'vuot pham vi i32 se bao loi ilasm ON AO' -
+    # 'ldc.i4 4294967296' la IL KHONG HOP LE (ldc.i4 chi nhan int32) va
+    # ilasm bao 'syntax error at token', doc doc khong ra la con so lon.
+    # Hom nay gap dung qua Testkit/xor_pass_test.tkv: 'int(4294967296)'.
+    # KHONG tu nang len 'ldc.i8' - nguyen tac cua dong nay la "sai am tham
+    # nguy hiem hon loi on ao": i32 co hop dong tran thi nem, nen gia tri
+    # vuot hop dong phai noi ra chu khong phai doi kieu ngam.
+    if dtype == 'i32' and '.' not in text:
+        try:
+            ival = int(text, 0)
+        except ValueError:
+            ival = None
+        if ival is not None and not (-2147483648 <= ival <= 2147483647):
+            raise SyntaxError(
+                f'il_codegen: hang so nguyen {text} vuot pham vi i32 '
+                f'(-2147483648..2147483647) nen khong the la lenh ldc.i4 - '
+                f'dung kieu "int" (so nguyen vo han) hoac "i64". '
+                f'Neu can i32, giu gia tri trong bien/chuoi roi ep nhin sang '
+                f'i32 de loi tran nem dung nhu moi kieu so khac.')
     out.append(f'    {IL_LDC_OP[dtype]} {text}')
 
 
@@ -5552,7 +5570,7 @@ def _gen_async_def(sig, body_lines, class_name, records, record_methods,
         lines_out.append(f'  .method public static {ret_type} {_il_ident(sig.name)}({params_il}) cil managed')
     lines_out.append('  {')
     lines_out.append(f'    .maxstack {_max_stack_for(body)}')
-    lines_out.extend(body)
+    lines_out.extend(_ensure_body_terminates(body, ret_type))
     lines_out.append('  }')
     return lines_out
 
@@ -5800,10 +5818,23 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
         # mutate field, khong 'return' - CIL void KHONG duoc "roi tu do"
         # het than ham ma khong co 'ret', khac cach Python that ngam dinh
         # return None): DSL hien CHUA ho tro 'return' TRAN (khong gia
-        # tri) nen 1 ham/method void SE KHONG BAO GIO tu sinh 'ret' tu
+        # tri) nen 1 ham/method void SE KHUNG BAO GIO tu sinh 'ret' tu
         # chinh no - truoc gio CHUA lo vi MOI ham top-level da test deu
         # co return type. InvalidProgramException that (khong phai doan
         # mo) - xac nhan qua sample_record_method.tkv's scale().
+        body.append('    ret')
+    elif not _body_ends_with_ret(body):
+        # 2026-09-28: ham co kieu tra NHUNG rơi het than (ket thuc bang
+        # `if`/`while` co return ben trong, hoac than chi co `pass`) thi
+        # cung phai co 'ret' - xem _default_value_il. Khong phai hoi quy
+        # cua 'pass': truoc khi co `pass` thi
+        #   def f(x: "i32") -> "i32":
+        #       if x > 0:
+        #           return 1
+        # da sinh IL khong co 'ret' va nem InvalidProgramException luc
+        # chay. Testkit 63/63 khong bat duoc vi moi ham test co return
+        # explicit o cuoi.
+        body.extend(_default_value_il(ret_type))
         body.append('    ret')
 
     lines_out = []
@@ -5816,9 +5847,78 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
     lines_out.append(f'    .maxstack {_max_stack_for(body)}')
     if locals_sig:
         lines_out.append(f'    .locals init ({locals_sig})')
-    lines_out.extend(body)
+    lines_out.extend(_ensure_body_terminates(body, ret_type))
     lines_out.append('  }')
     return lines_out
+
+
+def _body_ends_with_ret(body: list) -> bool:
+    """Dong cuoi cthat cua than co phai 'ret' khong (bo qua directive
+    `.line`/`.locals` va dong trong)."""
+    for ln in reversed(body):
+        st = ln.strip()
+        if not st or st.startswith('.'):
+            continue
+        return st == 'ret'
+    return False
+
+
+def _default_value_il(ret_type: str) -> list:
+    """Gia tri mac dinh cho `ret_type` - de them 'ret' hop le cho ham co
+    kieu tra NHUNG khong co `return` nao that (2026-09-28).
+
+    Truoc day chi truong hop KIEU TRA RONG (`void`) moi duoc them 'ret'.
+    Mot ham co kieu tra nhung rơi het than - vi du ket thuc bang `if` ma
+    moi nhanh co `return`, hay than chi co `pass` - thi KHONG co `ret` nao
+    het, nen IL sai va CLR nem InvalidProgramException LUC CHAY. Loi nay
+    co san tu truoc khi co `pass`; Testkit 63/63 khong bat duoc vi moi ham
+    test deu ket thuc bang `return` explicit.
+
+    Do la gia tri 0/rong theo tung kieu, KHONG phai 'gia tri bat buoc' -
+    ham rong trong Python cung tra None/0, va `ldnull` cho kieu tham chieu
+    giong het. KHONG nen nem loi o day: nguoi goi ham rong mong nhan
+    gia tri hop le, va loi bien dich se chan nhieu nguoi hon loi runtime."""
+    t = (ret_type or '').strip()
+    if t == 'int32':
+        return ['    ldc.i4.0']
+    if t == 'int64':
+        return ['    ldc.i8 0']
+    if t == 'float32':
+        return ['    ldc.r4 0.0']
+    if t == 'float64':
+        return ['    ldc.r8 0.0']
+    if 'TkvInt' in t:
+        # TkvInt la valuetype 2 truong - khong 'ldnull' duoc. Dung chinh
+        # duong khoi tao ma int_builtin.tkv dung (int64 0 -> FromI64).
+        # 'valuetype' TRUOC ten la bat buoc: `call TkvInt TkvInt::FromI64`
+        # (thieu) bi ilasm bao "syntax error at token 'TkvInt'".
+        return ['    ldc.i8 0', f'    call valuetype {_int_type.TKVINT_CLASS} '
+                               f'{_int_type.TKVINT_CLASS}::FromI64(int64)']
+    # string, record, class, extern class... deu la tham chieu -> ldnull.
+    # GIAI PHAP AN TOAN: cau lenh nay luôn hop le cho moi tham chieu, nen
+    # thu kieu lai duoc thi tao ra 'ret' dung hon con thieu 'ret'.
+    return ['    ldnull']
+
+
+def _ensure_body_terminates(body: list, ret_type: str = None) -> list:
+    """Than phai ket thuc bang lenh `ret` - khong co lenh nao thi CLR nem
+    InvalidProgramException LUC CHAY, khong phai luc bien dich.
+
+    Do 'pass' moi them (2026-09-28): than chi co 'pass' bien dich ra than
+    CHI con directive `.line`, khong con lenh IL nao, va ILASM bao
+    warning "Method has no body, 'ret' emitted" roi canh bao do bi bo qua -
+    nen tuong ra ok, nhung CLR thu TUV chay thi InvalidProgramException.
+
+    `ret_type` cho phep them gia tri mac dinh truoc 'ret' khi kieu tra
+    khong rong (xem _default_value_il)."""
+    for ln in body:
+        st = ln.strip()
+        if not st or st.startswith('.'):
+            continue
+        if _body_ends_with_ret(body):
+            return body
+        return body + _default_value_il(ret_type) + ['    ret']
+    return body + _default_value_il(ret_type) + ['    ret']
 
 
 def _max_stack_for(body):
