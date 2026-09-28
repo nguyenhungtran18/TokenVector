@@ -1,0 +1,166 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO __lt__ tren record (2026-09-28).
+
+`a < b` voi hai record KHONG co compiler nao goi `__lt__` - nhanh record
+chi xu ly `==`/`!=`, nen phep so sanh vung rot xuong duong so hoc chung va
+tra ve MOT HANG SO: `a < b` va `a > b` deu cho cung mot ket qua. Build
+than cong, chay cung khong loi - ma ket qua SAI, va `lst.sort()` tren record
+se ra sai theo.
+
+Khong co file Testkit nao so sanh 2 record, nen duong nay chua bao gio duoc
+di qua.
+
+CHI can viet `__lt__`. `>` va `<=` goi `__lt__` voi hai ve dao lai, `>=` la
+`not __lt__` - dung y het Python, Python cung khong can `__le__`/`__ge__`.
+Bai nay kiem ca 4 phep de bao dam phep DAO LAI dung chieu, vi sai o do se ra
+ket qua tra nguoc.
+
+Gia tri mong doi tinh tay.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class P:
+    x: "i32"
+
+    def __init__(self, x: "i32") -> "i32":
+        self.x = x
+        return 0
+
+    def __lt__(self, o: "P") -> "i32":
+        return self.x < o.x
+
+    def __eq__(self, o: "P") -> "i32":
+        return self.x == o.x
+
+
+def less_than() -> "i32":
+    total = 0
+    tested = 0
+
+    a = P(1)
+    b = P(3)
+    r1 = a < b
+    total = total + check("lt_true", str(r1), "1")
+    tested = tested + 1
+    r2 = b < a
+    total = total + check("lt_false", str(r2), "0")
+    tested = tested + 1
+    # Bang nhau: < phai False (khong phai <=)
+    r3 = a < P(1)
+    total = total + check("lt_equal_is_false", str(r3), "0")
+    tested = tested + 1
+
+    return total
+
+
+def greater_than_via_swap() -> "i32":
+    """`a > b` = `b.__lt__(a)`. Neu phep dao ve sai, 4 dong nay ra NGUOC."""
+    total = 0
+    tested = 0
+
+    a = P(1)
+    b = P(3)
+    r1 = a > b
+    total = total + check("gt_false", str(r1), "0")
+    tested = tested + 1
+    r2 = b > a
+    total = total + check("gt_true", str(r2), "1")
+    tested = tested + 1
+
+    return total
+
+
+def less_or_equal() -> "i32":
+    total = 0
+    tested = 0
+
+    a = P(1)
+    b = P(3)
+    r1 = a <= b
+    total = total + check("le_true", str(r1), "1")
+    tested = tested + 1
+    r2 = b <= a
+    total = total + check("le_false", str(r2), "0")
+    tested = tested + 1
+    # Bang nhau: <= phai TRUE - day la cho phan biet < va <=, va la cho
+    # 'dao ve' sai bieu hien ro nhat.
+    r3 = a <= P(1)
+    total = total + check("le_equal_is_true", str(r3), "1")
+    tested = tested + 1
+
+    return total
+
+
+def greater_or_equal() -> "i32":
+    total = 0
+    tested = 0
+
+    a = P(1)
+    b = P(3)
+    r1 = a >= b
+    total = total + check("ge_false", str(r1), "0")
+    tested = tested + 1
+    r2 = b >= a
+    total = total + check("ge_true", str(r2), "1")
+    tested = tested + 1
+    r3 = a >= P(1)
+    total = total + check("ge_equal_is_true", str(r3), "1")
+    tested = tested + 1
+
+    return total
+
+
+def eq_untouched() -> "i32":
+    """`__eq__` di duong rieng - bat buoc chay lai sau khi them nhanh moi
+    ngay ben canh no."""
+    total = 0
+    tested = 0
+
+    a = P(1)
+    r1 = a == P(1)
+    total = total + check("eq_true", str(r1), "1")
+    tested = tested + 1
+    r2 = a == P(3)
+    total = total + check("eq_false", str(r2), "0")
+    tested = tested + 1
+    r3 = a != P(3)
+    total = total + check("ne_true", str(r3), "1")
+    tested = tested + 1
+
+    return total
+
+
+def lt_survives_comparison_chain() -> "i32":
+    """So sanh chuoi `a < b < c` - ca 3 cap phai dung, va giua chung
+    phai dung CHIEU de viec dao ve khong lam lech."""
+    total = 0
+    tested = 0
+
+    a = P(1)
+    b = P(2)
+    c = P(3)
+    r1 = a < b < c
+    total = total + check("chain_all_less", str(r1), "1")
+    tested = tested + 1
+    r2 = c < b < a
+    total = total + check("chain_all_greater", str(r2), "0")
+    tested = tested + 1
+
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    total = total + less_than()
+    total = total + greater_than_via_swap()
+    total = total + less_or_equal()
+    total = total + greater_or_equal()
+    total = total + eq_untouched()
+    total = total + lt_survives_comparison_chain()
+
+    # 3 + 2 + 3 + 3 + 3 + 2 = 16
+    return test_summary("record_lt_test", total, 16)

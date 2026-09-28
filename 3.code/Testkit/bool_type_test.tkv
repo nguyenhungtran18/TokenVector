@@ -41,7 +41,13 @@ class Pair:
     def __eq__(self, o: "Pair") -> "bool":
         return self.a == o.a and self.b == o.b
 
-    # KHONG kiem tra __lt__/__gt__ o day - xem ghi chu bool_lt_gt_is_broken.
+    # KHONG kiem tra __lt__/__gt__ o day. Truoc day phan do co 2 check
+    # 'KNOWN_BUG_*' ghim hien trang la __lt__/__gt__ tra ve hang so - dung
+    # de chan mot sua doi khong bi bo qua tram lang. Loi do DA duoc sua
+    # (2026-09-28): so sanh vung tren record bay goi __lt__, va record
+    # thieu __lt__ thi bien dich bao loi thay vi sinh ma sai. Phan do
+    # ghim bug do da bi xoa; xem Testkit/record_lt_test.tkv de kiem
+    # __lt__/'>'/'<='/'>=' day du.
 
 
 def ret_i32(c: "i32") -> "i32":
@@ -143,40 +149,6 @@ def bool_dunders_work() -> "i32":
     return total
 
 
-def bool_lt_gt_is_broken() -> "i32":
-    """GHI NHAN BUG, KHONG phai kiem chung 'bool'.
-
-    `__lt__` va `__gt__` tren record tra ve HANG SO, than ham cua nguoi
-    viet bi bo qua:
-
-        C(1) < C(0)   ->  1     (dung ra phai 0)
-        C(0) < C(1)   ->  1     (dung)
-        C(1) > C(0)   ->  0     (dung ra phai 1)
-        C(0) > C(1)   ->  0     (dung)
-
-    KHONG phai do thay doi 'bool': hien ra y het khi khai bao
-    `-> "i32"`, va `1 < 0` thuan tren i32 ra dung 0. `__eq__` thi dung.
-    Testkit khong co `dunder_lt_test.tkv` (chi co dunder_eq/getitem/len/
-    str/add) nen bug nay chua bao gio duoc bat - cung dung nguyen nhan
-    voi thieu 'ret': ma test dua vao mot duong, duong do co the hong ma
-    khong ai do la.
-
-    Ham nay khoa HANH VI hien tai de thay doi khong bi bo qua trong im
-    lang. Khi sua compiler, doi cac gia tri mong doi nay thanh 0/1/0/1 va
-    chuyen thanh kiem chung that su."""
-    total = 0
-    tested = 0
-
-    r1 = Pair(1, 2) < Pair(0, 0)
-    total = total + check("KNOWN_BUG_lt_true_lt_false_is_1", str(r1), "1")
-    tested = tested + 1
-    r2 = Pair(0, 2) < Pair(1, 0)
-    total = total + check("KNOWN_BUG_lt_false_lt_true_is_1", str(r2), "1")
-    tested = tested + 1
-
-    return total
-
-
 def bool_in_containers() -> "i32":
     total = 0
     tested = 0
@@ -243,9 +215,8 @@ def run() -> "i32":
 
     total = total + bool_is_alias_of_i32()
     total = total + bool_dunders_work()
-    total = total + bool_lt_gt_is_broken()
     total = total + bool_in_containers()
     total = total + bool_string_form_is_numeric()
 
     # 7 + 4 + 3 + 3 = 17
-    return test_summary("bool_type_test", total, 20)
+    return test_summary("bool_type_test", total, 18)
