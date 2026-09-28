@@ -47,6 +47,45 @@ DTYPES = {'f32', 'f64', 'i32', 'i64', 'str', 'int', 'datetime', 'timedelta', 'co
           # assembly ma 'complex' dung, nen khong them phu thuoc nao va PE
           # van doc lap). Xem il_features/vector4_type.tkv.
           'f32x4'}
+
+# 'bool' (2026-09-28): BO SUNG - truoc day KHONG TON TAI trong DTYPES, du
+# CLAUDE.md ghi "unboxed string scalar types la bat buoc (..., "bool")" va
+# nguoi viet TokenVector tu nhien dat "bool" cho ham tra ve dieu kien -> loi
+# "Ky vong dtype (f32/f64/i32/i64/str), gap 'bool'". 63 file Testkit deu
+# viet boolean la "i32" nen quy tac thuc hanh la i32, con tai lieu lai noi
+# bool: hai noi noi nguoc nhau.
+#
+# QUYET DINH: 'bool' la ALIAS cua 'i32', KHONG phai kieu rieng.
+#   - Le do: so sanh/logic giai luon trong ve i32 (0/1) trong ca compiler
+#     (mau: Testkit/dunder_eq_test.tkv viet __eq__ -> "i32"). Mot kieu bool
+#     that se phai doi moi nhanh so sanh, moi noi luu bien, moi ham co
+#     tham so boolean - va khong thu hoi duoc gi vi ma cu da bien dich.
+#   - Python cung vay: bool LA lop con cua int, khong phai kieu doc lap.
+#   - Do lon: bang 0, mo rong co gi khong doi.
+# Canonical hoa TAI DAY (TypeAnn.__init__) chu khong phai rai tung noi
+# kiem tra `not in DTYPES`: moi TypeAnn deu di qua __init__ 1 lan, nen mot
+# diem chot duy nhat - va moi noi doc dtype sau do thay i32, nen KHONG
+# phai sua mot dong nao them trong 100+ cho kiem tra dtype.
+DTYPES.add('bool')
+
+# Danh sach dtype ghi trong THONG BAO LOI. Tach rieng de danh sach nay va
+# DTYPES khong troi nhau: loi 6/2026-09-28 chinh vi thong bao liet ke
+# (f32/f64/i32/i64/str) ma DTYPES da them 'int'/'datetime'/'complex'/...
+# nen danh sach hien thi sai va lam nguoi dung dung 2 lan de do la thieu
+# kieu. Gio sinh tu DTYPES nen tu sua khi them kieu moi.
+#
+# LOAI 2 thu khoi danh sach hien thi:
+#   - 'inferred': sentinel NOI BO cho tham so thieu annotation (Task 2/5,
+#     xem ghi chu o tren). Nguoi dung khong bao gio duoc viet tay, nen
+#     dua vao thong bao loi chi gay them rac.
+#   - 'f32x8': da bi ghi chu la "thua va nen rut lui" (xem DTYPES) - noi
+#     ra khi gap loi ve no thi se khuyen nguoi dung dung thu can bo.
+def _dtype_list_hint():
+    return '/'.join(sorted(d for d in DTYPES
+                          if d not in ('inferred', 'f32x8')))
+
+
+_DTYPE_LIST_HINT = _dtype_list_hint()
 # 'inferred' (Task 2/5, duck-typing-inference, 2026-08-17): dtype dac biet
 # gan boi tkv_compile.py's _params_with_defaults(allow_inferred=True) cho
 # tham so ham top-level THIEU annotation - chi di qua NGUYEN VEN o tang
@@ -83,13 +122,30 @@ def tokenize(src: str):
     return tokens
 
 
+# 'bool' -> 'i32' (2026-09-28). Xem ghi chu them o DTYPES.add('bool').
+# Giu o DAY - module ca cua parser - vi ca compiler va ca il_features deu
+# can no, va dua vao 1 module rieng chi de 1 dong la thua.
+def canon_dtype(dtype):
+    """Tra ve dtype sau khi chuan hoa: 'bool' -> 'i32'.
+
+    Ham nay la HOP DONG cua kieu 'bool' trong ca compiler. Ai can hieu
+    'bool' co y nghia gi thi goi ham nay - KHONG tu so sanh voi 'i32' o
+    noi khong can, va KHONG ghi lai 'bool' vao mot bien roi truyen di (nhu
+    vay no se song song voi 'i32' va pha nghiep do moi noi so sanh)."""
+    return 'i32' if dtype == 'bool' else dtype
+
+
 class TypeAnn:
     def __init__(self, dtype: str, shape, key_dtype=None, tuple_dtypes=None, elem_ta=None,
                  func_params=None):
-        self.dtype = dtype          # 'f32' | 'f64' | 'i32' | 'i64' | 'str' (VALUE dtype khi shape='dict')
+        # Chuan hoa o day - DIEM HOP TU DUY NHAT (xem canon_dtype). Sau
+        # dong nay `self.dtype` LA i32 chu khong phai bool, nen moi noi
+        # doc kieu phia duoi deu nhin thay i32 va khong can biet bool ton tai.
+        dtype = canon_dtype(dtype)
+        self.dtype = dtype    # 'f32' | 'f64' | 'i32' | 'i64' | 'str' (VALUE dtype khi shape='dict')
         self.shape = shape          # list[int] | None (scalar) | 'list' | 'dict' | 'tuple'
-        self.key_dtype = key_dtype  # CHI dung khi shape == 'dict' (dtype cua khoa)
-        self.tuple_dtypes = tuple_dtypes  # CHI dung khi shape == 'tuple' - list[str] DUNG 2 phan tu
+        self.key_dtype = canon_dtype(key_dtype) if key_dtype else key_dtype
+        self.tuple_dtypes = [canon_dtype(d) for d in tuple_dtypes] if tuple_dtypes else tuple_dtypes
         # Wave 2 (2026-07-29) - container long nhau: khi shape=='list'/'dict'
         # VA phan tu/gia tri KHONG PHAI vo huong/record ma la 1 container
         # KHAC (List<List<T>>, Dictionary<K, List<T>>), elem_ta giu TypeAnn
@@ -107,7 +163,8 @@ class TypeAnn:
         # vao 1 bien local thuong (khong co FIRST_PASS_WALK cho truong hop
         # do, gioi han co y thuc de tranh dung vao van de "bien tu do sau
         # khi ham ngoai return" cua closure that).
-        self.func_params = func_params
+        self.func_params = ([canon_dtype(p) for p in func_params]
+                            if func_params else func_params)
 
     def __repr__(self):
         return (f'TypeAnn({self.dtype}, shape={self.shape}, key_dtype={self.key_dtype}, '
@@ -342,7 +399,8 @@ class Parser:
                 # tra ve .NET class NGOAI (assembly-qualified) thay vi class
                 # do compiler TU SINH - xem il_type_str's nhanh moi.
                 return TypeAnn(value, 'extern_class')
-            raise SyntaxError(f"Ky vong dtype (f32/f64/i32/i64/str), gap {value!r} (vi tri ~{pos})")
+            raise SyntaxError(
+                f"Ky vong dtype ({_DTYPE_LIST_HINT}), gap {value!r} (vi tri ~{pos})")
         dtype = value
         shape = None
         kind2, value2, _ = self.peek()
