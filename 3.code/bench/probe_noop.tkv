@@ -1,0 +1,13 @@
+# -*- coding: utf-8 -*-
+"""Do chi phi khoi dong cua mot exe TokenVector rong.
+
+Moi phep do trong run.py tru het thoi gian bat dau cua chinh lenh do, roi
+chia thoi gian con lai cho so lan lap. Neu khong tru, phep do cua kernel
+nho se dominated toan bo thoi gian khoi dong va moi so so ra la tin dung.
+Vi vay can mot exe be nhat co the, lam mau cho toan bo cua do - no KHONG
+duoc lam viec gi ca, chi de do chi phi khoi dong doc lap voi noi dung.
+"""
+
+
+def main() -> "i32":
+    return 0

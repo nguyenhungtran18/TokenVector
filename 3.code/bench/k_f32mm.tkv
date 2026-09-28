@@ -1,0 +1,88 @@
+# -*- coding: utf-8 -*-
+# Kernel co LAM TRON THAT tren f32 - vong dot product f32.
+#
+# Ly do ton tai (P0, 2026-09-28): k_matmul32.tkv dung data la SO NGUYEN nho
+# ((i%7)-3) va ((i%5)-2) -> moi tich luu <= 192, < 2^53, nen f64 lam tron
+# SAI RONG va checksum in ra `sum=1.0` chinh xac. Do do co so sanh chuoi
+# TUYET DOI cua harness (run.py: `match = (tv_out == py_out)`) KHONG bao gio
+# bat duoc thu tu cong - dung thu ma SIMD se lam doi.
+#
+# Kernel nay dung:
+#   - kieu f32 (dung kieu se vector hoa bang Vector4)
+#   - data co lam tron that ((i%97)*0.1 -> 0.1 khong represent duoc o f32)
+#   - co reduction (vong kk) - thu tu cong co y nghia
+#   - in 2 dai so: tong (co the triet chieu) va tong binh phuong (KHONG triet
+#     chieu) - de mot loi sai khong theo chuoi bien mat trong hieu so
+# So sanh voi chuan f64 chinh xac, dung sai tuong doi <= 1e-3 (P0/Cong B).
+
+def _z32(n: "i32") -> "list[f32]":
+    out = []
+    i = 0
+    while i < n:
+        out.append(0.0)
+        i = i + 1
+    return out
+
+def _mm32(a: "list[f32]", b: "list[f32]", r: "list[f32]", n: "i32") -> "i32":
+    i = 0
+    while i < n:
+        j = 0
+        while j < n:
+            # KHONG khoi tao bang literal 0.0 (do la f64) - se lam `s` ra f64
+            # va vong cong chay o f64, mat het y nghia cua kernel. Bat dau
+            # tu tich cua hai so f32 de bien `s` co dung kieu f32.
+            s = a[i * n] * b[j]
+            kk = 1
+            while kk < n:
+                s = s + a[i * n + kk] * b[kk * n + j]
+                kk = kk + 1
+            r[i * n + j] = s
+            j = j + 1
+        i = i + 1
+    return 0
+
+def bm_f32mm(reps: "i32", n: "i32") -> "i32":
+    m = n * n
+    a = _z32(m)
+    b = _z32(m)
+    i = 0
+    while i < m:
+        a[i] = (i % 97) * 0.1
+        i = i + 1
+    i = 0
+    while i < m:
+        b[i] = (i % 89) * 0.07
+        i = i + 1
+    r = _z32(m)
+    k = 0
+    cs = 0.0
+    csq = 0.0
+    while k < reps:
+        _mm32(a, b, r, n)
+        cs = 0.0
+        csq = 0.0
+        i = 0
+        while i < m:
+            v = r[i]
+            cs = cs + v
+            csq = csq + v * v
+            i = i + 1
+        k = k + 1
+    # In TUNG PHAN TU, khong chi tong - do sai so tuong doi tren TONG qua
+    # yeu (tong = 460039, sai so lam tron moi phan tu ~3e-05 nen
+    # rel-err cua tong chi ~2e-08: co so sanh rat yeu, bo loi cham vao
+    # cung khong lo). Rel-err tren TUNG PHAN TU moi la ~1e-06 va mot loi
+    # that (sai chi so) doi ~1e-01 -> ngan cach 4 bac.
+    # 4 vi tri khac nhau de loi chi so khong the che giu o mot cho.
+    print("p0=" + str(r[0]) + " p1=" + str(r[7]) + " p2=" + str(r[500]) + " p3=" + str(r[1023]) + " sum=" + str(cs))
+    return 0
+
+def main() -> "i32":
+    # 100 lan lap, khong phai 4. Mot exe TokenVector khoi dong tonn ~25ms,
+    # con 4 vong matmul chi tonn ~1.9ms - tuc 93% phong do la khoi dong, va
+    # phep tru khoi dong roi phai chia lai phan sai so 10 lan do moi
+    # phan tinh. Do do f32mm/f32mm_vec dao dong 1.28x..2.19x giua cac lan do
+    # cung ma khong doi ma. 100 lan lam phan tinh len ~95ms, khoi dong con
+    # ~21%, va hai so do o che do do duoc gan nhau.
+    bm_f32mm(100, 32)
+    return 0

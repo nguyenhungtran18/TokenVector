@@ -6,10 +6,18 @@ build/
 dist/
 _direct_smoke_out/
 
-# Compiled artifacts. Note: *.il files are deliberately NOT ignored - the
-# Testkit "*_regress.il" files are golden baselines for regression tests, and
-# the "*.il" in tools/ are checked-in IL feature samples.
+# Compiled artifacts.
+#
+# *.il used to be tracked, on the stated grounds that the Testkit
+# "*_regress.il" files are golden baselines and tools/ holds checked-in IL
+# samples. Both claims were wrong: no .tkv, .ps1 or .py in the tree reads any
+# .il file - the references to probe_hashset.il, probe_raise.il and
+# probe_closure.il in the sources are comments about hand-written scratch
+# probes that were deleted long ago, not files the build consults - and there
+# are no .il files in tools/ at all. The 151 tracked ones were all dumps
+# emitted by `tkvc build --emit-il`, and one test run rewrote them.
 *.exe
+*.il
 *.pdb
 *.dll
 *.pyd

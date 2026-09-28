@@ -1,0 +1,57 @@
+# -*- coding: utf-8 -*-
+
+def bm_sort(reps: "i32", n: "i32") -> "i32":
+    src = []
+    i = 0
+    while i < n:
+        src.append((i * 1103515245 + 12345) % 65536)
+        i = i + 1
+    work = []
+    k = 0
+    cs = 0
+    while k < reps:
+        i = 0
+        while i < n:
+            work.append(src[i])
+            i = i + 1
+        _sort(work, 0, n)
+        cs = work[0] + work[n - 1] + work[n // 2]
+        i = 0
+        while i < n:
+            work.pop()
+            i = i + 1
+        k = k + 1
+    print("cs=" + str(cs))
+    return 0
+
+def _sort(xs: "list[i64]", lo: "i32", hi: "i32") -> "i32":
+    if hi - lo < 2:
+        return 0
+    mid = (lo + hi) // 2
+    _sort(xs, lo, mid)
+    _sort(xs, mid, hi)
+    i = lo
+    j = mid
+    k = lo
+    while i < mid and j < hi:
+        if xs[i] <= xs[j]:
+            xs[k] = xs[i]
+            i = i + 1
+        else:
+            xs[k] = xs[j]
+            j = j + 1
+        k = k + 1
+    while i < mid:
+        xs[k] = xs[i]
+        i = i + 1
+        k = k + 1
+    while j < hi:
+        xs[k] = xs[j]
+        j = j + 1
+        k = k + 1
+    return 0
+
+
+def main() -> "i32":
+    bm_sort(20, 200000)
+    return 0
