@@ -73,7 +73,12 @@
   `finally`. `break`/`continue` inside `else` work, but only when there is no
   `finally`: with one, the `else` body is generated inside the `finally`'s
   protected region where CIL forbids a plain `br`.
-- **Known gaps**: `yield from`, dict comprehension, `for`/`while` `else`,
+- **Loop `else`**: `for ... else:` / `while ... else:` runs the `else` body when
+  the loop finishes **without** `break`. `continue` does *not* skip it, and a
+  `break` in a nested loop skips only that inner loop's `else` — an outer `else`
+  still runs. Works for `for i in range(...)`, `for x in <list/dict/set>`
+  (desugared to a range loop) and `for x in <record>` (`__iter__`/`__next__`).
+- **Known gaps**: `yield from`, dict comprehension,
   conditional expressions (`a if c else b` *and* `c ? a : b`
   both fail, though an error message tells you to use the latter), slices with a
   step, `del`, keyword-only and positional-only parameters,

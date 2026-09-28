@@ -100,7 +100,7 @@ Cổng: `Testkit/bool_type_test.tkv`, 20 check.
 | **Dict comprehension** | List comprehension có; dict cần đường ghi khác |
 | **Literal lồng** `[{"a":1}]`, `{"k":[1,2]}` | `d["k"] = [1,2]` chạy được, chỉ thiếu *dạng literal* |
 | **`try/except/else`** | ~~Da xong 2026-09-28.~~ Phai tach **HAI nhan**, xem ghi chu ben duoi. |
-| **`for/else`, `while/else`** | Xem 4c |
+| **`for/else`, `while/else`** | ~~Đã xong 2026-09-28, xem Bước 4.~~ |
 | Set literal `{1,2,3}` | Phải `set()` + `.add()` |
 | `del` biến / phần tử | |
 
@@ -162,10 +162,24 @@ vùng `.try`, đó chính là chỗ duy nhất đặt được. Với `finally`,
 bên trong `.try` của `finally` để `finally` vẫn chạy sau nó, và `break` trong
 thân `else` khi đó bị từ chối vì `br` thuần không hợp lệ trong vùng bảo vệ.
 
-### Bước 4 — `for/else` / `while/else`
-Tách riêng vì cần cờ `break`. Thiết kế: `break` gán `did_break = 1` trước khi
-nhảy; `else` chỉ chạy khi `did_break == 0`. Cờ phải là local mới cho mỗi vòng lặp
-có `else` — nếu dùng chung một tên, hai vòng lặp lồng nhau sẽ đè lên nhau.
+### Bước 4 — ~~`for/else` / `while/else`~~ *đã xong 2026-09-28*
+`Testkit/for_while_else_test.tkv` 15/15, đã đối chiếu CPython 3.11 cho các ca
+lồng nhau.
+
+**Không dùng cờ `did_break` như dự kiến.** Kỹ thuật đó cần 1 local mới, mà tên
+local phải duy nhất giữa hai lần duyệt câu lệnh (first pass khai báo, codegen
+đọc) — mà số lần đếm ở hai lần duyệt không đảm bảo khớp. Dùng **nhãn** thì không
+cần gì: `break` trỏ tới nhãn nằm **sau** thân `else`, còn thoát bình thường rơi
+vào `else`. `codegen_break` **không đổi một dòng nào** — nó vốn đọc
+`loop_stack[-1][1]`, nên chỉ cần đẩy nhãn khác vào đó.
+
+Điểm dễ sai: nhãn `break` phải đặt **sau** `emit_sb_flush`, không phải ngay tại
+`end_lbl`. Nếu đặt trước, `break` sẽ bỏ qua bước tổng hợp chuỗi của vòng lặp.
+
+`for x in <list>` không cần mã nguồn riêng: macro `for_in_list` viết lại thành
+`for i in range(len(x))`, và dòng `else:` gốc vẫn nằm nguyên nên parser `for`
+range nhặt được. Riêng `for x in <record>` dùng `__iter__`/`__next__` nên phải
+sửa tay (`codegen_for_in_iter`).
 
 ### Bước 5 — `lambda` — ~~XONG, xem mục 8~~
 

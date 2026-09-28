@@ -599,6 +599,25 @@ def _literal_step_int(step_node):
         "tai compile-time (vd -1, 2), chua ho tro bieu thuc step DONG (vd 1 tham so)")
 
 
+def _parse_loop_else(lines, pos, indent_level, sig, known_shapes, parse_block_fn, what):
+    """`else:` theo sau than vong lap (2026-09-28) - chay khi vong lap ket
+    thuc MA KHONG gap 'break'. Tra ve (else_body, pos); else_body = None
+    khi khong co 'else'.
+
+    Dung chung cho `for` va `while` va ca duong ghi vao qua macro
+    'for_in_list' (macro viet lai thanh `for i in range(len(x))`, dong `else:`
+    goc van nguyen tai do).
+    """
+    if not (pos < len(lines) and lines[pos][0] == indent_level
+            and _ELSE_RE.match(lines[pos][1])):
+        return None, pos
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(f"il_codegen: 'else:' cua {what} khong co than khoi (block rong)")
+    else_body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return else_body, pos
+
+
 def try_parse_for(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
     m_for = _FOR_RANGE_RE.match(line)
     if not m_for:
@@ -621,8 +640,10 @@ def try_parse_for(line, lines, pos, indent_level, sig, known_shapes, parse_block
     if pos >= len(lines) or lines[pos][0] <= indent_level:
         raise SyntaxError(f"il_codegen: 'for {var} in range(...):' khong co than khoi (block rong)")
     body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    else_body, pos = _parse_loop_else(lines, pos, indent_level, sig, known_shapes,
+                                      parse_block_fn, "'for'")
     return {'kind': 'for', 'var': var, 'start_node': start_node, 'bound_node': bound_node,
-            'step': step, 'body': body}, pos
+            'step': step, 'body': body, 'else_body': else_body}, pos
 
 
 def try_parse_while(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
@@ -634,7 +655,10 @@ def try_parse_while(line, lines, pos, indent_level, sig, known_shapes, parse_blo
     if pos >= len(lines) or lines[pos][0] <= indent_level:
         raise SyntaxError(f"il_codegen: 'while {m_while.group(1)}:' khong co than khoi (block rong)")
     body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
-    return {'kind': 'while', 'cond_node': cond_node, 'body': body}, pos
+    else_body, pos = _parse_loop_else(lines, pos, indent_level, sig, known_shapes,
+                                      parse_block_fn, "'while'")
+    return {'kind': 'while', 'cond_node': cond_node, 'body': body,
+            'else_body': else_body}, pos
 
 
 def try_parse_try(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
@@ -829,12 +853,16 @@ def fpw_for(stmt, ctx):
     # thanh 'sb_append', va walk_fn phai thay kind MOI.
     plan_str_accum(stmt, ctx)
     ctx['walk_fn'](stmt['body'])
+    if stmt.get('else_body') is not None:
+        ctx['walk_fn'](stmt['else_body'])
 
 
 def fpw_while(stmt, ctx):
     ctx['collect_ternary_temps'](stmt['cond_node'])
     plan_str_accum(stmt, ctx)
     ctx['walk_fn'](stmt['body'])
+    if stmt.get('else_body') is not None:
+        ctx['walk_fn'](stmt['else_body'])
 
 
 def fpw_if(stmt, ctx):
@@ -884,6 +912,8 @@ def fpp_for(stmt, ctx):
     if stmt['var'] not in infer_scope._d:
         infer_scope.set(stmt['var'], TypeAnn('i32', None))
     ctx['prescan_fn'](stmt['body'])
+    if stmt.get('else_body') is not None:
+        ctx['prescan_fn'](stmt['else_body'])
 
 
 def fpp_while_if(stmt, ctx):
@@ -900,6 +930,47 @@ def fpp_try(stmt, ctx):
         ctx['prescan_fn'](stmt['else_body'])
     if stmt.get('finally_body') is not None:
         ctx['prescan_fn'](stmt['finally_body'])
+
+
+def _loop_else_labels(sig, n, tag):
+    """3 nhan cho `else` cua vong lap. Tra ve None neu vong lap khong co
+    `else` - khi do 'break' van tro toi `end_lbl` nhu truoc khi co tinh nang."""
+    return (f'{sig.name}_{tag}{n}_after', f'{sig.name}_{tag}{n}_else',
+            f'{sig.name}_{tag}{n}_done')
+
+
+def _emit_loop_else_tail(else_body, labels, scope, body, body_dtype, ctx, sig,
+                         codegen_stmts_fn):
+    """Phat phan CUOI cua vong lap co `else`. Gọi SAU khi `<end_lbl>:` va
+    `emit_sb_flush` da duoc ghi vao `body`; tra ve nhan dich cua 'break'.
+
+    KHONG dung co 'did_break' nhu du kien trong PLAN.md buoc 4. Ky thuat do can
+    1 local moi, va ten local phai duy nhat giua hai lan duyet cau lenh (first
+    pass khai bao, codegen doc) - ma so lan dem o hai lan duet khong duy nhat
+    khong so voi nhau. Dung NHAN thi chi them mot nhan va `codegen_break` KHONG
+    doi chut nao.
+
+    Bo cuc (goi `break_lbl` cho nhan 'break' nhay den):
+        END:            <- thoat binh thuong: dieu kien het
+          <sb flush>
+          br ELSE
+        AFTER:          <- 'break' den day. DAT SAU flush roi: neu dat truoc,
+          br DONE        <-   'break' se bo qua flush va mat tinh nang
+        ELSE:               'tong hop chuoi' cua vong lap.
+          <than else>
+        DONE:
+
+    `br` thuan (khong phai `leave`) hop le o day vi code sinh ra nam ngoai moi
+    vung bao vuc - khac voi than `try`, nam trong vung `.try` buoc phai.
+    """
+    after_lbl, else_lbl, done_lbl = labels
+    body.append(f'    br {else_lbl}')
+    body.append(f'  {after_lbl}:')
+    body.append(f'    br {done_lbl}')
+    body.append(f'  {else_lbl}:')
+    codegen_stmts_fn(else_body, scope, body, body_dtype, ctx, sig)
+    body.append(f'  {done_lbl}:')
+    return after_lbl
 
 
 def codegen_for(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
@@ -929,7 +1000,11 @@ def codegen_for(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     # 2026-07-29): dao nguoc thanh 'while var > stop' (ble nhay toi end
     # khi var<=stop) - giong het ngu nghia range() nghich cua Python that.
     body.append(f'    {"bge" if step > 0 else "ble"} {end_lbl}')
-    ctx['loop_stack'].append((cont_lbl, end_lbl))
+    # 'break' tro toi `after_lbl` (nam SAU `else`) khi co 'else', nen `else`
+    # bi bo qua; con khong co 'else' thi tro toi `end_lbl` nhu truoc.
+    else_labels = _loop_else_labels(sig, n, 'L') if stmt.get('else_body') is not None else None
+    break_lbl = else_labels[0] if else_labels is not None else end_lbl
+    ctx['loop_stack'].append((cont_lbl, break_lbl))
     codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
     ctx['loop_stack'].pop()
     body.append(f'  {cont_lbl}:')
@@ -945,6 +1020,9 @@ def codegen_for(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     body.append(f'  {end_lbl}:')
     # SAU nhan ket thuc: 'break' nhay toi day nen van duoc dong bo.
     emit_sb_flush(stmt, scope, body, ctx)
+    if else_labels is not None:
+        _emit_loop_else_tail(stmt['else_body'], else_labels, scope, body,
+                             body_dtype, ctx, sig, codegen_stmts_fn)
 
 
 def codegen_while(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
@@ -957,11 +1035,16 @@ def codegen_while(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     body.append(f'  {start_lbl}:')
     _compile_cond(stmt['cond_node'], scope, body, body_dtype, ctx)
     body.append(f'    brfalse {end_lbl}')
-    ctx['loop_stack'].append((start_lbl, end_lbl))
+    else_labels = _loop_else_labels(sig, n, 'W') if stmt.get('else_body') is not None else None
+    break_lbl = else_labels[0] if else_labels is not None else end_lbl
+    ctx['loop_stack'].append((start_lbl, break_lbl))
     codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
     ctx['loop_stack'].pop()
     body.append(f'    br {start_lbl}')
     body.append(f'  {end_lbl}:')
+    if else_labels is not None:
+        _emit_loop_else_tail(stmt['else_body'], else_labels, scope, body,
+                             body_dtype, ctx, sig, codegen_stmts_fn)
     # SAU nhan ket thuc: 'break' nhay toi day nen van duoc dong bo.
     emit_sb_flush(stmt, scope, body, ctx)
 
@@ -1410,7 +1493,10 @@ def try_parse_for_in_record(line, lines, pos, indent_level, sig, known_shapes, p
     if pos >= len(lines) or lines[pos][0] <= indent_level:
         raise SyntaxError(f"il_codegen: 'for {var} in {record_var}:' khong co than khoi (block rong)")
     body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
-    return {'kind': 'for_in_iter', 'var': var, 'record_var': record_var, 'body': body}, pos
+    else_body, pos = _parse_loop_else(lines, pos, indent_level, sig, known_shapes,
+                                      parse_block_fn, "'for'")
+    return {'kind': 'for_in_iter', 'var': var, 'record_var': record_var, 'body': body,
+            'else_body': else_body}, pos
 
 
 def fpw_for_in_iter(stmt, ctx):
@@ -1474,10 +1560,14 @@ def fpw_for_in_iter(stmt, ctx):
         infer_scope.set(nexttmp, tuple_ta)
     plan_str_accum(stmt, ctx)
     ctx['walk_fn'](stmt['body'])
+    if stmt.get('else_body') is not None:
+        ctx['walk_fn'](stmt['else_body'])
 
 
 def fpp_for_in_iter(stmt, ctx):
     ctx['prescan_fn'](stmt['body'])
+    if stmt.get('else_body') is not None:
+        ctx['prescan_fn'](stmt['else_body'])
 
 
 def codegen_for_in_iter(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
@@ -1512,12 +1602,18 @@ def codegen_for_in_iter(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_f
     ctx['load_var_ref'](nexttmp, scope, body)
     body.append(f'    ldfld !0 {tuple_type_il}::Item1')
     ctx['store_var'](var, scope, body)
-    ctx['loop_stack'].append((start_lbl, end_lbl))
+    else_labels = (_loop_else_labels(sig, n, 'ForIter')
+                   if stmt.get('else_body') is not None else None)
+    break_lbl = else_labels[0] if else_labels is not None else end_lbl
+    ctx['loop_stack'].append((start_lbl, break_lbl))
     codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
     ctx['loop_stack'].pop()
     body.append(f'    br {start_lbl}')
     body.append(f'  {end_lbl}:')
     emit_sb_flush(stmt, scope, body, ctx)
+    if else_labels is not None:
+        _emit_loop_else_tail(stmt['else_body'], else_labels, scope, body,
+                             body_dtype, ctx, sig, codegen_stmts_fn)
 
 
 _WITH_CTX_RE = re.compile(r'^with\s+(.+?)\s+as\s+(\w+)\s*:\s*$')

@@ -620,3 +620,24 @@ Dung xong va da gate: `Testkit/try_except_else_test.tkv` 10/10. Xem "Buoc 3" o
   chi la phong thu cho duong `--no-lint`.
   Linter nem ra traceback thay vi thong bao dep, nhung do la hanh vi chung cua
   moi dang sai cu phap Python, khong rieng `try/else`.
+
+## `else` cua `for` / `while` (2026-09-28)
+
+Dung xong, gate 15/15, doi chieu CPython 3.11 khop het ca o vong lap long nhau.
+Xem "Buoc 4" o `PLAN.md` cho ly do bo co `did_break`.
+
+Mot diem can nho khi sua tiep: `else` cua vong lap **khac** `else` cua `try` o
+nghia do doc:
+
+- `try/except/else` - `else` bi BO QUA khi co handler bat duoc loi.
+- `for/else` va `while/else` - `else` bi BO QUA khi gap `break`. `continue`
+  khong bo qua `else`.
+
+Hai chung deu la "chay khi khong co gi chan duong chon nhanh nay", nhung dieu
+kien phai chan la hai thu khac nhau. Hay nham hai cai la rat de viet sai test.
+
+`for x in <list>` chay qua macro `for_in_list` o `try_expand_for_in_list`, ma
+macro chi ghi lai DONG `for`, dong `else:` goc van nguyen tai cho - nen khong
+can sua macro. Rieng `for x in <record>` thi phai sua tay trong
+`codegen_for_in_iter`, vi no khong qua macro (macro "buoc qua" neu container la
+bien record, xem `_known_record_vars` trong `try_expand_for_in_list`).
