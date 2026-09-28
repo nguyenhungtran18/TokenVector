@@ -17,7 +17,11 @@
 param(
   [string]$Compiler = "",
   [string]$OutDir = "",
-  [switch]$KeepOutput
+  [switch]$KeepOutput,
+  # Trai dat 120s cho MOI test. Test nhanh nhat chay < 2s, nhung mot test
+  # that su treo se chay mai - va dong trong luon uu tien hon viec bao cao
+  # "test do treo" sau 10 phut. Do la ly do mac dinh nay dat cao hon nhieu.
+  [int]$TimeoutMs = 120000
 )
 
 $ErrorActionPreference = "Continue"
@@ -39,7 +43,7 @@ Write-Output "compiler : $Compiler"
 Write-Output "tests    : $($tests.Count)"
 Write-Output ""
 
-$pass = 0; $buildFail = 0; $testFail = 0; $other = 0
+$pass = 0; $buildFail = 0; $testFail = 0; $other = 0; $timeouts = 0
 $failures = @()
 
 foreach ($t in $tests) {
@@ -52,16 +56,52 @@ foreach ($t in $tests) {
   if (-not (Test-Path $exe)) {
     $buildFail++; $failures += "BUILDFAIL  $($t.Name)"; continue
   }
-  $out = & $exe 2>&1 | Out-String
-  $rc = $LASTEXITCODE
-  if ($out -match "\[FAIL\]")      { $testFail++; $failures += "TESTFAIL  $($t.Name)" }
-  elseif ($rc -ne 0)               { $other++;    $failures += "EXIT$rc  $($t.Name)" }
-  else                             { $pass++ }
-  if (-not $KeepOutput) { Remove-Item $exe -Force -ErrorAction SilentlyContinue }
+
+  # TIMEOUT (2026-09-28): chay qua Start-Process de co WaitForExit co gio
+  # han. Tren Windows, mot exe TokenVector TREO VONG HAN khong bao gio quay
+  # lai - `& $exe` se treo ca gate, va nguoi dung chi con cach Ctrl+C.
+  # Do la thu duoc gap thuc te khi them 'try/except/else': bien dich than
+  # cong, chay treo, va gate nao cung treo theo. Bay moi loai do duoc bat
+  # nhu mot ket qua FAIL, khong phai lam treo ca phan con lai.
+  $stdout = Join-Path $OutDir "$($t.BaseName).out"
+  $stderr = Join-Path $OutDir "$($t.BaseName).err"
+  $proc = Start-Process -FilePath $exe -NoNewWindow -PassThru `
+    -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+  # Bat buoc: doc `$proc.Handle` TRUOC khi choi. Tren .NET, tien trinh da
+  # ket thuc se khong tra ExitCode neu doi tuong Process chua giu handle -
+  # nen `Start-Process -PassThru` + `WaitForExit` + `$proc.ExitCode` tra
+  # NULL (khong loi) va moi test bi ghi nham la 'EXIT'. Day la lam lua
+  # kinh dien cua PowerShell, va no da lam ca gate bao FAIL 0/71.
+  $null = $proc.Handle
+  $finished = $proc.WaitForExit($TimeoutMs)
+  if (-not $finished) {
+    # Kill ca Cay tien trinh - mot exe co the da spawn con.
+    try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+    $other++; $failures += "TIMEOUT   $($t.Name) (qua ${TimeoutMs}ms)"
+    $timeouts++
+    if (-not $KeepOutput) {
+      Remove-Item $exe -Force -ErrorAction SilentlyContinue
+    }
+    continue
+  }
+  $rc = $proc.ExitCode
+  $out = ""
+  if (Test-Path $stdout) { $out = Get-Content $stdout -Raw -ErrorAction SilentlyContinue }
+  if (Test-Path $stderr) { $out += (Get-Content $stderr -Raw -ErrorAction SilentlyContinue) }
+  if ($null -eq $out) { $out = "" }
+
+  if ($out -match "\[FAIL\]")  { $testFail++; $failures += "TESTFAIL  $($t.Name)" }
+  elseif ($rc -ne 0)           { $other++;    $failures += "EXIT$rc  $($t.Name)" }
+  else                         { $pass++ }
+  if (-not $KeepOutput) {
+    Remove-Item $exe -Force -ErrorAction SilentlyContinue
+    Remove-Item $stdout -Force -ErrorAction SilentlyContinue
+    Remove-Item $stderr -Force -ErrorAction SilentlyContinue
+  }
 }
 
 Write-Output "=== SUMMARY (out of $($tests.Count) tests) ==="
-"PASS={0,-4} BUILDFAIL={1,-4} TESTFAIL={2,-4} OTHER={3}" -f $pass, $buildFail, $testFail, $other
+"PASS={0,-4} BUILDFAIL={1,-4} TESTFAIL={2,-4} OTHER={3} TIMEOUT={4}" -f $pass, $buildFail, $testFail, $other, $timeouts
 Write-Output ""
 if ($failures.Count) {
   Write-Output "=== FAILURES ==="
