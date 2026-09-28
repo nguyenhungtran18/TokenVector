@@ -531,3 +531,52 @@ already known - 5.89x on elementwise f32 (P3), 1.43x on a 32x32 f32 matmul (P5)
 - so the opportunity is quantified and the design is unambiguous; what remains
 is the implementation, which should land as its own commit with the negative
 test above built in from the start.
+
+## Known gap: the self-hosted compiler has no `yield from` (2026-09-28)
+
+Found while rebuilding `dist/tkvc.exe` from the working tree to run the gate.
+`Testkit/native_test_suite.tkv` does not build with `tkvc.exe`:
+
+    il_codegen: con thua token khong parse duoc sau bieu thuc: 'sub_numbers'
+    (trong 'from sub_numbers()')
+
+That is `native_test_suite.tkv:175`, `yield from sub_numbers()` inside the
+generator `main_numbers()`. Minimal repro, same compiler:
+
+    def g() -> "list[i32]":          # compiles and runs
+        yield 1
+        yield 2
+
+    def g() -> "list[i32]":          # fails
+        yield 1
+        yield from h()
+
+Plain `yield` works. `yield from` is not handled: `tkv_compile.tkv` has no
+YIELDFROM case at all, and the failure surfaces as a confusing parse error
+about leftover tokens rather than an unsupported-feature message.
+
+Why this is pre-existing and why it was invisible: the compiler sources are a
+Python subset. `build_tkvc.ps1` copies each `.tkv` to a same-named `.py` and
+ships those to PyInstaller, and the Python path understands `yield from` -
+`compiler/il_codegen.tkv:400-411` uses it repeatedly. The self-hosted
+TokenVector transpiler at the repo root is the one that lacks it. So the same
+file is valid for the packaging path and invalid for the shipped compiler, and
+nothing in the 63-file gate ever loads `native_test_suite.tkv` (the gate globs
+`*_test.tkv`; this file is named `native_test_suite.tkv`), so 63/63 stayed
+green while this file could not build.
+
+Consequences for anyone picking it up: implementing it means extending the
+generator state machine in `tkv_compile.tkv` to delegate to a second iterator
+(MoveNext/Current feeding the same yield path), and it cannot be validated by
+the very suite it blocks - `native_test_suite.tkv` is the 16-case language
+suite plus the `check_file` static analyser, and it is the only file that
+would exercise the feature. Worth doing, but it is a feature, not a cleanup,
+so it is recorded rather than half-implemented.
+
+Also fixed here: `__init__` in that file declared `def __init__(self, name)`
+with no annotation, which the linter rejects, so it could not build even
+before `yield from` was reached. Annotated `name: "str"`, per the project
+rule that function parameters always carry their type. The other unannotated
+`__init__` parameters in the tree (99 of them, mostly in `tkvcalc*`,
+`_tkv_arbiter` and the compiler's own parser) are reachable only through the
+packaging path or not at all, and are left alone.
