@@ -96,9 +96,9 @@
   bare name on one line. Duplicates are dropped, the element type widens to float
   if any element is a float, and the result is a mutable `set` (`.add()`,
   `.discard()`). `{}` is an empty **dict**, as in Python — an empty set is
-  `set()`. The inline form is blocked by pre-existing limits, not by this
+  `set()` — so the inline form is blocked by pre-existing limits, not by this
   feature: `len(<expr>)` cannot infer an expression's shape and `in` only takes
-  a bare name.
+  a bare name. `for v in s:` works and yields members in unspecified order.
 - **Known gaps**: `yield from`,
   conditional expressions (`a if c else b` *and* `c ? a : b`
   both fail, though an error message tells you to use the latter),
@@ -106,7 +106,8 @@
   nested/tuple literals, dict literal with content (`{"a": 1}`), and call-site
   `*`/`**` unpacking (calls
   have statically known arity, so a run-time-length sequence cannot be passed).
-  Iterating a set with `for v in s:` is broken for *every* set, not just
-  literals — the `for_in_list` macro rewrites it to `s[i]`, which sets do not
-  support. Full list with difficulty ranking in `3.code/docs/PLAN.md`; per-item
-  status in `3.code/docs/REPOSITORY-NOTES.md`.
+  Passing a set to a method's `__init__` is broken for every set — the caller's
+  `container_arg_hints` is never populated for a constructor call, so a
+  `set[i32]` parameter receives a `HashSet<TkvInt>` and the CLR throws
+  `OverflowException` at run time. Full list with difficulty ranking in
+  `3.code/docs/PLAN.md`; per-item status in `3.code/docs/REPOSITORY-NOTES.md`.

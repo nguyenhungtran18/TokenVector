@@ -328,6 +328,23 @@ def set_known_record_vars(names):
     _known_record_vars = set(names)
 
 
+# Tap ten bien "da biet la set/frozenset" (2026-09-28) - dung cung co che
+# _known_dict_vars/_known_record_vars o tren, va cung PHAI goi lai cho moi
+# than ham.
+#
+# Vi sao can: macro for_in_list viet lai mac dinh thanh
+# 'for i in range(len(c)): x = c[i]', ma HashSet<T> KHONG co indexer nen
+# buoc 'x = c[i]' hong - loi "'c[...]' - 'c' la set, ma set KHONG lay duoc
+# theo chi so". Macro o tang VAN BAN khong he biet hinh dang bien, nen phai
+# quet truoc y het cac truong hop khac.
+_known_set_vars = set()
+
+
+def set_known_set_vars(names):
+    global _known_set_vars
+    _known_set_vars = set(names)
+
+
 def try_expand_for_in_list(line):
     # for x in lst: - lap TRUC TIEP qua list - KHONG can codegen moi:
     # List<T> da ho tro doc theo chi so (get_Item/get_Count), nen chi can
@@ -358,6 +375,26 @@ def try_expand_for_in_list(line):
             # nhan bat ky bieu thuc, ke ca '<ten>.keys()'), tai dung ha
             # tang List<K> da co san cua dict.keys().
             return f'{ind}for {var} in {container}.keys():'
+        if container in _known_set_vars:
+            # 2026-09-28: container la set/frozenset. HashSet<T> KHONG co
+            # indexer, nen mac dinh 'container[idx]' hong. Chuyen sang list
+            # roi lap nhu binh thuong - dung chinh `s.to_list()` da co san
+            # (set_to_list.tkv, sinh rieng cho dung truong hop nay).
+            #
+            # KHONG viet 1 duong lap rieng tren Enumerator cua HashSet: phai
+            # code valuetype/Enumerator moi, lap 1 lan - con day tai su dung
+            # het duong list da kiem chung. Chi ton mot lan chuyen doi O(n)
+            # mot vong lap, do lap 1 lan thuong.
+            #
+            # Thu tu phan tu: theo thu tu duyet cua HashSet<T> - KHONG dam
+            # bao, giong het set cua Python. Can thu tu on dinh thi sort sau.
+            n = _me_for_in_list_counter[0]
+            _me_for_in_list_counter[0] += 1
+            tmp = f'__iterset{n}_tmp'
+            idx = f'__iterset{n}_idx'
+            return (f'{ind}{tmp} = {container}.to_list()\n'
+                    f'{ind}for {idx} in range(len({tmp})):\n'
+                    f'{ind}    {var} = {tmp}[{idx}]')
         # R16 (2026-09-26) VO HIEU LUC o dang viet tu dong. Ghi ro ly do:
         # viet 'for k in g.initializers:' thanh 'for k in g.initializers.keys():'
         # la DUNG nghia nhung KHONG chay duoc - macro expr_hoist tach

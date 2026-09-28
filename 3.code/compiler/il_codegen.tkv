@@ -102,6 +102,7 @@ from il_features.control_flow import (
     set_known_dict_vars as _set_known_dict_vars,
     set_known_dict_fields as _set_known_dict_fields,
     set_known_record_vars as _set_known_record_vars,
+    set_known_set_vars as _set_known_set_vars,
 )
 from il_dispatch import (
     EXPR_CODEGEN, register_expr_codegen, STMT_CODEGEN, register_stmt_codegen,
@@ -3559,6 +3560,41 @@ def _expand_macros(body_lines: list, records: dict = None, sig=None,
                 if ret_ta is not None and ret_ta.shape == 'record':
                     record_vars.add(var_name)
     _set_known_record_vars(record_vars)
+
+    # 2026-09-28: quet truoc tap bien SET, de macro 'for_in_list' viet dung
+    # duong cho 'for v in s:'. Khong co tap nay, macro viet nham thanh
+    # 'for i in range(len(s)): v = s[i]' - HashSet<T> khong co indexer nen
+    # bao loi "'s[...]' - 's' la set, ma set KHONG lay duoc theo chi so".
+    # Ba nguon, giong het dict_vars/record_vars o tren:
+    #   (a) 's = set()' va 's = {1, 2, 3}' (set literal)
+    #   (b) 's = <ham tra ve set>()' (return_type.shape in ('set','frozenset'))
+    #   (c) tham so ham co kieu set
+    set_vars = set()
+    set_var_re = re.compile(r'^(\w+)\s*=\s*(set\(\)|\{.+?\})\s*$')
+    for raw in body_lines:
+        m = set_var_re.match(raw.strip())
+        if m:
+            set_vars.add(m.group(1))
+    if sig is not None:
+        # 'sig.params' la list PARAM OBJECT (co '.name'/'.type_ann'), khong
+        # phai list tuple - unpack truc tiep se TypeError (lam hong MOI file).
+        for p in sig.params:
+            _pta = getattr(p, 'type_ann', None)
+            if _pta is not None and getattr(_pta, 'shape', None) in ('set', 'frozenset'):
+                set_vars.add(p.name)
+    if func_table:
+        set_fn_re = re.compile(r'^(\w+)\s*=\s*(\w+)\(.*\)\s*$')
+        for raw in body_lines:
+            m = set_fn_re.match(raw.strip())
+            if not m:
+                continue
+            _var_name, _callee = m.group(1), m.group(2)
+            if _callee not in func_table:
+                continue
+            _ret = getattr(func_table[_callee], 'return_type', None)
+            if _ret is not None and getattr(_ret, 'shape', None) in ('set', 'frozenset'):
+                set_vars.add(_var_name)
+    _set_known_set_vars(set_vars)
 
     prev = body_lines
     for _ in range(10):

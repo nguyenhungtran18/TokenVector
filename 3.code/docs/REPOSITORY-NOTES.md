@@ -724,3 +724,45 @@ Da kiem tra de khong nhan nham: `s = set()` + `.add()` roi `for v in s:` cung
  loi y het, nen day la han che cua MOC set trong macro, khong phai cua set
 literal moi them. Chua sua - macro `for_in_list` dung chung cho list/dict/set,
 va sua no la viec rieng, can bo test rieng cho ca 3 container.
+
+## Duyet set `for v in s:` (2026-09-28)
+
+Xong, gate 11/11. Sua duoc phep: macro `for_in_list` viet mac dinh
+`for i in range(len(s)): v = s[i]`, ma HashSet<T> khong co indexer.
+
+Sua bang cach chuyen sang list roi lap, dung `s.to_list()` da co san
+(`set_to_list.tkv` - file do sinh ra CHINH vi file nay, va ghi ro "VI SAO
+CAN: 'for x in <set>:' KHONG chay duoc"). Khong viet duong lap rieng tren
+Enumerator cua HashSet: phai code valuetype/Enumerator moi, lap 1 lan.
+
+Can them `_known_set_vars` + `set_known_set_vars()` (cung co che
+`_known_dict_vars`/`_known_record_vars`) va quet truoc 3 nguon: `s = set()`,
+`s = {...}`, va `s = <ham tra ve set>()`, cong tham so ham kieu set.
+
+**Bai hoc: `sig.params` la list PARAM OBJECT, khong phai list tuple.** Unpack
+`for name, ta in sig.params` se TypeError lam hong **MOI file** (gate 0/77) -
+khac het loi cua tung test. Phai dung `p.name` / `p.type_ann`.
+
+## Set literal + tham so ham: `container_arg_hints` (2026-09-28)
+
+Khi lam set literal, thu truyen cho tham so `set[i32]` bi
+`OverflowException` luc CHAY (khong phai luc bien dich). Khac phai "duyet
+set hong" - ma la **duong goi** phat `TkvInt::ToI32` tren CHINH con set thay
+vi tren phan tu, vi kieu khai bao lech.
+
+Nguyen nhan: `declare_set` (tu `.add()`) xet `container_arg_hints` TRUOC khi
+suy kieu, `declare_set_literal` (cua toi) thi KHONG. Hai duong phai cho ra
+CUNG kieu cho cung gia tri - `s = set(); s.add(1)` va `s = {1}` phai giong nhau.
+Da them buoc do. Khong thi nhieu loi "bien dich OK, chay thi no" ma
+khong co thong bao nao tro toi khai bao kieu.
+
+## CONG VIEC CHUA LAM: set lam tham so `__init__` (2026-09-28)
+
+`class C: def __init__(self, s: "set[i64]")` roi `C(t)` - hong. Da kiem tra
+de khong nham la hoi quy cua set literal: `t = set(); t.add(1)` cung hong y
+het. Nguyen nhan: `_container_arg_hints` (il_codegen.py) khong duoc nap cho
+VI TRI GOI CONSTRUCTOR, chi nap cho loi goi ham thuong.
+
+Hien tai: set truyen cho HAM THUONG chay; cho `__init__` cua lop thi hong.
+Bai test dung ham thuong de tranh vung nay. Sua la viec rieng - phai nap
+`container_arg_hints` cho constructor record, va can test ca 3 container.

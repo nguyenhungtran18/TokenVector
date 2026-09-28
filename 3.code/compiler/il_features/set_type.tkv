@@ -115,6 +115,18 @@ def declare_set_literal(name, elements, ctx):
     if name in declared_names:
         return
     declared_names.add(name)
+    # PHAI xet container_arg_hints TRUOC khi suy tu phan tu - y het
+    # declare_set (va declare_list_literal). Thieu buoc nay thi
+    # 'def f(s: "set[i32]")' roi 'x = {1, 2}; f(x)' khai HashSet<TkvInt> (i64)
+    # trong khi tham so la set[i32] -> khong khop, va call site sinh
+    # 'TkvInt::ToI32' tren CHINH con set (khong phai phan tu) -> CLR nem
+    # OverflowException luc CHAY, khong bao loi bien dich. Do do ca
+    # 's = set(); s.add(1)' va 's = {1}' phai ra CUNG kieu.
+    hint = (ctx.get('container_arg_hints') or {}).get(name)
+    if hint is not None and hint.shape == 'set':
+        ctx['locals_decl'].append((name, hint))
+        infer_scope_set(ctx, name, hint)
+        return
     from il_features.list_type import list_literal_elem_spec_of
     infer_scope = ctx['infer_scope']
     elem_dtype = None
@@ -125,6 +137,10 @@ def declare_set_literal(name, elements, ctx):
     ta = ctx['TypeAnn'](elem_dtype, 'set')
     ctx['locals_decl'].append((name, ta))
     infer_scope.set(name, ta)
+
+
+def infer_scope_set(ctx, name, ta):
+    ctx['infer_scope'].set(name, ta)
 
 
 def fpw_assign_set_literal(stmt, ctx):
