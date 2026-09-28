@@ -16,7 +16,15 @@ from il_dispatch import register_macro_expander
 # =============================================================================
 # 1. ENUMERATE: for i, x in enumerate(lst):
 # =============================================================================
-_FOR_ENUMERATE_RE = re.compile(r'^for\s+(\w+)\s*,\s*(\w+)\s+in\s+enumerate\((\w+)\)\s*:\s*$')
+# 2026-09-28: nhom thu 2 trong `enumerate(lst, start)` la THAM SO BAT DAU
+# (Python: start=0 mac dinh). Regex cu chi nhan 1 doi so nen dong co them
+# so thu hai rơi het vong macro va bao loi chung chung.
+# `start` chap nhan so nguyen co dau hoac 1 TEN BIEN - giong han voi cac
+# macro khong o file nay, vi phai dua no vao 1 bieu thuc `range(...)` ma
+# compiler phai parse lai; neu cho phep phep tien to thi nen phai sinh
+# 1 bien phu thay vi ghi truc tiep vao bieu thuc.
+_FOR_ENUMERATE_RE = re.compile(
+    r'^for\s+(\w+)\s*,\s*(\w+)\s+in\s+enumerate\(\s*(\w+)\s*(?:,\s*(-?\w+)\s*)?\)\s*:\s*$')
 
 
 def try_expand_for_enumerate(line):
@@ -24,11 +32,20 @@ def try_expand_for_enumerate(line):
     m = _FOR_ENUMERATE_RE.match(stripped)
     if not m:
         return None
-    idx_name, elem_name, container = m.groups()
+    idx_name, elem_name, container, start = m.groups()
     ind = ' ' * (len(line) - len(line.lstrip(' ')))
     # 'i' la ten bien THAT nguoi dung dat (khac for_in_list phai tu sinh
     # ten an) - dung THANG, khong can bo dem.
-    return f'{ind}for {idx_name} in range(len({container})):\n{ind}    {elem_name} = {container}[{idx_name}]'
+    if not start:
+        return f'{ind}for {idx_name} in range(len({container})):\n{ind}    {elem_name} = {container}[{idx_name}]'
+    # Co `start`: bien chi so bat dau tai `start`, nen vong phai chay
+    # [start, start+len) va chi so vao container la `i - start`. Giu
+    # nguyen gia tri `start` trong 1 bien phu de khong sua doi bieu thuc
+    # nhieu lan.
+    helper = f'__enum_start_{idx_name}'
+    return (f'{ind}{helper} = {start}\n'
+            f'{ind}for {idx_name} in range({helper}, {helper} + len({container})):\n'
+            f'{ind}    {elem_name} = {container}[{idx_name} - {helper}]')
 
 
 # =============================================================================
