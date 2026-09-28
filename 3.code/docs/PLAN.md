@@ -99,7 +99,7 @@ Cổng: `Testkit/bool_type_test.tkv`, 20 check.
 | **`lambda`** | Cần sinh closure delegate; `closures.tkv` đã có nền nhưng chưa có đường cho lambda |
 | **Dict comprehension** | List comprehension có; dict cần đường ghi khác |
 | **Literal lồng** `[{"a":1}]`, `{"k":[1,2]}` | `d["k"] = [1,2]` chạy được, chỉ thiếu *dạng literal* |
-| **`try/except/else`** | `finally` đã có. Lần thử đầu (2026-09-28) đã **revert**: nhãn `else` bị phát **trước** `.try`, tạo vòng lặp vô hạn. Cần đặt nhãn sau toàn bộ `catch`, trước `end_lbl`. |
+| **`try/except/else`** | ~~Da xong 2026-09-28.~~ Phai tach **HAI nhan**, xem ghi chu ben duoi. |
 | **`for/else`, `while/else`** | Xem 4c |
 | Set literal `{1,2,3}` | Phải `set()` + `.add()` |
 | `del` biến / phần tử | |
@@ -139,12 +139,28 @@ làm được phần này ở quy mô 65 file nhưng chưa có API cho một l�
 `"True"`. Trong repo này tôi **không tìm thấy** chỗ nào dựa vào nó, nhưng người
 dùng bên ngoài thì chưa biết. Đây là thay đổi **phá vỡ**, cần ghi vào changelog.
 
-### Bước 3 — `try/except/else`
-`raise <biến>` **đã xong** (2026-09-28, `Testkit/raise_var_test.tkv` 7/7) — chỉ
-cần nạp biến rồi `throw`, vì biến của `except ... as e:` vốn đã là `System.Exception`
-trên slot local. Còn `else` trên `try`: không khó về codegen, nhưng cần cẩn
-thận — `else` chạy khi **không** có exception, khác hẳn `finally`, và nhãn phải
-phát **sau** các `catch`. Xem ghi chú revert ở mục 4b.
+### Bước 3 — ~~`raise <biến>` + `try/except/else`~~ *đã xong 2026-09-28*
+`raise <biến>` (`Testkit/raise_var_test.tkv` 7/7) và `try/except/else`
+(`Testkit/try_except_else_test.tkv` 10/10).
+
+**Bài học về `try/else` — đừng lồng nhau.** Lần thử đầu sinh `.try` bao ngoài
+cho `else`, rồi phát nhãn ở sai chỗ, tạo vòng lặp vô hạn; đã revert. Cách đúng
+không cần cấu trúc lồng: sau khi `.try`, đường "không có lỗi" và đường "handler
+đã bắt" đều là `leave` tới **cùng một nhãn**, nên bên ngoài vùng `.try` không
+phân biệt được. Vì vậy phải tách nhãn **ngay trong thân try**:
+
+```
+.try { than_try; leave NO_EXC }      <- duong sach
+catch { handler; leave END }         <- duong co loi, NHAY QUA else
+NO_EXC:  than_else                   <- nam NGOAI vung .try
+END:
+```
+
+Không thể dùng `br NO_EXC` ở cuối thân try: CIL cấm `br` thoát khỏi thân
+`.try` (ECMA-335 III.3.64), bắt buộc `leave` — nên `NO_EXC` bắt buộc nằm ngoài
+vùng `.try`, đó chính là chỗ duy nhất đặt được. Với `finally`, thân `else` sinh
+bên trong `.try` của `finally` để `finally` vẫn chạy sau nó, và `break` trong
+thân `else` khi đó bị từ chối vì `br` thuần không hợp lệ trong vùng bảo vệ.
 
 ### Bước 4 — `for/else` / `while/else`
 Tách riêng vì cần cờ `break`. Thiết kế: `break` gán `did_break = 1` trước khi

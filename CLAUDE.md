@@ -67,8 +67,14 @@
   `except`, or a record deriving `Exception`) and is rejected at compile time
   otherwise. `raise <user record>(...)` always passes its argument as `str`, so
   such a record's ctor must take a `str`.
+- **`try/except/else`**: `else` sits after every `except` and before `finally`,
+  and runs only when **no** handler matched — it is skipped both when a handler
+  caught the exception and when an unmatched one propagates. It runs *before*
+  `finally`. `break`/`continue` inside `else` work, but only when there is no
+  `finally`: with one, the `else` body is generated inside the `finally`'s
+  protected region where CIL forbids a plain `br`.
 - **Known gaps**: `yield from`, dict comprehension, `for`/`while` `else`,
-  `try/except/else`, conditional expressions (`a if c else b` *and* `c ? a : b`
+  conditional expressions (`a if c else b` *and* `c ? a : b`
   both fail, though an error message tells you to use the latter), slices with a
   step, `del`, keyword-only and positional-only parameters,
   set literals, nested/tuple literals, and call-site `*`/`**` unpacking (calls

@@ -683,6 +683,21 @@ def try_parse_try(line, lines, pos, indent_level, sig, known_shapes, parse_block
         else:
             break
 
+    # 'else:' cua 'try' (2026-09-28) - chay khi KHONG co exception nao
+    # duoc bat. Thu tu dung: giong het Python, 'else' nam sau TAT CA 'except'
+    # va TRUOC 'finally'. Vong while o tren da tu `break` ra o day vi
+    # _EXCEPT_TYPED_RE/_EXCEPT_RE khong khop 'else:'.
+    else_body = None
+    if pos < len(lines) and lines[pos][0] == indent_level and _ELSE_RE.match(lines[pos][1]):
+        if not handlers:
+            raise SyntaxError(
+                "il_codegen: 'try/else' khong co 'except' nao - 'else' chi co "
+                "nghia khi co it nhat 1 'except' (Python that cung tu choi)")
+        pos += 1
+        if pos >= len(lines) or lines[pos][0] <= indent_level:
+            raise SyntaxError("il_codegen: 'else:' cua 'try' khong co than khoi (block rong)")
+        else_body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+
     finally_body = None
     if pos < len(lines) and lines[pos][0] == indent_level and _FINALLY_RE.match(lines[pos][1]):
         pos += 1
@@ -709,8 +724,19 @@ def try_parse_try(line, lines, pos, indent_level, sig, known_shapes, parse_block
             "(CIL khong cho phep 'br' thuan tuy thoat khoi finally, chi 'endfinally' "
             "- ke ca khi vong lap dinh nghia BEN TRONG finally cung chua phan biet "
             "duoc o buoc nay, tu choi RONG HON can thiet de dam bao an toan)")
+    if else_body is not None and finally_body is not None and _contains_break_continue(else_body):
+        # Cung ly do voi 'finally' ben tren: khi co 'finally', than 'else' duoc
+        # sinh BEN TRONG .try cua finally (de no chay truoc khi finally), nen
+        # 'br' thuan cua 'break' se thoat khoi mot vung protected - CIL tu choi
+        # (chi 'leave' duoc phep). Khi KHONG co 'finally' thi 'else' duoc sinh
+        # ngoai vung protected va 'break'/luon chay binh thuong.
+        raise SyntaxError(
+            "il_codegen: 'break'/'continue' trong 'else' cua 'try' KHONG co 'finally' "
+            "chua duoc ho tro - CIL khong cho phep 'br' thuan thoat khoi vung .try "
+            "bao vuc cua finally (chi 'leave' duoc phep)")
     return {'kind': 'try', 'body': body, 'handlers': handlers,
-            'handler_vars': handler_vars, 'finally_body': finally_body}, pos
+            'handler_vars': handler_vars, 'finally_body': finally_body,
+            'else_body': else_body}, pos
 
 
 def try_parse_pass(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
@@ -838,6 +864,8 @@ def fpw_try(stmt, ctx):
             ctx['declare_named'](bind, TypeAnn('Exception', None))
     for _, handler_body in stmt['handlers']:
         ctx['walk_fn'](handler_body)
+    if stmt.get('else_body') is not None:
+        ctx['walk_fn'](stmt['else_body'])
     if stmt['finally_body'] is not None:
         ctx['walk_fn'](stmt['finally_body'])
 
@@ -868,6 +896,8 @@ def fpp_try(stmt, ctx):
     ctx['prescan_fn'](stmt['body'])
     for _, handler_body in stmt['handlers']:
         ctx['prescan_fn'](handler_body)
+    if stmt.get('else_body') is not None:
+        ctx['prescan_fn'](stmt['else_body'])
     if stmt.get('finally_body') is not None:
         ctx['prescan_fn'](stmt['finally_body'])
 
@@ -1003,13 +1033,29 @@ def codegen_if(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
 def codegen_try(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     handlers = stmt['handlers']
     finally_body = stmt['finally_body']
+    else_body = stmt.get('else_body')
     ctx['label_counter'][0] += 1
     n = ctx['label_counter'][0]
 
-    def _emit_try_and_handlers(end_lbl):
+    def _emit_try_and_handlers(end_lbl, no_exc_lbl=None):
         # Khoi .try{...}catch{...}catch{...} (0..N handler that - xem
         # _EXC_TYPE_MAP) - dung CHUNG cho ca truong hop "chi except" LAN
         # "except + finally" (goi tu nhanh duoi).
+        #
+        # `no_exc_lbl` (2026-09-28, cho 'else'): nhan NHAU DUONG cua than try
+        # - chi dung khi co 'else'. Cac handler VAN `leave end_lbl`, nen khi
+        # co exception duoc bat, thay 'else' bi BO QUA dung y Python.
+        #
+        # VI SAO phai la HAI nhan rieng, khong dung chung 'end_lbl': o ben
+        # ngoai vung .try, ca hai duong 'leave' se la MOT - mat het thong tin
+        # "co bat loi hay khong", va 'else' se chay ke ca khi handler da bat
+        # loi. Muon phan biet thi phai tach nhan ngay tu trong than try.
+        #
+        # Khong the phat `br no_exc_lbl` o cuoi than try: CIL KHONG cho phep
+        # `br` thoat khoi than 1 khoi .try (ECMA-335 III.3.64) - phai `leave`.
+        # Do do nhan `no_exc_lbl` phai nam NGOAI vung .try, va do la ly do
+        # lan thu dau (da revert) phat no o sai cho, sinh vong lap vo han.
+        try_exit = no_exc_lbl or end_lbl
         body.append('    .try')
         body.append('    {')
         ctx['try_depth'] = ctx.get('try_depth', 0) + 1
@@ -1019,7 +1065,7 @@ def codegen_try(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
         # (da tu emit 'leave epilogue' rieng) - cung ly do voi bug 'br
         # thua sau ret' da sua o nhanh if/else (_stmts_end_in_return).
         if not _stmts_end_in_return(stmt['body']):
-            body.append(f'      leave {end_lbl}')
+            body.append(f'      leave {try_exit}')
         body.append('    }')
         binds = stmt.get('handler_vars') or [None] * len(handlers)
         for (exc_name, handler_body), bind in zip(handlers, binds):
@@ -1050,10 +1096,17 @@ def codegen_try(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
         # LONG NHAU van tu dong kich hoat finally cua khoi ben ngoai
         # dung 1 lan, ke ca khi co ngoai le duoc bat hoac khong.
         inner_end_lbl = f'{sig.name}_Try{n}_end'
+        inner_noexc_lbl = f'{sig.name}_Try{n}_noexc'
         outer_end_lbl = f'{sig.name}_TryF{n}_end'
         body.append('    .try')
         body.append('    {')
-        _emit_try_and_handlers(inner_end_lbl)
+        _emit_try_and_handlers(inner_end_lbl,
+                               inner_noexc_lbl if else_body is not None else None)
+        if else_body is not None:
+            # 'else' NAM TRONG .try cua finally (nen finally van chay sau no),
+            # va 'noexc' nam ngoai vung .try con, ben trong vung nay.
+            body.append(f'  {inner_noexc_lbl}:')
+            codegen_stmts_fn(else_body, scope, body, body_dtype, ctx, sig)
         body.append(f'  {inner_end_lbl}:')
         body.append(f'    leave {outer_end_lbl}')
         body.append('    }')
@@ -1085,7 +1138,14 @@ def codegen_try(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
         # Chi except (0 finally) - N handler (>= 1, da kiem tra luc parse),
         # tong quat hoa ban bare-except-1-handler cu.
         end_lbl = f'{sig.name}_Try{n}_end'
-        _emit_try_and_handlers(end_lbl)
+        no_exc_lbl = f'{sig.name}_Try{n}_noexc'
+        _emit_try_and_handlers(end_lbl, no_exc_lbl if else_body is not None else None)
+        if else_body is not None:
+            # Ca 2 nhan nam NGOAI vung .try nen 'break'/'continue' trong 'else'
+            # van phat 'br' thuan binh thuong o truong hop nay (khac truong
+            # hop co 'finally' o tren, noi 'else' nam trong vung bao vuc).
+            body.append(f'  {no_exc_lbl}:')
+            codegen_stmts_fn(else_body, scope, body, body_dtype, ctx, sig)
         body.append(f'  {end_lbl}:')
 
 

@@ -601,3 +601,22 @@ Ca hai dong nay **da ton tai** va phai giữ:
   Comment trong `codegen_raise` kiem nhan "record tu dinh nghia ke thua Exception"
   co san ctor nay la **sai** - chi cac class trong `_EXC_TYPE_MAP` moi co.
   Chua sua: dung `raise X(msg) from e` voi class builtin.
+
+## `try/except/else` (2026-09-28)
+
+Dung xong va da gate: `Testkit/try_except_else_test.tkv` 10/10. Xem "Buoc 3" o
+`PLAN.md` cho so do nhan. Hai diem can nho khi sua tiep:
+
+- Thuan `else` (khong `finally`) duoc sinh NGOAI vung `.try`, nen `break`/
+  `continue` trong no chay binh thuong. Co `finally` thi thuan `else` phai
+  sinh BEN TRONG `.try` cua finally de finally van chay sau no - va luc do
+  `break`/continue bi tu choi, vi `codegen_break` phat `br` THUAN (khong phai
+  `leave`), ma CIL cam `br` thoat khoi vung bao vuc. `try_depth` hien chi duoc
+  dung o `codegen_return`, chua dung o `break`/`continue` - day la ly do phai
+  chan o parser thay vi lai sua `codegen_break`.
+- `try/finally` co them `else`, va `try/else` khong co `except`, deu khong hop
+  le trong Python nen bi pre-flight linter (`syntax_baseline.py`, goi `ast.parse`)
+  tu choi TRUOC khi parser cua compiler kip thay. Hai guard trong `try_parse_try`
+  chi la phong thu cho duong `--no-lint`.
+  Linter nem ra traceback thay vi thong bao dep, nhung do la hanh vi chung cua
+  moi dang sai cu phap Python, khong rieng `try/else`.
