@@ -159,7 +159,7 @@ _EXPR_TOKEN_RE = re.compile(r'''
     \s*(?:
         (?P<BYTES>b"(?:[^"\\]|\\.)*")
       | (?P<STR>"(?:[^"\\]|\\.)*")
-      | (?P<NUM>0[xX][0-9a-fA-F]+|\d+\.\d+|\d+)
+        | (?P<NUM>0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+\.\d+[eE][+-]?\d+|\d+[eE][+-]?\d+|\d+\.\d+|\d+)
       | (?P<ID>[A-Za-z_]\w*)
       | (?P<SHIFT><<|>>)
       | (?P<CMPOP>>=|<=|==|!=)
@@ -171,6 +171,39 @@ _EXPR_TOKEN_RE = re.compile(r'''
 ''', re.VERBOSE)
 
 _COMPARE_OPS = {'>', '<', '>=', '<=', '==', '!='}
+
+# Khoa hoc: 1e3, 1E-3, 1.5e+2. Regex NUM o tren CHAP nhan dang 'n'
+# (khong dau '.') cho nhanh, va nhieu noi trong compiler quyet dinh "hang
+# so nay co phai float khong" bang cach tim dau '.'. Hai quy tac do la:
+# 0o17 -> int, 0b101 -> int, 0xFF -> int, 1e3 -> FLOAT, 1.5 -> float,
+# 1.5e3 -> float. Func nay la noi DUY NHAT dinh nghia 'la float'.
+def _is_float_literal(text):
+    """True neu 'text' la hang so SONG THUC (co dau '.' hoac so mu).
+
+    Gom ca 'e'/'E' vao, khong chi dau '.': '1e3' khong co dau '.' nen quy
+    tac cu ('.' in text) se bao no la so nguyen, roi int('1e3', 0) nem
+    ValueError. Day la ly do do lai trong danh sach tinh nang thieu.
+    """
+    if '.' in text:
+        return True
+    for ch in text:
+        if ch in 'eE':
+            # Chi la so mu khi 'e' khong phai ky tu dau cua '0x'/'0b'/'0o'
+            # (da xu ly o nhanh duoi) va vi tri 'e' nam sau mot chu so.
+            return True
+    return False
+
+
+def _literal_int(text):
+    """Gia tri nguyen cua hang so - chap nhan 0x/0b/0o nhu Python.
+
+    `int(s, 0)` tu hieu ca 3 tien to, nen khong can tach tay. Tra None
+    neu 'text' khong phai hang so nguyen (so thuc, hoac rac).
+    """
+    try:
+        return int(text, 0)
+    except ValueError:
+        return None
 
 
 def _split_expr_list(s: str) -> list:

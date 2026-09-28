@@ -37,6 +37,9 @@ from il_core import (
     il_array_rank_type, rename_reserved_identifiers as _rename_reserved_identifiers,
     parse_expr, parse_expr_list, _split_expr_list,
     emit_index_scalar,
+    # Quy tac "hang so nay co phai float khong" - DUNG HANG MOT noi, khong
+    # con 'dau . in text' rai o nhieu cho (xem _is_float_literal o il_core).
+    _is_float_literal,
 )
 import il_features.kwarg_resolve as kwarg_resolve  # Phase 11a (2026-08-28): keyword argument resolve dung chung
 from il_features.list_type import (
@@ -1364,7 +1367,7 @@ def _infer_literal_dtype(node):
         # vi 0.30000000000000004) - bug THAT tim qua tools/tkvcalc.tkv.
         # Day chi la fallback khi KHONG con manh moi nao khac; cho nao da
         # khai bao f32 ro rang (tham so/field) van dung f32.
-        return 'f64' if '.' in node[1] else 'int'
+        return 'f64' if _is_float_literal(node[1]) else 'int'
     return None
 
 
@@ -1381,7 +1384,7 @@ def _neg_literal_int(node):
     truc phuc tap hon."""
     if isinstance(node, tuple) and node[0] == 'neg' and isinstance(node[1], tuple) and node[1][0] == 'num':
         text = node[1][1]
-        if '.' not in text:
+        if not _is_float_literal(text):
             return int(text, 0)  # R6: ca hex literal am ('-0x10')
     return None
 
@@ -1396,7 +1399,7 @@ def _contains_float_literal(node):
         return False
     tag = node[0]
     if tag == 'num':
-        return '.' in node[1]
+        return _is_float_literal(node[1])
     if tag in ('binop', 'compare'):
         return _contains_float_literal(node[2]) or _contains_float_literal(node[3])
     if tag == 'neg':
@@ -1727,10 +1730,12 @@ def _expr_num(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         # Kieu 'int' khong co ma lenh 'ldc' rieng (la 1 struct) - xem
         # il_features/int_type.py.
         return _int_type.compile_literal(text, out, ctx)
-    if text.lower().startswith('0x'):
+    if text.lower().startswith('0x') or text.lower().startswith('0b') \
+            or text.lower().startswith('0o'):
         # R6 (2026-09-22): hex literal - doi sang decimal truoc khi sinh
-        # ldc (khong phu thuoc ilasm co hieu '0x' hay khong).
-        text = str(int(text, 16))
+        # ldc (khong phu thuoc ilasm co hieu '0x' hay khong). 2026-09-28:
+        # 0b/0o cung, vi int(s, 0) doc duoc ca 3 nhung ilasm thi khong.
+        text = str(int(text, 0))
     # 2026-09-28: BAT LOI IL SAI thay vi de ilasm bao loi cu phap.
     # Ghi chu R6 o tren noi ro 'vuot pham vi i32 se bao loi ilasm ON AO' -
     # 'ldc.i4 4294967296' la IL KHONG HOP LE (ldc.i4 chi nhan int32) va
@@ -1739,7 +1744,7 @@ def _expr_num(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     # KHONG tu nang len 'ldc.i8' - nguyen tac cua dong nay la "sai am tham
     # nguy hiem hon loi on ao": i32 co hop dong tran thi nem, nen gia tri
     # vuot hop dong phai noi ra chu khong phai doi kieu ngam.
-    if dtype == 'i32' and '.' not in text:
+    if dtype == 'i32' and not _is_float_literal(text):
         try:
             ival = int(text, 0)
         except ValueError:
