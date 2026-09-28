@@ -78,7 +78,16 @@
   `break` in a nested loop skips only that inner loop's `else` — an outer `else`
   still runs. Works for `for i in range(...)`, `for x in <list/dict/set>`
   (desugared to a range loop) and `for x in <record>` (`__iter__`/`__next__`).
-- **Known gaps**: `yield from`, dict comprehension,
+- **Comprehensions**: `[...]`, `{...}` (set) and `{k: v ...}` (dict) all work,
+  with **any** number of `for` clauses and `if` conditions, e.g.
+  `[x*y for x in a for y in b if x != y if y > 0]`. The limits are all in the
+  *shape* the macro can match, not in the feature: the comprehension must be
+  the entire RHS of an assignment to a **bare name** (`out = [...]`, not
+  `f({...})`), and it must sit on **one physical line**. A tuple target is
+  only allowed for dict comprehensions over `.items()`
+  (`{k: v for k, v in d.items()}`). Each `if` becomes its own nested block, so
+  `{k: v for k in a if p for v in b if q}` gives `p` to the second `for`.
+- **Known gaps**: `yield from`,
   conditional expressions (`a if c else b` *and* `c ? a : b`
   both fail, though an error message tells you to use the latter), slices with a
   step, `del`, keyword-only and positional-only parameters,

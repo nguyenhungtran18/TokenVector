@@ -1,0 +1,127 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO comprehension nhieu vong `for` va nhieu `if` (2026-09-28).
+
+List/dict/set comprehension DA CHAY truoc day o dang 1 `for` - cai thieu
+khong phai dict comprehension (PLAN.md 4b xep no vao "can thiet ke", do sai;
+xem REPOSITORY-NOTES). Thieu thuoc su la:
+
+- N vong `for` long nhau: `[x for x in a for y in b]`
+- N dieu kien `if`: `[x for x in y if p if q]`
+
+Ca hai deu bi chan o PRE-FLIGHT LINTER (`syntax_baseline.tkv`), khong phai
+macro - macro `comprehension.py` chi tach duoc 1 vong `for`, phan `for` thu 2
+bi lan vao ITERABLE nen sinh ra `for x in a for y in b:` (sai cu phap).
+
+Moi `if` phai thanh 1 khoi `if` LONG NHAU chu khong phai `if p if q` tren
+mot dong - dong do la sai cu phap Python. Ket qua da doi chieu CPython 3.11.
+
+Gia tri mong doi tinh tay, doi chieu CPython 3.11 tren cung bo case.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def list_multi_for() -> "i32":
+    total = 0
+    tested = 0
+    # x=0: y=0 -> 0, y=1 -> 1 ; x=1: y=0 -> 10, y=1 -> 11
+    a = [x * 10 + y for x in range(2) for y in range(2)]
+    total += check("list two for: length", str(len(a)), "4")
+    tested += 1
+    total += check("list two for: order", str(a[0]) + "," + str(a[1]) + "," + str(a[2]) + "," + str(a[3]), "0,1,10,11")
+    tested += 1
+    # 3 vong
+    b = [1 for x in range(2) for y in range(3) for z in range(2)]
+    total += check("list three for", str(len(b)), "12")
+    tested += 1
+    return total
+
+
+def list_multi_if() -> "i32":
+    total = 0
+    tested = 0
+    a = [x for x in range(10) if x > 5 if x < 8]
+    total += check("two if on one for", str(len(a)), "2")
+    tested += 1
+    total += check("two if values", str(a[0]) + "," + str(a[1]), "6,7")
+    tested += 1
+    b = [x for x in range(20) if x > 2 if x < 5 if x != 4]
+    total += check("three if", str(len(b)) + "=" + str(b[0]), "1=3")
+    tested += 1
+    return total
+
+
+def dict_multi_for() -> "i32":
+    total = 0
+    tested = 0
+    # khoa 0 va 1; gia tri la y LAN CUOI -> 1 cho ca hai
+    d = {x: y for x in range(2) for y in range(2)}
+    total += check("dict two for: length", str(len(d)), "2")
+    tested += 1
+    total += check("dict two for: last value wins", str(d[0]) + "," + str(d[1]), "1,1")
+    tested += 1
+    a = [1, 2]
+    b = [10, 20]
+    e = {i: i * j for i in a for j in b}
+    total += check("dict over two lists", str(len(e)) + "=" + str(e[1]), "2=20")
+    tested += 1
+    return total
+
+
+def set_multi_for() -> "i32":
+    total = 0
+    tested = 0
+    s = {x for x in range(3) for y in range(3)}
+    total += check("set flattens", str(len(s)), "3")
+    tested += 1
+    t = {x * 10 + y for x in range(3) for y in range(3) if x != y}
+    total += check("set with filter", str(len(t)), "6")
+    tested += 1
+    return total
+
+
+def mixed_for_and_if() -> "i32":
+    """`if` thuoc ve vong `for` nao: `if` sau iterable cua vong do. Voi
+    `for x in a if p for y in b if q`, ca `p` va `q` thuoc vong thu HAI."""
+    total = 0
+    tested = 0
+    a = [x + y for x in range(3) for y in range(3) if x != y]
+    total += check("filter on inner for", str(len(a)), "6")
+    tested += 1
+    total += check("filter on inner for: order", str(a[0]) + "," + str(a[1]) + "," + str(a[2]), "1,2,1")
+    tested += 1
+    d = {k: v for k in range(2) if k > 0 for v in range(3) if v != 1}
+    total += check("filter on each for", str(len(d)) + "=" + str(d[1]), "1=2")
+    tested += 1
+    return total
+
+
+def single_for_still_works() -> "i32":
+    """Khong hoi quy: dang 1 `for` (va dang `.items()`) phai y nguyen."""
+    total = 0
+    tested = 0
+    a = [x * x for x in range(4)]
+    total += check("single for list", str(len(a)) + "=" + str(a[3]), "4=9")
+    tested += 1
+    d = {}
+    d["a"] = 1
+    d["b"] = 2
+    e = {k: v * 10 for k, v in d.items()}
+    total += check("single for items", str(e["a"]) + "," + str(e["b"]), "10,20")
+    tested += 1
+    s = {x for x in range(4) if x > 1}
+    total += check("single for set", str(len(s)), "2")
+    tested += 1
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += list_multi_for()
+    total += list_multi_if()
+    total += dict_multi_for()
+    total += set_multi_for()
+    total += mixed_for_and_if()
+    total += single_for_still_works()
+    # 3 + 3 + 3 + 2 + 3 + 3
+    return test_summary("comprehension_multi_for_test", total, 17)

@@ -351,13 +351,15 @@ def _collect_exempt_attr_chains(tree):
 
 def _comp_generator_ok(gen, allow_tuple_target):
     """1 'ast.comprehension' (generator cua List/Dict/SetComp) hop le
-    theo shape macro text-level (comprehension.py) neu: khong async,
-    toi da 1 'if', va target la 1 TEN DON (hoac 1 TUPLE ten don khi
-    'allow_tuple_target' - CHI danh cho dict-comp - VA iterable phai la
-    '.items()', giong het quy tac tuple-unpack for-loop thuong)."""
+    theo shape macro text-level (comprehension.py) neu: khong async, va
+    target la 1 TEN DON (hoac 1 TUPLE ten don khi 'allow_tuple_target' - CHI
+    danh cho dict-comp - VA iterable phai la '.items()', giong het quy tac
+    tuple-unpack for-loop thuong).
+
+    2026-09-28: bo 'toi da 1 if'. Macro sinh moi 'if' thanh 1 khoi long nhau
+    (nested), nen `[x for x in y if p if q]` chay dung; truoc day yeu cau
+    'dung vong for tuong minh' cho ca dang 1 'for'."""
     if gen.is_async:
-        return False
-    if len(gen.ifs) > 1:
         return False
     if isinstance(gen.target, ast.Name):
         return True
@@ -374,7 +376,12 @@ def _collect_exempt_comprehensions(tree):
     DUY NHAT lam RHS, khop dung shape 3 macro text-level
     ('try_expand_list_comp'/'try_expand_dict_or_set_comp',
     il_features/comprehension.py) - CHI shape nay moi thuc su duoc ho
-    tro (Task 4, phat hien qua regression)."""
+    tro (Task 4, phat hien qua regression).
+
+    2026-09-28: bo dieu kien 'chi 1 generator' - macro gio sinh duoc N vong
+    `for` long nhau nen `[x for x in a for y in b]` cung chay. Truoc day yeu
+    cau 'dung vong for tuong minh' cho ca dict comprehension, trong khi dang
+    co san va CHAY - chi la bi chan o day."""
     exempt = set()
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Assign) and len(node.targets) == 1
@@ -393,14 +400,17 @@ def _collect_exempt_comprehensions(tree):
         # tren 1 dong).
         if val.lineno != getattr(val, 'end_lineno', val.lineno):
             continue
-        if isinstance(val, ast.ListComp) and len(val.generators) == 1 \
-                and _comp_generator_ok(val.generators[0], allow_tuple_target=False):
+        if isinstance(val, ast.ListComp) and val.generators \
+                and all(_comp_generator_ok(g, allow_tuple_target=False)
+                        for g in val.generators):
             exempt.add(id(val))
-        elif isinstance(val, ast.SetComp) and len(val.generators) == 1 \
-                and _comp_generator_ok(val.generators[0], allow_tuple_target=False):
+        elif isinstance(val, ast.SetComp) and val.generators \
+                and all(_comp_generator_ok(g, allow_tuple_target=False)
+                        for g in val.generators):
             exempt.add(id(val))
-        elif isinstance(val, ast.DictComp) and len(val.generators) == 1 \
-                and _comp_generator_ok(val.generators[0], allow_tuple_target=True):
+        elif isinstance(val, ast.DictComp) and val.generators \
+                and all(_comp_generator_ok(g, allow_tuple_target=True)
+                        for g in val.generators):
             exempt.add(id(val))
     return exempt
 

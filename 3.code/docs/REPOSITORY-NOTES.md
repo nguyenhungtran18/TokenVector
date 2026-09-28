@@ -641,3 +641,31 @@ macro chi ghi lai DONG `for`, dong `else:` goc van nguyen tai cho - nen khong
 can sua macro. Rieng `for x in <record>` thi phai sua tay trong
 `codegen_for_in_iter`, vi no khong qua macro (macro "buoc qua" neu container la
 bien record, xem `_known_record_vars` trong `try_expand_for_in_list`).
+
+## Comprehension: tai sao `PLAN.md` sai ve dict comprehension (2026-09-28)
+
+`PLAN.md` 4b xep "Dict comprehension" vao *can thiet ke*, kem ghi chu "list
+comprehension co; dict can duong ghi khac". **Sai.** Kiem lai thi
+`try_expand_dict_or_set_comp` trong `il_features/comprehension.py` da co san tu
+truoc va chay dung - `d = {x: x * x for x in range(4)}` ra ket qua dung ngay tu
+truoc phien nay. Tieu chi bi chan o PRE-FLIGHT LINTER
+(`syntax_baseline.tkv` -> `_collect_exempt_comprehensions`), voi dieu kien
+`len(generators) == 1`.
+
+Day la loai sai nguy hiem hon loai "chua lam": danh sach gap khai bao mot tinh
+nang **da chay**, nen nguoi doc tuong tin la no chua lam. Da giu lai tu do
+nay bang `Testkit/comprehension_multi_for_test.tkv` (17/17) - co ca cac dang
+1 `for` va dang `.items()` da co san truoc, de khong ai xoa nham di.
+
+Tu do sua tieu chi cua linter: cho N generator, va bo `len(ifs) > 1` trong
+`_comp_generator_ok`. Macro `parse_comprehension_inner` sua cung luc -
+sai mot co, khac mot thì linter va macro lech nhau, va loi se hiện ra o mot
+cho ma kho doan.
+
+Gioi han con lai cua comprehension KHONG phai giới han cua tính năng ma là gioi
+han cua *shape* ma macro khop duoc. No deu dung o linter va deu ro rang:
+- phai là RHS duy nhất của gán cho **tên đơn**: `out = [...]`, không phải
+  `f({...})`
+- phai nằm trên **một dòng vật lý** (`_LIST_COMP_OUTER_RE`/`_DICT_COMP_OUTER_RE`
+  là `^...$`, không `DOTALL`); linter kiem bang `end_lineno`
+- target nhiều biến chi danh cho dict-comp tren `.items()`

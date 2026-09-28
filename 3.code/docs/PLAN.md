@@ -97,7 +97,8 @@ Cổng: `Testkit/bool_type_test.tkv`, 20 check.
 | Mục | Vì sao khó |
 |---|---|
 | **`lambda`** | Cần sinh closure delegate; `closures.tkv` đã có nền nhưng chưa có đường cho lambda |
-| **Dict comprehension** | List comprehension có; dict cần đường ghi khác |
+| **Dict comprehension** | ~~**KHÔNG phải gap** — đã có sẵn và chạy từ trước.~~ Xem dòng dưới. |
+| **Comprehension nhiều `for` / nhiều `if`** | ~~Đã xong 2026-09-28, xem Bước 5.~~ |
 | **Literal lồng** `[{"a":1}]`, `{"k":[1,2]}` | `d["k"] = [1,2]` chạy được, chỉ thiếu *dạng literal* |
 | **`try/except/else`** | ~~Da xong 2026-09-28.~~ Phai tach **HAI nhan**, xem ghi chu ben duoi. |
 | **`for/else`, `while/else`** | ~~Đã xong 2026-09-28, xem Bước 4.~~ |
@@ -110,8 +111,8 @@ Cổng: `Testkit/bool_type_test.tkv`, 20 check.
 |---|---|
 | `yield from` | Phải cho state machine generator ăn iterator thứ hai (MoveNext/Current vào cùng đường yield). **Không kiểm chứng được bằng bộ suite nó chặn** — `native_test_suite.tkv` là bộ 16 case duy nhất dùng nó, và file đó hiện không build. |
 | `return <giá trị>` trong generator | `StopIteration.value` |
-| `for/else` + `while/else` | `else` **không được chạy sau `break`**, mà CIL không có cờ nào cho việc đó. Phải cấp biến cờ cho mỗi `break`. |
-| Comprehension lồng `[.. for x .. for y ..]` | |
+| ~~`for/else` + `while/else`~~ | ~~Đã xong 2026-09-28, xem Bước 4.~~ Dự đoán ban đầu ở đây ("CIL không có cờ, phải cấp biến cờ cho mỗi `break`") **sai** — dùng nhãn là xong, không cần cờ. |
+| ~~Comprehension lồng `[.. for x .. for y ..]`~~ | ~~Đã xong 2026-09-28, xem Bước 5.~~ |
 | Slice có bước `a[::2]` | |
 | Biểu thức điều kiện `a if c else b` | Và `c ? a : b` **cũng không hợp lệ**, dù chính thông báo lỗi của compiler bảo dùng cú pháp đó — cần sửa thông báo hoặc hỗ trợ cả hai |
 | Hàm lồng phải là câu lệnh **đầu tiên** | `def inner()` sau `k = 1` → lỗi |
@@ -180,6 +181,35 @@ vào `else`. `codegen_break` **không đổi một dòng nào** — nó vốn đ
 `for i in range(len(x))`, và dòng `else:` gốc vẫn nằm nguyên nên parser `for`
 range nhặt được. Riêng `for x in <record>` dùng `__iter__`/`__next__` nên phải
 sửa tay (`codegen_for_in_iter`).
+
+### Bước 5 — ~~Comprehension nhiều `for` / nhiều `if`~~ *đã xong 2026-09-28*
+`Testkit/comprehension_multi_for_test.tkv` 17/17, đã đối chiếu CPython 3.11.
+
+**Bắt đầu từ một phát hiện: `PLAN.md` sai.** Mục này ghi "Dict comprehension —
+list có, dict cần đường ghi khác" và xếp nó vào *cần thiết kế*. Thực tế macro
+`try_expand_dict_or_set_comp` **đã có sẵn từ trước** và chạy đúng
+(`d = {x: x*x for x in range(4)}` ra kết quả đúng ngay từ trước phiên này).
+Cái thật sự chặn nó là **pre-flight linter** (`syntax_baseline.tkv`), vốn yêu
+cầu "chỉ 1 generator" — tức danh sách thiếu kệ một thứ đã chạy. Đã gỡ khỏi
+`CLAUDE.md` và khỏi bảng 4b/4c.
+
+Vậy thứ thật sự thiếu là **N vòng `for`** và **N điều kiện `if`**, và nó áp cho
+cả list/set/dict. Nguyên nhân: `parse_comprehension_inner` chỉ tách được 1 vòng
+`for`, nên `for` thứ hai bị lẫn vào `ITERABLE` và macro sinh ra
+`for x in a for y in b:` — sai cú pháp.
+
+Hai chỗ phải sửa cùng lúc, nếu không thì lệch nhau:
+
+1. `comprehension.tkv` — `parse_comprehension_inner` trả về **danh sách**
+   generator, mỗi cái `{var_part, iterable, conds}`. Mỗi `if` sinh **một khối
+   `if` lồng nhau**, không phải `if p if q` trên một dòng (dòng đó sai cú pháp).
+2. `syntax_baseline.tkv` — `_collect_exempt_comprehensions` bỏ điều kiện
+   `len(generators) == 1`; `_comp_generator_ok` bỏ điều kiện `len(ifs) > 1`.
+
+Điểm dễ sai khi tách: phải so sánh vị trí của `if` **và** `for` rồi lấy vị trí
+nhỏ hơn. Chỉ tìm `if` thì cắt sai `iterable` khi có vòng `for` thứ hai; chỉ tìm
+`for` thì cắt sai khi có `if`. Và `if` thuộc về vòng `for` **ngay trước nó**, nên
+trong `[x for x in a if p for y in b if q]`, cả `p` lẫn `q` đều thuộc vòng hai.
 
 ### Bước 5 — `lambda` — ~~XONG, xem mục 8~~
 

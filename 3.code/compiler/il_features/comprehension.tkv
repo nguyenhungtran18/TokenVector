@@ -14,26 +14,87 @@ _DICT_COMP_OUTER_RE = re.compile(r'^(\w+)\s*=\s*\{(.+)\}\s*$')
 
 
 def parse_comprehension_inner(inner):
-    """Tach 'EXPR for VAR[, VAR2] in ITERABLE [if COND]' (dung chung cho
-    ca list va dict comprehension - dict truyen ca 'KEXPR: VEXPR' lam
-    EXPR, tach rieng o noi goi). Dung tim tu khoa 'for'/'in'/'if' DAU
-    TIEN (khong dung regex 1 khoi vi EXPR/ITERABLE co the chua dau
-    ngoac vuong long nhau, giong bai hoc tu bug 'd[lst[i]]' truoc do) -
-    tra ve None neu khong phai dang comprehension (khong co 'for')."""
+    """Tach 'EXPR for VAR[, VAR2] in ITERABLE [if COND]' thanh cau truc co
+    danh sach GENERATOR (dung chung cho list/dict/set comprehension - dict
+    truyen ca 'KEXPR: VEXPR' lam EXPR, tach rieng o noi goi).
+
+    2026-09-28: ho tro N vong `for` long nhau (`for x in a for y in b` ->
+    2 generator), truoc day chi tach duoc 1 - phan `for` thu 2 bi lan vao
+    ITERABLE nen macro sinh ra `for x in a for y in b:` (sai cu phap).
+    Moi generator mang `conds` (danh sach, vi Python cho phep nhieu `if`:
+    `[x for x in y if p if q]`).
+
+    Tim tu khoa 'for' DAU TIEN (khong dung regex 1 khoi vi EXPR/ITERABLE co
+    the chua dau ngoac vuong long nhau, giong bai hoc tu bug 'd[lst[i]]' truoc
+    do) - tra ve None neu khong phai dang comprehension (khong co 'for').
+
+    Thoi diem ket thuc ITERABLE la 'if' hoac 'for' DAU TIEN xuat hien - phai
+    so sanh ca hai roi lay vi tri nho hon; chi tim 'if' se cat sai iterable
+    khi co vong for thu hai, va chi tim 'for' se cat sai khi co 'if'."""
     m = re.search(r'\bfor\b', inner)
     if not m:
         return None
-    head, rest = inner[:m.start()].strip(), inner[m.end():].strip()
-    m2 = re.search(r'\bin\b', rest)
-    if not m2:
-        return None
-    var_part, tail = rest[:m2.start()].strip(), rest[m2.end():].strip()
-    m3 = re.search(r'\bif\b', tail)
-    if m3:
-        iterable, cond = tail[:m3.start()].strip(), tail[m3.end():].strip()
-    else:
-        iterable, cond = tail, None
-    return {'expr': head, 'var_part': var_part, 'iterable': iterable, 'cond': cond}
+    head = inner[:m.start()].strip()
+    rest = inner[m.end():].strip()
+
+    def _next_kw(s):
+        """(vi tri, loai) cua 'if'/'for' dau tien trong s, hoac (len, None)."""
+        found = [(x.start(), k) for x, k in
+                 ((re.search(r'\bif\b', s), 'if'), (re.search(r'\bfor\b', s), 'for'))
+                 if x]
+        return min(found) if found else (len(s), None)
+
+    generators = []
+    while True:
+        m_in = re.search(r'\bin\b', rest)
+        if not m_in:
+            return None
+        var_part = rest[:m_in.start()].strip()
+        rest = rest[m_in.end():].strip()
+        pos, kind = _next_kw(rest)
+        iterable = rest[:pos].strip()
+        rest = rest[pos:].strip()
+        conds = []
+        while kind == 'if':
+            rest = rest[2:].strip()          # bo khoa 'if'
+            pos, kind = _next_kw(rest)
+            conds.append(rest[:pos].strip())
+            rest = rest[pos:].strip()
+        if not iterable or any(not c for c in conds):
+            return None
+        generators.append({'var_part': var_part, 'iterable': iterable, 'conds': conds})
+        if kind != 'for':
+            break
+        rest = rest[3:].strip()              # bo khoa 'for'
+    return {'expr': head, 'generators': generators}
+
+
+def _nested_lines(ind, name, parsed, emit):
+    """Sinh cac dong van ban cua 1 comprehension co N vong `for`.
+
+    `emit(indent, ...)` nhan indent HIEN TAI (chuoi da nhin) va phai ghi
+    'name' vao container. Moi `if` cua generator tang them 1 cap indent, vi
+    `if` la 1 khoi chua 1 khoi, khong phai 1 bieu thuc gan - `[x for x in y
+    if a if b]` phai thanh 2 khoi `if` long nhau chu khong phai `if a if b`
+    tren 1 dong (dong do la sai cu phap).
+    """
+    lines = []
+    pad = ''
+    for g in parsed['generators']:
+        lines.append(f'{ind}{pad}for {g["var_part"]} in {g["iterable"]}:')
+        pad += '    '
+        for cond in g['conds']:
+            lines.append(f'{ind}{pad}if {cond}:')
+            pad += '    '
+    lines.append(emit(f'{ind}{pad}'))
+    return lines
+
+
+def _has_tuple_target(parsed):
+    """Co generator nao dung target nhieu bien (`for i, v in ...`) khong. Chi
+    dict-comprehension tren `.items()` moi cho phep (xem
+    `_comp_generator_ok` o syntax_baseline.tkv)."""
+    return any(',' in g['var_part'] for g in parsed['generators'])
 
 
 def try_expand_list_comp(line):
@@ -49,17 +110,12 @@ def try_expand_list_comp(line):
         return None
     name, inner = m.groups()
     parsed = parse_comprehension_inner(inner)
-    if not (parsed and ',' not in parsed['var_part']):
+    if not (parsed and not _has_tuple_target(parsed)):
         return None
-    expr, var, iterable, cond = (parsed['expr'], parsed['var_part'],
-                                  parsed['iterable'], parsed['cond'])
-    lines_out = [f'{ind}{name} = []', f'{ind}for {var} in {iterable}:']
-    if cond:
-        lines_out.append(f'{ind}    if {cond}:')
-        lines_out.append(f'{ind}        {name}.append({expr})')
-    else:
-        lines_out.append(f'{ind}    {name}.append({expr})')
-    return '\n'.join(lines_out)
+    expr = parsed['expr']
+    return '\n'.join([f'{ind}{name} = []']
+                     + _nested_lines(ind, name, parsed,
+                                     lambda p: f'{p}{name}.append({expr})'))
 
 
 def try_expand_dict_or_set_comp(line):
@@ -81,24 +137,14 @@ def try_expand_dict_or_set_comp(line):
     if parsed and ':' in parsed['expr'] and '?' not in parsed['expr']:
         kexpr, vexpr = parsed['expr'].split(':', 1)
         kexpr, vexpr = kexpr.strip(), vexpr.strip()
-        var_part, iterable, cond = parsed['var_part'], parsed['iterable'], parsed['cond']
-        lines_out = [f'{ind}{name} = {{}}', f'{ind}for {var_part} in {iterable}:']
-        if cond:
-            lines_out.append(f'{ind}    if {cond}:')
-            lines_out.append(f'{ind}        {name}[{kexpr}] = {vexpr}')
-        else:
-            lines_out.append(f'{ind}    {name}[{kexpr}] = {vexpr}')
-        return '\n'.join(lines_out)
-    if parsed and ',' not in parsed['var_part']:
-        expr, var, iterable, cond = (parsed['expr'], parsed['var_part'],
-                                      parsed['iterable'], parsed['cond'])
-        lines_out = [f'{ind}{name} = set()', f'{ind}for {var} in {iterable}:']
-        if cond:
-            lines_out.append(f'{ind}    if {cond}:')
-            lines_out.append(f'{ind}        {name}.add({expr})')
-        else:
-            lines_out.append(f'{ind}    {name}.add({expr})')
-        return '\n'.join(lines_out)
+        return '\n'.join([f'{ind}{name} = {{}}']
+                         + _nested_lines(ind, name, parsed,
+                                         lambda p: f'{p}{name}[{kexpr}] = {vexpr}'))
+    if parsed and not _has_tuple_target(parsed):
+        expr = parsed['expr']
+        return '\n'.join([f'{ind}{name} = set()']
+                         + _nested_lines(ind, name, parsed,
+                                         lambda p: f'{p}{name}.add({expr})'))
     return None
 
 
