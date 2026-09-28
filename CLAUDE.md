@@ -60,10 +60,17 @@
   variables works. A bare `g = lambda x: ...` is an error because the lambda
   node carries parameter *names* only, and this language has no type
   inference — every function has one known signature.
+- **Exceptions**: `raise <Type>(msg)` builds a *new* exception; `raise e` re-raises
+  the bound object (keeps the original instance, unlike the first form);
+  `raise <Type>(msg) from e` chains; bare `raise` is only valid directly inside a
+  `catch`. `raise e` requires `e` to be exception-typed (the `as` binding of an
+  `except`, or a record deriving `Exception`) and is rejected at compile time
+  otherwise. `raise <user record>(...)` always passes its argument as `str`, so
+  such a record's ctor must take a `str`.
 - **Known gaps**: `yield from`, dict comprehension, `for`/`while` `else`,
   `try/except/else`, conditional expressions (`a if c else b` *and* `c ? a : b`
   both fail, though an error message tells you to use the latter), slices with a
-  step, `del`, keyword-only and positional-only parameters, `raise <variable>`,
+  step, `del`, keyword-only and positional-only parameters,
   set literals, nested/tuple literals, and call-site `*`/`**` unpacking (calls
   have statically known arity, so a run-time-length sequence cannot be passed).
   Full list with difficulty ranking in `3.code/docs/PLAN.md`; per-item status in

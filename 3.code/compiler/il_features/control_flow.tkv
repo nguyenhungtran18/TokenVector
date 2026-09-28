@@ -51,6 +51,9 @@ _RAISE_RE = re.compile(r'^raise\s+(\w+)\((.*)\)(?:\s+from\s+(\w+))?\s*$')
 # CHINH exception dang duoc bat, CHI hop le ben trong 1 khoi 'except'
 # (xem codegen_raise's rethrow + ctx['in_except_handler']).
 _BARE_RAISE_RE = re.compile(r'^raise\s*$')
+# 'raise <bien>' - ten don, KHONG co '('. Phan biet voi 'raise X(...)' bang
+# dau hau khoi; xem try_parse_raise.
+_RAISE_VAR_RE = re.compile(r'^raise\s+(\w+)\s*$')
 _FOR_IN_LIST_RE = re.compile(r'^for\s+(\w+)\s+in\s+(\w+)\s*:\s*$')
 # B5 (sua doc lap tren 2 nhanh, gop lai - ban tong quat hon duoc giu):
 # 'for x in <bieu thuc>:' vd 'for x in v1.split(","):' - container KHONG
@@ -759,6 +762,19 @@ def try_parse_raise(line, lines, pos, indent_level, sig, known_shapes, parse_blo
         return {'kind': 'raise', 'exc_type': None, 'msg_node': None, 'bare': True}, pos + 1
     m_raise = _RAISE_RE.match(line)
     if not m_raise:
+        # 2026-09-28: `raise <bien>` - nem lai 1 bien exception da co
+        # (thuong la bien cua `except ... as e:`). Python dung kieu nay
+        # de re-raise hoac boc loi, va `raise <Type>(...)` KHONG bi dien
+        # dat; truoc day no rơi het LINE_PARSERS va bao "khong dich duoc
+        # dong: 'raise e'".
+        #
+        # Phan biet voi `raise X(...)` bang DAU HAU KHOI: cach con phai
+        # co '('. Mot ten tran co the la 1 bien - kiem tra kieu THAT do
+        # CODEGEN lam (cung quy tac voi tham so cua `raise ... from`).
+        m_var = _RAISE_VAR_RE.match(line)
+        if m_var:
+            return {'kind': 'raise', 'exc_type': None, 'msg_node': None,
+                    'var_name': m_var.group(1)}, pos + 1
         return None
     # 'raise ValueError("thong diep")' - TU nem 1 exception (khac 'except'
     # chi BAT loi CLR tu nem tu 1 phep toan that) - dung LAI CHINH
@@ -1589,6 +1605,33 @@ def codegen_raise(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
                 "(nem lai chinh exception dang bat) - Python that cung bao RuntimeError "
                 "neu dung 'raise' tran ben ngoai 1 handler dang xu ly loi")
         body.append('    rethrow')
+        return
+    var_name = stmt.get('var_name')
+    if var_name is not None:
+        # 2026-09-28: `raise <bien>` - nap gia tri cua bien (la doi tuong
+        # exception) roi `throw` nguyen no. Khong xay lai: `raise Value-
+        # Error(msg)` se LAM MAT so loi goc, con day giu nguyen doi tuong
+        # dang bam - dung y nghia cua Python va la thu hay dung khi re-raise
+        # hoac boc loi giữ nguyên.
+        #
+        # Kiem kieu THAT (cung quy tac voi tham so cua `raise ... from`):
+        # bien phai la sentinel 'Exception' hoac record ke thua Exception.
+        # Neu bo qua, `raise some_int` se box mot so nguyen roi nem - loi
+        # luc chay rat kho hieu, dung thuong la do ban viet nham.
+        _, _, var_ta = scope[var_name]
+        records = ctx.get('records') or {}
+        record_bases = ctx.get('record_bases') or {}
+        ok = (var_ta.dtype == 'Exception' and var_ta.shape is None) or (
+            var_ta.dtype in records and _derives_from_exception(var_ta.dtype, record_bases))
+        if not ok:
+            raise SyntaxError(
+                f"il_codegen: 'raise {var_name}' - '{var_name}' phai la 1 bien "
+                f"kieu Exception (tu 'except ... as {var_name}:' hoac 1 record ke "
+                f"thua Exception), dang co dtype={var_ta.dtype!r} "
+                f"shape={var_ta.shape!r}. Muon nem loi moi, dung "
+                f"'raise <Loai>(...)'")
+        ctx['load_var_ref'](var_name, scope, body)
+        body.append('    throw')
         return
     # 'raise ValueError("msg")' - TU xay dung + 'throw' 1 exception THAT
     # (khac 'except' chi BAT loi CLR tu nem) - da xac minh THAT bang

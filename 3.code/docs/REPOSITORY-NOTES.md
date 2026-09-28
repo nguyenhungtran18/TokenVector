@@ -580,3 +580,24 @@ rule that function parameters always carry their type. The other unannotated
 `__init__` parameters in the tree (99 of them, mostly in `tkvcalc*`,
 `_tkv_arbiter` and the compiler's own parser) are reachable only through the
 packaging path or not at all, and are left alone.
+
+## `raise <bien>` (2026-09-28)
+
+Dung xong va da gate: `Testkit/raise_var_test.tkv` 7/7. Phan biet parser chi la
+dau hau khoi `(` - `raise X(...)` co, `raise e` khong. Codegen nap bien roi
+`throw`; kieu THAT kiem o bien dich, dung chung quy tac voi tham so cua
+`raise ... from`, nen `raise <so>` bi tu choi luc bien dich thay vi box roi nem
+luc chay.
+
+Ca hai dong nay **da ton tai** va phai giữ:
+
+- `raise <record tu dinh nghia>(...)` **ep** tham so kieu `str` (duong dan raise
+  ep `dtype='str'` khi bien dich bieu thuc tham so). nen record loi cua nguoi
+  dung phai co field `str`; neu khai field `i32` thi sinh `.ctor(String)` ma
+  record khong co, va exe chet luc chay voi
+  `MissingMethodException: Void MyErr..ctor(System.String)`.
+- Do do, `raise <record> from <bien>` **hong san** o HEAD: codegen phat
+  `.ctor(String, Exception)`, ma record chi co `.ctor` khai trong `__init__`.
+  Comment trong `codegen_raise` kiem nhan "record tu dinh nghia ke thua Exception"
+  co san ctor nay la **sai** - chi cac class trong `_EXC_TYPE_MAP` moi co.
+  Chua sua: dung `raise X(msg) from e` voi class builtin.

@@ -99,8 +99,7 @@ Cổng: `Testkit/bool_type_test.tkv`, 20 check.
 | **`lambda`** | Cần sinh closure delegate; `closures.tkv` đã có nền nhưng chưa có đường cho lambda |
 | **Dict comprehension** | List comprehension có; dict cần đường ghi khác |
 | **Literal lồng** `[{"a":1}]`, `{"k":[1,2]}` | `d["k"] = [1,2]` chạy được, chỉ thiếu *dạng literal* |
-| **`try/except/else`** | `finally` đã có |
-| **`raise <biến>`** | Chỉ nhận `raise ValueError(...)`; cần biểu diễn exception động trên IL |
+| **`try/except/else`** | `finally` đã có. Lần thử đầu (2026-09-28) đã **revert**: nhãn `else` bị phát **trước** `.try`, tạo vòng lặp vô hạn. Cần đặt nhãn sau toàn bộ `catch`, trước `end_lbl`. |
 | **`for/else`, `while/else`** | Xem 4c |
 | Set literal `{1,2,3}` | Phải `set()` + `.add()` |
 | `del` biến / phần tử | |
@@ -140,9 +139,12 @@ làm được phần này ở quy mô 65 file nhưng chưa có API cho một l�
 `"True"`. Trong repo này tôi **không tìm thấy** chỗ nào dựa vào nó, nhưng người
 dùng bên ngoài thì chưa biết. Đây là thay đổi **phá vỡ**, cần ghi vào changelog.
 
-### Bước 3 — `raise <biến>` + `try/except/else`
-Cùng nhóm "lỗi chạy được". `else` trên `try` không khó về codegen, nhưng cần
-cẩn thận: `else` của `try` chạy khi **không** có exception, khác hẳn `finally`.
+### Bước 3 — `try/except/else`
+`raise <biến>` **đã xong** (2026-09-28, `Testkit/raise_var_test.tkv` 7/7) — chỉ
+cần nạp biến rồi `throw`, vì biến của `except ... as e:` vốn đã là `System.Exception`
+trên slot local. Còn `else` trên `try`: không khó về codegen, nhưng cần cẩn
+thận — `else` chạy khi **không** có exception, khác hẳn `finally`, và nhãn phải
+phát **sau** các `catch`. Xem ghi chú revert ở mục 4b.
 
 ### Bước 4 — `for/else` / `while/else`
 Tách riêng vì cần cờ `break`. Thiết kế: `break` gán `did_break = 1` trước khi
