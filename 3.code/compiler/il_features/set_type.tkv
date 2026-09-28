@@ -15,7 +15,7 @@ from il_core import parse_expr
 from il_features.list_type import _has_append_stmt
 from il_dispatch import (
     register_assign_rhs_parser, register_line_parser,
-    register_stmt_codegen, register_first_pass_walk,
+    register_stmt_codegen, register_first_pass_walk, register_expr_codegen,
 )
 from il_features.list_type import il_list_elem_ilstr, find_first_append_dtype
 
@@ -83,6 +83,97 @@ def try_rhs_frozenset_new(rhs, name, known_shapes):
             f"hien CHI ho tro frozenset(<bien_list_don>)")
     known_shapes[name] = 'frozenset'
     return {'kind': 'assign_frozenset_new', 'name': name, 'src': src}
+
+
+def try_rhs_set_literal(rhs, name, known_shapes):
+    """ASSIGN_RHS_PARSERS entry: 's = {1, 2, 3}' (2026-09-28).
+
+    Dung PARSER THAT (tag 'set_literal' trong il_core.py) chu khong tu tach
+    dau phay - giong het try_rhs_list_literal, nen phan tu long nhau va
+    dau phay duoi cuoi deu tu xử lý.
+
+    Node 'set_literal' chi sinh ra khi KHONG co ':' (la set); co ':' thi
+    il_core.py bao loi dict literal ngay tai do. 'set' rong la 'set()',
+    nen khong co dang rong o day.
+    """
+    rhs_s = rhs.strip()
+    if not (rhs_s.startswith('{') and rhs_s.endswith('}')):
+        return None
+    node = parse_expr(rhs_s)
+    if node[0] != 'set_literal':
+        return None
+    known_shapes[name] = 'set'
+    return {'kind': 'assign_set_literal', 'name': name, 'elements': node[1]}
+
+
+def declare_set_literal(name, elements, ctx):
+    """FIRST_PASS_WALK helper: khai bao local HashSet<T> cho 's = {1, 2, 3}'.
+    dtype phan tu suy THANG tu chinh cac phan tu (khong can quet '.add()' sau
+    do, giong declare_list_literal). Widen ve float neu bat ky phan tu nao
+    la float - cung logic voi list."""
+    declared_names = ctx['declared_names']
+    if name in declared_names:
+        return
+    declared_names.add(name)
+    from il_features.list_type import list_literal_elem_spec_of
+    infer_scope = ctx['infer_scope']
+    elem_dtype = None
+    for el in elements:
+        d = list_literal_elem_spec_of(el, infer_scope, ctx)
+        if elem_dtype is None or (elem_dtype not in ('f32', 'f64') and d in ('f32', 'f64')):
+            elem_dtype = d
+    ta = ctx['TypeAnn'](elem_dtype, 'set')
+    ctx['locals_decl'].append((name, ta))
+    infer_scope.set(name, ta)
+
+
+def fpw_assign_set_literal(stmt, ctx):
+    declare_set_literal(stmt['name'], stmt['elements'], ctx)
+    for el in stmt['elements']:
+        ctx['collect_ternary_temps'](el)
+
+
+def _emit_set_literal(elements, set_il_type, body, ctx, scope, elem_dtype):
+    """newobj HashSet<T> roi .Add() tung phan tu. Ket qua CUOI CUNG giu tren
+    stack - caller quyet dinh 'store' (gan bien) hay 'bo' (gia tri bieu thuc).
+
+    Dung 'dup' de giu lai 1 ban cua set cho moi lan Add thay vi nap lai bien:
+    set vua 'newobj' con nam tren stack, nen chi can 1 'dup' cho moi phan tu
+    va ket thuc van con 1 ban de lam ket qua.
+    """
+    body.append(f'    newobj instance void {set_il_type}::.ctor()')
+    for el in elements:
+        body.append('    dup')
+        ctx['compile_expr'](el, scope, body, elem_dtype, ctx)
+        body.append(f'    callvirt instance bool {set_il_type}::Add(!0)')
+        body.append('    pop')
+
+
+def _set_literal_elem_dtype(elements, scope, ctx):
+    from il_features.list_type import list_literal_elem_spec_of
+    elem_dtype = None
+    for el in elements:
+        d = list_literal_elem_spec_of(el, scope, ctx)
+        if elem_dtype is None or (elem_dtype not in ('f32', 'f64') and d in ('f32', 'f64')):
+            elem_dtype = d
+    return elem_dtype
+
+
+def codegen_assign_set_literal(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN entry: 's = {1, 2, 3}'.
+
+    KHONG co dang inline ('len({1,2,3})' / 'x in {1,2,3}') - ca hai deu bi
+    chan boi han che CO SAN, khong phai do set literal:
+      - 'len(<bieu thuc>)' bao "khong suy duoc hinh dang cua bieu thuc"
+      - 'x in <bieu thuc>' bao "chi ho tro ... 1 bien dict/set/list/chuoi don"
+    Da thu viet EXPR_CODEGEN cho dang inline roi BO - khong test duoc, va
+    code khong toi duong la noi rut de rot. Neu sau nay 'len'/'in' chap nhan
+    bieu thuc, day la cho can mo lai. Xem REPOSITORY-NOTES."""
+    name = stmt['name']
+    _, _, ta = scope[name]
+    set_il = il_set_type(ta.dtype, ctx.get('records'), ctx.get('extern_class_defs'))
+    _emit_set_literal(stmt['elements'], set_il, body, ctx, scope, ta.dtype)
+    ctx['store_var'](name, scope, body)
 
 
 def try_parse_set_add(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
@@ -208,10 +299,13 @@ def fpw_set_add(stmt, ctx):
 # thuoc il_codegen.py nen import truc tiep an toan, khong circular).
 register_assign_rhs_parser('set_new', try_rhs_set_new)
 register_assign_rhs_parser('frozenset_new', try_rhs_frozenset_new)
+register_assign_rhs_parser('set_literal', try_rhs_set_literal)
 register_line_parser('set_add', try_parse_set_add)
 register_stmt_codegen('assign_set_new', codegen_assign_set_new)
 register_stmt_codegen('assign_frozenset_new', codegen_assign_frozenset_new)
+register_stmt_codegen('assign_set_literal', codegen_assign_set_literal)
 register_stmt_codegen('set_add', codegen_set_add)
 register_first_pass_walk('assign_set_new', fpw_assign_set_new)
 register_first_pass_walk('assign_frozenset_new', fpw_assign_frozenset_new)
+register_first_pass_walk('assign_set_literal', fpw_assign_set_literal)
 register_first_pass_walk('set_add', fpw_set_add)

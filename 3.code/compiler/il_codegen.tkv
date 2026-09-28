@@ -520,6 +520,9 @@ def _walk_call_nodes(node):
     elif tag == 'list_literal':
         for el_node in node[1]:
             yield from _walk_call_nodes(el_node)
+    elif tag == 'set_literal':
+        for el_node in node[1]:
+            yield from _walk_call_nodes(el_node)
 
 
 def _walk_intdiv_nodes(node):
@@ -559,6 +562,9 @@ def _walk_intdiv_nodes(node):
         for arg_node in node[3]:
             yield from _walk_intdiv_nodes(arg_node)
     elif tag == 'list_literal':
+        for el_node in node[1]:
+            yield from _walk_intdiv_nodes(el_node)
+    elif tag == 'set_literal':
         for el_node in node[1]:
             yield from _walk_intdiv_nodes(el_node)
 

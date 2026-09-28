@@ -688,3 +688,39 @@ Pham vi: chi buoc DUONG. `a[::-1]` bi `visit_Slice` chan truoc khi bien dich bat
 dau. Ly do khong lam: doi chieu so sanh, sua moc am, sua dieu kien thoat - nhieu
 truong hop de sai hon la sinh IL sai. Neu sau nay lam, phai sua ca ba, va
 phai khoa bang test kiem tra bien am (vd `a[5:0:-2]` -> [4, 2]).
+
+## Set literal `{1, 2, 3}` (2026-09-28)
+
+Xong, gate 13/13. Xac nhan truoc khi lam: **`{` khong co trong tokenizer**
+(nhom `OP` trong `il_core.py` chi co `[`, `]`) nen truoc day bao loi
+"khong tokenize duoc bieu thuc". Phai sua 5 noi: tokenizer, parser, codegen,
+first-pass, linter. Uoc luong "re" luc dau cua toi SAI.
+
+**'{}' la DICT RONG va da ho tro san.** Nhanh parser cua toi nem loi o `{}` va
+lam hong ngay 4 test (`identity`, `dict_update`, `comprehension_multi_for`,
+`record_contains`). Sai o cho: duong gop `d = {}` chay qua khop VAN BAN
+(`try_rhs_dict_new`, regex) chu khong can node, nhung van co duong nao do
+goi `parse_expr` va cham nhanh `{`. Da doi thanh tra node rong de duong gop di
+tiep. Bai hoc chung: **trong nguoi nhay `{}` thi phai hoi "co phai dang gi
+khac khong" truoc khi bao loi**.
+
+Phan biet set/dict bang dau ':' sau phan tu dau: `{1, 2}` la set,
+`{"a": 1}` la dict (van chua ho tro, parser bao loi rieng cho no).
+
+**Da viet EXPR_CODEGEN cho dang inline roi BO.** Ly do: moi duong tieu thu mot
+set literal inline deu bi chan boi han che CO SAN khac -
+`len({1,2,3})` bao "khong suy duoc hinh dang cua bieu thuc", va
+`2 in {1,2,3}` bao "`in` chi ho tro ... 1 bien dict/set/list/chuoi don".
+Khong test duoc nen bo thay vi giu code khong toi duong. Neu sau nay `len`/
+`in` chap nhan bieu thuc, day la cho can mo lai.
+
+## DUYET SET BI HONG - loi co san, khong phai hoi quy (2026-09-28)
+
+`for v in s:` bi viet lai boi macro `for_in_list` thanh
+`for i in range(len(s)): v = s[i]`, ma set KHONG lay duoc theo chi so (giong
+Python). Loi: "'s[...]' - 's' la set, ma set KHONG lay duoc theo chi so".
+
+Da kiem tra de khong nhan nham: `s = set()` + `.add()` roi `for v in s:` cung
+ loi y het, nen day la han che cua MOC set trong macro, khong phai cua set
+literal moi them. Chua sua - macro `for_in_list` dung chung cho list/dict/set,
+va sua no la viec rieng, can bo test rieng cho ca 3 container.

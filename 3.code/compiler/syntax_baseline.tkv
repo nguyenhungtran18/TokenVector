@@ -370,6 +370,24 @@ def _comp_generator_ok(gen, allow_tuple_target):
     return False
 
 
+def _collect_exempt_set_literals(tree):
+    """Set literal '{1, 2, 3}' duoc compiler nhan o dang 'ten_don = {...}' tren
+    MOT dong (il_core.py sinh node 'set_literal'; set_type.py's
+    try_rhs_set_literal). Dung hinh dang thu de exemption khop DUNG cai macro/
+    codegen nhan - rong hon thi se 'mieng mo' cho nhung dang khong chay."""
+    exempt = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            continue
+        val = node.value
+        if val.lineno != getattr(val, 'end_lineno', val.lineno):
+            continue
+        if isinstance(val, ast.Set) and len(val.elts) >= 1:
+            exempt.add(id(val))
+    return exempt
+
+
 def _collect_exempt_comprehensions(tree):
     """Quet 'tree.body' + than moi ham/class (KHONG chi top-level) tim
     'ast.Assign' dang '<ten_don> = [...]/{...}/{...}' voi 1 comprehension
@@ -464,12 +482,13 @@ def _is_exempt_fstring(node):
 
 class _BaselineVisitor(ast.NodeVisitor):
     def __init__(self, module_body, exempt_attr_chains=frozenset(),
-                 exempt_comprehensions=frozenset()):
+                 exempt_comprehensions=frozenset(), exempt_set_literals=frozenset()):
         self.findings = []
         self._module_body = module_body
         self._in_class_depth = 0
         self._exempt_attr_chains = exempt_attr_chains
         self._exempt_comprehensions = exempt_comprehensions
+        self._exempt_set_literals = exempt_set_literals
         self._known_items_vars = set()
 
     def _flag(self, node, construct_name):
@@ -693,6 +712,15 @@ class _BaselineVisitor(ast.NodeVisitor):
         # Bat ky 'ast.Set' nao cung CO noi dung (Python khong co cu phap
         # literal '{}' rong cho set - rong la 'set()', 1 'ast.Call', khong
         # phai 'ast.Set').
+        #
+        # 2026-09-28: set literal '{1, 2, 3}' da ho tro (il_core.py sinh node
+        # 'set_literal'). CHI exempt dang 'ten_don = {...}' tren MOT dong -
+        # dung hinh dang macro/codegen nhan duoc; con lai (long trong bieu
+        # thuc, nhieu dong) van bao loi ro rang.
+        if (len(node.elts) >= 1 and id(node) in self._exempt_set_literals
+                and node.lineno == getattr(node, 'end_lineno', node.lineno)):
+            self.generic_visit(node)
+            return
         self._flag(node, 'set literal with content ({...})')
         self.generic_visit(node)
 
@@ -893,8 +921,10 @@ def check_syntax_baseline(source_text):
     allowed_toplevel = _classify_toplevel_nodes(tree.body, findings)
     exempt_attr_chains = _collect_exempt_attr_chains(tree)
     exempt_comprehensions = _collect_exempt_comprehensions(tree)
+    exempt_set_literals = _collect_exempt_set_literals(tree)
     visitor = _BaselineVisitor(tree.body, exempt_attr_chains=exempt_attr_chains,
-                                exempt_comprehensions=exempt_comprehensions)
+                                exempt_comprehensions=exempt_comprehensions,
+                                exempt_set_literals=exempt_set_literals)
     for node in allowed_toplevel:
         visitor.visit(node)
     findings.extend(visitor.findings)

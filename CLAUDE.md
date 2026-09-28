@@ -92,11 +92,21 @@
   `GetRange`/`Substring` are contiguous — so a step is lowered to a loop. A
   negative step (`a[::-1]`) is rejected; slices still only work as the direct
   RHS of an assignment, and negative indices only as compile-time constants.
+- **Set literal**: `s = {1, 2, 3}` works, as the whole RHS of an assignment to a
+  bare name on one line. Duplicates are dropped, the element type widens to float
+  if any element is a float, and the result is a mutable `set` (`.add()`,
+  `.discard()`). `{}` is an empty **dict**, as in Python — an empty set is
+  `set()`. The inline form is blocked by pre-existing limits, not by this
+  feature: `len(<expr>)` cannot infer an expression's shape and `in` only takes
+  a bare name.
 - **Known gaps**: `yield from`,
   conditional expressions (`a if c else b` *and* `c ? a : b`
   both fail, though an error message tells you to use the latter),
   `del`, keyword-only and positional-only parameters,
-  set literals, nested/tuple literals, and call-site `*`/`**` unpacking (calls
+  nested/tuple literals, dict literal with content (`{"a": 1}`), and call-site
+  `*`/`**` unpacking (calls
   have statically known arity, so a run-time-length sequence cannot be passed).
-  Full list with difficulty ranking in `3.code/docs/PLAN.md`; per-item status in
-  `3.code/docs/REPOSITORY-NOTES.md`.
+  Iterating a set with `for v in s:` is broken for *every* set, not just
+  literals — the `for_in_list` macro rewrites it to `s[i]`, which sets do not
+  support. Full list with difficulty ranking in `3.code/docs/PLAN.md`; per-item
+  status in `3.code/docs/REPOSITORY-NOTES.md`.

@@ -102,7 +102,8 @@ Cổng: `Testkit/bool_type_test.tkv`, 20 check.
 | **Literal lồng** `[{"a":1}]`, `{"k":[1,2]}` | `d["k"] = [1,2]` chạy được, chỉ thiếu *dạng literal* |
 | **`try/except/else`** | ~~Da xong 2026-09-28.~~ Phai tach **HAI nhan**, xem ghi chu ben duoi. |
 | **`for/else`, `while/else`** | ~~Đã xong 2026-09-28, xem Bước 4.~~ |
-| Set literal `{1,2,3}` | Phải `set()` + `.add()` |
+| ~~Set literal `{1,2,3}`~~ | ~~Đã xong 2026-09-28, xem Bước 7.~~ |
+| **Duyệt set** `for v in s:` | Lỗi có sẵn: macro `for_in_list` viết lại thành `s[i]`, set không lấy theo chỉ số được. Hỏng với **mọi** set, kể cả `s = set()`. Xem `REPOSITORY-NOTES`. |
 | `del` biến / phần tử | |
 
 ### 4c. Khó — cần mở rộng state machine

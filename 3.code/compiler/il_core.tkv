@@ -166,7 +166,7 @@ _EXPR_TOKEN_RE = re.compile(r'''
       | (?P<POW>\*\*)
       | (?P<FLOORDIV>//)
         | (?P<WALRUS>:=)
-        | (?P<OP>[+\-*/%(),\[\].?:><=&|^~])
+        | (?P<OP>[+\-*/%(),\[\]{}.?:><=&|^~])
     )
 ''', re.VERBOSE)
 
@@ -707,6 +707,45 @@ class _ExprParser:
                     elements.append(self.parse_expr())
             self.expect_op(']')
             return ('list_literal', elements)
+        if k == 'OP' and v == '{':
+            # Set literal '{1, 2, 3}' (2026-09-28). Tokenizer TRUOC day KHONG
+            # co '{' trong nhom OP, nen '{' bao loi "khong tokenize duoc".
+            #
+            # Phan biet set voi dict bang dau ':' sau phan tu dau: '{1, 2}' la
+            # set, '{"a": 1}' la dict. Ca hai deu chua ho tro, nhung bao loi
+            # SAI GIUP NGUOI DUNG nhieu hon loi chung chung.
+            #
+            # '{}' -> dict rong trong Python that, KHONG phai set rong (set
+            # rong la 'set()'). Khong do do quy cho set.
+            k2, v2 = self.peek()
+            if k2 == 'OP' and v2 == '}':
+                # '{}' la DICT RONG trong Python that (set rong la 'set()') -
+                # va da ho tro san qua 'assign_dict_new' (khoi tao rong roi
+                # gan). KHONG duoc nem loi o day: se lam hong 'd = {}' -
+                # dang nay gap rat nhieu. Tra ve 1 node rong de duong gop di
+                # tiep; try_rhs_set_literal tu choi vi node KHONG phai
+                # 'set_literal'.
+                self.advance()
+                return ('dict_empty',)
+            first = self.parse_expr()
+            k3, v3 = self.peek()
+            if k3 == 'OP' and v3 == ':':
+                raise SyntaxError(
+                    "il_codegen: dict literal co noi dung ('{k: v}') chua ho tro - "
+                    "khoi tao rong roi gan tung khoa: 'd = {}' roi 'd[\"a\"] = 1'. "
+                    "(Neu can tao dict tu du lieu co san, dung '{k: v for ...}'.)")
+            elements = [first]
+            while True:
+                k4, v4 = self.peek()
+                if not (k4 == 'OP' and v4 == ','):
+                    break
+                self.advance()
+                k5, v5 = self.peek()
+                if k5 == 'OP' and v5 == '}':
+                    break
+                elements.append(self.parse_expr())
+            self.expect_op('}')
+            return ('set_literal', elements)
         if k == 'BYTES':
             return ('bytes_lit', v)  # v giu nguyen tien to 'b' + dau ngoac kep - xem bytes_type.py's parse_bytes_literal
         if k == 'STR':
