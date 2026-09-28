@@ -556,6 +556,63 @@ def compile_not(node, scope, out, dtype, ctx=None):
     out.append('    ceq')
 
 
+def _container_ta(node, scope, records):
+    """TypeAnn cua toan hang neu no la CONTAINER (list/dict/set/...).
+
+    Tra None neu toan hang khong phai bien container - tức la hoac la
+    scalar, hoac la bien chua co TypeAnn (chua qua first-pass).
+
+    Ly do can ham nay (2026-09-28): _infer_dtype tra `scope[name][2].dtype`
+    và BO QUA `shape`. `a = [1, 2]` suy ra dtype='int' (tu literal) nen
+    `a == b` cho hai list di vao nhanh TkvInt và nem InvalidCastException
+    luc chay - `TkvInt.Cmp` cuon mot `List<int>` reference. So sanh 2
+    container phai la SO THAM CHIEU (`ceq` tren 2 object reference), va
+    day la thu duy nhat co y nghia dung trong runtime .NET.
+    """
+    if not isinstance(node, tuple) or node[0] != 'var':
+        return None
+    entry = scope.vars.get(node[1]) if hasattr(scope, 'vars') else scope[node[1]]
+    ta = entry[2]
+    if ta is None or getattr(ta, 'shape', None) not in (
+            'list', 'dict', 'set', 'frozenset', 'defaultdict', 'counter'):
+        return None
+    return ta
+
+
+def _compile_container_compare(op, left, right, scope, out, ctx, records):
+    """'==' / '!=' tren 2 container: SO THAM CHIEU bang `ceq`.
+
+    Tra None neu toan hang nao do khong phai container (de caller di tiep
+    duong cu). Neu ca hai deu container va op la so sanh vung thi tra
+    True (da xu ly xong).
+    """
+    compile_expr = ctx['compile_expr']
+    lta = _container_ta(left, scope, records)
+    rta = _container_ta(right, scope, records)
+    if lta is None and rta is None:
+        return None
+    if lta is None or rta is None:
+        # CHI MOT vế la container: cu xu ly cu - giu nguyen hanh vi cũ.
+        # Thang nao ton tai truoc thay doi nay (Inference test 345,
+        # `len(g.nodes) == 0`) va KHONG phai thu de sua. Ra loi o day se
+        # lam hong code dang chay dung.
+        return None
+    if op not in ('==', '!='):
+        raise SyntaxError(
+            f"il_codegen: '{op}' khong ap dung cho container (chi '==' va '!=' "
+            f"- so sanh vung tren tham chieu khong co nghia; hay so sanh "
+            f"theo phan tu)")
+    # Nap bang dtype PHAN TU: giong cac nhanh list/dict trong 'in' (dong
+    # ~2009) - truyen dtype container se bien bien thanh gia tri.
+    compile_expr(left, scope, out, lta.dtype, ctx)
+    compile_expr(right, scope, out, rta.dtype, ctx)
+    out.append('    ceq')
+    if op == '!=':
+        out.append('    ldc.i4.0')
+        out.append('    ceq')
+    return True
+
+
 def compile_compare(node, scope, out, dtype, ctx=None):
     """EXPR_CODEGEN entry cho tag 'compare' - nhanh string uy quyen ra
     ctx['compile_compare_str'] (string_feature.py), phan con lai (so
@@ -566,6 +623,13 @@ def compile_compare(node, scope, out, dtype, ctx=None):
     '!=' tren 2 gia tri CUNG kieu record co __eq__(self, other) -> "i32"
     goi callvirt thay vi ceq (reference-compare mac dinh)."""
     op, left, right = node[1], node[2], node[3]
+    records = (ctx or {}).get('records') or {}
+    # 2026-09-28: container phai so THAM CHIEU, khong phai so gia tri.
+    # Dat TRUOC nhanh 'int' ben duoi - neu khong, `a == b` voi hai list
+    # di vao TkvInt::Cmp va nem InvalidCastException luc chay.
+    if _compile_container_compare(op, left, right, scope, out, ctx,
+                                  records) is not None:
+        return
     operand_dtype = ctx['resolve_compare_operand_dtype'](
         left, right, scope, (ctx or {}).get('func_table'), dtype,
         (ctx or {}).get('records'), (ctx or {}).get('record_methods'))
@@ -574,7 +638,6 @@ def compile_compare(node, scope, out, dtype, ctx=None):
     if operand_dtype == 'int':
         return _int_type.compile_compare(op, left, right, scope, out, ctx)
     compile_expr = ctx['compile_expr']
-    records = (ctx or {}).get('records') or {}
     if op in ('==', '!=') and operand_dtype in records:
         record_methods = (ctx or {}).get('record_methods') or {}
         dunder = record_methods.get(operand_dtype, {}).get('__eq__')

@@ -431,6 +431,28 @@ class _ExprParser:
             self.advance()
             rhs = self.parse_bitor()
             return ('in', node, rhs)
+        if k == 'ID' and v == 'is':
+            # 'x is y' / 'x is not y' (2026-09-28). Python: `is` la SO
+            # DANH TINH, khong phai so sanh gia tri.
+            #
+            # TokenVector khong the lam het nghia cua Python vi bien
+            # scalar la UNBOXED - `x = 1; y = 1` khong co "cung doi tuong"
+            # nao de so. Nen day la ANH CHIEM:
+            #   - container (list/dict/set): `ceq` tren 2 object reference
+            #     = DUNG nghia danh tinh cua Python.
+            #   - scalar/str: khu vuc chan gia tri, nen `is` == `==` -
+            #     dung nhu Python voi None/True/1 (cac doi tuong cong
+            #     lkp cua nho) va rat la thu nguoi dung viet nham.
+            # Ha hai trong cung mot cum '==': khong them duong codegen
+            # moi, va compile_compare xu ly ca hai theo cung nhanh.
+            self.advance()
+            negate = False
+            k2, v2 = self.peek()
+            if k2 == 'ID' and v2 == 'not':
+                self.advance()
+                negate = True
+            rhs = self.parse_bitor()
+            return ('compare', '!=' if negate else '==', node, rhs)
         if not (k == 'OP' and v in _COMPARE_OPS):
             return node
         # Chained comparison (Wave 3, 2026-07-29 - 'a < b < c' giong
