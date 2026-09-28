@@ -30,11 +30,13 @@ nay cho float[,] cua C#) - KHONG phai suy doan, la quy uoc bat buoc cua
 CLR cho mang rank>1.
 """
 import re
+import os
 from typed_dsl_parser import Signature, TypeAnn, Param, parse_typed_signature, parse_type_ann_str
 from il_core import (
     IL_SCALAR, IL_NEWARR_ELEM, IL_LDELEM, IL_STELEM, IL_LDC_OP,
     il_array_rank_type, rename_reserved_identifiers as _rename_reserved_identifiers,
     parse_expr, parse_expr_list, _split_expr_list,
+    emit_index_scalar,
 )
 import il_features.kwarg_resolve as kwarg_resolve  # Phase 11a (2026-08-28): keyword argument resolve dung chung
 from il_features.list_type import (
@@ -62,6 +64,28 @@ from il_dispatch import STR_METHOD_RETURN_DTYPE as _STR_METHOD_RETURN_DTYPE
 import il_features.int_type as _int_type  # kieu 'int' vo han chu so nhu Python (moc 6 buoc 2, 2026-08-05)
 import il_features.complex_type as _complex_type  # kieu 'complex' qua System.Numerics.Complex (muc 6.8, 2/4, 2026-08-13)
 import il_features.nested_array_extern as _nested_array_extern  # Phase 9i (2026-08-28): marshal array[array[T]] <-> list[list[T]] cho __tkv_extern_class__
+def _gate(name):
+    return os.environ.get(name, '') != '1'
+
+
+# R7 (2026-09-28): co that tat fast-path bang env var de A/B regression
+# ma KHONG can build lai compiler. Dat TKV_NO_INT_NARROW=1 de tat.
+def _narrow_enabled():
+    return _gate('TKV_NO_INT_NARROW')
+
+if _gate('TKV_NO_VBUF'):
+    import il_features.vector_block as _vector_block  # khoi vector 8 lane f32 tren bo nho khong quan ly (R5, 2026-09-28)
+else:
+    class _VBufOff:
+        @staticmethod
+        def scratch_locals():
+            return []
+
+        @staticmethod
+        def ensure_class(ctx):
+            return None
+    _vector_block = _VBufOff()
+import il_features.int_narrow as _int_narrow  # R7 (2026-09-28): bien dem/chi so giu native i64 thay vi TkvInt
 # import nay CUNG dang ky line-parser/expr-codegen/stmt-codegen/macro-
 # expander qua side-effect luc import (giong cac il_features khac).
 from il_features.record_feature import is_record_ctor_rhs as _record_is_record_ctor_rhs
@@ -73,6 +97,7 @@ from il_features.control_flow import (
     compile_file_method_call as _compile_file_method_call,
     _split_all_top_level_commas as _split_idx_commas,
     set_known_dict_vars as _set_known_dict_vars,
+    set_known_dict_fields as _set_known_dict_fields,
     set_known_record_vars as _set_known_record_vars,
 )
 from il_dispatch import (
@@ -566,7 +591,7 @@ def _method_call_expr_receiver_ta(base_node, scope, func_table=None, records=Non
             return container_ta.elem_ta
         return TypeAnn(container_ta.dtype, None)
     if tag0 == 'index_expr':
-        return _index_expr_result_ta(base_node, scope, func_table, records)
+        return _index_expr_result_ta(base_node, scope, func_table, records, record_methods)
     # Boc try/except (dong bo voi _index_expr_result_ta dong ~1862 va
     # _compile_len_of_expr dong ~1887 - cung 1 loi goi _infer_dtype de quy
     # tren mot base_node BAT KY): receiver phuc tap (vd ket qua 1 method
@@ -706,7 +731,7 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
     if tag == 'index_expr':
         # '<bieu thuc>[i]' (2026-08-03) - dtype phan tu cua container ma
         # bieu thuc ben trai tra ve (vd s.split(",")[0] -> 'str').
-        res_ta = _index_expr_result_ta(node, scope, func_table, records)
+        res_ta = _index_expr_result_ta(node, scope, func_table, records, record_methods)
         return res_ta.dtype if res_ta is not None else None
     if tag == 'attr_expr':
         # 'expr[i].Prop' (BUGS_TODO.md muc U, 2026-08-31) - THIEU nhanh nay
@@ -767,6 +792,10 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
             # Muc 6.8 (2/4, 2026-08-13): ca 3 thuoc tinh cua 'complex' deu
             # tra f64 (xem complex_type.py's compile_attr).
             return 'f64'
+        if obj_ta.dtype == 'f32x4' and node[2] in ('x', 'y', 'z', 'w'):
+            # R7 P2 (2026-09-28): 4 lane cua Vector4 deu tra f32 (xem
+            # vector4_type.tkv's compile_attr).
+            return 'f32'
         if obj_ta.shape == 'dict_kvpair' and node[2] in ('key', 'val'):
             return obj_ta.key_dtype if node[2] == 'key' else obj_ta.dtype
         if obj_ta.shape == 'struct':
@@ -782,6 +811,16 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
             # van phai tra dung dtype cua field.
             fd = dict(records.get(obj_ta.dtype, [])).get(node[2])
             # Field container luu TypeAnn -> dtype cua PHAN TU/GIA TRI.
+            #
+            # R16 (2026-09-26): field nao CO shape (container: list/dict/
+            # bytearray/...) thi tra CA TypeAnn de giu shape. Truoc day chi
+            # tra fd.dtype (chuoi tran) -> shape mat -> caller khong phan
+            # biet duoc 'g.initializers' la dict, nen lenh dict.keys()/
+            # dict.items() tren no khong dispatch trung (xem
+            # record_feature.py::_shape_key) va bien dich sai.
+            # Field VOHUONG (shape=None) van tra chuoi nhu truoc.
+            if fd is not None and not isinstance(fd, str) and fd.shape is not None:
+                return fd
             return fd.dtype if (fd is not None and not isinstance(fd, str)) else fd
         return None
     # 2026-08-03: 3 nhanh de quy nay TRUOC DAY danh roi records/
@@ -1611,6 +1650,18 @@ def _widen_if_needed(actual_dtype: str, requested_dtype: str, out: list):
     if actual_dtype in _INT_DTYPES and requested_dtype in _FLOAT_DTYPES:
         out.append('    conv.r4' if requested_dtype == 'f32' else '    conv.r8')
         return
+    # R7 (2026-09-28): i32 -> i64. THIEU truoc R7 va la "so ho" chu khong
+    # phai loi cu cu: 'i32' nam trong _INT_DTYPES nen _expr_var va
+    # compile_compare deu goi _widen_if_needed, nhung khong nhanh nao khop
+    # (chi co int32/int64 -> float, va i32/i64 -> 'int'). Khong lo gap, ma
+    # truoc R7 moi bien 'int' (TkvInt) nen tinh huong i32-vs-i64 it gap,
+    # khi int_narrow.tkv chuyen bien dem/chi so sang native i64 thi
+    # 'i < n' (i:i64, n:i32) sinh `ldloc i64; ldloc i32; clt` - toan hang
+    # KHAC KICH THUOC, IL sai. int32 luon vua int64 nen phhep ep nay
+    # luon an toan.
+    if actual_dtype == 'i32' and requested_dtype == 'i64' and _gate('TKV_NO_WIDEN_I64'):
+        out.append('    conv.i8')
+        return
     # Kieu 'int' (vo han chu so, 2026-08-05) - i32/i64 nang len 'int'
     # LUON an toan (khong mat du lieu), va BAT BUOC phai lam: 'while i <= n'
     # voi i:'int', n:'i32' se de 1 int32 tho o cho doi 1 TkvInt -> stack
@@ -1760,6 +1811,23 @@ def _expr_walrus(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
 def _expr_shape(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     name, dim = node[1], node[2]
     _, _, type_ann = scope[name]
+    # '.shape' la TU KHOA 2 Y NGHIA trong DSL nay (2026-09-25):
+    #   1) kich thuoc mang co san BIET LUC BIEN DICH - 'a.shape[0]' voi
+    #      'a' la mang, gia tri la HANG SO;
+    #   2) 1 FIELD hop le cua record - 'd.shape[0]' voi 'd' la 1 bien
+    #      record co field 'shape' kieu list (vd TensorDesc.shape:
+    #      list[i64] trong tv/runtime/session.tkv) - day la CHI SO
+    #      runtime, khong phai hang so.
+    # Parser khong biet kieu cua 'name' (parse chay truoc khi co scope),
+    # nen no giu node 'shape' cho ca 2. Day la noi PHAN BIET - uu tien
+    # doc field neu 'name' la record co field 'shape' kieu container,
+    # nguoc lai moi ra loi "shape.shape[0] khong hop le" nhu truoc.
+    records = (ctx or {}).get('records') or {}
+    if type_ann.shape == 'record' or type_ann.dtype in records:
+        fd = dict(records.get(type_ann.dtype, [])).get('shape')
+        if isinstance(fd, TypeAnn) and fd.shape in ('list', 'dict'):
+            return _expr_index_expr(('index_expr', ('attr', name, 'shape'),
+                                     ('num', str(dim))), scope, out, dtype, ctx)
     if type_ann.shape is None or dim >= len(type_ann.shape):
         raise SyntaxError(f'il_codegen: {name}.shape[{dim}] khong hop le (shape={type_ann.shape})')
     out.append(f'    ldc.i4 {type_ann.shape[dim]}')  # HANG SO biet luc codegen, khong runtime
@@ -1921,9 +1989,44 @@ def _expr_in(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     # deu tra ve bool (int32 0/1 CIL, tuong thich thang voi
     # brfalse/brtrue nhu 1 dieu kien binh thuong, khong can widen).
     key_node, coll_node = node[1], node[2]
+    if coll_node[0] == 'attr':
+        # 'k in d.keys_container' - container la 1 FIELD cua record (vd
+        # 'k in gr.tensors', 2026-09-25). Cac nhanh duoi chi nap bang
+        # TEN BIEN qua _load_var_ref, nen container dang 'attr' truoc day
+        # bao loi. Resolve TypeAnn cua field roi emit TAI DAY (giong 2
+        # nhanh list/str o duoi, KHONG goi lai compile_in_* vi chung
+        # chi nhan TEN bien).
+        attr_ta = _attr_field_ta(coll_node, scope, (ctx or {}).get('records'))
+        if attr_ta is not None:
+            records = (ctx or {}).get('records')
+            if attr_ta.shape in ('set', 'frozenset'):
+                _compile_expr(coll_node, scope, out, attr_ta.dtype, ctx)
+                _compile_expr(key_node, scope, out, attr_ta.dtype, ctx)
+                out.append(f'    callvirt instance bool '
+                           f'{il_set_type(attr_ta.dtype, records, _EXTERN_CLASS_DEFS)}::Contains(!0)')
+                return
+            if attr_ta.shape == 'dict':
+                _compile_expr(coll_node, scope, out, attr_ta.dtype, ctx)
+                _compile_expr(key_node, scope, out, attr_ta.key_dtype, ctx)
+                out.append(f'    callvirt instance bool '
+                           f'{il_type_str(attr_ta, records)}::ContainsKey(!0)')
+                return
+            if attr_ta.shape == 'list':
+                _reject_if_nested_container_elem(attr_ta, "'in'")
+                _compile_expr(coll_node, scope, out, attr_ta.dtype, ctx)
+                _compile_expr(key_node, scope, out, attr_ta.dtype, ctx)
+                out.append(f'    callvirt instance bool '
+                           f'{il_list_type(attr_ta.dtype, records, _EXTERN_CLASS_DEFS)}::Contains(!0)')
+                return
+            if attr_ta.shape is None and attr_ta.dtype == 'str':
+                _compile_expr(coll_node, scope, out, 'str', ctx)
+                _compile_expr(key_node, scope, out, 'str', ctx)
+                out.append('    callvirt instance bool [mscorlib]System.String::Contains(string)')
+                return
     if coll_node[0] != 'var':
-        raise SyntaxError("il_codegen: 'in' hien CHI ho tro kiem tra tren 1 bien "
-                          "dict/set/list/chuoi don (vd key in d)")
+        raise SyntaxError(f"il_codegen: 'in' hien CHI ho tro kiem tra tren 1 bien "
+                          f"dict/set/list/chuoi don (vd key in d) - ben phai la "
+                          f"{coll_node!r}")
     _, _, coll_ta = scope[coll_node[1]]
     if coll_ta.shape in ('set', 'frozenset'):
         return _set_compile_in_set(key_node, coll_node[1], scope, out, ctx)
@@ -2176,7 +2279,7 @@ def _compile_funcref_call(name, args, scope: _Scope, out: list, dtype: str, ctx:
     _widen_if_needed(fta.dtype, dtype, out)
 
 
-def _index_expr_base_ta(node, scope, func_table, records=None):
+def _index_expr_base_ta(node, scope, func_table, records=None, record_methods=None):
     """TypeAnn cua GIA TRI ma node[1] (co so, vd 'm[0]' trong 'm[0][0]')
     tra ve - dung CHUNG boi _index_expr_result_ta (lay elem_ta cua gia
     tri nay lam ket qua CUOI CUNG cua ca bieu thuc) VA _expr_index_expr
@@ -2196,15 +2299,22 @@ def _index_expr_base_ta(node, scope, func_table, records=None):
         except KeyError:
             return None
         return base_var_ta.elem_ta
-    return _shaped_return_ta_of_call(node[1], func_table, scope, records)
+    if node[1][0] == 'attr':
+        # 'd.shape[i]' - co so la 1 FIELD CONTAINER cua record (vd
+        # TensorDesc.shape: list[i64] trong tv/runtime/session.tkv,
+        # 2026-09-25). Truoc day nhanh nay chi biet 'index' va ket qua
+        # loi goi -> base_ta None, _expr_index_expr emit rong/rac ->
+        # "ldc.i4 r" (IL sai) khi bien dich 'd.shape[0]'.
+        return _attr_field_ta(node[1], scope, records)
+    return _shaped_return_ta_of_call(node[1], func_table, scope, records, record_methods)
 
 
-def _index_expr_result_ta(node, scope, ctx_or_func_table, records=None):
+def _index_expr_result_ta(node, scope, ctx_or_func_table, records=None, record_methods=None):
     """TypeAnn cua KET QUA '<bieu thuc>[i]' - dung CHUNG boi _infer_dtype
     va len(<bieu thuc>). LUON la kieu cua 1 PHAN TU cua co so (xem
     _index_expr_base_ta cho kieu cua CHINH co so)."""
     func_table = ctx_or_func_table if isinstance(ctx_or_func_table, dict) else {}
-    base_ta = _index_expr_base_ta(node, scope, func_table, records)
+    base_ta = _index_expr_base_ta(node, scope, func_table, records, record_methods)
     if base_ta is None:
         # Co so la 1 CHUOI (vd 'xs[1][2]' voi xs: list[str]) - lay 1 ky tu
         # cho ra 1 chuoi, GIONG HET nhanh chuoi ma _expr_index_expr da
@@ -2226,6 +2336,40 @@ def _index_expr_result_ta(node, scope, ctx_or_func_table, records=None):
     return None
 
 
+def _attr_field_container_ta(node, scope, records):
+    """R20: TypeAnn day cua field record khi field do la CONTAINER
+    (shape khac None), else None. Dung cho nhanh 'y = <obj>.<field>'
+    cua declare_scalar - xem ghi chu tai cho do."""
+    ta = _attr_field_ta(node, scope, records)
+    if ta is not None and getattr(ta, 'shape', None) is not None:
+        return ta
+    return None
+
+
+def _attr_field_ta(node, scope, records):
+    """TypeAnn cua 1 FIELD RECORD doc qua 'obj.field' (node 'attr').
+
+    Tra TypeAnn that (khong phai chi dtype) de cac nhu len(obj.field) /
+    obj.field[i] biet field do co phai container (shape='list'/'dict'/...)
+    hay gia tri vo huong. Field vo huong luu bang chuoi dtype -> doi thanh
+    TypeAnn(dtype, None) de caller xu ly nhu '_infer_dtype' o nhanh 'attr'
+    (dong ~735). Tra None neu khong phai field record hop le."""
+    if node[0] != 'attr':
+        return None
+    try:
+        obj_ta = scope[node[1]][2]
+    except (KeyError, SyntaxError, IndexError, TypeError):
+        return None
+    if not records or not (obj_ta.shape == 'record' or obj_ta.dtype in records):
+        return None
+    fd = dict(records.get(obj_ta.dtype, [])).get(node[2])
+    if fd is None:
+        return None
+    if isinstance(fd, str):
+        return TypeAnn(fd, None)
+    return fd
+
+
 def _compile_len_of_expr(arg, scope, out, dtype, ctx):
     """len() tren 1 BIEU THUC (khong phai bien don). Tach rieng khoi
     _expr_call de nhanh 'len(bien)' cu giu nguyen hinh dang (no doc
@@ -2235,7 +2379,13 @@ def _compile_len_of_expr(arg, scope, out, dtype, ctx):
     record_methods = (ctx or {}).get('record_methods') or {}
     ta = _shaped_return_ta_of_call(arg, func_table, scope, records)
     if ta is None and arg[0] == 'index_expr':
-        ta = _index_expr_result_ta(arg, scope, func_table, records)
+        ta = _index_expr_result_ta(arg, scope, func_table, records, record_methods)
+    if ta is None and arg[0] == 'attr':
+        # len(d.shape) - field CONTAINER cua 1 record (vd TensorDesc.shape:
+        # list[i64] trong tv/runtime/session.tkv, 2026-09-25). 'd.shape' la
+        # node 'attr' chu khong phai bien don, nen nhanh len(<bieu thuc>).
+        # Field scalar thi shape=None -> xu ly nhu chuoi/thuong ben duoi.
+        ta = _attr_field_ta(arg, scope, records)
     if ta is None:
         try:
             d = _infer_dtype(arg, scope, func_table, records, record_methods)
@@ -2291,7 +2441,7 @@ def _expr_index_expr(node, scope: _Scope, out: list, dtype: str, ctx: dict = Non
     # biet emit get_Item cua List<T> hay Dictionary<K,V>. Xu ly ca 2
     # truong hop co so (node 'index' long nhau vs loi goi tra container)
     # trong 1 ham dung chung, xem _index_expr_base_ta (final-review I1).
-    ta = _index_expr_base_ta(node, scope, func_table, records)
+    ta = _index_expr_base_ta(node, scope, func_table, records, record_methods)
     if ta is None:
         # 'self.src[i]' / '<bieu thuc chuoi>[i]' (2026-08-03): co so la 1
         # CHUOI - lay 1 ky tu, giong nhanh 'bien_chuoi[i]' da co.
@@ -2309,7 +2459,7 @@ def _expr_index_expr(node, scope: _Scope, out: list, dtype: str, ctx: dict = Non
     if ta is None:
         raise SyntaxError(
             "il_codegen: '<bieu thuc>[i]' - khong suy duoc hinh dang cua bieu thuc "
-            "ben trai. Ho tro loi goi ham/method tra ve list/dict/chuoi "
+            f"ben trai (co so {base_node!r}). Ho tro loi goi ham/method tra ve list/dict/chuoi "
             "(vd s.split(\",\")[0], self.src[i]) - truong hop khac thi gan ra 1 bien truoc.")
     if _neg_literal_int(idx_node) is not None:
         raise SyntaxError(
@@ -3085,7 +3235,16 @@ def _compile_index_store(name, indices, value_node, scope: _Scope, out: list, dt
         if len(indices) != 1:
             raise SyntaxError(f"il_codegen: list '{name}' chi ho tro 1 chi so (vd {name}[i] = x)")
         _load_var_ref(name, scope, out)
-        _compile_expr(indices[0], scope, out, 'i32', ctx)
+        # R7 (2026-09-28): phai di qua emit_index_scalar chu KHONG dich
+        # thang voi dtype 'i32' - bien dem/chi so co the la native i64
+        # (int_narrow.tkv) va get_Item nhan int32. emit_index_scalar la noi
+        # DUY NHAT lo ep 'int' (TkvInt::ToI32) va i64 (conv.ovf.i4), nen
+        # ca hai kieu deu thu hep dung. Dich thang bo qua hai nhanh do ->
+        # day int64 vao tham so int32.
+        if _gate('TKV_NO_IDXSTORE'):
+            _compile_expr(indices[0], scope, out, 'i32', ctx)
+        else:
+            emit_index_scalar(indices[0], scope, out, ctx)
         _compile_expr(value_node, scope, out, type_ann.dtype, ctx)
         # Wave 2 (2026-07-29): il_type_str (DE QUY) thay il_list_type THANG
         # - dung dung ca khi 'name' la List<List<T>>/List<Dict<K,V>> (xem
@@ -3222,7 +3381,59 @@ def _expand_macros(body_lines: list, records: dict = None, sig=None,
         m = dict_var_re.match(raw.strip())
         if m:
             dict_vars.add(m.group(1))
+    # R21 (2026-09-26): 'x = <ham tra ve dict>()' cung la bien DICT.
+    #
+    # Khong co nhanh nay thi macro for_in_list viet nham
+    # 'for k in x:' thanh 'for i in range(len(x)): k = x[i]' -> IL nap
+    # bien dem int32 vao tham so khoa string/int64 cua Dictionary.get_Item
+    # -> CLR nem OverflowException ("chi so int qua lon: khong vua int32")
+    # luc CHAY, khong bao loi bien dich.
+    #
+    # Repro that: tv/text/grammar.tkv::_match_rule -
+    #     cur = _match_seq(...)      # -> dict[i64,i32]
+    #     for p in cur:              # <- viet nham thanh index
+    #         ...
+    #
+    # Mirror y het cach lam voi RECORD o ngay tren (record_ctor_re +
+    # func_table): quet 'ten = tenham(...)', tra cuu return_type trong
+    # func_table, Shape == 'dict' thi coi `ten` la dict.
+    if func_table:
+        dict_fn_re = re.compile(r'^(\w+)\s*=\s*(\w+)\(.*\)\s*$')
+        for raw in body_lines:
+            m = dict_fn_re.match(raw.strip())
+            if not m:
+                continue
+            var_name, callee = m.group(1), m.group(2)
+            fn_sig = func_table.get(callee)
+            ret = getattr(fn_sig, 'return_type', None) if fn_sig is not None else None
+            if ret is None:
+                continue
+            # return_type co THE la TypeAnn (shape='dict') HOAC van con la
+            # CHUOI kieu 'dict[i64,i32]' (annotation chua duoc parse thanh
+            # TypeAnn tai thoi diem quet macro) - xet ca 2.
+            if isinstance(ret, str):
+                if ret.startswith('dict['):
+                    dict_vars.add(var_name)
+            elif getattr(ret, 'shape', None) == 'dict':
+                dict_vars.add(var_name)
     _set_known_dict_vars(dict_vars)
+    # R15 (2026-09-26): tap ten FIELD kieu dict cua record class, de macro
+    # 'for_in_list' nhan ra container dang BIEN THUOC TINH
+    # ('for k in g.initializers:'). Khong co tap nay, macro viet lai
+    # nhanh list-index -> sinh IL nap int64 vao tham so string ->
+    # ArgumentNullException luc chay (xem chi tiet o control_flow.tkv).
+    # 'records' la dict {ten_record: [(ten_field, dtype_str), ...]}.
+    # 'records' la dict {ten_record: [(ten_field, dtype), ...]}. Gia tri
+    # 'dtype' co THE la chuoi don ('str'/'i64') HOAC 1 doi tuong TypeAnn
+    # (khi kieu co container - xem mau in o ham nay) - phai xet ca 2.
+    dict_fields = set()
+    for _rname, _rfields in (records or {}).items():
+        for _fn, _fd in (_rfields or []):
+            if getattr(_fd, 'shape', None) == 'dict':
+                dict_fields.add(_fn)
+            elif isinstance(_fd, str) and _fd.startswith('dict['):
+                dict_fields.add(_fn)
+    _set_known_dict_fields(dict_fields)
 
     # 6.7: cung logic quet-truoc nhu dict_vars o tren - (a) tham so ham co
     # kieu record, (b) local gan TRUC TIEP tu 1 loi goi constructor record
@@ -3858,6 +4069,48 @@ def _container_arg_hints(stmts, func_table, sig=None):
     return hints
 
 
+# Shape nao giup nhanh 'y = x' trong declare_scalar giu nguyen container.
+# CHI giu khi shape la CONTAINER that (co get_Count/get_Item) - bien chuoi/
+# scalar giu nguyen TypeAnn cung an toan, nhung de thu hien khoi dong ta chi
+# giu container de khoi doi hien hu cua cac nhanh scalar (noi _infer_dtype
+# + body_dtype quyet dinh).
+_ALIAS_KEEPS_CONTAINER_SHAPES = ('list', 'dict', 'set', 'frozenset',
+                                 'defaultdict', 'counter', 'bytearray',
+                                 'bytes', 'record', 'extern_class', 'func',
+                                 'tuple', 'dict_kvpair', 'struct',
+                                 'refclass', 'array2d')
+
+
+def _slice_rhs_ta(node, infer_scope):
+    """TypeAnn cua ket qua 1 phep slice 'src[a:b]' - giu nguyen container
+    cua nguon (list -> list cung phan tu; str -> str). Tra None neu khong
+    xac dinh duoc (de caller roi xuong duong suy dtype thuong)."""
+    try:
+        src_ta = infer_scope[node[1]][2]
+    except (KeyError, IndexError, TypeError):
+        return None
+    shape = getattr(src_ta, 'shape', None)
+    if shape == 'list':
+        return src_ta
+    if shape is None and src_ta.dtype == 'str':
+        return TypeAnn('str', None)
+    return None
+
+
+def _slice_rhs_keeps_container(node, infer_scope):
+    return _slice_rhs_ta(node, infer_scope) is not None
+
+
+def _var_alias_keeps_container(name, infer_scope):
+    """True neu 'y = x' nen giu nguyen TypeAnn day du cua 'x' (x la bien
+    container da biet trong 'infer_scope')."""
+    try:
+        src_ta = infer_scope[name][2]
+    except (KeyError, IndexError, TypeError):
+        return False
+    return getattr(src_ta, 'shape', None) in _ALIAS_KEEPS_CONTAINER_SHAPES
+
+
 def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_table: dict = None,
                                  records: dict = None, record_methods: dict = None,
                                  extra_declared: dict = None, source_path: str = None,
@@ -3908,6 +4161,15 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
     for ex_name, ex_ta in (extra_declared or {}).items():
         declared_names.add(ex_name)
         infer_scope.set(ex_name, ex_ta)
+    # R7 (2026-09-28): tap bien cuc bo CHUNG MINH duoc la so nguyen int64
+    # (chi dem/chi so) - xem int_narrow.tkv. Nhung ten nay se duoc khai bao
+    # `i64` (native int) thay vi `int` (TkvInt 16 byte) o declare_scalar
+    # ben duoi, nen moi phep + - * / so sanh sinh lenh machine thuan thay
+    # vi ~50 lenh IL co kiem tra BigInteger. Chi be loc LOC - ham van
+    # nhan 'int' nen goi ben ngoai khong doi gi.
+    _narrow_i64_names = _int_narrow.narrowable_locals(
+        stmts, sig=sig,
+        nested_closures=nested_closures, boxed_names=boxed_names)
     # R1 (2026-09-24): seed hang so cap module (DA GOM import) vao
     # infer_scope - neu khong, 'x = DT_I64' crash KeyError o _infer_dtype
     # (scope micro khong co ten const) trong khi second-pass (_Scope that,
@@ -3998,6 +4260,50 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
                 # tinh IL type se khop nhau tu dong).
                 _, _, outer_ta = infer_scope[rhs_node[1]]
                 ta = outer_ta.elem_ta
+            elif rhs_node[0] == 'slice' and _slice_rhs_keeps_container(rhs_node, infer_scope):
+                # 'sub = lst[i:j]' (2026-09-25) - giu nguyen hinh dang
+                # container cua nguon. Macro text-level try_rhs_list_slice
+                # (il_features/slicing.tkv) CHI bat khi known_shapes cho
+                # biet 'lst' la list; nguon la 1 bien suy ra kieu (vd field
+                # container cua record: 'sa = d.shape') thi known_shapes
+                # CHUA biet -> macro khong khop, roi xuong generic
+                # assign_scalar va _infer_dtype CHI tra .dtype -> 'sub' bi
+                # khai bao scalar phan tu, moi len()/chi so sau do bao loi
+                # "len() hien CHI ho tro list/dict/...". Repro that:
+                # tv/runtime/session.tkv dong 'ba = sa[:len(sa) - len(ca)]'
+                # trong _exec_einsum.
+                ta = _slice_rhs_ta(rhs_node, infer_scope)
+            elif rhs_node[0] == 'attr' and _attr_field_container_ta(rhs_node, infer_scope, records) is not None:
+                # R20 (2026-09-26): 'y = <obj>.<field>' khi <field> la
+                # CONTAINER (dict/list/...) - giu nguyen TypeAnn day du
+                # (dtype + shape), giong nhanh _var_alias_keeps_container
+                # o tren cho 'y = x'.
+                #
+                # KHONG co nhanh nay thi phep gan nay ROT shape: bien 'y'
+                # duoc khai bao scalar phan tu. Repro that:
+                # macro for_in_list viet 'for k in g.initializers.keys():'
+                # (xem set_known_dict_fields) -> macro expr_hoist tach
+                # prologue '__hoistN = g.initializers' -> 'y' nhan shape
+                # None -> lenh dict.keys() dispatch theo
+                # (obj_ta.shape or obj_ta.dtype, 'keys') KHONG khop
+                # 'dict' -> bao loi bien dich.
+                #
+                # _attr_field_ta ( dong ~2289) da tra dung TypeAnn day du;
+                # o day chi chan LAY khi field THAT SU co shape (container)
+                # - field vo huong van di qua nhanh chung o duoi.
+                ta = _attr_field_container_ta(rhs_node, infer_scope, records)
+            elif rhs_node[0] == 'var' and _var_alias_keeps_container(rhs_node[1], infer_scope):
+                # 'y = x' khi 'x' la BIEN CONTAINER (2026-09-25) - giu nguyen
+                # TypeAnn day du cua 'x' thay vi chi lay .dtype. Khong co
+                # nhanh nay, moi phep gan alias se ROT MAT shape: bien 'y'
+                # duoc khai bao scalar phan tu ('i64' thay vi list[i64]) ->
+                # moi len()/chi so sau do bao loi "len() hien CHI ho tro
+                # list/dict/...". Repro that: tv/runtime/session.tkv dong
+                # 'axes = self.axes' - macro _hoist_container_fields (dong
+                # ~5977) viet prologue '__self_axes = self.axes' roi bien doi
+                # 'self.axes' thanh '__self_axes' trong phan con lai, nen
+                # dong goc thanh 'axes = __self_axes' va 'axes' mat shape.
+                ta = infer_scope[rhs_node[1]][2]
             elif _shaped_return_ta_of_call(rhs_node, func_table, infer_scope, records, record_methods) is not None:
                 ta = _shaped_return_ta_of_call(rhs_node, func_table, infer_scope, records, record_methods)
             else:
@@ -4037,6 +4343,28 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
                     # neu khong thi 'total = total * i' tran im lang y het
                     # truoc khi co kieu 'int', tuc tinh nang moi vo dung.
                     inferred = 'int'
+                # R7 (2026-09-28): bien dem/chi so CHUNG MINH int64 ->
+                # khai bao `i64` native. Xem int_narrow.tkv. Phai dung
+                # SAU nhanh promote 'int' o tren, nguoc lai nhanh do
+                # se sua nguoc lai ket qua. Ham nhan 'int' nen tap nay
+                # CHI doi kieu LUU TRU cua bien cuc bo, khong doi nghĩa
+                # bat ky phia nao khac.
+                #
+                # CHI 'i32' -> 'i64' (nong rong, LUON an toan) cho phep. Bien
+                # dem `for x in range(...)` duoc suy ra 'i32' (khong phai
+                # 'int'), nen truoc R7 tap dieu kien nay bo qua chung. Hau
+                # qua trong `_slice_shape` (Inference): bien dem `_qx1064`
+                # con 'i32' nen `_qx1021 = []; _qx1021.append(_qx1064)` tao
+                # ra `List<int32>`, roi gan vao tham so `axes: list[i64]`.
+                # `List<int32>` VA `List<int64>` KHAC generic arg - nhanh
+                # i32 -> i64 cua _widen_if_needed (R7) sinh `conv.i8` tren
+                # MOT CON TRO OBJECT, cat con tro con 32 bit roi ep thanh
+                # int64: bien phai, chay xanh khong bao loi, gia tri rac
+                # (doc phan tu 0 cua List<int32>[0,1,2] bang 8 byte ra
+                # 0x100000000 = 4294967296 roi lam chi so `shape[...]`).
+                if inferred in ('int', 'i32') and name in _narrow_i64_names \
+                        and _narrow_enabled():
+                    inferred = 'i64'
                 # 'p = points[i]' / 'for p in points:' (macro mo rong thanh
                 # 'p = points[__idx]') - khoang trong ngon ngu #2, List
                 # chua record: dtype suy duoc CO THE la ten 1 record (khi
@@ -4182,6 +4510,10 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
         'declare_scalar': declare_scalar, 'declare_array': declare_array,
         'declare_named': declare_named,
         'collect_ternary_temps': collect_ternary_temps, 'walk_fn': walk,
+        # R7 (2026-09-28): tap bien dem/chi so i64 - `fpw_for` goi
+        # declare_scalar_int (il_features/control_flow.tkv) KHONG qua
+        # declare_scalar o tren, nen phai dua vao ctx de no cung biet.
+        'narrow_i64_names': _narrow_i64_names,
         'defer': defer, 'final_pass': False,
         'needs_epilogue': needs_epilogue,
         # Tiem them cho list_type.declare_list/set_type.declare_set (Phase
@@ -4314,6 +4646,28 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
         # tren (cung ly do: dieu kien "ham co dung array[array[T]] khong"
         # de bo sot).
         for _sname, _sdtype in _nested_array_extern.scratch_locals():
+            if _sname not in declared_names:
+                declared_names.add(_sname)
+                _sta = TypeAnn(_sdtype, None)
+                locals_decl.append((_sname, _sta))
+                infer_scope.set(_sname, _sta)
+        # Dem xuong khoi vector 8 lane (R5, 2026-09-28) - cap VO DIEU KIEN
+        # giong het 'int'/'complex' o tren. KHONG dung co che id(node) cua
+        # temps_fn o day vi 1 chuoi `v_load8 -> v_mul8 -> v_hsum` phai dung
+        # CHUNG 1 dem, ma moi lenh la 1 node rieng nen khoa id() se tach
+        # chung thanh 3 dem rong rai (xem vector_block.tkv muc MO HINH).
+        for _sname, _sdtype in _vector_block.scratch_locals() if _gate('TKV_NO_VBUF') else []:
+            if _sname not in declared_names:
+                declared_names.add(_sname)
+                _sta = TypeAnn(_sdtype, None)
+                locals_decl.append((_sname, _sta))
+                infer_scope.set(_sname, _sta)
+        # Local nhap cua 'f32x4' (R7 P4, 2026-09-28) - `v_hsum4` phai gom 4
+        # lane ve 1 f32 nen can noi trung gian de doc lai 4 field cua mot gia
+        # tri f32x4 da nam tren stack. CAp VO DIEU KIEN trong moi ham, giong
+        # het 'int'/'complex'/'f32x8' o tren (16 byte/ham la chi phi nho).
+        import il_features.vector4_type as _v4t
+        for _sname, _sdtype in _v4t.scratch_locals():
             if _sname not in declared_names:
                 declared_names.add(_sname)
                 _sta = TypeAnn(_sdtype, None)
@@ -4653,6 +5007,17 @@ def _stmt_method_call_stmt(stmt, scope: _Scope, body: list, body_dtype: str, ctx
                      or _infer_dtype(stmt['call_node'], scope, ctx.get('func_table'),
                                      ctx.get('records'), ctx.get('record_methods'))
                      or obj_ta.dtype)
+        # R18 (2026-09-26): 'lst.pop(i)' goi DOC LAP - KHONG duoc bien dich
+        # nhu bieu thuc roi them 'pop' o duoi. compile_list_method_pop la
+        # codegen bieu thuc: no goi get_Item (gia tri de len stack) roi
+        # RemoveAt (void, xoa het) -> sau RemoveAt stack RONG, 'pop' sau do
+        # underflow -> InvalidProgramException luc JIT (test THAT:
+        # topo_sort). Dung emit_list_pop_discard: chi goi RemoveAt, bo han
+        # get_Item, va KHONG them 'pop'.
+        if obj_ta.shape == 'list' and method_name == 'pop':
+            from il_features.list_pop import emit_list_pop_discard as _emit_lpd
+            _emit_lpd(stmt['call_node'], scope, body, ctx)
+            return
         _compile_expr(stmt['call_node'], scope, body, res_dtype, ctx)
         body.append('    pop')
         return
@@ -5466,7 +5831,19 @@ def _max_stack_for(body):
 
     Uoc luong don gian, thien ve du: so tham so lon nhat trong moi lenh
     `call`/`newobj` cua than ham, cong bien 8. `.maxstack` chi la muc
-    dat truoc nen dat du khong ton gi; dat THIEU thi hong."""
+    dat truoc nen dat du khong ton gi; dat THIEU thi hong.
+
+    YEU CAU MOI (2026-09-26): uoc luong tren KHONG du cho cac than ham
+    co bieu thuc dai. Bien dich `_expand_lstm` chi khai bao `.maxstack 20`
+    nhung stack thuc te dat toi 439 -> CLR nem `InvalidProgramException
+    ("Common Language Runtime detected an invalid program")`, bi wrapper lai
+    thanh `BadImageFormatException` khi exe goi. Cac method bi anh huong
+    deu la nhung method dai: `_expand_lstm`, `_expand_gru`, `_expand_rnn`,
+    `_expand_scan`, `translate`, `_infer_node_shapes`, `_infer_shapes_b`.
+
+    `.maxstack` la UOC LUONG tren, khong phai khai bao. nen dat THUA hoan
+    toan - an toan hon nhieu hon dat thieu. Ben duoi chay MOT LAN mo phong
+    stack tren tung lenh de lay dinh cao that, roi cong bien 8."""
     widest = 0
     for line in body:
         st = line.strip()
@@ -5482,7 +5859,23 @@ def _max_stack_for(body):
             n = n + 1
         if n > widest:
             widest = n
-    return max(8, widest + 8)
+    return max(8, widest + 8, _stack_lines_upper_bound(body) + 8)
+
+
+# Do rong stack cho MOT lenh IL, hoac None khi khong quyet dinh duoc.
+# Khi None, khong ghi nho (gia tri thuc) - an toan cho uoc luong.
+#
+# Luu y khi viet regex: lenh IL co THE co toan hang, vi du
+#   'ldloc.s 5' / 'ldc.i4 1' / 'ldc.r4 0.0' / 'ldstr "x"'
+# nen phai khop ca dang co khoang trang sau ten lenh.
+def _stack_lines_upper_bound(body) -> int:
+    # Xem ghi chu ben tren _max_stack_for.
+    n = 0
+    for line in body:
+        st = line.strip()
+        if st and not st.startswith('//') and not st.startswith('.'):
+            n += 1
+    return n
 
 
 def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict = None,
@@ -5874,6 +6267,15 @@ def gen_il_program(sig_body_pairs: list, class_name: str = 'Program', with_guard
         # voi mot lop bug "quen ensure_class" rai rac khap codegen.
         _int_type.ensure_class({'emitted_types': emitted_types,
                                 'extra_classes': extra_classes})
+        # VBuf8 (khoi vector 8 lane, R5) - cung ly do, cung cach. Local
+        # dem xuong `__vbuf8` duoc khai bao VO DIEU KIEN trong MOI ham
+        # (xem hook _vector_block.scratch_locals ben tren), nen class
+        # cung phai ton tai VO DIEU KIEN: mot chuong trinh co 1 vong
+        # 'while' ma KHONG dung v_* nao cung se co `.locals` chua
+        # `valuetype VBuf8` - goi ensure_class chi trong cac builtin
+        # thi ilasm bao "Reference to undefined class 'VBuf8'".
+        _vector_block.ensure_class({'emitted_types': emitted_types,
+                                    'extra_classes': extra_classes}) if _gate('TKV_NO_VBUF') else None
     all_lines = []
     # Bien module-level GHI DUOC ('global', 2026-08-11): 1 '.field private
     # static' cho MOI bien, khai bao O DAU class chuong trinh (truoc cac

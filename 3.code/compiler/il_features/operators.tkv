@@ -22,6 +22,43 @@ import il_features.int_type as _int_type
 from il_dispatch import register_macro_expander, register_expr_codegen
 from il_features.stdlib_math import compile_pow as _compile_pow
 
+
+def _widen_expr_to(src_dtype, dst_dtype, out):
+    """Ep gia tri vua day tren stack tu `src_dtype` sang `dst_dtype`.
+
+    R7 (2026-09-28) - dung khi mot toan hang nguyen can phai ra float
+    de an cung toan hang float (xem ghi chu trong compile_binop). Chi lo
+    chuyen doi 1 chieu khong mat du lieu:
+      i32/i64 -> f32/f64      : conv.r4 / conv.r8
+      i32     -> i64          : conv.i8
+      int     -> f32/f64      : TkvInt::ToF64 + (conv.r4 neu f32)
+      int     -> i32/i64      : TkvInt::ToI32 / TkvInt::ToI64
+
+    `int` KHONG bao gio duoc ep bang `conv.*`. 'int' la TkvInt - mot
+    STRUCT 16 byte, tren stack la con tro object, khong phai so nguyen 64
+    bit. `conv.r8` tren con tro do doc 8 byte con tro lam double -> GIA
+    TRI RAC, va con tro bi pop mat ma khong goi Dispose. Day chinh la
+    loi 'silent wrong value' lam Testkit/Inference FAIL khi R7 bat dau:
+    `int` phai di qua ham ep co kiem tra cua TkvInt, giong het nhanh
+    'int' -> ... trong _widen_if_needed (il_codegen.tkv).
+    """
+    if src_dtype == 'int':
+        if dst_dtype == 'f32':
+            out.append('    call float64 TkvInt::ToF64(valuetype TkvInt)')
+            out.append('    conv.r4')
+        elif dst_dtype == 'f64':
+            out.append('    call float64 TkvInt::ToF64(valuetype TkvInt)')
+        elif dst_dtype == 'i32':
+            out.append('    call int32 TkvInt::ToI32(valuetype TkvInt)')
+        elif dst_dtype == 'i64':
+            out.append('    call int64 TkvInt::ToI64(valuetype TkvInt)')
+        return
+    if src_dtype in ('i32', 'i64') and dst_dtype in ('f32', 'f64'):
+        out.append('    conv.r4' if dst_dtype == 'f32' else '    conv.r8')
+    elif src_dtype == 'i32' and dst_dtype == 'i64':
+        out.append('    conv.i8')
+
+
 _COMPOUND_ASSIGN_OPS = {'+=': '+', '-=': '-', '*=': '*', '/=': '/', '%=': '%'}
 _COMPOUND_OP_PATTERN = r'(\+=|-=|\*=|/=|%=)'
 _COMPOUND_INDEX_RE = re.compile(r'^(\w+)\[(.+)\]\s*' + _COMPOUND_OP_PATTERN + r'\s*(.+)$')
@@ -252,8 +289,24 @@ def compile_binop(node, scope, out, dtype, ctx=None):
             f"int ('{dtype}') - Python se tra float o day (vd 'k * 0.5' == 1.5). "
             "Dung bien/phan tu kieu float, hoac '//' neu muon chia nguyen")
     records = (ctx or {}).get('records') or {}
+    # (2026-09-26) THONG NHAT CHIEU RONG khi hai toan hang nguyen lech kieu.
+    #
+    # `operand_dtype` o tren lay kieu toan hang BEN TRAI va bo qua ben
+    # phai. Neu trai la int32 va phai la int64 (vi du `i32_var + list_i64[0]`
+    # trong _exec_qlinear_conv), ca hai toan hang duoc bien dich theo 'i32',
+    # nhung lenh `get_Item(int32)` van day T LONG len stack. `add.ovf`/
+    # `mul.ovf` yeu cau HAI toan hang cung kieu nen IL sai -> runtime nem
+    # AccessViolationException khi chay (hoac BadImageFormatException luc
+    # JIT). Day la cung lo voi `mul.ovf` tren hai toan hang khac kieu.
+    #
+    # CHON MOC: day ca hai len i64 - hep i64 xuong i32 co the mat du lieu,
+    # con widen i32 len i64 luon an toan. Chi ap dung khi ca hai deu la
+    # kieu nguyen thuan (khong phai 'int' vo han chu so, khong phai float).
+    _lwide = left_dtype if left_dtype in ('i32', 'i64') else None
+    _rwide = right_dtype if right_dtype in ('i32', 'i64') else None
+    if _lwide is not None and _rwide is not None and _lwide != _rwide:
+        operand_dtype = 'i64'
     if op == '+' and operand_dtype in records:
-        # __add__ cho record (6.5, dunder overload - muc 5/5, 2026-08-13):
         # a + b tren 2 gia tri CUNG kieu record co
         # __add__(self, other) -> T goi callvirt. KHONG co fallback mac
         # dinh nhu __eq__ - thieu __add__ la loi RO, khong ROI xuong
@@ -338,6 +391,12 @@ def compile_binop(node, scope, out, dtype, ctx=None):
         import il_features.complex_type as _complex_type
         _complex_type.compile_binop(op, left, right, scope, out, ctx)
         return
+    if operand_dtype == 'f32x4':
+        # R7 P2 (2026-09-28): 1 lenh `call` op_* cua Vector4 = 4 MAC
+        # cung luc tren CLR 4.x (do 2.69x tren f32 matmul 32x32).
+        import il_features.vector4_type as _vector4_type
+        _vector4_type.compile_binop(op, left, right, scope, out, ctx)
+        return
     compile_expr = ctx['compile_expr']
     if op == '**':
         # 'x ** y' (Wave 3, 2026-07-29) - tai dung THANG pow()'s codegen
@@ -364,8 +423,53 @@ def compile_binop(node, scope, out, dtype, ctx=None):
             if dtype != 'f64':
                 out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
         return
-    compile_expr(left, scope, out, dtype, ctx)
-    compile_expr(right, scope, out, dtype, ctx)
+    # (2026-09-26) DUNG CHUNG KIEU cho ca opcode VA toan hang.
+    #
+    # Duong duoi day chon opcode theo `operand_dtype` (kieu suy ra cua chinh
+    # hai toan hang) nhung lai bien dich TOAN HANG theo `dtype` (kieu ma ngu
+    # canh GOI muon). Khi hai kieu lech nhau, opcode va toan hang khong khop:
+    # `mul.ovf` yeu cau HAI toan hang cung kieu nen IL sai.
+    #
+    # Ba kieu hinh duoc ghi nhin trong repo nay, tat ca cung nguyen nhan:
+    #   1. `_td_f32_repeat(0.0, bat * hid)` - literal float lam ngu canh
+    #      bien dich la f32, roi `mul.ovf` (NHAN SO NGUYEN) bi phat tren
+    #      hai toan hang float32.
+    #   2. `i32_var + list_i64[0]` - `operand_dtype` i32 (lay ben trai) nen
+    #      `add.ovf` chon theo i32, nhung `get_Item(int32)` day T LONG len
+    #      stack -> AccessViolationException.
+    #   3. `dir_hiddens[d][seq - 1]` voi `seq` la i64 va bien dem la i32.
+    #
+    # SAI SO: khong duoc doi THANG sang `operand_dtype` cho moi truong hop
+    # (da thu, lam hong 2 test dang PASS: awq_asym_and_fp16 va
+    # resize_nearest_einsum). Chi sua khi hai kieu THAT SUC khac nhau; khi
+    # giong nhau giu nguyen duong cu de khong doi hanh vi ngoai duong nay.
+    #
+    # Moc chon: i64. Hep i64 xuong i32 co the mat du lieu (chi so list co
+    # the vuot 2^31), con widen i32 len i64 luon an toan.
+    _op_dtype = dtype
+    if dtype != operand_dtype and operand_dtype in ('i32', 'i64') \
+            and dtype in ('i32', 'i64'):
+        _op_dtype = 'i64'
+    # R7 (2026-09-28): toan hang NGUYEN ben canh toan hang FLOAT
+    # ('(i % 7) - 3.0'). `_op_dtype` la float nen nao dich ben nguyen theo
+    # float - nhung ben nguyen la mot bieu thuc int phuc tap ('i % 7' duoc
+    # ha cap bang chuoi lenh idiv/irem), va handler cua no KHONG tu ep
+    # sang float: ket qua la lenh `sub` co toan hang int64 ben duoi va
+    # float64 ben tren - kich thuoc stack lech, IL sai (chay xanh chu
+    # khong bao loi, gia tri sai am tham). Dich ben nguyen theo KIEU CUA
+    # CHINH NO roi tu ep sang float o day - dung 1 chuyen doi, dung 1 noi.
+    #
+    # PHẢI dung `left_dtype` (kieu cua ben nguyen) chu KHONG dung
+    # `operand_dtype`: `operand_dtype` da duoc promote sang 'f64' o nhanh
+    # float-literal o tren, nen khong bao gio con la int, va dieu kien
+    # phia duoi se khong bao gio chay.
+    _left_dtype = _op_dtype
+    if _op_dtype in ('f32', 'f64') and left_dtype in ('i32', 'i64', 'int'):
+        _left_dtype = left_dtype
+    compile_expr(left, scope, out, _left_dtype, ctx)
+    if _left_dtype != _op_dtype:
+        _widen_expr_to(_left_dtype, _op_dtype, out)
+    compile_expr(right, scope, out, _op_dtype, ctx)
     if operand_dtype in ctx['int_dtypes'] and op in ('+', '-', '*'):
         # TRAN SO PHAI BAO, KHONG DUOC IM LANG (2026-08-04).
         #

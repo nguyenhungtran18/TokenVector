@@ -17,6 +17,11 @@ C - khong co GC cho vung nay).
 - read_ansi(p, off, n) -> str: n bytes thanh chuoi ANSI.
 - read_i32(p, off) -> i32 / write_i32(p, off, v) -> i64.
 - read_i64(p, off) -> i64 / write_i64(p, off, v) -> i64.
+- read_f32(p, off) -> f32 / write_f32(p, off, v) -> i64 (R5, 2026-09-28):
+  doc/ghi 4 byte float32 bang lenh IL tho ldind.r4/stind.r4. KHONG
+  ton tai ham nao trong .NET Framework 4.8 de lam viec nay (Marshal
+  khong co ham float/double nao, BitConverter khong co
+  SingleToInt32Bits) - da do bang reflection, xem push_read_f32.
 - vtable_cell(fn) -> i64: boc 1 con tro ham THO (vd tu 'callback_X(f)')
   vao 1 o 1 muc (AllocHGlobal(8) + WriteInt64) - dung THANG lam 'base'
   cho loi goi __tkv_vtable__ '"this": "false", slot 0' (emitter 1 muc
@@ -139,6 +144,39 @@ def push_write_i32(args, scope, out, dtype, ctx):
     out.append('    ldc.i8 0')
 
 
+def push_read_f32(args, scope, out, dtype, ctx):
+    """'read_f32(p, off)' (R5, 2026-09-28): doc 4 byte float32 tu dia chi
+    native.
+
+    KHONG dung Marshal::ReadSingle - do KHONG TON TAI trong .NET Framework
+    4.8 (da do bang reflection: Marshal co dung ham float/double nao
+    khong, va BitConverter chi co DoubleToInt64Bits/Int64BitsToDouble -
+    cap SingleToInt32Bits/Int32BitsToSingle chi co o .NET Core). Loi
+    'MissingMethodException: ... Marshal.WriteSingle' xuat hien luc
+    probe that. Vay thu duy nhat la lenh IL tho: ldind.r4 truc tiep tu
+    con tro native.
+
+    Da probe: ldind.r4/stind.r4 tren `native int` chay OK tren CLR .NET
+    Framework 4.8, KE CA o dia chi LECH (doc 4 byte o offset 2 khong
+    hong) nen can 32-byte alignment la khong bat buoc cho duong nay."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: read_f32(p, off) can dung 2 tham so")
+    _compile_ptr_off(args[0], args[1], scope, out, ctx)
+    out.append('    ldind.r4')
+
+
+def push_write_f32(args, scope, out, dtype, ctx):
+    """'write_f32(p, off, v)' (R5, 2026-09-28): ghi 4 byte float32 bang
+    stind.r4. Ghi float32 nguyen ban - KHONG ep i32 truoc (se cat mang
+    exponent va lam sai so bit)."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: write_f32(p, off, v) can dung 3 tham so")
+    _compile_ptr_off(args[0], args[1], scope, out, ctx)
+    ctx['compile_expr'](args[2], scope, out, 'f32', ctx)
+    out.append('    stind.r4')
+    out.append('    ldc.i8 0')
+
+
 def push_read_i64(args, scope, out, dtype, ctx):
     if len(args) != 2:
         raise SyntaxError("il_codegen: read_i64(p, off) can dung 2 tham so")
@@ -220,6 +258,8 @@ register_expr_builtin('write_u8', push_write_u8, 'i64')
 register_expr_builtin('read_ansi', push_read_ansi, 'str')
 register_expr_builtin('read_i32', push_read_i32, 'i32')
 register_expr_builtin('write_i32', push_write_i32, 'i64')
+register_expr_builtin('read_f32', push_read_f32, 'f32')
+register_expr_builtin('write_f32', push_write_f32, 'i64')
 register_expr_builtin('read_i64', push_read_i64, 'i64')
 register_expr_builtin('write_i64', push_write_i64, 'i64')
 register_expr_builtin('vtable_cell', push_vtable_cell, 'i64')

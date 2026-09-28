@@ -74,6 +74,42 @@ def _find_balanced_call(text, open_paren_idx):
     raise SyntaxError(f"il_codegen: '(' o vi tri {open_paren_idx} khong co ')' dong khop trong: {text!r}")
 
 
+def _expand_minmax_in(text, depth=0):
+    """Mo rong MOI loi goi min/max 2+ tham so nam TRONG 'text' (de quy).
+
+    2026-09-25: 'max(-128, min(127, v))' - 2 loi goi long nhau tren CUNG
+    1 dong. Macro goc chi xu ly 1 loi goi moi dong (search lay 'min|max('
+    DAU TIEN) va phai de _expand_macros lap toi diem co dinh moi xong;
+    nhung vi lan sau bien do lai ra len moi co 'min(' ben trong, moi vong
+    chi "di chuyen" loi goi do, chua bao gio bien mat het - het 10 vong
+    (tran cua _expand_macros) thi con lai, va bien dich that bai loi
+    "min() can 1 tham so DAU la 1 BIEN list/set". De quy giai quyet
+    ngay trong 1 lan: moi tham so duoc mo rong HET truoc khi ghep."""
+    if depth > 16:
+        return text
+    out = text
+    pos = 0
+    while True:
+        m = _MINMAX_CALL_RE.search(out[pos:])
+        if not m:
+            return out
+        start = pos + m.start()
+        open_idx = pos + m.end() - 1
+        close_idx, parts = _find_balanced_call(out, open_idx)
+        if len(parts) < 2:
+            # 1 tham so (aggregate) hoac khong phai min/max - bo qua, tiep
+            # tuc tim sau do (de tranh sot loi goi long nhau o phia sau).
+            pos = open_idx + 1
+            continue
+        op = '<' if m.group(1) == 'min' else '>'
+        expr = _expand_minmax_in(parts[0], depth + 1)
+        for p in parts[1:]:
+            p = _expand_minmax_in(p, depth + 1)
+            expr = f'({expr} {op} {p} ? {expr} : {p})'
+        out = out[:start] + expr + out[close_idx + 1:]
+        pos = start + len(expr)
+
+
 def try_expand_minmax_2arg(line):
     m = _MINMAX_CALL_RE.search(line)
     if not m:
@@ -90,10 +126,15 @@ def try_expand_minmax_2arg(line):
     # trai qua tung cap theo thu tu TRAI->PHAI, giong min(a, min(b,c))
     # nhung viet phang thanh 1 ternary long nhau - van CHAP NHAN nhan
     # ban VAN BAN (khong tac dung phu, xem docstring dau file).
-    expr = parts[0]
+    # Moi tham so duoc mo rong DE QUY truoc (2026-09-25) de 'min/max'
+    # long nhau tren cung 1 dong cung duoc giai het trong 1 vong.
+    expr = _expand_minmax_in(parts[0])
     for p in parts[1:]:
+        p = _expand_minmax_in(p)
         expr = f'({expr} {op} {p} ? {expr} : {p})'
-    return line[:m.start()] + expr + line[close_idx + 1:]
+    head = _expand_minmax_in(line[:m.start()])
+    tail = _expand_minmax_in(line[close_idx + 1:])
+    return head + expr + tail
 
 
 # ---------------------------------------------------------------------

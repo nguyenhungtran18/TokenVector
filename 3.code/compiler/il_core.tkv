@@ -64,6 +64,17 @@ def emit_index_scalar(idx_node, scope, out, ctx):
             ctx['compile_expr'](idx_node, scope, out, d, ctx)
             out.append(narrow)
             return
+        # R7 (2026-09-28): chi so la bien NATIVE i64 (int_narrow.tkv chuyen
+        # bien dem/chi so sang i64 nen 'xs[j]' co j:i64). get_Item/get_Chars
+        # cua .NET nhan int32, nen phai thu HEP CO KIEM TRA - 'conv.ovf.i4'
+        # nem OverflowException khi vuot int32, dung het nghĩa voi
+        # TkvInt::ToI32 ma nhanh 'int' o tren dung. THIEU nhanh nay thi
+        # day thang int64 vao tham so int32: kich thuoc stack lech, IL sai
+        # (bien matmat chay xanh chu khong bao loi).
+        if d == 'i64' and (ctx or {}).get('allow_i64_index', True):
+            ctx['compile_expr'](idx_node, scope, out, 'i64', ctx)
+            out.append('    conv.ovf.i4')
+            return
     ctx['compile_expr'](idx_node, scope, out, 'i32', ctx)
 
 
@@ -680,12 +691,42 @@ class _ExprParser:
                 if k3 != 'ID':
                     raise SyntaxError(f'il_codegen: ky vong ten field/thuoc tinh sau ".", gap {v3!r}')
                 if v3 == 'shape':
-                    self.expect_op('[')
-                    k4, v4 = self.advance()
-                    if k4 != 'NUM':
-                        raise SyntaxError('il_codegen: .shape[N] can N la so nguyen')
-                    self.expect_op(']')
-                    return ('shape', v, int(v4))
+                    # '.shape' chi la kich thuoc mang co san (bien dich THOI
+                    # GIAN) khi thuc su di sau '['. Cung 1 ten 'shape' la
+                    # 1 FIELD hop le cua record (vd TensorDesc.shape -
+                    # xem tv/runtime/session.tkv) va duoc dung nhu gia tri
+                    # binh thuong: 'self.shape = shape', 'len(a.shape)',
+                    # 'write_value_info(nm, d.dtype, d.shape)'.
+                    # Truoc day nhanh nay KHONG phan biet - no luon goi
+                    # expect_op('['), nen moi dung 'a.shape' (ke ca khi
+                    # khong co '[...]') lam bien dich that bai SyntaxError
+                    # "ky vong '[', gap ')'/None" o giua bien dich (2026-09-25,
+                    # 18 file .tkv can cua TokenVector.Inference that bai).
+                    # Peek 1 token TRUOC - KHONG phai '[' thi coi nhu
+                    # attribute thuong ('attr' ben duoi), giong cach sua
+                    # '.ten' property trong _parse_postfix_method.
+                    k_sh, v_sh = self.peek()
+                    if k_sh == 'OP' and v_sh == '[':
+                        # Chi 'X.shape[N]' voi N LA SO LITER moi la kich
+                        # thuoc mang co san. 'X.shape[expr]' (expr bien
+                        # chay - vd 'a.shape[i]', 'a.shape[len(a.shape)-1]')
+                        # la CHI SO 1 field list cua record, KHONG phai kich
+                        # thuoc tinh tinh san - roi xuong nhanh 'attr' de
+                        # vong HAU TO trong parse_factor ghep '['...']' thanh
+                        # ('index_expr', ('attr', X, 'shape'), expr) - xem
+                        # tv/runtime/session.tkv (TensorDesc.shape).
+                        # PEEK 2 token (khong advance - de parse_factor
+                        # xu ly '[' neu roi xuong nhanh 'attr').
+                        k_n, v_n = self.tokens[self.i + 1]
+                        k_c, v_c = self.tokens[self.i + 2]
+                        if k_n == 'NUM' and k_c == 'OP' and v_c == ']':
+                            self.advance()  # '['
+                            self.advance()  # N
+                            self.advance()  # ']'
+                            return ('shape', v, int(v_n))
+                        # Khong phi kich thuoc tinh san -> attribute thuong
+                        # (de nguyen con '[', parse_factor xu ly tiep).
+                    # Roi xuong day = doc field/thuoc tinh binh thuong.
                 k4, v4 = self.peek()
                 if k4 == 'OP' and v4 == '(':
                     # 'obj.method(args)' - goi INSTANCE METHOD tren 1 record

@@ -23,7 +23,30 @@ import re
 # bieu dien bang struct TkvInt (xem il_features/int_type.py). 'i32'/'i64'
 # giu nguyen y nghia cu (do rong co dinh, tran thi nem OverflowException)
 # - ma .tkv cu khong doi hanh vi.
-DTYPES = {'f32', 'f64', 'i32', 'i64', 'str', 'int', 'datetime', 'timedelta', 'complex'}
+DTYPES = {'f32', 'f64', 'i32', 'i64', 'str', 'int', 'datetime', 'timedelta', 'complex',
+          # 'f32x8' (R5, 2026-09-28): khoi 8 float32 trong 1 struct
+          # unmanaged. Day la 8 SO DOC LAP, doc/ghi bang lenh scalar.
+          # IL_SCALAR duoc dang ky boi chinh module do luc nap.
+          #
+          # SUA GHI CHU 2026-09-28 (P2 cua R7): comment cu cua o day bao
+          # "khong ton tai kieu vector CLR nao tren .NET Framework 4.8
+          # (Vector256 khong co assembly, Vector<T> khong co type)". DO LA
+          # SAI - va do la nen cua ca khoi f32x8.
+          #   - `System.Numerics.Vector4` CÓ trong System.Numerics.dll tren
+          #     CLR 4.x (khong phai mscorlib) va CLR 4.x HA NO XUONG PHAN
+          #     CUNG. Do tren chinh CLR 4.x: f32 matmul 32x32 48.26us ->
+          #     17.96us = 2.69x (docs/REPOSITORY-NOTES.md).
+          #   - `Vector<T>`/Vector256 thi that su khong co tren CLR 4.x, nen
+          #     f64 khong vector hoa duoc o day.
+          # -> 'f32x4' ben duoi la vector THAT cua CLR 4.x, 1 lenh IL = 4
+          #    MAC. f32x8 bay gio thua va nen rut lui (khong lam trong P2 de
+          #    giu bien the phong vi bien doi).
+          'f32x8',
+          # 'f32x4' (R7 P2, 2026-09-28): 4 float32 trong 1 lenh - vector
+          # PHAN CUNG that qua System.Numerics.Vector4 (in-box, cung
+          # assembly ma 'complex' dung, nen khong them phu thuoc nao va PE
+          # van doc lap). Xem il_features/vector4_type.tkv.
+          'f32x4'}
 # 'inferred' (Task 2/5, duck-typing-inference, 2026-08-17): dtype dac biet
 # gan boi tkv_compile.py's _params_with_defaults(allow_inferred=True) cho
 # tham so ham top-level THIEU annotation - chi di qua NGUYEN VEN o tang

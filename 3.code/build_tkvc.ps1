@@ -73,8 +73,11 @@ $splitIdx = [array]::IndexOf($splitOutput, "---")
 $coreFiles = $splitOutput[0..($splitIdx - 1)] | Where-Object { $_ -ne "" }
 $libraryFiles = $splitOutput[($splitIdx + 1)..($splitOutput.Length - 1)] | Where-Object { $_ -ne "" }
 
-Write-Output "CORE il_features (${coreFiles.Count} file): $($coreFiles -join ', ')"
-Write-Output "LIBRARY il_features (${libraryFiles.Count} file): $($libraryFiles -join ', ')"
+# Luon dung $($x.Count) chu KHONG dung ${x.Count}: cu chay "ngoac nhon"
+# la cum TEN bien, khong phai truy cap thuoc tinh - "${a.Count}" tra RONG
+# (khong bao loi), nen dong nay in ra "( file)" ma khong ai do loi.
+Write-Output "CORE il_features ($($coreFiles.Count) file): $($coreFiles -join ', ')"
+Write-Output "LIBRARY il_features ($($libraryFiles.Count) file): $($libraryFiles -join ', ')"
 
 foreach ($f in $coreFiles) {
     $src = Join-Path $root "compiler\il_features\$f"
@@ -96,12 +99,19 @@ foreach ($f in $libraryFiles) {
 
 Push-Location $staging
 try {
+    # PyInstaller ghi log INFO ra stderr; voi ErrorActionPreference="Stop" thi
+    # PowerShell coi stderr la loi va ABORT script truoc khi copy ra dist.
+    # Tam tat strict trong khoi build, roi kiem tra $LASTEXITCODE thu cong.
+    $ErrorActionPreference = "Continue"
     python -m PyInstaller --onefile --name tkvc `
       --distpath (Join-Path $root "dist") `
       --workpath (Join-Path $root "build\pyinstaller") `
       --specpath (Join-Path $root "build") `
       --paths compiler `
       tkv.py
+    if ($LASTEXITCODE -ne 0) {
+        throw "PyInstaller that bai voi exit code $LASTEXITCODE"
+    }
 } finally {
     Pop-Location
 }
@@ -114,5 +124,5 @@ New-Item -ItemType Directory -Force -Path $distIlFeatures | Out-Null
 Copy-Item (Join-Path $staging "il_features_library\*.tkv") $distIlFeatures
 
 Write-Output "Da build: $(Join-Path $root 'dist\tkvc.exe')"
-Write-Output "Thu vien (${libraryFiles.Count} file) o: $distIlFeatures"
+Write-Output "Thu vien ($($libraryFiles.Count) file) o: $distIlFeatures"
 Write-Output "(Nguon staging tam thoi o $staging - co the xoa an toan, khong phai nguon that)"

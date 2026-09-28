@@ -120,10 +120,24 @@ def _resolve_exc_clr_type(exc_name, ctx, where):
         f"tien kieu str lam thong diep).")
 
 
-def declare_scalar_int(name, locals_decl, declared_names, infer_scope=None):
+def declare_scalar_int(name, locals_decl, declared_names, infer_scope=None,
+                       narrow_i64_names=None):
+    """Khai bao bien dem int. R7 (2026-09-28): neu `name` co trong
+    `narrow_i64_names` (tap bien dem/chi so CHUNG MINH int64 - xem
+    il_features/int_narrow.tkv) thi khai bao `i64` thay vi `i32`.
+
+    i32 -> i64 la ep NONG RONG, luon an toan. Can thiet vi kieu mac dinh cua
+    bien dem vong `for` la `i32`, trong khi phan con lai cua ham dung
+    `i64`; `_slice_shape` (Inference) vi du: `_qx1021.append(_qx1064)` tao
+    `List<int32>` roi gan vao tham so `axes: list[i64]` - `List<int32>` VA
+    `List<int64>` khac generic arg, khong gan duoc, va nhanh i32->i64 cua
+    `_widen_if_needed` sinh `conv.i8` tren MOT CON TRO OBJECT (cat con tro
+    con 32 bit) - chay xanh khong bao loi nhung gia tri rac.
+    """
     if name not in declared_names:
         declared_names.add(name)
-        ta = TypeAnn('i32', None)
+        ta = TypeAnn('i64' if (narrow_i64_names and name in narrow_i64_names)
+                     else 'i32', None)
         locals_decl.append((name, ta))
         if infer_scope is not None:
             infer_scope.set(name, ta)
@@ -258,6 +272,35 @@ def set_known_dict_vars(names):
     _known_dict_vars = set(names)
 
 
+# R15 (2026-09-26): tap ten FIELD kieu dict cua record class.
+#
+# VAN DE GOC: _known_dict_vars o tren CHI quet 'ten = {}' - tuc chi BIET
+# dict la bien cuc bo. 'for k in g.initializers:' (container la BIEN THUOC
+# TINH 'g.initializers') khong vao tap -> macro for_in_list di nhanh
+# list-index va viet lai thanh
+#     for i in range(len(g.initializers)): k = g.initializers[i]
+# Do 'i' la int64 con khoa Dictionary<string,...> la string, IL sinh ra
+# nap BOC SONG kieu vao tham so string -> CLR nem ArgumentNullException
+# ("Value cannot be null. Parameter name: key") LUC CHAY, khong bao gi luc
+# bien dich (test THAT tren tv/onnx/translator.tkv::translate).
+#
+# CACH SUA: day la tap TEN FIELD duoc khai bao kieu dict tren bat ky record
+# class nao (xem _expand_macros - noi co 'records'). Khi container co dau
+# cham va phan cuoi trung ten trong tap nay, coi no la dict.
+#
+# HANH BI (quan trong): tap nay CHI ap dung cho container CO dau cham.
+# Container de tran ('d') van di qua _known_dict_vars nhu truoc - nho
+# vay khong du bien 'initializers' (mot list cuc bo) bi nham la dict.
+_known_dict_fields = set()
+
+
+def set_known_dict_fields(names):
+    """Goi 1 LAN moi than ham tu _expand_macros. Module-level -> phai goi
+    lai cho MOI than ham (ke ca voi tap rong), giong set_known_dict_vars."""
+    global _known_dict_fields
+    _known_dict_fields = set(names)
+
+
 # 6.7 (iterator protocol tuy bien, 2026-08-13): 'for x in <bien_record>:'
 # CUNG khop CHINH XAC _FOR_IN_LIST_RE (regex do la '\w+' don gian, khong
 # phan biet list/dict/record) - neu khong chan o day, macro nay se VIET
@@ -312,6 +355,17 @@ def try_expand_for_in_list(line):
             # nhan bat ky bieu thuc, ke ca '<ten>.keys()'), tai dung ha
             # tang List<K> da co san cua dict.keys().
             return f'{ind}for {var} in {container}.keys():'
+        # R16 (2026-09-26) VO HIEU LUC o dang viet tu dong. Ghi ro ly do:
+        # viet 'for k in g.initializers:' thanh 'for k in g.initializers.keys():'
+        # la DUNG nghia nhung KHONG chay duoc - macro expr_hoist tach
+        # 'g.initializers' ra bien tam '__hoistN' truoc, va bien tam do
+        # duoc khai bao o khai bao_scalar theo duong chung -> mat shape
+        # (dict) -> lenh .keys() bao loi bien dich. Chi khi phep gan
+        # 'ks = g.initializers.keys()' (R20, declare_scalar) moi giu duoc
+        # shape. nen de nguoi goi viet .keys() TƯỜNG MINH trong .tkv
+        # (da doi cac diem trong repo), khong sua macro o day.
+        if False and '.' in container and container.rsplit('.', 1)[1] in _known_dict_fields:
+            return f'{ind}for {var} in {container}.keys():'
         n = _me_for_in_list_counter[0]
         _me_for_in_list_counter[0] += 1
         idx = f'__iterlist{n}_idx'
@@ -336,6 +390,10 @@ def try_expand_for_in_list(line):
         # se tu khop lai o CHINH macro nay o VONG SAU (regex B5 nhan bat
         # ky bieu thuc, ke ca '<ten>.keys()'), tai dung ha tang List<K> da
         # co san cua dict.keys().
+        return f'{ind}for {var} in {expr}.keys():'
+    # R16 (2026-09-26) VO HIEU LUC o dang viet tu dong - xem ghi chu
+    # cung noi o try_expand_for_in_list. Nguoi goi viet .keys() tuong minh.
+    if False and '.' in expr and expr.rsplit('.', 1)[1] in _known_dict_fields:
         return f'{ind}for {var} in {expr}.keys():'
     n = _me_for_in_list_counter[0]
     _me_for_in_list_counter[0] += 1
@@ -704,7 +762,8 @@ def try_parse_raise(line, lines, pos, indent_level, sig, known_shapes, parse_blo
 
 
 def fpw_for(stmt, ctx):
-    declare_scalar_int(stmt['var'], ctx['locals_decl'], ctx['declared_names'], ctx['infer_scope'])
+    declare_scalar_int(stmt['var'], ctx['locals_decl'], ctx['declared_names'],
+                       ctx['infer_scope'], ctx.get('narrow_i64_names'))
     if stmt.get('start_node') is not None:
         ctx['collect_ternary_temps'](stmt['start_node'])
     ctx['collect_ternary_temps'](stmt['bound_node'])

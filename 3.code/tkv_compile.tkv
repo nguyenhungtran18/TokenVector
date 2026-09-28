@@ -664,6 +664,7 @@ def _extract_record_def(class_node, source_lines, known_records=None, known_inte
             f"(se crash MissingFieldException luc chay neu khong chan o day). Doi ten field o 1 "
             f"trong cac base de tranh trung.")
     methods_raw = []
+    init_sigs = {}
     for stmt in class_node.body:
         if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and \
                 isinstance(stmt.value.value, str):
@@ -675,6 +676,16 @@ def _extract_record_def(class_node, source_lines, known_records=None, known_inte
             # (vd 'Point(1.0, 2.0)' goi duoc duoi CPython that khi doi
             # chieu ket qua), giong dung tinh than '.tkv van la Python that'
             # da xac lap tu Buoc 9 (doi ten .py->.tkv).
+            #
+            # 2026-09-25: giu LAI sig_line cua no trong `init_sigs` (KHONG
+            # dua vao methods_raw - neu dua, .ctor se bi bien dich thanh 1
+            # method ten '__init__' khong hop le CIL). Dung cho
+            # _resolve_inferred_record_fields: field khai bao dtype
+            # 'inferred' (field tro toi class o module KHAC) lay kieu THAT
+            # tu tham so cung ten cua __init__.
+            init_sigs[class_node.name] = (
+                _extract_record_method_sig_line(class_node, stmt, is_static=False),
+                _body_source_lines(source_lines, stmt))
             continue
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
             # Method THAT (khong phai __init__) - KHOANG TRONG #1, khac
@@ -741,7 +752,7 @@ def _extract_record_def(class_node, source_lines, known_records=None, known_inte
         fields.append((stmt.target.id, dtype))
     if not fields:
         raise TranspileError(f"class '{class_node.name}': record khong co field nao")
-    return fields, methods_raw, base_name, base_info, interface_names
+    return fields, methods_raw, base_name, base_info, interface_names, init_sigs
 
 
 def _extract_namedtuple_def(assign_node):
@@ -787,6 +798,32 @@ def _extract_namedtuple_def(assign_node):
 
 
 _FUNC_NAME_RE = re.compile(r'^(\w+)\(')
+
+# 2026-09-25: 1 field record khai bao bang TEN CLASS don thuan (khong
+# container, khong dtype vo huong) - vi du 'session: "InferenceSession"'.
+# Regex nay nhan dien dang do; viec tra loi loai ten ra khoi danh sach
+# class cua module hien tai do _resolve_deferred_record_field_types().
+_BARE_CLASS_NAME_RE = re.compile(r'^\w+$')
+
+# 2026-09-25: cac tu khoa container hop le trong 1 spec kieu
+# ('list[...]'/'dict[...,...]' - xem _parse_container_spec_str). Moi 2 ten
+# nay la 'ten' chu khong phai ten class.
+_CONTAINER_KEYWORDS = frozenset(('list', 'dict'))
+
+# Identifier trong 1 spec kieu - dung cho _mentions_unknown_class.
+_IDENT_RE = re.compile(r'[A-Za-z_]\w*')
+
+
+def _mentions_unknown_class(spec, dtypes):
+    """True neu 1 spec kieu ('InferenceSession' / 'list[InferenceSession]' /
+    'dict[str, GenRequest]') chua 1 TEN chua biet - dau hieu rang no tro
+    toi 1 class o MODULE KHAC, chua the giai o thoi diem parse tung file
+    (xem _resolve_deferred_record_field_types)."""
+    for ident in _IDENT_RE.findall(spec):
+        if ident in dtypes or ident in _CONTAINER_KEYWORDS:
+            continue
+        return True
+    return False
 
 
 def _desugar_property_reads(body_lines, property_names):
@@ -1329,6 +1366,32 @@ _EXTERN_ENUM_DTYPE_RE = re.compile(
     r'^enum:(?P<assembly>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)'
     r':(?P<full_name>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)$')
 
+# R13 (2026-09-26): container dtype cho __tkv_extern_method__ -
+# "list[<scalar>]" trong 'params'/'returns'. LY DO: truoc day ABI cua
+# extern method CHI scalar, nen KHONG goi duoc 1 ham .NET/TokenVector nhan
+# hoac tra List<T> (vd 1 thu vien byte codec viet bang .tkv, build bang
+# `tkvc build --target library`, goi qua __tkv_extern_method__).
+#
+# VI SAO AN TOAN: TokenVector BIEU DIEN list[i64] BANG CHINH
+# System.Collections.Generic.List`1<int64> (xem il_features/list_type.tkv
+# ::il_container_type_of_spec) - 1 REFERENCE TYPE cua mscorlib. Mat khau
+# chuan cua .NET: truyen/trả reference type giua 2 assembly KHONG can
+# marshaling gi, khac 'ptr' native (F4a) hay struct truyen dia chi. nen
+# can IT DUY NHAT la sinh dung ten kieu trong CHU KY - gia tri tren stack
+# da la reference dung roi.
+#
+# HANH VI o ben trong TokenVector: _widen_if_chi_... co ten chinh xac la
+# _widen_if_needed - CHI ep int<->float, co no-op voi 'list[...]' (xem
+# il_codegen.py::_widen_if_needed dong ~1611: chi khi actual/requested
+# deu thuoc _INT_DTYPES/_FLOAT_DTYPES moi hanh dong), nen truyen list
+# qua ham extern KHONG can ep them gi.
+#
+# PHAM VI: chi 1 LOP. Phan tu CHI scalar trong _EXTERN_DTYPE_TO_IL
+# (i32/i64/f32/f64/str/bool/u64) - chua mo list long nhau (list[list[i64]])
+# hay dict; 2 dang do dien ra o phan tu nen can ban co ve generic variance
+# va can test rieng, de o phase sau.
+_EXTERN_LIST_DTYPE_RE = re.compile(r'^list\[(?P<elem>[a-z0-9_]+)\]$')
+
 
 def _is_valid_extern_dtype(dtype):
     """True neu dtype la 1 scalar co dinh (_EXTERN_DTYPE_TO_IL) HOAC 1
@@ -1343,7 +1406,21 @@ def _is_valid_extern_dtype(dtype):
     dieu do do ben sinh dtype dam bao (tools/tkv_bind/type_map.py::
     map_enum). Xem comment tai dinh nghia _EXTERN_ENUM_DTYPE_RE ve rui ro
     khi 1 file .tkv viet tay dung dtype nay cho enum khong backed Int32."""
-    return dtype in _EXTERN_DTYPE_TO_IL or bool(_EXTERN_ENUM_DTYPE_RE.match(dtype))
+    return dtype in _EXTERN_DTYPE_TO_IL or bool(_EXTERN_ENUM_DTYPE_RE.match(dtype)) or _extern_list_elem(dtype) is not None
+
+
+def _extern_list_elem(dtype):
+    """R13 (2026-09-26): tra ve 'tieu hoa phan tu' cua dtype dang
+    'list[<scalar>]' (vd 'list[i64]' -> 'i64'), HOAC None neu khong phai
+    container hop le. Kiem tra phan tu quay lai 1 dtype scalar hop le nen
+    'list[gia_vay]'/'' rong bi tu choi o day - error message cua caller
+    (validate) se bao cho nguoi dung. Dung chung cho _is_valid_extern_dtype
+    va _extern_il_type_text de 2 noi KHONG lech quy tac."""
+    m = _EXTERN_LIST_DTYPE_RE.match(dtype)
+    if m is None:
+        return None
+    elem = m.group('elem')
+    return elem if elem in _EXTERN_DTYPE_TO_IL else None
 
 
 def _extern_il_type_text(dtype):
@@ -1387,6 +1464,26 @@ def _extern_il_type_text(dtype):
     il = _EXTERN_DTYPE_TO_IL.get(dtype)
     if il is not None:
         return il
+    # R13 (2026-09-26): 'list[<scalar>]' -> List`1<elem>. TEN KIEU dung
+    # y het il_codegen::il_type_str (dong ~210) va il_features/list_type.tkv
+    # ::il_container_type_of_spec (dong ~88) - 3 noi nay phai ra CUNG 1
+    # kieu CLR, neu khong 1 bien 'list[i64]' o 2 ben lech nhau 1 ky tu
+    # backtick/Assembly la MissingMethodException luc nap assembly.
+    #
+    # GHI CHU QUAN TRONG (do bang thuc nghiem 2026-09-26): 'list[i64]'
+    # KHONG phai "chi danh nghia" - compiler SUY ra kieu CLR that tu
+    # annotation (do lenh 'out = []' trong ham co kieu tra ve 'list[i64]'
+    # sinh ra newobj List`1<int64>::.ctor()). Chi khi danh nghia element
+    # hoan toan khong xuat hien (vd bien 'xs = []' khong annotation, khong
+    # co context) moi sinh List`1<TkvInt>. Do do goi 1 ham extern voi
+    # 'list[i64]' VOI 1 bien thuoc loai 'List<TkvInt>' se doc sai offset
+    # (test THAT: truyen list do ra lenh co the bao loi - nguoi goi phai
+    # truyen 1 bien thuoc co kieu List<int64> that, vi du bien nhan tu 1
+    # ham co kieu tra ve 'list[i64]'). Xem R14 ve viec tu chan truong hop
+    # do o compile time.
+    _elem = _extern_list_elem(dtype)
+    if _elem is not None:
+        return f'class [mscorlib]System.Collections.Generic.List`1<{_EXTERN_DTYPE_TO_IL[_elem]}>'
     m = _EXTERN_ENUM_DTYPE_RE.match(dtype)
     if m is None:
         raise KeyError(dtype)
@@ -3176,7 +3273,7 @@ def _validate_and_register_extern_method(decl, declared_assembly_names, extern_a
             raise TranspileError(
                 f"__tkv_extern_method__ '{name}': params[{i}] = {p!r} khong phai dtype hop le - "
                 f"chi ho tro {sorted(_EXTERN_DTYPE_TO_IL)} hoac 'ptr' (con tro native) hoac 1 handle type da khai trong "
-                f"__tkv_extern_class__")
+                f"__tkv_extern_class__ hoac container 'list[<scalar>]'")
         # (Phase 9k, 2026-08-31): 'object'/'type' truoc day BI TU CHOI o day
         # vi _extern_il_type_text (dung boi _make_extern_static_call_codegen
         # ben duoi) chua co short-circuit dung cho 'type', va codegen argument
@@ -3201,7 +3298,7 @@ def _validate_and_register_extern_method(decl, declared_assembly_names, extern_a
         raise TranspileError(
             f"__tkv_extern_method__ '{name}': returns = {returns!r} khong phai dtype hop le - "
             f"chi ho tro 'void' hoac {sorted(_EXTERN_DTYPE_TO_IL)} hoac 'ptr' (con tro native) hoac 1 handle type da khai "
-            f"trong __tkv_extern_class__")
+            f"trong __tkv_extern_class__ hoac container 'list[<scalar>]'")
     # (Phase 9k, 2026-08-31): xem chu thich tuong tu o nhanh params[i] ben
     # tren - go bo chan 'object'/'type' cho returns, ha tang codegen da san
     # sang (return_dtype 'object' di qua duong _expr_call/widen_if_needed
@@ -3233,6 +3330,21 @@ def _validate_and_register_extern_method(decl, declared_assembly_names, extern_a
     # 'extern_class'), cho phep goi tiep instance method tren ket qua tra
     # ve (giong het cach bien tao qua ctor 'Sb()' duoc gan shape).
     _return_shape = 'extern_class' if return_dtype in il_codegen._EXTERN_CLASS_DEFS else None
+    # R13 (2026-09-26): return_dtype dang 'list[<scalar>]' -> dang ky
+    # return_ta=TypeAnn(elem, 'list') de bien nhan ket qua duoc gan DUNG
+    # kieu CLR (List<int64> - xem chu thich R13 o _extern_il_type_text).
+    # KHONG duoc chi truyen chuoi 'list[i64]' lam tkv_return_dtype:
+    # convention cua TokenVector la TypeAnn.dtype = TIEU HOA PHAN TU +
+    # shape='list' (xem _parse_type_ann_str), nen TypeAnn(dtype=
+    # 'list[i64]', shape=None) se lam len()/index()/append() bao "khong
+    # phai list" (test THAT). Dung lai _parse_type_ann_str - cung duong
+    # voi nhanh extern-class o _make_extern_class_return_ta (dong ~2040)
+    # nen 2 duong khong lech.
+    _ret_elem = _extern_list_elem(return_dtype)
+    if _ret_elem is not None:
+        register_expr_builtin(name, codegen_fn, _ret_elem,
+                              return_ta=_parse_type_ann_str(return_dtype))
+        return
     register_expr_builtin(name, codegen_fn, tkv_return_dtype, return_shape=_return_shape)
     if return_dtype is None:
         EXTERN_VOID_BUILTIN_NAMES.add(name)
@@ -3712,6 +3824,9 @@ def _parse_program_ast(source_text, source_path=None, extra_r11_skip=None):
     source_lines = source_text.split('\n')
     record_defs = {}
     record_methods_raw = {}
+    # 2026-09-25: sig_line cua '__init__' tung class - nguon kieu THAT cho
+    # field khai bao dtype 'inferred' (xem _resolve_inferred_record_fields).
+    record_init_sigs = {}
     record_bases = {}
     module_consts = {}
     module_globals = {}
@@ -3820,10 +3935,11 @@ def _parse_program_ast(source_text, source_path=None, extra_r11_skip=None):
                 # (huong F), KHONG phai 1 record (khong field/state).
                 interface_defs[node.name] = _extract_interface_def(node, source_lines)
                 continue
-            fields, methods_raw, base_name, base_info, interface_names = _extract_record_def(
+            fields, methods_raw, base_name, base_info, interface_names, init_sigs = _extract_record_def(
                 node, source_lines, known_records=record_defs, known_interfaces=interface_defs)
             record_defs[node.name] = fields
             record_methods_raw[node.name] = methods_raw
+            record_init_sigs.update(init_sigs)
             record_bases[node.name] = base_info
             record_interfaces[node.name] = interface_names
             # R11 (2026-09-22, D3): nhu ham top-level, ap cho moi method.
@@ -4119,7 +4235,155 @@ def _parse_program_ast(source_text, source_path=None, extra_r11_skip=None):
     _resolve_record_field_types(record_defs, extern_class_names={d['name'] for d in extern_classes})
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
             import_names, extern_assemblies, extern_methods, extern_pinvokes, extern_classes, struct_defs,
-            com_classes, module_consts, module_globals, inferred_ast_nodes_by_func)
+            com_classes, module_consts, module_globals, inferred_ast_nodes_by_func, record_init_sigs)
+
+
+# 2026-09-25: 'self.<field> = <rhs>' trong body method - dung cho suy kieu
+# field dtype 'inferred' (xem _infer_inferred_fields_from_bodies).
+_SELF_FIELD_ASSIGN_RE = re.compile(r'^\s*self\.(\w+)\s*=(?!=)\s*(.+?)\s*$')
+
+# 'ten(' - loi goi/co truc (constructor record, ham top-level, ham cua stdlib).
+_CALL_RHS_RE = re.compile(r'^(\w+)\s*\(')
+
+# 'ten' - 1 bien trong method.
+_BARE_RHS_RE = re.compile(r'^(\w+)$')
+
+# 'local = <rhs>' - de truy nguoc bien cuc bo ve bieu thuc gan no.
+_LOCAL_ASSIGN_RE = re.compile(r'^\s*(\w+)\s*=(?!=)\s*(.+?)\s*$')
+
+
+def _func_return_type_of(sig_line):
+    """'f(a: i64) -> Foo:' -> 'Foo' (hoac None). Doc bang regex tren
+    sig_line THO (khong parse lai) - chi can TEN kieu tra ve de suy field."""
+    m = re.search(r'\)\s*->\s*([^:]+):\s*$', sig_line)
+    return m.group(1).strip() if m else None
+
+
+def _rhs_type_of(rhs, record_names, extern_class_names, local_types, func_ret):
+    """Kieu cua 1 ve phai gan 'self.<field> = <rhs>' - hoac None neu khong
+    suy duoc. CHI xet 3 dang co the quyet dinh CHAC CHAN (2026-09-25):
+
+      - 'Ten(...)'   : constructor cua 1 class da biet -> field kieu class
+      - 'f(...)'     : ham TOP-LEVEL co kieu tra ve da biet
+      - 'ten'        : bien cuc bo, truy nguoc ve bieu thuc gan no
+
+    KHONG doan gi khi ve phai la bieu thuc tong hop (pho bien nhat trong
+    code that) - de _resolve_inferred_record_fields() / loi ro rang lo
+    phan con lai, thay vi sinh kieu sai."""
+    rhs = rhs.strip()
+    m_call = _CALL_RHS_RE.match(rhs)
+    if m_call:
+        callee = m_call.group(1)
+        if callee in record_names:
+            return TypeAnn(callee, 'record')
+        if callee in extern_class_names:
+            return TypeAnn(callee, 'extern_class')
+        ret = func_ret.get(callee)
+        if ret and ret in record_names:
+            return TypeAnn(ret, 'record')
+        if ret and ret in extern_class_names:
+            return TypeAnn(ret, 'extern_class')
+        return None
+    m_bare = _BARE_RHS_RE.match(rhs)
+    if m_bare:
+        return local_types.get(m_bare.group(1))
+    return None
+
+
+def _infer_inferred_fields_from_bodies(record_defs, record_methods_raw, pairs,
+                                       extern_class_names, record_names=None,
+                                       record_init_sigs=None):
+    """Suy kieu cho field khai bao dtype 'inferred' tu body method
+    (2026-09-25) - chay trong _build_record_methods, SAU khi da gop record
+    cua cac module import (nen 'record_names' da day du).
+
+    Nguon suy: dong gan 'self.<field> = <rhs>'. 3 dang ve phai co the quyet
+    dinh CHAC CHAN duoc xet o _rhs_type_of: constructor class, ham top-level
+    co kieu tra ve, va bien cuc bo (truy nguoc ngan qua). Duoc vi du nhu
+    'self.batcher = _db' voi '_db = DynamicBatcher(...)' trong
+    tv/server/cont_batcher.tkv (DynamicBacker o tv/server/batcher.tkv -
+    module KHAC, nen bat buoc chay sau khi gop import).
+
+    Day la BUOC 2 cua 2 buoc; buoc 1 (_resolve_inferred_record_fields) lay
+    kieu tu tham so __init__. Truong hop con lai sau ca 2 buoc van bao loi
+    RO RANG - khong doan."""
+    record_names = set(record_defs) if record_names is None else record_names
+    func_ret = {}
+    for entry in (pairs or []):
+        sig_line = entry[0]
+        m = _FUNC_NAME_RE.match(sig_line)
+        if m:
+            func_ret[m.group(1)] = _func_return_type_of(sig_line)
+    for rname, fields in record_defs.items():
+        if not any(isinstance(dt, str) and dt == INFERRED_DTYPE_MARKER
+                   for _, dt in fields):
+            continue
+        targets = {fn for fn, dt in fields
+                   if isinstance(dt, str) and dt == INFERRED_DTYPE_MARKER}
+        found = {}
+        # Body '__init__' XEM TRUOC body method thuong: field duoc gan trong
+        # __init__ moi la nguon suy truc tiep nhat (vidu
+        # 'self.batcher = _db' trong __init__ cua ContBatcher).
+        bodies = []
+        init_entry = (record_init_sigs or {}).get(rname)
+        if init_entry and len(init_entry) > 1 and init_entry[1]:
+            bodies.append(init_entry[1])
+        for _sig_line, body_lines, _is_static in record_methods_raw.get(rname, []):
+            bodies.append(body_lines)
+        for body_lines in bodies:
+            local_types = {}
+            for raw in body_lines:
+                m_self = _SELF_FIELD_ASSIGN_RE.match(raw)
+                if m_self and m_self.group(1) in targets and m_self.group(1) not in found:
+                    ta = _rhs_type_of(m_self.group(2), record_names,
+                                      extern_class_names, local_types, func_ret)
+                    if ta is not None:
+                        found[m_self.group(1)] = ta
+                    continue
+                m_loc = _LOCAL_ASSIGN_RE.match(raw)
+                if m_loc:
+                    ta = _rhs_type_of(m_loc.group(2), record_names,
+                                      extern_class_names, local_types, func_ret)
+                    if ta is not None:
+                        local_types[m_loc.group(1)] = ta
+        if not found:
+            continue
+        record_defs[rname] = [(fn, found.get(fn, dt)) for fn, dt in fields]
+
+
+def _resolve_deferred_record_field_types(record_defs, record_names,
+                                         extern_class_names=frozenset()):
+    """Giai field record con lai dang TEN CLASS chua ro kieu (2026-09-25).
+
+    _resolve_record_field_types() (chay trong _parse_program_ast, TUNG file
+    rieng) giu NGUYEN chuoi khi field tro toi 1 class o module KHAC -
+    vi luc do `record_names` chi co class cua file dang parse. Ham nay
+    chay SAU khi da GOP record cua moi module import, nen `record_names`
+    da day du: doi chuoi thanh TypeAnn(ten, 'record').
+
+    Neu van khong khop (gom ca typos - nguoi viet sai ten class) thi bao
+    loi RO RANG, dung hon im lang bo qua de sinh IL sai."""
+    for rname, fields in record_defs.items():
+        resolved = []
+        for fname, dtype in fields:
+            if isinstance(dtype, str) and dtype not in DTYPES \
+                    and _mentions_unknown_class(dtype, DTYPES):
+                try:
+                    ta = _parse_type_ann_str(dtype, record_names=record_names,
+                                             extern_class_names=extern_class_names)
+                except SyntaxError:
+                    missing = sorted({i for i in _IDENT_RE.findall(dtype)
+                                      if i not in DTYPES and i not in _CONTAINER_KEYWORDS
+                                      and i not in record_names
+                                      and i not in extern_class_names})
+                    raise TranspileError(
+                        f"class '{rname}' field '{fname}': dtype {dtype!r} tro toi class "
+                        f"{missing} khong tim thay - chua khai bao trong file nay, trong module "
+                        f"import nao, hay ten sai chinh xac?")
+                resolved.append((fname, ta))
+                continue
+            resolved.append((fname, dtype))
+        record_defs[rname] = resolved
 
 
 def _resolve_record_field_types(record_defs, extern_class_names=frozenset()):
@@ -4141,6 +4405,16 @@ def _resolve_record_field_types(record_defs, extern_class_names=frozenset()):
                 continue
             if dtype in record_names:
                 resolved.append((fname, TypeAnn(dtype, 'record')))
+                continue
+            if _BARE_CLASS_NAME_RE.match(dtype) or _mentions_unknown_class(dtype, DTYPES):
+                # 2026-09-25: spec tro toi 1 class o MODULE KHAC (import) -
+                # tai thoi diem nay `record_names` CHI co class cua file dang
+                # parse nen chua biet no co that khong (va _parse_type_ann_str
+                # se nem loi vi ten la). Giu NGUYEN van ban, de
+                # _resolve_deferred_record_field_types() giai sau khi da GOP
+                # record cua cac module import. Van bao loi ro rang neu den
+                # luc do van khong giai duoc - khong im lang bo qua.
+                resolved.append((fname, dtype))
                 continue
             try:
                 ta = _parse_type_ann_str(dtype, record_names=record_names,
@@ -4169,7 +4443,7 @@ def extract_program(source_text):
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies, extern_methods,
      extern_pinvokes, extern_classes, struct_defs, com_classes, module_consts, module_globals,
-     inferred_ast_nodes_by_func) = _parse_program_ast(source_text)
+     inferred_ast_nodes_by_func, record_init_sigs) = _parse_program_ast(source_text)
     if import_names:
         raise TranspileError(
             f"file co '__tkv_import__'/'import X'/'from X import ...' = {import_names!r} nhung "
@@ -4178,7 +4452,7 @@ def extract_program(source_text):
             f"dan) de import cheo file hoat dong")
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
             extern_assemblies, extern_methods, extern_pinvokes, extern_classes, struct_defs, com_classes,
-            module_consts, module_globals, inferred_ast_nodes_by_func)
+            module_consts, module_globals, inferred_ast_nodes_by_func, record_init_sigs)
 
 
 _PROJECT_ROOT = Path(__file__).parent.resolve()
@@ -4247,7 +4521,7 @@ def extract_program_file(tkv_path, _visited=None, _inherited_r11_skip=None):
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies, extern_methods,
      extern_pinvokes, extern_classes, struct_defs, com_classes, module_consts, module_globals,
-     inferred_ast_nodes_by_func) = _parse_program_ast(source_text, tkv_path,
+     inferred_ast_nodes_by_func, record_init_sigs) = _parse_program_ast(source_text, tkv_path,
                                                       extra_r11_skip=_inherited_r11_skip)
     func_names = {m.group(1) for sig_line, _, _start in pairs if (m := _FUNC_NAME_RE.match(sig_line))}
     # R2 (2026-09-24): tap skip truyen cho file con = ke thua tu cha +
@@ -4276,7 +4550,7 @@ def extract_program_file(tkv_path, _visited=None, _inherited_r11_skip=None):
          imp_interface_defs, imp_pairs, imp_extern_assemblies, imp_extern_methods,
          imp_extern_pinvokes, imp_extern_classes, imp_struct_defs, imp_com_classes, imp_module_consts,
          imp_module_globals,
-         imp_inferred_ast_nodes_by_func) = extract_program_file(imp_path, _visited,
+         imp_inferred_ast_nodes_by_func, imp_record_init_sigs) = extract_program_file(imp_path, _visited,
                                                             _child_r11_skip)
         imp_func_names = {m.group(1) for sig_line, _, _start in imp_pairs if (m := _FUNC_NAME_RE.match(sig_line))}
 
@@ -4320,6 +4594,7 @@ def extract_program_file(tkv_path, _visited=None, _inherited_r11_skip=None):
         func_names |= imp_func_names
         record_defs.update(imp_record_defs)
         record_methods_raw.update(imp_record_methods_raw)
+        record_init_sigs.update(imp_record_init_sigs)
         record_bases.update(imp_record_bases)
         record_interfaces.update(imp_record_interfaces)
         interface_defs.update(imp_interface_defs)
@@ -4344,11 +4619,62 @@ def extract_program_file(tkv_path, _visited=None, _inherited_r11_skip=None):
 
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
             extern_assemblies, extern_methods, extern_pinvokes, extern_classes, struct_defs, com_classes,
-            module_consts, module_globals, inferred_ast_nodes_by_func)
+            module_consts, module_globals, inferred_ast_nodes_by_func, record_init_sigs)
+
+
+def _resolve_inferred_record_fields(record_defs, record_init_sigs, record_names,
+                                    extern_class_names=frozenset()):
+    """Field record khai bao dtype 'inferred' - LAY KIEU THAT tu tham so
+    cung ten cua '__init__' (2026-09-25).
+
+    Repo TokenVector.Inference dung quy uoc: khi field tro toi 1 class
+    KHONG khai bao trong cung file (cross-module, vd
+    'class GenRequest: cache: "inferred"' trong tv/server/cont_batcher.tkv
+    khi 'AttentionKvCache' o tv/runtime/kv_cache.tkv), nguoi viet dat
+    'inferred' thay vi ten class - vi ten class la 1 DUA CHI, khong nen
+    hardcode o noi ghi. Compiler thi phai tra lai kieu THAT cho field
+    do. Nguon THAT la CHINH '__init__': field cung ten voi tham so
+    __init__ da duoc gan kieu day du ('cache: "AttentionKvCache"'), va
+    record_defs da gop field cua base truoc field rieng nen kieu cua
+    field thua van nam trong __init__ tuong ung.
+
+    'inferred' la dtype CO CHUC NANG cho THAM SO ham (monomorphize, xem
+    INFERRED_DTYPE_MARKER) - kieu do resolve duoc o CALL SITE. Field
+    record thi KHONG co call site de resolve (1 class = 1 kieu), nen
+    phai giai o day; neu khong tim thay tham so __init__ tương ứng thi
+    giu nguyen 'inferred' va de loi cua il_codegen bao ro rang (dung
+    hon im lang dien ro shape IL sai)."""
+    for rname, fields in list(record_defs.items()):
+        if not any(isinstance(dt, str) and dt == INFERRED_DTYPE_MARKER
+                   for _, dt in fields):
+            continue
+        init_ta_by_param = {}
+        init_entry = (record_init_sigs or {}).get(rname)
+        init_sig_line = init_entry[0] if init_entry else None
+        if init_sig_line:
+            m_sig = parse_typed_signature(init_sig_line, record_names=record_names,
+                                          extern_class_names=extern_class_names)
+            for p in m_sig.params:
+                if p.name == 'self' or p.type_ann is None:
+                    continue
+                init_ta_by_param.setdefault(p.name, p.type_ann)
+        if not init_ta_by_param:
+            continue
+        resolved = []
+        for fname, dtype in fields:
+            if isinstance(dtype, str) and dtype == INFERRED_DTYPE_MARKER \
+                    and fname in init_ta_by_param:
+                ta = init_ta_by_param[fname]
+                if ta is not None and ta.dtype != INFERRED_DTYPE_MARKER:
+                    resolved.append((fname, ta))
+                    continue
+            resolved.append((fname, dtype))
+        record_defs[rname] = resolved
 
 
 def _build_record_methods(record_defs, record_methods_raw, record_bases=None,
-                           extern_class_names=frozenset()):
+                           extern_class_names=frozenset(), record_init_sigs=None,
+                           pairs=None):
     """Parse TAT CA sig_line THO cua method (record_methods_raw) thanh
     Signature THAT - lam RIENG, SAU khi record_defs (fields) da biet DU
     (khong lam ben trong extract_program) de method co the tham chieu
@@ -4370,6 +4696,12 @@ def _build_record_methods(record_defs, record_methods_raw, record_bases=None,
     body_lines), ...]} - CHI method RIENG)."""
     record_bases = record_bases or {}
     record_names = set(record_defs)
+    _resolve_inferred_record_fields(record_defs, record_init_sigs, record_names,
+                                    extern_class_names)
+    _infer_inferred_fields_from_bodies(record_defs, record_methods_raw, pairs,
+                                       extern_class_names, record_names,
+                                       record_init_sigs)
+    _resolve_deferred_record_field_types(record_defs, record_names, extern_class_names)
     record_methods_own = {}
     record_method_bodies = {}
     for rname, methods_raw in record_methods_raw.items():
@@ -4481,11 +4813,12 @@ def _build_sig_body_pairs(pairs, record_defs, record_methods, inferred_ast_nodes
 
 def _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
                           module_consts=None, extra_classes=None, module_globals=None,
-                          inferred_ast_nodes_by_func=None):
+                          inferred_ast_nodes_by_func=None, record_init_sigs=None):
     """Phan CHUNG cua transpile_program/transpile_file - nhan ket qua da
     extract (tu 1 file don le HOAC da gop nhieu file qua
     extract_program_file/__tkv_import__), sinh CIL method that."""
-    record_methods, _, _ = _build_record_methods(record_defs, record_methods_raw)
+    record_methods, _, _ = _build_record_methods(record_defs, record_methods_raw,
+                                                 record_init_sigs=record_init_sigs)
     sig_body_pairs = _build_sig_body_pairs(pairs, record_defs, record_methods,
                                             inferred_ast_nodes_by_func)
     return gen_il_program(sig_body_pairs, class_name=class_name, with_guards=with_guards,
@@ -4504,7 +4837,7 @@ def transpile_program(source_text, class_name='Program', with_guards=True,
     RIENG ben ngoai class chuong trinh chinh). KHONG ho tro '__tkv_import__'
     (xem extract_program) - dung transpile_file() cho file co import cheo."""
     (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em, _ep, _ec, _st, _cc,
-     module_consts, module_globals, inferred_ast_nodes_by_func) = extract_program(source_text)
+     module_consts, module_globals, inferred_ast_nodes_by_func, _ris) = extract_program(source_text)
     return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
                                  module_consts=module_consts, extra_classes=extra_classes,
                                  module_globals=module_globals,
@@ -4517,11 +4850,13 @@ def transpile_file(tkv_path, class_name='Program', with_guards=True,
     ho tro '__tkv_import__' (khoang trong ngon ngu #3 - import module
     TokenVector khac) qua extract_program_file()."""
     (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em, _ep, _ec, _st, _cc,
-     module_consts, module_globals, inferred_ast_nodes_by_func) = extract_program_file(tkv_path)
+     module_consts, module_globals, inferred_ast_nodes_by_func,
+     record_init_sigs) = extract_program_file(tkv_path)
     return _transpile_extracted(record_defs, record_methods_raw, pairs, class_name, with_guards,
                                  module_consts=module_consts, extra_classes=extra_classes,
                                  module_globals=module_globals,
-                                 inferred_ast_nodes_by_func=inferred_ast_nodes_by_func)
+                                 inferred_ast_nodes_by_func=inferred_ast_nodes_by_func,
+                                 record_init_sigs=record_init_sigs)
 
 
 # ============================================================
@@ -4855,7 +5190,7 @@ def _compute_record_overrides(record_bases, record_methods):
 
 
 def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', debug=False,
-                    target='exe', subsystem=None):
+                    target='exe', subsystem=None, emit_il=False):
     """Bien dich 1 file `.tkv` THAT thanh `.exe` GOI DUOC TU DONG LENH
     TRUC TIEP (tu dong sinh Main(), khong can tu tay viet IL nhu moi vi
     du truoc day trong session) - argv[0..] anh xa THEO THU TU tham so
@@ -4876,7 +5211,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, extern_assemblies, extern_methods, extern_pinvokes, extern_classes,
      struct_defs, com_classes, module_consts, module_globals,
-     inferred_ast_nodes_by_func) = extract_program_file(tkv_path)
+     inferred_ast_nodes_by_func, record_init_sigs) = extract_program_file(tkv_path)
 
     # Task 2 (extern-class, 2026-08-18): extern_class_defs (ten handle-type
     # -> decl dict goc {'name','assembly','class','ctor','methods'}) - dung
@@ -4913,7 +5248,8 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
 
     record_methods, record_method_bodies, record_methods_own = _build_record_methods(
         record_defs, record_methods_raw, record_bases=record_bases,
-        extern_class_names=extern_class_names)
+        extern_class_names=extern_class_names, record_init_sigs=record_init_sigs,
+        pairs=pairs)
     record_overrides = _compute_record_overrides(record_bases, record_methods)
     sig_body_pairs = _build_sig_body_pairs(pairs, record_defs, record_methods,
                                             inferred_ast_nodes_by_func,
@@ -5576,6 +5912,9 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
         # mot PE vua dung xong - xem docstring cua no.
         # R10 (2026-09-22): target library -> assemble /dll (khong Main).
         try:
+            if emit_il:
+                with open(str(out_exe) + '.il', 'w', encoding='utf-8') as _f:
+                    _f.write(il_text)
             if target == 'library':
                 return assemble_il_to_dll(il_text, out_exe, debug=debug, subsystem=subsystem_flag)
             return assemble_il_to_exe(il_text, out_exe, debug=debug, subsystem=subsystem_flag)

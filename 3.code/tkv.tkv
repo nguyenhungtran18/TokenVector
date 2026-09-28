@@ -24,6 +24,11 @@ def main():
                         help='Sinh them file .pdb (Windows PDB) cho phep dat breakpoint that trong Visual Studio')
     build.add_argument('--no-lint', action='store_true', default=False,
                         help='Tat pre-flight syntax baseline linter (chi dung khi debug linter bao sai)')
+    build.add_argument('--emit-il', action='store_true', default=False,
+                       help='Ghi them file <out>.il chua IL sinh ra (debug codegen)')
+    build.add_argument('--class-name', default=None,
+                       help='Ten class/assembly (mac dinh TKVApp). Bat buoc khi build '
+                            'thu vien de tranh trung ten voi file chinh.')
     build.add_argument('--target', default='exe', choices=('exe', 'library'),
                         help="R10: 'exe' (mac dinh) hoac 'library' (ra managed DLL, khong .entrypoint)")
     build.add_argument('--subsystem', default=None, choices=('windows', 'console'),
@@ -52,7 +57,9 @@ def main():
         out_exe = Path(args.out) if args.out else src.with_suffix('.exe')
         try:
             result = compile_tkv_cli(src, out_exe, entry_name=args.entry, debug=args.debug,
-                                     target=args.target, subsystem=args.subsystem)
+                                     target=args.target, subsystem=args.subsystem,
+                                     class_name=args.class_name or 'TKVApp',
+                                     emit_il=args.emit_il)
         except (CliError, TranspileError, SyntaxError, ValueError) as e:
             # R11 (2026-09-22): moi loi bien dich (ke ca SyntaxError tu
             # codegen/inference) bao GON 1 dong tren stderr + exit 1, KHONG

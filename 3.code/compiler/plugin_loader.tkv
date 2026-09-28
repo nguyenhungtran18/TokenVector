@@ -177,6 +177,13 @@ def load_plugins(plugin_dir=None):
             else:
                 last_exc = exc
                 next_pending.append(fname)
+                # Chan doan (2026-09-28): loi cuoi cung chi la TRIEU CHUNG -
+                # thu tu alphabet quyet dinh file nao bao loi, nen loi that
+                # su co the nam o file khac. Dat TKV_DBG_PLUGINS=1 de in tung
+                # file that bai. Mac dinh TAT de khong lam nhieu output.
+                if os.environ.get('TKV_DBG_PLUGINS'):
+                    print(f'[plugin_dbg] FAIL {fname}: {type(exc).__name__}: {exc}',
+                          file=sys.stderr)
         if not progressed:
             # Khong file nao trong vong nay nap duoc - loi phu thuoc that
             # su (module ngoai thieu, hoac vong tron), khong phai van de

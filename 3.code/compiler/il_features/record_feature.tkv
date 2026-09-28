@@ -361,6 +361,13 @@ def compile_attr(node, scope, out, dtype, ctx=None):
         # widen tu 'i32' de khop.
         ctx['widen_if_needed']('i32' if field_dtype == 'i16' else field_dtype, dtype, out)
         return
+    if obj_ta.dtype == 'f32x4' and field_name in ('x', 'y', 'z', 'w'):
+        # R7 P2 (2026-09-28): doc 1 LANE cua System.Numerics.Vector4. Phai
+        # nam TRUOC nhanh 'shape != record' ben duoi: dtype cua f32x4 co
+        # shape=None (khong phai record) nen de o duoi se bao loi nham.
+        import il_features.vector4_type as _vector4_type
+        _vector4_type.compile_attr(obj_name, field_name, scope, out, dtype, ctx)
+        return
     if obj_ta.shape != 'record':
         raise SyntaxError(
             f"il_codegen: '.{field_name}' chi dung duoc tren bien kieu record, "

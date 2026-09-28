@@ -1,38 +1,181 @@
 # -*- coding: utf-8 -*-
-"""lst.pop() (2026-07-29) - soan nhap boi Gemini, dung khop chu ky method_call
-that ngay lan dau, khong bug. Trả về + xoá PHẦN TỬ CUỐI, KHÔNG dùng local ẩn
+"""lst.pop() / lst.pop(i) (2026-07-29, bo sung 2026-09-25).
+
+KHUYEN dang KHONG tham so: tra ve + xoá PHẦN TỬ CUỐI, KHÔNG dùng local ẩn
 hay 'dup' - lấy item TRƯỚC (list chưa đổi), rồi tính lại Count-1 (an toàn vì
 Count chưa đổi) để gọi RemoveAt() sau.
 
-GIOI HAN DA BIET: chi ho tro dang KHONG tham so (list.pop(i) co chi so
-KHONG duoc ho tro). List rong -> .NET nem ArgumentOutOfRangeException luc
-CHAY (khac IndexError cua Python) - khong tu vay."""
+2026-09-25: them dang CO CHI SO 'lst.pop(i)'. Chi so AM duoc chuan hoa
+Python that ('i += Count') bang 2 nhanh/label - ca 2 nhanh deu GHI
+cung 1 chi so da chuan hoa len stack. Giong khu'yen dang 0 tham so, chi so
+duoc BIEN DICH LAI 2 lan (get_Item roi RemoveAt) - an toan theo dung quy
+uoc cua ca compiler: DSL nay khong co side-effect trong bieu thuc (xem
+ghi chu cua dict_pop.py's compile_dict_method_pop, cung kieu).
+
+List rong -> .NET nem ArgumentOutOfRangeException luc CHAY (khac IndexError
+cua Python) - khong tu vay."""
+
+
+def _emit_pop_index(out, ctx, load_var_ref, compile_expr, obj_name, scope, list_type,
+                    args, label_prefix):
+    """Day CHI SO len stack. Tra (len(args) <= 1).
+
+    QUY UOC: ham nay PHAT RA TRON BO cap [list, chi so] - nghia la no
+    tu lo vi tri len stack, khong dua list san len stack truoc (ham goi
+    KHONG load_var_ref truoc nua).
+
+    R17 (2026-09-26) - SUA LOI IL SAI 'lst.pop()' va 'lst.pop(-k)':
+    Ban dau ham nay ghi 'load_var_ref(obj)' roi 'callvirt get_Count()' -
+    NHUNG 'callvirt' **TIEU THU `this`** khoi stack! Sau do chi con
+    [count], khong con doi tuong list -> 'callvirt get_Item(int32)' thieu
+    doi tuong -> CLR nem InvalidProgramException ('Common Language
+    Runtime detected an invalid program') luc JIT method, KE CA khi nhanh
+    do khong chay. Da do bang build+chay that.
+
+    BAN DA SUA 2 LAN TRUOC DO, ca 2 LAN VAN SAI - ghi lai de khong ai
+    sua nguoc:
+      (1) chuan hoa bang nhanh 'blt neg' - 'blt' TIEU THU 2 toan hang va
+          DAY bool -> nhanh 'use' mat chi so, nhanh 'neg' de lai count.
+      (2) chuan hoa bang 'dup' + 'pop' bool o ca 2 nhanh cho doi chieu
+          stack DUNG o 'end' - VAN nem InvalidProgramException.
+    Ca 2 lan deu giu nguyen 'load_var_ref' TRUOC 'get_Count' nen goc
+    khong bao gio duoc sua.
+
+    CACH SUA CHOT: 'dup' gi lai 1 ban sao cua doi tuong list DUOI con
+    so dem, de 'callvirt get_Count()' tieu 'this' tren dinh va ban sao
+    duoi con lai:
+        load_var_ref(obj) ; dup ; callvirt get_Count() ; ldc.i4 k ; sub
+    -> [obj, count - k]  roi moi goi get_Item/RemoveAt.
+
+    Hanh bi (ghi ro, khong am tham): chi so AM khong phai HANG SO thi
+    KHONG duoc chuan hoa (de can 1 nhanh, se phai them local an o tang
+    first-pass). 'lst.pop(bien_am)' se bi .NET nem
+    ArgumentOutOfRangeException - dung nhu chua tung chuan hoa. Cac 2
+    dang duoc repo dung ('pop()' va 'pop(i)') deu chay."""
+    if not args:
+        # idx = Count - 1 (dang rong -> -1, .NET nem ArgumentOutOfRange
+        # giong truoc do).
+        load_var_ref(obj_name, scope, out)
+        out.append('    dup')
+        out.append(f'    callvirt instance int32 {list_type}::get_Count()')
+        out.append('    ldc.i4.1')
+        out.append('    sub')
+        return
+    idx_node = args[0]
+    neg_lit = _negative_int_literal(idx_node)
+    if neg_lit is not None:
+        # 'lst.pop(-k)' -> Count - k  (tuong duong Count + (-k)).
+        # DUNG 'ldc.i4 <k>' + 'sub' CHU KHONG dung 'ldc.i4 -k' + 'add':
+        # operand am cua ldc.i4 bi ilasm/verifier tu choi.
+        load_var_ref(obj_name, scope, out)
+        out.append('    dup')
+        out.append(f'    callvirt instance int32 {list_type}::get_Count()')
+        out.append(f'    ldc.i4 {-neg_lit}')
+        out.append('    sub')
+        return
+    load_var_ref(obj_name, scope, out)
+    compile_expr(idx_node, scope, out, 'i32', ctx)
+
+
+def _negative_int_literal(node):
+    """Tra gia tri int <= -1 neu `node` la 1 HANG SO AM nguyen, else None.
+
+    Nhan dien node cua DSL: ('num', '-1') hoac ('num', -1) / ('neg',
+    ('num', '1')) - chap ca 3 dang de khong bo loi khi parser doi bieu
+    dien. Tien ich cho _emit_pop_index (chuan hoa chi so am tai bien dich)
+    va cho cac noi khac can 'chi so am la hang so'."""
+    if not isinstance(node, tuple) or not node:
+        return None
+    if node[0] == 'neg':
+        inner = _positive_int_literal(node[1])
+        return -inner if inner is not None else None
+    if node[0] == 'num':
+        v = _int_literal_value(node)
+        return v if (v is not None and v <= -1) else None
+    return None
+
+
+def _positive_int_literal(node):
+    v = _int_literal_value(node)
+    if v is None:
+        return None
+    return v if v >= 0 else None
+
+
+def _int_literal_value(node):
+    if not isinstance(node, tuple) or len(node) < 2 or node[0] != 'num':
+        return None
+    raw = node[1]
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return int(raw.strip())
+        except ValueError:
+            return None
+    return None
 
 
 def compile_list_method_pop(node, scope, out, dtype, ctx):
     obj_name, args = node[1], node[3]
-    if len(args) != 0:
-        raise SyntaxError("il_codegen: lst.pop() hien chi ho tro dang khong tham so")
+    if len(args) > 1:
+        raise SyntaxError(
+            "il_codegen: lst.pop() chi ho tro 0 tham so (pop()) hoac 1 tham so "
+            f"(pop(i)) - nhan duoc {len(args)}")
     _, _, ta = scope[obj_name]
     if ta.shape != 'list':
         raise SyntaxError(f"il_codegen: '{obj_name}.pop()' can '{obj_name}' la list")
     list_type = ctx['il_type_str'](ta, (ctx or {}).get('records'))
     load_var_ref = ctx['load_var_ref']
+    compile_expr = ctx['compile_expr']
+    prefix = ctx.get('prefix', 'L')
 
-    # Buoc 1: lay phan tu cuoi (idx=Count-1), list CHUA thay doi.
-    load_var_ref(obj_name, scope, out)
-    load_var_ref(obj_name, scope, out)
-    out.append(f'    callvirt instance int32 {list_type}::get_Count()')
-    out.append('    ldc.i4.1')
-    out.append('    sub')
+    # Buoc 1: lay phan tu (list CHUA thay doi) - get_Item(idx).
+    # _emit_pop_index TU lo phat RA ca doi tuong list + chi so (xem quy
+    # uoc trong docstring no) - KHONG load_var_ref truoc o day nua.
+    _emit_pop_index(out, ctx, load_var_ref, compile_expr, obj_name, scope, list_type,
+                    args, prefix)
     out.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
 
-    # Buoc 2: tinh lai idx (an toan vi list chua doi tu Buoc 1), RemoveAt.
-    load_var_ref(obj_name, scope, out)
-    load_var_ref(obj_name, scope, out)
-    out.append(f'    callvirt instance int32 {list_type}::get_Count()')
-    out.append('    ldc.i4.1')
-    out.append('    sub')
+    # Buoc 2: goi RemoveAt(cung chi so do) - chi so tinh lai AN TOAN
+    # (list chua doi tu Buoc 1, Count chua doi).
+    _emit_pop_index(out, ctx, load_var_ref, compile_expr, obj_name, scope, list_type,
+                    args, prefix)
     out.append(f'    callvirt instance void {list_type}::RemoveAt(int32)')
 
     ctx['widen_if_needed'](ta.dtype, dtype, out)
+
+
+def emit_list_pop_discard(node, scope, out, ctx):
+    """'lst.pop(...)' DUNG LAI LENH DOC LAP (gia tri bi bo).
+
+    R18 (2026-09-26): compile_list_method_pop la codegen BIEU THUC - no
+    day len gia tri da lay (get_Item) len stack de bieu thuc cha dung
+    ('v = lst.pop(0)'). Khi goi DOC LAP, duong statement (il_codegen.py
+    _stmt_method_call) bien dich no nhu bieu thuc roi them opcode 'pop'
+    de bo gia tri. NHUNG get_Item da bi 'pop' do 'RemoveAt' (void) xoa
+    khoi stack -> luc RemoveAt chay thi stack RONG, nen opcode 'pop'
+    sau do UNDERFLOW -> CLR nem InvalidProgramException ('Common
+    Language Runtime detected an invalid program') khi moi JIT method,
+    ke ca khi nhanh do KHONG chay (test THAT: lenh doc lap
+    'remaining.pop(0)' trong vong while cua topo_sort).
+
+    Ham nay bo han 'get_Item' - goi thang RemoveAt - nen stack ve 0
+    va KHONG duong statement them 'pop' nua."""
+    obj_name, args = node[1], node[3]
+    if len(args) > 1:
+        raise SyntaxError(
+            "il_codegen: lst.pop() chi ho tro 0 tham so (pop()) hoac 1 tham so "
+            f"(pop(i)) - nhan duoc {len(args)}")
+    _, _, ta = scope[obj_name]
+    if ta.shape != 'list':
+        raise SyntaxError(f"il_codegen: '{obj_name}.pop()' can '{obj_name}' la list")
+    list_type = ctx['il_type_str'](ta, (ctx or {}).get('records'))
+    load_var_ref = ctx['load_var_ref']
+    compile_expr = ctx['compile_expr']
+    prefix = ctx.get('prefix', 'L')
+    _emit_pop_index(out, ctx, load_var_ref, compile_expr, obj_name, scope, list_type,
+                    args, prefix)
+    out.append(f'    callvirt instance void {list_type}::RemoveAt(int32)')

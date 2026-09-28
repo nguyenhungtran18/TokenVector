@@ -1,0 +1,45 @@
+# Build output and staging
+# - build/ : PyInstaller staging, recreated on every build_tkvc.ps1 run
+# - dist/  : the built tkvc.exe and the il_features copy it loads at runtime
+# - _direct_smoke_out/ : ad-hoc smoke-test dumps
+build/
+dist/
+_direct_smoke_out/
+
+# Compiled artifacts. Note: *.il files are deliberately NOT ignored - the
+# Testkit "*_regress.il" files are golden baselines for regression tests, and
+# the "*.il" in tools/ are checked-in IL feature samples.
+*.exe
+*.pdb
+*.dll
+*.pyd
+
+# Python bytecode / caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor / OS
+.vs/
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+*~
+*.tmp
+
+  # Testkit ghi output pickle vao CWD khi chay (logging_pickle_py_tree_test.tkv
+  # goi pickle_dump_* voi duong dan tuong doi) - artifact, khong phai nguon.
+pkl_*_test.bin
+
+  # Cung dang: bo test cua Data/Data-ecosystem (chay qua datagate.ps1) ghi
+  # CSV/feather vao CWD khi chay trong repo nay. Ten bat dau bang '_' hoac
+  # la 'test_out.csv' - deu la output, khong phai nguon. KHONG co .tkv nao
+  # trong repo tham chieu ten nay (da grep), nen khong vo tinh loai nguon.
+_pd_*.csv
+_rt6*.csv
+_t8stream.csv
+_t9par.csv
+test_out.csv
+ooc_test_tmp.feather
+
