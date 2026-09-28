@@ -54,10 +54,17 @@
 - **Module-Level Variables**: must be declared with a type, `k: "i32" = 0`,
   for `global` to see them. A bare `k = 0` is not module-level for that purpose.
 - **Concurrency**: Native thread pooling via `thread_spawn` and `thread_join` without GIL constraints.
-- **Known gaps**: `lambda`, `yield from`, dict comprehension, `for`/`while` `else`,
+- **Lambdas**: work, but the signature must come from a declaration. Write
+  `g: "func(i32) -> i32" = lambda x: x + 1`, or pass one straight to a
+  `func` parameter: `apply_it(lambda x: x * 2, 5)`. Capturing outer
+  variables works. A bare `g = lambda x: ...` is an error because the lambda
+  node carries parameter *names* only, and this language has no type
+  inference — every function has one known signature.
+- **Known gaps**: `yield from`, dict comprehension, `for`/`while` `else`,
   `try/except/else`, conditional expressions (`a if c else b` *and* `c ? a : b`
   both fail, though an error message tells you to use the latter), slices with a
   step, `del`, keyword-only and positional-only parameters, `raise <variable>`,
-  set literals, nested/tuple literals, call-site `*`/`**` unpacking, and `in` on
-  records. Full list with difficulty ranking in `3.code/docs/PLAN.md`; per-item
-  status in `3.code/docs/REPOSITORY-NOTES.md`.
+  set literals, nested/tuple literals, and call-site `*`/`**` unpacking (calls
+  have statically known arity, so a run-time-length sequence cannot be passed).
+  Full list with difficulty ranking in `3.code/docs/PLAN.md`; per-item status in
+  `3.code/docs/REPOSITORY-NOTES.md`.

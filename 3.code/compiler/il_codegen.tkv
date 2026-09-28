@@ -3282,6 +3282,40 @@ register_expr_codegen('call', _expr_call)
 register_expr_codegen('ternary', _expr_ternary)
 
 
+def _expr_lambda(node, scope, out, dtype, ctx=None):
+    """'lambda' o VI TRI BIEU THUC - chi de bao loi RO RANG.
+
+    KHONG phai 'lambda khong ho tro'. Lambda DA chay, qua duong co khai
+    bao kieu 'func' (xem _compile_lambda_funcref va comment o
+    _compile_funcref_arg case (d)). Duong do **co** kieu tham so va kieu
+    tra ve, nen compiler phat duoc chu ky `Func<N>` va ma ma.
+
+    Du day khong co kieu nao de suy ra: node lambda chi mang TEN tham so
+    (`('lambda', ['x'], body)`), khong co kieu, va DSL nay khong co suy luan
+    kieu. Neu tu doan se phai dua ra mot kieu - va do la tra loi sai trong
+    im lang, dung loai sai da gap nhieu lan trong chu ky nay.
+
+    Nen: bao loi nay chi ra DUNG cach viet, va noi them vi sao kieu la bat
+    buoc (khong phi hanh che cua chinh no).
+    """
+    params = node[1]
+    raise SyntaxError(
+        f"il_codegen: 'lambda' can khai bao KIEU de biet chu ky ham - viet "
+        f"`{', '.join(params)}` khong cho compiler biet tham so nay kieu gi. "
+        f"Cach viet trong DSL nay (noi nhanh): khai bao bien co kieu 'func', "
+        f"vi du:\n"
+        f"    g: \"func(i32) -> i32\" = lambda x: x + 1\n"
+        f"    h = apply_it(lambda x: x * 2, 5)   # truyen truc tiep cho tham so func\n"
+        f"DSL nay khong co suy luan kieu, nen day la thuoc tinh cua chinh "
+        f"ngon ngu: moi ham co mot chu ky tinh. Lambda CUNG bat duoc bien "
+        f"ngoai (vi du `lambda x: x + n` trong ham co bien n).")
+
+
+# Dang ky SAU khi def xong - registration chay luc import nen phai co
+# ten ham trong scope luc goi.
+register_expr_codegen('lambda', _expr_lambda)
+
+
 def _compile_index_store(name, indices, value_node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     _, _, type_ann = scope[name]
     if type_ann.shape == 'list':

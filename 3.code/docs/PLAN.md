@@ -149,9 +149,20 @@ Tách riêng vì cần cờ `break`. Thiết kế: `break` gán `did_break = 1` 
 nhảy; `else` chỉ chạy khi `did_break == 0`. Cờ phải là local mới cho mỗi vòng lặp
 có `else` — nếu dùng chung một tên, hai vòng lặp lồng nhau sẽ đè lên nhau.
 
-### Bước 5 — `lambda`
-Nền đã có (`closures.tkv`). Đây là thứ người dùng chuyển từ Python sang
-TokenVector **thấy thiếu đầu tiên**.
+### Bước 5 — `lambda` — ~~XONG, xem mục 8~~
+
+**Không còn là việc cần làm.** `lambda` đã hoạt động từ Wave 3 (A2,
+2026-07-29) qua đường khai báo kiểu `func` — kể cả khi bắt biến ngoài. Cách
+dùng: `g: "func(i32) -> i32" = lambda x: x + 1`, hoặc truyền thẳng cho tham số
+kiểu `func`: `apply_it(lambda x: x * 2, 5)`.
+
+Dạng `g = lambda x: ...` không có khai báo kiểu thì báo lỗi, và điều đó
+**đúng**: node lambda chỉ mang *tên* tham số, mà ngôn ngữ này không suy luận
+kiểu — mỗi hàm có đúng một chữ ký.
+
+Đã có gate: `Testkit/lambda_test.tkv` (11 check, gồm cả trường hợp bắt biến
+ngoài). Mục này bị xếp nhầm vào "cần thiết kế" vì `CLAUDE.md` ghi sai là
+thiếu — xem mục 8.
 
 ### Bước 6 — `yield from`
 Chỉ làm sau khi `native_test_suite.tkv` build được, vì hiện **không có bộ test
@@ -218,3 +229,26 @@ cũ từng che một test suite không build được.
 
 Bước 4 mất ~296 s vì nó build rồi **thực thi** 18 check, không chỉ biên dịch.
 Không phải tre.
+
+## 8. Sai lệch giua tai lieu va thuc te (2026-09-28)
+
+Khi lam viec theo danh sach thieu, phat hien mot *tinh dang ton tai* chua
+bao gio duoc ghi ra: `lambda` **da chay** tu Wave 3 (A2, 2026-07-29), ke ca
+khi bat bien ngoai. Ca `CLAUDE.md` va `PLAN.md` deu ghi no la thieu.
+
+Khong phai may khong may: dong comment trong `il_codegen.tkv` ngay canh
+duong do ghi ro `_compile_expr` khong dispatch duoc node `lambda`, nen
+duong gan bien thuong bao loi - nhung `_compile_funcref_arg` case (d) thi co,
+va no la duong dung khi co khai bao kieu `func`. Ai doc comment do se ket
+luận nguoc.
+
+**Bai hoc ve phuong phap:** dung kiem tra "co that su thieu khong" truoc khi
+cong bo thoi gian sua. Mot probe that bai mot mau nham hon mot khai niem sai -
+va `lambda` nam trong ca hai. Bay gio no co gate
+(`Testkit/lambda_test.tkv`) nen khong the bien mat im lang lan nua.
+
+Cung trong lo nay, hai dieu nua sua xong theo huong nguoc lai:
+
+- `==` tren container nem `InvalidCastException` (sua bang `ceq`).
+- `__lt__`/`__gt__` tren record tra ve hang so (sua bang `__lt__`).
+Ca hai deu im lang; ca hai deu bi bo qua vi khong co test nao chay qua duong do.
