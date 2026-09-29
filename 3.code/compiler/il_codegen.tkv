@@ -3380,22 +3380,84 @@ def _expr_ternary(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     # id(node): AST duoc parse DUY NHAT 1 LAN (xem _parse_block) va
     # dung lai o ca 2 pass, nen id() la khoa TIN CAY (khac ban truoc
     # dung "thu tu duyet" vi tung phai parse lai bieu thuc 2 lan).
-    tmp_idx = ctx['tern_temp_of_id'][id(node)]
+    # Gia tri la (chi so local, kieu da khai) - kieu do la BAT BUOC lay
+    # tu first-pass, xem ghi chu ben duoi.
+    tmp_idx, tmp_dtype = ctx['tern_temp_of_id'][id(node)]
     # QUAN TRONG: 'dtype' o day la dtype cua CAC TOAN HANG duoc so
     # sanh (vd f32), KHONG PHAI dtype cua KET QUA so sanh (luon la
     # int32 0/1 do ceq/cgt/clt sinh ra, bat ke toan hang la kieu gi).
     # Truyen sai 'i32' xuong day tung gay bug that: lam toan hang so
     # (vd '0.0' trong 'x[i] > 0.0') bi bien dich nham thanh 'ldc.i4
     # 0.0' (cu phap sai, ilasm tu choi ngay).
-    _compile_expr(cond, scope, out, dtype, ctx)
+    # Dieu kien phai LUON de lai mot int32 tren stack cho `brfalse` (CIL yeu
+    # cau vay). Giu dung y nghia cua `control_flow.tkv`'s `_compile_cond` -
+    # TkvInt -> IsZero + ceq - nhung ap dung o MOI boi cau chu khong chi khi
+    # `dtype` (kieu toan hang) la 'int'.
+    #
+    # BUG THAT (2026-09-29, phat hien khi them `c ? a : b`): truoc do dieu
+    # kien duoc bien dich chung kieu voi TOAN HANG. Ternary trong 1 list
+    # literal co toan hang kieu 'int' thi dieu kien `c` (local int64) cung
+    # duoc day len nhu TkvInt, roi `brfalse` nhin mot STRUCT tren stack -
+    # `ilasm` KHONG bao loi (no khong kiem tra kieu/kich thuoc stack), JIT
+    # nem `AccessViolationException` LUC CHAY. Cung loai bug voi "_compile_
+    # cond" (2026-08-05) nhung o vi tri khac.
+    _nat = ctx['infer_dtype'](cond, scope, (ctx or {}).get('func_table'),
+                              (ctx or {}).get('records'),
+                              (ctx or {}).get('record_methods'))
+    if _nat == 'int':
+        import il_features.int_type as _int_type_tern
+        _compile_expr(cond, scope, out, 'int', ctx)
+        _int_type_tern.emit_is_zero(out)
+        out.append('    ldc.i4.0')
+        out.append('    ceq')
+    elif _nat == 'i64':
+        _compile_expr(cond, scope, out, 'i64', ctx)
+        # `brfalse` chi nhan int32. `conv.i4` cat 32 bit cuoi - chi can
+        # khac 0/0 nen cat khong lam doi ket qua.
+        out.append('    conv.i4')
+    elif _nat is None or _nat in ('i32', 'bool', 'u32'):
+        _compile_expr(cond, scope, out, 'i32', ctx)
+    else:
+        raise SyntaxError(
+            f"il_codegen: dieu kien cua ternary phai la gia tri SO/boolean "
+            f"(thu duoc kieu {dtype!r}) - khong chay duoc kieu {cond[0]!r}")
     out.append(f'    brfalse {false_lbl}')
-    _compile_expr(true_e, scope, out, dtype, ctx)
+    # BUG THAT (2026-09-29, phat hien khi them `c ? a : b`): phai bien dich
+    # hai nhanh theo KIEU CUA LOCAL TEMP (do first-pass khai), KHONG phai theo
+    # `dtype` ma nguoi goi yeu cau. Truoc day hai nhanh duoc day theo `dtype`
+    # nen khi ngu canh yeu cau i32 (vi du lam doi so cho `f(x: "i32")`) ma
+    # temp lai duoc first-pass khai la TkvInt, IL ra:
+    #     stloc.s __tern1        // luu int32 vao local kieu TkvInt
+    #     ldloc.s __tern1        // day MOT STRUCT len stack
+    #     call int32 f::(int32)  // mong int32
+    # `ilasm` KHONG bao loi (khong kiem kieu/kich thuoc stack) nen chay
+    # xong va tra SAI - kieu "hinh dung nhung ket qua rac" ma khong co
+    # tieng keng nao. Dung kieu temp lam chuan: IL luon nhat quan, con
+    # chuyen ve kieu ngu canh o CUOI (duoi day).
+    _compile_expr(true_e, scope, out, tmp_dtype, ctx)
     out.append(f'    stloc.s {tmp_idx}')
     out.append(f'    br {end_lbl}')
     out.append(f'  {false_lbl}:')
-    _compile_expr(false_e, scope, out, dtype, ctx)
+    _compile_expr(false_e, scope, out, tmp_dtype, ctx)
     out.append(f'    stloc.s {tmp_idx}')
     out.append(f'  {end_lbl}:')
+    if tmp_dtype != dtype:
+        # Chuyen gia tri temp ve kieu ngu canh yeu cau. Chi 2 truong hop
+        # xay ra that voi: (a) ngu canh hep int -> i32/i64, (b) ngu canh
+        # rong (float). Truong (a) doc thang field `lo` cua TkvInt - gia tri
+        # do `FromI64`/`FromStr` nho len luu o day khi nho int32.
+        # PHAI bo `ldloc.s` (xem ghi chu: no day STRUCT len stack roi con
+        # them 1 gia tri nua -> 2 gia tri tren stack -> InvalidProgram).
+        if tmp_dtype == 'int' and dtype in ('i32', 'i64'):
+            import il_features.int_type as _it_tmp
+            _it_tmp.ensure_class(ctx)
+            out.append(f'    ldloca.s {tmp_idx}')
+            out.append(f'    ldfld int64 {_it_tmp.TKVINT_CLASS}::lo')
+            out.append('    conv.i8' if dtype == 'i64' else '    conv.ovf.i4')
+        else:
+            out.append(f'    ldloc.s {tmp_idx}')
+            ctx['widen_if_needed'](tmp_dtype, dtype, out)
+        return
     out.append(f'    ldloc.s {tmp_idx}')
     return
 
@@ -4808,7 +4870,12 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
         for walrus_node in _walk_walrus_preorder(expr_node):
             declare_scalar(walrus_node[1], walrus_node[2])
         for tern_node in _walk_ternaries_preorder(expr_node):
-            tern_temp_of_id[id(tern_node)] = len(locals_decl)
+            # 2026-09-29: `tern_temp_of_id` luu ca KIEU da khai duoi cung
+            # khoa voi chi so local, de codegen bien dich hai nhanh theo
+            # DUNG kieu local do (truoc day chi luu chi so, nen codench phai
+            # doan lai va co the sinh IL lech kieu - xem ghi chu o
+            # `_expr_ternary`). Gia tri gan o CUOI vong lap, sau khi `t_dtype`
+            # da tinh xong.
             # BUG THAT sua 2026-08-12 (phat hien qua 'str(min(a,b))' voi
             # a/b kieu 'int' mac dinh): truoc day LUON dung body_dtype
             # (dtype cua NGU CANH BAO QUANH, vd 'str' khi ca bieu thuc
@@ -4853,7 +4920,11 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
             t_dtype = (_infer_dtype(tern_node, infer_scope, func_table, records, record_methods)
                        or _infer_literal_dtype(tern_node)
                        or body_dtype)
+            # CHI SO local phai lay TRUOC khi append (append xong thi
+            # `len(locals_decl)` da tro sang local KE TIEP).
+            tern_slot = len(locals_decl)
             locals_decl.append((f'__tern{len(tern_temp_of_id)}', TypeAnn(t_dtype, None)))
+            tern_temp_of_id[id(tern_node)] = (tern_slot, t_dtype)
         for div_node in _walk_intdiv_nodes(expr_node):
             # '//' va '%' tren SO NGUYEN can 4 o nho de sinh dung ngu
             # nghia floor cua Python (2026-08-03) - xem compile_binop.

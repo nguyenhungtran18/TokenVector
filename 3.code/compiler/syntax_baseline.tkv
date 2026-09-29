@@ -105,8 +105,6 @@ _SUGGESTIONS = {
         "viet method thuong, chuyen logic decorator vao ben trong than method",
     'decorator (@staticmethod + @property together)':
         "chon 1 trong 2 ('@staticmethod' hoac '@property')",
-    'ternary expression (a if cond else b)':
-        "dung cu phap rieng cua DSL: 'cond ? a : b'",
     'nested attribute (obj.a.b, 2+ levels)':
         "gan 'tmp = obj.a' roi dung 'tmp.b'",
     'dict literal with content ({...})':
@@ -757,9 +755,12 @@ class _BaselineVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     # -- expression -----------------------------------------------------
-    def visit_IfExp(self, node):
-        self._flag(node, 'ternary expression (a if cond else b)')
-        self.generic_visit(node)
+    # 2026-09-29: KHONG con flag `a if cond else b` nua. Truoc day linter
+    # flag no de day nguoi dung sang `cond ? a : b` - nhung `?` la CHINH cai
+    # chua chay duoc (chet o `ast.parse` cua CPython), nen loi do vua gay
+    # nhuc nham. Bay gio ca hai dang deu chay (xem compiler/question_ternary.
+    # tkv: `?` duoc doi thanh dang Python truoc khi Python parse), nen flag
+    # nay se bao loi cho chinh MAU HOP LE nhat cua DSL.
 
     def visit_Attribute(self, node):
         if isinstance(node.value, ast.Attribute):
@@ -1037,7 +1038,15 @@ def _classify_toplevel_nodes(module_body, findings):
 
 def check_syntax_baseline(source_text):
     """Tra ve list[SyntaxFinding] - RONG neu khong co gi vi pham whitelist
-    construct compiler TokenVector THAT SU ho tro (xem task-1-report.md)."""
+    construct compiler TokenVector THAT SU ho tro (xem task-1-report.md).
+
+    2026-09-29: doi `c ? a : b` thanh `a if c else b` TRUOC `ast.parse` - ham
+    nay la noi Python that phan tich van ban, ma Python khong co `?:` nen
+    linter se nem SyntaxError thay vi ra danh sach finding. Cung phep luc
+    bien dich (`tkv_compile.extract_program_file`); ca hai deu doi MOT LAN va
+    khong doi so dong nen `node.lineno` cua linter van dung."""
+    from question_ternary import rewrite_question_ternary as _rw_qt
+    source_text = _rw_qt(source_text)
     tree = ast.parse(source_text)
     _annotate_source_segments(tree, source_text)
     findings = []

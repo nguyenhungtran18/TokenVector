@@ -61,6 +61,10 @@ from il_features.stdlib_sqlite import uses_sqlite as _uses_sqlite, SQLITE_PINVOK
 # an" tu than ham cho tham so 'inferred' - xem _parse_program_ast's vong lap
 # tree.body va compiler/il_features/duck_typing.py's docstring.
 from il_features.duck_typing import collect_inferred_constraints  # noqa: E402
+# 2026-09-29: `c ? a : b` -> `a if c else b` TRUOC khi goi `ast.parse` cua
+# Python (xuong so bien dich cua CPython - xem compiler/question_ternary.py).
+# Chi doi van ban, KHONG doi so dong.
+import question_ternary as _question_ternary  # noqa: E402
 # --- BEGIN GEMINI ADDED CODE: cJSON Plugin Import ---
 from il_features.stdlib_cjson import uses_cjson as _uses_cjson, CJSON_PINVOKE_DECL_LINES  # noqa: E402
 from il_features.stdlib_http import HTTP_SERVER_CIL_DECL_LINES  # noqa: E402
@@ -4509,7 +4513,12 @@ def extract_program(source_text):
     record_bases, record_interfaces, interface_defs, pairs) - xem
     _parse_program_ast. KHONG ho tro '__tkv_import__' (can duong dan thu
     muc de tim file import - dung extract_program_file() / compile_tkv_cli()
-    / transpile_file() cho truong hop do)."""
+    / transpile_file() cho truong hop do).
+
+    2026-09-29: doi `c ? a : b` thanh `a if c else b` TRUOC khi parse - xuong
+    so bien dich la `ast.parse` cua CPython, ma Python khong co `?:`. Chi doi
+    van ban, khong doi so dong nen `start_line` van dung."""
+    source_text = _question_ternary.rewrite_question_ternary(source_text)
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies, extern_methods,
      extern_pinvokes, extern_classes, struct_defs, com_classes, module_consts, module_globals,
@@ -4588,6 +4597,12 @@ def extract_program_file(tkv_path, _visited=None, _inherited_r11_skip=None):
     if _visited is None:
         _visited = {str(tkv_path)}
     source_text = tkv_path.read_text(encoding='utf-8')
+    # 2026-09-29: doi `c ? a : b` thanh `a if c else b` ngay tai ranh gioi doc
+    # file, de MOT LAN doi ma moi noi deu thay consistent: `_parse_program_ast`
+    # (goi `ast.parse` cua CPython), `ast.parse` o dong duoi, va phan DSL doc
+    # body tu cung van ban nay. Do o day, khong phai trong tung ham, tranh tinh
+    # trang goi lai 2 lan.
+    source_text = _question_ternary.rewrite_question_ternary(source_text)
     (record_defs, record_methods_raw, record_bases, record_interfaces,
      interface_defs, pairs, import_names, extern_assemblies, extern_methods,
      extern_pinvokes, extern_classes, struct_defs, com_classes, module_consts, module_globals,

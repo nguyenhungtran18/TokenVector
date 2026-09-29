@@ -138,6 +138,15 @@ def fpw_assign_dict_literal(stmt, ctx):
     if name in declared_names:
         return
     declared_names.add(name)
+    # 2026-09-29: phai QUET TERNARY trong khoa/gia tri, giong het
+    # `fpw_assign_list_literal`/`fpw_assign_set_literal` da lam. Thieu buoc
+    # nay thi `d = {"k": 1 if c else 2}` chet luc codegen voi
+    # `KeyError: <id(node)>` o `_expr_ternary` - `tern_temp_of_id` chua co
+    # khoa cho node do, vi khong ai goi `collect_ternary_temps`. Loi rat
+    # kho doc vi id la con so lon.
+    for k_node, v_node in stmt['pairs']:
+        ctx['collect_ternary_temps'](k_node)
+        ctx['collect_ternary_temps'](v_node)
     # PHAI xet container_arg_hints TRUOC - y het declare_dict (va
     # declare_set). Thieu buoc nay thi kieu khai bao lech voi tham so
     # 'd: "dict[str,i32]"' va call site sinh ep kieu sai (xem

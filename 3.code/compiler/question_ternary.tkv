@@ -1,0 +1,287 @@
+# -*- coding: utf-8 -*-
+"""`c ? a : b` -> `a if c else b` (2026-09-29).
+
+Vì sao can: xương sống front-end là **`ast.parse` của CPython** (xem
+`tkv_compile.tkv`'s `_parse_program_ast`) — dùng nó để rút record, chữ ký
+hàm và hằng số module. Python không có toán tử `?:`, nên `c ? a : b` chết
+ở đó, TRƯỚC khi parser của TokenVector kịp chạy; trước đây thông điệp lỗi
+còn chỉ sai lệch ("dùng dạng Python đi") về đúng cái đang không dùng được.
+
+Cách ít hại nhất: tiền xử lý **VĂN BẢN** trước `ast.parse`, đổi `?:`
+thành đúng cú pháp Python. Như vậy phần trích xuất cũng không phải viết
+lại, và TokenVector vẫn hiểu `?` bằng đúng nghĩa Python/C.
+
+Ràng buộc then chốt: **không được thêm/bớt dòng** — `_parse_program_ast`
+đối chiếu `start_line` với `source_lines`, lệch một dòng là sai chỗ báo
+lỗi. Bộ ghi đè chỉ thay trong một dòng.
+
+NGUYÊN TẮC AN TOÀN: khi không CHẮC CHẮN về biên, **không ghi đè** — để
+nguyên văn bản, `ast.parse` báo lỗi như trước. Chậm một nhịp nhưng không
+bao giờ dịch sai nghĩa. Xem `_operand_start` (biên trái) và `_branch_end`
+(biên phải).
+"""
+
+# Toan tu 2 tu khoa duoc phep lam tiep toan hang phia TRUOC: `a and b ? x : y`
+# co dieu kien la `a and b` (khong phai chi `b`).
+_BINARY_KEYWORDS = ('and', 'or', 'is', 'in')
+# Toan tu 1 tu khoa: `not c ? x : y` co dieu kien la `not c`.
+_UNARY_KEYWORDS = ('not',)
+
+
+def _skip_string(text, i):
+    """`i` tro vao dau nhay -> tra ve chi so ngay sau HET chuoi (ke ca
+    trich danh 3 dong va escape backslash)."""
+    n = len(text)
+    quote = text[i]
+    triple = text[i:i + 3] in ('"""', "'''")
+    delim = text[i:i + 3] if triple else quote
+    j = i + len(delim)
+    while j < n:
+        ch = text[j]
+        if ch == '\\':
+            j += 2
+            continue
+        if text.startswith(delim, j):
+            return j + len(delim)
+        # Hang don: newline ket thuc chuoi (chuoi unterminated lam ast.parse
+        # bao loi - dung de error, khong tu 'chu' them).
+        if not triple and ch == '\n':
+            return j
+        j += 1
+    return n
+
+
+def _skip_line(text, i):
+    """`i` tro vao dau comment `#` -> chi so dong ke tie."""
+    nl = text.find('\n', i)
+    return len(text) if nl < 0 else nl + 1
+
+
+def _find_question(text, start):
+    """Chi so dau `?` ngoài chuoi/comment, hoac -1.
+
+    `?` nam trong chuoi/comment thi KHONG phai toan tu - bo qua, vi con so
+    `?` la ky tu bat buoc cua cau hinh ternary nen ton tai mot dau nao do
+    trong file thi moi tien hanh doi dang."""
+    i = start
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '"' or ch == "'":
+            i = _skip_string(text, i)
+            continue
+        if ch == '#':
+            i = _skip_line(text, i)
+            continue
+        if ch == '?':
+            # `??` / `?=` khong phai toan tu ternary cua Python -> bo qua de
+            # khong sua nham (ast.parse se bao loi nhu truoc).
+            nxt = text[i + 1:i + 2]
+            if nxt in ('?', '='):
+                return -1
+            return i
+        i += 1
+    return -1
+
+
+def _operand_start(text, q):
+    """Chi do dau cua bieu thuc DIEU KIEN ket thuc ngay truoc `q`.
+
+    Dien BACKWARD: an token, roi phong to hang toan hang (`.ten`, `(...)`,
+    `[...]`), roi neu gap toan tu 2/1 tu khoa thi lui tiep de lay toan hang
+    ben trai. Dung `q` (khong phai dau dong) nen moi vi tri sai.
+    Tra -1 neu khong do duoc bien (thi bo qua cau hinh nay)."""
+    i = q
+    n = len(text)
+    saw_operand = False
+    while True:
+        # `ws_i` = vi tri NGAY sau toan hang vua tach, TRUOC khi bo khoang
+        # trang. Khi dung roi phai tra `ws_i` chu khong phai `i` da bo
+        # khoang trang - neu khong, `x = c ? 1 : 2` ra thanh `x =1 if c ...`
+        # (mat khoang, bienich - va doc kieu gi cung lech).
+        ws_i = i
+        while i > 0 and text[i - 1] in ' \t':
+            i -= 1
+        if i == 0:
+            return ws_i if saw_operand else -1
+        ch = text[i - 1]
+        if ch in ')]}':
+            depth = 0
+            while i > 0:
+                c = text[i - 1]
+                if c in ')]}':
+                    depth += 1
+                elif c in '([{':
+                    depth -= 1
+                    if depth == 0:
+                        i -= 1
+                        break
+                elif c == '\n':
+                    return -1
+                i -= 1
+            saw_operand = True
+        elif ch.isalnum() or ch == '_':
+            j = i - 1
+            while j > 0 and (text[j - 1].isalnum() or text[j - 1] == '_'):
+                j -= 1
+            word = text[j:i]
+            if word in _UNARY_KEYWORDS:
+                i = j
+                continue
+            if word in _BINARY_KEYWORDS:
+                i = j
+                saw_operand = False
+                continue
+            if word in ('if', 'else', 'elif', 'while', 'return', 'for',
+                        'assert', 'yield', 'lambda', 'def', 'class', 'in',
+                        'and', 'or', 'not', 'is'):
+                # `return c ? 1 : 2`: dieu kien la `c`, nen vung thay the
+                # bat dau SAU tu khoa (ke ca khoang trang sau no) - neu bat
+                # dau tu `j` thi `return` bi lo vao dieu kien.
+                k = i
+                while k < n and text[k] in ' \t':
+                    k += 1
+                return k if saw_operand else -1
+            i = j
+            saw_operand = True
+        elif ch in '"\'':
+            j = i - 1
+            while j > 0 and text[j - 1] != ch:
+                if text[j - 1] == '\\':
+                    j -= 1
+                j -= 1
+            i = j - 1 if j > 0 else -1
+            if i < 0:
+                return -1
+            saw_operand = True
+        else:
+            if not saw_operand and ch in '-+~!':
+                # Dau toan tu 1 tu kho (Python khong co toan tu tien to 1 ky tu
+                # - nhung TokenVector co) -> tiep tuc lui.
+                i -= 1
+                continue
+            return ws_i if saw_operand else -1
+        # Phong to hang: `.ten` / `(...)` / `[...]` / `(...)` sau toan hang
+        while True:
+            j = i
+            while j > 0 and text[j - 1] in ' \t':
+                j -= 1
+            if j > 0 and text[j - 1] == '.':
+                j -= 1
+                while j > 0 and (text[j - 1].isalnum() or text[j - 1] == '_'):
+                    j -= 1
+                i = j
+                continue
+            if j > 0 and text[j - 1] in ')]':
+                k = j
+                depth = 0
+                while k > 0:
+                    c = text[k - 1]
+                    if c in ')]':
+                        depth += 1
+                    elif c in '([{':
+                        depth -= 1
+                        if depth == 0:
+                            k -= 1
+                            break
+                    k -= 1
+                i = k
+                continue
+            break
+        # Het phong to - quay lai vong chinh de thu toan tu 2/1 tu kho truoc
+        # toan hang vua tach.
+
+
+def _matching_colon(text, q, depth0):
+    """Chi so dau `:` thuoc cho `?` tai `q` (cung do sau), bo qua chuoi/comment
+    va cac dau `:` long ben trong. -1 neu khong tim thay tren cung dong."""
+    i = q
+    n = len(text)
+    depth = depth0
+    while i < n:
+        ch = text[i]
+        if ch == '\n':
+            return -1
+        if ch == '"' or ch == "'":
+            i = _skip_string(text, i)
+            continue
+        if ch == '#':
+            return -1
+        if ch in '([{':
+            depth += 1
+        elif ch in ')]}':
+            if depth == depth0:
+                return -1  # het ngoac truoc khi co `:` - cau hinh khong hop le
+            depth -= 1
+        elif ch == ':' and depth == depth0:
+            return i
+        i += 1
+    return -1
+
+
+def _branch_end(text, colon, depth0):
+    """Chi so HET cua nhanh sai (sau `:`), theo quy tac:
+    - dung truoc `,`/`;` o cung do sau -> nhanh do la 1 phan tu trong tuple
+      (`f(c ? 1 : 2, 3)`);
+    - gap dau ngoac dong lam do sau giam < depth0 -> nhanh do chi can toi het
+      noi dung do va phan con lai thuoc ve ngoai sai can giu nguyen;
+    - het dong -> lay het dong.
+    """
+    i = colon + 1
+    n = len(text)
+    depth = depth0
+    while i < n:
+        ch = text[i]
+        if ch == '\n':
+            return i
+        if ch == '"' or ch == "'":
+            i = _skip_string(text, i)
+            continue
+        if ch == '#':
+            return _skip_line(text, i)
+        if ch in '([{':
+            depth += 1
+        elif ch in ')]}':
+            if depth == depth0:
+                return i  # het tai day, giu nguyen phan con lai
+            depth -= 1
+        elif ch in ',;' and depth == depth0:
+            return i
+        i += 1
+    return n
+
+
+def rewrite_question_ternary(source_text, max_rounds=64):
+    """Tra ve `source_text` voi moi `c ? a : b` da doi thanh `a if c else b`.
+
+    KHONG thay doi so dong. Idempotent: chay lai tren ket qua thi khong con
+    `?` nao de doi."""
+    if '?' not in source_text:
+        return source_text
+    text = source_text
+    for _ in range(max_rounds):
+        q = _find_question(text, 0)
+        if q < 0:
+            return text
+        start = _operand_start(text, q)
+        if start < 0:
+            return text
+        depth0 = 0
+        for ch in text[:start]:
+            if ch in '([{':
+                depth0 += 1
+            elif ch in ')]}':
+                depth0 -= 1
+        colon = _matching_colon(text, q, depth0)
+        if colon < 0:
+            return text
+        end = _branch_end(text, colon, depth0)
+        cond = text[start:q].strip()
+        yes = text[q + 1:colon].strip()
+        no = text[colon + 1:end].strip()
+        if not cond or not yes or not no:
+            return text
+        if any('\n' in part for part in (cond, yes, no)):
+            return text  # bao dam khong doi so dong
+        text = text[:start] + f'{yes} if {cond} else {no}' + text[end:]
+    return text
