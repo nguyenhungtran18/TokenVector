@@ -150,8 +150,7 @@ def _addr(p_node, ofs_node, lane_byte_off, scope, out, ctx):
     lech chay OK, xem muc "CA TANG 2 BI CHAN")."""
     ctx['compile_expr'](p_node, scope, out, 'i64', ctx)
     if ofs_node is not None:
-        _ofs_i32(ofs_node, scope, out, ctx)
-        out.append('    conv.i8')
+        _ofs_native(ofs_node, scope, out, ctx)
         out.append('    add')
     if lane_byte_off:
         out.append(f'    ldc.i4.s {lane_byte_off}')
@@ -160,14 +159,21 @@ def _addr(p_node, ofs_node, lane_byte_off, scope, out, ctx):
     out.append('    conv.i')
 
 
-def _ofs_i32(ofs_node, scope, out, ctx):
-    """Offset byte thanh i32."""
-    d = ctx['infer_dtype'](ofs_node, scope, ctx.get('func_table'))
-    if d == 'i64':
-        ctx['compile_expr'](ofs_node, scope, out, 'i64', ctx)
-        out.append('    conv.i4')
-    else:
-        ctx['compile_expr'](ofs_node, scope, out, 'i32', ctx)
+def _ofs_native(ofs_node, scope, out, ctx):
+    """Offset byte len dang `native int` (i64) - dung thang, KHONG hep ve i32.
+
+    TRUOC DO HAM NAY TEN LA `_ofs_i32` va ep offset ve i32 roi `_addr` mo
+    rong ngay len i64. Do la vong DI-VONG vo nghia: 2 lenh (`conv.i4` +
+    `conv.i8`) de lam ra dung mot so dang da la i64. Va te hon no: `conv.i4`
+    CAT CUT 32 bit cuoi cung, nen offset byte >= 2^31 (buffer >= 512 MB) se
+    bi cat thanh mot gia tri nho roi mo rong lai - doc/ghi SAI DIA CHI ma
+    khong bao loi gi. Voi `v_store8(p, 0x80000000)` do la ghi ra ngoai bo dem
+    2 GB.
+
+    Bay compile thang o i64 nen khong cat bit nao, va giam 2 lenh tren MOI
+    lan tinh dia chi cua moi lenh vector.
+    """
+    ctx['compile_expr'](ofs_node, scope, out, 'i64', ctx)
 
 
 def _ldflda(idx, lane, out):

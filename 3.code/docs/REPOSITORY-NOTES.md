@@ -1135,3 +1135,77 @@ Số đo ở đây **có nhiễu lớn giữa các lần chạy** (cùng một c
   xoá `build/pyinstaller/tkvc`.
 
 Gate: `Testkit/f32buf_bounds_free_test.tkv` 19/19, toàn bộ **83/83**.
+
+## P6 bước 6: tối ưu địa chỉ trong vòng vector (2026-09-29)
+
+P6-4 chỉ ra 20/42 lệnh IL của vòng vector chỉ dùng để tính địa chỉ byte cho
+3 toán số. Sửa được phần lớn bằng một thay đổi **2 dòng** — và nó còn sửa luôn
+một lỗi tiềm ẩn.
+
+### Nguyên nhân: `_ofs_i32` hẹp rồi mở rộng ngay lập tức
+
+`vector_block.tkv`'s `_addr` tính địa chỉ như sau:
+
+```
+compile p o i64
+_ofs_i32(ofs)      <- OFFSET ve i32
+conv.i8            <- roi MO RONG len i64
+add
+```
+
+Và `_ofs_i32` làm: nếu offset có kiểu `i64` thì biên dịch ở i64 rồi **`conv.i4`**
+(hẹp về 32 bit). Kết quả là `conv.i4` + `conv.i8` — **một vòng đi-vòng vô nghĩa**
+trên một số vốn đã là i64. Hai lệnh thừa trên **mỗi** lần tính địa chỉ.
+
+### Nó không chỉ thừa — nó **sai**
+
+`conv.i4` **cắt cụt 32 bit cuối cùng**. Với offset byte ≥ 2^31 (buffer ≥ 512 MB),
+`v_store4(p, 0x80000000, v)` trước đây:
+
+```
+0x80000000 --conv.i4--> 0x00000000 --conv.i8--> 0x00000000
+```
+
+tức **ghi vào đúng đầu bộ đệm** thay vì địa chỉ thật — đọc/ghi sai địa chỉ mà
+không báo lỗi nào. Sau khi sửa, offset giữ nguyên và trỏ tới vùng nhớ không hợp
+lệ, nên **AccessViolationException** — đúng như nó phải là. Xác minh bằng probe
+`v_load4(p, 2147483648)`: trước đây trả về dữ liệu ở offset 0, nay báo lỗi.
+
+Bài học: một `conv` trông "thừa" thường đang **che một phép kiểm tra sai**. Ở đây
+nó không kiểm tra gì cả — nó chỉ làm hỏng dữ liệu.
+
+### Kết quả
+
+`_ofs_i32` → `_ofs_native`, biên dịch thẳng ở i64, bỏ `conv.i8` trong `_addr`.
+
+- Vòng vector: **42 → 36 lệnh IL** cho 4 phần tử (−14%).
+- Địa chỉ mỗi toán số: 8 → 6 lệnh.
+- `conv.i4` và `conv.i8` trong vòng vector: **0**.
+- Thời gian vector (N=4096): 8.2 ms (P6-4) → 5.4 ms (P6-5, có giới hạn) → 5.4 ms.
+- Gate **83/83**, không hồi quy. Thay đổi này áp cho cả `v_load4`/`v_load8`/
+  `v_store4`/`v_store8`.
+
+### Phần CHƯA làm, và vì sao
+
+Còn **6 lệnh trong 36** là do `i*4` bị tính **ba lần** cho ba toán số. Muốn bỏ
+thì phải tính một lần rồi giữ trong một local tạm.
+
+**Vướng:** `.locals` được sinh từ `locals_decl` **trước** khi dựng thân hàm
+(`gen_il_function`, L5945→5971→5973), nên không thể khai local muộn từ recognizer.
+Cần một `first_pass_walk` cho `while` chạy **cùng một** logic khớp mẫu ở first-pass
+để khai local.
+
+**Vì sao dừng lại:** hai bộ khớp mẫu phải khớp *đúng từng lệnh*, và lệch một chút
+sẽ cho một trong hai hậu quả xấu. First-pass khớp mà codegen không → local thừa
+(vô hại). Ngược lại, codegen dùng mà first-pass không khai → **local chưa khai báo
+→ `InvalidProgramException` lúc chạy**. Có thể chặn được bằng cách codegen kiểm tra
+`scope` trước khi dùng, nhưng đó là thêm một điều kiện phải giữ đúng.
+
+Đổi lại: 6/36 lệnh (~17% vòng vector) trên một đường đã nhanh hơn scalar ~4×.
+Tỷ lệ giá trị/chi phí không tốt so với thay đổi 2 dòng ở trên. **Nếu muốn làm tiếp
+thì nên làm, nhưng là một việc riêng có kiểm thử riêng, không gộp vào đây.**
+
+Hướng khi đã làm thì đơn giản: cho recognizer phát
+`<off> = i*4; stloc <tmp>` một lần ở đầu vòng vector, rồi mỗi toán số chỉ cần
+`ldloc <base>` + `ldloc <tmp>` + `add`. Biến `i` vẫn phải tăng 4 mỗi vòng vì điều
+kiện thoát dùng nó.
