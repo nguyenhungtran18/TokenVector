@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Quet mot cay TokenVector va liet ke record nao khai field container
+r"""Quet mot cay TokenVector va liet ke record nao khai field container
 CHUA duoc gan trong __init__ (2026-09-29).
 
 Dung khi compiler bao loi:
