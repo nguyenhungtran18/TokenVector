@@ -28,12 +28,17 @@ lam that bai. Mot file chua class co field container de chung minh bi tu choi
 thi CHINH no se khong build, tuc file test khong the chay. Vay phan "bi tu choi"
 KHONG bieu duoc bang check() o day.
 
-Do do file nay chi kiem **khong(chan nham)**: moi kieu field hop le cua record
-van chay dung sau khi them kiem tra. Phan kiem tra THAT duoc chung minh bang
-probe tach rieng (3 dang container, moi dang 1 loi bien dich) - xem commit
-`fix:` cung feature nay va muc REPOSITORY-NOTES. Ghi ro o day de khong ai sau
-nay them `check("bi tu choi", "1", "1")` vao - do la kiem tra rong, khong bao
+Do do phan "bi tu choi" o day chi kiem **khong(chan nham)**: moi kieu field hop le
+cua record van chay dung sau khi them kiem tra. Phan kiem tra THAT duoc chung
+minh bang probe tach rieng (3 dang container, moi dang 1 loi bien dich) - xem
+commit `fix:` cung feature nay va muc REPOSITORY-NOTES. Ghi ro o day de khong ai
+sau nay them `check("bi tu choi", "1", "1")` vao - do la kiem tra rong, khong bao
 gi ca.
+
+**Phan DUONG (`container_field_positive`)** thi la ban chay thuc: field container
+gan trong `__init__` theo quy tac (b) va duoc doc/ghi that. No chi cho duoc
+viet tu 2026-09-29, khi `Testkit/record_method_name_collision_test.tkv` sua xong
+chuyen method trung ten bi container line parser cuon.
 
 An toan cua viec chan: da quet 216 file `.tkv` trong repo - KHONG record
 TokenVector nao khai field container. (`SyntaxFinding` trong
@@ -67,6 +72,32 @@ class Flag:
 
     def __init__(self, a: "i32") -> "i32":
         self.b = a
+        return 0
+
+
+class Acc:
+    """Ban DUONG cua quy tac (b) (commit `a9ac525`): field container DUOC
+    phep khi `__init__` gan truc tiep, va field container THAT SU doc/ghi
+    duoc binh thuong.
+
+    Truoc 2026-09-29 KHONG viet duoc ban duong nay: lenh `a.add(5)` (goi
+    method cua record voi tham so scalar) bi line parser `s.add(x)` cuon mat
+    va bao `literal '5' khong dung voi dtype 'Acc'` - xem
+    `Testkit/record_method_name_collision_test.tkv`. Do do tieu chi "cho
+    phep" cua quy tac chi duoc kiem chung bang test am (bi tu choi), chua
+    co lan nao chay thật - giờ đã co."""
+
+    items: "list[i32]"
+    total: "i32"
+
+    def __init__(self, total: "i32") -> "i32":
+        self.items = []
+        self.total = total
+        return 0
+
+    def add(self, v: "i32") -> "i32":
+        self.items.append(v)
+        self.total = self.total + v
         return 0
 
 
@@ -120,11 +151,30 @@ def comparison_and_use() -> "i32":
     return total
 
 
+def container_field_positive() -> "i32":
+    """Field container gan trong `__init__` - DUNG THU TRONG THUC, khong chi
+    kiem tra 'khong bi chan nham'.
+
+    Doc field bang bien trung gian: `a.items` la 1 bieu thuc, ma chi so/
+    `len()` hien chi nhan 1 TEN BIEN trang (xem CLAUDE.md 'Known gaps')."""
+    total = 0
+    a = Acc(0)
+    its = a.items
+    total += check("khoi tao rong trong __init__", str(len(its)), "0")
+    a.add(5)
+    a.add(7)
+    total += check("append vao field cua record", str(len(its)), "2")
+    total += check("doc tung phan tu", str(its[0]) + "/" + str(its[1]), "5/7")
+    total += check("field scalar ben canh container", str(a.total), "12")
+    return total
+
+
 def run() -> "i32":
     total = 0
     total += scalar_fields_still_work()
     total += float_field_untouched()
     total += single_field_record()
     total += comparison_and_use()
-    # 2 + 1 + 1 + 2
-    return test_summary("record_container_field_test", total, 6)
+    total += container_field_positive()
+    # 2 + 1 + 1 + 2 + 4
+    return test_summary("record_container_field_test", total, 10)

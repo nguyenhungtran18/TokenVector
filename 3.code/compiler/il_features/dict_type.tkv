@@ -722,6 +722,12 @@ def try_parse_container_clear(line, lines, pos, indent_level, sig, known_shapes,
 
 def codegen_container_clear(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     name = stmt['name']
+    # 2026-09-29: safety net R4/D6 giong list_append/remove/insert - `known_shapes`
+    # co the CHUA biet receiver la record (local gan tu constructor o dong khac,
+    # tham so gan sau...), nen `rec.clear()` van biet thanh container_clear.
+    from il_features.list_type import _record_stmt_fallback
+    if _record_stmt_fallback(name, 'clear', [], scope, body, ctx):
+        return
     _, _, ta = scope[name]
     ctx['load_var_ref'](name, scope, body)
     if ta.shape == 'list':
@@ -769,6 +775,14 @@ def try_expand_dict_update(line):
     if not m:
         return None
     dict_name, other_name = m.groups()
+    # 2026-09-29: `rec.update(x)` - record cung co method ten 'update'. Macro
+    # o tang VAN BAN khong co scope, nen phai hoi tap 'da biet la record' ma
+    # `_expand_macros` vua quet (xem control_flow.known_record_vars). Khong co
+    # guard nay thi `b.update(1)` bi viet lai thanh `for k, v in 1.items():`
+    # roi bao loi ve bien '1'.
+    from il_features.control_flow import known_record_vars
+    if dict_name in known_record_vars():
+        return None
     ind = ' ' * (len(line) - len(line.lstrip(' ')))
     n = _me_dict_update_counter[0]
     _me_dict_update_counter[0] += 1

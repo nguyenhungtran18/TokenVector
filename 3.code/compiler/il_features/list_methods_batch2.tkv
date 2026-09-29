@@ -102,19 +102,26 @@ def try_parse_list_extend(line, lines, pos, indent_level, sig, known_shapes, par
     thuc bat ky khong dam bao chi la 1 ten bien)."""
     m = _LIST_EXTEND_RE.match(line)
     if not m:
-        # 2026-09-28: 'a.extend([2, 3])' truoc day rơi xuong het vong LINE_PARSERS
-        # va bao chung chung "khong dich duoc dong" - doc khong ra la gi.
-        # Giua hanh thi MOT HANG nua coi nhu loi cu phap. noi ro ngay.
+        # 2026-09-28: 'a.extend([2, 3])' truoc day rơi xuống hết vòng LINE_PARSERS
+        # và báo chung chung "không dịch được dòng" - đọc không ra là gì.
+        # Giữa hành thì MỘT HÀNG nữa coi như lỗi cú pháp. nói rõ ngay.
         m_loose = _LIST_EXTEND_LOOSE_RE.match(line)
         if m_loose:
-            raise SyntaxError(
-                f"il_codegen: '{m_loose.group(1)}.extend(...)' chi nhan MOT TEN "
-                f"BIEN lam doi so, khong nhan bieu thuc. 'extend' doc "
-                f"scope[ten] de doi chieu kieu phan tu luc sinh ma nen phai "
-                f"biet kieu PHAI SU bien - mot list literal hay vi tri goi ham "
-                f"deu khong cho compiler biet truoc phan tu kieu la gi. "
-                f"Cach viet duoc: gan vao bien truoc roi truyen ten bien - "
-                f"vd `tmp = [2, 3]` roi `a.extend(tmp)`")
+            # 2026-09-29: CHỈ nói lỗi khi receiver CHẮC chắn là list. Nếu
+            # `known_shapes` chưa biết (local gan tu constructor record) thì
+            # `rec.extend(1)` se bi loại - de rơi xuống `method_call_stmt` xử
+            # lý như method của record, thay vì báo lỗi sai ("extend chỉ nhận
+            # 1 tên biên") làm hỏng một chương trình hợp lệ.
+            if known_shapes.get(m_loose.group(1)) == 'list':
+                raise SyntaxError(
+                    f"il_codegen: '{m_loose.group(1)}.extend(...)' chi nhan MOT TEN "
+                    f"BIEN lam doi so, khong nhan bieu thuc. 'extend' doc "
+                    f"scope[ten] de doi chieu kieu phan tu luc sinh ma nen phai "
+                    f"biet kieu PHAI SU bien - mot list literal hay vi tri goi ham "
+                    f"deu khong cho compiler biet truoc phan tu kieu la gi. "
+                    f"Cach viet duoc: gan vao bien truoc roi truyen ten bien - "
+                    f"vd `tmp = [2, 3]` roi `a.extend(tmp)`")
+            return None
         return None
     _sh = known_shapes.get(m.group(1))
     if _sh is not None and _sh != 'list':

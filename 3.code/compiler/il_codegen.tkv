@@ -114,6 +114,7 @@ from il_features.control_flow import (
     set_known_dict_vars as _set_known_dict_vars,
     set_known_dict_fields as _set_known_dict_fields,
     set_known_record_vars as _set_known_record_vars,
+    known_record_vars as _known_record_var_names,
     set_known_set_vars as _set_known_set_vars,
 )
 from il_dispatch import (
@@ -5914,7 +5915,17 @@ def _gen_async_def(sig, body_lines, class_name, records, record_methods,
     from il_features.closures import _gen_closure_class_il
 
     known_shapes = {p.name: p.type_ann.shape for p in sig.params if p.type_ann.shape is not None}
-    lines, _line_nos = _strip_lines([_rename_reserved_identifiers(l) for l in _expand_macros(body_lines, records=records, sig=sig, func_table=func_table)])
+    _expanded = _expand_macros(body_lines, records=records, sig=sig, func_table=func_table)
+    # 2026-09-29: nap them LOCAL da biet la record vao known_shapes. Gia tri
+    # 'record' da la gia tri HOP LE cua dict nay (param kieu record cho ra
+    # no) - dang cap cho LOCAL thi moi dung duoc. Ly do: line parser cua
+    # container (s.add/d.clear/d.update/lst.extend) quyet dinh theo
+    # known_shapes, ma local gan tu constructor record (`b = Bag(0)`) thi
+    # parser CHUA biet - no cuon `b.clear()` thanh clear cua container roi
+    # bao loi vong nhat. Tap 'da biet la record' do `_expand_macros` vua quet
+    # xong, nen dung thoi diem nay.
+    known_shapes.update((n, 'record') for n in _known_record_var_names())
+    lines, _line_nos = _strip_lines([_rename_reserved_identifiers(l) for l in _expanded])
     base_indent = lines[0][0] if lines else 0
     stmts, end_pos = _parse_block(lines, 0, base_indent, sig, known_shapes)
     if end_pos != len(lines):
@@ -6114,6 +6125,9 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
         lines, line_nos = _strip_lines(body_lines, start_line=body_start_line)
         base_indent = lines[0][0] if lines else 0
         known_shapes = {p.name: p.type_ann.shape for p in sig.params if p.type_ann.shape is not None}
+        # 2026-09-29: xem ghi chu cung loai o ~5916 - nap LOCAL da biet la
+        # record vao known_shapes de line parser container nhuyen duong.
+        known_shapes.update((n, 'record') for n in _known_record_var_names())
         stmts, end_pos = _parse_block(lines, 0, base_indent, sig, known_shapes, line_nos=line_nos)
         if end_pos != len(lines):
             bad_indent, bad_line = lines[end_pos]
@@ -6438,6 +6452,9 @@ def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict
     lines, _line_nos = _strip_lines(body_lines)
     base_indent = lines[0][0] if lines else 0
     known_shapes = {p.name: p.type_ann.shape for p in sig.params if p.type_ann.shape is not None}
+    # 2026-09-29: xem ghi chu cung loai o ~5916 (generator: `_expand_macros`
+    # chay o dong 6436, TRUOC dong nay).
+    known_shapes.update((n, 'record') for n in _known_record_var_names())
     stmts, end_pos = _parse_block(lines, 0, base_indent, sig, known_shapes)
     if end_pos != len(lines):
         bad_indent, bad_line = lines[end_pos]

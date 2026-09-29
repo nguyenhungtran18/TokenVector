@@ -270,9 +270,20 @@ def codegen_expr_set_literal(node, scope, out, dtype, ctx=None):
 
 def try_parse_set_add(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
     """LINE_PARSERS entry: 's.add(x)' - PHAI dang ky TRUOC method_call_stmt
-    (pattern method-call tong quat cung khop dong nay)."""
+    (pattern method-call tong quat cung khop dong nay).
+
+    2026-09-29: phai loai tru khi `known_shapes` da XAC NHAN la record
+    (`b.add(1)` la method cua record, KHONG phai set.add). Truoc day nhanh nay
+    khong co guard nao - `rec.add(1)` bi biet thanh set_add roi bien dich
+    gia tri 1 theo dtype cua record nen bao "literal '1' khong dung voi
+    dtype 'TenRecord'". Giong `try_parse_list_sort`/`try_parse_container_clear`
+    (cung lo tru shape khac 'set').
+    """
     m = _SET_ADD_RE.match(line)
     if not m:
+        return None
+    _sh = known_shapes.get(m.group(1))
+    if _sh is not None and _sh not in ('set', 'frozenset'):
         return None
     name, arg_expr = m.groups()
     return {'kind': 'set_add', 'name': name, 'value_node': parse_expr(arg_expr)}, pos + 1
@@ -304,6 +315,13 @@ def codegen_set_add(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     """STMT_CODEGEN entry: 's.add(x)' - HashSet<T>.Add(T) tra ve bool
     (khac List<T>.Add(T) la void, xac minh THAT qua probe_hashset.il) -
     can 'pop' bo ket qua khi dung nhu 1 lenh doc lap (khong gan bien)."""
+    # 2026-09-29: safety net R4/D6 giong list_append/remove/insert - khi
+    # `known_shapes` CHUA biet la receiver THAT SU la record (local gan tu
+    # constructor o dong khac, tham so gan sau, ...) thi `rec.add(1)` van
+    # biet thanh set_add; day la noi DUY NHAT con kieu de biet that.
+    from il_features.list_type import _record_stmt_fallback
+    if _record_stmt_fallback(stmt['name'], 'add', [stmt['value_node']], scope, body, ctx):
+        return
     _, _, ta = scope[stmt['name']]
     if ta.shape == 'frozenset':
         raise SyntaxError(

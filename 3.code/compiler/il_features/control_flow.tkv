@@ -334,6 +334,17 @@ def set_known_record_vars(names):
     _known_record_vars = set(names)
 
 
+def known_record_vars():
+    """Doc tap 'da biet la record' tai luc GOI (2026-09-29).
+
+    Module KHAC can hoi tap nay o tang VAN BAN (vi du macro `dict.update`
+    trong dict_type.py - phai biet `rec.update(x)` co phai method cua
+    record khong). KHONG duoc `from control_flow import _known_record_vars`
+    roi doc bien module: bien do chỉ chụp 1 ANH tại thời điểm import, mà
+    tap biên đổi mỗi thân hàm - phải qua hàm này để đọc global lúc gọi."""
+    return _known_record_vars
+
+
 # Tap ten bien "da biet la set/frozenset" (2026-09-28) - dung cung co che
 # _known_dict_vars/_known_record_vars o tren, va cung PHAI goi lai cho moi
 # than ham.
