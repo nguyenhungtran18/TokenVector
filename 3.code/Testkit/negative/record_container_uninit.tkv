@@ -1,0 +1,24 @@
+# EXPECT-SUBSTRING: CHUA duoc gan trong __init__
+# -*- coding: utf-8 -*-
+# Field container CHUA duoc gan trong `__init__` phai bi tu choi.
+#
+# `self.X = {}` trong `__init__` la duong gan truc tiep vao field, khong qua
+# `.ctor` nen HOAT DONG - va Inference + Data deu dua vao dung duong do. Truoc
+# do quy tac chan MOI field container, va dieu do lam hai he thong do khong
+# build (muc 1.1 cua PLAN.md).
+#
+# Con truong hopnay: field container khai bao nhung `__init__` quen gan ->
+# field luon null ma KHONG AI BAO. Do la truong hop im lang, dung thu phai
+# chan.
+class Acc:
+    _ok: "i64"
+    items: "list[i64]"
+    def __init__(self):
+        self._ok = 1
+    def add(self, v: "i64") -> "i32":
+        self.items.append(v)
+        return 0
+
+def run() -> "i32":
+    a = Acc()
+    return 0

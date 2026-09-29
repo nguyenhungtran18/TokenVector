@@ -562,6 +562,35 @@ def _extract_interface_def(class_node, source_lines):
 _EXCEPTION_BASE_NAME = 'Exception'
 
 
+def _self_fields_assigned_in_init(class_node):
+    """Tap ten field duoc GAN trong `__init__` - `self.X = ...` / `self.X: T = ...`.
+
+    Quet ca than `__init__` bang `ast.walk`, nen **keo ca gan nam trong
+    if/while/for**, va khong phu thuoc `__init__` dung truoc hay sau field
+    trong than class.
+
+    Ham nay phuc vu quy tac o `_extract_record_def`: field container chi duoc
+    phep khi PHAI duoc gan trong `__init__`. Ban chan KHONG DIEU KIEN da lam
+    Inference + Data khong build - xem muc 1.1 cua PLAN.md.
+    """
+    out = set()
+    for stmt in class_node.body:
+        if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if stmt.name != '__init__':
+            continue
+        for node in ast.walk(stmt):
+            tgt = None
+            if isinstance(node, ast.Assign) and node.targets:
+                tgt = node.targets[0]
+            elif isinstance(node, ast.AnnAssign):
+                tgt = node.target
+            if isinstance(tgt, ast.Attribute) and isinstance(tgt.value, ast.Name) \
+                    and tgt.value.id == 'self':
+                out.add(tgt.attr)
+    return out
+
+
 def _extract_record_def(class_node, source_lines, known_records=None, known_interfaces=None):
     """Parse 1 'class dang record' (huong tiep theo sau tuple/nhieu gia
     tri tra ve, va khoang trong ngon ngu #1 - "method that tren record"):
@@ -595,6 +624,10 @@ def _extract_record_def(class_node, source_lines, known_records=None, known_inte
     hoac None; interface_names: list ten interface duoc implement)."""
     known_records = known_records or {}
     known_interfaces = known_interfaces or {}
+    # Tinh MOT LAN truoc vong lap field: `__init__` co the nam TRUOC hoac SAU
+    # cac dong khai field trong than class, nen khong the tinh lazily trong
+    # vong lap (se khong thay `__init__` neu no nam sau).
+    _init_assigned = _self_fields_assigned_in_init(class_node)
     all_bases = [b for b in class_node.bases if not (isinstance(b, ast.Name) and b.id == 'object')]
     if class_node.keywords:
         raise TranspileError(f"class '{class_node.name}': khong ho tro tham so keyword trong base class")
@@ -749,37 +782,43 @@ def _extract_record_def(class_node, source_lines, known_records=None, known_inte
             raise TranspileError(
                 f"class '{class_node.name}': field '{stmt.target.id}' da co san o base class "
                 f"'{base_name}' - khong duoc khai bao lai (ghi de field ke thua chua ho tro)")
-        # 2026-09-28: field CONTAINER tren record - chua ho tro THAT, va
-        # truoc day hỏng MOT CACH IM LANG. Ba bieu hien, khong cai nao bao
-        # loi bien dich:
-        #   1. 'self.items = [1, 2, 3]' trong __init__ -> len(c.items) == 0
-        #      (field rong, gan khong stick)
-        #   2. 'c.items[0]' -> OverflowException luc CHAY
-        #   3. container lam tham so __init__ roi 'C(t)' -> OverflowException,
+        # 2026-09-28: field CONTAINER tren record - truoc day hỏng MOT CACH IM
+        # LANG. Ba bieu hien, khong cai nao bao loi bien dich:
+        #   1. container lam tham so __init__ roi 'C(t)' -> OverflowException,
         #      call site con 'TkvInt::ToI32' tren CHINH con container
+        #   2. doc/chinh field container -> len == 0 hoac gia tri rac
+        #   3. container khong duoc gan trong `__init__` -> field rong
         #
-        # Nguyen nhan: tham so .ctor cua record lay tu FIELD (khong phai tu
-        # chu ky __init__, cai do bi bo qua luc bien dich) va container bi
-        # LOC BO khoi danh sach do - nên khong co cach nao gan gia tri vao
-        # field container. Comment o il_codegen.tkv:5566 noi y dinh khai
-        # ROONG trong .ctor "nhu __init__ viet self.items = []" - nhung
-        # chinh duong ghi do cung khong stick.
+        # Nguyen nhan that: tham so `.ctor` cua record lay tu FIELD (khong phai
+        # tu chu ky `__init__`, cai do bi bo qua luc bien dich) va container bi
+        # LOC BO KHOI danh sach do - nen container **truyen qua tham so** khong
+        # bao gio duoc gan vao field.
         #
-        # Da quet 216 file .tkv trong repo: khong record TokenVector nao khai
-        # field container, nen chan khong pha gi. ('SyntaxFinding' trong
-        # syntax_baseline.tkv KHONG phai record - no la dataclass Python thuan
-        # co gia tri mac dinh, va file do ship thanh .py.)
-        # 'startswith' chu KHONG phai 'dtype[:5] in (...)': 'set[' dai 4 ky
-        # tu nhung 'list['/'dict[' dai 5 - cat sai do la 'set[i64]' khong
-        # bao gio khop, va loi cham vao nhanh 'record can N tham so' sai
-        # thay vi thong bao dung.
+        # **NHUNG `self.X = {}` trong `__init__` LA DUOC** - day la duong gan
+        # truc tiep vao field, khong qua `.ctor` nen khong bi loc. Luận cứ cũ
+        # bao no "gan khong stick" la SAI, va hanh quả la bang 'chan khong dieu
+        # kien' da lam Inference + Data KHONG BUILD (muc 1.1 cua PLAN.md):
+        #   - `class 'Schema': field 'fields' kieu container ('list[Field]')`
+        #   - `class 'ExecutionMemoryArena': field 'fmap' kieu container (...)`
+        # ca hai deu gan bang `self.X = {}` trong `__init__`.
+        #
+        # Do do quy tac moi: cho PHEP field container **da duoc gan trong
+        # `__init__`**, van chan truong hop **chua gan** (do nguoi dung quen -
+        # do la truong hop im lang, tuc field rong ma khong ai bao).
+        #
+        # 'startswith' chu KHONG phai 'dtype[:5] in (...)': 'set[' dai 4 ky tu
+        # nhung 'list['/'dict[' dai 5 - cat sai do la 'set[i64]' khong bao gio
+        # khop, va loi cham vao nhanh 'record can N tham so' sai thay vi thong
+        # bao dung.
         if dtype.startswith('list[') or dtype.startswith('dict[') or dtype.startswith('set['):
-            raise TranspileError(
-                f"class '{class_node.name}': field '{stmt.target.id}' kieu container "
-                f"('{dtype}') chua ho tren record - neu giu no trong class, gia tri "
-                f"se khong bao gio duoc gan vao (field rong, va gan trong __init__ "
-                f"khong co tac dung). Cach khac: dung ham thuan thay vi record, hoac "
-                f"giu container o bien cap module/ham va truyen vao qua tham so.")
+            if stmt.target.id not in _init_assigned:
+                raise TranspileError(
+                    f"class '{class_node.name}': field '{stmt.target.id}' kieu container "
+                    f"('{dtype}') CHUA duoc gan trong __init__ nen se rong - "
+                    f"phan so `.ctor` lay tham so tu field va bo qua container, nen "
+                    f"container truyen qua tham so khong bao gio gan duoc. Gap "
+                    f"`self.{stmt.target.id} = {{}}` trong __init__, hoac dung ham "
+                    f"thuan thay vi record, hoac giu container o bien cap module/ham.")
         fields.append((stmt.target.id, dtype))
     if not fields:
         raise TranspileError(f"class '{class_node.name}': record khong co field nao")
