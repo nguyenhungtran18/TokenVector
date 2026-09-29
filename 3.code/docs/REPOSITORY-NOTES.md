@@ -1051,3 +1051,87 @@ int32. Đây là việc đo đạt trước, không phải suy đoán: 20/42 l�
 kernel này sẽ tốn hàng chục giây mà không đóng góp gì cho câu hỏi đang đặt ra.
 Bảng của `run.py` vẫn là bảng so sánh ngôn ngữ; phép đo hiệu quả biên dịch thuộc
 về script riêng.
+
+## P6 bước 5: vòng đời và giới hạn của `f32buf` (2026-09-29)
+
+Hai hậu quả của việc dùng `Marshal.AllocHGlobal` đều đã xử lý.
+
+### 1. Giới hạn — và tại sao phải dùng so sánh KHÔNG DẤU
+
+`f32buf` là vùng nhớ thô: không có `get_Item` của BCL lo phần kiểm tra. Truy cập
+ngoài vùng trước đây đọc/ghi địa chỉ bất kỳ — **không phải lỗi báo, mà làm hỏng
+vùng nhớ khác**. Nay mọi lần truy cập đều kiểm tra `0 <= i < len`, ném
+`IndexOutOfRangeException`.
+
+Điểm mấu chốt: phải là `conv.u` + `blt.un` (**so sánh không dấu**), không phải
+`blt` có dấu. Vì `len >= 0` luôn, `(uint)i < (uint)` đúng khi và chỉ khi
+`0 <= i < len`. Nếu dùng `blt` có dấu thì `a[-1]` **lọt qua** (−1 < 4) và tính ra
+địa chỉ *trước* vùng đệm — đọc nhầm vùng nhớ khác, không báo lỗi nào. Có test riêng
+cho việc này.
+
+### 2. Vòng đời — `f32buf_free(b)`
+
+Bộ nhớ native không được GC theo dõi, nên bộ đệm sót lại đến hết tiến trình. Trong
+vòng lặp tạo nhiều bộ đệm, đó là rò rỉ bộ nhớ thật.
+
+Sau `f32buf_free(b)`, **cả con trỏ lẫn độ dài đều đặt về 0**. Đây là chủ đích, không
+phải làm đẹp: mọi truy cập `b[i]` sau đó lọai ở kiểm tra giới hạn (`0 <= i < 0` sai
+với mọi `i`) và ném `IndexOutOfRangeException` — tức *"dùng sau khi giải phóng"* biến
+từ **cori memory** thành **lỗi sạch**. `FreeHGlobal(IntPtr.Zero)` là no-op nên gọi hai
+lần cũng an toàn.
+
+**Vì sao KHÔNG tự giải phóng khi ra khỏi hàm:** lambda có thể bắt bộ đệm, và bộ đệm
+bị bắt sẽ sống lâu hơn hàm định nghĩa. Giải phóng tự động khi đó biến *rò rỉ bộ
+nhớ* (phục hồi được) thành *dùng sau giải phóng* (lỗi nghiêm trọng, lỗi ngay).
+Rò rỉ thì mất bộ nhớ; dùng sau giải phóng thì hỏng dữ liệu. Chọn cái nhẹ hơn.
+
+### 3. Cái giá: +7 lệnh IL cho mỗi lần truy cập
+
+Đếm từ IL thật, không phải ước lượng:
+
+```
+conv.i8 / dup / conv.u / ldloc <len> / conv.i8 / conv.u / blt.un <label>
+```
+
+**7 lệnh** trên đường không lỗi, cộng khối `throw` ở đường lạnh.
+
+Hệ quả đo được, và cần nói thẳng:
+
+| | scalar | vector | tăng tốc |
+|---|---|---|---|
+| trước khi thêm giới hạn | 13.3 ms | 8.2 ms | 1.62× |
+| sau khi thêm giới hạn | 21.6 ms | 5.9 ms | 3.65× |
+
+- **Vector gần như không đổi** (8.2 → 5.9 ms): vòng vector dùng `v_load4`/`v_store4`
+  trực tiếp, không đi qua đường truy cập phần tử từng cái.
+- **Scalar chậm lên ~62%**: đây là cái giá thật của việc luôn kiểm tra.
+
+Và **tỷ lệ 3.65× này không so sánh được với 1.62× của lần trước** — cả hai đã đổi, và
+mẫu số (scalar) đã chậm lên. Hiệu quả *riêng* của P6 vẫn là ~1.6–2.1× trên cùng mẫu
+số. Muốn tách phần đóng góp của giới hạn thì so vector với scalar *cùng có* giới hạn —
+đó mới là so sánh người dùng thật sự thấy.
+
+Một điểm tích cực thật sự: vòng vector kiểm tra `(i+3) < len` **một lần cho cả 4 phần
+tử**, còn vòng scalar kiểm tra 4 lần. Đây là cải thiện thuật toán hợp lệ, không phải
+ngu nham: 4 phần tử đều trong khoảng, và chỉ số luôn bắt đầu từ 0 nên không thể âm.
+
+Số đo ở đây **có nhiễu lớn giữa các lần chạy** (cùng một cấu hình cho 3.11× rồi
+3.65×). Đừng trích con số đơn lẻ; hãy chạy lại `p6_bench.py` và nhìn cả dải.
+
+### 4. Bẫy khi làm việc (đã mắc, đáng ghi lại)
+
+- **Script sửa file bằng heredoc PowerShell là không đáng tin.** `\\n` bị ăn mất,
+  dấu nháy kép bị ăn mất. Hai lần nó làm hỏng file nguồn. Sửa file bằng công cụ sửa
+  có neo *duy nhất*, hoặc bằng script Python có **kiểm tra số lần xuất hiện = 1**
+  trước khi ghi.
+- **Công cụ sửa khớp MỜ.** Một lần nó khớp `if name == 'len':` ở *hàm khác* và chèn
+  code sai chỗ, làm hỏng `il_codegen.tkv`. Sau đó `git checkout` xoá **cả** các sửa
+  đổi đúng trong cùng file đó. Phải làm lại từ đầu, có kiểm tra.
+- **`scope` của codegen là lớp `_Scope`, KHÔNG phải `dict`.** `scope.get(x)` trả
+  `None` âm thầm thay vì ném lỗi. Phải dùng `scope[x]` trong `try/except`.
+- **`FreeHGlobal` trả `void`** — không có gì trên stack để `pop`. Thêm `pop` làm IL
+  mất cân bằng và sinh `InvalidProgramException` khi chạy, không phải khi build.
+- **Cache PyInstaller bẩn** (`ModuleNotFoundError` khi build dù staging có file đúng):
+  xoá `build/pyinstaller/tkvc`.
+
+Gate: `Testkit/f32buf_bounds_free_test.tkv` 19/19, toàn bộ **83/83**.

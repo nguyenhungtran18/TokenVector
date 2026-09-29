@@ -55,7 +55,10 @@ from il_features.set_type import il_set_type, compile_in_set as _set_compile_in_
 # xep no vao nhom CORE va de register_* chay luc import - xem
 # build/_split_il_features.py.
 from il_features.f32buf_type import (il_f32buf_type as _il_f32buf_type,
-                                     f32buf_len_name as _f32buf_len_name)
+                                     f32buf_len_name as _f32buf_len_name,
+                                     next_f32buf_label as _next_f32buf_label,
+                                     emit_f32buf_index_check as _emit_f32buf_index_check,
+                                     emit_f32buf_free as _emit_f32buf_free)
 from il_features.dict_type import (
     il_dict_type, il_dict_enumerator_type, il_kvpair_type,
     compile_index_dict as _dict_compile_index_dict, compile_in_dict as _dict_compile_in_dict,
@@ -1907,6 +1910,8 @@ def _expr_index(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             raise SyntaxError(f"il_codegen: f32buf '{name}' chi ho tro 1 chi so")
         _load_var_ref(name, scope, out)
         _compile_expr(indices[0], scope, out, 'i32', ctx)
+        _emit_f32buf_index_check(out, _f32buf_len_name(name),
+                                 _next_f32buf_label(ctx, name), name)
         out.append('    ldc.i4.4')
         out.append('    mul')
         out.append('    conv.i8')
@@ -2950,6 +2955,24 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         ctor_params = ', '.join(_field_il_type(fd, records) for _, fd in fields)
         out.append(f'    newobj instance void {name}::.ctor({ctor_params})')
         return
+    if name == 'f32buf_free':
+        # Giai phong bo dem `f32buf` (2026-09-29) - dung o DAU BIEU THUC
+        # (`k = f32buf_free(b)`). Dang LENH DOC LAP co parser rieng trong
+        # f32buf_type.py, tranh trung voi `call_stmt` cua file_io.
+        if len(args) != 1:
+            raise SyntaxError(
+                'il_codegen: f32buf_free() chi nhan dung 1 tham so')
+        arg = args[0]
+        if arg[0] != 'var':
+            raise SyntaxError(
+                'il_codegen: f32buf_free() chi nhan mot BIEN f32buf, '
+                'khong nhan bieu thuc')
+        if not _emit_f32buf_free(out, arg[1], scope, ctx, dtype):
+            raise SyntaxError(
+                f'il_codegen: f32buf_free({arg[1]}) - "{arg[1]}" '
+                f'khong phai bien f32buf')
+        _widen_if_needed('i32', dtype, out)
+        return
     if name == 'len':
         # len(lst)/len(d)/len(s) - list/dict/string (mang co san dung
         # .shape[N], da biet hang so luc codegen, khong can len() runtime).
@@ -3445,6 +3468,8 @@ def _compile_index_store(name, indices, value_node, scope: _Scope, out: list, dt
             raise SyntaxError(f"il_codegen: f32buf '{name}' chi ho tro 1 chi so")
         _load_var_ref(name, scope, out)
         _compile_expr(indices[0], scope, out, 'i32', ctx)
+        _emit_f32buf_index_check(out, _f32buf_len_name(name),
+                                 _next_f32buf_label(ctx, name), name)
         out.append('    ldc.i4.4')
         out.append('    mul')
         out.append('    conv.i8')

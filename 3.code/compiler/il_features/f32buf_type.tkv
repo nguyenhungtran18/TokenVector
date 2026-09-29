@@ -40,9 +40,14 @@ import re
 from il_core import parse_expr
 from il_dispatch import (
     register_assign_rhs_parser, register_stmt_codegen, register_first_pass_walk,
+    register_line_parser,
 )
 
 _MARSHAL = '[mscorlib]System.Runtime.InteropServices.Marshal'
+
+# Ten IL cua Marshal, dung o ca il_codegen (khi xu ly lenh goi
+# `f32buf_free`) nen phai EXPORT chung chu khong tai su bien private.
+F32BUF_MARSHAL = _MARSHAL
 
 # Kieu IL: con trong 'native int'. Giong het gia tri ma `alloc_bytes` tra ve
 # (`conv.i8` nen con la i64) - nhung TypeAnn cua f32buf la `('f32','f32buf')`
@@ -50,6 +55,10 @@ _MARSHAL = '[mscorlib]System.Runtime.InteropServices.Marshal'
 F32BUF_IL = 'native int'
 
 _F32BUF_NEW_RE = re.compile(r'^f32buf\(\s*(\w+)\s*\)\s*$')
+# `f32buf_free(b)` - CHI chap nhan 1 BIEN, khong nhan bieu thuc: bien can
+# duoc dat 0 sau khi giai phong nen phai la bien that, khong phai ket qua bieu
+# thuc tam thoi.
+_F32BUF_FREE_RE = re.compile(r'^f32buf_free\(\s*(\w+)\s*\)\s*$')
 
 
 def il_f32buf_type() -> str:
@@ -64,6 +73,57 @@ def f32buf_len_name(name):
     trong first-pass. Ten lay theo TEN BIEN nen moi bien 1 local rieng, tranh
     do dai 2 buffer cung ten trong cung ham."""
     return f'__f32buf_{name}_len'
+
+
+def next_f32buf_label(ctx, name):
+    """Nhan ten nhanh de toi uu cho phan kiem tra gioi han.
+
+    Phan kiem tra nay CHAY O MOI LAN truy cap phan tu, nen duoc nhan kinh
+    dien (`_f0_ok`) de IL doc duoc gon nhung van lai. Ten lay tu bo dem
+    `label_counter` cua ham dang bien dich, nen khong trung giữa các ham."""
+    lc = ctx.get('label_counter') if isinstance(ctx, dict) else None
+    if lc is None:
+        raise SyntaxError(
+            'il_codegen: f32buf can nhan de kiem tra gioi han nhung khong co '
+            'label_counter trong ctx - bao cao loi, KHONG bo qua kiem tra.')
+    lc[0] += 1
+    return f'_f32b{str(lc[0])}_{name}_ok'
+
+
+def emit_f32buf_index_check(out, len_local, label, var_name):
+    """KIEM TRA GIOI HAN cho `b[i]` - nem IndexOutOfRangeException neu `i`
+    ra ngoai `[0, len)`.
+
+    Stack khi VAO : [dia_chi_base, i32_index]
+    Stack khi RA  : [dia_chi_base, native_int_index]  (nhanh khong loi)
+
+    Tinh san doi chieu mot lan: `i*4` chua tinh, day moi la so phan tu.
+    Kiem tra `i < len` (khong phai byte) nen loi doc duoc va khong can thanh
+    `len*4` co the tran trong i32.
+
+    `conv.u` + `blt.un` la so san KHONG DAU, va do la thu can chinh:
+    `(uint)i < (uint)len` DUNG khi va CHI khi `0 <= i < len`, vi `len >= 0`
+    luon. Neu dung `blt` co dau, chi so am nhu `b[-1]` se LOOT qua
+    (vì -1 < len) va tinh ra dia chi truoc base - doc nham vung nhó khac.
+    Do la ly do phai `conv.u`/`blt.un` chu khong phai `blt` don gian.
+
+    Nhanh loi BO QUA phai con nguyen stack `[dia_chi_base, i64_index]` chua
+    dung; nhung nem loi thi .NET bo toan bo stack nen khong can lam gi.
+    """
+    out.append('    conv.i8')
+    out.append('    dup')
+    out.append('    conv.u')
+    out.append(f'    ldloc {len_local}')
+    out.append('    conv.i8')
+    out.append('    conv.u')
+    out.append(f'    blt.un {label}')
+    out.append(f'    ldstr "IndexError: chi so cua f32buf \'{var_name}\' '
+               f'nam ngoai do dai"')
+    out.append('    newobj instance void [mscorlib]System.'
+               'IndexOutOfRangeException::.ctor(string)')
+    out.append('    throw')
+    out.append(f'  {label}:')
+
 
 
 def try_rhs_f32buf_new(rhs, name, known_shapes):
@@ -126,6 +186,67 @@ def codegen_assign_f32buf_new(stmt, scope, body, body_dtype, ctx, sig, codegen_s
     ctx['store_var'](f32buf_len_name(stmt['name']), scope, body)
 
 
+def emit_f32buf_free(out, var_name, scope, ctx, dtype):
+    """Phat `Marshal.FreeHGlobal` cho bien `var_name`, roi dat con tro va do
+    dai ve 0. Tra True neu thanh cong.
+
+    Dat 0 KHONG phai lam dep ma la chu dich an toan: moi truy cap `b[i]` sau
+    do loai o kiem tra gioi han (`0 <= i < 0` sai voi moi `i`) va nem
+    IndexError. Tuc la "dung bo dem da giai phong" bien tu CORI MEMORY thanh
+    LOI SACH thay vi segfault. `FreeHGlobal(IntPtr.Zero)` la no-op nen goi
+    hai lan cung khong hong.
+
+    Tra ve False (va KHONG phat gi) neu `var_name` khong phai bien f32buf de
+    nguoi goi tu quyet dinh bao loi nao cho hieu hon.
+    """
+    # `scope` lop `_Scope` cua il_codegen, KHONG phai dict - dung `[]` trong
+    # try/except nhu moi noi khac, khong dung `.get()`.
+    try:
+        entry = scope[var_name]
+    except (KeyError, TypeError, IndexError):
+        return False
+    if entry is None or getattr(entry[2], 'shape', None) != 'f32buf':
+        return False
+    ctx['load_var_ref'](var_name, scope, out)
+    # KHONG co 'pop' sau loi goi: `FreeHGlobal` tra `void`, khong day gi len
+    # stack. Pop o day se lam IL mat can bang -> InvalidProgramException.
+    out.append(f'    call void {_MARSHAL}::FreeHGlobal(native int)')
+    out.append('    ldc.i4.0')
+    out.append('    conv.i8')
+    ctx['store_var'](var_name, scope, out)
+    out.append('    ldc.i4.0')
+    ctx['store_var'](f32buf_len_name(var_name), scope, out)
+    out.append('    ldc.i4.0')
+    return True
+
+
+def _try_lp_f32buf_free(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """LINE_PARSERS: `f32buf_free(b)` nhu 1 LENH DOC LAP.
+
+    Can bang mot parser rieng vi `call_stmt` (dang khoi file_io.py) chi nhan
+    `write_file`/`append_file`. Parser nay dang ky luc `import il_features.
+    f32buf_type` - SOM HON `register_line_parser('call_stmt', ...)` chay o cuoi
+    body cua il_codegen - nen trong cascade no THANG trung pattern va khong
+    bao gio cham toi do.
+    """
+    m = _F32BUF_FREE_RE.match(line)
+    if not m:
+        return None
+    return {'kind': 'f32buf_free_stmt', 'name': m.group(1)}, pos + 1
+
+
+def _codegen_f32buf_free_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    if not emit_f32buf_free(body, stmt['name'], scope, ctx, body_dtype):
+        raise SyntaxError(
+            f'il_codegen: f32buf_free({stmt["name"]}) - '
+            f'"{stmt["name"]}" khong phai bien f32buf')
+    # lenh doc lap: ket qua kieu i32 (0) van phai co tren stack de lam don,
+    # giong moi lenh goi doc lap khac cua TokenVector.
+    body.append('    pop')
+
+
 register_assign_rhs_parser('f32buf_new', try_rhs_f32buf_new)
 register_stmt_codegen('assign_f32buf_new', codegen_assign_f32buf_new)
 register_first_pass_walk('assign_f32buf_new', fpw_assign_f32buf_new)
+register_line_parser('f32buf_free_stmt', _try_lp_f32buf_free)
+register_stmt_codegen('f32buf_free_stmt', _codegen_f32buf_free_stmt)
