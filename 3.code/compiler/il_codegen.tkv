@@ -4691,6 +4691,30 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
             # _infer_literal_dtype quet ca cay tim hang so DAU TIEN, nhin
             # cu phap (co dau '.' hay khong) de doan 'int' hay float -
             # cung tang fallback da dung o declare_scalar phia tren.
+            # AN TOAN (2026-09-29): hai nhanh KHAC KIEU -> bao loi ro rang,
+            # KHONG sinh IL.
+            #
+            # `c if c else "a"` (nhanh dung la bien int, nhanh sai la chuoi)
+            # truoc day khai `__tern<N>` kieu int64 - do `_infer_dtype` cho
+            # 'ternary' lay kieu node[2] - roi `_expr_ternary` luu mot object
+            # reference VAO slot do bang `stloc.s` va doc lai. Kich thuoc
+            # khop (8 byte) nen `1.5 if c else 2.5` va `7 if c else 9` van
+            # CHAY DUNG, che loi; rieng nhanh chuoi thi
+            # `AccessViolationException` luc chay - lam HONG BO NHO.
+            #
+            # Day cung la nguyen tac chung cua du an: sai am tham nguy hiem
+            # hon loi on ao. Ternary lệch kieu la loi nguon dun, bao loi som
+            # hon la de no lam hong vung nho khac.
+            _td_true = _infer_dtype(tern_node[2], infer_scope, func_table,
+                                    records, record_methods)
+            _td_false = _infer_dtype(tern_node[3], infer_scope, func_table,
+                                     records, record_methods)
+            if _td_true and _td_false and _td_true != _td_false:
+                raise SyntaxError(
+                    f'il_codegen: hai nhanh cua conditional expression '
+                    f'({tern_node[2][0]} / {tern_node[3][0]}) KHAC KIEU: '
+                    f'{_td_true!r} va {_td_false!r} - mot local chi giu duoc '
+                    f'mot kieu. Hay ep kieu ro rang o mot nhanh.')
             t_dtype = (_infer_dtype(tern_node, infer_scope, func_table, records, record_methods)
                        or _infer_literal_dtype(tern_node)
                        or body_dtype)

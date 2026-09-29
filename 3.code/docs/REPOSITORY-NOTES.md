@@ -1351,3 +1351,71 @@ và chỉ vào dạng Python.
 Không cần đụng lại `parse_ternary`: `il_core.tkv` **đã** xử lý `?` từ trước và
 sau khi qua được `ast.parse` thì `c ? a : b` biên dịch và chạy đúng ở mọi vị
 trí đã thử (gán biến, tham số hàm, biểu thức, lồng nhau, clamp 3 nhánh).
+
+## Phat hien quan trong: conditional expression LAM HONG BO NHO khi nhanh lech kieu (2026-09-29)
+
+Khi tim nguyen nhan vuong `?`, phat hien ra mot loi **da commit truoc do** trong
+chinh conditional expression dang Python.
+
+### Hien tuong
+
+```
+c = 0
+s = "x" + (c if c else "a")
+```
+
+bien dich xong, chay ra **`AccessViolationException`** - tuc lam HONG BO NHO.
+
+### Truc
+
+`collect_ternary_temps` khai local tam cua conditional bang:
+
+```python
+t_dtype = _infer_dtype(tern_node, ...) or _infer_literal_dtype(...) or body_dtype
+```
+
+va `_infer_dtype` voi tag `'ternary'` tra kieu cua **node[2]** (nhanh dung).
+Voi `c if c else "a"` thi node[2] la bien `c` (int) -> khai `__tern<N>` kieu
+`int64`. Sau do `_expr_ternary` luu mot **object reference** vao slot do bang
+`stloc.s` roi doc lai.
+
+**Vi sao may phan lon cac test VAN chay dung:** kich thuoc khop.
+- `1.5 if c else 2.5` -> local `float64` (8 byte), gia tri 8 byte -> khop.
+- `7 if c else 9` -> local `TkvInt` (16 byte) doc bang `ldloc.s` -> doc 8 byte
+  dau tien, ma gia tri dang 8 byte -> khop.
+- Chi rieng nhanh **chuoi** moi hong: 8 byte object reference vao slot `int64`
+  roi doc nhu so -> con tro rac.
+
+Day la kieu loi nguy hiem nhat: **che phan lon cac truong hop**, chi mot
+truong hop lai no hong bo nho. Va gate 84/84 **khong bat** vi khong test nao
+co nhanh lech kieu.
+
+### Da sua
+
+`collect_ternary_temps` gio bay: hai nhanh co kieu cu the **khac nhau** thi
+nem SyntaxError ro ngay luc bien dich, khong sinh IL:
+
+```
+il_codegen: hai nhanh cua conditional expression (var / str_lit) KHAC KIEU:
+'i64' va 'str' - mot local chi giu duoc mot kieu. Hay ep kieu ro rang o mot nhanh.
+```
+
+Dung nguyen tac chung cua du an: **sai am tham nguy hiem hon loi on ao** - va
+ternary lech kieu la loi nguon dun, bao loi som hon la de no lam hong vung nho
+khac. Cac ternary **cung kieu** - truong hop binh thuong - van chay nhu cu.
+
+### Con thieu trong gate
+
+Khong co khu vuc "mong doi bien dich THAT BAI" trong `testkit_gate.ps1`. Bai
+`mixed_types_rejected()` hien chi la **ghi chu** chu khong kiem duoc thuc te, vi
+test do chay lenh do trong file dang build thi bien dich thanh cong.
+
+Day la thieu sot cua CA du an khong rieng conditional expression: nhung thu
+"phai bi tu choi" hien khong co co che kiem chung. Nhom lon nhat la **negative
+test cua P6** (xem P6 buoc 3) va cac truong hop `field container tren record`,
+`match/case pattern`, so khong dung san.
+
+**De xuat:** them `-ExpectBuildFail` vao gate, cho phep khai mot file
+`Testkit/negative/*.tkv` ma file do **PHAI bien dich that bai**; neu bien dich
+thanh cong thi gate FAIL. Rat re, va dong lai ca lop loi hien chi duoc bao ve
+bang lời.

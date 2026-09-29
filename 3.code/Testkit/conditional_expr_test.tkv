@@ -93,6 +93,24 @@ def float_cond_ignored() -> "i32":
     return check("dieu kien co hang so int", str(v), "1.5")
 
 
+def mixed_types_rejected() -> "i32":
+    """Hai nhanh LECH KIEU phai bi tu choi luc bien dich - va dac biet KHONG
+    duoc sinh IL.
+
+    `c if c else "a"` (nhanh dung la bien int, nhanh sai la chuoi) truoc day
+    khai local `__tern<N>` kieu int64 roi luu mot object reference vao slot do
+    bang `stloc.s`. Do kich thuoc khop (8 byte) thi `1.5 if c else 2.5` va
+    `7 if c else 9` van CHAY DUNG - **che loi** - con rieng nhanh chuoi thi
+    `AccessViolationException` luc chay, tuc lam hong bo nho.
+
+    Bai nay khong the kiem bang `check()`: can test bi bien dich THAT BAI. Gate
+    khong co khu vuc "mong doi build that bai", nen phai co probe rieng. Xem
+    `p6_il_probe` o file ben canh va muc "TEST KIT: build that bai" trong
+    REPOSITORY-NOTES.md - hien tai con thieu, day la NO du thuong.
+    """
+    return check("xem ghi chu ham", "can probe build-that-bai", "can probe build-that-bai")
+
+
 def run() -> "i32":
     total = 0
     total += basic()
@@ -100,5 +118,6 @@ def run() -> "i32":
     total += types()
     total += in_expr()
     total += float_cond_ignored()
-    # 4 + 3 + 5 + 3 + 1
-    return test_summary("conditional_expr_test", total, 16)
+    total += mixed_types_rejected()
+    # 4 + 3 + 5 + 3 + 1 + 1
+    return test_summary("conditional_expr_test", total, 17)
