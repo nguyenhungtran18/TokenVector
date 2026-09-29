@@ -14,7 +14,7 @@ trỏ tới mục không tồn tại. Bản này viết lại từ đầu theo t
 
 | Cổng | Kết quả |
 |---|---|
-| `3.code\tools\testkit_gate.ps1` | **80/80** (timeout 0) |
+| `3.code\tools\testkit_gate.ps1` | **83/83** (timeout 0, ILFAIL 0) |
 | Inference | **26/26** |
 | Data gate | **PASS** (library 2/2, fragments 0 lỗi thật, suites 18/18) |
 | Benchmark | 7 kernel, checksum 7/7 OK |
@@ -34,6 +34,26 @@ lần sửa cuối** — số cũ vẫn đúng nhưng cần đo lại sau P6:
 
 SIMD 4-lane đạt **4.08×** so với scalar — ngay tại trần lý thuyết 4 lane.
 Startup 24.6 ms so với CPython 35.8 ms.
+
+**P6 (vector hoá TỰ ĐỘNG) — đo riêng bằng `3.code\bench\p6_bench.py`.**
+Bảng trên dùng SIMD viết tay, nên không phản ánh P6. P6 đo bằng cách so
+**chính compiler với chính nó**: hai kernel giống hệt nhau, chỉ khác ở điều
+kiện vòng lặp (`while i < nb` — biến, vector hoá; `while i < 262144` — hằng
+số, bị từ chối). Chênh lệch thời gian đó ra công **đúng hiệu quả của P6**.
+
+| tập 3 bộ đệm | scalar | tự động | tăng tốc |
+|---|---|---|---|
+| 48 KB (vừa L2) | 20.1 ms | 5.4 ms | **3.8×** |
+| 3 MB (vượt L2) | 21.8 ms | 11.3 ms | **1.9×** |
+
+Số đo **có nhiễu lớn** giữa các lần chạy (cùng cấu hình cho 3.1× rồi 3.8×).
+Đừng trích con số đơn lẻ. Ba điều đã biết:
+- Tăng tốc **riêng của P6** là ~1.6–2.1×. Tỷ lệ 3.8× trên đây cao hơn vì
+  kích thước được chọn vừa L2, và vì kích thước lớn thì giới hạn băng thông.
+- Vòng vector kiểm tra giới hạn **một lần cho 4 phần tử** (`(i+3) < len`)
+  trong khi vòng scalar kiểm tra 4 lần — cải thiện thuật toán hợp lệ.
+- Vẫn chưa đạt 4× vì mỗi vòng còn **36 lệnh IL cho 4 phần tử**, trong đó
+  18 lệnh tính địa chỉ byte cho 3 toán số.
 
 ---
 
@@ -62,33 +82,43 @@ Mỗi dòng có commit và file gate. Cổng phải xanh sau **từng** commit.
 | `lambda` qua khai báo kiểu `func` | `bb241b4` | `lambda_test.tkv` 11 |
 | `list.extend()` | — | có trong testkit sẵn |
 | `for k, v in d.items()` | — | có trong testkit sẵn |
+| **P6-1** container `f32buf` | `2ee0c31` | `f32buf_test.tkv` 16/16 |
+| **P6-2** vector hoá tự động vòng lặp | `83db909` | `p6_vectorize_test.tkv` 16/16 |
+| **P6-3** mutation test + sửa gate | `c81dff9` | 82/82 (gate bắt được transform hỏng) |
+| **P6-4** đo hiệu quả | `59b3329` | `p6_bench.py` |
+| **P6-5** giới hạn + `f32buf_free` | `22ca15e` | `f32buf_bounds_free_test.tkv` 19/19 |
+| **P6-6** tối ưu địa chỉ vector | `3723ce0` | 83/83 |
 
 ---
 
 ## 3. Lộ trình
 
-### Giai đoạn 0 — Dọn tài liệu (đang làm)
-Chính là bản viết lại này. Xong khi file này được merge.
+### Giai đoạn 0 — Dọn tài liệu: **XONG**
 
-### Giai đoạn 1 — P6: tự động vector hoá (1–2 ngày)
+### Giai đoạn 1 — P6: tự động vector hoá: **XONG (P6-1 → P6-6)**
 
-**Đây là mục tiêu gốc, đã bị các tính năng ngôn ngữ đẩy sang.** Hiện P6 **không
-có dòng code nào**.
+Mục tiêu gốc, đã bị các tính năng ngôn ngữ đẩy sang. Giờ đã có code, cổng
+xanh 83/83. Chi tiết ở `REPOSITORY-NOTES.md`; tóm tắt:
 
-Phần khả thi đã nghiên cứu xong, ở `REPOSITORY-NOTES.md`. Tóm tắt:
+- `TKV_SIMD` **chưa từng tồn tại**. `f32x4` đã luôn bật. P6 thực sự nghĩa là:
+  **compiler tự phát `f32x4`** cho vòng lặp mà lập trình viên viết bằng code
+  vô hướng.
+- **P6-1** container `f32buf` — substrate bắt buộc. `v_load4`/`v_store4` cần
+  16 byte liên tiếp, mà `List<T>` không cho lấy địa chỉ mà không chạm field
+  private `_items` của BCL (đã bị từ chối có chủ đích).
+- **P6-2** recognizer `while i < n` + đuôi scalar. Nguyên tắc: có bất kỳ nghi
+  ngờ nào thì **không** vector hoá.
+- **P6-3** mutation test — và phát hiện gate **chưa bao giờ bắt được test
+  fail** (xem mục 6).
+- **P6-4** đo hiệu quả: ~1.6–2.1× (riêng P6), tốt hơn khi dữ liệu vừa cache.
+- **P6-5** kiểm tra giới hạn + `f32buf_free`.
+- **P6-6** tối ưu địa chỉ: 42 → 36 lệnh IL, đồng thời sửa lỗi cắt offset 2 GB.
 
-- `TKV_SIMD` **chưa từng tồn tại**. `f32x4` đã luôn bật, không có gì để "bật".
-  Nói "P6 đã bật đường nhanh" sẽ là sai. P6 thực sự nghĩa là: **compiler tự phát
-  `f32x4`** cho vòng lặp mà lập trình viên viết bằng code vô hướng.
-- Vòng lặp elementwise kiểu người dùng viết tay biên dịch thành **đúng 15 lệnh
-  IL**: một biến đếm, bước `+1`, cùng chỉ số cho load và store, một lần ghi.
-  Nhận dạng cơ học; thay bằng `f32x4` + đuôi scalar là an toàn về **bit**.
+Chốt phạm vi vẫn là: **chỉ elementwise**. Không đụng giảm tổng (`sum += a[i]`) —
+cái đó đòi hỏi dung sai 1e-5.
 
-Chốt phạm vi: **chỉ elementwise**. Không đụng giảm tổng (`sum += a[i]`) — cái đó
-đòi hỏi dung sai 1e-5, là quyết định khác hẳn.
+Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector.
 
-Cổng: chạy cùng một vòng lặp viết tay và viết `f32x4`, so kết quả **bit-for-bit**,
-rồi đo lại bảng benchmark ở mục 1.
 
 ### Giai đoạn 2 — Phần còn lại của ngôn ngữ
 
@@ -187,7 +217,7 @@ Chạy trước khi coi bất cứ thay đổi nào là xong:
 # 1. Build lại compiler TỪ CÂY NGUỒN (binary cũ che hồi quy)
 .\3.code\build_tkvc.ps1
 
-# 2. Testkit — 80 file, timeout 120s/test
+# 2. Testkit — 83 file, timeout 120s/test
 .\3.code\tools\testkit_gate.ps1
 
 # 3. Inference
@@ -218,3 +248,5 @@ ghi rõ `(mirrors 3.code <hash>)` trong message của parent.
 | 4 fragment Data | `tokenvector_compute`/`datetime`/`io`/`stats` cần hằng số module. Đã ghi ở `Data\SESSION_HANDOFF.md`. |
 | Xoá repo con `3.code` | Không hoàn tác được. Mọi commit đã có trong parent qua tag `nested-3code-snapshot`. Chờ quyết định. |
 | `f32x8`/`VBuf8` retire | Đã ghi chú là không phải SIMD nhưng chưa gỡ. 8 số rời, không lợi. |
+| Nâng `i*4` ra khỏi vòng vector | Còn 6/36 lệnh IL do `i*4` bị tính 3 lần. Cần `first_pass_walk` cho `while` chạy cùng logic khớp mẫu ở cả 2 pass — lệch một chút là `InvalidProgramException` **lúc chạy**, không phải lúc build. Đổi lại ~17% trên đường đã nhanh hơn scalar ~4×. Tỷ lệ giá trị/chi phí không tốt; để thành việc riêng. |
+| Tích hợp SIMD vào `TokenVector.Data` | Handoff ở `Data\SESSION_HANDOFF_SIMD.md`. Chưa làm. |
