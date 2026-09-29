@@ -224,8 +224,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_tkvc.ps1   # REBUILD
 - `global` chỉ hỗ trợ kiểu vô hướng (`i32/i64/f32/f64/str`), **không** container.
 - Chuỗi: chỉ nháy kép. Phương thức chỉ gọi được trên biến, không trên literal.
 - `len()` chỉ nhận 1 biến trần.
-- LAMBDA phải có khai báo chữ ký. `f(*xs)` xong (mục 3b) nhưng nguồn phải có độ dài
-  tĩnh; `f(**kw)` chưa hỗ trợ.
+- LAMBDA phải có khai báo chữ ký. `f(*xs)`/`f(**kw)` xong (mục 3b/3c) nhưng nguồn
+  phải có **thông tin tĩnh** (độ dài của list, khoá của dict).
 - `for a, b in` chỉ nhận list literal chứa tuple literal; **không** nhận biến. Không
   nới lỏng khi chưa có đường đọc hợp lệ cho `List<ValueTuple<...>>` (xem mục 3).
 
@@ -242,3 +242,52 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_tkvc.ps1   # REBUILD
   rồi mới viết compiler. Không có cái neo đó thì không biết mình đúng.
 - **So sánh trước/sau bằng `git stash`** khi sửa linter hoặc guard — đo hành vi
   thay đổi thay vì tin lý thuyết.
+- **`python tools/tkvdev.py build ...`** (mới) chạy compiler từ source: vòng lặp
+  sửa compiler mất vài giây thay vì ~90 giây, và lỗi hiện ra **traceback thật**.
+  Dùng để dò; clean build + gate vẫn bắt buộc trước khi commit.
+- **`python -c "import ast; ast.parse(open(f,encoding='utf-8').read())"`** cho mọi
+  file `.tkv` sửa, **trước** khi build. Một `"""` hở làm PyInstaller im lặng bỏ
+  sót `il_codegen`, và exe chết sau đó bằng lỗi hoàn toàn không liên quan
+  (`No module named 'il_features.list_type'`) — tốn thời gian vô ích.
+
+---
+
+## 8. Còn lại sau Giai đoạn 2 — đọc trước khi hỏi "làm gì tiếp"
+
+Lộ trình (mục 3 của `PLAN.md`) đã **hết sạch**: Giai đoạn 0, 1 (P6), 2, 3 đều XONG.
+Không còn mục tính năng nào đang dở. Còn lại:
+
+**A. Việc thật (không phải roadmap) — nên làm theo thứ tự này**
+
+1. **Lỗi `literal '5' khong dung voi dtype 'Acc'`** (`PLAN.md:128`) — gọi method
+   của record với tham số scalar báo sai kiểu. **Chưa điều tra.** Đây là nút thắt
+   duy nhất còn lại.
+2. **Smoke test cho Inference và Data** (`PLAN.md:132`) — `Testkit/` chỉ phủ
+   compiler, hồi quy ở hai hệ thống kia phải mất ~15 commit mới phát hiện. Làm bây
+   giờ sẽ **đỏ ngay** vì lý do ở mục 1: rule "record không được có field container
+   chưa khởi tạo" làm Inference/Data **không build**. Người dùng đã chọn phương án
+   B: cho phép nếu `__init__` có `self.X = ...`. Sửa (1) là mở đường cho (2).
+3. **Dạng `c ? a : b`** (`PLAN.md:238`) — dạng `a if c else b` đã có. Dạng `?` chết
+   ở `ast.parse` của Python (`tkv_compile.tkv:3854`) trước khi parser TokenVector
+   chạy; xương sống front-end **là** AST Python nên tháo ra thì phải viết lại phần
+   trích xuất. Cách ít hại nhất đã ghi sẵn: tiền xử lý văn bản `X ? Y : Z` →
+   `Y if X else Z` **trước** `ast.parse`. Việc riêng, kiểm thử riêng.
+
+**B. Mục 8 của PLAN — 7 việc treo, cần quyết định riêng, đừng tự ý làm**
+
+| Việc | Tình trạng |
+|---|---|
+| `tokenvector-grammar` | Working tree bẩn (dirt có sẵn, **không phải do ta**): xoá 1 file đã track + ~15 file scratch. Chọn khôi phục hay chấp nhận. Con trỏ gitlink không đổi. |
+| 4 fragment Data | Cần hằng số module (`tokenvector_compute`/`datetime`/`io`/`stats`) |
+| Xoá repo con `3.code` | Không hoàn tác được; đã có tag `nested-3code-snapshot` ở parent |
+| `f32x8`/`VBuf8` retire | Ghi chú là không phải SIMD nhưng chưa gỡ |
+| Nâng `i*4` ra khỏi vòng vector | Còn 6/36 lệnh IL, đổi lại ~17%. Tỷ lệ giá trị/chi phí không tốt |
+| Tích hợp SIMD vào `TokenVector.Data` | Có handoff, chưa làm |
+| Sửa `SO_SANH_TOKENVECTOR_VS_PYTHON.md` | Khẳng định hỗ trợ `iter()`/`next()` — **sai**, hai hàm đó không tồn tại. User đã nói để sửa tài liệu sau |
+
+**C. Rủi ro vận hành đã biết**
+
+- `Testkit/vector_block_test.tkv` fail **rất hiếm, không tái hiện** (chạy tay
+  35/35, chạy lại gate xanh). Khi thấy: chạy lại 1 lần, đừng vội sửa.
+- `native_test_suite.tkv` không thuộc cổng và vẫn không build (transpiler tự dựng
+  thiếu `yield from`). Đừng dùng nó làm cổng.
