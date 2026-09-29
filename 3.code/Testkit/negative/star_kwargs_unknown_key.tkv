@@ -1,0 +1,11 @@
+# EXPECT-SUBSTRING: keyword argument ['z']
+# -*- coding: utf-8 -*-
+# Khoa dict literal la hang so chuoi nen compiler gán duoc nó vào tham so
+# khi bien dich; khoa không tồn tại trong chữ ký thì phải báo đúng tên cho,
+# không âm thầm bỏ qua (bỏ qua sẽ chạy sai mà không báo lỗi).
+def k2(a: "i32", b: "i32") -> "i32":
+    return a * 10 + b
+
+
+def run() -> "i32":
+    return k2(**{"z": 1})

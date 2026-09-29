@@ -1,6 +1,6 @@
 # SESSION HANDOFF — TokenVector compiler
 
-Ngày: 2026-09-29. Cổng: **91/91 + negative 12/12 xanh** tại commit `star_args`.
+Ngày: 2026-09-29. Cổng: **92/92 + negative 15/15 xanh**. **Giai đoạn 2 XONG toàn bộ.**
 
 **KHÔNG còn việc dở dang** — working tree sạch, cả hai repo đã mirror.
 
@@ -120,11 +120,39 @@ compiler rồi chạy lại là vài giây và **có traceback thật** thay vì
 `[tkv] Loi:`. Dùng nó để lặp nhanh; clean build + `testkit_gate.ps1` vẫn bắt buộc
 trước khi commit.
 
+### 3c. `f(**kw)` — xong, gần như miễn phí
+
+Không viết đường phân giải tham số mới: nối `f(**kw)` thành các node
+`('kwarg', ten, gia_tri)` — **đúng định dạng `kwarg_resolve` đã xử lý sẵn** từ
+Phase 11a. Nên sắp xếp theo chữ ký, lấp tham số mặc định, bắt trùng tên, bắt khoá
+lạ, bắt thiếu tham số đều có sẵn và có negative test sẵn. Chỉ phần mới là:
+`_kwarg_nodes_from_pairs` (bắt khoá phải là chuỗi literal) và nhánh dict trong
+`_static_srcs`/`_expand_args`.
+
+Ba sửa nhỏ nữa:
+
+- `call_star_args.tkv`: `_star_var_names` và `_holds_star_of` trước đó **chỉ nhận
+  `('star', …)`**, quên `('star2', …)` — `f(**kw)` với biến báo "không tìm thấy
+  nguồn" dù dict literal có sẵn. Sửa cả hai chỗ.
+- `syntax_baseline.tkv`: thêm `_collect_star_dict_ids` để `f(**{"a": 1})` không bị
+  flag "dict literal with content". Chỉ exemption node dict của keyword `**` nên
+  `len({1,2})` vẫn bị từ chối như cũ.
+- Xoá negative `star_args_kw.tkv`: sau khi hỗ trợ `**` thì `f1(**kw)` với
+  `kw = {"a": 1}` **là chương trình hợp lệ** — test đó chỉ có nghĩa khi `**` chưa
+  được hỗ trợ. Đổi lại thành 4 negative mới: khoá lạ, nguồn là list, trùng tên,
+  nguồn dict động.
+
+**Lưu ý khi chạy gate:** `Testkit/vector_block_test.tkv` fail **rất hiếm, không tái
+hiện** (chạy tay 35/35, chạy lại gate xanh). Đừng vội sửa khi thấy; chạy lại 1 lần
+trước.
+
 ---
 
 ## 4. Còn lại của Giai đoạn 2
 
-Mục duy nhất còn lại: `f(**kw)` (`f(*xs)` đã xong — xem mục 3b).
+**Không còn.** Mọi mục trong bảng Giai đoạn 2 của `PLAN.md` đã XONG, gồm `f(*xs)` và
+`f(**kw)` (mục 3b). Việc tiếp theo nếu user muốn tiếp: mục 4 của PLAN (giới hạn có
+chủ đích — đừng "sửa" vội), hoặc mục 8 (P6 còn 6/36).
 
 | Mục | Trạng thái |
 |---|---|
@@ -136,7 +164,7 @@ Mục duy nhất còn lại: `f(**kw)` (`f(*xs)` đã xong — xem mục 3b).
 | `return <v>` trong generator | XONG (kênh `__gen_ret__`) |
 | Literal lồng | XONG |
 | Tuple literal + `for a, b in` | XONG (nguồn chỉ nhận list literal — xem mục 3) |
-| `f(*xs)`, `f(**kw)` | `f(*xs)` XONG (desugar khi độ dài tĩnh) — xem mục 3b; `f(**kw)` chưa làm |
+| `f(*xs)`, `f(**kw)` | XONG cả hai (desugar khi độ dài/khoá tĩnh) — xem mục 3b |
 
 Giai đoạn 3 (`yield from`) về mặt roadmap đã xong; mục 5 của PLAN đã viết lại từ
 "vì sao chưa làm" thành mô tả đã làm.

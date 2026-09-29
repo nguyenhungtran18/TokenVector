@@ -1,0 +1,102 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO `f(**kw)` - truyen keyword argument tu dict (2026-09-29).
+
+`f(*xs)` (xem `Testkit/star_args_test.tkv`) tach danh sach VI TRI; `f(**kw)`
+tach theo TEN, nen compiler phai biet khoa nao se vao tham so nao **luc
+bien dich**. Voi dict literal thi chuyen dap: khoa la hang so chuoi, nen
+noi `f(**kw)` thanh cac node `('kwarg', ten, gia_tri)` - dung dinh dang
+ma `kwarg_resolve` da xu ly san (sap xep theo chu ky, lap mac dinh, bao
+trung ten, bao khoa la).
+
+KHONG doi mo hinh arity: moi so tham so van la arity tinh cua chu ky.
+
+Nguon duoc chap nhan (do dai/khoa tinh khi bien dich):
+- `f(**{"a": 1, "b": 2})` - dict literal ngay tai chinh loi goi;
+- `kw = {"a": 1, "b": 2}` roi `f(**kw)` - bien duoc gan DUNG MOT dict
+  literal trong ham nay va KHONG duoc dung o cho khac.
+
+Gioi han co chu dich: ham nhan `*args`/`**kwargs` trong CHU KY thi khong
+duoc goi bang keyword argument (ca `f(a=1)` lan `f(**kw)`) - quy tac cua
+`kwarg_resolve`, khong phai gioi han moi cua `**`.
+
+Gia tri mong doi tinh tay, doi chieu CPython 3.11.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def k2(a: "i32", b: "i32") -> "i32":
+    return a * 10 + b
+
+
+def k3(a: "i32", b: "i32" = 5, c: "i32" = 7) -> "str":
+    return str(a) + "/" + str(b) + "/" + str(c)
+
+
+def s2(a: "str", b: "str") -> "str":
+    return a + b
+
+
+def emit_pair(a: "i32", b: "i32") -> "i32":
+    print(str(a) + "," + str(b))
+    return 0
+
+
+class Box:
+    seed: "i32"
+
+    def __init__(self, seed: "i32") -> "i32":
+        self.seed = seed
+        return 0
+
+    def two(self, a: "i32", b: "i32") -> "i32":
+        return self.seed + a * 10 + b
+
+
+def inline_dict() -> "i32":
+    total = 0
+    total += check("dict literal ngay tai choi goi", str(k2(**{"a": 1, "b": 2})), "12")
+    total += check("thu tu khoa khong quan trong", str(k2(**{"b": 2, "a": 1})), "12")
+    return total
+
+
+def var_dict() -> "i32":
+    total = 0
+    kw = {"a": 3, "b": 4}
+    total += check("bien chua dict literal", str(k2(**kw)), "34")
+    total += check("khong long nhau trong lenh khac", str(k2(1, **{"b": 2})), "12")
+    total += check("tron ca hai dang", str(k2(*[1], **{"b": 2})), "12")
+    return total
+
+
+def default_params() -> "i32":
+    total = 0
+    total += check("thieu 2 tham so", k3(**{"a": 1}), "1/5/7")
+    total += check("bo qua tham so giua", k3(**{"a": 1, "c": 3}), "1/5/3")
+    total += check("day du", k3(**{"a": 1, "b": 2, "c": 3}), "1/2/3")
+    return total
+
+
+def str_source() -> "i32":
+    return check("chuoi", s2(**{"a": "ab", "b": "cd"}), "abcd")
+
+
+def method_source() -> "i32":
+    return check("method cua record", str(Box(5).two(**{"a": 1, "b": 2})), "17")
+
+
+def stmt_source() -> "i32":
+    total = emit_pair(**{"a": 7, "b": 8})
+    return check("goi ham nhu lenh doc lap", str(total), "0")
+
+
+def run() -> "i32":
+    total = 0
+    total += inline_dict()
+    total += var_dict()
+    total += default_params()
+    total += str_source()
+    total += method_source()
+    total += stmt_source()
+    # 2 + 3 + 3 + 1 + 1 + 1
+    return test_summary("star_kwargs_test", total, 11)

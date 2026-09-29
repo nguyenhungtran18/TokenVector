@@ -440,6 +440,27 @@ def _collect_nested_literal_ids(tree):
     return out
 
 
+def _collect_star_dict_ids(tree):
+    """Id cua moi `ast.Dict` dung lam nguon `**` cua 1 loi goi ham.
+
+    2026-09-29: `f(**{"a": 1, "b": 2})` da duoc ho tro
+    (il_features/call_star_args.tkv noi thanh cac node `('kwarg', ten, gia_tri)`
+    ma `kwarg_resolve` xu ly san). Truoc day linter CHI exemption literal gan
+    cho 1 ten, nen dict literal trong `**` bi `_flag` - goi y sai, va
+    `**{...}` tren MOT dong la dang DUY NHAT duoc chap nhan cho nguon `**`.
+    Chi exemption node DICT cua keyword `**` (khong phai moi dict trong bieu
+    thuc) nen `len({1,2})` va `x in {1,2}` van bi tu choi dung nhu truoc.
+    """
+    out = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for kw in node.keywords:
+            if kw.arg is None and isinstance(kw.value, ast.Dict):
+                out.add(id(kw.value))
+    return out
+
+
 def _collect_exempt_comprehensions(tree):
     """Quet 'tree.body' + than moi ham/class (KHONG chi top-level) tim
     'ast.Assign' dang '<ten_don> = [...]/{...}/{...}' voi 1 comprehension
@@ -547,6 +568,9 @@ class _BaselineVisitor(ast.NodeVisitor):
         # KHONG yeu cau cung 1 dong nhu node goc: no nam trong dau ngoac, ma
     # `_strip_lines` da noi cac dong do lai truoc khi parser chay.
         self._exempt_nested_literals = _collect_nested_literal_ids(tree)
+        # 2026-09-29: `f(**{...})` - dict literal lam nguon `**` cung da
+        # duoc ho tro (xem _collect_star_dict_ids).
+        self._exempt_star_dicts = _collect_star_dict_ids(tree)
         self._known_items_vars = set()
         # 2026-09-29: `f(*xs)` da duoc ho tro (il_features/call_star_args.tkv)
         # nen visit_Starred khong flag khi dang o trong danh sach tham so cua
@@ -765,9 +789,7 @@ class _BaselineVisitor(ast.NodeVisitor):
                     self._flag(node, 'lambda inline trong sort(key=...)')
                     break
         # 2026-09-29: quet `f(*xs)`/`o.m(*xs)` voi co dem _in_call_args nen
-        # visit_Starred BIET no dang o vi tri DUOC CHAP NHAN. `**kw` nam o
-        # `keywords` (khong phai `args`) nen van bi flag - dung, vi `**`
-        # chua duoc ho tro.
+        # visit_Starred BIET no dang o vi tri DUOC CHAP NHAN.
         if node.func is not None:
             self.visit(node.func)
         self._in_call_args += 1
@@ -777,6 +799,10 @@ class _BaselineVisitor(ast.NodeVisitor):
         finally:
             self._in_call_args -= 1
         for kw in node.keywords:
+            # `f(**kw)` (khong phai `a=1`): gia tri la 1 bien -> khong co gi
+            # de quet them. `f(**{...})`: dict literal da duoc exemption rieng
+            # (xem _collect_star_dict_ids) nen van quet de bat loi long ben
+            # trong.
             self.visit(kw.value)
         return
 
@@ -790,6 +816,10 @@ class _BaselineVisitor(ast.NodeVisitor):
                 self.generic_visit(node)
                 return
             if id(node) in self._exempt_nested_literals:
+                self.generic_visit(node)
+                return
+            if id(node) in self._exempt_star_dicts:
+                # `f(**{"a": 1, "b": 2})` - nguon `**` da duoc ho tro.
                 self.generic_visit(node)
                 return
             self._flag(node, 'dict literal with content ({...})')

@@ -1,4 +1,4 @@
-# EXPECT-SUBSTRING: nguon '*' phai la list literal
+# EXPECT-SUBSTRING: nguon '*'/'**' phai la list/dict literal
 # -*- coding: utf-8 -*-
 # Nguon `*` co do dai DONG -> phai bi tu choi, khong duoc doan so tham so.
 # `xs = []` roi `.append()` tao ra length khong biet truoc luc bien dich; AOT
