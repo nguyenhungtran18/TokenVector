@@ -1,6 +1,7 @@
 # SESSION HANDOFF — TokenVector compiler
 
-Ngày: 2026-09-29. Cổng: **92/92 + negative 15/15 xanh**. **Giai đoạn 2 XONG toàn bộ.**
+Ngày: 2026-09-29. Cổng: **94/94 + negative 15/15 xanh** + smoke Inference/Data PASS.
+**Giai đoạn 2 xong toàn bộ; cả 3 mục "việc thật" ở mục 8A cũng xong.**
 
 **KHÔNG còn việc dở dang** — working tree sạch, cả hai repo đã mirror.
 
@@ -150,9 +151,9 @@ trước.
 
 ## 4. Còn lại của Giai đoạn 2
 
-**Không còn.** Mọi mục trong bảng Giai đoạn 2 của `PLAN.md` đã XONG, gồm `f(*xs)` và
-`f(**kw)` (mục 3b). Việc tiếp theo nếu user muốn tiếp: mục 4 của PLAN (giới hạn có
-chủ đích — đừng "sửa" vội), hoặc mục 8 (P6 còn 6/36).
+**Không còn.** Mọi mục trong bảng Giai đoạn 2 của `PLAN.md` đã XONG, gồm `f(*xs)`,
+`f(**kw)` (mục 3b/3c) và `c ? a : b`. Việc tiếp theo nếu user muốn: mục 8B (7 việc
+treo, cần quyết định riêng) hoặc A' (50 field container của Inference/Data).
 
 | Mục | Trạng thái |
 |---|---|
@@ -257,21 +258,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_tkvc.ps1   # REBUILD
 Lộ trình (mục 3 của `PLAN.md`) đã **hết sạch**: Giai đoạn 0, 1 (P6), 2, 3 đều XONG.
 Không còn mục tính năng nào đang dở. Còn lại:
 
-**A. Việc thật (không phải roadmap) — nên làm theo thứ tự này**
+**A. Việc thật (không phải roadmap) — CẢ 3 ĐÃ XONG (2026-09-29)**
 
-1. **Lỗi `literal '5' khong dung voi dtype 'Acc'`** (`PLAN.md:128`) — gọi method
-   của record với tham số scalar báo sai kiểu. **Chưa điều tra.** Đây là nút thắt
-   duy nhất còn lại.
-2. **Smoke test cho Inference và Data** (`PLAN.md:132`) — `Testkit/` chỉ phủ
-   compiler, hồi quy ở hai hệ thống kia phải mất ~15 commit mới phát hiện. Làm bây
-   giờ sẽ **đỏ ngay** vì lý do ở mục 1: rule "record không được có field container
-   chưa khởi tạo" làm Inference/Data **không build**. Người dùng đã chọn phương án
-   B: cho phép nếu `__init__` có `self.X = ...`. Sửa (1) là mở đường cho (2).
-3. **Dạng `c ? a : b`** (`PLAN.md:238`) — dạng `a if c else b` đã có. Dạng `?` chết
-   ở `ast.parse` của Python (`tkv_compile.tkv:3854`) trước khi parser TokenVector
-   chạy; xương sống front-end **là** AST Python nên tháo ra thì phải viết lại phần
-   trích xuất. Cách ít hại nhất đã ghi sẵn: tiền xử lý văn bản `X ? Y : Z` →
-   `Y if X else Z` **trước** `ast.parse`. Việc riêng, kiểm thử riêng.
+1. **Lỗi `literal '5' khong dung voi dtype 'Acc'`** — ĐÃ SỬA (`b1ba163`). Không phải
+   lỗi 1 chỗ: **line parser của container cướp mất method của record** khi chưa biết
+   kiểu biến. Quét 11 tên method (`add`/`clear`/`extend`/`update`/`sort`/`reverse`/
+   `pop`/`insert`/`append`/`remove`/`discard`) thì **4 chức năng hỏng**, sửa cả 4 +
+   một fix chung (nap local đã biết là record vào `known_shapes`). Test
+   `record_method_name_collision_test.tkv` 18/18. Bản dương của quy tắc (b) — thứ
+   PLAN ghi là "chưa viết được" — nay có: `record_container_field_test.tkv`'s
+   `container_field_positive`.
+2. **Smoke test cho Inference và Data** — ĐÃ CÓ (`tools/ext_smoke.ps1` +
+   `ext_smoke_baseline.txt`, commit `ef54bd3`). Build 4 mục, so với kỳ vọng đã ghi;
+   exit khác 0 **chỉ** khi regression. Đã kiểm chứng đường regression. Chạy:
+   `powershell -File .\tools\ext_smoke.ps1`.
+3. **Dạng `c ? a : b`** — ĐÃ CÓ (`60c1d8f`, `compiler/question_ternary.tkv`). Tiền xử
+   lý văn bản đổi `X ? Y : Z` → `Y if X else Z` trước `ast.parse`, gọi ở 3 nơi.
+   Không đổi số dòng; không chắc thì không ghi đè.
+
+   **Quan trọng hơn tính năng: làm việc này lộ ra 3 bug ternary CŨ, đều im lặng.**
+   Bug 3 đáng sợ nhất: local `__ternN` first-pass khai một kiểu, codegen đẩy nhánh
+   theo kiểu khác → **sai giá trí, không một lỗi nào**. Đã sửa cả 3 (chi tiết trong
+   PLAN mục 4 và commit message).
+
+**A'. Còn lại**
+
+- 50 field container chưa gán trong `__init__` (Inference 19, Data 31) — cần người
+  hiểu ngữ nghĩa domain từng field; đây là lý do 2 repo kia chưa build. Khi sửa từng
+  field: chạy `ext_smoke.ps1 -UpdateBaseline`.
 
 **B. Mục 8 của PLAN — 7 việc treo, cần quyết định riêng, đừng tự ý làm**
 

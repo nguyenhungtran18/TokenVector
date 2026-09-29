@@ -244,29 +244,27 @@ Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector.
 | `f64` vector hoá | CLR 4.x không có `Vector<T>`/`Vector256`. Cần retarget .NET 8 — đổi nền tảng, không phải việc compiler. |
 | `str(<so sánh>)` in `"True"` | Đổi sang `"1"` là **thay đổi phá vễ**; mọi test phải gán biến trước rồi mới `str()`. Xem mục 6. |
 
-### Conditional expression — đã chốt, đã làm xong một nửa
+### Conditional expression — **XONG CẢ HAI DẠNG** (2026-09-29)
 
-**Đã thêm dạng Python `a if c else b`** (`beee4cd`, gate 16/16, đối chiếu CPython
-từng dòng). Thông báo lỗi sai lệch cũng đã sửa — trước đó nó bảo dùng `?`,
-tức bảo dùng đúng cái đang không dùng được.
+~~Đã thêm dạng Python `a if c else b`~~ (`beee4cd`, gate 16/16) và **2026-09-29 đã
+thêm nốt dạng `c ? a : b`** (commit `60c1d8f`, test `question_ternary_test.tkv`
+9/9).
 
-Lựa chọn ban đầu của tôi là (a) hỗ trợ cả hai. **Đó là lựa chọn sai**, vì hai
-dạng không đối xứng về chi phí:
+Trước đây tôi chọn (a) hỗ trợ cả hai và **đó là lựa chọn sai** — tôi đã viết ở đây
+rằng hai dạng "không đối xứng về chi phí" và `?` chết ở `tkv_compile.tkv:3854`
+vì `ast.parse` của Python không có `?:`. Cả hai vế đều đúng, nhưng kết luận "việc
+riêng, có kiểm thử riêng" thì đã lỗi thời: **chỉ cần một tiền xử lý văn bản** đổi
+`X ? Y : Z` thành `Y if X else Z` ngay trước `ast.parse` là xong, không phải viết
+lại phần trích xuất. Xem `compiler/question_ternary.tkv`.
 
-| dạng | parser riêng | thực ra chết ở đâu |
-|---|---|---|
-| `c ? a : b` | **đã làm được từ trước** | `tkv_compile.tkv:3854` |
-| `a if c else b` | thiếu một production | chính nó |
+Ràng buộc đã giữ: **không thêm/bớt dòng** (`start_line` và `node.lineno` phải đúng),
+và **không chắc chắn thì không ghi đè** — để `ast.parse` báo lỗi như trước.
 
-`tkv_compile.tkv`'s `_parse_program_ast` gọi **`ast.parse` của Python** ở dòng
-đầu để rút record/signature/hằng số module. Python không có `?:`, nên dạng `?`
-chết trước khi parser của TokenVector kịp chạy. **Xương sống của front-end là
-AST của Python** — tháo ra thì phải viết lại cả phần trích xuất.
-
-Muốn mở lại dạng `?` thì phải xử lý trước `_parse_program_ast`. Cách ít hại nhất:
-một tiền xử lý **văn bản** chuyển `X ? Y : Z` thành `Y if X else Z` trước khi
-gọi `ast.parse` (Python-valid, cùng nghĩa). Rủi ro: phải đặt đúng ranh giới ba
-toán số khi `?`/`:` lồng nhau. Việc riêng, có kiểm thử riêng.
+Làm việc này lộ ra **3 bug ternary cũ, đều im lặng** (assemble được, hỏng lúc chạy) —
+xem mục 1.1 và `REPOSITORY-NOTES`. Đáng chú ý nhất: local `__ternN` được first-pass khai
+một kiểu nhưng codegen đẩy hai nhánh theo kiểu khác → **sai gi��i trí mà không có lỗi
+nào**. Nguyên tắc của dự án ("sai âm thẩm nguy hiểm hơn lỗi ồn ào") đúng, nhưng ở
+đây cả hai đều xấu: cần kiểm tra `--emit-il` khi thấy kết quả lạ.
 
 ---
 
