@@ -407,6 +407,38 @@ def _collect_exempt_set_literals(tree):
     return exempt
 
 
+def _collect_nested_literal_ids(tree):
+    """Id cua MOI `ast.Dict`/`ast.Set` nam BEN TRONG 1 literal da gan cho 1 ten.
+
+    2026-09-29: compiler da ho tro literal long (`[{"a":1}]`, `{"k":[1,2]}`,
+    `{"k":{...}}`, `{[1,2]}`) - xem il_features/{list,dict,set}_type.tkv's
+    `codegen_expr_dict_literal`/`codegen_expr_set_literal` (da dang ky trong
+    EXPR_CODEGEN). Truoc day linter CHI exemption node GOC cua `ten = {...}`,
+    nen moi `ast.Dict`/`ast.Set` long ben trong bi `_flag`, du code chay duoc.
+
+    Neo la BAT KY literal gan cho 1 ten - ke ca LIST, khong chi dict/set. Ly do:
+    `ld = [{"a": 1}]` co node goc la `ast.List`, chua bao gio nam trong tap
+    exemption cua `_collect_exempt_dict_literals` (chi nhan `ast.Dict`), nen
+    neu chay tu node goc thi literal long ben trong van khong duoc quet.
+
+    KHONG dung `ast.walk` tren ca `tree` de exemption moi noi - nhan rong ra
+    khong phai y nghia: `len({1,2})` va `x in {1,2}` van bi tu choi boi compiler
+    (gioi han co san cua `len`/`in`), exemption chung se 'mieng mo' cho chung.
+    """
+    out = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            continue
+        val = node.value
+        if not isinstance(val, (ast.List, ast.Dict, ast.Set)):
+            continue
+        for sub in ast.walk(val):
+            if isinstance(sub, (ast.Dict, ast.Set)) and id(sub) != id(val):
+                out.add(id(sub))
+    return out
+
+
 def _collect_exempt_comprehensions(tree):
     """Quet 'tree.body' + than moi ham/class (KHONG chi top-level) tim
     'ast.Assign' dang '<ten_don> = [...]/{...}/{...}' voi 1 comprehension
@@ -502,7 +534,7 @@ def _is_exempt_fstring(node):
 class _BaselineVisitor(ast.NodeVisitor):
     def __init__(self, module_body, exempt_attr_chains=frozenset(),
                  exempt_comprehensions=frozenset(), exempt_set_literals=frozenset(),
-                 exempt_dict_literals=frozenset()):
+                   exempt_dict_literals=frozenset(), tree=None):
         self.findings = []
         self._module_body = module_body
         self._in_class_depth = 0
@@ -510,6 +542,10 @@ class _BaselineVisitor(ast.NodeVisitor):
         self._exempt_comprehensions = exempt_comprehensions
         self._exempt_set_literals = exempt_set_literals
         self._exempt_dict_literals = exempt_dict_literals
+        # 2026-09-29: literal LONG ben trong container da duoc exemption.
+        # KHONG yeu cau cung 1 dong nhu node goc: no nam trong dau ngoac, ma
+    # `_strip_lines` da noi cac dong do lai truoc khi parser chay.
+        self._exempt_nested_literals = _collect_nested_literal_ids(tree)
         self._known_items_vars = set()
 
     def _flag(self, node, construct_name):
@@ -733,6 +769,9 @@ class _BaselineVisitor(ast.NodeVisitor):
                     and node.lineno == getattr(node, 'end_lineno', node.lineno)):
                 self.generic_visit(node)
                 return
+            if id(node) in self._exempt_nested_literals:
+                self.generic_visit(node)
+                return
             self._flag(node, 'dict literal with content ({...})')
         self.generic_visit(node)
 
@@ -747,6 +786,9 @@ class _BaselineVisitor(ast.NodeVisitor):
         # thuc, nhieu dong) van bao loi ro rang.
         if (len(node.elts) >= 1 and id(node) in self._exempt_set_literals
                 and node.lineno == getattr(node, 'end_lineno', node.lineno)):
+            self.generic_visit(node)
+            return
+        if len(node.elts) >= 1 and id(node) in self._exempt_nested_literals:
             self.generic_visit(node)
             return
         self._flag(node, 'set literal with content ({...})')
@@ -954,7 +996,8 @@ def check_syntax_baseline(source_text):
     visitor = _BaselineVisitor(tree.body, exempt_attr_chains=exempt_attr_chains,
                                 exempt_comprehensions=exempt_comprehensions,
                                 exempt_set_literals=exempt_set_literals,
-                                exempt_dict_literals=exempt_dict_literals)
+                                exempt_dict_literals=exempt_dict_literals,
+                                   tree=tree)
     for node in allowed_toplevel:
         visitor.visit(node)
     findings.extend(visitor.findings)
