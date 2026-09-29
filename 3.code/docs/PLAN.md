@@ -14,7 +14,7 @@ trỏ tới mục không tồn tại. Bản này viết lại từ đầu theo t
 
 | Cổng | Kết quả |
 |---|---|
-| `3.code\tools\testkit_gate.ps1` | **84/84** + **negative 3/3** (timeout 0, ILFAIL 0) |
+| `3.code\tools\testkit_gate.ps1` | **85/85** + **negative 5/5** (timeout 0, ILFAIL 0) |
 | Inference | **26/26** |
 | Data gate | **PASS** (library 2/2, fragments 0 lỗi thật, suites 18/18) |
 | Benchmark | 7 kernel, checksum 7/7 OK |
@@ -90,6 +90,7 @@ Mỗi dòng có commit và file gate. Cổng phải xanh sau **từng** commit.
 | **P6-5** giới hạn + `f32buf_free` | `22ca15e` | `f32buf_bounds_free_test.tkv` 19/19 |
 | **P6-6** tối ưu địa chỉ vector | `3723ce0` | 83/83 |
 | Conditional expression `a if c else b` | `beee4cd` | `conditional_expr_test.tkv` 16/16 |
+| `del lst[i]`, `del d[k]` | xem mục 3 | `del_stmt_test.tkv` 13/13 |
 
 ---
 
@@ -126,7 +127,7 @@ Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector.
 
 | Mục | Công sức |
 |---|---|
-| `del` biến / phần tử | rẻ |
+| ~~`del` phần tử~~ | **XONG** — `del lst[i]`, `del d[k]`. `del x` (biến) **từ chối có chủ đích**: local có kiểu khai báo, tạo "không còn binding" đòi hỏi mọi nơi đọc biến phải kiểm tra. Xem REPOSITORY-NOTES |
 | Hàm lồng không bắt buộc là câu lệnh đầu tiên | rẻ |
 | Chuỗi nhiều dòng `"""..."""` | trung bình |
 | ~~Biểu thức điều kiện~~ | **XONG** — dạng Python `a if c else b` đã có. Dạng `c ? a : b` vẫn bị chặn bởi `ast.parse` của Python — xem mục 4 |
@@ -233,7 +234,7 @@ Chạy trước khi coi bất cứ thay đổi nào là xong:
 # 1. Build lại compiler TỪ CÂY NGUỒN (binary cũ che hồi quy)
 .\3.code\build_tkvc.ps1
 
-# 2. Testkit — 84 file + 3 negative, timeout 120s/test
+# 2. Testkit — 85 file + 5 negative, timeout 120s/test
 .\3.code\tools\testkit_gate.ps1
 
 # 3. Inference

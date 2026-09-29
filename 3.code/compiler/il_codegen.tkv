@@ -59,6 +59,9 @@ from il_features.f32buf_type import (il_f32buf_type as _il_f32buf_type,
                                      next_f32buf_label as _next_f32buf_label,
                                      emit_f32buf_index_check as _emit_f32buf_index_check,
                                      emit_f32buf_free as _emit_f32buf_free)
+from il_features.del_stmt import (try_parse_del as _try_parse_del,
+                                  codegen_del_stmt as _codegen_del_stmt,
+                                  fpw_del_stmt as _fpw_del_stmt)
 from il_features.dict_type import (
     il_dict_type, il_dict_enumerator_type, il_kvpair_type,
     compile_index_dict as _dict_compile_index_dict, compile_in_dict as _dict_compile_in_dict,

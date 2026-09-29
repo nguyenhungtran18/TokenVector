@@ -1475,3 +1475,58 @@ Ca hai fail deu lam `exit 1`.
   *van* sinh `stobj`. Can mot negative test cho ca truong hop do.
 - **Bien the loai**: `s[1:2:0]`, so sanh kieu lech trong `str` noi,
   `int(1.0)` — da thay mot loi (phep `int` nhan float) khi dang test P6.
+
+## Giai đoạn 2 mục 1: `del` (2026-09-29)
+
+Làm theo thứ tự PLAN. `del` chỉ làm **một nửa**, và nửa đó là phần có nghĩa
+thật sự.
+
+| viết | xử lý | lý do |
+|---|---|---|
+| `del lst[i]` | **có** | `List<T>.RemoveAt(i32)` — đúng nghĩa Python |
+| `del d[k]` | **có** | `Dictionary<K,V>.Remove(K)` — đúng nghĩa Python |
+| `del x` (biến) | **từ chối** | xem dưới |
+
+### Vì sao `del x` bị từ chối chứ không làm
+
+Local của TokenVector là local IL **có kiểu khai báo sẵn**. `del x` của Python
+tạo ra trạng thái "không còn binding", và dùng `x` sau đó là `NameError`.
+
+Muốn tạo đúng trạng thái đó thì **mọi** nơi đọc biến đều phải kiểm tra "còn
+binding không". Điều tệ hơn: một quyết định sai sẽ biến `NameError` thành giá
+trị rác — tức **lỗi sai**, không phải lỗi ồn ào. Đó là thay đổi kiến trúc lớn,
+không phải thêm một nhánh lệnh.
+
+Nên thông báo lỗi chỉ đường thay thế: `x = 0` / `= 0.0` / `= ""` / `= None`.
+Với container, gán `None` **thả object reference** nên container thật sự được
+GC — tác dụng về bộ nhớ giống `del x`.
+
+### `del lst[i]` ĐIỀU CHỈNH (re-index) các phần tử sau
+
+Đúng như Python — `List<T>.RemoveAt` làm việc đó, nên đây là **hành vi dùng
+được**, không phải diễn giải riêng. Nhưng cần khoá lại bằng test: xoá sai ở đây
+làm lệch chỉ số trong một vòng lặp rất dài, rất khó phát hiện.
+
+### Module mới
+
+`compiler/il_features/del_stmt.tkv` — line parser + first-pass walk + codegen.
+`Dictionary.Remove` trả `bool` nên phải `pop` kết quả; `RemoveAt` trả `void`
+nên **không** được `pop` (thêm `pop` sẽ làm IL mất cân bằng →
+`InvalidProgramException` lúc chạy, không phải lúc build).
+
+### Hai bẫy tôi mắc khi viết test
+
+Cả hai đều đã có trong `CLAUDE.md`, đáng lẽ không phải mắc lại:
+
+1. **Parser theo dòng.** `check(...)` xuống hai dòng là
+   `khong parse duoc factor tai OP ')'`. Tôi viết kiểu Python.
+2. **`str(<so sánh>)` nội tuyến in `"True"/"False"`.** Phải gán biến trước rồi
+   `str()` mới ra `"1"/"0"`. Test ban đầu dùng `str("b" in d)` và fail.
+
+### Gate
+
+`del_stmt_test.tkv` 13/13. Negative thêm 2 file: `del x` và `del s[0]` (xoá ký
+tự trong chuỗi làm lệch chỉ số; bộ đệm cố định thì "dung cố định" là thuộc tính
+của kiểu chứ không phải của đối tượng).
+
+**Gate 85/85 + negative 5/5.**
