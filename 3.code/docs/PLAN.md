@@ -83,23 +83,58 @@ không lấp được, nhưng phép gán trong `__init__` thì có, và đó là
 dùng nó là Inference và Data **không nằm trong Testkit**. Và bảng mục 1 vẫn ghi
 kết quả cũ mà không ai chạy lại — đó là lỗi của PLAN, không chỉ của code.
 
-### Ba lựa chọn (cần anh chốt)
+### Kết quả khi áp dụng (b) — và phạm vi thật
 
-| | Cách làm | Đánh giá |
-|---|---|---|
-| **(a)** | Hoàn nguyên `a2919f9` | Inference + Data build lại ngay. Nhưng field container **chưa** được gán sẽ âm thầm là `null` — đúng loại lỗi âm thầm mà dự án tránh |
-| **(b)** | **Thu hẹp điều kiện**: chỉ từ chối field container **chưa hề được gán trong `__init__`** | Đúng ngữ nghĩa. Phải kiểm tra phần thân `__init__`; rủi ro quét hụt → lại thành âm thầm |
-| **(c)** | Giữ nguyên `a2919f9`, sửa Inference và Data | Sai hướng: `self.fmap = {}` là cách viết bình thường, ép cấm nó là đẩy chi phí sang người dùng |
+Quy tắc mới đã vào compiler (`a9ac525`):
 
-Tôi nghiêng về **(b)**, nhưng nó là thay đổi một tính năng đã commit nên cần
-anh chốt. **Trong lúc chờ, Inference và Data đều không dùng được** — và mọi
-đoạn nào trong PLAN ghi chúng là PASS/26/26 đều đã bị sửa ở trên.
+| trường hợp | kết quả |
+|---|---|
+| `self.X = {}` trong `__init__` | **cho phép** — gán trực tiếp, không qua `.ctor` |
+| container truyền qua tham số `.ctor` | từ chối — `.ctor` lọc container khỏi danh sách tham số |
+| field container **chưa** gán trong `__init__` | từ chối — sẽ rỗng, im lặng |
+
+Ngay khi áp dụng, nó bắt được **bệnh thật** chứ không phải vài lỗi lẻ:
+
+| hệ thống | số field container chưa gán trong `__init__` |
+|---|---|
+| Inference | **19** (77 bản sao) |
+| Data | **31** (90 bản sao) |
+
+Quét hết bằng: `python .\3.code\tools\scan_uninit_container_fields.py D:\TokenVector.Inference`
+
+Gồm `DataFrame.cols`, `Col.f64s`, `Grammar.rules`, `GenRequest.tokens`,
+`SymbolicShape.dims`… Tức **~50 null-deref tiềm ẩn**. Hai hệ thống này trước
+đây build và pass cổng — nghĩa là chúng đã sống chung với những field null đó
+mà compiler im lặng.
+
+**Đã sửa thử 2 field** (`ExecutionGraph.dim_params`, `StrAcc`) thì còn 17+29.
+Đã **hoàn tác toàn bộ** thay đổi ở Inference để không để lại repo ở trạng thái
+vá dở nửa chừng.
+
+### Quyết định: hoãn sửa repo khác, tập trung compiler (2026-09-29)
+
+Lệnh rõ của anh: **tập trung compiler, lỗi các repo khác để sau.** Vì vậy:
+
+- Quy tắc (b) **giữ nguyên là lỗi chặn build** — nó đúng, và sai lệch là
+  chi phí của repo khác chứ không phải của compiler.
+- **Inference và Data tạm thời không build được.** Đây là hệ quả đã biết,
+  không phải tai nạn mới.
+- 50 field ở trên **chưa sửa**. Không thể đoán giá trị khởi tạo đúng cho từng
+  field — cần người hiểu ngữ nghĩa domain của từng hệ thống.
+- Việc này nên là **dự án riêng**, có gate riêng, không gộp vào chuỗi sửa
+  compiler.
+
+**Hệ quả phải nói thẳng:** công cụ không còn kiểm chứng được bằng hệ thống
+thật. Phần "cho phép" hiện **chỉ** được kiểm chứng bằng Testkit; bản dương
+chưa viết được (vướng lỗi khác: gọi method của record với tham số scalar báo
+`literal '5' khong dung voi dtype 'Acc'` — cũng chưa điều tra).
 
 ### Việc nên làm thêm
 
 `Testkit/` nên có **smoke test** cho Inference và Data: chỉ cần build được
 `inference_tests.tkv` và vài fragment Data, không cần chạy hết. Rẻ hơn nhiều so
-với phát hiện hồi quy sau 15 commit.
+với phát hiện hồi quy sau 15 commit. **Hiện chưa làm** — và sẽ đỏ ngay vì
+lý do ở mục trên.
 
 ---
 
