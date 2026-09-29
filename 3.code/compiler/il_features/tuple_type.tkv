@@ -14,8 +14,9 @@ Se chuyen dich vao target import khi control_flow.py (so huu 'return')
 ra doi o buoc 10."""
 import re
 
-from il_core import IL_SCALAR, parse_expr_list
-from il_dispatch import (register_line_parser, register_stmt_codegen,
+from il_core import IL_SCALAR, parse_expr, parse_expr_list
+from il_dispatch import (register_assign_rhs_parser, register_expr_codegen,
+                        register_line_parser, register_stmt_codegen,
                           register_first_pass_walk, EXPR_BUILTIN_RETURN_TA,
                           EXPR_BUILTIN_RETURN_TA_FN)
 
@@ -110,6 +111,37 @@ def codegen_tuple_assign(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_
             body.append(f'    ldloc.s {tmp_idx}')
             body.append(f'    ldfld !{i} {tuple_type}::Item{i + 1}')
             store_var(t, scope, body)
+    elif (len(rhs_nodes) == 1 and isinstance(rhs_nodes[0], tuple)
+          and len(rhs_nodes[0]) == 2 and rhs_nodes[0][0] == 'tuple_literal'):
+        # 'a, b = (3, 4)' - ben phai la TUPLE LITERAL (2026-09-29).
+        # Dat TRUOC nhanh 'call' ben duoi: nhanh do lay kieu tu func_table
+        # theo TEN HAM, ma literal khong co ten ham - se no KeyError.
+        _, tmp_idx, tmp_ta = scope[f'__tupleassign{id(stmt)}_tmp']
+        # Lay dtype tu TypeAnn da khai bao o FIRST-PASS, KHONG tu suy lai o day
+        # (xem emit_tuple_literal's docstring ve vi sao 2 tang phai dung
+        # cung nguon su that).
+        dtypes = tmp_ta.tuple_dtypes
+        tuple_type = il_tupleN_type(dtypes)
+        emit_tuple_literal(rhs_nodes[0][1], dtypes, scope, body, ctx)
+        body.append(f'    stloc.s {tmp_idx}')
+        for i, t in enumerate(targets):
+            body.append(f'    ldloc.s {tmp_idx}')
+            body.append(f'    ldfld !{i} {tuple_type}::Item{i + 1}')
+            store_var(t, scope, body)
+    elif len(rhs_nodes) == 1 and rhs_nodes[0][0] == 'var':
+        # 'x, y = inner' - ben phai la 1 BIEN kieu tuple (2026-09-29). Doc
+        # ValueTuple (value type) qua local tam roi lay 'ItemN' n lan - dung
+        # y het mau 'call' ben duoi, chi khac buoc nap lai gia tri.
+        var_node = rhs_nodes[0]
+        dtypes = scope[var_node[1]][2].tuple_dtypes
+        tuple_type = il_tupleN_type(dtypes)
+        _, tmp_idx, _ = scope[f'__tupleassign{id(stmt)}_tmp']
+        ctx['load_var_ref'](var_node[1], scope, body)
+        body.append(f'    stloc.s {tmp_idx}')
+        for i, t in enumerate(targets):
+            body.append(f'    ldloc.s {tmp_idx}')
+            body.append(f'    ldfld !{i} {tuple_type}::Item{i + 1}')
+            store_var(t, scope, body)
     elif len(rhs_nodes) == 1:
         # 'x, y, ... = f(...)' - f co the la HAM NGUOI DUNG (func_table)
         # HOAC 1 BUILTIN dang ky return_ta shape='tuple' (xem
@@ -152,6 +184,106 @@ def codegen_tuple_assign(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_
             store_var(t, scope, body)
 
 
+def _tuple_literal_dtypes(elements, scope, ctx):
+    """(dtypes) cho tuple literal - suy tu TUNG phan tu, dung CHUNG logic voi
+    list/dict/set literal (xem list_type.py's `list_literal_elem_spec_of` la
+    nguon su that duy nhat, tranh 2 bo suy kieu lech nhau)."""
+    from il_features.list_type import list_literal_elem_spec_of
+    return [list_literal_elem_spec_of(el, scope, ctx) for el in elements]
+
+
+def codegen_expr_tuple_literal(node, scope, out, dtype, ctx=None):
+    """EXPR_CODEGEN entry cho tag 'tuple_literal' - `(1, 2)` o VI TRI BIEU THUC
+    (2026-09-29).
+
+    KHONG `store_var`: gia tri phai de LEN DONG cho noi goi dung (trái voi
+    `codegen_return_tuple`/`codegen_tuple_assign` la bien cua cau lenh).
+
+    Khu vuc dung y het `codegen_return_tuple` (`newobj ... ::.ctor(!0, !1)`) -
+    `ValueTuple` la value type nen moi phan tu la 1 arg cua ctor chu khong
+    phai gan vao field nao ca.
+    """
+    elements = node[1]
+    dtypes = _tuple_literal_dtypes(elements, scope, ctx)
+    for d in dtypes:
+        if d is None:
+            raise SyntaxError(
+                f"il_codegen: khong suy duoc kieu cua 1 phan tu trong tuple literal "
+                f"({', '.join(str(x) for x in elements)}) - gan bien trung gian truoc "
+                f"roi truyen vao thay vi viet literal")
+    emit_tuple_literal(elements, dtypes, scope, out, ctx)
+
+
+def emit_tuple_literal(elements, dtypes, scope, out, ctx):
+    """Day 1 `ValueTuple` len TREN DONG, voi `dtypes` do CALLER quyet dinh.
+
+    Tach rieng vi nguyen nhan quan trong (2026-09-29): first-pass va codegen suy
+    kieu int literal KHAC NHAU - `infer_scope` cho 'int' (TkvInt) con scope that
+    cho 'i32'. Neu hai tang tu suy rieng thi first-pass khai bao
+    `a: TkvInt` trong khi codegen `newobj ValueTuple<int32,int32>` -> doc `Item1`
+    (int32) vao 1 bien TkvInt (16 byte) -> lenh lech kich thuoc va
+    `NullReferenceException` luc chay, KHONG phai loi bien dich.
+    Voi duong lenh (gan/pahuy literal) thi `dtypes` lay tu TypeAnn da khai bao
+    o first-pass - mot nguon su that duy nhat cho ca hai tang.
+    """
+    compile_expr = ctx['compile_expr']
+    for el, d in zip(elements, dtypes):
+        compile_expr(el, scope, out, d, ctx)
+    tuple_type = il_tupleN_type(dtypes)
+    ctor_params = ', '.join(f'!{i}' for i in range(len(dtypes)))
+    out.append(f'    newobj instance void {tuple_type}::.ctor({ctor_params})')
+
+
+def try_rhs_tuple_literal(rhs, name, known_shapes):
+    """ASSIGN_RHS_PARSERS entry: 't = (1, 2)' (2026-09-29).
+
+    CUNG khuong 'ten_don = <literal>' voi list/dict/set literal, va cung ly do:
+    parser THAT sinh node 'tuple_literal' o vi tri bieu thuc, nhung khai bao
+    local kieu tuple chi lam duoc o first-pass - ma `assign_scalar` (duong
+    fallback cua `_lp_assign`) chi ghi `known_shapes`, khong khai bao gi. Khong
+    co entry nay thi `x, y = t` bao "'t' khong phai bien kieu tuple".
+    """
+    rhs_s = rhs.strip()
+    if not (rhs_s.startswith('(') and rhs_s.endswith(')')):
+        return None
+    try:
+        node = parse_expr(rhs_s)
+    except SyntaxError:
+        return None
+    if not (isinstance(node, tuple) and len(node) == 2 and node[0] == 'tuple_literal'):
+        return None
+    known_shapes[name] = 'tuple'
+    return {'kind': 'assign_tuple_literal', 'name': name, 'rhs_node': node}
+
+
+def fpw_assign_tuple_literal(stmt, ctx):
+    """FIRST_PASS_WALK: khai bao local kieu tuple cho 't = (1, 2)'."""
+    name = stmt['name']
+    if name in ctx['declared_names']:
+        return
+    dtypes = _tuple_literal_dtypes(stmt['rhs_node'][1], ctx['infer_scope'], ctx)
+    if any(d is None for d in dtypes):
+        return  # de error ro hon o codegen
+    ctx['declared_names'].add(name)
+    ta = ctx['TypeAnn'](dtypes[0], 'tuple', tuple_dtypes=dtypes)
+    ctx['locals_decl'].append((name, ta))
+    ctx['infer_scope'].set(name, ta)
+    for el in stmt['rhs_node'][1]:
+        ctx['collect_ternary_temps'](el)
+
+
+def codegen_assign_tuple_literal(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN entry: 't = (1, 2)'.
+
+    Gia tri da duoc day len DONG boi `codegen_expr_tuple_literal` (no KHONG
+    store_var) - o day chi gan vao bien.
+    """
+    _, _, ta = scope[stmt['name']]
+    # Dtype lay tu local da khai bao o first-pass - xem emit_tuple_literal.
+    emit_tuple_literal(stmt['rhs_node'][1], ta.tuple_dtypes, scope, body, ctx)
+    ctx['store_var'](stmt['name'], scope, body)
+
+
 def fpw_return_tuple(stmt, ctx):
     collect_ternary_temps = ctx['collect_ternary_temps']
     for expr_node in stmt['expr_nodes']:
@@ -191,6 +323,54 @@ def fpw_tuple_assign(stmt, ctx):
                       TypeAnn(dtypes[0], 'tuple', tuple_dtypes=dtypes))
         for idx_expr in indices:
             collect_ternary_temps(idx_expr)
+    elif (len(rhs_nodes) == 1 and isinstance(rhs_nodes[0], tuple)
+          and len(rhs_nodes[0]) == 2 and rhs_nodes[0][0] == 'tuple_literal'):
+        # 'a, b = (3, 4)' - ben phai la TUPLE LITERAL (2026-09-29).
+        # Dat TRUOC nhanh 'call' ben duoi: nhanh do tra `builtin_name =
+        # call_node[1]` va tu choi moi thu khong phai 'call' - ma literal
+        # khong co ten ham nen se bao loi sai.
+        lit = rhs_nodes[0]
+        dtypes = _tuple_literal_dtypes(lit[1], infer_scope, ctx)
+        if any(d is None for d in dtypes):
+            raise SyntaxError(
+                f"il_codegen: '{', '.join(targets)} = ({...})' - khong suy duoc kieu cua "
+                f"it nhat 1 phan tu. Chan tai DAY (first-pass) thay vi de codegen sinh "
+                f"CIL sai")
+        if len(dtypes) != len(targets):
+            raise SyntaxError(
+                f"il_codegen: tuple literal co {len(dtypes)} phan tu nhung "
+                f"'{', '.join(targets)}' co {len(targets)} bien ben trai")
+        for t, d in zip(targets, dtypes):
+            declare_named(t, TypeAnn(d, None))
+        declare_named(f'__tupleassign{id(stmt)}_tmp',
+                      TypeAnn(dtypes[0], 'tuple', tuple_dtypes=dtypes))
+        for el in lit[1]:
+            collect_ternary_temps(el)
+    elif len(rhs_nodes) == 1 and rhs_nodes[0][0] == 'var' and infer_scope is not None:
+        # 'x, y = inner' - ben phai la 1 BIEN da khai bao kieu tuple (2026-09-29).
+        # Truoc day chi co 3 dang: 'lst[i]', 'f(...)', va 'a, b' gan song song.
+        # Bien chua duoc gap o 2 dang dau nen rơi xuong nhanh 'call' va bao loi
+        # sai ("phai la 1 loi goi ham tra ve tuple").
+        var_node = rhs_nodes[0]
+        try:
+            var_ta = infer_scope[var_node[1]][2]
+        except KeyError:
+            var_ta = None
+        if var_ta is None or var_ta.shape != 'tuple':
+            raise SyntaxError(
+                f"il_codegen: '{', '.join(targets)} = {var_node[1]}' - "
+                f"'{var_node[1]}' khong phai bien kieu tuple. 'x, y = <bien>' chi dung "
+                f"duoc khi ben phai la 1 tuple (gap bang 1 literal '({', '.join(['dtype'] * len(targets))})'"
+                f" o ben phai)")
+        dtypes = var_ta.tuple_dtypes
+        if len(dtypes) != len(targets):
+            raise SyntaxError(
+                f"il_codegen: '{var_node[1]}' la tuple {len(dtypes)} phan tu nhung "
+                f"'{', '.join(targets)}' co {len(targets)} bien ben trai")
+        for t, d in zip(targets, dtypes):
+            declare_named(t, TypeAnn(d, None))
+        declare_named(f'__tupleassign{id(stmt)}_tmp',
+                      TypeAnn(dtypes[0], 'tuple', tuple_dtypes=dtypes))
     elif len(rhs_nodes) == 1:
         # 'x, y, ... = f(...)' - f tra ve 1 tuple that. f co the la HAM
         # NGUOI DUNG (tra func_table, nhu truoc gio) HOAC 1 BUILTIN dang
@@ -262,6 +442,10 @@ def fpw_tuple_assign(stmt, ctx):
 
 # Dang ky vao il_dispatch NGAY LUC MODULE NAP. 'return_tuple' KHONG dang
 # ky LINE_PARSERS o day (van o core's _lp_return, xem docstring dau file).
+register_expr_codegen('tuple_literal', codegen_expr_tuple_literal)
+register_assign_rhs_parser('tuple_literal', try_rhs_tuple_literal)
+register_first_pass_walk('assign_tuple_literal', fpw_assign_tuple_literal)
+register_stmt_codegen('assign_tuple_literal', codegen_assign_tuple_literal)
 register_line_parser('tuple_assign', try_parse_tuple_assign)
 register_stmt_codegen('return_tuple', codegen_return_tuple)
 register_stmt_codegen('tuple_assign', codegen_tuple_assign)

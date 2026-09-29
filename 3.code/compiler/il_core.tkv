@@ -731,7 +731,32 @@ class _ExprParser:
     def _parse_factor_primary(self):
         k, v = self.advance()
         if k == 'OP' and v == '(':
+            # '(x)' - NGOAC NHOM, giu nguyen hanh vi cu.
+            #
+            # '2026-09-29: TUPLE LITERAL' - neu sau bieu thuc la dau phay thi
+            # day la tuple `(a, b)`, khong phai ngoac nhom. Truoc day `(1, 2)`
+            # bao "ky vong ')', gap ','" vi nhanh nay chi goi 1 parse_expr roi
+            # expect ')'.
+            #
+            # `(x)` va `(x,)` van KHONG phai tuple: it nhat 2 phan tu, dung
+            # Python that. Tra ve node ben trong cho cac dang do.
             node = self.parse_expr()
+            k2, v2 = self.peek()
+            if k2 == 'OP' and v2 == ',':
+                elements = [node]
+                while True:
+                    k3, v3 = self.peek()
+                    if not (k3 == 'OP' and v3 == ','):
+                        break
+                    self.advance()
+                    k4, v4 = self.peek()
+                    if k4 == 'OP' and v4 == ')':
+                        break  # dau phay cuoi, cho phep nhu Python that
+                    elements.append(self.parse_expr())
+                self.expect_op(')')
+                if len(elements) < 2:
+                    return elements[0]
+                return ('tuple_literal', elements)
             self.expect_op(')')
             return node
         if k == 'OP' and v == '[':
