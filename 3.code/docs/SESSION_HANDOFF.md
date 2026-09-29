@@ -50,21 +50,46 @@ kỳ vọng sau.
 
 ## 3. Việc nên làm tiếp
 
-### Ưu tiên 1 — Truyền container cho `__init__` của lớp (lỗi âm thầm)
+### Ưu tiên 1 — Field container trên record (đang SAI, im lặng, chạy sai)
+
+**Cẩn thận: ghi chú dưới đây thay cho chẩn đoán cũ.** Phiên sau đã từng ghi rằng
+đây là "`container_arg_hints` không được nạp cho vị trí gọi constructor". **Chẩn
+đoán đó sai** — đã thử sửa theo hướng đó, xong hoàn tác.
+
+Sự thật: **record không hỗ trợ field kiểu container**, và đó là giới hạn của thiết
+kế, không phải thiếu một dòng. Tham số `.ctor` của record lấy từ **field đã khai
+báo** (dòng ~2892 `il_codegen.tkv` lọc bỏ field container khỏi danh sách tham số),
+và `__init__` thật bị bỏ qua lúc biên dịch (dòng ~5568). Nên:
 
 ```
 class C:
-    def __init__(self, s: "set[i64]") -> "i32": ...
-C(t)          # -> OverflowException LÚC CHẠY, không phải lúc biên dịch
+    items: "list[i32]"
+    def __init__(self) -> "i32":
+        self.items = [1, 2, 3]     # BIEN DICH OK, len(c.items) == 0
+        return 0
 ```
 
-Đã xác minh là lỗi có sẵn: `t = set(); t.add(1)` hỏng y hệt, nên không phải hồi
-quy của set literal. Nguyên nhân: `_container_arg_hints` (`il_codegen.tkv`) chỉ
-được nạp cho lời gọi hàm thường, **không** cho vị trí gọi constructor. Hệ quả:
-call site phát `TkvInt::ToI32` trên **chính con set** thay vì trên phần tử.
+Ba kiểu hỏng, **không cái nào báo lỗi lúc biên dịch**:
 
-Cần test trước khi sửa, cho cả `set`, `list`, `dict` — vì sửa ở chỗ dùng chung
-thì động vào cả ba. Cổng hiện chỉ khoá ca hàm thường.
+| Viết | Kết quả |
+|---|---|
+| `self.items = [1,2,3]` trong `__init__` | `len(c.items) == 0` — gán không có tác dụng |
+| `c.items[0]` sau đó | `OverflowException` lúc chạy |
+| `def __init__(self, s: "set[i64]")` rồi `C(t)` | `OverflowException` lúc chạy; call site phát `TkvInt::ToI32` trên **chính con set** |
+
+Lưu ý: `class C: n: "i32"` + `def __init__(self)` **không** khai báo tham số thì báo
+lỗi rõ ràng ngay ("record 'C' can 1 tham so (n), gap 0"). Cơ chế kiểm số tham số có
+sẵn, chỉ là không bắt được trường hợp container.
+
+Việc nên làm: **từ chối field container trên record bằng lỗi biên dịch rõ ràng**,
+kèm cách dùng thay thế. Đã kiểm: **không file `.tkv` nào trong repo** khai field
+container trong class, nên chặn không phá gì. Việc cần làm trước khi chặn: tìm chỗ
+gom field của class body (chưa tìm ra — `records[name]` dựng ở đâu chưa rõ) và kiểm
+đường compiler tự-host.
+
+Cách dùng thay thế cho tới khi có: truyền container **sau** khi khởi tạo
+(`c = C()` rồi `c.items = [1,2,3]` — cần kiểm lại xem có dính lỗi trên không), hoặc
+dùng hàm thuần thay vì record.
 
 ### Ưu tiên 2 — `yield from`
 
@@ -103,6 +128,7 @@ phải một test.
 | `.Message` / `.InnerException` không phải field của record | Truy cập thuộc tính chỉ mở field khai báo | test files |
 | `len(<biểu thức>)` không suy được hình dạng | `len({1,2,3})` hỏng — đây là lý do set literal inline chưa hỗ trợ | `il_codegen.tkv` |
 | `in` chỉ nhận **biến đơn** | `x in {1,2,3}` hỏng | `il_codegen.tkv` |
+| Sửa theo chẩn đoán **chưa kiểm** thì phải hoàn tác được | Phiên này đã sửa `_container_arg_hints` theo một chẩn đoán sai, rồi revert. Mất công nhưng `git checkout` gọn. **Đừng commit thứ vừa hoàn tác.** | — |
 
 Hai cái bẫy về **ngữ nghĩa** dễ sai nhất:
 
