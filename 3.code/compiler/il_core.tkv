@@ -325,6 +325,17 @@ class _ExprParser:
         if k != 'OP' or v != val:
             raise SyntaxError(f'il_codegen: ky vong {val!r}, gap {v!r}')
 
+    def expect_kw(self, val):
+        """Tu khoa (`else`, `in`, ...) - tokenize ra kind 'ID', KHONG phai 'OP'.
+
+        `expect_op` chi nhan dau cham (`:`, `,`, `?`...), nen goi no cho tu
+        khoa se bao "ky vong 'else', gap 'else'" - mot thong bao ve chinh minh
+        no khong khop (dang sai) va lam nguoi doc nghi hieu nham la thieu
+        `else` trong nguon."""
+        k, v = self.advance()
+        if k != 'ID' or v != val:
+            raise SyntaxError(f'il_codegen: ky vong tu khoa {val!r}, gap {v!r}')
+
     def parse_expr(self):
         """'lambda x, y: expr' (A2, 2026-07-29 - muc tieu Claude tu tin
         dung viet code that) PHAI kiem tra O DAY (truoc ca ternary/bool_or)
@@ -365,15 +376,49 @@ class _ExprParser:
         return ('lambda', params, body)
 
     def parse_ternary(self):
-        cond = self.parse_bool_or()
+        """Conditional expression - CA HAI dang.
+
+        1. `c ? a : b` - dạng C/DSL, đã có sẵn từ trước.
+        2. `a if c else b` - dạng Python, thêm 2026-09-29.
+
+        Cả hai sinh ra CUNG node `('ternary', cond, true, false)` nên toàn bộ
+        hạ tầng phía sau (temp trong first-pass, suy luận kiểu, sinh IL) dùng
+        chung, không cần sửa gì thêm.
+
+        Thứ tự ưu tiên trong lời gọi Python: `lo if x < lo else hi` đọc
+        là "nếu x < lo thì lo, ngược lại hi" - tức `a` (nhánh đúng) đứng
+        TRƯỚC, `if` là từ khoá, rồi mới tới điều kiện. Cùng nghĩa với
+        `c ? a : b`, KHÔNG đảo hai nhánh.
+
+        Liên kết phải: `lo if x < lo else hi if x > hi else mid` phải ra
+        `('ternary', x<lo, lo, ('ternary', x>hi, hi, mid))`. Vì vậy nhánh
+        `else` gọi `self.parse_expr()` (bản đệ quy, quay lại
+        `parse_ternary`) chứ KHÔNG gọi `parse_bool_or` - nếu gọi hàm không
+        đệ quy thì chuỗi `if/else` thứ hai sẽ bị bỏ sót và im lặng cho kết
+        quả sai.
+        """
+        node = self.parse_bool_or()
         k, v = self.peek()
         if k == 'OP' and v == '?':
             self.advance()
             true_e = self.parse_expr()
             self.expect_op(':')
             false_e = self.parse_expr()
-            return ('ternary', cond, true_e, false_e)
-        return cond
+            return ('ternary', node, true_e, false_e)
+        if k == 'ID' and v == 'if':
+            self.advance()
+            cond = self.parse_bool_or()
+            self.expect_kw('else')
+            alt = self.parse_expr()
+            # KHONG dao hai nhanh. Node dung chu 'cond dung -> node[2]', va
+            # Python `a if c else b` cung nghia la "c dung -> a" - trung
+            # voi `c ? a : b`. Hai dang nay cung thu tu nhanh.
+            #
+            # (Da co lan DAO nguoc lai vi tuong nham `a if c else b` co
+            # 'c dung -> b'. Do la SAI: `a if 0 else b` ra b, va
+            # `a if 1 else b` ra a. Khoi phai bat buoc doi chieu CPython.)
+            return ('ternary', cond, node, alt)
+        return node
 
     def parse_bool_or(self):
         node = self.parse_bool_and()
@@ -981,8 +1026,11 @@ def parse_expr(s: str):
     if kind != 'EOF':
         raise SyntaxError(
             f"il_codegen: con thua token khong parse duoc sau bieu thuc: {value!r} "
-            f"(trong {s!r}) - co the do dung sai cu phap ternary (DSL nay dung "
-            f"'cond ? a : b', KHONG phai 'a if cond else b' kieu Python)")
+            f"(trong {s!r}) - neu la `a if c else b` thi thieu `else`; "
+            f"neu la `c ? a : b` thi dau `:` phai nam tren cung dong. "
+            f"(Dang `c ? a : b` KHONG dung duoc: `ast.parse` cua Python - ma "
+            f"`tkv_compile` dung de rut record/signature - khong chap nhan `?:`. "
+            f"Hay dung dang Python `a if c else b`.)")
     return node
 
 

@@ -1209,3 +1209,76 @@ Hướng khi đã làm thì đơn giản: cho recognizer phát
 `<off> = i*4; stloc <tmp>` một lần ở đầu vòng vector, rồi mỗi toán số chỉ cần
 `ldloc <base>` + `ldloc <tmp>` + `add`. Biến `i` vẫn phải tăng 4 mỗi vòng vì điều
 kiện thoát dùng nó.
+
+## Conditional expression: dạng Python `a if c else b` (2026-09-29)
+
+Quyết định: thêm **dạng Python**. Lý do hoá học bên dưới cho thấy hai dạng
+**không đối xứng về chi phí**, nên "hỗ trợ cả hai" là lựa chọn sai.
+
+### Hai dạng bị chặn ở hai tầng khác nhau
+
+| dạng | parser riêng | thực ra chết ở đâu |
+|---|---|---|
+| `c ? a : b` | **đã làm được từ trước** | `tkv_compile.tkv:3854` |
+| `a if c else b` | thiếu production | chính nó |
+
+**`c ? a : b` không chết ở parser.** `il_core.tkv`'s `parse_ternary` đã hiện
+thực đầy đủ, và `parse_expr("c ? a : b")` trả về đúng
+`('ternary', ('var','c'), ('var','a'), ('var','b'))` khi gọi trực tiếp. Nó chết
+sớm hơn: `_parse_program_ast` gọi **`ast.parse` của Python** ngay dòng đầu để
+rút record, chữ ký hàm và hằng số module — mà Python không có `?:`. Thông báo
+lỗi vì thế là `invalid syntax (<unknown>, line N)`, không phải lỗi của parser
+TokenVector.
+
+Nói cách khác: **xương sống của front-end là AST của Python.** Tháo nó ra thì
+cả trích xuất record/signature/hằng số phải viết lại — không phải việc vá.
+
+**`a if c else b` chỉ thiếu một production.** Toàn bộ phía sau đã có sẵn: temp
+trong first-pass (`_walk_walrus_preorder`, L408), suy luận kiểu (L460/515/560),
+`_expr_ternary` sinh IL (L3367). Thêm production là xong.
+
+### Sửa kèm phát hiện: `_infer_literal_dtype` lọt điều kiện
+
+`1.5 if c == 0 else 9.5` báo lỗi *"gán lại biến kểu 'int' bằng biểu thức chứa
+số thực"*. Nguyên nhân: `_infer_literal_dtype` quét `node[1:]` để tìm hằng số
+đầu tiên, nên gặp `0` trong **điều kiện** `c == 0` trước và trả `'int'`. Hằng số
+trong điều kiện không đại diện cho kiểu *kết quả* — y hệt lý do chỉ số của
+`slice` đã bị loại trước đây (L1360). Đã thêm nhánh `ternary` chỉ quét
+`node[2]`/`node[3]`.
+
+Đây là lỗi **tiềm ẩn có sẵn**: nó áp dụng y hệt cho dạng `?` — chỉ là dạng `?`
+chưa bao giờ đi tới được tầng đó. Bật dạng Python ra là lộ ra.
+
+### Tôi đã SAI một lần — và CPython bắt được
+
+Sau khi có output đầu tiên, tôi thấy `so: 7 3` với `a=3, b=7, c=0` và tưởng
+sai, vì mô hình nhớ của tôi là "`a if c else b` thì `c` đúng thì lấy `b`" — tức
+đảo hai nhánh. Tôi đã sửa thành đảo. **Sửa đó làm sai hơn.**
+
+Đối chiếu CPython cho thấy `a if 0 else b` ra `b`, `a if 1 else b` ra `a` —
+tức **thứ tự nhánh của dạng Python giống hệt dạng `?`**, không đảo. Đã hoàn
+tác. Nếu không có bước đối chiếu, tôi sẽ commit một compiler biên dịch đúng,
+chạy không lỗi, và cho ra **kết quả sai**.
+
+Bài học: với conditional expression, đừng suy luận từ trí nhớ — hãy hỏi
+CPython. Nó rẻ hơn nhiều so với một bug âm thầm.
+
+### Thông báo lỗi cũ đang chỉ sai
+
+`parse_expr` từng bảo: *"có thể do dùng sai cú pháp ternary (DSL này dùng
+`cond ? a : b`, KHÔNG phải `a if cond else b` kiểu Python)"* — tức **bảo dùng
+đúng cái đang không dùng được**, và lại giữ dạng Python là thứ *đáng lẽ* phải
+dùng. Đã viết lại: nêu hai nguyên nhân thiếu `else` / thiếu `:` **và** nói thẳng
+rằng `?` không dùng được vì `ast.parse`.
+
+### Kết quả
+
+- Dạng Python hoạt động: số, float, chuỗi, index, bool chưa chuyển đổi, dùng
+  giữa biểu thức, lồng 3 tầng. **16/16**, đối chiếu CPython từng dòng.
+- Dạng `?` **vẫn không dùng được** — và giờ đã nói rõ vì sao.
+- Gate **84/84**.
+
+Muốn mở lại dạng `?` thì phải xử lý trước `_parse_program_ast`. Cách ít hại
+nhất: một tiền xử lý **văn bản** chuyển `X ? Y : Z` thành `Y if X else Z`
+trước khi gọi `ast.parse` — Python-valid và cùng nghĩa. Rủi ro: phải đặt đúng
+ranh giới ba toán số khi `?`/`:` lồng nhau. Đó là việc riêng có kiểm thử riêng.

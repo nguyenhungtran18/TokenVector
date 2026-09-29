@@ -14,7 +14,7 @@ trỏ tới mục không tồn tại. Bản này viết lại từ đầu theo t
 
 | Cổng | Kết quả |
 |---|---|
-| `3.code\tools\testkit_gate.ps1` | **83/83** (timeout 0, ILFAIL 0) |
+| `3.code\tools\testkit_gate.ps1` | **84/84** (timeout 0, ILFAIL 0) |
 | Inference | **26/26** |
 | Data gate | **PASS** (library 2/2, fragments 0 lỗi thật, suites 18/18) |
 | Benchmark | 7 kernel, checksum 7/7 OK |
@@ -88,6 +88,7 @@ Mỗi dòng có commit và file gate. Cổng phải xanh sau **từng** commit.
 | **P6-4** đo hiệu quả | `59b3329` | `p6_bench.py` |
 | **P6-5** giới hạn + `f32buf_free` | `22ca15e` | `f32buf_bounds_free_test.tkv` 19/19 |
 | **P6-6** tối ưu địa chỉ vector | `3723ce0` | 83/83 |
+| Conditional expression `a if c else b` | `beee4cd` | `conditional_expr_test.tkv` 16/16 |
 
 ---
 
@@ -127,7 +128,7 @@ Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector.
 | `del` biến / phần tử | rẻ |
 | Hàm lồng không bắt buộc là câu lệnh đầu tiên | rẻ |
 | Chuỗi nhiều dòng `"""..."""` | trung bình |
-| Biểu thức điều kiện `a if c else b` | **cần quyết định** — xem mục 4 |
+| ~~Biểu thức điều kiện~~ | **XONG** — dạng Python `a if c else b` đã có. Dạng `c ? a : b` vẫn bị chặn bởi `ast.parse` của Python — xem mục 4 |
 | Literal lồng `[{"a":1}]`, `{"k":[1,2]}` | thiết kế |
 | Tuple literal `(1, 2)` | thiết kế — DSL **không có kiểu tuple** |
 | `f(*xs)`, `f(**kw)` | lớn — cần đổi mô hình arity |
@@ -149,15 +150,29 @@ Chỉ khi `native_test_suite.tkv` build được. Chi tiết ở mục 5.
 | `f64` vector hoá | CLR 4.x không có `Vector<T>`/`Vector256`. Cần retarget .NET 8 — đổi nền tảng, không phải việc compiler. |
 | `str(<so sánh>)` in `"True"` | Đổi sang `"1"` là **thay đổi phá vễ**; mọi test phải gán biến trước rồi mới `str()`. Xem mục 6. |
 
-### Cần anh quyết định: conditional expression
+### Conditional expression — đã chốt, đã làm xong một nửa
 
-Cả hai dạng đều hỏng: `a if c else b` **và** `c ? a : b`. Nhưng thông báo lỗi của
-compiler lại bảo dùng dạng `c ? a : b` — tức là bảo dùng thứ không dùng được.
+**Đã thêm dạng Python `a if c else b`** (`beee4cd`, gate 16/16, đối chiếu CPython
+từng dòng). Thông báo lỗi sai lệch cũng đã sửa — trước đó nó bảo dùng `?`,
+tức bảo dùng đúng cái đang không dùng được.
 
-Ba lựa chọn: (a) hỗ trợ cả hai, (b) hỗ trợ dạng Python và sửa thông báo, (c) sửa
-thông báo để cả hai đều gợi ý viết `if` tường minh. Tôi nghiêng về **(a)** vì
-ngôn ngữ này đã có `?` cho điều kiện một phía, nhưng đây là quyết định cú pháp nên
-cần anh chốt.
+Lựa chọn ban đầu của tôi là (a) hỗ trợ cả hai. **Đó là lựa chọn sai**, vì hai
+dạng không đối xứng về chi phí:
+
+| dạng | parser riêng | thực ra chết ở đâu |
+|---|---|---|
+| `c ? a : b` | **đã làm được từ trước** | `tkv_compile.tkv:3854` |
+| `a if c else b` | thiếu một production | chính nó |
+
+`tkv_compile.tkv`'s `_parse_program_ast` gọi **`ast.parse` của Python** ở dòng
+đầu để rút record/signature/hằng số module. Python không có `?:`, nên dạng `?`
+chết trước khi parser của TokenVector kịp chạy. **Xương sống của front-end là
+AST của Python** — tháo ra thì phải viết lại cả phần trích xuất.
+
+Muốn mở lại dạng `?` thì phải xử lý trước `_parse_program_ast`. Cách ít hại nhất:
+một tiền xử lý **văn bản** chuyển `X ? Y : Z` thành `Y if X else Z` trước khi
+gọi `ast.parse` (Python-valid, cùng nghĩa). Rủi ro: phải đặt đúng ranh giới ba
+toán số khi `?`/`:` lồng nhau. Việc riêng, có kiểm thử riêng.
 
 ---
 

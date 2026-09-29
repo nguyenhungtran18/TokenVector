@@ -1370,6 +1370,24 @@ def _infer_literal_dtype(node):
         # tren (dong 587) da xu ly rieng truong hop str; con lai (list) co
         # tinh tra None de pass 2 tu bao loi ro rang, khong doan mo.
         return None
+    if isinstance(node, tuple) and node[0] == 'ternary':
+        # `1.5 if c == 0 else 9.5` - phai BO QUA node[1] (DIEU KIEN).
+        #
+        # Ly do: quet ca cay se gap hang so trong dieu kien truoc tien - `0`
+        # trong `c == 0` - va tra 'int'. Nhanh nhu vay khai bao local kieu
+        # 'int' o first-pass, roi guard o _stmt_assign_scalar (L5364) bao loi
+        # "gan lai bien kieu 'int' bang bieu thuc chua so thuc". Hang so
+        # trong dieu kien KHONG dai dien cho kieu KET QUA, giong hang so
+        # trong chi so cua slice da duoc loai o nhanh tren.
+        #
+        # Chi node[2]/node[3] moi la hai nhanh - chi mot trong hai duoc
+        # thuc thi, nhung ca hai cung phai cung kieu, nen quet nhanh co
+        # hang so la dung.
+        for _sub in (node[2], node[3]):
+            found = _infer_literal_dtype(_sub)
+            if found:
+                return found
+        return None
     if isinstance(node, tuple) and node[0] not in ('num',):
         # 2026-08-03 (dot 3): hang so nam LONG trong 1 bieu thuc - vd
         # 'd[k] = d.get(k, 0) + 1' (mau dem tan suat pho bien nhat cua
