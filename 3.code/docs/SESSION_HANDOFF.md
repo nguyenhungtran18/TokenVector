@@ -1,8 +1,8 @@
 # SESSION HANDOFF — TokenVector compiler
 
-Ngày: 2026-09-29. Cổng: **90/90 + negative 9/9 xanh** tại commit `93fcd18`.
+Ngày: 2026-09-29. Cổng: **90/90 + negative 10/10 xanh** tại commit `1f7a5ab`.
 
-**CÓ VIỆC DỞ DANG, CHƯA COMMIT.** Xem mục 3 trước khi làm bất cứ việc gì.
+**KHÔNG còn việc dở dang** — working tree sạch, cả hai repo đã mirror.
 
 ---
 
@@ -27,63 +27,52 @@ Việc sửa hai repo đó **đã được hoãn có chủ đích** — đừng 
 | Literal lồng `[{"a":1}]`, `{"k":[1,2]}` | `549dbc7` | `a998f02` | `nested_literal_test.tkv` 7/7 |
 | Linter chấp nhận literal lồng | `2f85d29` | `0e2fe11` | — |
 | Tuple literal `(1, 2)` — phần 1/2 | `93fcd18` | `5294746` | `tuple_literal_test.tkv` 5/5 |
+| `for a, b in <nguồn>` — phần 2/2 | `1f7a5ab` | `96889bf` | `tuple_literal_test.tkv` 7/7 |
 
-Cộng 2 negative test mới (`yield_from_bad_source`, `generator_return_no_gen_ret`).
+Cộng 2 negative test (`yield_from_bad_source`, `generator_return_no_gen_ret`) và 1 negative
+test của tuple (`for_tuple_pairs_var`).
 
 **Quy tắc commit:** mỗi thay đổi commit vào **cả hai** repo, chạy gate trước khi commit.
 
+**Quy tắc commit message:** PowerShell nuốt backtick (`\`` thành ký tự điều khiển:
+`` `f `` → form feed). Message nào có backtick thì viết ra file rồi
+`git commit -F <file>`, đừng truyền `-m` trực tiếp.
+
 ---
 
-## 3. ⚠ VIỆC DỞ DANG — đọc trước khi sửa
+## 3. `for a, b in <nguồn>` — xong, và hai bẫy đã dính
 
-Working tree (`3.code`) đang sửa 2 file, **chưa commit vì sinh ra IL không hợp lệ**:
+Nguồn hiện **chỉ** nhận list literal chứa tuple literal; biến list-của-tuple bị từ chối
+rõ ràng (`Testkit/negative/for_tuple_pairs_var.tkv`). Vòng lặp dựng mỗi tuple một lần,
+đọc `Item1`/`Item2` rồi nạp vào **hai `List` vô hướng song song**, duyệt bằng
+`get_Count`/`get_Item`.
 
-```
- M Testkit/tuple_literal_test.tkv      # 2 check `for a, b in ...` đã bật lại
- M compiler/il_features/tuple_type.tkv # thêm try_parse_for_tuple_pairs
-                                       # fpw_for_tuple_pairs
-                                       # codegen_for_tuple_pairs
-```
+**Bẫy 1 — IL hợp lệ ≠ IL chạy được.** Hai cách hiểu nhiên đều **assemble** được bởi
+`ilasm` nhưng chết lúc chạy:
 
-**Triệu chứng:** `tuple_literal_test` build được, 5 case literal vẫn PASS, nhưng
-`sum_pairs()` và `join_pairs()` chết lúc chạy với
-`System.InvalidProgramException: Common Language Runtime detected an invalid program`.
+- `List<ValueTuple<TkvInt, TkvInt>>::Add(!0)` → `InvalidProgramException`;
+- `ldelem`/`ldelema` trên mảng `ValueTuple<TkvInt, TkvInt>` → verifier từ chối.
 
-**Nguyên nhân đã định vị chính xác** (dùng `TKV_DBG_NARROW=1` có sẵn):
+`ilasm` không xác minh kiểu/kích thước stack. Xem `--emit-il` và thử chạy trước khi tin.
 
-```
-plain     (for thường):     for_targets=['__iterexpr0_idx']  assigned=['i','total']  → total = TkvInt, OK
-sum_pairs (for_tuple_pairs): for_targets=[]                   assigned=['total']     → total = int64, HỎNG
-```
+**Bẫy 2 — regex của line parser cướp đường cũ.** Bản regex đầu tiên nhận mọi nguồn nên
+nuốt luôn `for k, v in d.items():`, làm hỏng `comprehension_multi_for_test` và
+`dict_update_test`. Nay regex **chỉ** nhận `[...]` và biến trong ngoặc đơn `(<tên>)`;
+biến trong ngoặc được giữ lại đúng để first-pass báo lỗi rõ ràng thay vì macro
+`for_in_kvlist` xử lý nhầm.
 
-`int_narrow` (`compiler/il_features/int_narrow.tkv`, `narrowable_locals` L217) đánh giá
-biến qua 2 nguồn: tên trong `assigns` (có RHS để phân tích) và `for_targets`.
-- `for` thường: macro sinh `i = src[idx]` → `i` **có** RHS → bị loại khỏi tập narrow →
-  `total` theo mà không bị narrow.
-- `for_tuple_pairs`: `i`/`j` khai báo thẳng bằng `declare_named`, **không** đi qua
-  `assigns` → `_expr_int64` không có bằng chứng để loại `total` → hạ `total` xuống i64.
-
-Rồi `return total` trong hàm `-> "i32"` **không có bước thu hẹp i64→i32** → `ret` sai
-kiểu → verifier từ chối.
-
-**Đây là khoảng trống CÓ SẴN, không phải do tính năng mới tạo ra.** Tính năng chỉ lộ
-nó ra. Hai hướng sửa:
-
-- **(a) Hẹp, chưa thử:** dạy `_collect_for_targets`/`_collect_assigns` trong
-  `int_narrow.tkv` biết `for_tuple_pairs`, để `i`/`j` được phân tích như `for` thường.
-  CẢnh báo: trong fixpoint, tên thuộc `for_targets` bị **giữ** trong tập narrow
-  (`if name in for_targets: continue`), nên thêm `i`/`j` vào đó có thể làm chúng
-  thành i64 và hỏng theo cách khác. Chưa chạy thử — đừng coi là đã đúng.
-- **(b) Rộng hơn, sửa gốc:** thêm bước thu hẹp i64→i32 ở `codegen_return` khi biến bị
-  narrow còn chữ ký là i32. Có thể giúp nhiều chỗ khác, nhưng đụng đường `return` dùng
-  chung cho cả chương trình.
-
-Nếu chỉ muốn trạng thái sạch: `git checkout -- Testkit/tuple_literal_test.tkv
-compiler/il_features/tuple_type.tkv` là về `93fcd18` (90/90 xanh).
+**Bẫy 3 — `int_narrow` phải duyệt thân vòng lặp mới.** `_collect_assigns` trước đó bỏ
+qua mọi thân vòng lặp, nên `total = total + i + j` không được tính, `total` thành i64,
+rồi `return total` trong hàm `-> "i32"` sinh `ret` sai kiểu. Đã sửa ở `int_narrow.tkv:151`.
+Cảnh báo khi sửa tiếp: trong fixpoint, tên thuộc `for_targets` bị **giữ** trong tập
+narrow, nên **đừng** thêm `i`/`j` của `for_tuple_pairs` vào `for_targets` — chúng lấy
+kiểu từ phần tử tuple, không phải biến đếm int64.
 
 ---
 
 ## 4. Còn lại của Giai đoạn 2
+
+Mục duy nhất còn lại: `f(*xs)`, `f(**kw)` — lớn, cần đổi mô hình arity.
 
 | Mục | Trạng thái |
 |---|---|
@@ -94,7 +83,7 @@ compiler/il_features/tuple_type.tkv` là về `93fcd18` (90/90 xanh).
 | `yield from` | XONG (list + generator) |
 | `return <v>` trong generator | XONG (kênh `__gen_ret__`) |
 | Literal lồng | XONG |
-| Tuple literal | **1/2** — xem mục 3 |
+| Tuple literal + `for a, b in` | XONG (nguồn chỉ nhận list literal — xem mục 3) |
 | `f(*xs)`, `f(**kw)` | chưa làm — lớn, cần đổi mô hình arity |
 
 Giai đoạn 3 (`yield from`) về mặt roadmap đã xong; mục 5 của PLAN đã viết lại từ
@@ -156,6 +145,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_tkvc.ps1   # REBUILD
 - Chuỗi: chỉ nháy kép. Phương thức chỉ gọi được trên biến, không trên literal.
 - `len()` chỉ nhận 1 biến trần.
 - LAMBDA phải có khai báo chữ ký; `f(*xs)` chưa hỗ trợ (arity tĩnh).
+- `for a, b in` chỉ nhận list literal chứa tuple literal; **không** nhận biến. Không
+  nới lỏng khi chưa có đường đọc hợp lệ cho `List<ValueTuple<...>>` (xem mục 3).
 
 ---
 
