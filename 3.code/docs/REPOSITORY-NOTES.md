@@ -826,3 +826,38 @@ case hoi quy trong test.
 
 Khoa trung lap: gia tri CUOI CUNG thang, dung het Python va het `set_Item`
 cua .NET.
+
+## `f32buf` - substrate do duan so huu cho P6 (2026-09-29, P6 buoc 1)
+
+P6 (tu dong vector hoa) **khong chay tren `List[f32]`**, va ly do da ghi san
+o dau `vector4_type.tkv` (muc "SUBSTRATE: CON TRO THO, KHONG PHAI
+`List<T>._items"`): `v_load4`/`v_store4` doc 16 byte LIEN TIEP, nen can DIA CHI
+mot vung bo nho lien tiep. Lay dia chi phan tu `List<T>` phai cham field private
+`_items` cua BCL - **da bi tu choi co chu dich**: (a) `_items` khong phai API hop
+dong, khong co gi dam bao o runtime dot nao khac, (b) TokenVector chua co tien le
+nao cham field private cua BCL. Grep toan compiler: khong co `ldelema`, `Unsafe`,
+`fixed`, `GCHandle` nao.
+
+Ghi chu kha thi o REPOSITORY-NOTES ("P6 scoping") noi "ban viet lai thi co
+mechanic" — **do chi dung khi cac toan hang da nam san trong bo dem native**.
+Kernel `bench/k_f32mm_vec.tkv` dang chay duoc doc `v_load4` sau khi CHEP du
+vao `alloc_bytes`, va comment noi ro chuyen sang doc HANG de lay dia chi la sai
+ket qua hoan toan (rel-err ~0.5), khong phai lech lam tron. Vong lap elementwise
+ma nguoi dung that su viet — tren `List[f32]` — **khong dien dat du dieu kien do**.
+
+Vi vay `f32buf`: bo dem f32 native ma DUAN so huu. Kieu la `('f32','f32buf')`
+(shape moi, dung co che `('str','strbuf')` / `('i32','bytearray')` co san), gia
+tri la dia chi `native int`, chieu dai luu o local AN dinh theo TEN bien
+(`__f32buf_<ten>_len`) vi `IntPtr` tu AllocHGlobal khong mang kich thuoc.
+
+Chi DUNG THAO TAC: `f32buf(n)`, `a[i]`, `a[i] = v`, `len(a)`. Khong `.append`,
+khong cat, khong duyet, khong `in`, khong long nhau. Do la chu dich - be mat
+nho hon la im lang lam sai.
+
+Hai lan dat nhanh SAI trong luc lam (ca hai cung do la khop sai ham):
+- Nhanh ghi `a[i] = v` dat vao `_expr_index_expr` thay vi `_compile_index_store`.
+- Nhanh doc `a[i]` dat vao `_expr_index_expr` thay vi `_expr_index` (doc bang
+  bien TRAN di qua `_expr_index`; `_expr_index_expr` la cho co so la BIEU THUC).
+Ca hai lan deu lo ra bang thong bao chung "chi ho tro mang rank 1 hoac 2" - KHONG
+chi ra rang container la gi, nen phai kiem bang thu doc cach binary de tim ham
+that, khong phai tin thong bao.

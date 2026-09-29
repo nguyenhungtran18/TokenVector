@@ -50,6 +50,12 @@ from il_features.list_type import (
 from il_features.bytearray_type import il_bytearray_type as _il_bytearray_type  # muc 6.8 (3/4, 2026-08-13): dang ky parser/codegen luc import, xem module do
 import il_features.bytes_type as _bytes_type  # noqa: F401 - muc 6.8 (4/4, 2026-08-13): dang ky parser/codegen luc import, xem module do
 from il_features.set_type import il_set_type, compile_in_set as _set_compile_in_set
+# P6 (2026-09-29): f32buf - bo dem f32 native do duan so huu, la substrate
+# de tu dong vector hoa vong lap. Import o CAP CAO (khong lazy) de build script
+# xep no vao nhom CORE va de register_* chay luc import - xem
+# build/_split_il_features.py.
+from il_features.f32buf_type import (il_f32buf_type as _il_f32buf_type,
+                                     f32buf_len_name as _f32buf_len_name)
 from il_features.dict_type import (
     il_dict_type, il_dict_enumerator_type, il_kvpair_type,
     compile_index_dict as _dict_compile_index_dict, compile_in_dict as _dict_compile_in_dict,
@@ -255,6 +261,12 @@ def il_type_str(type_ann: TypeAnn, records: dict = None) -> str:
         # Local AN cho phep don chuoi trong vong lap (il_features/
         # str_accum.py) - khong bao gio la kieu do NGUOI DUNG viet ra.
         return 'class [mscorlib]System.Text.StringBuilder'
+    if type_ann.shape == 'f32buf':
+        # P6 (2026-09-29): bo dem f32 native DO DUAN so huu. Gia tri bien la
+        # DIA CHI (native int), dung het gia tri `alloc_bytes` tra ve - nhung
+        # day la kieu NGUOI DUNG viet, co length, va la substrate ma P6 can de
+        # vector hoa VONG LAP tren no. Xem il_features/f32buf_type.tkv.
+        return 'native int'
     if type_ann.shape in ('dict', 'defaultdict', 'counter'):
         # 'defaultdict'/'counter' (Phase 3.2, 2026-08-11): vat ly VAN LA
         # Dictionary<K,V> giong het 'dict' - chi khac hanh vi doc chi so
@@ -1887,6 +1899,21 @@ def _expr_index(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         return _list_compile_index_list(name, indices, scope, out, dtype, ctx)
     if type_ann.shape == 'dict':
         return _dict_compile_index_dict(name, indices, scope, out, dtype, ctx)
+    if type_ann.shape == 'f32buf':
+        # P6 (2026-09-29): 'a[i]' -> ldind.r4 tai dia chi a + i*4. KHONG phai
+        # List<T> nen KHONG co get_Item. Offset (i*4) tinh o day - cung cong
+        # thuc ma ben ghi dung.
+        if len(indices) != 1:
+            raise SyntaxError(f"il_codegen: f32buf '{name}' chi ho tro 1 chi so")
+        _load_var_ref(name, scope, out)
+        _compile_expr(indices[0], scope, out, 'i32', ctx)
+        out.append('    ldc.i4.4')
+        out.append('    mul')
+        out.append('    conv.i8')
+        out.append('    add')
+        out.append('    conv.i')
+        out.append('    ldind.r4')
+        return
     if type_ann.shape == 'defaultdict':
         from il_features.defaultdict_type import compile_index_defaultdict
         return compile_index_defaultdict(name, indices, scope, out, dtype, ctx)
@@ -2510,6 +2537,19 @@ def _expr_index_expr(node, scope: _Scope, out: list, dtype: str, ctx: dict = Non
     # truong hop co so (node 'index' long nhau vs loi goi tra container)
     # trong 1 ham dung chung, xem _index_expr_base_ta (final-review I1).
     ta = _index_expr_base_ta(node, scope, func_table, records, record_methods)
+    if ta is not None and ta.shape == 'f32buf':
+        # P6 (2026-09-29): 'a[i]' -> ldind.r4 tai dia chi a + i*4. KHONG
+        # phai List<T> nen KHONG co get_Item. Offset (i*4) tinh o day, dung
+        # cong thuc ma ben ghi cung dung.
+        _compile_expr(base_node, scope, out, 'f32', ctx)
+        _compile_expr(idx_node, scope, out, 'i32', ctx)
+        out.append('    ldc.i4.4')
+        out.append('    mul')
+        out.append('    conv.i8')
+        out.append('    add')
+        out.append('    conv.i')
+        out.append('    ldind.r4')
+        return
     if ta is None:
         # 'self.src[i]' / '<bieu thuc chuoi>[i]' (2026-08-03): co so la 1
         # CHUOI - lay 1 ky tu, giong nhanh 'bien_chuoi[i]' da co.
@@ -2931,6 +2971,13 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             # roi den _infer_dtype cho chuoi. Khong co duong suy luan MOI.
             return _compile_len_of_expr(arg, scope, out, dtype, ctx)
         _, _, arg_ta = scope[arg[1]]
+        if arg_ta.shape == 'f32buf':
+            # P6 (2026-09-29): chieu dai luu o local AN rieng, vi `IntPtr`
+            # tu AllocHGlobal khong mang kich thuoc - xem
+            # f32buf_type.tkv's f32buf_len_name.
+            _load_var_ref(_f32buf_len_name(arg[1]), scope, out)
+            _widen_if_needed('i32', dtype, out)
+            return
         if arg_ta.dtype == 'str' and arg_ta.shape is None:
             return _string_compile_len_str(arg[1], scope, out, dtype, ctx)
         if arg_ta.shape == 'record':
@@ -3388,6 +3435,23 @@ def _compile_index_store(name, indices, value_node, scope: _Scope, out: list, dt
             f"il_codegen: '{name}[i] = ...' khong hop le - string la BAT BIEN "
             f"trong Python that (gan qua chi so nem TypeError luc CPython chay "
             f"that), TokenVector cung khong ho tro.")
+    if type_ann.shape == 'f32buf':
+        # P6 (2026-09-29): 'a[i] = v' -> stind.r4 tai dia chi a + i*4.
+        # KHONG dung set_Item/get_Item - day khong phai List<T>, ma mot vung
+        # native lien tiep. Offset tinh o DAY (i*4) chu khong phai de nguoi
+        # dung viet, va cung dung cong thuc ma P6 se dung khi nap 4 phan tu
+        # 16 byte.
+        if len(indices) != 1:
+            raise SyntaxError(f"il_codegen: f32buf '{name}' chi ho tro 1 chi so")
+        _load_var_ref(name, scope, out)
+        _compile_expr(indices[0], scope, out, 'i32', ctx)
+        out.append('    ldc.i4.4')
+        out.append('    mul')
+        out.append('    conv.i8')
+        out.append('    add')
+        _compile_expr(value_node, scope, out, 'f32', ctx)
+        out.append('    stind.r4')
+        return
     rank = len(type_ann.shape)
     _load_var_ref(name, scope, out)
     for idx_node in indices:

@@ -1,0 +1,131 @@
+# -*- coding: utf-8 -*-
+"""Kieu container `f32buf` - bo dem f32 native DO TOKENVECTOR TU QUAN LY.
+
+VA DO
+------
+P6 (tu dong vector hoa) khong the chay tren `List[f32]`, va ly do duoc ghi
+san o dau `vector4_type.tkv` (muc "SUBSTRATE: CON TRO THO, KHONG PHAI
+`List<T>._items`"): `v_load4`/`v_store4` doc/ghi 16 byte LIEN TIEP, nen can DIA
+CHI cua mot vung bo nho lien tiep, va TokenVector chi co substrate do
+`nativebuf.tkv` cap (`alloc_bytes`). Lay dia chi phan tu `List<T>` se phai cham
+field private `_items` cua BCL - da bi TU CHOI co chu dich: (a) `_items` khong
+phai API hop dong, (b) TokenVector chua co tien le nao cham field private cua BCL.
+
+Vi vay `f32buf` la substrate do DUNG DU AN so huu: mot vung `Marshal.AllocHGlobal`
+do TokenVector cap, co CHIEU DAI do nguoi dung gan. Khong cham BCL, khong can
+assembly moi (output van chi can mscorlib + System.Numerics).
+
+Day la kieu da TOI QUAN LY chu KHONG phai con tro tho `alloc_bytes` tra ve -
+khac o 3 diem, dung 3 diem do ma P6 can:
+  - `b[i]` tu tinh offset `i*4` (thay vi `v_load4(p, i*4)` khi do nguoi dung viet)
+  - co `len(b)` de vong lap co dieu kien
+  - la MOT BIEN, nen compiler nhin dang `b` va biet day la vung lien tiep
+
+PHAM VI - CHI DUNG THAO TAC. Khong co `.append`, khong cat, khong duyet, khong
+`in`, khong long nhau. Moi thu khac bi tu choi ro rang. Dam bao mot mat con
+giong Python bi bao loi ro, hon la im lang lam sai.
+
+KHUYEN - CHUA THE GIAI QUYET
+------------------------------
+`f32buf` khong duoc gan lai tu 1 `List[f32]` khac. Do do chuyen du lieu tu list
+sang buffer van phai `vong for` - dung chinh cai do ma P6 se vector hoa o
+`f32buf`. Do la hanh vi co y: buoc chuyen du lieu la thu TAY, thong qua
+`ldind.r4`/`stind.r4` het 4 byte, va KHONG duoc dua vao vong lap 16 byte
+(xem ghi chu trong `bench/k_f32mm_vec.tkv`: doc theo COT khong nap duoc bang 1
+lenh 16 byte, va doc sai HANG thi ket qua sai hoan toan - khong phai lech lam
+tron).
+"""
+import re
+
+from il_core import parse_expr
+from il_dispatch import (
+    register_assign_rhs_parser, register_stmt_codegen, register_first_pass_walk,
+)
+
+_MARSHAL = '[mscorlib]System.Runtime.InteropServices.Marshal'
+
+# Kieu IL: con trong 'native int'. Giong het gia tri ma `alloc_bytes` tra ve
+# (`conv.i8` nen con la i64) - nhung TypeAnn cua f32buf la `('f32','f32buf')`
+# nen moi noi doc shape, khong phai nhan dang so nguyen.
+F32BUF_IL = 'native int'
+
+_F32BUF_NEW_RE = re.compile(r'^f32buf\(\s*(\w+)\s*\)\s*$')
+
+
+def il_f32buf_type() -> str:
+    return F32BUF_IL
+
+
+def f32buf_len_name(name):
+    """Ten local AN giu CHIEU DAI cua buffer `name`.
+
+    Vung nho chi co dia chi, khong co do dai - `Marshal.AllocHGlobal` tra ve
+    `IntPtr` khong luu kich thuoc. Do do do dai phai la 1 local rieng, khai
+    trong first-pass. Ten lay theo TEN BIEN nen moi bien 1 local rieng, tranh
+    do dai 2 buffer cung ten trong cung ham."""
+    return f'__f32buf_{name}_len'
+
+
+def try_rhs_f32buf_new(rhs, name, known_shapes):
+    """ASSIGN_RHS_PARSERS entry: 'a = f32buf(n)' - cap n PHRAN TU f32 (n * 4
+    byte). CHI chap nhan n la bien/cham so: khong chap nhep bieu thuc, de
+    kich thuoc luon tinh 1 lan va la hang so ma nguoi dung viet."""
+    rhs_s = rhs.strip()
+    m = _F32BUF_NEW_RE.match(rhs_s)
+    if not m:
+        return None
+    known_shapes[name] = 'f32buf'
+    return {'kind': 'assign_f32buf_new', 'name': name, 'count_node': parse_expr(m.group(1))}
+
+
+def fpw_assign_f32buf_new(stmt, ctx):
+    """FIRST_PASS_WALK: khai local con tro (dtype f32 shape f32buf) + local
+    AN giu chieu dai."""
+    i32 = ctx['TypeAnn']('i32', None)
+    ctx['declare_named'](stmt['name'], ctx['TypeAnn']('f32', 'f32buf'))
+    ctx['declare_named'](f32buf_len_name(stmt['name']), i32)
+    ctx['collect_ternary_temps'](stmt['count_node'])
+
+
+def codegen_assign_f32buf_new(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN entry: 'a = f32buf(n)'.
+
+    Cap `n * 4` byte (4 byte/phan tu) roi luu dia chi vao bien. CHIEU DAI luu
+    vao local AN rieng - xem f32buf_len_name.
+
+    'count_node' duoc bien dich HAI LAN (mot lan cho kich thuoc cap, mot lan
+    cho chieu dai). Gia tri la thuan so nen tinh lai khong ton nhieu - va no
+    giup tranh phai giu mot local tam, don gian hon.
+    """
+    from il_features.nativebuf import _compile_n_i32
+    count_node = stmt['count_node']
+    count_dtype = ctx['infer_dtype'](count_node, scope, ctx.get('func_table'))
+
+    def _emit_count_as_i32(out):
+        if count_dtype == 'i64':
+            ctx['compile_expr'](count_node, scope, out, 'i64', ctx)
+            out.append('    conv.ovf.i4')
+        else:
+            _compile_n_i32(count_node, scope, out, ctx)
+
+    # dia chi: n * 4 byte
+    if count_dtype == 'i64':
+        ctx['compile_expr'](count_node, scope, body, 'i64', ctx)
+        body.append('    ldc.i4.4')
+        body.append('    conv.i8')
+        body.append('    mul')
+    else:
+        _compile_n_i32(count_node, scope, body, ctx)
+        body.append('    ldc.i4.4')
+        body.append('    mul')
+    body.append(f'    call native int {_MARSHAL}::AllocHGlobal(int32)')
+    body.append('    conv.i8')
+    ctx['store_var'](stmt['name'], scope, body)
+    # chieu dai (so phan tu, khong phai byte)
+    _emit_count_as_i32(body)
+    ctx['store_var'](f32buf_len_name(stmt['name']), scope, body)
+
+
+register_assign_rhs_parser('f32buf_new', try_rhs_f32buf_new)
+register_stmt_codegen('assign_f32buf_new', codegen_assign_f32buf_new)
+register_first_pass_walk('assign_f32buf_new', fpw_assign_f32buf_new)
