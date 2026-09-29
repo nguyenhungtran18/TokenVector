@@ -213,7 +213,7 @@ Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector.
 | ~~Hàm lồng không bắt buộc là câu lệnh đầu tiên~~ | **XONG SẴN** — kiểm chứng lại (2026-09-29): `def` lồng chạy được sau lệnh thường, sau chú thích, sau `while`. Biến module cần `global` là **có chủ đích**. Test `nested_global_test.tkv` 6/6 |
 | ~~Chuỗi nhiều dòng `"""..."""`~~ | **XONG (2026-09-29)** — `_join_triple_quoted` (il_codegen.tkv) nối dòng khi `"""` chưa đóng, đổi newline thành escape 2 ký tự ngay tại nơi nối; nhom `TRIPLESTR` trong `_EXPR_TOKEN_RE` (il_core.tkv) nhận nội dung. Test `multiline_string_test.tkv` 8/8. Xem REPOSITORY-NOTES |
 | ~~Biểu thức điều kiện~~ | **XONG** — dạng Python `a if c else b` đã có. Dạng `c ? a : b` vẫn bị chặn bởi `ast.parse` của Python — xem mục 4 |
-| Literal lồng `[{"a":1}]`, `{"k":[1,2]}` | thiết kế |
+| ~~Literal lồng `[{"a":1}]`, `{"k":[1,2]}`~~ | **XONG (2026-09-29)** — list/dict/set chứa nhau, tới 4 cấp. Test `nested_literal_test.tkv` 7/7. Các phép so sánh theo NỘI DUNG trên container lồng (`remove`/`in`/`index`/`count`) **vẫn bị từ chối** — `List<T>`/`HashSet<T>` so sánh theo tham chiếu |
 | Tuple literal `(1, 2)` | thiết kế — DSL **không có kiểu tuple** |
 | `f(*xs)`, `f(**kw)` | lớn — cần đổi mô hình arity |
 | ~~`yield from`~~ | **XONG (2026-09-29)** — ho tro **list** (vong lap theo chi so) va **ham generator** (ban giao `MoveNext`/`get_Current`). Nguon khac bi tu choi VOI LY DO. Test `generator_yield_from_test.tkv` 10/10. Xem mục 5 |

@@ -260,6 +260,14 @@ def il_type_str(type_ann: TypeAnn, records: dict = None) -> str:
         # (chi khac o cach tao - unroll hang so, va o cho .append() bi chan).
         return _il_bytearray_type()
     if type_ann.shape in ('set', 'frozenset'):
+        # 2026-09-29 (literal long nhau): phan tu la container
+        # (`ss = {[1,2],[3,4]}`) -> de quy qua elem_ta giong nhanh 'list'
+        # ben tren. Giu nguyen nhanh scalar (elem_ta None) de ham
+        # il_set_type tiep tuc lo guard handle-type (HashSet dua vao
+        # GetHashCode/Equals mac dinh).
+        if type_ann.elem_ta is not None:
+            inner = il_type_str(type_ann.elem_ta, records)
+            return f'class [System.Core]System.Collections.Generic.HashSet`1<{inner}>'
         return il_set_type(type_ann.dtype, records, _EXTERN_CLASS_DEFS)
     if type_ann.shape == 'file':
         return _il_file_type(type_ann.dtype)
@@ -302,8 +310,23 @@ def il_type_str(type_ann: TypeAnn, records: dict = None) -> str:
         # _local_il_type (il_codegen.py's gen_il_function) tinh kieu IL cho
         # locals_decl, khac han dict_type.py's codegen_for_in_dict_items
         # (dung truc tiep il_dict_enumerator_type voi extern_class_defs).
+        # 2026-09-29 (literal long nhau): `for k, v in d.items()` khi V la
+        # container (`dd = {"k": {"n": 1}}`) - nhanh elem_ta de quy, giong
+        # nhanh 'list'/'dict' ben tren. KHONG co nhanh nay thi enumerator
+        # sinh sai kieu generic (Dictionary`2<string, __nested__>) -> CLR nem
+        # MissingMethodException LUC CHAY, tuc loi chi lo ra o tier toolchain.
+        if type_ann.elem_ta is not None:
+            key = il_list_elem_ilstr(type_ann.key_dtype, records, _EXTERN_CLASS_DEFS)
+            val = il_type_str(type_ann.elem_ta, records)
+            return (f'valuetype [mscorlib]System.Collections.Generic.Dictionary`2/Enumerator'
+                    f'<{key}, {val}>')
         return il_dict_enumerator_type(type_ann.key_dtype, type_ann.dtype, _EXTERN_CLASS_DEFS)
     if type_ann.shape == 'dict_kvpair':
+        if type_ann.elem_ta is not None:
+            key = il_list_elem_ilstr(type_ann.key_dtype, records, _EXTERN_CLASS_DEFS)
+            val = il_type_str(type_ann.elem_ta, records)
+            return (f'valuetype [mscorlib]System.Collections.Generic.KeyValuePair`2'
+                    f'<{key}, {val}>')
         return il_kvpair_type(type_ann.key_dtype, type_ann.dtype, _EXTERN_CLASS_DEFS)
     if type_ann.shape == 'tuple':
         return il_tupleN_type(type_ann.tuple_dtypes)

@@ -17,7 +17,10 @@ from il_dispatch import (
     register_assign_rhs_parser, register_line_parser,
     register_stmt_codegen, register_first_pass_walk, register_expr_codegen,
 )
-from il_features.list_type import il_list_elem_ilstr, find_first_append_dtype
+from il_features.list_type import (
+    il_list_elem_ilstr, find_first_append_dtype, il_container_type_of_spec,
+    ta_elem_spec, _split_container_spec,
+)
 
 
 def il_set_type(dtype: str, records: dict = None, extern_class_defs: dict = None) -> str:
@@ -48,8 +51,20 @@ _FROZENSET_NEW_RE = re.compile(r'^frozenset\((\w+)\)\s*$')
 
 def compile_in_set(key_node, coll_name, scope, out, ctx):
     """CIL cho 'x in s' (s la set) - tag 'in' cua _compile_expr khi
-    coll_ta.shape=='set', xem il_codegen.py's _expr_in."""
+    coll_ta.shape=='set', xem il_codegen.py's _expr_in.
+
+    2026-09-29: chan them khi phan tu la CONTAINER. `HashSet<T>.Contains`
+    so sanh qua EqualityComparer<T>.Default, ma voi T = List`1/... mac dinh
+    la SO SANH THAM CHIEU - 1 list-literal moi (newobj tai diem goi) se khong
+    bao gio khop du noi dung giong het, ket qua SAI AM THAM. Cung ly do, cung
+    kieu chan voi reject_if_nested_container_elem (list) o ben kia."""
     _, _, coll_ta = scope[coll_name]
+    if coll_ta.elem_ta is not None:
+        raise SyntaxError(
+            f"il_codegen: '{coll_name} in ...' - '{coll_name}' la "
+            f"{coll_ta.shape} co phan tu la container long nhau, HashSet<T> so sanh "
+            f"phan tu container THEO THAM CHIEU (khong theo noi dung), ket qua se sai "
+            f"am tham. Chi dem so phan tu (len) hoac duyet bang 'for v in <ten bien>:'")
     ctx['load_var_ref'](coll_name, scope, out)
     ctx['compile_expr'](key_node, scope, out, coll_ta.dtype, ctx)
     set_type = il_set_type(coll_ta.dtype, (ctx or {}).get('records'), (ctx or {}).get('extern_class_defs'))
@@ -127,14 +142,26 @@ def declare_set_literal(name, elements, ctx):
         ctx['locals_decl'].append((name, hint))
         infer_scope_set(ctx, name, hint)
         return
-    from il_features.list_type import list_literal_elem_spec_of
+    from il_features.list_type import (list_literal_elem_spec_of, is_container_spec,
+                                       ta_from_spec)
     infer_scope = ctx['infer_scope']
+    TypeAnn = ctx['TypeAnn']
     elem_dtype = None
+    elem_ta = None
     for el in elements:
         d = list_literal_elem_spec_of(el, infer_scope, ctx)
+        # 2026-09-29 (literal long nhau): phan tu la container
+        # (`ss = {[1,2],[3,4]}`) thi can `elem_ta` day du - il_type_str chi
+        # de quy qua elem_ta. Giu nguyen nhanh scalar (elem_ta=None) vi moi
+        # set co phan tu container moi co the xuat hien tu day.
+        d_ta = ta_from_spec(d, TypeAnn) if is_container_spec(d) else None
         if elem_dtype is None or (elem_dtype not in ('f32', 'f64') and d in ('f32', 'f64')):
             elem_dtype = d
-    ta = ctx['TypeAnn'](elem_dtype, 'set')
+            elem_ta = d_ta
+    if elem_ta is not None:
+        ta = TypeAnn(elem_ta.dtype, 'set', elem_ta=elem_ta)
+    else:
+        ta = TypeAnn(elem_dtype, 'set')
     ctx['locals_decl'].append((name, ta))
     infer_scope.set(name, ta)
 
@@ -184,12 +211,61 @@ def codegen_assign_set_literal(stmt, scope, body, body_dtype, ctx, sig, codegen_
       - 'x in <bieu thuc>' bao "chi ho tro ... 1 bien dict/set/list/chuoi don"
     Da thu viet EXPR_CODEGEN cho dang inline roi BO - khong test duoc, va
     code khong toi duong la noi rut de rot. Neu sau nay 'len'/'in' chap nhan
-    bieu thuc, day la cho can mo lai. Xem REPOSITORY-NOTES."""
+    bieu thuc, day la cho can mo lai. Xem REPOSITORY-NOTES.
+
+    2026-09-29: them xem codegen_expr_set_literal cho PHAI TU long trong
+    container khac - dang statement o day giu ket qua roi 'store_var'.
+    Kieu IL lay bang `ctx['il_type_str']` (nhanh shape='set' cua no de quy
+    qua `elem_ta` roi giao nguyen ve `il_set_type` khi phan tu vo huong, va
+    do giu guard handle-type) - giong het 2 dong khai `lst = [...]`/
+    `d = {...}`, nen 3 loai container chi 1 noi quyet dinh kieu."""
     name = stmt['name']
     _, _, ta = scope[name]
-    set_il = il_set_type(ta.dtype, ctx.get('records'), ctx.get('extern_class_defs'))
-    _emit_set_literal(stmt['elements'], set_il, body, ctx, scope, ta.dtype)
+    set_il = ctx['il_type_str'](ta, ctx.get('records'))
+    _emit_set_literal(stmt['elements'], set_il, body, ctx, scope, ta_elem_spec(ta))
     ctx['store_var'](name, scope, body)
+
+
+def codegen_expr_set_literal(node, scope, out, dtype, ctx=None):
+    """EXPR_CODEGEN entry: '{1, 2, 3}' o VI TRI BIEU THUC (2026-09-29,
+    literal long nhau) - giong het codegen_expr_list_literal (list_type.tkv)
+    nhung cho set.
+
+    THIEU nhanh nay la 1 trong 2 nguyen nhan doc lap cua
+    Testkit/nested_literal_test: node 'set_literal' chi co 1 duong xu ly -
+    `s = {...}` (try_rhs_set_literal + codegen_assign_set_literal, ca 2 o
+    tang STATEMENT). Khong duoc dang ky trong EXPR_CODEGEN nen khi no xuat
+    hien LONG trong 1 bieu thuc khac (la phan tu cua list khac, vi du
+    `ls = [{1, 2}]`) `_compile_expr` nem "AST node khong ro".
+
+    `_emit_set_literal` (dung chung voi dang statement) giu ket qua CUOI
+    CUNG tren stack - ham nay khong them gi vao cuoi nen ket qua cua 1 set
+    literal long nhau la dung gia tri bieu thuc (giong newobj cua
+    codegen_expr_list_literal).
+
+    `dtype` la NGU CANH: chuoi spec 'set[T]' (khi phan tu cua container
+    khac) hoac dtype cua phan tu."""
+    elements = node[1]
+    split = _split_container_spec(dtype)
+    if split is not None:
+        if split[0] != 'set':
+            raise SyntaxError(
+                f"il_codegen: set-literal '{{...}}' o vi tri can kieu {dtype!r} - "
+                f"ngu canh kieu {split[0]}[...], khong phai set")
+        elem_spec = split[1]
+    elif dtype is not None:
+        elem_spec = dtype
+    else:
+        elem_spec = _set_literal_elem_dtype(elements, scope, ctx)
+    if elem_spec is None:
+        raise SyntaxError(
+            "il_codegen: khong suy duoc dtype PHAN TU cho set-literal o vi tri "
+            "bieu thuc (khong co ngu canh kieu tu noi dung, va noi dung vuot pham vi "
+            "suy kieu) - gan ra 1 bien co khai bao kieu truoc.")
+    records = (ctx or {}).get('records')
+    set_il = il_container_type_of_spec(f'set[{elem_spec}]', records,
+                                       (ctx or {}).get('extern_class_defs'))
+    _emit_set_literal(elements, set_il, out, ctx, scope, elem_spec)
 
 
 def try_parse_set_add(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
@@ -273,6 +349,126 @@ def declare_set(name, ctx):
     ctx['infer_scope'].set(name, ta)
 
 
+def _set_name_under_range_len(bound_node, infer_scope):
+    """Ten bien SET dang duyet o dang 'for i in range(len(<ten>)):' - tra ve
+    None neu co hinh dang khac, hoac `<ten>` khong phai set/frozenset trong
+    `infer_scope`.
+
+    Day CHINH LA dang text ma macro `for_in_list` (control_flow.tkv) sinh ra
+    cho 'for v in <ten>:' - nhan dang nao ma chinh macro do da lo ra nhanh
+    `to_list()` rieng, nen o day khong khop (nguon do la 1 list, khong phai
+    set) va ta khong can lam gi.
+
+    `bound_node` KHONG con 'range' bao ngoai: line-parser cua vong lap
+    (try_parse_for) rut luon lop 'range(...)' 1 tham so - `for i in range(n):`
+    va `for i in n:` cung ra 1 node bound. Vi du `len(ks)` cua rang buoc
+    `range(len(ks))` do macro sinh ra den day la node 'call'/'len' truc
+    tiep."""
+    node = bound_node
+    if (isinstance(node, tuple) and node[0] == 'call'
+            and node[1] == 'range' and len(node[2]) == 1):
+        node = node[2][0]
+    if not (isinstance(node, tuple) and node[0] == 'call'
+            and node[1] == 'len' and len(node[2]) == 1):
+        return None
+    arg = node[2][0]
+    if not (isinstance(arg, tuple) and arg[0] == 'var'):
+        return None
+    try:
+        _, _, ta = infer_scope[arg[1]]
+    except (KeyError, TypeError):
+        return None
+    if getattr(ta, 'shape', None) not in ('set', 'frozenset'):
+        return None
+    return arg[1]
+
+
+def _body_indexes(stmt_list, name):
+    """Cac cau lenh trong `stmt_list` co dang '<bien> = <name>[<chi so>]' -
+    chinh la dang macro sinh ra de gan phan tu vao bien vong lap. Chi quet
+    CAP CUNG (khong de quy vao vong lap con): ben trong vong lap con, bien
+    vong lap la bien rieng, nen `<name>` o do la 1 bien khac.
+
+    Node 'index' luu TEN BIEN o `node[1]` dang CHUOI (khong phai node
+    ('var', ten) nhu cac bieu thuc khac) - xem _expr_index cua
+    il_codegen.tkv."""
+    return [s for s in stmt_list
+            if s.get('kind') == 'assign_scalar'
+            and isinstance(s.get('rhs_node'), tuple)
+            and s['rhs_node'][0] == 'index'
+            and s['rhs_node'][1] == name]
+
+
+def plan_set_iter_index_loop(stmt, ctx):
+    """FIRST_PASS helper cho vong lap duyet set ma macro TEXT-LEVEL khong
+    nhin ra (2026-09-29).
+
+    VAN DE: 'for v in s:' duoc mo rong THANH VAN BAN thanh
+    'for i in range(len(s)): v = s[i]'. Nhanh set cua macro chi bat khi ten
+    `s` bi QUET TRUOC o tang VAN BAN (`s = set()`/`s = {...}`/tham so/ham tra
+    ve set - xem _expand_macros cua il_codegen.tkv). Mot bien set sinh RA
+    giua chung, vi du do doc ra tu dict literal co gia tri la set
+    (`ks = ds["k"]`), khong bao gio xuat hien trong van ban goc nen macro
+    viet nham thanh duyet qua index - `HashSet<T>` khong co indexer nen bao
+    loi "'s[...]' - 's' la set".
+
+    SUA O DAY (tang first-pass, noi CO kieu): nhan ra mau
+    'for i in range(len(s)):' voi `s` la set trong `infer_scope`, roi dua
+    phan 'v = s[i]' sang 1 local AN la ban `to_list()` cua `s` (khai 1 LAN
+    truoc vong lap, khong phai moi vong lap - neu chi doi `s[i]` thanh
+    `s.to_list()[i]` thi to_list() chay O(n) LAN, n^2 cho ca vong lap).
+    `len(s)` giu nguyen tren chinh HashSet (get_Count) nen chi can sua
+    phan doc phan tu.
+
+    KHONG sua gi khi `s` la list/dict (macro da viet dung) - ham nay tra
+    ve ngay, nen 88 test hien huu khong doi 1 dong IL nao."""
+    infer_scope = ctx.get('infer_scope')
+    if infer_scope is None or not stmt.get('body'):
+        return
+    tmp = stmt.get('_set_iter_tmp')
+    if tmp is None:
+        src = _set_name_under_range_len(stmt.get('bound_node'), infer_scope)
+        if src is None:
+            return
+        targets = _body_indexes(stmt['body'], src)
+        if not targets:
+            return
+        _, _, src_ta = infer_scope[src]
+        # Giu nguyen `elem_ta` khi phan tu la container (set chua list: ban
+        # List<T> phai la List<List<T>>, xem nhanh elem_ta cua il_type_str
+        # trong il_codegen.tkv) - neu bo qua thi `ss = {[1,2],[3,4]}` se bien
+        # thanh List<int32> va moi phan tu doc ra la 1 int doc nham tren mot
+        # bien List<int32>.
+        list_ta = ctx['TypeAnn'](src_ta.dtype, 'list', elem_ta=src_ta.elem_ta)
+        tmp = f'__forset{id(stmt)}'
+        for s in targets:
+            s['rhs_node'] = ('index', tmp, s['rhs_node'][2])
+        stmt['_set_iter_src'] = src
+        stmt['_set_iter_tmp'] = tmp
+        stmt['_set_iter_list_ta'] = list_ta
+    # PHAI khai bao o MOI pass, khong chi lan dau: first-pass chay lai nhieu
+    # lan (hoan cau lenh de bien chua san co duoc) va moi lan co 1
+    # `locals_decl` rieng - khai o lan dau di roi, cac lan sau bo qua (vi
+    # `stmt` da ghi '_set_iter_tmp' nen nhanh quyet dinh o tren return
+    # ngay) thi local AN khong bao gio co trong `.locals` cua ham THAT.
+    ctx['declare_named'](tmp, stmt['_set_iter_list_ta'])
+
+
+def emit_set_iter_source(stmt, scope, body, ctx):
+    """Phan codegen cua `plan_set_iter_index_loop`: ghi
+    `<tmp> = <src>.to_list()` TRUOC vong lap. No-op khi first-pass khong sua
+    gi (xem do - ham do la nguon SU THAT DUY NHAT cho 2 khoa
+    '_set_iter_tmp'/'_set_iter_list_ta')."""
+    tmp = stmt.get('_set_iter_tmp')
+    if tmp is None:
+        return
+    ctx['load_var_ref'](stmt['_set_iter_src'], scope, body)
+    list_il = ctx['il_type_str'](stmt['_set_iter_list_ta'], ctx.get('records'))
+    body.append(f'    newobj instance void {list_il}::.ctor(class '
+                f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    ctx['store_var'](tmp, scope, body)
+
+
 def declare_frozenset(name, src, ctx):
     """FIRST_PASS_WALK helper: khai bao local HashSet<T> cho 'fs =
     frozenset(lst)' - dtype phan tu LAY THANG tu dtype cua 'lst' (khac
@@ -325,3 +521,6 @@ register_first_pass_walk('assign_set_new', fpw_assign_set_new)
 register_first_pass_walk('assign_frozenset_new', fpw_assign_frozenset_new)
 register_first_pass_walk('assign_set_literal', fpw_assign_set_literal)
 register_first_pass_walk('set_add', fpw_set_add)
+# 2026-09-29: set literal o VI TRI BIEU THUC (phan tu cua list khac) - xem
+# codegen_expr_set_literal. Truoc day chi 's = {...}' chay.
+register_expr_codegen('set_literal', codegen_expr_set_literal)

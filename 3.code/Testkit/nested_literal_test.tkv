@@ -1,0 +1,118 @@
+# -*- coding: utf-8 -*-
+"""Literal LONG trong nhau - `[{...}]`, `{"k": [...]}`, `{"k": {...}}` (2026-09-29).
+
+TRUOC khi sua (da do bang probe):
+- `dl = [[1,2],[3,4]]`                      -> CHAY (list trong list da co)
+- `ld = [{"a":1},{"a":2}]`                  -> LOI "AST node khong ro: ('dict_literal', ...)"
+- `dl = {"k":[1,2]}`                        -> LOI "List phan tu kieu 'list[int]' khong hop le"
+- `dd = {"k":{"n":1}}`                      -> LOI "AST node khong ro: ('dict_literal', ...)"
+- `ss = {[1,2],[3,4]}`                      -> LOI "List phan tu kieu 'list[int]' khong hop le"
+- `ds = {"k":{1,2}}`                        -> LOI "AST node khong ro: ('set_literal', ...)"
+
+Hai nguyen nhan doc lap nhau:
+A. `dict_literal`/`set_literal` CHI co 1 duong (gan `d = {...}`), CHUA duoc
+   dang ky trong EXPR_CODEGEN nen `_compile_expr` nem "AST node khong ro" khi
+   chung xuat hien o vi tri bieu thuc (phan tu cua list, gia tri cua dict).
+B. Co so IL `il_container_type_of_spec` DA de quy duoc list[...]/dict[...], nhung
+   `il_list_elem_ilstr` - noi nhieu cho phep - chi nhan scalar/record/extern nen
+   kieu shape-string bi tu choi.
+
+Gia tri mong doi tinh tay, doi chieu CPython 3.11.
+"""
+__tkv_import__ = ["tkv_test_lib"]
+
+
+# ---------------- list chua dict ----------------
+
+def list_of_dict_read() -> "str":
+    ld = [{"a": 1}, {"a": 2}]
+    out = ""
+    for d in ld:
+        out = out + str(d["a"]) + ","
+    return out
+
+
+# ---------------- list chua set ----------------
+
+def list_of_set_len() -> "i32":
+    ls = [{1, 2}, {3, 4}]
+    n = 0
+    for s in ls:
+        n = n + 1
+    return n
+
+
+# ---------------- dict co gia tri la list ----------------
+
+def dict_of_list_read() -> "str":
+    dl = {"k": [1, 2], "j": [3, 4]}
+    ks = dl["k"]
+    js = dl["j"]
+    return str(ks[0]) + "," + str(ks[1]) + "|" + str(js[0]) + "," + str(js[1])
+
+
+# ---------------- dict co gia tri la dict ----------------
+
+def dict_of_dict_read() -> "str":
+    dd = {"k": {"n": 1}, "j": {"n": 2}}
+    a = dd["k"]
+    b = dd["j"]
+    return str(a["n"]) + "|" + str(b["n"])
+
+
+# ---------------- dict co gia tri la set ----------------
+
+def dict_of_set_len() -> "i32":
+    ds = {"k": {1, 2}, "j": {3, 4}}
+    ks = ds["k"]
+    n = 0
+    for v in ks:
+        n = n + 1
+    return n
+
+
+# ---------------- set chua list ----------------
+
+def set_of_list_len() -> "i32":
+    ss = {[1, 2], [3, 4]}
+    n = 0
+    for v in ss:
+        n = n + 1
+    return n
+
+
+# ---------------- long 3 cap: dict -> list -> dict ----------------
+
+def three_level() -> "str":
+    root = {"rows": [{"n": 1}, {"n": 2}]}
+    rows = root["rows"]
+    first = rows[0]
+    return str(first["n"])
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("list_of_dict", list_of_dict_read(), "1,2,")
+
+    tested = tested + 1
+    total = total + check("list_of_set_len", str(list_of_set_len()), "2")
+
+    tested = tested + 1
+    total = total + check("dict_of_list", dict_of_list_read(), "1,2|3,4")
+
+    tested = tested + 1
+    total = total + check("dict_of_dict", dict_of_dict_read(), "1|2")
+
+    tested = tested + 1
+    total = total + check("dict_of_set_len", str(dict_of_set_len()), "2")
+
+    tested = tested + 1
+    total = total + check("set_of_list_len", str(set_of_list_len()), "2")
+
+    tested = tested + 1
+    total = total + check("three_level_nesting", three_level(), "1")
+
+    return test_summary("nested_literal_test", total, tested)

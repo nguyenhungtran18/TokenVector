@@ -13,9 +13,12 @@ from il_core import IL_SCALAR, parse_expr
 from il_dispatch import (
     register_assign_rhs_parser, register_line_parser,
     register_stmt_codegen, register_first_pass_walk, register_first_pass_prescan,
-    register_macro_expander,
+    register_macro_expander, register_expr_codegen,
 )
-from il_features.list_type import il_list_elem_ilstr
+from il_features.list_type import (
+    il_list_elem_ilstr, il_container_type_of_spec, dict_literal_spec_of,
+    is_container_spec, ta_from_spec, ta_elem_spec, _split_container_spec,
+)
 from typed_dsl_parser import TypeAnn
 
 
@@ -128,26 +131,6 @@ def try_rhs_dict_literal(rhs, name, known_shapes):
     return {'kind': 'assign_dict_literal', 'name': name, 'pairs': node[1]}
 
 
-def _dict_literal_dtypes(pairs, scope, ctx):
-    """(key_dtype, val_dtype) cho dict literal - suy THANG tu cac cap trong
-    literal, khong can quet 'd[k] = v' sau do (giong declare_list_literal /
-    declare_set_literal). Widen ve float neu bat ky phan nao la float."""
-    from il_features.list_type import list_literal_elem_spec_of
-    key_dtype = val_dtype = None
-    for k_node, v_node in pairs:
-        for node, which in ((k_node, 'k'), (v_node, 'v')):
-            d = list_literal_elem_spec_of(node, scope, ctx)
-            if d is None:
-                continue
-            cur = key_dtype if which == 'k' else val_dtype
-            if cur is None or (cur not in ('f32', 'f64') and d in ('f32', 'f64')):
-                if which == 'k':
-                    key_dtype = d
-                else:
-                    val_dtype = d
-    return key_dtype, val_dtype
-
-
 def fpw_assign_dict_literal(stmt, ctx):
     """FIRST_PASS_WALK: khai bao local Dictionary<K,V> cho 'd = {"a": 1}'."""
     name = stmt['name']
@@ -164,8 +147,25 @@ def fpw_assign_dict_literal(stmt, ctx):
         ctx['locals_decl'].append((name, hint))
         ctx['infer_scope'].set(name, hint)
         return
-    key_dtype, val_dtype = _dict_literal_dtypes(stmt['pairs'], ctx['infer_scope'], ctx)
-    ta = ctx['TypeAnn'](val_dtype, 'dict', key_dtype=key_dtype)
+    # Suy spec truc tiep bang `dict_literal_spec_of` (list_type.tkv) - ham
+    # nay ton tai o do VI list_literal_elem_spec_of (cung noi, cung sua)
+    # cung phai biet spec cua 1 dict literal; file nay da import list_type
+    # nen phia day moi dung (import nguoc lai se cycle). `_dict_literal_
+    # dtypes` - ban sao cua no - da xoa 2026-09-29.
+    key_dtype, val_dtype = dict_literal_spec_of(stmt['pairs'], ctx['infer_scope'], ctx)
+    TypeAnn = ctx['TypeAnn']
+    # 2026-09-29 (literal long nhau): gia tri la container (`{"k": [1,2]}` /
+    # `{"k": {"n": 1}}` / `{"k": {1,2}}`) thi phai khai `elem_ta` day du -
+    # il_type_str chi de quy vao elem_ta, con `ta.dtype` (chuoi spec) thi
+    # khong 'la dtype. Giu NGUYEN VEN nhanh scalar (elem_ta=None): nhieu
+    # noi doc `d.dtype` (vd _infer_dtype cho 'd["k"]') va cac guard
+    # `ta.elem_ta is not None` deu dua tren hinh dang cu, doi o day se lam
+    # chay nhung duong do.
+    if is_container_spec(val_dtype):
+        val_ta = ta_from_spec(val_dtype, TypeAnn)
+        ta = TypeAnn(val_ta.dtype, 'dict', key_dtype=key_dtype, elem_ta=val_ta)
+    else:
+        ta = TypeAnn(val_dtype, 'dict', key_dtype=key_dtype)
     ctx['locals_decl'].append((name, ta))
     ctx['infer_scope'].set(name, ta)
 
@@ -185,9 +185,68 @@ def codegen_assign_dict_literal(stmt, scope, body, body_dtype, ctx, sig, codegen
     for k_node, v_node in stmt['pairs']:
         body.append('    dup')
         ctx['compile_expr'](k_node, scope, body, ta.key_dtype, ctx)
-        ctx['compile_expr'](v_node, scope, body, ta.dtype, ctx)
+        ctx['compile_expr'](v_node, scope, body, ta_elem_spec(ta), ctx)
         body.append(f'    callvirt instance void {dict_type}::set_Item(!0, !1)')
     ctx['store_var'](name, scope, body)
+
+
+def codegen_expr_dict_literal(node, scope, out, dtype, ctx=None):
+    """EXPR_CODEGEN entry: '{"a": 1}' o VI TRI BIEU THUC (2026-09-29,
+    literal long nhau) - giong het codegen_expr_list_literal (list_type.tkv)
+    nhung cho dict.
+
+    THIEU nhanh nay la 1 trong 2 nguyen nhan doc lap cua
+    Testkit/nested_literal_test: node 'dict_literal' chi co 1 duong xu ly -
+    `d = {...}` (try_rhs_dict_literal + codegen_assign_dict_literal, ca 2 o
+    tang STATEMENT). No khong duoc dang ky trong EXPR_CODEGEN nen khi xuat
+    hien LONG trong 1 bieu thuc khac (la gia tri cua dict/list khac,
+    vi du `ld = [{"a": 1}]`) `_compile_expr` nem "AST node khong ro".
+
+    GIA TRI DUNG o day KHAC codegen_assign_dict_literal: ham do giu ket qua
+    tren stack roi `store_var` gan vao bien; ham nay GIU NGUYEN tren stack
+    de caller dung tiep (giong khoi `dup/.../pop` cua
+    codegen_assign_dict_literal - `newobj` + `dup` + set_Item + `dup` nen
+    ket qua cuoi cung van dung 1 ban).
+
+    `dtype` la NGU CANH (chuoi spec 'dict[K,V]' hoac dtype cua phan tu) -
+    xuat phat tu cung quy uoc voi moi entry EXPR_CODEGEN khac.
+
+    2026-09-29: KHOA luon suy tu noi dung literal, KHONG bao gio lay tu
+    `dtype` khi `dtype` chi la 1 dtype vo huong. Ly do: quy uoc chung
+    truyen xuong `p.type_ann.dtype` cho moi doi so, ma voi dict cai do CHI
+    la dtype cua GIA TRI - `def g(d: "dict[str,i32]")` roi `g({"a": 5})` se
+    sinh `Dictionary`2<int32, int32>` roi doc bang khoa chuoi -> CLR nem
+    AccessViolationException trong FindEntry. Gap that ngay khi viet ham
+    nay, nen ghi ro o day de khong ai 'tieu chinh lai' thanh `key_spec =
+    val_spec = dtype`."""
+    pairs = node[1]
+    key_spec, val_spec = dict_literal_spec_of(pairs, scope, ctx)
+    split = _split_container_spec(dtype)
+    if split is not None:
+        if split[0] == 'dict':
+            key_spec, val_spec = [p.strip() for p in split[1].split(',', 1)]
+        elif split[0] == 'list':
+            val_spec = split[1]      # ngu canh chi cho biet PHAU TU
+        else:
+            raise SyntaxError(
+                f"il_codegen: dict-literal '{{...}}' o vi tri can kieu {dtype!r} - "
+                f"ngu canh kieu {split[0]}[...], khong phai dict")
+    elif dtype is not None:
+        val_spec = dtype
+    if key_spec is None or val_spec is None:
+        raise SyntaxError(
+            "il_codegen: khong suy duoc kieu KHOA/GIA TRI cho dict-literal o vi tri "
+            "bieu thuc (khong co ngu canh kieu tu noi dung, va noi dung vuot pham vi "
+            "suy kieu) - gan ra 1 bien co khai bao kieu truoc.")
+    records = (ctx or {}).get('records')
+    dict_il = il_container_type_of_spec(f'dict[{key_spec}, {val_spec}]', records,
+                                        (ctx or {}).get('extern_class_defs'))
+    out.append(f'    newobj instance void {dict_il}::.ctor()')
+    for k_node, v_node in pairs:
+        out.append('    dup')
+        ctx['compile_expr'](k_node, scope, out, key_spec, ctx)
+        ctx['compile_expr'](v_node, scope, out, val_spec, ctx)
+        out.append(f'    callvirt instance void {dict_il}::set_Item(!0, !1)')
 
 
 def try_parse_for_in_dict_items(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
@@ -228,8 +287,13 @@ def codegen_for_in_dict_items(stmt, scope, body, body_dtype, ctx, sig, codegen_s
     # dict_enumerator/dict_kvpair o noi khac (il_codegen.py ~dong 167-177) -
     # dispatcher do doc _EXTERN_CLASS_DEFS TRUC TIEP tu module-level, khong
     # qua ctx, nen KHONG the thieu duoc nua du ctx duoc xay dung o dau.
-    enum_type = ctx['il_type_str'](TypeAnn(dtype=val_dtype, shape='dict_enumerator', key_dtype=key_dtype), ctx.get('records'))
-    kv_type = ctx['il_type_str'](TypeAnn(dtype=val_dtype, shape='dict_kvpair', key_dtype=key_dtype), ctx.get('records'))
+    # 2026-09-29 (literal long nhau): truyen them `elem_ta` - khi gia tri
+    # la container, `dict_ta.dtype` chi la dtype leaf nen enumerator/kvpair
+    # phai lay kieu IL cua GIA TRI THAT tu elem_ta (xem nhanh elem_ta cua
+    # il_type_str trong il_codegen.tkv). Truoc day thieu o day thi
+    # `for k, v in {"k": {"n": 1}}.items()` sinh sai generic.
+    enum_type = ctx['il_type_str'](TypeAnn(dtype=val_dtype, shape='dict_enumerator', key_dtype=key_dtype, elem_ta=dict_ta.elem_ta), ctx.get('records'))
+    kv_type = ctx['il_type_str'](TypeAnn(dtype=val_dtype, shape='dict_kvpair', key_dtype=key_dtype, elem_ta=dict_ta.elem_ta), ctx.get('records'))
     # QUAN TRONG (bug that phat hien qua test - MissingMethodException
     # luc chay, CUNG loai bug voi List's get_Item): return type cua
     # GetEnumerator()/get_Current() phai dung placeholder '!0, !1' (dinh
@@ -609,15 +673,27 @@ def fpw_for_in_dict_items(stmt, ctx):
         val_shape = 'record'
     else:
         val_shape = None
+    # 2026-09-29 (literal long nhau): gia tri la container thi tai dung
+    # nguyen `elem_ta` lam TypeAnn cua 'v' (giong khoi doc phan tu cua
+    # list-container long nhau trong declare_scalar cua il_codegen.tkv).
+    # Khong co nhanh nay thi `dict_ta.dtype` (chi la dtype LEAF) se khai
+    # 'v' thanh slot scalar -> slot nay nhan object Dictionary -> IL sai
+    # kieu am tham.
+    if dict_ta.elem_ta is not None:
+        val_ta = dict_ta.elem_ta
+    else:
+        val_ta = TypeAnn(dict_ta.dtype, val_shape)
     declare_named(stmt['key_var'], TypeAnn(dict_ta.key_dtype, None))
-    declare_named(stmt['val_var'], TypeAnn(dict_ta.dtype, val_shape))
+    declare_named(stmt['val_var'], val_ta)
     # Local AN (hidden) rieng cho MOI lan xuat hien cu phap nay - ten duy
     # nhat qua id(stmt) (giong tern_temp_of_id cho ternary) nen an toan
     # khi LONG NHAU (2 vong lap items() long nhau khong trung ten local).
     declare_named(f'__dictiter{id(stmt)}_en',
-                   TypeAnn(dict_ta.dtype, 'dict_enumerator', dict_ta.key_dtype))
+                   TypeAnn(dict_ta.dtype, 'dict_enumerator', dict_ta.key_dtype,
+                           elem_ta=dict_ta.elem_ta))
     declare_named(f'__dictiter{id(stmt)}_cur',
-                   TypeAnn(dict_ta.dtype, 'dict_kvpair', dict_ta.key_dtype))
+                   TypeAnn(dict_ta.dtype, 'dict_kvpair', dict_ta.key_dtype,
+                           elem_ta=dict_ta.elem_ta))
     ctx['walk_fn'](stmt['body'])
 
 
@@ -717,3 +793,6 @@ register_first_pass_walk('for_in_dict_items', fpw_for_in_dict_items)
 register_first_pass_walk('container_clear', fpw_container_clear)
 register_first_pass_prescan('for_in_dict_items', fpp_for_in_dict_items)
 register_macro_expander('dict_update', try_expand_dict_update)
+# 2026-09-29: dict literal o VI TRI BIEU THUC (gia tri cua dict/list khac) -
+# xem codegen_expr_dict_literal. Truoc day chi 'd = {...}' chay.
+register_expr_codegen('dict_literal', codegen_expr_dict_literal)

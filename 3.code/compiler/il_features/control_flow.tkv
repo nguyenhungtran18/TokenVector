@@ -892,6 +892,14 @@ def fpw_for(stmt, ctx):
     if stmt.get('start_node') is not None:
         ctx['collect_ternary_temps'](stmt['start_node'])
     ctx['collect_ternary_temps'](stmt['bound_node'])
+    # 2026-09-29: vong lap duyet 1 bien SET ma macro text-level khong nhin
+    # ra (bien set sinh ra giua chung, vd doc tu dict literal co gia tri la
+    # set) - sua o tang first-pass noi CO kieu. PHAI chay TRUOC walk_fn:
+    # no doi rhs_node cua cac cau lenh trong than. Import trong ham vi
+    # set_type.tkv la file THU VIEN, nap sau control_flow.tkv (xem
+    # build_tkvc.ps1) nen import o dau module se dao thu tu nap.
+    from il_features.set_type import plan_set_iter_index_loop
+    plan_set_iter_index_loop(stmt, ctx)
     # PHAI chay TRUOC walk_fn: no doi kind cua cac cau lenh don chuoi
     # thanh 'sb_append', va walk_fn phai thay kind MOI.
     plan_str_accum(stmt, ctx)
@@ -1049,6 +1057,12 @@ def codegen_for(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     start_node = stmt.get('start_node')
     step = stmt.get('step', 1)
     compile_expr, load_var_ref, store_var = ctx['compile_expr'], ctx['load_var_ref'], ctx['store_var']
+    # 2026-09-29: `<tmp> = <src>.to_list()` cho vong lap duyet set (xem
+    # set_type.tkv's plan_set_iter_index_loop - cung 1 cap doan ma ket qua
+    # code, no lam FIRST_PASS). PHAI o TREN het vong lap: sau do moi la
+    # khoi lap, va chi 1 LAN (goi lai o moi vong lap se O(n^2)).
+    from il_features.set_type import emit_set_iter_source
+    emit_set_iter_source(stmt, scope, body, ctx)
     ctx['label_counter'][0] += 1
     n = ctx['label_counter'][0]
     start_lbl, end_lbl = f'{sig.name}_L{n}_start', f'{sig.name}_L{n}_end'

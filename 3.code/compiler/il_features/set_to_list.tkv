@@ -24,7 +24,11 @@ from typed_dsl_parser import TypeAnn
 
 
 def _to_list_return_ta(set_ta):
-    return TypeAnn(set_ta.dtype, 'list')
+    # 2026-09-29: giu `elem_ta` khi phan tu la container (`ss = {[1,2],[3,4]}`
+    # roi `ss.to_list()`). Truoc day ham nay bo qua elem_ta nen khai
+    # List<int32> cho 1 set chua List<int32> -> moi phan tu doc ra bi doc
+    # nham (va 'v = xs[i]' se sinh List<int32> cho 1 bien thuoc List).
+    return TypeAnn(set_ta.dtype, 'list', elem_ta=set_ta.elem_ta)
 
 
 def compile_set_to_list(node, scope, out, dtype, ctx):
