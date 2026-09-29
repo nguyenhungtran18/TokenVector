@@ -1282,3 +1282,72 @@ Muốn mở lại dạng `?` thì phải xử lý trước `_parse_program_ast`.
 nhất: một tiền xử lý **văn bản** chuyển `X ? Y : Z` thành `Y if X else Z`
 trước khi gọi `ast.parse` — Python-valid và cùng nghĩa. Rủi ro: phải đặt đúng
 ranh giới ba toán số khi `?`/`:` lồng nhau. Đó là việc riêng có kiểm thử riêng.
+
+## Thử mở dạng `c ? a : b`: đi qua `ast.parse`, vướng lỗi temp — ĐÃ THOÁT (2026-09-29)
+
+Đã làm được phần đầu rồi **dừng lại có chủ đích**. Ghi lại để không ai phải dò lại.
+
+### Phần làm được
+
+Tiền xử lý văn bản trong `tkv_compile.tkv` trước khi gọi `ast.parse`: đổi
+`?` → ` if 0 else ` và dấu `:` tương ứng → `,`. `ast.parse` **không đánh giá**
+nên không cần giữ nghĩa; chỉ cần parse được và giữ cấu trúc top-level (ternary
+chỉ nằm trong thân hàm nên không đụng vào). Không chèn dòng mới nên `lineno` của
+Python vẫn đúng cho các thông báo lỗi về sau.
+
+Bộ quét có nhận biết chuỗi (`"..."`, `"""..."""`, thoát `\`), chú thích `#`, và
+độ sâu ngoặc `[](){}` — nên `s = "a ? b : c"`, `a[1:2]`, `{"k": 1}` và chú thích
+đều **không bị sửa**. Nhánh rỗng: nếu không có `?` thì trả về nguyên văn, nên
+mọi file hiện có hành vi **giống hệt từng byte**. 11 ca thử đều đúng, gồm
+lồng nhau `a ? b ? c : d : e` và `lst[a ? i : j]`.
+
+Có một lỗi nhỏ tự thấy trong lúc test: ban đầu tôi **nối** ` if 0 else ` sau
+`?` thay vì thay thế nó, ra `a ? if 0 else b`. Test bắt được ngay.
+
+### Chỗ vướng — và vì sao dừng
+
+`lst[c ? 0 : 1] = 77` **biên dịch được nhưng nổ lúc chạy**
+(`ArgumentOutOfRangeException`). Cùng hình dạng đó, dạng Python
+`lst[c if c else 1] = 99` thì chạy tốt; và **ba** ternary Python-form liên tiếp
+trong ba câu gán theo chỉ số cũng chạy tốt. Vậy lỗi thuộc đường `?`, không
+phải lỗi tiềm ẩn có sẵn.
+
+Khối IL của cả hai câu đều **đúng về cấu trúc** (cùng dạng `brfalse` →
+`stloc` → `br` → nhãn). Chỗ sai nằm ở `.locals`:
+
+```
+.locals init (int64 'c', class ...List... 'lst', int64 '__tern1',
+             valuetype TkvInt '__strtmp2196090534656',
+             valuetype TkvInt '__tern2', ...)
+```
+
+`__tern1` là **int64** còn `__tern2` là **TkvInt** (struct 16 byte). Trong khi
+`_expr_ternary` phát `ldc.i4` / `stloc.s` — tức lưu một **int32** vào slot
+TkvInt rồi đọc lại làm chỉ số. `ilasm` **không bắt** lỗi này, và JIT chạy được
+tới lúc đọc ra rác.
+
+Tức là: `_p6`-style transform đi qua, nhưng **cấp phát temp của ternary không
+đáng tin** — kiểu của temp phụ thuộc ngữ cảnh, và đường `?` làm lộ ra sự phụ
+thuộc đó. Sửa nó cần hiểu `collect_ternary_temps` chọn kiểu temp từ đâu, đó là
+việc riêng.
+
+**Vì sao thoát chứ không "thử tiếp":** compiler biên dịch xong rồi **nổ lúc
+chạy** là vi phạm đúng nguyên tắc của dự án. Dạng Python đã có, đã gate, đã
+đối chiếu CPython — người dùng không mất gì. Để dạng `?` ở trạng thái "chạy
+được một nửa" thì tệ hơn là không có.
+
+Thông báo lỗi đã commit vẫn đúng: nó nói rõ `?` không dùng được vì `ast.parse`,
+và chỉ vào dạng Python.
+
+### Nếu muốn làm lại
+
+1. Bắt đầu từ `collect_ternary_temps` — tìm chỗ quyết định `TypeAnn` của
+   `__tern<N>`, và bắt nó **suy từ biểu thức** chứ không từ ngữ cảnh. Đây là mối
+   duy nhất; mọi thứ khác đã xong.
+2. Bổ sung vào gate: một ca `lst[cond ? a : b] = v` đúng dạng `?` và một ca
+   Python-form, để khóa hành vi.
+3. Bộ quét ở trên có thể giữ nguyên — 11 ca thử đều đúng.
+
+Không cần đụng lại `parse_ternary`: `il_core.tkv` **đã** xử lý `?` từ trước và
+sau khi qua được `ast.parse` thì `c ? a : b` biên dịch và chạy đúng ở mọi vị
+trí đã thử (gán biến, tham số hàm, biểu thức, lồng nhau, clamp 3 nhánh).
