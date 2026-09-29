@@ -638,7 +638,15 @@ class _ExprParser:
         """Phase 11a (2026-08-28): 1 arg trong loi goi ham co the la
         positional (bieu thuc thuong) hoac keyword ('IDENT=expr'). Lookahead
         2 token: ID roi '=' don le (khong phai '==' - da gop thanh 1 token
-        OP rieng boi CMPOP, khong bao gio tach thanh 2 token '=' o day)."""
+        OP rieng boi CMPOP, khong bao gio tach thanh 2 token '=' o day).
+
+        Star-args (2026-09-29): `*` / `**` o DAU 1 tham so -> node
+        ('star', expr) / ('star2', expr). Node nay CHI la hinh thuc thoi
+        cua parser: `il_features/call_star_args.py` noi no thanh N doi so
+        co dinh ngay truoc first-pass (xem do - do dai phai tinh duoc luc
+        bien dich). Khong co buoc nay thi `*` se cham parse_factor va bao
+        "khong parse duoc factor tai OP '*'" - loi khong danh nghia gi.
+        """
         k, v = self.peek()
         if k == 'ID':
             try:
@@ -650,6 +658,13 @@ class _ExprParser:
                 self.advance()  # '='
                 expr = self.parse_expr()
                 return ('kwarg', v, expr)
+        if k == 'OP' and (v == '*' or v == '**'):
+            # Tokenizer da gop '**' (POW) vao 'OP' roi (dong 279-280), va
+            # '*' van la OP binh thuong. Dau tham so la 1 trong 2 ky tu
+            # nay -> chac chan la star-args, khong nhầm voi phep nhan
+            # (a * b): phep nhan khong bao gio bat dau 1 tham so.
+            self.advance()
+            return ('star' if v == '*' else 'star2', self.parse_expr())
         return self.parse_expr()
 
     def parse_factor(self):
@@ -705,7 +720,12 @@ class _ExprParser:
         phai '(' thi day la doc property, tra ve node 'attr_expr' (mirror
         dung cach 'attr' xu ly '.ten' sau 1 TEN BIEN don, nhung base o day
         la 1 NODE bieu thuc thay vi 1 ten bien - xem compile_attr_expr,
-        compiler/il_features/record_feature.py)."""
+        compiler/il_features/record_feature.py).
+
+        2026-09-29: parse tham so bang `_parse_one_call_arg` (thay vi
+        `parse_expr` truc tiep) de `m(*xs)` co cung duong star-args voi
+        goi ham thuong va `obj.m(*xs)` - ca 3 deu sinh node co danh sach
+        tham so o CUOI nen chi can 1 bo noi (xem il_features/call_star_args)."""
         self.advance()
         k, name = self.advance()
         if k != 'ID':
@@ -717,12 +737,12 @@ class _ExprParser:
         args = []
         k2, v2 = self.peek()
         if not (k2 == 'OP' and v2 == ')'):
-            args.append(self.parse_expr())
+            args.append(self._parse_one_call_arg())
             while True:
                 k3, v3 = self.peek()
                 if k3 == 'OP' and v3 == ',':
                     self.advance()
-                    args.append(self.parse_expr())
+                    args.append(self._parse_one_call_arg())
                 else:
                     break
         self.expect_op(')')

@@ -2942,6 +2942,14 @@ def _marshal_extern_return_array(dtype_name, out, ctx=None):
 
 def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     name, args = node[1], node[2]
+    # Luoi an toan 2026-09-29: node ('star', ...) phai duoc noi thanh doi so
+    # co dinh o TRUOC first-pass boi il_features/call_star_args. Neu con sot
+    # (vi du do loi o noi goc), bao loi day danh nghia thay vi bien dich 1
+    # node la 'call' ma khong ai biet xu ly.
+    if any(isinstance(a, tuple) and len(a) == 2 and a[0] in ('star', 'star2') for a in args):
+        raise SyntaxError(
+            f"il_codegen: goi '{name}' con tham so '*' chua duoc noi - do dai nguon "
+            f"phai tinh duoc luc bien dich")
     records = (ctx or {}).get('records') or {}
     # Task 3 (extern-class, 2026-08-18): nhanh constructor cho handle-type
     # .NET NGOAI (vd 'Sb()' -> newobj System.Text.StringBuilder) - PHAI
@@ -4504,7 +4512,21 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
     tach ra file rieng duoc neu khong tai cau truc lon hon (ngoai pham vi
     refactor nay). GIU NGUYEN loi walk() KHONG raise khi kind la (vd
     'break'/'continue' - khong co gi de quet ternary/khai bao) - giong
-    _codegen_stmts, day la hanh vi CU, khong phai lo hong moi."""
+    _codegen_stmts, day la hanh vi CU, khong phai lo hong moi.
+
+    GHU Y 2026-09-29 - `f(*xs)` duoc noi thanh N doi so co dinh ngay
+    TRUOC first-pass, o day. Ly do chon dung diem nay: day la noi DUY
+    NHAT ma ca 2 duong bien dich (ham top-level va ham long) deu di qua,
+    va no chay TRUOC moi logic duoi ben trong, nen moi duong doc `stmts`
+    (bao ca kiem tra arity, suy kieu, narrow) deu thay danh sach tham so
+    da noi san; va sua TAI CHO cua node trong cay lenh (khong tao lai
+    cay) nen moi noi goi ham deu duoc ho - bieu thuc, `y = f(*xs)`, lenh
+    doc lap, goi method, goi ham long, va long trong moi bieu thuc con
+    lai. Khong co buoc noi nay thi node ('star', ...) se bien dich sai
+    (duoi dang 'goi ham' nham) hoac bao loi khong doc het duoc.
+    """
+    from il_features.call_star_args import expand_star_args_in_stmts
+    expand_star_args_in_stmts(stmts, func_name=sig.name)
     locals_decl = []
     tern_temp_of_id = {}
     needs_epilogue = [False]

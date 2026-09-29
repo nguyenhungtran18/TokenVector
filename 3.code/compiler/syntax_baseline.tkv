@@ -123,7 +123,8 @@ _SUGGESTIONS = {
         "viet so thap phan/nguyen thuong, khong ky hieu mu/underscore-separator "
         "(rieng hex '0x..' DUOC chap nhan tu R6)",
     'starred expression (*args / *rest)':
-        "khong co duong vong truc tiep - liet ke tuong minh tung tham so/phan tu",
+        "'f(*xs)' o DIEM GOI HAM da duoc ho tro (do dai nguon phai tinh duoc "
+        "luc bien dich); noi bat buoc nay con lai: '[*rest]'/'{*rest}' va '**kw'",
     'nested class definition':
         "tach thanh 2 record doc lap cap top-level",
     'vararg/kwarg in class-method signature':
@@ -547,6 +548,11 @@ class _BaselineVisitor(ast.NodeVisitor):
     # `_strip_lines` da noi cac dong do lai truoc khi parser chay.
         self._exempt_nested_literals = _collect_nested_literal_ids(tree)
         self._known_items_vars = set()
+        # 2026-09-29: `f(*xs)` da duoc ho tro (il_features/call_star_args.tkv)
+        # nen visit_Starred khong flag khi dang o trong danh sach tham so cua
+        # 1 loi goi. Dem phong toan cuc nay thay vi tim node cha (visitor khong
+        # co con tro nguoc).
+        self._in_call_args = 0
 
     def _flag(self, node, construct_name):
         self.findings.append(SyntaxFinding(
@@ -758,7 +764,21 @@ class _BaselineVisitor(ast.NodeVisitor):
                 if kw.arg == 'key' and isinstance(kw.value, ast.Lambda):
                     self._flag(node, 'lambda inline trong sort(key=...)')
                     break
-        self.generic_visit(node)
+        # 2026-09-29: quet `f(*xs)`/`o.m(*xs)` voi co dem _in_call_args nen
+        # visit_Starred BIET no dang o vi tri DUOC CHAP NHAN. `**kw` nam o
+        # `keywords` (khong phai `args`) nen van bi flag - dung, vi `**`
+        # chua duoc ho tro.
+        if node.func is not None:
+            self.visit(node.func)
+        self._in_call_args += 1
+        try:
+            for arg in node.args:
+                self.visit(arg)
+        finally:
+            self._in_call_args -= 1
+        for kw in node.keywords:
+            self.visit(kw.value)
+        return
 
     def visit_Dict(self, node):
         if len(node.keys) > 0:
@@ -815,7 +835,10 @@ class _BaselineVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Starred(self, node):
-        self._flag(node, 'starred expression (*args / *rest)')
+        # `f(*xs)` o DIEM GOI HAM da duoc ho tro (xem _in_call_args); con
+        # `**kw` va `[*rest]`/`{*rest}` van chua co duong - van flag.
+        if self._in_call_args == 0:
+            self._flag(node, 'starred expression (*args / *rest)')
         self.generic_visit(node)
 
     # -- class / function definitions -----------------------------------

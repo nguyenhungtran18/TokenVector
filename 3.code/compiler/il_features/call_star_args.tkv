@@ -1,0 +1,287 @@
+# -*- coding: utf-8 -*-
+"""`f(*xs)` - star-args tai DIEM GOI HAM (2026-09-29).
+
+TokenVector bien dich loi goi ham thanh lenh IL `call` voi so tham so
+TINH, kiem ngay voi chu ky luc bien dich. `f(*xs)` pha vo chinh quy tac
+do. Thay vi doi mo hinh arity (param mang + count - lon, cham, dong va
+khong phu hop AOT), lan nay lam DESUGAR tai diem goi: khi do dai cua
+nguon BIET DUOC LUC BIEN DICH, `f(*xs)` duoc noi thanh DUNG N doi so co
+dinh roi moi di tiep vao duong `call` da co. Moi so tham so, kiem tra
+arity, tham so mac dinh va monomorphize vay ma chay tren danh sach N
+doi so da noi - dung y nguyen trang truoc khi ma hoa.
+
+Module nay chay 1 LAN cho moi than ham, ngay TRUOC first-pass (xem
+`_first_pass_collect_locals` cua il_codegen) va sua TAI CHO node cua
+cay lenh DSL trong cho. Lam vay moi duoc moi vi tri goi: bieu thuc,
+`y = f(*xs)`, lenh doc lap `f(*xs)`, goi method `o.m(*xs)`, goi ham long,
+va long trong moi bieu thuc (chuoi, danh sach, so sanh, ...) - vi
+`expand_star_args_in_stmts` quet SAY cay chứ không dò từng câu lệnh.
+
+NGUON DUOC CHAP NHAN (do dai TINH):
+
+- `f(*[1, 2, 3])` - list literal ngay tai chinh loi goi: noi thang cac
+  phan tu literal vao danh sach doi so, khong can doc list nao;
+- `xs = [1, 2, 3]` roi `f(*xs)` - bien duoc gan DUNG MOT list literal
+  trong ham nay (`kind` = `assign_list_literal`) va KHONG duoc xuat hien o
+  cho khac, nen do dai khong the doi duoc giua khi bien dich. Khi do sinh
+  `xs[0]`, `xs[1]`, ... bang node `('index', ten, [('num', 'i')])`.
+
+NGUON CON LAI bi tu choi RO RANG: bien do ra tu ham, list rong + `.append()`,
+tham so, bien module, list literal rong, bien duoc gan lai, bien bi dung
+o cho khac. Ly do co chu dich: AOT khong the dem phan tu 1 list luc
+chay ma van phai sua chu ky `call` luc bien dich; do la gioi han cua
+"arity tinh", khong phai loi soi.
+"""
+
+
+# Node cua loi goi ham: PHAI DUOI CUNG la danh sach tham so
+#   ('call', ten, args) / ('method_call', obj, meth, args)
+#   ('method_call_expr', base, meth, args)
+# Xem parse_factor cua il_core (node 'call') va _POSTFIX_METHOD_BASES.
+_CALL_HEADS = ('call', 'method_call', 'method_call_expr')
+
+# Kieu cua 1 lenh gan bat ky. Chi `assign_list_literal` duoc cong nhan
+# lam dinh nghia "do dai tinh" cua 1 bien nguon.
+_ASSIGN_PREFIX = 'assign'
+
+
+def _has_star(node):
+    """Co node ('star', ...) / ('star2', ...) nao trong cay khong?"""
+    if isinstance(node, tuple):
+        if node and (node[0] == 'star' or node[0] == 'star2'):
+            return True
+        for part in node:
+            if _has_star(part):
+                return True
+        return False
+    if isinstance(node, list):
+        for part in node:
+            if _has_star(part):
+                return True
+        return False
+    if isinstance(node, dict):
+        for value in node.values():
+            if _has_star(value):
+                return True
+    return False
+
+
+def _all_strings(node, out):
+    """Gom MOI chuoi xuat hien trong cay lenh (hoa cac khoa dict).
+
+    Co y do dung: bien nao THAT su duoc doc/gan deu phai xuat hien bang
+    CHUOI o dau nao do trong cay. Gom ca khoa dict (bi thua) chi lam
+    phep loai bo nhieu hon - an toan, vi thieu mot lan xuat hien se
+    khong phat hien duoc.
+    """
+    if isinstance(node, str):
+        out.add(node)
+    elif isinstance(node, tuple):
+        for part in node:
+            _all_strings(part, out)
+    elif isinstance(node, list):
+        for part in node:
+            _all_strings(part, out)
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            out.add(key)
+            _all_strings(value, out)
+    return out
+
+
+def _each_stmt(stmts):
+    """Sinh ra TUNG lenh (dict) cua cay, ke ca lenh nam trong than
+    if/for/while/try/... - dung de quet toan bo ham 1 lan."""
+    if not stmts:
+        return
+    for stmt in stmts:
+        if not isinstance(stmt, dict):
+            continue
+        yield stmt
+        for key in ('body', 'else_body', 'handlers', 'finally_body'):
+            found = _each_stmt(stmt.get(key))
+            if found is not None:
+                for inner in found:
+                    yield inner
+
+
+def _star_var_names(stmts):
+    """Tap ten bien duoc lam nguon `*` (dung `('star', ('var', ten))`).
+
+    Ten bi lay o MOI noi xuat hien - 1 bien co the la nguon `*` o nhieu
+    loi goi trong cung ham, va moi noi deu duoc kiem chung nhu nhau.
+    """
+    names = set()
+
+    def visit(node):
+        if isinstance(node, tuple):
+            if len(node) == 2 and node[0] == 'star':
+                src = node[1]
+                if isinstance(src, tuple) and src and src[0] == 'var':
+                    names.add(src[1])
+                    return
+            for part in node:
+                visit(part)
+        elif isinstance(node, list):
+            for part in node:
+                visit(part)
+        elif isinstance(node, dict):
+            for value in node.values():
+                visit(value)
+
+    for stmt in _each_stmt(stmts):
+        visit(stmt)
+    return names
+
+
+def _holds_star_of(node, name):
+    """Cay `node` co chua dung nguon `*<name>` khong?"""
+    found = []
+
+    def visit(n):
+        if isinstance(n, tuple):
+            if len(n) == 2 and n[0] == 'star':
+                src = n[1]
+                if isinstance(src, tuple) and src and src[0] == 'var' and src[1] == name:
+                    found.append(True)
+                    return
+            for part in n:
+                visit(part)
+        elif isinstance(n, list):
+            for part in n:
+                visit(part)
+        elif isinstance(n, dict):
+            for value in n.values():
+                visit(value)
+
+    visit(node)
+    return bool(found)
+
+
+def _static_list_lens(stmts, func_name):
+    """{ten bien: do dai} cho bien nguon `*` co do dai TINH.
+
+    Quy tac CHI NHAN 1 dang dinh nghia: `ten = [a, b, c]` (list literal
+    MOT dong -> `kind` = `assign_list_literal`) xuat hien DUNG MOT LAN
+    trong ham, va ten do KHONG duoc xuat hien o lenh nao khac. Moi quy
+    tac deu vi tri: sai 1 lan la sinh ra so tham so sai, nen phai
+    CHAC chan chu khong phai 'thuong cham'.
+    """
+    wanted = _star_var_names(stmts)
+    if not wanted:
+        return {}
+    defining = {}
+    for stmt in _each_stmt(stmts):
+        name = stmt.get('name')
+        if name not in wanted:
+            continue
+        if stmt.get('kind') != 'assign_list_literal':
+            raise SyntaxError(
+                f"il_codegen: nguon '*' phai la list literal: '{name}' trong ham "
+                f"'{func_name}' duoc gan bang '{stmt.get('kind')}' - chi "
+                f"'ten = [a, b, c]' (list literal MOT dong) moi cho do dai tinh")
+        if name in defining:
+            raise SyntaxError(
+                f"il_codegen: nguon '*' phai la list literal: '{name}' trong ham "
+                f"'{func_name}' bi gan LAI nhieu lan - chi gan 1 list literal duoc")
+        defining[name] = len(stmt.get('elements') or [])
+    for name in sorted(wanted):
+        if name not in defining:
+            raise SyntaxError(
+                f"il_codegen: nguon '*' phai la list literal: '{name}' trong ham "
+                f"'{func_name}' khong duoc gan bang list literal nao - do dai phai "
+                f"tinh duoc luc bien dich")
+    for stmt in _each_stmt(stmts):
+        name = stmt.get('name')
+        is_def = (stmt.get('kind') == 'assign_list_literal' and name in wanted)
+        strings = _all_strings(stmt, set())
+        for candidate in wanted:
+            if candidate not in strings:
+                continue
+            if is_def and candidate == name:
+                continue
+            if _holds_star_of(stmt, candidate):
+                continue
+            raise SyntaxError(
+                f"il_codegen: nguon '*' phai la list literal: '{candidate}' trong ham "
+                f"'{func_name}' bi DUNG o cho khac - chi chu nhan 'ten = [...]' roi "
+                f"dung ngay trong 'f(*ten)' (truong hop nay do dai co the doi len "
+                f"giua khi bien dich)")
+    return dict(defining)
+
+
+def _expand_args(args, lens, func_name, desc):
+    """Noi danh sach tham so: thay ('star', nguon) bang cac phan tu that.
+
+    Sau khi noi xong, MOI tham so con lai deu duoc quet tiep voi
+    `_expand_node` - can thiet: `f3(*[1, 2])` va `f(str(g(*[3, 4])))` deu
+    co loi goi long HON danh sach tham so vua duoc noi.
+    """
+    flat = []
+    for arg in args:
+        if not (isinstance(arg, tuple) and len(arg) == 2
+                and (arg[0] == 'star' or arg[0] == 'star2')):
+            flat.append(arg)
+            continue
+        if arg[0] == 'star2':
+            raise SyntaxError(
+                f"il_codegen: chua ho tro '**kwargs': '{desc}' trong ham "
+                f"'{func_name}' co '**' trong danh sach tham so - phien ban nay CHI "
+                f"ho tro '*' (star-args) co do dai tinh")
+        src = arg[1]
+        if isinstance(src, tuple) and src and src[0] == 'list_literal':
+            flat.extend(src[1])
+            continue
+        if isinstance(src, tuple) and src and src[0] == 'var':
+            name = src[1]
+            n = lens.get(name)
+            if n is None:
+                raise SyntaxError(
+                    f"il_codegen: ham '{func_name}' - nguon '*' khong co do dai tinh")
+            for i in range(n):
+                flat.append(('index', name, [('num', str(i))]))
+            continue
+        raise SyntaxError(
+            f"il_codegen: ham '{func_name}' - nguon cua '*' phai la list literal "
+            f"'*[...]' hoac bien duoc gan 1 list literal '*ten'")
+    return [_expand_node(part, lens, func_name, desc) for part in flat]
+
+
+def _expand_node(node, lens, func_name, desc):
+    if isinstance(node, tuple):
+        head = node[0] if node else None
+        if head in _CALL_HEADS and node and isinstance(node[-1], list):
+            return node[:-1] + (_expand_args(node[-1], lens, func_name, desc),)
+        if len(node) == 2 and (head == 'star' or head == 'star2'):
+            raise SyntaxError(
+                f"il_codegen: ham '{func_name}' - con node '{head}' chua duoc noi; "
+                f"chi dung trong danh sach tham so cua 1 loi goi ham")
+        return tuple(_expand_node(part, lens, func_name, desc) for part in node)
+    if isinstance(node, list):
+        return [_expand_node(part, lens, func_name, desc) for part in node]
+    if isinstance(node, dict):
+        result = {}
+        for key, value in node.items():
+            if key == 'args' and isinstance(value, list):
+                result[key] = _expand_args(value, lens, func_name, desc)
+            else:
+                result[key] = _expand_node(value, lens, func_name, desc)
+        return result
+    return node
+
+
+def expand_star_args_in_stmts(stmts, func_name='?'):
+    """Goi 1 LAN cho moi than ham, ngay TRUOC first-pass.
+
+    Tra ve True neu co sua doi (de goi duong danh sach lenh nhe nhat khi
+    chuong trinh khong dung `*` nao - nhanh O(1) qua `_has_star`).
+    """
+    if not _has_star(stmts):
+        return False
+    lens = _static_list_lens(stmts, func_name)
+    for stmt in _each_stmt(stmts):
+        kind = stmt.get('kind')
+        expanded = _expand_node(stmt, lens, func_name, f"lenh '{kind}'")
+        stmt.clear()
+        stmt.update(expanded)
+    return True

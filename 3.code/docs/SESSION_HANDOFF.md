@@ -1,6 +1,6 @@
 # SESSION HANDOFF — TokenVector compiler
 
-Ngày: 2026-09-29. Cổng: **90/90 + negative 10/10 xanh** tại commit `1f7a5ab`.
+Ngày: 2026-09-29. Cổng: **91/91 + negative 12/12 xanh** tại commit `star_args`.
 
 **KHÔNG còn việc dở dang** — working tree sạch, cả hai repo đã mirror.
 
@@ -70,9 +70,61 @@ kiểu từ phần tử tuple, không phải biến đếm int64.
 
 ---
 
+## 3b. `f(*xs)` — xong, và vì sao KHÔNG đổi mô hình arity
+
+Quyết định (đã hỏi user, chọn phương án desugar): TokenVector giữ nguyên **arity
+tĩnh**. `f(*xs)` được **nối tại điểm gọi** thành N đối số cố định rồi mới đi tiếp vào
+đường `call` sẵn có — nên kiểm tra arity, tham số mặc định và monomorphize vẫn chạy
+y nguyên trạng trên danh sách đã nối. Biến `*args` trong **chữ ký** đã có sẵn từ
+trước (`Testkit/varargs_py_tree_test.tkv`); đây là `*` ở **điểm gọi**.
+
+Ba vị trí duy nhất phải sửa, đều nhỏ:
+
+1. `il_core.tkv` `_parse_one_call_arg`: `*`/`**` ở đầu 1 tham số → node
+   `('star', expr)`/`('star2', expr)`. Nhờ vậy lỗi cũ vớ vẩn
+   `khong parse duoc factor tai OP '*'` biến thành lỗi có nghĩa.
+2. `il_core.tkv` `_parse_postfix_method`: trước đây parse tham số bằng
+   `parse_expr` trực tiếp, nên `Box(5).two(*[1, 2])` (node `method_call_expr`) không
+   thấy `*`. Đổi sang `_parse_one_call_arg` như 3 chỗ còn lại — đủ cả 3 vì cả 3 đều
+   đặt danh sách tham số ở **cuối** node.
+3. `il_codegen.tkv` `_first_pass_collect_locals`: gọi
+   `call_star_args.expand_star_args_in_stmts(stmts, func_name=sig.name)` **trước
+   first-pass**. Đây là điểm móc duy nhất mà cả hàm top-level lẫn hàm lồng đều đi
+   qua, và nó chạy trước mọi logic đọc `stmts` bên dưới. Sửa **tại chỗ** node trong
+   cây lệnh nên mọi vị trí gọi hàm đều được hỗ trợ: biểu thức, `y = f(*xs)`, lệnh
+   độc lập, method, hàm lồng, và lồng trong mọi biểu thức còn lại.
+
+Nguồn được chấp nhận: `f(*[1, 2, 3])`, và biến `xs = [...]` (kind `assign_list_literal`)
+dùng ngay, **không dùng ở chỗ khác**. Cách kiểm chứng độ dài tĩnh: quét cây lệnh, yêu
+cầu đúng 1 lệnh gán list literal cho tên đó, và mọi lệnh khác có nhắc tên đều bị từ
+chối. Cố tình **siết** thay vì lỏng: sót 1 lần là sinh ra **số tham số sai** — lỗi
+âm thầm nếu hàm nhận `*args` hoặc có tham số mặc định. Nguồn động (`[]` + `.append()`,
+biến trả về từ hàm) bị từ chối rõ ràng: AOT không thể đếm phần tử lúc chạy mà vẫn
+sửa chữ ký `call` lúc biên dịch.
+
+**Bẫy 4 — noi 1 danh sách tham số rồi PHẢI quét tiếp các tham số còn lại.** Bản đầu
+tiên chỉ nối rồi `return`, nên `f3(*[1,2,3])` bên trong `str(...)` bên trong
+`check(...)` không được nối và lỗi lại quay về "chưa được nối". Sửa: `_expand_args`
+map `_expand_node` lên mọi thành phần sau khi nối.
+
+**Bẫy 5 — docstring mở ngoài đóng trong sẽ HẠNG build theo cách rất khó đoán.**
+Một `"""` bị bỏ sót trong `il_codegen.tkv` làm PyInstaller **im lặng không đóng gói
+`il_codegen`**; exe build xong, chạy cũng không báo lỗi cú pháp, mà chết ở
+`ImportError: No module named 'il_features.list_type'` khi nạp thư viện. Kiểm tra
+trước khi build:
+`python -c "import ast; ast.parse(open(f,encoding='utf-8').read(), filename=f)"`.
+
+**Bẫy 6 — build chậm 90 giay, có cách sửa 2 giây.** `tools/tkvdev.py` (mới) chạy
+compiler trực tiếp từ source bằng meta_path finder ánh xạ `<ten>.tkv`, nên sửa
+compiler rồi chạy lại là vài giây và **có traceback thật** thay vì thông báo
+`[tkv] Loi:`. Dùng nó để lặp nhanh; clean build + `testkit_gate.ps1` vẫn bắt buộc
+trước khi commit.
+
+---
+
 ## 4. Còn lại của Giai đoạn 2
 
-Mục duy nhất còn lại: `f(*xs)`, `f(**kw)` — lớn, cần đổi mô hình arity.
+Mục duy nhất còn lại: `f(**kw)` (`f(*xs)` đã xong — xem mục 3b).
 
 | Mục | Trạng thái |
 |---|---|
@@ -84,7 +136,7 @@ Mục duy nhất còn lại: `f(*xs)`, `f(**kw)` — lớn, cần đổi mô hì
 | `return <v>` trong generator | XONG (kênh `__gen_ret__`) |
 | Literal lồng | XONG |
 | Tuple literal + `for a, b in` | XONG (nguồn chỉ nhận list literal — xem mục 3) |
-| `f(*xs)`, `f(**kw)` | chưa làm — lớn, cần đổi mô hình arity |
+| `f(*xs)`, `f(**kw)` | `f(*xs)` XONG (desugar khi độ dài tĩnh) — xem mục 3b; `f(**kw)` chưa làm |
 
 Giai đoạn 3 (`yield from`) về mặt roadmap đã xong; mục 5 của PLAN đã viết lại từ
 "vì sao chưa làm" thành mô tả đã làm.
@@ -144,7 +196,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_tkvc.ps1   # REBUILD
 - `global` chỉ hỗ trợ kiểu vô hướng (`i32/i64/f32/f64/str`), **không** container.
 - Chuỗi: chỉ nháy kép. Phương thức chỉ gọi được trên biến, không trên literal.
 - `len()` chỉ nhận 1 biến trần.
-- LAMBDA phải có khai báo chữ ký; `f(*xs)` chưa hỗ trợ (arity tĩnh).
+- LAMBDA phải có khai báo chữ ký. `f(*xs)` xong (mục 3b) nhưng nguồn phải có độ dài
+  tĩnh; `f(**kw)` chưa hỗ trợ.
 - `for a, b in` chỉ nhận list literal chứa tuple literal; **không** nhận biến. Không
   nới lỏng khi chưa có đường đọc hợp lệ cho `List<ValueTuple<...>>` (xem mục 3).
 

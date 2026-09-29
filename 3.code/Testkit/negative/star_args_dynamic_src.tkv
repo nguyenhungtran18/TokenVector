@@ -1,0 +1,15 @@
+# EXPECT-SUBSTRING: nguon '*' phai la list literal
+# -*- coding: utf-8 -*-
+# Nguon `*` co do dai DONG -> phai bi tu choi, khong duoc doan so tham so.
+# `xs = []` roi `.append()` tao ra length khong biet truoc luc bien dich; AOT
+# khong the dem phan tu 1 list luc chay ma van phai sua chu ky `call` luc
+# bien dich, nen phai bao loi ro rang thay va gom so tham so.
+def f3(a: "i32", b: "i32", c: "i32") -> "i32":
+    return a + b + c
+
+
+def run() -> "i32":
+    xs = []
+    xs.append(1)
+    xs.append(2)
+    return f3(*xs)
