@@ -749,6 +749,37 @@ def _extract_record_def(class_node, source_lines, known_records=None, known_inte
             raise TranspileError(
                 f"class '{class_node.name}': field '{stmt.target.id}' da co san o base class "
                 f"'{base_name}' - khong duoc khai bao lai (ghi de field ke thua chua ho tro)")
+        # 2026-09-28: field CONTAINER tren record - chua ho tro THAT, va
+        # truoc day hỏng MOT CACH IM LANG. Ba bieu hien, khong cai nao bao
+        # loi bien dich:
+        #   1. 'self.items = [1, 2, 3]' trong __init__ -> len(c.items) == 0
+        #      (field rong, gan khong stick)
+        #   2. 'c.items[0]' -> OverflowException luc CHAY
+        #   3. container lam tham so __init__ roi 'C(t)' -> OverflowException,
+        #      call site con 'TkvInt::ToI32' tren CHINH con container
+        #
+        # Nguyen nhan: tham so .ctor cua record lay tu FIELD (khong phai tu
+        # chu ky __init__, cai do bi bo qua luc bien dich) va container bi
+        # LOC BO khoi danh sach do - nên khong co cach nao gan gia tri vao
+        # field container. Comment o il_codegen.tkv:5566 noi y dinh khai
+        # ROONG trong .ctor "nhu __init__ viet self.items = []" - nhung
+        # chinh duong ghi do cung khong stick.
+        #
+        # Da quet 216 file .tkv trong repo: khong record TokenVector nao khai
+        # field container, nen chan khong pha gi. ('SyntaxFinding' trong
+        # syntax_baseline.tkv KHONG phai record - no la dataclass Python thuan
+        # co gia tri mac dinh, va file do ship thanh .py.)
+        # 'startswith' chu KHONG phai 'dtype[:5] in (...)': 'set[' dai 4 ky
+        # tu nhung 'list['/'dict[' dai 5 - cat sai do la 'set[i64]' khong
+        # bao gio khop, va loi cham vao nhanh 'record can N tham so' sai
+        # thay vi thong bao dung.
+        if dtype.startswith('list[') or dtype.startswith('dict[') or dtype.startswith('set['):
+            raise TranspileError(
+                f"class '{class_node.name}': field '{stmt.target.id}' kieu container "
+                f"('{dtype}') chua ho tren record - neu giu no trong class, gia tri "
+                f"se khong bao gio duoc gan vao (field rong, va gan trong __init__ "
+                f"khong co tac dung). Cach khac: dung ham thuan thay vi record, hoac "
+                f"giu container o bien cap module/ham va truyen vao qua tham so.")
         fields.append((stmt.target.id, dtype))
     if not fields:
         raise TranspileError(f"class '{class_node.name}': record khong co field nao")

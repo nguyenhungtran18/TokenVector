@@ -104,10 +104,11 @@
   both fail, though an error message tells you to use the latter),
   `del`, keyword-only and positional-only parameters,
   nested/tuple literals, dict literal with content (`{"a": 1}`), and call-site
-  `*`/`**` unpacking (calls
+  `  *`/`**` unpacking (calls
   have statically known arity, so a run-time-length sequence cannot be passed).
-  Passing a set to a method's `__init__` is broken for every set — the caller's
-  `container_arg_hints` is never populated for a constructor call, so a
-  `set[i32]` parameter receives a `HashSet<TkvInt>` and the CLR throws
-  `OverflowException` at run time. Full list with difficulty ranking in
-  `3.code/docs/PLAN.md`; per-item status in `3.code/docs/REPOSITORY-NOTES.md`.
+  A record **cannot have a container field** — the `.ctor` takes its parameters
+  from the declared fields, with container fields filtered out, so a container
+  field can never be filled. This is now a compile-time error. Hold containers
+  in a plain function or at module level instead. Full list with difficulty
+  ranking in `3.code/docs/PLAN.md`; per-item status in
+  `3.code/docs/REPOSITORY-NOTES.md`.

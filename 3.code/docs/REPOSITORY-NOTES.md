@@ -766,3 +766,40 @@ VI TRI GOI CONSTRUCTOR, chi nap cho loi goi ham thuong.
 Hien tai: set truyen cho HAM THUONG chay; cho `__init__` cua lop thi hong.
 Bai test dung ham thuong de tranh vung nay. Sua la viec rieng - phai nap
 `container_arg_hints` cho constructor record, va can test ca 3 container.
+
+## Field container tren record: tu choi, thay vi hong im lang (2026-09-29)
+
+Da chan o `tkv_compile.tkv`'s `_extract_record_def` (ngay canh cac
+`raise TranspileError` cho field khong hop le) - day la noi DUY NHAT sinh ra
+`records[name]`, nen cha 1 lan la moi noi khac deu thay do.
+
+Ba bieu hien truoc khi chan, KHONG cai nao bao loi bien dich:
+  1. `self.items = [1,2,3]` trong `__init__` -> `len(c.items) == 0`
+  2. `c.items[0]` -> OverflowException luc CHAY
+  3. container lam tham so `__init__` roi `C(t)` -> OverflowException; call
+     site con `TkvInt::ToI32` tren CHINH con container
+
+Goc rau: tham so `.ctor` cua record lay tu FIELD (khong phai tu chu ky
+`__init__` - cai do bi bo qua luc bien dich) va container bi LOC BO khoi danh
+sach do. Comment o `il_codegen.tkv:5566` noi y "khoi tao rong ben trong .ctor,
+dung nhu `__init__` that viet `self.items = []`" - nhung chinh duong ghi do cung
+khong stick.
+
+Da quet 216 file `.tkv` de chac chan khong pha gi: KHONG record TokenVector nao
+khai field container. `SyntaxFinding` trong `syntax_baseline.tkv` KHONG phai
+record - no la dataclass Python thuan co gia tri mac dinh (`Optional[str] = None`),
+va file do ship thanh `.py` chu khong transpile (traceback xac nhan:
+`File "compiler\syntax_baseline.py"`).
+
+**Bai hoc nho ve cat chuoi:** kiem tra container bang `dtype[:5] in ('list[',
+'dict[', 'set[')` - `'set['` dai **4** ky tu, nen `set[i64]` khong bao gio khop
+va loi cham nham vao nhanh "record can N tham so" sai thay vi thong bao dung.
+Dung `startswith`.
+
+**Gioi han cua cong kiem tra — doc truoc khi them check.** Cong BAT BUOC moi file
+test build duoc (`BUILDFAIL` la that bai). File test chua class co field
+container de chung minh bi chan thi CHINH no khong build. Vi vay
+`Testkit/record_container_field_test.tkv` chi kiem **khong chan nham** (moi kieu
+field scalar van chay: i32/str/f64, doc trong bieu thuc, so sanh, cong); phan
+"bi chan" duoc chung minh bang 3 probe tach rieng. KHONG duoc them
+`check("bi tu choi", "1", "1")` vao do - do la kiem tra rong.

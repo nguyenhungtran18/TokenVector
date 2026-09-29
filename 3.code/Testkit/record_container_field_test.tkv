@@ -1,0 +1,130 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO: field kieu container tren record bi TU CHOI (2026-09-29).
+
+`records[name]` - danh sach field cua 1 record - duy nhat tu `tkv_compile.tkv`'s
+`_extract_record_def`. Them kiem tra o DAY, ngay canh cac `raise
+TranspileError` cho field khong hop le.
+
+Vi sao chan: field container tren record CHUA ho tro that, va truoc day hong
+MOT CACH IM LANG - khong loi bien dich nao, chi co ket qua sai hoac nem
+OverflowException luc CHAY:
+
+    class C:
+        items: "list[i32]"
+        def __init__(self) -> "i32":
+            self.items = [1, 2, 3]   # bien dich OK -> len(c.items) == 0
+            return 0
+    # c.items[0]                     -> OverflowException luc chay
+
+Nguyen nhan: tham so `.ctor` cua record lay tu FIELD, khong phai tu chu ky
+`__init__` (cai do bi bo qua luc bien dich), va container bi LOC BO khoi danh
+sach do. Comment o `il_codegen.tkv` (dong ~5566) noi y dinh khai ROONG trong
+`.ctor` "nhu __init__ viet self.items = []" - nhung chinh duong ghi do cung khong
+stick.
+
+**PHAM VI CUA BAI TEST NAY - doc truoc khi dua vao day mot check gia.**
+Cong nay BAT BUOC moi file test build duoc; `testkit_gate.ps1` bao `BUILDFAIL`
+lam that bai. Mot file chua class co field container de chung minh bi tu choi
+thi CHINH no se khong build, tuc file test khong the chay. Vay phan "bi tu choi"
+KHONG bieu duoc bang check() o day.
+
+Do do file nay chi kiem **khong(chan nham)**: moi kieu field hop le cua record
+van chay dung sau khi them kiem tra. Phan kiem tra THAT duoc chung minh bang
+probe tach rieng (3 dang container, moi dang 1 loi bien dich) - xem commit
+`fix:` cung feature nay va muc REPOSITORY-NOTES. Ghi ro o day de khong ai sau
+nay them `check("bi tu choi", "1", "1")` vao - do la kiem tra rong, khong bao
+gi ca.
+
+An toan cua viec chan: da quet 216 file `.tkv` trong repo - KHONG record
+TokenVector nao khai field container. (`SyntaxFinding` trong
+`syntax_baseline.tkv` KHONG phai record: no la dataclass Python thuan co gia
+tri mac dinh, va file do ship thanh `.py`.)
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class P:
+    x: "i32"
+    y: "str"
+
+    def __init__(self, a: "i32", b: "str") -> "i32":
+        self.x = a
+        self.y = b
+        return 0
+
+
+class Num:
+    v: "f64"
+
+    def __init__(self, a: "f64") -> "i32":
+        self.v = a
+        return 0
+
+
+class Flag:
+    b: "i32"
+
+    def __init__(self, a: "i32") -> "i32":
+        self.b = a
+        return 0
+
+
+def scalar_fields_still_work() -> "i32":
+    """Field i32 + str - dang pho bien nhat, phai y nguyen sau khi them
+    kiem tra moi."""
+    total = 0
+    tested = 0
+    p = P(1, "z")
+    total += check("i32 and str fields", str(p.x) + "," + p.y, "1,z")
+    tested += 1
+    p2 = P(9, "q")
+    total += check("second instance", str(p2.x) + "," + p2.y, "9,q")
+    tested += 1
+    return total
+
+
+def float_field_untouched() -> "i32":
+    """Field f64 - kiem tra moi lo kieu scalar deu qua, khong chi i32/str."""
+    total = 0
+    tested = 0
+    n = Num(2.5)
+    total += check("f64 field", str(n.v), "2.5")
+    tested += 1
+    return total
+
+
+def single_field_record() -> "i32":
+    total = 0
+    tested = 0
+    f = Flag(1)
+    total += check("single i32 field", str(f.b), "1")
+    tested += 1
+    return total
+
+
+def comparison_and_use() -> "i32":
+    """Field doc qua bieu thuc va phep so sanh - dung khu duoc doc trong khoi
+    phan gan, de chan sai kieu scalar o noi khac khong lo duoc."""
+    total = 0
+    tested = 0
+    p = P(5, "m")
+    # Gan vao bien truoc roi moi str() - `str(<so sanh>)` INLINE in ra
+    # "True", con cung gia tri do gan vao bien lai in ra "1" (xem CLAUDE.md
+    # muc "Known gaps" / str tren ket qua so sanh). Phai theo quy tac do.
+    gt = p.x > 3
+    total += check("field in comparison", str(gt), "1")
+    tested += 1
+    total += check("field in arithmetic", str(p.x + 1), "6")
+    tested += 1
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += scalar_fields_still_work()
+    total += float_field_untouched()
+    total += single_field_record()
+    total += comparison_and_use()
+    # 2 + 1 + 1 + 2
+    return test_summary("record_container_field_test", total, 6)
