@@ -99,11 +99,13 @@
   `set()` — so the inline form is blocked by pre-existing limits, not by this
   feature: `len(<expr>)` cannot infer an expression's shape and `in` only takes
   a bare name. `for v in s:` works and yields members in unspecified order.
+- **Dict literal**: `d = {"a": 1, "b": 2}` works, with the same shape limits as
+  the set literal. A duplicate key keeps the **last** value.
 - **Known gaps**: `yield from`,
   conditional expressions (`a if c else b` *and* `c ? a : b`
   both fail, though an error message tells you to use the latter),
   `del`, keyword-only and positional-only parameters,
-  nested/tuple literals, dict literal with content (`{"a": 1}`), and call-site
+  nested/tuple literals, and call-site
   `  *`/`**` unpacking (calls
   have statically known arity, so a run-time-length sequence cannot be passed).
   A record **cannot have a container field** — the `.ctor` takes its parameters

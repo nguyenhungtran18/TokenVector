@@ -803,3 +803,26 @@ container de chung minh bi chan thi CHINH no khong build. Vi vay
 field scalar van chay: i32/str/f64, doc trong bieu thuc, so sanh, cong); phan
 "bi chan" duoc chung minh bang 3 probe tach rieng. KHONG duoc them
 `check("bi tu choi", "1", "1")` vao do - do la kiem tra rong.
+
+## Dict literal `d = {"a": 1}` (2026-09-29)
+
+Xong, gate 16/16. Nua con lai cua cu phap `{...}` (set literal lam ngay truoc).
+`il_core.py` sinh node `dict_literal` (danh sach cap khoa/gia tri);
+`dict_type.py` sinh `Dictionary<K,V>::.ctor()` roi `set_Item` tung cap - dung
+CHUNG idiom voi `_compile_index_store` (il_codegen.tkv) nen khong phat lai chu ky
+IL nao. Tuong ung het voi set literal: chi dang `ten_don = {...}` tren MOT dong.
+
+Hai loi parse da gap, ca hai deu "trong nhe" va deu bat duoc ngay vi test tung
+dung:
+1. Vong lap kiem `,` TRUOC khi xu ly cap DAU TIEN, nen thoat ngay roi
+   `expect_op('}')` gap `:`. Loi nay khong bao gi o dau - chi hien ra khi
+   bien dich ca file.
+2. Quen TIEU THU dau ':' sau khoa dau tien, nen `parse_expr` cho gia tri bat
+   dau tai `:` va bao "khong parse duoc factor tai OP ':'". Phai `advance()`
+   qua `:` truoc khi parse gia tri.
+
+`{}` van tra node rong de duong gop `d = {}` di tiep (khong nem loi) - da co
+case hoi quy trong test.
+
+Khoa trung lap: gia tri CUOI CUNG thang, dung het Python va het `set_Item`
+cua .NET.

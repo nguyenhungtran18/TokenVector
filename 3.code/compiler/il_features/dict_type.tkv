@@ -9,7 +9,7 @@ theo dung plan da duyet). Quy uoc dependency-injection qua `ctx` giong
 list_type.py/set_type.py (Phase 1 buoc 1)."""
 import re
 
-from il_core import IL_SCALAR
+from il_core import IL_SCALAR, parse_expr
 from il_dispatch import (
     register_assign_rhs_parser, register_line_parser,
     register_stmt_codegen, register_first_pass_walk, register_first_pass_prescan,
@@ -108,6 +108,86 @@ def try_rhs_dict_new(rhs, name, known_shapes):
         return None
     known_shapes[name] = 'dict'
     return {'kind': 'assign_dict_new', 'name': name}
+
+
+def try_rhs_dict_literal(rhs, name, known_shapes):
+    """ASSIGN_RHS_PARSERS entry: 'd = {"a": 1}' (2026-09-29).
+
+    Dung PARSER THAT (tag 'dict_literal' trong il_core.py) chu khong tu tach
+    dau phay - giong try_rhs_list_literal/try_rhs_set_literal. Node
+    'dict_literal' chi sinh ra khi co ':' sau phan tu dau; dang set literal
+    '{1, 2}' thi il_core.py sinh 'set_literal' va ham nay tu choi.
+    """
+    rhs_s = rhs.strip()
+    if not (rhs_s.startswith('{') and rhs_s.endswith('}')):
+        return None
+    node = parse_expr(rhs_s)
+    if node[0] != 'dict_literal':
+        return None
+    known_shapes[name] = 'dict'
+    return {'kind': 'assign_dict_literal', 'name': name, 'pairs': node[1]}
+
+
+def _dict_literal_dtypes(pairs, scope, ctx):
+    """(key_dtype, val_dtype) cho dict literal - suy THANG tu cac cap trong
+    literal, khong can quet 'd[k] = v' sau do (giong declare_list_literal /
+    declare_set_literal). Widen ve float neu bat ky phan nao la float."""
+    from il_features.list_type import list_literal_elem_spec_of
+    key_dtype = val_dtype = None
+    for k_node, v_node in pairs:
+        for node, which in ((k_node, 'k'), (v_node, 'v')):
+            d = list_literal_elem_spec_of(node, scope, ctx)
+            if d is None:
+                continue
+            cur = key_dtype if which == 'k' else val_dtype
+            if cur is None or (cur not in ('f32', 'f64') and d in ('f32', 'f64')):
+                if which == 'k':
+                    key_dtype = d
+                else:
+                    val_dtype = d
+    return key_dtype, val_dtype
+
+
+def fpw_assign_dict_literal(stmt, ctx):
+    """FIRST_PASS_WALK: khai bao local Dictionary<K,V> cho 'd = {"a": 1}'."""
+    name = stmt['name']
+    declared_names = ctx['declared_names']
+    if name in declared_names:
+        return
+    declared_names.add(name)
+    # PHAI xet container_arg_hints TRUOC - y het declare_dict (va
+    # declare_set). Thieu buoc nay thi kieu khai bao lech voi tham so
+    # 'd: "dict[str,i32]"' va call site sinh ep kieu sai (xem
+    # set_literal_test cho truong hop tuong tu).
+    hint = (ctx.get('container_arg_hints') or {}).get(name)
+    if hint is not None and hint.shape == 'dict':
+        ctx['locals_decl'].append((name, hint))
+        ctx['infer_scope'].set(name, hint)
+        return
+    key_dtype, val_dtype = _dict_literal_dtypes(stmt['pairs'], ctx['infer_scope'], ctx)
+    ta = ctx['TypeAnn'](val_dtype, 'dict', key_dtype=key_dtype)
+    ctx['locals_decl'].append((name, ta))
+    ctx['infer_scope'].set(name, ta)
+
+
+def codegen_assign_dict_literal(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN entry: 'd = {"a": 1}'.
+
+    Khoi tao Dictionary rong roi gan tung cap bang 'set_Item' - dung CHUNG
+    idiom voi `_compile_index_store` (il_codegen.tkv) nen khong phai phat
+    lai chu ky IL. Ket qua cuoi cung giu tren stack de 'store_var' gan vao
+    bien.
+    """
+    name = stmt['name']
+    _, _, ta = scope[name]
+    dict_type = ctx['il_type_str'](ta, ctx.get('records'))
+    body.append(f'    newobj instance void {dict_type}::.ctor()')
+    for k_node, v_node in stmt['pairs']:
+        body.append('    dup')
+        ctx['compile_expr'](k_node, scope, body, ta.key_dtype, ctx)
+        ctx['compile_expr'](v_node, scope, body, ta.dtype, ctx)
+        body.append(f'    callvirt instance void {dict_type}::set_Item(!0, !1)')
+    ctx['store_var'](name, scope, body)
 
 
 def try_parse_for_in_dict_items(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
@@ -624,12 +704,15 @@ def try_expand_dict_update(line):
 # Dang ky vao il_dispatch NGAY LUC MODULE NAP (il_dispatch.py khong phu
 # thuoc il_codegen.py nen import truc tiep an toan, khong circular).
 register_assign_rhs_parser('dict_new', try_rhs_dict_new)
+register_assign_rhs_parser('dict_literal', try_rhs_dict_literal)
 register_line_parser('for_in_dict_items', try_parse_for_in_dict_items)
 register_line_parser('container_clear', try_parse_container_clear)
 register_stmt_codegen('assign_dict_new', codegen_assign_dict_new)
+register_stmt_codegen('assign_dict_literal', codegen_assign_dict_literal)
 register_stmt_codegen('for_in_dict_items', codegen_for_in_dict_items)
 register_stmt_codegen('container_clear', codegen_container_clear)
 register_first_pass_walk('assign_dict_new', fpw_assign_dict_new)
+register_first_pass_walk('assign_dict_literal', fpw_assign_dict_literal)
 register_first_pass_walk('for_in_dict_items', fpw_for_in_dict_items)
 register_first_pass_walk('container_clear', fpw_container_clear)
 register_first_pass_prescan('for_in_dict_items', fpp_for_in_dict_items)

@@ -730,10 +730,39 @@ class _ExprParser:
             first = self.parse_expr()
             k3, v3 = self.peek()
             if k3 == 'OP' and v3 == ':':
-                raise SyntaxError(
-                    "il_codegen: dict literal co noi dung ('{k: v}') chua ho tro - "
-                    "khoi tao rong roi gan tung khoa: 'd = {}' roi 'd[\"a\"] = 1'. "
-                    "(Neu can tao dict tu du lieu co san, dung '{k: v for ...}'.)")
+                # 2026-09-29: dict literal '{"a": 1}' - trung day cap voi set
+                # literal o tren (cung 1 dau '{'). Node 'dict_literal' gom
+                # danh sach CAP (khoa, gia tri).
+                #
+                # Cho phep dau phay du o cuoi ('{"a": 1,}') giong Python.
+                pairs = []
+                k = first
+                self.advance()          # tieu thu ':' ngay sau khoa DAU TIEN
+                pairs.append((k, self.parse_expr()))
+                # Cho phep dau phay du o cuoi ('{"a": 1,}') giong Python.
+                while True:
+                    k4, v4 = self.peek()
+                    if not (k4 == 'OP' and v4 == ','):
+                        break
+                    self.advance()
+                    k5, v5 = self.peek()
+                    if k5 == 'OP' and v5 == '}':
+                        break
+                    k = self.parse_expr()
+                    k6, v6 = self.peek()
+                    if not (k6 == 'OP' and v6 == ':'):
+                        # Thieu ':' giua 2 cap - bao ngay thay vi im lang.
+                        raise SyntaxError(
+                            f"il_codegen: dict literal - thieu dau ':' truoc gia tri, "
+                            f"gap {v6!r} tai vi tri ~{k6}")
+                    self.advance()
+                    pairs.append((k, self.parse_expr()))
+                self.expect_op('}')
+                if not pairs:
+                    raise SyntaxError(
+                        "il_codegen: dict literal rong '{}' - {} la dict rong trong "
+                        "Python that, va 'd = {}' (khoi tao rong roi gan) da ho tro")
+                return ('dict_literal', pairs)
             elements = [first]
             while True:
                 k4, v4 = self.peek()
