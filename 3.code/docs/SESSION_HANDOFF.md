@@ -142,16 +142,16 @@ Hai cái bẫy về **ngữ nghĩa** dễ sai nhất:
 
 ## 5. Ghi chú thiết kế đáng nhớ
 
-**Nhãn thay cho cờ.** `PLAN.md` Bước 4 vẽ sẵn dùng cờ `did_break` cho
+**Nhãn thay cho cờ.** Bản `PLAN.md` cũ vẽ sẽn dùng cờ `did_break` cho
 `for/else`. Đó là **sai**: cờ cần một local mới mà tên phải duy nhất giữa hai lần
 duyệt câu lệnh, mà hai bộ đếm đó không bảo đảm khớp. Dùng nhãn thì `codegen_break`
-không đổi một dòng nào. Chi tiết ở `PLAN.md` Bước 4.
+không đổi một dòng nào. Chi tiết ở `REPOSITORY-NOTES.md`.
 
 **`try/else` cũng vậy.** Lần đầu tôi lồng `.try` và phát nhãn sai chỗ → vòng lặp
 vô hạn, đã revert. Ràng buộc CIL ép bố cục: `br` **không** được thoát khỏi thân
 `.try` (ECMA-335 III.3.64), bắt buộc `leave`, nên nhãn "không có lỗi" bắt buộc
 nằm ngoài vùng protected — đặt vào trong chính là chỗ gây lặp. Chi tiết ở
-`PLAN.md` Bước 3.
+`REPOSITORY-NOTES.md`.
 
 **`PLAN.md` từng sai.** Nó xếp *dict comprehension* vào mục "cần thiết kế" trong
 khi macro **đã có sẵn và chạy đúng** từ trước phiên này; thứ thật sự chặn nó là
@@ -193,10 +193,11 @@ commit bất cứ thứ gì. Ngoài ra `images/preview.png` và `2.UI/media_play
 ## 7. Tài liệu nên đọc trước khi code
 
 - `CLAUDE.md` (cha) — cú pháp và giới hạn hiện hành, đã cập nhật khớp 7 feature.
-- `3.code/docs/PLAN.md` — roadmap, Bước 3/4/5/6/7 ghi lại thiết kế và **cả dự
-  đoán sai đã bị bác bỏ**.
-- `3.code/docs/REPOSITORY-NOTES.md` — 769 dòng nhật ký, bao gồm tất cả bẫy ở mục
-  4 và các giới hạn có chủ đích.
+- `3.code/docs/PLAN.md` — **lộ trình** (mục 3), bảng tính năng đã xong (mục 2),
+  giới hạn có chủ đích (mục 4), và các quyết định còn treo. Đã viết lại ngày
+  2026-09-29 nên **không còn** các mục "Bước 3/4/5/6/7" như bản cũ.
+- `3.code/docs/REPOSITORY-NOTES.md` — nhật ký chi tiết (thiết kế từng feature,
+  các bẫy, các giới hạn). Ở đây mới là nơi ghi chi tiết `try/else` và `for/else`.
 
 ---
 
