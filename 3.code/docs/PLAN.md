@@ -125,16 +125,25 @@ Lệnh rõ của anh: **tập trung compiler, lỗi các repo khác để sau.**
   compiler.
 
 **Hệ quả phải nói thẳng:** công cụ không còn kiểm chứng được bằng hệ thống
-thật. Phần "cho phép" hiện **chỉ** được kiểm chứng bằng Testkit; bản dương
-chưa viết được (vướng lỗi khác: gọi method của record với tham số scalar báo
-`literal '5' khong dung voi dtype 'Acc'` — cũng chưa điều tra).
+thật. Phần "cho phép" hiện **đã** được kiểm chứng bằng bản dương — xem
+`Testkit/record_container_field_test.tkv`'s `container_field_positive` (4 check) và
+`Testkit/record_method_name_collision_test.tkv` (18/18). Bản dương này trước đây
+**không viết được** vì lỗi `literal '5' khong dung voi dtype 'Acc'` — nguyên nhân là
+method của record trùng tên method của container bị line parser của container cướp
+mất; **đã sửa** (commit `b1ba163`).
 
 ### Việc nên làm thêm
 
-`Testkit/` nên có **smoke test** cho Inference và Data: chỉ cần build được
-`inference_tests.tkv` và vài fragment Data, không cần chạy hết. Rẻ hơn nhiều so
-với phát hiện hồi quy sau 15 commit. **Hiện chưa làm** — và sẽ đỏ ngay vì
-lý do ở mục trên.
+**XONG (2026-09-29)** — `tools/ext_smoke.ps1` + `tools/ext_smoke_baseline.txt`: build
+4 mục (Inference `inference_tests.tkv`, Data `_libbuild.tkv` + 2 fragment), **không
+chạy**, và so với **ký vọng đã ghi**. Exit khác 0 khi một mục từng `BUILD_OK` rồi
+giờ fail (regression). Mục đang fail vẫn xanh nếu thông điệp khớp baseline — nên
+lần này nó **thành công** chứ không đỏ, vì lý do ở trên là quy tắc **(b) cố ý**, và
+giờ đã biết chính xác mục nào fail vì field nào.
+
+Còn 50 field container chưa gán ở Inference (19) và Data (31) vẫn chưa sửa — xem
+mục 1.1. Khi sửa từng field, chạy `ext_smoke.ps1 -UpdateBaseline` để cập nhật kỳ
+vọng.
 
 ---
 
@@ -349,6 +358,10 @@ Chạy trước khi coi bất cứ thay đổi nào là xong:
 
 # 4. Data — mất khoảng 5 PHÚT, không tre
 powershell -File D:\TokenVector.Data\tools\datagate.ps1
+
+# 4b. Smoke Inference + Data — CHỈ build, không chạy (mất vài chục giây)
+#     Cổng Testkit chỉ phủ 3.code, nên 2 repo kia có thể hỏng mà không ai biết.
+powershell -File .\3.code\tools\ext_smoke.ps1
 
 # 5. Benchmark — tự build kernel từ dist\tkvc.exe
 python .\3.code\bench\run.py
