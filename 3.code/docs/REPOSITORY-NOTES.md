@@ -976,3 +976,78 @@ có gì ngoài IL phân biệt được "đã vector hóa" với "chưa vector h
 và nhãn đuôi scalar). Giá trị hiện tại của `p6_vectorize_test.tkv`: `stobj` ×3
 (`add_case`, `chain_case`, `copy_case`; `mul_case`/`div_case` có hằng số nên bị từ
 chối đúng chủ đích), `_vstart` ×6, `_tstart` ×6.
+
+## P6 bước 4: đo hiệu quả — tăng tốc thật nhưng chỉ ~1.4–2.1×, không phải 4× (2026-09-29)
+
+### Cách đo
+
+Không nhồi P6 vào bảng của `run.py`. Ở đây câu hỏi là *"compiler biên dịch vòng
+lặp này nhanh hơn bao nhiêu"*, tức so **chính compiler với chính nó** — chạy
+một phép cộng trong Python làm mốc thứ phẩm không thêm gì vào hiệu quả đo
+được, chỉ làm chậm bản đo.
+
+Hai kernel `bench/k_p6_vec.tkv` và `bench/k_p6_scalar.tkv` **giống hệt nhau** —
+cùng dữ liệu, cùng phép tính, cùng số lần lặp — và chỉ khác ở **điều kiện vòng
+lặp**:
+
+| | điều kiện | P6 |
+|---|---|---|
+| `k_p6_vec.tkv` | `while i < nb` (biến) | vector hóa |
+| `k_p6_scalar.tkv` | `while i < 262144` (hằng số) | từ chối, chạy scalar |
+
+Chênh lệch thời gian đó ra công **đúng hiệu quả của P6**: cùng thuật toán, cùng
+bộ đệm, cùng dữ liệu, cùng compiler.
+
+`bench/p6_bench.py` tự kiểm chứng hai điều trước khi in số, vì cả hai đều có
+thể làm phép đo thành vô nghĩa mà không ai nhận ra:
+
+1. **IL phải khác nhau**: bản vector có `stobj`/`_vstart`, bản scalar thì không.
+   Nếu compiler bắt đầu rút gọn hằng số thành biến, hai bản trùng nhau và phép
+   đo hết ý nghĩa. Đây cũng là cách bảo đảm bản "scalar" thật sự chạy scalar.
+2. **Checksum phải giống nhau** — tức hai bản thống nhất về mặt số học.
+
+### Kết quả
+
+```
+N         reps      công việc      scalar    tự động   tăng tốc
+4096      4000      16.4M           13.3ms     8.2ms      1.62x
+16384     1000      16.4M           12.9ms     7.4ms      1.74x
+65536     400       26.2M           22.0ms    16.1ms      1.36x
+262144    60        15.7M           15.8ms    11.0ms      1.44x
+```
+
+Các lần chạy lặp cho tăng tốc tốt nhất trong khoảng **1.6–2.1×** (đo có nhiễu
+thực tế), và **~1.4×** khi bộ đệm lớn. Tập 3 bộ đệm đi từ 48 KB (vừa L2) tới
+3 MB (vượt L2).
+
+**Có một cái bẫy đo lý trong hàng này:** lần đo đầu tiên với `N=4096` cho
+**0.81× — tức bản vector chậm hơn**. Đó là sai số do trừ startup (~25 ms) khi
+thời gian đo chỉ ~2 ms. Tăng số lần lặp lên để công việc thật lấn át chi phí
+cố định thì con số thật là 1.6–1.9×. Bài học: ở kernel chạy vài ms, phép trừ
+startup không đáng tin; hãy chọn số lần lặp để tổng công việc ≥ 15M phép.
+
+### Vì sao không đạt 4× (đếm từ IL, không phải đoán)
+
+Vòng vector sinh **42 lệnh IL cho mỗi 4 phần tử**. Trong đó:
+
+- **20 lệnh không làm phép tính nào** — chỉ tính địa chỉ byte cho 3 toán số
+  (`a`, `b`, `r`). Mỗi toán số tốn 7 lệnh vì chỉ số là `TkvInt` (int64 có kiểm
+  tra tràn) nên phải qua `conv.i4`, `conv.i8`, `mul.ovf`, `add`, `conv.i`.
+- **~10 lệnh mới là việc thật**: 2 `ldobj`, 1 `op_Addition`, 1 `stobj`.
+
+Tức công việc tính địa chỉ **đắt gấp hơn 2 lần** công việc vector. Đây là hạn
+chẵn sẵn của P6, không phải lỗi.
+
+### Bước tiếp theo đã định
+
+Giữ một con trỏ byte tách riêng tăng 16 mỗi vòng lặp thay vì tính lại `i*4` ba
+lần. Biến `i` vẫn phải giữ vì điều kiện thoát dùng nó, nhưng có thể hẹp về
+`i32` trong khi đó — **phải canh giác** vì biến người dùng có thể lớn hơn
+int32. Đây là việc đo đạt trước, không phải suy đoán: 20/42 lệnh là mục tiêu.
+
+### Lưu ý về phạm vi
+
+`p6_bench.py` cố ý **không** thêm vào `KERNELS` của `run.py`. Mốc CPython cho
+kernel này sẽ tốn hàng chục giây mà không đóng góp gì cho câu hỏi đang đặt ra.
+Bảng của `run.py` vẫn là bảng so sánh ngôn ngữ; phép đo hiệu quả biên dịch thuộc
+về script riêng.

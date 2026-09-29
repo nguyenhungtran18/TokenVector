@@ -1,0 +1,62 @@
+# -*- coding: utf-8 -*-
+# P6-4 (2026-09-29): do TAC DONGNG VAO cua bo tu dong vector hoa (P6).
+#
+# HAO HA: cap N VACH so sanh giua `k_p6_scalar.tkv` va `k_p6_vec.tkv` - hai
+# file nay giong het nhau, cung du lieu, cung phep tinh, cung so lan lap.
+# KHAC BIET DUY NHAT la dieu kien cua vong lap:
+#
+#   k_p6_vec.tkv     : `while i < nb`   -> `nb` la BIEN  -> P6 vector hoa
+#   k_p6_scalar.tkv  : `while i < 262144` -> HANG SO     -> P6 TU CHOI
+#
+# Day khong phai so sanh cong khai giua hai thu bat ky: no so sanh CHINH
+# compiler co bien dich vong lap nay hay khong, tren DUNG mot bien dich. Khong
+# co y so nao khac chen gi vao giua - cung thuat toan, cung bo dem, cung du
+# lieu, cung so vong lap. Chenh lech thoi gian do ra cong dung hieu qua cua P6.
+#
+# Dai do lon: N = 262144 = 2^18, chia het cho 4 nen khong con duoi scalar.
+# R = 40 lan lap de thoi gian do duoc noi roi tren nhieu.
+#
+# `r` duoc tien vao bang -999.0 truoc moi lan lap: `Marshal.AllocHGlobal` tra ve
+# vung nho CHUA khoi tao, nen neu vong lap bo sot phan tu, phan tu do giu gia
+# tri cua lan truoc (cung la phep tinh dung) va checksum van khop - bien loi
+# thanh khop. -999.0 khong the la ket qua dung cua phep cong nen lo ra ngay.
+#
+# Checksum lay mau MOT PHAN TU MOI 64 thay van tong ca N: tong day la vong lap
+# SCALAR 262144 lan, se ngang nho voi phan tinh da duoc vector hoa va lam
+# loe muc do. Dung sai o day la lo so (Sai so lam tron f32 don le), chu khong
+# phai so sanh chinh xac tung phan tu - cai do Testkit da lo day kiem.
+
+def main() -> "i32":
+    n = 262144
+    reps = 40
+    a = f32buf(n)
+    b = f32buf(n)
+    r = f32buf(n)
+    i = 0
+    while i < n:
+        a[i] = 1.5
+        i = i + 1
+    i = 0
+    while i < n:
+        b[i] = 2.25
+        i = i + 1
+    i = 0
+    while i < n:
+        r[i] = -999.0
+        i = i + 1
+    # `nb` la bien - DAY la thu tach vector hoa.
+    nb = n
+    rep = 0
+    while rep < reps:
+        i = 0
+        while i < nb:
+            r[i] = a[i] + b[i]
+            i = i + 1
+        rep = rep + 1
+    cs = 0.0
+    i = 0
+    while i < n:
+        cs = cs + r[i]
+        i = i + 64
+    print("sum=" + str(cs))
+    return 0

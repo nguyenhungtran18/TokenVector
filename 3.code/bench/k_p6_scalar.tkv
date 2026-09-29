@@ -1,0 +1,47 @@
+# -*- coding: utf-8 -*-
+# P6-4 (2026-09-29): BAN SCALAR cua `k_p6_vec.tkv` - cung du lieu, cung phep
+# tinh, cung so lan lap, chi khac MOT ky tu: dieu kien vong lap la HANG SO.
+#
+#   `while i < nb`  (bien)  -> P6 vector hoa
+#   `while i < 262144` (nay) -> P6 TU CHOI, chay duong scalar goc
+#
+# Day chinh la thu do "truoc P6": cung ma nguon, cung compiler, chi la khong
+# co buoc bien dich tu dong. Khac biet thoi gian giua hai ban la hieu qua cua P6.
+#
+# Can bao dam hang so nay van la HANG SO sau khi bien dich. Neu bien dich rut
+# gon `262144` thanh bien roi cam bien, hai ban se khac nhau va phep do se
+# khong con do gi. `tkvc --emit-il` la cach xac nhan: ban nay KHONG co
+# `_vstart`, ban vector co.
+
+def main() -> "i32":
+    n = 262144
+    reps = 40
+    a = f32buf(n)
+    b = f32buf(n)
+    r = f32buf(n)
+    i = 0
+    while i < n:
+        a[i] = 1.5
+        i = i + 1
+    i = 0
+    while i < n:
+        b[i] = 2.25
+        i = i + 1
+    i = 0
+    while i < n:
+        r[i] = -999.0
+        i = i + 1
+    rep = 0
+    while rep < reps:
+        i = 0
+        while i < 262144:
+            r[i] = a[i] + b[i]
+            i = i + 1
+        rep = rep + 1
+    cs = 0.0
+    i = 0
+    while i < n:
+        cs = cs + r[i]
+        i = i + 64
+    print("sum=" + str(cs))
+    return 0
