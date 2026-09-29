@@ -15,12 +15,12 @@ trỏ tới mục không tồn tại. Bản này viết lại từ đầu theo t
 | Cổng | Kết quả |
 |---|---|
 | `3.code\tools\testkit_gate.ps1` | **85/85** + **negative 5/5** (timeout 0, ILFAIL 0) |
-| Inference | **26/26** |
-| Data gate | **PASS** (library 2/2, fragments 0 lỗi thật, suites 18/18) |
-| Benchmark | 7 kernel, checksum 7/7 OK |
+| Inference | **KHÔNG BUILD** — xem mục 1.1 |
+| Data gate | **FAIL (0/2 library, 0/18 suites)** — xem mục 1.1 |
+| Benchmark | 7 kernel, checksum 7/7 OK (đo lại 2026-09-29) |
 
-Benchmark đo trên máy này (min của 5 lần, đã trừ startup). **Chưa chạy lại từ
-lần sửa cuối** — số cũ vẫn đúng nhưng cần đo lại sau P6:
+Benchmark đo trên máy này (đo lại 2026-09-29, đã trừ startup). **Số cũ trước
+đây đã lỗi thời** — bảng dưới là lần đo mới nhất:
 
 | kernel | TokenVector | CPython | nhanh hơn | NumPy |
 |---|---|---|---|---|
@@ -54,6 +54,52 @@ Số đo **có nhiễu lớn** giữa các lần chạy (cùng cấu hình cho 3
   trong khi vòng scalar kiểm tra 4 lần — cải thiện thuật toán hợp lệ.
 - Vẫn chưa đạt 4× vì mỗi vòng còn **36 lệnh IL cho 4 phần tử**, trong đó
   18 lệnh tính địa chỉ byte cho 3 toán số.
+
+---
+
+## 1.1 HỒI QUY do tôi gây ra: chặn field container trên record (2026-09-29)
+
+Chạy đủ 5 bước của mục 7 lần đầu sau nhiều commit cho thấy **Inference và
+Data đều KHÔNG BUILD**, cùng một nguyên nhân:
+
+```
+class 'Schema': field 'fields' kieu container ('list[Field]') chua ho tren record
+class 'ExecutionMemoryArena': field 'fmap' kieu container ('dict[i64,list[f32]]') chua ho tren record
+```
+
+- Inference: **không build** → số "26/26" trong bảng mục 1 là **stale**, đo
+  trước commit `a2919f9`.
+- Data: **0/2 library, 0/18 suites** (toàn bộ 18 check fail build), mất 123 s.
+
+**Nguyên nhân là commit `a2919f9` của chính tôi** ("chặn field container trên
+record"). Luận cứ lúc đó: `.ctor` lấy tham số từ *field*, container bị lọc khỏi
+danh sách đó, nên field container **không bao giờ** được lấp đầy.
+
+Luận cứ đó **sai vì bỏ sót một đường**: field vẫn được `__init__` gán trực tiếp
+bằng `self.fmap = {}` — đó chính là cách Inference và Data dùng. Cơ chế `.ctor`
+không lấp được, nhưng phép gán trong `__init__` thì có, và đó là cách hợp lệ.
+
+**Vì sao 85/85 không bắt được:** cổng Testkit chỉ phủ `Testkit/`. Hai hệ thống
+dùng nó là Inference và Data **không nằm trong Testkit**. Và bảng mục 1 vẫn ghi
+kết quả cũ mà không ai chạy lại — đó là lỗi của PLAN, không chỉ của code.
+
+### Ba lựa chọn (cần anh chốt)
+
+| | Cách làm | Đánh giá |
+|---|---|---|
+| **(a)** | Hoàn nguyên `a2919f9` | Inference + Data build lại ngay. Nhưng field container **chưa** được gán sẽ âm thầm là `null` — đúng loại lỗi âm thầm mà dự án tránh |
+| **(b)** | **Thu hẹp điều kiện**: chỉ từ chối field container **chưa hề được gán trong `__init__`** | Đúng ngữ nghĩa. Phải kiểm tra phần thân `__init__`; rủi ro quét hụt → lại thành âm thầm |
+| **(c)** | Giữ nguyên `a2919f9`, sửa Inference và Data | Sai hướng: `self.fmap = {}` là cách viết bình thường, ép cấm nó là đẩy chi phí sang người dùng |
+
+Tôi nghiêng về **(b)**, nhưng nó là thay đổi một tính năng đã commit nên cần
+anh chốt. **Trong lúc chờ, Inference và Data đều không dùng được** — và mọi
+đoạn nào trong PLAN ghi chúng là PASS/26/26 đều đã bị sửa ở trên.
+
+### Việc nên làm thêm
+
+`Testkit/` nên có **smoke test** cho Inference và Data: chỉ cần build được
+`inference_tests.tkv` và vài fragment Data, không cần chạy hết. Rẻ hơn nhiều so
+với phát hiện hồi quy sau 15 commit.
 
 ---
 
