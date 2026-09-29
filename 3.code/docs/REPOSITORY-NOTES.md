@@ -1419,3 +1419,59 @@ test cua P6** (xem P6 buoc 3) va cac truong hop `field container tren record`,
 `Testkit/negative/*.tkv` ma file do **PHAI bien dich that bai**; neu bien dich
 thanh cong thi gate FAIL. Rat re, va dong lai ca lop loi hien chi duoc bao ve
 bang lời.
+
+## `Testkit/negative/` — gate cuoi cung "phai bi tu choi" (2026-09-29)
+
+Mot lo test ma gate truoc day **khong the kiem chung**: file ma compiler phai tu
+choi. Khong viet duoc bang `check()` - noi dung do bien dich thanh cong roi moi
+chay duoc, nen "phai bi tu choi" la thu khong the dat trong chinh file do.
+
+Hau qua thi khong nho: nhom loi lon nhat cua du an CHI duoc bao ve bang
+docstring, khong co gi kiem chung gi ca - negative test cua P6 (bien doi sai
+phai bi bat), conditional expression hai nhanh lech kieu (truoc do lam hong bo
+nho), field container tren record, `match/case` pattern khong ho tro.
+
+### Cach lam
+
+`Testkit/negative/*.tkv` - bien dich THAT BAI thi PASS. File o thu muc con nen
+khong bi vong `Testkit/*_test.tkv` lay.
+
+**Kiem tra ca LY DO, khong chi "co that bai khong".** File bat buoc co dong dau
+tien:
+
+```
+# EXPECT-SUBSTRING: <doan chu trong thong bao loi mong doi>
+```
+
+va thong bao loi phai chua doan do. Khong co dieu nay thi mot file sai chinh
+ta (say typo lam bien dich that) van PASS - giong het loi "test luon xanh" ma
+gate da tung co, chi la o dang khac.
+
+### Da kiem chung bang giong mutation (P6 buoc 3)
+
+Ba che do loi, ca ba deu bi bat, va ba deu doc lai tu phia gate:
+
+| file xau | ket qua gate mong doi | ket qua that te |
+|---|---|---|
+| bien dich thanh cong | FAIL "bien dich thanh cong, phai bi tu choi" | dung vay |
+| that bai sai ly do | FAIL "that bai nhung khong phai ly do mong doi" | dung vay |
+| thieu dong `EXPECT-SUBSTRING` | FAIL "thieu '# EXPECT-SUBSTRING:'" | dung vay |
+
+Ca hai fail deu lam `exit 1`.
+
+### Hien co 3 file
+
+- `cond_mixed_types.tkv` - conditional expression hai nhanh lech kieu
+- `f32buf_free_on_list.tkv` - `FreeHGlobal` nhan con tro, nen bien int qua lai
+  se giai phong vung nho nguoi hieu
+- `f32buf_two_indices.tkv` - bo dem khong co truc toan so thu hai de ma "bao
+  loi" co y nghia
+
+### Con nghi cho lan sau
+
+- **P6 negative test**: mutation cua `_p6_vectorize_while` phai duoc chan
+  ngay tu dong. Hien `ilChecks` chi kiem tra IL co `stobj`/`_vstart` — bat
+  duoc khi transform bi TAT, nhung khong bat duoc khi transform bien sai
+  *van* sinh `stobj`. Can mot negative test cho ca truong hop do.
+- **Bien the loai**: `s[1:2:0]`, so sanh kieu lech trong `str` noi,
+  `int(1.0)` — da thay mot loi (phep `int` nhan float) khi dang test P6.

@@ -218,17 +218,77 @@ foreach ($c in $ilChecks) {
 }
 Write-Output ""
 
+# ---- NEGATIVE TESTS: file PHAI bi bien dich THAT BAI ------------------------
+# Mot lo test ma gate truoc day KHONG the kiem chung: file ma compiler PHAI
+# tu choi. Khong co cach nao viet bang `check()` - noi dung do bien dich thanh
+# cong roi moi chay duoc, nen "phai bi tu choi" la thu khong the dat trong
+# chinh file do.
+#
+# Hau qua thi khong nho: nhom loi lon nhat cua du an CHI duoc bao ve bang
+# docstring, khong co gi kiem chung gi ca:
+#   - negative test cua P6 (bien doi sai phai bi bat)
+#   - conditional expression hai nhanh lech kieu (truoc do LAM HONG BO NHO)
+#   - field container tren record
+#   - match/case pattern khong ho tro
+#
+# `Testkit/negative/*.tkv` - bien dich THAT BAI thi PASS. File dat them vao
+# `Testkit/*.tkv` (het `_test`) nen khong bi vong chay test kia lay.
+#
+# **Kiem tra ca LY DO**, khong chi "co that bai khong": file bat buoc co dong
+# dau tien `# EXPECT-SUBSTRING: <doan>`, va thong bao loi phai CHUA doan do.
+# Neu khong, mot file sai chinh ta (say typo lam bien dich that) van PASS -
+# giong het loi "test luon xanh" ma gate da tung co.
+$negDir = Join-Path $code "Testkit\negative"
+$negPass = 0
+$negFail = 0
+$negTests = @()
+if (Test-Path $negDir) {
+  $negTests = Get-ChildItem $negDir -Filter "*.tkv" | Sort-Object Name
+}
+Write-Output "=== NEGATIVE TESTS ($($negTests.Count) file phai bi tu choi) ==="
+foreach ($nt in $negTests) {
+  $head = (Get-Content $nt.FullName -TotalCount 1 -ErrorAction SilentlyContinue)
+  $want = $null
+  if ($head -match '^#\s*EXPECT-SUBSTRING:\s*(.+?)\s*$') { $want = $Matches[1] }
+  if (-not $want) {
+    $negFail++
+    $failures += "NEGFAIL   $($nt.Name) (thieu dong dau tien '# EXPECT-SUBSTRING: ...')"
+    Write-Output "  FAIL  $($nt.Name): thieu '# EXPECT-SUBSTRING:'"
+    continue
+  }
+  $nexe = Join-Path $OutDir "neg_$($nt.BaseName).exe"
+  Remove-Item $nexe -Force -ErrorAction SilentlyContinue
+  $bout = & $Compiler build $nt.FullName --entry run --out $nexe --no-lint 2>&1 | Out-String
+  if (Test-Path $nexe) {
+    # Bien dich THANH CONG -> cai ma phai bi tu choi da khong duoc chan.
+    $negFail++
+    $failures += "NEGFAIL   $($nt.Name) (BIEN DICH THANH CONG - cai do phai bi tu choi)"
+    Write-Output "  FAIL  $($nt.Name): bien dich thanh cong, phai bi tu choi"
+  } elseif ($bout -notmatch [regex]::Escape($want)) {
+    $negFail++
+    $failures += "NEGFAIL   $($nt.Name) (that bai sai LY DO - thieu '$want')"
+    Write-Output "  FAIL  $($nt.Name): that bai nhung khong phai ly do mong doi"
+  } else {
+    $negPass++
+    Write-Output "  ok    $($nt.Name) (bi tu choi dung ly do)"
+  }
+  if (-not $KeepOutput) {
+    Remove-Item $nexe -Force -ErrorAction SilentlyContinue
+  }
+}
+Write-Output ""
+
 Write-Output "=== SUMMARY (out of $($tests.Count) tests) ==="
-"PASS={0,-4} BUILDFAIL={1,-4} TESTFAIL={2,-4} OTHER={3} TIMEOUT={4} ILFAIL={5}" -f $pass, $buildFail, $testFail, $other, $timeouts, $ilFail
+"PASS={0,-4} BUILDFAIL={1,-4} TESTFAIL={2,-4} OTHER={3} TIMEOUT={4} ILFAIL={5} NEG={6}/{7}" -f $pass, $buildFail, $testFail, $other, $timeouts, $ilFail, $negPass, $negTests.Count
 Write-Output ""
 if ($failures.Count) {
   Write-Output "=== FAILURES ==="
   $failures | ForEach-Object { Write-Output "  $_" }
   Write-Output ""
 }
-if ($pass -eq $tests.Count -and $ilFail -eq 0) {
-  Write-Output "GATE: PASS ($pass/$($tests.Count))"
+if ($pass -eq $tests.Count -and $ilFail -eq 0 -and $negFail -eq 0) {
+  Write-Output "GATE: PASS ($pass/$($tests.Count), negative $($negPass)/$($negTests.Count))"
   exit 0
 }
-Write-Output "GATE: FAIL ($pass/$($tests.Count))"
+Write-Output "GATE: FAIL ($pass/$($tests.Count), negative $($negPass)/$($negTests.Count))"
 exit 1

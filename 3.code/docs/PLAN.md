@@ -14,7 +14,7 @@ trỏ tới mục không tồn tại. Bản này viết lại từ đầu theo t
 
 | Cổng | Kết quả |
 |---|---|
-| `3.code\tools\testkit_gate.ps1` | **84/84** (timeout 0, ILFAIL 0) |
+| `3.code\tools\testkit_gate.ps1` | **84/84** + **negative 3/3** (timeout 0, ILFAIL 0) |
 | Inference | **26/26** |
 | Data gate | **PASS** (library 2/2, fragments 0 lỗi thật, suites 18/18) |
 | Benchmark | 7 kernel, checksum 7/7 OK |
@@ -73,6 +73,7 @@ Mỗi dòng có commit và file gate. Cổng phải xanh sau **từng** commit.
 | Dict literal `d = {"a": 1}` | `ff48634` | `dict_literal_test.tkv` 16/16 |
 | Duyệt set `for v in s:` | `268e050` | `set_iteration_test.tkv` 11/11 |
 | Chặn field container trên record | `a2919f9` | `record_container_field_test.tkv` 6/6 |
+| Cổng `Testkit/negative/` ("phải bị từ chối") | `f41b391` | 3/3, có mutation check |
 | Kiểu `bool` (alias của `i32`) | `04f80d3` | `bool_type_test.tkv` 20 |
 | `is` / `is not` | `a24a347` | `identity_test.tkv` |
 | Literal `0o` / `0b` / `1e3` | `dca987d` | `num_literal_test.tkv` |
@@ -232,7 +233,7 @@ Chạy trước khi coi bất cứ thay đổi nào là xong:
 # 1. Build lại compiler TỪ CÂY NGUỒN (binary cũ che hồi quy)
 .\3.code\build_tkvc.ps1
 
-# 2. Testkit — 84 file, timeout 120s/test
+# 2. Testkit — 84 file + 3 negative, timeout 120s/test
 .\3.code\tools\testkit_gate.ps1
 
 # 3. Inference
