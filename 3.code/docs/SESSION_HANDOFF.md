@@ -1,209 +1,172 @@
 # SESSION HANDOFF — TokenVector compiler
 
-Ngày: 2026-09-29. Trạng thái: **cổng 78/78 xanh, hai repo sạch**, không có việc
-dở dang. Phiên này làm 7 feature liên tiếp, mỗi cái một commit, mỗi commit
-kèm test và hai repo đều đã mirror.
+Ngày: 2026-09-29. Cổng: **90/90 + negative 9/9 xanh** tại commit `93fcd18`.
+
+**CÓ VIỆC DỞ DANG, CHƯA COMMIT.** Xem mục 3 trước khi làm bất cứ việc gì.
 
 ---
 
-## 1. Việc đã xong trong phiên này
+## 1. Bối cảnh: tập trung compiler, hoãn repo khác
 
-| # | Feature | `3.code` | parent | Test |
-|---|---|---|---|---|
-| 0 | Timeout mỗi test trong gate | `fb73f8b` | `744e65e` | — |
-| 1 | `raise <biến>` | `7863ee3` | `9252840` | `raise_var_test.tkv` 7/7 |
-| 2 | `try/except/else` | `2d3e9dc` | `917917f` | `try_except_else_test.tkv` 10/10 |
-| 3 | `for`/`while` `else` | `19a8a52` | `407eb5c` | `for_while_else_test.tkv` 15/15 |
-| 4 | Comprehension nhiều `for` / `if` | `ba5f5d0` | `9b4c2df` | `comprehension_multi_for_test.tkv` 17/17 |
-| 5 | Slice có bước `a[i:j:k]` | `d81bc4f` | `7d4ca62` | `slice_step_test.tkv` 16/16 |
-| 6 | Set literal `s = {1,2,3}` | `bfdcfc7` | `fb5997d` | `set_literal_test.tkv` 13/13 |
-| 7 | Duyệt set `for v in s:` | `268e050` | `19d0f52` | `set_iteration_test.tkv` 11/11 |
+Chỉ sửa `3.code`. `TokenVector.Inference` và `TokenVector.Data` đang **không build**
+vì quy tắc "record không được có field container chưa khởi tạo" (lý do có chủ đích,
+người dùng đã chọn phương án B: cho phép nếu có `self.X = ...` trong `__init__`).
+Việc sửa hai repo đó **đã được hoãn có chủ đích** — đừng đụng vào.
 
-Kèm một commit dọn dẹp ở parent: `9448b74` (`preview.png` + `2.UI/media_player.html`).
-
-**Quy tắc commit:** mỗi thay đổi commit vào **cả hai** repo. Commit của parent
-ghi rõ `(mirrors 3.code <hash>)`. Luôn chạy gate trước khi commit.
+`docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md` còn khẳng định hỗ trợ `iter()`/`next()` —
+**sai**, hai hàm đó không tồn tại. Nên sửa tài liệu, để sau.
 
 ---
 
-## 2. Quy trình bắt buộc
+## 2. Xong trong phiên này (mỗi cái một commit, đã mirror cả hai repo)
+
+| Feature | `3.code` | parent | Test |
+|---|---|---|---|
+| Chuỗi tam nháy nhiều dòng `"""..."""` | `fedce3b` | `694f5ef` | `multiline_string_test.tkv` 8/8 |
+| `yield from` + `return <v>` trong generator | `97b2dd1` | `a2f9a86` | `generator_yield_from_test.tkv` 10/10 |
+| Literal lồng `[{"a":1}]`, `{"k":[1,2]}` | `549dbc7` | `a998f02` | `nested_literal_test.tkv` 7/7 |
+| Linter chấp nhận literal lồng | `2f85d29` | `0e2fe11` | — |
+| Tuple literal `(1, 2)` — phần 1/2 | `93fcd18` | `5294746` | `tuple_literal_test.tkv` 5/5 |
+
+Cộng 2 negative test mới (`yield_from_bad_source`, `generator_return_no_gen_ret`).
+
+**Quy tắc commit:** mỗi thay đổi commit vào **cả hai** repo, chạy gate trước khi commit.
+
+---
+
+## 3. ⚠ VIỆC DỞ DANG — đọc trước khi sửa
+
+Working tree (`3.code`) đang sửa 2 file, **chưa commit vì sinh ra IL không hợp lệ**:
+
+```
+ M Testkit/tuple_literal_test.tkv      # 2 check `for a, b in ...` đã bật lại
+ M compiler/il_features/tuple_type.tkv # thêm try_parse_for_tuple_pairs
+                                       # fpw_for_tuple_pairs
+                                       # codegen_for_tuple_pairs
+```
+
+**Triệu chứng:** `tuple_literal_test` build được, 5 case literal vẫn PASS, nhưng
+`sum_pairs()` và `join_pairs()` chết lúc chạy với
+`System.InvalidProgramException: Common Language Runtime detected an invalid program`.
+
+**Nguyên nhân đã định vị chính xác** (dùng `TKV_DBG_NARROW=1` có sẵn):
+
+```
+plain     (for thường):     for_targets=['__iterexpr0_idx']  assigned=['i','total']  → total = TkvInt, OK
+sum_pairs (for_tuple_pairs): for_targets=[]                   assigned=['total']     → total = int64, HỎNG
+```
+
+`int_narrow` (`compiler/il_features/int_narrow.tkv`, `narrowable_locals` L217) đánh giá
+biến qua 2 nguồn: tên trong `assigns` (có RHS để phân tích) và `for_targets`.
+- `for` thường: macro sinh `i = src[idx]` → `i` **có** RHS → bị loại khỏi tập narrow →
+  `total` theo mà không bị narrow.
+- `for_tuple_pairs`: `i`/`j` khai báo thẳng bằng `declare_named`, **không** đi qua
+  `assigns` → `_expr_int64` không có bằng chứng để loại `total` → hạ `total` xuống i64.
+
+Rồi `return total` trong hàm `-> "i32"` **không có bước thu hẹp i64→i32** → `ret` sai
+kiểu → verifier từ chối.
+
+**Đây là khoảng trống CÓ SẴN, không phải do tính năng mới tạo ra.** Tính năng chỉ lộ
+nó ra. Hai hướng sửa:
+
+- **(a) Hẹp, chưa thử:** dạy `_collect_for_targets`/`_collect_assigns` trong
+  `int_narrow.tkv` biết `for_tuple_pairs`, để `i`/`j` được phân tích như `for` thường.
+  CẢnh báo: trong fixpoint, tên thuộc `for_targets` bị **giữ** trong tập narrow
+  (`if name in for_targets: continue`), nên thêm `i`/`j` vào đó có thể làm chúng
+  thành i64 và hỏng theo cách khác. Chưa chạy thử — đừng coi là đã đúng.
+- **(b) Rộng hơn, sửa gốc:** thêm bước thu hẹp i64→i32 ở `codegen_return` khi biến bị
+  narrow còn chữ ký là i32. Có thể giúp nhiều chỗ khác, nhưng đụng đường `return` dùng
+  chung cho cả chương trình.
+
+Nếu chỉ muốn trạng thái sạch: `git checkout -- Testkit/tuple_literal_test.tkv
+compiler/il_features/tuple_type.tkv` là về `93fcd18` (90/90 xanh).
+
+---
+
+## 4. Còn lại của Giai đoạn 2
+
+| Mục | Trạng thái |
+|---|---|
+| `del` phần tử | XONG (`79de33a`) |
+| Hàm lồng / module-global | XONG SẴN, đã có test |
+| Biểu thức điều kiện | XONG dạng Python `a if c else b` |
+| Chuỗi nhiều dòng | XONG |
+| `yield from` | XONG (list + generator) |
+| `return <v>` trong generator | XONG (kênh `__gen_ret__`) |
+| Literal lồng | XONG |
+| Tuple literal | **1/2** — xem mục 3 |
+| `f(*xs)`, `f(**kw)` | chưa làm — lớn, cần đổi mô hình arity |
+
+Giai đoạn 3 (`yield from`) về mặt roadmap đã xong; mục 5 của PLAN đã viết lại từ
+"vì sao chưa làm" thành mô tả đã làm.
+
+---
+
+## 5. Quy trình bắt buộc
 
 ```powershell
 cd D:\TokenVector\3.code
-.\build_tkvc.ps1                                   # REBUILD TRƯỚC KHI CHẠY GATE
-.\tools\testkit_gate.ps1                          # cổng, timeout 120s/test
+Remove-Item "build\pyinstaller" -Recurse -Force -ErrorAction SilentlyContinue
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build_tkvc.ps1   # REBUILD TRƯỚC KHI CHẠY CỔNG
+.\tools\testkit_gate.ps1
 ```
 
-Sau **mỗi** thay đổi compiler phải clean build. Binary cũ che giấu hồi quy.
+- Cổng: `Testkit/*_test.tkv`, **entry `run`** (không phải `main`).
+- `Testkit/negative/*.tkv`: dòng đầu `# EXPECT-SUBSTRING: <đoạn>` — phải **fail** và
+  thông điệp phải **chứa** đúng đoạn đó.
+- `native_test_suite.tkv` **không** thuộc cổng và vẫn không build.
+- Sau **mỗi** thay đổi compiler phải clean build. Binary cũ che giấy hồi quy.
 
-- Cổng: `Testkit/*_test.tkv`, entry `run` (không phải `main`).
-- `native_test_suite.tkv` **không** thuộc cổng và vẫn không build vì thiếu
-  `yield from`. Đừng dùng nó làm cổng.
-- Kết quả mong đợi: `PASS=78  BUILDFAIL=0  TESTFAIL=0  OTHER=0 TIMEOUT=0`.
+### Bẫy đã dính nhiều lần — đọc trước khi sửa
 
-**Đối chiếu với CPython 3.11 trước khi viết kỳ vọng vào test.** Trong phiên này
-tôi đoán sai 4 lần (`m1`, `m2`, `n2`, và kỳ vọng `a[::2]` trên `[0,1,2]`) — cả
-bốn lần code đều đúng và CPython mới là chuẩn xác nhận. Chạy Python trước, viết
-kỳ vọng sau.
-
----
-
-## 3. Việc nên làm tiếp
-
-### Ưu tiên 1 — Field container trên record (đang SAI, im lặng, chạy sai)
-
-**Cẩn thận: ghi chú dưới đây thay cho chẩn đoán cũ.** Phiên sau đã từng ghi rằng
-đây là "`container_arg_hints` không được nạp cho vị trí gọi constructor". **Chẩn
-đoán đó sai** — đã thử sửa theo hướng đó, xong hoàn tác.
-
-Sự thật: **record không hỗ trợ field kiểu container**, và đó là giới hạn của thiết
-kế, không phải thiếu một dòng. Tham số `.ctor` của record lấy từ **field đã khai
-báo** (dòng ~2892 `il_codegen.tkv` lọc bỏ field container khỏi danh sách tham số),
-và `__init__` thật bị bỏ qua lúc biên dịch (dòng ~5568). Nên:
-
-```
-class C:
-    items: "list[i32]"
-    def __init__(self) -> "i32":
-        self.items = [1, 2, 3]     # BIEN DICH OK, len(c.items) == 0
-        return 0
-```
-
-Ba kiểu hỏng, **không cái nào báo lỗi lúc biên dịch**:
-
-| Viết | Kết quả |
-|---|---|
-| `self.items = [1,2,3]` trong `__init__` | `len(c.items) == 0` — gán không có tác dụng |
-| `c.items[0]` sau đó | `OverflowException` lúc chạy |
-| `def __init__(self, s: "set[i64]")` rồi `C(t)` | `OverflowException` lúc chạy; call site phát `TkvInt::ToI32` trên **chính con set** |
-
-Lưu ý: `class C: n: "i32"` + `def __init__(self)` **không** khai báo tham số thì báo
-lỗi rõ ràng ngay ("record 'C' can 1 tham so (n), gap 0"). Cơ chế kiểm số tham số có
-sẵn, chỉ là không bắt được trường hợp container.
-
-Việc nên làm: **từ chối field container trên record bằng lỗi biên dịch rõ ràng**,
-kèm cách dùng thay thế. Đã kiểm: **không file `.tkv` nào trong repo** khai field
-container trong class, nên chặn không phá gì. Việc cần làm trước khi chặn: tìm chỗ
-gom field của class body (chưa tìm ra — `records[name]` dựng ở đâu chưa rõ) và kiểm
-đường compiler tự-host.
-
-Cách dùng thay thế cho tới khi có: truyền container **sau** khi khởi tạo
-(`c = C()` rồi `c.items = [1,2,3]` — cần kiểm lại xem có dính lỗi trên không), hoặc
-dùng hàm thuần thay vì record.
-
-### Ưu tiên 2 — `yield from`
-
-Không kiểm chứng được bằng bộ suite nào chặn: `native_test_suite.tkv` là bộ 16
-case duy nhất dùng nó, và file đó không build. Nên hoặc làm **kèm** một test
-Testkit riêng, hoặc chấp nhận làm mù rồi tự viết test. Cần mở rộng state machine
-generator (MoveNext/Current vào cùng đường yield) — khó hơn hẳn mọi thứ trong
-phiên này.
-
-### Còn lại trong known gaps
-
-`conditional expressions` (`a if c else b` **và** `c ? a : b` — cả hai đều hỏng,
-dù thông báo lỗi còn bảo dùng cú pháp thứ hai) · `del` · keyword-only và
-positional-only · nested/tuple literal · dict literal `{"a": 1}` · `f(*xs)`/`f(**kw)`
-(calls có arity tĩnh, không có `params[]`) · `@classmethod` (cố ý từ chối: runtime
-chưa có `cls`).
+1. **Đừng dùng PowerShell here-string để viết code.** Nó hỏng `\n`, dấu nháy và
+   Unicode. Dùng Write/Edit tool, hoặc ghi patch ra file rồi `python file.py`.
+2. **File `.tkv` chính là Python.** Docstring `"""..."""` chứa sẵn `"""` sẽ tự hủy —
+   đừng viết dấu nháy tam bên trong docstring `"""`.
+3. **Kiểm tra anchor là DUY NHẤT.** `edit` khớp mờ, đã từng sửa nhầm chỗ khác.
+4. **Ngữ cảnh kiểu suy ra ở first-pass và codegen KHÁC NHAU** cho int literal:
+   `infer_scope` ra `int` (TkvInt 16 byte), scope thật ra `i32`. Hai tầng tự suy
+   riêng sẽ sinh IL lệch kích thước → biểu hiện thành `NullReferenceException` /
+   `InvalidProgramException` **lúc chạy**, không phải lỗi biên dịch. Bắt buộc lấy
+   kiểu từ `TypeAnn` mà first-pass đã khai báo (xem `emit_tuple_literal` trong
+   `tuple_type.tkv`). `yield from <list>` đã dính đúng lỗi này.
+5. **Đặt cụm từ khóa cần test ở ĐẦU thông điệp lỗi.** Gate so `-notmatch` trên
+   stderr mà PowerShell wrap theo bề rộng console — cụm ở giữa bị cắt bởi CR/LF và
+   gate báo "sai LÝ DO" dù thông điệp đúng.
+6. **`ctx` của codegen và `walk_ctx` của first-pass là hai dict khác nhau.** Thêm
+   khoá vào một cái thì first-pass không thấy.
+7. **`infer_scope[name]` trả 3-tuple** `('local', None, ta)` — phải lấy `[2]`; nó
+   chỉ được seed bằng hằng module, **không** có biến module-level.
+8. **Gọi hàm generator không chạy thân hàm** — phải iterate mới chạy tới `return`.
+   Và đọc biến module từ trong hàm cần `global`.
 
 ---
 
-## 4. Bẫy đã mắc — đọc trước khi sửa gì
+## 6. Bẫy kiểu ngôn ngữ đã biết
 
-Tất cả đều **trông như lỗi khác**, và nhiều cái làm hỏng hàng loạt chứ không
-phải một test.
-
-| Vấn đề | Hệ quả | Nơi |
-|---|---|---|
-| `ast.Num` đã bị **xoá** từ Python 3.12 (máy này 3.14) | Giết **cả pre-flight linter** bằng `AttributeError`; `tkvc.exe` in traceback trông chẳng giống lỗi cú pháp. Dùng `ast.Constant` | `syntax_baseline.tkv` |
-| `sig.params` là list **Param object**, không phải tuple | Unpack → `TypeError`, cổng rơi về **0/77** — mọi file cùng lúc | `il_codegen.tkv` |
-| `infer_scope` là `_DtypeOnlyScope` | Có `__getitem__` và `._d`, **không có** `.get()` | `il_codegen.tkv` |
-| `Set-Content -Encoding utf8` của PS 5.1 | Ghi BOM, file hỏng. Dùng `-Encoding ascii` cho file test | PowerShell |
-| `& $exe` không bao giờ quay lại nếu tiến trình treo | Kéo treo cả cổng. Dùng `Start-Process` + `WaitForExit(ms)` | mọi probe |
-| `Start-Process -PassThru` không trả `ExitCode` nếu chưa đọc `.Handle` | **Mọi** test đọc `NULL`, cổng báo 0/71 với `EXIT` trên tất cả | probe script |
-| Biểu thức nhiều dòng trong `.tkv` | `khong parse duoc factor tai OP ')'` — parser là line-based | test files |
-| Annotate local (`fails: "i32" = 0`) | Bị từ chối; local suy kiểu tự động | test files |
-| `__init__` phải khớp **đúng** field đã khai báo | `MissingMethodException` lúc chạy | records |
-| `.Message` / `.InnerException` không phải field của record | Truy cập thuộc tính chỉ mở field khai báo | test files |
-| `len(<biểu thức>)` không suy được hình dạng | `len({1,2,3})` hỏng — đây là lý do set literal inline chưa hỗ trợ | `il_codegen.tkv` |
-| `in` chỉ nhận **biến đơn** | `x in {1,2,3}` hỏng | `il_codegen.tkv` |
-| Sửa theo chẩn đoán **chưa kiểm** thì phải hoàn tác được | Phiên này đã sửa `_container_arg_hints` theo một chẩn đoán sai, rồi revert. Mất công nhưng `git checkout` gọn. **Đừng commit thứ vừa hoàn tác.** | — |
-
-Hai cái bẫy về **ngữ nghĩa** dễ sai nhất:
-
-- `else` của `try` bị bỏ qua khi handler bắt lỗi; `else` của `for` bị bỏ qua khi
-  gặp `break`. **Cùng tên, điều kiện ngược chiều.** `continue` không bỏ qua
-  `else` của vòng lặp; `break` trong vòng trong chỉ bỏ qua `else` của vòng trong.
-- Dict gán nhiều lần thì **lần sau cùng thắng**. Tôi đoán "lần đầu thắng" và
-  viết sai kỳ vọng.
+- `List<T>`/`HashSet<T>`/`Dictionary<K,V>` so sánh container theo **tham chiếu** →
+  mọi phép so sánh theo *nội dung* trên container lồng (`remove`/`in`/`index`/`count`)
+  **phải** bị từ chối. Đã có guard; đừng nới lỏng để cho test xanh.
+- Có **không** `StopIteration`; không gọi được method trên đối tượng generator
+  (chỉ `record`/`string`). Vì vậy giá trị `return` của generator đi qua biến module
+  `__gen_ret__` — quy ước, không phải ngôn ngữ; hai generator chạy song song ghi đè
+  lẫn nhau.
+- Field record kiểu container: chỉ được khi có `self.X = ...` trong `__init__`.
+- `global` chỉ hỗ trợ kiểu vô hướng (`i32/i64/f32/f64/str`), **không** container.
+- Chuỗi: chỉ nháy kép. Phương thức chỉ gọi được trên biến, không trên literal.
+- `len()` chỉ nhận 1 biến trần.
+- LAMBDA phải có khai báo chữ ký; `f(*xs)` chưa hỗ trợ (arity tĩnh).
 
 ---
 
-## 5. Ghi chú thiết kế đáng nhớ
+## 7. Kỹ thuật dò lỗi đắt giá (dùng nhiều lần phiên này)
 
-**Nhãn thay cho cờ.** Bản `PLAN.md` cũ vẽ sẽn dùng cờ `did_break` cho
-`for/else`. Đó là **sai**: cờ cần một local mới mà tên phải duy nhất giữa hai lần
-duyệt câu lệnh, mà hai bộ đếm đó không bảo đảm khớp. Dùng nhãn thì `codegen_break`
-không đổi một dòng nào. Chi tiết ở `REPOSITORY-NOTES.md`.
-
-**`try/else` cũng vậy.** Lần đầu tôi lồng `.try` và phát nhãn sai chỗ → vòng lặp
-vô hạn, đã revert. Ràng buộc CIL ép bố cục: `br` **không** được thoát khỏi thân
-`.try` (ECMA-335 III.3.64), bắt buộc `leave`, nên nhãn "không có lỗi" bắt buộc
-nằm ngoài vùng protected — đặt vào trong chính là chỗ gây lặp. Chi tiết ở
-`REPOSITORY-NOTES.md`.
-
-**`PLAN.md` từng sai.** Nó xếp *dict comprehension* vào mục "cần thiết kế" trong
-khi macro **đã có sẵn và chạy đúng** từ trước phiên này; thứ thật sự chặn nó là
-pre-flight linter với giới hạn "chỉ 1 generator". Tài liệu bỏ sót một tính
-năng **đã chạy** nguy hiểm hơn tài liệu nói "chưa làm". Đã sửa, và test mới khoá
-lại các dạng vốn đã chạy để không ai "sửa" nó về hỏng.
-
-**Đừng ship code không tới đường.** Tôi viết `EXPR_CODEGEN` cho set literal inline
-rồi gỡ bỏ: mọi đường tiêu thụ đều bị chặn bởi hạn chế có sẵn, nên không test
-được. Code không tới đường là nợ.
-
----
-
-## 6. Cấu trúc repo
-
-- `D:\TokenVector` — repo cha, có `origin`. Commit khéo mọi thứ.
-- `D:\TokenVector\3.code` — nested repo, **không có remote**, nhưng commit được
-  mirror sang cha. Tag `nested-3code-snapshot` → `9dfaaab` giữ 7 commit cũ.
-  Hai repo cùng nhìn một file vật lý, nên `git checkout` bên trong làm **stat
-  cache** của bên ngoài cũ. Nếu `git status` bên ngoài hiện `M` trong khi
-  `git diff` rỗng, đó là stat cache — `git add` sẽ xác nhận nội dung giống
-  nhau và xoá cờ.
-- `D:\TokenVector\3.code\dist\tkvc.exe` — compiler, **phải rebuild**.
-- `D:\TokenVector\3.code\tools\testkit_gate.ps1` — cổng, có timeout 120s.
-- `D:\TokenVector\3.code\Testkit\tkv_test_lib.tkv` — `check()` và `test_summary()`.
-  **Hàm con trả `total` (số check pass), chỉ `run()` gọi `test_summary`** — quy ước
-  này tôi làm sai một lần, in ra `0/7` dù 7/7 đều PASS.
-
-### Thư mục bẩn, đừng đụng
-
-`tokenvector-grammar` là submodule có remote riêng. Working tree của nó bẩn:
-xoá `tokenvector-syntax-1.0.0.vsix` (**file đã được track**) cộng ~15 file
-scratch (`hello.*`, vài bản `.vsix`, `.jfif`). Cần quyết định ở repo đó trước khi
-commit bất cứ thứ gì. Ngoài ra `images/preview.png` và `2.UI/media_player.html`
-đã commit xong ở cha.
-
----
-
-## 7. Tài liệu nên đọc trước khi code
-
-- `CLAUDE.md` (cha) — cú pháp và giới hạn hiện hành, đã cập nhật khớp 7 feature.
-- `3.code/docs/PLAN.md` — **lộ trình** (mục 3), bảng tính năng đã xong (mục 2),
-  giới hạn có chủ đích (mục 4), và các quyết định còn treo. Đã viết lại ngày
-  2026-09-29 nên **không còn** các mục "Bước 3/4/5/6/7" như bản cũ.
-- `3.code/docs/REPOSITORY-NOTES.md` — nhật ký chi tiết (thiết kế từng feature,
-  các bẫy, các giới hạn). Ở đây mới là nơi ghi chi tiết `try/else` và `for/else`.
-
----
-
-## 8. Kết quả benchmark (để khỏi đo lại)
-
-7 kernel, checksum khớp. `f32mm_vec` ~34 µs so với scalar ~147 µs, trung bình
-~4,08×. Elementwise ~5,89×. `matmul32` còn chậm hơn NumPy khoảng **746×** — đây
-là con số thật, đừng sửa thành con số đẹp. Startup 24,6 ms so với CPython
-35,8 ms.
+- **`TKV_DBG_NARROW=1`** in ra hàm nào bị narrow, `for_targets`, `assigned`, và các
+  `kind` lệnh thật → chẩn đoán nhanh nhất khi biến bị hạ kiểu sai.
+- **`--emit-il`** rồi đọc file `.il` — bắt được cả lỗi mà ilasm **không** kiểm tra
+  (nó không xác minh kiểu/kích thước stack). `InvalidProgramException` lúc chạy thì
+  luôn xem IL trước.
+- **Dò bằng probe trước khi viết code.** Viết test xong **xác nhận nó đỏ đúng lý do**,
+  rồi mới viết compiler. Không có cái neo đó thì không biết mình đúng.
+- **So sánh trước/sau bằng `git stash`** khi sửa linter hoặc guard — đo hành vi
+  thay đổi thay vì tin lý thuyết.
