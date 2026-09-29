@@ -1,0 +1,16 @@
+# EXPECT-SUBSTRING: chua duoc khai bao
+# -*- coding: utf-8 -*-
+# Bien module KHONG duoc nhin thay trong ham neu thieu `global`.
+#
+# `k` duoc khai `k: "i32" = 5` o cap module nen no la bien THAT - nhung ham
+# phai khai `global k` de thay no. Khong co `global`, bien do khong ton tai
+# trong khung cua ham.
+#
+# Day la thu tu CO CHU DICH, khong phai "con can lam": khung bien cua ham la
+# pham vi rieng, va `global` la cach noi giang giua hai pham vi do. Neu bo
+# yeu cau nay, chinh compiler se do lai mot bien module co gia tri 0 nham -
+# dung loai loi am tham ma du an tranh.
+k: "i32" = 5
+
+def uses_k() -> "i32":
+    return k

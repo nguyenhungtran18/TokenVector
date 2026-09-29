@@ -14,7 +14,7 @@ trỏ tới mục không tồn tại. Bản này viết lại từ đầu theo t
 
 | Cổng | Kết quả |
 |---|---|
-| `3.code\tools\testkit_gate.ps1` | **85/85** + **negative 5/5** (timeout 0, ILFAIL 0) |
+| `3.code\tools\testkit_gate.ps1` | **86/86** + **negative 7/7** (timeout 0, ILFAIL 0) |
 | Inference | **KHÔNG BUILD** — xem mục 1.1 |
 | Data gate | **FAIL (0/2 library, 0/18 suites)** — xem mục 1.1 |
 | Benchmark | 7 kernel, checksum 7/7 OK (đo lại 2026-09-29) |
@@ -172,6 +172,7 @@ Mỗi dòng có commit và file gate. Cổng phải xanh sau **từng** commit.
 | **P6-6** tối ưu địa chỉ vector | `3723ce0` | 83/83 |
 | Conditional expression `a if c else b` | `beee4cd` | `conditional_expr_test.tkv` 16/16 |
 | `del lst[i]`, `del d[k]` | xem mục 3 | `del_stmt_test.tkv` 13/13 |
+| Hàm lồng + biến module (`global`) | xem mục 3 | `nested_global_test.tkv` 6/6 |
 
 ---
 
@@ -209,7 +210,7 @@ Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector.
 | Mục | Công sức |
 |---|---|
 | ~~`del` phần tử~~ | **XONG** — `del lst[i]`, `del d[k]`. `del x` (biến) **từ chối có chủ đích**: local có kiểu khai báo, tạo "không còn binding" đòi hỏi mọi nơi đọc biến phải kiểm tra. Xem REPOSITORY-NOTES |
-| Hàm lồng không bắt buộc là câu lệnh đầu tiên | rẻ |
+| ~~Hàm lồng không bắt buộc là câu lệnh đầu tiên~~ | **XONG SẴN** — kiểm chứng lại (2026-09-29): `def` lồng chạy được sau lệnh thường, sau chú thích, sau `while`. Biến module cần `global` là **có chủ đích**. Test `nested_global_test.tkv` 6/6 |
 | Chuỗi nhiều dòng `"""..."""` | trung bình |
 | ~~Biểu thức điều kiện~~ | **XONG** — dạng Python `a if c else b` đã có. Dạng `c ? a : b` vẫn bị chặn bởi `ast.parse` của Python — xem mục 4 |
 | Literal lồng `[{"a":1}]`, `{"k":[1,2]}` | thiết kế |
@@ -315,7 +316,7 @@ Chạy trước khi coi bất cứ thay đổi nào là xong:
 # 1. Build lại compiler TỪ CÂY NGUỒN (binary cũ che hồi quy)
 .\3.code\build_tkvc.ps1
 
-# 2. Testkit — 85 file + 5 negative, timeout 120s/test
+# 2. Testkit — 86 file + 7 negative, timeout 120s/test
 .\3.code\tools\testkit_gate.ps1
 
 # 3. Inference
