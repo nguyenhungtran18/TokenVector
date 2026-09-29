@@ -922,3 +922,57 @@ Hai giới hạn cần biết:
 Gate: `Testkit/p6_vectorize_test.tkv` 16/16, toàn bộ **82/82**. Đã đối chiếu
 bit-exact với CPython trên 13 độ dài × 3 phép (0, 1, 2, 3, 4, 5, 7, 8, 9, 15,
 16, 17, 33).
+
+## P6 bước 3: mutation test + phát hiện gate KHÔNG bắt được test fail (2026-09-29)
+
+Bước này nhằm trả lời: *làm sao biết transform P6 thật sự đúng, chứ không chỉ
+ra kết quả đúng?* Cách làm là cố tình phá transform rồi xem gate có đỏ không.
+
+### Hai lỗi của acceptance gate (tồn tại từ lâu, không phải do P6)
+
+1. **Regex soát FAIL sai định dạng.** Gate tìm `\[FAIL\]`, nhưng `check()` trong
+   `tkv_test_lib.tkv` in `FAIL <tên> got=... expected=...` — không có ngoặc vuông.
+   Regex cũ **không khớp dòng nào**, nên mọi test thật bại vẫn được tính PASS.
+2. **`run()` trả mã thoát nhưng exe không truyền ra exit code.** Docstring của
+   `test_summary` nói rõ "dùng làm exit code của chương trình", nhưng entry của
+   exe bỏ qua giá trị trả về, nên `$rc` luôn bằng 0 và nhánh `EXIT$rc` cũng không
+   bao giờ chạy.
+
+Hai lỗi **độc lập cùng hướng**, nên gate về cơ bản chỉ phát hiện được build fail
+và timeout. Hệ quả: `input_py_tree_test` và `path_isfile_isdir_test` **luôn fail**
+nhưng báo xanh suốt. Nguyên nhân là của *harness*, không phải của test:
+- `input_py_tree_test` cần stdin, gate không cấp stdin.
+- `path_isfile_isdir_test` hỏi đường dẫn tương đối, exe lại chạy ở thư mục con.
+
+Đã sửa cả ba: nhận diện FAIL theo định dạng thật + dòng tổng kết `A/B PASS`
+(A ≠ B là fail), cấp stdin cho test cần, và chạy **mọi** exe với
+`-WorkingDirectory Testkit` để test tương đối luôn đúng chỗ.
+
+### Kết quả mutation test
+
+| Mutation | Kết quả chạy | Gate cũ | Gate mới |
+|---|---|---|---|
+| Tắt hẳn transform (`return False` ngay đầu) | 82/82 test vẫn PASS — kết quả **đúng** vì chạy đường scalar | PASS | **ILFAIL**, exit 1 |
+| Bỏ đuôi scalar (`br end` thay vì vòng tail) | `n=1,2,3` toàn `-999.0` | **PASS** (không thấy) | **TESTFAIL**, exit 1 |
+
+Dong thu hai **lọt qua gate cũ**. Nguyên nhân rất đáng nhớ:
+
+**Bộ đệm `f32buf` cấp phát bằng `Marshal.AllocHGlobal` nên vùng nhớ CHƯA KHỞI
+TẠO, và bộ phân phối thường trả lại đúng khối cũ.** Khi transform bỏ sót phần tử
+cuối, phần tử đó giữ giá trị của lần chạy trước — mà lần chạy trước lại là phép
+tính đúng — nên kết quả vẫn **khả dụng** và test vẫn xanh. Sửa: mọi test giờ
+tiền vào `r` bằng `-999.0` (không thể nào là kết quả đúng của phép cộng/nhân),
+nên phần tử nào transform không ghi thì lộ ra ngay.
+
+Bài học chung: **test của biến đổi sinh học phải tiên vào dữ liệu bằng giá trị
+loại trừ**, nếu không "sai âm thầm" sẽ tự ngụy trang thành "đúng".
+
+### Vì sao cần assert IL, không chỉ kiểm kết quả
+
+Mutation "tắt hẳn transform" cho ra kết quả **hoàn toàn đúng** ở mọi test. Không
+có gì ngoài IL phân biệt được "đã vector hóa" với "chưa vector hóa". Vì vậy
+`testkit_gate.ps1` có thêm pha `IL ASSERTIONS`: build lại test có `--emit-il` rồi
+đòi `.il` phải chứa `stobj` (v_store4), `_vstart` và `_tstart` (nhãn vòng vector
+và nhãn đuôi scalar). Giá trị hiện tại của `p6_vectorize_test.tkv`: `stobj` ×3
+(`add_case`, `chain_case`, `copy_case`; `mul_case`/`div_case` có hằng số nên bị từ
+chối đúng chủ đích), `_vstart` ×6, `_tstart` ×6.

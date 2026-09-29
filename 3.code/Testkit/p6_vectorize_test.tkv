@@ -15,7 +15,7 @@ nen code sau vong lap khong nhin thay khac biet gi.
 
 **Bien `n` phai la BIEN, khong phai hang so.** `while i < 8` co dieu kien lai
 hang so nen khong khop mau va chay scalar - dung, nhung khong phai thu can
-kiem chung. Vi vay moi truong hop duoi day nhan `n` qua tham so `i32`.
+kiem chung. Vi vay moi truong hop du day nhan `n` qua tham so `i32`.
 
 QUY TAC AN TOAN: khi co BAT KY nghi ngo nao thi KHONG vector hoa, chay scalar
 binh thuong. Bien doi nay sua SO HOC cua code ma khong he nhac toi vector - mot
@@ -26,9 +26,17 @@ thi BI TU CHOI va chay scalar: `_expr_num` khong sinh duoc lenh cho dtype
 `f32x4`, va chua co intrinsic `v_set4` de broadcast hang so. Hai truong hop do
 van phai ra DUNG ket qua - day la bai kiem tra "tu choi => khong lam sai".
 
-Ket qua phai BIT-EXACT: moi phan tu la `ldind.r4`/`stind.r4` cua .NET, va
-`v_load4`/`v_store4` chi la 4 lan giong het. Da doi chieu voi CPython tren
-13 do dai (ke ca 0, 1, 2, 3 va 33 - nghhia la ca duoi scalar deu duoc dung).
+**MOI ham deu tien VAO `r` bang -999.0 truoc khi chay vong lap can vector hoa.**
+Ly do: bo dem sinh bang `Marshal.AllocHGlobal` nen vung nho CHUA KHOI TAO, va
+trinh phan bo thuong tra lai dung khoi da dung truoc do. Khi do mot vong lap
+that su bo SOOT phan tu (vi du duoi scalar bi bo qua, hay so phan tu sai) thi
+phan tu do van giu gia tri cua lan chay TRUOC - ma lan chay truoc lai la phep
+tinh dung - nen ket qua van KHA DUNG va moi test van PASS. Gia tri -999.0 khong
+the nao la ket qua dung cua phep cong/nhan, nen phan tu nao khong duoc transform
+ghi thi loi ra ngay.
+
+Dau do chinh la thu test do duoc ban "bo qua duoi scalar" ma van PASS 82/82.
+Gia tri mong doi deu tinh tay, khong dua vao thu tu cap phat bo dem.
 
 Luu y: ham co the nhan/tra `f32buf` CHUA duoc ho tro (P6 buoc 1 chi tao, chi
 o local), nen moi truong hop du day noi thang vong lap thay vi goi ham.
@@ -49,6 +57,10 @@ def add_case(n: "i32") -> "i32":
     i = 0
     while i < n:
         b[i] = 2.0
+        i = i + 1
+    i = 0
+    while i < n:
+        r[i] = -999.0
         i = i + 1
     i = 0
     while i < n:
@@ -77,6 +89,10 @@ def mul_case(n: "i32") -> "i32":
         i = i + 1
     i = 0
     while i < n:
+        r[i] = -999.0
+        i = i + 1
+    i = 0
+    while i < n:
         r[i] = a[i] * 1.5 - 0.25
         i = i + 1
     s = ""
@@ -99,6 +115,10 @@ def div_case(n: "i32") -> "i32":
     i = 0
     while i < n:
         b[i] = 1.5
+        i = i + 1
+    i = 0
+    while i < n:
+        r[i] = -999.0
         i = i + 1
     i = 0
     while i < n:
@@ -132,6 +152,10 @@ def chain_case(n: "i32") -> "i32":
         i = i + 1
     i = 0
     while i < n:
+        r[i] = -999.0
+        i = i + 1
+    i = 0
+    while i < n:
         r[i] = (a[i] + b[i]) * (a[i] - b[i])
         i = i + 1
     s = ""
@@ -154,6 +178,10 @@ def copy_case(n: "i32") -> "i32":
     i = 0
     while i < n:
         a[i] = 5.5
+        i = i + 1
+    i = 0
+    while i < n:
+        r[i] = -999.0
         i = i + 1
     i = 0
     while i < n:
@@ -195,4 +223,4 @@ def run() -> "i32":
     # Ve phai nhieu toan tu, va ve phai don.
     total += chain_case(9)
     total += copy_case(9)
-    return test_summary("p6_vectorize_test", total, 16)
+    return test_summary("p6_vectorize_test", total, 17)

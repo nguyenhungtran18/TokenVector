@@ -12,7 +12,7 @@
 #   .\tools\testkit_gate.ps1
 #   .\tools\testkit_gate.ps1 -Compiler ..\dist\tkvc.exe
 #
-# Exit code 0 only when every test passes.
+# Exit code 0 only when every test passes AND every IL assertion holds.
 
 param(
   [string]$Compiler = "",
@@ -43,6 +43,53 @@ Write-Output "compiler : $Compiler"
 Write-Output "tests    : $($tests.Count)"
 Write-Output ""
 
+# ---- IL ASSERTIONS (P6-3, 2026-09-29) ---------------------------------------
+# MOT TEST TOI THU SAN KHONG BAO VE TINH DUNG CUA TRANSFORM.
+#
+# P6 bien dich mot vong lap thanh dang vector + duoi scalar. Neu transform chi
+# "chay sai" ma van ra ket qua DUNG - vi du bien dich tam thoi ve 0, hoac roi
+# khoi luong dem - moi test van PASS. Con neu transform bi TAT im lang (dang
+# vector khong khop mau, bien dich loi, feature bi go), moi test cung van PASS:
+# code chay duong scalar binh thuong, ket dung.
+#
+# Do la lo so khong the bo qua o noi bien doi SILENT. Da gap that: ban test
+# dau tien cho ra dung toan bo gia tri o n=8 trong khi vector hoa chua bao gio
+# chay. Chi co cach doc IL moi phan biet duoc.
+#
+# `Must` = chuoi PHAI xuat hien trong .il. `MustNot` = chuoi PHAI KHONG.
+# Voi p6_vectorize_test.tkv, cac gia tri hien tai (2026-09-29) la:
+#   stobj x3   - 3 ham duoc vector hoa: add_case, chain_case, copy_case
+#                (mul_case/div_case co hang so nen bi tu choi dung chu dich)
+#   ldobj x9   - 7 loi goi v_load4 + 2 ben trong TkvInt::CompareTo (khong
+#                lien quan, chi de ghi nho khi so sanh)
+#   _vstart x6, _tstart x6 - nhan vector + nhan duoi scalar, moi ham 2 loi
+#                (moi nhan xuat hien 1 lan o `label:` va 1 lan o lenh `br`)
+$ilChecks = @(
+  @{
+    Test    = "p6_vectorize_test.tkv"
+    Must    = @("stobj", "_vstart", "_tstart")
+    MustNot = @()
+  }
+)
+
+# ---- STDIN CHO TEST CAN DU LIEU VAO (2026-09-29) -----------------------------
+# `input_py_tree_test` goi `input()` de doc chuoi tu stdin. Gate chay exe ma
+# khong nen stdin, nen `input()` luon nhan rong va test that bat - MOT TEST LUON
+# FAIL, nhung do gate bao xanh (xem "FAIL DETECTION" o tren). Bang cach cap
+# stdin dung noi dung, test lai hermetic.
+$stdinData = @{
+  "input_py_tree_test" = "world`nsecond`n"
+}
+
+# ---- WORKING DIRECTORY -------------------------------------------------------
+# Mot so test do duong tuong doi so voi thu muc dang chay - vi du
+# `path_isfile_isdir_test` hoi `path_isfile("path_isfile_isdir_test.tkv")` va
+# `path_isdir(".")`. Chay exe o thu muc con (gate duoi day la noi .tkv nguon
+# nam) thi ho khong con dung noi dung nen test that. Cung la, mot test nao do
+# vong tinh tuy thu muc hien tai cung se dung mot lan khi gate duoc chay o
+# cho khac - nen thu muc lam cong lai cho TAT CA test, khong de may may.
+$workDir = Join-Path $code "Testkit"
+
 $pass = 0; $buildFail = 0; $testFail = 0; $other = 0; $timeouts = 0
 $failures = @()
 
@@ -65,8 +112,25 @@ foreach ($t in $tests) {
   # nhu mot ket qua FAIL, khong phai lam treo ca phan con lai.
   $stdout = Join-Path $OutDir "$($t.BaseName).out"
   $stderr = Join-Path $OutDir "$($t.BaseName).err"
-  $proc = Start-Process -FilePath $exe -NoNewWindow -PassThru `
-    -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+  $stdinFile = $null
+  if ($stdinData.ContainsKey($t.BaseName)) {
+    $stdinFile = Join-Path $OutDir "$($t.BaseName).in"
+    # [IO.File]::WriteAllText chu khong phai Set-Content: PowerShell 5.1 mac
+    # dinh ghi UTF-8 **co BOM**, va BOM se chen vao dau dong du lieu vao lam
+    # input() nhan ra "﻿world" thay vi "world".
+    [IO.File]::WriteAllText($stdinFile, $stdinData[$t.BaseName],
+                            (New-Object System.Text.UTF8Encoding $false))
+  }
+  if ($stdinFile) {
+    $proc = Start-Process -FilePath $exe -NoNewWindow -PassThru `
+      -WorkingDirectory $workDir `
+      -RedirectStandardInput $stdinFile `
+      -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+  } else {
+    $proc = Start-Process -FilePath $exe -NoNewWindow -PassThru `
+      -WorkingDirectory $workDir `
+      -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+  }
   # Bat buoc: doc `$proc.Handle` TRUOC khi choi. Tren .NET, tien trinh da
   # ket thuc se khong tra ExitCode neu doi tuong Process chua giu handle -
   # nen `Start-Process -PassThru` + `WaitForExit` + `$proc.ExitCode` tra
@@ -90,25 +154,79 @@ foreach ($t in $tests) {
   if (Test-Path $stderr) { $out += (Get-Content $stderr -Raw -ErrorAction SilentlyContinue) }
   if ($null -eq $out) { $out = "" }
 
-  if ($out -match "\[FAIL\]")  { $testFail++; $failures += "TESTFAIL  $($t.Name)" }
-  elseif ($rc -ne 0)           { $other++;    $failures += "EXIT$rc  $($t.Name)" }
-  else                         { $pass++ }
+  # FAIL DETECTION (2026-09-29, P6-3).
+  #
+  # Hai loi o day da lam gate BAO XANH TRONG khi test that su that bai:
+  # 1. Regex cu la `\[FAIL\]`, nhung `check()` trong `tkv_test_lib.tkv` in
+  #    `FAIL <ten> got=... expected=...` - KHONG co ngoac vuong. Regex do khong
+  #    bao gio khop dong nao, nen moi test that bai van duoc dem la PASS.
+  # 2. `test_summary` tra ve 1 khi co test that bai, va docstring no noi ro
+  #    "dung lam exit code cua chuong trinh" - nhung entry cua exe KHONG truyen
+  #    gia tri tra ve ra exit code, nen `$rc` luon la 0.
+  #
+  # Hai le do doc lap cung sai nen mot test sai van chay qua gate. Bay kiem
+  # tra theo DUNG dinh dang that cua lib: dong bat dau bang `FAIL`, va dong
+  # tong ket `<so> / <so> PASS` khi hai so khac nhau.
+  $failed = ($out -match "(?m)^[ \t]*FAIL[ \t]")
+  if (-not $failed) {
+    # Dong tong ket: `=== <ten>: <A>/<B> PASS ===`. `total` cong don so
+    # check() tra ve 0 (PASS), nen A < B nghia la co check that bai.
+    $m = [regex]::Match($out, "(?m)^===[^\r\n]*?:\s*(\d+)\s*/\s*(\d+)\s+PASS")
+    if ($m.Success) { $failed = ($m.Groups[1].Value -ne $m.Groups[2].Value) }
+  }
+  if ($failed)              { $testFail++; $failures += "TESTFAIL  $($t.Name)" }
+  elseif ($rc -ne 0)        { $other++;    $failures += "EXIT$rc  $($t.Name)" }
+  else                      { $pass++ }
   if (-not $KeepOutput) {
     Remove-Item $exe -Force -ErrorAction SilentlyContinue
     Remove-Item $stdout -Force -ErrorAction SilentlyContinue
     Remove-Item $stderr -Force -ErrorAction SilentlyContinue
+    if ($stdinFile) { Remove-Item $stdinFile -Force -ErrorAction SilentlyContinue }
   }
 }
 
+Write-Output "=== IL ASSERTIONS ($($ilChecks.Count) checks) ==="
+$ilFail = 0
+foreach ($c in $ilChecks) {
+  $src = Join-Path $code "Testkit\$($c.Test)"
+  $stem = Join-Path $OutDir "$([IO.Path]::GetFileNameWithoutExtension($c.Test)).ilassert"
+  $exe = "$stem.exe"
+  $il  = "$stem.il"
+  Remove-Item $exe, $il -Force -ErrorAction SilentlyContinue
+  & $Compiler build $src --entry run --out $exe --emit-il --no-lint 2>&1 | Out-Null
+  if (-not (Test-Path $il)) {
+    $ilFail++; $failures += "ILFAIL    $($c.Test) (khong sinh duoc .il)"; continue
+  }
+  $text = Get-Content $il -Raw
+  $missing = @()
+  foreach ($p in $c.Must) {
+    if ($text -notmatch [regex]::Escape($p)) { $missing += $p }
+  }
+  foreach ($p in $c.MustNot) {
+    if ($text -match [regex]::Escape($p)) { $missing += "KHONG duoc co: $p" }
+  }
+  if ($missing.Count) {
+    $ilFail++
+    $failures += "ILFAIL    $($c.Test) -> $($missing -join ', ')"
+    Write-Output "  FAIL  $($c.Test): $($missing -join ', ')"
+  } else {
+    Write-Output "  ok    $($c.Test)"
+  }
+  if (-not $KeepOutput) {
+    Remove-Item $exe, $il -Force -ErrorAction SilentlyContinue
+  }
+}
+Write-Output ""
+
 Write-Output "=== SUMMARY (out of $($tests.Count) tests) ==="
-"PASS={0,-4} BUILDFAIL={1,-4} TESTFAIL={2,-4} OTHER={3} TIMEOUT={4}" -f $pass, $buildFail, $testFail, $other, $timeouts
+"PASS={0,-4} BUILDFAIL={1,-4} TESTFAIL={2,-4} OTHER={3} TIMEOUT={4} ILFAIL={5}" -f $pass, $buildFail, $testFail, $other, $timeouts, $ilFail
 Write-Output ""
 if ($failures.Count) {
   Write-Output "=== FAILURES ==="
   $failures | ForEach-Object { Write-Output "  $_" }
   Write-Output ""
 }
-if ($pass -eq $tests.Count) {
+if ($pass -eq $tests.Count -and $ilFail -eq 0) {
   Write-Output "GATE: PASS ($pass/$($tests.Count))"
   exit 0
 }
