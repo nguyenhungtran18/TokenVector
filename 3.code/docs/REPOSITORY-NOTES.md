@@ -1530,3 +1530,37 @@ tự trong chuỗi làm lệch chỉ số; bộ đệm cố định thì "dung c
 của kiểu chứ không phải của đối tượng).
 
 **Gate 85/85 + negative 5/5.**
+
+## Chuỗi tam nháy nhiều dòng (2026-09-29) — XONG
+
+Ba nơi sửa, và ba cái lỗi phải tránh nhau:
+
+1. **Parser đọc TỪNG DÒNG.** Nếu `"""` mở trên dòng này và đóng ở dòng sau,
+   `_strip_lines` cắt từng dòng rồi nên biểu thức vỡ. Hàm `_join_triple_quoted`
+   trong `il_codegen.tkv` gom các dòng sau cho khi đóng. Nó chạy TRƯỚC phép nối
+   tiếp dòng theo ngoặc (đã có sẵn trong file này).
+
+2. **Newline phải biến thành escape TRƯỚC khi vào `ldstr`.** Chuỗi IL của .NET
+   phải là MỘT DÒNG. `ilasm` báo `syntax error at token '"...` nếu còn newline
+   thật. Đổi newline thành 2 ký tự `\` + `n` **tại nơi nối dòng** (trong
+   `_join_triple_quoted`), không đổi ở tầng parse.
+
+3. **KHÔNG giải mã escape ở tầng parse.** Bài học: vòng giải mã `\n` → newline
+   thật trong `parse_factor` PHÁT LẠI đúng kiểu lỗi trên — nó bỏ mất chính cái
+   escape vừa tạo. `ldstr` của .NET TỰ hiểu `\n`, `\t`, `\"` nên token phải giữ
+   nguyên 2 ký tự đó; chỉ newline thật mới cần đổi.
+
+**Nhóm regex `TRIPLESTR`** phải là:
+`(?P<TRIPLESTR>"""(?:[^"\\]|\\.|"(?!"") )*""")`.
+Dấu nháy bên trong chỉ ăn được khi **không** theo sau bằng 2 dấu nháy nữa. Nếu
+để `[^\\]` ăn hết thì mẫu `"""x""", """y"""` bị nuốt thành MỘT chuỗi và lời
+gọi nhận thiếu tham số. Nhóm này cũng tự khớp newline, nên không cần nhánh riêng.
+Dấu nháy kép trong nội dung được đổi thành `\"` lúc sinh `ldstr`.
+
+**Bài học về test**: gate chạy `--entry run` CỐ ĐỊNH cho cả test thường lẫn
+negative. `Testkit/negative/module_var_without_global.tkv` (thêm ở commit trước)
+chỉ có entry `uses_k`, nên nó không hề báo lỗi thật — nó báo "không tìm thấy hàm
+entry 'run'", và gate báo sai LÝ DO. Đã thêm `def run()` cho file đó. Bài test
+mới cũng phải đặt tên entry `run`, không phải `main`.
+
+**Gate 87/87 + negative 7/7.**

@@ -14,3 +14,10 @@ k: "i32" = 5
 
 def uses_k() -> "i32":
     return k
+
+# Gate chan mot chuoi co dinh cho moi file negative: `--entry run`. Khong co
+# ham nay thi compiler bao "khong tim thay ham entry 'run'" TRUOC, va loi that
+# su (`chua duoc khai bao`) khong bao gio - file negative do se xanh vi ly do
+# sai. -Bien dich compiler 2026-09-29
+def run() -> "i32":
+    return uses_k()

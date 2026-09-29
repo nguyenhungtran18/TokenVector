@@ -3844,6 +3844,16 @@ def _strip_lines(body_lines, start_line=None):
         # 1 dong ma thi loi vao bieu thuc ("khong tokenize duoc"). Bo dau
         # '#' NGOAI chuoi hang.
         body = _strip_trailing_comment(body)
+        # NOI CHUOI NHIEU DONG (2026-09-29): `x = """a
+        # b"""` - dau `"""` chua dong tren 1 dong, phai gom cac dong sau vao
+        # MOT bieu thuc, giong nhu phep noi tiep dong theo ngoac o duoi day.
+        #
+        # Newline trong noi dung duoc doi thanh escape `\n` ngay khi noi (khong
+        # phai doi o tang parse) de chuoi IL luon la MOT dong - chuoi IL
+        # nhieu dong thi hong.
+        _joined = _join_triple_quoted(body, body_lines, i)
+        if _joined is not None:
+            body, i = _joined
         # NOI TIEP DONG (2026-08-03): bieu thuc con mo ngoac '(' / '[' /
         # '{' thi gom cac dong sau vao lam MOT - code that xuong dong lien
         # tuc trong loi goi dai; truoc day parser theo dong lam dut bieu
@@ -3856,6 +3866,81 @@ def _strip_lines(body_lines, start_line=None):
             line_nos.append(line_no_here)
         i += 1
     return (out, line_nos) if start_line is not None else (out, None)
+
+
+def _triple_quoted_balance(text):
+    """Dem SO LAN chuoi tam nhay (3 dau nhay kep) trong text, bo qua chuoi
+    hang thuong. Tra None neu khong co chuoi tam nhay nao, con la
+    tra (delim, so_lan).
+
+    Phai dem HET moi biet chuoi da dong hay chua. (Trong comment nay <TQ> =
+    3 dau nhay kep; viet thuong se lam dong docstring tu dong ket.)"""
+    count = 0
+    delim = None
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '\\':
+            i += 2
+            continue
+        if ch == '"' and text.startswith('"""', i):
+            delim = '"""'
+            count += 1
+            i += 3
+            continue
+        if ch == "'" and text.startswith("'''", i):
+            delim = "'''"
+            count += 1
+            i += 3
+            continue
+        if ch in ('"', "'"):
+            j = i + 1
+            while j < n:
+                if text[j] == '\\':
+                    j += 2
+                    continue
+                if text[j] == ch:
+                    break
+                j += 1
+            i = j + 1
+            continue
+        i += 1
+    if delim is None:
+        return None
+    return delim, count
+
+
+def _join_triple_quoted(body, body_lines, i):
+    """Neu `body` co chuoi tam nhay (3 dau nhay kep) CHUA DONG, gom cac dong
+    sau vao cho khi dong.
+
+    Tra (body_moi, i_moi) hoac None neu khong can gom.
+
+    Newline giua cac dong duoc doi thanh escape 2 ky tu backslash-n **tai
+    day** - dung noi nay chu khong phai o tang parse. Ly do: noi dung chuoi
+    phai la MOT DONG trong file `.il` sinh ra; chuoi IL nhieu dong khong
+    hop le.
+    """
+    got = _triple_quoted_balance(body)
+    if got is None:
+        return None
+    delim = got[0]
+    count = got[1]
+    parts = [body]
+    j = i
+    while count % 2 == 1 and j + 1 < len(body_lines):
+        j += 1
+        nxt = body_lines[j].strip()
+        parts.append(nxt)
+        got2 = _triple_quoted_balance(nxt)
+        if got2 is not None and got2[0] == delim:
+            count += 1
+    if count % 2 == 1:
+        raise SyntaxError(
+            f'il_codegen: chuoi {delim} bat dau o dong nay nhung KHONG co '
+            f'{delim} dong - thieu dong ket thuc')
+    return ('\\n'.join(parts), j)
 
 
 def _strip_trailing_comment(text):

@@ -157,8 +157,9 @@ def rename_reserved_identifiers(line: str) -> str:
 
 _EXPR_TOKEN_RE = re.compile(r'''
     \s*(?:
-        (?P<BYTES>b"(?:[^"\\]|\\.)*")
-      | (?P<STR>"(?:[^"\\]|\\.)*")
+            (?P<BYTES>b"(?:[^"\\]|\\.)*")
+          | (?P<TRIPLESTR>"""(?:[^"\\]|\\.|"(?!"") )*""")
+          | (?P<STR>"(?:[^"\\]|\\.)*")
         | (?P<NUM>0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|\d+\.\d+[eE][+-]?\d+|\d+[eE][+-]?\d+|\d+\.\d+|\d+)
       | (?P<ID>[A-Za-z_]\w*)
       | (?P<SHIFT><<|>>)
@@ -824,6 +825,25 @@ class _ExprParser:
             return ('bytes_lit', v)  # v giu nguyen tien to 'b' + dau ngoac kep - xem bytes_type.py's parse_bytes_literal
         if k == 'STR':
             return ('str_lit', v)  # v giu nguyen ca dau ngoac kep - dung THANG cho 'ldstr'
+        if k == 'TRIPLESTR':
+            # Chuyen 3 dau nhay kep thanh 1 cap kep cho `ldstr`, va chuan hoa
+            # noi dung cho DUNG dinh dang chuoi IL.
+            #
+            # KHONG giai ma escape: `ldstr` cua .NET TU hieu `\n`, `\t`, `\"` -
+            # giai ma o day se bien `\n` thanh newline THAT, va file .il sinh ra
+            # se co chuoi nhieu dong -> ilasm bao loi (loi nay da gap that).
+            #
+            # `\n` trong noi dung cua nguoi dung PHAI ra mot ky tu newline that.
+            # Dong noi o `_join_triple_quoted` (il_codegen.tkv) da bien newline
+            # thanh 2 ky tu `\` + `n`; bo qua viec giai ma o day la thu can
+            # de ky tu do van la escape khi den `ldstr`.
+            _body = v[3:-3]
+            _body = _body.replace('\r\n', '\n').replace('\r', '\n')
+            _body = _body.replace('\n', '\\n')
+            # dau nhay kep trong noi dung se lam hong `ldstr` -> escape.
+            _body = _body.replace('\\"', '\x00').replace('"', '\\"')
+            _body = _body.replace('\x00', '\\"')
+            return ('str_lit', '"' + _body + '"')
         if k == 'NUM':
             return ('num', v)
         if k == 'ID':

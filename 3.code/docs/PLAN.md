@@ -211,7 +211,7 @@ Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector.
 |---|---|
 | ~~`del` phần tử~~ | **XONG** — `del lst[i]`, `del d[k]`. `del x` (biến) **từ chối có chủ đích**: local có kiểu khai báo, tạo "không còn binding" đòi hỏi mọi nơi đọc biến phải kiểm tra. Xem REPOSITORY-NOTES |
 | ~~Hàm lồng không bắt buộc là câu lệnh đầu tiên~~ | **XONG SẴN** — kiểm chứng lại (2026-09-29): `def` lồng chạy được sau lệnh thường, sau chú thích, sau `while`. Biến module cần `global` là **có chủ đích**. Test `nested_global_test.tkv` 6/6 |
-| Chuỗi nhiều dòng `"""..."""` | trung bình |
+| ~~Chuỗi nhiều dòng `"""..."""`~~ | **XONG (2026-09-29)** — `_join_triple_quoted` (il_codegen.tkv) nối dòng khi `"""` chưa đóng, đổi newline thành escape 2 ký tự ngay tại nơi nối; nhom `TRIPLESTR` trong `_EXPR_TOKEN_RE` (il_core.tkv) nhận nội dung. Test `multiline_string_test.tkv` 8/8. Xem REPOSITORY-NOTES |
 | ~~Biểu thức điều kiện~~ | **XONG** — dạng Python `a if c else b` đã có. Dạng `c ? a : b` vẫn bị chặn bởi `ast.parse` của Python — xem mục 4 |
 | Literal lồng `[{"a":1}]`, `{"k":[1,2]}` | thiết kế |
 | Tuple literal `(1, 2)` | thiết kế — DSL **không có kiểu tuple** |
@@ -316,7 +316,7 @@ Chạy trước khi coi bất cứ thay đổi nào là xong:
 # 1. Build lại compiler TỪ CÂY NGUỒN (binary cũ che hồi quy)
 .\3.code\build_tkvc.ps1
 
-# 2. Testkit — 86 file + 7 negative, timeout 120s/test
+# 2. Testkit — 87 file + 7 negative, timeout 120s/test
 .\3.code\tools\testkit_gate.ps1
 
 # 3. Inference
