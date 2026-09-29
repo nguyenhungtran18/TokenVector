@@ -861,3 +861,64 @@ Hai lan dat nhanh SAI trong luc lam (ca hai cung do la khop sai ham):
 Ca hai lan deu lo ra bang thong bao chung "chi ho tro mang rank 1 hoac 2" - KHONG
 chi ra rang container la gi, nen phai kiem bang thu doc cach binary de tim ham
 that, khong phai tin thong bao.
+
+## P6 bước 2: tự động vector hóa vòng lặp trên `f32buf` (2026-09-29)
+
+`_p6_vectorize_while` (trong `compiler/il_features/control_flow.tkv`, gọi từ
+`codegen_while` TRƯỚC khi phát vòng lặp vô hùa) nhận diện MỘT DẠNG vòng lặp:
+
+```
+n = <giá trị>
+i = 0
+while i < n:
+    r[i] = a[i] + b[i]
+    i = i + 1
+```
+
+rồi biên dịch thành: vòng lặp bước 4 (`v_load4` nạp, `v_store4` ghi, 16 byte
+một lần) + đuôi scalar cho `n % 4` phần tử còn lại. Biến đếm `i` kết thúc ở `n`
+y hệt bản gốc nên code sau vòng lặp không nhìn thấy khác biệt gì.
+
+**Nguyên tắc: có BẤT KỲ nghi ngờ nào thì KHÔNG vector hóa.** Biến đổi này sửa
+SỐ HỌC của code mà không hề nhắc tới vector — một lỗi sai sẽ không có triệu
+chứng gì. Đó là lý do P6 chẩn đoán bằng cách thử biên dịch rồi so sánh IL, chứ
+không phải bằng cách sinh ra rồi kiểm tra kết quả.
+
+Điều kiện CHẤP NHẬN (trượt hết đều trả về False → chạy scalar):
+- điều kiện là `iv < n` với cả hai là **biến** (không phải hằng số)
+- thân **đúng hai** câu lệnh: 1 `idx_assign` + 1 `i = i + 1`
+- `r` là biến `f32buf`; mọi `r[i]` trong vế phải dùng **chung** `iv`
+- vế phải chỉ gồm `+ - * /`, và **mọi lá phải là `v_load4`**
+
+Hai giới hạn cần biết:
+- **Hằng số trong vế phải bị từ chối** (`a[i] * 1.5`). `_expr_num` từ chối mọi
+  dtype trừ `f32x4` (không có lệnh `ldc` nào sinh được một vector), và chưa có
+  intrinsic `v_set4` để broadcast. Muốn hỗ trợ: thêm `v_set4` trước.
+- **`f32buf` chưa dùng được làm tham số/giá trị trả về** (P6 bước 1 chỉ tạo ở
+  local nên đúng), nên mỗi trường hợp test phải nối thẳng vòng lặp thay vì gọi
+  hàm.
+
+### Bài học khi chẩn đoán (cả 3 đều tồn tại trong codebase)
+
+1. **Node hằng số lưu dạng CHUỖI: `('num', '1')`, KHÔNG phải `('num', 1)`.**
+   Parser giữ hằng số nguyên nguyên văn bản vì số có thể vượt int64. Một số
+   nơi sinh node bằng int thực nên đã dùng idiom "chấp cả 3 dạng" (xem
+   `list_pop.tkv`). Đây là nguyên nhân gốc của việc recognizer trả False ở khi
+   mọi điều kiện đều có vẻ đúng. `_p6_num_val` là hàm hóa giải.
+   Tương ứng: `_is_float_literal` (`il_core.py`) làm `'.' in text` nên node
+   `('num', 4)` (int) sẽ ném `TypeError` chứ không phải báo lỗi đẹp.
+2. **Cache PyInstaller bị bẩn sẽ làm `dist/tkvc.exe` hỏng giữ nguyên hình dạng.**
+   `ModuleNotFoundError: No module named 'il_features.X'` lúc build, trong khi
+   staging có đúng file. Xóa `build/pyinstaller/tkvc` (thư mục `.toc` của
+   PyInstaller) rồi build lại. `build/pyinstaller_src` KHÔNG đủ — nó chỉ là
+   staging do biên dịch sinh ra.
+3. **Kiểm tra kết quả ĐÚNG không chứng minh transform CÓ chạy.** Test ban đầu
+   cho ra đúng toàn bộ giá trị ở `n=8` nhưng vector hóa chưa bao giờ chạy —
+   nó chỉ chạy đường scalar. Phải kiểm tra **IL** (`stobj`/`ldobj`, nhãn
+   `_vstart`) chứ không kiểm tra kết quả. Ngoại ra cảnh báo: `while i < 8` có
+   biên lại là hằng số nên không khớp mẫu — phải truyền `n` qua tham số mới thử
+   được.
+
+Gate: `Testkit/p6_vectorize_test.tkv` 16/16, toàn bộ **82/82**. Đã đối chiếu
+bit-exact với CPython trên 13 độ dài × 3 phép (0, 1, 2, 3, 4, 5, 7, 8, 9, 15,
+16, 17, 33).

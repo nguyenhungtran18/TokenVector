@@ -1062,9 +1062,204 @@ def codegen_for(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
                              body_dtype, ctx, sig, codegen_stmts_fn)
 
 
+def _p6_num_val(node):
+    """Lay gia tri cua node `('num', v)`, hoa giai chuoi thanh so.
+
+    Parser luu hang so o dang CHUOI (`('num', '1')`), co ban la vi so nguyen
+    co the vuot int64 va duoc giu nguyen van ban den khi bien dich. Mot so
+    noi sinh node bang int thuc (`('num', 1)`) - nen ca hai deu chap nhan.
+    Tra None neu khong phai hang so."""
+    if not (isinstance(node, tuple) and len(node) == 2 and node[0] == 'num'):
+        return None
+    v = node[1]
+    if isinstance(v, str):
+        try:
+            return float(v) if ('.' in v or 'e' in v.lower()) else int(v)
+        except ValueError:
+            return None
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return v
+
+
+def _p6_vec_rhs_ok(node):
+    """Ve phai (sau khi viet lai) co THE bien dich thanh phep so hoc vector.
+
+    Dieu kien: moi toan tu phai thuoc `_VEC4_BINOPS` (+ - * /), va la phai la
+    `v_load4` hoac hang so. Tu choi con lai - vi du `a[i] > b[i]` tra i32 chu
+    khong phai Vector4, nen se sinh IL sai ma bien dich VAN khong bao loi.
+
+    Luu y: day la kiem tra CAU TRUC, khong phai kiem tra kieu bien - vi bien
+    int len (TkvInt) cung duoc phep o day va se bi widen thanh Vector4 dung
+    cach nhu moi phep so hoc kieu khac (xem `_widen_if_needed`)."""
+    _VEC_OK = ('+', '-', '*', '/')
+    if not (isinstance(node, tuple) and node):
+        return False
+    if node[0] == 'call' and len(node) == 3 and node[1] == 'v_load4':
+        return True
+    if node[0] == 'binop' and len(node) == 4 and node[1] in _VEC_OK:
+        return _p6_vec_rhs_ok(node[2]) and _p6_vec_rhs_ok(node[3])
+    return False
+
+
+def _p6_vectorize_while(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn, n):
+    """P6 (2026-09-29): TU DONG VECTOR HOA vong lap elementwise tren `f32buf`.
+
+    Nhan dien MOT DANG duy nhat, het mong dong:
+
+        i = 0
+        while i < n:
+            r[i] = a[i] + b[i]
+            i = i + 1
+
+    than giong het, nhung vong lap chay buoc 4 (nap/ghi 16 byte bang
+    `v_load4`/`v_store4`) roi den DUOI SCALAR cho `n % 4` phan tu con lai.
+    Bien dem `i` ket thuc o `n` y het ban goc, nen code sau vong lap khong
+    nhin thay khac biet gi.
+
+    **Tu choi ve 0 khi co BAT KY nghi ngo nao.** Do la nguyen tac cua P6: bien
+    doi nay sua SO HOC cua code khong he nhac toi vector, mot loi se khong co
+    trieu chung gi. Tai day con so:
+
+    - dieu kien phai la `<iv> < <n>`, ca hai la BIEN TRAN
+    - than phai DUNG HAI cau lenh: 1 `idx_assign` va 1 phep tang `iv = iv + 1`
+    - `r` phai la bien `f32buf`; moi `r[i]` trong ve phai dung CHUNG `iv`
+    - `iv` phai la bien int (khong phai chuoi) va khong doi gia tri trong than
+    - ve phai chi gom phep so hoc ma vector ho tro, va MOI LA phai la
+      `v_load4` (xem `_p6_vec_rhs_ok`)
+
+    Vi sao KHONG chap nhan hang so trong ve phai (`a[i] * 1.5`): `_expr_num`
+    tu choi moi dtype tru 'f32x4' (khong co lenh `ldc` nao sinh duoc mot vector),
+    va khai bao intrinsic `v_set4` de broadcast thi CHUA ton tai. Thay vao do,
+    vong lap do chay duong scalar binh thuong - dung, chi la cham hon.
+
+    Vi sao KHONG chay khi than co `break`/`continue`: dieu kien "than dung HAI
+    cau lenh" o tren da loai san chúng. `else` tren vong lap cung bi loai vi
+    dieu kien do - va no cung la truong hop ma viec nay CHUA xu ly.
+    """
+    if stmt.get('else_body') is not None:
+        return False
+    stmts = stmt.get('body') or []
+    if len(stmts) != 2:
+        return False
+
+    cond = stmt['cond_node']
+    # DO LA 'compare' chu khong phai 'binop' - xac nhan bang probe that.
+    if not (isinstance(cond, tuple) and len(cond) == 4
+            and cond[0] == 'compare' and cond[1] == '<'):
+        return False
+    iv_node, n_node = cond[2], cond[3]
+    if not (isinstance(iv_node, tuple) and len(iv_node) == 2 and iv_node[0] == 'var'):
+        return False
+    if not (isinstance(n_node, tuple) and len(n_node) == 2 and n_node[0] == 'var'):
+        return False
+    iv = iv_node[1]
+
+    idx_st = inc_st = None
+    for st in stmts:
+        if st['kind'] == 'idx_assign' and idx_st is None:
+            idx_st = st
+        elif st['kind'] == 'assign_scalar' and inc_st is None:
+            inc_st = st
+    if idx_st is None or inc_st is None:
+        return False
+    if inc_st['name'] != iv:
+        return False
+    inc_rhs = inc_st.get('rhs_node')
+    if not (isinstance(inc_rhs, tuple) and len(inc_rhs) == 4
+            and inc_rhs[0] == 'binop' and inc_rhs[1] == '+'):
+        return False
+    if inc_rhs[2] != ('var', iv) or _p6_num_val(inc_rhs[3]) != 1:
+        # CHI chap nhan dung 'iv = iv + 1'. 'iv = 1 + iv' hay 'iv += 1' (neu
+        # bien dich thanh dang khac) se bi tu choi - an toan hon la doan.
+        return False
+
+    dest = idx_st['name']
+    idx_nodes = idx_st.get('idx_nodes') or []
+    if len(idx_nodes) != 1 or idx_nodes[0] != ('var', iv):
+        return False
+
+    def _is_f32buf(name):
+        try:
+            _, _, ta = scope[name]
+        except (KeyError, TypeError, IndexError):
+            return False
+        return getattr(ta, 'shape', None) == 'f32buf'
+
+    if not _is_f32buf(dest):
+        return False
+
+    loads = []
+
+    def _rewrite(node):
+        """Thay moi `f[i]` doc tren f32buf bang `v_load4(f, i*4)`, ghi nhan lai.
+        Tra None neu gap thu gi khong hop le - thi ca vong lap khong vector
+        hoa duoc (quy tac "hoi nghi = tu choi")."""
+        if isinstance(node, tuple) and node:
+            if node[0] == 'index' and len(node) >= 3:
+                name = node[1]
+                if not (isinstance(name, str) and _is_f32buf(name)):
+                    return None
+                if node[2] != [('var', iv)]:
+                    # Chi so khac `iv` (bien khac, hang so, bieu thuc) - KHONG
+                    # vector hoa duoc: `f[i+1]` lech 1 byte, nap 16 byte se
+                    # SAI hoan toan.
+                    return None
+                loads.append(name)
+                return ('call', 'v_load4',
+                        [('var', name), ('binop', '*', ('var', iv), ('num', '4'))])
+            return (node[0],) + tuple(_rewrite(s) for s in node[1:])
+        return node
+
+    rewritten = _rewrite(idx_st.get('rhs_node'))
+    if rewritten is None or not loads:
+        return False
+    if not _p6_vec_rhs_ok(rewritten):
+        return False
+
+    vec_start = f'{sig.name}_W{n}_vstart'
+    vec_done = f'{sig.name}_W{n}_vdone'
+    tail_start = f'{sig.name}_W{n}_tstart'
+    end_lbl = f'{sig.name}_W{n}_end'
+    off = ('binop', '*', ('var', iv), ('num', '4'))
+
+    # VONG LAP VECTOR: chay khi con du 4 phan tu (iv + 3 < n)
+    body.append(f'  {vec_start}:')
+    _compile_cond(('compare', '<', ('binop', '+', ('var', iv), ('num', '3')), n_node),
+                  scope, body, body_dtype, ctx)
+    body.append(f'    brfalse {vec_done}')
+    # v_store4 tu bien dich gia tri voi dtype 'f32x4' roi de lai i32 0 tren
+    # stack - 'pop' de don stack sau lenh nay.
+    ctx['compile_expr'](('call', 'v_store4', [('var', dest), off, rewritten]),
+                        scope, body, 'i32', ctx)
+    body.append('    pop')
+    inc4 = dict(inc_st)
+    inc4['rhs_node'] = ('binop', '+', ('var', iv), ('num', '4'))
+    codegen_stmts_fn([inc4], scope, body, body_dtype, ctx, sig)
+    body.append(f'    br {vec_start}')
+    body.append(f'  {vec_done}:')
+
+    # DUOI SCALAR: phan con lai (n % 4) chay bang lenh goc
+    body.append(f'  {tail_start}:')
+    _compile_cond(stmt['cond_node'], scope, body, body_dtype, ctx)
+    body.append(f'    brfalse {end_lbl}')
+    ctx['loop_stack'].append((tail_start, end_lbl))
+    codegen_stmts_fn([idx_st], scope, body, body_dtype, ctx, sig)
+    codegen_stmts_fn([inc_st], scope, body, body_dtype, ctx, sig)
+    ctx['loop_stack'].pop()
+    body.append(f'    br {tail_start}')
+    body.append(f'  {end_lbl}:')
+    return True
+
+
 def codegen_while(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     ctx['label_counter'][0] += 1
     n = ctx['label_counter'][0]
+    # P6: thu vector hoa TRUOC khi phat vong lap vohua. Neu khop mau, ham nay
+    # tu phat ca vong vector + duoi scalar va tra ve True.
+    if _p6_vectorize_while(stmt, scope, body, body_dtype, ctx, sig,
+                           codegen_stmts_fn, n):
+        return
     start_lbl, end_lbl = f'{sig.name}_W{n}_start', f'{sig.name}_W{n}_end'
     # 'continue' trong while nhay THANG ve start_lbl (kiem tra dieu kien
     # lai) - khac 'for' vi while khong co buoc tang rieng.
