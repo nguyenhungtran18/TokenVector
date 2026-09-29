@@ -284,6 +284,173 @@ def codegen_assign_tuple_literal(stmt, scope, body, body_dtype, ctx, sig, codege
     ctx['store_var'](stmt['name'], scope, body)
 
 
+_FOR_PAIR_RE = re.compile(r'^for\s+(\w+)\s*,\s*(\w+)\s+in\s+(\[.*\]|\(\w+\))\s*:\s*$')
+
+
+def try_parse_for_tuple_pairs(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
+    """LINE_PARSERS entry: 'for a, b in <nguon>:' (2026-09-29).
+
+    Ly do can LINE_PARSER rieng: macro `for_in_list` (control_flow.tkv) chay
+    TRUOC khi co thong tin kieu va chi viet duoi dang 'for <1 bien> in <ten
+    bien>:' - 2 bien no khong khop, rơi xuong "khong dich duoc dong".
+
+    Regex chi nhan container la list literal (`[...]`) hoac bien trong ngoac
+    don (`(<ten>)`) de khong cuop `for k, v in d.items()` hay bien tran cua
+    cac duong hien co. Bien trong ngoac duoc giu lai de first-pass bao loi
+    ro rang thay vi macro xu ly nham.
+
+    KHONG dua vao he spec (`list[...]`/`dict[...]`/`set[...]`): spec dung dau
+    ngoac VUONG, con tuple la `(i32,i32)` - ngoac TRON. Ep tuple vao he spec
+    se lam `is_container_spec` tra True cho 1 gia tri KHONG phai container, va
+    `ta.elem_ta is not None` chinh la cach codebase nhan biet 'phan tu la
+    container' (reject_if_nested_container_elem) - se lo doi nham.
+    """
+    m = _FOR_PAIR_RE.match(line)
+    if not m:
+        return None
+    var_a, var_b, src_text = m.groups()
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(
+            f"il_codegen: 'for {var_a}, {var_b} in {src_text}:' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return {'kind': 'for_tuple_pairs', 'var_a': var_a, 'var_b': var_b,
+            'src_text': src_text, 'body': body}, pos
+
+
+def _pair_src_tuple_dtypes(stmt, ctx):
+    """(dtypes, elements) cua cac tuple trong nguon cua 'for a, b in <nguon>'.
+
+    Phien ban nay CHI chap nhan list literal chua cac tuple literal.
+    Ly do: nguon duoc tach thanh HAI LIST vo huong song song. Duong
+    `List<T>.Add(!0)` voi T la tuple chua TkvInt thi ilasm van assemble nhung
+    CLR nem InvalidProgramException luc chay; mang ValueTuple cung khong doc
+    duoc (`ldelem`/`ldelema` deu bi verifier tu choi voi kieu nay). Tach ra
+    hai `List<vo huong>` chi dung cac lenh da co tien le chay dung.
+    Nguon la bien list-cua-tuple bi tu choi RO RANG cho den khi co duong doc
+    hop le cho no.
+    """
+    src = parse_expr(stmt['src_text'])
+    infer_scope = ctx['infer_scope']
+    if src[0] == 'var':
+        return None, None, (f"'{src[1]}' la bien: phien ban nay chi ho tro list literal "
+                            "chua cac tuple literal (`for i, j in [...]`)")
+    if src[0] != 'list_literal' or len(src[1]) < 1:
+        return None, None, 'chi ho tro list literal khong rong chua cac tuple literal'
+    first = src[1][0]
+    if not (isinstance(first, tuple) and len(first) == 2 and first[0] == 'tuple_literal'):
+        return None, None, 'list literal phai chua cac tuple literal'
+    dtypes = _tuple_literal_dtypes(first[1], infer_scope, ctx)
+    if any(d is None for d in dtypes):
+        return None, None, 'khong suy duoc kieu cua phan tu trong tuple literal'
+    if len(dtypes) != 2:
+        return None, None, 'vong lap co hai bien nen moi tuple phai co dung hai phan tu'
+    for pos, el in enumerate(src[1][1:], start=2):
+        if not (isinstance(el, tuple) and len(el) == 2 and el[0] == 'tuple_literal'):
+            return None, None, f'phan tu thu {pos} khong phai tuple literal'
+        cur = _tuple_literal_dtypes(el[1], infer_scope, ctx)
+        if any(d is None for d in cur) or len(cur) != 2 or cur != dtypes:
+            return None, None, f'phan tu thu {pos} khong cung kieu voi tuple dau tien'
+    for el in src[1]:
+        for part in el[1]:
+            ctx['collect_ternary_temps'](part)
+    return dtypes, list(src[1]), None
+
+
+def fpw_for_tuple_pairs(stmt, ctx):
+    """FIRST_PASS_WALK cho 'for a, b in <nguon>:'."""
+    dtypes, elements, err = _pair_src_tuple_dtypes(stmt, ctx)
+    if dtypes is None:
+        raise SyntaxError(
+            f"il_codegen: 'for {stmt['var_a']}, {stmt['var_b']} in {stmt['src_text']}:' - {err}")
+    sid = id(stmt)
+    stmt['pair_elements'] = elements
+    TypeAnn = ctx['TypeAnn']
+    elem_ta = TypeAnn(dtypes[0], 'tuple', tuple_dtypes=dtypes)
+    ctx['declare_named'](f'__tfp_asrc{sid}', TypeAnn(dtypes[0], 'list'))
+    ctx['declare_named'](f'__tfp_bsrc{sid}', TypeAnn(dtypes[1], 'list'))
+    ctx['declare_named'](f'__tfp_idx{sid}', TypeAnn('i32', None))
+    ctx['declare_named'](f'__tfp_tmp{sid}', elem_ta)
+    ctx['declare_named'](stmt['var_a'], TypeAnn(dtypes[0], None))
+    ctx['declare_named'](stmt['var_b'], TypeAnn(dtypes[1], None))
+    ctx['walk_fn'](stmt['body'])
+
+
+def codegen_for_tuple_pairs(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN cho 'for a, b in <nguon>:'.
+
+    Moi tuple duoc xay mot lan, doc `Item1`/`Item2` ra, roi nap hai thanh phan
+    vao HAI LIST vo huong song song. Ly do da kiem chung THAT voi tuple chua
+    TkvInt: `List<T>.Add(!0)` voi T la tuple thi assemble duoc nhung CLR nem
+    InvalidProgramException; `ldelem`/`ldelema` tren mang tuple cung bi
+    verifier tu choi. Tach ra hai `List<vo huong>` thi vong lap chi dung
+    `get_Count`/`get_Item` vo huong - cac lenh da co tien le chay dung.
+    """
+    sid = id(stmt)
+    _, a_src_idx, a_src_ta = scope[f'__tfp_asrc{sid}']
+    _, b_src_idx, b_src_ta = scope[f'__tfp_bsrc{sid}']
+    _, idx_idx, _ = scope[f'__tfp_idx{sid}']
+    _, tmp_idx, tmp_ta = scope[f'__tfp_tmp{sid}']
+    dtypes = tmp_ta.tuple_dtypes
+    records = ctx.get('records')
+    a_list_type = ctx['il_type_str'](a_src_ta, records)
+    b_list_type = ctx['il_type_str'](b_src_ta, records)
+
+    # Nguon: chi list literal da duoc first-pass kiem tra va luu lai.
+    elements = stmt.get('pair_elements')
+    if not elements:
+        raise SyntaxError(
+            "il_codegen: codegen cua 'for a, b in ...' thieu danh sach tuple da "
+            "duoc first-pass kiem tra")
+    body.append(f'    newobj instance void {a_list_type}::.ctor()')
+    body.append(f'    stloc.s {a_src_idx}')
+    body.append(f'    newobj instance void {b_list_type}::.ctor()')
+    body.append(f'    stloc.s {b_src_idx}')
+    for el in elements:
+        emit_tuple_literal(el[1], dtypes, scope, body, ctx)
+        body.append(f'    stloc.s {tmp_idx}')
+        body.append(f'    ldloc.s {a_src_idx}')
+        body.append(f'    ldloc.s {tmp_idx}')
+        body.append(f'    ldfld !0 {il_tupleN_type(dtypes)}::Item1')
+        body.append(f'    callvirt instance void {a_list_type}::Add(!0)')
+        body.append(f'    ldloc.s {b_src_idx}')
+        body.append(f'    ldloc.s {tmp_idx}')
+        body.append(f'    ldfld !1 {il_tupleN_type(dtypes)}::Item2')
+        body.append(f'    callvirt instance void {b_list_type}::Add(!0)')
+    body.append('    ldc.i4.0')
+    body.append(f'    stloc.s {idx_idx}')
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    start_lbl = f"{ctx['prefix']}_TFP{n}_start"
+    cont_lbl = f"{ctx['prefix']}_TFP{n}_cont"
+    end_lbl = f"{ctx['prefix']}_TFP{n}_end"
+
+    body.append(f'  {start_lbl}:')
+    body.append(f'    ldloc.s {idx_idx}')
+    body.append(f'    ldloc.s {a_src_idx}')
+    body.append(f'    callvirt instance int32 {a_list_type}::get_Count()')
+    body.append(f'    bge {end_lbl}')
+    body.append(f'    ldloc.s {a_src_idx}')
+    body.append(f'    ldloc.s {idx_idx}')
+    body.append(f'    callvirt instance !0 {a_list_type}::get_Item(int32)')
+    ctx['store_var'](stmt['var_a'], scope, body)
+    body.append(f'    ldloc.s {b_src_idx}')
+    body.append(f'    ldloc.s {idx_idx}')
+    body.append(f'    callvirt instance !0 {b_list_type}::get_Item(int32)')
+    ctx['store_var'](stmt['var_b'], scope, body)
+    ctx['loop_stack'].append((cont_lbl, end_lbl))
+    codegen_stmts_fn(stmt['body'], scope, body, body_dtype, ctx, sig)
+    ctx['loop_stack'].pop()
+    body.append(f'  {cont_lbl}:')
+    body.append(f'    ldloc.s {idx_idx}')
+    body.append('    ldc.i4.1')
+    body.append('    add')
+    body.append(f'    stloc.s {idx_idx}')
+    body.append(f'    br {start_lbl}')
+    body.append(f'  {end_lbl}:')
+
+
 def fpw_return_tuple(stmt, ctx):
     collect_ternary_temps = ctx['collect_ternary_temps']
     for expr_node in stmt['expr_nodes']:
@@ -447,6 +614,9 @@ register_assign_rhs_parser('tuple_literal', try_rhs_tuple_literal)
 register_first_pass_walk('assign_tuple_literal', fpw_assign_tuple_literal)
 register_stmt_codegen('assign_tuple_literal', codegen_assign_tuple_literal)
 register_line_parser('tuple_assign', try_parse_tuple_assign)
+register_line_parser('for_tuple_pairs', try_parse_for_tuple_pairs)
+register_first_pass_walk('for_tuple_pairs', fpw_for_tuple_pairs)
+register_stmt_codegen('for_tuple_pairs', codegen_for_tuple_pairs)
 register_stmt_codegen('return_tuple', codegen_return_tuple)
 register_stmt_codegen('tuple_assign', codegen_tuple_assign)
 register_first_pass_walk('return_tuple', fpw_return_tuple)

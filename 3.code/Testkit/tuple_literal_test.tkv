@@ -59,21 +59,18 @@ def lit_direct_call() -> "str":
 
 # ---------------- for co 2 bien ----------------
 
-# `for i, j in <nguon>` CHUA ho tro (xem khoi comment o run()). 2 ham duoi
-# giu dang COMMENT de dac ta khong mat; se mo ra khi lam tiep.
-#
-# def sum_pairs() -> "i32":
-#     total = 0
-#     for i, j in [(1, 2), (3, 4), (5, 6)]:
-#         total = total + i + j
-#     return total
-#
-#
-# def join_pairs() -> "str":
-#     out = ""
-#     for i, j in [(1, 2), (3, 4)]:
-#         out = out + str(i) + "-" + str(j) + ";"
-#     return out
+def sum_pairs() -> "i32":
+    total = 0
+    for i, j in [(1, 2), (3, 4), (5, 6)]:
+        total = total + i + j
+    return total
+
+
+def join_pairs() -> "str":
+    out = ""
+    for i, j in [(1, 2), (3, 4)]:
+        out = out + str(i) + "-" + str(j) + ";"
+    return out
 
 
 def run() -> "i32":
@@ -95,22 +92,10 @@ def run() -> "i32":
     tested = tested + 1
     total = total + check("literal_as_call_arg", lit_direct_call(), "12")
 
-# ---------------- for co 2 bien (CHUA LAM - xem ghi chu duoi) ----------------
-# `for i, j in <nguon>` CHUA ho tro. Comment ca 2 ham o duoi (khong chi 2
-# check trong run) - vi parser bien dich THAN HAM, comment o run thi thay doi
-# so lieu tinh ma van bao loi cu.
-#
-# def sum_pairs() -> "i32":
-#     total = 0
-#     for i, j in [(1, 2), (3, 4), (5, 6)]:
-#         total = total + i + j
-#     return total
-#
-#
-# def join_pairs() -> "str":
-#     out = ""
-#     for i, j in [(1, 2), (3, 4)]:
-#         out = out + str(i) + "-" + str(j) + ";"
-#     return out
+    tested = tested + 1
+    total = total + check("for_two_vars_sum", str(sum_pairs()), "21")
+
+    tested = tested + 1
+    total = total + check("for_two_vars_join", join_pairs(), "1-2;3-4;")
 
     return test_summary("tuple_literal_test", total, tested)
