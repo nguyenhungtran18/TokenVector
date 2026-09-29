@@ -1564,3 +1564,59 @@ entry 'run'", và gate báo sai LÝ DO. Đã thêm `def run()` cho file đó. B�
 mới cũng phải đặt tên entry `run`, không phải `main`.
 
 **Gate 87/87 + negative 7/7.**
+
+## `yield from` + `return <gia tri>` trong generator (2026-09-29) — XONG
+
+Gỡ nút thắt bằng cách viết `Testkit/generator_yield_from_test.tkv` **trước** và
+xác nhận nó ĐỎ đúng lý do (`from src` bị parse thành biến `from`), rồi mới viết
+compiler. Không làm vậy thì không có cái neo nào để biết mình đúng.
+
+**Phát `yield` phải tách ra helper.** `codegen_yield_stmt` và
+`codegen_yield_from_stmt` đều cần: ghi `__current`, đồng bộ local→field **toàn
+bộ** biến đã hoist, cấp state, `ret true`, dán nhãn resume. Copy-paste 2 bản
+rồi sửa 1 bản là loại bug đã gặp nhiều lần. Helper `_emit_yield_here` nhận
+`value_emitter(out)` — chỉ việc đẩy giá trị lên đúng đỉnh stack.
+
+**`ldc.i4.s` chỉ mang 1 byte.** Hằng state cũ dùng `ldc.i4.s {n}` nên generator
+trên 127 `yield` sẽ làm ilasm báo lỗi. Đã đổi sang `ldc.i4` khi vượt ngưỡng.
+
+**Lệch kiểu = hỏng MoveNext, và lỗi hiện ra ở chỗ hoàn toàn khác.** `xs = [10,
+20, 30]` suy ra `List<TkvInt>` (số nguyên lớn 16 byte), còn generator
+`-> "list[i32]"` yield `int32`. `get_Item` đẩy 16 byte mà `stfld int32` chỉ lấy
+4 → **lệch đỉnh stack**, và biểu hiện là `ArgumentOutOfRangeException` trong
+`List.get_Item` chứ không phải lỗi kiểu. ILASM không kiểm tra nên vẫn assemble
+được. Phải ép `TkvInt::ToI32` (xem `operators.tkv`) khi kiểu nguồn là `int` còn
+kiểu yield là `i32`/`i64`.
+
+**`.field private static` không đủ cho generator.** Lớp generator là một lớp
+*riêng*, nên `MoveNext` của nó không nằm trong lớp chương trình:
+- `private` → `FieldAccessException`
+- `family` (protected) → vẫn `FieldAccessException`, vì lớp generator **không
+  kế thừa** lớp chương trình
+- phải `assembly` (internal) mới được.
+
+Đã đổi `.field` của mọi biến module-level sang `assembly`.
+
+**`module_globals` phải được truyền tới TẪNG first-pass.** Kế thừa: `ctx` của
+codegen và `walk_ctx` của first-pass là hai dict khác nhau. Thêm vào một cái thì
+`fpw_return` không thấy. Phải thêm vào cả `_first_pass_collect_locals` (tham số
++ `walk_ctx`) lẫn ctx của generator, rồi truyền từ cả `gen_il_function` và
+`gen_il_generator_function`. Thêm vào mà chỉ sửa 1 trong 2 chỗ gọi thì hàm bình
+thường thì được, hàm generator thì không.
+
+**`infer_scope[name]` trả 3-tuple** `('local', None, ta)`, phải lấy `[2]`; nó
+chỉ được seed bằng hằng module, **không** có biến module-level. Nên đừng tìm
+kiểu của biến module ở đó — dùng `module_globals`.
+
+**Negative test và độ dài thông điệp lỗi.** Gate so `-notmatch` trên stderr mà
+PowerShell wrap theo bề rộng console. Thông điệp dài đặt cụm từ khóa ở giữa
+sẽ bị cắt bởi CR/LF và gate báo "sai LÝ DO" dù thông điệp đúng. **Đặt cụm khóa
+cần test ở đầu thông điệp.**
+
+**Lỗi trong bài test (không phải compiler).** Gọi `gen()` chỉ **tạo** đối tượng
+máy trạng thái, thân hàm chưa chạy. Muốn `return` trong generator chạy thì phải
+iterate. Test ban đầu đọc `__gen_ret__` ngay sau `early_stop()` nên luôn thấy
+0. Thêm `global __gen_ret__` trong hàm đọc cũng bắt buộc — không có `global` thì
+tên đó là local.
+
+**Gate 88/88 + negative 9/9.**

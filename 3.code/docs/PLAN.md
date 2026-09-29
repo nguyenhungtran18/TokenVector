@@ -216,10 +216,11 @@ Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector.
 | Literal lồng `[{"a":1}]`, `{"k":[1,2]}` | thiết kế |
 | Tuple literal `(1, 2)` | thiết kế — DSL **không có kiểu tuple** |
 | `f(*xs)`, `f(**kw)` | lớn — cần đổi mô hình arity |
-| `yield from` | lớn — xem mục 5 |
+| ~~`yield from`~~ | **XONG (2026-09-29)** — ho tro **list** (vong lap theo chi so) va **ham generator** (ban giao `MoveNext`/`get_Current`). Nguon khac bi tu choi VOI LY DO. Test `generator_yield_from_test.tkv` 10/10. Xem mục 5 |
+| ~~`return <giá trị>` trong generator~~ | **XONG (2026-09-29)** — `return v` DUNG vong lap + ghi `v` vao bien module `__gen_ret__` (xem mục 5 vi sao khong phai `StopIteration.value`) |
 
 ### Giai đoạn 3 — `yield from`
-Chỉ khi `native_test_suite.tkv` build được. Chi tiết ở mục 5.
+~~Xong 2026-09-29 (xem dòng `yield from` o bang tren).~~
 
 ---
 
@@ -260,17 +261,39 @@ toán số khi `?`/`:` lồng nhau. Việc riêng, có kiểm thử riêng.
 
 ---
 
-## 5. `yield from` — vì sao chưa làm
+## 5. `yield from` — ĐÃ LÀM (2026-09-29)
 
-Phải cho state machine generator ăn iterator thứ hai (MoveNext/Current vào cùng
-đường yield).
+Trước đây mục này ghi "vì sao chưa làm". Lý do lúc đó: `native_test_suite.tkv` là
+bộ case duy nhất dùng nó mà file đó **không build** vì thiếu `yield from` — vòng
+luẩn quy, làm thì không kiểm chứng được. Đã gỡ bằng cách viết
+`Testkit/generator_yield_from_test.tkv` **trước** (đỏ đúng lý do), rồi mới
+implement.
 
-**Không kiểm chứng được bằng bộ suite nào chặn**: `native_test_suite.tkv` là bộ 16
-case duy nhất dùng nó, và file đó hiện **không build** vì thiếu `yield from`.
-Làm nó lúc này nghĩa là làm mù. Phải làm kèm một Testkit riêng, hoặc sửa
-`native_test_suite.tkv` cho build trước.
+**Cú pháp**: `yield from <nguon>`, 2 dạng nguồn —
+- biến `list` → vòng lặp theo chỉ số (`get_Count`/`get_Item`)
+- gọi trực tiếp 1 hàm generator → bàn giao `MoveNext`/`get_Current`
 
-Cùng nhóm: `return <giá trị>` trong generator (`StopIteration.value`).
+Nguồn khác (set, dict, record có `__iter__`) **bị từ chối với lý do rõ ràng** ở
+first-pass, không âm thầm sinh IL sai. Thêm `GetEnumerator` + mở
+`IEnumerable<T>` lên class generator sẽ gộp được mọi loại, nhưng đó là việc
+riêng, chưa làm.
+
+**`return <giá trị>` trong generator**: `return v` dừng vòng lặp (`MoveNext` trả
+false, `__state = -1`) và ghi `v` vào biến module `__gen_ret__`.
+
+Vì sao **không phải** `StopIteration.value` như Python — đã kiểm chứng bằng
+probe trước khi thiết kế:
+1. Không thể gọi method trên đối tượng generator: compiler chỉ cho phép method
+   trên `record`/`string` (`'.Reset(...)' chi dung duoc tren bien kieu record,
+   string`).
+2. Không có cơ chế `StopIteration` nào trong codebase.
+
+Nên biến module là kênh đọc giá trị khả dụng duy nhất mà không phải sửa cả cơ
+chế method dispatch. **Hệ quả phải nói rõ**: hai generator chạy song song sẽ
+ghi đè lẫn nhau, và tên `__gen_ret__` là quy ước chứ không phải ngôn ngữ.
+
+Cùng nhóm (chưa làm): `yield from` trên set/dict/record, và `iter()`/`next()` —
+hiện **không tồn tại** dù `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md` nói là có.
 
 ---
 
@@ -316,7 +339,7 @@ Chạy trước khi coi bất cứ thay đổi nào là xong:
 # 1. Build lại compiler TỪ CÂY NGUỒN (binary cũ che hồi quy)
 .\3.code\build_tkvc.ps1
 
-# 2. Testkit — 87 file + 7 negative, timeout 120s/test
+# 2. Testkit — 88 file + 9 negative, timeout 120s/test
 .\3.code\tools\testkit_gate.ps1
 
 # 3. Inference

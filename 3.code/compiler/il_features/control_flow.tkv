@@ -38,6 +38,12 @@ _ELIF_RE = re.compile(r'^elif\s+(.+):\s*$')
 _MATCH_RE = re.compile(r'^match\s+(.+):\s*$')
 _CASE_RE = re.compile(r'^case\s+(.+):\s*$')
 _RETURN_RE = re.compile(r'^return\s+(.+)$')
+
+# Ten bien module nho gia tri cua `return <v>` TRONG GENERATOR (2026-09-29).
+# Da kiem chung bang probe: doi tuong generator KHONG goi duoc method (compiler
+# chi cho method tren record/string) va khong co co che StopIteration, nen kenh
+# doc gia tri duy n hop ly la 1 bien module-level. Xem docs/PLAN.md muc 5.
+GEN_RET_NAME = '__gen_ret__'
 _BREAK_RE = re.compile(r'^break\s*$')
 _CONTINUE_RE = re.compile(r'^continue\s*$')
 _TRY_RE = re.compile(r'^try\s*:\s*$')
@@ -936,6 +942,34 @@ def fpw_try(stmt, ctx):
 
 
 def fpw_return(stmt, ctx):
+    # `return <v>` trong generator: doc kieu da khai bao cua bien module
+    # __gen_ret__ de codegen ghi dung kieu vao. Chan SOM o first-pass neu
+    # người dung quen khai bao - neu doi den codegen moi bao, loi se ra
+    # "khong gan __gen_ret__" vo nghia hon.
+    fn_sig = ctx.get('sig')
+    if fn_sig is not None and getattr(fn_sig, 'is_generator', False):
+        mg = ctx.get('module_globals') or {}
+        gdtype = None
+        if GEN_RET_NAME in mg:
+            gdtype = mg[GEN_RET_NAME][0]
+        else:
+            # Du phong: co the chay qua duong khong truyen module_globals.
+            sc = ctx.get('infer_scope')
+            if sc is not None:
+                try:
+                    gdtype = sc[GEN_RET_NAME][2].dtype   # _DtypeOnlyScope tra 3-tuple
+                except Exception:
+                    gdtype = None
+        if gdtype is None:
+            # Thong diep DAT cum khoa o DAU. Ly do: stderr cua tkvc.exe bi
+            # PowerFormat wrap theo be rong console, nen mot cum o giua dong
+            # se bi cat doi bang CR/LF - negative test kiem tra bang
+            # `-notmatch` se KHONG khop va bao sai "sai ly do" (gap that).
+            raise SyntaxError(
+                f"il_codegen: '{GEN_RET_NAME}' CHUA duoc khai bao - ham generator "
+                f"'{fn_sig.name}' co 'return {stmt.get('expr_text', '')}', can gia tri "
+                f"tra ve. Khai bao o cap module: {GEN_RET_NAME}: \"i32\" = 0")
+        stmt['gen_ret_dtype'] = gdtype
     ctx['collect_ternary_temps'](stmt['expr_node'])
 
 
@@ -1466,6 +1500,31 @@ def codegen_try(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
 
 def codegen_return(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     compile_expr, store_var = ctx['compile_expr'], ctx['store_var']
+    # `return <v>` trong generator (2026-09-29, Giai doan 2) - phai xu ly TRUOC
+    # moi dong duoi vi `sig.return_type` cua generator da bi gen_il_program thay
+    # bang TypeAnn(<TenLop>, 'generator'), nen duong duoi se bien 'literal v'
+    # thanh "khong dung voi dtype <TenLop>__GenIter".
+    #
+    # Y nghia: DUNG vong lap (MoveNext tra false) + ghi v vao bien module
+    # __gen_ret__. Khong co StopIteration nen day la kenh doc gia tri duy nhat.
+    gen_ctx = ctx.get('gen_ctx')
+    if gen_ctx is not None:
+        rt = stmt.get('gen_ret_dtype')
+        if rt is None:
+            raise SyntaxError(
+                f"il_codegen: ham generator co 'return' nhung kieu cua '{GEN_RET_NAME}' chua "
+                f"duoc xac dinh (first-pass phai chay truoc codegen)")
+        gen_class = gen_ctx['class_name']
+        program_class = ctx.get('class_name') or 'Program'
+        il_ret = ctx['il_scalar'].get(rt, rt)
+        compile_expr(stmt['expr_node'], scope, body, rt, ctx)
+        body.append(f'    stsfld {il_ret} {program_class}::{ctx["il_ident"](GEN_RET_NAME)}')
+        body.append('    ldarg.0')
+        body.append('    ldc.i4.m1')
+        body.append(f'    stfld int32 {gen_class}::__state')
+        body.append('    ldc.i4.0')
+        body.append('    ret')
+        return
     # Critical round 2 (2026-08-19): 'return [[1,2],[3,4]]' trong 1 ham
     # '-> "list[list[i32]]"' phai truyen dtype dang CHUOI MANG SHAPE
     # ('list[list[i32]]') chu khong phai body_dtype PHANG ('i32') - neu
