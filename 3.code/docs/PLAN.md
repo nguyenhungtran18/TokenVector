@@ -1,7 +1,7 @@
 # TokenVector — Kế hoạch và lộ trình
 
 Cập nhật 2026-09-29. Thay thế mọi bản trước. Mọi mục dựa trên **kết quả đo
-được**, không phải suy đoán: 80 file Testkit, 26 test Inference, 18 suite Data,
+được**, không phải suy đoán: 84 file Testkit, 26 test Inference, 18 suite Data,
 7 kernel benchmark.
 
 Bản trước đã phình bằng cộng dồn và sai ở nhiều chỗ: số cổng cũ, mục 4a còn
@@ -232,7 +232,7 @@ Chạy trước khi coi bất cứ thay đổi nào là xong:
 # 1. Build lại compiler TỪ CÂY NGUỒN (binary cũ che hồi quy)
 .\3.code\build_tkvc.ps1
 
-# 2. Testkit — 83 file, timeout 120s/test
+# 2. Testkit — 84 file, timeout 120s/test
 .\3.code\tools\testkit_gate.ps1
 
 # 3. Inference
