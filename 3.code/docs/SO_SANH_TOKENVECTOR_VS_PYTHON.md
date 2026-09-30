@@ -108,16 +108,25 @@ Các mục này sai lệch thật với CPython. Ghi lại công khai thay vì g
 
 | Mục | CPython | TokenVector | Vì sao không sửa |
 |---|---|---|---|
-| `len()` chuỗi Unicode | đếm **codepoint** | đếm **byte UTF-8** | Chuỗi là mảng byte để AOT/No-GIL/nhịp nhanh. Đổi sang đếm codepoint là thay đổi kiến trúc, không phải sửa bug |
+| `len()` / cắt chuỗi với ký tự **ngoài BMP** (emoji, 4 byte) | đếm/slice theo codepoint | `len("😀")` = **9** (Python: 1) | Chỉ sai ở ký tự 4 byte. Mọi ký tự BMP — ASCII, tiếng Việt có dấu, CJK — đều **khớp chính xác** |
 | `1.0 / 0.0` | `ZeroDivisionError` | `inf` | Theo IEEE như C/NumPy/JS. Ném lỗi sẽ tốn một nhánh trên phép chia nóng — không đáng |
 | `1.0 % 0.0` | `ZeroDivisionError` | `nan` | Như trên |
-| `str(-0.0)` viết thẳm | `'-0.0'` | `'0.0'` | **Lỗi thật, còn sót**: chỉ hỏng ở dạng nội tuyến; gán biến hay tính toán đều đúng. Tệp `.0` chỉ mất dấu |
+| `str(-0.0)` viết thẳm | `'-0.0'` | `'0.0'` | **Lỗi thật, còn sót**: chỉ hỏng ở dạng nội tuyến; gán biến hay tính toán đều đúng |
 
-> Cảnh báo thực dụng cho `len()`: `"Tiếng"` dài **5** codepoint ở Python và
-> **7 byte** ở TokenVector — hai bên đều in `5`? Không: TokenVector in `7`.
-> Trường hợp *trùng số* xảy ra với chuỗi 5 ký tự ASCII có 1 ký tự 2 byte
-> (`"café"`): cả hai đều ra `4`, nên dễ tưởng khớp. Cắt chuỗi theo chỉ số byte là
-> sai với mọi chuỗi có ký tự đa byte, và hỏng âm thầm.
+> **Sửa lại một tuyên bố sai của chính mốc đo lần 2.** Bản đo đầu tiên của vòng
+> ra soát này kết luận "`len()` đếm **byte UTF-8**, TokenVector in `7` cho
+> `Tiếng`". **Sai.** Đo lại cho thấy `len("café")` = 4 và `len("Tiếng")` = 5 ở
+> **cả hai** bên — TokenVector đếm codepoint, khớp Python, không phải byte.
+> Tôi đã suy ra cơ chế từ một phép đo duy nhất rồi diễn giải thành quy luật.
+>
+> Lệch thật **không** nằm ở BMP mà ở ký tự **ngoài BMP**: `len("😀")` = 9 ở
+> TokenVector so với 1 ở CPython. Và nghiêm trọng hơn là **cắt chuỗi theo chỉ
+> số**: `"café"[3:4]` trả về **một byte không hợp lệ** (in ra ký tự thay thế)
+> trong khi CPython trả `é`. Cắt chuỗi đa byte theo chỉ số là **hỏng âm thầm** —
+> không ném lỗi, chỉ cho dữ liệu sai.
+>
+> Bài học: một phép đo không đủ để kết luận cơ chế. Phải đo trên nhiều lớp
+> (ASCII / 2 byte / 3 byte / 4 byte) thì mới thấy ranh giới thật.
 
 ### 3.4 Lỗi của CHÍNH công cụ đo (làm số đẹp hơn thực tế)
 
@@ -222,10 +231,13 @@ Những cái này **từ chối build kèm thông điệp chỉ đường**, nê
 
 **Ưu tiên nếu sửa tiếp** — theo mức độ nguy hiểm, không theo độ khó:
 
-1. `str(-0.0)` nội tuyến mất dấu (mục 3.3) — lỗi thật còn sót.
-2. **Mở rộng `parity_probe`**, vì nó mới là thứ đáng tin: 6 lỗi âm thầm đầu tiên
-   đều lọt qua Testkit. Miền chưa có phép thử nào: ngữ pháp `del`/`with`/`global`
-   kết hợp, `try` lồng nhau, số phứn, `datetime`, thứ tự khóa `dict`, sắp xếp
-   (`sorted` ổn định?), `round` với nhiều tham số, số nguyên vượt `i64`.
-3. `len()`/cắt chuỗi trên văn bản Unicode — đã biết, nhưng là **thay đổi kiến
-   trúc**, cần quyết định riêng chứ không gộp vào đợt sửa nhỏ.
+1. **Cắt chuỗi theo chỉ số với ký tự đa byte** (`"café"[3:4]`) — trả về byte
+   không hợp lệ, **hỏng âm thầm**, và hỏng cả với ký tự BMP thông thường chứ
+   không chỉ emoji. Đây là thứ đáng sửa nhất trong những gì còn lại.
+2. `str(-0.0)` nội tuyến mất dấu (mục 3.3) — lỗi thật còn sót.
+3. **Mở rộng `parity_probe`**, vì nó mới là thứ đáng tin: 6 lỗi âm thầm đầu tiên
+   đều lọt qua Testkit, và bản thân probe cũng nuốt 2 phép do nhãn trùng (mục
+   3.4). Miền chưa có phép thử nào: `del`/`with`/`global` kết hợp, `try` lồng
+   nhau, số phứn, `datetime`, thứ tự khóa `dict`, `sorted` ổn định?, `round`
+   nhiều tham số, số nguyên vượt `i64`, và **chuỗi đa byte** (chưa có phép thử
+   nào chạm ký tự không ASCII).
