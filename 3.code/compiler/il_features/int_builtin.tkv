@@ -28,6 +28,35 @@ KHAC Python co y thuc: chuoi KHONG hop le lam Int32.Parse NEM exception
 (chuong trinh dung ngay) thay vi ValueError bat duoc. Chon NEM thay vi
 tra 0 am tham - sai am tham la thu dat nhat trong 3 bug cua phien truoc."""
 from il_dispatch import register_expr_builtin
+from il_core import _is_float_literal
+
+
+def _float_literal_in(node):
+    """True neu `node` CO chua hang so thuc truc tiep (vd 'int(3.9)').
+
+    CAN CHO VAY (2026-09-30): `_infer_dtype` tra None cho moi node 'num' -
+    hang so co 'ldc' dung voi BAT KY dtype nao caller yeu cau, nen khong
+    can suy ra (xem docstring `_infer_dtype` va dong 'return None' cho
+    'num'). Hau qua la nhanh cuoi cua `push_int_builtin` bien doi chinh
+    hang so do bang dtype 'i32', sinh `ldc.i4 3.9` - IL KHONG HOP LE,
+    ilasm bao 'syntax error at token 3.9'. Bien chay dung roi nhung hang
+    so truc tiep thi vong, `int(3.9)` la Python hop le va phai ra 3.
+
+    Chi xet cac hinh dang ma `push_int_builtin` sua duoc: 'num', 'neg' va
+    'binop' (dong thu tu index nhu `_contains_float_literal` o il_codegen).
+    Node hinh dang khac - va ca 'src is not None' - giu nguyen duong di cu
+    cua chinh no, nen ham nay KHONG duoc bien doi gi kha nua.
+    """
+    if not isinstance(node, tuple) or not node:
+        return False
+    tag = node[0]
+    if tag == 'num':
+        return _is_float_literal(node[1])
+    if tag == 'neg':
+        return _float_literal_in(node[1])
+    if tag == 'binop':
+        return _float_literal_in(node[2]) or _float_literal_in(node[3])
+    return False
 
 
 def _int_literal_fits_i32(args):
@@ -134,6 +163,12 @@ def push_int_builtin(args, scope, out, dtype, ctx):
     src = ctx['infer_dtype'](args[0], scope, ctx.get('func_table'), ctx.get('records'),
                              ctx.get('record_methods'))
     int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+
+    # (2026-09-30) `src is None` cho moi hang so, khai bao o tren - nhung
+    # neu chinh no la hang so THUC thi `src` phai la 'f64', con lai
+    # nhanh cuoi ben duoi se bien dich no bang 'i32' va sinh `ldc.i4 3.9`.
+    if src is None and _float_literal_in(args[0]):
+        src = 'f64'
 
     if dtype == 'int':
         # Ngu canh 'int' (vo han chu so, moc 6 lat 3 2026-08-05): KHONG

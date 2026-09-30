@@ -234,21 +234,43 @@ def _str_of_slot(var_kind, var_idx, var_ta, out, ctx, int_dtypes, float_dtypes):
         # tron (vd 0.0f -> "0"), nhung Python str(0.0) LUON co ".0" -
         # bug that phat hien qua test doi chieu CPython (celsius=0.0 ->
         # exe in "0C", CPython in "0.0C"). Them ".0" neu ket qua CHUA co
-        # dau cham (chi can xet '.' vi khong dung ky hieu khoa hoc 'E' o
-        # day - ToString mac dinh cho float32/64 thong thuong khong tu
-        # chuyen sang dang E trong khoang gia tri thuong gap).
+        # dau cham.
+        #
+        # (2026-09-30) SAI AM THAM khi DAN KHOA HOC: comment cu o day tung
+        # ghi "'ToString mac dinh ... khong tu chuyen sang dang E trong
+        # khoang gia tri thuong gap'" - DO LA SAI. `Double.ToString("R")`
+        # CHINH xac la ra dang khoa hoc ngoai khoang [1e-5, 1e16]: str(1e-7)
+        # ra "1E-07", khong co dau cham, nen code cu noi them ".0" ra
+        # "1E-07.0" - CHUOI NAY KHONG PARSE LAI DUOC thanh so (Double.Parse
+        # nem FormatException). Phat hien qua probe v2 so sanh CPython.
+        # Sua: chi them ".0" khu VANG co dau cham HOAC ky tu mu.
+        #
+        # (2026-09-30) Ha chu 'E' cho khop Python: CPython in "1e-07",
+        # .NET in "1E-07". Gia tri doc lai thi ca hai deu dung, nhung so
+        # sanh chuoi (va CSV/JSON ghi ra) thi lech - ha chu 'E' la rong
+        # vi chuoi so CHI co duy nhat mot chu cai la 'E' ky tu mu.
         ctx['label_counter'][0] += 1
         n = ctx['label_counter'][0]
         has_dot_lbl = f"{ctx['prefix']}_strfix{n}_hasdot"
+        has_exp_lbl = f"{ctx['prefix']}_strfix{n}_hasexp"
         end_lbl = f"{ctx['prefix']}_strfix{n}_end"
+        out.append('    ldstr "E"')
+        out.append('    ldstr "e"')
+        out.append('    callvirt instance string [mscorlib]System.String'
+                    '::Replace(string, string)')
         out.append('    dup')
         out.append('    ldstr "."')
         out.append('    callvirt instance bool [mscorlib]System.String::Contains(string)')
         out.append(f'    brtrue {has_dot_lbl}')
+        out.append('    dup')
+        out.append('    ldstr "e"')
+        out.append('    callvirt instance bool [mscorlib]System.String::Contains(string)')
+        out.append(f'    brtrue {has_exp_lbl}')
         out.append('    ldstr ".0"')
         out.append('    call string [mscorlib]System.String::Concat(string, string)')
         out.append(f'    br {end_lbl}')
         out.append(f'  {has_dot_lbl}:')
+        out.append(f'  {has_exp_lbl}:')
         out.append(f'  {end_lbl}:')
 
 

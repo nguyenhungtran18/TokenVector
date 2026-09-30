@@ -280,6 +280,21 @@ def compile_binop(node, scope, out, dtype, ctx=None):
     if operand_dtype in ('i32', 'i64', 'int') and \
             (_float_literal_in(left) or _float_literal_in(right)):
         operand_dtype = 'f64'
+    # (2026-09-30) '/' GIUA HAI SO NGUEN PHAI TRA FLOAT - 7/2 == 3.5.
+    #
+    # SAI AM THAM (phat hien qua probe v2 so sanh voi CPython): truoc day
+    # roi thang xuong `out.append({... '/': '    div' ...})` o cuoi ham -
+    # `div` cua CIL la CHIA NGUYEN, nen `7/2` ra `3` va `-7/2` ra `-3`
+    # thay vi `3.5`/`-3.5`. Khong loi bien dich, chay xanh, chi SAI - lo
+    # nguy hiem nhat theo dung thu tu uu tien cua du an.
+    #
+    # Khoang cach: tai day (KHONG phai o nhanh cuoi) de nhanh bao loi san
+    # co o tren bat duoc truong hop ngu canh yeu cau kieu nguyen - bao loi
+    # do noi ro ngay "Python se tra float o day" thay vi im lang chia nguyen.
+    # Kieu 'int' (vo han chu so) CO DUONG rieng va van bao loi o duoi -
+    # chuyen TkvInt sang double chua lam, khong ghep vao thay doi nay.
+    if op == '/' and operand_dtype in ('i32', 'i64'):
+        operand_dtype = 'f64'
     if operand_dtype == 'f64' and dtype in ('i32', 'i64', 'int'):
         # 2026-09-20 (BUG-1 lat 2): ngu canh DOI KIEU int nhung bieu thuc co
         # hang so float - Python se tra float o day ('k * 0.5' == 1.5). Hep

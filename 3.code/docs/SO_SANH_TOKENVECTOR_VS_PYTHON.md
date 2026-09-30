@@ -1,7 +1,7 @@
 # BẢNG SO SÁNH ĐO ĐẠC: TOKENVECTOR VS CPYTHON 3.12
 
-> **Ngày đo**: 2026-09-30 · **Cổng lúc đo**: 95/95 + negative 15/15
-> **Cách đo**: `tools/parity_probe/` — 102 phép thử chạy song song trên cả hai
+> **Ngày đo**: 2026-09-30 (đo lần 2) · **Cổng lúc đo**: 97/97 + negative 15/15
+> **Cách đo**: `tools/parity_probe/` — 117 phép thử chạy song song trên cả hai
 > bên, in ra cùng một danh sách nhãn, máy so từng dòng.
 > Chạy lại: `powershell -File tools\parity_probe\run.ps1`
 
@@ -9,19 +9,32 @@ Bản trước của tài liệu này tự ghi "95%+ Parity" và khẳng định
 `next()`. Cả hai điều đó **không có cơ sở**: `iter`/`next` không hề tồn tại trong
 compiler, và con số parity được đo lại ở đây.
 
+Mốc đo lần 1: 102 phép, **95 khớp / 7 khác** — và cả 7 đều cho kết quả sai mà
+không báo lỗi. Mốc đo lần 2 (bản này): 117 phép, **117 khớp / 0 khác**.
+
 ---
 
 ## 1. KẾT QUẢ ĐO
 
 ```
-py: 102 dong, tv: 102 dong
-KHOP  : 95
-KHAC  : 7
+py: 117 dong, tv: 117 dong
+KHOP  : 117
+KHAC  : 0
 ```
 
-**95/102 phép thử cho kết quả giống hệt CPython.** 7 phép khác được phân loại
-thành 3 nhóm ở mục 3 — và **không cái nào trong số đó là "giới hạn được báo trước"**:
-tất cả đều cho kết quả sai mà không báo lỗi.
+**117/117 phép thử cho kết quả giống hệt CPython.**
+
+### 1.1 Sai lệch trong chính tài liệu lần 1 (đã sửa ở đây)
+
+Bản lần 1 mục 4 ghi:
+
+> `7 / 2` (→ `3.5`) — **Từ chối trên `i32`. Dùng `7.0 / 2` hoặc `//`**
+
+**Điều đó sai.** Không có từ chối nào: `7 / 2` biên dịch xanh, chạy xanh, và
+trả `3` — vì compiler dùng thẳng `div` của CIL (chia nguyên). Người đọc tài liệu
+này sẽ tin là nó báo lỗi, và viết code dựa trên niềm tin đó. Đây là loại sai lệch
+nguy hiểm nhất: **tài liệu sai theo hướng an toàn giả**, trong khi thực tế im lặng
+ra số sai. Đã sửa ở commit hiện tại (`/` giữa hai số nguyên trả float), xem mục 3.
 
 ---
 
@@ -41,71 +54,69 @@ tất cả đều cho kết quả sai mà không báo lỗi.
 | Hàm | `closure`, `default_arg`, `recursion`, `global_ok` | `nonlocal` cho biến bắt, đối số mặc định, `global` |
 | Generator | `gen_ret`, `star_args`, `star_args_expand`, `kwargs`, `kwargs_expand`, `lambda_param` | `yield`, `yield from`, `f(*xs)`, `f(**kw)` |
 | Kiểu | `list_identity`, `isinstance_like` | Container so sánh **theo tham chiếu** — giống Python |
+| Chia / `int()` / float (nhóm 14) | `slash_int`, `slash_int_neg`, `slash_int_neglen`, `slash_lit`, `floordiv_after`, `int_lit_f`, `int_lit_f_neg`, `int_lit_whole`, `sci_small`, `sci_big`, `sci_edge`, `sci_rt`, `whole_dot`, `half`, `third` | Thêm ở vòng đo lần 2 — xem mục 3.2 |
 
 ---
 
-## 3. 7 PHÉP KHÁC — 3 BUG IM LẶNG, 4 GIỚI HẠN ĐÃ BIẾT
+## 3. NHỮNG GÌ ĐÃ TÌM RA VÀ XỬ LÝ
 
-### 3.1 BUG: `split` bỏ qua phần còn lại của dấu phân cách nhiều ký tự
+### 3.1 Đã sửa (mốc đo lần 1, 7 phép lệch)
 
-```python
-"Hello, World".split(", ")   # Python: ['Hello', 'World']
-```
-TokenVector cho `['Hello', ' World']` — nó chỉ tách theo **ký tự đầu tiên** của
-dấu phân cách, phần còn lại bị bỏ. Không báo lỗi.
+Cả 7 phép lệch của mốc đo lần 1 đã được sửa và ghim bằng Testkit. Ghi lại đây vì
+nguyên nhân gốc đáng nhớ:
 
-### 3.2 BUG: truyền generator vào tham số kiểu `list[...]` cho list rỗng
+| Lệch | Nguyên nhân gốc |
+|---|---|
+| `"a, b".split(", ")` bỏ phần còn lại của dấu phân cách | tách theo **ký tự đầu tiên** thay vì cả chuỗi |
+| Generator truyền vào tham số `list[i32]` ra list rỗng | không materialize generator khi làm đối số |
+| Lát `list[int]` truyền vào tham số `list[i32]` đọc rác | thiếu phép ép container, .NET nhận `List<TkvInt>` ở chỗ cần `List<int32>` |
+| `str(bool biến)` ra `1`/`0` | biến bool mang giá trị i32 0/1 |
+| `and`/`or` coi container rỗng là đúng | kiểm tra tính đúng chỉ dựa vào giá trị `0` |
+| `str(1 and 2)` ra `True` | cùng gốc với dòng trên |
 
-```python
-join_i(gen_upto(4))   # Python: 4 phần tử
-```
-TokenVector: **0 phần tử**. Generator tự nó vẫn đúng — `for v in gen_upto(4)`
-ra đủ `0 1 2 3`, và `yield from` cũng đúng. Chỉ hỏng ở chỗ truyền nó làm
-**đối số** cho tham số `list[i32]`. Không báo lỗi.
+Bài học đã được ghim vào gate: cổng trước đó chỉ kiểm **đúng→sai**, nên cả 6 lỗi
+này lọt qua. Nay có `Testkit/parity_pin_test.tkv` làm chiều **sai→đúng**.
 
-### 3.3 BUG: lát kiểu `int` truyền vào tham số `list[i32]` — lẫn kiểu, đọc rác
+### 3.2 Mới tì ra ở vòng ra soát lần 2 — cả 3 đều SAI ÂM THẦM
 
-```python
-lit = [1, 2, 3]          # list[int] (TkvInt, 16 byte)
-full = lit[0:3]          # lát -> vẫn list[int]
-take_i32(full)           # tham số khai list[i32]
-```
-TokenVertor đọc `List<TkvInt>` như `List<int32>`: hoặc ra **số 0 im lặng**, hoặc
-văng `OverflowException`. Ở chỗ dùng cục bộ thì đúng (`lit[0:3]` in ra `1 2 3`);
-chỉ hỏng khi đi qua ranh giới tham số. Đây là loại bug nguy hiểm nhất: **sai
-giá trị mà không có dấu hiệu nào**.
+**(a) `/` giữa hai số nguyên trả số nguyên.** `7 / 2` → `3` (Python: `3.5`),
+`-7 / 2` → `-3` (Python: `-3.5`). Compiler rơi thẳng xuống `div` của CIL. Sửa:
+promote `i32`/`i64` → `f64` ở **cả** `_infer_dtype` và `compile_binop` — thiếu một
+trong hai thì bên gọi vẫn yêu cầu `i64` và nhánh báo lỗi cũ chặn ngang.
 
-Nguyên nhân: kiểu phần tử của biểu thức lát được suy ra khác với kiểu phần tử
-của list nguồn, nên tại lời gọi không có phép chuyển đổi nào được phát ra, và
-.NET nhận `List<int>` ở chỗ cần `List<int32>`.
+**(b) `int(<hằng số thực>)` sinh IL không hợp lệ.** `int(3.9)` biên dịch thành
+`ldc.i4 3.9`; `ldc.i4` chỉ nhận số nguyên nên `ilasm` báo
+`syntax error at token '3.9'`. Qua biến thì đúng (`f = 3.9; int(f)` → `3`), vì
+`_infer_dtype` trả `None` cho node `'num'`. Sửa ở `push_int_builtin`; thêm lưới an
+toàn trong `_expr_num` để không chỗ nào phát ra `ldc.i4 3.9` nữa.
 
-> Ba bug trên đều **không** xuất hiện trong Testkit hiện tại, vì gate chỉ kiểm
-> đúng→sai, chưa có chiều "sai→đúng". Xem `docs/PLAN.md`.
+**(c) `str()` của float ở khoảng khoa học sinh chuỗi không parse được.**
+`str(1e-7)` → `"1E-07"`, không có dấu chấm, nên đoạn vá `.0` nối thêm → `"1E-07.0"`.
+`Double.Parse("1E-07.0")` ném `FormatException` — mất khả năng đọc lại. Gốc rễ là
+một **giả định sai** trong chính compiler: comment cũ ghi "`ToString` không tự
+chuyển sang dạng E trong khoảng giá trị thường gặp" — sai, ngoài `[1e-5, 1e16]` nó
+luôn dùng dạng khoa học. Sửa: chỉ nối `.0` khi **không** có `.` và **không** có `e`,
+và hạ chữ `E` cho khớp Python.
 
-### 3.4 `str()` của biểu thức bool in `True`/`False`, của biến in `1`/`0`
+Ba lỗi này ghim bằng `Testkit/parity_div_float_test.tkv` (12 phép) và
+`parity_probe` nhóm 14 (15 phép).
 
-```python
-t = 1 > 0
-str(t)        # Python: 'True'   TokenVector: '1'
-str(1 > 0)    # TokenVector: 'True'  (biểu thức nội tuyến)
-```
-Đã biết từ trước, ghi ở `CLAUDE.md`. Không phải bug logic — nhưng là **bẫy im
-lặng** khi in log: cùng một giá trị mà hai cách in ra hai kiểu.
+### 3.3 Còn lệch, đã đo, **quyết định không sửa**
 
-### 3.5 Container rỗng được coi là đúng trong `or`/`and`
+Các mục này sai lệch thật với CPython. Ghi lại công khai thay vì giấu:
 
-```python
-a = []
-a = a or [1]
-len(a)     # Python: 1   TokenVector: 0
-```
-`or`/`and` trả về **đúng toán hạng** (đã kiểm: `x or 9` → 9, `y and 5` → 5,
-`d["k"] or 42` → 42). Chỉ sai ở chỗ kiểm tra tính đúng của list rỗng — nó coi là
-đúng. `d["k"] or 42` vẫn đúng vì giá trị là `0`.
+| Mục | CPython | TokenVector | Vì sao không sửa |
+|---|---|---|---|
+| `len()` chuỗi Unicode | đếm **codepoint** | đếm **byte UTF-8** | Chuỗi là mảng byte để AOT/No-GIL/nhịp nhanh. Đổi sang đếm codepoint là thay đổi kiến trúc, không phải sửa bug |
+| `1.0 / 0.0` | `ZeroDivisionError` | `inf` | Theo IEEE như C/NumPy/JS. Ném lỗi sẽ tốn một nhánh trên phép chia nóng — không đáng |
+| `1.0 % 0.0` | `ZeroDivisionError` | `nan` | Như trên |
+| `str(-0.0)` viết thẳm | `'-0.0'` | `'0.0'` | **Lỗi thật, còn sót**: chỉ hỏng ở dạng nội tuyến; gán biến hay tính toán đều đúng. Tệp `.0` chỉ mất dấu |
 
-### 3.6 `and`/`or` trả toán hạng, nhưng `str()` lại ra bool
-
-`str(1 and 2)` → TokenVector in `True`, Python in `2`. Cùng gốc với 3.4.
+> Cảnh báo thực dụng cho `len()`: `"Tiếng"` dài **5** codepoint ở Python và
+> **7 byte** ở TokenVector — hai bên đều in `5`? Không: TokenVector in `7`.
+> Trường hợp *trùng số* xảy ra với chuỗi 5 ký tự ASCII có 1 ký tự 2 byte
+> (`"café"`): cả hai đều ra `4`, nên dễ tưởng khớp. Cắt chuỗi theo chỉ số byte là
+> sai với mọi chuỗi có ký tự đa byte, và hỏng âm thầm.
 
 ---
 
@@ -116,7 +127,7 @@ Những cái này **từ chối build kèm thông điệp chỉ đường**, nê
 
 | Viết kiển trong Python | TokenVector |
 |---|---|
-| `7 / 2` (→ `3.5`) | Từ chối trên `i32`. Dùng `7.0 / 2` hoặc `//` |
+| `int / int` với kiu `int` vô hạn (`a: "int" = 2; a / 2`) | Từ chối — chuyển `TkvInt` sang `double` chưa làm. **Không** phải mọi `i32` |
 | `x: list[int] = [...]` (annotation cho biến local) | Từ chối — suy tự động |
 | `d.get(k)` | Bắt buộc 2 tham số: `d.get(k, default)` |
 | `"a".split(",")` (gọi method trên literal) | Phải gán vào biến trước |
@@ -166,9 +177,11 @@ Những cái này **từ chối build kèm thông điệp chỉ đường**, nê
 
 ## 7. ĐÁNH GIÁ
 
-- **Ngôn ngữ lõi** (mục 2): đo được **95/102 ≈ 93%** trên bộ thử này. Gọi là
-  "95%+" mà không đo là nói bừa; con số thật là 93%, và 4/7 phép khác là bùa
-  mắt thường.
+- **Ngôn ngữ lõi** (mục 2): **117/117** trên bộ thử này. Con số 117 **không** có
+  nghĩa là TokenVector ngang Python — nó chỉ có nghĩa là 117 phép thử đã chọn đều
+  khớp. Mốc lần 1 từng là 95/102 và vẫn lọt 6 lỗi âm thầm, trong đó có `/` — loại
+  rất cơ bản. **Bộ thử hẹp không phải bằng chứng**, chỉ là mẫu tốt để bắt lỗi khi
+  biết mình đang tìm gì.
 - **OOP**: kế thừa và `__init__` chạy thật, nhưng ctor lớp con và toán tử `<`/`>`
   trên record còn lệch Python.
 - **Bất đồng bộ / luồng**: có `async def`/`await`, `thread_spawn`/`thread_join`, và
@@ -177,11 +190,16 @@ Những cái này **từ chối build kèm thông điệp chỉ đường**, nê
   không có `socket`, không có `ctypes`, không có metaclass. Đây là khoảng cách lớn
   nhất với Python và **không thể đo bằng bộ thử cú pháp**.
 - **PyPI**: không dùng được. Cần wrapper FFI/P-Invoke thủ công.
+- **Đoạn đã biết, chưa đo**: `sys`/`os`/`re`/`json` mức module, kiểu `datetime`,
+  `Decimal`, số phứn, `int` vô hạn (`TkvInt`) ở các phép toán. Không nằm trong
+  117 phép nên **không được coi là đã đạt**.
 
 **Ưu tiên nếu sửa tiếp** — theo mức độ nguy hiểm, không theo độ khó:
 
-1. 3.3 (lẫn kiểu khi truyền lát `list[int]` vào tham số `list[i32]`) — sai giá trị
-   **và** có thể đọc ngoài vùng nhớ.
-2. 3.1 (`split` nhiều ký tự) — sai âm thầm, rất dễ gặp khi parse dữ liệu.
-3. 3.2 (generator làm đối số) — sai âm thầm, mất dữ liệu.
-4. Bổ sung cổng so sánh: hiện gate chỉ kiểm đúng→sai, nên cả 3 bug trên lọt.
+1. `str(-0.0)` nội tuyến mất dấu (mục 3.3) — lỗi thật còn sót.
+2. **Mở rộng `parity_probe`**, vì nó mới là thứ đáng tin: 6 lỗi âm thầm đầu tiên
+   đều lọt qua Testkit. Miền chưa có phép thử nào: ngữ pháp `del`/`with`/`global`
+   kết hợp, `try` lồng nhau, số phứn, `datetime`, thứ tự khóa `dict`, sắp xếp
+   (`sorted` ổn định?), `round` với nhiều tham số, số nguyên vượt `i64`.
+3. `len()`/cắt chuỗi trên văn bản Unicode — đã biết, nhưng là **thay đổi kiến
+   trúc**, cần quyết định riêng chứ không gộp vào đợt sửa nhỏ.

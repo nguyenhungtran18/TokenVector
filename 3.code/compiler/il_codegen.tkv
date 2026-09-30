@@ -915,6 +915,18 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
         if result in (_INT_DTYPES | {'int'}) and \
                 (_contains_float_literal(node[2]) or _contains_float_literal(node[3])):
             return 'f64'
+        # (2026-09-30) '/' giua hai so nguyen tra FLOAT - 7/2 == 3.5, KHONG
+        # phai 3. Dong bo VOI promote cung y nghia o `compile_binop`
+        # (operators.tkv). CAN CO o day: caller (vd `str(a / b)`) lay dtype
+        # tu ham nay de bien dich TOAN HANG, nen neu ham nay van tra 'i64'
+        # thi ben goi yeu cau kieu nguyen va nhanh bao loi "ngu canh doi
+        # kieu int" chay - nhanh divide nguyen sai am tham van lo.
+        # 'result is None' cung promote: ca hai toan hang la hang so thi
+        # chua suy ra duoc, ma Python van tra float. Kieu 'int' vo han chu
+        # so GIU NGUYEN de nhanh bao loi rieng cua no (chua co duong
+        # chuyen sang double) bat duoc.
+        if node[1] == '/' and (result is None or result in ('i32', 'i64')):
+            return 'f64'
         return result
     if tag == 'ternary':
         return (_infer_dtype(node[2], scope, func_table, records, record_methods)
@@ -1831,6 +1843,20 @@ def _expr_num(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
                 f'dung kieu "int" (so nguyen vo han) hoac "i64". '
                 f'Neu can i32, giu gia tri trong bien/chuoi roi ep nhin sang '
                 f'i32 de loi tran nem dung nhu moi kieu so khac.')
+    # (2026-09-30) Hang so THUC ma caller yeu cau 'i32'/'i64': quay ve
+    # 'ldc.i4 3.9' / 'ldc.i8 3.9' - IL KHONG HOP LE (ldc.i4/ldc.i8 chi
+    # nhan so nguyen), ilasm bao "syntax error at token '3.9'". Gap qua
+    # probe v2: `int(3.9)` - `push_int_builtin` yeu cau 'i32' vi `_infer_dtype`
+    # tra None cho node 'num' nen rơi xuống nhanh cuoi ben duoi. Da sua
+    # ben goi (int_builtin), dong nay la LUOI an toàn cho moi builtin/ngu
+    # canh con lai: noi ro ngay ra thay vi de ilasm bao loi ma doc kieu
+    # 'ldc.i4' nhu la loi cu phap cua chinh nguon.
+    if _is_float_literal(text) and dtype in ('i32', 'i64'):
+        raise SyntaxError(
+            f'il_codegen: hang so thuc {text} khong the bien dich bang '
+            f'ldc.{IL_LDC_OP[dtype]} (chi nhan so nguyen). Can bien dich '
+            f'noi dung nay voi dtype "f32"/"f64" truoc - `int()`/cac builtin '
+            f'khac da tu xu ly truong hop nay.')
     out.append(f'    {IL_LDC_OP[dtype]} {text}')
 
 

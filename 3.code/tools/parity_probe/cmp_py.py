@@ -384,6 +384,29 @@ def nested():
     inner = xs[0]
     return str(len(xs)) + "/" + str(len(inner))
 
+# --- 14. PHAI / int() tren thuc / float khoa hoc (2026-09-30) ---
+# Nhom nay bo sung cho vong ra soat thu 2. Ca 3 loi ben duoi deu la
+# SAI AM THAM (bien dich khong loi, chay xanh, ra so sai) va deu duoc
+# ghim bang Testkit/parity_div_float_test.tkv.
+def m14():
+    a = 7
+    b = 2
+    emit("slash_int", str(a / b))
+    emit("slash_int_neg", str(-a / b))
+    emit("slash_int_neglen", str(a / -b))
+    emit("slash_lit", str(7 / 2))
+    emit("floordiv_after", str(a // b))
+    emit("int_lit_f", str(int(3.9)))
+    emit("int_lit_f_neg", str(int(-3.9)))
+    emit("int_lit_whole", str(int(3.0)))
+    emit("sci_small", str(1e-7))
+    emit("sci_big", str(1e21))
+    emit("sci_edge", str(1e-5))
+    emit("sci_rt", str(float(str(1e-7))))
+    emit("whole_dot", str(2.0))
+    emit("half", str(0.5))
+    emit("third", str(2.0 / 3.0))
+
 def main():
     m1()
     m2()
@@ -393,11 +416,14 @@ def main():
     m6()
     m7()
     m8()
+
     m9()
     m10()
     m11()
     m12()
     m13()
+    m14()
     return 0
 
 main()
+
