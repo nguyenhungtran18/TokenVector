@@ -4628,6 +4628,14 @@ def extract_program_file(tkv_path, _visited=None, _inherited_r11_skip=None):
             raise TranspileError(
                 f"file '{tkv_path.name}': import module '{imp_name}' khong tim thay trong "
                 f"thu muc hien tai hoac site-packages ({sys.path!r})")
+        if __import__('os').environ.get('TKV_DBG_IMPORT'):
+            # (2026-09-30) Danh tien khi sua code trong 1 module nhung sua
+            # KHONG co tac dung: compiler uu tien ban sao cung thu muc voi file
+            # dang bien dich (`base_dir / '<imp>.tkv'`), con ban goc o thu muc
+            # khac chi chay khi build tu file do. Bien nay in ra file THAT
+            # SU duoc nap. Bat khi: Remove-Item Env:\TKV_DBG_IMPORT
+            import sys as _s
+            print(f'[import_dbg] {imp_name} -> {imp_path}', file=_s.stderr)
         if str(imp_path) in _visited:
             continue
         _visited.add(str(imp_path))
