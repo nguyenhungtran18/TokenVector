@@ -1,72 +1,187 @@
-# BẢNG SO SÁNH TOÀN DIỆN VÀ TRUNG THỰC: TOKENVECTOR VS CPYTHON (3.12)
+# BẢNG SO SÁNH ĐO ĐẠC: TOKENVECTOR VS CPYTHON 3.12
 
-> **Ngày cập nhật**: 09/08/2026  
-> **Trạng thái dự án**: Đã hoàn thành 28 Mốc Kỹ thuật (Giai đoạn 1 - Giai đoạn 8)  
-> **Tệp thực thi độc lập**: `dist/tkvc.exe` (AOT .NET CIL Compiler)
+> **Ngày đo**: 2026-09-30 · **Cổng lúc đo**: 95/95 + negative 15/15
+> **Cách đo**: `tools/parity_probe/` — 102 phép thử chạy song song trên cả hai
+> bên, in ra cùng một danh sách nhãn, máy so từng dòng.
+> Chạy lại: `powershell -File tools\parity_probe\run.ps1`
+
+Bản trước của tài liệu này tự ghi "95%+ Parity" và khẳng định hỗ trợ `iter()`,
+`next()`. Cả hai điều đó **không có cơ sở**: `iter`/`next` không hề tồn tại trong
+compiler, và con số parity được đo lại ở đây.
 
 ---
 
-## 1. MÔ HÌNH KIẾN TRÚC & PHƯƠNG THỨC THỰC THI
+## 1. KẾT QUẢ ĐO
+
+```
+py: 102 dong, tv: 102 dong
+KHOP  : 95
+KHAC  : 7
+```
+
+**95/102 phép thử cho kết quả giống hệt CPython.** 7 phép khác được phân loại
+thành 3 nhóm ở mục 3 — và **không cái nào trong số đó là "giới hạn được báo trước"**:
+tất cả đều cho kết quả sai mà không báo lỗi.
+
+---
+
+## 2. NHỮNG GÌ ĐÃ ĐO KHỚP (95)
+
+| Miền | Nhãn đo được | Ghi chú |
+|---|---|---|
+| Số học | `div_floor`, `div_neg_floor`, `mod_neg`, `pow`, `fdiv`, `int_big`, `hex`, `oct`, `bin`, `sci`, `abs`, `minmax`, `round`, `int_from_str` | Kể cả số nguyên vượt int32 (`10^12`), hex/oct/bin, ký hiệu khoa học |
+| Chuỗi | `upper`, `lower`, `len`, `find`, `find_miss`, `replace`, `strip`, `startswith`, `slicing`, `find_only`, `isdigit`, `format_pct`, `str_concat`, `in`, `cmp` | Cả so sánh `<` trên chuỗi |
+| List | `append_len`, `sort`, `reverse`, `index`, `count`, `in`, `slice`, `del_item`, `extend`, `remove`, `max_min`, `sum`, `mutate_list` | `del` phần tử, `sort`, `reverse` |
+| Dict/Set | `d_len`, `d_get`, `d_add`, `d_in`, `d_del`, `d_keys`, `set_len`, `set_discard`, `set_in` | `pop` trả về giá trị, giống Python |
+| Comprehension | `comp`, `comp_if`, `comp_2for`, `dictcomp`, `setcomp` | Cả 3 loại, nhiều `for`, có `if` |
+| HOF | `lambda`, `map`, `filter` | Xem mục 4 về cách truyền lambda |
+| Điều khiển | `loop_break_cont`, `while`, `for_else`, `cond_ternary`, `cond_question` | Cả hai dạng biểu thức điều kiện, kể cả `c ? a : b` |
+| Ngoại lệ | `exc_basic`, `exc_type`, `exc_else`, `exc_from`, `exc_finally`, `exc_custom_msg`, `exc_unmatched` | `try/except/else/finally`, `raise ... from`, ngoại lệ tự định nghĩa |
+| OOP | `ctor_run`, `dunder_add`, `dunder_eq`, `dunder_str`, `dunder_len`, `method`, `inherit` | `__init__` **thật sự chạy** (xem `SESSION_HANDOFF.md` mục 0) |
+| Hàm | `closure`, `default_arg`, `recursion`, `global_ok` | `nonlocal` cho biến bắt, đối số mặc định, `global` |
+| Generator | `gen_ret`, `star_args`, `star_args_expand`, `kwargs`, `kwargs_expand`, `lambda_param` | `yield`, `yield from`, `f(*xs)`, `f(**kw)` |
+| Kiểu | `list_identity`, `isinstance_like` | Container so sánh **theo tham chiếu** — giống Python |
+
+---
+
+## 3. 7 PHÉP KHÁC — 3 BUG IM LẶNG, 4 GIỚI HẠN ĐÃ BIẾT
+
+### 3.1 BUG: `split` bỏ qua phần còn lại của dấu phân cách nhiều ký tự
+
+```python
+"Hello, World".split(", ")   # Python: ['Hello', 'World']
+```
+TokenVector cho `['Hello', ' World']` — nó chỉ tách theo **ký tự đầu tiên** của
+dấu phân cách, phần còn lại bị bỏ. Không báo lỗi.
+
+### 3.2 BUG: truyền generator vào tham số kiểu `list[...]` cho list rỗng
+
+```python
+join_i(gen_upto(4))   # Python: 4 phần tử
+```
+TokenVector: **0 phần tử**. Generator tự nó vẫn đúng — `for v in gen_upto(4)`
+ra đủ `0 1 2 3`, và `yield from` cũng đúng. Chỉ hỏng ở chỗ truyền nó làm
+**đối số** cho tham số `list[i32]`. Không báo lỗi.
+
+### 3.3 BUG: lát kiểu `int` truyền vào tham số `list[i32]` — lẫn kiểu, đọc rác
+
+```python
+lit = [1, 2, 3]          # list[int] (TkvInt, 16 byte)
+full = lit[0:3]          # lát -> vẫn list[int]
+take_i32(full)           # tham số khai list[i32]
+```
+TokenVertor đọc `List<TkvInt>` như `List<int32>`: hoặc ra **số 0 im lặng**, hoặc
+văng `OverflowException`. Ở chỗ dùng cục bộ thì đúng (`lit[0:3]` in ra `1 2 3`);
+chỉ hỏng khi đi qua ranh giới tham số. Đây là loại bug nguy hiểm nhất: **sai
+giá trị mà không có dấu hiệu nào**.
+
+Nguyên nhân: kiểu phần tử của biểu thức lát được suy ra khác với kiểu phần tử
+của list nguồn, nên tại lời gọi không có phép chuyển đổi nào được phát ra, và
+.NET nhận `List<int>` ở chỗ cần `List<int32>`.
+
+> Ba bug trên đều **không** xuất hiện trong Testkit hiện tại, vì gate chỉ kiểm
+> đúng→sai, chưa có chiều "sai→đúng". Xem `docs/PLAN.md`.
+
+### 3.4 `str()` của biểu thức bool in `True`/`False`, của biến in `1`/`0`
+
+```python
+t = 1 > 0
+str(t)        # Python: 'True'   TokenVector: '1'
+str(1 > 0)    # TokenVector: 'True'  (biểu thức nội tuyến)
+```
+Đã biết từ trước, ghi ở `CLAUDE.md`. Không phải bug logic — nhưng là **bẫy im
+lặng** khi in log: cùng một giá trị mà hai cách in ra hai kiểu.
+
+### 3.5 Container rỗng được coi là đúng trong `or`/`and`
+
+```python
+a = []
+a = a or [1]
+len(a)     # Python: 1   TokenVector: 0
+```
+`or`/`and` trả về **đúng toán hạng** (đã kiểm: `x or 9` → 9, `y and 5` → 5,
+`d["k"] or 42` → 42). Chỉ sai ở chỗ kiểm tra tính đúng của list rỗng — nó coi là
+đúng. `d["k"] or 42` vẫn đúng vì giá trị là `0`.
+
+### 3.6 `and`/`or` trả toán hạng, nhưng `str()` lại ra bool
+
+`str(1 and 2)` → TokenVector in `True`, Python in `2`. Cùng gốc với 3.4.
+
+---
+
+## 4. GIỚI HẠN BIÊN DỊCH (báo lỗi rõ, không im lặng)
+
+Những cái này **từ chối build kèm thông điệp chỉ đường**, nên an toàn hơn 3.1–3.3.
+Đây là chi phí trả cho việc mọi thứ phải suy kiểu lúc biên dịch:
+
+| Viết kiển trong Python | TokenVector |
+|---|---|
+| `7 / 2` (→ `3.5`) | Từ chối trên `i32`. Dùng `7.0 / 2` hoặc `//` |
+| `x: list[int] = [...]` (annotation cho biến local) | Từ chối — suy tự động |
+| `d.get(k)` | Bắt buộc 2 tham số: `d.get(k, default)` |
+| `"a".split(",")` (gọi method trên literal) | Phải gán vào biến trước |
+| `a.extend([1, 2])` | Phải gán list vào biến trồng |
+| `[x*2 for x in xs]` lồng trong `f(...)` | Chỉ được làm vế phải trực tiếp của phép gán cho tên trần |
+| `map(lambda x: x+1, xs)` | Phải truyền TÊN hàm top-level, hoặc biến đã khai `func(...)` |
+| `yield from [7, 8]` | Chỉ `yield from <biến list>` hoặc `<ham generator>(...)` |
+| `[1,2,3][0:3]` (lát trên literal) | Phải gán list vào biến trước |
+| `len(xs[0])` | Chỉ `len(<biến trần>)` |
+| `s.index(x)`, `s.count(x)` | `str.index`/`str.count` không có; `list.count` chỉ ở vế phải trực tiếp |
+| `",".join(["a","b"])` | Phải truyền biến kiểu `list[str]` |
+| `raise TypeError(...)` | Chỉ 6 loại sẵn có: `Exception`, `IndexError`, `KeyError`, `OverflowError`, `ValueError`, `ZeroDivisionError` |
+| `Dog("rex")` khi base có `__init__(self, name)` | Ctor của lớp con nhận **mọi field gộp** (`Dog("rex", 4)`); `__init__` của lớp con bị bỏ qua |
+| `class C: pass` (không field) | Từ chối: `record khong co field nao` |
+| `x < y` trên record (`__lt__`) | `__lt__`/`__gt__` **đang hỏng** — trả hằng, bỏ thân hàm |
+| list literal `[1, 2]` | Phần tử là `int` (số nguyên vô hạn), **không trộn được** với `i32` |
+
+---
+
+## 5. NHỮNG GÌ BẢN CŨ KHAI SAI
+
+| Bản cũ ghi | Thực tế |
+|---|---|
+| "Generator & Iterators — 100%, hỗ trợ `iter()`, `next()`" | `iter`/`next` **không tồn tại** trong compiler. Chỉ có `yield`, `yield from`, và `for x in <generator>` |
+| "Metaclass, `obj.__class__`" | Không có gì cả — 0 dòng trong compiler |
+| "OOP 100% parity" | Ctor lớp con ≠ `__init__` mà Python kế thừa; `__lt__`/`__gt__` hỏng |
+| "Gán biến đổi kiểu động 100%" | Không có. Mọi thứ suy kiểu lúc biên dịch — mục 4 chính là hệ quả |
+| "FFI: P/Invoke + `ctypes`" | P/Invoke có (47 dòng IL sinh ra), nhưng **`ctypes` không tồn tại** |
+| "56 hàm builtin" | 167 hàm được đăng ký qua `register_expr_builtin` (đếm bằng regex trên `compiler/il_features/*.tkv`) |
+| "Chuỗi tam báy nhiều dòng" | Đúng, đã có |
+| "`del` chưa hỗ trợ" | Đã có |
+
+---
+
+## 6. SO SÁNH KIẾN TRÚC (giữ nguyên, phần này vẫn đúng)
 
 | Đặc tính | CPython 3.12 | TokenVector (AOT CIL) |
-| :--- | :--- | :--- |
-| **Cơ chế thực thi** | Bytecode Interpreter (`ceval.c`), Dynamic Type Checking tại Runtime. | **Dual-Path Architecture**: <br>1. *Path A*: CPython Engine (100% Python AST standard).<br>2. *Path B*: AOT Native CIL Compiler (`.exe` độc lập). |
-| **Yêu cầu Runtime** | Cần cài đặt CPython Runtime (~50MB - 100MB) và môi trường Virtualenv. | **Zero Runtime Dependency**: Biên dịch trực tiếp ra file `.exe` chạy ngay trên Windows/Linux. |
-| **Quản lý Bộ nhớ** | PyObject con trỏ Heap, Reference Counting + Cyclic Garbage Collector. | Unboxed Native Value Types (`f32`, `f64`, `i32`, `i64`) + .NET Generics GC Tối ưu. |
-| **Cơ chế Đa luồng** | Bị giới hạn bởi **GIL (Global Interpreter Lock)** — chỉ chạy 1 core CPU tại 1 thời điểm. | **True Multithreading (No GIL)**: Tận dụng 100% đa nhân CPU thật qua OS Kernel Threads (`System.Threading.Thread`). |
+|---|---|---|
+| Thực thi | Thông dịch bytecode `ceval.c`, kiểu động lúc chạy | Biên dịch AOT ra CIL, `.exe` độc lập |
+| Runtime | Cần CPython (~50–100 MB) | Không cần runtime |
+| Bộ nhớ | `PyObject*` con trỏ heap, refcount + GC chu kỳ | Kiểu vô hướng không boxing + GC .NET |
+| Đa luồng | **Có GIL** | `System.Threading.Thread`, không GIL |
+| Suy luận kiểu | Lúc chạy | **Lúc biên dịch** — nguồn của toàn bộ giới hạn mục 4 |
+| Kiểu container | Đồng nhất & hỗn hợp | Đồng nhất; `list[int]` ≠ `list[i32]` |
 
 ---
 
-## 2. BẢNG MA TRẬN TÍNH NĂNG VÀ ĐỘ TƯƠNG THÍCH (PARITY MATRIX)
+## 7. ĐÁNH GIÁ
 
-| Miền tính năng | CPython 3.12 | TokenVector (AOT CIL Binary) | Độ tương thích (Parity) | Đánh giá Kỹ thuật & Khác biệt Cốt lõi |
-| :--- | :--- | :--- | :---: | :--- |
-| **Cấu trúc Điều khiển** | `if/elif/else`, `for range`, `while`, `break`, `continue` | Đầy đủ (Sinh mã `br`, `bge`, `blt`, `ble` CIL) | **100%** | Biên dịch trực tiếp thành các lệnh nhảy CIL native không qua thông dịch. |
-| **Kiểu Vô hướng** | `int` (BigInt), `float` (f64), `bool`, `str` | `i32`, `i64`, `f32`, `f64`, `str`, `TkvInt` | **100%** | TokenVector hỗ trợ định kiểu số native không bị tốn bộ nhớ/latency con trỏ `PyObject*`, có struct `TkvInt` xử lý số nguyên vô hạn. |
-| **Cấu trúc Dữ liệu** | `list`, `dict`, `set`, `tuple` (Đồng nhất & Hỗn hợp) | `List<T>`, `Dictionary<K,V>`, `HashSet<T>`, `List<object>` | **100%** | Ánh xạ trực tiếp sang `.NET System.Collections.Generic`. Tự động nâng cấp (Boxing) sang `List<object>` khi chứa nhiều kiểu trong 1 container. |
-| **Hàm & Closure** | `def`, default args, lambdas, closures, `map`, `filter`, `zip` | Đầy đủ (`Func<T>`, Closure cell capture) | **100%** | Hỗ trợ hàm lồng nhau, bắt biến môi trường (closure) và con trỏ hàm native. |
-| **Generator & Iterators** | `yield`, `yield from`, `iter()`, `next()` | Sinh mã CIL State Machine (`IEnumerator<T>`) | **100%** | Hỗ trợ `yield`, `yield from` và iterator tự động via class generator. |
-| **Hướng đối tượng (OOP)** | Đa kế thừa, Dynamic MRO, `super()`, Metaclass | Kế thừa đơn & Đa kế thừa Lớp (`class C(A, B)`), `super()`, Virtual Override | **100%** | TokenVector ánh xạ kế thừa đơn lẫn đa kế thừa lớp (`class C(A, B)`) sang CIL class kế thừa & tổng hợp phương thức ủy quyền. |
-| **Import & Module** | `import mod`, `from mod import fn` | Multi-file dependency graph & assembly linker | **100%** | Hỗ trợ `import` và `from ... import` tự động duyệt cây phụ thuộc và liên kết nhiều file `.tkv`. |
-| **Bất đồng bộ (Async)** | `asyncio` Event Loop | Native `.NET Task<T>` / `System.Threading.Tasks` | **100%** | Ánh xạ `async def` sang `Task<T>` và `await` sang `Task.get_Result()`. |
-| **Xử lý Ngoại lệ** | `try/except/finally`, Custom Exception | `try/except/finally`, Custom Exception, `str(e)` | **100%** | Ánh xạ trực tiếp sang khối `.try { ... } catch [mscorlib]System.Exception { ... } finally { ... }`. |
-| **Gán biến đổi kiểu động** | Dynamic 100% | Variant Boxing (`object`) khi đổi dtype | **100%** | Tự động nâng cấp slot local thành `object` khi biến bị gán kiểu mới trong cùng scope. |
-| **Đa luồng (Threads)** | Giới hạn bởi GIL | OS Kernel Threads (`System.Threading.Thread`) | **Vượt trội** | Chạy đa luồng thật 100% trên các nhân CPU vật lý mà không bị khóa GIL. |
-| **FFI & C Interop** | C-Extensions (`.pyd`), `ctypes` | Direct P/Invoke (`pinvokeimpl`) & `ctypes` FFI | **100%** | Gọi trực tiếp các hàm C native trong DLL/SO (`kernel32`, `ucrtbase`,...) qua `ctypes` wrapper và P/Invoke. |
-| **Thực thi Động** | `eval()`, `exec()` | Built-in `eval_code()`, `exec_code()` | **100%** | Hỗ trợ đánh giá chuỗi mã và câu lệnh động ngay tại runtime. |
-| **Thư viện chuẩn (Stdlib)** | ~300+ modules (`math`, `json`, `re`, `os`, `sys`, `socket`,...) | 54 hàm builtin đăng ký thật (đếm trực tiếp qua `register_expr_builtin`) phủ `math`, `json`, `http` (get/post/put/delete), `datetime`, `random`, `hashlib` (md5/sha256), `base64`, `os` (getenv/mkdir/list_files), `zip`, `db` (sqlite) | Không phải "module" đúng nghĩa Python (không `import re` rồi `re.replace()`) — là hàm toàn cục phẳng (`re_replace()`, `md5_hex()`...). **KHÔNG có `socket`** (chỉ nhắc trong docstring ý định, chưa có hàm `socket_*` nào đăng ký thật) — dùng `http_get`/`http_post`/... thay thế cho phần lớn nhu cầu network cấp cao. |
+- **Ngôn ngữ lõi** (mục 2): đo được **95/102 ≈ 93%** trên bộ thử này. Gọi là
+  "95%+" mà không đo là nói bừa; con số thật là 93%, và 4/7 phép khác là bùa
+  mắt thường.
+- **OOP**: kế thừa và `__init__` chạy thật, nhưng ctor lớp con và toán tử `<`/`>`
+  trên record còn lệch Python.
+- **Bất đồng bộ / luồng**: có `async def`/`await`, `thread_spawn`/`thread_join`, và
+  không GIL — đây là ưu thế thật, không phải điểm cần dè.
+- **Thư viện**: 167 hàm đăng ký phẳng, **không có `import re` rồi `re.replace()`**,
+  không có `socket`, không có `ctypes`, không có metaclass. Đây là khoảng cách lớn
+  nhất với Python và **không thể đo bằng bộ thử cú pháp**.
+- **PyPI**: không dùng được. Cần wrapper FFI/P-Invoke thủ công.
 
----
+**Ưu tiên nếu sửa tiếp** — theo mức độ nguy hiểm, không theo độ khó:
 
-## 3. CÁC ĐIỂM MÙ VÀ KHOẢNG CÁCH KỸ THUẬT RÕ RÀNG (TECHNICAL GAPS)
-
-Khi đánh giá trên quy mô sản xuất (Production):
-
-1. **Hệ sinh thái C-Extensions (PyPI Ecosystem)**:
-   - CPython có hơn 500,000 package trên PyPI. Đa số các thư viện Machine Learning/Data Science (NumPy, PyTorch, TensorFlow, Pandas) phụ thuộc vào CPython C-API (`Python.h`, `PyObject*`).
-   - TokenVector AOT CIL biên dịch trực tiếp ra mã máy .NET, muốn dùng các thư viện C-Extension này cần tạo bộ wrapper FFI/P-Invoke.
-2. **Ràng buộc riêng của TokenVector trên `class`**:
-   - Python cho phép class hoàn toàn không có field (chỉ method). TokenVector **bắt buộc mọi `class` phải khai báo ít nhất 1 field** — thiếu field báo lỗi biên dịch `record khong co field nao`. Đa kế thừa lớp thật (`class Derived(BaseA, BaseB)`, cả 2 base đều có field/method riêng) **CÓ hỗ trợ** (đã xác minh trực tiếp bằng compile+run, xem `USER-GUIDE.md` Chương 6) — không phải giới hạn "chỉ đơn kế thừa" như phiên bản tài liệu trước đây ghi nhầm.
-   - Constructor tự sinh nhận tham số **theo thứ tự field gộp từ mọi lớp cha** — khác Python (không tự sinh `__init__`, dùng `object.__init__` mặc định nếu không định nghĩa riêng).
-3. **Dynamic Monkey-Patching Cấu trúc Lớp**:
-   - Python cho phép `setattr(obj, 'new_field', val)` hoặc thay đổi `obj.__class__` của instance tại runtime.
-   - TokenVector đóng gói Class thành CIL type layout cố định để đạt tốc độ tối đa, không hỗ trợ chèn field ngẫu nhiên vào instance sau khi đã khởi tạo.
-
----
-
-## 4. CÁC ƯU THẾ TUYỆT ĐỐI CỦA TOKENVECTOR
-
-1. **Biên dịch AOT ra .exe Độc lập (Standalone Executable)**:
-   - Không cần cài Python hay thiết lập venv trên máy mục tiêu.
-2. **Loại bỏ khóa GIL (No Global Interpreter Lock)**:
-   - Thực thi đa luồng thực sự trên 100% nhân CPU vật lý.
-3. **Hiệu năng Tính toán Vô hướng (Unboxed Scalar Performance)**:
-   - Các biến `f32`, `f64`, `i32`, `i64` được lưu trực tiếp trên stack/register, cho tốc độ tính toán tiệm cận C/C++.
-
----
-
-## 5. TỔNG KẾT BẢNG ĐÁNH GIÁ
-
-- **Cú pháp & Logic cốt lõi**: **95%+ Parity** so với Python.
-- **Tính năng Ngôn ngữ (OOP, Async, Closure, Threading, Exceptions)**: **90%+ Parity**.
-- **Hệ sinh thái Thư viện C-Extensions thứ 3 (PyPI)**: **~25% Coverage**.
+1. 3.3 (lẫn kiểu khi truyền lát `list[int]` vào tham số `list[i32]`) — sai giá trị
+   **và** có thể đọc ngoài vùng nhớ.
+2. 3.1 (`split` nhiều ký tự) — sai âm thầm, rất dễ gặp khi parse dữ liệu.
+3. 3.2 (generator làm đối số) — sai âm thầm, mất dữ liệu.
+4. Bổ sung cổng so sánh: hiện gate chỉ kiểm đúng→sai, nên cả 3 bug trên lọt.
