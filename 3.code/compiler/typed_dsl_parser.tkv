@@ -412,6 +412,15 @@ class Parser:
                 # tra ve .NET class NGOAI (assembly-qualified) thay vi class
                 # do compiler TU SINH - xem il_type_str's nhanh moi.
                 return TypeAnn(value, 'extern_class')
+            if kind == 'IDENT' and value == 'None':
+                # 2026-09-29: `-> "None"` = ham tra VO HUONG. Python that
+                # viet `-> None`, va nguoi viet TokenVector cung vay - nhung
+                # compiler CHUA co dtype 'None' nen truoc day bat loi
+                # "Ky vong dtype (...), gap 'None'". Chi file .tkv nao co
+                # ham CHUA BAO GI bi bien dich moi lo ra (vd `__init__`,
+                # truoc 2026-09-29 bo qua hoan toan) - nen loi nay da
+                # ngu tinh la "dung tinh vi loi so".
+                return None
             raise SyntaxError(
                 f"Ky vong dtype ({_DTYPE_LIST_HINT}), gap {value!r} (vi tri ~{pos})")
         dtype = value

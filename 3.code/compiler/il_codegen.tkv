@@ -5797,6 +5797,129 @@ def _field_il_type(field_dtype, records=None):
     return il_type_str(field_dtype, records)
 
 
+def _split_method_il(lines):
+    """Tach 1 khoi `.method` sinh ra than (locals_line, maxstack, body).
+
+    `body` LA CAC LEKH THUC BODY (khong phai header/footer) - dung khi can
+    noi than ham vao 1 method da co (xem `_ctor_init_body_il`).
+    """
+    locals_line = None
+    maxstack = 8
+    start = None
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if s.startswith('.maxstack'):
+            try:
+                maxstack = int(s.split()[1])
+            except (IndexError, ValueError):
+                maxstack = 8
+            continue
+        if s.startswith('.locals'):
+            locals_line = ln
+            continue
+        # Bo header `.method ...` va `{` - chi phan con lai moi la body.
+        if s.startswith('.method') or s in ('{', '}'):
+            continue
+        if start is None:
+            start = i
+    if start is None:
+        return locals_line, maxstack, []
+    end = len(lines)
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].strip() == '}':
+            end = i
+            break
+    return locals_line, maxstack, lines[start:end]
+
+
+_INIT_RETURN_RE = re.compile(r'^(\s*)return\b.*$')
+
+
+def _ctor_init_body_il(record_name, init_entry, records, record_methods, record_bases,
+                       record_methods_own, module_consts, func_table, class_name,
+                       extra_classes, emitted_types, source_path, debug,
+                       ctor_fields=None):
+    """Bien dich THAN `__init__` de chen vao `.ctor` cua record.
+
+    TRA VE (locals_line, maxstack, body_lines) - rong khi `__init__` rong.
+
+    2026-09-29: `__init__` TRUOC day bi bo qua hoan toan khi bien dich, nen
+    moi dong trong no (vd `self.x = a * 10`) la DEAD CODE - ma nguoi doc lai
+    thi tin no chay. Bat day la no chay THAT.
+
+    3 diem ky thuat, ca 3 deu do lenh do bi doc nham neu thieu:
+
+    1. `return` trong `__init__` khong phai `ret` cua `.ctor` (ctor tra void).
+       Ta lo bang TEXT truoc khi bien dich, va BAO LOI RO RANG neu co `return`
+       o GIUA thân (khong phai dong cuoi) - bo no se chay tiep cac lenh
+       sau do, lech hanh vi Python.
+    2. `.locals` cua ham bien dich co chi so bat dau tu 0 VA `self` o arg 0 -
+       giong het `.ctor` (cung `this` o arg 0, va cac `stfld` cua `.ctor`
+       khong dung local nao) nen NOI TRUC TIEP, khong can dich chi so.
+    3. `self.X` cho field container: `_hoist_container_fields` TU CHOI hoist
+       khi than co `self.X = ...` (no ghi ro ly do) - dung cho `__init__`,
+       vi day la noi gan lai container.
+    """
+    sig_line, body_lines = init_entry
+    from typed_dsl_parser import parse_typed_signature
+    sig = parse_typed_signature(sig_line, record_names=set(records or {}))
+    # AN TOAN: tham so `.ctor` lay tu FIELD (khong phai tu chu ky `__init__`),
+    # nen than `__init__` phai doc chung SO tham so va cung KIEU theo thu tu.
+    # TEN tham so thi KHONG can trung - `def __init__(self, a: "i32")` cho
+    # field `x: "i32"` la cach viet Python binh thuong (va la cach pho bien
+    # trong Inference: 3119 phep gan trong __init__, phan lon khac ten).
+    # Sai thu tu/sai so luong moi doc SAI tham so - lenh dau tien can bao.
+    if ctor_fields is not None:
+        init_params = [p for p in sig.params if p.name != 'self']
+        if len(init_params) != len(ctor_fields):
+            raise SyntaxError(
+                f"il_codegen: '__init__' cua record '{record_name}' nhan "
+                f"{len(init_params)} tham so nhung .ctor lay tu field la "
+                f"{len(ctor_fields)} ([p.name for p in init_params] = "
+                f"{[p.name for p in init_params]!r} vs "
+                f"{[fn for fn, _fd in ctor_fields]!r}) - phai cung SO va cung "
+                f"THU TU, neu khong than __init__ se doc sai tham so")
+        for p, (fn, fd) in zip(init_params, ctor_fields):
+            if p.type_ann is None:
+                continue
+            if _field_il_type(fd, records) != il_type_str(p.type_ann):
+                raise SyntaxError(
+                    f"il_codegen: tham so '{p.name}' cua '__init__' (record "
+                    f"'{record_name}') kieu {p.type_ann} nhung field '{fn}' - cung "
+                    f"chi so .ctor - kieu {_field_il_type(fd, records)}: kieu khac "
+                    f"nhau se day sai vao tham so")
+    lines = [ln for ln in body_lines if not _INIT_RETURN_RE.match(ln)]
+    stripped = len(lines) != len(body_lines)
+    # `return` o giua than: bo no se sai hanh vi. Tim dong `return` cuoi cung
+    # va yeu cau no la dong cuoi cung cua than.
+    rets = [i for i, ln in enumerate(body_lines) if _INIT_RETURN_RE.match(ln)]
+    mid_returns = [i for i in rets if any(ln.strip() for ln in body_lines[i + 1:])]
+    if mid_returns:
+        raise SyntaxError(
+            f"il_codegen: '__init__' cua record '{record_name}' co 'return' o GIUA "
+            f"than ham (dong {mid_returns[0] + 1}) - chua ho tro: bo dong do thi cac "
+            f"lenh sau no van chay, lech hanh vi CPython. Viet __init__ khong co "
+            f"return o giua than.")
+    if stripped and not lines:
+        return None, 8, []
+    method_lines = gen_il_function(
+        sig, lines, with_guards=False, func_table=func_table, class_name=class_name,
+        records=records, self_type_ann=TypeAnn(record_name, 'record'),
+        record_methods=record_methods, record_methods_own=record_methods_own,
+        virtual_kw=None, record_bases=record_bases, module_consts=module_consts,
+        extra_classes=extra_classes, emitted_types=emitted_types,
+        source_path=source_path, debug=debug)
+    locals_line, maxstack, body = _split_method_il(method_lines)
+    # Bo epilogue do `gen_il_function` sinh cho ham (`.ctor` tra void nen
+    # khong duoc co `ret` co gia tri). Chi bo DUNG CAP `ldc.*` + `ret` o cuoi
+    # - `ldc.i4.0` do nguoi dung viet o cuoi body phai giu lai.
+    if body and body[-1].strip() == 'ret':
+        body.pop()
+        if body and re.match(r'^\s*ldc\.[\w.]+\s', body[-1] + ' '):
+            body.pop()
+    return locals_line, maxstack, body
+
+
 def gen_record_types(records: dict, record_method_bodies: dict = None, record_methods: dict = None,
                       class_name: str = 'Program', func_table: dict = None,
                       record_bases: dict = None, record_overrides: dict = None,
@@ -5804,7 +5927,8 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
                       module_consts: dict = None, record_methods_own: dict = None,
                       extra_classes: list = None, emitted_types: set = None,
                       source_path: str = None, debug: bool = False,
-                      com_class_attrs: dict = None) -> list:
+                      com_class_attrs: dict = None,
+                      record_init_bodies: dict = None) -> list:
     """Sinh 1 '.class public auto ansi <Ten> extends <Base>' RIENG (kieu
     top-level, SONG SONG voi class chuong trinh chinh, khong long ben
     trong) cho MOI 'class dang record' - 1 REFERENCE TYPE (khong con la
@@ -5838,11 +5962,17 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
 
     record_method_bodies: dict ten-record -> [(Signature, body_lines), ...]
     (khoang trong ngon ngu #1 - method that tren record, xem gen_il_method) -
-    method KHONG bat buoc, record van hop le neu chi co field (nhu truoc)."""
+    method KHONG bat buoc, record van hop le neu chi co field (nhu truoc).
+
+    record_init_bodies: dict ten-record -> (sig_line, body_lines) cua
+    `__init__` (2026-09-29) - xem `_ctor_init_body_il`. TRUOC ngay `__init__`
+    bi BO QUA HOAN TOAN khi bien dich (chi de file .tkv chay duoc duoi
+    CPython that); nay than no CHAY THAT trong `.ctor`."""
     record_method_bodies = record_method_bodies or {}
     record_bases = record_bases or {}
     record_overrides = record_overrides or {}
     record_interfaces = record_interfaces or {}
+    record_init_bodies = record_init_bodies or {}
     # extra_classes/emitted_types (Task 3, 2026-08-12, 'async def' method
     # tren record): CUNG co che OUT-parameter nhu gen_il_program - 1 method
     # 'async def' tren record se sinh 1 '.class' closure MOI (xem
@@ -5899,7 +6029,20 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
         out.append(f'  .method public hidebysig specialname rtspecialname instance void '
                     f".ctor({fields_il}) cil managed")
         out.append('  {')
-        out.append('    .maxstack 8')
+        # 2026-09-29: bien dich than `__init__` TRUOC khi in header de biet
+        # `.locals`/`.maxstack` that - IL chi cho phep MOT `.maxstack` moi
+        # method nen in hai lan se loi.
+        init_entry = record_init_bodies.get(name)
+        init_locals = init_maxstack = init_body = None
+        if init_entry is not None:
+            init_locals, init_maxstack, init_body = _ctor_init_body_il(
+                name, init_entry, records, record_methods, record_bases,
+                record_methods_own, module_consts, func_table, class_name,
+                extra_classes, emitted_types, source_path, debug,
+                ctor_fields=ctor_fields)
+        out.append(f'    .maxstack {max(8, init_maxstack or 8)}')
+        if init_locals:
+            out.append(init_locals)
         out.append('    ldarg.0')
         if is_exc_base:
             # Neu field DAU TIEN la 'str' thi truyen no cho
@@ -5934,10 +6077,18 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
         for fn, fd in own_fields:
             if not _is_container_field(fd):
                 continue
-            # 'self.items = []' cua __init__ that duoc thuc hien O DAY.
+            # Container duoc khoi tao RONG o day nen thuoc tinh co gia tri
+            # ngay tu dong (khong bao gio null) - nhung gia tri THAT do than
+            # `__init__` gan se GHI DE (xem khoi chan duoi day).
             out.append('    ldarg.0')
             out.append(f'    newobj instance void {_field_il_type(fd, records)}::.ctor()')
             out.append(f'    stfld {_field_il_type(fd, records)} {name}::{_il_ident(fn)}')
+        # 2026-09-29: chay THAT than `__init__` (truoc day bi bo qua hoan toan).
+        # Chay SAU khi field da duoc gan tu tham so .ctor va container da duoc
+        # khoi tao rong, nen trong `__init__` doc duoc `self.<field>` va ghi de
+        # duoc bat ky field nao. Body da bien dich o tren (truoc header).
+        if init_body:
+            out.extend(init_body)
         out.append('    ret')
         out.append('  }')
         overridden = record_overrides.get(name, set())

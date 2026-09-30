@@ -5878,6 +5878,7 @@ def compile_tkv_cli(tkv_path, out_exe, entry_name=None, class_name='TKVApp', deb
                                               apartment=_extract_apartment(tkv_path))
                          if entry_name is not None else [])
         record_type_lines = gen_record_types(record_defs, record_method_bodies=record_method_bodies,
+                                              record_init_bodies=record_init_sigs,
                                               record_methods=record_methods, class_name=class_name,
                                               func_table=func_table, record_bases=record_bases,
                                               record_overrides=record_overrides,
