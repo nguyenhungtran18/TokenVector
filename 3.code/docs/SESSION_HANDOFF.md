@@ -1,18 +1,59 @@
 # SESSION HANDOFF — TokenVector compiler
 
-Ngày: 2026-09-29. Cổng: **94/94 + negative 15/15 xanh** + smoke Inference/Data PASS.
-**Giai đoạn 2 xong toàn bộ; cả 3 mục "việc thật" ở mục 8A cũng xong.**
+Ngày: 2026-09-30. Cổng: **95/95 + negative 15/15 xanh** + smoke Inference/Data PASS.
+**Giai đoạn 2 xong toàn bộ; cả 3 mục "việc thật" ở mục 8A và A' cũng xong.**
 
-**KHÔNG còn việc dở dang** — working tree sạch, cả hai repo đã mirror.
+**KHÔNG còn việc dở dang** — working tree sạnh, cả hai repo đã mirror.
+
+---
+
+## 0. `__init__` chạy THẬT — mục mới nhất, đọc mục này trước
+
+Trước đây `.ctor` của record **tự gán mọi field từ tham số ctor rồi bỏ qua toàn bộ thân
+`__init__`**. Nghĩa là `self.X = <container>` trong `__init__` chết, và cả logic khởi tạo
+phụ. Nay `__init__` được biên dịch vào `.ctor` (`42e32c3` + `a87087b`).
+
+Quy tắc an toàn — **chỉ chạy thân khi ánh xạ tham số là 1:1 với field `.ctor`**:
+số tham số `__init__` **bằng** số field (kể cả field của base), và kiểu khớp theo thứ tự.
+Còn lại **bỏ qua thân** (giữ hành vi cũ) thay vì biên dịch sai âm thầm. Ba trường hợp
+hay dính, tất cả đều là bẫy thật:
+
+1. **Field ẩn đứng đầu.** `FP16` khai `_ok` (thuộc tính riêng) rồi `value`, nhưng
+   `__init__` chỉ nhận `v`. Kiểu khớp (`i64`/`i64`) nên **check kiểu không bắt được**;
+   phải check **số**. Nếu không, `self.value = v & 0xFFFF` ghi từ `_ok` → hỏng
+   `quantize_fp16` + `matmul_fp16`. Đây chính là 2 test fail đầu tiên của Inference
+   (`awq_asym_and_fp16`, `beam_log_softmax_tree`) — kiểm chứng bằng cách tắt thân
+   `__init__`: 26/26. Bài học: khi một feature mới làm hỏng test, **đo bằng công tắc
+   tắt trước**, đừng đoán.
+2. **Kế thừa.** `.ctor` con có `[field base..., field rieng...]`, `__init__` con chỉ
+   khai field riêng → lệch vị trí. Thân `__init__` của **base** vẫn chạy (nó nằm trong
+   `.ctor` của base).
+3. **Chữ ký không parse được theo DSL.** Ví dụ `min_v: "f32 = -3.4e38"` —
+   `parse_default_literal` không nhận dấu `-`. Giá trị mặc định không quan trọng ở đây
+   (body không dùng), nên bỏ qua thân là hợp lý.
+
+Lý do bỏ qua được ghi vào `INIT_SKIPPED`, in ra khi `TKV_DBG_INIT=<file>`.
+
+Kèm theo đó, 2 lỗi khác lộ ra và đã sửa:
+- **Ternary hai nhánh khác kiểu** (`i32` vs `f32`) trước đây báo lỗi — nhưng hợp lệ,
+  và chính compiler sinh ra nó qua macro text (`min(a,b)` → `a < b ? a : b`). Nay
+  `_promote_pair_dtype` cho phép chiều lên hợp lệ (i32→i64→int, int→f32→f64, f32→f64).
+- **`self.X = {}` trong `__init__`**: node `dict_empty` chỉ có đường `d = {}`. Ở
+  `codegen_attr_assign` dùng thẳng `il_type_str` (đọc được container lồng) thay vì
+  `il_container_type_of_spec` (chỉ lấy được spec chuỗi).
+
+**Kết quả:** `ext_smoke.ps1` **4/4 BUILD OK** (trước đó 1 pass + 3 known-fail),
+`TokenVector.Data` gate **2/2 + 18/18**, `TokenVector.Inference` **26/26 PASS**
+(trước đó **không build được**).
 
 ---
 
 ## 1. Bối cảnh: tập trung compiler, hoãn repo khác
 
-Chỉ sửa `3.code`. `TokenVector.Inference` và `TokenVector.Data` đang **không build**
-vì quy tắc "record không được có field container chưa khởi tạo" (lý do có chủ đích,
-người dùng đã chọn phương án B: cho phép nếu có `self.X = ...` trong `__init__`).
-Việc sửa hai repo đó **đã được hoãn có chủ đích** — đừng đụng vào.
+Ban đầu chỉ sửa `3.code`; `TokenVector.Inference` và `TokenVector.Data` bị chặn bởi quy
+tắc "record không được có field container chưa khởi tạo" (người dùng đã chọn phương án B).
+Ngày 2026-09-30 user đã cho phép sửa cả hai: đã vá Data (`fcdd972`) và Inference (`609ea31`).
+Giữ quy tắc đó — chỉ cần thêm `self.X = <container rỗng>` vào `__init__` (215 dòng/53 file).
 
 `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md` còn khẳng định hỗ trợ `iter()`/`next()` —
 **sai**, hai hàm đó không tồn tại. Nên sửa tài liệu, để sau.
@@ -166,6 +207,7 @@ treo, cần quyết định riêng) hoặc A' (50 field container của Inferenc
 | Literal lồng | XONG |
 | Tuple literal + `for a, b in` | XONG (nguồn chỉ nhận list literal — xem mục 3) |
 | `f(*xs)`, `f(**kw)` | XONG cả hai (desugar khi độ dài/khoá tĩnh) — xem mục 3b |
+| `__init__` chạy thật | XONG (`a87087b`) — xem mục 0 |
 
 Giai đoạn 3 (`yield from`) về mặt roadmap đã xong; mục 5 của PLAN đã viết lại từ
 "vì sao chưa làm" thành mô tả đã làm.
@@ -250,6 +292,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build_tkvc.ps1   # REBUILD
   file `.tkv` sửa, **trước** khi build. Một `"""` hở làm PyInstaller im lặng bỏ
   sót `il_codegen`, và exe chết sau đó bằng lỗi hoàn toàn không liên quan
   (`No module named 'il_features.list_type'`) — tốn thời gian vô ích.
+- **PyInstaller cache Analysis cũng gây đúng lỗi đó.** Không xoá
+  `build\pyinstaller` thì `warn-tkvc.txt` còn ghi `invalid module named il_codegen`
+  trong khi file staged parse sạch, và exe hỏng 0/95 trong khi `tools/tkvdev.py`
+  (chạy source) vẫn 95/95. Dấu hiệu: **source OK nhưng frozen chết** → xoá cache
+  rồi build lại, đừng săn bug trong `.tkv`.
+- **`TKV_DBG_INIT=<file>`** ghi ra record nào thực sự chạy thân `__init__` và vì sao
+  bị bỏ qua. Nhanh nhất để biết một feature có "chạy âm thầm trên tập con" hay không.
+- **Đo bằng công tắc tắt trước khi sửa.** Bật/tắt nhánh nghi ngờ rồi so kết quả
+  (tắt thân `__init__` → Inference 26/26, bật → 24/26) là cách nhanh nhất định vị
+  lỗi do feature mới gây ra, thay vì đọc lại hàng nghìn dòng IL.
 
 ---
 
@@ -281,11 +333,11 @@ Không còn mục tính năng nào đang dở. Còn lại:
    theo kiểu khác → **sai giá trí, không một lỗi nào**. Đã sửa cả 3 (chi tiết trong
    PLAN mục 4 và commit message).
 
-**A'. Còn lại**
+**A'. Đã xong (2026-09-30)**
 
-- 50 field container chưa gán trong `__init__` (Inference 19, Data 31) — cần người
-  hiểu ngữ nghĩa domain từng field; đây là lý do 2 repo kia chưa build. Khi sửa từng
-  field: chạy `ext_smoke.ps1 -UpdateBaseline`.
+- 50 field container chưa gán trong `__init__`: **Data 31** (`fcdd972`) + **Inference 19**
+  (`609ea31`, gồm 215 dòng/53 file vì có bản sao). Đây chính là lý do 2 repo kia không
+  build. Cả hai nay **build và chạy**: Data gate 2/2 + 18/18, Inference 26/26.
 
 **B. Mục 8 của PLAN — 7 việc treo, cần quyết định riêng, đừng tự ý làm**
 

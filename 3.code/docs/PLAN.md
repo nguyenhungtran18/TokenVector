@@ -124,6 +124,11 @@ Lệnh rõ của anh: **tập trung compiler, lỗi các repo khác để sau.**
 - Việc này nên là **dự án riêng**, có gate riêng, không gộp vào chuỗi sửa
   compiler.
 
+> **Cập nhật 2026-09-30:** người dùng đã cho phép sửa cả hai repo. Cả 50 field đã gán
+> bằng container rỗng (xem mục 1.1), và `__init__` nay **thật sự chạy** (trước đó
+> compiler bỏ qua toàn bộ thân `__init__`, nên `self.X = {}` trong đó chết). Cả hai
+> repo nay build và chạy xanh. Quy tắc (b) vẫn giữ nguyên.
+
 **Hệ quả phải nói thẳng:** công cụ không còn kiểm chứng được bằng hệ thống
 thật. Phần "cho phép" hiện **đã** được kiểm chứng bằng bản dương — xem
 `Testkit/record_container_field_test.tkv`'s `container_field_positive` (4 check) và
@@ -141,9 +146,11 @@ giờ fail (regression). Mục đang fail vẫn xanh nếu thông điệp khớp
 lần này nó **thành công** chứ không đỏ, vì lý do ở trên là quy tắc **(b) cố ý**, và
 giờ đã biết chính xác mục nào fail vì field nào.
 
-Còn 50 field container chưa gán ở Inference (19) và Data (31) vẫn chưa sửa — xem
-mục 1.1. Khi sửa từng field, chạy `ext_smoke.ps1 -UpdateBaseline` để cập nhật kỳ
-vọng.
+**ĐÃ XỬA (2026-09-30)** — cả 50 field đã gán: Data 31 (`fcdd972`) + Inference 19
+(`609ea31`). Không cần đoán giá trị domain vì mọi field đều là container **rỗng**, và
+`ext_smoke.ps1 -UpdateBaseline` đã cập nhật cả 4 mục sang `BUILD_OK`. Kết quả:
+Data gate **2/2 + 18/18**, Inference **26/26 PASS** — trước đó cả hai repo đều
+**không build được**. Chi tiết cơ chế `__init__` chạy thật xem `SESSION_HANDOFF.md` mục 0.
 
 ---
 
