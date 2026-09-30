@@ -282,6 +282,23 @@ def codegen_assign_dict_new(stmt, scope, body, body_dtype, ctx, sig, codegen_stm
     ctx['store_var'](stmt['name'], scope, body)
 
 
+def codegen_expr_dict_empty(node, scope, out, dtype, ctx=None):
+    """EXPR_CODEGEN cho node `('dict_empty',)` = `{}` o VI TRI BIEU THUC
+    (2026-09-29).
+
+    Node nay da ton tai tu truooc (il_core sinh ra de `'d = {}'` khong bao loi),
+    nhung CHI co duong gan: `d = {}` di qua `try_rhs_dict_new` ->
+    `assign_dict_new`. O bat ky bieu thuc nao khac - `self.rules = {}` trong
+    `__init__`, hay `f({})` - thi khong co EXPR_CODEGEN nao nhan, nen bao
+    "AST node khong ro".
+
+    Giong het `codegen_assign_dict_new` (newobj Dictionary rong roi de tren
+    stack), khu `store_var` - do la phan dinh nghia.
+    """
+    out.append(f'    newobj instance void '
+               f'{il_container_type_of_spec(f"dict[{dtype}]", (ctx or {}).get("records"), (ctx or {}).get("extern_class_defs"))}::.ctor()')
+
+
 def codegen_for_in_dict_items(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     """STMT_CODEGEN entry: 'for k, v in d.items():'."""
     _, _, dict_ta = scope[stmt['dict_name']]
@@ -819,3 +836,4 @@ register_macro_expander('dict_update', try_expand_dict_update)
 # 2026-09-29: dict literal o VI TRI BIEU THUC (gia tri cua dict/list khac) -
 # xem codegen_expr_dict_literal. Truoc day chi 'd = {...}' chay.
 register_expr_codegen('dict_literal', codegen_expr_dict_literal)
+register_expr_codegen('dict_empty', codegen_expr_dict_empty)

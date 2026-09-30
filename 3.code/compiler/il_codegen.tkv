@@ -4537,6 +4537,38 @@ def _var_alias_keeps_container(name, infer_scope):
     return getattr(src_ta, 'shape', None) in _ALIAS_KEEPS_CONTAINER_SHAPES
 
 
+def _promote_pair_dtype(d1, d2):
+    """Kieu CHUNG cho hai nhanh cua 1 conditional expression, hoac None neu
+    khong gop duoc.
+
+    2026-09-29: trc day hai nhanh KHAC kieu la loi bao ngay. Nhung dieu do
+    hop le trong ngu ngu: `min(i, f)`/noi ma compiler SINH RA bang macro
+    tang van ban (`min(a, b)` -> `a < b ? a : b`, xem
+    il_features/stdlib_aggregates.tkv) thi nhánh là int và float - CPython
+    tu nang len float. Chan o day la lam chet DUNG MOT chung thu vien,
+    khong phai bao ve gi.
+
+    Quy tac dung nghia Python/TokenVector: chi CHIEU hợp lệ
+    (i32 -> i64 -> 'int'; i32/i64/'int' -> f32 -> f64; f32 -> f64). Khong
+    bao gio hep float ve int (mat du lieu) hay mixing chuoi/record voi so.
+    """
+    if not d1 or not d2:
+        return None
+    if d1 == d2:
+        return d1
+    int_rank = {'i32': 0, 'i64': 1, 'int': 2, 'bool': 0}
+    float_rank = {'f32': 0, 'f64': 1}
+    if d1 in int_rank and d2 in int_rank:
+        return d1 if int_rank[d1] >= int_rank[d2] else d2
+    if d1 in float_rank and d2 in float_rank:
+        return d1 if float_rank[d1] >= float_rank[d2] else d2
+    if (d1 in int_rank and d2 in float_rank):
+        return d2
+    if (d1 in float_rank and d2 in int_rank):
+        return d1
+    return None
+
+
 def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_table: dict = None,
                                  records: dict = None, record_methods: dict = None,
                                  extra_declared: dict = None, source_path: str = None,
@@ -4911,13 +4943,15 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
                                     records, record_methods)
             _td_false = _infer_dtype(tern_node[3], infer_scope, func_table,
                                      records, record_methods)
-            if _td_true and _td_false and _td_true != _td_false:
+            _promoted = _promote_pair_dtype(_td_true, _td_false)
+            if _promoted is None and _td_true and _td_false and _td_true != _td_false:
                 raise SyntaxError(
                     f'il_codegen: hai nhanh cua conditional expression '
                     f'({tern_node[2][0]} / {tern_node[3][0]}) KHAC KIEU: '
                     f'{_td_true!r} va {_td_false!r} - mot local chi giu duoc '
                     f'mot kieu. Hay ep kieu ro rang o mot nhanh.')
-            t_dtype = (_infer_dtype(tern_node, infer_scope, func_table, records, record_methods)
+            t_dtype = (_promoted
+                       or _infer_dtype(tern_node, infer_scope, func_table, records, record_methods)
                        or _infer_literal_dtype(tern_node)
                        or body_dtype)
             # CHI SO local phai lay TRUOC khi append (append xong thi
@@ -5834,11 +5868,15 @@ def _split_method_il(lines):
 
 _INIT_RETURN_RE = re.compile(r'^(\s*)return\b.*$')
 
+# Ly do cac record co `__init__` ma than BI BO QUA (xem `_ctor_init_body_il`).
+# Khong phai loi - chi de doc lai khi can. In ra khi dat TKV_DBG_INIT=1.
+INIT_SKIPPED = []
+
 
 def _ctor_init_body_il(record_name, init_entry, records, record_methods, record_bases,
                        record_methods_own, module_consts, func_table, class_name,
                        extra_classes, emitted_types, source_path, debug,
-                       ctor_fields=None):
+                       ctor_fields=None, base_ctor_len=0):
     """Bien dich THAN `__init__` de chen vao `.ctor` cua record.
 
     TRA VE (locals_line, maxstack, body_lines) - rong khi `__init__` rong.
@@ -5847,11 +5885,11 @@ def _ctor_init_body_il(record_name, init_entry, records, record_methods, record_
     moi dong trong no (vd `self.x = a * 10`) la DEAD CODE - ma nguoi doc lai
     thi tin no chay. Bat day la no chay THAT.
 
-    3 diem ky thuat, ca 3 deu do lenh do bi doc nham neu thieu:
+    4 diem ky thuat, ca 4 deu do lenh do bi doc nham neu thieu:
 
     1. `return` trong `__init__` khong phai `ret` cua `.ctor` (ctor tra void).
        Ta lo bang TEXT truoc khi bien dich, va BAO LOI RO RANG neu co `return`
-       o GIUA thân (khong phai dong cuoi) - bo no se chay tiep cac lenh
+       o GIUA than (khong phai dong cuoi) - bo no se chay tiep cac lenh
        sau do, lech hanh vi Python.
     2. `.locals` cua ham bien dich co chi so bat dau tu 0 VA `self` o arg 0 -
        giong het `.ctor` (cung `this` o arg 0, va cac `stfld` cua `.ctor`
@@ -5859,10 +5897,29 @@ def _ctor_init_body_il(record_name, init_entry, records, record_methods, record_
     3. `self.X` cho field container: `_hoist_container_fields` TU CHOI hoist
        khi than co `self.X = ...` (no ghi ro ly do) - dung cho `__init__`,
        vi day la noi gan lai container.
+    4. Record KE THUA co field cua base: tham so `.ctor` la [field base...
+       field rieng], con `__init__` cua class chi khai field RIENG - hai danh
+       sach lech nhau, nen than se doc SAI tham so. Truong hop nay GIU HANH VI
+       CU (bo qua than `__init__`, dung khi `.ctor` tu gan field) thay vi
+       doan - doan sai thi IL sai chay am thanh.
     """
     sig_line, body_lines = init_entry
+    if base_ctor_len:
+        # Diem 4 trong docstring: tham so `.ctor` co them field cua base nen
+        # `__init__` (chi khai field rieng) khong the nao khop - giu bo qua.
+        return None, 8, []
     from typed_dsl_parser import parse_typed_signature
-    sig = parse_typed_signature(sig_line, record_names=set(records or {}))
+    try:
+        sig = parse_typed_signature(sig_line, record_names=set(records or {}))
+    except SyntaxError as exc:
+        # `__init__` co the chu ky ma DSL chua viet duoc (vi du tham so co
+        # gia tri mac dinh AM: `min_v: f32 = -3.4e38` - `parse_default_literal`
+        # khong chap nhan dau '-'). Gia tri mac dinh khong quan trong o day
+        # (`.ctor` lay tham so tu FIELD), nen BO QUA than giu hanh vi CU
+        # thay vong chan mot chuong trinh dang chay dung. Ly do duoc ghi lai
+        # de doc khi can (xem `init_skipped_reasons`).
+        INIT_SKIPPED.append(f"{record_name}: chu ky khong parse duoc ({sig_line!r}) - {exc}")
+        return None, 8, []
     # AN TOAN: tham so `.ctor` lay tu FIELD (khong phai tu chu ky `__init__`),
     # nen than `__init__` phai doc chung SO tham so va cung KIEU theo thu tu.
     # TEN tham so thi KHONG can trung - `def __init__(self, a: "i32")` cho
@@ -5871,23 +5928,24 @@ def _ctor_init_body_il(record_name, init_entry, records, record_methods, record_
     # Sai thu tu/sai so luong moi doc SAI tham so - lenh dau tien can bao.
     if ctor_fields is not None:
         init_params = [p for p in sig.params if p.name != 'self']
+        # Tham so `.ctor` lay tu FIELD, con `__init__` cua 1 so record KHONG
+        # khop 1:1 voi thu tu field. Vi du `FP16` khai field `_ok` (co thuoc
+        # tinh rieng) roi `value`, nhung `__init__` chi nhan 1 tham so `v` -
+        # neu bind theo vi tri thi `v` se nhan GIA TRI CUA `_ok`, va
+        # `self.value = v & 0xFFFF` se ghi sai (ca 2 deu la i32/i64 nen
+        # KIEM TRA KIEU KHONG BAT DUOC - phai kiem tra SO).
+        #
+        # Nen: chi bien dich than khi `__init__` nhan DUNG BAO NHIEU tham so
+        # co `.ctor` (1:1 theo thu tu). Truong hop con lai BO QUA than (giu
+        # hanh vi CU: `.ctor` tu gan field tu tham so cua no) - dung hon la
+        # bien dich sai am tham.
         if len(init_params) != len(ctor_fields):
-            raise SyntaxError(
-                f"il_codegen: '__init__' cua record '{record_name}' nhan "
-                f"{len(init_params)} tham so nhung .ctor lay tu field la "
-                f"{len(ctor_fields)} ([p.name for p in init_params] = "
-                f"{[p.name for p in init_params]!r} vs "
-                f"{[fn for fn, _fd in ctor_fields]!r}) - phai cung SO va cung "
-                f"THU TU, neu khong than __init__ se doc sai tham so")
+            return None, 8, []
         for p, (fn, fd) in zip(init_params, ctor_fields):
             if p.type_ann is None:
                 continue
             if _field_il_type(fd, records) != il_type_str(p.type_ann):
-                raise SyntaxError(
-                    f"il_codegen: tham so '{p.name}' cua '__init__' (record "
-                    f"'{record_name}') kieu {p.type_ann} nhung field '{fn}' - cung "
-                    f"chi so .ctor - kieu {_field_il_type(fd, records)}: kieu khac "
-                    f"nhau se day sai vao tham so")
+                return None, 8, []
     lines = [ln for ln in body_lines if not _INIT_RETURN_RE.match(ln)]
     stripped = len(lines) != len(body_lines)
     # `return` o giua than: bo no se sai hanh vi. Tim dong `return` cuoi cung
@@ -5910,6 +5968,9 @@ def _ctor_init_body_il(record_name, init_entry, records, record_methods, record_
         extra_classes=extra_classes, emitted_types=emitted_types,
         source_path=source_path, debug=debug)
     locals_line, maxstack, body = _split_method_il(method_lines)
+    if __import__('os').environ.get('TKV_DBG_INIT'):
+        with open(__import__('os').environ['TKV_DBG_INIT'], 'a', encoding='utf-8') as _f:
+            _f.write(f'CHAY {record_name}: {len(body)} dong\n')
     # Bo epilogue do `gen_il_function` sinh cho ham (`.ctor` tra void nen
     # khong duoc co `ret` co gia tri). Chi bo DUNG CAP `ldc.*` + `ret` o cuoi
     # - `ldc.i4.0` do nguoi dung viet o cuoi body phai giu lai.
@@ -6035,11 +6096,14 @@ def gen_record_types(records: dict, record_method_bodies: dict = None, record_me
         init_entry = record_init_bodies.get(name)
         init_locals = init_maxstack = init_body = None
         if init_entry is not None:
+            _base_ctor_len = (0 if is_exc_base else
+                              len([1 for _fn, _fd in base_fields
+                                   if not _is_container_field(_fd)]))
             init_locals, init_maxstack, init_body = _ctor_init_body_il(
                 name, init_entry, records, record_methods, record_bases,
                 record_methods_own, module_consts, func_table, class_name,
                 extra_classes, emitted_types, source_path, debug,
-                ctor_fields=ctor_fields)
+                ctor_fields=ctor_fields, base_ctor_len=_base_ctor_len)
         out.append(f'    .maxstack {max(8, init_maxstack or 8)}')
         if init_locals:
             out.append(init_locals)

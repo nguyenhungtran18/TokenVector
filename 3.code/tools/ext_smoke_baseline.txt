@@ -1,4 +1,4 @@
-﻿inference = KNOWN_FAIL:class 'ExecutionGraph': field 'dim_params' kieu container ('dict[str,l
-data_lib = KNOWN_FAIL:class 'Schema': field 'fields' kieu container ('list[Field]') CHUA duo
-data_core = KNOWN_FAIL:class 'Schema': field 'fields' kieu container ('list[Field]') CHUA duo
-data_arr = KNOWN_FAIL:class 'Schema': field 'fields' kieu container ('list[Field]') CHUA duo
+﻿inference = BUILD_OK
+data_lib = BUILD_OK
+data_core = BUILD_OK
+data_arr = BUILD_OK

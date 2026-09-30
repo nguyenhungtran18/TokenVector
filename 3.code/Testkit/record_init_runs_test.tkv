@@ -159,10 +159,18 @@ def calls_own_method() -> "i32":
 
 
 def inheritance() -> "i32":
+    """Record KE THUA: `.ctor` base chay (va duoc chay `__init__` base), NHUNG
+    than `__init__` cua class con thi BI BO QUA.
+
+    Ly do: tham so `.ctor` cua class con la [field base..., field rieng...],
+    con `__init__` cua class con chi khai field RIENG - hai danh sach lech
+    nhau, nen neu chay than no thi no se doc SAI tham so (o day `q` se nhan
+    gia tri cua `p`). Compiler chon bo qua hon la bien dich sai am tham.
+    """
     total = 0
     d = Derived(3, 3)
     total += check("field cua base (qua __init__ base)", str(d.p), "103")
-    total += check("field rieng", str(d.q), "6")
+    total += check("field rieng: __init__ con bi bo qua", str(d.q), "3")
     return total
 
 

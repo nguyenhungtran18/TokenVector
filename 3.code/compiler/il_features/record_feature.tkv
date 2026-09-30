@@ -210,8 +210,21 @@ def codegen_attr_assign(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_f
         # Field CONTAINER (2026-08-03): gan lai ca doi tuong container.
         # Round 3 (2026-08-19): shape-string convention khi gan list-literal
         # long nhau vao field ('self.m = [[1,2],[3,4]]').
-        ctx['compile_expr'](stmt['value_node'], scope, body,
-                            _value_dtype_spec_for_ta(field_dtype, stmt['value_node']), ctx)
+        # 2026-09-29: `self.X = {}` - node `('dict_empty',)` KHONG co gi de
+        # suy kieu `dict[K, V]` tu ban than no (chi biet mot gia tri, khong
+        # biet khoa), nhung tai day thi CO - `field_dtype` la spec day du cua
+        # field. Nen newobj truc tiep thay vi compile_expr (doan sai spec se
+        # sinh Container kieu sai, bao loi "List phan tu kieu ...").
+        _vnode = stmt['value_node']
+        if (isinstance(_vnode, tuple) and len(_vnode) == 1 and _vnode[0] == 'dict_empty'):
+            # dung `il_type_str` (nhu dong `stfld` ngay duoi) vi no doc duoc
+            # container LONG nhau (`dict[i64,list[f32]]`) - `il_container_
+            # type_of_spec` chi lay spec chuoi va se bao "List phan tu kieu...".
+            body.append('    newobj instance void '
+                        f'{ctx["il_type_str"](field_dtype, records)}::.ctor()')
+        else:
+            ctx['compile_expr'](_vnode, scope, body,
+                                _value_dtype_spec_for_ta(field_dtype, _vnode), ctx)
         owner = _field_owner_class(ctx, obj_ta.dtype, field_name)
         body.append(f'    stfld {ctx["il_type_str"](field_dtype, records)} '
                     f'{owner}::{ctx["il_ident"](field_name)}')
