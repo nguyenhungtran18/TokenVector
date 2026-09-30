@@ -814,6 +814,25 @@ def try_parse_try(line, lines, pos, indent_level, sig, known_shapes, parse_block
             "il_codegen: 'break'/'continue' trong 'else' cua 'try' KHONG co 'finally' "
             "chua duoc ho tro - CIL khong cho phep 'br' thuan thoat khoi vung .try "
             "bao vuc cua finally (chi 'leave' duoc phep)")
+    if finally_body is not None and _contains_break_continue(body):
+        # (2026-09-30) Do bang probe doi chieu CPython: `break` trong THAN TRY
+        # khi co 'finally' Bien dich THANH CONG nhung sinh IL SAI ->
+        # chay thi nem `InvalidProgramException: Common Language Runtime
+        # detected an invalid program`. Python tra ket qua dung
+        # (3 vong lap chay roi break o i==2, finally chay 3 lan).
+        #
+        # Ly do giong 'else' o tren: than 'try' nam trong vung .try bao vuc
+        # cua finally, nen `br` thuan cua 'break' se thoat khoi no. Cac
+        # guard ben tren chi chan break trong `finally` va trong `else`, CHUA
+        # chan thang nay - va thang nay KHONG bi bao loi khi bien dich, chi
+        # sup luc chay, nen an toan hon la phai chan.
+        raise SyntaxError(
+            "il_codegen: 'break'/'continue' trong than 'try' khi co 'finally:' "
+            "chua duoc ho tro - CIL khong cho phep 'br' thuan thoat khoi vung .try "
+            "bao vuc cua finally (chi 'leave' duoc phep). Truoc khi chan, truong "
+            "hop nay sinh IL khong hop le va nem InvalidProgramException LUC CHAY. "
+            "Cach vong: bo 'finally' (chay lenh can don giu ben trong try), hoac "
+            "dung co that kiem tra roi 'break' o NGOAI vong lap.")
     return {'kind': 'try', 'body': body, 'handlers': handlers,
             'handler_vars': handler_vars, 'finally_body': finally_body,
             'else_body': else_body}, pos

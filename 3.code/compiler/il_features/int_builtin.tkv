@@ -59,6 +59,23 @@ def _float_literal_in(node):
     return False
 
 
+def _int_literal_value(args):
+    """Gia tri cua `int(<chuoi literal>)` neu CHAC CHAN la so nguyen, neu
+    khong thi None. Tach rieng de dung chung cho ca phep kiem i32 va i64."""
+    if len(args) != 1:
+        return None
+    a = args[0]
+    if not (isinstance(a, tuple) and a[0] == 'str_lit'):
+        return None
+    text = str(a[1]).strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+        text = text[1:-1]
+    try:
+        return int(text.strip(), 10)
+    except (TypeError, ValueError):
+        return None
+
+
 def _int_literal_fits_i32(args):
     """True neu `int(<chuoi literal>)` CHAC CHAN vua int32 - khi do giu
     nguyen Int32.Parse (khong doi hanh vi hien co).
@@ -112,6 +129,14 @@ def _int_return_dtype(args, scope, func_table):
     """
     if _int_literal_fits_i32(args):
         return 'i32'
+    # (2026-09-30) Vuot Int64 thi phai dung BigInteger (TkvInt), KHONG phai
+    # Int64::Parse. `int("123456789012345678901234567890")` truoc day sinh
+    # `Int64::Parse` nen CHAY THI nem OverflowException - "khong gia tri
+    # chua"? Python int vo han chu so nen tra dung ket qua. Gia tri la
+    # LITERAL nen biet CHAC CHAN tai compile-time: khong can doan.
+    _v = _int_literal_value(args)
+    if _v is not None and not (-9223372036854775808 <= _v <= 9223372036854775807):
+        return 'int'
     return 'i64'
 
 

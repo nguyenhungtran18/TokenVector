@@ -33,15 +33,26 @@ import re
 from il_dispatch import register_macro_expander
 
 _FSTRING_RE = re.compile(r'f"([^"]*)"')
-_FSTRING_VAR_RE = re.compile(r'\{(\w+)(:\.(\d+)f)?\}')
+_FSTRING_VAR_RE = re.compile(r'\{(\w+)(:([^}]*))?\}')
+_ANY_BRACE_RE = re.compile(r'\{[^}]*\}')
 
 
 def _fstring_to_concat_expr(content: str) -> str:
     """'Hello {name}, gia {price:.2f}' -> '("Hello " + str(name) + ", gia " + fmt_float(price, 2))'.
     Phan van ban RONG (lien tiep 2 '{var}' hoac o dau/cuoi) duoc BO QUA
     (khong noi '"" + ...' thua). _FSTRING_VAR_RE.split voi 3 group tra
-    ve list [literal, var, full_spec_or_None, precision_or_None, literal, ...]
-    - buoc 3 phan tu 1 ('var','full_spec','precision') cho MOI lan khop."""
+    ve list [literal, var, full_spec_or_None, spec_or_None, literal, ...]
+    - buoc 3 phan tu 1 ('var','full_spec','spec') cho MOI lan khop.
+
+    MOI PHAN 2 (2026-09-30): regex truoc chi khop `{var}` va `{var:.Nf}` nen
+    bat ky spec nao khac - `{n:05d}`, `{n:x}`, `{n:+}` - KHONG KHop, ca
+    f-string duoc giu nguyen va phat ra NGUYEN VAN. `f"{n:05d}"` in ra chuoi
+    `"{n:05d}"` - sai am tham, khong bao gi. Nay:
+      - khop ca spec va chuyen sang `fmt_num(var, "spec")` (xem string_builtin's
+        compile_fmt_num, tu dich spec Python sang .NET),
+      - va BAO LOI ro neu con `{...}` nao khong khop (bieu thuc phuc tap,
+        spec la bien, spec chua ho tro...) thay vi bo qua.
+    """
     pieces = _FSTRING_VAR_RE.split(content)
     parts = []
     i = 0
@@ -51,12 +62,23 @@ def _fstring_to_concat_expr(content: str) -> str:
             parts.append(f'"{literal}"')
         if i + 1 >= len(pieces):
             break
-        var_name, precision = pieces[i + 1], pieces[i + 3]
-        if precision is not None:
-            parts.append(f'fmt_float({var_name}, {precision})')
-        else:
+        var_name, spec = pieces[i + 1], pieces[i + 3]
+        if spec is None:
             parts.append(f'str({var_name})')
+        elif re.match(r'^\.\d+f$', spec):
+            parts.append(f'fmt_float({var_name}, {spec[1:-1]})')
+        else:
+            parts.append(f'fmt_num({var_name}, "{spec}")')
         i += 4
+    # phan con lai khong khop regex bien dich: phai bao loi, KHONG bo qua
+    joined = _FSTRING_VAR_RE.sub('', content)
+    left = _ANY_BRACE_RE.findall(joined)
+    if left:
+        raise SyntaxError(
+            "il_codegen: f-string co phan khong phai '{bien}' hoac '{bien:spec}': "
+            + ', '.join(left) + ". Ho tro '{ten_bien}' va '{ten_bien:spec}' voi "
+            "spec la LITERAL (vd '2f', '05d', 'x', '+d'). Bieu thuc phuc tap "
+            "trong {} va spec chua ho tro deu bi tu choi ro rang.")
     if not parts:
         return '""'
     return '(' + ' + '.join(parts) + ')'

@@ -10,6 +10,8 @@ muc 3.2. Ke ca cac ham phu chi phuc vu rieng str() (_is_bool_shaped,
 _str_of_slot, _temps_str_builtin) cung chuyen theo - chung KHONG duoc
 dung boi 4 ham con lai o string_feature.py (da xac minh qua grep truoc
 khi tach, xem task-8-report.md)."""
+import re
+
 from il_core import IL_SCALAR
 from il_dispatch import register_expr_builtin, EXPR_BUILTIN_TEMPS
 
@@ -365,5 +367,117 @@ def compile_fmt_float(args, scope, out, dtype, ctx):
                 '::ToString(string, class [mscorlib]System.IFormatProvider)')
 
 
+def compile_fmt_num(args, scope, out, dtype, ctx):
+    """Nhanh 'fmt_num(x, "spec")' - dinh dang so bang format string cua .NET.
+
+    Dung cho f-string voi spec DANG SO NGUYEN va cac spec float khac `.Nf`
+    (2026-09-30). Truoc day f-string CHI ho tro `{var}` va `{var:.Nf}`; moi
+    spec khac - `{n:05d}`/`{n:x}`/`{n:+}` - KHONG KHOP regex nen ca f-string
+    bi giu nguyen va phat ra NGUYEN VAN, ton tai nhu `f"{n:05d}"` in ra
+    chuoi `"{n:05d}"`. Do la sai am tham: xem muc 3.3 cua
+    `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md`.
+
+    'spec' phai la LITERAL chuoi tai compile-time. Translate spec cua Python
+    sang cua .NET:
+      - `0<rong><type>` -> `0` lap `width` lan + type (zero-pad)
+      - khac: truyen nguyen cho .NET
+    Spec co can THANG ('>6', '<6', '^6') hoac phan tach nhom (',') thi KHONG
+    translate duoc - nem loi ro, khong bo qua.
+    """
+    if len(args) != 2:
+        raise SyntaxError('il_codegen: fmt_num(x, spec) can dung 2 tham so')
+    arg, spec_node = args
+    if arg[0] != 'var':
+        raise SyntaxError(
+            "il_codegen: fmt_num() hien CHI ho tro 1 BIEN don (vd fmt_num(n, 'x'))")
+    if spec_node[0] != 'str_lit':
+        raise SyntaxError(
+            "il_codegen: fmt_num(x, spec) - 'spec' phai la LITERAL chuoi tai "
+            "compile-time, khong ho tro bien dong")
+    raw = spec_node[1][1:-1]
+    netspec = _py_spec_to_net(raw)
+    var_kind, var_idx, var_ta = scope[arg[1]]
+    int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+    if var_ta.dtype not in (int_dtypes | float_dtypes) or var_ta.shape is not None:
+        raise SyntaxError(
+            f"il_codegen: fmt_num() chi nhan bien so vo huong (f32/f64/i32/i64), "
+            f"'{arg[1]}' khong hop le (dtype={var_ta.dtype}, shape={var_ta.shape})")
+    addr_op = 'ldarga.s' if var_kind == 'arg' else 'ldloca.s'
+    out.append(f'    {addr_op} {var_idx}')
+    out.append(f'    ldstr "{netspec}"')
+    out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+               '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+    out.append(f'    call instance string {IL_SCALAR[var_ta.dtype]}'
+               '::ToString(string, class [mscorlib]System.IFormatProvider)')
+
+
+def _py_spec_to_net(raw):
+    """Format spec cua Python -> chuoi format cua .NET (hoac nem loi).
+
+    PHAI PHAI BIET PHAI BIET: .NET tach 2 loai format:
+      - CHUOI CHUONG 1 KY TU ('d','x','X','o','b','e','E','f','g','G','n'):
+        .NET hieu la format CHUAN va KHONG phan biet hoa/thuong. Truyen
+        thang cho khop Python (`f"{n:x}"` -> "2a", `f"{n:X}"` -> "2A").
+      - CHUOI DAU (nhieu ky tu): la CUSTOM, CHI co `0` `#` `.` `,` `%` va
+        dau +/- la ky dac biet - MOI KY TU CHU CAI LA CHUOI THUONG! Nen
+        "00000d" cho ra "000042d" (co ky tu 'd' thua) chu khong phai "00042".
+    Do do:
+      - `0<width>d`  -> "0"*width            (chi con cho so nguyen duong)
+      - `+d` / `+0d` -> "+0"                 (dau '+' la ky tu thuong)
+      - `+<0w>d`     -> "+" + "0"*w
+      - radix co them 0/can -> nem loi, vi .NET KHONG tron custom format
+        voi chuyen he co so (dang chuan 'X' lai khong tinh duoc '0').
+    """
+    if raw == '':
+        raise SyntaxError(
+            "il_codegen: f-string co format spec rong ':}' - bo qua dau ':'")
+    if ',' in raw:
+        raise SyntaxError(
+            f"il_codegen: f-string spec '{raw}' - dau ',' (tach nhom nghien da) "
+            f"chua duoc ho tro; bo qua 'neu dung de tach nhom")
+    if any(c in raw for c in '><^'):
+        raise SyntaxError(
+            f"il_codegen: f-string spec '{raw}' - can THANG ('>','<','^') chua "
+            f"duoc ho tro. Dung '0<width>d' de them so 0, vd '{{n:05d}}'")
+    # Chuoi chuan 1 ky tu: chi nhung gi .NET That SU chap nhan. Do kiem
+    # truc tiep tren may nay (Int64 42 .ToString(f, InvariantCulture)):
+    #   d/D -> 42      x -> 2a      X -> 2A
+    #   b/B -> LOI     o/O -> LOI   (khong ton tai o .NET)
+    #   n/N -> "42.00" (SAI voi so nguyen - tra ve dang tien thap phan)
+    # Nen 'b'/'o' va 'n' tren so nguyen phai bao loi, khong duoc bo qua.
+    if raw in ('d', 'D', 'x', 'X'):
+        return raw
+    if raw in ('b', 'B', 'o', 'O'):
+        raise SyntaxError(
+            f"il_codegen: f-string spec '{raw}' chua duoc ho tro - .NET khong co "
+            f"format chuyen he co so nay (Int64.ToString('{raw}') nem "
+            f"FormatException). Python co, TokenVector chua.")
+    if raw in ('n', 'N'):
+        raise SyntaxError(
+            f"il_codegen: f-string spec '{raw}' tren bien so nguyen chua duoc ho "
+            f"tro - .NET tra '42.00' cho so nguyen (sai). Bo qua.")
+    # so nguyen co dau: chi custom '0' + dau
+    m = re.match(r'^([+ ])0?(\d*)d$', raw)
+    if m:
+        sign, width = m.group(1), m.group(2)
+        w = int(width) if width else 1
+        return sign + '0' * w
+    # khong dau, chi zero-pad
+    m = re.match(r'^0(\d*)d$', raw)
+    if m:
+        width = m.group(1)
+        return '0' * (int(width) if width else 1)
+    # do chinh xac cua float
+    if re.match(r'^\.\d+[fFeEgG]$', raw) or re.match(r'^[fFeEgG]$', raw):
+        return raw
+    raise SyntaxError(
+        f"il_codegen: f-string spec '{raw}' chua duoc ho tro. Ho tro: "
+        f"'d','x','X' (chuoi chuan 1 ky tu), '.Nf' va 'N' (do chinh xac, vd "
+        f"'2f'), zero-pad dang '05d', va dau '+'/' ' truoc 'd'. Cac dang khac - "
+        f"'b'/'o' (khong co trong .NET), 'n' tren so nguyen, do rong co khoang "
+        f"trang (vd '5d', '>6'), tach nhom (',') - phai bao loi ro")
+
+
 register_expr_builtin('str', compile_str_builtin, 'str')
 register_expr_builtin('fmt_float', compile_fmt_float, 'str')
+register_expr_builtin('fmt_num', compile_fmt_num, 'str')

@@ -1,6 +1,6 @@
 # BẢNG SO SÁNH ĐO ĐẠC: TOKENVECTOR VS CPYTHON 3.12
 
-> **Ngày đo**: 2026-09-30 (đo lần 3) · **Cổng lúc đo**: 99/99 + negative 17/17
+> **Ngày đo**: 2026-09-30 (đo lần 3) · **Cổng lúc đo**: 100/100 + negative 19/19
 > **Cách đo**: `tools/parity_probe/` — 119 phép thử chạy song song trên cả hai
 > bên, in ra cùng một danh sách nhãn, máy so từng dòng.
 > Chạy lại: `powershell -File tools\parity_probe\run.ps1`
@@ -151,7 +151,46 @@ nhiều lớp (ASCII / 2 byte / 3 byte / 4 byte), và phải phân biệt "ký t
 hiển thị trên console" với "chương trình trả sai" — tôi từng đọc ký tự console
 hỏng thành bug rồi báo bạn rằng cắt chuỗi đa byte hỏng, hoàn toàn sai.
 
-### 3.4 Còn lệch, đã đo, **quyết định không sửa**
+### 3.4 Vòng đo 12 miền chưa có phép thử — tìm 3 lỗi, đã sửa
+
+Mọi phép thử trước đều tập trung vào thư viện `num`. Vòng này dựng probe cho 12
+miền **chưa từng** có phép thử nào, mỗi miền một cặp file `.tkv`/`.py` chạy
+độc lập.
+
+**Ba lỗi thật:**
+
+| Lỗi | CPython | TokenVector (trước) | Nguyên nhân gốc |
+|---|---|---|---|
+| f-string với spec dạng số nguyên | `"00042"` | in ra chuỗi `"{n:05d}"` | Regex `\{(\w+)(:\.(\d+)f)?\}` chỉ khớp `{var}` và `{var:.Nf}`; spec khác **không khớp** nên cả f-string thành chuỗi thường và được phát nguyên văn |
+| `int("123456789012345678901234567890")` | đúng số | **ném `OverflowException` lúc chạy** | Suy ra `i64` rồi emit `Int64::Parse`; giá trị là literal nên biết chắn vượt Int64 ngay lúc biên dịch — nay đi đường `TkvInt` (BigInteger) |
+| `break` trong thân `try` khi có `finally` | `3` | **ném `InvalidProgramException` lúc chạy** | `br` thuần thoát khỏi vùng `.try` bảo vệ của `finally`; các guard sẵn chỉ chặn `break` trong `finally` và trong `else` |
+
+Sau khi sửa: f-string hỗ trợ `d`/`x`/`X`, zero-pad `05d`, dấu `+`, `.Nf` — **khớp
+CPython 7/7**; `int` vô hạn khớp 5/5; `break` trong `try`+`finally` báo lỗi biên
+dịch rõ.
+
+Đáng chú ý: khi dịch spec sang .NET tôi **đo trực tiếp trên máy** trước khi viết
+code — `Int64(42).ToString(f)` cho `b`/`o` là **lỗi** (không tồn tại ở .NET), `n`
+cho số nguyên ra `"42.00"`. Chỉ dựa vào trí nhớ về .NET thì đã viết sai (`00000d`
+ra `000042d`, vì chuỗi custom của .NET coi chữ cái là ký tự thường).
+
+**Tìm thêm 8 tính năng thiếu** (báo lỗi rõ, không im lặng):
+
+| Tính năng | Tình trạng |
+|---|---|
+| `with` statement | Không có |
+| `sorted()` | Không có (chỉ `list.sort()` tại chỗ) |
+| `max`/`min`/`sum` với `key=` | Không có (không có tham số từ khoá) |
+| `del` trên lát `del xs[1:3]` | Không có |
+| `def` lồng trong hàm | Không có |
+| `class` lồng trong hàm | Không có |
+| Generator trả giá trị qua `return` | Không có |
+| `datetime`, `Decimal` | Không có |
+
+**Khớp rồi (trước đây chưa biết):** `try` lồng nhau, `round(x, n)`, so sánh
+chained `1 < x < 3`, `xs[0] += 10`, `if` có `finally` không `break`.
+
+### 3.5 Còn lệch, đã đo, **quyết định không sửa**
 
 | Mục | CPython | TokenVector | Vì sao không sửa |
 |---|---|---|---|
