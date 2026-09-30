@@ -36,9 +36,12 @@
 - **Class Members**: Must be declared as typed fields at the class body level before `__init__`.
   - `__init__` must take exactly the declared fields; `Stub()` with a `value` field fails.
   - `__eq__`, `__lt__`, `__gt__` and friends must be annotated `-> "i32"` (or `"bool"`).
-  - **`__lt__`/`__gt__` on records are currently broken** — they return a constant
-    and discard your method body. `__eq__` is fine. Pinned in
-    `Testkit/bool_type_test.tkv`; see `docs/REPOSITORY-NOTES.md`.
+  - **Methods must be indented inside the class body.** A dunder defined at module
+    level (unindented) is silently *not registered*, so `a == b` falls back to
+    reference comparison and `a < b` reports a misleading "record has no
+    `__lt__`" error. This cost me a false bug report — `__eq__`/`__lt__`/`__gt__`
+    on records all work correctly (verified 2026-09-30, pinned in
+    `Testkit/rec_tuple_mb_test.tkv`). See `Testkit/record_lt_test.tkv`.
 - **Identity**: `is` / `is not` exist. Containers compare by reference (correct
   for this runtime — .NET `List<T>` does not override `==`). Scalars and strings
   compare by *value*, because an unboxed scalar has no object identity; this is

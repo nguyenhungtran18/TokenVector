@@ -63,6 +63,30 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
         raise SyntaxError("il_codegen: str() chi nhan dung 1 tham so")
     arg = args[0]
     int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+    # (2026-09-30) HINH DANG khong phai kieu - dung truoc moi nhanh scalar.
+    #
+    # `_infer_dtype` CHI tra DTYPE, khong tra shape. Ma `list[int]` va
+    # `t = (5, 7)` deu mang dtype 'int' (dtypes[0] cua container), nen nhanh
+    # 'int' ben duoi uong `str(x)` coi do la TkvInt va goi `TkvInt.Str` -
+    # ham do doc 4 byte DAU TIEN cua struct nen:
+    #   - tuple   -> tra ve PHAN TU DAU: `t = (5, 7); str(t)` ra "5",
+    #                con Python ra "(5, 7)". Bo mat 7 ma KHONG BAO GI.
+    #   - list[int] -> nem InvalidCastException luc chay
+    #                (`str(xs)` tren list[int] - nem loi bien dich).
+    # Cai sau cung im lang, chi khac la no SAP nhat thay vi doc sai.
+    #
+    # SAI AM THAM nen sua thanh BAO LOI: moi duong rut gon scalar ben duoi
+    # deu phai kiem `shape is None` truoc khi dung.
+    _arg_shape = None
+    if (isinstance(arg, tuple) and arg and arg[0] == 'var'
+            and arg[1] in scope):
+        _arg_shape = scope[arg[1]][2].shape
+    if _arg_shape == 'tuple':
+        raise SyntaxError(
+            f"il_codegen: str() khong ho tro bien tuple ('{arg[1]}') - "
+            f"TokenVector khong co ban 'str' cho tuple, va im lang in ra PHAAN "
+            f"TU DAU se ra so sai. Python in ra ca tuple. Neu can noi cac "
+            f"phan tu, tu noi bang `+`.")
     if _is_bool_shaped(arg, ctx):
         # 2026-09-30: bien dang GIU boolean phai in "True"/"False" nhu Python
         # (`t = 1 > 0; str(t)`), bat ke duong nao ben duoi se xu ly no
@@ -76,10 +100,13 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
         else:
             ctx['compile_expr'](arg, scope, out, 'i32', ctx)
         return _tkvstr.emit_to_str('bool', out, ctx)
-    if ctx['infer_dtype'](arg, scope, ctx.get('func_table')) == 'int':
+    if ctx['infer_dtype'](arg, scope, ctx.get('func_table')) == 'int' \
+            and _arg_shape is None:
         # Kieu 'int' (vo han chu so) - Str() la STATIC nhan gia tri nen
         # KHONG vuong han che "phai co dia chi" cua ToString() o duoi:
         # 'str(a * b)' chay duoc thang, khong can local an.
+        # `_arg_shape is None`: container cung mang dtype 'int' - xem ghi chu
+        # o tren, khong thi `str(list[int])` nem InvalidCastException luc chay.
         import il_features.int_type as _int_type
         return _int_type.compile_str_of_int(arg, scope, out, ctx)
     if arg[0] != 'var':
@@ -98,7 +125,8 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
         _d = (ctx['infer_dtype'](arg, scope, ctx.get('func_table'), ctx.get('records'),
                                   ctx.get('record_methods'))
               or ctx.get('infer_literal_dtype', lambda n: None)(arg))
-        if _d in ('i32', 'i64', 'f32', 'f64', 'str', 'complex'):
+        if _d in ('i32', 'i64', 'f32', 'f64', 'str', 'complex') \
+                and _arg_shape is None:
             ctx['compile_expr'](arg, scope, out, _d, ctx)
             if _d == 'i32' and _is_bool_shaped(arg, ctx):
                 return _tkvstr.emit_to_str('bool', out, ctx)

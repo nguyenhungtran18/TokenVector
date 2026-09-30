@@ -5948,6 +5948,31 @@ def _retype_family(d):
     return None
 
 
+def _rhs_is_str(rhs, scope):
+    """True CHI khi ve phai CHAC CHAN la chuoi - literal chuoi, hoac bien da
+    khai kieu 'str'. KHONG suy rong qua `_infer_dtype`: bieu thuc do macro
+    sinh co the bi suy sai (xem ghi chu tai noi dung goi)."""
+    if not (isinstance(rhs, tuple) and rhs):
+        return False
+    if rhs[0] == 'str_lit':
+        return True
+    if rhs[0] == 'var' and len(rhs) > 1 and rhs[1] in scope:
+        return scope[rhs[1]][2].dtype == 'str'
+    return False
+
+
+def _rhs_is_int(rhs, scope):
+    """True CHI khi ve phai CHAC CHAN la so - hang so nguyen, hoac bien da
+    khai kieu i32/i64/int. Xem `_rhs_is_int` de biet vi sao khong suy rong."""
+    if not (isinstance(rhs, tuple) and rhs):
+        return False
+    if rhs[0] == 'num':
+        return True
+    if rhs[0] == 'var' and len(rhs) > 1 and rhs[1] in scope:
+        return scope[rhs[1]][2].dtype in (_INT_DTYPES | {'int'})
+    return False
+
+
 def _check_list_retype(name: str, var_ta, elem_nodes, scope, ctx):
     """BUG-3 guard (a), 2026-09-20: local khai shape='list' PHAN TU
     int-family, gan lai bang list_literal co phan tu FLOAT -> SyntaxError
@@ -5990,8 +6015,35 @@ def _stmt_assign_scalar(stmt, scope: _Scope, body: list, body_dtype: str, ctx: d
         if _contains_float_literal(rhs):
             raise SyntaxError(
                 f"il_codegen: gan lai bien {name!r} kieu {var_ta.dtype!r} bang "
-                f"bieu thuc chua so thuc - 1 local giu 1 kieu duy nhat, dung "
+                f"bieu thuc chua so thuc - 1 local giu 1 kieu duy nhất, dung "
                 f"bien moi kieu f32/f64 hoac ep kieu ro rang")
+        # (2026-09-30) Gan chuoi vao local so: TRUOC DAY im lang cho ra
+        # CHUOI RONG. `x = 1` roi `x = "abc"` bien dich XANH, chay XANH, exit
+        # code 0, nhung `str(x)` in ra "" - mat hoan toan gia tri. Bien dich
+        # noi dung `str` vao local i32 nen lenh `ldstr` day gia tri khong
+        # phu hop vao slot 4 byte, doc ra rong. Python gan lai duoc tu do.
+        #
+        # CHI chan khi CHAC CHAN la chuoi (literal `str_lit`, hoac bien da
+        # khai kieu str). KHONG dung `_infer_dtype` de suy rong: bieu thuc do
+        # MACRO sinh (vd `for v in s:` -> `v = s.to_list()[i]`) co suy kieu
+        # theo duong khac va se bi bat nhầm - da xay ra voi
+        # Testkit/set_iteration_test.tkv.
+        if _rhs_is_str(stmt['rhs_node'], scope):
+            raise SyntaxError(
+                f"il_codegen: gan lai bien {name!r} (khai kieu {var_ta.dtype!r}) "
+                f"bang bieu thuc chuoi - 1 local giu 1 kieu duy nhất. Truoc day "
+                f"truong hop nay bien dich va chay XANH nhung doc ra CHUOI "
+                f"RONG (mất gia tri, không báo lỗi). Python cho phép đổi kiểu "
+                f"động: dùng biến riêng cho chuỗi.")
+    if kind == 'local' and var_ta.shape is None and var_ta.dtype == 'str':
+        # (2026-09-30) Thông điệp rõ hơn cho `s = "ab"` rồi `s = 3`: trước đây
+        # báo "literal '3' không dùng được với dtype 'str'" - trỏ sang dạng
+        # literal trong khi vấn đề là đổi kiểu của biến.
+        if _rhs_is_int(stmt['rhs_node'], scope):
+            raise SyntaxError(
+                f"il_codegen: gan lai bien {name!r} (khai kieu 'str') bang bieu "
+                f"thuc kiểu so - 1 local giu 1 kieu duy nhất. Python cho phép "
+                f"đổi kiểu động, nên hãy dùng biến riêng cho số.")
     if kind == 'global':
         # Bien module-level GHI DUOC ('global x', 2026-08-11) - ghi qua
         # '.field private static' cua class chuong trinh (stsfld), khong

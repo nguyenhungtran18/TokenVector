@@ -12,10 +12,110 @@ from il_core import emit_index_value
 from il_dispatch import register_expr_codegen
 
 
+# Escape Python giai ma O DAY chu khong dua cho ilasm - xem `_decode_escapes`.
+_ESC_SIMPLE = {'n': chr(10), 'r': chr(13), 't': chr(9), 'a': chr(7), 'b': chr(8),
+              'f': chr(12), 'v': chr(11), chr(92): chr(92), chr(34): chr(34),
+              chr(39): chr(39), '0': chr(0)}
+
+
+def _escape_for_ldstr(s):
+    r"""Chuoi DA giai ma -> dang literal IL hop le: giu tren 1 dong, escape dau
+    nhay kep va backslash.
+    Ky tu dieu khien con lai (vd 0x01) co THE dua thang vao chuoi: .NET `ldstr`
+    nhan ky tu thoi tho, va `TokenVector.Data` dung byte 0x01 lam dau phan cach
+    field nen no phai la byte THAT. Khong dung `\uXXXX`: do la do (2026-09-30) ilasm
+    co doc `\u0001` ra 5 ky tu ("0001") chu khong doi thanh byte - do la chinh xac
+    lo hong du lieu ma khoi giai ma escape nay phai sua."""
+    tbl = {chr(10): '\\n', chr(13): '\\r', chr(9): '\\t', chr(34): '\\"', chr(92): '\\\\'}
+    out = []
+    for ch in s:
+        if ch in tbl:
+            out.append(tbl[ch])
+        else:
+            out.append(ch)
+    return ''.join(out)
+
+
+def _decode_escapes(lit):
+    r"""Giai ma escape cua chuoi theo DUNG quy tac Python, roi tra ve literal
+    IL da an toan.
+
+    LY DO TON TAI (2026-09-30): truoc day noi dung chuoi duoc day NGUYEN VAN
+    cho `ldstr` va giao cho ilasm tu giai ma escape. Do do hành vi escape do
+    ILASM quyet dinh chu khong phai Python, va chung LECH:
+      - \xNN        ilasm bo dau \   -> chuoi "x41" thay vi "A"
+      - \UNNNNNNNN  ilasm bo dau \   -> "U0001F600" thay vi emoji
+      - escape la \q bi BO MAT dau \  (Python GIU: ra "\q")
+
+    Khong chi lech kien thuc - con HONG DU LIEU that. `TokenVector.Data` dung
+    `"\x01"` lam DAU PHAN CACH truong khi ghep group key. Vi khong duoc giai
+    ma, chuoi do la 4 ky tu "\x01" chu khong phai byte 0x01. Hai ben deu vay
+    nen test van xanh, NHUNG mot o du lieu co chuoi "\x01" se bi cat nham sai.
+    Do do phai giai ma o DAY, khong dua cho ilasm.
+    """
+    body = lit[1:-1] if lit[:1] == '"' else lit
+    out = []
+    i = 0
+    n = len(body)
+    while i < n:
+        ch = body[i]
+        if ch != '\\':
+            out.append(ch)
+            i += 1
+            continue
+        if i + 1 >= n:
+            raise SyntaxError(
+                "il_codegen: chuoi ket thuc bang dau '\\' - escape bi cut")
+        e = body[i + 1]
+        if e in _ESC_SIMPLE:
+            out.append(_ESC_SIMPLE[e])
+            i += 2
+            continue
+        if e == 'x':
+            hexs = body[i + 2:i + 4]
+            if len(hexs) < 2 or any(c not in '0123456789abcdefABCDEF' for c in hexs):
+                raise SyntaxError(
+                    "il_codegen: escape '\\x' trong chuoi can DU 2 chu so hex "
+                    "(vd '\\x41')")
+            out.append(chr(int(hexs, 16)))
+            i += 4
+            continue
+        if e in 'uU':
+            k = 4 if e == 'u' else 8
+            hexs = body[i + 2:i + 2 + k]
+            if len(hexs) < k or any(c not in '0123456789abcdefABCDEF' for c in hexs):
+                raise SyntaxError(
+                    "il_codegen: escape '\\%s' trong chuoi can %d chu so hex"
+                    % (e, k))
+            cp = int(hexs, 16)
+            if 0xD800 <= cp <= 0xDFFF:
+                raise SyntaxError(
+                    "il_codegen: escape '\\%s%s' tro vao dau codepoint 0xD800-0xDFFF "
+                    "- danh rieng cho surrogate, khong phai ky tu hop le"
+                    % (e, hexs))
+            out.append(chr(cp))
+            i += 2 + k
+            continue
+        if e in '01234567':
+            j = i + 1
+            octs = ''
+            while j < n and len(octs) < 3 and body[j] in '01234567':
+                octs += body[j]
+                j += 1
+            out.append(chr(int(octs, 8) & 0xFF))
+            i = j
+            continue
+        # Escape LA: Python giu nguyen dau backslash, khong nem loi.
+        out.append(ch)
+        out.append(e)
+        i += 2
+    return '"' + _escape_for_ldstr(''.join(out)) + '"'
+
+
 def compile_str_lit(node, scope, out, dtype, ctx=None):
     """EXPR_CODEGEN entry TRUC TIEP cho tag 'str_lit' - tach biet hoan
     toan (khong chia se dispatch voi kieu nao khac)."""
-    out.append(f'    ldstr {node[1]}')  # node[1] van con ca dau ngoac kep tu tokenizer
+    out.append(f'    ldstr {_decode_escapes(node[1])}')  # node[1] van con ca dau ngoac kep tu tokenizer
 
 
 def compile_index_str(name, indices, scope, out, ctx):

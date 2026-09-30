@@ -1,6 +1,6 @@
 # BẢNG SO SÁNH ĐO ĐẠC: TOKENVECTOR VS CPYTHON 3.12
 
-> **Ngày đo**: 2026-09-30 (đo lần 2) · **Cổng lúc đo**: 97/97 + negative 15/15
+> **Ngày đo**: 2026-09-30 (đo lần 3) · **Cổng lúc đo**: 99/99 + negative 17/17
 > **Cách đo**: `tools/parity_probe/` — 119 phép thử chạy song song trên cả hai
 > bên, in ra cùng một danh sách nhãn, máy so từng dòng.
 > Chạy lại: `powershell -File tools\parity_probe\run.ps1`
@@ -102,31 +102,65 @@ và hạ chữ `E` cho khớp Python.
 Ba lỗi này ghim bằng `Testkit/parity_div_float_test.tkv` (12 phép) và
 `parity_probe` nhóm 14 (15 phép).
 
-### 3.3 Còn lệch, đã đo, **quyết định không sửa**
+### 3.3 Vòng ra soát thứ 3 — đo lại toàn bộ, tìm 4 lỗi nữa
 
-Các mục này sai lệch thật với CPython. Ghi lại công khai thay vì giấu:
+Vòng trước tôi kết luận từ một số phép đo rời rạc và đã **sai ba lần**. Vòng này
+viết probe chạy song song với CPython trên ~40 phép, tách từng mảng.
+
+**4 lỗi thật, đã sửa (đều là "biên dịch xong, chạy xong, ra sai"):**
+
+| Lỗi | CPython | TokenVector (trước) | Nguyên nhân gốc |
+|---|---|---|---|
+| `str()` trên biến tuple | `"(5, 7)"` | `"5"` | `_infer_dtype` chỉ trả **dtype**, không trả shape. Biến tuple mang dtype của **phần tử đầu** (`int`) → nhánh `if dtype == 'int'` của `str()` gọi `TkvInt.Str`, đọc 4 byte đầu của `ValueTuple` |
+| `str()` trên `list[int]` | `"[1, 2, 3]"` | **sập** `InvalidCastException` lúc chạy | **Cùng một nguyên nhân** — `list[int]` cũng mang dtype `int` |
+| Escape: `\xNN`, `\uNNNN`, `\UNNNNNNNN`, `\0` | `"A"`, `é`, emoji, byte NUL | `"x41"`, `"U0001F600"`, **chuỗi rỗng** | Chuỗi đẩy thẳng ra `ldstr`, **escape do ilasm quyết định chứ không phải Python** |
+| `x = 1` rồi `x = "abc"` | `"abc"` | **chuỗi rỗng**, exit code 0 | `ldstr` đẩy vào slot 4 byte của local i32 |
+
+Escape **không** chỉ lệch nguyên tắc mà còn hỏng dữ liệu thật: `TokenVector.Data`
+dùng `"\x01"` làm **dấu phân cách trường** khi gép group key. Vì ilasm không giải
+mã, chuỗi đó là 4 ký tự `\x01` chứ không phải byte 0x01. Cả hai bên đều vậy nên
+test vẫn xanh — nhưng dữ liệu chứa đúng chuỗi `\x01` sẽ bị cắt nhầm.
+
+Vì vậy cách sửa là **giai mã escape trong compiler theo đúng quy tắc Python** và
+phát ra literal đã an toàn hóa cho `ldstr` — không phải cấm. Sau khi sửa, toàn bộ
+escape khớp CPython; riêng `\U0001F600` cho độ dài **2** vì chuỗi là UTF-16
+(surrogate pair), xem mục 3.4.
+
+Cả 4 lỗi giờ **báo lỗi biên dịch rõ ràng** (nguyên tắc "sai âm thầm nguy hiểm hơn
+lỗi ồn ào"). Ghim bằng `Testkit/negative/str_tuple.tkv`,
+`Testkit/negative/reassign_int_str.tkv`, `Testkit/rec_tuple_mb_test.tkv`,
+`Testkit/str_escape_test.tkv`.
+
+**Sai lần thứ tư — `len()`:**
+
+Bản trước ghi "`len()` đếm byte UTF-8, in `7` cho `Tiếng`". Đo lại bằng **ký tự
+thật** thay vì escape cho thấy: `len("café")` = 4, `len("Tiếng")` = 5, `len("日本語")`
+= 3 — **khớp CPython ở mọi ký tự BMP**. Con số `9` từng gặp là do escape `\U`
+**không được hỗ trợ**: ilasm bỏ dấu `\`, nên chuỗi thành literal `"U0001F600"` — đúng
+9 ký tự.
+
+Chế độ thật là **UTF-16** (`string` của .NET), nên lệch **chỉ ở ký tự ngoài BMP**:
+
+| | CPython | TokenVector |
+|---|---|---|
+| `len("😀")` | 1 | **2** (surrogate pair) |
+| `em[0:1]` với `em = "😀"` | cả ký tự | **nửa surrogate** |
+
+Bài học lặp lại lần nữa: **một phép đo không đủ để kết luận cơ chế.** Phải đo
+nhiều lớp (ASCII / 2 byte / 3 byte / 4 byte), và phải phân biệt "ký tự hỏng khi
+hiển thị trên console" với "chương trình trả sai" — tôi từng đọc ký tự console
+hỏng thành bug rồi báo bạn rằng cắt chuỗi đa byte hỏng, hoàn toàn sai.
+
+### 3.4 Còn lệch, đã đo, **quyết định không sửa**
 
 | Mục | CPython | TokenVector | Vì sao không sửa |
 |---|---|---|---|
-| `len()` / cắt chuỗi với ký tự **ngoài BMP** (emoji, 4 byte) | đếm/slice theo codepoint | `len("😀")` = **9** (Python: 1) | Chỉ sai ở ký tự 4 byte. Mọi ký tự BMP — ASCII, tiếng Việt có dấu, CJK — đều **khớp chính xác** |
-| `1.0 / 0.0` | `ZeroDivisionError` | `inf` | Theo IEEE như C/NumPy/JS. Ném lỗi sẽ tốn một nhánh trên phép chia nóng — không đáng |
+| Ký tự **ngoài BMP** (emoji, 4 byte) | đếm/slice theo codepoint | UTF-16: `len("😀")` = 2, cắt chuỗi tách đôi surrogate | Đổi sang codepoint là **thay đổi kiến trúc** (`string` .NET là UTF-16), không phải sửa bug. Mọi ký tự BMP đều đúng |
+| Gán số nguyên vào biến đã khai `f64` | `2` | `2.0` | Hệ quả của "1 local giữ 1 kiểu": giá trị được widen một chiều |
+| `a <= b` trên record khi chỉ có `__lt__` | `TypeError` | dùng `__lt__` | TokenVector permissive hơn Python — ngược hướng với các lỗi trên |
+| `1.0 / 0.0` | `ZeroDivisionError` | `inf` | Theo IEEE như C/NumPy/JS. Ném lỗi sẽ tốn một nhánh trên phép chia nóng |
 | `1.0 % 0.0` | `ZeroDivisionError` | `nan` | Như trên |
 | `str(-0.0)` viết thẳm | `'-0.0'` | `'0.0'` | **Lỗi thật, còn sót**: chỉ hỏng ở dạng nội tuyến; gán biến hay tính toán đều đúng |
-
-> **Sửa lại một tuyên bố sai của chính mốc đo lần 2.** Bản đo đầu tiên của vòng
-> ra soát này kết luận "`len()` đếm **byte UTF-8**, TokenVector in `7` cho
-> `Tiếng`". **Sai.** Đo lại cho thấy `len("café")` = 4 và `len("Tiếng")` = 5 ở
-> **cả hai** bên — TokenVector đếm codepoint, khớp Python, không phải byte.
-> Tôi đã suy ra cơ chế từ một phép đo duy nhất rồi diễn giải thành quy luật.
->
-> Lệch thật **không** nằm ở BMP mà ở ký tự **ngoài BMP**: `len("😀")` = 9 ở
-> TokenVector so với 1 ở CPython. Và nghiêm trọng hơn là **cắt chuỗi theo chỉ
-> số**: `"café"[3:4]` trả về **một byte không hợp lệ** (in ra ký tự thay thế)
-> trong khi CPython trả `é`. Cắt chuỗi đa byte theo chỉ số là **hỏng âm thầm** —
-> không ném lỗi, chỉ cho dữ liệu sai.
->
-> Bài học: một phép đo không đủ để kết luận cơ chế. Phải đo trên nhiều lớp
-> (ASCII / 2 byte / 3 byte / 4 byte) thì mới thấy ranh giới thật.
 
 ### 3.4 Lỗi của CHÍNH công cụ đo (làm số đẹp hơn thực tế)
 
@@ -177,7 +211,7 @@ Những cái này **từ chối build kèm thông điệp chỉ đường**, nê
 | `raise TypeError(...)` | Chỉ 6 loại sẵn có: `Exception`, `IndexError`, `KeyError`, `OverflowError`, `ValueError`, `ZeroDivisionError` |
 | `Dog("rex")` khi base có `__init__(self, name)` | Ctor của lớp con nhận **mọi field gộp** (`Dog("rex", 4)`); `__init__` của lớp con bị bỏ qua |
 | `class C: pass` (không field) | Từ chối: `record khong co field nao` |
-| `x < y` trên record (`__lt__`) | `__lt__`/`__gt__` **đang hỏng** — trả hằng, bỏ thân hàm |
+| `x < y` trên record (`__lt__`) | `__lt__`/`__gt__` **đã hoạt động đúng** (đo lại ở mục 3.3) |
 | list literal `[1, 2]` | Phần tử là `int` (số nguyên vô hạn), **không trộn được** với `i32` |
 
 ---
@@ -188,7 +222,7 @@ Những cái này **từ chối build kèm thông điệp chỉ đường**, nê
 |---|---|
 | "Generator & Iterators — 100%, hỗ trợ `iter()`, `next()`" | `iter`/`next` **không tồn tại** trong compiler. Chỉ có `yield`, `yield from`, và `for x in <generator>` |
 | "Metaclass, `obj.__class__`" | Không có gì cả — 0 dòng trong compiler |
-| "OOP 100% parity" | Ctor lớp con ≠ `__init__` mà Python kế thừa; `__lt__`/`__gt__` hỏng |
+| "OOP 100% parity" | Ctor lớp con ≠ `__init__` mà Python kế thừa. `__lt__`/`__gt__`/`__eq__` trên record **đã hoạt động đúng** — ghi "hỏng" là cũ |
 | "Gán biến đổi kiểu động 100%" | Không có. Mọi thứ suy kiểu lúc biên dịch — mục 4 chính là hệ quả |
 | "FFI: P/Invoke + `ctypes`" | P/Invoke có (47 dòng IL sinh ra), nhưng **`ctypes` không tồn tại** |
 | "56 hàm builtin" | 167 hàm được đăng ký qua `register_expr_builtin` (đếm bằng regex trên `compiler/il_features/*.tkv`) |
@@ -213,31 +247,35 @@ Những cái này **từ chối build kèm thông điệp chỉ đường**, nê
 ## 7. ĐÁNH GIÁ
 
 - **Ngôn ngữ lõi** (mục 2): **119/119** trên bộ thử này. Con số 119 **không** có
-  nghĩa là TokenVector ngang Python — nó chỉ có nghĩa là 119 phép thử đã chọn đều
-  khớp. Mốc lần 1 từng là 95/102 và vẫn lọt 6 lỗi âm thầm, trong đó có `/` — loại
-  rất cơ bản. **Bộ thử hẹp không phải bằng chứng**, chỉ là mẫu tốt để bắt lỗi khi
-  biết mình đang tìm gì.
-- **OOP**: kế thừa và `__init__` chạy thật, nhưng ctor lớp con và toán tử `<`/`>`
-  trên record còn lệch Python.
+  nghĩa là TokenVector ngang Python. Ba mốc đo liên tiếp đã chứng minh điều đó:
+  95/102 → 102/102 → 119/119, mà **vẫn còn lỗi âm thầm ở ngoài bộ thử** — và ở
+  mỗi vòng ra soát tôi lại *báo nhầm* một thứ đang đúng thành bug. **Bộ thử hẹp
+  không phải bằng chứng**, chỉ là mẫu tốt để bắt lỗi khi biết mình đang tìm gì.
+- **OOP**: kế thừa và `__init__` chạy thật; `__eq__`/`__lt__`/`__gt__`/`__str__`
+  trên record **hoạt động đúng** (đã đo lại). Còn lệch ở ctor lớp con.
 - **Bất đồng bộ / luồng**: có `async def`/`await`, `thread_spawn`/`thread_join`, và
   không GIL — đây là ưu thế thật, không phải điểm cần dè.
 - **Thư viện**: 167 hàm đăng ký phẳng, **không có `import re` rồi `re.replace()`**,
-  không có `socket`, không có `ctypes`, không có metaclass. Đây là khoảng cách lớn
-  nhất với Python và **không thể đo bằng bộ thử cú pháp**.
+  không có `socket`, `ctypes`, `sys`, `os`, `json`, `math`, không có metaclass
+  (đã đo: mọi `import` đó đều bị từ chối). Đây là khoảng cách lớn nhất với Python
+  và **không thể đo bằng bộ thử cú pháp**.
 - **PyPI**: không dùng được. Cần wrapper FFI/P-Invoke thủ công.
-- **Đoạn đã biết, chưa đo**: `sys`/`os`/`re`/`json` mức module, kiểu `datetime`,
-  `Decimal`, số phứn, `int` vô hạn (`TkvInt`) ở các phép toán. Không nằm trong
-  119 phép nên **không được coi là đã đạt**.
+- **Đoạn đã biết, chưa đo**: kiểu `datetime`, `Decimal`, `try` lồng nhau, `with`,
+  thứ tự khóa `dict`, `sorted` ổn định, `round` nhiều tham số, số nguyên vượt
+  `i64`. Không nằm trong 119 phép nên **không được coi là đã đạt**.
 
 **Ưu tiên nếu sửa tiếp** — theo mức độ nguy hiểm, không theo độ khó:
 
-1. **Cắt chuỗi theo chỉ số với ký tự đa byte** (`"café"[3:4]`) — trả về byte
-   không hợp lệ, **hỏng âm thầm**, và hỏng cả với ký tự BMP thông thường chứ
-   không chỉ emoji. Đây là thứ đáng sửa nhất trong những gì còn lại.
-2. `str(-0.0)` nội tuyến mất dấu (mục 3.3) — lỗi thật còn sót.
+1. **Cắt chuỗi ở ký tự ngoài BMP** (`em = "😀"; em[0:1]`) — trả nửa surrogate
+   pair. Hẹp hơn nhiều so với cảnh báo sai đã ghi trước đây: **ký tự BMP thì
+   hoàn toàn đúng**, kể cả tiếng Việt có dấu.
+2. `str(-0.0)` nội tuyến mất dấu (mục 3.4) — lỗi thật còn sót.
 3. **Mở rộng `parity_probe`**, vì nó mới là thứ đáng tin: 6 lỗi âm thầm đầu tiên
-   đều lọt qua Testkit, và bản thân probe cũng nuốt 2 phép do nhãn trùng (mục
-   3.4). Miền chưa có phép thử nào: `del`/`with`/`global` kết hợp, `try` lồng
-   nhau, số phứn, `datetime`, thứ tự khóa `dict`, `sorted` ổn định?, `round`
-   nhiều tham số, số nguyên vượt `i64`, và **chuỗi đa byte** (chưa có phép thử
-   nào chạm ký tự không ASCII).
+   lọt qua Testkit, và bản thân probe cũng từng nuốt 2 phép do nhãn trùng (mục
+   3.4). Miền chưa có phép thử nào: `with`, `try` lồng nhau, `datetime`, `Decimal`,
+   thứ tự khóa `dict`, `sorted` ổn định, `round` nhiều tham số, số nguyên vượt
+   `i64`, và **ký tự ngoài BMP**.
+4. **Đừng báo lỗi từ một phép đo.** Ba lần trong tài liệu này tôi kết luận cơ chế
+   từ vài dữ kiện rồi nói thành quy luật, và cả ba lần đều sai — kể cả lần báo
+   "cắt chuỗi đa byte hỏng", vốn chỉ là ký tự console hiển thị hỏng. Phải đo
+   nhiều lớp và so bằng **so sánh boolean** chứ không đoán từ hình thức in ra.
