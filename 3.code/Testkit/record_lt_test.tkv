@@ -42,14 +42,14 @@ def less_than() -> "i32":
     a = P(1)
     b = P(3)
     r1 = a < b
-    total = total + check("lt_true", str(r1), "1")
+    total = total + check("lt_true", str(r1), "True")
     tested = tested + 1
     r2 = b < a
-    total = total + check("lt_false", str(r2), "0")
+    total = total + check("lt_false", str(r2), "False")
     tested = tested + 1
     # Bang nhau: < phai False (khong phai <=)
     r3 = a < P(1)
-    total = total + check("lt_equal_is_false", str(r3), "0")
+    total = total + check("lt_equal_is_false", str(r3), "False")
     tested = tested + 1
 
     return total
@@ -63,10 +63,10 @@ def greater_than_via_swap() -> "i32":
     a = P(1)
     b = P(3)
     r1 = a > b
-    total = total + check("gt_false", str(r1), "0")
+    total = total + check("gt_false", str(r1), "False")
     tested = tested + 1
     r2 = b > a
-    total = total + check("gt_true", str(r2), "1")
+    total = total + check("gt_true", str(r2), "True")
     tested = tested + 1
 
     return total
@@ -79,15 +79,15 @@ def less_or_equal() -> "i32":
     a = P(1)
     b = P(3)
     r1 = a <= b
-    total = total + check("le_true", str(r1), "1")
+    total = total + check("le_true", str(r1), "True")
     tested = tested + 1
     r2 = b <= a
-    total = total + check("le_false", str(r2), "0")
+    total = total + check("le_false", str(r2), "False")
     tested = tested + 1
     # Bang nhau: <= phai TRUE - day la cho phan biet < va <=, va la cho
     # 'dao ve' sai bieu hien ro nhat.
     r3 = a <= P(1)
-    total = total + check("le_equal_is_true", str(r3), "1")
+    total = total + check("le_equal_is_true", str(r3), "True")
     tested = tested + 1
 
     return total
@@ -100,13 +100,13 @@ def greater_or_equal() -> "i32":
     a = P(1)
     b = P(3)
     r1 = a >= b
-    total = total + check("ge_false", str(r1), "0")
+    total = total + check("ge_false", str(r1), "False")
     tested = tested + 1
     r2 = b >= a
-    total = total + check("ge_true", str(r2), "1")
+    total = total + check("ge_true", str(r2), "True")
     tested = tested + 1
     r3 = a >= P(1)
-    total = total + check("ge_equal_is_true", str(r3), "1")
+    total = total + check("ge_equal_is_true", str(r3), "True")
     tested = tested + 1
 
     return total
@@ -120,13 +120,13 @@ def eq_untouched() -> "i32":
 
     a = P(1)
     r1 = a == P(1)
-    total = total + check("eq_true", str(r1), "1")
+    total = total + check("eq_true", str(r1), "True")
     tested = tested + 1
     r2 = a == P(3)
-    total = total + check("eq_false", str(r2), "0")
+    total = total + check("eq_false", str(r2), "False")
     tested = tested + 1
     r3 = a != P(3)
-    total = total + check("ne_true", str(r3), "1")
+    total = total + check("ne_true", str(r3), "True")
     tested = tested + 1
 
     return total
@@ -142,10 +142,10 @@ def lt_survives_comparison_chain() -> "i32":
     b = P(2)
     c = P(3)
     r1 = a < b < c
-    total = total + check("chain_all_less", str(r1), "1")
+    total = total + check("chain_all_less", str(r1), "True")
     tested = tested + 1
     r2 = c < b < a
-    total = total + check("chain_all_greater", str(r2), "0")
+    total = total + check("chain_all_greater", str(r2), "False")
     tested = tested + 1
 
     return total

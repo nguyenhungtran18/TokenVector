@@ -41,17 +41,17 @@ def in_on_record() -> "i32":
     b = Box(5)
     c = Box(99)
     r1 = 5 in b
-    total = total + check("record_in_present", str(r1), "1")
+    total = total + check("record_in_present", str(r1), "True")
     tested = tested + 1
     r2 = 7 in b
-    total = total + check("record_in_absent", str(r2), "0")
+    total = total + check("record_in_absent", str(r2), "False")
     tested = tested + 1
     # Bien khac - chung kieu, khai bao gia tri khac
     r3 = 5 in c
-    total = total + check("record_in_other_object", str(r3), "0")
+    total = total + check("record_in_other_object", str(r3), "False")
     tested = tested + 1
     r4 = 99 in c
-    total = total + check("record_in_other_object_true", str(r4), "1")
+    total = total + check("record_in_other_object_true", str(r4), "True")
     tested = tested + 1
 
     return total
@@ -64,10 +64,10 @@ def not_in_on_record() -> "i32":
 
     b = Box(5)
     r1 = 7 not in b
-    total = total + check("record_not_in_absent", str(r1), "1")
+    total = total + check("record_not_in_absent", str(r1), "True")
     tested = tested + 1
     r2 = 5 not in b
-    total = total + check("record_not_in_present", str(r2), "0")
+    total = total + check("record_not_in_present", str(r2), "False")
     tested = tested + 1
 
     return total
@@ -80,27 +80,27 @@ def other_containers_untouched() -> "i32":
 
     lst = [1, 2]
     r1 = 1 in lst
-    total = total + check("list_in_present", str(r1), "1")
+    total = total + check("list_in_present", str(r1), "True")
     tested = tested + 1
     r2 = 9 in lst
-    total = total + check("list_in_absent", str(r2), "0")
+    total = total + check("list_in_absent", str(r2), "False")
     tested = tested + 1
 
     d = {}
     d["k"] = 1
     r3 = "k" in d
-    total = total + check("dict_in_present", str(r3), "1")
+    total = total + check("dict_in_present", str(r3), "True")
     tested = tested + 1
     r4 = "z" in d
-    total = total + check("dict_in_absent", str(r4), "0")
+    total = total + check("dict_in_absent", str(r4), "False")
     tested = tested + 1
 
     s = "abc"
     r5 = "b" in s
-    total = total + check("str_in_present", str(r5), "1")
+    total = total + check("str_in_present", str(r5), "True")
     tested = tested + 1
     r6 = "z" in s
-    total = total + check("str_in_absent", str(r6), "0")
+    total = total + check("str_in_absent", str(r6), "False")
     tested = tested + 1
 
     return total

@@ -40,16 +40,16 @@ def container_eq_is_reference() -> "i32":
     # NOI DUNG giong nhau, bien KHAC -> 0. Day la mau bao lai cho thay
     # khong phai so noi dung.
     r = a == b
-    total = total + check("list_eq_different_objects", str(r), "0")
+    total = total + check("list_eq_different_objects", str(r), "False")
     tested = tested + 1
     r2 = a == c
-    total = total + check("list_eq_same_object", str(r2), "1")
+    total = total + check("list_eq_same_object", str(r2), "True")
     tested = tested + 1
     r3 = a != b
-    total = total + check("list_ne_different_objects", str(r3), "1")
+    total = total + check("list_ne_different_objects", str(r3), "True")
     tested = tested + 1
     r4 = a != c
-    total = total + check("list_ne_same_object", str(r4), "0")
+    total = total + check("list_ne_same_object", str(r4), "False")
     tested = tested + 1
 
     d = {}
@@ -57,10 +57,10 @@ def container_eq_is_reference() -> "i32":
     e = {}
     e["k"] = 1
     r5 = d == e
-    total = total + check("dict_eq_different_objects", str(r5), "0")
+    total = total + check("dict_eq_different_objects", str(r5), "False")
     tested = tested + 1
     r6 = d == d
-    total = total + check("dict_eq_same_object", str(r6), "1")
+    total = total + check("dict_eq_same_object", str(r6), "True")
     tested = tested + 1
 
     return total
@@ -74,25 +74,25 @@ def is_on_containers() -> "i32":
     b = [1, 2]
     c = a
     r1 = a is b
-    total = total + check("list_is_different", str(r1), "0")
+    total = total + check("list_is_different", str(r1), "False")
     tested = tested + 1
     r2 = a is c
-    total = total + check("list_is_same", str(r2), "1")
+    total = total + check("list_is_same", str(r2), "True")
     tested = tested + 1
     r3 = a is not b
-    total = total + check("list_is_not_different", str(r3), "1")
+    total = total + check("list_is_not_different", str(r3), "True")
     tested = tested + 1
     r4 = a is not c
-    total = total + check("list_is_not_same", str(r4), "0")
+    total = total + check("list_is_not_same", str(r4), "False")
     tested = tested + 1
 
     d = {}
     e = {}
     r5 = d is e
-    total = total + check("dict_is_different", str(r5), "0")
+    total = total + check("dict_is_different", str(r5), "False")
     tested = tested + 1
     r6 = d is d
-    total = total + check("dict_is_same", str(r6), "1")
+    total = total + check("dict_is_same", str(r6), "True")
     tested = tested + 1
 
     return total
@@ -106,21 +106,21 @@ def is_on_scalars_matches_eq() -> "i32":
     x = 5
     y = 5
     r1 = x is y
-    total = total + check("scalar_is_equal", str(r1), "1")
+    total = total + check("scalar_is_equal", str(r1), "True")
     tested = tested + 1
     r2 = x is not y
-    total = total + check("scalar_is_not_equal", str(r2), "0")
+    total = total + check("scalar_is_not_equal", str(r2), "False")
     tested = tested + 1
     p = 5
     q = 6
     r3 = p is q
-    total = total + check("scalar_is_unequal", str(r3), "0")
+    total = total + check("scalar_is_unequal", str(r3), "False")
     tested = tested + 1
 
     s = "ab"
     t = "ab"
     r4 = s is t
-    total = total + check("str_is_equal", str(r4), "1")
+    total = total + check("str_is_equal", str(r4), "True")
     tested = tested + 1
 
     return total
@@ -161,21 +161,21 @@ def other_equality_still_works() -> "i32":
     tested = 0
 
     e1 = 1 == 1
-    total = total + check("scalar_eq", str(e1), "1")
+    total = total + check("scalar_eq", str(e1), "True")
     tested = tested + 1
     e2 = 1 == 2
-    total = total + check("scalar_neq", str(e2), "0")
+    total = total + check("scalar_neq", str(e2), "False")
     tested = tested + 1
     s = "ab"
     t = "ab"
     e3 = s == t
-    total = total + check("str_eq", str(e3), "1")
+    total = total + check("str_eq", str(e3), "True")
     tested = tested + 1
     e4 = 1 < 2
-    total = total + check("scalar_lt", str(e4), "1")
+    total = total + check("scalar_lt", str(e4), "True")
     tested = tested + 1
     e5 = 2 > 1
-    total = total + check("scalar_gt", str(e5), "1")
+    total = total + check("scalar_gt", str(e5), "True")
     tested = tested + 1
 
     return total

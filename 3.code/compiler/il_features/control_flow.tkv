@@ -22,6 +22,8 @@ import re
 
 from typed_dsl_parser import TypeAnn
 from il_core import parse_expr, parse_expr_list
+from il_core import _boolop_ta as _boolop_ta
+from il_core import emit_truthy_ta as emit_truthy_ta
 from il_features.list_type import value_dtype_spec_for_ta
 from il_features.tuple_type import MAX_TUPLE_ARITY
 from il_features.str_accum import plan_str_accum, emit_sb_setup, emit_sb_flush
@@ -1357,8 +1359,20 @@ def _compile_cond(cond_node, scope, body, body_dtype, ctx):
     cua no (i32) - tru khi chinh no la mot gia tri 'int', luc do dung
     ngu nghia truthy cua Python (khac 0 la dung) qua TkvInt::IsZero."""
     if body_dtype != 'int':
+        # 2026-09-30: container/chuoi/float trong dieu kien - phai dung
+        # NGHIA DUNG PYTHON chu khong phai 'con tro khac 0'. Truoc day
+        # `if <list rong>:` luon vao nhanh (con tro khac 0) - xem muc 3.5
+        # cua `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md`.
+        _ta = _boolop_ta(cond_node, scope)
+        if _ta is not None and (getattr(_ta, 'shape', None) is not None
+                                or _ta.dtype in ('str', 'f32', 'f64')):
+            return emit_truthy_ta(cond_node, _ta, scope, body, ctx)
         return ctx['compile_expr'](cond_node, scope, body, body_dtype, ctx)
     import il_features.int_type as _int_type
+    _ta = _boolop_ta(cond_node, scope)
+    if _ta is not None and (getattr(_ta, 'shape', None) is not None
+                            or _ta.dtype in ('str', 'f32', 'f64')):
+        return emit_truthy_ta(cond_node, _ta, scope, body, ctx)
     natural = ctx['infer_dtype'](cond_node, scope, ctx.get('func_table'),
                                  ctx.get('records'), ctx.get('record_methods'))
     if natural == 'int':

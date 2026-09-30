@@ -480,10 +480,19 @@ def value_dtype_spec_for_ta(ta, value_node):
     trong Dictionary::FindEntry)."""
     if ta is None:
         return None
-    if (value_node and isinstance(value_node, tuple)
-            and getattr(ta, 'shape', None) in ('list', 'dict', 'set', 'frozenset')
+    if (getattr(ta, 'shape', None) in ('list', 'dict', 'set', 'frozenset')
             and (getattr(ta, 'elem_ta', None) is not None
-                 or value_node[0] in ('list_literal', 'dict_literal', 'set_literal'))):
+                 or (value_node and value_node[0] in ('list_literal', 'dict_literal', 'set_literal')))):
+        return ta_to_spec(ta)
+    # 2026-09-30 (so sanh voi CPython, `tools/parity_probe`): truoc day nhanh
+    # nay tra `ta.dtype` - tuc LAM ROI shape, va `_expr_var` (il_codegen) goi
+    # `_widen_if_needed(type_ann.dtype, <spec lay o day>)`. Hai ben do la
+    # 'int' (TkvInt) va 'i32' nen no phat ra `TkvInt::ToI32` tren CHINH con
+    # tro List, an mat doi so -> `List<TkvInt>` (16 byte/phan tu) duoc doc
+    # nhu `List<int32>`: ket qua la 0 hoac OverflowError, KHONG bao loi.
+    # Do do: kieu container LUON phai giu shape. Cac doan goi `_compile_expr`
+    # voi spec day du bo qua shape (chi doc phan tu dau) nen an toan.
+    if getattr(ta, 'shape', None) in ('list', 'dict', 'set', 'frozenset'):
         return ta_to_spec(ta)
     return ta.dtype
 

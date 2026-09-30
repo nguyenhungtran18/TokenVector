@@ -51,6 +51,19 @@ Get-ChildItem -Path (Join-Path $root "compiler") -Filter "*.tkv" -Recurse |
 # (doc truc tiep il_codegen.tkv de biet module nao dang duoc 'from
 # il_features.X import ten' - tu dong cap nhat khi them/bot module,
 # khong can sua tay danh sach o day).
+#
+# 2026-09-30: regex CHI kiem import o CAP DAU DONG (`^from`, khong thu
+# thap). Truoc day kiem bat ky `from il_features.X import` kha con thu
+# thap, nen MOT cua lenh import LAZILY (trong than ham) da lam module X
+# chuyen tu LIBRARY sang CORE. Hai he qua:
+#   - `generator_lazy` -> CORE: no dang KY cac line parser cho
+#     `yield`/`yield from` khi NAPI. La LIBRARY thi `plugin_loader` nap
+#     no luc khoi dong (dang ky truoc khi parse). La CORE thi chi duoc
+#     import khi `il_codegen` goi `emit_generator_drain_as_container` -
+#     qua muon, nen moi file co `yield from` bi bao
+#     `khong dich duoc dong: 'yield from ...'`.
+#   - `list_type` -> CORE: bi dong vao `il_codegen.py` (lon file).
+# Chi import o cap module moi THAT su keo module vao CORE.
 $splitScript = Join-Path $root "build\_split_il_features.py"
 @'
 import re, os, sys
@@ -59,7 +72,8 @@ il_codegen_path = os.path.join(root, "compiler", "il_codegen.tkv")
 il_features_dir = os.path.join(root, "compiler", "il_features")
 with open(il_codegen_path, encoding="utf-8") as f:
     text = f.read()
-core_names = set(re.findall(r"from il_features\.(\w+) import", text))
+# CHI import o CAP DAU DONG (xem ghi chu ben tren). `(?m)` cho ^ = dau dong.
+core_names = set(re.findall(r"(?m)^from il_features\.(\w+) import", text))
 all_files = sorted(f for f in os.listdir(il_features_dir) if f.endswith(".tkv"))
 core = [f for f in all_files if f[:-4] in core_names]
 library = [f for f in all_files if f[:-4] not in core_names]

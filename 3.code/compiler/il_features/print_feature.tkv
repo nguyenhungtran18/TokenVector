@@ -42,7 +42,7 @@ def _emit_str_arg(arg, scope, body, ctx):
     # xem string_feature.py's _is_bool_shaped: compare/boolop/not/in/
     # all/any/startswith/endswith deu dtype='i32' nhung mang nghia
     # logic - print() phai in "True"/"False" nhu Python, khong phai so.
-    _tkvstr.emit_to_str('bool' if (dtype == 'i32' and _is_bool_shaped(arg)) else dtype,
+    _tkvstr.emit_to_str('bool' if (dtype == 'i32' and _is_bool_shaped(arg, ctx)) else dtype,
                         body, ctx)
 
 

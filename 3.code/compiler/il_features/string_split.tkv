@@ -23,35 +23,93 @@ from il_features.list_type import il_list_type
 from typed_dsl_parser import TypeAnn
 
 
-def compile_string_split(node, scope, out, dtype, ctx):
-    """THU TU STACK (da xac minh THAT qua ilasm.exe compile+run):
-    nap nguon -> tao char[1 phan tu] (newarr+dup de giu tham chieu mang
-    lai sau khi ghi) -> trich ky tu DAU TIEN cua 'sep' (get_Chars(0)) ->
-    ghi vao mang (stelem.i2, opcode danh cho mang phan tu 16-bit nhu
-    System.Char) -> goi String.Split(char[]) -> boc ket qua string[]
-    thanh List<str> qua .ctor(IEnumerable<!0>) (cung ky thuat da verify
-    voi dict_keys_values.py - string[] TU NO da implement IEnumerable<string>).
+def _split_temps(node, ctx):
+    """Khai 2 local an cho nhanh 'sep nhieu ky tu' (xem compile_string_split):
+    `this` (chuoi nguon) va `sep`. Bat buoc - khong duoc mang gia tri tren
+    stack qua nhanh `br`: CLR co the tu choi IL do khi nhanh dich co gia tri
+    chua the doi duoc theo doi (da gap: `InvalidProgramException`)."""
+    ctx['declare_named'](f'__split{id(node)}_this', TypeAnn('str', None))
+    ctx['declare_named'](f'__split{id(node)}_sep', TypeAnn('str', None))
 
-    's.split(sep, maxsplit)' (2 tham so, 2026-08-20 - roadmap dong khoang
-    cach Python, mo rong tu nhanh 1 tham so): .NET's String.Split(char[],
-    int32 count) khop DUNG ngu nghia Python maxsplit qua phep doi
-    count = maxsplit + 1 (da doi chieu THAT voi CPython: maxsplit=2 tren
-    'a,b,c,d' -> 3 phan, maxsplit=0 -> 1 phan (khong tach), maxsplit vuot
-    qua so phan co san -> tach het nhu binh thuong - ca 3 case deu khop
-    .NET's 'count la SO PHAN TOI DA, phan CUOI giu nguyen phan con lai
-    chua tach' - cung 1 ngu nghia, chi khac ten tham so)."""
+
+def compile_string_split(node, scope, out, dtype, ctx):
+    """THU TU STACK: nap nguon -> tach.
+
+    2026-09-30 (so sanh voi CPython, `tools/parity_probe`): TRUOC DAY chi lay
+    `get_Chars(0)` cua 'sep' roi goi `String.Split(char[])` - .NET tach theo
+    TUNG ky tu, nen `", "` bi rut con "," va "a, b".split(", ") ra
+    `['a', ' b']` thay vi `['a', 'b']`. SAI AM THAM, khong bao loi - ghi vao
+    `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md` muc 3.1.
+
+    Nay phan nhanh theo DO DAI sep luc chay:
+      - len(sep) == 1 -> `String.Split(char[])` / `Split(char[], count)`
+        (nhanh, dung 1 ky tu).
+      - len(sep) >  1 -> `String.Split(string[], StringSplitOptions.None)` /
+        `Split(string[], count, None)` - tach theo CA CHUOI.
+      - len(sep) == 0 -> nem `ArgumentException`, dung nhu Python nem
+        `ValueError: empty separator`.
+    `StringSplitOptions.None` (gia tri 0) giu nguyen phan tu rong o hai dau,
+    giong Python.
+    """
     src_name, args = node[1], node[3]
     if len(args) not in (1, 2):
         raise SyntaxError("il_codegen: str.split() hoac str.split(sep, maxsplit) can 1 hoac 2 tham so")
     compile_expr = ctx['compile_expr']
     load_var_ref = ctx['load_var_ref']
+    prefix = ctx.get('prefix') or 'split'
+    n = ctx['label_counter'][0] + 1
+    ctx['label_counter'][0] = n
+    char_lbl = f'{prefix}_split{n}_char'
+    join_lbl = f'{prefix}_split{n}_join'
+    empty_lbl = f'{prefix}_split{n}_empty'
+    nonempty_lbl = f'{prefix}_split{n}_ne'
 
     load_var_ref(src_name, scope, out)
+    out.append(f'    stloc.s {scope[f"__split{id(node)}_this"][1]}')
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append(f'    stloc.s {scope[f"__split{id(node)}_sep"][1]}')
+    # do dai sep -> chon nhanh. Stack TRONG o moi nhanh (khong mang gia tri
+    # qua nhanh) - xem `_split_temps`. `dup` la BAT BUOC: `ble` lay HAI gia
+    # tri tren stack, `brfalse` da an mot.
+    out.append(f'    ldloc.s {scope[f"__split{id(node)}_sep"][1]}')
+    out.append('    callvirt instance int32 [mscorlib]System.String::get_Length()')
+    out.append('    dup')
+    out.append(f'    brtrue {nonempty_lbl}')
+    out.append('    pop')
+    out.append(f'    br {empty_lbl}')
+    out.append(f'  {nonempty_lbl}:')
+    out.append('    ldc.i4.1')
+    out.append('    ble ' + char_lbl)
+    # sep nhieu ky tu: String.Split(string[], [count,] StringSplitOptions.None)
+    out.append(f'    ldloc.s {scope[f"__split{id(node)}_this"][1]}')
+    out.append('    ldc.i4.1')
+    out.append('    newarr [mscorlib]System.String')
+    out.append('    dup')
+    out.append('    ldc.i4.0')
+    out.append(f'    ldloc.s {scope[f"__split{id(node)}_sep"][1]}')
+    out.append('    stelem.ref')
+    out.append('    ldc.i4.0')
+    if len(args) == 2:
+        compile_expr(args[1], scope, out, 'i32', ctx)
+        out.append('    ldc.i4.1')
+        out.append('    add')
+        out.append('    callvirt instance string[] [mscorlib]System.String::'
+                   'Split(string[], int32, valuetype [mscorlib]System.StringSplitOptions)')
+    else:
+        out.append('    callvirt instance string[] [mscorlib]System.String::'
+                   'Split(string[], valuetype [mscorlib]System.StringSplitOptions)')
+    out.append('    br ' + join_lbl)
+    out.append(f'  {empty_lbl}:')
+    out.append('    ldstr "str.split(): sep rong - Python nem ValueError"')
+    out.append('    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)')
+    out.append('    throw')
+    out.append(f'  {char_lbl}:')
+    out.append(f'    ldloc.s {scope[f"__split{id(node)}_this"][1]}')
     out.append('    ldc.i4.1')
     out.append('    newarr [mscorlib]System.Char')
     out.append('    dup')
     out.append('    ldc.i4.0')
-    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append(f'    ldloc.s {scope[f"__split{id(node)}_sep"][1]}')
     out.append('    ldc.i4.0')
     out.append('    callvirt instance char [mscorlib]System.String::get_Chars(int32)')
     out.append('    stelem.i2')
@@ -62,6 +120,7 @@ def compile_string_split(node, scope, out, dtype, ctx):
         out.append('    callvirt instance string[] [mscorlib]System.String::Split(char[], int32)')
     else:
         out.append('    callvirt instance string[] [mscorlib]System.String::Split(char[])')
+    out.append(f'  {join_lbl}:')
     list_type = il_list_type('str', ctx.get('records'))
     out.append(
         f'    newobj instance void {list_type}::.ctor(class '
@@ -69,5 +128,6 @@ def compile_string_split(node, scope, out, dtype, ctx):
 
 
 register_expr_method('str', 'split', compile_string_split,
+                      temps_fn=_split_temps,
                       return_ta_fn=lambda _obj_ta: TypeAnn('str', 'list'),
                       result_shape='list')

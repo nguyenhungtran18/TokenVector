@@ -58,7 +58,7 @@ def dict_delete() -> "i32":
     # moi ra "1"/"0". Day la quy tac da ghi trong CLAUDE.md.
     gone = "b" in d
     total += check("len sau xoa khoa", str(len(d)), "2")
-    total += check("khoa da xoa", str(gone), "0")
+    total += check("khoa da xoa", str(gone), "False")
     total += check("khoa con lai", str(d["a"] + d["c"]), "4")
     d["b"] = 9
     total += check("them lai duoc", str(d["b"]), "9")
@@ -71,7 +71,7 @@ def dict_delete_by_expr() -> "i32":
     key = "a"
     del d[key]
     gone = "a" in d
-    return check("xoa theo bien", str(len(d)) + " a=" + str(gone), "1 a=0")
+    return check("xoa theo bien", str(len(d)) + " a=" + str(gone), "1 a=False")
 
 
 def list_of_lists() -> "i32":

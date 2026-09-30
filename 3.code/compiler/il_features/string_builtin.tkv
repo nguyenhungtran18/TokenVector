@@ -18,21 +18,37 @@ _BOOL_SHAPED_CALL_NAMES = ('all', 'any')
 _BOOL_SHAPED_METHOD_NAMES = ('startswith', 'endswith', 'isdigit')
 
 
-def _is_bool_shaped(node):
-    """True neu bieu thuc 'node' co dtype='i32' nhung MANG NGHIA logic
+def _is_bool_shaped(node, ctx=None):
+    """True neu bieu thuc 'node' co dtype='i32' nhưng MANG NGHIA logic
     (Python se in "True"/"False", khong phai so). compare/boolop/not/in
     LUON tra ve i32 0/1 (xem _infer_dtype trong il_codegen.py - co tinh
     khai cung de tranh AccessViolationException voi TkvInt); all()/any()
     va .startswith()/.endswith()/.isdigit() cung tra i32 0/1 cung ly do
     (dang ky dtype='i32' trong stdlib_aggregates.py / string_methods_batch3.py).
-    KHONG bao gom .find() - do la CHI SO that, khong phai co/khong."""
+    KHONG bao gom .find() - do la CHI SO that, khong phai co/khong.
+
+    2026-09-30: them nhanh BIEN DANG GIU boolean (`ctx['bool_locals']` do
+    first-pass suu - xem il_codegen's _collect_bool_locals). Truoc day
+    `t = 1 > 0; str(t)` in "1" trong khi `str(1 > 0)` in "True" - cung mot
+    gia tri, khac o hinh dang node; xem muc 3.4 cua
+    `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md`."""
     tag = node[0]
-    if tag in ('compare', 'boolop', 'not', 'in'):
+    if tag == 'compare' or tag in ('not', 'in'):
         return True
+    if tag == 'boolop':
+        # 2026-09-30: `a and b` tra TOAN HANG (khong phai 0/1) - `1 and 2`
+        # la 2 nen `str(1 and 2)` phai la '2'. Nhung `p and q` khi ca hai
+        # ve deu la boolean thi ra boolean (Python in True/False). Phai
+        # xet CA HAI ve, khong chi tag.
+        return (_is_bool_shaped(node[2], ctx) and _is_bool_shaped(node[3], ctx))
     if tag == 'call' and node[1] in _BOOL_SHAPED_CALL_NAMES:
         return True
     if tag in ('method_call', 'method_call_expr') and node[2] in _BOOL_SHAPED_METHOD_NAMES:
         return True
+    if tag == 'var' and ctx is not None:
+        bl = ctx.get('bool_locals')
+        if bl and node[1] in bl:
+            return True
     return False
 
 
@@ -47,6 +63,19 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
         raise SyntaxError("il_codegen: str() chi nhan dung 1 tham so")
     arg = args[0]
     int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+    if _is_bool_shaped(arg, ctx):
+        # 2026-09-30: bien dang GIU boolean phai in "True"/"False" nhu Python
+        # (`t = 1 > 0; str(t)`), bat ke duong nao ben duoi se xu ly no
+        # (bien i32, bien 'int', hay bien do qua local an) - `bool` la bi
+        # danh cua `i32` nen compiler khong tu phan biet. Xem muc 3.4 cua
+        # `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md`.
+        import il_features.tkvstr as _tkvstr
+        if (isinstance(arg, tuple) and arg[0] == 'var'
+                and ctx['infer_dtype'](arg, scope, ctx.get('func_table')) != 'int'):
+            ctx['load_var_ref'](arg[1], scope, out)
+        else:
+            ctx['compile_expr'](arg, scope, out, 'i32', ctx)
+        return _tkvstr.emit_to_str('bool', out, ctx)
     if ctx['infer_dtype'](arg, scope, ctx.get('func_table')) == 'int':
         # Kieu 'int' (vo han chu so) - Str() la STATIC nhan gia tri nen
         # KHONG vuong han che "phai co dia chi" cua ToString() o duoi:
@@ -71,7 +100,7 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
               or ctx.get('infer_literal_dtype', lambda n: None)(arg))
         if _d in ('i32', 'i64', 'f32', 'f64', 'str', 'complex'):
             ctx['compile_expr'](arg, scope, out, _d, ctx)
-            if _d == 'i32' and _is_bool_shaped(arg):
+            if _d == 'i32' and _is_bool_shaped(arg, ctx):
                 return _tkvstr.emit_to_str('bool', out, ctx)
             return _tkvstr.emit_to_str(_d, out, ctx)
         # 2026-08-03: 'str(<bieu thuc>)' (vd str(i + 1), str(len(xs))) -
@@ -91,6 +120,15 @@ def compile_str_builtin(args, scope, out, dtype, ctx):
         out.append(f'    stloc.s {tmp_idx}')
         return _str_of_slot('local', tmp_idx, tmp_ta, out, ctx, int_dtypes, float_dtypes)
     var_kind, var_idx, var_ta = scope[arg[1]]
+    if (var_ta.dtype == 'i32' and var_ta.shape is None
+            and _is_bool_shaped(arg, ctx)):
+        # 2026-09-30: `t = 1 > 0; str(t)` phai in "True" nhu Python, khong
+        # phai "1". Nhanh nay (bien trần) TACH khoi nhanh `_d in (...)` o
+        # tren, nen phai kiem bool rieng - xem muc 3.4 cua
+        # `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md`.
+        import il_features.tkvstr as _tkvstr
+        ctx['load_var_ref'](arg[1], scope, out)
+        return _tkvstr.emit_to_str('bool', out, ctx)
     if var_ta.dtype == 'str' and var_ta.shape is None:
         # str(s) khi 's' DA LA string - Python that: str(mot_chuoi) tra
         # ve CHINH chuoi do (khong doi) - can THEM (Wave 2, 2026-07-29)

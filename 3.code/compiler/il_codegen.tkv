@@ -2941,6 +2941,193 @@ def _marshal_extern_return_array(dtype_name, out, ctx=None):
         f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
 
 
+_SCALAR_FOR_COERCE = {'i32', 'i64', 'f32', 'f64', 'int', 'str'}
+
+
+def _container_coerce_needed(arg_ta, param_ta) -> bool:
+    """True khi doi so la CONTAINER ma kieu phan tu khac kieu phan tu tham so.
+
+    Python khong co kieu phan tu nen `f([1, 2, 3])` luon chay du kieu tham so
+    la `list[i32]`. TokenVector phai TU LAM phép ep phan tu - va day la ly do
+    chinh 'kieu container' va 'kieu vo huong' phai tach nhau.
+    """
+    if param_ta is None or arg_ta is None:
+        return False
+    if getattr(param_ta, 'shape', None) != 'list':
+        return False
+    if getattr(arg_ta, 'shape', None) != 'list':
+        return False
+    return arg_ta.dtype != param_ta.dtype
+
+
+def _natural_list_ta(node, lookup):
+    """TypeAnn cua 1 node khi no la LIST (hoac None).
+
+    `lookup(name)` tra TypeAnn cua 1 bien - truyen `infer_scope.__getitem__`
+    o first pass va `scope.__getitem__` o codegen (ca hai cung luu
+    `(kind, idx, TypeAnn)`).
+
+    CHI nhan 2 dang ma ben duoi sua: bien, va bien-lat (`a[i:j]` - lat giu
+    nguyen kieu phan tu). Node khac tra None => khong ep, dung duong cu.
+    """
+    if not isinstance(node, tuple):
+        return None
+    if node[0] == 'var':
+        try:
+            return lookup(node[1])[2]
+        except (KeyError, IndexError, TypeError):
+            return None
+    if node[0] == 'slice':
+        # node[1] cua 'slice' la TEN BIEN (chuoi thuan, khong phai node con)
+        try:
+            return lookup(node[1])[2]
+        except (KeyError, IndexError, TypeError):
+            return None
+    return None
+
+
+def _arg_generator_kind(arg_node, lookup, func_table):
+    """'ten class may trang thai' neu doi so nay LA 1 generator (goi truc
+    tiep 1 ham co 'yield', hoac 1 bien dang giu ket qua goi do), None neu
+    khong phai.
+
+    Python khong co kieu container nen `f(gen())` va `f(g)` deu chay du.
+    TokenVector phai rut may trang thai ve list (xem
+    `generator_lazy.emit_generator_drain_as_container`).
+    """
+    if isinstance(arg_node, tuple) and arg_node[0] == 'call' and isinstance(arg_node[1], str):
+        callee = (func_table or {}).get(arg_node[1])
+        if callee is not None and getattr(callee, 'is_generator', False):
+            return callee.generator_class_name
+        return None
+    if isinstance(arg_node, tuple) and arg_node[0] == 'var':
+        ta = _natural_list_ta(arg_node, lookup)
+        if ta is not None and getattr(ta, 'shape', None) == 'generator':
+            return ta.dtype
+    return None
+
+
+def _list_coerce_pair(arg_node, param_ta, lookup):
+    """(arg_ta, can_ep) cho 1 cap doi so/tham so - phuc vu ca first pass
+    (khai local an) va codegen (sinh vong lap ep)."""
+    if param_ta is None or getattr(param_ta, 'shape', None) != 'list':
+        return None, False
+    arg_ta = _natural_list_ta(arg_node, lookup)
+    if arg_ta is None or getattr(arg_ta, 'shape', None) != 'list':
+        return None, False
+    if arg_ta.dtype == param_ta.dtype:
+        return arg_ta, False
+    if arg_ta.dtype not in _SCALAR_FOR_COERCE or param_ta.dtype not in _SCALAR_FOR_COERCE:
+        return arg_ta, False
+    return arg_ta, True
+
+
+def _emit_container_coerce(arg_node, arg_ta, param_ta, scope, out: list, ctx: dict) -> bool:
+    """Ep `list[int]` <-> `list[i32|i64]` theo vong lap, ghi tung phan tu vao
+    list MOI. Neu True, da day gia tri da dung kieu len stack va caller nen
+    KHONG bien dich lai doi so.
+
+    Bat buoc ep vong lap chu KHONG ep con tro: .NET generic bat bien (invariant)
+    - truyen `List<TkvInt>` noi `List<int32>` se khac gi do, va `ilasm` KHONG
+    kiem tra kieu nen exe van bien dich duoc roi hỏng luc chay (da do: probe
+    `take_i32(lit[0:3])` cho 0/OverflowError).
+    """
+    src_dt, dst_dt = arg_ta.dtype, param_ta.dtype
+    if src_dt == dst_dt:
+        return False
+    if src_dt not in _SCALAR_FOR_COERCE or dst_dt not in _SCALAR_FOR_COERCE:
+        return False
+    src_il = il_type_str(arg_ta, ctx.get('records'))
+    dst_il = il_type_str(param_ta, ctx.get('records'))
+    if src_il == dst_il:
+        return False
+    tag = f'__coerce{id(arg_node)}'
+    for suffix in ('_src', '_out', '_i'):
+        if f'{tag}{suffix}' not in scope:
+            raise SyntaxError(
+                f'il_codegen: ep kieu container cho doi so '
+                f'({arg_node[0]}) o tham so kieu "{param_ta.dtype}" - local an '
+                f"'{tag}{suffix}' chua duoc khai bao o first pass. Day la loi "
+                f'noi bo cua pipeline (khong phai loi bien dich cua chuong trinh '
+                f'dang bien dich) - bao cao kem repro.')
+    _, src_idx, _ = scope[f'{tag}_src']
+    _, out_idx, _ = scope[f'{tag}_out']
+    _, i_idx, _ = scope[f'{tag}_i']
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    top_lbl = f'{tag}_L{n}_top'
+    has_lbl = f'{tag}_L{n}_has'
+    end_lbl = f'{tag}_L{n}_end'
+    _compile_expr(arg_node, scope, out, _value_dtype_spec_for_ta(arg_ta, arg_node), ctx)
+    # Kiem null TRUOC KHI ghi vao local (list rong thi van ra list rong, khong
+    # phai nem). `dup` + `brtrue` de ca 2 nhanh vao `end_lbl` deu de dung
+    # DUNG 1 gia tri tren stack.
+    out.append('    dup')
+    out.append(f'    brtrue {has_lbl}')
+    out.append('    pop')
+    out.append(f'    br {end_lbl}')
+    out.append(f'  {has_lbl}:')
+    out.append(f'    stloc.s {src_idx}')
+    out.append(f'    newobj instance void {dst_il}::.ctor()')
+    out.append(f'    stloc.s {out_idx}')
+    out.append('    ldc.i4.0')
+    out.append(f'    stloc.s {i_idx}')
+    out.append(f'  {top_lbl}:')
+    out.append(f'    ldloc.s {i_idx}')
+    out.append(f'    ldloc.s {src_idx}')
+    out.append(f'    callvirt instance int32 {src_il}::get_Count()')
+    out.append('    bge ' + end_lbl)
+    out.append(f'    ldloc.s {out_idx}')
+    out.append(f'    ldloc.s {src_idx}')
+    out.append(f'    ldloc.s {i_idx}')
+    out.append(f'    callvirt instance !0 {src_il}::get_Item(int32)')
+    if src_dt == 'int':
+        if dst_dt == 'i32':
+            out.append('    call int32 TkvInt::ToI32(valuetype TkvInt)')
+        elif dst_dt == 'i64':
+            out.append('    call int64 TkvInt::ToI64(valuetype TkvInt)')
+        elif dst_dt in _FLOAT_DTYPES:
+            out.append('    call float64 TkvInt::ToF64(valuetype TkvInt)')
+            if dst_dt == 'f32':
+                out.append('    conv.r4')
+    else:
+        # native -> int: widen ve int64 roi FromI64 (luon an toan).
+        out.append('    conv.i8')
+        out.append('    call valuetype TkvInt TkvInt::FromI64(int64)')
+    out.append(f'    callvirt instance void {dst_il}::Add(!0)')
+    out.append(f'    ldloc.s {i_idx}')
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append(f'    stloc.s {i_idx}')
+    out.append('    br ' + top_lbl)
+    out.append(f'  {end_lbl}:')
+    out.append(f'    ldloc.s {out_idx}')
+    return True
+
+
+def _emit_generator_as_container(arg_node, param_ta, scope, out: list, ctx: dict) -> bool:
+    """Truyen GENERATOR vao tham so kieu container (`f(gen())`) - rut het
+    may trang thai ve 1 list/dict moi roi moi truyen di.
+
+    TRUOC DAY: ham generator khai bao kieu tra ve `list[...]`, nen phep kiem
+    kieu o diem goi THAY KHONG lo - `List<T>` duoc truyen thang, trong khi
+    gia tri that tren stack la may trang thai (`IEnumerator<T>`). Khong co
+    `castclass` nao, `ilasm` cung khong kiem tra kieu, nen exe bien dich
+    duoc va chi hỏng luc chay: ham nhan 0 phan tu (do doc nham dia chi
+    `List<T>` o sai cho). `for v in gen()` thi dung vi no co duong rieng
+    (xem il_features/generator_lazy.tkv's fpw_for_in_generator).
+    """
+    if param_ta is None or getattr(param_ta, 'shape', None) != 'list':
+        return False
+    func_table = (ctx or {}).get('func_table') or {}
+    gen_class = _arg_generator_kind(arg_node, scope.__getitem__, func_table)
+    if not gen_class:
+        return False
+    from il_features.generator_lazy import emit_generator_drain_as_container
+    return emit_generator_drain_as_container(
+        arg_node, gen_class, param_ta, scope, out, ctx)
+
+
 def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     name, args = node[1], node[2]
     # Luoi an toan 2026-09-29: node ('star', ...) phai duoc noi thanh doi so
@@ -3316,9 +3503,15 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
     for arg_node, p in zip(args, normal_params):
         if p.type_ann.shape == 'func':
             _compile_funcref_arg(arg_node, p.type_ann, scope, out, ctx)
-        else:
-            _compile_expr(arg_node, scope, out,
-                          _value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
+            continue
+        if _emit_generator_as_container(arg_node, p.type_ann, scope, out, ctx):
+            continue
+        _arg_ta, _need_ep = _list_coerce_pair(arg_node, p.type_ann, scope.__getitem__)
+        if _need_ep and _emit_container_coerce(
+                arg_node, _arg_ta, p.type_ann, scope, out, ctx):
+            continue
+        _compile_expr(arg_node, scope, out,
+                      _value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
     # Tham so con thieu (Wave 2, 2026-07-29): dung default_node cua chinh
     # Param do, khong can scope (chi la literal, xem Param.default_node).
     for p in normal_params[n_fixed_supplied:]:
@@ -4569,6 +4762,58 @@ def _promote_pair_dtype(d1, d2):
     return None
 
 
+def _collect_bool_locals(stmts):
+    """Tap ten bien DANG GIU gia tri boolean (0/1) trong ham nay.
+
+    `bool` trong TokenVector la BI DANH cua `i32` (xem canon_dtype) nen
+    compiler khong phan biet duoc `t = 1 > 0` voi `t = 1` chi nhin tu kieu.
+    De `str(t)`/`print(t)` in "True"/"False" giong Python, phai nho tai cho
+    bien nao vua gan tu 1 bieu thuc co nghia logic (so sanh/and/or/not/in/
+    all/any/startswith/...). Gan lai tu bieu thuc khac -> bo khoi tap.
+
+    2026-09-30: xem `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md` muc 3.4.
+    """
+    from il_features.string_builtin import _is_bool_shaped
+    out = set()
+
+    def scan(node):
+        if isinstance(node, tuple) and node and node[0] in ('call', 'method_call'):
+            name = node[1] if node[0] == 'call' else node[2]
+            if name in ('all', 'any', 'startswith', 'endswith', 'isdigit'):
+                out.add('__boolish__')
+        if isinstance(node, tuple):
+            for x in node[1:]:
+                scan(x)
+        elif isinstance(node, list):
+            for x in node:
+                scan(x)
+
+    def visit(stmt_list):
+        for st in stmt_list:
+            if not isinstance(st, dict):
+                continue
+            kind = st.get('kind')
+            name = st.get('name')
+            if kind == 'assign_scalar' and name:
+                if _is_bool_shaped(st.get('rhs_node')):
+                    out.add(name)
+                else:
+                    out.discard(name)
+            for key in ('body', 'else_body', 'orelse', 'finalbody'):
+                sub = st.get(key)
+                if isinstance(sub, list):
+                    visit(sub)
+            for h in (st.get('handlers') or []):
+                if isinstance(h, dict):
+                    visit(h.get('body') or [])
+            if isinstance(st.get('rhs_node'), (tuple, list)):
+                scan(st['rhs_node'])
+
+    visit(stmts)
+    out.discard('__boolish__')
+    return out
+
+
 def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_table: dict = None,
                                  records: dict = None, record_methods: dict = None,
                                  extra_declared: dict = None, source_path: str = None,
@@ -4894,6 +5139,12 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
         _declare_slice_temps(expr_node, {'declare_named': declare_named,
                                          'TypeAnn': TypeAnn,
                                          'infer_scope': infer_scope})
+        # 2026-09-30: ep kieu container o diem goi (`f(list_int)` vs
+        # tham so `list[i32]`) va rut generator lam doi so - ca hai deu can
+        # local an da khai o FIRST PASS. Xem `_declare_container_coerce_temps`.
+        _declare_container_coerce_temps(expr_node, {
+            'declare_named': declare_named, 'TypeAnn': TypeAnn,
+            'infer_scope': infer_scope, 'func_table': func_table})
         # Walrus 'NAME := expr' (Phase 13, 2026-08-29): tai dung NGUYEN
         # VEN declare_scalar (dung boi 'x = expr' thuong) de suy dtype tu
         # ve phai va khai bao local MOI neu 'NAME' chua tung xuat hien -
@@ -5116,6 +5367,12 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
             for fn in deferred:
                 fn()
             deferred = []
+    # 2026-09-30 (so sanh voi CPython, `tools/parity_probe` muc 3.4): theo
+    # doi bien nao DANG GIU gia tri boolean. Nguon nguyen khong co gi de
+    # phan biet `str(1 > 0)` ('True') voi `t = 1 > 0; str(t)` ('1') - ca hai
+    # la cung 1 gia tri i32 0/1, chi khac o hinh dang CUA NODE. nen phai
+    # ghi nho tai cho: bien nao gan tu 1 bieu thuc co nghia logic.
+    walk_ctx['bool_locals'] = _collect_bool_locals(stmts)
     if needs_epilogue[0]:
         # __ret_tmp: bien tam giu gia tri tra ve khi 'return' xay ra BEN
         # TRONG try/except (xem _contains_return o tren) - CHI khai bao khi
@@ -5185,7 +5442,8 @@ def _first_pass_collect_locals(stmts, sig: Signature, body_dtype: str, func_tabl
                 _sta = TypeAnn(_sdtype, None)
                 locals_decl.append((_sname, _sta))
                 infer_scope.set(_sname, _sta)
-    return locals_decl, tern_temp_of_id, needs_epilogue[0], boxed_names, nested_closures
+    return (locals_decl, tern_temp_of_id, needs_epilogue[0], boxed_names,
+            nested_closures, walk_ctx.get('bool_locals') or set())
 
 
 # _fpw_for/_fpw_while/_fpw_if/_fpw_try/_fpw_return/_fpw_raise da chuyen
@@ -5200,6 +5458,61 @@ def _fpw_idx_assign(stmt, ctx):
 
 # _fpw_attr_assign da chuyen sang il_features/record_feature.py's
 # fpw_attr_assign (Phase 1 buoc 8, 2026-07-28).
+
+
+def _declare_coerce_temps_for_call(call_node, ctx):
+    """Khai bao local an cho 2 loai ep kieu container o DIEM GOI (xem
+    `_emit_container_coerce` va `generator_lazy.emit_generator_drain_as_container`).
+
+    Phai khai o FIRST PASS vi codegen khong co quyen `declare_named` - cung
+    co goc voi `_declare_slice_temps`.
+    """
+    infer_scope = ctx.get('infer_scope')
+    func_table = ctx.get('func_table') or {}
+    declare_named = ctx['declare_named']
+    TypeAnn = ctx['TypeAnn']
+    callee = func_table.get(call_node[1]) if isinstance(call_node[1], str) else None
+    if callee is None:
+        return
+    normal_params = [p for p in callee.params if not (p.is_vararg or p.is_kwarg)]
+    for arg_node, p in zip(call_node[2], normal_params):
+        ta = p.type_ann
+        if ta is None or getattr(ta, 'shape', None) != 'list':
+            continue
+        # (a) DOI SO LA 1 GENERATOR (goi truc tiep, hoac bien dang giu no) -
+        # rut het may trang thai ve list moi. `is_generator`/
+        # `generator_class_name` da duoc gan o gen_il_program TRUOC khi
+        # first pass chay (dong ~7255), nen doc duoc o day.
+        gen_class = _arg_generator_kind(arg_node, infer_scope.__getitem__, func_table)
+        if gen_class:
+            declare_named(f'__genaslst{id(arg_node)}_it',
+                          TypeAnn(gen_class, 'generator'))
+            declare_named(f'__genaslst{id(arg_node)}_acc',
+                          TypeAnn(ta.dtype, 'list', elem_ta=ta.elem_ta))
+            continue
+        arg_ta, need = _list_coerce_pair(arg_node, ta, infer_scope.__getitem__)
+        if need:
+            declare_named(f'__coerce{id(arg_node)}_src',
+                          TypeAnn(arg_ta.dtype, 'list', elem_ta=arg_ta))
+            declare_named(f'__coerce{id(arg_node)}_out',
+                          TypeAnn(ta.dtype, 'list', elem_ta=ta))
+            declare_named(f'__coerce{id(arg_node)}_i', TypeAnn('i32', None))
+
+
+def _declare_container_coerce_temps(node, ctx):
+    if not isinstance(node, tuple):
+        return
+    if node and node[0] == 'call' and len(node) > 2:
+        try:
+            _declare_coerce_temps_for_call(node, ctx)
+        except (KeyError, AttributeError, TypeError):
+            pass
+    for x in node[1:]:
+        if isinstance(x, tuple):
+            _declare_container_coerce_temps(x, ctx)
+        elif isinstance(x, list):
+            for y in x:
+                _declare_container_coerce_temps(y, ctx)
 
 
 def _declare_slice_temps(node, ctx):
@@ -5315,8 +5628,11 @@ def _fpw_assign_zeros2d(stmt, ctx):
 
 def _fpw_call_stmt(stmt, ctx):
     call_node = stmt['call_node']
-    for arg_node in call_node[2]:
-        ctx['collect_ternary_temps'](arg_node)
+    # 2026-09-30: truyen CA call_node (khong phai tung arg) - de doot bien co
+    # moc 'call' thay vi chi duyet ben trong, vi `_declare_container_coerce_temps`
+    # can thay chinh node goi de kiem kieu tham so. Truoc day chi duyet arg nen
+    # moi thu keo theo moc do di qua im lang.
+    ctx['collect_ternary_temps'](call_node)
     # 2026-08-12 (Task 3 random shuffle/sample): 1 so ten ham dispatch qua
     # 'call_stmt' (vd shuffle(lst) qua RANDOM_STMT_CODEGEN - xem
     # stdlib_random.py) can hidden local rieng cho than ham (khong chi
@@ -5330,8 +5646,7 @@ def _fpw_call_stmt(stmt, ctx):
 
 
 def _fpw_method_call_stmt(stmt, ctx):
-    for arg_node in stmt['call_node'][3]:
-        ctx['collect_ternary_temps'](arg_node)
+    ctx['collect_ternary_temps'](stmt['call_node'])
 
 
 # _fpw_assign_dict_new/_fpw_for_in_dict_items da chuyen sang
@@ -6421,7 +6736,8 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
                                f'(indent={bad_indent}, ky vong {base_indent} - co the thieu '
                                f"'if'/'for' truoc do, hoac 'else' khong khop 'if')")
 
-    locals_decl, tern_temp_of_id, needs_epilogue, boxed_names, nested_closures = \
+    (locals_decl, tern_temp_of_id, needs_epilogue, boxed_names, nested_closures,
+     bool_locals) = \
         _first_pass_collect_locals(stmts, sig, body_dtype, func_table, records, record_methods,
                                     extra_declared=extra_declared, source_path=source_path,
                                     module_consts=module_consts,
@@ -6454,6 +6770,7 @@ def gen_il_function(sig: Signature, body_lines: list, with_guards: bool = True,
     label_counter = [0]
     epilogue_lbl = f'{sig.name}_epilogue'
     ctx = {'label_counter': label_counter, 'prefix': sig.name, 'tern_temp_of_id': tern_temp_of_id,
+           'bool_locals': bool_locals,
            'func_table': func_table or {}, 'class_name': class_name or 'Program', 'loop_stack': [],
            'try_depth': 0, 'epilogue_lbl': epilogue_lbl, 'ret_tmp_name': '__ret_tmp',
            'records': records or {}, 'record_methods': record_methods or {},
@@ -6747,9 +7064,10 @@ def gen_il_generator_function(sig: Signature, body_lines: list, func_table: dict
         raise SyntaxError(f'il_codegen: indent khong hop le tai dong {bad_line!r} '
                            f'(indent={bad_indent}, ky vong {base_indent})')
 
-    locals_decl, tern_temp_of_id, needs_epilogue, boxed_names, nested_closures = \
+    (locals_decl, tern_temp_of_id, needs_epilogue, boxed_names, nested_closures,
+     bool_locals) = \
         _first_pass_collect_locals(stmts, sig, body_dtype, func_table, records, record_methods,
-                                  module_globals=module_globals)
+                                   module_globals=module_globals)
     if boxed_names or nested_closures:
         raise SyntaxError(
             f"il_codegen: generator '{sig.name}' chua ho tro closure long ben trong "

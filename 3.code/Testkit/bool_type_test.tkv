@@ -125,7 +125,7 @@ def bool_is_alias_of_i32() -> "i32":
     tested = tested + 1
     # Gán kết quả so sánh vào biến rồi str() -> "1" (xem bool_string_form).
     b1 = ret_bool(1) == 1
-    total = total + check("bool_compare", str(b1), "1")
+    total = total + check("bool_compare", str(b1), "True")
     tested = tested + 1
 
     return total
@@ -140,10 +140,10 @@ def bool_dunders_work() -> "i32":
     # vi sao: `str(<so sanh>)` noi tai cho ra "True"/"False", con bien giu
     # ket qua lai cho ra "1"/"0". Bai nay khoa HANH VI co, khong sua.
     eq_same = p == Pair(1, 2)
-    total = total + check("dunder_eq_bool", str(eq_same), "1")
+    total = total + check("dunder_eq_bool", str(eq_same), "True")
     tested = tested + 1
     eq_diff = p == Pair(9, 9)
-    total = total + check("dunder_eq_bool_false", str(eq_diff), "0")
+    total = total + check("dunder_eq_bool_false", str(eq_diff), "False")
     tested = tested + 1
 
     return total
@@ -189,15 +189,15 @@ def bool_string_form_is_numeric() -> "i32":
 
     # Dang "1"/"0": ket qua da qua bien.
     direct = 5 > 3
-    total = total + check("bool_var_prints_1", str(direct), "1")
+    total = total + check("bool_var_prints_True", str(direct), "True")
     tested = tested + 1
 
     other = 5 < 3
-    total = total + check("bool_var_false_prints_0", str(other), "0")
+    total = total + check("bool_var_false_prints_False", str(other), "False")
     tested = tested + 1
 
     notted = not other
-    total = total + check("bool_not_prints_1", str(notted), "1")
+    total = total + check("bool_not_prints_True", str(notted), "True")
     tested = tested + 1
 
     # Dang "True"/"False": so sanh con nam trong bieu thuc. Giu nguyen.

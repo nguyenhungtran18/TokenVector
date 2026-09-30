@@ -144,7 +144,7 @@ def comparison_and_use() -> "i32":
     # "True", con cung gia tri do gan vao bien lai in ra "1" (xem CLAUDE.md
     # muc "Known gaps" / str tren ket qua so sanh). Phai theo quy tac do.
     gt = p.x > 3
-    total += check("field in comparison", str(gt), "1")
+    total += check("field in comparison", str(gt), "True")
     tested += 1
     total += check("field in arithmetic", str(p.x + 1), "6")
     tested += 1

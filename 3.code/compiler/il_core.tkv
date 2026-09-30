@@ -20,6 +20,77 @@ IL_SCALAR = {'f32': 'float32', 'f64': 'float64', 'i32': 'int32', 'i64': 'int64',
              'thread': 'object'}
 IL_NEWARR_ELEM = {'f32': '[mscorlib]System.Single', 'f64': '[mscorlib]System.Double',
                   'i32': '[mscorlib]System.Int32', 'i64': '[mscorlib]System.Int64'}
+
+# ---------------------------------------------------------------------------
+# NGHIA DUNG PYTHON CUA "GIA TRI THAT" (bool / and / or / if) - 2026-09-30
+#
+# Dat o CORE (khong phai il_features/operators.tkv) vi CA HAI noi can:
+# operators.tkv (LIBRARY) va control_flow.tkv (CORE). Import xeo giua
+# LIBRARY va CORE khong hoat dong trong ban dong gói PyInstaller - compiler
+# tu host chay duoc (module loader cua tkvdev) nhan `dist/tkvc.exe` lai
+# bao loi bien dich (da gap: `yield from` bi bo qua).
+_TRUTHY_SCALARS = {'i32', 'i64', 'bool'}
+
+
+def _boolop_ta(node, scope):
+    """TypeAnn cua node khi CHAC CHAN biet (bien trần hoac bien-lat). None
+    neu khong chắc - khi do dung duong bien dich cu (xem
+    operators.compile_boolop).
+
+    KHONG dung `infer_dtype` o day: no tra *kieu gia tri*, nen voi
+    `d["k"]` (dict) no tra kieu PHAN TU, con voi `d` no tra kieu container -
+    tron hai nghia la sinh IL sai (da gap: `d["k"] or 42` ra rac)."""
+    if not isinstance(node, tuple):
+        return None
+    if node[0] in ('var', 'slice'):
+        try:
+            return scope[node[1]][2]
+        except (KeyError, IndexError, TypeError):
+            return None
+    return None
+
+
+def _ta_compile_spec(ta):
+    """Spec chuoi de bien dich 1 gia tri co kieu `ta` (giu lop long nhau)."""
+    from il_features.list_type import ta_to_spec
+    try:
+        return ta_to_spec(ta)
+    except Exception:
+        return ta.dtype
+
+
+def emit_truthy_ta(node, ta, scope, out, ctx):
+    """Day len stack 1 GIA TRI i32 0/1 theo NGHIA DUNG PYTHON cua `node`
+    (dang co TypeAnn `ta` biet chac chan).
+
+    2026-09-30 (so sanh voi CPython, `tools/parity_probe`): truoc day
+    `a and b` / `a or b` / `if xs:` bien dich ve tri thanh 'i32' roi kiem
+    bang `dup+brtrue` / `brfalse` - tuc DIEN con tro list RONG nhu mot so
+    nen luon "True". Python: list/set/dict rong, chuoi rong, 0.0 deu False.
+    """
+    compile_expr = ctx['compile_expr']
+    shape = getattr(ta, 'shape', None)
+    if shape in ('list', 'set', 'dict', 'frozenset'):
+        compile_expr(node, scope, out, _ta_compile_spec(ta), ctx)
+        out.append('    callvirt instance int32 '
+                   f'{ctx["il_type_str"](ta, (ctx or {}).get("records"))}::get_Count()')
+        out.append('    ldc.i4.0')
+        out.append('    cgt')
+        return
+    if shape is None and ta.dtype in ('f32', 'f64'):
+        compile_expr(node, scope, out, ta.dtype, ctx)
+        out.append('    ldc.r8 0.0' if ta.dtype == 'f64' else '    ldc.r4 0.0')
+        out.append('    ceq')
+        out.append('    ldc.i4.0')
+        out.append('    ceq')
+        return
+    if shape is None and ta.dtype == 'str':
+        compile_expr(node, scope, out, 'str', ctx)
+        out.append('    callvirt instance int32 [mscorlib]System.String::get_Length()')
+        out.append('    ldc.i4.0')
+        out.append('    cgt')
+        return
+    compile_expr(node, scope, out, 'i32', ctx)
 IL_LDELEM = {'f32': 'ldelem.r4', 'f64': 'ldelem.r8', 'i32': 'ldelem.i4', 'i64': 'ldelem.i8'}
 IL_STELEM = {'f32': 'stelem.r4', 'f64': 'stelem.r8', 'i32': 'stelem.i4', 'i64': 'stelem.i8'}
 IL_LDC_OP = {'f32': 'ldc.r4', 'f64': 'ldc.r8', 'i32': 'ldc.i4', 'i64': 'ldc.i8'}

@@ -18,6 +18,10 @@ file."""
 import re
 
 from il_core import IL_LDC_OP
+from il_core import _TRUTHY_SCALARS as _TRUTHY_SCALARS
+from il_core import _boolop_ta as _boolop_ta
+from il_core import emit_truthy_ta as emit_truthy_ta
+from il_core import _ta_compile_spec as _ta_compile_spec
 import il_features.int_type as _int_type
 from il_dispatch import register_macro_expander, register_expr_codegen
 from il_features.stdlib_math import compile_pow as _compile_pow
@@ -528,12 +532,52 @@ def compile_boolop(node, scope, out, dtype, ctx=None):
 
     ctx['label_counter'][0] += 1
     n = ctx['label_counter'][0]
-    end_lbl = f"{ctx.get('prefix', 'expr')}_sc{n}_end"
-    compile_expr(left, scope, out, 'i32', ctx)
+    prefix = ctx.get('prefix', 'expr')
+    end_lbl = f'{prefix}_sc{n}_end'
+    left_ta = _boolop_ta(left, scope)
+    if left_ta is None or (getattr(left_ta, 'shape', None) is None
+                           and left_ta.dtype in _TRUTHY_SCALARS):
+        # Duong 1 (va mac dinh): ve trai vua la GIA TRI vua la DIEU KIEN
+        # (i32 0/1) - `dup` giu lai ban sao de nhanh.
+        compile_expr(left, scope, out, 'i32', ctx)
+        out.append('    dup')
+        out.append(f"    {'brfalse' if op == 'and' else 'brtrue'} {end_lbl}")
+        out.append('    pop')
+        compile_expr(right, scope, out, 'i32', ctx)
+        out.append(f'  {end_lbl}:')
+        return
+    # Duong 2 (2026-09-30): ve trai KHONG phai so - quyet dinh bang
+    # nghia dung Python, nhung van day LAI chinh GIA TRI cua no (Python
+    # tra toan hang, khong tra True/False).
+    left_lbl = f'{prefix}_sc{n}_left'
+    emit_truthy_ta(left, left_ta, scope, out, ctx)
     out.append('    dup')
-    out.append(f"    {'brfalse' if op == 'and' else 'brtrue'} {end_lbl}")
+    out.append(f"    {'brfalse' if op == 'and' else 'brtrue'} {left_lbl}")
     out.append('    pop')
-    compile_expr(right, scope, out, 'i32', ctx)
+    right_ta = _boolop_ta(right, scope)
+    if right_ta is None:
+        compile_expr(right, scope, out, 'i32', ctx)
+    elif getattr(right_ta, 'shape', None) is not None:
+        from il_features.list_type import ta_to_spec
+        try:
+            right_spec = ta_to_spec(right_ta)
+        except Exception:
+            right_spec = right_ta.dtype
+        compile_expr(right, scope, out, right_spec, ctx)
+    else:
+        compile_expr(right, scope, out, right_ta.dtype, ctx)
+    out.append('    br ' + end_lbl)
+    out.append(f'  {left_lbl}:')
+    out.append('    pop')
+    if getattr(left_ta, 'shape', None) is not None:
+        from il_features.list_type import ta_to_spec
+        try:
+            left_spec = ta_to_spec(left_ta)
+        except Exception:
+            left_spec = left_ta.dtype
+        compile_expr(left, scope, out, left_spec, ctx)
+    else:
+        compile_expr(left, scope, out, left_ta.dtype, ctx)
     out.append(f'  {end_lbl}:')
 
 

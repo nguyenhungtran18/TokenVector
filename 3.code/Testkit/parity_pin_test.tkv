@@ -1,0 +1,167 @@
+# -*- coding: utf-8 -*-
+"""Pin 5 bug SAI AM THAM phat hien khi so sanh voi CPython
+(`tools/parity_probe/`, 2026-09-30).
+
+Cac test o day deu RED truoc khi sua. Khong test nao trong 95 test cu
+bat loi do - vi cong hien tai CHI kiem 'dung -> sai', chua co chieu
+'sai -> dung'. Bai nay dong ca 5 lo.
+
+1. `list[int]` (TkvInt, 16 byte) truyen vao tham so `list[i32]`: truoc day
+   compiler phat ra 1 lenh ep `TkvInt::ToI32` tren CHINH con tro List,
+   an mat doi so. Bieu do day doc sai vung nho -> 0 hoac OverflowException.
+2. Lat 1 `list[int]` roi truyen thuoc cho tham so `list[i32]`.
+3. Truyen GENERATOR (goi truc tiep hay qua bien) vao tham so `list[...]`:
+   may trang thai bi doc nhu `List<T>` -> ham nhan 0 phan tu.
+4. `str.split()` bo qua phan con lai cua sep nhieu ky tu.
+5. `a or b` / `a and b` ep ve trai thanh i32 nen container RONG bi coi la
+   True; `str(bool)` cua bien bi in 1/0.
+"""
+
+
+def check(label: "str", got: "str", want: "str") -> "i32":
+    if got == want:
+        print("  ok   " + label + " = " + got)
+        return 0
+    print("  FAIL " + label + " got=" + got + " expected=" + want)
+    return 1
+
+
+def pair(a: "i32", b: "i32", c: "i32") -> "list[i32]":
+    return [a, b, c]
+
+
+def show(xs: "list[i32]") -> "str":
+    out = "n=" + str(len(xs))
+    for i in range(len(xs)):
+        out = out + " [" + str(xs[i]) + "]"
+    return out
+
+
+def take_i32(xs: "list[i32]") -> "str":
+    return show(xs)
+
+
+def gen_upto(n: "i32") -> "list[i32]":
+    for i in range(n):
+        yield i
+
+
+def t1_coerce_list_int() -> "i32":
+    total = 0
+    lit = [1, 2, 3]
+    full = lit[0:3]
+    total += check("1a list[int] -> list[i32]", take_i32(full), "n=3 [1] [2] [3]")
+    total += check("1b lat truyen thang", take_i32(lit[0:2]), "n=2 [1] [2]")
+    lit2 = [7, 8]
+    lit2.append(9)
+    total += check("1c list[int] nhieu phan tu", take_i32(lit2), "n=3 [7] [8] [9]")
+    return total
+
+
+def t2_no_coerce_when_equal() -> "i32":
+    p = pair(4, 5, 6)
+    p.append(7)
+    return check("2 list[i32] di qua nguyen ven", take_i32(p), "n=4 [4] [5] [6] [7]")
+
+
+def t3_generator_as_arg() -> "i32":
+    total = 0
+    total += check("3a gen() truc tiep", take_i32(gen_upto(4)), "n=4 [0] [1] [2] [3]")
+    g = gen_upto(3)
+    total += check("3b gen qua bien", take_i32(g), "n=3 [0] [1] [2]")
+    return total
+
+
+def t4_split_multi() -> "i32":
+    total = 0
+    s = "a, b"
+    m = s.split(", ")
+    total += check("4a sep 2 ky tu", show_str(m), "n=2 [0]=[a] [1]=[b]")
+    t = "abc"
+    parts = t.split("b")
+    total += check("4b sep 1 ky tu", show_str(parts), "n=2 [0]=[a] [1]=[c]")
+    u = "x--y--z"
+    parts2 = u.split("--")
+    total += check("4c sep lap", show_str(parts2), "n=3 [0]=[x] [1]=[y] [2]=[z]")
+    return total
+
+
+def show_str(parts: "list[str]") -> "str":
+    out = "n=" + str(len(parts))
+    for i in range(len(parts)):
+        out = out + " [" + str(i) + "]=[" + parts[i] + "]"
+    return out
+
+
+def t5_truthiness() -> "i32":
+    total = 0
+    a = []
+    a = a or [1]
+    total += check("5a list rong or", str(count_of(a)), "1")
+    b = [1]
+    b = b or [2]
+    total += check("5b list day or", str(count_of(b)), "1")
+    total += check("5c so 0 or 9", str(zero_or()), "9")
+    total += check("5d so 7 and 5", str(seven_and()), "5")
+    total += check("5e list rong trong if", str(branch([])), "empty")
+    total += check("5f list day trong if", str(branch([1])), "full")
+    return total
+
+
+def count_of(xs: "list[i32]") -> "i32":
+    n = 0
+    for v in xs:
+        n = n + 1
+    return n
+
+
+def branch(xs: "list[i32]") -> "str":
+    if xs:
+        return "full"
+    return "empty"
+
+
+def zero_or() -> "i32":
+    x = 0
+    x = x or 9
+    return x
+
+
+def seven_and() -> "i32":
+    y = 7
+    y = y and 5
+    return y
+
+
+def t6_str_bool() -> "i32":
+    total = 0
+    t = 1 > 0
+    total += check("6a bien bool", str(t), "True")
+    f = 1 > 2
+    total += check("6b bien bool false", str(f), "False")
+    n = 5
+    total += check("6c bien so khong doi", str(n), "5")
+    total += check("6d bool noi tu truc tiep", str(1 > 0), "True")
+    p = 1 and 2
+    total += check("6e and tra toan hang", str(p), "2")
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += t1_coerce_list_int()
+    total += t2_no_coerce_when_equal()
+    total += t3_generator_as_arg()
+    total += t4_split_multi()
+    total += t5_truthiness()
+    total += t6_str_bool()
+    return total
+
+
+def main() -> "i32":
+    failed = run()
+    print("=== parity_pin_test: " + str(20 - failed) + "/20 PASS ===")
+    if failed == 0:
+        print("ALL PASS")
+        return 0
+    return 1
