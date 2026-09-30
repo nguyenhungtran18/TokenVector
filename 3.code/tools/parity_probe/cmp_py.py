@@ -58,7 +58,7 @@ def m2():
     emit("isdigit", str(s.isdigit()))
     emit("format_pct", "%s-%d" % ("a", 5))
     emit("str_concat", "a" + str(1) + "b")
-    emit("in", str("World" in s) + "/" + str("zz" in s))
+    emit("in_str", str("World" in s) + "/" + str("zz" in s))
     emit("cmp", str(s == "Hello, World") + "/" + str(s < "Z"))
 
 def m3():
@@ -72,7 +72,7 @@ def m3():
     emit("index", str(xs.index(3)))
     n1 = xs.count(1)
     emit("count", str(n1))
-    emit("in", str(2 in xs) + "/" + str(9 in xs))
+    emit("in_list", str(2 in xs) + "/" + str(9 in xs))
     ys = xs[1:3]
     emit("slice", join_i(ys))
     del xs[0]
@@ -261,7 +261,7 @@ def m8():
     emit("method", str(q.x) + "/" + str(q.y))
     d = Dog("rex", 4)
     emit("inherit", d.speak() + "/" + str(d.legs))
-    emit("isinstance_like", d.tag())
+    emit("isinstance_like_oop", d.tag())
 
 class Point:
     def __init__(self, x, y):
@@ -365,7 +365,7 @@ def m12():
     xs = [1]
     ys = [1]
     emit("list_identity", str(xs is ys) + "/" + str(xs is xs))
-    emit("isinstance_like", str(1 == 1.0))
+    emit("isinstance_like_num", str(1 == 1.0))
 
 def m13():
     emit("mutate_list", mutate())

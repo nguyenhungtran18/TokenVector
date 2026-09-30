@@ -1,7 +1,7 @@
 # BẢNG SO SÁNH ĐO ĐẠC: TOKENVECTOR VS CPYTHON 3.12
 
 > **Ngày đo**: 2026-09-30 (đo lần 2) · **Cổng lúc đo**: 97/97 + negative 15/15
-> **Cách đo**: `tools/parity_probe/` — 117 phép thử chạy song song trên cả hai
+> **Cách đo**: `tools/parity_probe/` — 119 phép thử chạy song song trên cả hai
 > bên, in ra cùng một danh sách nhãn, máy so từng dòng.
 > Chạy lại: `powershell -File tools\parity_probe\run.ps1`
 
@@ -10,19 +10,20 @@ Bản trước của tài liệu này tự ghi "95%+ Parity" và khẳng định
 compiler, và con số parity được đo lại ở đây.
 
 Mốc đo lần 1: 102 phép, **95 khớp / 7 khác** — và cả 7 đều cho kết quả sai mà
-không báo lỗi. Mốc đo lần 2 (bản này): 117 phép, **117 khớp / 0 khác**.
+không báo lỗi. Mốc đo lần 2 (bản này): 119 phép, **119 khớp / 0 khác**.
 
 ---
 
 ## 1. KẾT QUẢ ĐO
 
 ```
-py: 117 dong, tv: 117 dong
-KHOP  : 117
+py: 119 dong, tv: 119 dong
+entry tra ve: 0 (doc o runtime, khong so sanh voi py)
+KHOP  : 119
 KHAC  : 0
 ```
 
-**117/117 phép thử cho kết quả giống hệt CPython.**
+**119/119 phép thử cho kết quả giống hệt CPython.**
 
 ### 1.1 Sai lệch trong chính tài liệu lần 1 (đã sửa ở đây)
 
@@ -118,6 +119,31 @@ Các mục này sai lệch thật với CPython. Ghi lại công khai thay vì g
 > (`"café"`): cả hai đều ra `4`, nên dễ tưởng khớp. Cắt chuỗi theo chỉ số byte là
 > sai với mọi chuỗi có ký tự đa byte, và hỏng âm thầm.
 
+### 3.4 Lỗi của CHÍNH công cụ đo (làm số đẹp hơn thực tế)
+
+`diff.py` nạp output vào dict theo nhãn: `d[k] = v`. Nhãn trùng bị **ghi đè im
+lặng** — phép bị ghi đè **không hề được so**, và báo cáo vẫn in
+`KHOP: N` với `KHAC: 0` như thể đã kiểm hết.
+
+Cụ thể: hai nhãn `in` (chuỗi, list) và `isinstance_like` (OOP, số) bị trùng →
+119 dòng chỉ còn **117 nhãn**, 2 phép không bao giờ được so. Bản đo lần 2 tôi
+đã báo "117/117" là **sai**: con số đúng là 119.
+
+Đã sửa: `diff.py` giờ **báo lỗi và thoát mã 1** khi có
+- nhãn trùng (buộc phải đặt tên khác trong nguồn probe),
+- dòng không có dạng `nhan = gia tri` mà không phải dòng giá trị trả về của entry,
+- nhãn chỉ có ở một bên.
+
+Dòng giá trị trả về của entry là hợp lệ: runtime in nó ra (đã kiểm — exe in `7`
+khi entry `return 7`, còn process exit code vẫn là `0). `diff.py` chỉ chấp nhận
+**đúng một** dòng số nguyen ở cuối file, và in nó ra để không phải bỏ qua mù quáng.
+
+Tên nhãn đã tách: `in_str`/`in_list`, `isinstance_like_oop`/`isinstance_like_num`.
+
+> Bài học chung: **công cụ đo cũng có bug âm thầm, và hướng lệch của nó là làm
+> kết quả trông tốt hơn.** Cùng nguyên tắc với `/` — chỉ khác là nó nằm trong
+> dụng cụ kiểm chứng chứ không trong ngôn ngữ.
+
 ---
 
 ## 4. GIỚI HẠN BIÊN DỊCH (báo lỗi rõ, không im lặng)
@@ -177,8 +203,8 @@ Những cái này **từ chối build kèm thông điệp chỉ đường**, nê
 
 ## 7. ĐÁNH GIÁ
 
-- **Ngôn ngữ lõi** (mục 2): **117/117** trên bộ thử này. Con số 117 **không** có
-  nghĩa là TokenVector ngang Python — nó chỉ có nghĩa là 117 phép thử đã chọn đều
+- **Ngôn ngữ lõi** (mục 2): **119/119** trên bộ thử này. Con số 119 **không** có
+  nghĩa là TokenVector ngang Python — nó chỉ có nghĩa là 119 phép thử đã chọn đều
   khớp. Mốc lần 1 từng là 95/102 và vẫn lọt 6 lỗi âm thầm, trong đó có `/` — loại
   rất cơ bản. **Bộ thử hẹp không phải bằng chứng**, chỉ là mẫu tốt để bắt lỗi khi
   biết mình đang tìm gì.
@@ -192,7 +218,7 @@ Những cái này **từ chối build kèm thông điệp chỉ đường**, nê
 - **PyPI**: không dùng được. Cần wrapper FFI/P-Invoke thủ công.
 - **Đoạn đã biết, chưa đo**: `sys`/`os`/`re`/`json` mức module, kiểu `datetime`,
   `Decimal`, số phứn, `int` vô hạn (`TkvInt`) ở các phép toán. Không nằm trong
-  117 phép nên **không được coi là đã đạt**.
+  119 phép nên **không được coi là đã đạt**.
 
 **Ưu tiên nếu sửa tiếp** — theo mức độ nguy hiểm, không theo độ khó:
 
