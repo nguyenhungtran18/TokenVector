@@ -384,11 +384,30 @@ tiên kiểu `str` làm thông điệp.
 | `dict()` | **CÓ** |
 | `set()` | **CÓ** |
 | `bytes(n)` / `bytes([..])` | **CÓ** (thêm 2026-09-30) |
-| `bytearray()` / `bytearray(n)` | **CÓ** — `bytearray(n)` thêm 2026-09-30 (trước chỉ rỗng) |
-| `list()` | **KHÔNG** — chỉ dùng list literal `[1,2]` |
-| `tuple()` | **KHÔNG** |
+| `bytearray()` / `bytearray(n)` | **CÓ** — `bytearray(n)` thêm 2026-09-30 |
+| `list()` / `list(ys)` | **CÓ** (2026-09-30). `list(ys)` là **bản sao** |
+| `tuple([a,b,c])` / `tuple(t)` | **CÓ, nhưng khác Python** (2026-09-30) — xem 5.3.1 |
+| `list([])` | Không nhận — tham số phải là **biến**. `list()` cho list rỗng |
 | `frozenset()` | **KHÔNG** (`frozenset` chỉ là *tên shape* trong compiler) |
 | `object()` | **KHÔNG** |
+
+### 5.3.1 `tuple()` — khác Python, vì khác kiến trúc
+
+`tuple` của TokenVector **không** phải container biến độ dài. Nó là
+`System.ValueTuple<T1..TN>` — **value type** với số phần tử **cố định 2..7**,
+biết lúc biên dịch (`il_tupleN_type` từ chối N < 2).
+
+| Dạng | Kết quả |
+|---|---|
+| `tuple([5, 6, 7])` | **CÓ** — độ dài biết lúc biên dịch nên đổi được |
+| `tuple((4, 5))` | **CÓ** — tương đương `(4, 5)` |
+| `tuple(t)` khi `t` là tuple | **CÓ** — trả chính `t` (Python cũng vậy) |
+| `tuple()` rỗng | **Lỗi biên dịch** — arity 0 không biểu diễn được |
+| `tuple(xs)` khi `xs` là biến list | **Lỗi biên dịch** — độ dài `xs` chưa biết |
+| `tuple([1])` | **Lỗi biên dịch** — cần ít nhất 2 phần tử |
+
+Đây là **xung đột thiết kế**, không phải thiếu công code — nên phải báo lỗi rõ
+kèm gợi ý cách viết thay thế, không trả về thứ gì đó sai.
 
 ### 5.4 Lỗi chẩn đoán cần sửa
 
