@@ -1,0 +1,255 @@
+# -*- coding: utf-8 -*-
+"""`it = iter(xs)` + `next(it)` / `next(it, default)` (2026-10-02).
+
+## VAI TRO
+
+`for` cua TokenVector da DUOC dich thang bang vong lap CIL (`for x in xs` ->
+dem `xs.Count`), nen `iter()`/`next()` KHONG phai de vong lap no - no la
+TRANG THAI THU CONG de:
+- vong lap co `break`/`return` giua chung va phai tiep tuc,
+- doc 2 iterable song song (`a = iter(xs); b = iter(ys)`),
+- het du lieu thi KIEM TRA duoc (`next(it, -1)` thay vi loi).
+
+## TRIZ: TACH CON TRO KHOI CONTAINER
+
+Python giu con tro trong 1 object `list_iterator` (runtime class rieng cho
+`list`). O day **khong** tao class moi: 2 bien AN (hidden local) cho MOI
+iterator, dac-ten-theo-TEN-BIEN-DICH cua `iter()` - `__itsrc_<ten>` (tham chieu
+list, dung chung `TypeAnn` nen `get_Item` ra dung kieu) va `__itpos_<ten>`
+(con tro i32). Bien dich `it` (`it = iter(xs)`) la 1 local i32 thuan lam "the
+token" - doc no khong co y nghia gi (khac Python, noi no la 1 object).
+
+**Tai sao dac-ten-theo-ten-bien-dich, khong phai `id(node)`** (quy uoc chung
+cua moi `temps_fn` xem il_dispatch.py): `next(it)` nhin `TEN` bien, khong
+nhin node cua `iter()` da bien dich xong. Dung `id(node)` thi `next()` khong
+tim ra con tro nao. Ten lay tu `try_rhs_iter` (ASSIGN_RHS co san `name` =
+bien dich, xem il_dispatch.py) - ham `iter` dang ky qua `temps_fn` se KHONG
+co ten bien dich.
+
+Hai bien AN: `a = iter(xs)` va `b = iter(xs)` -> 2 con tro doc lap, dung mot
+`xs` - giong Python. Con tro doc CHUNG 1 `List<T>` nen `xs.append(...)`
+giua chung van duoc thay (Python cung vay).
+
+## HAN CHAN CO Y THUC (khong phai gioi han do cap)
+
+1. `iter()` CHI o VI TRI GAN `it = iter(<ten bien>)`. Bien dich `iter(xs)`
+   trong bieu thuc khac se bao loi ro rang (ham nay dang ky de chan, khong
+   de `_expr_call` bao chung chung "ham khong ton tai").
+2. Nguon CHI la `list`. `iter("abc")`, `iter(d)` (dict/set) chua ho tro -
+   chua co `__iter__`/`__next__` (xem docs/REFERENCE.md).
+3. `next(it, default)`: `default` BAT BUOC cung dtype voi phan tu cua list
+   nguon. Khong tu nang rong kieu nhu Python (`next(list_of_int, "")` se bao
+   loi bien dich) - vi `dtype` cua 1 bien chi 1 kieu, va 2 nhanh cua 1
+   bieu thuc phai cung kieu (xem `_promote_pair_dtype` o il_codegen.tkv).
+4. `StopIteration` = `[mscorlib]System.InvalidOperationException` (xem
+   control_flow.tkv's _EXC_TYPE_MAP) - **cung loai voi `RuntimeError`**, nen
+   `except RuntimeError:` se BAT pham StopIteration. Bat dung bang
+   `next(it, default)` khi can phan biet het du lieu.
+5. Con tro khong dung chung qua `copy`/truyen ham - `next` chi nhan TEN bien.
+6. Bien AN la LOCAL cua HAM dang dich. `iter()` o CAP MODULE chua ho tro.
+"""
+import re
+
+from il_dispatch import (register_assign_rhs_parser, register_discard_stmt_builtin,
+                         register_expr_builtin, register_first_pass_walk,
+                         register_stmt_codegen)
+
+
+_ITER_RE = re.compile(r'^iter\(\s*(\w+)\s*\)$')
+_SRC_PREFIX = '__itsrc_'
+_POS_PREFIX = '__itpos_'
+
+_STOP_MSG = 'next(): iterator da het du lieu (tuong duong StopIteration cua Python)'
+
+
+def _src_name(it_name):
+    return _SRC_PREFIX + it_name
+
+
+def _pos_name(it_name):
+    return _POS_PREFIX + it_name
+
+
+# ---------------------------------------------------------------- iter()
+
+def try_rhs_iter(rhs, name, known_shapes):
+    """ASSIGN_RHS_PARSERS: `it = iter(xs)`.
+
+    Khop bang regex CHI de nhan dang cau lenh; KIEM TRA KIEU (nguon co phai
+    list khong) de o first-pass - xem fpw_assign_iter. Neu kiem o day thi
+    `xs` chua khai bao luc parse cung bao loi sai (bien chua ton tai thay vi
+    "nguon khong phai list").
+    """
+    m = _ITER_RE.match(rhs.strip())
+    if not m:
+        return None
+    return {'kind': 'assign_iter', 'name': name, 'src_name': m.group(1)}
+
+
+def fpw_assign_iter(stmt, ctx):
+    TypeAnn = ctx['TypeAnn']
+    _, _, src_ta = ctx['infer_scope'][stmt['src_name']]
+    if src_ta.shape != 'list':
+        raise SyntaxError(
+            f"il_codegen: iter({stmt['src_name']}) - nguon phai la LIST; "
+            f"'{stmt['src_name']}' dang co shape={src_ta.shape!r} dtype={src_ta.dtype!r} "
+            f"(chi list ho tro, xem docs/REFERENCE.md muc iter/next)")
+    # 3 local: bien dich (token i32), tham chieu list, con tro.
+    ctx['declare_named'](stmt['name'], TypeAnn('i32', None))
+    ctx['declare_named'](_src_name(stmt['name']), src_ta)
+    ctx['declare_named'](_pos_name(stmt['name']), TypeAnn('i32', None))
+
+
+def codegen_assign_iter(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """`src = xs; pos = 0; it = 0` - 3 lenh, khong vong lap."""
+    name = stmt['name']
+    _, src_idx, _ = scope[_src_name(name)]
+    _, pos_idx, _ = scope[_pos_name(name)]
+    ctx['load_var_ref'](stmt['src_name'], scope, body)
+    body.append(f'    stloc.s {src_idx}')
+    body.append('    ldc.i4.0')
+    body.append(f'    stloc.s {pos_idx}')
+    body.append('    ldc.i4.0')
+    ctx['store_var'](name, scope, body)
+
+
+def _push_iter_expr_error(args, scope, out, dtype, ctx):
+    """`iter(...)` o bat ky vi tri nao KHAC `it = iter(...)`."""
+    raise SyntaxError(
+        "il_codegen: iter(...) chi ho tro o VI TRI GAN 1 bien: 'it = iter(xs)' "
+        "- khong dung duoc trong bieu thuc khac")
+
+
+# ---------------------------------------------------------------- next()
+
+def _src_ta(it_name, scope):
+    """TypeAnn cua list nguon cua iterator `it_name`, hoac None neu `it_name`
+    khong phai iterator.
+
+    PHAI thu `scope[...]` roi bat loi thay vi `name in scope`: co HAI loai
+    scope - `_DtypeOnlyScope` (first pass) KHONG co `__contains__`, nen `in`
+    lui ve protocol lap: goi `__getitem__(0)` va nem `KeyError: 0` (loi THAT
+    da gap: il_codegen.py dong 4645). `_Scope` (second pass) lai nem
+    `SyntaxError` cho ten chua co. Ca 2 deu la truong hop "khong phai
+    iterator" - nen bat ca 4 loai loi o day.
+    """
+    try:
+        return scope[_src_name(it_name)][2]
+    except (KeyError, IndexError, TypeError, SyntaxError):
+        return None
+
+
+def _not_an_iterator(it_name, where):
+    raise SyntaxError(
+        f"il_codegen: {where} - '{it_name}' khong phai ket qua cua iter(); "
+        f"chi 'it = iter(xs)' moi tao duoc iterator")
+
+
+def _next_result_dtype(args, scope, func_table, ctx):
+    """dtype cua `next(...)`: dtype PHAN TU cua list nguon, hoac None neu
+    chua nhin thay trang thai iterator.
+
+    **Khong bao loi khi chua nhin thay** - ham nay chay o CA PRESCAN (xem
+    il_codegen.tkv's `_fpp_assign_scalar`, dong 5805) VA o first pass, ma
+    `iter()` o tren chua kip chay `fpw_assign_iter` nen bien AN chua co.
+    Tra None an toan: `_fpp_assign_scalar` CHI ghi vao `infer_scope` khi
+    `inferred` co gia tri (dong 5818), nen bien dich se duoc `declare_scalar`
+    suy lai o luot that - noi da co du bien AN. Loi THAT thi do `push_next`
+    (pass 2) bao, noi co context day du.
+
+    KHONG dung tham so `default` de sua kieu - xem han chan 3 o docstring.
+    """
+    if not args or args[0][0] != 'var':
+        raise SyntaxError(
+            f"il_codegen: next(...) - tham so 1 phai la TEN 1 bien iterator "
+            f"(dang la bieu thuc khong phai ten bien)")
+    src_ta = _src_ta(args[0][1], scope)
+    return None if src_ta is None else src_ta.dtype
+
+
+def _default_dtype(args, scope, ctx):
+    """dtype cua bieu thuc `default`, hoac None neu khong suy duoc.
+
+    Pass 2 khong co `ctx['infer_scope']` (chi `walk_ctx` o first pass moi co) -
+    nen dung `scope` cua chinh pass 2, dung cho ca 2.
+    """
+    infer_dtype = (ctx or {}).get('infer_dtype')
+    if infer_dtype is None:
+        # `_infer_dtype` goi `return_dtype_fn` voi ctx rong gia tri
+        # 'infer_dtype' (xem il_codegen.tkv dong ~1085). De ve phai: khong
+        # sua duoc gi o day, phep `push_next` (co ctx day du) bao loi.
+        return None
+    return infer_dtype(args[1], scope, ctx['func_table'],
+                       ctx['records'], ctx['record_methods'])
+
+
+def push_next(args, scope, out, dtype, ctx):
+    if not args or len(args) > 2 or args[0][0] != 'var':
+        if args and args[0][0] == 'call' and args[0][1] == 'iter':
+            # `next(iter(xs))` - bao loi CUA `iter`, vi day moi la thu
+            # khong lam duoc (can 1 bien de giu con tro).
+            _push_iter_expr_error(args, scope, out, dtype, ctx)
+        raise SyntaxError(
+            "il_codegen: next(it) hoac next(it, default) - tham so 1 phai la "
+            "TEN 1 bien iterator, va co toi da 1 tham so thu 2")
+    it_name = args[0][1]
+    src_ta = _src_ta(it_name, scope)
+    if src_ta is None:
+        _not_an_iterator(it_name, f'next({it_name})')
+    _, src_idx, _ = scope[_src_name(it_name)]
+    _, pos_idx, _ = scope[_pos_name(it_name)]
+    list_type = ctx['il_type_str'](src_ta, (ctx or {}).get('records'))
+
+    if len(args) == 2:
+        dflt_d = _default_dtype(args, scope, ctx)
+        if dflt_d is not None and dflt_d != src_ta.dtype:
+            raise SyntaxError(
+                f"il_codegen: next({it_name}, <default>) - gia tri mac dinh phai "
+                f"CUNG dtype voi phan tu cua list nguon: '{it_name}' doc "
+                f"{src_ta.dtype!r} nen default phai la {src_ta.dtype!r}, dang la "
+                f"{dflt_d!r} (khong tu nang rong kieu nhu Python - xem han chan 3 "
+                f"o docs/REFERENCE.md muc iter/next)")
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    pre = ctx['prefix']
+    exh_lbl = f'{pre}_next{n}_exhausted'
+    end_lbl = f'{pre}_next{n}_end'
+
+    # if (pos >= src.Count) goto exhausted
+    out.append(f'    ldloc.s {pos_idx}')
+    out.append(f'    ldloc.s {src_idx}')
+    out.append(f'    callvirt instance int32 {list_type}::get_Count()')
+    out.append(f'    bge {exh_lbl}')
+    # --- nhanh con du lieu: day src[pos] len stack, roi tang con tro
+    out.append(f'    ldloc.s {src_idx}')
+    out.append(f'    ldloc.s {pos_idx}')
+    out.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
+    out.append(f'    ldloc.s {pos_idx}')
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append(f'    stloc.s {pos_idx}')
+    out.append(f'    br {end_lbl}')
+    out.append(f'  {exh_lbl}:')
+    if len(args) == 2:
+        # Default CHI tinh o nhanh nay (khong tinh som) - giong CPython.
+        ctx['compile_expr'](args[1], scope, out, src_ta.dtype, ctx)
+    else:
+        out.append(f'    ldstr "{_STOP_MSG}"')
+        out.append('    newobj instance void [mscorlib]System.'
+                   'InvalidOperationException::.ctor(string)')
+        out.append('    throw')
+    out.append(f'  {end_lbl}:')
+
+
+register_assign_rhs_parser('iter_call', try_rhs_iter)
+register_first_pass_walk('assign_iter', fpw_assign_iter)
+register_stmt_codegen('assign_iter', codegen_assign_iter)
+register_expr_builtin('iter', _push_iter_expr_error, None)
+register_expr_builtin('next', push_next, None,
+                      return_dtype_fn=_next_result_dtype,
+                      dtype_fn_wants_ctx=True)
+# `next(it)` mot minh tren 1 dong (chi tien con tro, bo gia tri) - Python cho
+# phep, va day la cach viet tu nhien nhat. Xem EXPR_BUILTIN_DISCARD_STMT o
+# il_dispatch.py de ro ly do phai khai bao tay.
+register_discard_stmt_builtin('next')

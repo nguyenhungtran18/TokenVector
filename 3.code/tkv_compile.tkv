@@ -576,6 +576,10 @@ def _self_fields_assigned_in_init(class_node):
     Ham nay phuc vu quy tac o `_extract_record_def`: field container chi duoc
     phep khi PHAI duoc gan trong `__init__`. Ban chan KHONG DIEU KIEN da lam
     Inference + Data khong build - xem muc 1.1 cua PLAN.md.
+
+    2026-10-02: quy tac da chuyen sang pham vi TOAN CHUONG TRINH (xem
+    `_check_container_fields_assigned`) nen ham nay con dung cho
+    `_ctor_init_body_il`-ben may - giu lai nguyên văn.
     """
     out = set()
     for stmt in class_node.body:
@@ -593,6 +597,51 @@ def _self_fields_assigned_in_init(class_node):
                     and tgt.value.id == 'self':
                 out.add(tgt.attr)
     return out
+
+
+def _check_container_fields_assigned(tree, record_defs):
+    """Moi field CONTAINER cua record phai duoc GAN o BAT CU dau nao.
+
+    Ly do - im lang, va day la loai im lang khong test nao bat duoc:
+    `.ctor` lay tham so tu field roi BO QUA field container (xem
+    `_expr_call` o il_codegen.tkv), nen 1 field container khong duoc gan thi
+    no luon null. `self.X = {}` trong `__init__` la duong gan truc tiep vao
+    field nen hoat dong; nhung CUA A (2026-09-30) cho phep gan BEN NGOAI
+    constructor (`it = It(0); it.src = xs`) - ma cau hoi phai la "co duoc gan
+    o dau hay khong", KHONG phai "co gan trong `__init__` hay khong". Nen
+    quet TOAN BO AST, khong phai than class.
+
+    Do la ly do quy tac phai chay O CUOI, sau khi `tree.body` da duyet het
+    (co the khai bao record sau ham dung no). Tra ve khong gi; loi la
+    `TranspileError`.
+    """
+    assigned_attrs = set()
+    for node in ast.walk(tree):
+        tgt = None
+        if isinstance(node, ast.Assign) and node.targets:
+            tgt = node.targets[0]
+        elif isinstance(node, ast.AnnAssign):
+            tgt = node.target
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            tgt = node.target
+        if isinstance(tgt, ast.Attribute):
+            assigned_attrs.add(tgt.attr)
+    for rname, fields in record_defs.items():
+        for fname, dtype in fields:
+            if not (dtype.startswith('list[') or dtype.startswith('dict[') or
+                    dtype.startswith('set[')):
+                continue
+            if fname in assigned_attrs:
+                continue
+            raise TranspileError(
+                f"class '{rname}': field '{fname}' kieu container ('{dtype}') "
+                f"CHUA duoc gan o BAT CU dau nao nen se rong - phan so `.ctor` "
+                f"lay tham so tu field va BO QUA field container, nen container "
+                f"truyen qua tham so khong bao gio gan duoc. Gap 1 trong: "
+                f"`self.{fname} = {{}}` trong __init__, hoac gan ben ngoai "
+                f"constructor (`obj = {rname}(...); obj.{fname} = ...`), hoac "
+                f"dung ham thuan thay vi record, hoac giu container o bien cap "
+                f"module/ham.")
 
 
 def _extract_record_def(class_node, source_lines, known_records=None, known_interfaces=None):
@@ -806,23 +855,10 @@ def _extract_record_def(class_node, source_lines, known_records=None, known_inte
         #   - `class 'ExecutionMemoryArena': field 'fmap' kieu container (...)`
         # ca hai deu gan bang `self.X = {}` trong `__init__`.
         #
-        # Do do quy tac moi: cho PHEP field container **da duoc gan trong
-        # `__init__`**, van chan truong hop **chua gan** (do nguoi dung quen -
-        # do la truong hop im lang, tuc field rong ma khong ai bao).
-        #
-        # 'startswith' chu KHONG phai 'dtype[:5] in (...)': 'set[' dai 4 ky tu
-        # nhung 'list['/'dict[' dai 5 - cat sai do la 'set[i64]' khong bao gio
-        # khop, va loi cham vao nhanh 'record can N tham so' sai thay vi thong
-        # bao dung.
-        if dtype.startswith('list[') or dtype.startswith('dict[') or dtype.startswith('set['):
-            if stmt.target.id not in _init_assigned:
-                raise TranspileError(
-                    f"class '{class_node.name}': field '{stmt.target.id}' kieu container "
-                    f"('{dtype}') CHUA duoc gan trong __init__ nen se rong - "
-                    f"phan so `.ctor` lay tham so tu field va bo qua container, nen "
-                    f"container truyen qua tham so khong bao gio gan duoc. Gap "
-                    f"`self.{stmt.target.id} = {{}}` trong __init__, hoac dung ham "
-                    f"thuan thay vi record, hoac giu container o bien cap module/ham.")
+        # Cua A (2026-09-30): field container KHONG bat buoc gan trong
+        # `__init__`. `.ctor` khoi tao rong de khong bao gio null; nguoi dung
+        # co the gan muon ben ngoai constructor. Gi khong doi: field van
+        # duoc dang ky day du o day.
         fields.append((stmt.target.id, dtype))
     if not fields:
         raise TranspileError(f"class '{class_node.name}': record khong co field nao")
@@ -4306,6 +4342,10 @@ def _parse_program_ast(source_text, source_path=None, extra_r11_skip=None):
                 (sig_line, body_lines, is_static)
                 for sig_line, body_lines, is_static, _is_property in methods_raw]
 
+    # THU TU QUAN TRONG: kiem field container truoc `_resolve_record_field_types`,
+    # vi ham do doi `dtype` tu CHUOI thanh doi tuong TypeAnn - ham nay can
+    # CHUOI de nhan dang 'list['/... (AttributeError neu chay sau).
+    _check_container_fields_assigned(tree, record_defs)
     _resolve_record_field_types(record_defs, extern_class_names={d['name'] for d in extern_classes})
     return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
             import_names, extern_assemblies, extern_methods, extern_pinvokes, extern_classes, struct_defs,

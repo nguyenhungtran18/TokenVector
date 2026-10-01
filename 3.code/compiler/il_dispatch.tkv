@@ -246,6 +246,30 @@ def register_call_stmt_temps(name, temps_fn):
     _register_unique(EXPR_BUILTIN_TEMPS, name, temps_fn, 'register_call_stmt_temps')
 
 
+# Builtin tra ve gia TRI (khong phai void) nhung VAN duoc phep goi dang
+# LENH DOC LAP - gia tri tra ve bi bo (`pop`). `next(it)` la vi du that:
+# Python cho `next(it)` mot minh mot dong de chi 'tien con tro'.
+#
+# VI SAO PHAI KHAI BAO TAY thay vi tu suy? `codegen_call_stmt` (file_io.py)
+# co the bien dich 1 builtin roi `pop`, NHUNG chi an toan khi biet CHAC chan
+# no day 1 gia TRI len stack. Do la ly do nhanh R12 (dong 148 file do) dung
+# `EXPR_BUILTIN_DTYPE.get(name) is not None` - con khoang 30 builtin dang ky
+# `return_dtype=None` + `return_dtype_fn` (sum/min/max/map/chain/...) vi "khong
+# suy duoc dtype ma khong can ngu canh goi", CHUNG van day gia tri that. Tu
+# suy theo `return_dtype_fn` se dua ca nhom do vao, ma khong co ai do bao dam
+# `codegen_fn` cua chung push gia tri - `pop` thi lech ngan xep IL. Nen
+# tap nay de TRONG, chi ten do khai bao moi vao - dung chung tinh than voi
+# EXTERN_VOID_BUILTIN_NAMES (tkv_compile.py) o phia ben kia.
+EXPR_BUILTIN_DISCARD_STMT = set()
+
+
+def register_discard_stmt_builtin(name):
+    """Cho phep goi `name(...)` dang LENH DOC LAP bo qua gia tri tra ve.
+    `name` BAT BUOC la builtin co `return_dtype_fn` (dung de suy dtype de
+    bien dich) va `codegen_fn` day 1 gia TRI len stack."""
+    EXPR_BUILTIN_DISCARD_STMT.add(name)
+
+
 # STR_METHOD_RETURN_DTYPE (2026-08-12, Phase tach tkvc.exe thanh plugin):
 # TRUOC DAY il_codegen.py import THANG dict 'RETURN_DTYPE' tu
 # string_methods_batch3.py roi doc qua bien _STR_METHOD_RETURN_DTYPE -

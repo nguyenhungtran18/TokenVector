@@ -312,8 +312,8 @@ Nên biến module là kênh đọc giá trị khả dụng duy nhất mà khôn
 chế method dispatch. **Hệ quả phải nói rõ**: hai generator chạy song song sẽ
 ghi đè lẫn nhau, và tên `__gen_ret__` là quy ước chứ không phải ngôn ngữ.
 
-Cùng nhóm (chưa làm): `yield from` trên set/dict/record, và `iter()`/`next()` —
-hiện **không tồn tại** dù `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md` nói là có.
+Cùng nhóm: `yield from` trên set/dict/record (**chưa làm**). `iter()`/`next()`
+**ĐÃ LÀM 2026-10-02** (list only) — xem `REFERENCE.md` §7.12.
 
 ---
 

@@ -3229,7 +3229,31 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             raise SyntaxError(
                 f"il_codegen: record '{name}' can {len(fields)} tham so "
                 f"({', '.join(f for f, _ in fields)}), gap {len(args)}")
+        func_table = (ctx or {}).get('func_table')
         for arg_node, (_, fdtype) in zip(args, fields):
+            # `.ctor` bo qua FIELD CONTAINER, nen doi so container khong bao
+            # gio co vi tri hop le trong danh sach tham so nay. Truoc day mot
+            # list duoc dua nham vao `pos: "i32"` roi tu bien dich thanh
+            # `TkvInt::ToI64(list)` va chay am thanh.
+            if not _is_container_field(fdtype):
+                actual_shape = None
+                try:
+                    if isinstance(arg_node, tuple) and arg_node and arg_node[0] == 'var':
+                        actual_shape = scope[arg_node[1]][2].shape
+                    elif isinstance(arg_node, tuple) and arg_node:
+                        actual_ta = _shaped_return_ta_of_call(
+                            arg_node, func_table, scope, records)
+                        actual_shape = actual_ta.shape if actual_ta else None
+                except (KeyError, IndexError, AttributeError, TypeError):
+                    actual_shape = None
+                if actual_shape in ('list', 'dict', 'set', 'frozenset', 'tuple'):
+                    raise SyntaxError(
+                        f"il_codegen: record '{name}' .ctor khong nhan doi so "
+                        f"container: doi so hien tai co shape '{actual_shape}', "
+                        f"nhung vi tri nay la field vo huong. Vi `.ctor` bo qua "
+                        f"FIELD CONTAINER, day list vao day se gan nham. Tao "
+                        f"record bang tham so vo huong roi gan container sau "
+                        f"`.ctor`: vi du `it = {name}(0); it.src = xs`.")
             # Field kieu record: dtype de bien dich doi so la TEN record
             # (TypeAnn), khong phai chuoi dtype vo huong (2026-08-03, dot 1).
             _compile_expr(arg_node, scope, out,

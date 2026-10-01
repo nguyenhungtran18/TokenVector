@@ -8,7 +8,7 @@
 
 ## Toolchain & Commands
 - **CHECK BEFORE ADDING ANYTHING** (`docs/BUILTIN_REFERENCE.md` in `3.code`):
-  - **370 names already registered** — run
+  - **376 names already registered** — run
     `python 3.code\tools\gen_builtin_ref.py` to regenerate it from the source.
   - **Before creating any file in `compiler/il_features/`, check the file does not
     already exist.** I once created `bytes_type.tkv` to add `bytes()` and silently
@@ -30,10 +30,10 @@
   `.\3.code\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run`
 - **Run Built Binary**: `.\<output.exe>`
 - **Acceptance Gate (run this, not native_test_suite)**:
-  `.\3.code\tools\testkit_gate.ps1` — builds and runs all 113 `Testkit\*_test.tkv`
-  plus 24 negative cases (currently `PASS=113 BUILDFAIL=0 TESTFAIL=0 NEG=24/24`),
+  `.\3.code\tools\testkit_gate.ps1` — builds and runs all 116 `Testkit\*_test.tkv`
+  plus 28 negative cases (currently `PASS=116 BUILDFAIL=0 TESTFAIL=0 NEG=28/28`),
   writes output to TEMP so a run never litters the repo, exits non-zero on any failure.
-  Other gates, all green as of 2026-09-30: parity probe
+  Other gates, all green as of 2026-10-02: parity probe
   `.\3.code\tools\parity_probe\run.ps1` (**119/119** match CPython),
   `.\3.code\tools\ext_smoke.ps1` (4/4), `D:\TokenVector.Data\tools\datagate.ps1`
   (18/18), `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` (26/26).
@@ -129,8 +129,20 @@
   a bare name. `for v in s:` works and yields members in unspecified order.
 - **Dict literal**: `d = {"a": 1, "b": 2}` works, with the same shape limits as
   the set literal. A duplicate key keeps the **last** value.
-- **Known gaps** (all verified by probe on 2026-09-30, not assumed):
-  `yield from`, `iter()`/`next()`, `slice()` as a callable,
+- **`iter()` / `next()` work (2026-10-02), list only.** `it = iter(xs)` is the
+  **only** supported position (it needs a target name to name the state after);
+  `next(iter(xs))` is a compile error. Two hidden locals per iterator, named after
+  the target variable (`__itsrc_it` holds the `List<T>` itself, `__itpos_it` the
+  `i32` cursor) — naming them by the **variable** instead of `id(node)` is the
+  whole trick, because `next(it)` only sees the name. `next(it)` raises
+  `StopIteration` at the end; `next(it, default)` returns `default` instead.
+  `default` must have the **same dtype** as the elements (no Python-style
+  promotion — one variable holds one type). `iter()` at module level is not
+  supported (the cursor is a function local). `StopIteration` and `RuntimeError`
+  are the same CLR type, so `except RuntimeError:` also catches it.
+  Full limits + the Cửa A prerequisite in `3.code/docs/REFERENCE.md` §7.12.
+- **Known gaps** (all verified by probe, not assumed):
+  `yield from`, `slice()` as a callable,
   a **negative** slice step (`a[::-1]`), keyword-only and positional-only
   parameters, nested/tuple literals.
 - **`key=` at a call site fails in the PARSER**, not in codegen: `max(xs,
@@ -144,10 +156,21 @@
   (`('star'|'star2', expr)` + `il_features/call_star_args.py`) — the older
   claim that it is missing is wrong. Note calls still have statically known
   arity, so a run-time-length sequence cannot be passed.
-  A record **cannot have a container field** — the `.ctor` takes its parameters
-  from the declared fields, with container fields filtered out, so a container
-  field can never be filled. This is now a compile-time error. Hold containers
-  in a plain function or at module level instead. `del xs[i]` works;
+  A record **can** have a container field, but it can never be filled through
+  the `.ctor` — the ctor takes its parameters from the declared fields with
+  container fields filtered out. **Cửa A (2026-09-30)**: build the record with
+  no-arg/`scalar` ctor args and assign the container **late**, outside the
+  constructor (`it = It(0)` then `it.src = xs`). The old rule was "must be
+  assigned inside `__init__`"; it is now "must be assigned **somewhere**",
+  checked over the whole AST (`_check_container_fields_assigned` in
+  `tkv_compile.tkv`) — never-assigned container fields are still a compile
+  error, because that is the silent case (field stays null). Declare such a
+  field as `list[int]`, **not** `list[i32]`, when it is fed from a list literal:
+  a list literal's dtype is `int` (struct `TkvInt`) and mixing the two causes a
+  real type-confusion in the emitted IL. Passing a container argument to a ctor
+  that expects scalar fields is now rejected in `_expr_call` instead of
+  silently emitting `TkvInt::ToI64(container)`.
+  `del xs[i]` works;
   `del xs[i:j]` does not. Conditional expressions `a if c else b` **do** work
   (probe 2026-09-30) — an earlier version of this file wrongly listed them as
   missing. `getattr()`/`setattr()` were silently broken and are **fixed**

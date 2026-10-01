@@ -1620,3 +1620,55 @@ iterate. Test ban đầu đọc `__gen_ret__` ngay sau `early_stop()` nên luôn
 tên đó là local.
 
 **Gate 88/88 + negative 9/9.**
+
+---
+
+## `iter()` / `next()` + Cửa A (2026-10-02) — XONG, gate 116/116 + 28/28
+
+Module mới `compiler/il_features/iter_next.tkv` (đăng ký `core` trong
+`tools/il_features_manifest.txt` — không có ai `import` nó nên phải pin tay,
+nếu không lệnh `register_*` trong đó không bao giờ chạy).
+
+**Thiết kế (TRIZ: tách con trỏ khỏi container).** Không sinh lớp runtime mới
+trong IL. `it = iter(xs)` là một **ASSIGN-RHS parser** riêng (`iter_call`) vì
+`temps_fn` kiểu chuẩn **không biết tên biến đích**, mà `next(it)` thì chỉ nhìn
+thấy tên. Nó cấp phát 2 biến ẩn đặt tên theo biến đích — `__itsrc_<ten>` (giữ
+`List<T>` nguyên bản) và `__itpos_<ten>` (`i32`) — còn `it` là một local `i32`
+làm token.
+
+**Ba chỗ phải sửa ngoài module mới** (đều là bẫy đã đo, không đoán):
+
+1. `il_dispatch.tkv` — set + hàm `register_discard_stmt_builtin`. `next(it)` một
+   mình trên một dòng là cách viết Python tự nhiên, mà nhanh R12 của
+   `codegen_call_stmt` chỉ nhận builtin có `EXPR_BUILTIN_DTYPE` **cụ thể**;
+   `next` đăng ký `return_dtype=None` + `return_dtype_fn` nên rơi xuống nhánh
+   `else` và báo *"không tìm thấy hàm"*. **Không** mở rộng điều kiện đó cho cả
+   nhóm `return_dtype_fn` (~30 builtin): không ai bảo đảm `codegen_fn` của họ
+   đẩy giá trị lên stack, mà `pop` sai thì lệch ngăn xếp IL.
+2. `file_io.tkv` — nhánh mới dùng set trên, gọi `return_dtype_fn` để suy dtype
+   rồi `pop`.
+3. `tkv_compile.tkv` — `_check_container_fields_assigned(tree, record_defs)`.
+   Quy tắc cũ *"field container phải gán trong `__init__`"* nằm trong
+   `_extract_record_def`, tức chỉ thấy **thân class** — nên nó không thể cho
+   phép Cửa A (gán bên ngoài constructor) mà vẫn bắt được "chưa gán ở đâu cả".
+   Nay quét **toàn bộ** AST. Bắt buộc phải chạy **trước**
+   `_resolve_record_field_types` vì hàm đó đổi `dtype` từ chuỗi thành object
+   `TypeAnn` ( AttributeError nếu chạy sau).
+
+**`_DtypeOnlyScope` không có `__contains__`** (first pass), nên `name in scope`
+lui về protocol lặp và gọi `__getitem__(0)` → `KeyError: 0`. Mọi tra cứu phải
+`try`/`except` (KeyError, IndexError, TypeError, **SyntaxError** — `_Scope` phía
+pass 2 ném SyntaxError cho tên chưa có).
+
+**`return_dtype_fn` phải trả `None` chứ không raise khi chưa thấy trạng thái.**
+Nó chạy ở cả **prescan** (`_fpp_assign_scalar`, il_codegen dòng ~5805) — prescan
+chạy **trước** `walk()`, nên `iter()` ở trên chưa kịp cấp phát biến ẩn. Trả
+None là an toàn vì `_fpp_assign_scalar` chỉ ghi vào `infer_scope` khi `inferred`
+có giá trị (dòng 5818) → `declare_scalar` sẽ suy lại ở lượt thật. Lỗi thật thì
+`push_next` (pass 2, ctx đầy đủ) báo.
+
+**`StopIteration` và `RuntimeError` cùng là `[mscorlib]System.InvalidOperationException`** →
+`except RuntimeError:` bắt phảm StopIteration. Ghi rõ trong tài liệu.
+
+**Gate:** 116/116, negative 28/28, parity 119/119, ext_smoke 4/4, Data 18/18,
+Inference 26/26.

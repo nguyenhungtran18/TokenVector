@@ -1,0 +1,14 @@
+# EXPECT-SUBSTRING: phai la
+# -*- coding: utf-8 -*-
+# `next(it, default)` yeu cau `default` CUNG dtype voi phan tu cua list nguon.
+# Python tu nang rong kieu; TokenVector khong (1 bien chi giu 1 kieu, va 2
+# nhanh cua 1 bieu thuc phai cung kieu) - nen phai bao loi som chu khong
+# sinh IL lech kieu.
+def f(a: "list[i32]") -> "i32":
+    it = iter(a)
+    return next(it, "het")
+
+
+def run() -> "i32":
+    print("should_not_build")
+    return f([1, 2])

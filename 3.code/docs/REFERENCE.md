@@ -75,6 +75,7 @@ Cong them **5 ham xu ly TRUC TIEP** khong qua bang dang ky: `print`, `len`,
 | `product(xs)` | Tích lũy nhân các phần tử |
 | `most_common(d)` | Cặp `(khóa, số lần)` phổ biến nhất |
 | `argmax(xs)` | Chỉ số phần tử lớn nhất |
+| `iter(xs)` / `next(it[, default])` | Con trỏ tiến qua `list` — xem 7.12 (chỉ `list`) |
 
 > **`key=` chưa dùng được** — `max(xs, key=f)` hỏng ở **tầng parser**
 > (*"expected ')', got '='"*), không phải thiếu hàm. Xem mục 5.
@@ -371,11 +372,12 @@ tiên kiểu `str` làm thông điệp.
 
 | Nhóm | Thiếu |
 |---|---|
-| Lặp | `iter()`, `next()`, `aiter()`, `anext()` |
+| Lặp | `aiter()`, `anext()` (đồng bộ `iter()`/`next()` **đã có** 2026-10-02, xem 7.12) |
 | File | `open()` như hàm (chỉ dùng được trong `with open(...)`) |
 | Khác | `slice()`, `breakpoint()`, `exit()`, `quit()`, `help()`, `eval()`, `exec()`, `compile()`, `super()`, `property()`, `globals()`, `locals()`, `vars()` |
 
 Đã thêm 2026-09-30: `callable()`, `dir()`, `id()`, `hash()`, `ascii()`.
+Đã thêm 2026-10-02: `iter()`, `next()` (chỉ cho `list` — xem 7.12).
 `delattr()` **cố ý báo lỗi biên dịch** (xem 7.10).
 
 ### 5.3 Constructor container: thiếu một nửa
@@ -438,7 +440,7 @@ vì thông điệp đã `raise`) — cần kiểm lại ánh xạ lỗi.
 | `Decimal` | Không tồn tại |
 | `.year` / `.month` / `.day` trên datetime | Không có |
 | `getattr` với tên field là **biến** | Không hỗ trợ — phải là chuỗi literal |
-| `set`/`dict` có **field kiểu container** | Lỗi biên dịch (giữ container ở hàm thường) |
+| `set`/`dict` có **field kiểu container** | **Đã cho phép** (2026-09-30, Cửa A): field container được gán **bên ngoài** constructor. Vẫn bị từ chối nếu **không được gán ở đâu cả**. Xem 7.12 |
 | `*` / `**` unpacking tại call site | **Đã có** (`('star'|'star2', ...)`) |
 | `divmod(a, b)` | Tham số phải là **biến**, không nhận literal |
 
@@ -648,125 +650,106 @@ path_write_text("t.txt", "hello")
 nạp hết vào RAM, còn `with open(...)` đọc dòng bằng `StreamReader`. Với file
 nhỏ, `path_read_text` gọn hơn nhiều.
 
-### 7.12 `iter()` / `next()` — chưa có, và đây là lý do *thật*
-
-`for v in xs:` đã hoạt động và là cách dùng thay thế cho phần lớn mã Python.
-
-**Vì sao khó — đã đo, không đoán.** `next()` cần **con trỏ tiến**: một giá trị
-*thay đổi* mỗi lần gọi. TokenVector là ngôn ngữ tĩnh kiểu, và **record không
-được chứa field kiểu container** (`.ctor` lấy tham số từ field, container bị
-lọc khỏi danh sách đó). Nên không thể làm iterator bằng record.
-
-Còn hai đường, đều **không phải việc nhỏ**:
-
-1. Sinh một **lớp runtime mới** trong IL (giống `TkvStr`, `TkvInt`) mang
-   `src: List<T>` + `pos: i32`, rồi đăng ký `__next__` trên đó. Cần cơ chế phát
-   sinh lớp + dispatch method + test — chạm cốt lõi.
-2. Cho phép record chứa field container → **đổi cả quy tắc cấu trúc record**,
-   ảnh hưởng mọi thứ đang dùng record.
-
-Cả hai là việc kiến trúc, không phải thêm vài dòng. Làm vội sẽ sinh code không
-tới đường — đúng điều `docs/PLAN.md` đã ghi.
-
-**Phương án tương đương đã kiểm chứng chạy đúng:**
-
-| Python | TokenVector |
-|---|---|
-| `it = iter(xs)` | giữ chính `xs`, hoặc `for v in xs:` |
-| `next(it)` | `v = xs[i]` rồi tăng `i` |
-| `next(it)` khi hết | `if i >= len(xs):` |
-| `enumerate(it)` | `for i in range(len(xs)):` + `xs[i]` |
+### 7.12 `iter()` / `next()` — **ĐÃ CÓ** (2026-10-02), chỉ cho `list`
 
 ```tokenvector
 xs = [10, 20, 30]
-i = 0
-while i < len(xs):
-    v = xs[i]
-    print(v)
-    i = i + 1
+it = iter(xs)
+a = next(it)              # 10
+b = next(it)              # 20
+d = next(it, -1)          # 30
+e = next(it, -1)          # -1  (het du lieu -> default)
 ```
 
-Chạy đúng, và **có kiểm chứng** — khác với việc tôi khẳng định "thiếu" rồi sai.
+`next(it)` khi hết dữ liệu **ném `StopIteration`** (bắt được bằng
+`except StopIteration as err:`).
 
-#### Tìm ra bằng chứng mới (2026-09-30) — rào cản tôi tin là KHÔNG có thật
+**Vì sao dùng được — đo, không đoán.** `next()` cần *con trỏ tiến*: một giá trị
+thay đổi mỗi lần gọi. Ngôn ngữ tĩnh kiểu không có biến "thay đổi kiểu", nên
+**TRIZ: tách con trỏ khỏi container** — `iter(xs)` cấp phát **2 biến ẩn**
+(hidden local) đặt tên theo **tên biến đích**:
 
-Tôi đã viết ở trên rằng "record không thể chứa field kiểu container, nên không
-làm iterator được". **Điều đó sai.** Probe cho thấy record **có** giữ được
-container và **thay đổi được** — vì `.ctor` chỉ lọc container khỏi *tham số
-ctor*, còn gán trong `__init__` thì vẫn chạy:
+| Tên ẩn | Kiểu | Vai trò |
+|---|---|---|
+| `__itsrc_it` | `List<T>` (đúng `TypeAnn` của nguồn) | tham chiếu list |
+| `__itpos_it` | `i32` | con trỏ |
+
+Biến `it` tự nó là **một local `i32`** làm "token" — đọc nó không có nghĩa gì
+(khác Python, nơi nó là một object).
+
+Đặt tên theo **tên biến** chứ không phải `id(node)` như mọi `temps_fn` khác là
+điểm mấu chốt: `next(it)` chỉ nhìn thấy *tên* `it`, không nhìn thấy node của
+`iter()` đã biên dịch xong. Nếu đặt theo `id(node)` thì `next()` không tìm ra
+con trỏ nào.
+
+`__itsrc_it` giữ **cùng một tham chiếu `List<T>`** với nguồn, nên `xs.append(...)`
+giữa chừng vẫn được thấy (giống Python). `a = iter(xs)` và `b = iter(xs)` cho hai
+con trỏ độc lập.
+
+#### Giới hạn — đã probe, không suy đoán
+
+| Trường hợp | Kết quả |
+|---|---|
+| `iter()` chỉ ở **vị trí gán** `it = iter(<tên biến>)` | `next(iter(xs))` → lỗi biên dịch rõ (xem `Testkit/negative/iter_in_expression.tkv`) |
+| Nguồn **chỉ là `list`** | `iter("abc")`, `iter(d)` (dict/set) → lỗi biên dịch rõ |
+| `default` **phải cùng dtype** với phần tử | `next(list[i32], "")` → lỗi biên dịch. Python tự nâng rộng kiểu; TokenVector không (một biến chỉ giữ một kiểu, và 2 nhánh của một biểu thức phải cùng kiểu) |
+| Con trỏ là **biến ẩn cấp hàm** | `iter()` ở **cấp module** chưa hỗ trợ |
+| Không chia sẻ qua `copy`/truyền hàm | `next` chỉ nhận **tên biến** |
+| `StopIteration` **cùng loại với `RuntimeError`** | cả hai ánh xạ `[mscorlib]System.InvalidOperationException`, nên `except RuntimeError:` sẽ **bắt** phải `StopIteration`. Muốn phân biệt "hết dữ liệu" thì dùng `next(it, default)` |
+
+#### Lịch sử: từ "không làm được" tới làm được
+
+Bản cũ của mục này ghi *"chưa có, đây là lý do **thật**"*, dựa trên hai kết luận
+sai đã được đo lại:
+
+1. *"Record không thể chứa field kiểu container"* — **sai.** `.ctor` chỉ *lọc*
+   container khỏi danh sách tham số; gán trong `__init__` vẫn chạy.
+2. *"Cần sinh lớp runtime mới trong IL"* — **không cần.** Xem bảng 2 biến ẩn ở
+   trên.
+
+**Nguyên nhân gốc thật** (tìm bằng `--emit-il`): `records[name]` lọc container
+khỏi tham số `.ctor`, còn `__init__` khai tham số cho field `src` → chữ ký lệch
+nhau → đối số container bị đưa vào ô `pos`:
+
+```il
+ldloc.s 0                                                  ; xs (List<TkvInt>)
+call valuetype TkvInt TkvInt::ToI64(valuetype TkvInt)     ; bien LIST thanh so
+newobj instance void It::.ctor(int64)                      ; truyen vao tham so `pos`
+```
+
+Đây là **biên dịch sai mà không báo lỗi**. Nay đã chặn ở **hai** tầng:
+
+- `Testkit/negative/next_default_wrong_dtype.tkv` và các test còn lại chặn phía
+  người dùng;
+- `_expr_call` (il_codegen) chặn phía compiler: đối số container bị zip nhầm vào
+  field vô hướng giờ **báo lỗi** thay vì phát sinh `TkvInt::ToI64(container)`.
+
+**Cửa A (2026-09-30)** là tiền đề: field container **được gán bên ngoài
+constructor**.
 
 ```tokenvector
 class It:
-    src: "list[i32]"
+    src: "list[int]"      # CHU Y: list[int], khong phai list[i32] - xem duoi
     pos: "i32"
 
-    def __init__(self, s: "list[i32]"):
-        self.src = s
-        self.pos = 0
-```
+    def __init__(self, start: "i32"):
+        self.pos = start
 
-Cái này **build thành công và chạy được**. Nghĩa là `iter()`/`next()` chỉ là
-một lớp mẫu rất nhỏ — **vấn đề thật nằm ở chỗ khác**.
 
-**Lỗi thật (chưa sửa):** đọc field giá trị của record có **field reference đứng
-trước** trả về giá trị rác:
-
-```
-System.OverflowException: chi so int qua lon: khong vua int32.
-   at TkvInt.ToI32(TkvInt a)
-```
-
-`pos = 0` thì vừa `int32`, nên đây **không phải tràn số** — mà là đọc **sai
-offset**: `pos` đang đọc vào ô của `src` (một *reference*) và bị hiểu thành
-`TkvInt` với `big` không rỗng. Đổi `i32` sang `i64` thì lỗi thành
-`khong vua int64` — đúng dấu hiệu đọc field sai, không phải sai kiểu.
-
-**Hệ quả:** một record không thể vừa giữ container vừa đọc field số một cách
-đáng tin cậy. Đây là lỗi bố cục struct, cần sửa trong codegen của record — việc
-riêng, không phải việc thêm `iter()`.
-
-**Bài học:** tôi tin `CLAUDE.md` rồi suy ra "bất khả thi", trong khi một probe 12
-dòng đã lật ngược kết luận đó. Ràng buộc thật luôn cần đo, không cần tin tài
-liệu.
-
-#### NGUYÊN NHÂN THẬT — `__init__` nhận tham số container sẽ GÁN NHẦM IM LẶNG
-
-Đã tìm ra bằng `--emit-il` (2026-09-30). **KHÔNG phải lỗi bố cục struct** như
-tôi đoán ban đầu. Bố cục lớp sinh ra **đúng**:
-
-```il
-.class public auto ansi It extends [mscorlib]System.Object
-  .field public class [mscorlib]System.Collections.Generic.List`1<int64> 'src'
-  .field public int64 'pos'
-```
-
-Lỗi nằm ở lệnh gọi:
-
-```il
-ldloc.s 0                     ; xs  (List<TkvInt>)
-call valuetype TkvInt TkvInt::ToI64(valuetype TkvInt)   ; bien LIST thanh so
-newobj instance void It::.ctor(int64)       ; truyen vao tham so `pos`
-```
-
-`records[name]` **lọc container khỏi danh sách tham số `.ctor`**
-(`fields = [fd for fd in records[name] if not _is_container_field(fd[1])]`), nhưng
-`__init__` khai báo tham số cho field `src`. Chữ ký ctor và tham số `__init__`
-**lệch nhau** → đối số container bị đưa vào ô `pos`.
-
-**Đây là biên dịch sai mà không báo lỗi** — nguy hiểm hơn hẳn lỗi biên dịch.
-
-**Việc cần làm:** chặn `__init__` nhận tham số kiểu container, báo lỗi biên dịch
-rõ ràng. **Chưa sửa** (2026-09-30) — thay đổi codegen, cần một phiên có kiểm
-chứng đầy đủ.
-
-**Sau khi sửa, `iter()`/`next()` chỉ còn là lớp mẫu ~10 dòng**, tạo rồi gán
-field sau (không qua tham số):
-
-```tokenvector
-it = It()
-it.src = xs
+it = It(0)                # .ctor chi nhan field VOHUONG
+it.src = xs                # container gan muon, ben ngoai constructor
 it.pos = 0
 ```
+
+- Quy tắc cũ *"field container phải được gán trong `__init__`"* đã đổi thành
+  **"phải được gán ở đâu đó"** (`_check_container_fields_assigned` trong
+  `tkv_compile.tkv`, quét **toàn bộ** AST). Field nào không được gán ở đâu cả vẫn
+  bị từ chối — `Testkit/negative/record_container_uninit.tkv`.
+- **Cảnh báo kiểu:** khi nguồn là *list literal* thì phải khai `list[int]`
+  (dtype `int` → struct `TkvInt`), **không** phải `list[i32]` (int32 thô). Trộn hai
+  kieu này gây type-confusion *thật* trong IL sinh ra — đã xác nhận bằng thực
+  nghiệm, không chỉ lý thuyết. `list[i32]` chỉ đúng khi nguồn là **tham số hàm**
+  khai `xs: "list[i32]"`.
 
 ### 7.13 Dọn rác sau khi build / chạy
 

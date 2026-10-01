@@ -10,7 +10,8 @@ long trong tag 'call' dung chung o core (goi lai qua ham rieng, giong
 str() cua string_feature.py). Quy uoc dependency-injection qua `ctx`
 nhu cac buoc truoc."""
 from il_dispatch import (register_stmt_codegen, register_expr_builtin,
-                          EXPR_BUILTIN_CODEGEN, EXPR_BUILTIN_DTYPE)
+                          EXPR_BUILTIN_CODEGEN, EXPR_BUILTIN_DTYPE,
+                          EXPR_BUILTIN_DTYPE_FN, EXPR_BUILTIN_DISCARD_STMT)
 # logging/pickle (Phase 4 backlog, phien 5, 2026-08-11) - nhap KHONG TRE
 # o day (khong phai trong ham) de dam bao register_expr_builtin ben
 # trong pickle_feature.py (cho pickle_load_X) LUON chay du chuong trinh
@@ -156,6 +157,17 @@ def codegen_call_stmt(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
         codegen_fn = EXPR_BUILTIN_CODEGEN[name]
         return_dtype = EXPR_BUILTIN_DTYPE.get(name)
         codegen_fn(call_args, scope, body, return_dtype, ctx)
+        body.append('    pop')
+    elif name in EXPR_BUILTIN_DISCARD_STMT:
+        # `next(it)` dang LENH DOC LAP (gia tri tra ve bi bo) - nhanh nay
+        # PHIA TREN nhanh R12 vi dtype cua `next` phu thuoc tham so (dang ky
+        # return_dtype=None + return_dtype_fn), nen nhanh do khong loai duoc.
+        # Ten phai khai bao tay trong EXPR_BUILTIN_DISCARD_STMT (xem
+        # il_dispatch.py) - khong tu suy theo return_dtype_fn, ly do ghi o
+        # do. `pop` an toan: chinh ta do la builtin push 1 gia TRI len stack.
+        dtype = EXPR_BUILTIN_DTYPE_FN[name](call_args, scope,
+                                            (ctx or {}).get('func_table'), ctx)
+        EXPR_BUILTIN_CODEGEN[name](call_args, scope, body, dtype, ctx)
         body.append('    pop')
     else:
         # 2026-08-03: goi 1 ham NGUOI DUNG nhu 1 lenh doc lap ('luu(x)',
