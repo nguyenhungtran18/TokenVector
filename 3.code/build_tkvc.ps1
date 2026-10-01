@@ -25,8 +25,22 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $staging = Join-Path $root "build\pyinstaller_src"
 
-if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
+# --- XOA staging: CHI xoa khi co MARKER ---
+# 2026-09-30: trước đây xoá thẳng `-Recurse -Force` thư mục staging. Không
+# có kiểm tra gì, nên nếu đường dẫn sai (biến $root rỗng/sai) nó sẽ XOÁ NHẦM
+# một thư mục khác. Nay chi xoa khi thấy marker do chính build này tạo.
+$stagingMarker = Join-Path $staging ".tkv-staging"
+if (Test-Path $staging) {
+    if (-not (Test-Path $stagingMarker)) {
+        Write-Output "TU CHOI xoa '$staging': khong thay marker '$stagingMarker'."
+        Write-Output "  Thu muc nay co the khong do build nay tao - KHONG xoa nham."
+        Write-Output "  Neu bi that, xoa thu cong roi chay lai."
+        exit 1
+    }
+    Remove-Item -Recurse -Force $staging
+}
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
+New-Item -ItemType File -Force -Path $stagingMarker | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $staging "compiler\il_features") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $staging "il_features_library") | Out-Null
 
@@ -64,25 +78,16 @@ Get-ChildItem -Path (Join-Path $root "compiler") -Filter "*.tkv" -Recurse |
 #     `khong dich duoc dong: 'yield from ...'`.
 #   - `list_type` -> CORE: bi dong vao `il_codegen.py` (lon file).
 # Chi import o cap module moi THAT su keo module vao CORE.
-$splitScript = Join-Path $root "build\_split_il_features.py"
-@'
-import re, os, sys
-root = sys.argv[1]
-il_codegen_path = os.path.join(root, "compiler", "il_codegen.tkv")
-il_features_dir = os.path.join(root, "compiler", "il_features")
-with open(il_codegen_path, encoding="utf-8") as f:
-    text = f.read()
-# CHI import o CAP DAU DONG (xem ghi chu ben tren). `(?m)` cho ^ = dau dong.
-core_names = set(re.findall(r"(?m)^from il_features\.(\w+) import", text))
-all_files = sorted(f for f in os.listdir(il_features_dir) if f.endswith(".tkv"))
-core = [f for f in all_files if f[:-4] in core_names]
-library = [f for f in all_files if f[:-4] not in core_names]
-print("\n".join(core))
-print("---")
-print("\n".join(library))
-'@ | Out-File -FilePath $splitScript -Encoding utf8
-
-$splitOutput = python $splitScript $root
+  $splitScript = Join-Path $root "tools\_split_il_features.py"
+  $manifest = Join-Path $root "tools\il_features_manifest.txt"
+  # 2026-09-30: KHONG con heredoc sinh `_split_il_features.py` o day, va file
+  # KHONG con nam trong `build/` (thu muc do bi .gitignore loai nen co che nay
+  # se bien mat khi clone). Cả hai file nay da chuyen sang `tools/`.
+  $splitOutput = python $splitScript $root
+  if ($LASTEXITCODE -ne 0) {
+      Write-Output "PHAI LOI PHAN NHOM IL_FEATURES (xem tren) - build dung lai."
+      exit 1
+  }
 $splitIdx = [array]::IndexOf($splitOutput, "---")
 $coreFiles = $splitOutput[0..($splitIdx - 1)] | Where-Object { $_ -ne "" }
 $libraryFiles = $splitOutput[($splitIdx + 1)..($splitOutput.Length - 1)] | Where-Object { $_ -ne "" }
@@ -93,11 +98,41 @@ $libraryFiles = $splitOutput[($splitIdx + 1)..($splitOutput.Length - 1)] | Where
 Write-Output "CORE il_features ($($coreFiles.Count) file): $($coreFiles -join ', ')"
 Write-Output "LIBRARY il_features ($($libraryFiles.Count) file): $($libraryFiles -join ', ')"
 
-foreach ($f in $coreFiles) {
-    $src = Join-Path $root "compiler\il_features\$f"
-    $destName = [System.IO.Path]::ChangeExtension($f, ".py")
-    Copy-Item $src (Join-Path $staging "compiler\il_features\$destName")
-}
+  foreach ($f in $coreFiles) {
+      $src = Join-Path $root "compiler\il_features\$f"
+      $destName = [System.IO.Path]::ChangeExtension($f, ".py")
+      Copy-Item $src (Join-Path $staging "compiler\il_features\$destName")
+  }
+
+  # --- BOOTSTRAP: import TƯỜNG MINH mọi module CORE ---
+  # 2026-09-30: day la mau chot cho 2 dieu kien CUNG phai dung:
+  #   (a) module CORE phai IMPORT DUOC o runtime -> can nam dung cho PyInstaller
+  #       bien dich, va PyInstaller chi biet do khi thay `import` that;
+  #   (b) module CORE phai DUOC NAP THAT de lenh `register_*` ben trong no
+  #       chay - mot module ma khong ai import thi dang ky khong bao gio xay ra.
+  # `metaprogramming.tkv` la vi du cua (b): no duoc day vao CORE vi no import
+  # `record_feature`, nhung KHONG module nao import no -> `callable`, `dir`,
+  # `hash`, `getattr`, `setattr` deu "khong ton tai" luc bien dich.
+  # File nay sinh trong staging (khong phai nguon that) noi import tat ca CORE.
+  $bootDir = Join-Path $staging "compiler"
+  $bootPath = Join-Path $bootDir "_il_features_bootstrap.py"
+  $bootLines = @('# -*- coding: utf-8 -*-', '# SINH BOI build_tkvc.ps1 - xem ghi chu o tren.', '"""Import tuong minh moi module CORE de PyInstaller bien dich va de', 'register_* trong chay. KHONG sua tay file nay."""')
+  foreach ($f in $coreFiles) {
+      $m = [System.IO.Path]::GetFileNameWithoutExtension($f)
+      $bootLines += "import il_features.$m  # noqa: F401,E402"
+  }
+  Set-Content -Path $bootPath -Value $bootLines -Encoding utf8
+  Write-Output "Bootstrap: $($coreFiles.Count) module CORE duoc import tuong minh."
+  # Noi bootstrap vao il_codegen.py BUNG (ban staging, khong phai nguon that) -
+  # PyInstaller chi bien dich nhung module no THAY qua import tu entry.
+  $icPath = Join-Path $staging "compiler\il_codegen.py"
+  Add-Content -Path $icPath -Value "`nimport _il_features_bootstrap  # noqa: F401,E402`n" -Encoding utf8
+  # 2026-09-30: xoa cache PyInstaller. `--workpath build/pyinstaller` giu ket
+  # qua phan tich cua lan build truoc, nen doi phan nhom/doi file .tkv van
+  # bi che - build "thanh cong" nhung exe cu rat luu lai (gap: sua 42 module
+  # CORE, exe van nem `No module named 'il_features.bytes_type'`).
+  $pyiWork = Join-Path $root "build\pyinstaller"
+  if (Test-Path $pyiWork) { Remove-Item -Recurse -Force $pyiWork }
 foreach ($f in $libraryFiles) {
     # 2026-08-28: nhom LIBRARY (dist/il_features/, NAP DONG luc chay qua
     # plugin_loader.py, KHONG duoc PyInstaller dong bang truc tiep) doi
@@ -133,8 +168,21 @@ try {
 # Sau khi PyInstaller build xong: copy nhom LIBRARY sang dist/il_features/
 # (canh tkvc.exe) de plugin_loader.py nap dong luc chay.
 $distIlFeatures = Join-Path $root "dist\il_features"
-if (Test-Path $distIlFeatures) { Remove-Item -Recurse -Force $distIlFeatures }
+# --- Xoa dist/il_features: cung phai co marker ---
+# File trong day la san pham build, khong phai nguon that. Chi xoa khi thay
+# marker; neu khong co marker thi don bang tach file .py/.tkv la du (an toan
+# hon la xoa ca thu muc khi build vua hong).
+if (Test-Path $distIlFeatures) {
+    $distMarker = Join-Path $distIlFeatures ".tkv-library"
+    if (Test-Path $distMarker) {
+        Remove-Item -Recurse -Force $distIlFeatures
+    } else {
+        Write-Output "GHI CHU: '$distIlFeatures' khong co marker - don thu cong bang .py/.tkv (khong xoa ca thu muc)."
+        Get-ChildItem $distIlFeatures -Include *.tkv, *.py -Recurse | Remove-Item -Force
+    }
+}
 New-Item -ItemType Directory -Force -Path $distIlFeatures | Out-Null
+New-Item -ItemType File -Force -Path (Join-Path $distIlFeatures ".tkv-library") | Out-Null
 Copy-Item (Join-Path $staging "il_features_library\*.tkv") $distIlFeatures
 
 Write-Output "Da build: $(Join-Path $root 'dist\tkvc.exe')"
