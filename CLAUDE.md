@@ -121,16 +121,21 @@
   a bare name. `for v in s:` works and yields members in unspecified order.
 - **Dict literal**: `d = {"a": 1, "b": 2}` works, with the same shape limits as
   the set literal. A duplicate key keeps the **last** value.
-- **Known gaps**: `yield from`,
-  conditional expressions (`a if c else b` *and* `c ? a : b`
-  both fail, though an error message tells you to use the latter),
-  `del`, keyword-only and positional-only parameters,
+- **Known gaps** (all verified by probe on 2026-09-30, not assumed):
+  `yield from`, `iter()`/`next()`, `format()`, `slice()` as a callable,
+  `setattr()`, `max`/`min`/`sum` with `key=`, a **negative** slice step
+  (`a[::-1]`), keyword-only and positional-only parameters,
   nested/tuple literals, and call-site
   `  *`/`**` unpacking (calls
   have statically known arity, so a run-time-length sequence cannot be passed).
   A record **cannot have a container field** — the `.ctor` takes its parameters
   from the declared fields, with container fields filtered out, so a container
   field can never be filled. This is now a compile-time error. Hold containers
-  in a plain function or at module level instead. Full list with difficulty
+  in a plain function or at module level instead. `del xs[i]` works;
+  `del xs[i:j]` does not. Conditional expressions `a if c else b` **do** work
+  (probe 2026-09-30) — an earlier version of this file wrongly listed them as
+  missing. `getattr()` builds and then throws `NullReferenceException` at
+  **run time** — the only gap listed here that does not fail loudly at compile
+  time, and therefore the one worth fixing next. Full list with difficulty
   ranking in `3.code/docs/PLAN.md`; per-item status in
   `3.code/docs/REPOSITORY-NOTES.md`.
