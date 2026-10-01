@@ -37,7 +37,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 `os_list_files` `os_mkdir` `repeat_str` `set_literal` `set_new` `sha256_hex` `shutil_rmtree` `tuple_literal`
 `win_gui` 
 
-## HAM BUILTIN (GOI DUOC TRUC TIEP) (174)
+## HAM BUILTIN (GOI DUOC TRUC TIEP) (176)
 
 `all` `alloc_bytes` `any` `asyncio_get_ticks` `asyncio_sleep_ms` `atan2` `base64_decode` `base64_encode`
 `bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `bytes_from_string` `c_puts` `chain`
@@ -46,21 +46,21 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 `datetime_diff` `datetime_strptime` `datetime_sub` `datetime_ticks` `db_close` `db_exec` `db_open` `db_query_int`
 `db_query_text` `deque_clear` `deque_reverse` `divmod` `enumerate` `eval_arith` `eval_code` `eval_expr`
 `exec_code` `f32x4` `factorial` `file_exists` `filter` `float` `fmt_float` `fmt_num`
-`free_bytes` `functools_clamp_f64` `functools_clamp_i32` `getattr` `hasattr` `hex` `http_delete` `http_get`
-`http_post` `http_post_type` `http_put` `http_request` `http_server_generate` `hypot` `input` `int`
-`int64` `isinstance` `issubclass` `json_dumps` `json_get_str` `json_loads` `launch_media_player_gui` `launch_tms_db_manager`
-`launch_tms_gui` `launch_tms_web` `map` `math_e` `math_gcd` `math_pi` `max` `md5_hex`
-`media_player_gui_window` `min` `most_common` `multiprocessing_cpu_count` `oct` `ord` `os_getenv` `os_list_files`
-`os_mkdir` `path_abspath` `path_basename` `path_dirname` `path_exists` `path_isdir` `path_isfile` `path_join`
-`path_name` `path_normpath` `path_parent` `path_read_text` `path_splitext` `path_stem` `path_suffix` `path_write_text`
-`pow` `process_get_pid` `product` `py_dict_new` `py_tuple_new` `randint` `random` `random_randint`
-`randrange` `re_findall` `re_fullmatch` `re_match` `re_replace` `re_search` `re_split` `re_sub`
-`read_ansi` `read_f32` `read_file` `read_i32` `read_i64` `read_u8` `reduce` `repr`
-`reserve` `reversed` `sample` `sha256_hex` `socket_resolve_host` `sorted` `str` `string_from_bytes`
-`struct_f64_to_hex` `struct_i32_to_hex` `sum` `sys_argv` `thread_join` `thread_sleep` `thread_spawn` `type`
-`uniform` `v_add8` `v_fill8` `v_hsum` `v_hsum4` `v_lane` `v_load4` `v_load8`
-`v_mul8` `v_mul8_add8` `v_store4` `v_store8` `v_sub8` `vtable_cell` `write_f32` `write_i32`
-`write_i64` `write_u8` `xml_encode_name` `zip` `zip_create` `zip_extract`
+`format` `free_bytes` `functools_clamp_f64` `functools_clamp_i32` `getattr` `hasattr` `hex` `http_delete`
+`http_get` `http_post` `http_post_type` `http_put` `http_request` `http_server_generate` `hypot` `input`
+`int` `int64` `isinstance` `issubclass` `json_dumps` `json_get_str` `json_loads` `launch_media_player_gui`
+`launch_tms_db_manager` `launch_tms_gui` `launch_tms_web` `map` `math_e` `math_gcd` `math_pi` `max`
+`md5_hex` `media_player_gui_window` `min` `most_common` `multiprocessing_cpu_count` `oct` `ord` `os_getenv`
+`os_list_files` `os_mkdir` `path_abspath` `path_basename` `path_dirname` `path_exists` `path_isdir` `path_isfile`
+`path_join` `path_name` `path_normpath` `path_parent` `path_read_text` `path_splitext` `path_stem` `path_suffix`
+`path_write_text` `pow` `process_get_pid` `product` `py_dict_new` `py_tuple_new` `randint` `random`
+`random_randint` `randrange` `re_findall` `re_fullmatch` `re_match` `re_replace` `re_search` `re_split`
+`re_sub` `read_ansi` `read_f32` `read_file` `read_i32` `read_i64` `read_u8` `reduce`
+`repr` `reserve` `reversed` `sample` `setattr` `sha256_hex` `socket_resolve_host` `sorted`
+`str` `string_from_bytes` `struct_f64_to_hex` `struct_i32_to_hex` `sum` `sys_argv` `thread_join` `thread_sleep`
+`thread_spawn` `type` `uniform` `v_add8` `v_fill8` `v_hsum` `v_hsum4` `v_lane`
+`v_load4` `v_load8` `v_mul8` `v_mul8_add8` `v_store4` `v_store8` `v_sub8` `vtable_cell`
+`write_f32` `write_i32` `write_i64` `write_u8` `xml_encode_name` `zip` `zip_create` `zip_extract`
 
 ## KIEU CAU LENH (SINH IL) (63)
 
@@ -85,7 +85,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 `center` `copy` `count` `items` `join` `keys` `ljust` `rjust`
 `split` `strftime` `title` `to_list` `values` `zfill`
 
-**Tong so ten da dang ky: 338**
+**Tong so ten da dang ky: 340**
 
 ## File trong `compiler/il_features/`
 
@@ -135,7 +135,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 | `list_type.tkv` | 65.261 |
 | `logging_feature.tkv` | 3.417 |
 | `media_player_gui_window.tkv` | 139.437 |
-| `metaprogramming.tkv` | 3.183 |
+| `metaprogramming.tkv` | 10.666 |
 | `multi_assign.tkv` | 3.145 |
 | `nativebuf.tkv` | 11.904 |
 | `nested_array_extern.tkv` | 6.408 |
@@ -188,7 +188,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 | `stdlib_xml.tkv` | 1.122 |
 | `stdlib_zipfile.tkv` | 3.533 |
 | `str_accum.tkv` | 9.312 |
-| `string_builtin.tkv` | 28.369 |
+| `string_builtin.tkv` | 33.183 |
 | `string_feature.tkv` | 10.282 |
 | `string_format.tkv` | 7.807 |
 | `string_join.tkv` | 7.712 |

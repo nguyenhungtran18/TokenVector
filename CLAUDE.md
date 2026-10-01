@@ -122,8 +122,8 @@
 - **Dict literal**: `d = {"a": 1, "b": 2}` works, with the same shape limits as
   the set literal. A duplicate key keeps the **last** value.
 - **Known gaps** (all verified by probe on 2026-09-30, not assumed):
-  `yield from`, `iter()`/`next()`, `format()`, `slice()` as a callable,
-  `setattr()`, `max`/`min`/`sum` with `key=`, a **negative** slice step
+  `yield from`, `iter()`/`next()`, `slice()` as a callable,
+  `max`/`min`/`sum` with `key=`, a **negative** slice step
   (`a[::-1]`), keyword-only and positional-only parameters,
   nested/tuple literals, and call-site
   `  *`/`**` unpacking (calls
@@ -134,8 +134,14 @@
   in a plain function or at module level instead. `del xs[i]` works;
   `del xs[i:j]` does not. Conditional expressions `a if c else b` **do** work
   (probe 2026-09-30) — an earlier version of this file wrongly listed them as
-  missing. `getattr()` builds and then throws `NullReferenceException` at
-  **run time** — the only gap listed here that does not fail loudly at compile
-  time, and therefore the one worth fixing next. Full list with difficulty
+  missing. `getattr()`/`setattr()` were silently broken and are **fixed**
+  (2026-09-30): `getattr` was registered with a hardcoded `'str'` return dtype
+  so an `i32` field was read as a string → `NullReferenceException` at run time.
+  It now infers the field's real dtype via `return_dtype_fn` +
+  `dtype_fn_wants_ctx=True` (`register_expr_builtin`), and a missing field is a
+  compile error. `format(v, spec)` also works again — the long-standing
+  "unknown cause" of `format(3.14159, ".2f") == "32f"` was
+  `_py_spec_to_net` returning `.2f` verbatim; .NET reads that as a *custom*
+  format and needs `F2`. Full list with difficulty
   ranking in `3.code/docs/PLAN.md`; per-item status in
   `3.code/docs/REPOSITORY-NOTES.md`.

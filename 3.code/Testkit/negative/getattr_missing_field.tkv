@@ -1,0 +1,17 @@
+# EXPECT-SUBSTRING: khong co field
+# -*- coding: utf-8 -*-
+# `getattr(o, "khong_ton_tai")` PHAI bi tu choi luc bien dich.
+#
+# Python nem AttributeError luc chay. O day phai bao o BIEN DICH chu khong
+# phai de no bien dich xanh - truoc day `getattr` duoc dang ky return_dtype
+# cung la 'str', nen doc field sai kieu van bien dich xanh va chi nem
+# NullReferenceException luc chay, kiem tra khong co gi kiem soat.
+class Pt:
+    x: "i32"
+
+
+def run() -> "i32":
+    o = Pt(1)
+    v = getattr(o, "khong_ton_tai")
+    print("should_not_build")
+    return 0

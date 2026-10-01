@@ -467,9 +467,18 @@ def _py_spec_to_net(raw):
     if m:
         width = m.group(1)
         return '0' * (int(width) if width else 1)
-    # do chinh xac cua float
-    if re.match(r'^\.\d+[fFeEgG]$', raw) or re.match(r'^[fFeEgG]$', raw):
-        return raw
+      # do chinh xac cua float -> phai DICH sang format CHUAN cua .NET
+      # (2026-09-30). Truoc day ham nay tra ve NGUYEN VAN `.2f`, nhung
+      # `Double.ToString(".2f")` KHONG phai format chuan cua .NET: chuoi
+      # nhieu ky tu bi .NET doc thanh CUSTOM format, trong do '.' = dau thap
+      # phan, '2' = cho so chu so, 'f' = KY TU THUONG. Do do
+      # `format(3.14159, ".2f")` ra "32f" thay vi "3.14". .NET dung `F2`
+      # (KHONG co dau cham, chu cai VIET HOA).
+    m = re.match(r'^\.(\d+)([fFeEgG])$', raw)
+    if m:
+        return f'{m.group(2).upper()}{m.group(1)}'
+    if re.match(r'^[fFeEgG]$', raw):
+        return raw.upper()
     raise SyntaxError(
         f"il_codegen: f-string spec '{raw}' chua duoc ho tro. Ho tro: "
         f"'d','x','X' (chuoi chuan 1 ky tu), '.Nf' va 'N' (do chinh xac, vd "
@@ -512,10 +521,106 @@ def push_repr(args, scope, out, dtype, ctx):
 register_expr_builtin('str', compile_str_builtin, 'str')
 register_expr_builtin('fmt_float', compile_fmt_float, 'str')
 register_expr_builtin('fmt_num', compile_fmt_num, 'str')
-# KHONG dang ky `format` o day: no dung chung `fmt_num` (dung spec Python ->
-# .NET roi goi ToString), nhung khi tham so la BIEN FLOAT thi ket qua SAI -
-# `format(3.14159, ".2f")` ra "32f" thay vi "3.14". CHUA biet nguyen nhan
-# (chi sai o float, khong sai o int: format(42, "05d") ra "00042" dung).
-# Gia tri sai am thanh te hon loi bien dich, nen CHUA dua `format` vao su dung
-# cho den khi chao. F-string (`{x:.2f}`) van dung va da duoc kiem chung.
+
+
+def compile_format_builtin(args, scope, out, dtype, ctx):
+    """`format(v)` va `format(v, spec)` - tuong duong Python.
+
+    `format(v)` == `str(v)`: chuyen thang cho compile_str_builtin.
+
+    `format(v, spec)` DUNG LAI `compile_fmt_num` (dich spec Python sang .NET
+    roi goi ToString) - khong viet lai phep dich, tranh 2 noi cho 1 quy tac.
+
+    LY DO TON TAI (2026-09-30): truoc day `format` co chu dich KHONG dang ky
+    no, ly do ghi la "CHUA biet nguyen nhan": `format(3.14159, ".2f")` ra
+    "32f". Nguyen nhan la `compile_fmt_num` CHI nhan BIEN (`if arg[0] !=
+    'var': raise`) - literal float di vao nhanh khac nen spec khong duoc
+    dich. Day la ly do 'chua biet' vi nhanh loi nam o ham khac.
+
+    Nay sua bang cach tu day LITERAL SO vao stack roi goi `ToString` voi
+    spec da dich - dung khu cu cua compile_fmt_num. Bieu thuc khong phai
+    bien/literal (vd `format(a+b, ".2f")`) thi BAO LOI TO, khong doan - noi
+    nay khong co temp local de giu ket qua bieu thuc vao, va doan sai se ra
+    gia tri sai am thanh (dung cai do truoc day da lam roi).
+    """
+    if len(args) == 1:
+        compile_str_builtin(args, scope, out, 'str', ctx)
+        return
+    if len(args) != 2:
+        raise SyntaxError(
+            "il_codegen: format(value) hoac format(value, spec) - nhan 1 hoac 2 "
+            f"tham so, gap {len(args)}")
+    val_node, spec_node = args[0], args[1]
+    if spec_node[0] != 'str_lit':
+        raise SyntaxError(
+            "il_codegen: format(value, spec) - 'spec' phai la LITERAL chuoi tai "
+            "compile-time (vd format(n, \"05d\")), khong ho tro bien dong")
+    if val_node[0] == 'var':
+        # Da thuoc ve compile_fmt_num: doc scope, dung addr_op + ToString
+        compile_fmt_num(args, scope, out, dtype, ctx)
+        return
+    if val_node[0] != 'num':
+        raise SyntaxError(
+            "il_codegen: format(value, spec) - 'value' phai la BIEN hoac SO "
+            "LITERAL. Hay gan bien truoc: `t = <bieu thuc>; format(t, \".2f\")` "
+            "(khong co temp local cho bieu thuc de day vao day ngay)")
+    raw = val_node[1]
+    try:
+        is_float = ('.' in str(raw) or 'e' in str(raw).lower())
+        num_val = float(raw) if is_float else int(str(raw), 0)
+    except ValueError:
+        raise SyntaxError(f"il_codegen: format({raw}, spec) - khong doc duoc so")
+    netspec = _py_spec_to_net(spec_node[1][1:-1])
+    # `float64`/`int32` la VALUE TYPE: goi instance method tren value type
+    # trong CIL phai day DIA CHI (ldarga/ldloca), KHONG phai gia tri - day
+    # gia tri thi runtime nem AccessViolationException (gap 2026-09-30).
+    # Static overload `ToString(value, format, provider)` thi KHONG ton tai
+    # trong profile .NET cua runtime nay (MissingMethodException). Nen tao
+    # MOT local an giu so (xem _temps_format_builtin), luu vao do roi lay
+    # dia chi - dung dung khu cu cua compile_fmt_num.
+    tmp_name = f'__fmttmp{id(val_node)}'
+    if tmp_name not in scope:
+        raise SyntaxError(
+            f"il_codegen: format({raw}, spec) - local tam '{tmp_name}' chua duoc "
+            f"khai bao (first-pass khong chay). Hay gan bien truoc: "
+            f"`t = <gia tri>; format(t, \".2f\")`")
+    _k, tmp_idx, _tmp_ta = scope[tmp_name]
+    if is_float:
+        out.append(f'    ldc.r8 {num_val!r}')
+        il_scalar = 'float64'
+    else:
+        out.append(f'    ldc.i4 {int(num_val)}')
+        il_scalar = 'int32'
+    store_op = 'starg.s' if _k == 'arg' else 'stloc.s'
+    load_op = 'ldarga.s' if _k == 'arg' else 'ldloca.s'
+    out.append(f'    {store_op} {tmp_idx}')
+    out.append(f'    {load_op} {tmp_idx}')
+    out.append(f'    ldstr "{netspec}"')
+    out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+               '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+    out.append(f'    call instance string {il_scalar}'
+               '::ToString(string, class [mscorlib]System.IFormatProvider)')
+
+
+def _temps_format_builtin(node, ctx):
+    """First-pass: `format(<so literal>, spec)` can 1 local AN de giu so -
+    xem compile_format_builtin. Khoa theo id(node) de 2 pass thay nhau."""
+    args = node[2]
+    if len(args) != 2 or args[0][0] != 'num':
+        return
+    arg = args[0]
+    raw = str(arg[1])
+    try:
+        is_float = ('.' in raw or 'e' in raw.lower())
+        float(raw) if is_float else int(raw, 0)
+    except ValueError:
+        return
+    ctx['declare_named'](f'__fmttmp{id(arg)}',
+                         ctx['TypeAnn']('f64' if is_float else 'i32', None))
+
+
+EXPR_BUILTIN_TEMPS['format'] = _temps_format_builtin
+
+
+register_expr_builtin('format', compile_format_builtin, 'str')
 register_expr_builtin('repr', push_repr, 'str')

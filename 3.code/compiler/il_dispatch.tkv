@@ -82,6 +82,12 @@ EXPR_BUILTIN_TEMPS = {}
 # theo ten, nen dung chung duoc.
 EXPR_BUILTIN_DTYPE_FN = {}
 
+# Builtin nao KHAI BAO return_dtype_fn can `ctx` de suy kieu (vd getattr: kieu
+# tra ve la kieu THAT cua field record, chi tra duoc qua ctx['records']).
+# Dispatcher goi ham 4 tham so (args, scope, func_table, ctx) CHO NHUNG ten
+# nam trong day; cac builtin khong nam day giu chu ky 3 tham so cu.
+EXPR_BUILTIN_DTYPE_FN_CTX = {}
+
 # Builtin tra ve 1 container ma cap (dtype, shape) KHONG du de mo ta -
 # vd http_request() tra dict[str,str]: can ca key_dtype. Luu THANG 1
 # TypeAnn day du (2026-08-03). Duoc uu tien hon EXPR_BUILTIN_SHAPE.
@@ -104,7 +110,8 @@ EXPR_BUILTIN_NATIVE_INT = set()
 
 def register_expr_builtin(name, codegen_fn, return_dtype, return_shape=None,
                            temps_fn=None, return_dtype_fn=None, return_ta=None,
-                           return_ta_fn=None, native_int=False):
+                           return_ta_fn=None, native_int=False,
+                           dtype_fn_wants_ctx=False):
     if name in EXPR_BUILTIN_CODEGEN:
         # BUG THAT tim thay o phien truoc (json_get_str bi stdlib_cjson
         # de am tham, chi phat hien qua doc code ky, khong bao loi luc
@@ -122,6 +129,12 @@ def register_expr_builtin(name, codegen_fn, return_dtype, return_shape=None,
     EXPR_BUILTIN_DTYPE[name] = return_dtype
     if return_dtype_fn is not None:
         EXPR_BUILTIN_DTYPE_FN[name] = return_dtype_fn
+        if dtype_fn_wants_ctx:
+            # Builtin nao can `ctx` de SUY KIEU (vd getattr phai tra kieu that
+            # cua field record, ma ban ghi field chi nam trong ctx['records']).
+            # Chi ham da opt-in moi nhan 4 tham so - 15 ham dang co giu chu ky
+            # (args, scope, func_table) nen khong vo.
+            EXPR_BUILTIN_DTYPE_FN_CTX[name] = True
     if return_ta is not None:
         if return_ta.shape is None:
             raise ValueError(

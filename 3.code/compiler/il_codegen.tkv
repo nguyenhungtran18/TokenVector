@@ -126,6 +126,7 @@ from il_dispatch import (
     EXPR_METHOD_DTYPE, EXPR_METHOD_TEMPS, EXPR_METHOD_SHAPE, EXPR_METHOD_CODEGEN,
     EXPR_BUILTIN_RESULT_SHAPE, EXPR_METHOD_RESULT_SHAPE, EXPR_BUILTIN_TEMPS,
     EXPR_BUILTIN_DTYPE_FN, EXPR_BUILTIN_RETURN_TA, EXPR_BUILTIN_NATIVE_INT,
+    EXPR_BUILTIN_DTYPE_FN_CTX,
 )
 
 # Chu thich lich su (2026-07-28): cac ham il_*_type() va IL_SCALAR/opcode
@@ -1077,6 +1078,13 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
         if name in EXPR_BUILTIN_DTYPE_FN:
             # dtype phu thuoc tham so (sum/min/max cua 1 list) - xem
             # EXPR_BUILTIN_DTYPE_FN trong il_dispatch.py.
+            if name in EXPR_BUILTIN_DTYPE_FN_CTX:
+                # `_infer_dtype` khong co tham so `ctx` (xem chu ky o dau
+                # file) nhung CO `records` - dung cai do de dung ctx toi
+                # thieu cho ham suy kieu. Chi can `records` o day.
+                return EXPR_BUILTIN_DTYPE_FN[name](
+                    node[2], scope, func_table,
+                    {'records': records, 'func_table': func_table})
             return EXPR_BUILTIN_DTYPE_FN[name](node[2], scope, func_table)
         if name in EXPR_BUILTIN_DTYPE:
             # Giai doan 0.2 (2026-08-03): builtin dang ky qua
@@ -3440,7 +3448,10 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
         EXPR_BUILTIN_CODEGEN[name](args, scope, out, dtype, ctx)
         actual = EXPR_BUILTIN_DTYPE.get(name)
         if name in EXPR_BUILTIN_DTYPE_FN:
-            actual = EXPR_BUILTIN_DTYPE_FN[name](args, scope, (ctx or {}).get('func_table'))
+            if name in EXPR_BUILTIN_DTYPE_FN_CTX:
+                actual = EXPR_BUILTIN_DTYPE_FN[name](args, scope, (ctx or {}).get('func_table'), ctx)
+            else:
+                actual = EXPR_BUILTIN_DTYPE_FN[name](args, scope, (ctx or {}).get('func_table'))
         if dtype == 'int' and name in EXPR_BUILTIN_NATIVE_INT:
             # Builtin da tu sinh mot TkvInt (xem EXPR_BUILTIN_NATIVE_INT)
             # - widen theo 'actual' mac dinh o day se de 'conv.i8 +

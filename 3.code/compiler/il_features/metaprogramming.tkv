@@ -1,8 +1,88 @@
 # -*- coding: utf-8 -*-
 """Metaprogramming (Moc 17, 2026-08-09): hasattr(obj, "attr") & getattr(obj, "attr", default)."""
 from il_dispatch import register_expr_builtin
+from il_core import IL_SCALAR
 from il_features import int_type as _int_type
 from il_features import tkvstr as _tkvstr
+from il_features.record_feature import _field_owner_class as _field_owner
+
+
+def _attr_lit_name(attr_arg):
+    """Ten attribute tu 1 node chuoi literal ('x' hoac "x")."""
+    if isinstance(attr_arg, tuple) and len(attr_arg) >= 2:
+        return str(attr_arg[1]).strip('"\'')
+    if isinstance(attr_arg, str):
+        return attr_arg.strip('"\'')
+    return None
+
+
+def _field_dtype(records, rec_name, attr_name):
+    """Kieu THAT cua field `attr_name` cua record `rec_name`, hoac None neu
+    record/field khong ton tai.
+
+    `records[ten]` la list `(ten_field, dtype)` voi dtype la `str` cho scalar
+    (xem il_codegen: `fields = [fd for fd in records[name] ...]`) va `TypeAnn`
+    cho field record/container. Do do phai tra ve CHINH gia tri do - ham nao
+    tu doan lai (vi du gan 'str') thi bien dich ra IL LECH KIEU."""
+    raw = (records or {}).get(rec_name)
+    if not raw:
+        return None
+    for fd in raw:
+        if fd and fd[0] == attr_name:
+            fdt = fd[1]
+            return fdt if isinstance(fdt, str) else fdt.dtype
+    return None
+
+
+def _field_raw_dtype(records, rec_name, attr_name):
+    """Ban ghi field GOC (str cho scalar, TypeAnn cho container/record)."""
+    for fd in ((records or {}).get(rec_name) or []):
+        if fd and fd[0] == attr_name:
+            return fd[1]
+    return None
+
+
+def _expr_dtype(node, scope, ctx):
+    """Suy kieu cua mot bieu thuc don gian - dung cho gia tri MAC DINH cua
+    getattr. Thu ctx['infer_dtype'] truoc; neu khong co thi doan theo dang
+    literal/bien. Tra None neu khong xac dinh duoc."""
+    infer = (ctx or {}).get('infer_dtype')
+    if callable(infer):
+        try:
+            d = infer(node, scope, (ctx or {}).get('func_table'))
+            if d:
+                return d
+        except Exception:
+            pass
+    if not isinstance(node, tuple) or not node:
+        return None
+    tag = node[0]
+    if tag == 'str_lit':
+        return 'str'
+    if tag == 'num':
+        text = str(node[1])
+        try:
+            val = float(text) if ('.' in text or 'e' in text.lower()) else int(text, 0)
+        except ValueError:
+            return None
+        return 'f64' if isinstance(val, float) else 'i32'
+    if tag == 'var':
+        try:
+            _, _, ta = scope[node[1]]
+        except Exception:
+            return None
+        return ta.dtype if ta is not None else None
+    return None
+
+
+def _field_names(records, rec_name):
+    raw = (records or {}).get(rec_name)
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [f[0] for f in raw]
+    return list(raw.keys())
+
 
 def push_hasattr_builtin(args, scope, out, dtype, ctx):
     _int_type.ensure_class(ctx)
@@ -16,22 +96,14 @@ def push_hasattr_builtin(args, scope, out, dtype, ctx):
         raise SyntaxError(f"il_codegen: bien '{obj_name}' chua duoc khai bao")
     _, _, obj_ta = scope[obj_name]
     
-    attr_name = None
-    if isinstance(attr_arg, tuple) and len(attr_arg) >= 2:
-        attr_name = str(attr_arg[1]).strip('"\'')
-    elif isinstance(attr_arg, str):
-        attr_name = attr_arg.strip('"\'')
-    
+    attr_name = _attr_lit_name(attr_arg)
     records = (ctx or {}).get('records') or {}
     record_methods = (ctx or {}).get('record_methods') or {}
-    raw_fields = records.get(obj_ta.dtype, [])
-    field_names = [f[0] for f in raw_fields] if isinstance(raw_fields, list) else list(raw_fields.keys())
     methods = record_methods.get(obj_ta.dtype, {})
-    
-    has_attr = False
-    if attr_name and (attr_name in field_names or attr_name in methods):
-        has_attr = True
-    
+    field_names = _field_names(records, obj_ta.dtype)
+
+    has_attr = bool(attr_name) and (attr_name in field_names or attr_name in methods)
+
     if has_attr:
         out.append('    ldc.i4.1')
     else:
@@ -44,31 +116,132 @@ def push_getattr_builtin(args, scope, out, dtype, ctx):
         raise SyntaxError("il_codegen: getattr(obj, attr_name, default) nhan 2 hoac 3 tham so")
     obj_arg, attr_arg = args[0], args[1]
     default_arg = args[2] if len(args) == 3 else None
-    
+
     if obj_arg[0] != 'var':
         raise SyntaxError("il_codegen: getattr(obj, attr_name) can tham so 1 la 1 bien")
     obj_name = obj_arg[1]
     if obj_name not in scope:
         raise SyntaxError(f"il_codegen: bien '{obj_name}' chua duoc khai bao")
     _, _, obj_ta = scope[obj_name]
-    
-    attr_name = None
-    if isinstance(attr_arg, tuple) and len(attr_arg) >= 2:
-        attr_name = str(attr_arg[1]).strip('"\'')
-    elif isinstance(attr_arg, str):
-        attr_name = attr_arg.strip('"\'')
+
+    attr_name = _attr_lit_name(attr_arg)
+    if attr_name is None:
+        raise SyntaxError(
+            "il_codegen: getattr(obj, attr_name) - attr_name phai la CHUOI "
+            "LITERAL (vi du getattr(o, \"x\")). Bien chuoi co the chua ten "
+            "bat ky gi se khong khop duoc voi field nao - xu ly chuoi la "
+            "runtime, ma field cua record la compile-time.")
 
     records = (ctx or {}).get('records') or {}
-    raw_fields = records.get(obj_ta.dtype, [])
-    field_names = [f[0] for f in raw_fields] if isinstance(raw_fields, list) else list(raw_fields.keys())
-    
-    if attr_name and attr_name in field_names:
-        attr_node = ('attr', obj_name, attr_name)
-        ctx['compile_expr'](attr_node, scope, out, dtype, ctx)
-    elif default_arg is not None:
-        ctx['compile_expr'](default_arg, scope, out, dtype, ctx)
+    field_dtype = _field_dtype(records, obj_ta.dtype, attr_name)
+
+    if field_dtype is not None:
+        # PHAI dung `field_dtype` (kieu THAT cua field). Truoc day ham nay
+        # compile voi `dtype` la kieu DA DANG KY cua builtin - la 'str' - nen
+        # `getattr(o, "x")` tren field `i32` bien dich ra doc ldfld int32
+        # nhung noi lai nhu chuoi. Ket qua: bien bien dich XANH, chay thi
+        # nem NullReferenceException trong String.Concat. Loi AM THANH -
+        # nguy hiem hon loi bien dich vi khong gi bao loi.
+        ctx['compile_expr'](('attr', obj_name, attr_name), scope, out,
+                            field_dtype, ctx)
+        return
+
+    if default_arg is not None:
+        # Field khong ton tai va co default: ghi ra gia tri mac dinh. Kieu
+        # phai lay tu CHINH bieu thuc default - gan 'str' (kieu dang ky cua
+        # builtin) se sinh IL lech kieu, y het loi da gap o nhanh field o tren.
+        d_dt = _expr_dtype(default_arg, scope, ctx)
+        if d_dt is None:
+            raise SyntaxError(
+                f"il_codegen: getattr(obj, \"{attr_name}\", <default>) - record "
+                f"'{obj_ta.dtype}' khong co field '{attr_name}', va gia tri "
+                f"mac dinh khong phai literal/bien co kieu biet truoc (chi ho "
+                f"tro 'int'/'float'/'str' va bien da khai bao). Hay gan bien "
+                f"mac dinh ra bien truoc roi truyen vao.")
+        ctx['compile_expr'](default_arg, scope, out, d_dt, ctx)
+        return
+
+    raise SyntaxError(
+        f"il_codegen: record '{obj_ta.dtype}' khong co field '{attr_name}' va "
+        f"getattr khong co tham so default. Python nem AttributeError; o day "
+        f"bao loi bien dich (dung getattr(o, \"{attr_name}\", <gia tri mac dinh>))")
+
+
+def _getattr_dtype_fn(args, scope, func_table=None, ctx=None):
+    """dtype tra ve cua getattr = KIEU THAT cua field duoc doc (2026-09-30).
+
+    Truoc day getattr duoc dang ky return_dtype CUNG 'str', nen bien dich tai
+    choi 'v = getattr(o, "x")' biet `v` la chuoi trong khi IL phat ra int32 -
+    moi thu sau do (str(v), + noi chuoi) deu sinh sai. Day la ly do phai suy
+    kieu thay vi gan cung. Can `ctx` de doc ban ghi field -> opt-in qua
+    `dtype_fn_wants_ctx`."""
+    records = (ctx or {}).get('records') or {}
+    if len(args) < 2 or args[0][0] != 'var':
+        return 'str'
+    # `scope` o tang suy kieu la `_DtypeOnlyScope` (chi co `__getitem__`, KHONG
+    # co `.get`) - xem _infer_dtype. Dung `[]` boc try cho ca hai loai scope.
+    try:
+        _, _, obj_ta = scope[args[0][1]]
+    except Exception:
+        return 'str'
+    if obj_ta is None:
+        return 'str'
+    fd = _field_dtype(records, obj_ta.dtype, _attr_lit_name(args[1]))
+    if fd is not None:
+        return fd
+    if len(args) >= 3:
+        d_dt = _expr_dtype(args[2], scope, ctx)
+        if d_dt is not None:
+            return d_dt
+    return 'str'
+
+
+def push_setattr_builtin(args, scope, out, dtype, ctx):
+    _int_type.ensure_class(ctx)
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: setattr(obj, attr_name, value) nhan dung 3 tham so")
+    obj_arg, attr_arg, value_arg = args[0], args[1], args[2]
+    if obj_arg[0] != 'var':
+        raise SyntaxError("il_codegen: setattr(obj, attr_name, value) can tham so 1 la 1 bien")
+    obj_name = obj_arg[1]
+    if obj_name not in scope:
+        raise SyntaxError(f"il_codegen: bien '{obj_name}' chua duoc khai bao")
+    _, _, obj_ta = scope[obj_name]
+
+    attr_name = _attr_lit_name(attr_arg)
+    if attr_name is None:
+        raise SyntaxError(
+            "il_codegen: setattr(obj, attr_name, value) - attr_name phai la "
+            "CHUOI LITERAL (vi du setattr(o, \"x\", 5)).")
+    records = (ctx or {}).get('records') or {}
+    raw_fd = _field_raw_dtype(records, obj_ta.dtype, attr_name)
+    if raw_fd is None:
+        raise SyntaxError(
+            f"il_codegen: record '{obj_ta.dtype}' khong co field '{attr_name}' "
+            f"nen setattr khong gan duoc. Python nem AttributeError.")
+    # stfld: day reference cua object, day value - giong `o.x = v` trong method.
+    # `_field_owner` BAT BUOC cho ldfld/stfld dung: CIL doi hoi ghi dung class
+    # KHAI BAO field do, khong phai class con ke thua (xem record_feature).
+    # Ten field lay NGUYEN BAN - KHONG dung ctx['il_ident']: ham do boc dau
+    # nhay don cho ILASM (xem _il_ident) nhung tkvc.exe JIT truc tiep IL nen
+    # `P::'x'` khong hop le -> InvalidProgramException luc chay.
+    ctx['load_var_ref'](obj_name, scope, out)
+    if isinstance(raw_fd, str):
+        ctx['compile_expr'](value_arg, scope, out, raw_fd, ctx)
+        out.append(f'    stfld {IL_SCALAR[raw_fd]} '
+                   f'{_field_owner(ctx, obj_ta.dtype, attr_name)}::{attr_name}')
     else:
-        raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co attribute '{attr_name}' va khong co default")
+        ctx['compile_expr'](value_arg, scope, out, raw_fd.dtype, ctx)
+        out.append(f'    stfld {ctx["il_type_str"](raw_fd, records)} '
+                   f'{_field_owner(ctx, obj_ta.dtype, attr_name)}::{attr_name}')
+    # setattr tra ve None -> de lai MOT gia tri 0 lam ket qua. KHONG `pop`:
+    # `stfld` da tieu CA object reference LAN value roi, nen sau no stack
+    # rong - them `pop` se lam hu stack (InvalidProgramException luc chay).
+    out.append('    ldc.i4.0')
+
 
 register_expr_builtin('hasattr', push_hasattr_builtin, 'i32')
-register_expr_builtin('getattr', push_getattr_builtin, 'str')
+register_expr_builtin('getattr', push_getattr_builtin, 'str',
+                      return_dtype_fn=_getattr_dtype_fn,
+                      dtype_fn_wants_ctx=True)
+register_expr_builtin('setattr', push_setattr_builtin, 'i32')
