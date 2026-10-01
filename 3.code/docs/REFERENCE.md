@@ -648,7 +648,45 @@ path_write_text("t.txt", "hello")
 nạp hết vào RAM, còn `with open(...)` đọc dòng bằng `StreamReader`. Với file
 nhỏ, `path_read_text` gọn hơn nhiều.
 
-### 7.12 `iter()` / `next()` — chưa có, và đây là lý do
+### 7.12 `iter()` / `next()` — chưa có, và đây là lý do *thật*
+
+`for v in xs:` đã hoạt động và là cách dùng thay thế cho phần lớn mã Python.
+
+**Vì sao khó — đã đo, không đoán.** `next()` cần **con trỏ tiến**: một giá trị
+*thay đổi* mỗi lần gọi. TokenVector là ngôn ngữ tĩnh kiểu, và **record không
+được chứa field kiểu container** (`.ctor` lấy tham số từ field, container bị
+lọc khỏi danh sách đó). Nên không thể làm iterator bằng record.
+
+Còn hai đường, đều **không phải việc nhỏ**:
+
+1. Sinh một **lớp runtime mới** trong IL (giống `TkvStr`, `TkvInt`) mang
+   `src: List<T>` + `pos: i32`, rồi đăng ký `__next__` trên đó. Cần cơ chế phát
+   sinh lớp + dispatch method + test — chạm cốt lõi.
+2. Cho phép record chứa field container → **đổi cả quy tắc cấu trúc record**,
+   ảnh hưởng mọi thứ đang dùng record.
+
+Cả hai là việc kiến trúc, không phải thêm vài dòng. Làm vội sẽ sinh code không
+tới đường — đúng điều `docs/PLAN.md` đã ghi.
+
+**Phương án tương đương đã kiểm chứng chạy đúng:**
+
+| Python | TokenVector |
+|---|---|
+| `it = iter(xs)` | giữ chính `xs`, hoặc `for v in xs:` |
+| `next(it)` | `v = xs[i]` rồi tăng `i` |
+| `next(it)` khi hết | `if i >= len(xs):` |
+| `enumerate(it)` | `for i in range(len(xs)):` + `xs[i]` |
+
+```tokenvector
+xs = [10, 20, 30]
+i = 0
+while i < len(xs):
+    v = xs[i]
+    print(v)
+    i = i + 1
+```
+
+Chạy đúng, và **có kiểm chứng** — khác với việc tôi khẳng định "thiếu" rồi sai.
 
 ### 7.13 Dọn rác sau khi build / chạy
 
