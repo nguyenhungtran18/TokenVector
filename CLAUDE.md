@@ -7,6 +7,16 @@
 - **Rule**: DO NOT treat as Python. Do NOT recommend Python venv, pip, or standard CPython modules.
 
 ## Toolchain & Commands
+- **CHECK BEFORE ADDING ANYTHING** (`docs/BUILTIN_REFERENCE.md` in `3.code`):
+  - **336 names already registered** — run
+    `python 3.code\tools\gen_builtin_ref.py` to regenerate it from the source.
+  - **Before creating any file in `compiler/il_features/`, check the file does not
+    already exist.** I once created `bytes_type.tkv` to add `bytes()` and silently
+    overwrote a **live compiler module** that `il_codegen.tkv` imports — it broke
+    the entire compiler (104/104 BUILDFAIL, `ModuleNotFoundError`). The reference
+    lists every existing file with its size, plus all registered builtins,
+  - methods, line/assign/statement parsers.
+  - Do not hand-write the list; it would go stale and repeat the same mistake.
 - **Compile Standalone Binary**:
   `.\3.code\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run`
 - **Run Built Binary**:
