@@ -14,9 +14,10 @@ trỏ tới mục không tồn tại. Bản này viết lại từ đầu theo t
 
 | Cổng | Kết quả |
 |---|---|
-| `3.code\tools\testkit_gate.ps1` | **86/86** + **negative 7/7** (timeout 0, ILFAIL 0) |
-| Inference | **KHÔNG BUILD** — xem mục 1.1 |
-| Data gate | **FAIL (0/2 library, 0/18 suites)** — xem mục 1.1 |
+| `3.code\tools\testkit_gate.ps1` | **105/105** + **negative 20/20** (timeout 0, ILFAIL 0) — đo 2026-09-30 |
+| Inference | **26/26** PASS (`tv/tests/inference_tests.tkv`) |
+| Data gate | **PASS (18/18)** |
+| Parity probe CPython | **119/119** khớp, 0 khác — `tools/parity_probe/` |
 | Benchmark | 7 kernel, checksum 7/7 OK (đo lại 2026-09-29) |
 
 Benchmark đo trên máy này (đo lại 2026-09-29, đã trừ startup). **Số cũ trước
@@ -58,6 +59,11 @@ Số đo **có nhiễu lớn** giữa các lần chạy (cùng cấu hình cho 3
 ---
 
 ## 1.1 HỒI QUY do tôi gây ra: chặn field container trên record (2026-09-29)
+
+> **ĐÃ GIẢI QUYẾT (2026-09-30).** `self.X = {}` trong `__init__` đã được cho
+> phép; Inference **26/26** và Data **18/18** đều build và PASS. Giữ nguyên mục
+> này vì nó ghi lại *cách* lỗi xảy ra, không phải trạng thái hiện tại — số liệu
+> trong đoạn dưới là của đúng ngày 2026-09-29.
 
 Chạy đủ 5 bước của mục 7 lần đầu sau nhiều commit cho thấy **Inference và
 Data đều KHÔNG BUILD**, cùng một nguyên nhân:

@@ -9,6 +9,18 @@ da ton tai chua. Da co mot lan: tao `bytes_type.tkv` de bo sung ham
 `bytes()` nhung file do DA TON TAI va la module that cua compiler -
 ghi de lam hong ca buoc bien dich.
 
+**CANH BAO - co ten KHONG nghia la co dung duoc.** Muc nay lay tu
+`register_*`, no chi chung MINH dang co entry dang ky, KHONG
+chung tinh nang chay duoc den cuoi. Bang chung bien nghich (2026-09-30):
+`datetime` va `datetime_strptime` DANG ky day du nhung ca hai deu
+tra ve dtype `datetime` ma `str()`, truy cap `.year` va goi method
+deu bi tu choi luc bien dich - tao duoc, doc khong duoc.
+Nguoc lai, nhieu ham KHONG nam trong day da chay dung (vi du
+`with open(...)`, doc o `control_flow.tkv`, va `sorted()`).
+=> Hai chieu deu sai. Hay PROBE thuc roi tin ket qua, va khi
+probe BAT BIEN DUNG thi phai kiem danh muc nay truoc kem ket
+luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
+
 ## DANG CAU LENH (MACRO CAP DONG) (37)
 
 `attr_assign` `break` `bytearray_append` `bytes_append_blocked` `call_stmt` `container_clear` `continue` `del_stmt`

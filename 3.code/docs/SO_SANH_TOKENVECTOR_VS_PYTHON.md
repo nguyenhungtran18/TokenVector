@@ -178,14 +178,16 @@ ra `000042d`, vì chuỗi custom của .NET coi chữ cái là ký tự thườn
 
 | Tính năng | Tình trạng |
 |---|---|
-| `with` statement | Không có |
-| `sorted()` | Không có (chỉ `list.sort()` tại chỗ) |
+| `with open("f","r") as h:` | **CÓ** (probe 2026-09-30) — hỗ trợ `encoding=` |
+| `sorted()` | **CÓ** (thêm 2026-09-30), cả `for v in sorted(xs):` |
 | `max`/`min`/`sum` với `key=` | Không có (không có tham số từ khoá) |
-| `del` trên lát `del xs[1:3]` | Không có |
+| `del xs[1]` | **CÓ** (probe) |
+| `del` trên lát `del xs[1:3]` | Không có (probe: lỗi ở dấu `:`) |
 | `def` lồng trong hàm | Không có |
 | `class` lồng trong hàm | Không có |
 | Generator trả giá trị qua `return` | Không có |
-| `datetime`, `Decimal` | Không có |
+| `Decimal` | Không có (`ham 'Decimal' khong ton tai`) |
+| `datetime` | **Tên có, dùng không được** — `datetime(2026,9,30)` build được nhưng `str()`, `.year` và `.diff()` đều bị từ chối lúc biên dịch. Tạo được, đọc không được. |
 
 **Khớp rồi (trước đây chưa biết):** `try` lồng nhau, `round(x, n)`, so sánh
 chained `1 < x < 3`, `xs[0] += 10`, `if` có `finally` không `break`.
@@ -236,7 +238,7 @@ là chỗ trống thật — và nó chứa 2 lỗi.
 
 | Lỗi | CPython | TokenVector (trước) | Nguyên nhân |
 |---|---|---|---|
-| `abs(complex(3,4))` | `5.0` | **sập** `MissingMethodException` lúc chạy | Gọi `System.Math::Abs(Complex)` — hàm **không tồn tại** trong .NET |
+| `abs(complex(3,4))` | `5.0` | **lỗi biên dịch** (2026-09-30) — trước đây **sập** `MissingMethodException` lúc chạy | Gọi `System.Math::Abs(Complex)` — hàm **không tồn tại** trong .NET. Nay chặn sớm kèm thông báo giải thích, để hỏng lúc biên dịch thay vì lúc chạy |
 | `str(complex(4,6))` | `(4+6j)` | `(4, 6)` | Dùng `Complex.ToString()` của .NET |
 
 `complex_test.tkv` có 12 phép nhưng **không phép nào** gọi `abs()` trên số phức

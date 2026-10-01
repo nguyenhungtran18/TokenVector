@@ -70,6 +70,18 @@ def main():
     lines.append('`bytes()` nhung file do DA TON TAI va la module that cua compiler -')
     lines.append('ghi de lam hong ca buoc bien dich.')
     lines.append('')
+    lines.append('**CANH BAO - co ten KHONG nghia la co dung duoc.** Muc nay lay tu')
+    lines.append('`register_*`, no chi chung MINH dang co entry dang ky, KHONG')
+    lines.append('chung tinh nang chay duoc den cuoi. Bang chung bien nghich (2026-09-30):')
+    lines.append('`datetime` va `datetime_strptime` DANG ky day du nhung ca hai deu')
+    lines.append('tra ve dtype `datetime` ma `str()`, truy cap `.year` va goi method')
+    lines.append('deu bi tu choi luc bien dich - tao duoc, doc khong duoc.')
+    lines.append('Nguoc lai, nhieu ham KHONG nam trong day da chay dung (vi du')
+    lines.append('`with open(...)`, doc o `control_flow.tkv`, va `sorted()`).')
+    lines.append('=> Hai chieu deu sai. Hay PROBE thuc roi tin ket qua, va khi')
+    lines.append('probe BAT BIEN DUNG thi phai kiem danh muc nay truoc kem ket')
+    lines.append('luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.')
+    lines.append('')
     total = 0
     for key in sorted(b):
         names = sorted(b[key])
