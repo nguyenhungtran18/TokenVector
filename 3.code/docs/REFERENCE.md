@@ -589,9 +589,38 @@ w = getattr(o, n)          # ✗ - phai la chuoi LITERAL
 | `ascii("abc")` | `"'abc'"` | `"'abc'"` — giống |
 | `delattr(o, "x")` | Xoá field | **Lỗi biên dịch** |
 
-### 7.11 `open()` — dùng hàm tương đương, không cần `open()`
+### 7.11 `open()` — có dạng hàm (2026-09-30), nhưng có một giới hạn thật
 
-TokenVector **không có** `open()` dạng hàm (chỉ có `with open(...)`). Không
+TokenVector **có** `open(path, mode)` dùng như hàm, trả về handle cùng kiểu với
+`with open(...)` nên `.read()` / `.write()` / `.close()` hoạt động y hệt:
+
+```tokenvector
+p = "C:/Windows/Temp/t.txt"
+f = open(p, "w")
+f.write("abc")
+f.close()
+
+g = open(p, "r")
+s = g.read()
+g.close()
+```
+
+`mode` phải là **chuỗi literal** `"r"` / `"w"` / `"a"` — compiler phải biết mode
+lúc biên dịch để chọn `StreamReader` hay `StreamWriter`. Không nhận `"rb"`,
+`"wb"`, `"r+"`.
+
+### GIỚI HẠN ĐÃ BIẾT — file vẫn bị khoá sau `.close()`
+
+`f.close()` gọi `Dispose()` nhưng file **vẫn còn bị khoá**, nên mở lại cùng
+đường dẫn bằng `open(p, "w")` sẽ ném `IOException`. **Chưa tìm ra nguyên nhân
+(2026-09-30).** Test chỉ ghim phần đã kiểm chứng chạy đúng, không ghim phần này.
+
+| Cần làm | Dùng |
+|---|---|
+| Ghi đè file đã tồn tại | `path_write_text(p, s)` — đã kiểm chứng |
+| Mở file để đọc dòng, đóng bằng scope | `with open(p, "r") as h:` — `with` tự Dispose |
+| Ghi rồi đọc lại ngay | `path_write_text(p, s)` rồi `path_read_text(p)` |
+| Mở nhiều handle cùng lúc trên 1 file | Tránh — dùng các hàm ở trên |
 không có kiểu riêng nên `h.read()` không dispatch được. Thay vào đó **hai chức
 năng đó đã có sẵn ở dạng hàm**, dùng được ngay:
 

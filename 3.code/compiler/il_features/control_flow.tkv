@@ -30,6 +30,7 @@ from il_features.str_accum import plan_str_accum, emit_sb_setup, emit_sb_flush
 from il_dispatch import (
     register_line_parser, register_macro_expander, register_stmt_codegen,
     register_first_pass_walk, register_first_pass_prescan,
+    register_assign_rhs_parser,
 )
 
 _FOR_RANGE_RE = re.compile(r'^for\s+(\w+)\s+in\s+range\((.+)\)\s*:\s*$')
@@ -1710,6 +1711,59 @@ def try_parse_with_open(line, lines, pos, indent_level, sig, known_shapes, parse
             'path_node': path_node, 'body': body}, pos
 
 
+_OPEN_CALL_RE = re.compile(r'^open\(\s*(.+?)\s*,\s*("[rwa]")\s*\)\s*$')
+
+
+def _open_mode_of(mode_node):
+    """'mode' phai la CHUOI LITERAL - compiler phai biet mode LUC BIEN DICH
+    de chon StreamReader hay StreamWriter (khac runtime)."""
+    if mode_node[0] != 'str_lit':
+        raise SyntaxError(
+            "il_codegen: open(path, mode) - 'mode' phai la CHUOI LITERAL "
+            "(\"r\" / \"w\" / \"a\"), khong nhan bien dong")
+    mode = mode_node[1][1:-1]
+    if mode not in ('r', 'w', 'a'):
+        raise SyntaxError(
+            f"il_codegen: open(path, \"{mode}\") - chi nhan \"r\", \"w\", \"a\" "
+            f"(khu \"rb\"/\"wb\"/\"r+\" - StreamReader/StreamWriter khong co)")
+    return mode
+
+
+def _emit_open_handle(mode, path_node, scope, out, ctx):
+    """Day `path` len stack roi tao StreamReader/StreamWriter theo `mode`."""
+    ctx['compile_expr'](path_node, scope, out, 'str', ctx)
+    if mode == 'r':
+        out.append(f'    newobj instance void {il_file_type("r")}::.ctor(string)')
+    else:
+        out.append('    ldc.i4.1' if mode == 'a' else '    ldc.i4.0')
+        out.append(f'    newobj instance void {il_file_type("w")}::.ctor(string, bool)')
+
+
+def try_rhs_open_call(rhs, name, known_shapes):
+    m = _OPEN_CALL_RE.match(rhs.strip())
+    if not m:
+        return None
+    mode = _open_mode_of(parse_expr(m.group(2)))
+    known_shapes[name] = 'file'
+    return {'kind': 'assign_open', 'name': name,
+            'path_node': parse_expr(m.group(1).strip()), 'mode': mode}
+
+
+def fpw_assign_open(stmt, ctx):
+    ctx['collect_ternary_temps'](stmt['path_node'])
+    if stmt['name'] in ctx['declared_names']:
+        return
+    ctx['declared_names'].add(stmt['name'])
+    ta = ctx['TypeAnn'](stmt['mode'], 'file')
+    ctx['locals_decl'].append((stmt['name'], ta))
+    ctx['infer_scope'].set(stmt['name'], ta)
+
+
+def codegen_assign_open(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    _emit_open_handle(stmt['mode'], stmt['path_node'], scope, body, ctx)
+    ctx['store_var'](stmt['name'], scope, body)
+
+
 def fpw_with_open(stmt, ctx):
     ctx['collect_ternary_temps'](stmt['path_node'])
     declared_names = ctx['declared_names']
@@ -1804,9 +1858,25 @@ def compile_file_method_call(node, scope, out, dtype, ctx):
         out.append('    callvirt instance string [mscorlib]System.IO.TextReader::ReadToEnd()')
         ctx['widen_if_needed']('str', dtype, out)
         return
+    if method_name == 'close':
+        # `close()` - BAT BUOC khi mo file bang HAM `open(p, "w")`.
+        # `with_open` tu Dispose trong khoi nen khong can, nhung handle do
+        # `open()` tra ve thi nguoi dung phai tu dong. Dispose() cung Flush
+        # nen du lieu ghi chua khong mat.
+        if args:
+            raise SyntaxError("il_codegen: f.close() khong nhan tham so")
+        ctx['load_var_ref'](obj_name, scope, out)
+# `Dispose()` tra void va DA TIEU handle -> stack rong sau no.
+        # KHONG them `pop` (cung mau loi voi setattr/os_remove), va KHONG day
+        # `ldc.i4.0`: `close()` la CUU LENH nhu het `write()`, de lai mot gia
+        # tren stack se lam het stack luc chay (InvalidProgramException).
+        out.append('    callvirt instance void [mscorlib]System.IO.TextWriter'
+                   '::Dispose()')
+        return
     raise SyntaxError(
-        f"il_codegen: file-handle chi ho tro '.write(x)' (mode w/a) hoac '.read()' "
-        f"(mode r), gap '.{method_name}(...)'")
+        f"il_codegen: file-handle chi ho tro '.write(x)' (mode w/a), "
+        f"'.read()'/'.readline()' (mode r), '.close()' (ca hai mode); "
+        f"gap '.{method_name}(...)'")
 
 
 def codegen_with_open(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
@@ -2285,5 +2355,8 @@ register_stmt_codegen('try', codegen_try)
 register_stmt_codegen('return', codegen_return)
 register_stmt_codegen('raise', codegen_raise)
 register_stmt_codegen('with_open', codegen_with_open)
+register_assign_rhs_parser('open_call', try_rhs_open_call)
+register_first_pass_walk('assign_open', fpw_assign_open)
+register_stmt_codegen('assign_open', codegen_assign_open)
 register_stmt_codegen('with_ctx', codegen_with_ctx)
 register_stmt_codegen('for_in_iter', codegen_for_in_iter)

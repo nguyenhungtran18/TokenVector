@@ -1,0 +1,39 @@
+# -*- coding: utf-8 -*-
+# `open(path, mode)` dang HAM - them 2026-09-30 (chi co `with open(...)` truoc).
+#
+# Handle dung Y kieu voi `with open(...)`: shape='file', dtype=mode, nen
+# `.read()` / `.write()` / `.close()` hoat dong y het.
+#
+# GIOI HAN BIET (2026-09-30, CHUA GIAI QUYET - xem docs/REFERENCE.md 7.11):
+# `f.close()` goi `Dispose()` nhung file VAN BI KHOA, nen mo lai cung duong
+# dan bang `open(p, "w")` bi nem IOException. Bai nay CHI ghim phan da kiem
+# chung chay dung (mo - ghi - dong - mo - doc - dong). KHONG ghim phan "ghi lai"
+# vao test - neu do lai se lai ghi sai ky vong nhu da xay nhieu lan.
+#
+# Khi can ghi de file da ton tai, dung kieu da kiem chung:
+#   path_write_text(p, s)          -> noi dung moi thay the toan bo file
+# Hay dung `with open(p, "w") as h:` khai bao BLOCK - `with` tu Dispose trong
+# khoi nen khong phu thuoc `.close()` va khong con loi khoa.
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+    p = "C:/Windows/Temp/tkv_open_fn_test.txt"
+
+    # --- ghi ---
+    f = open(p, "w")
+    f.write("abc")
+    f.close()
+
+    # --- doc ---
+    g = open(p, "r")
+    s = g.read()
+    g.close()
+    tested = tested + 1
+    total = total + check("open_fn_read", str(s), "abc")
+    tested = tested + 1
+    total = total + check("open_fn_len", str(len(s)), "3")
+
+    return test_summary("open_function_test", total, tested)
