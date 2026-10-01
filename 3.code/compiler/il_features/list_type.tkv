@@ -1177,9 +1177,10 @@ def fpw_for_in_call_list(stmt, ctx):
     """FIRST_PASS_WALK cho 'for x in f(...):' khi f tra ve 1 LIST thuong
     (2026-08-03, dot 2) - khai bao 1 local AN giu ket qua loi goi, 1 local
     dem, va bien vong lap."""
-    sig = ctx['func_table'][stmt['callee_name']]
+    ret_ta = stmt.get('ret_ta')
+    if ret_ta is None:
+        ret_ta = ctx['func_table'][stmt['callee_name']].return_type
     TypeAnn = ctx['TypeAnn']
-    ret_ta = sig.return_type
     ctx['declare_named'](f'__forsrc{id(stmt)}', ret_ta)
     ctx['declare_named'](f'__foridx{id(stmt)}', TypeAnn('i32', None))
     # Task 3 review fix thu 4 (extern-class-list, 2026-08-18): doi xung voi
@@ -1204,7 +1205,6 @@ def fpw_for_in_call_list(stmt, ctx):
 def codegen_for_in_call_list(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     """STMT_CODEGEN cho 'for x in f(...):' (f tra ve list) - goi ham 1 LAN,
     do ket qua vao 1 local an, roi lap theo chi so nhu 'for x in bien:'."""
-    callee = ctx['func_table'][stmt['callee_name']]
     compile_expr = ctx['compile_expr']
     il_type_str = ctx['il_type_str']
     records = ctx.get('records')
@@ -1212,16 +1212,25 @@ def codegen_for_in_call_list(stmt, scope, body, body_dtype, ctx, sig, codegen_st
     _, idx_idx, _ = scope[f'__foridx{id(stmt)}']
     list_type = il_type_str(src_ta, records)
 
-    for arg_node, p in zip(stmt['arg_nodes'], callee.params):
-        # Round 3 (2026-08-19): shape-string convention cho list-literal
-        # long nhau lam doi so ('for x in rows([[1,2],[3,4]]):').
-        compile_expr(arg_node, scope, body,
-                     value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
-    params_il = ', '.join(il_type_str(p.type_ann, records) for p in callee.params)
-    class_name = ctx.get('class_name') or 'Program'
-    ret_il = il_type_str(callee.return_type, records)
-    body.append(f"    call {ret_il} {class_name}::{ctx['il_ident'](stmt['callee_name'])}({params_il})")
-    body.append(f'    stloc.s {src_idx}')
+    if stmt.get('ret_ta') is not None:
+        # BUILTIN tra ve list (`sorted`/`reversed`) - khong phai ham nguoi
+        # viet nen khong co method trong `Program` de goi truc tiep. Uy quyen
+        # cho co che builtin chung bang cach bien dich node 'call'.
+        ctx['compile_expr'](('call', stmt['callee_name'], stmt['arg_nodes']),
+                            scope, body, src_ta.dtype, ctx)
+        body.append(f'    stloc.s {src_idx}')
+    else:
+        callee = ctx['func_table'][stmt['callee_name']]
+        for arg_node, p in zip(stmt['arg_nodes'], callee.params):
+            # Round 3 (2026-08-19): shape-string convention cho list-literal
+            # long nhau lam doi so ('for x in rows([[1,2],[3,4]]):').
+            compile_expr(arg_node, scope, body,
+                         value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
+        params_il = ', '.join(il_type_str(p.type_ann, records) for p in callee.params)
+        class_name = ctx.get('class_name') or 'Program'
+        ret_il = il_type_str(callee.return_type, records)
+        body.append(f"    call {ret_il} {class_name}::{ctx['il_ident'](stmt['callee_name'])}({params_il})")
+        body.append(f'    stloc.s {src_idx}')
 
     ctx['label_counter'][0] += 1
     n = ctx['label_counter'][0]

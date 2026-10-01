@@ -44,17 +44,27 @@ def run() -> "i32":
     # list GOC khong bi doi - giong Python
     tested = tested + 1
     total = total + check("rev_src_untouched", str(xs[0]), "1")
-    # KHONG kiem `for v in reversed(xs):` o day: compiler chi cho phep
-    # `for x in f(...)` khi f la HAM GENERATOR co 'yield' - goi tra ve LIST
-    # (reversed/sorted) phai gan ra bien truoc. Day cung la ly do
-    # `for p in sorted(xs):` bi tu choi. Xem muc 3.8 cua
-    # docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md.
+    # `for v in reversed(xs):` - 2026-09-30: `for x in f(...)` TRUOC day chi
+    # nhan ham GENERATOR co 'yield', nen ca `reversed` lan `sorted` deu bi tu
+    # choi khi goi truc tiep. Nay da mo cho builtin tra ve list.
+    # KHONG gan bien tam nua - muc tieu chinh la dang goi truc tiep.
     rs = reversed(xs)
     out = ""
     for v in rs:
         out = out + str(v)
     tested = tested + 1
     total = total + check("rev_loop", out, "321")
+    us = [3, 1, 2]
+    sout = ""
+    for v in sorted(us):
+        sout = sout + str(v)
+    tested = tested + 1
+    total = total + check("sorted_loop_inline", sout, "123")
+    rout = ""
+    for v in reversed(us):
+        rout = rout + str(v)
+    tested = tested + 1
+    total = total + check("reversed_loop_inline", rout, "213")
 
     # --- bool ---
     tested = tested + 1

@@ -135,6 +135,33 @@ def _FPW_FOR_IN_CALL_LIST(stmt, ctx):
     return fpw_for_in_call_list(stmt, ctx)
 
 
+def _builtin_list_return_ta(stmt, ctx):
+    """TypeAnn cua list do BUILTIN tra ve, hoac None neu callee khong phai
+    builtin tra list.
+
+    Dung danh SACH TA khai bao thay vi tra bang kieu cua il_dispatch: do
+    phai tra qua bang o module khac, ma nhung bang do luu `(None, 'list')`
+    khi builtin duoc dang ky bang `return_shape` + `return_dtype=None` -
+    phu thuoc vao no de khong on dinh. Danh sach nay nho va rat them bien
+    moi; khi them builtin tra list moi, hay bo sung vao day.
+    """
+    name = stmt.get('callee_name')
+    if name not in _LIST_RETURNING_BUILTINS:
+        return None
+    args = stmt.get('arg_nodes') or []
+    if not args or args[0][0] != 'var':
+        return None
+    try:
+        elem = ctx['infer_scope'][args[0][1]][2].dtype
+    except (KeyError, TypeError, IndexError):
+        return None
+    return ctx['TypeAnn'](elem, 'list')
+
+
+# Builtin tra ve list, dung duoc truc tiep trong `for x in f(...):`.
+_LIST_RETURNING_BUILTINS = ('sorted', 'reversed')
+
+
 def fpw_for_in_generator(stmt, ctx):
     func_table = ctx['func_table']
     callee_name = stmt['callee_name']
@@ -148,6 +175,20 @@ def fpw_for_in_generator(stmt, ctx):
         # il_features/list_type.py) roi de duong do lo lieu.
         stmt['kind'] = 'for_in_call_list'
         return _FPW_FOR_IN_CALL_LIST(stmt, ctx)
+    # (2026-09-30) BUILTIN tra ve list - `sorted(xs)` / `reversed(xs)`.
+    # Chúng KHONG co trong `func_table` (do la ham nghuyen danh, khong phai
+    # ham nguoi viet) nen nhanh tren khong khop va bien dich bao loi
+    # "'reversed' khong phai 1 HAM GENERATOR" - dung nhung ca hai HAM CO
+    # that, chi la duong duyet list chua duoc mo cho builtin.
+    # Sua o day: nhan dien qua bang kieu cua builtin, tach kieu phan tu, roi
+    # dua vao DUNG duong `for_in_call_list`. Cac doan doc `func_table[...]`
+    # trong fpw/codegen cua list_type se doc `stmt['ret_ta']` truoc.
+    if callee_sig is None:
+        _ret_ta = _builtin_list_return_ta(stmt, ctx)
+        if _ret_ta is not None:
+            stmt['kind'] = 'for_in_call_list'
+            stmt['ret_ta'] = _ret_ta
+            return _FPW_FOR_IN_CALL_LIST(stmt, ctx)
     if callee_name not in func_table or not getattr(func_table[callee_name], 'is_generator', False):
         raise SyntaxError(
             f"il_codegen: 'for {stmt['var']} in {callee_name}(...):' - '{callee_name}' khong phai "
