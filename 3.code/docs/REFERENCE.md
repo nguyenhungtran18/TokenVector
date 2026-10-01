@@ -586,6 +586,47 @@ w = getattr(o, n)          # ✗ - phai la chuoi LITERAL
 | `ascii("abc")` | `"'abc'"` | `"'abc'"` — giống |
 | `delattr(o, "x")` | Xoá field | **Lỗi biên dịch** |
 
+### 7.11 `open()` — dùng hàm tương đương, không cần `open()`
+
+TokenVector **không có** `open()` dạng hàm (chỉ có `with open(...)`). Không
+phải vì thiếu hàm — mà vì handle là `StreamReader`/`StreamWriter` thuần .NET,
+không có kiểu riêng nên `h.read()` không dispatch được. Thay vào đó **hai chức
+năng đó đã có sẵn ở dạng hàm**, dùng được ngay:
+
+| Python | TokenVector | Ghi chú |
+|---|---|---|
+| `f = open(p, "r")` rồi `f.read()` | `s = path_read_text(p)` | đọc **toàn bộ** file thành chuỗi |
+| `f = open(p, "w")` rồi `f.write(s)` | `path_write_text(p, s)` | ghi đè |
+| `f = open(p, "a")` rồi `f.write(s)` | `s = path_read_text(p)`<br>`path_write_text(p, s + noi_moi)` | đọc rồi ghi lại |
+| `os.path.exists(p)` | `file_exists(p)` hoặc `path_exists(p)` | |
+
+```python
+# Python
+f = open("t.txt", "w")
+f.write("hello")
+f.close()
+
+# TokenVector
+path_write_text("t.txt", "hello")
+```
+
+**Khi nào vẫn nên dùng `with open(...)`:** khi file **rất lớn** — `path_read_text`
+nạp hết vào RAM, còn `with open(...)` đọc dòng bằng `StreamReader`. Với file
+nhỏ, `path_read_text` gọn hơn nhiều.
+
+### 7.12 `iter()` / `next()` — chưa có, và đây là lý do
+
+`for v in xs:` đã hoạt động và là cách dùng thay thế cho phần lớn mã Python.
+Để có `iter()`/`next()` thật sự cần một **kiểu iterator** mà compiler phải biết
+dispatch `__next__` trên đó — đụng vào cơ chế method/type dispatch lõi. Chưa
+làm. Nếu cần lấy phần tử kế tiếp theo chỉ số:
+
+```python
+v = xs[i]           # tương đương next() khi đã biết chỉ số
+for v in xs:        # tương đương iter()
+    ...
+```
+
 **`hash()` chuỗi KHÔNG khớp Python** và đây là chủ ý:
 - .NET `String.GetHashCode()` **bị ngẫu nhiên theo tiến trình** — cùng một chuỗi sẽ ra số khác giữa 2 lần chạy. TokenVector dùng FNV-1a 64-bit nên **ổn định**.
 - Dùng được để làm khóa/kiểm tra giữa các lần chạy. **Không** dùng để so số với Python.
