@@ -372,10 +372,11 @@ tiên kiểu `str` làm thông điệp.
 | Nhóm | Thiếu |
 |---|---|
 | Lặp | `iter()`, `next()`, `aiter()`, `anext()` |
-| Phản chiếu | `callable()`, `dir()`, `id()`, `hash()`, `vars()`, `globals()`, `locals()`, `ascii()`, `delattr()`, `super()`, `property()`, `classmethod()`, `staticmethod()` |
-| Động | `eval()`, `exec()`, `compile()` (TokenVector có `eval_expr`, `eval_code`, `exec_code` thay thế) |
 | File | `open()` như hàm (chỉ dùng được trong `with open(...)`) |
-| Khác | `memoryview()`, `slice()`, `breakpoint()`, `exit()`, `quit()`, `help()` |
+| Khác | `slice()`, `breakpoint()`, `exit()`, `quit()`, `help()`, `eval()`, `exec()`, `compile()`, `super()`, `property()`, `globals()`, `locals()`, `vars()` |
+
+Đã thêm 2026-09-30: `callable()`, `dir()`, `id()`, `hash()`, `ascii()`.
+`delattr()` **cố ý báo lỗi biên dịch** (xem 7.10).
 
 ### 5.3 Constructor container: thiếu một nửa
 
@@ -572,6 +573,27 @@ w = getattr(o, n)          # ✗ - phai la chuoi LITERAL
 ```
 
 Đường đọc động theo tên biến chưa có: tên field là quyết định lúc biên dịch.
+
+### 7.10 Hàm phản chiếu — khác Python ở đâu
+
+| Hàm | Python | TokenVector |
+|---|---|---|
+| `callable(f)` | `True`/`False` | Trả `i32` nên in `"1"`/`"0"` — **cùng nghĩa** |
+| `dir(o)` | 32 tên (kể cả `__init__`, `__class__`…) | Chỉ tên TokenVector có: **tru��ng + method của record** |
+| `id(x)` | Số định danh | `RuntimeHelpers.GetHashCode` — **không cam k�ết ổn định** giữa 2 lần chạy (Python cũng vậy) |
+| `hash(42)` | `42` | `42` — **giống hệt** |
+| `hash("abc")` | `-2654188841952103486` (SipHash) | `-1792535898324117685` (**FNV-1a**) |
+| `ascii("abc")` | `"'abc'"` | `"'abc'"` — giống |
+| `delattr(o, "x")` | Xoá field | **Lỗi biên dịch** |
+
+**`hash()` chuỗi KHÔNG khớp Python** và đây là chủ ý:
+- .NET `String.GetHashCode()` **bị ngẫu nhiên theo tiến trình** — cùng một chuỗi sẽ ra số khác giữa 2 lần chạy. TokenVector dùng FNV-1a 64-bit nên **ổn định**.
+- Dùng được để làm khóa/kiểm tra giữa các lần chạy. **Không** dùng để so số với Python.
+- `hash()` chỉ nhận **chuỗi literal** (tính lúc biên dịch) hoặc số nguyên. Biến chuỗi → lỗi biên dịch.
+
+**`delattr()` cố ý không chạy.** Field của record là field **của struct** trong IL, số lượng và vị trí đã chốt lúc biên dịch. Xoá một field mà giữ nguyên phần tử sẽ hỏng IL; bỏ qua thì sai nghĩa so với Python. Nên báo lỗi biên dịch kèm gợi ý `del xs[i]` cho container.
+
+**Ghi chú thẳng thắn:** đường `ascii()` với ký tự > 127 **chưa được xác nhận** bằng file `.tkv`, vì byte UTF-8 của ký tự không ASCII phụ thuộc cách compiler đọc file. Test chỉ ghim phần ASCII. Đừng tin phần này khi chưa tự chạy.
 
 ---
 
