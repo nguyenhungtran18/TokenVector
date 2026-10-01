@@ -22,8 +22,13 @@
 - **Run Built Binary**:
   `.\<output.exe>`
 - **Acceptance Gate (run this, not native_test_suite)**:
-  `.\3.code\tools\testkit_gate.ps1` — builds and runs all 65 `Testkit\*_test.tkv`,
+  `.\3.code\tools\testkit_gate.ps1` — builds and runs all 105 `Testkit\*_test.tkv`
+  plus 20 negative cases (currently `PASS=105 BUILDFAIL=0 TESTFAIL=0 NEG=20/20`),
   writes output to TEMP so a run never litters the repo, exits non-zero on any failure.
+  Other gates, all green as of 2026-09-30: parity probe
+  `.\3.code\tools\parity_probe\run.ps1` (**119/119** match CPython),
+  `.\3.code\tools\ext_smoke.ps1` (4/4), `D:\TokenVector.Data\tools\datagate.ps1`
+  (18/18), `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` (26/26).
   The `native_test_suite.tkv` command below is a *library-author linter*
   (`check_file` entry) and does not currently build: the self-hosted
   transpiler has no `yield from` — see `3.code/docs/REPOSITORY-NOTES.md`.
