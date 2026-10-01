@@ -17,11 +17,12 @@ ghi de lam hong ca buoc bien dich.
 `pass` `raise` `return` `set_add` `set_discard` `set_remove` `try` `tuple_assign`
 `while` `with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
 
-## DANG PHAI PHAI CUA PHE GAN (24)
+## DANG PHAI PHAI CUA PHE GAN (25)
 
-`base64_decode` `base64_encode` `bytearray_new` `bytes_literal` `datetime` `dict_literal` `dict_new` `f32buf_new`
-`frozenset_new` `list_count` `list_literal` `list_repeat` `list_slice` `md5_hex` `os_getenv` `os_list_files`
-`os_mkdir` `repeat_str` `set_literal` `set_new` `sha256_hex` `shutil_rmtree` `tuple_literal` `win_gui`
+`base64_decode` `base64_encode` `bytearray_new` `bytes_literal` `bytes_new` `datetime` `dict_literal` `dict_new`
+`f32buf_new` `frozenset_new` `list_count` `list_literal` `list_repeat` `list_slice` `md5_hex` `os_getenv`
+`os_list_files` `os_mkdir` `repeat_str` `set_literal` `set_new` `sha256_hex` `shutil_rmtree` `tuple_literal`
+`win_gui` 
 
 ## HAM BUILTIN (GOI DUOC TRUC TIEP) (174)
 
@@ -48,16 +49,16 @@ ghi de lam hong ca buoc bien dich.
 `v_mul8` `v_mul8_add8` `v_store4` `v_store8` `v_sub8` `vtable_cell` `write_f32` `write_i32`
 `write_i64` `write_u8` `xml_encode_name` `zip` `zip_create` `zip_extract`
 
-## KIEU CAU LENH (SINH IL) (62)
+## KIEU CAU LENH (SINH IL) (63)
 
-`assign_base64_decode` `assign_base64_encode` `assign_bytearray_new` `assign_bytes_literal` `assign_datetime_now` `assign_dict_literal` `assign_dict_new` `assign_f32buf_new`
-`assign_frozenset_new` `assign_list_count` `assign_list_literal` `assign_list_new` `assign_list_repeat` `assign_list_slice` `assign_md5_hex` `assign_multi_target`
-`assign_os_getenv` `assign_os_list_files` `assign_os_mkdir` `assign_repeat_str` `assign_set_literal` `assign_set_new` `assign_sha256_hex` `assign_shutil_rmtree`
-`assign_tuple_literal` `assign_win_gui` `attr_assign` `break` `bytearray_append` `call_stmt` `container_clear` `continue`
-`del_stmt` `f32buf_free_stmt` `for` `for_in_call_list` `for_in_dict_items` `for_in_generator` `for_in_iter` `for_tuple_pairs`
-`if` `list_append` `list_extend` `list_insert` `list_remove` `list_reverse` `list_sort` `nested_def`
-`raise` `return` `return_tuple` `sb_append` `set_add` `set_discard` `set_remove` `try`
-`tuple_assign` `while` `with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
+`assign_base64_decode` `assign_base64_encode` `assign_bytearray_new` `assign_bytes_literal` `assign_bytes_new` `assign_datetime_now` `assign_dict_literal` `assign_dict_new`
+`assign_f32buf_new` `assign_frozenset_new` `assign_list_count` `assign_list_literal` `assign_list_new` `assign_list_repeat` `assign_list_slice` `assign_md5_hex`
+`assign_multi_target` `assign_os_getenv` `assign_os_list_files` `assign_os_mkdir` `assign_repeat_str` `assign_set_literal` `assign_set_new` `assign_sha256_hex`
+`assign_shutil_rmtree` `assign_tuple_literal` `assign_win_gui` `attr_assign` `break` `bytearray_append` `call_stmt` `container_clear`
+`continue` `del_stmt` `f32buf_free_stmt` `for` `for_in_call_list` `for_in_dict_items` `for_in_generator` `for_in_iter`
+`for_tuple_pairs` `if` `list_append` `list_extend` `list_insert` `list_remove` `list_reverse` `list_sort`
+`nested_def` `raise` `return` `return_tuple` `sb_append` `set_add` `set_discard` `set_remove`
+`try` `tuple_assign` `while` `with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
 
 ## MACRO VIET TAY (25)
 
@@ -71,7 +72,7 @@ ghi de lam hong ca buoc bien dich.
 `center` `copy` `count` `items` `join` `keys` `ljust` `rjust`
 `split` `strftime` `title` `to_list` `values` `zfill`
 
-**Tong so ten da dang ky: 336**
+**Tong so ten da dang ky: 338**
 
 ## File trong `compiler/il_features/`
 
@@ -80,7 +81,7 @@ ghi de lam hong ca buoc bien dich.
 | `__init__.tkv` | 0 |
 | `async_await.tkv` | 1.603 |
 | `bytearray_type.tkv` | 5.451 |
-| `bytes_type.tkv` | 8.057 |
+| `bytes_type.tkv` | 13.025 |
 | `call_star_args.tkv` | 14.917 |
 | `chr_builtin.tkv` | 1.661 |
 | `closures.tkv` | 15.795 |

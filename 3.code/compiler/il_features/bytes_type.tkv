@@ -171,3 +171,119 @@ register_assign_rhs_parser('bytes_literal', try_rhs_bytes_literal)
 register_line_parser('bytes_append_blocked', try_parse_bytes_append_blocked)
 register_stmt_codegen('assign_bytes_literal', codegen_assign_bytes_literal)
 register_first_pass_walk('assign_bytes_literal', fpw_assign_bytes_literal)
+
+
+# ===========================================================================
+# CONSTRUCTOR `bytes(...)` - 2026-09-30
+#
+# Truoc day chi co DANG LITERAL `b"..."`. Python con co:
+#   bytes(3)              -> 3 byte 0
+#   bytes("ab", "utf-8")  -> byte UTF-8 cua chuoi
+#   bytes([1, 2, 3])      -> tu list so
+# Do la kieu `bytes` da ton tai (List<uint8>, shape='bytes') nen phai THEM
+# o day chu KHONG tao file moi - xem docs/BUILTIN_REFERENCE.md.
+#
+# Python BAT BUOC co tham so 'encoding' khi truyen chuoi; `bytes("ab")` nem
+# TypeError. TokenVector chi chap nhan DUOC dang 2 tham so, va chi chap nhan
+# ma hoa 'utf-8' - ma hoa khac thi bao loi ro thay vi gia sai am thanh.
+# ===========================================================================
+
+_BYTES_REPEAT_RE = re.compile(r'^bytes\(\s*(\d+)\s*\)\s*$')
+_BYTES_STR_RE = re.compile(r'^bytes\(\s*(\".*\"|\'.*\')\s*,\s*(\".*\"|\'.*\')\s*\)\s*$')
+_BYTES_STR_VAR_RE = re.compile(r'^bytes\(\s*(\w+)\s*,\s*(\".*\"|\'.*\')\s*\)\s*$')
+_BYTES_LIST_RE = re.compile(r'^bytes\(\s*\[([^\[\]]*)\]\s*\)\s*$')
+
+
+def _encoding_ok(enc_text):
+    """True neu tham so ma hoa la chuoi literal 'utf-8' (hoa thuong)."""
+    e = enc_text.strip().strip('"').strip("'").lower().replace('-', '')
+    if e in ('utf8', 'u8'):
+        return True
+    raise SyntaxError(
+        f"il_codegen: bytes(chuoi, ma-hoa) - chi ho tro 'utf-8' trong giai "
+        f"doan, nhan '{enc_text.strip()}'. Ma hoa khac can ep thanh byte thu "
+        f"cong o bien dich rieng.")
+
+
+def try_rhs_bytes_new(rhs, name, known_shapes):
+    """ASSIGN_RHS_PARSERS entry: 'b = bytes(...)' (xem khoi trenh)."""
+    s = rhs.strip()
+
+    m = _BYTES_REPEAT_RE.match(s)
+    if m:
+        known_shapes[name] = 'bytes'
+        return {'kind': 'assign_bytes_new', 'name': name,
+                'bytes_form': 'repeat', 'count': int(m.group(1))}
+
+    m = _BYTES_STR_RE.match(s)
+    if m:
+        _encoding_ok(m.group(2))
+        known_shapes[name] = 'bytes'
+        node = parse_expr(m.group(1))
+        if node[0] != 'str_lit':
+            return None
+        # Giai ma ngay luc bien dich. PHẢI `.encode('utf-8')` chứ không
+        # dùng `ord()`: `ord` cho CODE POINT (U+00E9 = 233) trong khi
+        # `bytes("héllo", "utf-8")` trong Python cho 6 byte voi byte dau
+        # la 195. Dung ord() se ra 5 byte - sai am thanh.
+        from il_features.string_feature import _decode_escapes
+        raw = _decode_escapes(node[1])[1:-1]
+        return {'kind': 'assign_bytes_new', 'name': name,
+                'bytes_form': 'list', 'values': list(raw.encode('utf-8'))}
+
+    m = _BYTES_STR_VAR_RE.match(s)
+    if m:
+        _encoding_ok(m.group(2))
+        raise SyntaxError(
+            "il_codegen: bytes(<bien chuoi>, \"utf-8\") - duong chay (dung "
+            "Encoding.UTF8.GetBytes) CHUA san: `List<byte>` khong co ctor "
+            "nhan IEnumerable ma `List<int>` co, nen bien dich duoc roi chay "
+            "thi nem EntryPointNotFoundException. Hay truyen CHUOI LITERAL "
+            "(bytes(\"abc\", \"utf-8\")) - duong do giai ma ngay luc bien dich.")
+
+    m = _BYTES_LIST_RE.match(s)
+    if m:
+        inner = m.group(1).strip()
+        vals = []
+        if inner:
+            for part in inner.split(','):
+                part = part.strip()
+                try:
+                    vals.append(int(part, 10))
+                except ValueError:
+                    return None
+                if not (-128 <= vals[-1] <= 255):
+                    raise SyntaxError(
+                        f"il_codegen: bytes([...]) - gia tri {vals[-1]} ngoai "
+                        f"khoang byte 0..255 (Python nem ValueError)")
+        known_shapes[name] = 'bytes'
+        return {'kind': 'assign_bytes_new', 'name': name,
+                'bytes_form': 'list', 'values': vals}
+    return None
+
+
+def codegen_assign_bytes_new(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN: 'b = bytes(...)' - cung kieu voi literal (List<uint8>)."""
+    form = stmt['bytes_form']
+    if form == 'repeat':
+        values = [0] * stmt['count']
+    else:
+        values = stmt['values']
+    body.append(f'    newobj instance void {il_bytearray_type()}::.ctor()')
+    for value in values:
+        body.append('    dup')
+        body.append(f'    ldc.i4 {value}')
+        body.append('    conv.u1')
+        body.append(f'    callvirt instance void {il_bytearray_type()}::Add(!0)')
+    ctx['store_var'](stmt['name'], scope, body)
+
+
+def fpw_assign_bytes_new(stmt, ctx):
+    """FIRST_PASS_WALK: khai bao local List<uint8> voi shape='bytes' - het
+    y nhieu voi dang literal."""
+    ctx['declare_named'](stmt['name'], ctx['TypeAnn']('i32', 'bytes'))
+
+
+register_assign_rhs_parser('bytes_new', try_rhs_bytes_new)
+register_stmt_codegen('assign_bytes_new', codegen_assign_bytes_new)
+register_first_pass_walk('assign_bytes_new', fpw_assign_bytes_new)
