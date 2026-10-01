@@ -30,12 +30,12 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 `pass` `raise` `return` `set_add` `set_discard` `set_remove` `try` `tuple_assign`
 `while` `with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
 
-## DANG PHAI PHAI CUA PHE GAN (27)
+## DANG PHAI PHAI CUA PHE GAN (28)
 
 `base64_decode` `base64_encode` `bytearray_new` `bytes_literal` `bytes_new` `datetime` `dict_literal` `dict_new`
-`f32buf_new` `frozenset_new` `list_call` `list_count` `list_literal` `list_repeat` `list_slice` `md5_hex`
-`os_getenv` `os_list_files` `os_mkdir` `repeat_str` `set_literal` `set_new` `sha256_hex` `shutil_rmtree`
-`tuple_call` `tuple_literal` `win_gui`
+`f32buf_new` `frozenset_call` `frozenset_new` `list_call` `list_count` `list_literal` `list_repeat` `list_slice`
+`md5_hex` `os_getenv` `os_list_files` `os_mkdir` `repeat_str` `set_literal` `set_new` `sha256_hex`
+`shutil_rmtree` `tuple_call` `tuple_literal` `win_gui`
 
 ## HAM BUILTIN (GOI DUOC TRUC TIEP) (176)
 
@@ -62,17 +62,17 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 `v_load4` `v_load8` `v_mul8` `v_mul8_add8` `v_store4` `v_store8` `v_sub8` `vtable_cell`
 `write_f32` `write_i32` `write_i64` `write_u8` `xml_encode_name` `zip` `zip_create` `zip_extract`
 
-## KIEU CAU LENH (SINH IL) (65)
+## KIEU CAU LENH (SINH IL) (67)
 
 `assign_base64_decode` `assign_base64_encode` `assign_bytearray_new` `assign_bytes_literal` `assign_bytes_new` `assign_datetime_now` `assign_dict_literal` `assign_dict_new`
-`assign_f32buf_new` `assign_frozenset_new` `assign_list_count` `assign_list_from` `assign_list_literal` `assign_list_new` `assign_list_repeat` `assign_list_slice`
-`assign_md5_hex` `assign_multi_target` `assign_os_getenv` `assign_os_list_files` `assign_os_mkdir` `assign_repeat_str` `assign_set_literal` `assign_set_new`
-`assign_sha256_hex` `assign_shutil_rmtree` `assign_tuple_identity` `assign_tuple_literal` `assign_win_gui` `attr_assign` `break` `bytearray_append`
-`call_stmt` `container_clear` `continue` `del_stmt` `f32buf_free_stmt` `for` `for_in_call_list` `for_in_dict_items`
-`for_in_generator` `for_in_iter` `for_tuple_pairs` `if` `list_append` `list_extend` `list_insert` `list_remove`
-`list_reverse` `list_sort` `nested_def` `raise` `return` `return_tuple` `sb_append` `set_add`
-`set_discard` `set_remove` `try` `tuple_assign` `while` `with_ctx` `with_open` `yield_from_stmt`
-`yield_stmt` 
+`assign_f32buf_new` `assign_frozenset_empty` `assign_frozenset_literal` `assign_frozenset_new` `assign_list_count` `assign_list_from` `assign_list_literal` `assign_list_new`
+`assign_list_repeat` `assign_list_slice` `assign_md5_hex` `assign_multi_target` `assign_os_getenv` `assign_os_list_files` `assign_os_mkdir` `assign_repeat_str`
+`assign_set_literal` `assign_set_new` `assign_sha256_hex` `assign_shutil_rmtree` `assign_tuple_identity` `assign_tuple_literal` `assign_win_gui` `attr_assign`
+`break` `bytearray_append` `call_stmt` `container_clear` `continue` `del_stmt` `f32buf_free_stmt` `for`
+`for_in_call_list` `for_in_dict_items` `for_in_generator` `for_in_iter` `for_tuple_pairs` `if` `list_append` `list_extend`
+`list_insert` `list_remove` `list_reverse` `list_sort` `nested_def` `raise` `return` `return_tuple`
+`sb_append` `set_add` `set_discard` `set_remove` `try` `tuple_assign` `while` `with_ctx`
+`with_open` `yield_from_stmt` `yield_stmt`
 
 ## MACRO VIET TAY (25)
 
@@ -91,7 +91,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 `datetime.strftime` `dict.items` `dict.keys` `dict.values` `frozenset.to_list` `list.copy` `set.to_list` `str.center`
 `str.count` `str.join` `str.ljust` `str.rjust` `str.split` `str.title` `str.zfill`
 
-**Tong so ten da dang ky: 358**
+**Tong so ten da dang ky: 361**
 
 ## File trong `compiler/il_features/`
 
@@ -153,7 +153,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 | `record_feature.tkv` | 35.518 |
 | `set_methods_batch2.tkv` | 7.110 |
 | `set_to_list.tkv` | 2.754 |
-| `set_type.tkv` | 26.289 |
+| `set_type.tkv` | 31.523 |
 | `slicing.tkv` | 12.201 |
 | `stdlib_aggregates.tkv` | 19.200 |
 | `stdlib_asyncio.tkv` | 1.324 |

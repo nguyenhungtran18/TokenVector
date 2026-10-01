@@ -388,7 +388,7 @@ tiên kiểu `str` làm thông điệp.
 | `list()` / `list(ys)` | **CÓ** (2026-09-30). `list(ys)` là **bản sao** |
 | `tuple([a,b,c])` / `tuple(t)` | **CÓ, nhưng khác Python** (2026-09-30) — xem 5.3.1 |
 | `list([])` | Không nhận — tham số phải là **biến**. `list()` cho list rỗng |
-| `frozenset()` | **KHÔNG** (`frozenset` chỉ là *tên shape* trong compiler) |
+| `frozenset()` / `frozenset([..])` / `frozenset(ys)` | **CÓ** (2026-09-30) |
 | `object()` | **KHÔNG** |
 
 ### 5.3.1 `tuple()` — khác Python, vì khác kiến trúc
@@ -443,7 +443,139 @@ vì thông điệp đã `raise`) — cần kiểm lại ánh xạ lỗi.
 
 ---
 
-## 6. BA SỰ CỐ ĐÃ GHI — đừng tin mù
+## 7. HƯỚNG DẪN DÙNG — cho chỗ KHÁC PYTHON
+
+Đọc mục này trước khi viết code chuyển từ Python.
+
+### 7.1 `datetime` — hoàn toàn khác
+
+Python dùng `datetime(2026, 9, 30)` để **tạo ngày**. TokenVector **không có**
+hàm đó.
+
+| Việc | Python | TokenVector | Cách viết |
+|---|---|---|---|
+| Tạo ngày từ số | `datetime(2026, 9, 30)` | **không có** | `d = datetime_strptime("2026-09-30", "%Y-%m-%d")` |
+| Giờ hiện tại | `datetime.now()` | `datetime()` | `d = datetime()` — **0 tham số** |
+| Đọc thành phần | `d.year`, `d.month`, `d.day` | **không có** | `y = d.year` ✗ → dùng `strftime` |
+| Định dạng | `d.strftime("%Y")` | **có** | `y = d.strftime("%Y")` |
+| Ra số để tính | `d.timestamp()` | `datetime_ticks(d)` | `n = datetime_ticks(d)` |
+
+**Vì sao:** `datetime` ở đây vật lý là **số ticks int64** (như
+`System.DateTime.Ticks`). Số nguyên không có "thành phần năm/tháng" nên phải
+quy đổi qua `strftime`. Đây là quyết định thiết kế, không phải thiếu hàm.
+
+```python
+# Python
+d = datetime(2026, 9, 30)
+print(d.year, d.month)      # 2026 9
+
+# TokenVector
+d = datetime_strptime("2026-09-30", "%Y-%m-%d")
+print(d.strftime("%Y"), d.strftime("%m"))    # 2026 09
+```
+
+### 7.2 `tuple` — số phần tử cố định
+
+`tuple` là `System.ValueTuple<T1..TN>`, số phần tử **biết lúc biên dịch**
+(2..7), không phải container biến độ dài.
+
+| Việc | Python | TokenVector |
+|---|---|---|
+| Tạo | `t = (1, 2, 3)` | `t = (1, 2, 3)` — giống hệt |
+| Chuyển từ list | `tuple(xs)` | `tuple([1, 2, 3])` — chỉ **list literal** |
+| Rỗng | `tuple()` | ✗ — dùng `()`? không có; dùng list `[]` |
+| Độ dài động | `len(t)` | ✗ — dùng `len()` trên list |
+
+Nếu cần độ dài không cố định, dùng `list`. Xem `list(xs)`.
+
+### 7.3 `set` / `frozenset` — không lấy được theo chỉ số
+
+Giống Python: set không subscript. Muốn duyệt, chuyển sang list trước.
+
+```python
+s = {3, 1, 2}
+for v in s:            # thứ tự KHÔNG xác định, như Python
+    print(v)
+
+xs = s.to_list()       # chuyển sang list để lấy theo chỉ số / sắp xếp
+xs.sort()
+```
+
+### 7.4 `bytes` — bất biến, `bytearray` — sửa được
+
+```python
+b = b"abc"                  # bất biến
+b2 = bytes("héllo", "utf-8")   # chỉ chuỗi LITERAL
+b3 = bytes([1, 2, 3])
+n = bytes(5)                # 5 byte 0
+a = bytearray(3)            # sửa được
+a.append(65)                # OK
+b.append(66)                # ✗ LỖI BIÊN DỊCH - bytes bất biến
+```
+
+`bytes(<biến chuỗi>, "utf-8")` **không hỗ trợ** (đường chạy chưa có).
+Chuỗi phải là literal.
+
+### 7.5 `format` — spec phải là literal, giá trị phải là biến hoặc số
+
+```python
+n = 42
+a = format(n, "05d")        # OK
+b = format(3.14159, ".2f")  # OK (số literal)
+c = format(3.14159, ".2f")  # OK
+d = format(a + b, ".2f")    # ✗ - phai gan bien truoc:
+t = a + b                   #    t = a + b; format(t, ".2f")
+```
+
+Spec không dịch được sang .NET (`","`, `">"`, `"<"`, `"^"`) sẽ **báo lỗi biên
+dịch** chứ không đoán.
+
+### 7.6 Exception — chỉ 21 loại, và bản đồ phẳng
+
+Dùng `try/except/else/finally` như Python. Nhưng:
+
+- Chỉ có 21 loai (mục 5.1). Loại khác phải tự định nghĩa.
+- **Không có phân cấp.** `except KeyError` không bắt được lỗi cha. Dùng
+  `except Exception` để bắt rộng.
+- `FileNotFoundError` và `ImportError` cùng ánh xạ về một kiểu .NET, nên
+  `except` cái này cũng bắt cái kia. Đừng dựa vào phân biệt.
+
+### 7.7 Method container là **câu lệnh**, không phải biểu thức
+
+```python
+xs.append(1)          # OK - dạng câu lệnh
+y = xs.pop()          # ✗ - pop() chỉ là CÂU LỆNH, không phải biểu thức
+n = len(xs)           # OK
+```
+
+Nếu cần giá trị trả về, tách ra biến:
+```python
+last = xs[len(xs) - 1]   # thay cho xs.pop()
+```
+
+### 7.8 SIMD — dùng thay vì lặp tay
+
+```python
+v = f32x4(1.0, 2.0, 3.0, 4.0)
+w = v_add8(v, v)        # cộng từng phần tử
+s = v_hsum(v)           # tổng ngang
+```
+Đây là phần mở rộng so với Python, không thay thế gì.
+
+### 7.9 `getattr` / `setattr` — tên field phải là literal
+
+```python
+o = Pt(1, "a")
+v = getattr(o, "x")        # OK
+n = "x"
+w = getattr(o, n)          # ✗ - phai la chuoi LITERAL
+```
+
+Đường đọc động theo tên biến chưa có: tên field là quyết định lúc biên dịch.
+
+---
+
+## 8. BA SỰ CỐ ĐÃ GHI — đừng tin mù
 
 1. **Có tên không có nghĩa là dùng được.** `datetime` có đủ đăng ký nhưng
    `datetime(2026, 9, 30)` từng biên dịch xanh rồi trả về **hôm nay**.

@@ -311,6 +311,30 @@ def codegen_assign_frozenset_new(stmt, scope, body, body_dtype, ctx, sig, codege
     ctx['store_var'](stmt['name'], scope, body)
 
 
+def codegen_assign_frozenset_empty(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN: `fs = frozenset()` - HashSet<T> rong. Dung `.ctor()`
+    KHONG tham so, giong het `codegen_assign_set_new`. (Da gap bug: `.ctor(int32)`
+    ma khong day `ldc.i4 0` len stack -> `newobj` thieu tham so -> het stack ->
+    InvalidProgramException luc chay.)"""
+    _, _, ta = scope[stmt['name']]
+    body.append(
+        f'    newobj instance void {il_set_type(ta.dtype, ctx.get("records"), ctx.get("extern_class_defs"))}::.ctor()')
+    ctx['store_var'](stmt['name'], scope, body)
+
+
+def codegen_assign_frozenset_literal(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    """STMT_CODEGEN: `fs = frozenset([1, 2, 3])`.
+
+    DUNG LAI `codegen_assign_set_literal` thay vi tu viet vong `Add`. Ly do:
+    kieu IL thuc cua HashSet<T> co PHAI WIDEN so nguyen sang `TkvInt` (int32
+    -> TkvInt 16 byte), trong khi `ta.dtype` van la 'i32' - viet `Add` bang
+    `ta.dtype` se day sai kieu va sinh IL hong. `codegen_assign_set_literal`
+    da xu ly chuyen rong nen dung no la nguon su that duy nhat, tranh 2
+    duong lech kieu. O cap IL, set va frozenset cung la HashSet<T> - khac
+    nhau chi o TAI TANG DOC (guard chan `.add()`/`.remove()`), khac o IL."""
+    codegen_assign_set_literal(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
+
+
 def codegen_set_add(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     """STMT_CODEGEN entry: 's.add(x)' - HashSet<T>.Add(T) tra ve bool
     (khac List<T>.Add(T) la void, xac minh THAT qua probe_hashset.il) -
@@ -487,6 +511,42 @@ def emit_set_iter_source(stmt, scope, body, ctx):
     ctx['store_var'](tmp, scope, body)
 
 
+_FROZENSET_CALL_RE = re.compile(r'^frozenset\(([^()]*)\)\s*$')
+
+
+def try_rhs_frozenset_call(rhs, name, known_shapes):
+    """ASSIGN_RHS_PARSERS entry: `fs = frozenset()` va `fs = frozenset([..])`.
+
+    Them 2026-09-30 - `frozenset(ys)` da co san (chi nhan bien), nhung Python
+    con cho `frozenset()` rong va `frozenset([1,2,3])` tu list literal.
+    RONG khong suy duoc dtype phan tu (bat bien, khong co `.add()`) - xem
+    `declare_frozenset_empty`.
+    """
+    m = _FROZENSET_CALL_RE.match(rhs.strip())
+    if not m:
+        return None
+    arg = m.group(1).strip()
+    if arg == '':
+        known_shapes[name] = 'frozenset'
+        return {'kind': 'assign_frozenset_empty', 'name': name}
+    if re.match(r'^\w+$', arg):
+        # `frozenset(ys)` - nhanh cu: uu tien cho _FROZENSET_NEW_RE de giu
+        # NGUYEN HENH VI behavior (khong doi).
+        return None
+    try:
+        node = parse_expr(arg)
+    except SyntaxError:
+        node = None
+    if isinstance(node, tuple) and len(node) == 2 and node[0] == 'list_literal':
+        known_shapes[name] = 'frozenset'
+        return {'kind': 'assign_frozenset_literal', 'name': name,
+                'elements': node[1]}
+    raise SyntaxError(
+        f"il_codegen: frozenset({arg}) - tham so phai la 1 BIEN list da khai "
+        f"bao (`frozenset(ys)`), hoac LIST LITERAL (`frozenset([1, 2])`), hoac "
+        f"de trong (`frozenset()`). Khong nhan bieu thuc bien dong o day.")
+
+
 def declare_frozenset(name, src, ctx):
     """FIRST_PASS_WALK helper: khai bao local HashSet<T> cho 'fs =
     frozenset(lst)' - dtype phan tu LAY THANG tu dtype cua 'lst' (khac
@@ -513,6 +573,52 @@ def declare_frozenset(name, src, ctx):
     ctx['infer_scope'].set(name, ta)
 
 
+def declare_frozenset_empty(name, ctx):
+    """FIRST_PASS_WALK helper cho `fs = frozenset()` va `fs = frozenset([..])`.
+
+    THEM 2026-09-30. RONG: KHONG co du lieu de suy dtype phan tu (frozenset
+    bat bien, khong co `.add()` nhu set de suy nguon) nen thu:
+      1. `container_arg_hints` - khi `fs` la tham so co khai bao kieu
+         (`def f(fs: "frozenset[str]")`) hoac kieu tra ve cua chinh ham nay.
+         Day la duong DU DUNG va chinh xac nhat (xem ghi chu cung kieu trong
+         `declare_set`).
+      2. Neu khong co hint: mac dinh `i32` va GHI RA. KHONG doan im lang -
+         nguoi dung lai so i ra `fs[0]` se gap loi bien dich kieu, khong phai
+         im lang doc sai gia tri. Xem muc "huong dan dung" cua
+         `docs/REFERENCE.md` cho cach khai bao day du."""
+    declared_names = ctx['declared_names']
+    if name in declared_names:
+        return
+    declared_names.add(name)
+    hint = (ctx.get('container_arg_hints') or {}).get(name)
+    if hint is not None and hint.shape == 'frozenset':
+        ta = hint
+    else:
+        ta = ctx['TypeAnn']('i32', 'frozenset')
+    ctx['locals_decl'].append((name, ta))
+    ctx['infer_scope'].set(name, ta)
+
+
+def fpw_assign_frozenset_empty(stmt, ctx):
+    declare_frozenset_empty(stmt['name'], ctx)
+
+
+def fpw_assign_frozenset_literal(stmt, ctx):
+    """FIRST_PASS_WALK: `fs = frozenset([1, 2])` - dung CHUNG
+    `declare_set_literal` de suy dtype phan tu (nguon su that duy nhat, tranh
+    2 bo suy kieu lech nhau), roi doi shape sang 'frozenset'."""
+    declare_set_literal(stmt['name'], stmt['elements'], ctx)
+    # `infer_scope` o first-pass co the la `_DtypeOnlyScope` - chi co
+    # `__getitem__` va `set`, KHONG co `.get` (xem _infer_dtype).
+    try:
+        ta = ctx['infer_scope'][stmt['name']]
+        ta.shape = 'frozenset'
+    except (KeyError, AttributeError):
+        pass
+    for el in stmt['elements']:
+        ctx['collect_ternary_temps'](el)
+
+
 def fpw_assign_set_new(stmt, ctx):
     declare_set(stmt['name'], ctx)
 
@@ -529,14 +635,19 @@ def fpw_set_add(stmt, ctx):
 # thuoc il_codegen.py nen import truc tiep an toan, khong circular).
 register_assign_rhs_parser('set_new', try_rhs_set_new)
 register_assign_rhs_parser('frozenset_new', try_rhs_frozenset_new)
+register_assign_rhs_parser('frozenset_call', try_rhs_frozenset_call)
 register_assign_rhs_parser('set_literal', try_rhs_set_literal)
 register_line_parser('set_add', try_parse_set_add)
 register_stmt_codegen('assign_set_new', codegen_assign_set_new)
 register_stmt_codegen('assign_frozenset_new', codegen_assign_frozenset_new)
+register_stmt_codegen('assign_frozenset_empty', codegen_assign_frozenset_empty)
+register_stmt_codegen('assign_frozenset_literal', codegen_assign_frozenset_literal)
 register_stmt_codegen('assign_set_literal', codegen_assign_set_literal)
 register_stmt_codegen('set_add', codegen_set_add)
 register_first_pass_walk('assign_set_new', fpw_assign_set_new)
 register_first_pass_walk('assign_frozenset_new', fpw_assign_frozenset_new)
+register_first_pass_walk('assign_frozenset_empty', fpw_assign_frozenset_empty)
+register_first_pass_walk('assign_frozenset_literal', fpw_assign_frozenset_literal)
 register_first_pass_walk('assign_set_literal', fpw_assign_set_literal)
 register_first_pass_walk('set_add', fpw_set_add)
 # 2026-09-29: set literal o VI TRI BIEU THUC (phan tu cua list khac) - xem
