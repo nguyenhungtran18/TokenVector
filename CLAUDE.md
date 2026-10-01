@@ -8,7 +8,7 @@
 
 ## Toolchain & Commands
 - **CHECK BEFORE ADDING ANYTHING** (`docs/BUILTIN_REFERENCE.md` in `3.code`):
-  - **336 names already registered** — run
+  - **370 names already registered** — run
     `python 3.code\tools\gen_builtin_ref.py` to regenerate it from the source.
   - **Before creating any file in `compiler/il_features/`, check the file does not
     already exist.** I once created `bytes_type.tkv` to add `bytes()` and silently
@@ -17,13 +17,21 @@
     lists every existing file with its size, plus all registered builtins,
   - methods, line/assign/statement parsers.
   - Do not hand-write the list; it would go stale and repeat the same mistake.
+- **Build `tkvc.exe`**: `powershell -NoProfile -ExecutionPolicy Bypass -File .\3.code\build_tkvc.ps1`
+  Phân nhóm module `compiler/il_features/` do **`tools/il_features_manifest.txt`**
+  đăng ký (CORE đã khai báo tường minh — tin nó, đừng đoán). Script
+  `tools/_split_il_features.py` **FAIL build sớm** nếu có module import một tên
+  không tồn tại, nên không bao giờ có chuyện "sót file âm thầm". Build sinh
+  `_il_features_bootstrap.py` trong staging để **mọi** module CORE đều được
+  nạp thật (nếu không, lệnh `register_*` trong đó không bao giờ chạy) và tự xoá
+  cache `--workpath` của PyInstaller (cache này che thay đổi, từng làm build
+  "thành công" nhưng exe cũ). Xem `tools/_split_il_features.py` phần docstring.
 - **Compile Standalone Binary**:
   `.\3.code\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run`
-- **Run Built Binary**:
-  `.\<output.exe>`
+- **Run Built Binary**: `.\<output.exe>`
 - **Acceptance Gate (run this, not native_test_suite)**:
-  `.\3.code\tools\testkit_gate.ps1` — builds and runs all 105 `Testkit\*_test.tkv`
-  plus 20 negative cases (currently `PASS=105 BUILDFAIL=0 TESTFAIL=0 NEG=20/20`),
+  `.\3.code\tools\testkit_gate.ps1` — builds and runs all 113 `Testkit\*_test.tkv`
+  plus 24 negative cases (currently `PASS=113 BUILDFAIL=0 TESTFAIL=0 NEG=24/24`),
   writes output to TEMP so a run never litters the repo, exits non-zero on any failure.
   Other gates, all green as of 2026-09-30: parity probe
   `.\3.code\tools\parity_probe\run.ps1` (**119/119** match CPython),

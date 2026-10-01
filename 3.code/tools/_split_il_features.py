@@ -185,17 +185,44 @@ def resolve(root, feat_dir, il_codegen, manifest, verbose):
         core_names = set(m for m in modules if find(m) in core_roots)
         core_names -= pinned_lib
 
-    core = sorted(m + '.tkv' for m in modules if m in core_names)
+    core_mods = sorted(m for m in modules if m in core_names)
+    core = [m + '.tkv' for m in core_mods]
     library = sorted(m + '.tkv' for m in modules if m not in core_names)
 
-    # 6) KIEM TRA BAT BUOC: khong module nao cua LIBRARY import CORE
-    core_set = set(m[:-4] for m in core)
-    for f in library:
-        m = f[:-4]
+    # THU TU TOPOLOGICAL (2026-09-30): build_tkvc.ps1 sinh file bootstrap
+    # `import il_features.<module>` cho TUNG module CORE, va thu tu trong file
+    # do la thu tu NAP. Module nao import module nao phai NAP TRUOC, vi khi
+    # nap mot module, no chay `register_*` va mot so module (record_feature)
+    # DUNG bang tra o THOI DIEM NAP. Import alphabet thi `record_feature` (r)
+    # nap truoc `set_methods_batch2` (s) -> bang tra rong -> 5 test set/list/
+    # record BUILDFAIL voi loi "chi dung duoc tren bien kieu record, string".
+    # `dfs` sau day in module TRUOC moi module no phu thuoc.
+    ordered, seen = [], set()
+
+    def dfs(m, stack=()):
+        if m in seen or m not in core_names or m in stack:
+            return
         for d in sorted(deps_of(m, feat_dir, cache)):
-            if d in core_set:
-                errs.append('LIBRARY %s.tkv import CORE %s - se nem '
-                            '"No module named" luc chay' % (m, d))
+            dfs(d, stack + (m,))
+        seen.add(m)
+        ordered.append(m)
+
+    for m in core_mods:
+        dfs(m)
+    core = [m + '.tkv' for m in ordered]
+
+    # 6) KIEM TRA: module nao bi THIEU / import ten khong ton tai -> FAIL (xac
+    #    kiem o buoc 3).
+    #
+    #    KHONG con kiem "LIBRARY import CORE" (2026-09-30). Kiem do dung truoc
+    #    khi co BOOTSTRAP. Bay gio build_tkvc.ps1 sinh
+    #    `_il_features_bootstrap.py` noi `import il_features.X` cho TUNG module
+    #    CORE, nen PyInstaller bien dich chung vao exe - CORE TRONG nhin thay
+    #    duoc luc chay, va module LIBRARY import CORE binh thuong.
+    #    Hinh thuc phai dung la: mot module LIBRARY ma KHONG import gi ca - no
+    #    chi dua vao CORE qua bien dich truc tiep roi se chay, nhung lenh
+    #    `register_*` cua no se KHONG chay (module chua duoc nap) - xem muc
+    #    "BOOTSTRAP" trong ghi chu dau file va trong build_tkvc.ps1.
     return core, library, errs
 
 
