@@ -729,6 +729,45 @@ riêng, không phải việc thêm `iter()`.
 dòng đã lật ngược kết luận đó. Ràng buộc thật luôn cần đo, không cần tin tài
 liệu.
 
+#### NGUYÊN NHÂN THẬT — `__init__` nhận tham số container sẽ GÁN NHẦM IM LẶNG
+
+Đã tìm ra bằng `--emit-il` (2026-09-30). **KHÔNG phải lỗi bố cục struct** như
+tôi đoán ban đầu. Bố cục lớp sinh ra **đúng**:
+
+```il
+.class public auto ansi It extends [mscorlib]System.Object
+  .field public class [mscorlib]System.Collections.Generic.List`1<int64> 'src'
+  .field public int64 'pos'
+```
+
+Lỗi nằm ở lệnh gọi:
+
+```il
+ldloc.s 0                     ; xs  (List<TkvInt>)
+call valuetype TkvInt TkvInt::ToI64(valuetype TkvInt)   ; bien LIST thanh so
+newobj instance void It::.ctor(int64)       ; truyen vao tham so `pos`
+```
+
+`records[name]` **lọc container khỏi danh sách tham số `.ctor`**
+(`fields = [fd for fd in records[name] if not _is_container_field(fd[1])]`), nhưng
+`__init__` khai báo tham số cho field `src`. Chữ ký ctor và tham số `__init__`
+**lệch nhau** → đối số container bị đưa vào ô `pos`.
+
+**Đây là biên dịch sai mà không báo lỗi** — nguy hiểm hơn hẳn lỗi biên dịch.
+
+**Việc cần làm:** chặn `__init__` nhận tham số kiểu container, báo lỗi biên dịch
+rõ ràng. **Chưa sửa** (2026-09-30) — thay đổi codegen, cần một phiên có kiểm
+chứng đầy đủ.
+
+**Sau khi sửa, `iter()`/`next()` chỉ còn là lớp mẫu ~10 dòng**, tạo rồi gán
+field sau (không qua tham số):
+
+```tokenvector
+it = It()
+it.src = xs
+it.pos = 0
+```
+
 ### 7.13 Dọn rác sau khi build / chạy
 
 **Trước 2026-09-30 TokenVector không xoá được file nào.** `shutil_rmtree` chỉ xoá
