@@ -16,6 +16,7 @@ from il_dispatch import (
 
 _GETENV_RE = re.compile(r'^os_getenv\((.+)\)$')
 _MKDIR_RE = re.compile(r'^os_mkdir\((.+)\)$')
+_REMOVE_RE = re.compile(r'^os_remove\((.+)\)$')
 _LIST_FILES_RE = re.compile(r'^os_list_files\((.+)\)$')
 
 
@@ -54,6 +55,62 @@ def fpw_os_getenv(stmt, ctx):
 def codegen_os_getenv(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
     _push_os_getenv([stmt['arg_node']], scope, body, 'str', ctx)
     ctx['store_var'](stmt['name'], scope, body)
+
+
+# ---------- os_remove(path) -> 1  (them 2026-09-30) ----------
+# Python: `os.remove(p)` xoa FILE. TokenVector chi co `shutil_rmtree(p)` xoa
+# CAY THU MUC - khong co cach nao xoa MOT FILE.
+#
+# THIEU HAM NAY CO HAU QUA THUC TE: mot file tam do test/chay sinh ra se
+# CON LAI va lam bang chay rac trong repo. Da gap 2026-09-30: test
+# `open_equivalent_test.tkv` ghi file vao thu muc repo va khong xoa duoc -
+# phai sua test de ghi vao TEMP thay vi them ham nay.
+#
+# Tra ve 1 neu xoa, 0 neu file khong ton tai (KHONG nem loi - de test don dep
+# duoc ca khi chay lai nhieu lan). Python nem FileNotFoundError; o day chon
+# 0 de khu vuc don dep khong can boc try/except. Xem docs/REFERENCE.md.
+def _push_os_remove(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: os_remove(path) nhan dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    # File::Delete(string) KHONG nem loi khi file khong ton tai - tra ve void,
+    # nen phai kiem File::Exists truoc roi day 0/1 de giu cam ke "tra ve 1 neu
+    # xoa duoc, 0 neu khong co".
+    # NHAN ghi de CHUNG (2026-09-30): nhan tinh se DUNG khi goi os_remove() nhieu
+    # lan trong cung 1 ham -> sai IL. Dung bo dem nhan cua compiler.
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    skip = f'_osrm{n}_skip'
+    end = f'_osrm{n}_end'
+    out.append('    dup')
+    out.append('    call bool [mscorlib]System.IO.File::Exists(string)')
+    out.append(f'    brfalse {skip}')
+    # `File::Delete` tra void va DA TIEU tham so `path` -> stack rong sau no.
+    # KHONG them `pop` o day (da gap InvalidProgramException). Chi nhanh `skip`
+    # moi con `path` tren stack va can `pop`.
+    out.append('    call void [mscorlib]System.IO.File::Delete(string)')
+    out.append('    ldc.i4.1')
+    out.append(f'    br {end}')
+    out.append(f'  {skip}:')
+    out.append('    pop')
+    out.append('    ldc.i4.0')
+    out.append(f'  {end}:')
+
+
+def try_rhs_os_remove(rhs, name, known_shapes):
+    m = _REMOVE_RE.match(rhs.strip())
+    if not m:
+        return None
+    return {'kind': 'assign_os_remove', 'name': name, 'arg_node': parse_expr(m.group(1))}
+
+
+def codegen_os_remove(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
+    _push_os_remove([stmt['arg_node']], scope, body, 'i32', ctx)
+    ctx['store_var'](stmt['name'], scope, body)
+
+
+def fpw_os_remove(stmt, ctx):
+    ctx['declare_named'](stmt['name'], ctx['TypeAnn']('i32', None))
 
 
 def _push_os_mkdir(args, scope, out, dtype, ctx):
@@ -117,6 +174,10 @@ register_stmt_codegen('assign_os_mkdir', codegen_os_mkdir)
 register_expr_builtin('os_mkdir', _push_os_mkdir, 'i32')
 
 register_expr_builtin('os_list_files', _push_os_list_files, 'str', return_shape='list')
+register_expr_builtin('os_remove', _push_os_remove, 'i32')
+register_assign_rhs_parser('os_remove', try_rhs_os_remove)
+register_first_pass_walk('assign_os_remove', fpw_os_remove)
+register_stmt_codegen('assign_os_remove', codegen_os_remove)
 register_assign_rhs_parser('os_list_files', try_rhs_os_list_files)
 register_first_pass_walk('assign_os_list_files', fpw_os_list_files)
 register_stmt_codegen('assign_os_list_files', codegen_os_list_files)

@@ -30,14 +30,14 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 `pass` `raise` `return` `set_add` `set_discard` `set_remove` `try` `tuple_assign`
 `while` `with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
 
-## DANG PHAI PHAI CUA PHE GAN (28)
+## DANG PHAI PHAI CUA PHE GAN (29)
 
 `base64_decode` `base64_encode` `bytearray_new` `bytes_literal` `bytes_new` `datetime` `dict_literal` `dict_new`
 `f32buf_new` `frozenset_call` `frozenset_new` `list_call` `list_count` `list_literal` `list_repeat` `list_slice`
-`md5_hex` `os_getenv` `os_list_files` `os_mkdir` `repeat_str` `set_literal` `set_new` `sha256_hex`
-`shutil_rmtree` `tuple_call` `tuple_literal` `win_gui`
+`md5_hex` `os_getenv` `os_list_files` `os_mkdir` `os_remove` `repeat_str` `set_literal` `set_new`
+`sha256_hex` `shutil_rmtree` `tuple_call` `tuple_literal` `win_gui`
 
-## HAM BUILTIN (GOI DUOC TRUC TIEP) (182)
+## HAM BUILTIN (GOI DUOC TRUC TIEP) (183)
 
 `all` `alloc_bytes` `any` `ascii` `asyncio_get_ticks` `asyncio_sleep_ms` `atan2` `base64_decode`
 `base64_encode` `bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `bytes_from_string` `c_puts`
@@ -52,28 +52,28 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 `isinstance` `issubclass` `json_dumps` `json_get_str` `json_loads` `launch_media_player_gui` `launch_tms_db_manager` `launch_tms_gui`
 `launch_tms_web` `map` `math_e` `math_gcd` `math_pi` `max` `md5_hex` `media_player_gui_window`
 `min` `most_common` `multiprocessing_cpu_count` `oct` `ord` `os_getenv` `os_list_files` `os_mkdir`
-`path_abspath` `path_basename` `path_dirname` `path_exists` `path_isdir` `path_isfile` `path_join` `path_name`
-`path_normpath` `path_parent` `path_read_text` `path_splitext` `path_stem` `path_suffix` `path_write_text` `pow`
-`process_get_pid` `product` `py_dict_new` `py_tuple_new` `randint` `random` `random_randint` `randrange`
-`re_findall` `re_fullmatch` `re_match` `re_replace` `re_search` `re_split` `re_sub` `read_ansi`
-`read_f32` `read_file` `read_i32` `read_i64` `read_u8` `reduce` `repr` `reserve`
-`reversed` `sample` `setattr` `sha256_hex` `socket_resolve_host` `sorted` `str` `string_from_bytes`
-`struct_f64_to_hex` `struct_i32_to_hex` `sum` `sys_argv` `thread_join` `thread_sleep` `thread_spawn` `type`
-`uniform` `v_add8` `v_fill8` `v_hsum` `v_hsum4` `v_lane` `v_load4` `v_load8`
-`v_mul8` `v_mul8_add8` `v_store4` `v_store8` `v_sub8` `vtable_cell` `write_f32` `write_i32`
-`write_i64` `write_u8` `xml_encode_name` `zip` `zip_create` `zip_extract`
+`os_remove` `path_abspath` `path_basename` `path_dirname` `path_exists` `path_isdir` `path_isfile` `path_join`
+`path_name` `path_normpath` `path_parent` `path_read_text` `path_splitext` `path_stem` `path_suffix` `path_write_text`
+`pow` `process_get_pid` `product` `py_dict_new` `py_tuple_new` `randint` `random` `random_randint`
+`randrange` `re_findall` `re_fullmatch` `re_match` `re_replace` `re_search` `re_split` `re_sub`
+`read_ansi` `read_f32` `read_file` `read_i32` `read_i64` `read_u8` `reduce` `repr`
+`reserve` `reversed` `sample` `setattr` `sha256_hex` `socket_resolve_host` `sorted` `str`
+`string_from_bytes` `struct_f64_to_hex` `struct_i32_to_hex` `sum` `sys_argv` `thread_join` `thread_sleep` `thread_spawn`
+`type` `uniform` `v_add8` `v_fill8` `v_hsum` `v_hsum4` `v_lane` `v_load4`
+`v_load8` `v_mul8` `v_mul8_add8` `v_store4` `v_store8` `v_sub8` `vtable_cell` `write_f32`
+`write_i32` `write_i64` `write_u8` `xml_encode_name` `zip` `zip_create` `zip_extract`
 
-## KIEU CAU LENH (SINH IL) (67)
+## KIEU CAU LENH (SINH IL) (68)
 
 `assign_base64_decode` `assign_base64_encode` `assign_bytearray_new` `assign_bytes_literal` `assign_bytes_new` `assign_datetime_now` `assign_dict_literal` `assign_dict_new`
 `assign_f32buf_new` `assign_frozenset_empty` `assign_frozenset_literal` `assign_frozenset_new` `assign_list_count` `assign_list_from` `assign_list_literal` `assign_list_new`
-`assign_list_repeat` `assign_list_slice` `assign_md5_hex` `assign_multi_target` `assign_os_getenv` `assign_os_list_files` `assign_os_mkdir` `assign_repeat_str`
-`assign_set_literal` `assign_set_new` `assign_sha256_hex` `assign_shutil_rmtree` `assign_tuple_identity` `assign_tuple_literal` `assign_win_gui` `attr_assign`
-`break` `bytearray_append` `call_stmt` `container_clear` `continue` `del_stmt` `f32buf_free_stmt` `for`
-`for_in_call_list` `for_in_dict_items` `for_in_generator` `for_in_iter` `for_tuple_pairs` `if` `list_append` `list_extend`
-`list_insert` `list_remove` `list_reverse` `list_sort` `nested_def` `raise` `return` `return_tuple`
-`sb_append` `set_add` `set_discard` `set_remove` `try` `tuple_assign` `while` `with_ctx`
-`with_open` `yield_from_stmt` `yield_stmt`
+`assign_list_repeat` `assign_list_slice` `assign_md5_hex` `assign_multi_target` `assign_os_getenv` `assign_os_list_files` `assign_os_mkdir` `assign_os_remove`
+`assign_repeat_str` `assign_set_literal` `assign_set_new` `assign_sha256_hex` `assign_shutil_rmtree` `assign_tuple_identity` `assign_tuple_literal` `assign_win_gui`
+`attr_assign` `break` `bytearray_append` `call_stmt` `container_clear` `continue` `del_stmt` `f32buf_free_stmt`
+`for` `for_in_call_list` `for_in_dict_items` `for_in_generator` `for_in_iter` `for_tuple_pairs` `if` `list_append`
+`list_extend` `list_insert` `list_remove` `list_reverse` `list_sort` `nested_def` `raise` `return`
+`return_tuple` `sb_append` `set_add` `set_discard` `set_remove` `try` `tuple_assign` `while`
+`with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
 
 ## MACRO VIET TAY (25)
 
@@ -92,7 +92,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 `datetime.strftime` `dict.items` `dict.keys` `dict.values` `frozenset.to_list` `list.copy` `set.to_list` `str.center`
 `str.count` `str.join` `str.ljust` `str.rjust` `str.split` `str.title` `str.zfill`
 
-**Tong so ten da dang ky: 367**
+**Tong so ten da dang ky: 370**
 
 ## File trong `compiler/il_features/`
 
@@ -179,7 +179,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 | `stdlib_math.tkv` | 17.318 |
 | `stdlib_math_trig.tkv` | 913 |
 | `stdlib_multiprocessing.tkv` | 1.199 |
-| `stdlib_os.tkv` | 4.728 |
+| `stdlib_os.tkv` | 7.535 |
 | `stdlib_path.tkv` | 17.655 |
 | `stdlib_pathlib.tkv` | 3.295 |
 | `stdlib_random.tkv` | 18.445 |

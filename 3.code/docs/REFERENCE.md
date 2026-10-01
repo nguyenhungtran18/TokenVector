@@ -414,7 +414,7 @@ kèm gợi ý cách viết thay thế, không trả về thứ gì đó sai.
 
 Gọi sai **dạng** báo *"ham 'X' khong ton tai"* dù tên có tồn tại:
 
-```python
+```tokenvector
 b = bytes("a")      # Loi: ham 'bytes' khong ton tai  <- SAI, bytes CO ton tai
 b = bytes(3)        # OK
 ```
@@ -470,6 +470,9 @@ quy đổi qua `strftime`. Đây là quyết định thiết kế, không phải
 d = datetime(2026, 9, 30)
 print(d.year, d.month)      # 2026 9
 
+```
+
+```tokenvector
 # TokenVector
 d = datetime_strptime("2026-09-30", "%Y-%m-%d")
 print(d.strftime("%Y"), d.strftime("%m"))    # 2026 09
@@ -493,7 +496,7 @@ Nếu cần độ dài không cố định, dùng `list`. Xem `list(xs)`.
 
 Giống Python: set không subscript. Muốn duyệt, chuyển sang list trước.
 
-```python
+```tokenvector
 s = {3, 1, 2}
 for v in s:            # thứ tự KHÔNG xác định, như Python
     print(v)
@@ -504,7 +507,7 @@ xs.sort()
 
 ### 7.4 `bytes` — bất biến, `bytearray` — sửa được
 
-```python
+```tokenvector
 b = b"abc"                  # bất biến
 b2 = bytes("héllo", "utf-8")   # chỉ chuỗi LITERAL
 b3 = bytes([1, 2, 3])
@@ -519,7 +522,7 @@ Chuỗi phải là literal.
 
 ### 7.5 `format` — spec phải là literal, giá trị phải là biến hoặc số
 
-```python
+```tokenvector
 n = 42
 a = format(n, "05d")        # OK
 b = format(3.14159, ".2f")  # OK (số literal)
@@ -543,20 +546,20 @@ Dùng `try/except/else/finally` như Python. Nhưng:
 
 ### 7.7 Method container là **câu lệnh**, không phải biểu thức
 
-```python
+```tokenvector
 xs.append(1)          # OK - dạng câu lệnh
 y = xs.pop()          # ✗ - pop() chỉ là CÂU LỆNH, không phải biểu thức
 n = len(xs)           # OK
 ```
 
 Nếu cần giá trị trả về, tách ra biến:
-```python
+```tokenvector
 last = xs[len(xs) - 1]   # thay cho xs.pop()
 ```
 
 ### 7.8 SIMD — dùng thay vì lặp tay
 
-```python
+```tokenvector
 v = f32x4(1.0, 2.0, 3.0, 4.0)
 w = v_add8(v, v)        # cộng từng phần tử
 s = v_hsum(v)           # tổng ngang
@@ -565,7 +568,7 @@ s = v_hsum(v)           # tổng ngang
 
 ### 7.9 `getattr` / `setattr` — tên field phải là literal
 
-```python
+```tokenvector
 o = Pt(1, "a")
 v = getattr(o, "x")        # OK
 n = "x"
@@ -589,7 +592,6 @@ w = getattr(o, n)          # ✗ - phai la chuoi LITERAL
 ### 7.11 `open()` — dùng hàm tương đương, không cần `open()`
 
 TokenVector **không có** `open()` dạng hàm (chỉ có `with open(...)`). Không
-phải vì thiếu hàm — mà vì handle là `StreamReader`/`StreamWriter` thuần .NET,
 không có kiểu riêng nên `h.read()` không dispatch được. Thay vào đó **hai chức
 năng đó đã có sẵn ở dạng hàm**, dùng được ngay:
 
@@ -598,6 +600,7 @@ năng đó đã có sẵn ở dạng hàm**, dùng được ngay:
 | `f = open(p, "r")` rồi `f.read()` | `s = path_read_text(p)` | đọc **toàn bộ** file thành chuỗi |
 | `f = open(p, "w")` rồi `f.write(s)` | `path_write_text(p, s)` | ghi đè |
 | `f = open(p, "a")` rồi `f.write(s)` | `s = path_read_text(p)`<br>`path_write_text(p, s + noi_moi)` | đọc rồi ghi lại |
+| `os_remove(p)` | `os.remove(p)` | Xoá 1 file. **Trả 1** nếu xoá, **0** nếu file không tồn tại — **không** ném lỗi |
 | `os.path.exists(p)` | `file_exists(p)` hoặc `path_exists(p)` | |
 
 ```python
@@ -605,7 +608,9 @@ năng đó đã có sẵn ở dạng hàm**, dùng được ngay:
 f = open("t.txt", "w")
 f.write("hello")
 f.close()
+```
 
+```tokenvector
 # TokenVector
 path_write_text("t.txt", "hello")
 ```
@@ -616,12 +621,39 @@ nhỏ, `path_read_text` gọn hơn nhiều.
 
 ### 7.12 `iter()` / `next()` — chưa có, và đây là lý do
 
+### 7.13 Dọn rác sau khi build / chạy
+
+**Trước 2026-09-30 TokenVector không xoá được file nào.** `shutil_rmtree` chỉ xoá
+*cây thư mục*. Hậu quả cụ thể: test `open_equivalent_test.tkv` ghi file tạm ra
+thư mục repo rồi **không xoá được** — phải đổi cả đường đi vào TEMP để lách,
+và file rác đã lỡ được commit vào git.
+
+Nay có `os_remove(p)`:
+
+```tokenvector
+p = "C:/Windows/Temp/cong.txt"
+path_write_text(p, "abc")
+ok = os_remove(p)          # 1 - da xoa
+again = os_remove(p)       # 0 - khong con, KHONG nem loi
+```
+
+**Khác Python một chỗ:** `os.remove` của Python **ném `FileNotFoundError`** khi
+file không tồn tại. `os_remove` trả `0`. Chọn vậy để vùng dọn dẹp không cần
+bọc `try/except` và chạy lại nhiều lần vẫn an toàn — chấp nhận khác Python để
+đổi lấy sự tiện lợi cho việc dọn rác.
+
+**Quy tắc cho người viết test:** file tạm phải nằm trong **TEMP** và được
+`os_remove()` **ngay trong test**. Đừng để lại file trong repo — `testkit_gate.ps1`
+cố tình ghi kết quả ra TEMP để một lần chay không làm bẩn repo; test tự tạo file
+trong repo thì phá vỡ nguyên tắc đó.
+
+
 `for v in xs:` đã hoạt động và là cách dùng thay thế cho phần lớn mã Python.
 Để có `iter()`/`next()` thật sự cần một **kiểu iterator** mà compiler phải biết
 dispatch `__next__` trên đó — đụng vào cơ chế method/type dispatch lõi. Chưa
 làm. Nếu cần lấy phần tử kế tiếp theo chỉ số:
 
-```python
+```tokenvector
 v = xs[i]           # tương đương next() khi đã biết chỉ số
 for v in xs:        # tương đương iter()
     ...
