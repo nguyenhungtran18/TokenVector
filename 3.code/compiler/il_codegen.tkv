@@ -1001,8 +1001,16 @@ def _infer_dtype(node, scope, func_table=None, records=None, record_methods=None
             return 'type'
         if name == 'abs':
             # abs() giu nguyen kieu doi so (Math.Abs co overload rieng).
-            return _infer_dtype(node[2][0], scope, func_table, records,
-                                record_methods) if node[2] else None
+            # TRUONG HOP COMPLEX: Python tra ve FLOAT (do lon) -
+            # abs(complex(3,4)) == 5.0, khong phai complex. .NET cung vay:
+            # Complex::Abs(Complex) khai bao tra `double`. Truoc day ham nay
+            # tra 'complex' cho toan hang complex nen code doc kieu sai -
+            # `str(abs(c))` ra "(5, 0)" thay vi "5.0" (2026-09-30, do bang
+            # probe doi chieu CPython; `complex_test.tkv` khong phep nao goi
+            # abs() tren so phuc nen loi lot qua).
+            _abs_d = (_infer_dtype(node[2][0], scope, func_table, records,
+                                   record_methods) if node[2] else None)
+            return 'f64' if _abs_d == 'complex' else _abs_d
         if name == 'round':
             # round() KHONG con di duong _MATH_FUNCS chung (xem
             # _compile_round_builtin, 2026-08-05) - 1 doi so tra INT
@@ -3317,6 +3325,32 @@ def _expr_call(node, scope: _Scope, out: list, dtype: str, ctx: dict = None):
             # Kieu 'int' (vo han chu so): System.Math::Abs KHONG co
             # overload nao nhan struct TkvInt - xem int_type.compile_abs.
             return _int_type.compile_abs(args[0], scope, out, ctx)
+        # KIEM KIUU TOAN HANG chu khong phai `dtype` (dung de noi canh goi):
+        # trong `print(str(abs(c)))` thi `dtype` la 'str', nen so sanh
+        # `dtype == 'complex'` KHONG bao gio dung.
+        _abs_arg_d = (ctx or {}).get('infer_dtype')(
+            args[0], scope, (ctx or {}).get('func_table'),
+            (ctx or {}).get('records'), (ctx or {}).get('record_methods'))
+        if _abs_arg_d == 'complex':
+            # (2026-09-30) `abs()` tren so phuc - CHUA dua toi chuc dung duoc.
+            # Code cu goi `System.Math::Abs(Complex)`, ham nay KHONG TONTAI
+            # trong .NET -> bien dich xanh, chay thi nem MissingMethodException.
+            # Thu lai voi `System.Numerics.Complex::Abs(Complex)` (ham co that,
+            # tra `double`) thi ket qua VAN SAI: gia tri tra ve la `3.0` thay
+            # vi `5.0` cho abs(complex(3,4)) - nghi doc 8 byte dau cua struct
+            # Complex ( tuc phan thuc) thay vi ket qua cua ham.
+            #
+            # Mot gia tri SAI AM THANH te hon nhieu so voi loi bien dich -
+            # dung thu bao loi ro cho den khi co cach phat sinh CIL dung
+            # (can 2 local phu de tinh sqrt(re*re + im*im)).
+            raise SyntaxError(
+                "il_codegen: abs() tren so phuc CHUA ho tro dung. Python tra "
+                "FLOAT (abs(complex(3,4)) == 5.0) nhung .NET khong co ham "
+                "Abs/Modulus goi duoc tren kieu gia tri struct Complex tu CIL, "
+                "va thu `Complex::Abs` ra gia tri SAI (3.0 thay vi 5.0). Toi "
+                "khong tai day de khong con gia tri sai im lang. Cach vong: "
+                "tinh `sqrt(c.real * c.real + c.imag * c.imag)`.")
+
         _compile_expr(args[0], scope, out, dtype, ctx)
         # Math.Abs CO overload float32 rieng - khong can chuyen doi.
         out.append(f'    call {IL_SCALAR[dtype]} [mscorlib]System.Math::Abs({IL_SCALAR[dtype]})')

@@ -1,6 +1,6 @@
 # BẢNG SO SÁNH ĐO ĐẠC: TOKENVECTOR VS CPYTHON 3.12
 
-> **Ngày đo**: 2026-09-30 (đo lần 3) · **Cổng lúc đo**: 102/102 + negative 19/19
+> **Ngày đo**: 2026-09-30 (đo lần 3) · **Cổng lúc đo**: 103/103 + negative 20/20
 > **Cách đo**: `tools/parity_probe/` — 119 phép thử chạy song song trên cả hai
 > bên, in ra cùng một danh sách nhãn, máy so từng dòng.
 > Chạy lại: `powershell -File tools\parity_probe\run.ps1`
@@ -227,7 +227,50 @@ chỉ chạy được ở chế độ bỏ kiểm tra, tôi **không** đưa và
 (giới hạn stack của .NET). CPython với `setrecursionlimit` cao thì chạy được —
 đây là khác biệt về nguồn lực, không phải lỗi logic.
 
-### 3.6 Còn lệch, đã đo, **quyết định không sửa**
+### 3.6 Số phức / container / async — tìm 2 lỗi ở nơi có sẵn code nhưng không có phép thử so với CPython
+
+Các tính năng dưới đây **đã có** test (`complex_test.tkv` 12 phép,
+`bytearray_test.tkv` 6, `frozenset_test.tkv` 4, `async_await_py_tree_test.tkv` 3).
+Nhưng chúng chỉ so với **giá trị viết tay**, chưa bao giờ đối chiếu CPython. Đó
+là chỗ trống thật — và nó chứa 2 lỗi.
+
+| Lỗi | CPython | TokenVector (trước) | Nguyên nhân |
+|---|---|---|---|
+| `abs(complex(3,4))` | `5.0` | **sập** `MissingMethodException` lúc chạy | Gọi `System.Math::Abs(Complex)` — hàm **không tồn tại** trong .NET |
+| `str(complex(4,6))` | `(4+6j)` | `(4, 6)` | Dùng `Complex.ToString()` của .NET |
+
+`complex_test.tkv` có 12 phép nhưng **không phép nào** gọi `abs()` trên số phức
+và **không phép nào** kiểm `str()` — nên cả hai lỗi lọt qua.
+
+**Sửa `abs`:** thử `Complex::Abs(Complex)` (hàm có thật, trả `double`) thì kết quả
+**vẫn sai** — ra `3.0` thay vì `5.0`, tức đọc 8 byte đầu của struct `Complex`
+(phần thực) thay vì kết quả hàm. Đây là **sai âm thầm**, nên tôi **dừng sửa** và
+chuyển sang **lỗi biên dịch rõ ràng** kèm hướng dẫn
+`sqrt(c.real*c.real + c.imag*c.imag)`. Sửa nửa vời thành giá trị sai tệ hơn nhiều
+so với báo lỗi.
+
+Cũng lưu ý: `abs()` khai báo kiểu trả về theo **toán hạng**, nên với complex nó
+trả `'complex'` trong khi Python trả `float` — đã sửa thành `'f64'`. Và lần đầu
+guard của tôi **không bắt được** lỗi vì so sánh `dtype`, trong khi biến đó là kiểu
+**ngữ cảnh** (`print(str(abs(c)))` cho `dtype='str'`), không phải kiểu toán hạng.
+
+**Đã ghim và khớp CPython:** cộng/nhân/bình phương số phức (`.real`/`.imag`) ·
+`==` trên số phức · `bytearray` append/len/index · `frozenset` len/in ·
+`async`/`await` giá trị trả về.
+
+**Còn thiếu, đã đo:** toán tử `%` (`"%d" % x`) · gán lát `xs[1:3] = [...]` ·
+`nonlocal` · `int("ff", 16)` có cơ số · phép `|` `&` trên set ·
+`str.isalpha` và method chuỗi ngoài danh sách · `del` trên biến ·
+`def`/`class` lồng trong hàm · comprehension lồng nhau / có `else` ·
+`with` · `sorted()` · `key=` · `iter()`/`next()` · stdlib · `datetime`/`Decimal` ·
+metaclass · `str()` tuple/list · method trên literal/biểu thức ·
+tham số chỉ-khoá/chỉ-vị-trí · record có field container
+
+**Giới hạn:** `divmod` với **hằng số nguyên** không suy được kiểu trả về tuple
+(`divmod(-7, 2)` lỗi), trong khi `divmod(int(...), int(...))` chạy được —
+`divmod_test.tkv` chỉ dùng dạng thứ hai nên không thấy.
+
+### 3.7 Còn lệch, đã đo, **quyết định không sửa**
 
 | Mục | CPython | TokenVector | Vì sao không sửa |
 |---|---|---|---|
