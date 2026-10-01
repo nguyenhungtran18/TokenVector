@@ -80,12 +80,17 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 `fstring` `is_none` `list_comp` `matvec` `minmax_2arg` `normalize` `scale` `string_format`
 `string_percent_format` 
 
-## METHOD THEO KHU VUC (14)
+## METHOD CHUOI (str.) - qua dict STR_METHODS (13)
 
-`center` `copy` `count` `items` `join` `keys` `ljust` `rjust`
-`split` `strftime` `title` `to_list` `values` `zfill`
+`str.capitalize` `str.endswith` `str.find` `str.isdigit` `str.join` `str.lower` `str.lstrip` `str.replace`
+`str.rfind` `str.rstrip` `str.startswith` `str.strip` `str.upper`
 
-**Tong so ten da dang ky: 340**
+## METHOD THEO KHU VUC (15)
+
+`datetime.strftime` `dict.items` `dict.keys` `dict.values` `frozenset.to_list` `list.copy` `set.to_list` `str.center`
+`str.count` `str.join` `str.ljust` `str.rjust` `str.split` `str.title` `str.zfill`
+
+**Tong so ten da dang ky: 354**
 
 ## File trong `compiler/il_features/`
 

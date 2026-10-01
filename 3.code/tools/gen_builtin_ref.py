@@ -7,6 +7,7 @@ Chay lai sau khi them/bot ham:
     python tools\\gen_builtin_ref.py
 Ket qua ghi ra docs/BUILTIN_REFERENCE.md
 """
+import ast
 import io
 import os
 import re
@@ -19,8 +20,7 @@ OUT = os.path.join(ROOT, 'docs', 'BUILTIN_REFERENCE.md')
 PATTERNS = [
     ('builtin', re.compile(r"register_expr_builtin\(\s*'([A-Za-z_][\w]*)'"), 'HAM BUILTIN (GOI DUOC TRUC TIEP)'),
     ('method', re.compile(r"register_expr_method\(\s*'([\w]*)'\s*,\s*'([\w]*)'"), None),
-    ('method2', re.compile(r"register_expr_method\('([\w]*)',\s*'([\w]*)'"), None),
-    ('line', re.compile(r"register_line_parser\(\s*'([\w]*)'"), 'DANG CAU LENH (MACRO CAP DONG)'),
+    ('method2', re.compile(r"register_expr_method\('([\w]*)',\s*'([\w]*)'"), None),    ('line', re.compile(r"register_line_parser\(\s*'([\w]*)'"), 'DANG CAU LENH (MACRO CAP DONG)'),
     ('assign', re.compile(r"register_assign_rhs_parser\(\s*'([\w]*)'"), 'DANG PHAI PHAI CUA PHE GAN'),
     ('stmt', re.compile(r"register_stmt_codegen\(\s*'([\w]*)'"), 'KIEU CAU LENH (SINH IL)'),
     ('macro', re.compile(r"register_macro_expander\(\s*'([\w]*)'"), 'MACRO VIET TAY'),
@@ -48,9 +48,74 @@ def collect():
                 continue
             key = group or 'METHOD THEO KHU VUC'
             for g in found:
-                nm = g[-1]
+                if kind in ('method', 'method2') and len(g) >= 2:
+                    # GHI CO OWNER (vi du `str.upper`) - ghi ten tran lam
+                    # `upper` khong cho biet no cua kieu nao, va `count`/
+                    # `copy`/`join` trung ten giua nhieu kieu.
+                    nm = f'{g[0]}.{g[-1]}'
+                else:
+                    nm = g[-1]
                 buckets.setdefault(key, set()).add(nm)
     return buckets
+
+
+def collect_str_methods():
+    """Method chuoi KHONG di qua `register_expr_method` ma nam trong dict
+    `STR_METHODS` / `STR_METHODS_EXTRA` / `STR_METHODS_EXTRA2`, duoc dispatch
+    qua fallback `if ... method_name in _STR_METHODS` (record_feature.tkv).
+    Ban sinh danh muc TRUOC do bo sot toan bo 13 method nay, va con do lai
+    method cua list/dict/set theo ten tran - nen `append` cua list va
+    `upper` cua chuoi deu khong hien thi. Doc bang `ast` vi 3 file .tkv la
+    Python that; regex se bo sot cac muc viet xuong dong."""
+    out = set()
+    for fn in sorted(os.listdir(FEAT)):
+        if not fn.startswith('string_methods_batch') or not fn.endswith('.tkv'):
+            continue
+        path = os.path.join(FEAT, fn)
+        try:
+            tree = ast.parse(io.open(path, encoding='utf-8').read())
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+                continue
+            for tgt in node.targets:
+                nm = getattr(tgt, 'id', None) or getattr(tgt, 'attr', None)
+                if not nm or 'STR_METHOD' not in nm:
+                    continue
+                for k in node.value.keys:
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                        out.add('str.' + k.value)
+    return out
+
+
+def collect_listlike_methods():
+    """Method container nam trong dict (LIST_METHODS/DICT_METHODS/...) -
+    cung duoc dispatch qua fallback, khong qua `register_expr_method`."""
+    out = set()
+    for fn in sorted(os.listdir(FEAT)):
+        if not fn.endswith('.tkv'):
+            continue
+        path = os.path.join(FEAT, fn)
+        if fn not in ('list_type.tkv', 'dict_type.tkv', 'set_type.tkv',
+                      'tuple_type.tkv', 'list_methods_batch2.tkv',
+                      'list_methods_batch3.tkv', 'set_methods_batch2.tkv'):
+            continue
+        try:
+            tree = ast.parse(io.open(path, encoding='utf-8').read())
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+                continue
+            for tgt in node.targets:
+                nm = getattr(tgt, 'id', None) or getattr(tgt, 'attr', None)
+                if not nm or not nm.endswith('METHODS'):
+                    continue
+                for k in node.value.keys:
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                        out.add(k.value)
+    return out
 
 
 def main():
@@ -58,6 +123,12 @@ def main():
         if fn.endswith('.tkv'):
             FILES.append((fn, os.path.getsize(os.path.join(FEAT, fn))))
     b = collect()
+    str_methods = collect_str_methods()
+    if str_methods:
+        b.setdefault('METHOD CHUOI (str.) - qua dict STR_METHODS', set()).update(str_methods)
+    listed = collect_listlike_methods()
+    if listed:
+        b.setdefault('METHOD CONTAINER (ten, dung chung nhieu kieu)', set()).update(listed)
     lines = []
     lines.append('# DANH MUC HAM CUA COMPILER')
     lines.append('')
