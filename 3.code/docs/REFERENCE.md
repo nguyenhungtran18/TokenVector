@@ -688,6 +688,47 @@ while i < len(xs):
 
 Chạy đúng, và **có kiểm chứng** — khác với việc tôi khẳng định "thiếu" rồi sai.
 
+#### Tìm ra bằng chứng mới (2026-09-30) — rào cản tôi tin là KHÔNG có thật
+
+Tôi đã viết ở trên rằng "record không thể chứa field kiểu container, nên không
+làm iterator được". **Điều đó sai.** Probe cho thấy record **có** giữ được
+container và **thay đổi được** — vì `.ctor` chỉ lọc container khỏi *tham số
+ctor*, còn gán trong `__init__` thì vẫn chạy:
+
+```tokenvector
+class It:
+    src: "list[i32]"
+    pos: "i32"
+
+    def __init__(self, s: "list[i32]"):
+        self.src = s
+        self.pos = 0
+```
+
+Cái này **build thành công và chạy được**. Nghĩa là `iter()`/`next()` chỉ là
+một lớp mẫu rất nhỏ — **vấn đề thật nằm ở chỗ khác**.
+
+**Lỗi thật (chưa sửa):** đọc field giá trị của record có **field reference đứng
+trước** trả về giá trị rác:
+
+```
+System.OverflowException: chi so int qua lon: khong vua int32.
+   at TkvInt.ToI32(TkvInt a)
+```
+
+`pos = 0` thì vừa `int32`, nên đây **không phải tràn số** — mà là đọc **sai
+offset**: `pos` đang đọc vào ô của `src` (một *reference*) và bị hiểu thành
+`TkvInt` với `big` không rỗng. Đổi `i32` sang `i64` thì lỗi thành
+`khong vua int64` — đúng dấu hiệu đọc field sai, không phải sai kiểu.
+
+**Hệ quả:** một record không thể vừa giữ container vừa đọc field số một cách
+đáng tin cậy. Đây là lỗi bố cục struct, cần sửa trong codegen của record — việc
+riêng, không phải việc thêm `iter()`.
+
+**Bài học:** tôi tin `CLAUDE.md` rồi suy ra "bất khả thi", trong khi một probe 12
+dòng đã lật ngược kết luận đó. Ràng buộc thật luôn cần đo, không cần tin tài
+liệu.
+
 ### 7.13 Dọn rác sau khi build / chạy
 
 **Trước 2026-09-30 TokenVector không xoá được file nào.** `shutil_rmtree` chỉ xoá

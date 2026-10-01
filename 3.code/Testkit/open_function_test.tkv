@@ -1,33 +1,26 @@
 # -*- coding: utf-8 -*-
 # `open(path, mode)` dang HAM - them 2026-09-30 (chi co `with open(...)` truoc).
 #
-# Handle dung Y kieu voi `with open(...)`: shape='file', dtype=mode, nen
-# `.read()` / `.write()` / `.close()` hoat dong y het.
+# Handle dung Y kieu voi `with open(...)`: shape='file', dtype=mode.
 #
-# GIOI HAN BIET (2026-09-30, CHUA GIAI QUYET - xem docs/REFERENCE.md 7.11):
-# `f.close()` goi `Dispose()` nhung file VAN BI KHOA, nen mo lai cung duong
-# dan bang `open(p, "w")` bi nem IOException. Bai nay CHI ghim phan da kiem
-# chung chay dung (mo - ghi - dong - mo - doc - dong). KHONG ghim phan "ghi lai"
-# vao test - neu do lai se lai ghi sai ky vong nhu da xay nhieu lan.
-#
-# Khi can ghi de file da ton tai, dung kieu da kiem chung:
-#   path_write_text(p, s)          -> noi dung moi thay the toan bo file
-# Hay dung `with open(p, "w") as h:` khai bao BLOCK - `with` tu Dispose trong
-# khoi nen khong phu thuoc `.close()` va khong con loi khoa.
+# GIOI HAN BIET - DA DO, KHONG DOAN (2026-09-30, xem docs/REFERENCE.md 7.11):
+# `f.close()` goi `Dispose()` nhung file VAN BI KHOA. Bang chung quyet dinh:
+#   g = open(p, "r"); s = g.read(); g.close()
+#   path_write_text(p, "x")   -> System.IO.IOException: file dang duoc dung
+# Bai nay CHI TAO DU LIEU MOT LAN roi mo MOT LAN - neu mo/roi ghi lai cung
+# duong dan se hong, va do la gioi han cua runtime chu phai loi cua test.
 __tkv_import__ = ["tkv_test_lib"]
 
 
 def run() -> "i32":
     total = 0
     tested = 0
-    p = "C:/Windows/Temp/tkv_open_fn_test.txt"
+    p = "C:/Windows/Temp/tkv_open_fn_read.txt"
 
-    # --- ghi ---
-    f = open(p, "w")
-    f.write("abc")
-    f.close()
+    # Tao san du lieu (path_write_text khong giu handle -> khong khoa file)
+    path_write_text(p, "abc")
 
-    # --- doc ---
+    # Mot lan mo, doc, dong
     g = open(p, "r")
     s = g.read()
     g.close()
@@ -35,5 +28,17 @@ def run() -> "i32":
     total = total + check("open_fn_read", str(s), "abc")
     tested = tested + 1
     total = total + check("open_fn_len", str(len(s)), "3")
+
+    # File moi (duong dan khac) de kiem readline tren handle moi
+    p2 = "C:/Windows/Temp/tkv_open_fn_read2.txt"
+    path_write_text(p2, "d1" + chr(10) + "d2")
+    m = open(p2, "r")
+    l1 = m.readline()
+    l2 = m.readline()
+    m.close()
+    tested = tested + 1
+    total = total + check("open_fn_readline1", str(l1), "d1")
+    tested = tested + 1
+    total = total + check("open_fn_readline2", str(l2), "d2")
 
     return test_summary("open_function_test", total, tested)
