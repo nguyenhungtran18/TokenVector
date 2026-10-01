@@ -397,3 +397,32 @@ register_expr_builtin('all', push_all_list, 'i32', temps_fn=_make_temps('anyall'
 # khai bao dung hinh dang VA tang parser giu duoc kenh known_shapes.
 register_expr_builtin('sorted', push_sorted, None, return_shape='list',
                        return_dtype_fn=_agg_elem_dtype)
+
+
+def push_reversed(args, scope, out, dtype, ctx):
+    """`reversed(xs)` - ban sao list DA DAO CHIEU (2026-09-30).
+
+    Python tra ve 1 iterator; TokenVector khong co iterator, nen tra ve 1
+    LIST copy theo thu tu nguoc. Dung duoc cho ca hai dang:
+        for v in reversed(xs): ...     (fix biet 'for p in sorted(xs)' loi)
+        ys = reversed(xs)               (nhu sorted)
+    Khong sua list goc - giong Python.
+    """
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: reversed(xs) nhan dung 1 tham so")
+    name, ta = _agg_arg_ta(args, scope, 'reversed')
+    reject_if_handle_type_elem(ta, ctx.get('extern_class_defs'), 'reversed')
+    list_type = il_list_type(ta.dtype, ctx.get('records'))
+    # List<...> moi tren stack, sau do dao bang AsSpan().Reverse() roi
+    # gan nguoc lai - tranh phai sinh vong lap thu cong.
+    ctx['load_var_ref'](name, scope, out)
+    out.append(f'    newobj instance void {list_type}::.ctor(class '
+               f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    # List<T> co san instance method Reverse() - khong can AsSpan() (dong
+    # `Span\`1<!0>` trong chu ky khai bao lam ilasm bao loi cu phap).
+    out.append('    dup')
+    out.append(f'    callvirt instance void {list_type}::Reverse()')
+
+
+register_expr_builtin('reversed', push_reversed, None, return_shape='list',
+                      return_dtype_fn=_agg_elem_dtype)

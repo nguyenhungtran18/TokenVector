@@ -1,0 +1,78 @@
+# -*- coding: utf-8 -*-
+# Lo 1 cua "bo sung ham thieu so voi CPython" (2026-09-30):
+#   bin() / oct() / hex() / reversed() / bool() / repr()
+# Gia tri ky vong lay truc tiep tu CPython 3.14.
+#
+# `format()` KHONG co trong file nay: da thu dang ky nhung bien so FLOAT ra
+# gia tri sai ("32f" thay vi "3.14") - xem ghi chu o string_builtin.tkv.
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    # --- bin / oct / hex, ke ca so am ---
+    n = 10
+    k = -10
+    m = 255
+    tested = tested + 1
+    total = total + check("bin", bin(n), "0b1010")
+    tested = tested + 1
+    total = total + check("oct", oct(n), "0o12")
+    tested = tested + 1
+    total = total + check("hex", hex(n), "0xa")
+    tested = tested + 1
+    total = total + check("bin_neg", bin(k), "-0b1010")
+    tested = tested + 1
+    total = total + check("oct_neg", oct(k), "-0o12")
+    tested = tested + 1
+    total = total + check("hex_neg", hex(k), "-0xa")
+    tested = tested + 1
+    total = total + check("hex_255", hex(m), "0xff")
+    z = 0
+    tested = tested + 1
+    total = total + check("hex_zero", hex(z), "0x0")
+
+    # --- reversed ---
+    xs = [1, 2, 3]
+    ys = reversed(xs)
+    tested = tested + 1
+    total = total + check("rev_first", str(ys[0]), "3")
+    tested = tested + 1
+    total = total + check("rev_last", str(ys[2]), "1")
+    # list GOC khong bi doi - giong Python
+    tested = tested + 1
+    total = total + check("rev_src_untouched", str(xs[0]), "1")
+    # KHONG kiem `for v in reversed(xs):` o day: compiler chi cho phep
+    # `for x in f(...)` khi f la HAM GENERATOR co 'yield' - goi tra ve LIST
+    # (reversed/sorted) phai gan ra bien truoc. Day cung la ly do
+    # `for p in sorted(xs):` bi tu choi. Xem muc 3.8 cua
+    # docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md.
+    rs = reversed(xs)
+    out = ""
+    for v in rs:
+        out = out + str(v)
+    tested = tested + 1
+    total = total + check("rev_loop", out, "321")
+
+    # --- bool ---
+    tested = tested + 1
+    total = total + check("bool_zero", str(bool(z)), "0")
+    tested = tested + 1
+    total = total + check("bool_nonzero", str(bool(n)), "1")
+
+    # --- repr ---
+    s = "a"
+    x = 3.14159
+    t = 1 > 0
+    tested = tested + 1
+    total = total + check("repr_str", repr(s), "'a'")
+    tested = tested + 1
+    total = total + check("repr_int", repr(n), "10")
+    tested = tested + 1
+    total = total + check("repr_float", repr(x), "3.14159")
+    tested = tested + 1
+    total = total + check("repr_bool", repr(t), "True")
+
+    return test_summary("py_builtins_test", total, tested)

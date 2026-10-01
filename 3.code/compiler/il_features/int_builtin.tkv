@@ -264,3 +264,98 @@ def push_int_builtin(args, scope, out, dtype, ctx):
 register_expr_builtin('int', push_int_builtin, 'i32', native_int=True,
                       return_dtype_fn=_int_return_dtype)
 register_expr_builtin('int64', push_int64_builtin, 'i64')
+
+
+_BASE_BUILTIN = {2: ('bin', '0b'), 8: ('oct', '0o'), 16: ('hex', '0x')}
+
+
+def _push_base_conv(args, scope, out, dtype, ctx, base, prefix, fname):
+    """`bin(x)` / `oct(x)` / `hex(x)` - giong Python, ke ca so am.
+
+    `Convert.ToString(long, int)` cua .NET BO DAU AM, nen phai tu them.
+    Thu tu san chuoi truoc, roi day them ket qua Convert len tren, roi
+    `Concat` - tranh can 1 local phu.
+    """
+    if len(args) != 1:
+        raise SyntaxError(f"il_codegen: {fname}(x) chi nhan dung 1 tham so")
+    if args[0][0] != 'var':
+        raise SyntaxError(
+            f"il_codegen: {fname}(x) hien CHI ho tro 1 bien (vd {fname}(n))")
+    name = args[0][1]
+    if name not in scope:
+        raise SyntaxError(f"il_codegen: bien '{name}' chua duoc khai bao")
+    _kind, idx, ta = scope[name]
+    int_dtypes = ctx['int_dtypes']
+    if ta.dtype not in int_dtypes:
+        raise SyntaxError(
+            f"il_codegen: {fname}() chi nhan bien so nguyen, '{name}' co "
+            f"dtype={ta.dtype!r}")
+    ld = f'ldarg.s {idx}' if _kind == 'arg' else f'ldloc.s {idx}'
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    p_lbl = f"{ctx['prefix']}_{fname}_pos{n}"
+    n_lbl = f"{ctx['prefix']}_{fname}_neg{n}"
+    end_lbl = f"{ctx['prefix']}_{fname}_end{n}"
+    out.append(f'    {ld}')
+    out.append('    ldc.i4.0')
+    out.append(f'    blt {n_lbl}')
+    out.append(f'    ldstr "{prefix}"')
+    out.append(f'    {ld}')
+    out.append(f'    ldc.i4 {base}')
+    out.append('    call string [mscorlib]System.Convert::ToString(int64, int32)')
+    out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    out.append(f'    br {end_lbl}')
+    out.append(f'  {n_lbl}:')
+    out.append(f'    ldstr "-{prefix}"')
+    out.append(f'    {ld}')
+    out.append('    neg')
+    out.append(f'    ldc.i4 {base}')
+    out.append('    call string [mscorlib]System.Convert::ToString(int64, int32)')
+    out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    out.append(f'  {p_lbl}:')
+    out.append(f'  {end_lbl}:')
+
+
+def push_bin(args, scope, out, dtype, ctx):
+    _push_base_conv(args, scope, out, dtype, ctx, 2, '0b', 'bin')
+
+
+def push_oct(args, scope, out, dtype, ctx):
+    _push_base_conv(args, scope, out, dtype, ctx, 8, '0o', 'oct')
+
+
+def push_hex(args, scope, out, dtype, ctx):
+    _push_base_conv(args, scope, out, dtype, ctx, 16, '0x', 'hex')
+
+
+def push_bool(args, scope, out, dtype, ctx):
+    """`bool(x)` - 0/1 nhu Python (True/False la 1/0)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: bool(x) chi nhan dung 1 tham so")
+    a = args[0]
+    int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+    if a[0] == 'str_lit':
+        v = str(a[1]).strip('"')
+        out.append(f'    ldc.i4.{1 if v else 0}')
+        return
+    if a[0] == 'var' and a[1] in scope:
+        _k, _i, ta = scope[a[1]]
+        if ta.dtype in int_dtypes:
+            ctx['load_var_ref'](a[1], scope, out)
+            out.append('    ldc.i4.0')
+            out.append('    cgt.un')
+            return
+        if ta.dtype in float_dtypes:
+            ctx['load_var_ref'](a[1], scope, out)
+            out.append('    ldc.r8 0.0')
+            out.append('    cgt.un')
+            return
+    raise SyntaxError(
+        "il_codegen: bool() hien chi ho tro bien so/chuoi literal - vi tri "
+        "giatri la compile-time, dung `!= 0` thay the")
+
+
+register_expr_builtin('bin', push_bin, 'str')
+register_expr_builtin('oct', push_oct, 'str')
+register_expr_builtin('hex', push_hex, 'str')
+register_expr_builtin('bool', push_bool, 'i32')

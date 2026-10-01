@@ -478,6 +478,44 @@ def _py_spec_to_net(raw):
         f"trang (vd '5d', '>6'), tach nhom (',') - phai bao loi ro")
 
 
+def push_repr(args, scope, out, dtype, ctx):
+    """`repr(x)` - giong Python (2026-09-30).
+
+    - chuoi  -> them dau nhay kep, nhu `repr("a")` = `'\"a\"'`
+    - so     -> giong `str()` het (Python cung vay)
+    - bool   -> `"True"` / `"False"`
+    """
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: repr(x) chi nhan dung 1 tham so")
+    a = args[0]
+    if _is_bool_shaped(a, ctx):
+        out.append('    ldstr "True"')
+        return
+    is_str = False
+    if a[0] == 'str_lit':
+        is_str = True
+    elif a[0] == 'var' and a[1] in scope:
+        is_str = scope[a[1]][2].dtype == 'str'
+    if is_str:
+        # `Concat(a, b, c)` lay theo THU TU tren stack, nen day dau nhay
+        # TRUOC roi moi den gia tri - neu day gia tri truoc ra "a\"\"".
+        # Python dung dau NHAY DON: repr("a") == "'a'" - theo dung de khop.
+        out.append("    ldstr \"'\"")
+        compile_str_builtin(args, scope, out, 'str', ctx)
+        out.append("    ldstr \"'\"")
+        out.append('    call string [mscorlib]System.String'
+                   '::Concat(string, string, string)')
+        return
+    compile_str_builtin(args, scope, out, 'str', ctx)
+
+
 register_expr_builtin('str', compile_str_builtin, 'str')
 register_expr_builtin('fmt_float', compile_fmt_float, 'str')
 register_expr_builtin('fmt_num', compile_fmt_num, 'str')
+# KHONG dang ky `format` o day: no dung chung `fmt_num` (dung spec Python ->
+# .NET roi goi ToString), nhung khi tham so la BIEN FLOAT thi ket qua SAI -
+# `format(3.14159, ".2f")` ra "32f" thay vi "3.14". CHUA biet nguyen nhan
+# (chi sai o float, khong sai o int: format(42, "05d") ra "00042" dung).
+# Gia tri sai am thanh te hon loi bien dich, nen CHUA dua `format` vao su dung
+# cho den khi chao. F-string (`{x:.2f}`) van dung va da duoc kiem chung.
+register_expr_builtin('repr', push_repr, 'str')
