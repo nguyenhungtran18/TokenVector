@@ -1,6 +1,6 @@
 # BẢNG SO SÁNH ĐO ĐẠC: TOKENVECTOR VS CPYTHON 3.12
 
-> **Ngày đo**: 2026-09-30 (đo lần 3) · **Cổng lúc đo**: 100/100 + negative 19/19
+> **Ngày đo**: 2026-09-30 (đo lần 3) · **Cổng lúc đo**: 102/102 + negative 19/19
 > **Cách đo**: `tools/parity_probe/` — 119 phép thử chạy song song trên cả hai
 > bên, in ra cùng một danh sách nhãn, máy so từng dòng.
 > Chạy lại: `powershell -File tools\parity_probe\run.ps1`
@@ -190,7 +190,44 @@ ra `000042d`, vì chuỗi custom của .NET coi chữ cái là ký tự thườn
 **Khớp rồi (trước đây chưa biết):** `try` lồng nhau, `round(x, n)`, so sánh
 chained `1 < x < 3`, `xs[0] += 10`, `if` có `finally` không `break`.
 
-### 3.5 Còn lệch, đã đo, **quyết định không sửa**
+### 3.5 Vòng đo "bảng chưa đo" — 22 tính năng, tìm 1 lỗi, hủy 8 nghi ngờ
+
+Bảng "chưa đo" ở mục 7 liệt kê những thứ tôi **không biết** đúng hay sai. Vòng này
+dựng probe cho 22 mục, mỗi mục một cặp file `.tkv`/`.py` chạy độc lập.
+
+**Hủy 8 nghi ngờ của tôi** — những thứ tôi tưởng thiếu hoặc hỏng thì **có và đúng**:
+
+`str.count` · `str.zfill` · `str.title` · `str.ljust` · `str.center` ·
+`lstrip` với ký tự · `startswith` với tuple · lát chuỗi có bước (`s[::2]`) ·
+thứ tự khóa `dict` · duyệt `items()` trong `for` · `dict.values()` ·
+tràn `i32` khi `+=` (tự nâng, khớp Python) · tích luỹ float · `True + True` ·
+`+=` trên thuộc tính record · `-=` `*=` · lớp ngoại lệ tự định nghĩa ·
+`raise` trong generator · `yield from` lồng nhau · generator làm tham số hàm khác ·
+đệ quy 900 · vòng lặp 200 000 · walrus `:=`
+
+**Một lỗi thật, chưa chẩn đoán xong:**
+
+Khi gộp **tất cả** các nhóm trên vào **một hàm `run`**, chương trình sập lúc
+chạy: `NullReferenceException` trong `TkvInt.Str`. Tách ra thành hai file thì
+**các phần đều chạy đúng**. Tức là lỗi phụ thuộc kích thước file, không phải lỗi
+logic của bất kỳ mục nào. Tôi chưa khoanh vùng được nên **ghi lại là chưa chẩn
+đoán**, không đoán. Ghim bằng `Testkit/gap_lang_test.tkv` +
+`Testkit/gap_exc_gen_test.tkv` (tách sẵn để tránh lỗi trên).
+
+**Thiếu, đã đo (báo lỗi rõ):** `str.isalpha` và mọi method chuỗi ngoài danh sách
+cho phép · phép `|` `&` trên set · `int("ff", 16)` có cơ số · `del` trên biến ·
+comprehension lồng nhau · comprehension có `else` · `def`/`class` lồng trong hàm
+
+**Không được khẳng định:** gán nhiều đích `a = b = 7` **chạy đúng** khi build với
+`--no-lint`, nhưng linter cảnh báo "multiple-target assignment chưa hỗ trợ". Vì
+chỉ chạy được ở chế độ bỏ kiểm tra, tôi **không** đưa vào test và **không** coi là
+đã hỗ trợ.
+
+**Giới hạn tài nguyên:** đệ quy sâu ~50 000 làm sập `StackOverflowException`
+(giới hạn stack của .NET). CPython với `setrecursionlimit` cao thì chạy được —
+đây là khác biệt về nguồn lực, không phải lỗi logic.
+
+### 3.6 Còn lệch, đã đo, **quyết định không sửa**
 
 | Mục | CPython | TokenVector | Vì sao không sửa |
 |---|---|---|---|
