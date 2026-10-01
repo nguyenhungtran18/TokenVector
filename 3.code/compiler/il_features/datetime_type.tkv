@@ -100,6 +100,18 @@ def _push_ticks_as_datetime(out):
 # ---------- HAM DUY NHAT de lay thoi diem hien tai (hop nhat 2026-08-11) --------
 
 def _push_datetime_now(args, scope, out, dtype, ctx):
+    # KHONG duoc bo qua `args` (2026-09-30). Truoc day ham nay nhan `args` roi
+    # bo qua hoan toan, nen `datetime(2026, 9, 30)` BINH THANH bien dich xanh
+    # va tra ve UtcNow - Python tra ve 2026-09-30. Do la dang sai AM THANH,
+    # nguy hiem hon loi bien dich: nguoi dung tinh sai ngay ma khong co loi
+    # nao bao loi. `len(args)` kiem o day nen moi dua duoc ra loi.
+    if len(args) != 0:
+        raise SyntaxError(
+            "il_codegen: datetime() nhan KHONG tham so - ham nay tra ve "
+            "thoi diem hien tai (UtcNow), khong phai ham tao ngay tu so. "
+            "Python dung datetime(2026, 9, 30) de TAO NGAY; TokenVector "
+            "dung datetime_strptime(\"2026-09-30\", \"%Y-%m-%d\") de tao tu "
+            "chuoi, va datetime_ticks(d) de doc ticks ra so.")
     out.append('    call valuetype [mscorlib]System.DateTime [mscorlib]System.DateTime::get_UtcNow()')
     out.append('    box [mscorlib]System.DateTime')
     out.append('    unbox [mscorlib]System.DateTime')

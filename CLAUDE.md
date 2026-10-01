@@ -45,8 +45,10 @@
     compiler canonicalises it in `TypeAnn.__init__` (`canon_dtype` in
     `compiler/typed_dsl_parser.tkv`), so nothing downstream needs to know.
   - `bool` only works as an *annotation*. Local variables are never annotated.
-  - Beware: `str(<comparison>)` inline prints `"True"`/`"False"`, but the same
-    value bound to a variable prints `"1"`/`"0"`. Assign before formatting.
+  - `str(<bool>)` prints `"True"`/`"False"` — matching CPython, both inline
+    (`str(x > 0)`) and via a variable (`b = x > 0; str(b)`). An earlier version
+    of this file claimed the variable form prints `"1"`/`"0"`; that was **wrong**
+    and cost a wrong test expectation on 2026-09-30.
 - **Local Variables**: Types are inferred automatically from right-hand side expressions (do not annotate local variables inside function bodies).
 - **Class Members**: Must be declared as typed fields at the class body level before `__init__`.
   - `__init__` must take exactly the declared fields; `Stub()` with a `value` field fails.

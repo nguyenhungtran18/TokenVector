@@ -11,12 +11,13 @@ ghi de lam hong ca buoc bien dich.
 
 **CANH BAO - co ten KHONG nghia la co dung duoc.** Muc nay lay tu
 `register_*`, no chi chung MINH dang co entry dang ky, KHONG
-chung tinh nang chay duoc den cuoi. Bang chung bien nghich (2026-09-30):
-`datetime` va `datetime_strptime` DANG ky day du nhung ca hai deu
-tra ve dtype `datetime` ma `str()`, truy cap `.year` va goi method
-deu bi tu choi luc bien dich - tao duoc, doc khong duoc.
-Nguoc lai, nhieu ham KHONG nam trong day da chay dung (vi du
-`with open(...)`, doc o `control_flow.tkv`, va `sorted()`).
+chung tinh nang chay duoc den cuoi. Bang chung lien quan (2026-09-30):
+`datetime` CO dang ky day du nhung KHONG cung nghia voi Python -
+`datetime()` tra UtcNow va bo qua hoan toan tham so, nen tu rat lau
+`datetime(2026, 9, 30)` bien dich xanh roi tra ve HOM NAY (da sua
+thanh loi bien dich). Nguoc lai, nhieu ham KHONG nam trong day da
+chay dung (vi du `with open(...)` o `control_flow.tkv`, va
+`sorted()`).
 => Hai chieu deu sai. Hay PROBE thuc roi tin ket qua, va khi
 probe BAT BIEN DUNG thi phai kiem danh muc nay truoc kem ket
 luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
@@ -101,7 +102,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 | `comprehension.tkv` | 6.711 |
 | `control_flow.tkv` | 111.624 |
 | `counter_type.tkv` | 17.988 |
-| `datetime_type.tkv` | 9.835 |
+| `datetime_type.tkv` | 10.637 |
 | `defaultdict_type.tkv` | 5.437 |
 | `del_stmt.tkv` | 4.666 |
 | `dict_get.tkv` | 2.078 |

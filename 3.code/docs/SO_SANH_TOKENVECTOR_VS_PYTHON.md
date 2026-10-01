@@ -187,7 +187,7 @@ ra `000042d`, vì chuỗi custom của .NET coi chữ cái là ký tự thườn
 | `class` lồng trong hàm | Không có |
 | Generator trả giá trị qua `return` | Không có |
 | `Decimal` | Không có (`ham 'Decimal' khong ton tai`) |
-| `datetime` | **Tên có, dùng không được** — `datetime(2026,9,30)` build được nhưng `str()`, `.year` và `.diff()` đều bị từ chối lúc biên dịch. Tạo được, đọc không được. |
+| `datetime` | **KHÁC API với Python.** `datetime()` = thời điểm hiện tại (UtcNow), **0 tham số** — không phải hàm tạo ngày. Đọc giá trị bằng `d.strftime(fmt)` và `datetime_ticks(d)` (cả hai đã probe, chạy đúng). **Trước 2026-09-30 `datetime(2026, 9, 30)` biên dịch xanh và âm thầm trả về hôm nay** vì `_push_datetime_now` bỏ qua `args`; nay đã thành lỗi biên dịch, có negative test. Tạo ngày từ chuỗi bằng `datetime_strptime(s, fmt)`. Truy cập `.year`/`.month`/`.day` **không có** (chỉ đọc được qua `strftime`/`ticks`). |
 
 **Khớp rồi (trước đây chưa biết):** `try` lồng nhau, `round(x, n)`, so sánh
 chained `1 < x < 3`, `xs[0] += 10`, `if` có `finally` không `break`.
