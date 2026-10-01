@@ -123,11 +123,19 @@
   the set literal. A duplicate key keeps the **last** value.
 - **Known gaps** (all verified by probe on 2026-09-30, not assumed):
   `yield from`, `iter()`/`next()`, `slice()` as a callable,
-  `max`/`min`/`sum` with `key=`, a **negative** slice step
-  (`a[::-1]`), keyword-only and positional-only parameters,
-  nested/tuple literals, and call-site
-  `  *`/`**` unpacking (calls
-  have statically known arity, so a run-time-length sequence cannot be passed).
+  a **negative** slice step (`a[::-1]`), keyword-only and positional-only
+  parameters, nested/tuple literals.
+- **`key=` at a call site fails in the PARSER**, not in codegen: `max(xs,
+  key=neg)` → *"expected ')', got '='"*; with a lambda the message changes to
+  *"expected ']', got ':'"*. Note `il_core._parse_one_call_arg` **does**
+  already emit `('kwarg', name, expr)`, so kwargs work on some call forms —
+  plain `f(a, b=1)` takes a different path that stops at `=`. Fixing
+  `max/min/sum` with `key=` therefore means touching the core call parser,
+  which is why it is still listed as missing rather than half-done.
+  `*`/`**` unpacking at a call site **is** implemented
+  (`('star'|'star2', expr)` + `il_features/call_star_args.py`) — the older
+  claim that it is missing is wrong. Note calls still have statically known
+  arity, so a run-time-length sequence cannot be passed.
   A record **cannot have a container field** — the `.ctor` takes its parameters
   from the declared fields, with container fields filtered out, so a container
   field can never be filled. This is now a compile-time error. Hold containers
