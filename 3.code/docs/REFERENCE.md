@@ -343,21 +343,29 @@ nên **không** dùng được trong biểu thức, ví dụ `y = xs.pop()` khô
 
 ## 5. CÒN THIẾU — đã probe, không phải suy đoán
 
-### 5.1 Exception: có đúng **6**, Python có ~75
+### 5.1 Exception: có **21**, Python có ~75
 
-Probe bằng `raise X("x")` / `except X`. Compiler in ra danh sách:
+Probe bằng `raise X("x")` / `except X`.
 
-```
-Loai co san: ['Exception', 'IndexError', 'KeyError',
-              'OverflowError', 'ValueError', 'ZeroDivisionError']
-```
-
-| Có (6) | Thiếu (~69) |
+| Có sẵn từ trước (6) | Thêm 2026-09-30 (15) |
 |---|---|
-| `Exception` | `TypeError`, `AttributeError`, `RuntimeError`, `NameError`, `StopIteration`, `ArithmeticError`, `LookupError`, `AssertionError`, `ImportError`, `IndentationError`, `SyntaxError`, `TabError`, `MemoryError`, `RecursionError`, `SystemExit`, `KeyboardInterrupt`, `EOFError`, `OSError`, `FileNotFoundError`, `PermissionError`, `IsADirectoryError`, `UnicodeError` + 3 lớp con, toàn bộ `Warning` (9 lớp), lỗi socket/connection (5 lớp), và ~30 lớp khác |
+| `Exception` `IndexError` `KeyError` `OverflowError` `ValueError` `ZeroDivisionError` | `TypeError` `AttributeError` `RuntimeError` `NotImplementedError` `MemoryError` `ArithmeticError` `EOFError` `OSError` `FileNotFoundError` `PermissionError` `IsADirectoryError` `NotADirectoryError` `ImportError` `StopIteration` |
+
+**Cố ý KHÔNG thêm** (có lý do ghi trong `_EXC_TYPE_MAP`):
+
+| Không thêm | Vì sao |
+|---|---|
+| `LookupError` | Là **cha** của `KeyError`/`IndexError`, mà bản đồ phẳng không biểu diễn được. Ánh xạ về `System.Exception` sẽ khiến `except LookupError:` bắt **mọi** lỗi — sai âm thàm. Dùng `except Exception:` hoặc tự định nghĩa |
+| `AssertionError`, 9 lớp `Warning`, `SystemExit`, `KeyboardInterrupt`, `RecursionError`, `UnicodeError` + con, `ExceptionGroup` | Không có đối chiếu CLR, hoặc không bắt được (`RecursionError` là `StackOverflowException` — CLR không cho bắt). Gộp về `System.Exception` là bắt quá đà |
+| `NameError` | TokenVector báo lỗi biến chưa khai báo ở **biên dịch**, không tồn tại lúc chạy |
 
 Muốn có thêm thì tự định nghĩa: `class TypeError(Exception):` với field đầu
-tiên kiểu `str` làm thông điệp. **Đây là thiếu lớn nhất.**
+tiên kiểu `str` làm thông điệp.
+
+> Đã sửa luôn lỗi thông điệp `IndexError`: `ArgumentOutOfRangeException(string)`
+> gán vào `ParamName` chứ không phải `Message`, nên `str(e)` ra
+> *"Parameter name: het rooc"* và `Message` rỗng. Nay dùng
+> `.ctor(paramName, message)` với `("", msg)`.
 
 ### 5.2 Hàm Python có, TokenVector không có (đã probe với cú pháp đúng)
 
@@ -376,7 +384,7 @@ tiên kiểu `str` làm thông điệp. **Đây là thiếu lớn nhất.**
 | `dict()` | **CÓ** |
 | `set()` | **CÓ** |
 | `bytes(n)` / `bytes([..])` | **CÓ** (thêm 2026-09-30) |
-| `bytearray()` | **CHỈ rỗng** — `bytearray(n)` không có |
+| `bytearray()` / `bytearray(n)` | **CÓ** — `bytearray(n)` thêm 2026-09-30 (trước chỉ rỗng) |
 | `list()` | **KHÔNG** — chỉ dùng list literal `[1,2]` |
 | `tuple()` | **KHÔNG** |
 | `frozenset()` | **KHÔNG** (`frozenset` chỉ là *tên shape* trong compiler) |

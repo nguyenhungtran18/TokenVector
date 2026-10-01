@@ -87,7 +87,47 @@ _EXC_TYPE_MAP = {
     'IndexError': '[mscorlib]System.ArgumentOutOfRangeException',
     'ValueError': '[mscorlib]System.FormatException',
     'OverflowError': '[mscorlib]System.OverflowException',
+    # --- 2026-09-30: bo sung loai loi Python ---
+    # CHI them loai co tuong duong CLR that sua. KHONG them loai se bat QUA
+    # DA (xem danh sach "co y dinh KHONG them" ben duoi).
+    'TypeError': '[mscorlib]System.InvalidCastException',
+    'AttributeError': '[mscorlib]System.MissingMemberException',
+    'RuntimeError': '[mscorlib]System.InvalidOperationException',
+    'NotImplementedError': '[mscorlib]System.NotImplementedException',
+    'MemoryError': '[mscorlib]System.OutOfMemoryException',
+    'ArithmeticError': '[mscorlib]System.ArithmeticException',
+    'EOFError': '[mscorlib]System.IO.EndOfStreamException',
+    'OSError': '[mscorlib]System.IO.IOException',
+    'FileNotFoundError': '[mscorlib]System.IO.FileNotFoundException',
+    'PermissionError': '[mscorlib]System.UnauthorizedAccessException',
+    'IsADirectoryError': '[mscorlib]System.UnauthorizedAccessException',
+    'NotADirectoryError': '[mscorlib]System.UnauthorizedAccessException',
+    'ImportError': '[mscorlib]System.IO.FileNotFoundException',
+    'StopIteration': '[mscorlib]System.InvalidOperationException',
 }
+
+# COT .ctor GHI ĐÈ cho loai loi - ly do: `ArgumentOutOfRangeException(string)`
+# gan gia tri vao `ParamName`, KHONG phai `Message`, nen
+# `raise IndexError("het")` in ra thong diep rong. .NET co dung thu tu:
+# ArgumentOutOfRangeException(paramName, message) - truyen ("", msg) thi
+# Message = msg. Cac loai khai bao khoa 2 tham so (bool).
+_EXC_CTOR_2STR = {
+    'IndexError': '[mscorlib]System.ArgumentOutOfRangeException',
+}
+
+# Co Y DINH KHONG them (2026-09-30) - ly do, de khong ai them lai:
+#  - `LookupError` la CHA cua KeyError/IndexError. Ban do PHANG nen khong
+#    the bieu dien. Noi chung no ve `[mscorlib]System.Exception` thi
+#    `except LookupError:` se bat MOI loi - sai am thanh, tai hon loi bien
+#    dich. Muon bat thi dung `except Exception:`, hoac tu dinh nghia
+#    `class LookupError(Exception):` trong chuong trinh.
+#  - `AssertionError`, `Warning` (9 lop), `SystemExit`,
+#    `KeyboardInterrupt`, `RecursionError`, `UnicodeError` va cac lop con,
+#    `ExceptionGroup`/`BaseExceptionGroup`: khong co tuong duong CLR hoac
+#    khong bat duoc trong .NET (`RecursionError` la `StackOverflowException` -
+#    CLR KHONG cho bat). noi chung ve `System.Exception` se bat qua da.
+#  - `NameError`: TokenVector bao loi bien chua khai bao o BIEN DICH, khong
+#    ton tai o runtime, nen khong can loai loi nay.
 
 
 def _derives_from_exception(name, record_bases):
@@ -2184,8 +2224,21 @@ def codegen_raise(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
         body.append('    throw')
         return
     if stmt['msg_node'] is not None:
-        ctx['compile_expr'](stmt['msg_node'], scope, body, 'str', ctx)
-        body.append(f'    newobj instance void {clr_type}::.ctor(string)')
+        if stmt['exc_type'] in _EXC_CTOR_2STR:
+            # Loai nay co quy uoc .ctor(string) rieng: tham so DAU la
+            # `paramName`, KHONG phai `Message`. .ctor(paramName, message)
+            # vua dung ty le nen phai day `paramName` TRUOC roi den message.
+            # Truyen ("", msg) => Message = msg, nen `str(e)` ra dung thong
+            # diep nguoi dung viet. Da sua 2026-09-30 (truoc day hien ra
+            # "Parameter name: <msg>" va Message rong).
+            body.append('    ldstr ""')
+            ctx['compile_expr'](stmt['msg_node'], scope, body, 'str', ctx)
+            body.append(
+                f'    newobj instance void {_EXC_CTOR_2STR[stmt["exc_type"]]}'
+                '::.ctor(string, string)')
+        else:
+            ctx['compile_expr'](stmt['msg_node'], scope, body, 'str', ctx)
+            body.append(f'    newobj instance void {clr_type}::.ctor(string)')
     else:
         body.append(f'    newobj instance void {clr_type}::.ctor()')
     body.append('    throw')

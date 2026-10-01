@@ -98,14 +98,14 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 |---|---|
 | `__init__.tkv` | 0 |
 | `async_await.tkv` | 1.603 |
-| `bytearray_type.tkv` | 5.451 |
+| `bytearray_type.tkv` | 5.961 |
 | `bytes_type.tkv` | 13.025 |
 | `call_star_args.tkv` | 14.917 |
 | `chr_builtin.tkv` | 1.661 |
 | `closures.tkv` | 15.795 |
 | `complex_type.tkv` | 5.606 |
 | `comprehension.tkv` | 6.711 |
-| `control_flow.tkv` | 111.624 |
+| `control_flow.tkv` | 114.856 |
 | `counter_type.tkv` | 17.988 |
 | `datetime_type.tkv` | 10.637 |
 | `defaultdict_type.tkv` | 5.437 |

@@ -41,19 +41,24 @@ def il_bytearray_type() -> str:
     return 'class [mscorlib]System.Collections.Generic.List`1<unsigned int8>'
 
 
-_BYTEARRAY_NEW_RE = re.compile(r'^bytearray\(\)\s*$')
+_BYTEARRAY_NEW_RE = re.compile(r'^bytearray\(\s*(\d*)\s*\)\s*$')
 _BYTEARRAY_APPEND_RE = re.compile(r'^(\w+)\.append\((.+)\)\s*$')
 
 
 def try_rhs_bytearray_new(rhs, name, known_shapes):
-    """ASSIGN_RHS_PARSERS entry: 'ba = bytearray()' - CHI dang RONG (khong
-    'bytearray(n)'/'bytearray(list)'/literal 'b"..."', ngoai pham vi task
-    nay theo dung Global Constraints cua plan)."""
+    """ASSIGN_RHS_PARSERS entry: 'ba = bytearray()' va 'ba = bytearray(n)'.
+
+    `bytearray(n)` them 2026-09-30 (Python co, TokenVector chi co dang rong).
+    Phan tu da UOC N nhung so luong BIET luc bien dich (n la hang so) nen
+    khong can vong lap runtime: unroll n lan dup/ldc.i4.0/conv.u1/Add, y
+    het khuôn cua bytes_type.tkv's codegen_assign_bytes_literal."""
     rhs_s = rhs.strip()
-    if not _BYTEARRAY_NEW_RE.match(rhs_s):
+    m = _BYTEARRAY_NEW_RE.match(rhs_s)
+    if not m:
         return None
     known_shapes[name] = 'bytearray'
-    return {'kind': 'assign_bytearray_new', 'name': name}
+    return {'kind': 'assign_bytearray_new', 'name': name,
+            'count': int(m.group(1)) if m.group(1) else 0}
 
 
 def try_parse_bytearray_append(line, lines, pos, indent_level, sig, known_shapes, parse_block_fn):
@@ -70,8 +75,13 @@ def try_parse_bytearray_append(line, lines, pos, indent_level, sig, known_shapes
 
 
 def codegen_assign_bytearray_new(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn):
-    """STMT_CODEGEN entry: 'ba = bytearray()'."""
+    """STMT_CODEGEN entry: 'ba = bytearray()' va 'ba = bytearray(n)'."""
     body.append(f'    newobj instance void {il_bytearray_type()}::.ctor()')
+    for _ in range(stmt.get('count', 0)):
+        body.append('    dup')
+        body.append('    ldc.i4.0')
+        body.append('    conv.u1')
+        body.append(f'    callvirt instance void {il_bytearray_type()}::Add(!0)')
     ctx['store_var'](stmt['name'], scope, body)
 
 
