@@ -181,7 +181,7 @@ register_first_pass_walk('assign_bytes_literal', fpw_assign_bytes_literal)
 #   bytes("ab", "utf-8")  -> byte UTF-8 cua chuoi
 #   bytes([1, 2, 3])      -> tu list so
 # Do la kieu `bytes` da ton tai (List<uint8>, shape='bytes') nen phai THEM
-# o day chu KHONG tao file moi - xem docs/BUILTIN_REFERENCE.md.
+# o day chu KHONG tao file moi - xem muc 7 cua docs/REFERENCE.md.
 #
 # Python BAT BUOC co tham so 'encoding' khi truyen chuoi; `bytes("ab")` nem
 # TypeError. TokenVector chi chap nhan DUOC dang 2 tham so, va chi chap nhan

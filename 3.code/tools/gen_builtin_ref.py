@@ -1,20 +1,31 @@
 # -*- coding: utf-8 -*-
-"""Sinh danh muc HAM cua compiler tu chinh ma nguon - de KIEM TRA TRUOC khi
-them moi, thay vi doan va ghi de file dang co (2026-09-30: da vo tinh ghi de
-`bytes_type.tkv` vi tuong la file moi).
+"""Sinh khoi DANH MUC cua `docs/REFERENCE.md` - tu ma nguon boi `register_*`.
 
-Chay lai sau khi them/bot ham:
-    python tools\\gen_builtin_ref.py
-Ket qua ghi ra docs/BUILTIN_REFERENCE.md
+**HOI 2026-10-02: viet vao MOT file, xoa cac file trung.** Truoc day tay lieng
+sinh ra `docs/BUILTIN_REFERENCE.md` - 3 file cung noi 1 thu, mau thuan nhau.
+Nay chi ghi vao **khoi co dau hieu** trong `REFERENCE.md`:
+
+    python tools\\gen_builtin_ref.py           # viet lai khoi danh muc
+    python tools\\gen_builtin_ref.py --check    # FAIL neu tai lieu CHUA ghi
+                                                #   mot ten da dang ky
+
+**BAI HOC (dung quen):** 2026-09-30 tao `bytes_type.tkv` de them ham `bytes()`,
+khong kiem danh muc nen file da TON TAI bi ghi de - lam hong ca buoc bien dich.
+Bai nay GHI VAO MOT KHOI, nen khong con duong nao de ghi de phan viet tay. Neu
+thay MARKER, script FAIL chu khong ghi - xem `write_block()`.
 """
 import ast
 import io
 import os
 import re
+import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FEAT = os.path.join(ROOT, 'compiler', 'il_features')
-OUT = os.path.join(ROOT, 'docs', 'BUILTIN_REFERENCE.md')
+OUT = os.path.join(ROOT, 'docs', 'REFERENCE.md')
+
+BEGIN = '<!-- BEGIN GENERATED: danh muc ten + danh sach file -->'
+END = '<!-- END GENERATED -->'
 
 # (nhan hieu, regex, nhom)
 PATTERNS = [
@@ -118,10 +129,8 @@ def collect_listlike_methods():
     return out
 
 
-def main():
-    for fn in sorted(os.listdir(FEAT)):
-        if fn.endswith('.tkv'):
-            FILES.append((fn, os.path.getsize(os.path.join(FEAT, fn))))
+def all_registered():
+    """tap ten 'nguoi dung cham vao' theo 4 nhom, + tat ca ten (de check)."""
     b = collect()
     str_methods = collect_str_methods()
     if str_methods:
@@ -129,51 +138,105 @@ def main():
     listed = collect_listlike_methods()
     if listed:
         b.setdefault('METHOD CONTAINER (ten, dung chung nhieu kieu)', set()).update(listed)
+    return b
+
+
+# Nhom nao `REFERENCE.md` phai giai thich TUNG ten (muc 2 + muc 3 + muc 4).
+# Con lai la khoa noi bo cua trinh bien dich - muc 1/§6 mo ta theo HO.
+DOC_FACING = ('HAM BUILTIN (GOI DUOC TRUC TIEP)', 'METHOD CHUOI (str.) - qua dict STR_METHODS',
+              'METHOD THEO KHU VUC', 'METHOD CONTAINER (ten, dung chung nhieu kieu)',
+              'DANG PHAI PHAI CUA PHE GAN')
+
+
+def write_block(block):
+    """Ghi `block` vao giua 2 MARKER cua REFERENCE.md.
+
+    FAIL (khong ghi) neu thieu marker - thay vi ghi de ca tai lieu, dung
+    chinh thu do tai liệu ma no vua sinh ra chinh cho no."""
+    if not os.path.exists(OUT):
+        sys.stderr.write('THIEU %s\n' % OUT)
+        return 2
+    text = io.open(OUT, encoding='utf-8').read()
+    if BEGIN not in text or END not in text:
+        sys.stderr.write(
+            'KHONG THAY MARKER trong %s.\n'
+            '  Can dong: %s\n  va dong: %s\n'
+            'Script KHONG ghi de tai lieu - hay them marker roi chay lai.\n'
+            % (OUT, BEGIN, END))
+        return 2
+    head = text[:text.index(BEGIN) + len(BEGIN)]
+    tail = text[text.index(END):]
+    io.open(OUT, 'w', encoding='utf-8', newline='\n').write(
+        head + '\n' + block.rstrip() + '\n' + tail)
+    return 0
+
+
+def check_coverage(b):
+    """FAIL neu `REFERENCE.md` chua ghi mot ten da dang ky nao."""
+    text = io.open(OUT, encoding='utf-8').read()
+    # Phan viet tay = ngoai khoi GENERATED (danh muc sinh chua "giai thich" gi)
+    hand = text[:text.index(BEGIN)] + text[text.index(END):]
+    seen = set(re.findall(r'`([A-Za-z_]\w*(?:\.[a-z_]+)?)`', hand))
+    need = set()
+    for key in DOC_FACING:
+        need |= b.get(key, set())
+    missing = sorted(need - seen)
+    if missing:
+        sys.stderr.write('REFERENCE.md CHUA GHI %d ten da dang ky:\n' % len(missing))
+        for n in missing:
+            sys.stderr.write('  - %s\n' % n)
+        return 1
+    print('REFERENCE.md: %d/%d ten da duoc ghi.' % (len(need), len(need)))
+    return 0
+
+
+def main():
+    for fn in sorted(os.listdir(FEAT)):
+        if fn.endswith('.tkv'):
+            FILES.append((fn, os.path.getsize(os.path.join(FEAT, fn))))
+    b = all_registered()
+    if '--check' in sys.argv:
+        return check_coverage(b)
     lines = []
-    lines.append('# DANH MUC HAM CUA COMPILER')
+    lines.append('### Danh mục tên đã đăng ký')
     lines.append('')
-    lines.append('> **Tu sinh** tu ma nguon boi `tools/gen_builtin_ref.py` - KHONG sua tay.')
-    lines.append('> Sinh lai sau khi them/bot ham: `python tools\\gen_builtin_ref.py`')
+    lines.append('**Dùng để:** trước khi **thêm một hàm**, **đổi một kiểu** hay tạo file')
+    lines.append('mới trong `compiler/il_features/`, kiểm danh mục này và kiểm tra file đã')
+    lines.append('tồn tại chưa. Đã có một lần: tạo `bytes_type.tkv` để bổ sung hàm')
+    lines.append('`bytes()` nhưng file đó **đã tồn tại** và là module thật của compiler —')
+    lines.append('ghi đè làm hỏng cả bước biên dịch.')
     lines.append('')
-    lines.append('**Dung muc dich:** truoc khi THEM MOT HAM, doi MOT KIUE hay tao file')
-    lines.append('mo trong `compiler/il_features/`, kiem danh muc nay va kiem tra file')
-    lines.append('da ton tai chua. Da co mot lan: tao `bytes_type.tkv` de bo sung ham')
-    lines.append('`bytes()` nhung file do DA TON TAI va la module that cua compiler -')
-    lines.append('ghi de lam hong ca buoc bien dich.')
-    lines.append('')
-    lines.append('**CANH BAO - co ten KHONG nghia la co dung duoc.** Muc nay lay tu')
-    lines.append('`register_*`, no chi chung MINH dang co entry dang ky, KHONG')
-    lines.append('chung tinh nang chay duoc den cuoi. Bang chung lien quan (2026-09-30):')
-    lines.append('`datetime` CO dang ky day du nhung KHONG cung nghia voi Python -')
-    lines.append('`datetime()` tra UtcNow va bo qua hoan toan tham so, nen tu rat lau')
-    lines.append('`datetime(2026, 9, 30)` bien dich xanh roi tra ve HOM NAY (da sua')
-    lines.append('thanh loi bien dich). Nguoc lai, nhieu ham KHONG nam trong day da')
-    lines.append('chay dung (vi du `with open(...)` o `control_flow.tkv`, va')
-    lines.append('`sorted()`).')
-    lines.append('=> Hai chieu deu sai. Hay PROBE thuc roi tin ket qua, va khi')
-    lines.append('probe BAT BIEN DUNG thi phai kiem danh muc nay truoc kem ket')
-    lines.append('luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.')
+    lines.append('**CẢNH BÁO — có tên không nghĩa là có dùng được.** Mục này lấy từ')
+    lines.append('`register_*`, nó chỉ chứng minh *có entry đăng ký*, KHÔNG chứng minh')
+    lines.append('*tính năng chạy được đến cuối*. Hãy **probe thật** rồi tin kết quả.')
     lines.append('')
     total = 0
     for key in sorted(b):
         names = sorted(b[key])
         total += len(names)
-        lines.append(f'## {key} ({len(names)})')
+        lines.append(f'**{key} ({len(names)})**')
         lines.append('')
         for i in range(0, len(names), 8):
             lines.append('`%s` ' % names[i] + ' '.join('`%s`' % n for n in names[i + 1:i + 8]))
         lines.append('')
-    lines.append(f'**Tong so ten da dang ky: {total}**')
+    lines.append(f'**Tổng số tên đã đăng ký: {total}**')
     lines.append('')
-    lines.append('## File trong `compiler/il_features/`')
+    lines.append('### File trong `compiler/il_features/`')
     lines.append('')
-    lines.append('| File | Kich thuoc |')
+    lines.append('| File | Kích thước |')
     lines.append('|---|---|')
     for fn, sz in FILES:
         lines.append(f'| `{fn}` | {sz:,} |'.replace(',', '.'))
     lines.append('')
-    io.open(OUT, 'w', encoding='utf-8', newline='\n').write('\n'.join(lines) + '\n')
-    print('da sinh %s (%d ten, %d file)' % (OUT, total, len(FILES)))
+    rc = write_block('\n'.join(lines))
+    if rc:
+        return rc
+    print('da sinh khoi danh muc trong %s (%d ten, %d file)' % (OUT, total, len(FILES)))
+    return 0
 
 
-main()
+if __name__ == '__main__':
+    # Guard bat buoc: file nay duoc `import` boi `cmp_python_builtins.py` de lay
+    # danh muc tu ma nguon. Khong co guard, `sys.exit(main())` o cap module se
+    # KET THUC TIEN TRINH khi ai do import - loi rat kho quang bao (da gap).
+    sys.exit(main())

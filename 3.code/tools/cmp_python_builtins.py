@@ -3,14 +3,17 @@
 
 Chi lay ten, KHONG ket luan gi ve viec co chay duoc hay khong. Phan kiem
 chung phai probe (xem gen_builtin_ref.py va README cua file nay).
+
+2026-10-02: KHONG doc `docs/BUILTIN_REFERENCE.md` nua - file do da bi xoa khi
+gom tai lieu ve 1. Bay lay danh truc tiep tu ma nguon qua `gen_builtin_ref`
+(noi sinh muc 7 cua `docs/REFERENCE.md`) nen khong con kha nang lech.
 """
 import builtins
-import io
 import os
-import re
+import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REF = os.path.join(ROOT, 'docs', 'BUILTIN_REFERENCE.md')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gen_builtin_ref as _gen  # noqa: E402
 
 # 5 ham xu ly TRUC TIEP trong il_codegen, khong qua bang dang ky
 DIRECT = {'print', 'len', 'range', 'abs', 'round'}
@@ -27,13 +30,11 @@ def tokenvector_builtins():
     Chi lay mat "HAM BUILTIN" se bao loi GIA: `bytes`, `bytearray`,
     `frozenset`, `dict`, `list`, `set`, `tuple` la CONSTRUCTOR, duoc dang ky
     o ASSIGN_RHS_PARSERS chu khong phai o EXPR_BUILTIN."""
-    txt = io.open(REF, encoding='utf-8').read()
+    b = _gen.all_registered()
     out = set()
-    for header, stop in (
-            ('## HAM BUILTIN', '\n## '),
-            ('## DANG PHAI PHAI CUA PHE GAN', '\n## ')):
-        sec = txt.split(header)[1].split(stop)[0]
-        out |= set(re.findall(r'`([A-Za-z_][A-Za-z_0-9]*)`', sec))
+    for key, value in b.items():
+        if key.startswith('HAM BUILTIN') or key.startswith('DANG PHAI PHAI'):
+            out |= {n.split('.')[-1] for n in value}
     return out
 
 

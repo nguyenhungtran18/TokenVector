@@ -7,16 +7,22 @@
 - **Rule**: DO NOT treat as Python. Do NOT recommend Python venv, pip, or standard CPython modules.
 
 ## Toolchain & Commands
-- **CHECK BEFORE ADDING ANYTHING** (`docs/BUILTIN_REFERENCE.md` in `3.code`):
+- **CHECK BEFORE ADDING ANYTHING** — the reference is now **ONE file**:
+  `3.code/docs/REFERENCE.md`. §2 lists every builtin with **syntax + what it
+  does + where it differs from Python**; §7 is the auto-generated name catalog.
   - **376 names already registered** — run
-    `python 3.code\tools\gen_builtin_ref.py` to regenerate it from the source.
-  - **Before creating any file in `compiler/il_features/`, check the file does not
-    already exist.** I once created `bytes_type.tkv` to add `bytes()` and silently
-    overwrote a **live compiler module** that `il_codegen.tkv` imports — it broke
-    the entire compiler (104/104 BUILDFAIL, `ModuleNotFoundError`). The reference
-    lists every existing file with its size, plus all registered builtins,
-  - methods, line/assign/statement parsers.
-  - Do not hand-write the list; it would go stale and repeat the same mistake.
+    `python 3.code\tools\gen_builtin_ref.py` to rewrite §7 in place (it writes
+    **only between `<!-- BEGIN GENERATED -->` markers** and refuses to run if
+    they are missing — the file can no longer be overwritten by accident).
+  - `python 3.code\tools\gen_builtin_ref.py --check` **fails** if any registered
+    name is not documented in the hand-written part. Run it after adding a
+    function.
+  - **Before creating any file in `compiler/il_features/`, check the file does
+    not already exist.** I once created `bytes_type.tkv` to add `bytes()` and
+    silently overwrote a **live compiler module** that `il_codegen.tkv` imports
+    — it broke the entire compiler (104/104 BUILDFAIL, `ModuleNotFoundError`).
+    §7 of the reference lists every existing file with its size, plus all
+    registered builtins, methods, line/assign/statement parsers.
 - **Build `tkvc.exe`**: `powershell -NoProfile -ExecutionPolicy Bypass -File .\3.code\build_tkvc.ps1`
   Phân nhóm module `compiler/il_features/` do **`tools/il_features_manifest.txt`**
   đăng ký (CORE đã khai báo tường minh — tin nó, đừng đoán). Script

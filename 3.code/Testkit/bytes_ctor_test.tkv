@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Ham ngoai bang cua compiler (2026-09-30) - xem
-# docs/BUILTIN_REFERENCE.md de sinh lai danh muc nay.
+# muc 7 cua docs/REFERENCE.md de sinh lai danh muc nay.
 #
 # Kiem `bytes(...)`: kieu `bytes` (List<uint8>, shape='bytes') DA TON TAI
 # voi dang literal `b"..."`, thieu 3 CONSTRUCTOR. Buoc nho phai DOC file
