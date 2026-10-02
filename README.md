@@ -49,8 +49,14 @@ Everything below is checked by a gate in this repository. Numbers are from
 | Data ecosystem | `D:\TokenVector.Data\tools\datagate.ps1` | **18/18** |
 | Inference | `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` | **26/26** |
 
-**Builtins registered: 376. Compiler sources: 126 `.tkv` files** (119 under
-`compiler/il_features/`) — the compiler is written in TokenVector itself.
+**Builtins registered: 376.**
+
+> **What the compiler actually is.** `compiler/` and `tkv*.tkv` are 126 files
+> named `.tkv` whose **content is Python**, not TokenVector - `tkv_compile.tkv`
+> states this in its own docstring. `build_tkvc.ps1` stages them as Python and
+> freezes them with PyInstaller, so **`tkvc.exe` is a CPython-frozen tool**. The
+> genuinely TokenVector code in this repo is `tests/`, `projects/`, `examples/`
+> and `tools/`. See `docs/ARCHITECTURE.md`.
 
 > **Do not trust a claim in this repo that no gate checks.** Benchmarks in
 > `docs/ROADMAP.md` are dated measurements; reproduce with

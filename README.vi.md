@@ -49,8 +49,14 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 | Hệ sinh thái Data | `D:\TokenVector.Data\tools\datagate.ps1` | **18/18** |
 | Inference | `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` | **26/26** |
 
-**Đã đăng ký 376 builtin. Compiler gồm 126 file `.tkv`** (119 file trong
-`compiler/il_features/`) — chính compiler được viết bằng TokenVector.
+**Đã đăng ký 376 builtin.**
+
+> **Compiler thật sự là gì.** `compiler/` và `tkv*.tkv` là 126 file mang
+> tên `.tkv` nhưng **nội dung là Python**, không phải TokenVector - chính
+> `tkv_compile.tkv` nói rõ điệu này trong docstring của nó. `build_tkvc.ps1`
+> chuyển chúng thành Python rồi đóng gói bằng PyInstaller, nên **`tkvc.exe` là
+> công cụ đóng băng CPython**. Mã TokenVector thật trong repo này năm ố
+> `tests/`, `projects/`, `examples/` và `tools/`. Xem `docs/ARCHITECTURE.md`.
 
 > **Đừng tin claim nào không có cổng kiểm.** Số benchmark trong
 > `docs/ROADMAP.md` là số đo có ngày; hãy tự chạy lại bằng

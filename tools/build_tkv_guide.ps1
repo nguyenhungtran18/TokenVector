@@ -1,4 +1,4 @@
-# Build dist\tkv_guide.exe tu tools\tkv_guide.tkv.
+# Build dist\bin\tkv_guide.exe tu tools\tkv_guide.tkv.
 #
 # Chay: powershell -NoProfile -File tools\build_tkv_guide.ps1
 #
@@ -9,7 +9,9 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $src = Join-Path $root 'tools\tkv_guide.tkv'
-$out = Join-Path $root 'dist\tkv_guide.exe'
+$outDir = Join-Path $root 'dist\bin'
+if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
+$out = Join-Path $outDir 'tkv_guide.exe'
 $comp = Join-Path $root 'dist\tkvc.exe'
 
 if (-not (Test-Path $comp)) {
@@ -27,6 +29,12 @@ if (-not (Test-Path $out)) {
     Write-Error "Khong tao duoc $out"
     exit 1
 }
+# tkvc LUON ghi them mot `<out>.il` canh ben exe (khong chi khi --emit-il).
+# `dist/` la thu muc ket qua nen file do phai bi xoa, neu khong no se ton tai
+# va lai lan sau. (Gitignore `*.il` van la luoi an toan.)
+$il = [System.IO.Path]::ChangeExtension($out, '.il')
+if (Test-Path $il) { Remove-Item $il -Force }
+
 Write-Host "OK: $out"
 & $out rules --file (Join-Path $env:TEMP 'tkv_guide_rules_selftest.txt')
 exit 0

@@ -1,3 +1,12 @@
+> **Doc truoc khi tin tu "native TokenVector compiler".**
+> `compiler/` va `tkv*.tkv` la **126 file mang ten `.tkv` nhung NOI DUNG la
+> PYTHON**, khong phai TokenVector. `tkv_compile.tkv` noi ro trong docstring
+> cua no. `build_tkvc.ps1` chuyen cac file do thanh Python roi freeze bang
+> PyInstaller, nen **`dist/tkvc.exe` la cong cu dong bang CPython** - no khong
+> bao gio co the la native, vi can mot compiler dang hoat dong de bien dich
+> chinh compiler do. TokenVector THAT trong repo nam o `tests/`, `projects/`,
+> `examples/`, `tools/`.
+
 # TOKENVECTOR SYSTEM FILE & LIBRARY REGISTRY
 ### (Danh Sách Toàn Bộ Tệp Hệ Thống & Thư Viện Native TokenVector Trong Bản Phát Hành Release)
 

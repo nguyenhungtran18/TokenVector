@@ -16,12 +16,17 @@
 - **Parser** — deterministic AST with static type enforcement.
 - **CIL emitter** — plain text CIL/MSIL, mapped to .NET CTS types.
 - **`ilasm.exe`** — assembles the `.il` into a standalone `.exe`.
-- **Self-hosted** — the compiler is written in TokenVector
-  (`compiler/`, `tkv_compile.tkv`, `tkv.tkv`, 126 `.tkv`
-  files).
-  **Honest caveat:** `build_tkvc.ps1` stages those `.tkv` files as Python and
-  freezes them with PyInstaller, so *building* `tkvc.exe` needs CPython. Running
-  a compiled `.tkv` does not.
+- **Compiler source is NOT TokenVector.** `compiler/` and `tkv*.tkv` are 126
+  files whose extension is `.tkv` but whose **content is Python**.
+  `tkv_compile.tkv` states this in its own docstring: it is "a valid Python
+  program, named `.tkv` instead of `.py` to break the link with Python".
+  `build_tkvc.ps1` stages them as Python and freezes the result with
+  PyInstaller, so **`tkvc.exe` is a CPython-frozen tool, not a TokenVector
+  program** — it can never become a native standalone binary, because you would
+  need a working compiler to compile the compiler.
+  The genuinely TokenVector sources in this repo are `tests/` (148 files),
+  `projects/` (19), `examples/` (8) and `tools/` (3).
+  Do not describe the compiler as "self-hosted" or "written in TokenVector".
 
 ## 2. Strict rules — do not violate
 

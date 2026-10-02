@@ -19,6 +19,24 @@ silently swallowed every `git` command run from inside it).
 | `dist/`, `build/` | Generated. `dist/tkvc.exe` must exist to run any gate |
 | `tokenvector-grammar/` | Submodule (VS Code extension) — do not edit casually |
 
+## What the Compiler Actually Is (read before calling it "self-hosted")
+`compiler/*.tkv` and `tkv*.tkv` are **126 files named `.tkv` whose content is
+PYTHON**, not TokenVector. `tkv_compile.tkv` says so in its own docstring: it is
+"a valid Python program, named `.tkv` instead of `.py` to break the link with
+Python". `build_tkvc.ps1` therefore stages them as Python and freezes them with
+PyInstaller.
+
+**So `dist/tkvc.exe` is a CPython-frozen tool, not a TokenVector program.** It can
+never become a native standalone binary — that would need a working compiler to
+compile the compiler. Never write "the compiler is written in TokenVector" or
+"self-hosted".
+
+The genuinely TokenVector sources are `tests/` (148 files), `projects/` (19),
+`examples/` (8) and `tools/` (3). Do not edit or move anything under
+`compiler/`, `build/`, `dist/`, or the four `tkv*.tkv` drivers without a full
+gate run: their **content** is Python, so a `.tkv` extension does not mean the
+file is TokenVector.
+
 ## Environment & Identity
 - **Language**: TokenVector (`.tkv`, `.tv`).
 - **Target**: .NET Common Intermediate Language (CIL) via AOT compiler (`tkvc.exe`).

@@ -15,16 +15,20 @@ nothing else.
 ## 1. What the compiler is / Compiler là gì
 
 **EN** — TokenVector compiles `.tkv` to .NET CIL and links a standalone PE
-executable. The compiler itself is written in TokenVector
-(`compiler/`, 126 `.tkv` files), but `build_tkvc.ps1` stages those files as
-Python and freezes them with PyInstaller, so *building* `tkvc.exe` needs
-CPython while *running* a compiled program does not.
+executable.
+
+The compiler itself is **not** written in TokenVector: `compiler/` and
+`tkv*.tkv` are 126 files named `.tkv` whose **content is Python**. It is frozen
+with PyInstaller, so *building* `tkvc.exe` needs CPython while *running* a
+compiled program does not.
 
 **VI** — TokenVector biên dịch `.tkv` ra .NET CIL rồi liên kết thành tệp `.exe`
-độc lập. Compiler được viết bằng TokenVector (`compiler/`, 126 file `.tkv`), nhưng
-`build_tkvc.ps1` chuyển các file đó thành Python rồi đóng gói bằng PyInstaller —
-nên *lúc build* `tkvc.exe` cần CPython, còn *lúc chạy* chương trình đã biên dịch
-thì không.
+độc lập.
+
+Bản thân compiler **không** viết bằng TokenVector: `compiler/` và `tkv*.tkv` là
+126 file mang tên `.tkv` nhưng **nội dung là Python**. Nó được đóng gói bằng
+PyInstaller, nên *lúc build* `tkvc.exe` cần CPython, còn *lúc chạy* chương trình
+đã biên dịch thì không.
 
 ## 2. Layout / Bố cục repo
 

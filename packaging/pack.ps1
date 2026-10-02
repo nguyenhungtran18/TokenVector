@@ -1,8 +1,7 @@
 # Script tu dong dong goi TokenVector thanh file .nupkg cho NuGet.org
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
-$nugetRoot = Join-Path $root "nuget"
-$nugetCli = Join-Path $root "build\nuget.exe"
+$nugetRoot = $PSScriptRoot
+$nugetCli = Join-Path $env:TEMP "tkv_pack\nuget.exe"
 
 if (-not (Test-Path $nugetCli)) {
     Write-Host "Dang tai nuget.exe..." -ForegroundColor Cyan

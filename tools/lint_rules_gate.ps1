@@ -13,7 +13,7 @@
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root 'dist\tkv_guide.exe'
+$exe = Join-Path $root 'dist\bin\tkv_guide.exe'
 $fix = Join-Path $root 'tools\lint_fixtures'
 $tmp = Join-Path $env:TEMP 'tkv_guide_lintgate'
 $utf8 = New-Object System.Text.UTF8Encoding $false
