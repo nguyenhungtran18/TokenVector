@@ -87,6 +87,44 @@ def strings(a: "list[str]") -> "str":
     return head + "/" + tail
 
 
+# --- nguon KHAC list (2026-10-02): str / set / dict ---
+def str_iter(s: "str") -> "str":
+    """`iter("abc")` cho 'a', 'b', 'c' - dung nghia Python."""
+    it = iter(s)
+    out = ""
+    v = next(it, "")
+    while v != "":
+        out = out + v + "."
+        v = next(it, "")
+    return out
+
+
+def str_iter_empty(s: "str") -> "i32":
+    it = iter(s)
+    a = next(it, "Z")
+    return len(a)
+
+
+def set_iter() -> "i32":
+    """`iter(set)` - thu tu KHONG dinh, nen cong lai de so sanh duoc."""
+    s = {5, 6, 7}
+    it = iter(s)
+    t = 0
+    for i in range(3):
+        t = t + next(it, 0)
+    return t
+
+
+def dict_iter() -> "str":
+    """`iter(dict)` cho KHOA (khong phai gia tri) - dung nghia Python."""
+    d = {"k1": 1, "k2": 2}
+    it = iter(d)
+    a = next(it, "")
+    b = next(it, "")
+    c = next(it, "")
+    return a + "|" + b + "|" + c
+
+
 def run() -> "i32":
     total = 0
     tested = 0
@@ -115,5 +153,13 @@ def run() -> "i32":
     total = total + check("strings", strings(["k", "m", "z"]), "k/m")
     tested = tested + 1
     total = total + check("strings_default", strings([]), "/<none>")
+    tested = tested + 1
+    total = total + check("str_source", str_iter("abc"), "a.b.c.")
+    tested = tested + 1
+    total = total + check("str_source_empty", str(str_iter_empty("")), "1")
+    tested = tested + 1
+    total = total + check("set_source", str(set_iter()), "18")
+    tested = tested + 1
+    total = total + check("dict_source_keys", dict_iter(), "k1|k2|")
 
     return test_summary("iter_next_test", total, tested)

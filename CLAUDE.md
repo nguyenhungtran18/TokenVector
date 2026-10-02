@@ -129,18 +129,23 @@
   a bare name. `for v in s:` works and yields members in unspecified order.
 - **Dict literal**: `d = {"a": 1, "b": 2}` works, with the same shape limits as
   the set literal. A duplicate key keeps the **last** value.
-- **`iter()` / `next()` work (2026-10-02), list only.** `it = iter(xs)` is the
-  **only** supported position (it needs a target name to name the state after);
-  `next(iter(xs))` is a compile error. Two hidden locals per iterator, named after
-  the target variable (`__itsrc_it` holds the `List<T>` itself, `__itpos_it` the
-  `i32` cursor) — naming them by the **variable** instead of `id(node)` is the
-  whole trick, because `next(it)` only sees the name. `next(it)` raises
-  `StopIteration` at the end; `next(it, default)` returns `default` instead.
-  `default` must have the **same dtype** as the elements (no Python-style
-  promotion — one variable holds one type). `iter()` at module level is not
-  supported (the cursor is a function local). `StopIteration` and `RuntimeError`
-  are the same CLR type, so `except RuntimeError:` also catches it.
-  Full limits + the Cửa A prerequisite in `3.code/docs/REFERENCE.md` §7.12.
+- **`iter()` / `next()` work (2026-10-02).** `it = iter(xs)` is the **only**
+  supported position (it needs a target name to name the state after);
+  `next(iter(xs))` is a compile error. Sources: **list, set, frozenset, dict
+  (yields KEYS), str (yields 1-char strings)** — all normalised to `List<T>` at
+  `iter()` time, so `next()` only knows one shape. **tuple is NOT supported**
+  (ValueTuple has no indexer; use `for x in t:`). Each iterator gets hidden
+  locals named after the **target variable** (`__itsrc_it` holds the `List<T>`,
+  `__itpos_it` the `i32` cursor) — naming them by the **variable** instead of
+  `id(node)` is the whole trick, because `next(it)` only sees the name.
+  `next(it)` raises `StopIteration` at the end; `next(it, default)` returns
+  `default`. `default` must have the **same dtype** as the elements (no
+  Python-style promotion — one variable holds one type). `iter()` **cannot**
+  work at module level: module level has no variables at all (only typed
+  scalars / constants / functions), and `iter()` requires a variable name.
+  `StopIteration` and `RuntimeError` are the same CLR type, so
+  `except RuntimeError:` also catches it.
+  Full limits in `3.code/docs/REFERENCE.md` §7.12.
 - **Known gaps** (all verified by probe, not assumed):
   `yield from`, `slice()` as a callable,
   a **negative** slice step (`a[::-1]`), keyword-only and positional-only

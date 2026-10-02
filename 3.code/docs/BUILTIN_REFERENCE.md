@@ -108,7 +108,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 | `closures.tkv` | 15.795 |
 | `complex_type.tkv` | 5.606 |
 | `comprehension.tkv` | 6.711 |
-| `control_flow.tkv` | 115.719 |
+| `control_flow.tkv` | 116.347 |
 | `counter_type.tkv` | 17.988 |
 | `datetime_type.tkv` | 10.637 |
 | `defaultdict_type.tkv` | 5.437 |
@@ -134,7 +134,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 | `int_builtin.tkv` | 16.848 |
 | `int_narrow.tkv` | 11.347 |
 | `int_type.tkv` | 35.952 |
-| `iter_next.tkv` | 11.121 |
+| `iter_next.tkv` | 18.377 |
 | `kwarg_resolve.tkv` | 3.482 |
 | `list_copy.tkv` | 1.540 |
 | `list_count_index.tkv` | 7.278 |

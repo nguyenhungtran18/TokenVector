@@ -1753,3 +1753,49 @@ Suua: `close()` chon `TextReader::Close()` / `TextWriter::Close()` theo mode —
 dung y het cach `.write()`/`.read()` lam san ngay tren do. Dung `Close()` chu
 khong phai `Dispose()` vi no cung dong file + flush, nhung la method cua ca
 `TextReader` lan `TextWriter` (it mot nhanh ghep kieu so voi code hien tai).
+
+---
+
+## `iter()` nguon khac list (2026-10-02) — XONG
+
+Mot TRIZ da lam duoc: **chuan hoa moi nguon thanh `List<T>` luc `iter()` chay**,
+nen `next()` chi can biet mot hinh dang. Khong phai moi nguon deu la `List<T>` sẵn:
+
+| Nguon | Cach chuan hoa | Bai dat |
+|---|---|---|
+| `list` | giu nguyen tham chieu (thay doi giua chung van thay) | — |
+| `set`/`frozenset` | `new List<T>(HashSet<T>)` | 1 lenh, giong het `_loop_prelude` |
+| `dict` | duyet `GetEnumerator()` don `get_Key()` vao list | can 2 bien an |
+| `str` | vong lap `Substring(i,1)` don vao list | can 1 bien an chi so |
+
+**Ba bay, tat ca deu ra loi LU CHAY (build van xanh):**
+
+1. **`get_Keys()` co kieu tra ve THAT la nested class `Dictionary`2/KeyCollection`,
+   khong phai `ICollection<K>`** — khai bao sai chu ky ra `BadImageFormatException`.
+   Giu nguyen kieu `ICollection` cho toi khi doi sang `GetEnumerator()` nhu
+   `codegen_for_in_dict_items` (dict_type.tkv) — duong da duoc chung minh THAT.
+2. **`List<T>::Add` phai khai bang placeholder `!0`**, khong phai `string`. Khai
+   `Add(string)` thi ilasm nuot nhung runtime nem `MissingMethodException`.
+3. **`codegen_assign_iter` phai doc kieu cua BIEN NGUON chu khong phai cua bien
+   an.** Bien an luon la `List<T>` (do first-pass gan san) nen doc no se luon
+   ra nhanh "list" — `iter("abc")` gan con tro cua 1 CHUOI vao slot
+   `List<string>`: `get_Count()` tra so KY TU chuoi, nen vong lap dung 1 lan.
+   Triệu chứng: chay nhung in ra chuỗi rỗng, khong loi nao.
+
+Ngoai ra do la `ctx['TypeAnn']` — chi co o FIRST PASS. Pass 2 phai dung
+`type(src_ta)` de lay constructor tu chinh instance dang co (cung cach
+`_resolve_func_ta` lam trong stdlib_functional.tkv).
+
+**`tuple` KHONG ho tro** va day la dung chu, khong phai thieu code: tuple cua
+TokenVector la `ValueTuple` — value type khong co indexer, doc `t[i]` bang CIL
+khong duoc. Duyet tuple da co duong rieng: `for x in t:`.
+
+**`iter()` o CAP MODULE van khong chay — va do la dac thu, khong phai thieu ma.**
+Cap module chi nham ham/class, hang so va bien `global` co kieu vo huong; mot
+phep gan `xs = [1,2,3]` bi tu choi (*"gap Assign"*), ma `iter()` lai BAT BUOC
+nhan mot TEN bien. Khong ton tai cach nao goi duoc o cap module. Tai lieu cu
+ghi no la "gioi han con tro la bien an cap ham" — nguyen nhan THAT nam o khai
+bao cap module, dung ghi lai de khong ai dinh sua nham.
+
+Negative test `iter_on_string.tkv` (vu khi la bang chung) da doi thanh
+`iter_on_tuple.tkv`.

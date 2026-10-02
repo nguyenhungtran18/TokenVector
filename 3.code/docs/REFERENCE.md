@@ -75,7 +75,7 @@ Cong them **5 ham xu ly TRUC TIEP** khong qua bang dang ky: `print`, `len`,
 | `product(xs)` | Tích lũy nhân các phần tử |
 | `most_common(d)` | Cặp `(khóa, số lần)` phổ biến nhất |
 | `argmax(xs)` | Chỉ số phần tử lớn nhất |
-| `iter(xs)` / `next(it[, default])` | Con trỏ tiến qua `list` — xem 7.12 (chỉ `list`) |
+| `iter(xs)` / `next(it[, default])` | Con trỏ tiến qua `list`/`set`/`dict`/`str` — xem 7.12 |
 
 > **`key=` dùng được** (2026-10-02) cho `min`/`max`/`sum`/`sorted`, và
 > `reverse=` cho `sorted`. Xem mục 7.14.
@@ -377,7 +377,7 @@ tiên kiểu `str` làm thông điệp.
 | Khác | `slice()`, `breakpoint()`, `exit()`, `quit()`, `help()`, `eval()`, `exec()`, `compile()`, `super()`, `property()`, `globals()`, `locals()`, `vars()` |
 
 Đã thêm 2026-09-30: `callable()`, `dir()`, `id()`, `hash()`, `ascii()`.
-Đã thêm 2026-10-02: `iter()`, `next()` (chỉ cho `list` — xem 7.12).
+Đã thêm 2026-10-02: `iter()`, `next()` (nguồn: list/set/dict/str — xem 7.12).
 `delattr()` **cố ý báo lỗi biên dịch** (xem 7.10).
 
 ### 5.3 Constructor container: thiếu một nửa
@@ -672,7 +672,7 @@ path_write_text("t.txt", "hello")
 nạp hết vào RAM, còn `with open(...)` đọc dòng bằng `StreamReader`. Với file
 nhỏ, `path_read_text` gọn hơn nhiều.
 
-### 7.12 `iter()` / `next()` — **ĐÃ CÓ** (2026-10-02), chỉ cho `list`
+### 7.12 `iter()` / `next()` — **ĐÃ CÓ** (2026-10-02)
 
 ```tokenvector
 xs = [10, 20, 30]
@@ -704,18 +704,46 @@ Biến `it` tự nó là **một local `i32`** làm "token" — đọc nó khôn
 `iter()` đã biên dịch xong. Nếu đặt theo `id(node)` thì `next()` không tìm ra
 con trỏ nào.
 
-`__itsrc_it` giữ **cùng một tham chiếu `List<T>`** với nguồn, nên `xs.append(...)`
-giữa chừng vẫn được thấy (giống Python). `a = iter(xs)` và `b = iter(xs)` cho hai
-con trỏ độc lập.
+Với nguồn là `list`, `__itsrc_it` giữ **cùng một tham chiếu `List<T>`** với
+nguồn, nên `xs.append(...)` giữa chừng vẫn được thấy (giống Python). `a = iter(xs)`
+và `b = iter(xs)` cho hai con trỏ độc lập.
 
-#### Giới hạn — đã probe, không suy đoán
+#### Nguồn nào được nhận (2026-10-02)
+
+Mọi nguồn đều được **chuẩn hoá thành `List<T>`** lúc `iter()` chạy, nên `next()`
+chỉ phải biết một hình dạng duy nhất:
+
+| Nguồn | `next(it)` trả về | Cách chuẩn hoá |
+|---|---|---|
+| `list` | phần tử | giữ nguyên tham chiếu (thấy cả thay đổi giữa chừng) |
+| `set` / `frozenset` | phần tử, **thứ tự không định** | `new List<T>(HashSet<T>)` — 1 lệnh |
+| `dict` | **KHÓA** (đúng nghĩa Python) | duyệt `GetEnumerator()` dồn `get_Key()` vào list |
+| `str` | **chuỗi 1 ký tự** | vòng lặp `Substring(i, 1)` dồn vào list |
+| `tuple` | — | **không hỗ trợ** |
+
+`iter("abc")` cho `'a'`, `'b'`, `'c'`; `iter({"a":1})` cho `'a'` — không phải giá
+trị.
+
+**Vì sao `tuple` không hỗ trợ:** tuple của TokenVector là `ValueTuple` — một
+**value type không có indexer**, đọc `t[i]` bằng CIL không được. Duyệt tuple đã có
+đường riêng: `for x in t:` (đã hỗ trợ).
+
+#### Vì sao `iter()` không chạy được ở cấp module
+
+Không phải thiếu mã — **cấp module của TokenVector không có biến nào**:
+`tkv_compile` chỉ nhận hàm/class, hằng số, và biến `global` có kiểu vô hướng
+(`counter: "i32" = 0`); một phép gán `xs = [1, 2, 3]` ở cấp module bị từ chối
+(*"gap Assign o dong N"*). Mà `iter()` lại **bắt buộc** nhận một *tên biến* (để
+đặt tên biến ẩn theo) — nên ở cấp module không tồn tại cách nào gọi được nó.
+Dùng trong hàm là cách duy nhất.
+
+#### Giới hạn còn lại — đã probe, không suy đoán
 
 | Trường hợp | Kết quả |
 |---|---|
 | `iter()` chỉ ở **vị trí gán** `it = iter(<tên biến>)` | `next(iter(xs))` → lỗi biên dịch rõ (xem `Testkit/negative/iter_in_expression.tkv`) |
-| Nguồn **chỉ là `list`** | `iter("abc")`, `iter(d)` (dict/set) → lỗi biên dịch rõ |
+| Nguồn là `tuple` | lỗi biên dịch rõ (xem `iter_on_tuple.tkv`) |
 | `default` **phải cùng dtype** với phần tử | `next(list[i32], "")` → lỗi biên dịch. Python tự nâng rộng kiểu; TokenVector không (một biến chỉ giữ một kiểu, và 2 nhánh của một biểu thức phải cùng kiểu) |
-| Con trỏ là **biến ẩn cấp hàm** | `iter()` ở **cấp module** chưa hỗ trợ |
 | Không chia sẻ qua `copy`/truyền hàm | `next` chỉ nhận **tên biến** |
 | `StopIteration` **cùng loại với `RuntimeError`** | cả hai ánh xạ `[mscorlib]System.InvalidOperationException`, nên `except RuntimeError:` sẽ **bắt** phải `StopIteration`. Muốn phân biệt "hết dữ liệu" thì dùng `next(it, default)` |
 
