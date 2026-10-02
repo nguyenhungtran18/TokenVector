@@ -1,0 +1,64 @@
+"""Batch Wave 3: range(start,stop,step) + toan tu **/// + chained
+compare + any()/all() + f-string format spec + list.remove() (xac nhan
+bug that vua sua, xem il_core.py's rename_reserved_identifiers)."""
+
+
+def sum_range_step() -> "i32":
+    total = 0
+    for i in range(0, 10, 2):
+        total = total + i
+    return total
+
+
+def sum_range_neg_step() -> "i32":
+    total = 0
+    for i in range(10, 0, -1):
+        total = total + i
+    return total
+
+
+def power(x: "i32", y: "i32") -> "f64":
+    r = x ** y
+    return r
+
+
+def floor_div(a: "i32", b: "i32") -> "i32":
+    r = a // b
+    return r
+
+
+def in_range_chain(x: "i32", lo: "i32", hi: "i32") -> "i32":
+    if lo <= x <= hi:
+        return 1
+    return 0
+
+
+def any_positive() -> "i32":
+    lst = []
+    lst.append(-1)
+    lst.append(-2)
+    lst.append(3)
+    r = any(lst)
+    return r
+
+
+def all_positive() -> "i32":
+    lst = []
+    lst.append(1)
+    lst.append(2)
+    lst.append(-3)
+    r = all(lst)
+    return r
+
+
+def format_price(price: "f64") -> "str":
+    return f"Gia: {price:.2f} dong"
+
+
+def remove_from_list() -> "i32":
+    lst = []
+    lst.append(1)
+    lst.append(2)
+    lst.append(3)
+    lst.remove(2)
+    return lst[0] * 10 + lst[1]

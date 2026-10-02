@@ -1,0 +1,8 @@
+tests_suite\de_vao\sample_tuple.tkv	use_pair	0	102	17.0\n
+tests_suite\de_vao\sample_tuple.tkv	use_pair	0	93	15.0\n
+tests_suite\de_vao\sample_tuple.tkv	use_pair	0	05	5.0\n
+tests_suite\de_vao\sample_tuple.tkv	use_pair	0	10010	120.0\n
+tests_suite\de_vao\sample_tuple.tkv	swap_test	0	102	-8\n
+tests_suite\de_vao\sample_tuple.tkv	swap_test	0	00	0\n
+tests_suite\de_vao\sample_tuple.tkv	swap_test	0	-53	8\n
+tests_suite\de_vao\sample_tuple.tkv	swap_test	0	77	0\n

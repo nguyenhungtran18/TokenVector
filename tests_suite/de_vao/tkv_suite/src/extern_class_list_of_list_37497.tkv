@@ -1,0 +1,10 @@
+
+def total(xs: "list[int]") -> "int":
+    s = 0
+    for v in xs:
+        s = s + v
+    return s
+
+def main() -> "i32":
+    print(str(total([3, 4])))
+    return 0

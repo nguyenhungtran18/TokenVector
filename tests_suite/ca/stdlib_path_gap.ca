@@ -1,0 +1,4 @@
+tests_suite\de_vao\sample_stdlib_path_gap.tkv	compute_abspath	0	a/b	D:\\Claude AI Project\\TokenVector\\a\\b\n
+tests_suite\de_vao\sample_stdlib_path_gap.tkv	compute_abspath	0	a/./b/../c	D:\\Claude AI Project\\TokenVector\\a\\c\n
+tests_suite\de_vao\sample_stdlib_path_gap.tkv	compute_abspath	0	.	D:\\Claude AI Project\\TokenVector\n
+tests_suite\de_vao\sample_stdlib_path_gap.tkv	compute_abspath	0	x	D:\\Claude AI Project\\TokenVector\\x\n

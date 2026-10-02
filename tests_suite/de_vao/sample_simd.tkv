@@ -1,0 +1,98 @@
+"""SIMD (2026-09-30): simd_dot/sum/max/min/add/sub/mul/scale/axpy tren mang f32/f64/i32/i64 qua System.Numerics.Vector<T>.
+np.zeros(n) lay kieu phan tu theo kieu tra ve cua ham, nen moi ham tinh toan tra dung kieu phan tu."""
+import numpy as np
+
+
+def tinh_f32(n: "i32", k: "i32") -> "f32":
+    a = np.zeros(37, dtype=np.float32)
+    b = np.zeros(37, dtype=np.float32)
+    o = np.zeros(37, dtype=np.float32)
+    i = 0
+    while i < 37:
+        a[i] = float(i + n)
+        b[i] = float(2 * i - n)
+        i += 1
+    if k == 0:
+        simd_add(a, b, o)
+        return simd_sum(o)
+    if k == 1:
+        simd_sub(a, b, o)
+        return simd_sum(o)
+    if k == 2:
+        simd_mul(a, b, o)
+        return simd_sum(o)
+    if k == 3:
+        return simd_dot(a, b)
+    if k == 4:
+        simd_scale(a, 0.5, o)
+        return simd_sum(o)
+    if k == 5:
+        simd_axpy(2.0, a, b)
+        return simd_sum(b)
+    if k == 6:
+        return simd_max(a)
+    return simd_min(b)
+
+
+def tinh_i32(n: "i32", k: "i32") -> "i32":
+    a = np.zeros(21, dtype=np.int32)
+    b = np.zeros(21, dtype=np.int32)
+    o = np.zeros(21, dtype=np.int32)
+    i = 0
+    while i < 21:
+        a[i] = i * 3 - n
+        b[i] = 7 - i
+        i += 1
+    if k == 0:
+        return simd_dot(a, b)
+    if k == 1:
+        simd_mul(a, b, o)
+        return simd_sum(o)
+    if k == 2:
+        return simd_max(a)
+    return simd_min(b)
+
+
+def tinh_f64(n: "i32", k: "i32") -> "f64":
+    a = np.zeros(19, dtype=np.float64)
+    b = np.zeros(19, dtype=np.float64)
+    i = 0
+    while i < 19:
+        a[i] = float(i) * 0.25 + float(n)
+        b[i] = 1.0 / float(i + 1)
+        i += 1
+    if k == 0:
+        return simd_dot(a, b)
+    if k == 1:
+        return simd_sum(a)
+    if k == 2:
+        return simd_max(b)
+    return simd_min(b)
+
+
+def run_f32(n: "i32") -> "str":
+    r = ""
+    for k in range(8):
+        r = r + str(tinh_f32(n, k)) + "|"
+    return r
+
+
+def run_i32(n: "i32") -> "str":
+    r = ""
+    for k in range(4):
+        r = r + str(tinh_i32(n, k)) + "|"
+    return r
+
+
+def run_f64(n: "i32") -> "str":
+    r = ""
+    for k in range(4):
+        r = r + str(tinh_f64(n, k)) + "|"
+    return r
+
+
+def run_hw(n: "i32") -> "str":
+    ok = 1 if simd_lanes_f32() >= 1 else 0
+    ok2 = 1 if simd_lanes_f64() >= 1 else 0
+    ok3 = 1 if simd_hw() else 0
+    return str(ok) + str(ok2) + "|" + str(simd_lanes_f32()) + "|" + str(ok3 + 1) + "|" + str(simd_isa())

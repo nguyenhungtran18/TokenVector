@@ -1,0 +1,8 @@
+
+def make() -> "dict[str, list[i32]]":
+    d = {}
+    return d
+
+def main() -> "i32":
+    m = make()
+    return len(m)

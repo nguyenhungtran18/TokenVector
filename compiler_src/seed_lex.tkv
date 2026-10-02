@@ -1,0 +1,692 @@
+# seed_lex.tkv - bo tach tu cua trinh bien dich hat giong
+# Toan bo trang thai nam o list cap module, phan tu VO HUONG (str / i32).
+# Khong dict, khong record, khong ngoai le - xem tools/hat_giong/cong_cu_phap.py
+
+TOK_KIND: "list[str]" = []
+TOK_VAL: "list[str]" = []
+TOK_DONG: "list[i32]" = []
+TOK_N: "i32" = 0
+
+# Ngan xep thut dau dong
+LEX_THUT: "list[i32]" = []
+LEX_SAU: "i32" = 0
+TRONG_DOC: "i32" = 0
+SAU_NGOAC: "i32" = 0
+NOI_DONG: "i32" = 0
+MO_STR: "i32" = 0
+NHAY_STR: "str" = ""
+TICH_STR: "str" = ""
+THO_STR: "i32" = 0
+F_STR: "i32" = 0
+TIEN_TO: "str" = ""
+SAU_CHUOI: "i32" = 0
+
+LEX_LOI: "list[str]" = []
+LOI_N: "i32" = 0
+
+
+def lex_bao_loi(thong_diep: "str", dong: "i32") -> "i32":
+    global LEX_LOI
+    global LOI_N
+    if LOI_N == len(LEX_LOI):
+        LEX_LOI.append("dong " + str(dong) + ": " + thong_diep)
+    else:
+        LEX_LOI[LOI_N] = "dong " + str(dong) + ": " + thong_diep
+    LOI_N = LOI_N + 1
+    return 0
+
+
+def lex_so_loi() -> "i32":
+    global LOI_N
+    return LOI_N
+
+
+def lex_loi(i: "i32") -> "str":
+    global LEX_LOI
+    return LEX_LOI[i]
+
+
+def la_chu(ch: "str") -> "i32":
+    if ch >= "a" and ch <= "z":
+        return 1
+    if ch >= "A" and ch <= "Z":
+        return 1
+    if ch == "_":
+        return 1
+    return 0
+
+
+def la_so(ch: "str") -> "i32":
+    if ch >= "0" and ch <= "9":
+        return 1
+    return 0
+
+
+def la_tien_to_chuoi(tu: "str") -> "i32":
+    if tu == "r":
+        return 1
+    if tu == "b":
+        return 1
+    if tu == "f":
+        return 1
+    return 0
+
+
+def la_chu_so(ch: "str") -> "i32":
+    if la_chu(ch) == 1:
+        return 1
+    if la_so(ch) == 1:
+        return 1
+    return 0
+
+
+# Giai ma mot ky tu sau dau \ trong chuoi nguon.
+def giai_thoat(c: "str") -> "str":
+    if c == "n":
+        return "\n"
+    if c == "t":
+        return "\t"
+    if c == "r":
+        return "\r"
+    # `\0` la ky tu NUL (2026-09-24) - truoc day tra chuoi RONG, nen bang giai
+    # thoat cua chinh trinh bien dich ('0': '\0') bi dich thanh '' va ban tu-host
+    # giai ma sai "\0" trong chuong trinh nguoi dung - AM THAM.
+    if c == "0":
+        return chr(0)
+    return c
+
+
+def them_tok(kind: "str", val: "str", dong: "i32") -> "i32":
+    global SAU_CHUOI
+    global TOK_KIND
+    global TOK_VAL
+    global TOK_DONG
+    global TOK_N
+    if TOK_N == len(TOK_KIND):
+        TOK_KIND.append(kind)
+        TOK_VAL.append(val)
+        TOK_DONG.append(dong)
+    else:
+        TOK_KIND[TOK_N] = kind
+        TOK_VAL[TOK_N] = val
+        TOK_DONG[TOK_N] = dong
+    TOK_N = TOK_N + 1
+    if kind == "STR":
+        SAU_CHUOI = 1
+    else:
+        SAU_CHUOI = 0
+    return TOK_N - 1
+
+
+def tok_so_luong() -> "i32":
+    global TOK_N
+    return TOK_N
+
+
+def tok_kind(i: "i32") -> "str":
+    global TOK_KIND
+    global TOK_N
+    if i < 0:
+        return "EOF"
+    if i >= TOK_N:
+        return "EOF"
+    return TOK_KIND[i]
+
+
+def tok_val(i: "i32") -> "str":
+    global TOK_VAL
+    global TOK_N
+    if i < 0:
+        return ""
+    if i >= TOK_N:
+        return ""
+    return TOK_VAL[i]
+
+
+def dat_tok_val(i: "i32", gia_tri: "str") -> "i32":
+    global TOK_VAL
+    TOK_VAL[i] = gia_tri
+    return 1
+
+
+def tok_dong(i: "i32") -> "i32":
+    global TOK_DONG
+    global TOK_N
+    if i < 0:
+        return 0
+    if i >= TOK_N:
+        return 0
+    return TOK_DONG[i]
+
+
+def lex_dat_lai() -> "i32":
+    global LEX_THUT
+    global LEX_SAU
+    global TOK_N
+    global LOI_N
+    TOK_N = 0
+    LOI_N = 0
+    if len(LEX_THUT) == 0:
+        LEX_THUT.append(0)
+    else:
+        LEX_THUT[0] = 0
+    LEX_SAU = 1
+    return 0
+
+
+# Toan tu hai ky tu duoc thu TRUOC toan tu mot ky tu.
+def toan_tu_hai(a: "str", b: "str") -> "i32":
+    if a == "-" and b == ">":
+        return 1
+    if a == "=" and b == "=":
+        return 1
+    if a == "!" and b == "=":
+        return 1
+    if a == "<" and b == "=":
+        return 1
+    if a == ">" and b == "=":
+        return 1
+    if a == "/" and b == "/":
+        return 1
+    if a == "*" and b == "*":
+        return 1
+    if a == "+" and b == "=":
+        return 1
+    if a == "-" and b == "=":
+        return 1
+    return 0
+
+
+def toan_tu_mot(ch: "str") -> "i32":
+    if ch == "(":
+        return 1
+    if ch == ")":
+        return 1
+    if ch == "[":
+        return 1
+    if ch == "]":
+        return 1
+    if ch == ":":
+        return 1
+    if ch == ",":
+        return 1
+    if ch == "+":
+        return 1
+    if ch == "-":
+        return 1
+    if ch == "*":
+        return 1
+    if ch == "/":
+        return 1
+    if ch == "%":
+        return 1
+    if ch == "<":
+        return 1
+    if ch == ">":
+        return 1
+    if ch == "=":
+        return 1
+    if ch == ".":
+        return 1
+    if ch == "{":
+        return 1
+    if ch == "}":
+        return 1
+    if ch == "@":
+        return 1
+    if ch == "|":
+        return 1
+    if ch == "&":
+        return 1
+    if ch == "^":
+        return 1
+    return 0
+
+
+# Dem so khoang trang dau dong. Tab bi tu choi thang - hat giong khong dung tab.
+def dem_thut(dong_van: "str", dong_so: "i32") -> "i32":
+    n = len(dong_van)
+    i = 0
+    while i < n:
+        ch = dong_van[i]
+        if ch == " ":
+            i = i + 1
+        else:
+            if ch == "\t":
+                lex_bao_loi("khong dung tab de thut - dung 4 khoang trang", dong_so)
+                return i
+            else:
+                return i
+    return i
+
+
+# Dong chi co khoang trang hoac chi co chu thich thi khong sinh token nao.
+def dong_rong(dong_van: "str", tu: "i32") -> "i32":
+    n = len(dong_van)
+    if tu >= n:
+        return 1
+    if dong_van[tu] == "#":
+        return 1
+    return 0
+
+
+# Ngan xep khong co pop: dung mang + con tro dinh LEX_SAU.
+def thut_day(muc: "i32") -> "i32":
+    global LEX_THUT
+    global LEX_SAU
+    if LEX_SAU == len(LEX_THUT):
+        LEX_THUT.append(muc)
+    else:
+        LEX_THUT[LEX_SAU] = muc
+    LEX_SAU = LEX_SAU + 1
+    return LEX_SAU
+
+
+def thut_dinh() -> "i32":
+    global LEX_THUT
+    global LEX_SAU
+    return LEX_THUT[LEX_SAU - 1]
+
+
+def xu_ly_thut(muc: "i32", dong_so: "i32") -> "i32":
+    global LEX_SAU
+    dinh = thut_dinh()
+    if muc > dinh:
+        thut_day(muc)
+        them_tok("IND", "", dong_so)
+        return 1
+    while muc < dinh:
+        LEX_SAU = LEX_SAU - 1
+        them_tok("DED", "", dong_so)
+        dinh = thut_dinh()
+    if muc != dinh:
+        lex_bao_loi("muc thut khong khop bat ky muc nao dang mo", dong_so)
+        return 0
+    return 1
+
+
+def la_nhay(ch: "str") -> "i32":
+    if ch == "\"":
+        return 1
+    if ch == "'":
+        return 1
+    return 0
+
+
+# Ba ky tu nhay GIONG NHAU tai vi tri i.
+def nhay_ba_tai(dong_van: "str", i: "i32") -> "i32":
+    if i + 3 > len(dong_van):
+        return 0
+    ch = dong_van[i]
+    if la_nhay(ch) == 0:
+        return 0
+    if dong_van[i + 1] != ch:
+        return 0
+    if dong_van[i + 2] != ch:
+        return 0
+    return 1
+
+
+# Tim ba nhay LOAI 'nhay' tu vi tri tu; -1 neu khong co.
+def tim_nhay_ba(dong_van: "str", tu: "i32", nhay: "str") -> "i32":
+    n = len(dong_van)
+    i = tu
+    while i + 3 <= n:
+        if dong_van[i] == nhay and dong_van[i + 1] == nhay and dong_van[i + 2] == nhay:
+            return i
+        i = i + 1
+    return -1
+
+
+# Tim BA NHAY KEP tu vi tri 'tu'; tra -1 neu khong co.
+def tim_ba_nhay(dong_van: "str", tu: "i32") -> "i32":
+    n = len(dong_van)
+    i = tu
+    # PHAI la i + 3 <= n: lat cat Python tu cat gon, Substring cua .NET NEM.
+    while i + 3 <= n:
+        if dong_van[i:i + 3] == "\"\"\"":
+            return i
+        i = i + 1
+    return -1
+
+
+# Hai chuoi lien nhau ('a' 'b', hoac hai f-string tren hai dong trong cung
+# mot cap ngoac) la PHEP NOI ngam trong Python. Chen dau '+' o day thay vi
+# de tang phan tich doan.
+def noi_ngam(dong_so: "i32") -> "i32":
+    global SAU_CHUOI
+    if SAU_CHUOI == 1:
+        them_tok("OP", "+", dong_so)
+        return 1
+    return 0
+
+
+# Hai chuoi THUONG lien nhau la MOT hang chuoi duy nhat trong Python: phep
+# noi xay ra luc phan tich, TRUOC moi toan tu ke ca '%'. Chen '+' nhu
+# noi_ngam lam '"a %s" "b" % (x,)' thanh '"a %s" + ("b" % (x,))' - dinh
+# dang bam vao manh CUOI, sai am tham. Nen o day GOP thang vao the truoc.
+# Rieng sau mot f-string (da bung thanh bieu thuc, the cuoi la ')') thi
+# van phai dung '+'.
+def them_str_gop(val: "str", dong_so: "i32") -> "i32":
+    global TOK_VAL
+    if SAU_CHUOI == 1:
+        if TOK_KIND[TOK_N - 1] == "STR":
+            TOK_VAL[TOK_N - 1] = TOK_VAL[TOK_N - 1] + val
+            return 1
+        them_tok("OP", "+", dong_so)
+    them_tok("STR", val, dong_so)
+    return 1
+
+
+# f-string KHONG duoc coi nhu chuoi thuong: du an da tung dich
+# f"{o.truong}" thanh chuoi literal - SAI AM THAM, 558 cho.
+# Bung NGAY TAI TANG TACH TU thanh bieu thuc noi chuoi; phan trong ngoac
+# nhon duoc tach tu DE QUY bang chinh tach_than_dong.
+# Phan VAN BAN cua f-string: '{{' / '}}' la dau ngoac nhon THAT (2026-09-25) -
+# truoc day giu nguyen doi, 'f".assembly X {{}}"' ra '{{}}' va ilasm tu choi.
+def bo_ngoac_doi(v: "str") -> "str":
+    return v.replace("{{", "{").replace("}}", "}")
+
+
+def phat_fstring(noi_dung: "str", dong_so: "i32") -> "i32":
+    global SAU_CHUOI
+    noi_ngam(dong_so)
+    them_tok("OP", "(", dong_so)
+    n = len(noi_dung)
+    i = 0
+    dau = 0
+    da_co = 0
+    while i < n:
+        if noi_dung[i] == "{" and i + 1 < n and noi_dung[i + 1] == "{":
+            i = i + 2
+        else:
+            if noi_dung[i] == "{":
+                if da_co == 1:
+                    them_tok("OP", "+", dong_so)
+                them_tok("STR", bo_ngoac_doi(noi_dung[dau:i]), dong_so)
+                them_tok("OP", "+", dong_so)
+                da_co = 1
+                i = i + 1
+                mo = i
+                sau = 0
+                cat = 0 - 1
+                chuyen = "s"
+                while i < n:
+                    c = noi_dung[i]
+                    if c == "(" or c == "[" or c == "{":
+                        sau = sau + 1
+                    if c == ")" or c == "]":
+                        sau = sau - 1
+                    if c == "}":
+                        if sau == 0:
+                            break
+                        sau = sau - 1
+                    if sau == 0 and cat < 0:
+                        # CHI cat khi that su la '!r}' / '!s}' - '!=' trong
+                        # bieu thuc khong duoc coi la chuyen doi. Dau ':' cung
+                        # vay: chi cat khi ngay sau la ky tu dinh dang roi '}'.
+                        if c == "!" and i + 2 < n:
+                            c3 = noi_dung[i + 1]
+                            if noi_dung[i + 2] == "}":
+                                if c3 == "r" or c3 == "s" or c3 == "a":
+                                    cat = i
+                                    chuyen = c3
+                    i = i + 1
+                het = i
+                if cat >= 0:
+                    het = cat
+                # `!r`/`!a` la REPR, khong phai str (2026-09-24): truoc day ca ba
+                # deu thanh str() - f"{x!r}" in 'ab' thay vi "'ab'" - DICH SACH,
+                # IN SAI (G0). Nay phat `repr(...)`: hat giong chua co repr nen
+                # BAO LOI ro rang, giong trinh that, thay vi sai am tham.
+                if chuyen == "s":
+                    them_tok("NAME", "str", dong_so)
+                else:
+                    them_tok("NAME", "repr", dong_so)
+                them_tok("OP", "(", dong_so)
+                tach_than_dong(noi_dung[mo:het], 0, dong_so)
+                them_tok("OP", ")", dong_so)
+                i = i + 1
+                dau = i
+            else:
+                i = i + 1
+    if da_co == 1:
+        them_tok("OP", "+", dong_so)
+    them_tok("STR", bo_ngoac_doi(noi_dung[dau:n]), dong_so)
+    them_tok("OP", ")", dong_so)
+    SAU_CHUOI = 1
+    return 1
+
+
+# Tach mot dong da bo phan thut. Tra ve 1 neu khong loi.
+def tach_than_dong(dong_van: "str", tu: "i32", dong_so: "i32") -> "i32":
+    global TIEN_TO
+    global F_STR
+    global MO_STR
+    global NHAY_STR
+    global THO_STR
+    global TICH_STR
+    global SAU_NGOAC
+    n = len(dong_van)
+    i = tu
+    while i < n:
+        ch = dong_van[i]
+        if ch == " ":
+            i = i + 1
+        else:
+            if ch == "#":
+                return 1
+            else:
+                if la_chu(ch) == 1:
+                    dau = i
+                    while i < n:
+                        if la_chu_so(dong_van[i]) == 1:
+                            i = i + 1
+                        else:
+                            break
+                    # TEN RIENG, khong dung lai tham so `tu`. `tu` khai la
+                    # "i32" (chi so bat dau), nen gan mot CHUOI vao no sinh
+                    # `starg.s 1` cat mot tham chieu vao o int32: con tro bi
+                    # CAT CUT 32 bit, roi `TIEN_TO = tu` cam no vao mot
+                    # truong tinh ma GC co theo doi. GC lan theo con tro rac
+                    # -> AccessViolation KHONG TAT DINH (xem ghi chu commit).
+                    tu_van = dong_van[dau:i]
+                    tien_to = 0
+                    if i < n:
+                        if la_nhay(dong_van[i]) == 1:
+                            tien_to = la_tien_to_chuoi(tu_van)
+                    if tien_to == 1:
+                        # Tien to chuoi: khong sinh NAME, chi GHI LAI tien to.
+                        TIEN_TO = tu_van
+                    else:
+                        them_tok("NAME", tu_van, dong_so)
+                else:
+                    if la_so(ch) == 1:
+                        dau = i
+                        while i < n:
+                            if la_so(dong_van[i]) == 1:
+                                i = i + 1
+                            else:
+                                break
+                        # SO THUC: '.' chi thuoc ve so khi NGAY SAU no la chu
+                        # so - '1.bit_length()' van phai la truy cap thuoc
+                        # tinh. Sau do moi den phan mu.
+                        if i + 1 < n:
+                            if dong_van[i] == "." and la_so(dong_van[i + 1]) == 1:
+                                i = i + 1
+                                while i < n:
+                                    if la_so(dong_van[i]) == 1:
+                                        i = i + 1
+                                    else:
+                                        break
+                        if i < n:
+                            if dong_van[i] == "e" or dong_van[i] == "E":
+                                j = i + 1
+                                if j < n:
+                                    if dong_van[j] == "+" or dong_van[j] == "-":
+                                        j = j + 1
+                                if j < n:
+                                    if la_so(dong_van[j]) == 1:
+                                        i = j
+                                        while i < n:
+                                            if la_so(dong_van[i]) == 1:
+                                                i = i + 1
+                                            else:
+                                                break
+                        them_tok("NUM", dong_van[dau:i], dong_so)
+                    else:
+                        if nhay_ba_tai(dong_van, i) == 1:
+                            nhay = ch
+                            ket = tim_nhay_ba(dong_van, i + 3, nhay)
+                            if ket >= 0:
+                                them_str_gop(dong_van[i + 3:ket], dong_so)
+                                THO_STR = 0
+                                i = ket + 3
+                            else:
+                                MO_STR = 1
+                                NHAY_STR = nhay
+                                TICH_STR = dong_van[i + 3:n]
+                                return 1
+                        else:
+                            if ch == "\"" or ch == "'":
+                                nhay = ch
+                                i = i + 1
+                                noi_dung = ""
+                                dong_kin = 0
+                                while i < n:
+                                    c2 = dong_van[i]
+                                    if c2 == nhay:
+                                        dong_kin = 1
+                                        break
+                                    else:
+                                        if c2 == "\\" and i + 1 < n:
+                                            if TIEN_TO == "r":
+                                                # Chuoi THO: giu ca hai ky tu, NHUNG dau gach cheo
+                                                # VAN che dau nhay ke tiep - Python cung the.
+                                                noi_dung = noi_dung + c2 + dong_van[i + 1]
+                                            else:
+                                                noi_dung = noi_dung + giai_thoat(dong_van[i + 1])
+                                            i = i + 2
+                                        else:
+                                            noi_dung = noi_dung + c2
+                                            i = i + 1
+                                if dong_kin == 0:
+                                    SAU_NGOAC = 0
+                                    lex_bao_loi("chuoi khong duoc dong", dong_so)
+                                    return 0
+                                if TIEN_TO == "f":
+                                    TIEN_TO = ""
+                                    phat_fstring(noi_dung, dong_so)
+                                else:
+                                    TIEN_TO = ""
+                                    them_str_gop(noi_dung, dong_so)
+                                i = i + 1
+                            else:
+                                if i + 1 < n and toan_tu_hai(ch, dong_van[i + 1]) == 1:
+                                    them_tok("OP", dong_van[i:i + 2], dong_so)
+                                    i = i + 2
+                                else:
+                                    if toan_tu_mot(ch) == 1:
+                                        if ch == "(" or ch == "[" or ch == "{":
+                                            SAU_NGOAC = SAU_NGOAC + 1
+                                        if ch == ")" or ch == "]" or ch == "}":
+                                            SAU_NGOAC = SAU_NGOAC - 1
+                                        them_tok("OP", ch, dong_so)
+                                        i = i + 1
+                                    else:
+                                        # Thoat giua dong thi do sau ngoac khong con
+                                        # dang tin: dat lai, neu khong ca phan con lai
+                                        # cua file bi nuot vao mot dong logic.
+                                        SAU_NGOAC = 0
+                                        lex_bao_loi("ky tu la: " + ch, dong_so)
+                                        return 0
+    return 1
+
+
+# Tach nguon thanh tung dong bang chi so + lat cat (khong dung split).
+def tokenize_nguon(src: "str") -> "i32":
+    global THO_STR
+    global MO_STR
+    global NHAY_STR
+    global TICH_STR
+    global NOI_DONG
+    global TRONG_DOC
+    global SAU_NGOAC
+    lex_dat_lai()
+    SAU_NGOAC = 0
+    NOI_DONG = 0
+    MO_STR = 0
+    THO_STR = 0
+    n = len(src)
+    dau = 0
+    i = 0
+    dong_so = 1
+    while i <= n:
+        ket = 0
+        if i == n:
+            ket = 1
+        else:
+            if src[i] == "\n":
+                ket = 1
+        if ket == 1:
+            dong_van = src[dau:i]
+            if len(dong_van) > 0 and dong_van[len(dong_van) - 1] == "\r":
+                dong_van = dong_van[0:len(dong_van) - 1]
+            if MO_STR == 1:
+                # Dang giua mot chuoi ba nhay: gom tiep cho toi dau dong.
+                ket = tim_nhay_ba(dong_van, 0, NHAY_STR)
+                if ket >= 0:
+                    them_tok("STR", TICH_STR + "\n" + dong_van[0:ket], dong_so)
+                    MO_STR = 0
+                    THO_STR = 0
+                    if tach_than_dong(dong_van, ket + 3, dong_so) == 1:
+                        if SAU_NGOAC == 0:
+                            them_tok("NL", "", dong_so)
+                else:
+                    TICH_STR = TICH_STR + "\n" + dong_van
+            else:
+                if SAU_NGOAC > 0 or NOI_DONG == 1:
+                    NOI_DONG = 0
+                    # Dang giua mot DONG LOGIC (ngoac chua dong): noi thang vao,
+                    # khong tinh thut, khong sinh NL.
+                    # Dau \\ o cuoi VAN phai duoc hieu o day - thieu cho nay
+                    # thi dau \\ bi doc nhu mot ky tu la.
+                    if len(dong_van) > 0 and dong_van[len(dong_van) - 1] == "\\":
+                        tach_than_dong(dong_van[0:len(dong_van) - 1], 0, dong_so)
+                        NOI_DONG = 1
+                        dong_so = dong_so + 1
+                        dau = i + 1
+                        i = i + 1
+                        continue
+                    tach_than_dong(dong_van, 0, dong_so)
+                    if SAU_NGOAC == 0 and MO_STR == 0:
+                        them_tok("NL", "", dong_so)
+                    dong_so = dong_so + 1
+                    dau = i + 1
+                    i = i + 1
+                    continue
+                muc = dem_thut(dong_van, dong_so)
+                if len(dong_van) > 0 and dong_van[len(dong_van) - 1] == "\\":
+                    # Noi dong tuong minh. VAN phai xu ly THUT truoc: day la
+                    # dong DAU cua cau lenh, bo qua thi mot DED bi mat va ca
+                    # phan con lai cua file lech mot bac.
+                    xu_ly_thut(muc, dong_so)
+                    tach_than_dong(dong_van[0:len(dong_van) - 1], muc, dong_so)
+                    NOI_DONG = 1
+                    dong_so = dong_so + 1
+                    dau = i + 1
+                    i = i + 1
+                    continue
+                if dong_rong(dong_van, muc) == 0:
+                    if xu_ly_thut(muc, dong_so) == 1:
+                        if tach_than_dong(dong_van, muc, dong_so) == 1:
+                            if SAU_NGOAC == 0 and MO_STR == 0:
+                                them_tok("NL", "", dong_so)
+            dong_so = dong_so + 1
+            dau = i + 1
+        i = i + 1
+    xu_ly_thut(0, dong_so)
+    them_tok("EOF", "", dong_so)
+    if lex_so_loi() > 0:
+        return 0
+    return 1

@@ -1,0 +1,18 @@
+"""File CHINH (khoang trong ngon ngu #3) - import 'sample_import_shapes'
+qua '__tkv_import__' (PRAGMA rieng cua compiler TokenVector, KHONG phai
+'import' that cua Python - Python's import machinery khong biet '.tkv').
+De file nay VAN chay duoc doc lap duoi CPython that khi doi chieu (khong
+co import THAT), test script (import_test.py) tu ghep namespace cua 2
+file lai TRUOC khi goi ham - xem comment trong do."""
+
+__tkv_import__ = "sample_import_shapes"
+
+
+def scaled_rect_area(w: "f32", h: "f32", k: "f32") -> "f32":
+    r = Rect(w, h)
+    return double_it(r.area()) * k
+
+
+def main(w: "f32", h: "f32") -> "f32":
+    r = Rect(w, h)
+    return r.area()

@@ -1,0 +1,46 @@
+def nguyen_chia_nguyen() -> "str":
+    a: "i32" = 7
+    b: "i32" = 2
+    return str(a / b) + "|" + str(a // b) + "|" + str(-a / b) + "|" + str(-a // b)
+
+
+def i64_chia() -> "str":
+    a: "i64" = -7
+    b: "i64" = 2
+    return str(a / b) + "|" + str(a // b)
+
+
+def chia_het() -> "str":
+    a: "i32" = 8
+    return str(a / 2) + "|" + str(a / 4)
+
+
+def trong_bieu_thuc() -> "str":
+    a: "i32" = 9
+    b: "i32" = 4
+    m = (a + b) / 2
+    return str(m) + "|" + str(int(a / b)) + "|" + str(a / b * 2) + "|" + str(a / b > 2)
+
+
+def trung_binh() -> "str":
+    xs: "list[i32]" = [1, 2, 3, 4]
+    s: "i32" = 0
+    for v in xs:
+        s += v
+    return str(s / len(xs))
+
+
+def chia_cho_khong() -> "str":
+    a: "i32" = 5
+    z: "i32" = 0
+    try:
+        return str(a / z)
+    except ZeroDivisionError:
+        return "ZDE"
+
+
+def gan_chia() -> "str":
+    x: "f64" = 10.0
+    n: "i32" = 4
+    x /= n
+    return str(x)

@@ -77,7 +77,10 @@ It is **not** CPython with a faster interpreter. It is a **transpiler to CIL**:
 ```
 compiler/      the compiler — il_codegen.tkv + 119 il_features/*.tkv
 tkv*.tkv       CLI driver (staged as Python at build time)
-tests/         117 acceptance tests + 31 negative cases
+compiler_src/  the self-hosted TokenVector compiler (23,971 lines)
+dist/         tkvc-tv.exe (TokenVector) + tkvc.exe (Python bootstrap)
+tests/         118 acceptance tests + 31 negative cases
+tests_suite/   154 .ca data-driven cases + 203 input samples
 tools/         gates + tkv_guide.tkv (the language guide, written in TokenVector)
 projects/      19 real tools written in .tkv
 examples/      sample programs + stdlib/

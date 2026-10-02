@@ -1,0 +1,11 @@
+tests_suite\de_vao\sample_pickle.tkv	vong_i32	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d0.bin0	0\n
+tests_suite\de_vao\sample_pickle.tkv	vong_i32	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d1.bin42	42\n
+tests_suite\de_vao\sample_pickle.tkv	vong_i32	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d2.bin-7	-7\n
+tests_suite\de_vao\sample_pickle.tkv	vong_i32	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d3.bin2147483647	2147483647\n
+tests_suite\de_vao\sample_pickle.tkv	vong_i64	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d4.bin9007199254740993	9007199254740993\n
+tests_suite\de_vao\sample_pickle.tkv	vong_i64	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d5.bin-9007199254740993	-9007199254740993\n
+tests_suite\de_vao\sample_pickle.tkv	vong_f64	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d6.bin2.75	2.7500\n
+tests_suite\de_vao\sample_pickle.tkv	vong_f64	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d7.bin-0.125	-0.1250\n
+tests_suite\de_vao\sample_pickle.tkv	vong_str	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d8.binxin chao	xin chao\n
+tests_suite\de_vao\sample_pickle.tkv	vong_str	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d9.bin	\n
+tests_suite\de_vao\sample_pickle.tkv	ghi_de	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pklbsb5pdlr\d10.bin1122	22\n

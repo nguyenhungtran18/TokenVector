@@ -1,0 +1,4 @@
+tests_suite\de_vao\sample_str_accum_read.tkv	acc_read	0	ab  fcd f	ab  cd |19\n
+tests_suite\de_vao\sample_str_accum_read.tkv	acc_read	0	f	|0\n
+tests_suite\de_vao\sample_str_accum_read.tkv	acc_read	0	abfabf	abab|12\n
+tests_suite\de_vao\sample_str_accum_read.tkv	acc_read	0	x y  f  f	x y    |18\n

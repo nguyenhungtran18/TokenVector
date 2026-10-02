@@ -1,0 +1,9 @@
+tests_suite\de_vao\sample_set.tkv	count_unique_mod	0	103	3\n
+tests_suite\de_vao\sample_set.tkv	count_unique_mod	0	51	1\n
+tests_suite\de_vao\sample_set.tkv	count_unique_mod	0	15	1\n
+tests_suite\de_vao\sample_set.tkv	contains_test	0	53	1\n
+tests_suite\de_vao\sample_set.tkv	contains_test	0	510	0\n
+tests_suite\de_vao\sample_set.tkv	contains_test	0	00	0\n
+tests_suite\de_vao\sample_set.tkv	set_comp_evens	0	10	5\n
+tests_suite\de_vao\sample_set.tkv	set_comp_evens	0	0	0\n
+tests_suite\de_vao\sample_set.tkv	set_comp_evens	0	1	1\n

@@ -1,0 +1,52 @@
+"""Vi du THAT kiem chung break/continue vua them vao il_codegen.py -
+ca 2 dang vong lap (for/while) x ca 2 lenh (break/continue). Tranh dung
+'/' tren i32 (chia nguyen trong CIL, chia THAT trong CPython - 2 ngu
+nghia khac nhau that su, khong phai bug DSL - xem STATUS.md) de khong
+lam sai lech gia mao voi CPython that."""
+
+
+def first_square_over(n: "i32", threshold: "i32") -> "i32":
+    result = -1
+    for i in range(n):
+        if i * i > threshold:
+            result = i
+            break
+    return result
+
+
+def sum_odds(n: "i32") -> "i32":
+    total = 0
+    is_odd = 0
+    for i in range(n):
+        if is_odd == 0:
+            is_odd = 1
+            continue
+        is_odd = 0
+        total = total + i
+    return total
+
+
+def first_square_over_while(n: "i32", threshold: "i32") -> "i32":
+    i = 0
+    result = -1
+    while i < n:
+        if i * i > threshold:
+            result = i
+            break
+        i = i + 1
+    return result
+
+
+def sum_while_odds(n: "i32") -> "i32":
+    total = 0
+    is_odd = 0
+    i = 0
+    while i < n:
+        if is_odd == 0:
+            is_odd = 1
+            i = i + 1
+            continue
+        is_odd = 0
+        total = total + i
+        i = i + 1
+    return total

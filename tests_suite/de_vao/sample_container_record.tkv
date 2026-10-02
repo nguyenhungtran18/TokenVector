@@ -1,0 +1,47 @@
+"""Container long nhau chua record (khoang trong ngon ngu #2, 2026-07-28):
+List<Point> va Dictionary<i32, Point> - Point van la Python HOP LE that
+qua __init__ (bi bo qua luc bien dich, xem tkv_compile.py)."""
+
+
+class Point:
+    x: "f32"
+    y: "f32"
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def total(self) -> "f32":
+        return self.x + self.y
+
+
+def sum_of_points_list(a: "f32", b: "f32", c: "f32", d: "f32") -> "f32":
+    pts = []
+    pts.append(Point(a, b))
+    pts.append(Point(c, d))
+    total = 0.0
+    for p in pts:
+        total = total + p.total()
+    return total
+
+
+def point_at_index(a: "f32", b: "f32", c: "f32", d: "f32", i: "i32") -> "f32":
+    pts = []
+    pts.append(Point(a, b))
+    pts.append(Point(c, d))
+    p = pts[i]
+    return p.x - p.y
+
+
+def dict_of_points_sum(a: "f32", b: "f32") -> "f32":
+    d = {}
+    d[1] = Point(a, b)
+    d[2] = Point(b, a)
+    total = 0.0
+    if 1 in d:
+        p1 = d[1]
+        total = total + p1.total()
+    if 2 in d:
+        p2 = d[2]
+        total = total + p2.total()
+    return total

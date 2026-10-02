@@ -1,0 +1,333 @@
+"""Cac dang cu phap moi (2026-09-30): doi chieu CPython. main(n) tra chuoi."""
+import json
+import re
+import os
+import string
+import math
+import time
+from collections import Counter, defaultdict, deque
+from math import floor, ceil, pi, gcd, fabs
+
+
+def bit_ops(n: "i32") -> "str":
+    a = n & 3
+    b = n | 8
+    c = n ^ 5
+    d = n << 2
+    e = n >> 1
+    f = ~n
+    g = n + 100
+    g //= 3
+    g **= 2
+    h = n + 7
+    h %= 5
+    h <<= 2
+    h |= 1
+    return str(a) + "|" + str(b) + "|" + str(c) + "|" + str(d) + "|" + str(e) + "|" + str(f) + "|" + str(g) + "|" + str(h)
+
+
+def vong_else(n: "i32") -> "str":
+    r = ""
+    for i in range(n):
+        if i == 7:
+            break
+        r = r + str(i)
+    else:
+        r = r + "E"
+    j = 0
+    while j < n:
+        j += 1
+        if j > 4:
+            break
+    else:
+        r = r + "W"
+    return r + str(j)
+
+
+def cat_lat(n: "i32") -> "str":
+    xs = [1, 2, 3, 4, 5, 6, 7]
+    s = "abcdefg"
+    a = xs[::-1]
+    b = xs[1::2]
+    c = xs[n::-1]
+    d = xs[n - 3:]
+    e = xs[:n + 9]
+    f = xs[n:2]
+    return str(a) + str(b) + str(c) + str(d) + str(e) + str(f) + s[::-1] + s[::2] + s[n - 5:] + s[2:99]
+
+
+def gan_nhieu(n: "i32") -> "str":
+    xs = [n, n + 1, n + 2, n + 3]
+    xs[0], xs[3] = xs[3], xs[0]
+    i = 1
+    xs[i], xs[i + 1] = xs[i + 1], xs[i]
+    g = [[0] * 3 for _ in range(2)]
+    g[1][2] = 7
+    g[0][1] += 5
+    ys = [1, 2] * 3
+    d = {"a": n, "b": n * 2}
+    d.update({"c": 1})
+    ys2 = xs[n:] + xs[:n]
+    return str(xs) + str(g) + str(ys) + str(d) + str(ys2)
+
+
+def bieu_thuc(n: "i32") -> "str":
+    xs = [1, 2, 3, 4]
+    a = sum(x * x for x in xs)
+    b = ",".join(str(x) for x in xs)
+    c = str(list(filter(lambda x: x % 2 == 0, xs)))
+    d = str(sum(map(lambda x: x * n, xs)))
+    e = str(list(range(3)))
+    f = ",".join("a, b, c".split(", "))
+    return str(a) + "|" + b + "|" + c + "|" + d + "|" + e + "|" + f
+
+
+def dinh_dang(n: "i32") -> "str":
+    x = float(n) / 7.0
+    s = "ab"
+    return f"[{n:5d}][{n:<5d}][{n:^7d}][{n:05d}][{n:+d}][{n:x}][{n:X}][{n:b}][{n:o}][{s:>6}][{s:*^8}][{x:10.3f}][{x:<9.2f}][{n * 2:4d}]"
+
+
+def lam_tron(n: "i32") -> "str":
+    ds = [n]
+    return str(round(-41.045, 2)) + str(round(2.675, 2)) + str(round(float(n) / 8.0, 2)) + str(isinstance(ds, list))
+
+
+DEM: "i32" = 0
+
+
+def tang_dem(k: "i32") -> "i32":
+    global DEM
+    DEM += k
+    return DEM
+
+
+def dang_moi(n: "i32") -> "str":
+    global DEM
+    DEM = 0
+    a = n + 10
+    b = 4
+    c = float(a) / b
+    xs = ["x", "y"]
+    r = ""
+    for i, v in enumerate(xs, 1):
+        r = r + str(i) + v
+    for i, v in enumerate(xs, start=5):
+        r = r + str(i) + v
+    z = 0
+    tang_dem(3)
+    tang_dem(n)
+    return str(c) + "|" + str(10 / 4) + "|" + str(1e3) + "|" + str(1.5e-2) + "|" + r + "|" + str(z or n) + str(n and 7) + str(DEM)
+
+
+def goi_truc_tiep(n: "i32") -> "str":
+    xs = [1, 2, 3, 4, 5]
+    a = fmt_spec(n, "05d")
+    b = slice_step(xs, 0, 0, -2, 0)
+    return a + str(b)
+
+
+__tkv_chi_cpython__ = True
+if __tkv_chi_cpython__:
+    def fmt_spec(x, spec):
+        return format(x, spec)
+
+    def slice_step(xs, a, b, c, co):
+        return xs[(a if co & 1 else None):(b if co & 2 else None):c]
+
+
+def klen(w: "str") -> "i32":
+    return len(w)
+
+
+def dang_moi2(n: "i32") -> "str":
+    """sap xep chuoi theo thu tu ordinal, sort(key=) on dinh, key=len, sorted(str), count, phep tap hop, str(set), multi-for."""
+    ws = ["zz", "b", "aa", "c", "yy", "B", "a"]
+    ws.sort()
+    r = ",".join(ws) + "|"
+    us = ["zz", "b", "aa", "c", "yy"]
+    r = r + ",".join(sorted(us, key=klen)) + "|" + ",".join(sorted(us, key=klen, reverse=True)) + "|"
+    vs = ["zz", "b", "aa", "c", "yyy"]
+    vs.sort(key=len)
+    r = r + ",".join(vs) + "|" + max(us, key=klen) + min(us, key=klen) + "|"
+    s = "hello" + str(n)
+    r = r + "".join(sorted(s)) + str(len(list(s))) + str(s.count("l")) + "|"
+    xs = [1, 2, 1, 3, 1]
+    r = r + str(xs.count(1)) + str(xs.count(9)) + "|"
+    a = {1, 2, 3}
+    b = {2, 3, 4}
+    e = {5}
+    e.discard(5)
+    r = r + str(a | b) + str(a & b) + str(a - b) + str(a ^ b) + str(e) + "|"
+    ys = [p * q for p in range(1, 4) for q in range(1, 3) if p != q]
+    r = r + str(ys) + "|" + str(n not in (1, 2, 3)) + f"{1234567 + n:,}|{9876.5:,.2f}|{n * 1000:>10,}"
+    return r
+
+
+def dang_moi3(n: "i32") -> "str":
+    """key=lambda, min/max chuoi, d.get(k) is None."""
+    xs = ["ccc", "a", "bb", "dd", "e"]
+    ys = sorted(xs, key=lambda w: len(w), reverse=True)
+    m = max(xs, key=lambda w: len(w)) + min(xs, key=lambda w: len(w))
+    zs = ["ccc", "a", "bb", "dd", "e"]
+    zs.sort(key=lambda w: len(w))
+    ns = [5, 3, 9, n]
+    ns.sort(key=lambda v: -v)
+    ws = ["b", "A", "a", "B", "zz"]
+    r = ",".join(ys) + m + "|" + ",".join(zs) + "|" + str(ns) + "|" + max(ws) + min(ws)
+    d = {"a": 1, "b": 2}
+    if d.get("a") is None:
+        r = r + "x"
+    if d.get("z") is None:
+        r = r + "y"
+    return r + str(d.get("q") is None) + str(d.get("b") is not None)
+
+
+def dang_moi4(n: "i32") -> "str":
+    """'{:>5}'.format, round am / round(int, n) tra int, str(complex), abs(complex)."""
+    x = 3.14159
+    r = "{} and {:>5}|{:05d}|{:,}|{:.2f}|{:<4}|".format(n, "a", 42, 1234567, x, "z") + "{0:>3}{1}".format(7, "q")
+    k = 1234 + n
+    f = 1234.5 + n
+    z = complex(3, 4)
+    w = z * z
+    mi = 3
+    xx = 2.5
+    r = r + str(mi > xx) + str(xx * mi) + str(mi - xx) + str(mi / xx) + str(2 * 0.5 + mi) + "|"
+    return r + "|" + str(round(k, -2)) + str(round(f, -2)) + str(round(15.0, -1)) + str(round(25.0, -1)) + "|" + str(abs(z)) + str(w) + str(complex(0, 2)) + str(complex(1.5, -2.5))
+
+
+def gen_ba(n: "i32") -> "list[i32]":
+    for i in range(3):
+        yield i + n
+
+
+class Hop:
+    v: "i32"
+
+    def __init__(self, v: "i32"):
+        self.v = v
+
+
+def tao_hop(v: "i32") -> "Hop":
+    return Hop(v)
+
+
+def dang_moi5(n: "i32") -> "str":
+    """or/and container, not [], rsplit/splitlines/swapcase/partition, gan/xoa lat cat, giai nen sao, fromkeys, hex/bin/oct,
+    file default mode + readlines + for-in-file, list(generator), thuoc tinh sau loi goi, module math/json/re/os/string."""
+    a = []
+    b = [1, 2]
+    c = a or b
+    d = b and a
+    e = b or [9]
+    r = str(c) + str(d) + str(e) + str(not []) + str(not [1]) + "|"
+    s = "k=v=w"
+    t = "x\ny\r\nz\n"
+    p1, p2, p3 = s.partition("=")
+    q1, q2, q3 = s.rpartition("=")
+    r = r + p1 + p2 + p3 + q1 + q2 + q3 + str(s.rsplit("=", 1)) + str(t.splitlines()) + "Ab1".swapcase() + str("12".isnumeric()) + str(s.rindex("=")) + str("AB".isupper()) + str("ab".islower()) + s.removeprefix("k=") + s.removesuffix("=w") + "|"
+    xs = [1, 2, 3, 4, 5]
+    xs[1:3] = [9]
+    ys = [1, 2, 3, 4]
+    del ys[1:3]
+    zs = [1, 2, 3]
+    zs[-1:] = [7, 8]
+    h, *m, z = [1, 2, 3, 4]
+    fk = dict.fromkeys(["a", "b"], 0)
+    r = r + str(xs) + str(ys) + str(zs) + str(h) + str(m) + str(z) + str(fk) + hex(n + 255) + bin(n + 5) + oct(n + 8) + "|"
+    with open("_tmp_sf.txt", "w", encoding="utf-8") as f:
+        f.write("a" + str(n) + "\nb\nc")
+    u = ""
+    with open("_tmp_sf.txt") as g:
+        for ln in g:
+            u = u + ln.strip() + ","
+    with open("_tmp_sf.txt", "r") as g2:
+        rl = g2.readlines()
+        n2 = len(rl)
+    gl = list(gen_ba(n))
+    jd = {"a": 1, "b": n}
+    r = r + u + str(n2) + str(gl) + str(tao_hop(n + 4).v) + "|"
+    r = r + str(floor(2.5 + n)) + str(ceil(2.1)) + str(gcd(12, 18)) + str(fabs(-2.5)) + str(pi * 2) + json.dumps(jd) + str(re.findall("a.", "abac")) + re.sub("a", "x", "aba") + string.digits + os.path.join("a", "b")
+    return r
+
+
+class Pt:
+    v: "i32"
+
+    def __init__(self, v: "i32"):
+        self.v = v
+
+    @staticmethod
+    def tao(k: "i32") -> "Pt":
+        return Pt(k * 2)
+
+    @staticmethod
+    def tong(a: "i32", b: "i32") -> "i32":
+        return a + b
+
+
+def dang_moi6(n: "i32") -> "str":
+    """lambda gan bien, math.isclose/copysign/fsum, istitle, static method theo ten lop, deque, defaultdict(int),
+    Counter.most_common, len(tuple), sum(list[f64]) bu sai, time."""
+    k = n + 1
+    tang = lambda a, b: a * b + k
+    vuong = lambda v: v * v
+    xs = [3, 1, 2, n]
+    r = str(tang(2, 3)) + str(vuong(vuong(2))) + str(sorted(xs, key=vuong)) + "|"
+    fl = [0.1, 0.2, 0.3]
+    r = r + str(math.isclose(0.1 + 0.2, 0.3)) + str(math.isclose(1.0, 1.1 + n)) + str(math.copysign(3.0, -1.0 - n)) + str(math.fsum(fl)) + str(sum(fl)) + str(fl[0] + fl[1]) + "|"
+    r = r + str("Hello World".istitle()) + str("hello".istitle()) + str("Hello 1a".istitle()) + "|"
+    r = r + str(Pt.tao(n + 2).v) + str(Pt.tong(n, 4)) + "|"
+    q = deque([1, 2, 3])
+    q.append(n)
+    q.appendleft(0)
+    a0 = q.popleft()
+    r = r + str(a0) + str(list(q)) + "|"
+    d: "defaultdict[str,i32]" = defaultdict(int)
+    for w in "a b a c a".split():
+        d[w] += 1
+    r = r + str(d["a"]) + str(len(d)) + "|"
+    cs = ["a", "b", "a", "c", "a", "b"]
+    c: "Counter[str]" = Counter(cs)
+    r = r + str(c.most_common(2)) + str(c["z"]) + "|"
+    t = (1, 2, n)
+    t0 = time.time()
+    r = r + str(len(t)) + str(t0 > 1.0e9) + str(time.perf_counter() >= 0.0)
+    return r
+
+
+def so_lon(x: "i32") -> "bool":
+    return x > 2
+
+
+def in_co(flag: "bool") -> "str":
+    return str(flag) + str(not flag)
+
+
+def dang_moi7(n: "i32") -> "str":
+    """kieu bool: gan so sanh/not/True/False vao bien roi in True/False, ham tra bool, tham so bool, list[bool],
+    bool(x), 'in', any(), so hoc voi bool, bien cuc bo co chu thich kieu vo huong."""
+    b = n > 2
+    c = "ab".startswith("a")
+    d = not b
+    e = True
+    f = False
+    r = str(b) + str(c) + str(d) + str(e) + str(f) + str(b + 1) + str(e + e) + "|"
+    g = so_lon(n)
+    h: "bool" = so_lon(n - 5)
+    r = r + str(g) + str(h) + str(so_lon(9)) + in_co(True) + in_co(g) + "|"
+    xs = [True, False, True]
+    k = ""
+    for i in range(3):
+        k = k + str(xs[i])
+    ys = [1, 2, 3]
+    m = n in ys
+    q = bool(n)
+    x: "f64" = 2.5
+    z: "i32" = n + 1
+    return r + k + str(m) + str(q) + str(x * 2) + str(z)
+
+
+def main(n: "i32") -> "str":
+    return goi_truc_tiep(n) + "#" + dang_moi(n) + "#" + bit_ops(n) + "#" + vong_else(n) + "#" + cat_lat(n) + "#" + gan_nhieu(n) + "#" + bieu_thuc(n) + "#" + dinh_dang(n) + "#" + lam_tron(n) + "#" + dang_moi2(n) + "#" + dang_moi3(n) + "#" + dang_moi4(n) + "#" + dang_moi5(n) + "#" + dang_moi6(n) + "#" + dang_moi7(n)

@@ -1,0 +1,3 @@
+tests_suite\de_vao\sample_int_str_i64_overflow.tkv	run_i64_overflow	0	x	639237657423996539\n
+tests_suite\de_vao\sample_int_str_i64_overflow.tkv	run_i32_still_works	0	x	42\n
+tests_suite\de_vao\sample_int_str_i64_overflow.tkv	run_i64_small_value	0	x	42\n

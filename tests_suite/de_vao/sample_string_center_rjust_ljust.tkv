@@ -1,0 +1,22 @@
+def compute_center_default(s: "str", width: "i32") -> "str":
+    return s.center(width)
+
+
+def compute_center_fill(s: "str", width: "i32", fill: "str") -> "str":
+    return s.center(width, fill)
+
+
+def compute_rjust_default(s: "str", width: "i32") -> "str":
+    return s.rjust(width)
+
+
+def compute_rjust_fill(s: "str", width: "i32", fill: "str") -> "str":
+    return s.rjust(width, fill)
+
+
+def compute_ljust_default(s: "str", width: "i32") -> "str":
+    return s.ljust(width)
+
+
+def compute_ljust_fill(s: "str", width: "i32", fill: "str") -> "str":
+    return s.ljust(width, fill)

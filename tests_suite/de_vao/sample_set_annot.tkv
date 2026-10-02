@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+"""set[dtype] trong chu thich kieu + set.to_list() (2026-08-03).
+
+Truoc do: 'set[i32]' KHONG parse duoc nen set khong the la THAM SO hay
+GIA TRI TRA VE - no chi song duoc ben trong 1 ham; va 'for x in <set>:'
+bao loi vo nghia ("chi ho tro mang rank 1 hoac 2").
+
+File nay KHONG phai Python chay duoc y het (set() cua Python khong co
+.to_list()) nen doi chieu ky vong tinh tay trong test - ghi ro thay vi
+gia vo la doi chieu CPython."""
+
+
+def uniq_count(xs: "set[i32]") -> "i32":
+    return len(xs)
+
+
+def build_set(a: "i32", b: "i32") -> "set[i32]":
+    s = set()
+    s.add(a)
+    s.add(b)
+    s.add(a)
+    return s
+
+
+def sum_via_to_list(a: "i32", b: "i32") -> "i32":
+    s = build_set(a, b)
+    xs = s.to_list()
+    total = 0
+    for x in xs:
+        total = total + x
+    return total
+
+
+def count_after_roundtrip(a: "i32", b: "i32") -> "i32":
+    s = build_set(a, b)
+    return uniq_count(s)

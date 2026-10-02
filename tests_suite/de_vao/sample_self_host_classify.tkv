@@ -1,0 +1,47 @@
+"""Buoc 8: Self-host. `tokenvector_compile.py` sinh inference (MLP forward
++ argmax) qua 3 macro CHUYEN DUNG cho no (dense/normalize/argmax, dinh
+nghia trong `_expand_macros` cua il_codegen.py). File nay viet lai
+CHINH XAC cung 1 phep tinh do bang DSL THO - vong lap for/if/mang thuong,
+KHONG dung 3 macro tren - chung minh ngon ngu TU NO (khong can macro
+rieng cho MLP) du manh de viet lai tinh nang loi cua chinh TokenVector.
+
+Model CU THE: model 'golden_iris' da train trong golden_path_test.py
+(4 dac trung, 8 nut an (1 hidden layer), 3 lop, activation=tanh,
+scaler=MinMaxScaler). Shape duoc 'bake' thang vao chu ky (4, 8, 3) vi
+typed_dsl khong ho tro shape dong luc bien dich - gioi han da biet,
+khong phai bug.
+
+`from math import tanh` (khong phai `import math` roi goi `math.tanh`):
+DSL hien CHI ho tro goi ham qua 1 TEN DON (khong ho tro `.` truoc dau
+ngoac nhu `math.tanh`), nen phai import ten tran de file VUA la Python
+THAT chay duoc that (import ten tran, goi tanh(s) truc tiep) VUA khop
+dung cu phap goi ham cua DSL."""
+from math import tanh
+import numpy as np
+
+
+def classify_manual(x: "f32[4]", x_min: "f32[4]", x_max: "f32[4]",
+                     w1: "f32[4,8]", b1: "f32[8]",
+                     w2: "f32[8,3]", b2: "f32[3]") -> "f32":
+    xn = np.zeros(4, dtype=np.float32)
+    for i in range(4):
+        xn[i] = (x[i] - x_min[i]) / (x_max[i] - x_min[i])
+    h = np.zeros(8, dtype=np.float32)
+    for j in range(8):
+        s = b1[j]
+        for i in range(4):
+            s = s + xn[i] * w1[i, j]
+        h[j] = tanh(s)
+    o = np.zeros(3, dtype=np.float32)
+    for k in range(3):
+        s2 = b2[k]
+        for j in range(8):
+            s2 = s2 + h[j] * w2[j, k]
+        o[k] = s2
+    best_idx = 0
+    best_val = o[0]
+    for k in range(3):
+        if o[k] > best_val:
+            best_val = o[k]
+            best_idx = k
+    return best_idx

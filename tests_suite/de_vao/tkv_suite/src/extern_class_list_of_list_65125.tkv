@@ -1,0 +1,11 @@
+
+def main() -> "i32":
+    m = [[1, 2], [3, 4]]
+    print(str(m[1][0]))
+    print(str(len(m)))
+    total = 0
+    for row in m:
+        for x in row:
+            total = total + x
+    print(str(total))
+    return 0

@@ -1,0 +1,26 @@
+# -*- coding: utf-8 -*-
+"""B3 (Phase C.1, 2026-07-29, xem project-tokenvector-wave2-status memory) -
+closure vua NHAN tham so (bat 1 THAM SO kieu 'func', khong chi local) VUA
+TRA VE (return closure do lam gia tri, tai dung co che b1). Capture ca 1
+THAM SO kieu tham chieu ('f') LAN 1 LOCAL vo huong ('extra') trong CUNG 1
+closure - kiem chung ca 2 che do (direct + boxed) hoat dong dung khi ket
+hop."""
+
+
+def double_it(x: "i32") -> "i32":
+    return x * 2
+
+
+def compose(f: "func(i32)->i32") -> "func(i32)->i32":
+    extra = 10
+
+    def wrapped(x: "i32") -> "i32":
+        nonlocal f, extra
+        return f(x) + extra
+
+    return wrapped
+
+
+def demo_b3() -> "i32":
+    g = compose(double_it)
+    return g(5)

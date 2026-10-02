@@ -1,0 +1,25 @@
+def classify(n: "i32") -> "str":
+    match n:
+        case 1:
+            return "one"
+        case 2:
+            return "two"
+        case _:
+            return "other"
+
+
+def classify_str(s: "str") -> "i32":
+    match s:
+        case "a":
+            return 1
+        case "b":
+            return 2
+        case _:
+            return 0
+
+
+def classify_no_default(n: "i32") -> "i32":
+    match n:
+        case 5:
+            return 50
+    return -1

@@ -1,0 +1,12 @@
+def co_ban() -> "str":
+    tb = str.maketrans("abc", "xyz")
+    return "aabbcc d".translate(tb)
+
+
+def co_xoa() -> "str":
+    t2 = str.maketrans("ab", "AB", "d")
+    return "abcd abcd".translate(t2)
+
+
+def truc_tiep() -> "str":
+    return "hello".translate(str.maketrans("el", "ip"))

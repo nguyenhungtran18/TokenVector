@@ -1,0 +1,8 @@
+def compute(k: "i32") -> "i32":
+    d = {}
+    d[1] = 10
+    d[2] = 20
+    d[3] = 30
+    a = d.pop(k, -1)
+    b = d.pop(k, -1)
+    return a + b + len(d)

@@ -1,0 +1,84 @@
+# -*- coding: utf-8 -*-
+"""Ten trung TU KHOA ILASM (2026-08-03, dot 4).
+
+'value', 'method', 'field', 'string', 'object', 'init', 'flags', 'get',
+'set', 'add', 'remove', 'pop', 'call', 'new', 'class' deu la tu khoa cua
+ilasm.exe. Truoc day compiler DOI TEN chung o tang van ban ('value' ->
+'value_'), gay 2 loi that: method record ten 'get'/'set' bi doi ten 1
+phia (dinh nghia doi, noi goi khong) va chuoi HANG cung bi doi ('"
+method)"' in ra '" method_)"'). Nay khong doi ten nua - moi dinh danh
+sinh ra IL deu duoc boc nhay don."""
+
+
+class Value:
+    """Ten CLASS trung tu khoa."""
+
+    value: "i32"
+    method: "str"
+    field: "i32"
+    flags: "i32"
+
+    def __init__(self, value, method, field, flags):
+        self.value = value
+        self.method = method
+        self.field = field
+        self.flags = flags
+
+    def get(self) -> "i32":
+        return self.value
+
+    def set(self, value: "i32") -> "i32":
+        self.value = value
+        return self.value
+
+    def add(self, n: "i32") -> "i32":
+        self.value = self.value + n
+        return self.value
+
+    def remove(self, n: "i32") -> "i32":
+        self.value = self.value - n
+        return self.value
+
+    def pop(self) -> "i32":
+        v = self.value
+        self.value = 0
+        return v
+
+    def show(self) -> "str":
+        return self.method + "/" + str(self.field) + "/" + str(self.flags)
+
+
+def init(n: "i32") -> "i32":
+    """Ten HAM trung tu khoa; bien cuc bo cung vay."""
+    value = n * 2
+    string = value + 1
+    object = string + 1
+    method = object + 1
+    return method
+
+
+def call(a: "i32", b: "i32") -> "i32":
+    return a * b
+
+
+def main(n: "i32") -> "str":
+    v = Value(n, "GET", 3, 1)
+    a = v.get()
+    b = v.set(10)
+    c = v.add(5)
+    d = v.remove(3)
+    e = v.pop()
+    f = init(n)
+    g = call(n, 3)
+    out = []
+    out.append(str(a))
+    out.append(str(b))
+    out.append(str(c))
+    out.append(str(d))
+    out.append(str(e))
+    out.append(str(f))
+    out.append(str(g))
+    out.append(v.show())
+    # Chuoi HANG chua dung tu khoa - phai in NGUYEN VAN
+    out.append("method) field] class} value: get set add remove")
+    return ",".join(out)

@@ -46,3 +46,6 @@ pkl_*_test.bin
 /*.jfif
 /*.jpeg
 /*.png
+# Output cua bo test .ca (runner tạo exe + .lst + .log cho tung file)
+/build/tkv_suite/
+/tests_suite/*.exe

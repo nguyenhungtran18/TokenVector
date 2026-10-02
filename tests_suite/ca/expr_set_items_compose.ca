@@ -1,0 +1,16 @@
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	items_assign	0	0	33\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	items_assign	0	7	40\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	union_assign	0	0	113\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	union_assign	0	7	120\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	intersection_assign	0	0	11\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	intersection_assign	0	7	18\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	difference_assign	0	0	11\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	difference_assign	0	7	18\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	union_twice	0	0	114\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	union_twice	0	7	121\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	union_leaves_sources_intact	0	0	6\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	union_leaves_sources_intact	0	7	13\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	ks_sum_of_copy	0	0	6\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	ks_sum_of_copy	0	7	13\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	ks_sorted_of_split	0	b,a,c	a\n
+tests_suite\de_vao\sample_expr_set_items_compose.tkv	ks_count_on_split	0	a,b,a	2\n

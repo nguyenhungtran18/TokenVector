@@ -1,0 +1,9 @@
+"""Literal chua NUL: ilasm tung CAT chuoi tai NUL (len("a\0b") ra 1)."""
+
+
+def demo_nul_literal() -> "i32":
+    z = "a\0b"
+    print(len(z))
+    print(z[2])
+    print(len("x\0\0y") + len("thuong"))
+    return 0

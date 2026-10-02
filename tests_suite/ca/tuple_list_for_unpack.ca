@@ -1,0 +1,5 @@
+tests_suite\de_vao\sample_tuple_list_for_unpack.tkv	compute	0	0	0\n
+tests_suite\de_vao\sample_tuple_list_for_unpack.tkv	compute	0	1	0\n
+tests_suite\de_vao\sample_tuple_list_for_unpack.tkv	compute	0	2	1\n
+tests_suite\de_vao\sample_tuple_list_for_unpack.tkv	compute	0	5	70\n
+tests_suite\de_vao\sample_tuple_list_for_unpack.tkv	compute	0	10	765\n

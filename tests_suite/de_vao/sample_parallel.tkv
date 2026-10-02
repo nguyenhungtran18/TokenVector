@@ -1,0 +1,71 @@
+"""Da luong nang cao (2026-09-30): thread_spawn(fn, x), lock_new/lock_acquire/lock_release, atomic_add/atomic_inc,
+parallel_for, cpu_count/thread_id. Bien global de dem cheo luong."""
+counter: "i64" = 0
+racy: "i32" = 0
+hits: "i32" = 0
+LOG: "list[i32]" = []
+
+
+def bump(i: "i32"):
+    global counter
+    atomic_add(counter, 2)
+
+
+def bump_hit(i: "i32"):
+    global hits
+    atomic_inc(hits)
+
+
+def cong_doi(x: "i32") -> "i64":
+    return x * 2 + 1
+
+
+def dem_khoa(x: "i32") -> "i32":
+    i = 0
+    while i < 500:
+        lock_acquire("nhat_ky")
+        LOG.append(1)
+        lock_release("nhat_ky")
+        i += 1
+    return i
+
+
+def chuoi_doi(s: "str") -> "str":
+    return s + s
+
+
+def run_atomic_parallel(n: "i32") -> "str":
+    global counter
+    global hits
+    counter = 0
+    hits = 0
+    parallel_for(bump, n)
+    parallel_for(bump_hit, n)
+    return str(counter) + "|" + str(hits)
+
+
+def run_spawn_arg(n: "i32") -> "str":
+    t1 = thread_spawn(cong_doi, n)
+    t2 = thread_spawn(cong_doi, n + 10)
+    return str(thread_join(t1)) + "|" + str(thread_join(t2))
+
+
+def run_spawn_str(n: "i32") -> "str":
+    t = thread_spawn(chuoi_doi, "ab")
+    return thread_join(t)
+
+
+def run_lock(n: "i32") -> "str":
+    t1 = thread_spawn(dem_khoa, 0)
+    t2 = thread_spawn(dem_khoa, 0)
+    t3 = thread_spawn(dem_khoa, 0)
+    a = thread_join(t1)
+    b = thread_join(t2)
+    c = thread_join(t3)
+    return str(a + b + c) + "|" + str(len(LOG))
+
+
+def run_info(n: "i32") -> "str":
+    ok = 1 if cpu_count() >= 1 else 0
+    tid = 1 if thread_id() > 0 else 0
+    return str(ok) + str(tid)

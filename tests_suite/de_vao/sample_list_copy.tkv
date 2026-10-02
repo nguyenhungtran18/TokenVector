@@ -1,0 +1,8 @@
+def compute(n: "i32") -> "i32":
+    lst = []
+    for i in range(n):
+        lst.append(i)
+    lst2 = lst.copy()
+    lst2.append(999)
+    lst.reverse()
+    return len(lst) + len(lst2) + lst2[0] + lst[0]

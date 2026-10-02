@@ -1,0 +1,20 @@
+"""Vi du THAT (chay duoc duoi CPython that) kiem chung ho tro STRING that
+vua them vao il_codegen.py: string param/local/return, noi chuoi '+',
+str() chuyen so->chuoi, so sanh '=='/'!=' chuoi."""
+
+
+def greet(name: "str") -> "str":
+    return "Hello, " + name
+
+
+def describe_temp(celsius: "f32") -> "str":
+    unit = "C"
+    return str(celsius) + unit
+
+
+def is_admin(name: "str") -> "i32":
+    admin = "admin"
+    if name == admin:
+        return 1
+    else:
+        return 0

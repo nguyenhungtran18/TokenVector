@@ -1,0 +1,61 @@
+# Bao phu cho lo 7b cua P8 Task 3/4.
+#
+# 'try' la layout PHUC TAP NHAT cua ca Task 3/4: 5 truong, trong do `handlers`
+# ghep tu HAI truong SONG SONG (ten ngoai le + chi so vung than), cong
+# `handler_vars` va `finally_body`. Bao phu san rat mong: 'finally:' 1 mau,
+# 'with open(' 1 mau, 'with <ctx>(' 1 mau. Voi mot layout nhu vay thi mong the
+# la khong du.
+
+def nhieu_handler(n: "i32") -> "str":
+    # NHIEU handler -> hai truong song song phai giu dung THU TU va do dai.
+    try:
+        if n == 0:
+            raise ValueError("khong")
+        if n == 1:
+            raise KeyError("mot")
+        if n == 2:
+            raise IndexError("hai")
+        return "khong loi"
+    except ValueError:
+        return "V"
+    except KeyError as e:
+        # 'as e' -> handler_vars co ten; hai handler kia thi None.
+        return "K"
+    except IndexError:
+        return "I"
+
+
+def co_finally(n: "i32") -> "str":
+    out = ""
+    try:
+        if n < 0:
+            raise ValueError("am")
+        out = out + "than"
+    except ValueError:
+        out = out + "bat"
+    finally:
+        # finally_body: mot vung than RIENG, sentinel vang mat khi khong co.
+        out = out + "|cuoi"
+    return out
+
+
+def try_khong_finally(n: "i32") -> "str":
+    try:
+        if n < 0:
+            raise ValueError("am")
+        return "duong"
+    except ValueError:
+        return "am"
+
+
+def doc_ghi_file(duong_dan: "str") -> "str":
+    with open(duong_dan, "w") as f:
+        f.write("dong 1\n")
+        f.write("dong 2\n")
+    tong = 0
+    with open(duong_dan, "r") as f2:
+        noi_dung = f2.read()
+        tong = len(noi_dung)
+    with open(duong_dan, "a") as f3:
+        f3.write("them\n")
+    return str(tong)

@@ -1,0 +1,85 @@
+def fact(n: "int") -> "int":
+    total = 1
+    i = 1
+    while i <= n:
+        total = total * i
+        i = i + 1
+    return total
+
+
+def sum_list(xs: "list[int]") -> "int":
+    s = 0
+    j = 0
+    while j < len(xs):
+        s = s + xs[j]
+        j = j + 1
+    return s
+
+
+def via_list(n: "i32") -> "int":
+    xs = []
+    i = 1
+    while i <= n:
+        xs.append(fact(i))
+        i = i + 1
+    return sum_list(xs)
+
+
+def via_list_set(n: "i32") -> "int":
+    xs = []
+    xs.append(fact(n))
+    xs.append(fact(n))
+    xs[1] = xs[0] + xs[1]
+    return xs[1]
+
+
+def via_dict(n: "i32") -> "int":
+    d = {}
+    d["a"] = fact(n)
+    d["b"] = fact(n) + 1
+    return d["b"] - d["a"]
+
+
+def dict_arg(d: "dict[str,int]") -> "int":
+    return d["a"] + d["b"]
+
+
+def via_dict_arg(n: "i32") -> "int":
+    d = {}
+    d["a"] = fact(n)
+    d["b"] = fact(n)
+    return dict_arg(d)
+
+
+def bad_index(n: "int") -> "int":
+    xs = []
+    xs.append(fact(3))
+    return xs[fact(n)]
+
+
+def two_pow(n: "int") -> "int":
+    a = 2
+    return a ** n
+
+
+def bad_index_low0(n: "int") -> "int":
+    xs = []
+    xs.append(fact(3))
+    return xs[two_pow(n)]
+
+
+def run(what: "str", n: "str") -> "str":
+    k = int(n)
+    if what == "list":
+        return str(via_list(k))
+    if what == "listset":
+        return str(via_list_set(k))
+    if what == "dict":
+        return str(via_dict(k))
+    if what == "dictarg":
+        return str(via_dict_arg(k))
+    if what == "badindexlow0":
+        return str(bad_index_low0(k))
+    if what == "badindex":
+        return str(bad_index(k))
+    return "?"

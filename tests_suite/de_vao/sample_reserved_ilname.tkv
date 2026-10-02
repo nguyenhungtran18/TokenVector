@@ -1,0 +1,14 @@
+def add2(a: "i32", b: "i32") -> "i32":
+    return a + b
+
+
+def reduce_i32(lst: "list[i32]", f: "func(i32,i32) -> i32", init: "i32") -> "i32":
+    acc = init
+    for x in lst:
+        acc = f(acc, x)
+    return acc
+
+
+def main() -> "i32":
+    xs = [1, 2, 3, 4]
+    return reduce_i32(xs, add2, 10)

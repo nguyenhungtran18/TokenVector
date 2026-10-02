@@ -1,0 +1,11 @@
+tests_suite\de_vao\sample_math_misc.tkv	co_sin	0	0.0	1.0000|0.0000\n
+tests_suite\de_vao\sample_math_misc.tkv	mu_loga	0	1.0	2.7183|0.0000\n
+tests_suite\de_vao\sample_math_misc.tkv	hang_so	0		3.14159|2.71828\n
+tests_suite\de_vao\sample_math_misc.tkv	uoc_chung	0	1218	6\n
+tests_suite\de_vao\sample_math_misc.tkv	uoc_chung	0	713	1\n
+tests_suite\de_vao\sample_math_misc.tkv	uoc_chung	0	05	5\n
+tests_suite\de_vao\sample_math_misc.tkv	chia_du	0	175	3|2\n
+tests_suite\de_vao\sample_math_misc.tkv	chia_du	0	103	3|1\n
+tests_suite\de_vao\sample_math_misc.tkv	chia_du	0	93	3|0\n
+tests_suite\de_vao\sample_math_misc.tkv	lam_tron	0	3.14159	3.14\n
+tests_suite\de_vao\sample_math_misc.tkv	lam_tron	0	2.0	2.00\n

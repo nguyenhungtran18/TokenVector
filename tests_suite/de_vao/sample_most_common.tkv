@@ -1,0 +1,58 @@
+# Mau cho most_common_test - o CUOI CUNG trong ma tran phu.
+#
+# most_common KHONG DUNG DUOC O DANG NAO ke tu khi duoc them: ham suy
+# kieu tra ve cua no tra None VO DIEU KIEN, nen 'r = most_common(c, 3)'
+# khong co kieu, va 'for k, v in most_common(...)' cung khong. Day la o
+# duy nhat trong ma tran ma cai thieu la mot BAN VA, khong phai mot test.
+#
+# NGU NGHIA (theo Python that): tra list cac cap (khoa, so lan) sap giam
+# dan theo so lan, cat con n cap.
+#
+# LUU Y VE THU TU BANG NHAU: sap xep la selection sort giam dan theo gia
+# tri (xem counter_type.py); cac khoa BANG SO LAN nhau khong co thu tu
+# cam ket. Moi ca duoi day deu tranh phu thuoc vao thu tu do - tan suat
+# duoc chon khac han nhau.
+
+
+def dem_top(n: "i32") -> "str":
+    xs = ["a", "b", "a", "c", "a", "b"]
+    c: "Counter[str]" = Counter(xs)
+    r = most_common(c, n)
+    s = ""
+    for k, v in r:
+        s = s + k + "=" + str(v) + ";"
+    return s
+
+
+def so(v: "i32") -> "i32":
+    # 'xs = [7, 7, 8]' suy ra list dtype 'int' (so nguyen vo han) chu
+    # khong phai 'i32', ma Counter doi dung list[i32] - boc qua ham co
+    # kieu tra ve tuong minh de ep dtype phan tu.
+    return v
+
+
+def dem_top_i32(n: "i32") -> "str":
+    xs = [so(7), so(7), so(7), so(8), so(8), so(9)]
+    c: "Counter[i32]" = Counter(xs)
+    r = most_common(c, n)
+    s = ""
+    for k, v in r:
+        s = s + str(k) + "=" + str(v) + ";"
+    return s
+
+
+def do_dai(n: "i32") -> "str":
+    # n LON HON so khoa -> cat con dung so khoa co that, khong nem loi.
+    xs = ["a", "b", "a"]
+    c: "Counter[str]" = Counter(xs)
+    r = most_common(c, n)
+    return str(len(r))
+
+
+def lay_cap_dau() -> "str":
+    # Doc qua CHI SO, khong qua vong for - duong suy kieu khac.
+    xs = ["z", "z", "z", "y"]
+    c: "Counter[str]" = Counter(xs)
+    r = most_common(c, 1)
+    k, v = r[0]
+    return k + "=" + str(v)

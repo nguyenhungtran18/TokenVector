@@ -1,0 +1,57 @@
+# -*- coding: utf-8 -*-
+"""Mau kich hoat `str_accum` (don chuoi trong vong lap -> StringBuilder).
+
+Ly do ton tai: do 2026-09-09 cho thay str_accum KHONG chay tren bat ky mau
+nao trong 124 file cua cong IL - ca mot tinh nang toi uu khong co bao phu.
+Phat hien khi lam pilot P8/3b-2: phep do rui ro cua no hoa ra RONG.
+
+Dieu kien an toan cua str_accum (xem docstring module): bien kieu 'str', chi
+xuat hien o ve trai cua phep don trong than vong lap, than KHONG co return/
+yield/nested def.
+"""
+
+
+def noi_while(n: "i32") -> "str":
+    out = ""
+    i = 0
+    while i < n:
+        out = out + "x"
+        i = i + 1
+    return out
+
+
+def noi_for(n: "i32") -> "str":
+    out = ""
+    for i in range(n):
+        out = out + "ab"
+    return out
+
+
+def noi_hai_bien(n: "i32") -> "str":
+    a = ""
+    b = ""
+    i = 0
+    while i < n:
+        a = a + "p"
+        b = b + "q"
+        i = i + 1
+    return a + b
+
+
+def noi_for_in_list(xs: "list[str]") -> "str":
+    # Nhanh `for ... in <iterable>` - nhanh DUY NHAT co `prescan_fn` chay
+    # truoc `plan_str_accum`. Can co mat de phep do rui ro cua 3b-2 khong bo
+    # sot duong nao co the cap danh tinh SOM hon luc viet lai.
+    out = ""
+    for x in xs:
+        out = out + x
+    return out
+
+
+def main() -> "i32":
+    print(noi_while(3))
+    print(noi_for(3))
+    print(noi_hai_bien(3))
+    ws = ["a", "b"]
+    print(noi_for_in_list(ws))
+    return 0

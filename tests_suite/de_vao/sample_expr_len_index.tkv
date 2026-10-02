@@ -1,0 +1,33 @@
+# -*- coding: utf-8 -*-
+"""len(<bieu thuc>) va <bieu thuc>[i] (2026-08-03).
+
+Truoc do len() CHI nhan 1 BIEN don va '[i]' CHI di sau 1 TEN BIEN, nen
+'len(s.split(","))' hay 's.split(",")[0]' - hai cach viet thuong ngay
+nhat cua Python - deu khong bien dich duoc.
+
+File nay la Python HOP LE: bo test chay no bang CHINH CPython roi doi
+chieu voi .exe."""
+
+
+def count_fields(s: "str") -> "i32":
+    return len(s.split(","))
+
+
+def first_field(s: "str") -> "str":
+    return s.split(",")[0]
+
+
+def nth_field(s: "str", i: "i32") -> "str":
+    return s.split(",")[i]
+
+
+def len_of_nth(s: "str", i: "i32") -> "i32":
+    return len(s.split(",")[i])
+
+
+def fields_plus_ten(s: "str") -> "i32":
+    return len(s.split(",")) + 10
+
+
+def len_of_concat(a: "str", b: "str") -> "i32":
+    return len(a + b)

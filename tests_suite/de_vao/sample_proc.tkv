@@ -1,0 +1,26 @@
+# Mau cho proc_test: proc_run + proc_ra, CHAY THAT tien trinh ngoai.
+#
+# proc_run DA co cong (test/verify/proc_run_test.py) nhung cong do sinh
+# nguon .tkv bang cach NOI CHUOI trong Python, nen may quet ma tran
+# khong nhin thay - va proc_ra thi chua co cong nao ca.
+#
+# HIEM HOA DA GHI TRONG process_feature.py: WaitForExit() cho VO HAN,
+# goi chuong trinh TUONG TAC se treo mai mai. Moi ca o day deu goi
+# 'cmd.exe /c ...' (chac chan tu thoat), khong bao gio goi cmd.exe tran.
+
+
+def ma_thoat(ma: "str") -> "str":
+    r = proc_run("cmd.exe", "/c exit " + ma)
+    return str(r)
+
+
+def bat_ra(tep: "str", loi: "str") -> "str":
+    # proc_ra ghi CA stdout LAN stderr vao tep.
+    r = proc_ra("cmd.exe", "/c echo " + loi, tep)
+    noi_dung = read_file(tep)
+    return str(r) + "|" + noi_dung.strip()
+
+
+def bat_ra_ma_loi(tep: "str") -> "str":
+    r = proc_ra("cmd.exe", "/c exit 3", tep)
+    return str(r)

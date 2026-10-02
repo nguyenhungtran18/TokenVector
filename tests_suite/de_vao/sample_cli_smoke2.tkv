@@ -1,0 +1,9 @@
+"""Smoke-test CLI tu dong: f32 param+return, va str param+return."""
+
+
+def scale_f32(x: "f32", k: "f32") -> "f32":
+    return x * k
+
+
+def greet_cli(name: "str") -> "str":
+    return "Xin chao, " + name

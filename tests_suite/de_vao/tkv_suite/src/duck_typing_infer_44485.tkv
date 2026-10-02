@@ -1,0 +1,25 @@
+
+class Point:
+    x: "i32"
+    y: "i32"
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+class Box:
+    x: "i32"
+    h: "i32"
+    def __init__(self, x, h):
+        self.x = x
+        self.h = h
+
+def leaf(y) -> "i32":
+    return y.x
+
+def mid(p) -> "i32":
+    local = Box(9, 1)
+    return p.x + leaf(local)
+
+def main() -> "i32":
+    pt = Point(5, 6)
+    return mid(pt)

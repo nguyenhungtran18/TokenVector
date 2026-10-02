@@ -1,0 +1,19 @@
+# -*- coding: utf-8 -*-
+"""read_file() tren file co ket thuc dong CRLF - LECH giua hai phia.
+
+Python `open(p, 'r')` dung "universal newlines": moi '\r\n' tren dia ve
+bo nho thanh '\n'. TokenVector anh xa read_file thang sang
+System.IO.File::ReadAllText, KHONG dich gi ca - '\r' con nguyen.
+
+Hau qua: cung mot file, `len(read_file(p))` cho hai so khac nhau, va moi
+phep dem dong/token/bam chuoi deu lech theo. Khong loi, khong exception.
+
+Phat hien 2026-08-04 khi dung _tkv_arbiter cho ctxpack: phia CPython bao
+600 token, phia bien dich bao 698 - dung bang so ky tu '\r'.
+"""
+from _file_io_helpers import read_file
+
+
+def char_count(path: "str") -> "str":
+    s = read_file(path)
+    return str(len(s))

@@ -1,0 +1,6 @@
+tests_suite\de_vao\sample_datetime_py.tkv	tao	0		2024-03-05 07:08:09|2024-03-07 10:08:09|2 days, 3:00:00|2024-03-07 10:08\n
+tests_suite\de_vao\sample_datetime_py.tkv	truong	0		20243578912\n
+tests_suite\de_vao\sample_datetime_py.tkv	ngay	0		2024-12-25|359|2|2024-03-05|2024-12-25\n
+tests_suite\de_vao\sample_datetime_py.tkv	phep_toan	0		ltgt1 day, 0:00:001|7 days, 0:30:00|14 days, 1:00:00|86400.0\n
+tests_suite\de_vao\sample_datetime_py.tkv	doc_chuoi	0		2023-12-31 23:59:58|2024-01-02 03:04:05|97447.0|2024-01-02T03:04:05\n
+tests_suite\de_vao\sample_datetime_py.tkv	hien_tai	0		TrueTrue\n

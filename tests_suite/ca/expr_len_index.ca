@@ -1,0 +1,7 @@
+tests_suite\de_vao\sample_expr_len_index.tkv	count_fields	0	a,b,c	3\n
+tests_suite\de_vao\sample_expr_len_index.tkv	count_fields	0	solo	1\n
+tests_suite\de_vao\sample_expr_len_index.tkv	first_field	0	a,b,c	a\n
+tests_suite\de_vao\sample_expr_len_index.tkv	nth_field	0	x,y,z1	y\n
+tests_suite\de_vao\sample_expr_len_index.tkv	len_of_nth	0	a,bcd,e1	3\n
+tests_suite\de_vao\sample_expr_len_index.tkv	fields_plus_ten	0	a,b	12\n
+tests_suite\de_vao\sample_expr_len_index.tkv	len_of_concat	0	abcde	5\n

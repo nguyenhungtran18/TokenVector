@@ -1,0 +1,24 @@
+# -*- coding: utf-8 -*-
+"""`re.compile` o cap module voi CO va voi phep NOI chuoi (P6, 2026-09-08).
+
+TokenVector doc `re.compile(...)` cap module thanh mot CHUOI PATTERN (xem
+tkv_compile._re_compile_pattern). Hai dang duoc them sau dang mot-doi-so:
+
+  - NOI chuoi: `r"^(\\w+)\\s*" + OPS` voi OPS la hang so module da biet.
+  - CO: `re.S` / `re.VERBOSE` / ... -> co INLINE cua chinh cu phap regex
+    ('(?s)', '(?x)'), dat o dau pattern. .NET Regex hieu dang nay nen khong
+    can mang theo mot tham so co rieng.
+
+DOT_RE co `re.S` nen '.' khop CA ky tu xuong dong - do la cho phan biet
+that su giua co duoc ap va khong.
+"""
+import re
+
+OPS = "[+]="
+A_RE = re.compile(r"^(\w+)\s*" + OPS)
+DOT_RE = re.compile(r"x.y", re.S)
+
+
+def run_regex_flags() -> "str":
+    return (str(re_match(A_RE, "ab +=")) + str(re_match(A_RE, "ab -="))
+            + str(re_search(DOT_RE, "x\ny")) + str(re_search(DOT_RE, "xzy")))

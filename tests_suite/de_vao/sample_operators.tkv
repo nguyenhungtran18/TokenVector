@@ -1,0 +1,59 @@
+"""Toan tu/cu phap nho, tan suat dung cao (2026-07-28): % (chia lay du),
+gan rut gon (+=/-=/*=), not, raise <Loai>("msg") tu nem exception. Tat ca
+la cu phap Python THAT (khong can meo gi de chay duoc duoi CPython)."""
+
+
+class Counter:
+    val: "i32"
+
+    def __init__(self, val):
+        self.val = val
+
+    def increase(self, n: "i32"):
+        self.val += n
+
+
+def mod_test(a: "i32", b: "i32") -> "i32":
+    return a % b
+
+
+def compound_var_test(a: "i32", n: "i32") -> "i32":
+    x = a
+    x += n
+    x -= 1
+    x *= 2
+    return x
+
+
+def counter_test(start: "i32", n: "i32") -> "i32":
+    c = Counter(start)
+    c.increase(n)
+    c.val -= 1
+    return c.val
+
+
+def list_compound_test(a: "i32", b: "i32", c: "i32") -> "i32":
+    lst = []
+    lst.append(a)
+    lst.append(b)
+    lst.append(c)
+    lst[0] += 10
+    lst[1] *= 2
+    return lst[0] + lst[1] + lst[2]
+
+
+def not_test(a: "i32", b: "i32") -> "i32":
+    if not (a > b):
+        return 1
+    return 0
+
+
+def raise_and_catch(a: "i32") -> "str":
+    result = ""
+    try:
+        if a < 0:
+            raise ValueError("so am khong hop le")
+        result = "ok"
+    except ValueError:
+        result = "loi: so am"
+    return result

@@ -1,0 +1,16 @@
+"""Sinh boi AlphaAI (Groq, generate_and_verify - qua ai_connect) SAU KHI
+sua prompt reference trong alphaai_codegen.py (ternary phai la kieu C
+"cond ? a : b", KHONG phai kieu Python "a if cond else b" - ban dau AI
+dung dung cu phap Python, bien dich "thanh cong" nhung SAI KET QUA vi
+parse_expr() truoc day IM LANG bo qua phan con lai sau bieu thuc dau
+tien; da sua parse_expr them kiem tra EOF, xem il_codegen.py).
+Ham nay la ban Python TUONG DUONG (viet tay) de doi chieu CPython that,
+vi cu phap ternary kieu C khong phai Python hop le."""
+
+
+def clamp_i32(x: "i32", lo: "i32", hi: "i32") -> "i32":
+    if x < lo:
+        return lo
+    if x > hi:
+        return hi
+    return x

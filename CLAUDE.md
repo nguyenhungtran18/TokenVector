@@ -7,16 +7,20 @@ silently swallowed every `git` command run from inside it).
 
 | Path | What |
 |---|---|
-| `compiler/` | The compiler: `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `il_codegen.tkv` + 119 `il_features/*.tkv` |
-| `tests/` | 117 acceptance tests + 31 negative cases + `tkv_test_lib.tkv` |
-| `tools/` | Gates, `tkv_guide.tkv`, dev scripts |
+| **`compiler_src/`** | **Compiler written in TokenVector** — 8 `.tkv`, 23,971 lines. Self-hosting fixed point (`g1.il == g2.il == tv2s.il`, verified by SHA-256). `ds_gop.txt` = module list to merge, `feature_can.txt` = which are CORE |
+| `dist/tkvc-tv.exe` | **The self-hosted TokenVector compiler.** CLI is positional: `tkvc-tv.exe <src> <out> <entry>`. This is the direction |
+| `dist/tkvc.exe` | Python bootstrap compiler (PyInstaller) — only used to build `tkvc-tv` and for the gates below |
+| `compiler/` | The Python bootstrap, still in `.tkv`-named files (126 files). **Content is Python** |
+| `tests/` | 118 acceptance tests + 31 negative cases + `tkv_test_lib.tkv` |
+| `tests_suite/` | 154 `.ca` data-driven cases + 203 input samples; runner `chay.tkv`. See its README |
+| `tools/` | Gates, `tkv_guide.tkv`, `vong.tkv` (self-host loop), `diff_il.tkv` (IL diff) |
 | `projects/` | 19 real tools written in `.tkv` |
 | `examples/` | Sample programs + `stdlib/` |
 | `benchmark/` | Kernels vs CPython/NumPy (`python benchmark\run.py`) |
-| `docs/` | All documentation — `REFERENCE.md` is the single reference |
+| `docs/` | All documentation — `REFERENCE.md` is the single reference; `docs/e_handoff/` holds prior session handoffs |
 | `packaging/` | NuGet nuspec, MSBuild props/targets, `pack.ps1` |
 | `assets/` | Diagrams, HTML demos, preview image |
-| `dist/`, `build/` | Generated. `dist/tkvc.exe` must exist to run any gate |
+| `dist/`, `build/` | Generated. `dist/tkvc.exe` must exist to run the Python-side gates |
 | `tokenvector-grammar/` | Submodule (VS Code extension) — do not edit casually |
 
 ## What the Compiler Actually Is (read before calling it "self-hosted")
@@ -31,8 +35,9 @@ never become a native standalone binary — that would need a working compiler t
 compile the compiler. Never write "the compiler is written in TokenVector" or
 "self-hosted".
 
-The genuinely TokenVector sources are `tests/` (148 files), `projects/` (19),
-`examples/` (8) and `tools/` (3). Do not edit or move anything under
+The genuinely TokenVector sources are `compiler_src/` (23,971 lines — the real
+compiler), `tests/` (148 files), `tests_suite/` (203 samples + 85 generated),
+`projects/` (19), `examples/` (8) and `tools/` (3). Do not edit or move anything under
 `compiler/`, `build/`, `dist/`, or the four `tkv*.tkv` drivers without a full
 gate run: their **content** is Python, so a `.tkv` extension does not mean the
 file is TokenVector.

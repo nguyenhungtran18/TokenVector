@@ -1,0 +1,37 @@
+# Mau cho return_tuple_container_test.
+#
+# `tra_lech` la REPRO 9 dong cua mot bug SINH MA SAI AM THAM: chu ky khai
+# phan tu thu hai la list[i32], than ham dung `so = []` nen suy ra
+# list[int] (so nguyen vo han). Truoc 2026-09-23 trinh bien dich NHAN
+# ca nay, phat phep doi VO HUONG TkvInt::ToI32 len mot THAM CHIEU List,
+# roi nem OverflowException luc chay voi thong bao lac huong "chi so int
+# qua lon" - cho mot gia tri bang 7.
+#
+# Ba ham con lai la cac ca PHAI VAN CHAY, de ban va khong chan nham.
+
+
+def tra_khop() -> "(list[str],i32)":
+    ds = ["a", "b"]
+    return ds, len(ds)
+
+
+def tra_none(co: "i32") -> "(list[str],list[str])":
+    # None lam MOT PHAN TU cua tuple la hop le - container la kieu tham
+    # chieu nen None la tham chieu rong.
+    ds = ["a"]
+    if co == 0:
+        return ds, None
+    return ds, ds
+
+
+def main(ca: "str") -> "str":
+    if ca == "khop":
+        xs, n = tra_khop()
+        return str(n) + "|" + xs[0]
+    if ca == "none":
+        xs, ys = tra_none(0)
+        if ys is None:
+            return "None|" + str(len(xs))
+        return "co|" + str(len(xs))
+    xs, ys = tra_none(1)
+    return str(len(ys)) + "|" + str(len(xs))

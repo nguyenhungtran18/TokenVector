@@ -1,0 +1,7 @@
+tests_suite\de_vao\sample_slice_bounds.tkv	main	0	-8	[1, 2, 3, 4, 5][1][][1, 2][2, 3, 4][2, 3, 4, 5]|llo|llo||h\n
+tests_suite\de_vao\sample_slice_bounds.tkv	main	0	-1	[2, 3, 4, 5][1, 2, 3][][1, 2][2, 3, 4][4, 5]|llo|llo||el\n
+tests_suite\de_vao\sample_slice_bounds.tkv	main	0	0	[3, 4, 5][1, 2, 3, 4][][1, 2][2, 3, 4][5]|llo|llo||ll\n
+tests_suite\de_vao\sample_slice_bounds.tkv	main	0	2	[5][1, 2, 3, 4, 5][][1, 2][2, 3, 4][]|llo|llo||o\n
+tests_suite\de_vao\sample_slice_bounds.tkv	main	0	5	[3, 4, 5][1, 2, 3, 4, 5][][1, 2][2, 3, 4][]|llo|llo||llo\n
+tests_suite\de_vao\sample_slice_bounds.tkv	main	0	9	[][1, 2, 3, 4, 5][][1, 2][2, 3, 4][]|llo|llo||\n
+tests_suite\de_vao\sample_slice_bounds.tkv	main	0	20	[][1, 2, 3, 4, 5][][1, 2][2, 3, 4][]|llo|llo||\n

@@ -1,0 +1,5 @@
+"""Smoke-test cho CLI tu dong (tkv build) - ham vo huong don gian nhat."""
+
+
+def add_i32(a: "i32", b: "i32") -> "i32":
+    return a + b

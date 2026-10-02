@@ -1,0 +1,9 @@
+def main(n: "i32") -> "str":
+    a = -41.045
+    b = 2.675
+    c = 0.125
+    d = 1.005
+    e = 2.5
+    f = float(n) / 8.0
+    g = float(n) * 0.1
+    return str(round(a, 2)) + "|" + str(round(b, 2)) + "|" + str(round(c, 2)) + "|" + str(round(d, 2)) + "|" + str(round(e, 0)) + "|" + str(round(f, 2)) + "|" + str(round(g, 1)) + "|" + str(round(-0.4, 0)) + "|" + str(round(f, 25)) + "|" + str(round(g * 1000.0, 1))

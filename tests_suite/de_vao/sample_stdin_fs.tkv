@@ -1,0 +1,44 @@
+# Mau cho stdin_fs_test: input() va shutil_rmtree().
+#
+# Hai o cuoi trong ma tran con bit duoc (ngoai assign_win_gui can mot
+# man hinh, va most_common dang HONG THAT).
+#
+# input(): doc tu stdin, phia Python bom du lieu vao qua pipe. Ngu nghia
+# DA GHI trong stdlib_input.py: gap EOF thi tra CHUOI RONG chu khong nem
+# loi nhu Python - ca 'doc_het' duoi day khoa dung cho khac biet do.
+#
+# shutil_rmtree(): xoa CA CAY thu muc. Chi bao gio goi tren thu muc tam
+# do chinh phia Python tao ra va truyen duong dan vao.
+
+
+def doc_mot_dong() -> "str":
+    s = input()
+    return "[" + s + "]"
+
+
+def doc_co_prompt() -> "str":
+    s = input("nhap: ")
+    return "[" + s + "]"
+
+
+def doc_hai_dong() -> "str":
+    a = input()
+    b = input()
+    return "[" + a + "|" + b + "]"
+
+
+def doc_het() -> "str":
+    # Doc QUA so dong co that: dong thua phai ra chuoi rong (EOF), khong
+    # duoc nem loi.
+    a = input()
+    b = input()
+    return "[" + a + "|" + b + "]"
+
+
+def xoa_cay(duong: "str") -> "str":
+    # shutil_rmtree CHI nhan dang gan vao bien (la mot assign_rhs parser,
+    # khong phai builtin bieu thuc) - khong dung doc lap duoc.
+    ok = shutil_rmtree(duong)
+    if path_isdir(duong):
+        return str(ok) + "|CON"
+    return str(ok) + "|HET"

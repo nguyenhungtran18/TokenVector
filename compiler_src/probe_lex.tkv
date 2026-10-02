@@ -1,0 +1,13 @@
+# probe_lex.tkv - doi chieu dong token cua ban BIEN DICH voi ban CPython
+__tkv_import__ = ["seed_lex"]
+
+def main() -> "i32":
+    nhay = "\""
+    mau = "x = f" + nhay + "n={n}" + nhay + "\n"
+    ok = tokenize_nguon(mau)
+    print("ok=" + str(ok))
+    i = 0
+    while i < tok_so_luong():
+        print(tok_kind(i) + " [" + tok_val(i) + "]")
+        i = i + 1
+    return 0

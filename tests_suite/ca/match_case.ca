@@ -1,0 +1,8 @@
+tests_suite\de_vao\sample_match_case.tkv	classify	0	1	one\n
+tests_suite\de_vao\sample_match_case.tkv	classify	0	2	two\n
+tests_suite\de_vao\sample_match_case.tkv	classify	0	99	other\n
+tests_suite\de_vao\sample_match_case.tkv	classify_str	0	a	1\n
+tests_suite\de_vao\sample_match_case.tkv	classify_str	0	b	2\n
+tests_suite\de_vao\sample_match_case.tkv	classify_str	0	z	0\n
+tests_suite\de_vao\sample_match_case.tkv	classify_no_default	0	5	50\n
+tests_suite\de_vao\sample_match_case.tkv	classify_no_default	0	7	-1\n

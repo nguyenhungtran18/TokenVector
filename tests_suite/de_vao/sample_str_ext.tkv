@@ -1,0 +1,12 @@
+def compute(s: "str") -> "i32":
+    a = s.startswith("hel")
+    b = s.endswith("llo")
+    c = s.find("ll")
+    d = s.lstrip()
+    e = s.rstrip()
+    n = len(d) + len(e) + c
+    if a:
+        n = n + 100
+    if b:
+        n = n + 1000
+    return n

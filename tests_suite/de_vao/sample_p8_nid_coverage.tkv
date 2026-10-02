@@ -1,0 +1,134 @@
+# -*- coding: utf-8 -*-
+"""Mau PHU cho cong IL cua P8/3b-1.
+
+Ly do ton tai: lo 1 cua 3b-1 sua divmod / path_splitext / re_findall, cong IL
+bao 123/123 GIONG HET - nhung khong file mau nao goi ba builtin do, nen cong
+XANH MA KHONG DO GI (dung lai loi cong gia-xanh da dinh o P3). File nay ep
+sinh dung cac bien tam co danh tinh tu nid(): __dm, __pse, __refa, __smpl,
+__shuf, __jsongs.
+
+KHONG bao phu duoc: `most_common(c, n)` (__mc) va `enumerate(x)` o VI TRI
+BIEU THUC (__enum). Cung MOT goc: builtin dang ky `return_shape='list'` nhung
+`return_dtype=None`, nen bien nhan ket qua khong duoc gan shape - `len(bien)`
+va `for k, v in bien:` deu vo. Chi tiet cho most_common: No tra 'list[tuple(K,i32)]'
+nhung `_most_common_result_dtype` tra None, nen bien nhan ket qua khong co
+dtype va `for k, v in top:` vo ngay o len(). Tim ca kho: KHONG mot file .tkv
+nao trong repo goi builtin nay - no chua tung co bao phu. Da ghi vao plan P8
+nhu mot no rieng, khong sua trong lo nay (ngoai pham vi 3b-1).
+"""
+import re
+
+
+def dung_divmod(a: "i32", b: "i32") -> "i32":
+    q, r = divmod(a, b)
+    return q * 100 + r
+
+
+def dung_divmod_hai_lan(a: "i32", b: "i32") -> "i32":
+    # HAI loi goi khac nhau trong CUNG mot ham: neu danh tinh bi gop lai
+    # (vd nho dem theo van ban) thi hai loi goi se dung chung bien tam va
+    # ket qua sai - day la cho duy nhat phat hien duoc dieu do.
+    a2 = a + 1
+    q1, r1 = divmod(a, b)
+    q2, r2 = divmod(a2, b)
+    return q1 + r1 + q2 + r2
+
+
+def dung_splitext(p: "str") -> "str":
+    root, ext = path_splitext(p)
+    return root + "|" + ext
+
+
+def dung_findall(s: "str") -> "i32":
+    xs = re_findall("[0-9]+", s)
+    return len(xs)
+
+
+def dung_sample(n: "i32") -> "i32":
+    xs = []
+    i = 0
+    while i < n:
+        xs.append(i)
+        i = i + 1
+    ys = sample(xs, 2)
+    return len(ys)
+
+
+def dung_shuffle(n: "i32") -> "i32":
+    xs = []
+    i = 0
+    while i < n:
+        xs.append(i)
+        i = i + 1
+    shuffle(xs)
+    return len(xs)
+
+
+def nhan_doi(x: "i32") -> "i32":
+    return x * 2
+
+
+def la_chan(x: "i32") -> "i32":
+    return x % 2 == 0
+
+
+def cong(a: "i32", b: "i32") -> "i32":
+    return a + b
+
+
+def _day(n: "i32") -> "list[i32]":
+    xs = []
+    i = 0
+    while i < n:
+        xs.append(i)
+        i = i + 1
+    return xs
+
+
+def dung_map(n: "i32") -> "i32":
+    xs = _day(n)
+    ys = map(nhan_doi, xs)
+    return len(ys)
+
+
+def dung_filter(n: "i32") -> "i32":
+    xs = _day(n)
+    ys = filter(la_chan, xs)
+    return len(ys)
+
+
+def dung_reduce(n: "i32") -> "i32":
+    xs = _day(n)
+    return reduce(cong, xs, 0)
+
+
+def dung_eval(e: "str") -> "f64":
+    return eval_arith(e)
+
+
+def dung_input() -> "str":
+    return input("nhap: ")
+
+
+def dung_pickle(p: "str") -> "i32":
+    return pickle_load_i32(p)
+
+
+def dung_json_get(js: "str") -> "str":
+    return json_get_str(js, "ten")
+
+
+def main() -> "i32":
+    print(dung_divmod(17, 5))
+    print(dung_divmod_hai_lan(17, 5))
+    print(dung_splitext("a/b/c.txt"))
+    print(dung_findall("a1b22c333"))
+    print(dung_sample(5))
+    print(dung_shuffle(5))
+    print(dung_map(4))
+    print(dung_filter(4))
+    print(dung_reduce(4))
+    print(dung_eval("1+2"))
+    print(dung_pickle("a.bin"))
+    print(dung_json_get("{\"ten\": \"x\"}"))
+    return 0

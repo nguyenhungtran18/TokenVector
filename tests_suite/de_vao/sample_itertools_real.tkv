@@ -1,0 +1,18 @@
+def compute() -> "i32":
+    a = []
+    b = []
+    for i in range(3):
+        a.append(i + 1)
+    for i in range(2):
+        b.append(i + 4)
+    c = chain(a, b)
+    total = 0
+    for x in c:
+        total = total + x
+    p: "list[(i32,i32)]" = product(a, b)
+    for x, y in p:
+        total = total + x * y
+    comb: "list[(i32,i32)]" = combinations(a, 2)
+    for x, y in comb:
+        total = total + x + y
+    return total

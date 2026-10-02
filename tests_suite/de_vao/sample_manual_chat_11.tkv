@@ -1,0 +1,137 @@
+"""11 ham do Gemini (chat thu cong, khong qua API Groq) sinh 2026-07-28
+sau khi Groq TPD het quota - dan qua cung mot prompt _DSL_REFERENCE nhu
+AlphaAI dung, dan ket qua ve day de bien dich THAT + doi chieu CPython
+that (khong tin mu code AI, giong nguyen tac ap dung cho AlphaAI)."""
+
+
+def unique_char_count(s: "str") -> "i32":
+    d = {}
+    n = len(s)
+    for i in range(n):
+        c = s[i]
+        d[c] = 1
+    ans = len(d)
+    return ans
+
+
+def list_max(a: "i32", b: "i32", c: "i32") -> "i32":
+    lst = []
+    lst.append(a)
+    lst.append(b)
+    lst.append(c)
+    max_val = a
+    for x in lst:
+        if x > max_val:
+            max_val = x
+        else:
+            max_val = max_val
+    return max_val
+
+
+def list_count_even(n: "i32") -> "i32":
+    lst = []
+    for i in range(n):
+        lst.append(i)
+    count = 0
+    for x in lst:
+        rem = x % 2
+        if rem == 0:
+            count += 1
+        else:
+            count += 0
+    return count
+
+
+def dict_sum_values(a: "i32", b: "i32", c: "i32") -> "i32":
+    d = {}
+    d["x"] = a
+    d["y"] = b
+    d["z"] = c
+    tong = d["x"] + d["y"] + d["z"]
+    return tong
+
+
+def dict_has_key_report(a: "i32", key_present: "i32") -> "str":
+    d = {}
+    d["val"] = a
+    if key_present != 0:
+        d["extra"] = 1
+    else:
+        d["val"] = a
+    has_ext = "extra" in d
+    if has_ext:
+        return "co extra"
+    else:
+        return "khong co extra"
+
+
+def list_of_squares_sum(n: "i32") -> "i32":
+    lst = []
+    for i in range(n):
+        sq = i * i
+        lst.append(sq)
+    tong = 0
+    for x in lst:
+        tong += x
+    return tong
+
+
+def gcd_like_mod(a: "i32", b: "i32") -> "i32":
+    while b != 0:
+        r = a % b
+        a = b
+        b = r
+    return a
+
+
+def clamp_report(x: "i32", lo: "i32", hi: "i32") -> "str":
+    if x < lo:
+        msg = "duoi min: " + str(lo)
+        return msg
+    else:
+        if x > hi:
+            msg = "tren max: " + str(hi)
+            return msg
+        else:
+            msg = "trong khoang: " + str(x)
+            return msg
+
+
+def safe_index_report(n: "i32", idx: "i32") -> "str":
+    lst = []
+    for i in range(n):
+        lst.append(i)
+    try:
+        out_of_bounds = idx < 0 or idx >= n
+        if out_of_bounds:
+            raise IndexError("chi so ngoai pham vi")
+        else:
+            val = lst[idx]
+            msg = "gia tri: " + str(val)
+            return msg
+    except IndexError:
+        return "loi: chi so khong hop le"
+
+
+def count_not_equal(a: "i32", n: "i32") -> "i32":
+    lst = []
+    for i in range(n):
+        lst.append(i)
+    count = 0
+    for x in lst:
+        if not (x == a):
+            count += 1
+        else:
+            count += 0
+    return count
+
+
+def running_total_capped(n: "i32", cap: "i32") -> "i32":
+    tong = 0
+    for i in range(n):
+        tong += i
+        if tong > cap:
+            break
+        else:
+            tong += 0
+    return tong

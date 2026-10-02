@@ -1,0 +1,5 @@
+tests_suite\de_vao\sample_set_annot.tkv	sum_via_to_list	0	23	5\n
+tests_suite\de_vao\sample_set_annot.tkv	sum_via_to_list	0	44	4\n
+tests_suite\de_vao\sample_set_annot.tkv	count_after_roundtrip	0	79	2\n
+tests_suite\de_vao\sample_set_annot.tkv	count_after_roundtrip	0	77	1\n
+tests_suite\de_vao\sample_set_annot_neg.tkv	f	0	0	2\n

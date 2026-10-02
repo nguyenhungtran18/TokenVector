@@ -1,0 +1,14 @@
+def acc_read(dong: "str") -> "str":
+    # Doc `ra` (receiver cua rstrip/upper) giua vong lap don chuoi: phai thay chuoi da don, khong phai ban cu cua StringBuilder.
+    ra = ""
+    i = 0
+    n = 0
+    while i < len(dong):
+        c = dong[i]
+        i += 1
+        if c == "f":
+            tr = ra.rstrip()
+            n += len(tr) + len(ra.upper())
+            continue
+        ra = ra + c
+    return ra + "|" + str(n)

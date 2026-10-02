@@ -1,0 +1,15 @@
+OPS: "dict[str, str]" = {"add": "+", "sub": "-", "mul": "*"}
+RANK: "dict[str, i32]" = {"low": 1, "high": 9}
+NAMES: "list[str]" = ["alpha", "beta"]
+KEYS: "set[str]" = {"a", "b"}
+
+
+def sym(name: "str") -> "str":
+    if name in OPS:
+        return OPS[name]
+    return "?"
+
+
+def run_module_dict() -> "str":
+    return (sym("sub") + sym("xyz") + "," + str(RANK["high"]) + "," + str(len(OPS))
+            + "," + NAMES[1] + "," + str(len(KEYS)))

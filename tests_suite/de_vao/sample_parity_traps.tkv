@@ -1,0 +1,71 @@
+# -*- coding: utf-8 -*-
+"""Cac bay PARITY da lam hong cong cu that - moi ham o day tung sai AM THAM.
+
+Doi chieu truc tiep voi CPython chay chinh file nay (xem
+test/verify/parity_traps_test.py). Dung sua noi dung chuoi o day: chuoi
+KET THUC BANG CHU 'f' ngay truoc dau nhay la trong tam cua bay dau tien.
+"""
+
+
+def kw_or(w: "str") -> "i32":
+    """BAY 1: `"def"` ket thuc bang 'f', nen `f"` xuat hien GIUA hai chuoi.
+
+    Bo tien xu ly f-string tung khop `f" or w == "` roi viet lai thanh
+    `"de(" ... ")class"`, khien dieu kien LUON sai ma khong bao gi. Bang
+    dinh nghia cua typegraph rong sach, 0 canh `calls`."""
+    if w == "def" or w == "class":
+        return 1
+    return 0
+
+
+def kw_chain(w: "str") -> "str":
+    """BAY 1 dang if/elif/else - tung bi ghi nham la loi cua `else` long."""
+    out = "?"
+    if len(w) > 0:
+        if w == "class":
+            out = "L"
+        elif w == "def":
+            out = "H"
+        else:
+            out = "x"
+    return out
+
+
+def ends_f(w: "str") -> "i32":
+    """Chuoi ket thuc bang 'f' o cac vi tri khac: `elif`, `self`, `if`."""
+    n = 0
+    if w == "elif":
+        n = n + 1
+    if w == "self":
+        n = n + 2
+    if w == "if":
+        n = n + 4
+    return n
+
+
+def real_fstring(name: "str", n: "i32") -> "str":
+    """f-string THAT phai van chay - ban va cham khong duoc lam hong no."""
+    return f"chao {name} so {n}"
+
+
+def add9(a0: "i32", a1: "i32", a2: "i32", a3: "i32", a4: "i32", a5: "i32", a6: "i32", a7: "i32", a8: "i32") -> "i32":
+    """BAY 2: goi ham 9 THAM SO can 9 o tren stack, nhung `.maxstack` truoc
+    day la hang so 8 - ilasm van dich, CLR nem InvalidProgramException luc
+    chay va khong noi gi ve maxstack."""
+    return a0 + a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8
+
+
+def add12(a0: "i32", a1: "i32", a2: "i32", a3: "i32", a4: "i32", a5: "i32", a6: "i32", a7: "i32", a8: "i32", a9: "i32", a10: "i32", a11: "i32") -> "i32":
+    """Xa hon nguong mot chut, de chac la sua that chu khong phai noi 8->9."""
+    return a0 + a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8 + a9 + a10 + a11
+
+
+def call9(x: "i32") -> "i32":
+    """Loi goi 9 tham so nam TRONG mot ham khac - day moi la cho hong."""
+    return add9(x, x + 1, x + 2, x + 3, x + 4, x + 5, x + 6, x + 7, x + 8)
+
+
+def call12(x: "i32") -> "i32":
+    """Loi goi 12 tham so."""
+    return add12(x, x, x, x, x, x, x, x, x, x, x, x)
+

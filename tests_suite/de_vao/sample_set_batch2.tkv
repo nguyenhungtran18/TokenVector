@@ -1,0 +1,13 @@
+def compute(n: "i32") -> "i32":
+    s1 = set()
+    for i in range(n):
+        s1.add(i)
+    s1.remove(0)
+    s1.discard(999)
+    s2 = set()
+    for i in range(n):
+        s2.add(i + 2)
+    u = s1.union(s2)
+    inter = s1.intersection(s2)
+    diff = s1.difference(s2)
+    return len(s1) * 1000 + len(u) * 100 + len(inter) * 10 + len(diff)

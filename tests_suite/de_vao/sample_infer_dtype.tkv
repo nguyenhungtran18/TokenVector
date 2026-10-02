@@ -1,0 +1,128 @@
+# -*- coding: utf-8 -*-
+"""Bay suy kieu (2026-08-03, dot 3).
+
+MOI ham o day TRA VE 'str' - do la ngu canh da lam lo ra ca 5 bug cung
+loai trong 1 phien: khi khong suy duoc kieu, compiler cu am tham lay
+kieu TRA VE cua ham dang bien dich lam kieu cua bien/phan tu container.
+Neu quy tac do quay lai, cac ham duoi day se sai ket qua hoac khong
+bien dich duoc - khong the im lang."""
+
+
+class Counter:
+    hits: "i32"
+    tag: "str"
+
+    def __init__(self, hits, tag):
+        self.hits = hits
+        self.tag = tag
+
+    def bump(self) -> "i32":
+        self.hits = self.hits + 1
+        return self.hits
+
+    def rate(self) -> "f64":
+        return self.hits * 1.5
+
+    def label(self) -> "str":
+        return self.tag + str(self.hits)
+
+
+def builtin_results() -> "str":
+    """Ket qua builtin gan vao bien, trong 1 ham tra ve str."""
+    xs = [3, 1, 2]
+    a = len(xs)
+    b = sum(xs)
+    c = max(xs)
+    d = min(xs)
+    e = sorted(xs)
+    f = abs(0 - 7)
+    g = int("42")
+    h = float("2.5")
+    i = int(round(2.5))
+    j = sqrt(9.0)
+    k = int(floor(3.7))
+    return (str(a) + "," + str(b) + "," + str(c) + "," + str(d) + "," + str(len(e))
+            + "," + str(f) + "," + str(g) + "," + str(h) + "," + str(i) + ","
+            + str(j) + "," + str(k))
+
+
+def method_results() -> "str":
+    """Ket qua method cua record + cua chuoi, trong 1 ham tra ve str."""
+    c = Counter(0, "c")
+    n = c.bump()
+    n = c.bump()
+    r = c.rate()
+    lab = c.label()
+    s = "  Hello  "
+    t = s.strip()
+    u = s.lower()
+    v = t.startswith("He") + 0   # Python tra bool, DSL tra 0/1 - cong 0 cho cung dang
+    w = t.find("llo")
+    return str(n) + "," + str(r) + "," + lab + "," + u.strip() + "," + str(v) + "," + str(w)
+
+
+def list_of_method_results() -> "str":
+    """Kieu PHAN TU cua list suy tu ket qua 1 method record."""
+    labels = []
+    counters = []
+    counters.append(Counter(1, "a"))
+    counters.append(Counter(2, "b"))
+    for c in counters:
+        labels.append(c.label())
+    rates = []
+    for c in counters:
+        rates.append(c.rate())
+    total = 0.0
+    for x in rates:
+        total = total + x
+    return ",".join(labels) + "|" + str(total)
+
+
+def word_count() -> "str":
+    """Mau dem tan suat pho bien nhat cua Python: 'd[k] = d.get(k, 0) + 1'
+    - dict TU THAM CHIEU nen suy kieu that that bai, phai suy tu hang so."""
+    words = ["b", "a", "b", "c", "b"]
+    seen = {}
+    for w in words:
+        seen[w] = seen.get(w, 0) + 1
+    ks = seen.keys()
+    keys = sorted(ks)
+    out = []
+    for k in keys:
+        out.append(k + str(seen[k]))
+    return ",".join(out)
+
+
+def compare_traps() -> "str":
+    """So sanh ma 1 ben la loi goi method/ham - truoc day bi coi la SO
+    SANH CHUOI vi khong suy duoc kieu."""
+    c = Counter(5, "z")
+    n = 0
+    if c.bump() == 6:
+        n = n + 1
+    if c.rate() > 1.0:
+        n = n + 10
+    xs = [1, 2, 3]
+    if len(xs) == 3:
+        n = n + 100
+    return str(n)
+
+
+def empty_containers() -> "str":
+    """Container RONG suot doi - kieu phan tu khong quan sat duoc va cung
+    khong anh huong ket qua."""
+    lst = []
+    d = {}
+    return str(len(lst)) + "," + str(len(d))
+
+
+def main(n: "i32") -> "str":
+    parts = []
+    parts.append(builtin_results())
+    parts.append(method_results())
+    parts.append(list_of_method_results())
+    parts.append(word_count())
+    parts.append(compare_traps())
+    parts.append(empty_containers())
+    parts.append(str(n))
+    return "|".join(parts)

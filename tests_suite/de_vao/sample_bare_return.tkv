@@ -1,0 +1,32 @@
+"""`return` tran: ham void thoat som (ca trong try), ham co kieu = return None."""
+
+
+def f(x: "i32"):
+    if x > 0:
+        return
+    print("am")
+
+def g(x: "i32"):
+    try:
+        if x > 0:
+            return
+        print("g-khong")
+    except ValueError:
+        print("loi")
+    print("g-sau")
+
+def h(x: "i32") -> "str":
+    if x > 0:
+        return
+    return "co"
+
+def demo_bare_return() -> "i32":
+    f(1)
+    f(-1)
+    g(1)
+    g(-1)
+    s = h(-1)
+    print(s)
+    t = h(1)
+    print(t is None)
+    return 0

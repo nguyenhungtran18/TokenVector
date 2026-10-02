@@ -1,0 +1,28 @@
+# -*- coding: utf-8 -*-
+"""http_request(): doc duoc STATUS CODE va HEADER TRA VE (2026-08-03)."""
+
+
+def status_of(url: "str") -> "str":
+    h = {}
+    r = http_request("GET", url, "", h)
+    return r["status"]
+
+
+def body_of(url: "str") -> "str":
+    h = {}
+    r = http_request("GET", url, "", h)
+    return r["body"]
+
+
+def header_of(url: "str", name: "str") -> "str":
+    h = {}
+    r = http_request("GET", url, "", h)
+    return r["header:" + name]
+
+
+def post_status_and_body(url: "str", payload: "str") -> "str":
+    h = {}
+    h["Content-Type"] = "application/json"
+    h["X-Api-Key"] = "k1"
+    r = http_request("POST", url, payload, h)
+    return r["status"] + "|" + r["body"]

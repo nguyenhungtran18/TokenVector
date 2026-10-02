@@ -1,0 +1,26 @@
+# -*- coding: utf-8 -*-
+"""Giai doan 0.2 nhom 8 (2026-08-03): db_*/zip_*/json_get_str/http_post goi
+duoc o MOI vi tri bieu thuc. Truoc nhom 8 MOI dong duoi day (tru dong 'h =
+db_open(...)') deu KHONG bien dich duoc: cac builtin nay chi chay o RHS 1
+phep gan don le.
+
+Luu y CO Y: 'INSERT INTO t VALUES (1, 'A,B')' co dau ',' BEN TRONG chuoi
+SQL - chinh la truong hop tung phai viet ham _split_top_level_comma_2 rieng
+de va; nay parser bieu thuc tach san nen ham do da xoa."""
+
+
+def run_g8(dbpath: "str", zipsrc: "str", zipout: "str") -> "str":
+    h = db_open(dbpath)
+    rc = db_exec(h, "DROP TABLE IF EXISTS t") + db_exec(h, "CREATE TABLE t (id INTEGER, name TEXT)")
+    rc2 = db_exec(h, "INSERT INTO t VALUES (1, 'A,B')")
+    total = db_query_int(h, "SELECT COUNT(*) FROM t") + 10
+    s = db_query_text(h, "SELECT name FROM t WHERE id = 1") + "!"
+    z0 = zip_create(zipsrc, zipout)
+    z = zip_create(zipsrc, zipout) + zip_extract(zipout, zipsrc + "_out")
+    k = json_get_str(s, "nokey") + "-"
+    rcx = db_close(h)
+    return s + "_" + str(total) + "_" + str(z) + "_" + k + str(rcx)
+
+
+def post_json(url: "str", payload: "str") -> "str":
+    return http_post(url, payload) + ""

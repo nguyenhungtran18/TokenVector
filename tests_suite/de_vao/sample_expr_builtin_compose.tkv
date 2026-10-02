@@ -1,0 +1,40 @@
+"""Vi du THAT kiem chung Giai doan 0.2 (2026-08-03, dong Python-parity-gap
+v2): builtin thu vien goi duoc NGAY TRONG bieu thuc ('return f(x)',
+'f(x) + "!"', 'g(f(x))' long nhau) thay vi CHI o vi tri RHS 1 phep gan
+don le ('t = f(x)') nhu truoc day. sha256_hex/md5_hex/base64_encode/
+base64_decode khong phai builtin Python that nen doi chieu bang cach
+SO SANH duong 'compose' voi duong 'gan roi dung' (da xac minh dung tu
+truoc) tren CUNG 1 input, thay vi doi chieu CPython (xem quy uoc da co
+cua http_get_test.py cho cac builtin khong co tuong duong Python)."""
+
+
+def sha_direct(s: "str") -> "str":
+    t = sha256_hex(s)
+    return t
+
+
+def sha_compose(s: "str") -> "str":
+    return sha256_hex(s)
+
+
+def sha_compose_concat(s: "str") -> "str":
+    return sha256_hex(s) + "!"
+
+
+def md5_direct(s: "str") -> "str":
+    t = md5_hex(s)
+    return t
+
+
+def b64_of_md5_direct(s: "str") -> "str":
+    m = md5_hex(s)
+    b = base64_encode(m)
+    return b
+
+
+def md5_in_b64_nested(s: "str") -> "str":
+    return base64_encode(md5_hex(s))
+
+
+def b64_roundtrip(s: "str") -> "str":
+    return base64_decode(base64_encode(s))

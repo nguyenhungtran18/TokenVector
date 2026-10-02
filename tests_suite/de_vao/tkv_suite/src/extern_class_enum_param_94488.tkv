@@ -1,0 +1,11 @@
+
+__tkv_extern_assembly__ = ("Fixture", None, None)
+__tkv_extern_method__ = [
+    {"name": "describe", "assembly": "Fixture", "class": "Fixture.Widget",
+     "method": "Describe", "params": ["enum:Fixture:Fixture.Flavor"], "returns": "i32"},
+]
+
+def main() -> "i32":
+    r = describe(1)
+    print(r)
+    return 0

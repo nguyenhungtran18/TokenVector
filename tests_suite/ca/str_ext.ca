@@ -1,0 +1,4 @@
+tests_suite\de_vao\sample_str_ext.tkv	compute	0	  hello  	18\n
+tests_suite\de_vao\sample_str_ext.tkv	compute	0	hello world	124\n
+tests_suite\de_vao\sample_str_ext.tkv	compute	0	xyz	5\n
+tests_suite\de_vao\sample_str_ext.tkv	compute	0	hello	1112\n

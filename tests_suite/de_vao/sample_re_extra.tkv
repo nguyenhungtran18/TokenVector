@@ -1,0 +1,23 @@
+# Mau cho re_extra_test: re_findall / re_fullmatch / re_split.
+#
+# CHU Y ve re_split: no anh xa sang Regex.Split cua .NET. Voi khuon co
+# NHOM, .NET va Python KHAC NHAU (Python giu None cho nhom khong tham gia,
+# .NET bo han) - hat giong TU CHOI thang dong nay vi ly do do. O day chi
+# khoa cac ca KHONG co nhom (hai ben trung nhau), cong mot ca CO nhom de
+# ghi lai hanh vi .NET, khong de no doi am tham.
+
+
+def tim_het(kh: "str", s: "str") -> "str":
+    xs = re_findall(kh, s)
+    return str(len(xs)) + "|" + "-".join(xs)
+
+
+def khop_tron(kh: "str", s: "str") -> "i32":
+    if re_fullmatch(kh, s):
+        return 1
+    return 0
+
+
+def cat(kh: "str", s: "str") -> "str":
+    xs = re_split(kh, s)
+    return str(len(xs)) + "|" + "-".join(xs)
