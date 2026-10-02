@@ -1861,17 +1861,26 @@ def compile_file_method_call(node, scope, out, dtype, ctx):
     if method_name == 'close':
         # `close()` - BAT BUOC khi mo file bang HAM `open(p, "w")`.
         # `with_open` tu Dispose trong khoi nen khong can, nhung handle do
-        # `open()` tra ve thi nguoi dung phai tu dong. Dispose() cung Flush
+        # `open()` tra ve thi nguoi dung phai tu dong. Close() cung Flush
         # nen du lieu ghi chua khong mat.
         if args:
             raise SyntaxError("il_codegen: f.close() khong nhan tham so")
         ctx['load_var_ref'](obj_name, scope, out)
-# `Dispose()` tra void va DA TIEU handle -> stack rong sau no.
+        # BUG THAT (2026-10-02, xac nhan bang probe, khong phai suy doan):
+        # truoc day LUON goi `[mscorlib]System.IO.TextWriter::Dispose()`.
+        # Handle mode 'r' la **StreamReader** - khong phai TextWriter - nen
+        # lenh do KHONG giai phong file: `a = open(p,"r"); a.read();
+        # a.close(); open(p,"w")` nem IOException "file dang bi dung boi
+        # tien trinh khac". Build van XANH, chi loi luc CHAY. Phai chon
+        # theo mode, giong `.write()`/`.read()` da lam sẵn o phia tren.
+        if mode == 'r':
+            out.append('    callvirt instance void [mscorlib]System.IO.TextReader::Close()')
+        else:
+            out.append('    callvirt instance void [mscorlib]System.IO.TextWriter::Close()')
+        # `Close()` tra void va DA TIEU handle -> stack rong sau no.
         # KHONG them `pop` (cung mau loi voi setattr/os_remove), va KHONG day
         # `ldc.i4.0`: `close()` la CUU LENH nhu het `write()`, de lai mot gia
         # tren stack se lam het stack luc chay (InvalidProgramException).
-        out.append('    callvirt instance void [mscorlib]System.IO.TextWriter'
-                   '::Dispose()')
         return
     raise SyntaxError(
         f"il_codegen: file-handle chi ho tro '.write(x)' (mode w/a), "

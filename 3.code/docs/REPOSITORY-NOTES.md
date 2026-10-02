@@ -1721,3 +1721,35 @@ thì phải chặn (phát `cgt`/`clt` trực tiếp).
 
 **Gate:** 117/117, negative 31/31, parity 119/119, ext_smoke 4/4, Data 18/18,
 Inference 26/26.
+
+---
+
+## `open().close()` that file (2026-10-02) — XONG
+
+Tài liệu (và docstring cua chinh `Testkit/open_function_test.tkv`) ghi
+*"file van bi khoa sau `.close()` — chua tim ra nguyen nhan"*. **Nguyen nhan
+thi co, va chi mot dong.**
+
+`compile_file_method_call` (control_flow.tkv) **chon dung** `TextWriter::Write`
+/ `TextReader::ReadToEnd` theo mode, rieng nhanh `close()` thi **hardcode**:
+
+```
+callvirt instance void [mscorlib]System.IO.TextWriter::Dispose()
+```
+
+Handle mode `'r'` la `StreamReader` — khong phai `TextWriter` — nen lenh do
+**khong giai phong file**. Bang chung (probe, khong suy doan):
+
+```tokenvector
+a = open(p, "r"); a.read(); a.close()
+c = open(p, "a")   # System.IO.IOException: file dang bi dung boi tien trinh khac
+```
+
+**Build van XANH, chi loi luc CHAY** — dang loi nguy hiem nhat, va no da song
+trong tai lieu suot bao gio vi test "chi mo moi duong dan MOT LAN de tranh".
+Bay bai test do mo lai cung duong dan lien tuc, va xanh.
+
+Suua: `close()` chon `TextReader::Close()` / `TextWriter::Close()` theo mode —
+dung y het cach `.write()`/`.read()` lam san ngay tren do. Dung `Close()` chu
+khong phai `Dispose()` vi no cung dong file + flush, nhung la method cua ca
+`TextReader` lan `TextWriter` (it mot nhanh ghep kieu so voi code hien tai).

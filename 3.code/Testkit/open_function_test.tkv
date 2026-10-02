@@ -3,12 +3,16 @@
 #
 # Handle dung Y kieu voi `with open(...)`: shape='file', dtype=mode.
 #
-# GIOI HAN BIET - DA DO, KHONG DOAN (2026-09-30, xem docs/REFERENCE.md 7.11):
-# `f.close()` goi `Dispose()` nhung file VAN BI KHOA. Bang chung quyet dinh:
-#   g = open(p, "r"); s = g.read(); g.close()
-#   path_write_text(p, "x")   -> System.IO.IOException: file dang duoc dung
-# Bai nay CHI TAO DU LIEU MOT LAN roi mo MOT LAN - neu mo/roi ghi lai cung
-# duong dan se hong, va do la gioi han cua runtime chu phai loi cua test.
+# BUG DA SUA (2026-10-02) - chinh Bai nay bat duoc:
+# `f.close()` LUC NAY LUON goi `[mscorlib]System.IO.TextWriter::Dispose()`,
+# con handle mode 'r' la **StreamReader** - nen lenh do khong giai phong file.
+# Bang chung: `g = open(p,"r"); g.read(); g.close()` roi `path_write_text(p,..)`
+# nem IOException "file dang bi dung boi tien trinh khac". **Build van XANH,
+# chi loi luc CHAY.** Nay `close()` chon `TextReader::Close()` hay
+# `TextWriter::Close()` theo mode, giong `.write()`/`.read()` da lam san.
+#
+# Bai nay MO LAI CUNG MOT DUONG DAN nhieu lan (truoc day phai "mo 1 lan roi
+# mo 1 lan" de tranh bug) - day chinh la cai de bao ve khoi quay lai.
 __tkv_import__ = ["tkv_test_lib"]
 
 
@@ -41,4 +45,46 @@ def run() -> "i32":
     tested = tested + 1
     total = total + check("open_fn_readline2", str(l2), "d2")
 
+    # --- GHI DE CHUNG DUONG DAN sau khi da DOC va dong (bug cu) ---
+    w = open(p, "w")
+    w.write("xyz")
+    w.close()
+    r2 = open(p, "r")
+    s2 = r2.read()
+    r2.close()
+    tested = tested + 1
+    total = total + check("rewrite_after_read", str(s2), "xyz")
+
+    # --- GHI DE CHUNG DUONG DAN sau khi da GHI va dong ---
+    w2 = open(p, "w")
+    w2.write("q")
+    w2.close()
+    r3 = open(p, "r")
+    s3 = r3.read()
+    r3.close()
+    tested = tested + 1
+    total = total + check("rewrite_after_write", str(s3), "q")
+
+    # --- GHI NOI tren chinh file vua doc ---
+    a = open(p, "a")
+    a.write("rs")
+    a.close()
+    r4 = open(p, "r")
+    s4 = r4.read()
+    r4.close()
+    tested = tested + 1
+    total = total + check("append_after_read", str(s4), "qrs")
+
+    # --- DOC HAI LAN LIEN TIEP cung duong dan ---
+    h1 = open(p, "r")
+    v1 = h1.read()
+    h1.close()
+    h2 = open(p, "r")
+    v2 = h2.read()
+    h2.close()
+    tested = tested + 1
+    total = total + check("read_twice", v1 + "=" + v2, "qrs=qrs")
+
+    os_remove(p)
+    os_remove(p2)
     return test_summary("open_function_test", total, tested)

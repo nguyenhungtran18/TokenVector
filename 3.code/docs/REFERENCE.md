@@ -611,18 +611,40 @@ g.close()
 lúc biên dịch để chọn `StreamReader` hay `StreamWriter`. Không nhận `"rb"`,
 `"wb"`, `"r+"`.
 
-### GIỚI HẠN ĐÃ BIẾT — file vẫn bị khoá sau `.close()`
+### `close()` — **ĐÃ SỬA 2026-10-02**, mở lại cùng đường dẫn là được
 
-`f.close()` gọi `Dispose()` nhưng file **vẫn còn bị khoá**, nên mở lại cùng
-đường dẫn bằng `open(p, "w")` sẽ ném `IOException`. **Chưa tìm ra nguyên nhân
-(2026-09-30).** Test chỉ ghim phần đã kiểm chứng chạy đúng, không ghim phần này.
+Trước đây tài liệu này ghi *"file vẫn bị khoá sau `.close()`"* và bảo tránh
+mở lại. **Sai — và đó là bug thật, không phải giới hạn runtime.**
 
-| Cần làm | Dùng |
+`f.close()` **luôn** phát `TextWriter::Dispose()`, nhưng handle mode `"r"` là
+`StreamReader`, không phải `TextWriter` — nên lệnh đó **không giải phóng file**:
+
+```tokenvector
+g = open(p, "r")
+s = g.read()
+g.close()
+f = open(p, "w")        # IOException: file đang bị dùng bởi tiến trình khác
+```
+
+**Build vẫn xanh, chỉ lỗi lúc chạy.** Nay `close()` chọn `TextReader::Close()`
+hay `TextWriter::Close()` theo mode, giống hệt cách `.write()`/`.read()` đã làm.
+
+Mọi cặp thao tác sau đều chạy đúng:
+
+| Trình tự | Kết quả |
 |---|---|
-| Ghi đè file đã tồn tại | `path_write_text(p, s)` — đã kiểm chứng |
-| Mở file để đọc dòng, đóng bằng scope | `with open(p, "r") as h:` — `with` tự Dispose |
-| Ghi rồi đọc lại ngay | `path_write_text(p, s)` rồi `path_read_text(p)` |
-| Mở nhiều handle cùng lúc trên 1 file | Tránh — dùng các hàm ở trên |
+| `w` → đóng → `w` (ghi đè) | ✅ |
+| `r` → đóng → `w` (ghi đè) | ✅ (trước: `IOException`) |
+| `w` → đóng → `a` (ghi nối) | ✅ |
+| `r` → đóng → `r` (đọc lại) | ✅ |
+| `w` → đóng → `r` (đọc lại) | ✅ |
+
+Ghim bằng `Testkit/open_function_test.tkv` — bài test đó trước đây **cố tình
+chỉ mỗi đường dẫn một lần** để tránh bug; nay mở lại liên tục cùng đường dẫn.
+
+Vẫn nên cân nhắc `path_write_text`/`path_read_text` cho code ngắn gọn, và
+`with open(...)` khi file rất lớn (đọc dòng bằng `StreamReader`, không nạp hết
+vào RAM).
 không có kiểu riêng nên `h.read()` không dispatch được. Thay vào đó **hai chức
 năng đó đã có sẵn ở dạng hàm**, dùng được ngay:
 
