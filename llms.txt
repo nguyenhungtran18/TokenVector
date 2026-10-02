@@ -1,69 +1,73 @@
 # TokenVector (.tkv, .tv)
 
-> TokenVector is an ultra-lightweight, statically-typed native programming language compiling directly to .NET CIL assembly (via ilasm.exe) into standalone PE executables. Zero external runtime bundling, zero interpreter, zero CRT/CPython dependency. True No-GIL multicore execution.
-> Motto: "Intuitive syntax, native execution, zero bloat."
+> TokenVector is a statically-typed language that compiles to **.NET CIL** and
+> links into a **standalone PE executable**. No interpreter, no CPython at run
+> time, no GIL. ~6 KB hello-world.
+>
+> Every rule below is checked by a gate in the repository. If a claim here
+> disagrees with the gates, the gates win.
 
 ---
 
-## 1. Architectural Model & Compilation Pipeline
+## 1. Compilation pipeline
 
-TokenVector operates as a deterministic, single-pass Ahead-Of-Time (AOT) toolchain:
-- **Source (`.tkv`, `.tv`):** Statically-typed code with explicit unboxed scalar type hints. Always starts with `# -*- coding: utf-8 -*-`.
-- **AST & Validator:** Single-pass lexical analysis and deterministic AST parsing with static type enforcement.
-- **CIL Instruction Emitter:** Emits plain text CIL/MSIL bytecode directly mapped to .NET CTS types.
-- **Native Assembler (`ilasm.exe`):** Packs intermediate `.il` into native standalone `.exe` (8.5 KB – 120 KB) with immediate cold-start.
-- **Self-Hosted:** The core compiler (`tkvc.exe`) is implemented in TokenVector (under `3.code/compiler/`, `3.code/tkv_compile.tkv`, `3.code/tkv.tkv`).
+- **Source (`.tkv`, `.tv`)** — statically typed, unboxed scalar annotations in
+  quoted strings. A `# -*- coding: utf-8 -*-` first line is the convention.
+- **Parser** — deterministic AST with static type enforcement.
+- **CIL emitter** — plain text CIL/MSIL, mapped to .NET CTS types.
+- **`ilasm.exe`** — assembles the `.il` into a standalone `.exe`.
+- **Self-hosted** — the compiler is written in TokenVector
+  (`3.code/compiler/`, `3.code/tkv_compile.tkv`, `3.code/tkv.tkv`, 126 `.tkv`
+  files).
+  **Honest caveat:** `build_tkvc.ps1` stages those `.tkv` files as Python and
+  freezes them with PyInstaller, so *building* `tkvc.exe` needs CPython. Running
+  a compiled `.tkv` does not.
 
----
+## 2. Strict rules — do not violate
 
-## 2. Strict Rules & Constraints for LLMs
+- **Never treat TokenVector as Python.** No `import os` / `re` / `json` /
+  `math`; use the global builtins (`os_mkdir`, `re_search`, `json_dumps`, ...).
+- **Type every signature and class field** with a quoted string:
+  `"i32"`, `"i64"`, `"f32"`, `"f64"`, `"str"`, `"bool"`, `"void"`, `"int"`,
+  `"TkvInt"`. `"bool"` is an alias of `"i32"`.
+- **Locals are inferred** — inside a function body write `x = 1`, **never**
+  `x: "i32" = 1`.
+- **Module level has no variables** — only `def`, `class`, constants and typed
+  unidirectional globals (`counter: "i32" = 0`). `xs = [1, 2, 3]` at module
+  level is a compile error.
+- **Entry point** — `--entry run` needs `def run()` returning `i32`/`i64`/`f32`/
+  `f64`/`str`/`void`. The return value is printed; use it as the exit code.
+- **Class fields** must be declared with a type at the class body level before
+  `__init__`.
+- **f-strings and `.format()` ARE supported** (`f"{n:05d}"`, `f"{v:.2f}"`,
+  `"{}".format(x)`, `"{0}+{1}".format(a, b)`), as are triple-quoted strings.
+  `+ str(v)` also works everywhere.
+- **Methods only on named variables** (`t = ","; t.join(xs)`), and **container
+  methods are standalone statements** (`xs.append(v)`; `y = xs.pop()` is an
+  error).
+- **`str(x)` accepts any expression** — `str(a + b)`, `str(len(xs) + 1)`. Only
+  `fmt_float(v, n)` requires a plain variable.
+- **Regex takes the input first**: `re_search(pattern, s)`. Names:
+  `re_match`, `re_search`, `re_fullmatch`, `re_sub`, `re_split`, `re_findall`.
+- **A UTF-8 BOM in the source is rejected** (`U+FEFF`).
 
-When generating, analyzing, or refactoring TokenVector code, adhere to these constraints:
-- **NO Python Runtime:** Do NOT treat TokenVector as Python. Do NOT import standard Python libraries (`import os`, `import sys`, `import re`, `import json`, `import math`).
-- **NO Dynamic Typing:** All parameters, return types, and class fields MUST be statically typed.
-- **Unboxed String Annotations:** Primitive scalar types must use quoted string identifiers:
-  `"i8"`, `"i16"`, `"i32"`, `"i64"`, `"u8"`, `"u16"`, `"u32"`, `"u64"`, `"f16"`, `"f32"`, `"f64"`, `"str"`, `"bool"`, `"void"`, `"TkvInt"`, `"TkvStr"`.
-- **Local Variable Inference:** Inside function bodies, local variable types are automatically inferred from the right-hand side expression (do NOT use explicit local annotations like `x: "i32" = 10`).
-- **Standard Entry Point:** Executable applications require `def run() -> "str":` returning `"SUCCESS"` or a status code.
-- **Class Field Declarations:** All object attributes must be declared with type annotations at the class body level before `__init__`.
-- **String Concatenation:** Use explicit `+ str(...)` concatenation instead of Python f-strings or `.format()`.
+## 3. Canonical patterns
 
----
-
-## 3. Canonical Syntax Patterns
-
-### Scalar Variables & Basic Control Flow
-```tokenvector
-# -*- coding: utf-8 -*-
-x = 42
-rate = 3.14159
-is_active = True
-label = "TokenVector Standalone Binary"
-
-if x > 100:
-    print("Above threshold")
-else:
-    print("Normal range")
-
-while x > 0:
-    x = x - 1
-```
-
-### Functions & Entry Point
-```tokenvector
+### Scalars, control flow, entry point
+```python
 # -*- coding: utf-8 -*-
 def calculate_sum(a: "i32", b: "i32") -> "i32":
     return a + b
 
-def run() -> "str":
-    print("=== TokenVector Initialized ===")
+def run() -> "i32":
     total = calculate_sum(15, 25)
-    print("Computed: " + str(total))
-    return "SUCCESS"
+    x = total
+    print("Computed: " + str(x))
+    return 0
 ```
 
-### Object-Oriented Class with Typed Fields
-```tokenvector
+### Class with typed fields
+```python
 # -*- coding: utf-8 -*-
 class Vector2D:
     x: "f64"
@@ -77,35 +81,56 @@ class Vector2D:
         return self.x * self.x + self.y * self.y
 ```
 
-### Win32 Native Interop (P/Invoke)
-```tokenvector
+### Loops over a list
+```python
 # -*- coding: utf-8 -*-
-extern def MessageBoxA(hwnd: "i32", text: "str", title: "str", uType: "i32") -> "i32": from "user32.dll"
+def run() -> "i32":
+    xs = [3, 1, 2]
+    i = 0
+    n = len(xs)
+    while i < n:
+        print("v=" + str(xs[i]))
+        i = i + 1
+    return 0
 ```
 
----
+## 4. Toolchain
 
-## 4. Toolchain & CLI Commands
+```powershell
+# Build an executable
+.\3.code\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run
 
-* **Build Executable (AOT):**
-  `tkvc build <source.tkv> --out <output.exe> --entry run`
-* **Build with Full Compiler Path:**
-  `.\3.code\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run`
-* **Run Validation Test Suite:**
-  `.\3.code\dist\tkvc.exe build 3.code\Testkit\native_test_suite.tkv --entry run --out test.exe && .\test.exe`
-* **Static Syntax Check:**
-  `.\3.code\dist\tkvc.exe build 3.code\Testkit\native_test_suite.tkv --entry check_file --out check.exe && .\check.exe <file.tkv>`
+# Run the acceptance gate (117 tests + 31 negative cases)
+powershell -File .\3.code\tools\testkit_gate.ps1
 
----
+# Ask the guide tool instead of guessing (written in TokenVector itself)
+powershell -File .\3.code\tools\build_tkv_guide.ps1
+.\3.code\dist\tkv_guide.exe rules
+.\3.code\dist\tkv_guide.exe find sorted
+.\3.code\dist\tkv_guide.exe lint my_file.tkv
+.\3.code\dist\tkv_guide.exe verify my_file.tkv   # prints build+run commands
+```
 
-## 5. Project Structure & Key References
+**A green build is not a correct program** — bugs exist that compile cleanly and
+then return a wrong value. Always run the output.
 
-* **Compiler Core:** `3.code/compiler/` — Self-hosted lexer, parser, and code emitter (102 `.tkv` files).
-* **CLI Driver:** `tkvc.exe` — Built via `3.code/build_tkvc.ps1`.
-* **Validation Testkit:** `3.code/Testkit/native_test_suite.tkv` — 16 self-checking compiler validations and static linter.
-* **VS Code Extension:** `nguyenhungtran18.tokenvector-syntax` — Official TextMate grammar and snippets.
-* **Documentation:**
-  * `README.md`: Architecture overview and multi-threading performance benchmarks.
-  * `USER-GUIDE.md`: CLI build flags and compiler configuration.
-  * `TokenVector_system.md`: In-depth pipeline and execution specifications.
-  * `3.code/docs/SACH_HUONG_DAN_LAP_TRINH_TOKENVECTOR.md`: Complete language specification manual.
+## 5. Project structure
+
+* **Compiler core:** `3.code/compiler/` — 126 `.tkv` files (119 in
+  `il_features/`).
+* **CLI driver:** `3.code/dist/tkvc.exe`, rebuilt by `3.code/build_tkvc.ps1`.
+* **Acceptance suite:** `3.code/Testkit/` — 117 tests + 31 negative cases.
+* **Reference (the one doc that matters):** `3.code/docs/REFERENCE.md`.
+* **Engineering journal:** `3.code/docs/REPOSITORY-NOTES.md` — every bug and how
+  it was proven.
+* **Gap list:** `3.code/docs/PLAN.md`.
+* **VS Code extension:** `nguyenhungtran18.tokenvector-syntax` (separate repo,
+  vendored as the `tokenvector-grammar` submodule).
+
+## 6. Known gaps (verified by probe)
+
+- **No `subprocess`** — a program cannot start another process.
+- **Negative slice step rejected** — `a[::-1]`, `a[1:-1]`; positive steps work.
+- No `slice()` callable; no keyword-only or positional-only parameters.
+- A conditional expression with mismatched branch types
+  (`i32 if c else f64`) compiles and returns a **garbage pointer**.

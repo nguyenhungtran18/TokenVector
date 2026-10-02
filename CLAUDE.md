@@ -61,17 +61,19 @@
 - **Compile Standalone Binary**:
   `.\3.code\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run`
 - **Run Built Binary**: `.\<output.exe>`
-- **Acceptance Gate (run this, not native_test_suite)**:
+- **Acceptance Gate (the only gate that matters for compiler changes)**:
   `.\3.code\tools\testkit_gate.ps1` — builds and runs all 117 `Testkit\*_test.tkv`
   plus 31 negative cases (currently `PASS=117 BUILDFAIL=0 TESTFAIL=0 NEG=31/31`),
   writes output to TEMP so a run never litters the repo, exits non-zero on any failure.
   Other gates, all green as of 2026-10-02: parity probe
   `.\3.code\tools\parity_probe\run.ps1` (**119/119** match CPython),
   `.\3.code\tools\ext_smoke.ps1` (4/4), `D:\TokenVector.Data\tools\datagate.ps1`
-  (18/18), `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` (26/26).
-  The `native_test_suite.tkv` command below is a *library-author linter*
-  (`check_file` entry) and does not currently build: the self-hosted
-  transpiler has no `yield from` — see `3.code/docs/REPOSITORY-NOTES.md`.
+  (18/18), `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` (26/26),
+  `.\3.code\tools\lint_rules_gate.ps1` (8/8 traps caught, 0 false positives).
+  `Testkit\native_test_suite.tkv` and its `check_file` entry were **deleted
+  2026-10-02**: it compiled but crashed at run time (`c_puts` →
+  `MissingMethodException`) and no gate ran it. Its static-check role is now
+  `tkv_guide.exe lint`.
 - **Benchmark**:
   `python .\3.code\bench\run.py` — TokenVector vs CPython/NumPy, 7 kernels, builds
   its own kernels from `dist\tkvc.exe`. Do not report a speedup from a

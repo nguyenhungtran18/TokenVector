@@ -40,3 +40,15 @@ _r[t]*.csv
 _t[0-9]*.csv
 test_out.csv
 *_tmp.feather
+
+# Ten file rac do lenh goi sai: `tkvc --emit-il --out.il` bi parser doc `--out`
+# lam TEN file, tao ra file ten bat thuong `--out.il` o repo root.
+--out.il
+--*.il
+
+# Anh dan dung nhot nua khong co ten: mot file .jfif 216 KB ten UUID da duoc
+# commit o repo root (bd43fa1f-....jfif) trong khi `images/` moi la noi dung
+# dung cho anh. Chan o muc goc; `images/` van track binh thuong.
+/*.jfif
+/*.jpeg
+/*.png
