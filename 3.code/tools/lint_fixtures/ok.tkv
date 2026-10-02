@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+# Fixture SACH - dung cho tools\lint_rules_gate.ps1. Ky vong: 0 canh bao.
+#
+# Rat quan trong: mot bo luat chi bat "co loi" ma bao nham o file sach thi
+# harness se bo qua het. O day co nhung dong GAN sai nhung VAN HOP LE:
+#   - `str(a + b)`      : str() nhan moi bieu thuc (claim "chi nhan bien" la SAI)
+#   - `fmt_float(v, 2)` : v la bien don -> hop le
+#   - `xs[0:2]`, `xs[1:5:2]` : buoc slice DUONG -> hop le
+#   - `g: "func(i32)->i32"` va `d: "list[i32]"` : annotate kieu o CAP HAM
+#     (chi local trong than ham moi bi cam)
+
+
+def ok(xs: "list[f64]", n: "i32") -> "str":
+    a = xs[0]
+    b = xs[1]
+    v = a + b
+    f = fmt_float(v, 2)
+    t = str(a + b)
+    u = str(len(xs) + 1)
+    w = xs[0:2]
+    p = xs[1:5:2]
+    g: "func(i32) -> i32" = h
+    d: "list[i32]" = [1, 2]
+    e = "khong can escape: " + chr(39) + chr(34) + chr(92)
+    return t + u + f + e + str(len(w) + len(p) + g(1) + len(d))
+
+
+def h(k: "i32") -> "i32":
+    return k * 2

@@ -11,9 +11,12 @@
 > **Không đầy đủ thì gate sẽ báo.** Chạy `python tools\gen_builtin_ref.py --check`
 > — FAIL nếu có tên đã đăng ký mà tài liệu này chưa đề cập.
 >
-> **Harness (agent) đừng đoán — hỏi tool:**
-> `python tools\tkv_guide.py rules | find <tên> | names | lint | verify <file>`.
-> `verify` = lint + build + **chạy**; bắt buộc trước khi nói "xong".
+> **Harness (agent) đừng đoán — hỏi tool.** `tools\tkv_guide.tkv` viết bằng
+> chính TokenVector (không còn bản Python — hai bản trôi lệch nhau):
+> `powershell -File tools\build_tkv_guide.ps1` rồi
+> `dist\tkv_guide.exe rules | find <tên> | names | lint | verify <file>`.
+> `verify` **in ra 2 lệnh** (build + chạy) vì TokenVector chưa có `subprocess`;
+> phải chạy cả hai. Thêm `--file out.txt` để nhận UTF-8.
 >
 > **Quy ước kiểu** (chi tiết ở `CLAUDE.md`): `i32`/`i64`/`f32`/`f64`/`str` là kiểu
 > vô hướng; `bool` là **bí danh của `i32`**; `int` là số nguyên vô hạn (struct
@@ -98,11 +101,11 @@
 
 | Hàm | Cú pháp | Tính năng / khác biệt Python |
 |---|---|---|
-| `str` | `str(x)` | Chuyển số → chuỗi. **Chỉ nhận 1 biến** (`x` phải là tên biến): `ToString()` là instance method trên value type nên CIL cần *địa chỉ* (`ldarga`), không lấy được địa chỉ của giá trị tạm. Gán ra biến trước: `t = a + b; str(t)`. |
+| `str` | `str(x)` | Chuyển số → chuỗi. **Nhận MỌI biểu thức** (đã probe 10/10: `str(a + b)`, `str(len(xs) + 1)`, `str(xs[0])`, `str(x > 0)` đều biên dịch và chạy đúng). `bool` → `"True"`/`"False"`. ~~Chỉ nhận 1 biến~~ — claim cũ **sai**, đã gỡ 2026-10-02. |
 | `repr` | `repr(x)` | Như Python: chuỗi → thêm dấu nháy kép (`repr("a")` = `'"a"'`); số → giống `str()`; bool → `"True"`/`"False"`. |
 | `format` | `format(v)`<br>`format(v, spec)` | `format(v)` == `str(v)`. `format(v, spec)` dịch spec Python sang định dạng .NET rồi gọi `ToString`. **Phải là chuỗi literal** (dịch lúc biên dịch). Ví dụ: `format(3.14159, ".2f")` → `"3.14"`. |
 | `fmt_num` | `fmt_num(x, spec)` | Định dạng số bằng format string của .NET, dùng cho f-string `{n:05d}` / `{n:x}` / `{n:+}`. Spec phải literal. |
-| `fmt_float` | `fmt_float(x, n)` | Làm tròn số thực, `n` chữ số thập phân (`.NET` dùng `"F<n>"`, không có dấu `.`). `x` chỉ nhận 1 biến. |
+| `fmt_float` | `fmt_float(x, n)` | Làm tròn số thực, `n` chữ số thập phân (`.NET` dùng `"F<n>"`, không có dấu `.`). **`x` bắt buộc là 1 biến đơn** — `fmt_float(7.0, 2)` và `fmt_float(a + b, 2)` đều bị từ chối lúc biên dịch. Gán ra biến trước: `v = a + b; fmt_float(v, 2)`. |
 | `int` | `int(x)` | Chuỗi → `i32`. Chuỗi ngoài `int32` **ném `OverflowException`** — dùng `int64()` cho số lớn. |
 | `int64` | `int64(x)` | Bản 64-bit riêng: `str` → `i64` (nhận `"2147483648"` mà `int()` ném lỗi). Thay cho cách cũ "ép `int()` thành 64-bit". |
 | `float` | `float(x)` | Chuỗi/số nguyên → `f64`. |

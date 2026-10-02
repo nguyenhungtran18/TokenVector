@@ -1802,38 +1802,90 @@ Negative test `iter_on_string.tkv` (vu khi la bang chung) da doi thanh
 
 ---
 
-## `tkv_guide.py` + rut gon 5 file huong dan harness (2026-10-02)
+## `tkv_guide.tkv` - chuyen tool huong dan sang CHINH TokenVector (2026-10-02)
 
-Tai lieu cho agent nam o **5 file**: `.cursorrules`, `.cursor/rules/tokenvector.mdc`,
-`CODEX.md`, `ANTIGRAVITY.md`, `CLAUDE.md` - trung noi dung va **nhieu cho SAI**:
-ca 5 deu noi "f-string / `.format()` / chuoi 3 nhay khong ho tro" trong khi
-`fstring_bigint_test.tkv`, `string_format_test.tkv`, `multiline_string_test.tkv`
-**PASS**. Mot agent lam theo do se viet ra code sai.
+Bai nay chuyen `tools/tkv_guide.py` (Python) thanh `tools/tkv_guide.tkv` - tool
+viet bang chinh TokenVector, bien dich bang `tkvc.exe` ra `dist/tkv_guide.exe`
+qua `tools/build_tkv_guide.ps1`. **Ban Python da bi XOA**, khong phai de giu
+"phong an": hai ban da **troi lech that** chinh trong lúc port (duoi day).
 
-Bai nay gom phan "nhac" vao `tools/tkv_guide.py`: `rules` (16 luat), `find`
-(tra cuu cu phap/tinh nang trong muc 2 cua tai lieu), `names`, `lint`, `check`,
-`verify` (lint + build + CHAY). 5 file huong dan rut con 17-23 dong chi tro toi
-no; `CLAUDE.md` giu phan "cach build + trong thu compiler" (khong trung).
+**Vi sao khong the port `verify`:** `verify` phai bien dich roi CHAY mot file
+`.tkv`, ma TokenVector chua co khoi dong tien trinh khac (`subprocess`), va cung
+khong chup duoc stdout cua tien trinh con. Nen `verify` **chi IN DUNG 2 LENH**
+(`tkvc.exe build ... --entry run`, roi chay exe) va `help` noi ro phai chay ca
+hai. Day la gioi han that cua runtime, khong phai do lui.
 
-**Bai hoc lon nhat cua phien nay - suy ra `lint` tu `CLAUDE.md` thi SAI 416 lan.**
-Ban `lint` dau bat (a) truyen list literal cho tham so `list[i32]` -> bao loi
-`InvalidProgramException` luc chay. Probe lai: compiler **TU EP** container o
-diem goi (`_emit_container_coerce`) va `f([1,2,3])` cho `list[f32]` **chay dung**.
-Bai do viet nhanh `REPOSITORY-NOTES` nho "truyen list literal -> tham so
-`list[i32]` la loi that" trong khi chinh phien nay do la **DOAN**, va no da gay
-loi khi t. Probe moi moi khoi. Bao loi gia hon khong co phep kiem: vi vay
-`lint` cuoi cung chi con **3 quy tac chung minh duoc**, quet 117 file Testkit
-chi ra **2 canh bao** (ca hai deu la su that).
+**Hien phu `dist/tkv_guide.exe`:** `print` cua TokenVector di qua
+`System.Console::WriteLine`, va khi stdout bi redirect thi .NET mac dinh ghi ra
+**UTF-16LE** (co BOM `FF FE`). Noi dung **dung**, byte **dung**, chi la PowerShell
+5.1 hien `?` cho chu co dau. Mun doc bang may: them `--file out.txt` - tool ghi
+bang `path_write_text` (UTF-8). Day cung la ly do co `test_lint_rules_gate`/
+`lint_rules_gate.ps1` phai doc file thay vi doc stdout.
 
-**Khong dung `ast.parse` cua Python de phan tich `.tkv`.** TokenVector co
-`a ? b : c` va cac thu tu toan tu khac; Python parse THAT roi `lint` bao loi cho
-nguoi viet ma **dung** (1/117 file). Bai nay chuyen sang quy tac TAI DONG THEO
-DONG.
+### Bon phat hien trong luc port - 3 cai sai, 1 cai that
 
-Ghi chu them: `class A: xs: "list[i32]"` + `a.xs = <list literal>` doc ra **0**
-(sai am thanh, build xanh) - NHUNG hai case gan nhau cho ket qua `0` va `20` o
-hai shape khac nhau, nen **khong ma hoa duoc thanh quy tac tinh**; chi ghi vao
-`rules` voi dieu kien chinh xac.
+**(1) `str()` CHI nhan bien - SAI, da probe nguoc lai (va no da lan sang ca
+REFERENCE.md).** Claim "str(x) chi nhan 1 bien" nam o ca ban Python, ca tai
+li lieu muc 2, ca `CLAUDE.md`. Probe 10/10: `str(a + b)`, `str(len(xs) + 1)`,
+`str(xs[0])`, `str(x > 0)`, `str(len(xs) * 2 + 1)` **deu bien dich va chay dung**.
+CHI `fmt_float(v, n)` moi that su bat buoc `v` la **mot bien don** -
+`fmt_float(7.0, 2)` va `fmt_float(a + b, 2)` deu bi tu choi luc bien dich. Da
+gia lai ca 3 file. Luu y: chính tai `counter_test.tkv:28` co san
+`str(len(top))` **PASS** - tai li lieu sai truoc khi co ai kiem lai.
+
+**(2) BUG THAT: conditional expression 2 nhanh KHAC kieu sinh IL rac.**
+`_promote_pair_dtype` (`il_codegen.tkv`) tu nang `int` + `f64` ra `f64`, roi ca
+hai nhanh deu duoc bien dich theo kieu temp. Nhung nhanh `int` **KHONG** duoc ep
+`TkvInt::ToF64` nen `stloc.s` luu 8 byte cua struct vao slot `f64`:
+
+```
+x = 1        # int
+y = 2.5      # f64
+c = x > 0
+z1 = x if c else y    # -> 140704821348560   (con tro rac!)
+z2 = y if c else x    # -> 2.5              (nhanh float thi dung)
+s1 = x if c else 5    # -> 1                (ca hai int)
+```
+
+Bien dich SACH, khong loi gi, ket qua SAI - dung loai bug nguy hiem nhat. Cung
+hinh dang o `probe_str` (`str(a if a > 0 else b)` ra `"0"`). **CHUA SUA** (xem
+`PLAN.md`); can ep kieu tung nhanh trong `_expr_ternary` bang `_widen_if_needed`
+truoc `stloc.s`, va nganh phai bat loi ro rang thay vi sinh IL.
+
+**(3) Luat lint "buoc slice am" cua ca hai ban BAT SOT `xs[::-1]`.** Pattern
+goc `\[\s*:\s*-\s*\w*\s*\]` chi khop `[:-1]`; `[::-1]` co **hai** dau `:` nen
+khop khong. Khong Testkit nao co slice am, nen quet 117 file ra 0 canh bao -
+ tuc la luat **chet ma khong ai biet**. Da doi thanh `\[.+:-` (bat ca 4 dang,
+khong bat `[0:2]`/`[1:5:2]`). Bai hoc: **luat lint khong co test la luat chua
+viet**. Vi vay moi co `tools/lint_rules_gate.ps1` + `tools/lint_fixtures/{bad,ok}.tkv`
+(positive **va** negative case) - va 2 luat sau da bi lo vi toan bao dong:
+
+- `return str(<bieu thuc>)` - 25/25 **false positive** tren 117 file PASS
+  (`return str(a) + "/" + str(b)` hoan toan hop le).
+- Hai nhanh "chi nhan bien" cua `str()` - xem (1).
+
+**(4) `re_search` + char class ngay sau `\[`:** probe cho thay `\[` don le,
+`[^]]`/`[^x]`/`[.]`/`[a-z]` don le deu dung, nhung `\[` **noi tiep** char class
+thi tra 0. Chuoi pattern **dung** (in ra kiem bang `print` + `find`: `\[\[.]]`
+dung 6 ky tu). Chua tim ra nguyen nhan (kha nang la `.NET` doc `\[^]` the nghia
+khac, hoac co gi do o `Regex.IsMatch` khi nhan 2 chuoi). Da ghi chu trong
+`tkv_guide.tkv` va **khong dua vao luat nao** - dung `.+` cho an toan.
+
+### Ghi chu khi viet TokenVector (phat hien luc port, deu la gioi han THAT)
+
+- **Hang so cap module kieu `str` doc trong ham se BIEN DICH FAIL**:
+  `G: "str" = "x"` roi `print(G)` -> *"bien 'G' chua duoc khai bao/tham so"*.
+  Chi `i32` global hoat dong. Nen moi chuoi ky tu dung **noi trong ham**
+  (`nl = chr(10)`).
+- TokenVector **khong co escape** trong chuoi: dung `chr(39)` / `chr(34)` /
+  `chr(92)` thay cho `'` / `"` / `\`. (`chr(10)` cho xuong dong.)
+- Regex cua .NET: `\p` la escape Unicode nen `\.pop` **NO**; dung `[.]pop[(][)]`.
+  Và `re_search(pattern, s)` thu tu **NGUOC** Python, **khong** tu them `^`.
+- `re_findall` tra ve **ca match**, khong phai group (dung `.find()` + slicing).
+- `names` ban TokenVector chi quet `register_expr_builtin(` (186 ten) - KHONG
+  nhan ban bieu `all_registered()` cua generator (376 ten kem method + trinh
+  phan tinh) vi do la nhan logic de **troi lech**; tool tro sang REFERENCE.md
+  muc 7.
 
 Gate: 117/117 + negative 31/31; parity 119/119; ext_smoke 4/4; Data 18/18;
-Inference 26/26.
+Inference 26/26; `lint_rules_gate.ps1` 8/8 canh bao + 0 bao nham.

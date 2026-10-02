@@ -1,23 +1,30 @@
 ---
-description: TokenVector — dùng tool ttkv_guide thay vì nhớ từ đầu
+description: TokenVector — dùng tool tkv_guide thay vì nhớ từ đầu
 globs: ["*.tkv", "*.tv", "**/*.tkv", "**/*.tv"]
 alwaysApply: true
 ---
 
 # TokenVector
 
-**ĐỪNG đoán cú pháp.** Mọi câu hỏi "hàm này gõ thế nào / làm gì" tra bằng tool:
+**ĐỪNG đoán cú pháp.** Mọi câu hỏi "hàm này gõ thế nào / làm gì" tra bằng tool
+`3.code/tools/tkv_guide.tkv` (viết bằng chính TokenVector):
 
 ```powershell
-python 3.code\tools\tkv_guide.py rules          # các luật thật sự gây lỗi
-python 3.code\tools\tkv_guide.py find <tên>     # cú pháp + tính năng + khác biệt Python
-python 3.code\tools\tkv_guide.py lint <file.tkv>
-python 3.code\tools\tkv_guide.py verify <file.tkv>   # BẮT BUỘC trước khi báo xong
+cd D:\TokenVector\3.code
+powershell -File tools\build_tkv_guide.ps1   # chỉ 1 lần / sau khi tool đổi
+
+dist\tkv_guide.exe rules            # các luật thật sự gây lỗi
+dist\tkv_guide.exe find <tên>       # cú pháp + tính năng + khác biệt Python
+dist\tkv_guide.exe lint <file.tkv>  # bẫy lỗi lúc biên dịch bỏ qua
+dist\tkv_guide.exe verify <file.tkv> # BẮT BUỘC trước khi báo xong
 ```
+
+`--file out.txt` (cuối lệnh) để nhận kết quả UTF-8.
 
 Ba điều không được sai:
 
 1. **TokenVector KHÔNG phải Python.** Không `import` module Python, không suy
    luận "chắc là hỗ trợ" — hỏi tool.
-2. **Build xanh ≠ chạy đúng.** Phải `verify` (build **và** chạy).
+2. **Build xanh ≠ chạy đúng.** `verify` **in ra 2 lệnh** (TokenVector chưa có
+   `subprocess` nên không tự build được) — phải chạy **cả hai** rồi đọc kết quả.
 3. **Tài liệu đầy đủ ở MỘT file**: `3.code/docs/REFERENCE.md`.

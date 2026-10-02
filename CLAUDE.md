@@ -11,14 +11,28 @@
   file, `.cursorrules`, `CODEX.md`, `ANTIGRAVITY.md` and `.cursor/rules` were
   five copies of the same rules, and they had **drifted into false claims**:
   f-strings/`.format()`/triple-quoted strings were all listed as unsupported
-  while Testkit tests for them pass).
-  - `python 3.code\tools\tkv_guide.py rules` — the pitfalls that actually bite
-  - `python 3.code\tools\tkv_guide.py find <name|topic>` — exact syntax +
-    behaviour, read from `REFERENCE.md` (never guess a signature)
-  - `python 3.code\tools\tkv_guide.py names <filter>` — every registered name
-  - `python 3.code\tools\tkv_guide.py verify <file.tkv>` — **required before
-    reporting a `.tkv` file as done**: build green ≠ correct, and some bugs
-    compile cleanly and return a *wrong value*.
+  while Testkit tests for them pass; later `str()` was listed as "variable
+  only" while it accepts any expression).
+  - The tool is `3.code/tools/tkv_guide.tkv`, **written in TokenVector**, and it
+    is the **only** copy. It was a Python script first; both copies drifted, so
+    the Python one was deleted.
+  - `powershell -File 3.code\tools\build_tkv_guide.ps1` → `dist\tkv_guide.exe`
+    (`dist/` is gitignored, so the `.tkv` is the source of truth).
+  - `dist\tkv_guide.exe rules` — the pitfalls that actually bite
+  - `dist\tkv_guide.exe find <name|topic>` — exact syntax + behaviour, read
+    from `REFERENCE.md` (never guess a signature)
+  - `dist\tkv_guide.exe names <filter>` — registered builtins per module
+  - `dist\tkv_guide.exe lint <file.tkv>` — static traps, few false positives.
+    Its rules have their own gate: `tools\lint_rules_gate.ps1` over
+    `tools\lint_fixtures\{bad,ok}.tkv` (positive **and** negative cases).
+  - `dist\tkv_guide.exe verify <file.tkv>` — **required before reporting a
+    `.tkv` file as done**: build green ≠ correct, and some bugs compile
+    cleanly and return a *wrong value*. It cannot build for you — TokenVector
+    has no `subprocess` — so it **prints the two commands** (build, then run);
+    run both and read the exit code and the output.
+  - Add `--file out.txt` to any subcommand to get UTF-8 output. `print` goes
+    through `Console::WriteLine`, and redirected .NET stdout defaults to
+    **UTF-16LE**, which PowerShell 5.1 renders as `?` for non-ASCII.
 - **CHECK BEFORE ADDING ANYTHING** — the reference is now **ONE file**:
   `3.code/docs/REFERENCE.md`. §2 lists every builtin with **syntax + what it
   does + where it differs from Python**; §7 is the auto-generated name catalog.
