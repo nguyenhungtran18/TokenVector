@@ -37,6 +37,11 @@
 #   an toan hon `\(`/`\)`. Moi luat lint deu co positive test o
 #   tools\lint_fixtures\ + tools\lint_rules_gate.ps1.
 
+# --- Compiler TokenVector-that (dang xay dung) ---
+# Neu ban sua compiler: doc 	ools/compiler_tkv/README.md truoc. Day la
+# phan compiler viet bang TokenVector THAT (khong phai Python),
+# dang thay the tu dan chung cho st.parse.
+
 def _nl() -> "str":
     return chr(10)
 
