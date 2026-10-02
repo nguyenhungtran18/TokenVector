@@ -1,0 +1,88 @@
+# -*- coding: utf-8 -*-
+"""stdlib_base64.py - Plug-and-Play module cho Base64 Encoding & Decoding
+
+Cung cap:
+- base64_encode(s) -> str
+- base64_decode(s) -> str
+"""
+
+import stmt_row as _row
+import re
+from il_core import parse_expr
+from il_dispatch import (
+    register_assign_rhs_parser, register_first_pass_walk, register_stmt_codegen,
+    register_expr_builtin,
+)
+from tkv_types import TypeAnn
+from stmt_row import intern, lay_nut, lay_str, make3
+
+_B64_ENC_RE = re.compile(r'^base64_encode\((.+)\)$')
+_B64_DEC_RE = re.compile(r'^base64_decode\((.+)\)$')
+
+
+__tkv_import__ = ["il_dispatch", "tkv_types"]
+
+def _push_base64_encode(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    out.append('    call class [mscorlib]System.Text.Encoding [mscorlib]System.Text.Encoding::get_UTF8()')
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    callvirt instance uint8[] [mscorlib]System.Text.Encoding::GetBytes(string)')
+    out.append('    call string [mscorlib]System.Convert::ToBase64String(uint8[])')
+
+
+def try_rhs_base64_encode(rhs: "str", name: "str", known_shapes: "dict[str,str]") -> "i32":
+    m = _B64_ENC_RE.match(rhs.strip())
+    if not m:
+        return None
+    return intern(make3('assign_base64_encode', name, m.group(1)))
+
+
+def fpw_base64_encode(stmt: "i32", ctx: "WalkCtx"):
+    ta = TypeAnn('str', None)
+    ctx.declare_named(lay_str(stmt, 'name'), ta)
+    ctx.collect_ternary_temps(lay_nut(stmt, 'arg_node'))
+
+
+def codegen_base64_encode(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    _push_base64_encode([lay_nut(stmt, 'arg_node')], scope, body, 'str', ctx)
+    ctx.store_var(lay_str(stmt, 'name'), scope, body)
+
+
+def _push_base64_decode(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    out.append('    call class [mscorlib]System.Text.Encoding [mscorlib]System.Text.Encoding::get_UTF8()')
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call uint8[] [mscorlib]System.Convert::FromBase64String(string)')
+    out.append('    callvirt instance string [mscorlib]System.Text.Encoding::GetString(uint8[])')
+
+
+def try_rhs_base64_decode(rhs: "str", name: "str", known_shapes: "dict[str,str]") -> "i32":
+    m = _B64_DEC_RE.match(rhs.strip())
+    if not m:
+        return None
+    return intern(make3('assign_base64_decode', name, m.group(1)))
+
+
+def fpw_base64_decode(stmt: "i32", ctx: "WalkCtx"):
+    ta = TypeAnn('str', None)
+    ctx.declare_named(lay_str(stmt, 'name'), ta)
+    ctx.collect_ternary_temps(lay_nut(stmt, 'arg_node'))
+
+
+def codegen_base64_decode(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    _push_base64_decode([lay_nut(stmt, 'arg_node')], scope, body, 'str', ctx)
+    ctx.store_var(lay_str(stmt, 'name'), scope, body)
+
+
+def bootstrap_stdlib_base64(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_assign_rhs_parser(reg, 'base64_encode', try_rhs_base64_encode)
+    register_first_pass_walk(reg, 'assign_base64_encode', fpw_base64_encode)
+    register_stmt_codegen(reg, 'assign_base64_encode', codegen_base64_encode)
+    register_expr_builtin(reg, 'base64_encode', _push_base64_encode, 'str')
+    register_assign_rhs_parser(reg, 'base64_decode', try_rhs_base64_decode)
+    register_first_pass_walk(reg, 'assign_base64_decode', fpw_base64_decode)
+    register_stmt_codegen(reg, 'assign_base64_decode', codegen_base64_decode)
+    register_expr_builtin(reg, 'base64_decode', _push_base64_decode, 'str')

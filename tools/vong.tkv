@@ -9,13 +9,13 @@ gop thanh MOT nguon (bo cac dong `__tkv_import__`), roi:
 Neu giu, g1 thanh tv2s moi (tv2s.exe/tv2s.il) de lan sau dung cay ma moi nhat.
 
 Cach dung (tu goc du an):  tools\vong.exe
-Dich lan dau: _scratch\tv\tv2s.exe tools\vong.tkv tools\vong.exe main
+Dich lan dau: dist\tkvc-tv.exe tools\vong.tkv tools\vong.exe main
 """
 
-DS = "tools\\hat_giong\\ds_gop.txt"
-THU_MUC = "_scratch\\tv"
-NGUON = "_scratch\\tv\\tv_gop.tkv"
-TV2S = "_scratch\\tv\\tv2s.exe"
+DS = "compiler_src\\ds_gop.txt"
+THU_MUC = "build\\selfhost"
+NGUON = "build\\selfhost\\tv_gop.tkv"
+TV2S = "dist\\tkvc-tv.exe"
 
 
 def gop_nguon() -> "i32":

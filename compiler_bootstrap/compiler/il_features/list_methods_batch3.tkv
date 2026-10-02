@@ -1,0 +1,56 @@
+# -*- coding: utf-8 -*-
+"""list.reverse() (2026-07-29, Huong A stdlib mo rong - nhom rieng, mo
+phong khuon list_methods_batch2.py (sort()/extend()): dang ky
+LINE_PARSERS + STMT_CODEGEN rieng (statement, khong tra ve gia tri).
+
+CHU Y (phat hien luc tich hop): 'list.remove(x)'/'list.insert(i,x)' DA
+CO SAN trong il_features/list_type.py (try_parse_list_remove/
+try_parse_list_insert) - ban dau dinh them ca remove() vao day gay
+TRUNG LAP kind='list_remove' (STMT_CODEGEN bi ghi de vi la dict, dtype
+khac nhau giua 2 ban -> KeyError 'target_node' vs 'value_node' cua ban
+cu). Da bo phan remove() khoi file nay, CHI con reverse() (xac nhan
+chua co o dau qua grep truoc khi viet).
+
+Da xac minh truoc: 'Reverse()' (khong tham so, dao nguoc List<T> TAI
+CHO) CO THAT qua PowerShell reflection tren List`1[int].GetMethods()."""
+import stmt_row as _row
+import re
+
+from il_dispatch import register_line_parser, register_stmt_codegen, register_first_pass_walk
+from stmt_row import intern, lay_str, make2
+
+_LIST_REVERSE_RE = re.compile(r'^(\w+)\.reverse\(\)\s*$')
+
+
+__tkv_import__ = "il_dispatch"
+
+
+def try_parse_list_reverse(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
+    """LINE_PARSERS entry: 'lst.reverse()' - PHAI dang ky TRUOC method_call_stmt."""
+    m = _LIST_REVERSE_RE.match(line)
+    if not m:
+        return None
+    return intern(make2('list_reverse', m.group(1))), pos + 1
+
+
+def codegen_list_reverse(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'lst.reverse()' - List<T>.Reverse() (khong
+    tham so, dao nguoc TAI CHO - dung ngu nghia Python list.reverse())."""
+    ta = scope.tra(lay_str(stmt, 'name')).ta
+    ctx.load_var_ref(lay_str(stmt, 'name'), scope, body)
+    body.append(f'    callvirt instance void {ctx.il_type_str(ta, ctx.records)}::Reverse()')
+
+
+def fpw_list_reverse(stmt: "i32", ctx: "WalkCtx"):
+    pass
+
+
+def bootstrap_list_methods_batch3(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_line_parser(reg, 'list_reverse', try_parse_list_reverse)
+    register_stmt_codegen(reg, 'list_reverse', codegen_list_reverse)
+    register_first_pass_walk(reg, 'list_reverse', fpw_list_reverse)

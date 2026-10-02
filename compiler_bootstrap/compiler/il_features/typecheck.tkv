@@ -1,0 +1,171 @@
+# -*- coding: utf-8 -*-
+"""isinstance()/issubclass()/type() (Phase 4, 2026-08-11).
+
+`issubclass()`/`type()` van duoc GIAI QUYET HOAN TOAN LUC COMPILE:
+issubclass nhan hai TEN LOP nen von la cau hoi tinh; type(obj) tra HANG SO
+string la ten dtype/record cua obj.
+
+`isinstance()` thi DUONG DOI ke tu 2026-09-10:
+  - kieu VO HUONG -> van gap luc compile (`i32` la value type, `isinst`
+    khong ap dung).
+  - RECORD -> KIEM LUC CHAY bang `isinst`. Truoc do no cung bi gap, va do la
+    mot cho TRA LOI SAI IM LANG: `Name` di qua tham so khai kieu `Node` co
+    kieu TINH la Node nen phep gap tra FALSE. Xem plan
+    docs/superpowers/plans/2026-09-10-da-hinh-record-runtime.md.
+"""
+from tkv_types import cac_base
+from il_dispatch import register_expr_builtin
+from expr_row import ea_str, ekind, eso_o, la_node
+
+_PY_SCALAR_ALIASES: "dict[str,set[str]]" = {
+    'int': {'i32', 'i64', 'int'},
+    'float': {'f32', 'f64'},
+    'str': {'str'},
+}
+
+
+__tkv_import__ = "il_dispatch"
+
+
+def _arg_name(node: "TkvNode") -> "str":
+    # node la CHI SO arena (2026-09-25: quan sat that 6/6 lan la int). Kieu
+    # khai cu '(str,str)' va nhanh `isinstance(node, str)` la di tich truoc
+    # arena - ma chet, va sai kieu voi ban tu-host.
+    if la_node(node) and eso_o(node) >= 2 and ekind(node) == 'var':
+        return ea_str(node)
+    return None
+
+
+def _is_record_subclass(records: "dict[str,list[(str,TkvTypeAnn)]]", record_bases: "dict[str,list[str]]", sub: "str", base: "str") -> "i32":
+    if sub == base:
+        return True
+    if sub not in records:
+        return False
+    visited = set()
+    queue = [sub]
+    # Duyet theo chi so thay `queue.pop(0)` (trinh that chi co pop() khong
+    # doi so) - cung thu tu BFS.
+    k_hang = 0
+    while k_hang < len(queue):
+        cur = queue[k_hang]
+        k_hang += 1
+        if cur in visited:
+            continue
+        visited.add(cur)
+        for b in cac_base(record_bases, cur):
+            if b == base:
+                return True
+            queue.append(b)
+    return False
+
+
+def push_isinstance_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: isinstance(obj, ClassOrType) nhan dung 2 tham so")
+    obj_name = _arg_name(args[0])
+    target_name = _arg_name(args[1])
+    if not obj_name or obj_name not in scope:
+        raise SyntaxError("il_codegen: isinstance(obj, ...) can tham so 1 la 1 bien da khai bao")
+    obj_ta = scope.tra(obj_name).ta
+
+    records = {}
+    record_bases = {}
+    if ctx is not None:
+        if ctx.records:
+            records = ctx.records
+        if ctx.record_bases:
+            record_bases = ctx.record_bases
+
+    # DUONG DOI - CO Y, khong duoc gop lam mot:
+    #
+    # (a) KIEU VO HUONG (`int`/`float`/`str`): GAP LUC COMPILE. `i32` la value
+    #     type, `isinst` khong ap dung duoc cho no. Moi bien vo huong deu co
+    #     TypeAnn co dinh nen cau tra loi von la tinh.
+    if target_name in _PY_SCALAR_ALIASES:
+        result = obj_ta.dtype in _PY_SCALAR_ALIASES[target_name]
+        if result and obj_ta.dtype == 'str' and obj_ta.la_vo_huong():
+            # Chuoi la kieu THAM CHIEU: 'isinstance(None, str)' la False trong Python
+            # (2026-09-29) - hoi luc chay (!= null), khong tra True tinh.
+            ctx.load_var_ref(obj_name, scope, out)
+            out.append('    ldnull')
+            out.append('    cgt.un')
+            return
+        out.append('    ldc.i4.1' if result else '    ldc.i4.0')
+        return
+
+    # (a2) CONTAINER (list/dict/set/frozenset/tuple/bytearray/bytes, 2026-09-29): hinh dang
+    #     cua bien da biet luc compile; khop thi True tru khi None (hoi != null luc chay),
+    #     khong khop thi False. Truoc day roi xuong (c) va LUON tra False - sai am tham
+    #     voi 'isinstance(ds, list)' khi ds la list.
+    if target_name in ('list', 'dict', 'set', 'frozenset', 'tuple', 'bytearray', 'bytes') and target_name not in records:
+        if obj_ta.shape_ten == target_name:
+            ctx.load_var_ref(obj_name, scope, out)
+            out.append('    ldnull')
+            out.append('    cgt.un')
+        else:
+            out.append('    ldc.i4.0')
+        return
+
+    # (b) RECORD: KIEM LUC CHAY bang `isinst`. Record duoc sinh thanh LOP CIL
+    #     THAT co `extends` (xem gen_record_types) nen CLR DA san thong tin
+    #     kieu luc chay - truoc 2026-09-10 compiler chi khong hoi.
+    #
+    #     Vi sao PHAI la luc chay: mot `Name` di qua tham so khai kieu `Node`
+    #     co kieu TINH la Node, nen phep gap tra FALSE - TRA LOI SAI ma khong
+    #     bao gi. Xem test/verify/da_hinh_record_test.py.
+    if obj_ta.shape_ten == 'record' and target_name in records:
+        ctx.load_var_ref(obj_name, scope, out)
+        out.append('    isinst %s' % target_name)
+        out.append('    ldnull')
+        out.append('    cgt.un')          # != null -> 1, null -> 0
+        return
+
+    # (c) Con lai (vd target khong phai record da khai bao): giu nguyen duong
+    #     gap cu - cau tra loi la FALSE va biet chac luc compile.
+    result = obj_ta.shape_ten == 'record' and _is_record_subclass(
+        records, record_bases, obj_ta.dtype, target_name)
+    out.append('    ldc.i4.1' if result else '    ldc.i4.0')
+
+
+def push_issubclass_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: issubclass(A, B) nhan dung 2 tham so")
+    sub_name = _arg_name(args[0])
+    base_name = _arg_name(args[1])
+    if not sub_name or not base_name:
+        raise SyntaxError("il_codegen: issubclass(A, B) can 2 ten class")
+
+    records = {}
+    record_bases = {}
+    if ctx is not None:
+        if ctx.records:
+            records = ctx.records
+        if ctx.record_bases:
+            record_bases = ctx.record_bases
+
+    if sub_name not in records or base_name not in records:
+        raise SyntaxError(f"il_codegen: issubclass yeu cau ca 2 ten la record da khai bao: '{sub_name}', '{base_name}'")
+
+    result = _is_record_subclass(records, record_bases, sub_name, base_name)
+    out.append('    ldc.i4.1' if result else '    ldc.i4.0')
+
+
+def push_type_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: type(obj) nhan dung 1 tham so")
+    obj_name = _arg_name(args[0])
+    if not obj_name or obj_name not in scope:
+        raise SyntaxError("il_codegen: type(obj) can tham so la 1 bien da khai bao")
+    obj_ta = scope.tra(obj_name).ta
+    out.append(f'    ldstr "{obj_ta.dtype}"')
+
+
+def bootstrap_typecheck(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_expr_builtin(reg, 'isinstance', push_isinstance_builtin, 'bool')
+    register_expr_builtin(reg, 'issubclass', push_issubclass_builtin, 'bool')
+    register_expr_builtin(reg, 'type', push_type_builtin, 'str')

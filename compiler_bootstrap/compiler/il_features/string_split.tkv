@@ -1,0 +1,277 @@
+# -*- coding: utf-8 -*-
+"""s.split(sep) (2026-07-29, Wave 1 con lai) - tra ve List<str> MOI.
+
+'sep' la chuoi BAT KY do dai (2026-09-30: dung String.Split(string[], options); ban cu
+chi lay ky tu dau cua sep nen sep nhieu ky tu tach SAI am tham).
+
+Ket qua la 1 LIST MOI (khong phai scalar). TU 2026-08-03 (Giai doan 0.2
+nhom 4): dang ky qua register_expr_method(..., return_shape='list') nen
+chay duoc o MOI vi tri bieu thuc ('return s.split(",")',
+'len(s.split(","))'), KHONG con gioi han "chi RHS truc tiep 1 phep gan".
+Duong ASSIGN_RHS_PARSERS/FIRST_PASS_WALK/STMT_CODEGEN cu da BO HAN -
+'parts = s.split(sep)' nay di qua nhanh assign_scalar CHUNG, voi hinh
+dang list[str] lay tu EXPR_METHOD_SHAPE (xem _shaped_return_ta_of_call
+trong il_codegen.py - CUNG nhanh da dung cho ham nguoi dung tra ve
+container, khong phai duong rieng thu 2)."""
+from il_dispatch import register_expr_method
+from il_features.list_type import il_list_type
+from typed_dsl_parser import TypeAnn
+from expr_row import ea_str, ec_ds
+
+
+__tkv_import__ = "il_dispatch"
+
+
+# Ham CO TEN thay cho `lambda`: trinh bien dich tu-host khong co lambda,
+# va o day lambda khong mang lai gi hon mot ham mot dong.
+def _ta_ds_chuoi(_obj_ta: "TypeAnn") -> "TypeAnn":
+    return TypeAnn('str', 'list')
+
+
+def compile_string_split(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """THU TU STACK (da xac minh THAT qua ilasm.exe compile+run):
+    nap nguon -> tao char[1 phan tu] (newarr+dup de giu tham chieu mang
+    lai sau khi ghi) -> trich ky tu DAU TIEN cua 'sep' (get_Chars(0)) ->
+    ghi vao mang (stelem.i2, opcode danh cho mang phan tu 16-bit nhu
+    System.Char) -> goi String.Split(char[]) -> boc ket qua string[]
+    thanh List<str> qua .ctor(IEnumerable<!0>) (cung ky thuat da verify
+    voi dict_keys_values.py - string[] TU NO da implement IEnumerable<string>).
+
+    's.split(sep, maxsplit)' (2 tham so, 2026-08-20 - roadmap dong khoang
+    cach Python, mo rong tu nhanh 1 tham so): .NET's String.Split(char[],
+    int32 count) khop DUNG ngu nghia Python maxsplit qua phep doi
+    count = maxsplit + 1 (da doi chieu THAT voi CPython: maxsplit=2 tren
+    'a,b,c,d' -> 3 phan, maxsplit=0 -> 1 phan (khong tach), maxsplit vuot
+    qua so phan co san -> tach het nhu binh thuong - ca 3 case deu khop
+    .NET's 'count la SO PHAN TOI DA, phan CUOI giu nguyen phan con lai
+    chua tach' - cung 1 ngu nghia, chi khac ten tham so)."""
+    src_name, args = ea_str(node), ec_ds(node)
+    if len(args) > 2:
+        raise SyntaxError("il_codegen: str.split() hoac str.split(sep, maxsplit) can 0, 1 hoac 2 tham so")
+    compile_expr = ctx.compile_expr
+    load_var_ref = ctx.load_var_ref
+
+    if len(args) == 0:
+        # 's.split()' khong doi so (2026-09-29): tach theo MOI khoang trang, bo
+        # phan rong - ngu nghia Python. Split(null, RemoveEmptyEntries).
+        load_var_ref(src_name, scope, out)
+        out.append('    ldnull')
+        out.append('    ldc.i4.1')
+        out.append('    callvirt instance string[] [mscorlib]System.String::Split(char[], valuetype [mscorlib]System.StringSplitOptions)')
+        list_type0 = il_list_type('str', ctx.records)
+        out.append(
+            f'    newobj instance void {list_type0}::.ctor(class '
+            f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+        return
+    # Tach theo CHUOI phan cach day du (nhieu ky tu cung dung): String.Split(string[], options).
+    # Truoc 2026-09-30 chi lay ky tu DAU cua sep -> 'a, b'.split(', ') am tham tach theo ','.
+    load_var_ref(src_name, scope, out)
+    out.append('    ldc.i4.1')
+    out.append('    newarr [mscorlib]System.String')
+    out.append('    dup')
+    out.append('    ldc.i4.0')
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    stelem.ref')
+    if len(args) == 2:
+        compile_expr(args[1], scope, out, 'i32', ctx)
+        out.append('    ldc.i4.1')
+        out.append('    add')
+        out.append('    ldc.i4.0')
+        out.append('    callvirt instance string[] [mscorlib]System.String::Split(string[], int32, valuetype [mscorlib]System.StringSplitOptions)')
+    else:
+        out.append('    ldc.i4.0')
+        out.append('    callvirt instance string[] [mscorlib]System.String::Split(string[], valuetype [mscorlib]System.StringSplitOptions)')
+    list_type = il_list_type('str', ctx.records)
+    out.append(
+        f'    newobj instance void {list_type}::.ctor(class '
+        f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+
+
+def _ensure_class_strx(ctx: "Ctx"):
+    """TkvStrX::RSplit(s, sep, max) / Lines(s) - str.rsplit / str.splitlines nhu Python (2026-10-01).
+    RSplit: tach het theo sep roi gop (len - max - 1) phan DAU vao phan dau tien (max < 0: tach het).
+    Lines: tach theo CRLF, LF, CR; bo phan cuoi rong ('a' + LF).splitlines() == ['a'])."""
+    if ctx.emitted_types is None or 'TkvStrX' in ctx.emitted_types:
+        return
+    ctx.emitted_types.add('TkvStrX')
+    S = '[mscorlib]System.String'
+    L = 'class [mscorlib]System.Collections.Generic.List`1<string>'
+    c = []
+    c.append('.class public auto ansi beforefieldinit TkvStrX extends [mscorlib]System.Object')
+    c.append('{')
+    c.append('  .method public static ' + L + ' RSplit(string s, string sep, int32 max) cil managed')
+    c.append('  {')
+    c.append('    .maxstack 8')
+    c.append('    .locals init (string[] p, int32 k, ' + L + ' r, int32 i, string head)')
+    c.append('    ldarg.0')
+    c.append('    ldc.i4.1')
+    c.append('    newarr [mscorlib]System.String')
+    c.append('    dup')
+    c.append('    ldc.i4.0')
+    c.append('    ldarg.1')
+    c.append('    stelem.ref')
+    c.append('    ldc.i4.0')
+    c.append('    callvirt instance string[] [mscorlib]System.String::Split(string[], valuetype [mscorlib]System.StringSplitOptions)')
+    c.append('    stloc.0')
+    c.append('    newobj instance void ' + L + '::.ctor()')
+    c.append('    stloc.2')
+    c.append('    ldloc.0')
+    c.append('    ldlen')
+    c.append('    conv.i4')
+    c.append('    ldarg.2')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append('    sub')
+    c.append('    stloc.1')
+    c.append('    ldarg.2')
+    c.append('    ldc.i4.0')
+    c.append('    blt RS_ALL')
+    c.append('    ldloc.1')
+    c.append('    ldc.i4.0')
+    c.append('    bgt RS_MERGE')
+    c.append('  RS_ALL:')
+    c.append('    ldloc.2')
+    c.append('    ldloc.0')
+    c.append('    callvirt instance void ' + L + '::AddRange(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    c.append('    ldloc.2')
+    c.append('    ret')
+    c.append('  RS_MERGE:')
+    c.append('    ldloc.0')
+    c.append('    ldc.i4.0')
+    c.append('    ldelem.ref')
+    c.append('    stloc.s head')
+    c.append('    ldc.i4.1')
+    c.append('    stloc.3')
+    c.append('  RS_L1:')
+    c.append('    ldloc.3')
+    c.append('    ldloc.1')
+    c.append('    bgt RS_E1')
+    c.append('    ldloc.s head')
+    c.append('    ldarg.1')
+    c.append('    ldloc.0')
+    c.append('    ldloc.3')
+    c.append('    ldelem.ref')
+    c.append('    call string ' + S + '::Concat(string, string, string)')
+    c.append('    stloc.s head')
+    c.append('    ldloc.3')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append('    stloc.3')
+    c.append('    br RS_L1')
+    c.append('  RS_E1:')
+    c.append('    ldloc.2')
+    c.append('    ldloc.s head')
+    c.append('    callvirt instance void ' + L + '::Add(!0)')
+    c.append('    ldloc.1')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append('    stloc.3')
+    c.append('  RS_L2:')
+    c.append('    ldloc.3')
+    c.append('    ldloc.0')
+    c.append('    ldlen')
+    c.append('    conv.i4')
+    c.append('    bge RS_E2')
+    c.append('    ldloc.2')
+    c.append('    ldloc.0')
+    c.append('    ldloc.3')
+    c.append('    ldelem.ref')
+    c.append('    callvirt instance void ' + L + '::Add(!0)')
+    c.append('    ldloc.3')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append('    stloc.3')
+    c.append('    br RS_L2')
+    c.append('  RS_E2:')
+    c.append('    ldloc.2')
+    c.append('    ret')
+    c.append('  }')
+    c.append('  .method public static ' + L + ' Lines(string s) cil managed')
+    c.append('  {')
+    c.append('    .maxstack 8')
+    c.append('    .locals init (' + L + ' r)')
+    c.append('    ldarg.0')
+    c.append('    ldc.i4.3')
+    c.append('    newarr [mscorlib]System.String')
+    c.append('    dup')
+    c.append('    ldc.i4.0')
+    c.append('    ldstr "\\r\\n"')
+    c.append('    stelem.ref')
+    c.append('    dup')
+    c.append('    ldc.i4.1')
+    c.append('    ldstr "\\n"')
+    c.append('    stelem.ref')
+    c.append('    dup')
+    c.append('    ldc.i4.2')
+    c.append('    ldstr "\\r"')
+    c.append('    stelem.ref')
+    c.append('    ldc.i4.0')
+    c.append('    callvirt instance string[] [mscorlib]System.String::Split(string[], valuetype [mscorlib]System.StringSplitOptions)')
+    c.append('    newobj instance void ' + L + '::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    c.append('    stloc.0')
+    c.append('    ldloc.0')
+    c.append('    callvirt instance int32 ' + L + '::get_Count()')
+    c.append('    ldc.i4.0')
+    c.append('    ble LN_END')
+    c.append('    ldloc.0')
+    c.append('    ldloc.0')
+    c.append('    callvirt instance int32 ' + L + '::get_Count()')
+    c.append('    ldc.i4.1')
+    c.append('    sub')
+    c.append('    callvirt instance !0 ' + L + '::get_Item(int32)')
+    c.append('    callvirt instance int32 ' + S + '::get_Length()')
+    c.append('    brtrue LN_END')
+    c.append('    ldloc.0')
+    c.append('    ldloc.0')
+    c.append('    callvirt instance int32 ' + L + '::get_Count()')
+    c.append('    ldc.i4.1')
+    c.append('    sub')
+    c.append('    callvirt instance void ' + L + '::RemoveAt(int32)')
+    c.append('  LN_END:')
+    c.append('    ldloc.0')
+    c.append('    ret')
+    c.append('  }')
+    c.append('}')
+    ctx.extra_classes.append(c)
+
+
+def compile_string_rsplit(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """s.rsplit(sep) / s.rsplit(sep, maxsplit) - TkvStrX::RSplit (2026-10-01)."""
+    src_name, args = ea_str(node), ec_ds(node)
+    if len(args) != 1 and len(args) != 2:
+        raise SyntaxError("il_codegen: str.rsplit(sep) hoac str.rsplit(sep, maxsplit) can 1 hoac 2 tham so")
+    _ensure_class_strx(ctx)
+    ctx.load_var_ref(src_name, scope, out)
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    if len(args) == 2:
+        ctx.compile_expr(args[1], scope, out, 'i32', ctx)
+    else:
+        out.append('    ldc.i4.m1')
+    out.append('    call class [mscorlib]System.Collections.Generic.List`1<string> TkvStrX::RSplit(string, string, int32)')
+
+
+def compile_string_splitlines(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """s.splitlines() - TkvStrX::Lines (2026-10-01)."""
+    src_name, args = ea_str(node), ec_ds(node)
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: str.splitlines() chua ho tro tham so (keepends)")
+    _ensure_class_strx(ctx)
+    ctx.load_var_ref(src_name, scope, out)
+    out.append('    call class [mscorlib]System.Collections.Generic.List`1<string> TkvStrX::Lines(string)')
+
+
+def bootstrap_string_split(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_expr_method(reg, 'str', 'split', compile_string_split,
+                          return_ta_fn=_ta_ds_chuoi,
+                          result_shape='list')
+    register_expr_method(reg, 'str', 'rsplit', compile_string_rsplit,
+                          return_ta_fn=_ta_ds_chuoi,
+                          result_shape='list')
+    register_expr_method(reg, 'str', 'splitlines', compile_string_splitlines,
+                          return_ta_fn=_ta_ds_chuoi,
+                          result_shape='list')

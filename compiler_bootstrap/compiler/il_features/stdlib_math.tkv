@@ -1,0 +1,552 @@
+# -*- coding: utf-8 -*-
+"""Ham toan hoc KHONG khop khuon 1-tham-so cua _MATH_FUNCS trong core
+(2026-07-28) - pow(x, y) nhan 2 tham so, khac han sqrt/sin/floor/... chi
+nhan 1. floor/ceil/log/round o LAI core (chi la them entry vao dict
+_MATH_FUNCS co san, tai dung nguyen ven co che conv.r8/conv-nguoc-lai da
+verify qua sqrt/sin/... - khong can code moi). Quy uoc dependency-
+injection qua `ctx` nhu cac il_features/*.py khac."""
+from il_core import IL_LDC_OP
+
+IPOW_CLASS = 'TkvIPow'
+_INT_DTYPES: "set[str]" = {'i32', 'i64'}
+
+
+__tkv_import__ = "il_dispatch"
+
+
+def _ensure_ipow_class(ctx: "Ctx"):
+    """Chen .class TkvIPow DUNG MOT LAN - cung co che ensure_class cua
+    int_type.py."""
+    emitted = ctx.emitted_types
+    if emitted is None or IPOW_CLASS in emitted:
+        return
+    emitted.add(IPOW_CLASS)
+    ctx.extra_classes.append(_gen_ipow_class_il())
+
+
+def _gen_ipow_class_il() -> "list[str]":
+    """Luy thua NGUYEN chinh xac tuyet doi, binh phuong lien tiep.
+
+    'mul.ovf' chu khong phai 'mul': tran phai ON AO. Day la dung tinh
+    than buoc 1 cua moc 6 (a5ce8d2) - so nguyen i32/i64 khong the ngang
+    bang Python, nhung it nhat phai bao thay vi quan vong lang le."""
+    return [
+        f'.class public abstract sealed auto ansi {IPOW_CLASS}',
+        '       extends [mscorlib]System.Object',
+        '{',
+        '  .method public static int64 Pow(int64 b, int64 e) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int64 r, int64 bb, int64 ee)',
+        '    ldarg.1', '    ldc.i8 0', '    blt IPOW_NEG',
+        '    ldc.i8 1', '    stloc.s r',
+        '    ldarg.0', '    stloc.s bb',
+        '    ldarg.1', '    stloc.s ee',
+        '  IPOW_LOOP:',
+        '    ldloc.s ee', '    ldc.i8 0', '    ble IPOW_DONE',
+        # bit thap cua so mu == 1 -> nhan ket qua voi luy thua hien tai
+        '    ldloc.s ee', '    ldc.i8 1', '    and',
+        '    ldc.i8 0', '    beq IPOW_SQ',
+        '    ldloc.s r', '    ldloc.s bb', '    mul.ovf', '    stloc.s r',
+        '  IPOW_SQ:',
+        '    ldloc.s ee', '    ldc.i4.1', '    shr', '    stloc.s ee',
+        # Thoat TRUOC khi binh phuong not: vong cuoi khong can binh phuong
+        # nua, va lam thua se nem OverflowException GIA (vd 3**40 dung ra
+        # phai bao tran o phep nhan ket qua, khong phai o co so).
+        '    ldloc.s ee', '    ldc.i8 0', '    ble IPOW_DONE',
+        '    ldloc.s bb', '    ldloc.s bb', '    mul.ovf', '    stloc.s bb',
+        '    br IPOW_LOOP',
+        '  IPOW_DONE:',
+        '    ldloc.s r', '    ret',
+        '  IPOW_NEG:',
+        '    ldstr "so nguyen ** so mu am tra ve float trong Python '
+        '(2 ** -1 == 0.5) - doi ve f64 truoc khi luy thua."',
+        '    newobj instance void [mscorlib]System.NotSupportedException'
+        '::.ctor(string)',
+        '    throw',
+        '  }',
+        '}',
+    ]
+
+
+GCD_CLASS = 'TkvGcd'
+
+
+def _ensure_gcd_class(ctx: "Ctx"):
+    """Chen .class TkvGcd DUNG MOT LAN (Phase 2.3, 2026-08-11) - .NET
+    Framework 4.0 (muc tieu build cua du an) KHONG co Math.Gcd (chi tu
+    .NET Core/Standard sau nay), nen viet tay 1 ham tinh Euclid, cung co
+    che voi TkvIPow ben tren."""
+    emitted = ctx.emitted_types
+    if emitted is None or GCD_CLASS in emitted:
+        return
+    emitted.add(GCD_CLASS)
+    ctx.extra_classes.append(_gen_gcd_class_il())
+
+
+def _gen_gcd_class_il() -> "list[str]":
+    """gcd(a,b) - thuat toan Euclid, tra ve GIA TRI TUYET DOI (khop
+    Python math.gcd() - luon >= 0 du dau vao am, khac dau '%' cua ngon
+    ngu nay co the am)."""
+    return [
+        f'.class public abstract sealed auto ansi {GCD_CLASS}',
+        '       extends [mscorlib]System.Object',
+        '{',
+        '  .method public static int64 Gcd(int64 a, int64 b) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int64 t)',
+        '    ldarg.0', '    ldc.i8 0', '    bge GCD_A_OK',
+        '    ldarg.0', '    neg', '    starg.s 0',
+        '  GCD_A_OK:',
+        '    ldarg.1', '    ldc.i8 0', '    bge GCD_B_OK',
+        '    ldarg.1', '    neg', '    starg.s 1',
+        '  GCD_B_OK:',
+        '  GCD_LOOP:',
+        '    ldarg.1', '    ldc.i8 0', '    beq GCD_DONE',
+        '    ldarg.1', '    stloc.s t',
+        '    ldarg.0', '    ldarg.1', '    rem', '    starg.s 1',
+        '    ldloc.s t', '    starg.s 0',
+        '    br GCD_LOOP',
+        '  GCD_DONE:',
+        '    ldarg.0', '    ret',
+        '  }',
+        '}',
+    ]
+
+
+def compile_math_pi(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """math_pi() -> f64, hang so pi (Phase 2.3, 2026-08-11). DSL khong co
+    cu phap 'module.attr' (chi ten ham tran, xem docstring dau
+    stdlib_path.py) nen dat ten dang ham 0-tham-so, giong quy uoc cac
+    builtin khac trong file nay."""
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: math_pi() khong nhan tham so")
+    out.append('    ldc.r8 3.141592653589793')
+    ctx.widen_if_needed('f64', dtype, out)
+
+
+def compile_math_e(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """math_e() -> f64, hang so e."""
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: math_e() khong nhan tham so")
+    out.append('    ldc.r8 2.718281828459045')
+    ctx.widen_if_needed('f64', dtype, out)
+
+
+def compile_math_gcd(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """math_gcd(a, b) -> i32/i64, uoc chung lon nhat (thuat toan Euclid,
+    tra ve TUYET DOI - khop Python math.gcd())."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: math_gcd(a, b) chi nhan dung 2 tham so")
+    _ensure_gcd_class(ctx)
+    compile_expr = ctx.compile_expr
+    compile_expr(args[0], scope, out, 'i64', ctx)
+    compile_expr(args[1], scope, out, 'i64', ctx)
+    out.append(f'    call int64 {GCD_CLASS}::Gcd(int64, int64)')
+    ctx.widen_if_needed('i64', dtype, out)
+
+
+def compile_pow(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """pow(x, y) va 'x ** y'.
+
+    SUA 2026-08-05 (moc 6 lat 2): duong SO NGUYEN truoc day cung di
+    System.Math::Pow, tuc float64, tuc XAP XI - roi conv.i8 cat phan le.
+    Sai AM THAM, do that tren ban chua sua:
+
+        3**35  TokenVector 50031545098999704    CPython 50031545098999707
+        3**38  TokenVector 1350851717672992000  CPython 1350851717672992089
+        7**20  TokenVector 79792266297612000    CPython 79792266297612001
+        2**62  KHOP
+
+    Luy thua cua 2 luon khop (float64 bieu dien chinh xac) - do la ly do
+    bug nay song sot lau den vay: ai thu '2**n' se thay moi thu on.
+
+    Nay so nguyen di TkvIPow::Pow (binh phuong lien tiep, mul.ovf). dtype
+    THUC (f32/f64) giu nguyen duong Math::Pow cu - o do float64 la dung
+    ngu nghia, khong phai xap xi ngoai y muon."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: pow(x, y) chi nhan dung 2 tham so")
+    compile_expr = ctx.compile_expr
+    if dtype in _INT_DTYPES:
+        _ensure_ipow_class(ctx)
+        compile_expr(args[0], scope, out, dtype, ctx)
+        if dtype == 'i32':
+            out.append('    conv.i8')
+        compile_expr(args[1], scope, out, dtype, ctx)
+        if dtype == 'i32':
+            out.append('    conv.i8')
+        out.append(f'    call int64 {IPOW_CLASS}::Pow(int64, int64)')
+        if dtype == 'i32':
+            # 'conv.ovf.i4' chu khong phai 'conv.i4': ket qua khong vua
+            # i32 phai NEM, khong duoc cat am tham.
+            out.append('    conv.ovf.i4')
+        return
+    compile_expr(args[0], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    compile_expr(args[1], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    out.append('    call float64 [mscorlib]System.Math::Pow(float64, float64)')
+    if dtype != 'f64':
+        out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+
+
+def compile_math_atan2(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """atan2(y, x) -> f64, System.Math::Atan2(float64, float64) (Phase 10,
+    2026-08-28). CHU Y THU TU tham so: Python math.atan2(y, x) nhan y
+    TRUOC, x SAU (da xac nhan THAT: `python -c "import math;
+    print(math.atan2(1.0, 0.0))"` == 1.5707963267948966 == pi/2, khop
+    huong (0,1) tren truc, KHONG phai atan2(x,y)). .NET Math.Atan2(y, x)
+    dung CHINH XAC cung thu tu - anh xa 1:1 THANG."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: atan2(y, x) chi nhan dung 2 tham so")
+    compile_expr = ctx.compile_expr
+    compile_expr(args[0], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    compile_expr(args[1], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    out.append('    call float64 [mscorlib]System.Math::Atan2(float64, float64)')
+    if dtype != 'f64':
+        out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+
+
+def compile_math_hypot(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """hypot(x, y) -> f64, sqrt(x*x + y*y) (Phase 10, 2026-08-28).
+    KHONG dung 'System.Math::Hypot' - da PROBE THAT bang 1 file .il rieng
+    qua ilasm.exe/chay .exe: ilasm KHONG bao loi luc assemble (chi phat
+    ra call-token, khong kiem tra method ton tai), nhung chay .exe nem
+    'System.MissingMethodException: Method not found: Double
+    System.Math.Hypot(Double, Double)' - .NET Framework 4.0
+    (C:\\WINDOWS\\Microsoft.NET\\Framework64\\v4.0.30319, muc tieu build
+    cua du an) KHONG co Math.Hypot (chi co tu .NET Core 2.1+). Fallback
+    sqrt(x*x+y*y) khop math.hypot(3.0,4.0)==5.0 da xac nhan THAT."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: hypot(x, y) chi nhan dung 2 tham so")
+    compile_expr = ctx.compile_expr
+    compile_expr(args[0], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    compile_expr(args[0], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    out.append('    mul')
+    compile_expr(args[1], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    compile_expr(args[1], scope, out, dtype, ctx)
+    out.append('    conv.r8')
+    out.append('    mul')
+    out.append('    add')
+    out.append('    call float64 [mscorlib]System.Math::Sqrt(float64)')
+    if dtype != 'f64':
+        out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+
+
+FACTORIAL_CLASS = 'TkvFactorial'
+
+
+def _ensure_factorial_class(ctx: "Ctx"):
+    """Chen .class TkvFactorial DUNG MOT LAN - cung co che ensure_class
+    cua TkvIPow/TkvGcd o tren."""
+    emitted = ctx.emitted_types
+    if emitted is None or FACTORIAL_CLASS in emitted:
+        return
+    emitted.add(FACTORIAL_CLASS)
+    ctx.extra_classes.append(_gen_factorial_class_il())
+
+
+def _gen_factorial_class_il() -> "list[str]":
+    """factorial(n) -> n!, vong lap nhan don gian (Phase 10, 2026-08-28).
+    Python math.factorial() raise ValueError cho n am va n khong nguyen -
+    TokenVector 'n' luon i32/i64 (kieu tinh, khong the khong nguyen), nen
+    CHI can chan n < 0 (raise loi runtime, mau theo IPOW_NEG's throw)."""
+    return [
+        f'.class public abstract sealed auto ansi {FACTORIAL_CLASS}',
+        '       extends [mscorlib]System.Object',
+        '{',
+        '  .method public static int64 Factorial(int64 n) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int64 r, int64 i)',
+        '    ldarg.0', '    ldc.i8 0', '    blt FACT_NEG',
+        '    ldc.i8 1', '    stloc.s r',
+        '    ldc.i8 1', '    stloc.s i',
+        '  FACT_LOOP:',
+        '    ldloc.s i', '    ldarg.0', '    bgt FACT_DONE',
+        '    ldloc.s r', '    ldloc.s i', '    mul.ovf', '    stloc.s r',
+        '    ldloc.s i', '    ldc.i8 1', '    add', '    stloc.s i',
+        '    br FACT_LOOP',
+        '  FACT_DONE:',
+        '    ldloc.s r', '    ret',
+        '  FACT_NEG:',
+        '    ldstr "factorial() khong dinh nghia cho so am"',
+        '    newobj instance void [mscorlib]System.ArgumentException'
+        '::.ctor(string)',
+        '    throw',
+        '  }',
+        '}',
+    ]
+
+
+def compile_math_factorial(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """factorial(n) -> i32/i64 (cung dtype voi 'n'), TkvFactorial::Factorial
+    (Phase 10, 2026-08-28). math.factorial(5) == 120 da xac nhan THAT."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: factorial(n) chi nhan dung 1 tham so")
+    if dtype not in _INT_DTYPES:
+        raise SyntaxError("il_codegen: factorial(n) chi ho tro dtype i32/i64")
+    _ensure_factorial_class(ctx)
+    compile_expr = ctx.compile_expr
+    compile_expr(args[0], scope, out, dtype, ctx)
+    if dtype == 'i32':
+        out.append('    conv.i8')
+    out.append(f'    call int64 {FACTORIAL_CLASS}::Factorial(int64)')
+    if dtype == 'i32':
+        out.append('    conv.ovf.i4')
+
+
+from il_dispatch import register_expr_builtin
+
+# _MATH_FUNCS (2026-08-12, Phase tach tkvc.exe thanh plugin): danh sach
+# ham 1-tham-so goi thang System.Math, TRUOC DAY dinh nghia LITERAL
+# trong il_codegen.py roi .update() them tu stdlib_math_trig.py's
+# EXTRA_FUNCS - nay CHUYEN HAN vao day (module thu vien) de il_codegen.py
+# khong con giu literal nao ve danh sach ham toan hoc, chi con 1 diem
+# dang ky trung tam. GIU NGUYEN cach anh xa cu (chi co overload float64,
+# conv.r8 truoc goi / conv nguoc lai sau goi neu dtype!='f64').
+_MATH_FUNCS: "dict[str, str]" = {'exp': 'Exp', 'sqrt': 'Sqrt', 'tanh': 'Tanh', 'sin': 'Sin', 'cos': 'Cos',
+               'floor': 'Floor', 'ceil': 'Ceiling', 'log': 'Log', 'round': 'Round'}
+
+
+def register_math_extra_funcs(reg: "Registry", extra_dict: "dict[str,str]"):
+    """Goi boi stdlib_math_trig.py (va bat ky module 'ham toan hoc 1-tham-
+    so' nao khac sau nay) de gop them vao _MATH_FUNCS - THAY THE cho
+    cach cu 'il_codegen.py tu import EXTRA_FUNCS roi .update() thang vao
+    dict cua chinh no' (doi huong phu thuoc: truoc day il_codegen.py biet
+    ve stdlib_math_trig, nay stdlib_math_trig biet ve stdlib_math qua
+    ham nay, il_codegen.py khong can biet ca hai).
+
+    SUA (review fix Task 3, 2026-08-12): TRUOC DAY ham nay CHI .update()
+    dict, roi trong cay hy vong _register_all_math_funcs() (chay luc
+    stdlib_math.py nap module) se "bat" duoc cac ten them sau - nhung
+    _register_all_math_funcs() da chay TRUOC khi stdlib_math_trig.py kip
+    import xong va goi ham nay (Python chay het than module stdlib_math.py,
+    RO stdlib_math_trig.py moi goi register_math_extra_funcs), nen cac ten
+    trig-extra (tan/asin/acos/atan/sinh/cosh/log10/trunc) bi update() vao
+    dict nhung KHONG BAO GIO duoc register_expr_builtin - mat hoan toan
+    khoi EXPR_BUILTIN_CODEGEN. Nay TU dang ky ngay cac ten trong
+    extra_dict qua register_expr_builtin, khong con dua vao thu tu
+    module-load nua."""
+    for name, method_name in extra_dict.items():
+        # KHONG ghi vao _MATH_FUNCS nua (P6 chang 1c, 2026-09-08): bootstrap
+        # gio chay MOT LAN MOI LUOT BIEN DICH chu khong con mot lan moi tien
+        # trinh. Ghi them vao dict CAP MODULE nay lam lan 2 tro di thay ca
+        # ten trig do lan 1 them vao -> _register_all_math_funcs duyet trung
+        # -> ValueError "'tan' DA duoc dang ky". Dung con bug cua pilot Task
+        # 2, song lai vi bootstrap khong con la mot-lan-duy-nhat.
+        #
+        # Xoa dong ghi do KHONG mat gi: _MATH_FUNCS chi con duoc DOC boi
+        # il_codegen (_infer_dtype: "ham toan hoc 1-tham-so luon tra f64"),
+        # ma nhanh do van dung vi cac ten trig-extra deu tra f64.
+        register_expr_builtin(reg, name, _make_math_func_compiler(method_name), None)
+
+
+def _make_math_int_compiler(method_name: "str") -> "func(list[TkvNode],Scope,list[str],str,Ctx)->void":
+    """floor/ceil/trunc: Python 3 tra INT (2026-10-01) - tinh bang float64 roi conv.i8."""
+    def _compile_int(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+        nonlocal method_name
+        if len(args) != 1:
+            raise SyntaxError("il_codegen: ham toan hoc chi nhan dung 1 tham so")
+        ctx.compile_expr(args[0], scope, out, 'f64', ctx)
+        out.append(f'    call float64 [mscorlib]System.Math::{method_name}(float64)')
+        out.append('    conv.i8')
+        ctx.widen_if_needed('i64', dtype, out)
+    return _compile_int
+
+
+def _make_math_func_compiler(method_name: "str") -> "func(list[TkvNode],Scope,list[str],str,Ctx)->void":
+    if method_name == 'Floor' or method_name == 'Ceiling' or method_name == 'Truncate':
+        return _make_math_int_compiler(method_name)
+
+    def _compile(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+        nonlocal method_name
+        if len(args) != 1:
+            raise SyntaxError(f"il_codegen: ham toan hoc chi nhan dung 1 tham so")
+        ctx.compile_expr(args[0], scope, out, dtype, ctx)
+        out.append('    conv.r8')
+        out.append(f'    call float64 [mscorlib]System.Math::{method_name}(float64)')
+        if dtype != 'f64':
+            out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
+    return _compile
+
+
+def _register_all_math_funcs(reg: "Registry"):
+    """Dang ky cac ham CO SAN trong _MATH_FUNCS luc stdlib_math.py nap
+    module (chi 9 ham co ban - exp/sqrt/tanh/sin/cos/floor/ceil/log/
+    round). SUA (review fix Task 3, 2026-08-12): TRUOC DAY docstring nay
+    tuyen bo se "bat" duoc ca cac ten trig-extra do stdlib_math_trig.py
+    them sau qua register_math_extra_funcs() - SAI, vi ham nay chay va
+    KET THUC truoc khi stdlib_math_trig.py kip import xong. Nay
+    register_math_extra_funcs() tu dang ky lay phan cua no (xem dinh
+    nghia phia tren) - ham nay chi con dang ky dung 9 ten co ban, khong
+    dam bao gi ve cac module extra. return_dtype=None vi ham tu widen
+    theo dtype yeu cau (giong pow/math_pi/... ben duoi), khong can
+    EXPR_BUILTIN_DTYPE lam gi them."""
+    for name, method_name in _MATH_FUNCS.items():
+        register_expr_builtin(reg, name, _make_math_func_compiler(method_name), None)
+
+
+# return_dtype=None ca 4 dong duoi: compile_pow/compile_math_pi/
+# compile_math_e/compile_math_gcd deu TU GOI ctx['widen_if_needed'](...)
+# ben trong than ham (xem dinh nghia phia tren) de dua ket qua ve dung
+# 'dtype' yeu cau - neu khai bao return_dtype khac None o day, dispatch
+# chung (_expr_call's nhanh EXPR_BUILTIN_CODEGEN trong il_codegen.py) se
+# GOI THEM 1 lan _widen_if_needed(actual, dtype, out) sau khi ham da tu
+# widen roi -> widen 2 LAN chong nhau, sinh IL sai (BUG THAT phat hien
+# qua math_extra_test.tkv: 'math_gcd' dang ky voi 'i64' truoc day lam
+# gcd_basic/gcd_negative_arg/gcd_zero_arg deu FAIL, ket qua rac
+# 15722056 thay vi 6/6/5).
+def _math_mot_so(args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx: "Ctx", ten: "str"):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: " + ten + "(x) chi nhan dung 1 tham so")
+    ctx.compile_expr(args[0], scope, out, 'f64', ctx)
+
+
+def compile_math_degrees(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """math.degrees(x) = x * 180 / pi (2026-10-01)."""
+    _math_mot_so(args, scope, out, ctx, 'degrees')
+    out.append('    ldc.r8 180.0')
+    out.append('    mul')
+    out.append('    ldc.r8 3.141592653589793')
+    out.append('    div')
+    ctx.widen_if_needed('f64', dtype, out)
+
+
+def compile_math_radians(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """math.radians(x) = x * pi / 180."""
+    _math_mot_so(args, scope, out, ctx, 'radians')
+    out.append('    ldc.r8 3.141592653589793')
+    out.append('    mul')
+    out.append('    ldc.r8 180.0')
+    out.append('    div')
+    ctx.widen_if_needed('f64', dtype, out)
+
+
+def compile_math_log2(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """math.log2(x) = Math.Log(x, 2)."""
+    _math_mot_so(args, scope, out, ctx, 'log2')
+    out.append('    ldc.r8 2.0')
+    out.append('    call float64 [mscorlib]System.Math::Log(float64, float64)')
+    ctx.widen_if_needed('f64', dtype, out)
+
+
+def compile_math_isnan(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """math.isnan(x)."""
+    _math_mot_so(args, scope, out, ctx, 'isnan')
+    out.append('    call bool [mscorlib]System.Double::IsNaN(float64)')
+
+
+def compile_math_isinf(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """math.isinf(x) (cong va tru vo cung)."""
+    _math_mot_so(args, scope, out, ctx, 'isinf')
+    out.append('    call bool [mscorlib]System.Double::IsInfinity(float64)')
+
+
+def _ensure_class_time(ctx: "Ctx"):
+    """TkvTime: time.time / perf_counter / sleep (2026-10-01)."""
+    if ctx.emitted_types is None or 'TkvTime' in ctx.emitted_types:
+        return
+    ctx.emitted_types.add('TkvTime')
+    c = []
+    c.append('.class public auto ansi beforefieldinit TkvTime extends [mscorlib]System.Object')
+    c.append('{')
+    c.append('  .method public static float64 Now() cil managed')
+    c.append('  {')
+    c.append('    .maxstack 8')
+    c.append('    .locals init (valuetype [mscorlib]System.DateTime n)')
+    c.append('    call valuetype [mscorlib]System.DateTime [mscorlib]System.DateTime::get_UtcNow()')
+    c.append('    stloc.0')
+    c.append('    ldloca.s n')
+    c.append('    call instance int64 [mscorlib]System.DateTime::get_Ticks()')
+    c.append('    ldc.i8 621355968000000000')
+    c.append('    sub')
+    c.append('    conv.r8')
+    c.append('    ldc.r8 10000000.0')
+    c.append('    div')
+    c.append('    ret')
+    c.append('  }')
+    c.append('  .method public static float64 Perf() cil managed')
+    c.append('  {')
+    c.append('    .maxstack 8')
+    c.append('    call int64 [System]System.Diagnostics.Stopwatch::GetTimestamp()')
+    c.append('    conv.r8')
+    c.append('    ldsfld int64 [System]System.Diagnostics.Stopwatch::Frequency')
+    c.append('    conv.r8')
+    c.append('    div')
+    c.append('    ret')
+    c.append('  }')
+    c.append('  .method public static int32 Sleep(float64 s) cil managed')
+    c.append('  {')
+    c.append('    .maxstack 8')
+    c.append('    ldarg.0')
+    c.append('    ldc.r8 1000.0')
+    c.append('    mul')
+    c.append('    conv.i4')
+    c.append('    call void [mscorlib]System.Threading.Thread::Sleep(int32)')
+    c.append('    ldc.i4.0')
+    c.append('    ret')
+    c.append('  }')
+    c.append('}')
+    ctx.extra_classes.append(c)
+
+
+def compile_time_time(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """time.time() (giay tu 1970-01-01 UTC, f64)."""
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: time_time() khong nhan tham so")
+    _ensure_class_time(ctx)
+    out.append('    call float64 TkvTime::Now()')
+    ctx.widen_if_needed('f64', dtype, out)
+
+
+def compile_time_perf(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """time.perf_counter() / time.monotonic() (giay, f64)."""
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: time_perf() khong nhan tham so")
+    _ensure_class_time(ctx)
+    out.append('    call float64 TkvTime::Perf()')
+    ctx.widen_if_needed('f64', dtype, out)
+
+
+def compile_time_sleep(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """time.sleep(giay) - tra i32 0."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: time_sleep(s) nhan dung 1 tham so")
+    _ensure_class_time(ctx)
+    ctx.compile_expr(args[0], scope, out, 'f64', ctx)
+    out.append('    call int32 TkvTime::Sleep(float64)')
+    ctx.widen_if_needed('i32', dtype, out)
+
+
+def bootstrap_stdlib_math(reg: "Registry"):
+    """P6 (2026-09-07): gom MOI dang ky cua module nay vao mot ham, goi
+    tuong minh tu compiler/bootstrap_all.py.
+
+    Import module nay khong con chay tac dung phu nao - dieu kien bat buoc
+    de TokenVector bien dich duoc chinh no (ngon ngu chi cho def/class/
+    hang so/bien global vo huong o cap module).
+
+    GIU NGUYEN THU TU dang ky so voi ban cu."""
+    register_expr_builtin(reg, 'pow', compile_pow, None)
+    register_expr_builtin(reg, 'time_time', compile_time_time, 'f64')
+    register_expr_builtin(reg, 'time_perf', compile_time_perf, 'f64')
+    register_expr_builtin(reg, 'time_sleep', compile_time_sleep, 'i32')
+    register_expr_builtin(reg, 'math_pi', compile_math_pi, None)
+    register_expr_builtin(reg, 'math_e', compile_math_e, None)
+    register_expr_builtin(reg, 'math_gcd', compile_math_gcd, None)
+    register_expr_builtin(reg, 'math_degrees', compile_math_degrees, 'f64')
+    register_expr_builtin(reg, 'math_radians', compile_math_radians, 'f64')
+    register_expr_builtin(reg, 'math_log2', compile_math_log2, 'f64')
+    register_expr_builtin(reg, 'math_isnan', compile_math_isnan, 'bool')
+    register_expr_builtin(reg, 'math_isinf', compile_math_isinf, 'bool')
+    register_expr_builtin(reg, 'atan2', compile_math_atan2, None)
+    register_expr_builtin(reg, 'hypot', compile_math_hypot, None)
+    register_expr_builtin(reg, 'factorial', compile_math_factorial, None)
+    _register_all_math_funcs(reg)

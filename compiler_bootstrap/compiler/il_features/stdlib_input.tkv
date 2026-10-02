@@ -1,0 +1,39 @@
+# -*- coding: utf-8 -*-
+"""input()/input(prompt) - Phase 6.4 (2026-08-12).
+
+Anh xa thang Console.ReadLine() - co prompt (1 tham so 'str') thi in
+prompt TRUOC (khong xuong dong, giong Python) roi moi doc dong. Python
+that: neu gap EOF (input truyen qua pipe/redirect het du lieu), input()
+nem EOFError - ReadLine() tra ve null trong truong hop tuong duong; anh
+xa null -> "" (chuoi rong) thay vi nem loi CLR rieng, GIOI HAN CO Y THUC
+(don gian hoa, khong dinh nghia rieng 1 loai loi EOFError - hiem gap
+trong code AOT-compile thuc te, khac REPL)."""
+from il_core import nid
+from il_dispatch import register_expr_builtin, register_expr_builtin_nut
+
+
+__tkv_import__ = "il_dispatch"
+
+
+def push_input(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx", node: "TkvNode"):
+    if len(args) > 1:
+        raise SyntaxError("il_codegen: input() nhan toi da 1 tham so (prompt: str)")
+    if len(args) == 1:
+        ctx.compile_expr(args[0], scope, out, 'str', ctx)
+        out.append('    call void class [mscorlib]System.Console::Write(string)')
+    out.append('    call string [mscorlib]System.Console::ReadLine()')
+    out.append('    dup')
+    lbl = f'__input_notnull_{nid(node)}'
+    out.append(f'    brtrue {lbl}')
+    out.append('    pop')
+    out.append('    ldstr ""')
+    out.append(f'  {lbl}:')
+
+
+def bootstrap_stdlib_input(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_expr_builtin_nut(reg, 'input', push_input, 'str')

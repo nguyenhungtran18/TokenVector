@@ -1,0 +1,228 @@
+# -*- coding: utf-8 -*-
+"""'sep'.join(lst) - noi cac phan tu 1 list[str] bang 1 chuoi ngan cach
+(2026-08-03).
+
+Port THANG String::Join(string, IEnumerable<string>) cua BCL - khong tu
+viet vong lap. Ho tro CA HAI cach viet cua Python:
+    sep = ", " ; s = sep.join(xs)        -> tag 'method_call' (bien)
+    s = ", ".join(xs)                    -> tag 'method_call_expr' (chuoi hang)
+Cach thu hai truoc day KHONG parse duoc ("con thua token '.'") - do la
+cach viet PHO BIEN HON HAN trong code that.
+
+CHI nhan list[str] (Python nem TypeError khi phan tu khong phai chuoi;
+o day la loi LUC BIEN DICH, som hon)."""
+from il_core import nid
+from il_dispatch import register_expr_method, register_expr_codegen, Ctx, sao_ctx
+from typed_dsl_parser import TypeAnn
+from il_features.record_feature import compile_method_call
+from expr_row import ea_nut, ea_str, eb_str, ec_ds, ekind, eso_o, la_node, mk4, o_ds, o_str
+import il_extern_dtype
+from il_features.record_feature import _STR_METHODS
+import il_features.record_feature as _rf
+import il_codegen as _ilc
+
+_JOIN_IL = ('    call string [mscorlib]System.String::Join(string, class '
+            '[mscorlib]System.Collections.Generic.IEnumerable`1<string>)')
+
+
+__tkv_import__ = ["il_dispatch", "tkv_types"]
+
+
+def _check_list_of_str(ta: "TypeAnn", where: "str"):
+    if ta is None or ta.shape_ten != 'list' or ta.dtype != 'str':
+        raise SyntaxError(
+            f"il_codegen: {where} can tham so la 1 list[str] (dang co "
+            f"shape={ta.shape_ten!r} dtype={ta.dtype!r})")
+
+
+def compile_str_join(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """Tag 'method_call': node = ('method_call', ten_bien, 'join', args)."""
+    args = ec_ds(node)
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: sep.join(lst) can dung 1 tham so la list[str]")
+    if ekind(args[0]) != 'var':
+        raise SyntaxError(
+            "il_codegen: sep.join(lst) can tham so la 1 BIEN list[str] - gan ra 1 bien truoc")
+    _check_list_of_str(scope.tra(ea_str(args[0])).ta, "sep.join(lst)")
+    ctx.load_var_ref(ea_str(node), scope, out)
+    ctx.load_var_ref(ea_str(args[0]), scope, out)
+    out.append(_JOIN_IL)
+
+
+_RECV = '__tkv_recv_expr__'
+
+
+def _compile_str_method_on_expr(base_node: "TkvNode", name: "str", args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'<bieu thuc str>.method(...)' - vd 's[a:b].strip()', 'f(x).upper()'
+    (2026-08-03). MOI codegen method chuoi da dang ky deu nap DOI TUONG
+    NHAN dau tien qua ctx['load_var_ref'](node[1], ...); nen thay vi viet
+    lai tung method, gan bieu thuc nhan vao 1 ten AO trong scope roi doi
+    load_var_ref cua RIENG ten do thanh 'bien dich chinh bieu thuc'. Nho
+    vay moi method chuoi (ke ca dang ky sau nay) dung duoc ngay."""
+    sm_fn = _STR_METHODS.get(name)
+    if sm_fn is None:
+        raise SyntaxError(
+            f"il_codegen: '<bieu thuc>.{name}(...)' khong phai method chuoi da biet "
+            f"(chi: {sorted(_STR_METHODS)}) - gan bieu thuc ra 1 bien truoc roi goi "
+            f"method tren bien do")
+    # Ten AO phai DUY NHAT theo tung muc long ('s.strip().upper()' goi de
+    # quy vao chinh ham nay) - dung id cua node nhan lam hau to.
+    recv = f'{_RECV}{nid(base_node)}'
+    inner = mk4('method_call', o_str(recv), o_str(name), o_ds(args))
+    scope.dat_tam(recv, TypeAnn('str', None))
+    real_load = ctx.load_var_ref
+
+    def _load(nm: "str", sc: "Scope", o: "list[str]"):
+        nonlocal base_node, ctx, real_load, recv
+        if nm == recv:
+            ctx.compile_expr(base_node, sc, o, 'str', ctx)
+            return
+        real_load(nm, sc, o)
+
+    # Ban sao NONG de thay rieng `load_var_ref` cho loi goi ben trong.
+    # Truoc day la `Ctx(dict(ctx))`: `dict(ctx)` ha `Ctx` xuong dict thuong
+    # roi boc lai - chay duoc MOT BEN thoi, vi `__init__` mang pragma
+    # `__tkv_cpython_only__` nen duong tu-host khong co no.
+    sub_ctx = sao_ctx(ctx)
+    sub_ctx.load_var_ref = _load
+    try:
+        sm_fn(inner, scope, out, dtype, sub_ctx)
+    finally:
+        scope.xoa(recv)
+
+
+def _compile_method_on_expr_generic(base_node: "TkvNode", name: "str", args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx", obj_ta: "TypeAnn"):
+    """Tong quat hoa _compile_str_method_on_expr (Task 4, extern-class,
+    2026-08-18): '<bieu thuc extern-class>.Method(...)' - vd
+    's.Append("y").ToString()' (base_node = ('method_call', 's', 'Append',
+    [...]), obj_ta = TypeAnn('Sb', 'extern_class') suy tu ket qua Append).
+    KHAC _compile_str_method_on_expr (tra cuu rieng qua _STR_METHODS): o
+    day nhan obj_ta LAM THAM SO va di THANG qua dispatcher DAY DU
+    compile_method_call (record_feature.py) - do la NGUON SU THAT DUY
+    NHAT cho MOI shape (str/list/dict/file/record/extern_class...), tranh
+    viet lai 1 ban tra cuu rieng chi cho extern_class o day."""
+    recv = f'{_RECV}{nid(base_node)}'
+    inner = mk4('method_call', o_str(recv), o_str(name), o_ds(args))
+    scope.dat_tam(recv, obj_ta)
+    real_load = ctx.load_var_ref
+
+    def _load(nm: "str", sc: "Scope", o: "list[str]"):
+        nonlocal base_node, ctx, obj_ta, real_load, recv
+        if nm == recv:
+            ctx.compile_expr(base_node, sc, o, obj_ta.dtype, ctx)
+            return
+        real_load(nm, sc, o)
+
+    # Ban sao NONG de thay rieng `load_var_ref` cho loi goi ben trong.
+    # Truoc day la `Ctx(dict(ctx))`: `dict(ctx)` ha `Ctx` xuong dict thuong
+    # roi boc lai - chay duoc MOT BEN thoi, vi `__init__` mang pragma
+    # `__tkv_cpython_only__` nen duong tu-host khong co no.
+    sub_ctx = sao_ctx(ctx)
+    sub_ctx.load_var_ref = _load
+    try:
+        compile_method_call(inner, scope, out, dtype, sub_ctx)
+    finally:
+        scope.xoa(recv)
+
+
+def _compile_method_on_expr_bieu_thuc(base_node: "TkvNode", name: "str", args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx", obj_ta: "TypeAnn"):
+    """Nhu _compile_method_on_expr_generic nhung dich node 'method_call' qua
+    bo dieu phoi BIEU THUC (ctx.compile_expr) - noi co ca EXPR_METHOD_CODEGEN
+    (method dang ky qua register_expr_method, vd 'str.split'), khong chi
+    compile_method_call (2026-09-25)."""
+    recv = f'{_RECV}{nid(base_node)}'
+    inner = mk4('method_call', o_str(recv), o_str(name), o_ds(args))
+    scope.dat_tam(recv, obj_ta)
+    real_load = ctx.load_var_ref
+
+    def _load(nm: "str", sc: "Scope", o: "list[str]"):
+        nonlocal base_node, ctx, obj_ta, real_load, recv
+        if nm == recv:
+            ctx.compile_expr(base_node, sc, o, obj_ta.dtype, ctx)
+            return
+        real_load(nm, sc, o)
+
+    sub_ctx = sao_ctx(ctx)
+    sub_ctx.load_var_ref = _load
+    try:
+        sub_ctx.compile_expr(inner, scope, out, dtype, sub_ctx)
+    finally:
+        scope.xoa(recv)
+
+
+def compile_method_call_expr(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """Tag 'method_call_expr' (2026-08-03): method goi tren 1 BIEU THUC
+    thay vi 1 ten bien. '<chuoi>.join(lst)' co duong rieng ben duoi; moi
+    method CHUOI khac di qua _compile_str_method_on_expr."""
+    base_node, name, args = ea_nut(node), eb_str(node), ec_ds(node)
+    if la_node(base_node) and eso_o(base_node) >= 2 and ekind(base_node) == 'call' and ea_str(base_node) == 'super':
+        compile_method_call(node, scope, out, dtype, ctx)
+        return
+    if name != 'join':
+        # Co so tra CONTAINER (2026-09-28), vd 'dict(cap).get(k)': infer_dtype
+        # chi cho dtype GIA TRI (co the la ten record) - xet hinh dang truoc.
+        _ta_cs = _ilc._shaped_return_ta_of_call(ctx.reg, base_node, ctx.func_table, scope,
+                                                ctx.records, ctx.record_methods)
+        if _ta_cs is not None and _ta_cs.shape_ten in ('dict', 'list', 'set'):
+            _compile_method_on_expr_bieu_thuc(base_node, name, args, scope, out, dtype, ctx, _ta_cs)
+            return
+        base_dtype = ctx.infer_dtype(base_node, scope, ctx.func_table,
+                                        ctx.records, ctx.record_methods, None)
+        # Task 4 (extern-class, 2026-08-18): '<bieu thuc extern-class>.Method(...)'
+        # - vd 's.Append("y").ToString()'. infer_dtype tag 'method_call' da
+        # tra dung TEN CLASS (vd 'Sb') qua EXPR_METHOD_SHAPE (dang ky o
+        # tkv_compile.py's compile_tkv_cli) - CHI can nhan dien ten do co
+        # phai 1 extern-class DA khai bao khong (import tri hoan tranh
+        # circular import, giong nhanh 'super' o tren).
+        if base_dtype in il_extern_dtype._EXTERN_CLASS_DEFS:
+            _compile_method_on_expr_generic(base_node, name, args, scope, out, dtype, ctx,
+                                             TypeAnn(base_dtype, 'extern_class'))
+            return
+        if base_dtype is not None and base_dtype in (ctx.records or {}):
+            # '<bieu thuc record>.method(...)' (2026-09-25), vd
+            # 'Parser(toks).parse_signature()': bo dieu phoi day du lo method
+            # record, bien nhan ao mang kieu record.
+            _compile_method_on_expr_generic(base_node, name, args, scope, out, dtype, ctx,
+                                             TypeAnn(base_dtype, 'record'))
+            return
+        if base_dtype != 'str':
+            raise SyntaxError(
+                f"il_codegen: '<bieu thuc>.{name}(...)' hien chi ho tro khi bieu thuc nhan "
+                f"la CHUOI (dang suy ra dtype={base_dtype!r}) - gan ra 1 bien truoc roi goi "
+                f"method tren bien do")
+        if name not in _STR_METHODS:
+            # Method chuoi DANG KY qua register_expr_method (vd 'split',
+            # 2026-09-25): di qua bo dieu phoi bieu thuc DAY DU - bang
+            # _STR_METHODS chi la danh sach method CU.
+            _compile_method_on_expr_bieu_thuc(base_node, name, args, scope, out, dtype, ctx,
+                                              TypeAnn('str', None))
+            return
+        _compile_str_method_on_expr(base_node, name, args, scope, out, dtype, ctx)
+        return
+    if len(args) == 1 and ekind(args[0]) != 'var':
+        # '"sep".join(<bieu thuc list[str]>)' (2026-09-28), vd trong f-string
+        # (khong qua macro hoist): kieu lay tu suy luan loi goi co hinh dang.
+        _ta_bt = _ilc._shaped_return_ta_of_call(ctx.reg, args[0], ctx.func_table, scope,
+                                                ctx.records, ctx.record_methods)
+        _check_list_of_str(_ta_bt, '"sep".join(<bieu thuc>)')
+        ctx.compile_expr(base_node, scope, out, 'str', ctx)
+        ctx.compile_expr(args[0], scope, out, 'str', ctx)
+        out.append(_JOIN_IL)
+        return
+    if len(args) != 1 or ekind(args[0]) != 'var':
+        raise SyntaxError(
+            "il_codegen: \"sep\".join(lst) can dung 1 tham so la 1 BIEN list[str]")
+    _check_list_of_str(scope.tra(ea_str(args[0])).ta, '"sep".join(lst)')
+    ctx.compile_expr(base_node, scope, out, 'str', ctx)
+    ctx.load_var_ref(ea_str(args[0]), scope, out)
+    out.append(_JOIN_IL)
+
+
+def bootstrap_string_join(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_expr_method(reg, 'str', 'join', compile_str_join, return_dtype='str')
+    register_expr_codegen(reg, 'method_call_expr', compile_method_call_expr)

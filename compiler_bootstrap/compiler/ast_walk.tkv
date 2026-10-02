@@ -1,0 +1,167 @@
+# -*- coding: utf-8 -*-
+"""ast_walk - di qua cay arena cua parser native (P8 Task 6, lo 1).
+
+Thay cho `ast.walk` + `ast.NodeVisitor` cua shim `_ast_compat`. Doc MOT DONG
+arena la viec cua `ast_row`; DI QUA CAY la viec cua module nay - hai moi quan
+tam khac nhau, va lo 2-6 se dung lai ca hai.
+
+THU TU LA BFS - KHONG PHAI DFS. `ast.walk` cua CPython duyet BFS, va thu tu do
+di vao THU TU THONG BAO LOI cua consumer. DFS goc gon hon nhung se doi thu tu
+loi mot cach IM LANG: test van xanh, chi thong bao doi cho, va khong luoi nao
+bat duoc. Giu BFS de khong phai danh cuoc vao dieu do.
+
+CTX ('load'/'store'/'del') KHONG NAM TRONG ARENA - no duoc suy tu VI TRI CU
+PHAP. Cac ham duoi rut tu 8 cho goi `_set_ctx` cua `_ast_materialize.py`.
+
+VI SAO LA HAM CHU KHONG PHAI DICT: bang tra cuu dang dict o CAP MODULE la
+'lenh cap module' ma TokenVector tu choi, va module nay PHAI tu-host duoc -
+do la ly do no ton tai. Ham if-chain giu duoc tinh 'mot cho duy nhat, day du'
+ma khong ton mot lenh cap module nao.
+
+VI SAO VIET DAI DONG (moi kind mot dong `if`): parser native chua doc duoc
+NOI DONG bang '\' va chua co TERNARY kieu Python. Do la gia cua 'tu-host
+duoc', khong phai tuy tien.
+
+Ket qua tra ve bang HAI DANH SACH SONG SONG (`ra_nid`, `ra_ctx`) chu khong
+phai list cua tuple: `list[(i32, str)]` dung duoc lam kieu THAM SO nhung KHONG
+dung duoc lam field record (do o P8 Task 7). Hai list song song cung dung tien
+le R3 da dung cho registry (`X` / `X_ten`).
+
+DA DOI CHIEU 173/173 file corpus voi duong CU - xem
+test/verify/ast_walk_ctx_test.py.
+"""
+# HAI dong duoi phuc vu HAI duong chay khac nhau, deu can:
+#   - `__tkv_import__` la PRAGMA cua TokenVector (khong phai import Python);
+#     no mang ten vao KHONG CAN TIEN TO, nen ben duoi goi thang `kind_of(...)`.
+#   - `from ast_row import ...` la import THAT, cho duong CPython.
+# Goi ham CO TIEN TO MODULE (dang `mod.ham(...)`) KHONG dung duoc trong
+# TokenVector - da thu, bao "'...' khong phai bien da khai bao".
+__tkv_import__ = ["ast_row", "il_dispatch"]
+
+from ast_row import kind_of, kids    # noqa: E402
+
+
+def ctx_dich_cua(kind: "str") -> "str":
+    """Ctx dat cho con o VI TRI DICH cua `kind`; "" neu kind khong co dich.
+
+    'namedexpr' (walrus) KHONG co mat: dich cua no nam o COT A, khong phai
+    node con, nen khong co nid de gan ctx."""
+    if kind == "delete":
+        return "del"
+    if kind == "assign":
+        return "store"
+    if kind == "augassign":
+        return "store"
+    if kind == "annassign":
+        return "store"
+    if kind == "for":
+        return "store"
+    if kind == "asyncfor":
+        return "store"
+    if kind == "with":
+        return "store"
+    if kind == "asyncwith":
+        return "store"
+    if kind == "comp_clause":
+        return "store"
+    return ""
+
+
+def _con_dau(j: "i32") -> "i32":
+    """Chi con THU NHAT la dich - dung cho augassign/annassign/for/comp."""
+    if j == 0:
+        return 1
+    return 0
+
+
+def la_vi_tri_dich(kind: "str", j: "i32", so_con: "i32") -> "i32":
+    """Con thu `j` cua node loai `kind` co phai VI TRI DICH khong."""
+    if kind == "assign":
+        # kids = [dich..., GIA TRI] - con CUOI la gia tri, khong phai dich.
+        if j < so_con - 1:
+            return 1
+        return 0
+    if kind == "delete":
+        return 1
+    if kind == "with":
+        return _dich_cua_with(j)
+    if kind == "asyncwith":
+        return _dich_cua_with(j)
+    if kind == "augassign":
+        return _con_dau(j)
+    if kind == "annassign":
+        return _con_dau(j)
+    if kind == "for":
+        return _con_dau(j)
+    if kind == "asyncfor":
+        return _con_dau(j)
+    if kind == "comp_clause":
+        return _con_dau(j)
+    return 0
+
+
+def _dich_cua_with(j: "i32") -> "i32":
+    """kids = [than, ctx1, target1, ctx2, target2, ...] - dich la cac chi so
+    CHAN tu 2 tro di."""
+    if j < 2:
+        return 0
+    if j % 2 == 0:
+        return 1
+    return 0
+
+
+def ctx_lan_xuong(kind: "str") -> "i32":
+    """Ctx cua node nay co lan xuong con khong.
+
+    Nguyen van luat cua `_set_ctx`: chi di xuong qua tuple/list (unpack) va
+    qua `value` cua starred. Trong 'a.b, c[0] = ...' thi attr/subscript nhan
+    STORE nhung `a` va `c` BEN TRONG chung van la LOAD - day la cho de lam
+    sai nhat, va no khop dung CPython."""
+    if kind == "tuple":
+        return 1
+    if kind == "list":
+        return 1
+    if kind == "starred":
+        return 1
+    return 0
+
+
+def duyet(pool: "list[str]", goc: "i32", ra_nid: "list[i32]",
+          ra_ctx: "list[str]"):
+    """Duyet BFS toan bo cay tu `goc`, thu vao hai danh sach song song.
+
+    `ra_nid[i]` la chi so pool cua node thu i; `ra_ctx[i]` la ctx cua no."""
+    hang_nid = [goc]
+    hang_ctx = ["load"]
+    i = 0
+    while i < len(hang_nid):
+        nid = hang_nid[i]
+        ctx = hang_ctx[i]
+        i = i + 1
+        ra_nid.append(nid)
+        ra_ctx.append(ctx)
+
+        kind = kind_of(pool, nid)
+        con = kids(pool, nid)
+        so_con = len(con)
+        dich = ctx_dich_cua(kind)
+        lan = 0
+        if ctx != "load":
+            lan = ctx_lan_xuong(kind)
+
+        j = 0
+        for c in con:
+            if c < 0:
+                j = j + 1
+                continue                # sentinel 'vang mat'
+            ctx_con = "load"
+            if dich != "":
+                if la_vi_tri_dich(kind, j, so_con):
+                    ctx_con = dich
+                elif lan:
+                    ctx_con = ctx
+            elif lan:
+                ctx_con = ctx           # unpack: ctx cha lan xuong nguyen ven
+            hang_nid.append(c)
+            hang_ctx.append(ctx_con)
+            j = j + 1

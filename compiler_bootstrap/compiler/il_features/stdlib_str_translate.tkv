@@ -1,0 +1,157 @@
+# -*- coding: utf-8 -*-
+"""str.maketrans(x, y[, z]) va s.translate(tb) (2026-10-02).
+
+Bang dich cua Python la dict {ord: ord|None}; o day `tb` la MOT CHUOI ma hoa x, y, z ngan cach bang ky tu ma 1 va 2 (khong phai dict) -
+du cho cach dung thuong gap `s.translate(str.maketrans(...))` / `tb = str.maketrans(...)` roi `s.translate(tb)`.
+`str.maketrans({...dict...})` (mot doi so dict) chua ho tro. `str.maketrans` duoc macro `math_dot` doi thanh `str_maketrans`."""
+from il_dispatch import register_expr_builtin, register_expr_method
+from tkv_types import EXC_CLR
+from expr_row import ea_str, ec_ds
+
+
+__tkv_import__ = ["il_dispatch", "tkv_types"]
+
+_TRANS_CLASS = 'TkvTrans'
+
+
+def _ensure_class_trans(ctx: "Ctx"):
+    """TkvTrans::Translate(string s, string tb) - tb = x + ky tu 1 + y + ky tu 2 + z (z: cac ky tu bi xoa)."""
+    if ctx.emitted_types is None or _TRANS_CLASS in ctx.emitted_types:
+        return
+    ctx.emitted_types.add(_TRANS_CLASS)
+    STR = '[mscorlib]System.String'
+    SB = 'class [mscorlib]System.Text.StringBuilder'
+    c = []
+    c.append('.class public auto ansi beforefieldinit TkvTrans extends [mscorlib]System.Object')
+    c.append('{')
+    c.append('  .method public static string Translate(string s, string tb) cil managed')
+    c.append('  {')
+    c.append('    .maxstack 8')
+    c.append(f'    .locals init ({SB} sb, int32 i, char ch, int32 p1, int32 p2, string sfr, string sto, string sdel, int32 k)')
+    c.append('    ldarg.1')
+    c.append('    ldc.i4.1')
+    c.append(f'    callvirt instance int32 {STR}::IndexOf(char)')
+    c.append('    stloc.3')
+    c.append('    ldarg.1')
+    c.append('    ldc.i4.2')
+    c.append(f'    callvirt instance int32 {STR}::IndexOf(char)')
+    c.append('    stloc.s p2')
+    c.append('    ldarg.1')
+    c.append('    ldc.i4.0')
+    c.append('    ldloc.3')
+    c.append(f'    callvirt instance string {STR}::Substring(int32, int32)')
+    c.append('    stloc.s sfr')
+    c.append('    ldarg.1')
+    c.append('    ldloc.3')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append('    ldloc.s p2')
+    c.append('    ldloc.3')
+    c.append('    sub')
+    c.append('    ldc.i4.1')
+    c.append('    sub')
+    c.append(f'    callvirt instance string {STR}::Substring(int32, int32)')
+    c.append('    stloc.s sto')
+    c.append('    ldarg.1')
+    c.append('    ldloc.s p2')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append(f'    callvirt instance string {STR}::Substring(int32)')
+    c.append('    stloc.s sdel')
+    # x va y phai cung do dai (Python: ValueError)
+    c.append('    ldloc.s sfr')
+    c.append(f'    callvirt instance int32 {STR}::get_Length()')
+    c.append('    ldloc.s sto')
+    c.append(f'    callvirt instance int32 {STR}::get_Length()')
+    c.append('    beq TR_OKLEN')
+    c.append('    ldstr "the first two maketrans arguments must have equal length"')
+    c.append(f'    newobj instance void {EXC_CLR["ValueError"]}::.ctor(string)')
+    c.append('    throw')
+    c.append('  TR_OKLEN:')
+    c.append(f'    newobj instance void {SB}::.ctor()')
+    c.append('    stloc.0')
+    c.append('    ldc.i4.0')
+    c.append('    stloc.1')
+    c.append('  TR_L:')
+    c.append('    ldloc.1')
+    c.append('    ldarg.0')
+    c.append(f'    callvirt instance int32 {STR}::get_Length()')
+    c.append('    bge TR_E')
+    c.append('    ldarg.0')
+    c.append('    ldloc.1')
+    c.append(f'    callvirt instance char {STR}::get_Chars(int32)')
+    c.append('    stloc.2')
+    c.append('    ldloc.s sdel')
+    c.append('    ldloc.2')
+    c.append(f'    callvirt instance int32 {STR}::IndexOf(char)')
+    c.append('    ldc.i4.0')
+    c.append('    bge TR_N')
+    c.append('    ldloc.s sfr')
+    c.append('    ldloc.2')
+    c.append(f'    callvirt instance int32 {STR}::IndexOf(char)')
+    c.append('    stloc.s k')
+    c.append('    ldloc.s k')
+    c.append('    ldc.i4.0')
+    c.append('    blt TR_KEEP')
+    c.append('    ldloc.0')
+    c.append('    ldloc.s sto')
+    c.append('    ldloc.s k')
+    c.append(f'    callvirt instance char {STR}::get_Chars(int32)')
+    c.append(f'    callvirt instance {SB} [mscorlib]System.Text.StringBuilder::Append(char)')
+    c.append('    pop')
+    c.append('    br TR_N')
+    c.append('  TR_KEEP:')
+    c.append('    ldloc.0')
+    c.append('    ldloc.2')
+    c.append(f'    callvirt instance {SB} [mscorlib]System.Text.StringBuilder::Append(char)')
+    c.append('    pop')
+    c.append('  TR_N:')
+    c.append('    ldloc.1')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append('    stloc.1')
+    c.append('    br TR_L')
+    c.append('  TR_E:')
+    c.append('    ldloc.0')
+    c.append('    callvirt instance string [mscorlib]System.Object::ToString()')
+    c.append('    ret')
+    c.append('  }')
+    c.append('}')
+    ctx.extra_classes.append(c)
+
+
+def _push_char(code: "int", out: "list[str]"):
+    out.append(f'    ldc.i4 {code}')
+    out.append('    ldc.i4.1')
+    out.append('    newobj instance void [mscorlib]System.String::.ctor(char, int32)')
+
+
+def push_str_maketrans(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) != 2 and len(args) != 3:
+        raise SyntaxError("il_codegen: str.maketrans(x, y[, z]) can 2 hoac 3 tham so chuoi (dang dict chua ho tro)")
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    _push_char(1, out)
+    ctx.compile_expr(args[1], scope, out, 'str', ctx)
+    _push_char(2, out)
+    if len(args) == 3:
+        ctx.compile_expr(args[2], scope, out, 'str', ctx)
+    else:
+        out.append('    ldstr ""')
+    for _ in range(4):
+        out.append('    call string [mscorlib]System.String::Concat(string, string)')
+
+
+def compile_str_translate(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    obj_name = ea_str(node)
+    args = ec_ds(node)
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: s.translate(tb) can dung 1 tham so (tb tu str.maketrans(...))")
+    _ensure_class_trans(ctx)
+    ctx.load_var_ref(obj_name, scope, out)
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    out.append(f'    call string {_TRANS_CLASS}::Translate(string, string)')
+
+
+def bootstrap_stdlib_str_translate(reg: "Registry"):
+    register_expr_builtin(reg, 'str_maketrans', push_str_maketrans, 'str')
+    register_expr_method(reg, 'str', 'translate', compile_str_translate, 'str')

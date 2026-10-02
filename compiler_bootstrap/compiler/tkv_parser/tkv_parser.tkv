@@ -1,0 +1,1362 @@
+# -*- coding: utf-8 -*-
+"""tkv_parser - tang statement/module/class native cho self-host parser (P2b).
+
+Doc chuoi token dong-TSV cua tkv_lexer, sinh node statement vao CUNG arena
+`pool` voi node bieu thuc cua tkv_expr. Moi node statement mang cot `lines`
+= '<dong_dau>-<dong_cuoi>'. Data dictionary day du:
+docs/superpowers/plans/2026-09-04-selfhost-P2b-tkv-parser.md"""
+
+from tkv_ast import new_node, new_stmt_node, node_kind, node_a, node_b
+from tkv_ast import node_children, node_lines, csv_of, set_node_lines
+from tkv_expr import parse_expr_at, parse_expr_native, parse_exprlist_native
+from tkv_expr import tok_kind, tok_text, tok_line, _dong_o
+
+_AUG_OPS = " += -= *= /= //= %= **= &= |= ^= <<= >>= "
+
+
+def _p_atoi(s: "str") -> "i32":
+    """Chuoi so nguyen KHONG AM -> i32. Ten rieng de tranh trung namespace
+    phang voi _ast_atoi (tkv_ast) va _atoi (tkv_lexer)."""
+    digits = "0123456789"
+    v = 0
+    i = 0
+    while i < len(s):
+        d = digits.find(s[i])
+        if d < 0:
+            return v
+        v = v * 10 + d
+        i = i + 1
+    return v
+
+
+def _stmt_line(toks: "list[str]", i: "i32") -> "str":
+    """So dong nguon cua token i, dang van ban. Ngoai bien -> '0'."""
+    if i < 0:
+        return "0"
+    if i >= len(toks):
+        return "0"
+    row = toks[i]
+    parts = row.split("\t", 3)
+    return parts[0]
+
+
+def _p_op(toks: "list[str]", i: "i32") -> "str":
+    """Van ban token i neu no la OP, nguoc lai ''."""
+    if i < 0:
+        return ""
+    if i >= len(toks):
+        return ""
+    if tok_kind(toks, i) != "OP":
+        return ""
+    return tok_text(toks, i)
+
+
+def _p_kw(toks: "list[str]", i: "i32") -> "str":
+    """Van ban token i neu no la KW, nguoc lai ''."""
+    if i < 0:
+        return ""
+    if i >= len(toks):
+        return ""
+    if tok_kind(toks, i) != "KW":
+        return ""
+    return tok_text(toks, i)
+
+
+def _p_text(toks: "list[str]", i: "i32") -> "str":
+    """Van ban token i, an toan ngoai bien (tok_text KHONG guard)."""
+    if i < 0:
+        return ""
+    if i >= len(toks):
+        return ""
+    return tok_text(toks, i)
+
+
+def _p_kind(toks: "list[str]", i: "i32") -> "str":
+    """Loai token i, an toan ngoai bien (tra '' thay vi nem IndexError).
+    tok_kind cua tkv_expr KHONG guard bien nen moi cho doc token layout
+    (INDENT/DEDENT/ENDMARKER) o tang khoi phai di qua ham nay."""
+    if i < 0:
+        return ""
+    if i >= len(toks):
+        return ""
+    return tok_kind(toks, i)
+
+
+def _skip_newline(toks: "list[str]", i: "i32") -> "i32":
+    """Bo qua moi NEWLINE/CMT lien tiep tu i. Tra chi so token co nghia."""
+    j = i
+    looping = 1
+    while looping == 1:
+        if j >= len(toks):
+            looping = 0
+        else:
+            k = tok_kind(toks, j)
+            if k == "NEWLINE":
+                j = j + 1
+            elif k == "CMT":
+                j = j + 1
+            else:
+                looping = 0
+    return j
+
+
+def _find_stmt_end(toks: "list[str]", i: "i32") -> "i32":
+    """Chi so token NEWLINE ket thuc cau lenh don bat dau tai i.
+    Neu het token -> len(toks)."""
+    j = i
+    if j < 0:
+        j = 0
+    while j < len(toks):
+        if tok_kind(toks, j) == "NEWLINE":
+            return j
+        j = j + 1
+    return len(toks)
+
+
+def _find_colon(toks: "list[str]", i: "i32") -> "i32":
+    """Chi so dau ':' o CAP NGOAI CUNG tu i (mo dau than khoi). Dau ':' cua
+    slice 'x[a:b]' hay dict '{1: 2}' nam trong ngoac nen depth > 0, bi bo qua.
+    Gap NEWLINE truoc ':' -> tra chi so NEWLINE (dau vao cut)."""
+    depth = 0
+    j = i
+    while j < len(toks):
+        t = _p_op(toks, j)
+        if t == "(" or t == "[" or t == "{":
+            depth = depth + 1
+        elif t == ")" or t == "]" or t == "}":
+            depth = depth - 1
+        elif t == ":":
+            if depth == 0:
+                return j
+        elif tok_kind(toks, j) == "NEWLINE":
+            return j
+        j = j + 1
+    return len(toks)
+
+
+def _slice_toks(toks: "list[str]", a: "i32", b: "i32") -> "list[str]":
+    """Cat cua so token [a, b) thanh list moi. Guard bien tuong minh vi
+    TokenVector KHONG clamp slice.
+    BO token CMT: comment nam GIUA mot literal trai nhieu dong
+    (`{'a': 1,` / `# ghi chu` / `'b': 2}`) lam tang bieu thuc dung som va
+    VUT LANG LE moi phan tu phia sau - loi that do cong Task 11 bat duoc
+    (il_core.py: dict 16 muc chi ra 14)."""
+    out = []
+    lo = a
+    if lo < 0:
+        lo = 0
+    hi = b
+    if hi > len(toks):
+        hi = len(toks)
+    j = lo
+    while j < hi:
+        if tok_kind(toks, j) != "CMT":
+            out.append(toks[j])
+        j = j + 1
+    return out
+
+
+def parse_expr_native_window(pool: "list[str]", toks: "list[str]", a: "i32", b: "i32") -> "i32":
+    """Parse cua so token [a, b) nhu MOT bieu thuc (khong gom tuple tran).
+    Cua so rong -> -1 (khong sinh node). Phai do do dai SAU khi cat: cua so
+    chi gom CMT ('return  # ghi chu') bi _slice_toks loc thanh rong, va
+    tkv_expr doc toks[0] KHONG guard nen se nem IndexError."""
+    if b <= a:
+        return -1
+    win = _slice_toks(toks, a, b)
+    if len(win) == 0:
+        return -1
+    return parse_expr_native(pool, win)
+
+
+def _parse_exprlist_window(pool: "list[str]", toks: "list[str]", a: "i32", b: "i32") -> "i32":
+    """Parse cua so token [a, b) nhu mot exprlist (gom tuple tran).
+    Cua so rong -> -1; guard nay chan dau vao cut lam vo tkv_expr.
+    Do do dai SAU khi cat - xem ghi chu o parse_expr_native_window."""
+    if b <= a:
+        return -1
+    win = _slice_toks(toks, a, b)
+    if len(win) == 0:
+        return -1
+    return parse_exprlist_native(pool, win)
+
+
+def _parse_name_list(toks: "list[str]", i: "i32") -> "str":
+    """Doc danh sach NAME ngan cach ',' (dung cho global/nonlocal).
+    Tra '<csv_ten>\t<next_i>'."""
+    names = []
+    j = i
+    looping = 1
+    while looping == 1:
+        if j >= len(toks):
+            looping = 0
+        elif tok_kind(toks, j) == "NAME":
+            names.append(tok_text(toks, j))
+            j = j + 1
+            if _p_op(toks, j) == ",":
+                j = j + 1
+            else:
+                looping = 0
+        else:
+            looping = 0
+    return ",".join(names) + "\t" + str(j)
+
+
+def _parse_simple_kw_stmt(pool: "list[str]", toks: "list[str]", i: "i32", kw: "str") -> "str":
+    """Cau lenh chi gom 1 tu khoa: pass/break/continue. Tra '<id>\t<next_i>'."""
+    ln = _stmt_line(toks, i)
+    node_id = new_stmt_node(pool, kw, "", "", "", ln + "-" + ln)
+    return str(node_id) + "\t" + str(_find_stmt_end(toks, i))
+
+
+def _parse_return_or_raise(pool: "list[str]", toks: "list[str]", i: "i32", kind: "str") -> "str":
+    """'return [expr]' / 'raise [expr] [from <cause>]'.
+
+    children: [value] voi return; voi raise la [exc] hoac [exc, cause].
+    P3 Task 1: truoc day menh de `from <cause>` bi VUT LANG LE - cua so
+    bieu thuc nuot ca `from exc` roi parse_expr_native bo phan thua ma
+    khong bao. Cong P2b khong thay vi bo so sanh chi doc `node.exc`.
+    Nay tach cua so o tu khoa `from` cap ngoai cung va luu cause."""
+    ln = _stmt_line(toks, i)
+    end = _find_stmt_end(toks, i)
+    val_end = end
+    cause_at = 0 - 1
+    if kind == "raise":
+        cause_at = _find_kw_at_depth0(toks, i + 1, end, "from")
+        if cause_at >= 0:
+            val_end = cause_at
+    val_id = _parse_exprlist_window(pool, toks, i + 1, val_end)
+    kids = ""
+    if val_id >= 0:
+        kids = csv_of([val_id])
+        if cause_at >= 0:
+            cause_id = parse_expr_native_window(pool, toks, cause_at + 1, end)
+            if cause_id >= 0:
+                kids = csv_of([val_id, cause_id])
+    node_id = new_stmt_node(pool, kind, "", "", kids, ln + "-" + ln)
+    return str(node_id) + "\t" + str(end)
+
+
+def _parse_scope_decl(pool: "list[str]", toks: "list[str]", i: "i32", kind: "str") -> "str":
+    """'global a, b' / 'nonlocal a'. Ten luu o `b` dang CSV."""
+    ln = _stmt_line(toks, i)
+    packed = _parse_name_list(toks, i + 1)
+    names = packed.split("\t", 1)[0]
+    node_id = new_stmt_node(pool, kind, "", names, "", ln + "-" + ln)
+    return str(node_id) + "\t" + str(_find_stmt_end(toks, i))
+
+
+def _parse_delete(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'del a' / 'del a, b'. children = danh sach target."""
+    ln = _stmt_line(toks, i)
+    end = _find_stmt_end(toks, i)
+    ids = []
+    j = i + 1
+    looping = 1
+    while looping == 1:
+        if j >= end:
+            looping = 0
+        else:
+            packed = parse_expr_at(pool, toks, j)
+            parts = packed.split("\t", 1)
+            ids.append(_p_atoi(parts[0]))
+            nj = _p_atoi(parts[1])
+            if nj <= j:
+                looping = 0
+            else:
+                j = nj
+                if _p_op(toks, j) == ",":
+                    j = j + 1
+                else:
+                    looping = 0
+    node_id = new_stmt_node(pool, "delete", "", "", csv_of(ids), ln + "-" + ln)
+    return str(node_id) + "\t" + str(end)
+
+
+def _parse_assert(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'assert test' / 'assert test, msg'."""
+    ln = _stmt_line(toks, i)
+    end = _find_stmt_end(toks, i)
+    ids = []
+    if i + 1 < end:
+        packed = parse_expr_at(pool, toks, i + 1)
+        parts = packed.split("\t", 1)
+        ids.append(_p_atoi(parts[0]))
+        j = _p_atoi(parts[1])
+        if _p_op(toks, j) == ",":
+            if j + 1 < end:
+                packed2 = parse_expr_at(pool, toks, j + 1)
+                ids.append(_p_atoi(packed2.split("\t", 1)[0]))
+    node_id = new_stmt_node(pool, "assert", "", "", csv_of(ids), ln + "-" + ln)
+    return str(node_id) + "\t" + str(end)
+
+
+def _aug_op_at(toks: "list[str]", i: "i32") -> "str":
+    """Tra toan tu augmented-assign tai i, hoac '' neu khong phai."""
+    t = _p_op(toks, i)
+    if len(t) == 0:
+        return ""
+    if _AUG_OPS.find(" " + t + " ") < 0:
+        return ""
+    return t
+
+
+def _find_assign_eq(toks: "list[str]", i: "i32", end: "i32") -> "i32":
+    """Chi so dau '=' o CAP NGOAI CUNG trong [i, end), hoac -1.
+    Bo qua '=' ben trong ngoac (doi so keyword) va moi toan tu chua '='
+    nhu '==', '<=', '+=' (nhung KHONG bo qua '=' don)."""
+    depth = 0
+    j = i
+    while j < end:
+        t = _p_op(toks, j)
+        if t == "(" or t == "[" or t == "{":
+            depth = depth + 1
+        elif t == ")" or t == "]" or t == "}":
+            depth = depth - 1
+        elif t == "=":
+            if depth == 0:
+                return j
+        j = j + 1
+    return -1
+
+
+def _skip_target(toks: "list[str]", i: "i32", end: "i32") -> "i32":
+    """Bo qua mot target o dau cau lenh (name/attr/subscript) de nhin toan tu
+    dung sau no. Chi dung de PHAT HIEN augassign, khong sinh node."""
+    j = i
+    depth = 0
+    while j < end:
+        t = _p_op(toks, j)
+        if t == "(" or t == "[" or t == "{":
+            depth = depth + 1
+        elif t == ")" or t == "]" or t == "}":
+            depth = depth - 1
+        elif depth == 0:
+            if len(_aug_op_at(toks, j)) > 0:
+                return j
+            if t == "=":
+                return j
+        j = j + 1
+    return end
+
+
+def _parse_augassign(pool: "list[str]", toks: "list[str]", i: "i32", end: "i32", ln: "str", op: "str") -> "str":
+    """'a += b'. children = [target, value]."""
+    opi = _skip_target(toks, i, end)
+    tgt_id = parse_expr_native_window(pool, toks, i, opi)
+    val_id = _parse_exprlist_window(pool, toks, opi + 1, end)
+    node_id = new_stmt_node(pool, "augassign", op, "", csv_of([tgt_id, val_id]), ln + "-" + ln)
+    return str(node_id) + "\t" + str(end)
+
+
+def _parse_assign(pool: "list[str]", toks: "list[str]", i: "i32", end: "i32", ln: "str") -> "str":
+    """'a = b' / 'a = b = c' / 'a, b = f()'. children = [target..., value];
+    GIA TRI LUON LA CON CUOI."""
+    ids = []
+    seg_start = i
+    j = i
+    looping = 1
+    while looping == 1:
+        eq = _find_assign_eq(toks, j, end)
+        if eq < 0:
+            looping = 0
+        else:
+            ids.append(_parse_exprlist_window(pool, toks, seg_start, eq))
+            j = eq + 1
+            seg_start = j
+    ids.append(_parse_exprlist_window(pool, toks, seg_start, end))
+    node_id = new_stmt_node(pool, "assign", "", "", csv_of(ids), ln + "-" + ln)
+    return str(node_id) + "\t" + str(end)
+
+
+def _parse_expr_or_assign(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Phan biet 'expr', 'a = b', 'a = b = c', 'a += b'."""
+    ln = _stmt_line(toks, i)
+    end = _find_stmt_end(toks, i)
+    aug = _aug_op_at(toks, _skip_target(toks, i, end))
+    if len(aug) > 0:
+        return _parse_augassign(pool, toks, i, end, ln, aug)
+    ann = _find_ann_colon(toks, i, end)
+    if ann >= 0:
+        return _parse_annassign(pool, toks, i, end, ln, ann)
+    eq = _find_assign_eq(toks, i, end)
+    if eq < 0:
+        val_id = _parse_exprlist_window(pool, toks, i, end)
+        node_id = new_stmt_node(pool, "expr_stmt", "", "", csv_of([val_id]), ln + "-" + ln)
+        return str(node_id) + "\t" + str(end)
+    return _parse_assign(pool, toks, i, end, ln)
+
+
+def _find_ann_colon(toks: "list[str]", i: "i32", end: "i32") -> "i32":
+    """Chi so dau ':' o CAP NGOAI CUNG danh dau annotation ('x: int = 1').
+    Tra -1 neu khong co. Gap '=' truoc thi khong phai annassign. Dau ':'
+    cua lambda duoc loai bang guard tu khoa dan dau; cua dict/slice nam
+    trong ngoac nen depth > 0."""
+    if _p_kw(toks, i) == "lambda":
+        return 0 - 1
+    depth = 0
+    j = i
+    while j < end:
+        t = _p_op(toks, j)
+        if t == "(" or t == "[" or t == "{":
+            depth = depth + 1
+        elif t == ")" or t == "]" or t == "}":
+            depth = depth - 1
+        elif depth == 0:
+            if t == "=":
+                return 0 - 1
+            if t == ":":
+                if j > i:
+                    return j
+        j = j + 1
+    return 0 - 1
+
+
+def _parse_annassign(pool: "list[str]", toks: "list[str]", i: "i32", end: "i32", ln: "str", colon: "i32") -> "str":
+    """'x: T' hoac 'x: T = v'. children = [target, annotation, value];
+    value = -1 khi vang mat."""
+    tgt_id = parse_expr_native_window(pool, toks, i, colon)
+    eq = _find_assign_eq(toks, colon + 1, end)
+    ann_end = end
+    val_id = 0 - 1
+    if eq >= 0:
+        ann_end = eq
+        val_id = _parse_exprlist_window(pool, toks, eq + 1, end)
+    ann_id = parse_expr_native_window(pool, toks, colon + 1, ann_end)
+    node_id = new_stmt_node(pool, "annassign", "", "",
+                            csv_of([tgt_id, ann_id, val_id]), ln + "-" + ln)
+    return str(node_id) + "\t" + str(end)
+
+
+def _parse_dotted_name(toks: "list[str]", i: "i32") -> "str":
+    """Doc 'a', 'a.b', 'a.b.c' hoac chuoi dau '.' dan dau (import tuong doi).
+    Tra '<ten>\t<next_i>'."""
+    out = ""
+    j = i
+    looping = 1
+    while looping == 1:
+        if j >= len(toks):
+            looping = 0
+        elif tok_kind(toks, j) == "NAME":
+            out = out + tok_text(toks, j)
+            j = j + 1
+            if _p_op(toks, j) == ".":
+                out = out + "."
+                j = j + 1
+            else:
+                looping = 0
+        elif _p_op(toks, j) == ".":
+            out = out + "."
+            j = j + 1
+        elif _p_op(toks, j) == "...":
+            # Lexer gop ba dau cham thanh MOT token (Ellipsis). Trong
+            # 'from ...pkg import x' do la BA cap tuong doi, khong phai
+            # hang Ellipsis - thieu nhanh nay thi level ra 0 va module
+            # ra None. 0 ca that trong ca 1049 file doi chieu nen chi
+            # test rieng moi bat duoc (xem ast_compat_test).
+            out = out + "..."
+            j = j + 1
+        else:
+            looping = 0
+    return out + "\t" + str(j)
+
+
+def _with_alias(toks: "list[str]", name: "str", j: "i32") -> "str":
+    """Neu tai vi tri j la 'as X' thi tra '<name>:<X>', nguoc lai '<name>'."""
+    if _p_kw(toks, j) != "as":
+        return name
+    if j + 1 >= len(toks):
+        return name
+    return name + ":" + tok_text(toks, j + 1)
+
+
+def _after_alias(toks: "list[str]", j: "i32") -> "i32":
+    """Bo qua 'as X' neu co."""
+    if _p_kw(toks, j) != "as":
+        return j
+    return j + 2
+
+
+def _parse_import(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'import a', 'import a.b, c', 'import a as b'. Ten luu o `b` dang CSV,
+    moi muc la '<ten>' hoac '<ten>:<alias>'."""
+    ln = _stmt_line(toks, i)
+    end = _find_stmt_end(toks, i)
+    names = []
+    j = i + 1
+    looping = 1
+    while looping == 1:
+        packed = _parse_dotted_name(toks, j)
+        parts = packed.split("\t", 1)
+        j = _p_atoi(parts[1])
+        names.append(_with_alias(toks, parts[0], j))
+        j = _after_alias(toks, j)
+        if _p_op(toks, j) == ",":
+            j = j + 1
+        else:
+            looping = 0
+    node_id = new_stmt_node(pool, "import", "", ",".join(names), "", ln + "-" + ln)
+    return str(node_id) + "\t" + str(end)
+
+
+def _parse_import_from(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'from mod import a, b' / 'from . import x' / 'from mod import *' /
+    'from mod import (a, b)' (26 ca that dung ngoac nhieu dong)."""
+    ln = _stmt_line(toks, i)
+    end = _find_stmt_end(toks, i)
+    packed_m = _parse_dotted_name(toks, i + 1)
+    parts_m = packed_m.split("\t", 1)
+    mod = parts_m[0]
+    j = _p_atoi(parts_m[1]) + 1
+    if _p_op(toks, j) == "*":
+        star_id = new_stmt_node(pool, "importfrom", mod, "*", "", ln + "-" + ln)
+        return str(star_id) + "\t" + str(end)
+    if _p_op(toks, j) == "(":
+        j = j + 1
+    names = []
+    looping = 1
+    while looping == 1:
+        # Bo qua CMT: 'from m import (a, b,  # ghi chu' xuong dong tiep -
+        # lexer khong sinh NEWLINE trong ngoac nhung VAN sinh CMT, gap no
+        # thi vong lap dung som va MAT cac ten o dong sau (ca that:
+        # release/3.code/tkv_compile.tkv mat 1 trong 4 ten).
+        while _p_kind(toks, j) == "CMT":
+            j = j + 1
+        if j >= len(toks):
+            looping = 0
+        elif tok_kind(toks, j) != "NAME":
+            looping = 0
+        else:
+            nm = tok_text(toks, j)
+            j = j + 1
+            names.append(_with_alias(toks, nm, j))
+            j = _after_alias(toks, j)
+            if _p_op(toks, j) == ",":
+                j = j + 1
+            else:
+                looping = 0
+    node_id = new_stmt_node(pool, "importfrom", mod, ",".join(names), "", ln + "-" + ln)
+    return str(node_id) + "\t" + str(end)
+
+
+def _parse_inline_suite(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Than viet CUNG DONG voi header, vd 'if len(a) != 1: raise E' - 8 ca
+    that trong compiler/il_features/stdlib_cjson.py (do bang AST). Khong co
+    INDENT/DEDENT; doc cac cau lenh don toi NEWLINE.
+    Ghi chu pham vi: 0 ca that dung ';' de noi nhieu cau lenh cung dong, nen
+    parse_stmt (chay toi NEWLINE) da du."""
+    ids = []
+    j = i
+    looping = 1
+    while looping == 1:
+        k = _p_kind(toks, j)
+        if k == "":
+            looping = 0
+        elif k == "NEWLINE":
+            looping = 0
+        else:
+            packed = parse_stmt(pool, toks, j)
+            parts = packed.split("\t", 1)
+            ids.append(_p_atoi(parts[0]))
+            nj = _p_atoi(parts[1])
+            if nj <= j:
+                looping = 0
+            else:
+                j = nj
+    block_id = new_stmt_node(pool, "block", "", "", csv_of(ids), _dong_o(toks, i))
+    return str(block_id) + "\t" + str(j)
+
+
+def parse_block(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Doc than khoi. `i` tro vao NEWLINE ngay sau dau ':'. Doc qua NEWLINE,
+    doi INDENT, parse cac cau lenh toi DEDENT khop. Tra
+    '<node_id_block>\t<next_i>' voi next_i tro NGAY SAU DEDENT.
+    Node hoa than (kind 'block') de children cua if/for/while luon co so
+    phan tu CO DINH."""
+    k0 = _p_kind(toks, i)
+    if k0 != "" and k0 != "NEWLINE" and k0 != "CMT":
+        return _parse_inline_suite(pool, toks, i)
+    j = _skip_newline(toks, i)
+    if _p_kind(toks, j) != "INDENT":
+        empty_id = new_stmt_node(pool, "block", "", "", "", _dong_o(toks, i))
+        return str(empty_id) + "\t" + str(j)
+    j = j + 1
+    ids = []
+    looping = 1
+    while looping == 1:
+        j = _skip_newline(toks, j)
+        k = _p_kind(toks, j)
+        if k == "":
+            looping = 0
+        elif k == "DEDENT":
+            j = j + 1
+            looping = 0
+        elif k == "ENDMARKER":
+            looping = 0
+        else:
+            packed = parse_stmt(pool, toks, j)
+            parts = packed.split("\t", 1)
+            ids.append(_p_atoi(parts[0]))
+            nj = _p_atoi(parts[1])
+            if nj <= j:
+                looping = 0
+            else:
+                j = nj
+    block_id = new_stmt_node(pool, "block", "", "", csv_of(ids), _dong_o(toks, i))
+    return str(block_id) + "\t" + str(j)
+
+
+def _parse_if(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'if <test>:' <block> ['elif' ... | 'else:' <block>]. 'elif' la mot node
+    'if' LONG trong orelse_block (block chua dung 1 cau lenh), giong CPython.
+    Vang else/elif -> orelse = sentinel -1."""
+    ln = _stmt_line(toks, i)
+    colon = _find_colon(toks, i)
+    test_id = parse_expr_native_window(pool, toks, i + 1, colon)
+    packed_b = parse_block(pool, toks, colon + 1)
+    parts_b = packed_b.split("\t", 1)
+    body_id = _p_atoi(parts_b[0])
+    j = _p_atoi(parts_b[1])
+    j = _skip_newline(toks, j)
+    orelse_id = 0 - 1
+    if _p_kw(toks, j) == "elif":
+        packed_e = _parse_if(pool, toks, j)
+        parts_e = packed_e.split("\t", 1)
+        orelse_id = new_node(pool, "block", "", "",
+                             csv_of([_p_atoi(parts_e[0])]))
+        j = _p_atoi(parts_e[1])
+    elif _p_kw(toks, j) == "else":
+        colon2 = _find_colon(toks, j)
+        packed_o = parse_block(pool, toks, colon2 + 1)
+        parts_o = packed_o.split("\t", 1)
+        orelse_id = _p_atoi(parts_o[0])
+        j = _p_atoi(parts_o[1])
+    node_id = new_stmt_node(pool, "if", "", "",
+                            csv_of([test_id, body_id, orelse_id]), ln + "-" + ln)
+    _fix_stmt_lines(pool, toks, node_id, i, j)
+    return str(node_id) + "\t" + str(j)
+
+
+def _find_kw_at_depth0(toks: "list[str]", i: "i32", end: "i32", kw: "str") -> "i32":
+    """Chi so tu khoa `kw` o CAP NGOAI CUNG trong [i, end), hoac -1.
+    Phai dem ngoac: 'for x in [a for a in b]:' co 'in' o cap trong - dung
+    loai loi da lam hong comprehension o P2a Task 6."""
+    depth = 0
+    j = i
+    if j < 0:
+        j = 0
+    hi = end
+    if hi > len(toks):
+        hi = len(toks)
+    while j < hi:
+        t = _p_op(toks, j)
+        if t == "(" or t == "[" or t == "{":
+            depth = depth + 1
+        elif t == ")" or t == "]" or t == "}":
+            depth = depth - 1
+        elif depth == 0:
+            if _p_kw(toks, j) == kw:
+                return j
+        j = j + 1
+    return 0 - 1
+
+
+def _parse_else_block(pool: "list[str]", toks: "list[str]", j: "i32") -> "str":
+    """Neu tai j la 'else:' thi parse khoi else, tra '<block_id>\t<next_i>'.
+    Vang else -> '-1\t<j>' (khong tieu thu token nao)."""
+    if _p_kw(toks, j) != "else":
+        return "-1\t" + str(j)
+    colon = _find_colon(toks, j)
+    return parse_block(pool, toks, colon + 1)
+
+
+def _atoi_maybe_neg(s: "str") -> "i32":
+    """Chuoi so co the mang dau '-' -> i32 (_p_atoi chi doc so khong dau)."""
+    if len(s) == 0:
+        return 0
+    if s[0] == "-":
+        return 0 - _p_atoi(s[1:])
+    return _p_atoi(s)
+
+
+def _parse_loop_tail(pool: "list[str]", toks: "list[str]", colon: "i32") -> "str":
+    """Than khoi + khoi 'else' tuy chon cua for/while, dung chung.
+    Tra '<body_id>\t<orelse_id_hoac_-1>\t<next_i>'."""
+    packed_b = parse_block(pool, toks, colon + 1)
+    parts_b = packed_b.split("\t", 1)
+    body_id = _p_atoi(parts_b[0])
+    j = _skip_newline(toks, _p_atoi(parts_b[1]))
+    packed_o = _parse_else_block(pool, toks, j)
+    parts_o = packed_o.split("\t", 1)
+    orelse_id = _atoi_maybe_neg(parts_o[0])
+    j2 = _p_atoi(parts_o[1])
+    return str(body_id) + "\t" + str(orelse_id) + "\t" + str(j2)
+
+
+def _parse_for(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'for <target> in <iter>:' <block> ['else:' <block>].
+    target/iter deu la exprlist (CPython gom tuple tran: 'for a, b in c, d:').
+    Dau vao cut ('for x\\n'): khong tim thay 'in' -> iter = -1, khong nem."""
+    ln = _stmt_line(toks, i)
+    kind = "for"
+    d = i
+    if _p_kw(toks, i) == "async":
+        kind = "asyncfor"
+        d = i + 1
+    colon = _find_colon(toks, i)
+    in_at = _find_kw_at_depth0(toks, d + 1, colon, "in")
+    tgt_end = colon
+    iter_beg = colon
+    if in_at >= 0:
+        tgt_end = in_at
+        iter_beg = in_at + 1
+    tgt_id = _parse_exprlist_window(pool, toks, d + 1, tgt_end)
+    iter_id = _parse_exprlist_window(pool, toks, iter_beg, colon)
+    packed = _parse_loop_tail(pool, toks, colon)
+    parts = packed.split("\t", 2)
+    node_id = new_stmt_node(pool, kind, "", "",
+                            csv_of([tgt_id, iter_id, _p_atoi(parts[0]),
+                                    _atoi_maybe_neg(parts[1])]), ln + "-" + ln)
+    return str(node_id) + "\t" + str(_p_atoi(parts[2]))
+
+
+def _parse_while(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'while <test>:' <block> ['else:' <block>]."""
+    ln = _stmt_line(toks, i)
+    colon = _find_colon(toks, i)
+    test_id = parse_expr_native_window(pool, toks, i + 1, colon)
+    packed = _parse_loop_tail(pool, toks, colon)
+    parts = packed.split("\t", 2)
+    node_id = new_stmt_node(pool, "while", "", "",
+                            csv_of([test_id, _p_atoi(parts[0]),
+                                    _atoi_maybe_neg(parts[1])]), ln + "-" + ln)
+    return str(node_id) + "\t" + str(_p_atoi(parts[2]))
+
+
+def _find_op_at_depth0(toks: "list[str]", i: "i32", end: "i32", op: "str") -> "i32":
+    """Chi so toan tu `op` o CAP NGOAI CUNG trong [i, end), hoac -1.
+    Song sinh voi _find_kw_at_depth0 nhung tim OP thay vi tu khoa."""
+    depth = 0
+    j = i
+    if j < 0:
+        j = 0
+    hi = end
+    if hi > len(toks):
+        hi = len(toks)
+    while j < hi:
+        t = _p_op(toks, j)
+        if t == "(" or t == "[" or t == "{":
+            depth = depth + 1
+        elif t == ")" or t == "]" or t == "}":
+            depth = depth - 1
+        elif depth == 0:
+            if t == op:
+                return j
+        j = j + 1
+    return 0 - 1
+
+
+def _parse_with_items(pool: "list[str]", toks: "list[str]", i: "i32", end: "i32", ids: "list[i32]") -> "i32":
+    """Doc danh sach '<ctx> [as <target>]' ngan cach ',' trong [i, end).
+    Day vao `ids` TUNG CAP (ctx_id, target_id); target = -1 neu khong co
+    'as'. Tra so muc doc duoc."""
+    n = 0
+    lo = i
+    looping = 1
+    while looping == 1:
+        if lo >= end:
+            looping = 0
+        else:
+            hi = _find_op_at_depth0(toks, lo, end, ",")
+            if hi < 0:
+                hi = end
+            as_at = _find_kw_at_depth0(toks, lo, hi, "as")
+            ctx_end = hi
+            if as_at >= 0:
+                ctx_end = as_at
+            ctx_id = parse_expr_native_window(pool, toks, lo, ctx_end)
+            var_id = 0 - 1
+            if as_at >= 0:
+                var_id = parse_expr_native_window(pool, toks, as_at + 1, hi)
+            ids.append(ctx_id)
+            ids.append(var_id)
+            n = n + 1
+            lo = hi + 1
+    return n
+
+
+def _parse_with(pool: "list[str]", toks: "list[str]", i: "i32", is_async: "i32") -> "str":
+    """'with <ctx> [as <t>] [, ...]:' <block>.
+
+    children = [body_block, ctx, target, ctx, target, ...] - moi muc dung
+    HAI con lien tiep nen so muc = (len(children) - 1) / 2, khong can cot
+    dem rieng. `target` = -1 khi khong co 'as'."""
+    ln = _stmt_line(toks, i)
+    start = i + 1
+    if is_async == 1:
+        start = i + 2
+    colon = _find_colon(toks, i)
+    ids = []
+    _parse_with_items(pool, toks, start, colon, ids)
+    packed_b = parse_block(pool, toks, colon + 1)
+    parts_b = packed_b.split("\t", 1)
+    kids = [_p_atoi(parts_b[0])]
+    k = 0
+    while k < len(ids):
+        kids.append(ids[k])
+        k = k + 1
+    kind = "with"
+    if is_async == 1:
+        kind = "asyncwith"
+    node_id = new_stmt_node(pool, kind, "", "", csv_of(kids), ln + "-" + ln)
+    return str(node_id) + "\t" + str(_p_atoi(parts_b[1]))
+
+
+def _is_soft_kw(toks: "list[str]", i: "i32", word: "str") -> "i32":
+    """1 neu token i la tu khoa MEM `word` ('match'/'case').
+
+    Python coi 'match'/'case' la tu khoa MEM: chung van la ten binh thuong
+    o moi vi tri khac, nen tkv_lexer (dung `is_keyword`) sinh chung ra
+    NAME chu khong phai KW. Kiem bang van ban + loai NAME."""
+    if _p_kind(toks, i) != "NAME":
+        return 0
+    if _p_text(toks, i) != word:
+        return 0
+    return 1
+
+
+def _looks_like_match(toks: "list[str]", i: "i32") -> "i32":
+    """1 neu cau lenh tai i la 'match <subject>:' chu khong phai bieu thuc
+    dung ten 'match' (vd 'match = 1', 'match.group(0)', 'match(x)').
+
+    Phan biet bang hai dieu kien: token ke tiep KHONG phai toan tu bat dau
+    mot bieu thuc/gan, VA co dau ':' o cap ngoai cung truoc NEWLINE."""
+    if _is_soft_kw(toks, i, "match") == 0:
+        return 0
+    nxt = _p_op(toks, i + 1)
+    if nxt == "=" or nxt == "." or nxt == "(" or nxt == "[" or nxt == ",":
+        return 0
+    if nxt == ":" or nxt == ")" or nxt == "]" or nxt == "}":
+        return 0
+    end = _find_stmt_end(toks, i)
+    colon = _find_colon(toks, i)
+    if colon >= end:
+        return 0
+    return 1
+
+
+def _parse_case(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'case <pattern> [if <guard>]:' <block>. Tra '<node_id>\t<next_i>'.
+
+    `b` = ten bat duoc (capture) neu mau chi la MOT ten: 'case x:' bat gia
+    tri vao x, 'case _:' la mau bat ky. Moi mau khac duoc parse nhu bieu
+    thuc (mau gia tri: 'case 1:', 'case "a":').
+    children = [pattern_expr, guard, body_block]; -1 khi vang."""
+    ln = _stmt_line(toks, i)
+    colon = _find_colon(toks, i)
+    guard_at = _find_kw_at_depth0(toks, i + 1, colon, "if")
+    pat_end = colon
+    if guard_at >= 0:
+        pat_end = guard_at
+    name = ""
+    pat_id = 0 - 1
+    if pat_end == i + 2:
+        if _p_kind(toks, i + 1) == "NAME":
+            name = _p_text(toks, i + 1)
+    if name == "":
+        pat_id = parse_expr_native_window(pool, toks, i + 1, pat_end)
+    guard_id = 0 - 1
+    if guard_at >= 0:
+        guard_id = parse_expr_native_window(pool, toks, guard_at + 1, colon)
+    packed_b = parse_block(pool, toks, colon + 1)
+    parts_b = packed_b.split("\t", 1)
+    node_id = new_stmt_node(pool, "case", "", name,
+                            csv_of([pat_id, guard_id, _p_atoi(parts_b[0])]),
+                            ln + "-" + ln)
+    return str(node_id) + "\t" + str(_p_atoi(parts_b[1]))
+
+
+def _parse_match(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'match <subject>:' <cac khoi 'case'>. children = [subject, case x N].
+
+    Than cua `match` KHONG phai khoi cau lenh thuong ma la day 'case', nen
+    doc INDENT/DEDENT tai cho thay vi goi parse_block."""
+    ln = _stmt_line(toks, i)
+    colon = _find_colon(toks, i)
+    subj_id = _parse_exprlist_window(pool, toks, i + 1, colon)
+    kids = [subj_id]
+    j = _skip_newline(toks, colon + 1)
+    if _p_kind(toks, j) == "INDENT":
+        j = j + 1
+        looping = 1
+        while looping == 1:
+            j = _skip_newline(toks, j)
+            if j >= len(toks):
+                looping = 0
+            elif _p_kind(toks, j) == "DEDENT":
+                j = j + 1
+                looping = 0
+            elif _is_soft_kw(toks, j, "case") == 1:
+                packed_c = _parse_case(pool, toks, j)
+                parts_c = packed_c.split("\t", 1)
+                kids.append(_p_atoi(parts_c[0]))
+                nj = _p_atoi(parts_c[1])
+                if nj > j:
+                    j = nj
+                else:
+                    looping = 0
+            else:
+                looping = 0
+    node_id = new_stmt_node(pool, "match", "", "", csv_of(kids), ln + "-" + ln)
+    return str(node_id) + "\t" + str(j)
+
+
+def _parse_handler(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'except [<type> [as <name>]]:' <block>. Tra '<node_id>\t<next_i>'.
+    'except:' tran -> type = -1, ten rong. Ten lay bang _p_text nen
+    'except E as' cut khong nem."""
+    ln = _stmt_line(toks, i)
+    colon = _find_colon(toks, i)
+    name = ""
+    type_id = 0 - 1
+    if colon > i + 1:
+        as_at = _find_kw_at_depth0(toks, i + 1, colon, "as")
+        type_end = colon
+        if as_at >= 0:
+            type_end = as_at
+            name = _p_text(toks, as_at + 1)
+        type_id = parse_expr_native_window(pool, toks, i + 1, type_end)
+    packed = parse_block(pool, toks, colon + 1)
+    parts = packed.split("\t", 1)
+    node_id = new_stmt_node(pool, "handler", name, "",
+                            csv_of([type_id, _p_atoi(parts[0])]), ln + "-" + ln)
+    return str(node_id) + "\t" + str(_p_atoi(parts[1]))
+
+
+def _parse_finally_block(pool: "list[str]", toks: "list[str]", j: "i32") -> "str":
+    """Neu tai j la 'finally:' thi parse khoi. Tra '<block_id_hoac_-1>\t<next_i>'."""
+    if _p_kw(toks, j) != "finally":
+        return "-1\t" + str(j)
+    colon = _find_colon(toks, j)
+    return parse_block(pool, toks, colon + 1)
+
+
+def _parse_handlers(pool: "list[str]", toks: "list[str]", i: "i32", ids: "list[i32]") -> "i32":
+    """Doc chuoi 'except ...' lien tiep tu i, noi vao `ids`. Tra chi so ke tiep.
+    Guard tien-chi-so: _parse_handler tra next_i <= j (dau vao cut) -> dung."""
+    j = i
+    looping = 1
+    while looping == 1:
+        if _p_kw(toks, j) != "except":
+            looping = 0
+        else:
+            packed = _parse_handler(pool, toks, j)
+            parts = packed.split("\t", 1)
+            ids.append(_p_atoi(parts[0]))
+            nj = _skip_newline(toks, _p_atoi(parts[1]))
+            if nj <= j:
+                looping = 0
+            else:
+                j = nj
+    return j
+
+
+def _parse_try(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """'try:' <block> ('except ...' <block>)* ['else:' <block>] ['finally:' <block>].
+    children = [body, handler..., orelse, final]; HAI con cuoi LUON co mat
+    (-1 neu vang) de xac dinh ranh gioi day handler."""
+    ln = _stmt_line(toks, i)
+    colon = _find_colon(toks, i)
+    packed_b = parse_block(pool, toks, colon + 1)
+    parts_b = packed_b.split("\t", 1)
+    ids = [_p_atoi(parts_b[0])]
+    j = _skip_newline(toks, _p_atoi(parts_b[1]))
+    j = _parse_handlers(pool, toks, j, ids)
+    packed_o = _parse_else_block(pool, toks, j)
+    parts_o = packed_o.split("\t", 1)
+    ids.append(_atoi_maybe_neg(parts_o[0]))
+    j = _skip_newline(toks, _p_atoi(parts_o[1]))
+    packed_f = _parse_finally_block(pool, toks, j)
+    parts_f = packed_f.split("\t", 1)
+    ids.append(_atoi_maybe_neg(parts_f[0]))
+    node_id = new_stmt_node(pool, "try", "", "", csv_of(ids), ln + "-" + ln)
+    return str(node_id) + "\t" + str(_p_atoi(parts_f[1]))
+
+
+def _join_csv(a: "str", b: "str") -> "str":
+    """Noi 2 chuoi CSV, bo qua phan rong."""
+    if len(a) == 0:
+        return b
+    if len(b) == 0:
+        return a
+    return a + "," + b
+
+
+def _param_part_end(toks: "list[str]", i: "i32") -> "i32":
+    """Chi so ket thuc mot annotation/default: dung o ',' / '=' / ')' CUNG CAP.
+    Dem ngoac nen default 'f(1, 2)' hay '[3, 4]' khong bi cat giua chung."""
+    depth = 0
+    j = i
+    while j < len(toks):
+        t = _p_op(toks, j)
+        if t == "(" or t == "[" or t == "{":
+            depth = depth + 1
+        elif t == ")":
+            if depth == 0:
+                return j
+            depth = depth - 1
+        elif t == "]" or t == "}":
+            depth = depth - 1
+        elif t == ",":
+            if depth == 0:
+                return j
+        elif t == "=":
+            if depth == 0:
+                return j
+        j = j + 1
+    return len(toks)
+
+
+def _parse_one_param_meta(pool: "list[str]", toks: "list[str]", i: "i32", nm: "str") -> "str":
+    """Doc phan ': <annotation>' va '= <default>' cua MOT tham so.
+    Tra '<arg_meta_id>\t<next_i>'."""
+    ann_id = 0 - 1
+    def_id = 0 - 1
+    j = i
+    if _p_op(toks, j) == ":":
+        end = _param_part_end(toks, j + 1)
+        ann_id = parse_expr_native_window(pool, toks, j + 1, end)
+        j = end
+    if _p_op(toks, j) == "=":
+        end2 = _param_part_end(toks, j + 1)
+        def_id = parse_expr_native_window(pool, toks, j + 1, end2)
+        j = end2
+    meta_id = new_stmt_node(pool, "arg_meta", nm, "", csv_of([ann_id, def_id]), _dong_o(toks, i))
+    return str(meta_id) + "\t" + str(j)
+
+
+def _parse_params(pool: "list[str]", toks: "list[str]", i: "i32", metas: "list[i32]") -> "str":
+    """Doc danh sach tham so giua '(' tai i va ')' khop. Day arg_meta vao
+    `metas`. Tra '<csv_ten>\t<next_i>' voi next_i tro NGAY SAU ')'.
+    Guard bien: 'def f(' cut -> het token thi dung (khong lap vo han).
+    Ghi chu: tkv_lexer KHONG sinh NEWLINE ben trong ngoac nen chu ky trai
+    nhieu dong khong can xu ly rieng."""
+    names = []
+    j = i + 1
+    looping = 1
+    while looping == 1:
+        if j >= len(toks):
+            looping = 0
+        elif _p_op(toks, j) == ")":
+            j = j + 1
+            looping = 0
+        elif _p_op(toks, j) == ",":
+            j = j + 1
+        else:
+            star = ""
+            if _p_op(toks, j) == "*":
+                star = "*"
+                j = j + 1
+                # `*` TRAN ('def f(a, *, b)') - dau phan cach keyword-only,
+                # KHONG co ten theo sau. Truoc day doan duoi van doc token
+                # ke tiep lam ten, tuc nuot luon dau PHAY: cot b ra
+                # 'a,*,,b' (thua mot o rong) va sinh them mot arg_meta ten
+                # ','. Ca hai consumer deu phai bu tay, va
+                # _ast_materialize thi bu SAI - 'b' bien mat khoi chu ky.
+                # Ghi dau '*' MOT MINH, khong arg_meta.
+                if _p_op(toks, j) == "," or _p_op(toks, j) == ")":
+                    names.append("*")
+                    continue
+            elif _p_op(toks, j) == "/":
+                # '/' danh dau HET phan positional-only ('def f(a, b, /, c)').
+                # Cung hinh dang voi '*' tran: mot DAU PHAN CACH, khong co
+                # ten va khong chiem o arg_meta. Truoc day bi doc nham lam
+                # ten tham so nen posonlyargs luon RONG - sai IM LANG.
+                names.append("/")
+                j = j + 1
+                continue
+            elif _p_op(toks, j) == "**":
+                # tkv_lexer sinh '**' thanh MOT token (toan tu luy thua).
+                # Thieu nhanh nay thi '**kwargs' bi doc thanh HAI tham so
+                # ten '**' va 'kwargs' - khong ca that nao trong compiler/
+                # co '**kwargs' nen cong doi chieu khong lo ra cho toi khi
+                # P3 them compiler/_ast_compat.py vao tap doi chieu.
+                star = "**"
+                j = j + 1
+            nm = _p_text(toks, j)
+            names.append(star + nm)
+            j = j + 1
+            packed = _parse_one_param_meta(pool, toks, j, nm)
+            parts = packed.split("\t", 1)
+            metas.append(_p_atoi(parts[0]))
+            nj = _p_atoi(parts[1])
+            if nj > j:
+                j = nj
+    return ",".join(names) + "\t" + str(j)
+
+
+def _parse_funcdef(pool: "list[str]", toks: "list[str]", i: "i32", dec_csv: "str") -> "str":
+    """'def <ten>(<params>) [-> <ret>]:' <block>.
+    children = [body, returns, arg_meta x N, decorator x D]; N suy tu so phan
+    tu cua `b` nen ranh gioi arg_meta/decorator luon xac dinh."""
+    ln = _stmt_line(toks, i)
+    kind = "funcdef"
+    d = i
+    if _p_kw(toks, i) == "async":
+        kind = "asyncfuncdef"
+        d = i + 1
+    name = _p_text(toks, d + 1)
+    metas = []
+    packed_p = _parse_params(pool, toks, d + 2, metas)
+    parts_p = packed_p.split("\t", 1)
+    j = _p_atoi(parts_p[1])
+    colon = _find_colon(toks, j)
+    ret_id = 0 - 1
+    if _p_op(toks, j) == "->":
+        ret_id = parse_expr_native_window(pool, toks, j + 1, colon)
+    packed_b = parse_block(pool, toks, colon + 1)
+    parts_b = packed_b.split("\t", 1)
+    ids = [_p_atoi(parts_b[0]), ret_id]
+    k = 0
+    while k < len(metas):
+        ids.append(metas[k])
+        k = k + 1
+    node_id = new_stmt_node(pool, kind, name, parts_p[0],
+                            _join_csv(csv_of(ids), dec_csv), ln + "-" + ln)
+    return str(node_id) + "\t" + str(_p_atoi(parts_b[1]))
+
+
+def _parse_decorated(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Mot hoac nhieu dong '@<expr>' roi den 'def' hoac 'class'. Tra node
+    funcdef/classdef co them decorator o CUOI children."""
+    dec_ids = []
+    j = i
+    looping = 1
+    while looping == 1:
+        if _p_op(toks, j) != "@":
+            looping = 0
+        else:
+            end = _find_stmt_end(toks, j)
+            dec_ids.append(parse_expr_native_window(pool, toks, j + 1, end))
+            nj = _skip_newline(toks, end)
+            if nj > j:
+                j = nj
+            else:
+                looping = 0
+    if _p_kw(toks, j) == "class":
+        return _parse_classdef(pool, toks, j, csv_of(dec_ids))
+    return _parse_funcdef(pool, toks, j, csv_of(dec_ids))
+
+
+def _parse_bases(pool: "list[str]", toks: "list[str]", i: "i32", ids: "list[i32]") -> "i32":
+    """Doc '(base, base, ...)' bat dau tai '(' o i. Tra chi so NGAY SAU ')'.
+    Vang '(' -> tra i. Guard bien: 'class A(B' cut thi dung khi het token."""
+    if _p_op(toks, i) != "(":
+        return i
+    j = i + 1
+    looping = 1
+    while looping == 1:
+        if j >= len(toks):
+            looping = 0
+        elif _p_op(toks, j) == ")":
+            j = j + 1
+            looping = 0
+        elif _p_op(toks, j) == ",":
+            j = j + 1
+        else:
+            end = _param_part_end(toks, j)
+            ids.append(parse_expr_native_window(pool, toks, j, end))
+            if end > j:
+                j = end
+            else:
+                j = j + 1
+    return j
+
+
+def _parse_classdef(pool: "list[str]", toks: "list[str]", i: "i32", dec_csv: "str") -> "str":
+    """'class <ten>[(<base>...)]:' <block>.
+    children = [body, base x N, decorator x D]; N ghi o `b` dang van ban."""
+    ln = _stmt_line(toks, i)
+    name = _p_text(toks, i + 1)
+    base_ids = []
+    j = _parse_bases(pool, toks, i + 2, base_ids)
+    colon = _find_colon(toks, j)
+    packed_b = parse_block(pool, toks, colon + 1)
+    parts_b = packed_b.split("\t", 1)
+    ids = [_p_atoi(parts_b[0])]
+    k = 0
+    while k < len(base_ids):
+        ids.append(base_ids[k])
+        k = k + 1
+    node_id = new_stmt_node(pool, "classdef", name, str(len(base_ids)),
+                            _join_csv(csv_of(ids), dec_csv), ln + "-" + ln)
+    return str(node_id) + "\t" + str(_p_atoi(parts_b[1]))
+
+
+def parse_module(pool: "list[str]", toks: "list[str]") -> "i32":
+    """Diem vao cong khai: parse toan bo chuoi token thanh node 'module'.
+    children = danh sach cau lenh cap cao nhat.
+    'if nxt <= j: dung' la chot chong treo - bien loi treo thanh loi thieu
+    cau lenh, de chan doan hon nhieu."""
+    ids = []
+    j = 0
+    looping = 1
+    while looping == 1:
+        j = _skip_newline(toks, j)
+        k = _p_kind(toks, j)
+        if k == "":
+            looping = 0
+        elif k == "ENDMARKER":
+            looping = 0
+        elif k == "DEDENT":
+            j = j + 1
+        elif k == "INDENT":
+            j = j + 1
+        else:
+            packed = parse_stmt(pool, toks, j)
+            parts = packed.split("\t", 1)
+            ids.append(_p_atoi(parts[0]))
+            nxt = _p_atoi(parts[1])
+            if nxt <= j:
+                looping = 0
+            else:
+                j = nxt
+    return new_node(pool, "module", "", "", csv_of(ids))
+
+
+def _is_layout_tok(toks: "list[str]", i: "i32") -> "i32":
+    """1 neu token i chi la bo cuc/ghi chu, khong phai ma that."""
+    k = _p_kind(toks, i)
+    if k == "NEWLINE":
+        return 1
+    if k == "INDENT":
+        return 1
+    if k == "DEDENT":
+        return 1
+    if k == "ENDMARKER":
+        return 1
+    if k == "CMT":
+        return 1
+    return 0
+
+
+def _tok_end_line(toks: "list[str]", i: "i32") -> "str":
+    """Dong KET THUC cua token i (lexer chi ghi dong BAT DAU).
+
+    Chi STR trai nhieu dong moi khac: '\"\"\"a\\nb\\nc\"\"\"' bat dau dong 1
+    nhung ket thuc dong 3. Bo qua dieu nay thi docstring nhieu dong lam
+    end_lineno cua ca cau lenh sai."""
+    start = _p_atoi(_stmt_line(toks, i))
+    txt = _p_text(toks, i)
+    k = 0
+    extra = 0
+    while k < len(txt):
+        if txt[k] == "\n":
+            extra = extra + 1
+        k = k + 1
+    return str(start + extra)
+
+
+def _fix_stmt_lines(pool: "list[str]", toks: "list[str]", node_id: "i32", i: "i32", nxt: "i32") -> "i32":
+    """Vie lai cot `lines` cua node cau lenh sau khi da biet token ket thuc.
+
+    Lui tu `nxt - 1` ve token THAT cuoi cung (bo qua NEWLINE/INDENT/
+    DEDENT/ENDMARKER/CMT) roi lay dong ket thuc cua no. Dung chung cho
+    `parse_stmt` VA cho nhanh `elif` cua `_parse_if`: node `if` long cua
+    elif KHONG di qua parse_stmt nen neu quen thi no giu nguyen
+    '<dau>-<dau>' - do that, day dung la 71 file lech con lai."""
+    j = nxt - 1
+    if j >= len(toks):
+        j = len(toks) - 1
+    looping = 1
+    while looping == 1:
+        if j <= i:
+            looping = 0
+        elif _is_layout_tok(toks, j) == 1:
+            j = j - 1
+        else:
+            looping = 0
+    # Chi vie lai dong KET THUC. Dong BAT DAU giu nguyen cua ham _parse_*
+    # da tao node: voi 'def'/'class' co decorator, CPython lay dong cua
+    # 'def' chu KHONG phai dong '@deco', ma `i` o day tro vao '@'.
+    old = node_lines(pool, node_id)
+    start = _stmt_line(toks, i)
+    dash = old.find("-")
+    if dash > 0:
+        start = old[0:dash]
+    set_node_lines(pool, node_id, start + "-" + _tok_end_line(toks, j))
+    return 1
+
+
+def parse_stmt(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Parse MOT cau lenh bat dau tai token i. Tra '<node_id>\t<next_i>'.
+
+    Bao ngoai `_dispatch_stmt` de vie lai cot `lines`: cac ham _parse_*
+    chi biet dong BAT DAU nen ghi '<dau>-<dau>'; o day da biet `next_i`
+    nen lui ve token THAT cuoi cung (bo qua NEWLINE/INDENT/DEDENT/
+    ENDMARKER/CMT) va lay dong cua no lam dong ket thuc. Thieu buoc nay
+    thi 4512/13670 cau lenh trong compiler/**/*.py co `end_lineno` sai,
+    va tkv_compile.py cat than ham theo `body[-1].end_lineno` se ra khoi
+    RONG (loi 'khong co than khoi (block rong)')."""
+    packed = _dispatch_stmt(pool, toks, i)
+    parts = packed.split("\t", 1)
+    _fix_stmt_lines(pool, toks, _p_atoi(parts[0]), i, _p_atoi(parts[1]))
+    return packed
+
+
+def _dispatch_stmt(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Chon ham parse theo tu khoa dau cau lenh. Tra '<node_id>\t<next_i>'
+    voi next_i tro toi token NEWLINE ket thuc (hoac sau khoi voi cau lenh
+    ghep)."""
+    kw = _p_kw(toks, i)
+    if kw == "pass":
+        return _parse_simple_kw_stmt(pool, toks, i, "pass")
+    if kw == "break":
+        return _parse_simple_kw_stmt(pool, toks, i, "break")
+    if kw == "continue":
+        return _parse_simple_kw_stmt(pool, toks, i, "continue")
+    if kw == "return":
+        return _parse_return_or_raise(pool, toks, i, "return")
+    if kw == "raise":
+        return _parse_return_or_raise(pool, toks, i, "raise")
+    if kw == "global":
+        return _parse_scope_decl(pool, toks, i, "global")
+    if kw == "nonlocal":
+        return _parse_scope_decl(pool, toks, i, "nonlocal")
+    if kw == "del":
+        return _parse_delete(pool, toks, i)
+    if kw == "assert":
+        return _parse_assert(pool, toks, i)
+    if kw == "import":
+        return _parse_import(pool, toks, i)
+    if kw == "from":
+        return _parse_import_from(pool, toks, i)
+    if kw == "if":
+        return _parse_if(pool, toks, i)
+    if kw == "for":
+        return _parse_for(pool, toks, i)
+    if kw == "while":
+        return _parse_while(pool, toks, i)
+    if kw == "try":
+        return _parse_try(pool, toks, i)
+    if kw == "def":
+        return _parse_funcdef(pool, toks, i, "")
+    if kw == "class":
+        return _parse_classdef(pool, toks, i, "")
+    if kw == "with":
+        return _parse_with(pool, toks, i, 0)
+    if _looks_like_match(toks, i) == 1:
+        return _parse_match(pool, toks, i)
+    if kw == "async":
+        # 'async' di kem def / for / with. `compiler/**/*.py` co 0 ca nen
+        # cong P2b khong the phu - lo ra o P3 khi doi chieu cay .tkv that.
+        nxt = _p_kw(toks, i + 1)
+        if nxt == "def":
+            return _parse_funcdef(pool, toks, i, "")
+        if nxt == "with":
+            return _parse_with(pool, toks, i, 1)
+        if nxt == "for":
+            return _parse_for(pool, toks, i)
+    if _p_op(toks, i) == "@":
+        return _parse_decorated(pool, toks, i)
+    return _parse_expr_or_assign(pool, toks, i)

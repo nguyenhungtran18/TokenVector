@@ -1,0 +1,1499 @@
+# -*- coding: utf-8 -*-
+"""tkv_expr - tang bieu thuc native Python-subset (P2a). Tieu thu token
+cua tkv_lexer.tkv (P1). AST arena: xem tkv_ast.tkv."""
+from tkv_ast import new_node, new_stmt_node, node_kind, node_a, node_b, node_children, csv_of, _ast_atoi
+from tkv_ast import node_lines, set_node_lines
+from tkv_lexer import tokenize_lex
+
+
+def tok_kind(toks: "list[str]", i: "i32") -> "str":
+    row = toks[i]
+    return row.split("\t", 3)[2]
+
+
+def tok_text(toks: "list[str]", i: "i32") -> "str":
+    row = toks[i]
+    return row.split("\t", 3)[3]
+
+
+def tok_line(toks: "list[str]", i: "i32") -> "i32":
+    """So dong cua token i. Hang token co dang dong/cot/loai/van ban."""
+    if i >= len(toks):
+        return 0
+    row = toks[i]
+    return _ast_atoi(row.split("	", 3)[0])
+
+
+def _dong_o(toks: "list[str]", i: "i32") -> "str":
+    """Cot `lines` cho mot node BIEU THUC: dang <dong>-<dong>.
+
+    TRUOC DAY moi node bieu thuc co cot nay RONG - `new_node` vut di so
+    dong du token da mang san ca dong lan cot. Linter gan co len BIEU
+    THUC (f-string, ternary, comprehension...) va bao so dong, nen thieu
+    cot nay thi moi thong bao lint phai lui ve dong cua CAU LENH bao
+    quanh: da DO, 10,4% se chi SAI dong. Chi ghi cho cac kind THUC SU bi
+    gan co, de khong phinh arena vo co."""
+    d = tok_line(toks, i)
+    if d <= 0:
+        return ""
+    return str(d) + "-" + str(d)
+
+
+def _str_prefix_len(raw: "str") -> "i32":
+    """So ky tu prefix chu (r/b/u/f, hoa hay thuong) truoc dau nhay MO
+    dau tien. Neu khong tim thay dau nhay nao -> len(raw)."""
+    i = 0
+    n = len(raw)
+    while i < n:
+        ch = raw[i]
+        if ch == "\"":
+            return i
+        if ch == "'":
+            return i
+        i = i + 1
+    return n
+
+
+def _str_quote_char(raw: "str") -> "str":
+    """Ky tu nhay MO cua mot token chuoi ('"' hoac "'"), sau phan prefix.
+
+    Arena KHONG giu duoc dang nhay o dau ra: f"x{y}" va f'x{y}' cho hai
+    dong row GIONG HET nhau. Nhung macro f-string THAT (il_features/
+    fstring.py) CHI trigger tren f" - dang nhay don bao loi that o codegen.
+    Linter can phan biet duoc de doi loi do thanh mot dong lint ro rang,
+    nen ghi ky tu nhay vao cot a cua 'joinedstr' - o do dang BO TRONG.
+
+    Chuoi noi lien nhau (f"a" f'b') chi ghi nhan nhay cua manh DAU."""
+    plen = _str_prefix_len(raw)
+    if plen >= len(raw):
+        return ""
+    return raw[plen]
+
+
+def _prefix_has_raw(raw: "str", plen: "i32") -> "i32":
+    """1 neu prefix (raw[0:plen]) chua 'r'/'R' -> chuoi raw, KHONG giai thoat."""
+    i = 0
+    while i < plen:
+        ch = raw[i]
+        if ch == "r":
+            return 1
+        if ch == "R":
+            return 1
+        i = i + 1
+    return 0
+
+
+def _str_quote_len(raw: "str", qi: "i32") -> "i32":
+    """3 neu chuoi mo bang nhay BA tai `qi`, nguoc lai 1."""
+    n = len(raw)
+    if qi + 3 <= n:
+        q = raw[qi]
+        if raw[qi + 1] == q:
+            if raw[qi + 2] == q:
+                return 3
+    return 1
+
+
+def _str_body(raw: "str") -> "str":
+    """Boc prefix chu + cum nhay MO/DONG (1 hoac 3 ky tu) -> than chuoi
+    NGUYEN VEN. Khac ban cu: KHONG an tham moi ky tu nhay o hai dau, nen
+    than chuoi chua chinh dau nhay ("'" , '\"' , '\"\"') khong con bi cat."""
+    n = len(raw)
+    plen = _str_prefix_len(raw)
+    if plen >= n:
+        return raw
+    qlen = _str_quote_len(raw, plen)
+    start = plen + qlen
+    end = n - qlen
+    if end < start:
+        end = start
+    return raw[start:end]
+
+
+def _unescape_str(raw: "str") -> "str":
+    """Bo dau nhay + prefix, giai thoat \\n \\t \\r \\0 \\\\ \\' \\" co ban.
+    Chuoi co prefix r/R giu nguyen escape (khop ast.Constant.value).
+    Do bang tokenize tren compiler/**/*.py: chi 7 dang escape that xuat hien
+    (\\\\ 113, \\" 17, \\n 10, \\' 2, \\t 1, \\r 1, \\0 1) - dung day nay.
+    KHONG xu ly \\xHH/\\uXXXX: 0 ca that (them khi nao source that can)."""
+    body = _str_body(raw)
+    if _prefix_has_raw(raw, _str_prefix_len(raw)) == 1:
+        return body
+    return _unescape_str_body(body)
+
+
+def _unescape_str_body(body: "str") -> "str":
+    """Bien the cua _unescape_str KHONG boc dau nhay (dau vao da la than,
+    khong co nhay bao ngoai) - dung cho phan literal cua f-string."""
+    out = []
+    k = 0
+    n = len(body)
+    while k < n:
+        ch = body[k]
+        if ch == "\\":
+            if k + 2 <= n:
+                nxt = body[k + 1]
+                if nxt == "n":
+                    out.append("\n")
+                    k = k + 2
+                    continue
+                if nxt == "t":
+                    out.append("\t")
+                    k = k + 2
+                    continue
+                if nxt == "\\":
+                    out.append("\\")
+                    k = k + 2
+                    continue
+                if nxt == "'":
+                    out.append("'")
+                    k = k + 2
+                    continue
+                if nxt == "\"":
+                    out.append("\"")
+                    k = k + 2
+                    continue
+                if nxt == "r":
+                    out.append("\r")
+                    k = k + 2
+                    continue
+                if nxt == "0":
+                    out.append("\0")
+                    k = k + 2
+                    continue
+                if nxt == "\n":
+                    # Noi dong trong literal: '"""\<xuong dong>' - CPython
+                    # BO ca dau '\' lan ky tu xuong dong. 0 ca trong
+                    # compiler/**/*.py; ca that o
+                    # release/3.code/examples/spike_int_repr.tkv.
+                    k = k + 2
+                    continue
+        out.append(ch)
+        k = k + 1
+    return "".join(out)
+
+
+def _parse_comp_target(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Parse target cua 1 menh de 'for target in ...': 1 atom don, hoac
+    danh sach atom ngan cach ',' (khong ngoac) -> boc thanh node 'tuple'
+    neu >= 2 phan tu (khop ast.Tuple cua CPython cho 'for k, v in ...').
+    Tra '<target_id>\t<next_i>'."""
+    packed = parse_atom(pool, toks, i)
+    parts = packed.split("\t", 1)
+    first_id = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    ids = [first_id]
+    looping = 1
+    while looping == 1:
+        if _peek_op(toks, j) == ",":
+            packed2 = parse_atom(pool, toks, j + 1)
+            parts2 = packed2.split("\t", 1)
+            ids.append(_ast_atoi(parts2[0]))
+            j = _ast_atoi(parts2[1])
+        else:
+            looping = 0
+    if len(ids) == 1:
+        return str(first_id) + "\t" + str(j)
+    node_id = new_stmt_node(pool, "tuple", "", "", csv_of(ids), _dong_o(toks, i))
+    return str(node_id) + "\t" + str(j)
+
+
+def _la_dau_comp(toks: "list[str]", j: "i32") -> "i32":
+    """1 neu tai j bat dau mot menh de comprehension: 'for' hoac 'async for'.
+
+    Bon cho quyet dinh "day co phai comprehension khong" truoc day chi hoi
+    == "for", nen '[i async for i in z]' roi xuong nhanh list THUONG va
+    sinh ra cay hong (mot con -1) - ca duong materialize gay voi thong bao
+    noi bo. Ngon ngu khong ho tro async comprehension, nhung PARSE dung roi
+    TU CHOI RO RANG o linter thi khac han gay giua chung."""
+    if _peek_kw(toks, j) == "for":
+        return 1
+    if _peek_kw(toks, j) == "async":
+        if _peek_kw(toks, j + 1) == "for":
+            return 1
+    return 0
+
+
+def _parse_comp_clauses(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Parse >=1 menh de 'for target in iter [if cond]*' lien tiep. Tra
+    '<clause_ids_csv>\t<next_i>'."""
+    ids = []
+    j = i
+    looping = 1
+    while looping == 1:
+        kw_here = _peek_kw(toks, j)
+        # 'async for' trong comprehension: TRUOC DAY vong lap chi nhan
+        # "for" nen menh de bi bo qua HOAN TOAN - danh sach clause rong,
+        # listcomp nhan mot con -1 va ca duong materialize gay voi thong
+        # bao noi bo kho hieu. Ngon ngu nay khong ho tro async
+        # comprehension, nhung PARSE duoc roi TU CHOI RO RANG thi khac han
+        # gay giua chung.
+        bat_dong_bo = ""
+        if kw_here == "async":
+            if _peek_kw(toks, j + 1) != "for":
+                looping = 0
+                continue
+            bat_dong_bo = "async"
+            j = j + 1
+        elif kw_here != "for":
+            looping = 0
+            continue
+        packed_t = _parse_comp_target(pool, toks, j + 1)
+        parts_t = packed_t.split("\t", 1)
+        target_id = _ast_atoi(parts_t[0])
+        j2 = _ast_atoi(parts_t[1])
+        if _peek_kw(toks, j2) != "in":
+            looping = 0
+            continue
+        packed_it = _parse_or(pool, toks, j2 + 1)
+        parts_it = packed_it.split("\t", 1)
+        iter_id = _ast_atoi(parts_it[0])
+        j3 = _ast_atoi(parts_it[1])
+        if_ids = []
+        while _peek_kw(toks, j3) == "if":
+            packed_if = _parse_or(pool, toks, j3 + 1)
+            parts_if = packed_if.split("\t", 1)
+            if_ids.append(_ast_atoi(parts_if[0]))
+            j3 = _ast_atoi(parts_if[1])
+        clause_id = new_stmt_node(pool, "comp_clause", bat_dong_bo, "", csv_of([target_id, iter_id] + if_ids), _dong_o(toks, i))
+        ids.append(clause_id)
+        j = j3
+    return csv_of(ids) + "\t" + str(j)
+
+
+def _parse_paren(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    j = i + 1
+    if _peek_op(toks, j) == ")":
+        node_id = new_stmt_node(pool, "tuple", "", "", "", _dong_o(toks, i))
+        return _parse_postfix(pool, toks, node_id, j + 1)
+    packed = _parse_list_item(pool, toks, j)
+    parts = packed.split("\t", 1)
+    first_id = _ast_atoi(parts[0])
+    j2 = _ast_atoi(parts[1])
+    if _la_dau_comp(toks, j2) == 1:
+        packed_c = _parse_comp_clauses(pool, toks, j2)
+        parts_c = packed_c.split("\t", 1)
+        clauses_csv = parts_c[0]
+        j3 = _ast_atoi(parts_c[1])
+        node_id = new_stmt_node(pool, "genexp", "", "", str(first_id) + "," + clauses_csv, _dong_o(toks, i))
+        return _parse_postfix(pool, toks, node_id, j3 + 1)
+    ids = [first_id]
+    had_comma = 0
+    jc = j2
+    while _peek_op(toks, jc) == ",":
+        had_comma = 1
+        jc = jc + 1
+        if _peek_op(toks, jc) == ")":
+            break
+        packed2 = _parse_list_item(pool, toks, jc)
+        parts2 = packed2.split("\t", 1)
+        ids.append(_ast_atoi(parts2[0]))
+        jc = _ast_atoi(parts2[1])
+    jc = jc + 1
+    if had_comma == 1:
+        node_id = new_stmt_node(pool, "tuple", "", "", csv_of(ids), _dong_o(toks, i))
+        return _parse_postfix(pool, toks, node_id, jc)
+    return _parse_postfix(pool, toks, ids[0], jc)
+
+
+def _parse_bracket_list(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    j = i + 1
+    if _peek_op(toks, j) == "]":
+        node_id = new_stmt_node(pool, "list", "", "", "", _dong_o(toks, i))
+        return _parse_postfix(pool, toks, node_id, j + 1)
+    packed = _parse_list_item(pool, toks, j)
+    parts = packed.split("\t", 1)
+    first_id = _ast_atoi(parts[0])
+    j2 = _ast_atoi(parts[1])
+    if _la_dau_comp(toks, j2) == 1:
+        packed_c = _parse_comp_clauses(pool, toks, j2)
+        parts_c = packed_c.split("\t", 1)
+        clauses_csv = parts_c[0]
+        j3 = _ast_atoi(parts_c[1])
+        node_id = new_stmt_node(pool, "listcomp", "", "", str(first_id) + "," + clauses_csv, _dong_o(toks, i))
+        return _parse_postfix(pool, toks, node_id, j3 + 1)
+    ids = [first_id]
+    jc = j2
+    while _peek_op(toks, jc) == ",":
+        jc = jc + 1
+        if _peek_op(toks, jc) == "]":
+            break
+        packed2 = _parse_list_item(pool, toks, jc)
+        parts2 = packed2.split("\t", 1)
+        ids.append(_ast_atoi(parts2[0]))
+        jc = _ast_atoi(parts2[1])
+    jc = jc + 1
+    node_id = new_stmt_node(pool, "list", "", "", csv_of(ids), _dong_o(toks, i))
+    return _parse_postfix(pool, toks, node_id, jc)
+
+
+def _parse_brace(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    j = i + 1
+    if _peek_op(toks, j) == "}":
+        node_id = new_stmt_node(pool, "dict", "", "", "", _dong_o(toks, i))
+        return _parse_postfix(pool, toks, node_id, j + 1)
+    if _peek_op(toks, j) == "**":
+        packed_s = parse_expr_at(pool, toks, j + 1)
+        parts_s = packed_s.split("\t", 1)
+        return _parse_dict_rest(pool, toks, _ast_atoi(parts_s[1]), 0 - 1, _ast_atoi(parts_s[0]), i)
+    packed = _parse_list_item(pool, toks, j)
+    parts = packed.split("\t", 1)
+    first_id = _ast_atoi(parts[0])
+    j2 = _ast_atoi(parts[1])
+    if _peek_op(toks, j2) != ":":
+        return _parse_set_rest(pool, toks, j2, first_id, i)
+    packed_v = parse_expr_at(pool, toks, j2 + 1)
+    parts_v = packed_v.split("\t", 1)
+    first_val = _ast_atoi(parts_v[0])
+    jv = _ast_atoi(parts_v[1])
+    if _la_dau_comp(toks, jv) == 1:
+        packed_c = _parse_comp_clauses(pool, toks, jv)
+        parts_c = packed_c.split("\t", 1)
+        clauses_csv = parts_c[0]
+        j3 = _ast_atoi(parts_c[1])
+        node_id = new_stmt_node(pool, "dictcomp", "", "", str(first_id) + "," + str(first_val) + "," + clauses_csv, _dong_o(toks, i))
+        return _parse_postfix(pool, toks, node_id, j3 + 1)
+    return _parse_dict_rest(pool, toks, jv, first_id, first_val, i)
+
+
+def _parse_dict_rest(pool: "list[str]", toks: "list[str]", i: "i32", first_key: "i32", first_val: "i32", mo: "i32") -> "str":
+    """Tiep tuc dict literal sau CAP dau tien; `i` tro vao ',' hoac '}'.
+    Key = sentinel -1 nghia la muc '**spread' (khop keys=None cua
+    CPython cho `{**a}`) - cung quy uoc sentinel voi node `slice`."""
+    ids = [first_key, first_val]
+    j = i
+    while _peek_op(toks, j) == ",":
+        j = j + 1
+        if _peek_op(toks, j) == "}":
+            break
+        if _peek_op(toks, j) == "**":
+            packed_s = parse_expr_at(pool, toks, j + 1)
+            parts_s = packed_s.split("\t", 1)
+            ids.append(0 - 1)
+            ids.append(_ast_atoi(parts_s[0]))
+            j = _ast_atoi(parts_s[1])
+            continue
+        packed_k = parse_expr_at(pool, toks, j)
+        parts_k = packed_k.split("\t", 1)
+        k_id = _ast_atoi(parts_k[0])
+        j = _ast_atoi(parts_k[1])
+        if _peek_op(toks, j) != ":":
+            break
+        packed_v2 = parse_expr_at(pool, toks, j + 1)
+        parts_v2 = packed_v2.split("\t", 1)
+        v_id = _ast_atoi(parts_v2[0])
+        j = _ast_atoi(parts_v2[1])
+        ids.append(k_id)
+        ids.append(v_id)
+    j = j + 1
+    node_id = new_stmt_node(pool, "dict", "", "", csv_of(ids), _dong_o(toks, mo))
+    return _parse_postfix(pool, toks, node_id, j)
+
+
+def _parse_set_rest(pool: "list[str]", toks: "list[str]", i: "i32", first: "i32", mo: "i32") -> "str":
+    if _la_dau_comp(toks, i) == 1:
+        packed_c = _parse_comp_clauses(pool, toks, i)
+        parts_c = packed_c.split("\t", 1)
+        clauses_csv = parts_c[0]
+        j2 = _ast_atoi(parts_c[1])
+        node_id = new_stmt_node(pool, "setcomp", "", "", str(first) + "," + clauses_csv, _dong_o(toks, mo))
+        return _parse_postfix(pool, toks, node_id, j2 + 1)
+    ids = [first]
+    j = i
+    while _peek_op(toks, j) == ",":
+        j = j + 1
+        if _peek_op(toks, j) == "}":
+            break
+        packed = _parse_list_item(pool, toks, j)
+        parts = packed.split("\t", 1)
+        ids.append(_ast_atoi(parts[0]))
+        j = _ast_atoi(parts[1])
+    j = j + 1
+    node_id = new_stmt_node(pool, "set", "", "", csv_of(ids), _dong_o(toks, mo))
+    return _parse_postfix(pool, toks, node_id, j)
+
+
+def _has_b_prefix(raw: "str") -> "i32":
+    """1 neu prefix truoc dau nhay dau tien chua 'b'/'B' (literal bytes)."""
+    i = 0
+    while i < len(raw):
+        ch = raw[i]
+        if ch == "\"":
+            return 0
+        if ch == "'":
+            return 0
+        if ch == "b":
+            return 1
+        if ch == "B":
+            return 1
+        i = i + 1
+    return 0
+
+
+def _has_f_prefix(raw: "str") -> "i32":
+    """1 neu prefix truoc dau nhay dau tien chua 'f'/'F'."""
+    i = 0
+    while i < len(raw):
+        ch = raw[i]
+        if ch == "\"":
+            return 0
+        if ch == "'":
+            return 0
+        if ch == "f":
+            return 1
+        if ch == "F":
+            return 1
+        i = i + 1
+    return 0
+
+
+def _fstring_quote_body(raw: "str") -> "str":
+    """Bo prefix chu (f/F/r/...) + dau nhay (1 hoac 3), tra ve THAN chuoi
+    f-string (chua { } nguyen ven, chua giai thoat). Dung CHUNG cach boc
+    voi _str_body: chi an dung cum nhay mo/dong (1 hoac 3), nen than
+    f-string ket thuc bang dau nhay kia (vd f"{x}'") khong bi cat."""
+    return _str_body(raw)
+
+
+def _collapse_fstring_braces(s: "str") -> "str":
+    """Thu gon '{{' -> '{' va '}}' -> '}' trong 1 doan literal cua
+    f-string (khop CPython: {{literal}} -> const_str '{literal}')."""
+    out = []
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch == "{":
+            if i + 2 <= n:
+                if s[i:i + 2] == "{{":
+                    out.append("{")
+                    i = i + 2
+                    continue
+        if ch == "}":
+            if i + 2 <= n:
+                if s[i:i + 2] == "}}":
+                    out.append("}")
+                    i = i + 2
+                    continue
+        out.append(ch)
+        i = i + 1
+    return "".join(out)
+
+
+def _parse_fstring(pool: "list[str]", raw: "str") -> "i32":
+    """Tach than f-string thanh doan literal + {expr[!conv][:spec]},
+    dung de tao 'joinedstr'. Moi {...} duoc parse DE QUY qua parse_expr_at
+    tren token hoa lai chinh doan do (spec Muc 5.4)."""
+    body = _fstring_quote_body(raw)
+    is_raw = _prefix_has_raw(raw, _str_prefix_len(raw))
+    parts = []
+    i = 0
+    lit_start = 0
+    n = len(body)
+    while i < n:
+        ch = body[i]
+        if ch == "{":
+            if i + 2 <= n:
+                if body[i:i + 2] == "{{":
+                    i = i + 2
+                    continue
+            if i > lit_start:
+                lit_seg = _collapse_fstring_braces(body[lit_start:i])
+                parts.append(new_node(pool, "const_str", _fstring_lit(lit_seg, is_raw), "", ""))
+            close = _find_fstring_close(body, i + 1)
+            seg = body[i + 1:close]
+            fv = _parse_formatted_value(pool, seg)
+            parts.append(fv)
+            i = close + 1
+            lit_start = i
+            continue
+        if ch == "}":
+            if i + 2 <= n:
+                if body[i:i + 2] == "}}":
+                    i = i + 2
+                    continue
+        i = i + 1
+    if n > lit_start:
+        lit_seg = _collapse_fstring_braces(body[lit_start:n])
+        parts.append(new_node(pool, "const_str", _fstring_lit(lit_seg, is_raw), "", ""))
+    return new_node(pool, "joinedstr", "", "", csv_of(parts))
+
+
+def _fstring_lit(lit_seg: "str", is_raw: "i32") -> "str":
+    """Doan literal cua f-string: giai thoat, TRU khi f-string co prefix
+    r/R (rf"..." giu nguyen escape, khop CPython)."""
+    if is_raw == 1:
+        return lit_seg
+    return _unescape_str_body(lit_seg)
+
+
+def _find_fstring_close(body: "str", i: "i32") -> "i32":
+    """Tim '}' dong khop voi '{' da mo tai vi tri truoc `i`, ton trong
+    ngoac {}[]() long ben trong bieu thuc va chuoi nhay long ben trong."""
+    depth = 1
+    j = i
+    n = len(body)
+    while j < n:
+        ch = body[j]
+        if ch == "\"":
+            j = _skip_nested_string(body, j)
+            continue
+        if ch == "'":
+            j = _skip_nested_string(body, j)
+            continue
+        if ch == "{":
+            depth = depth + 1
+        if ch == "}":
+            depth = depth - 1
+            if depth == 0:
+                return j
+        j = j + 1
+    return n
+
+
+def _skip_nested_string(body: "str", i: "i32") -> "i32":
+    """Bo qua 1 chuoi nhay don/kep long trong bieu thuc f-string, tra vi
+    tri NGAY SAU dau nhay dong."""
+    q = body[i]
+    j = i + 1
+    n = len(body)
+    while j < n:
+        if body[j] == "\\":
+            j = j + 2
+            continue
+        if body[j] == q:
+            return j + 1
+        j = j + 1
+    return n
+
+
+def _depth_delta(ch: "str") -> "i32":
+    """Tra 1 neu ch la ngoac mo (([{ , -1 neu ngoac dong )]}, 0 nguoc lai."""
+    if ch == "(":
+        return 1
+    if ch == "[":
+        return 1
+    if ch == "{":
+        return 1
+    if ch == ")":
+        return -1
+    if ch == "]":
+        return -1
+    if ch == "}":
+        return -1
+    return 0
+
+
+def _parse_formatted_value(pool: "list[str]", seg: "str") -> "i32":
+    """seg = ruot '{...}' (KHONG gom { }): '<expr>[!conv][:spec]'. Tach
+    conv/spec o CAP NGOAI CUNG (khong bi lac boi ':' trong slice/dict
+    long trong expr - dung dem depth ngoac)."""
+    expr_end = len(seg)
+    conv = ""
+    spec = ""
+    depth = 0
+    i = 0
+    n = len(seg)
+    colon_pos = -1
+    bang_pos = -1
+    while i < n:
+        ch = seg[i]
+        if ch == "\"":
+            i = _skip_nested_string(seg, i)
+            continue
+        if ch == "'":
+            i = _skip_nested_string(seg, i)
+            continue
+        depth = depth + _depth_delta(ch)
+        if depth == 0:
+            if ch == "!":
+                if i + 2 <= n:
+                    if seg[i + 1] != "=":
+                        bang_pos = i
+            if ch == ":":
+                if colon_pos < 0:
+                    colon_pos = i
+                    break
+        i = i + 1
+    if colon_pos >= 0:
+        spec = seg[colon_pos + 1:n]
+        expr_end = colon_pos
+    if bang_pos >= 0:
+        if bang_pos < expr_end:
+            conv = seg[bang_pos + 1:expr_end]
+            expr_end = bang_pos
+    expr_src = seg[0:expr_end]
+    toks = []
+    _tokenize_fstring_expr(expr_src, toks)
+    value_id = parse_expr_native(pool, toks)
+    return new_node(pool, "formatted_value", conv, spec, csv_of([value_id]))
+
+
+def _tokenize_fstring_expr(expr_src: "str", out: "list[str]") -> "i32":
+    """Token hoa lai doan bieu thuc trich tu ruot f-string bang chinh
+    tkv_lexer that (tkv_expr KHONG tu bam token), loc bo cac token layout
+    khong thuoc 1 cua so bieu thuc don dong."""
+    raw = []
+    tokenize_lex(expr_src + "\n", raw)
+    n = 0
+    i = 0
+    while i < len(raw):
+        row = raw[i]
+        kind = row.split("\t", 3)[2]
+        if kind != "NEWLINE":
+            if kind != "INDENT":
+                if kind != "DEDENT":
+                    if kind != "ENDMARKER":
+                        out.append(row)
+                        n = n + 1
+        i = i + 1
+    return n
+
+
+def _str_run_len(toks: "list[str]", i: "i32") -> "i32":
+    """Dem so token STR LIEN TIEP bat dau tu i (it nhat 1)."""
+    n = 0
+    j = i
+    while j < len(toks):
+        if tok_kind(toks, j) != "STR":
+            return n
+        n = n + 1
+        j = j + 1
+    return n
+
+
+def _append_joined_children(pool: "list[str]", node_id: "i32", ids: "list[i32]") -> "i32":
+    """Neu node_id la joinedstr thi day cac con cua no vao ids (lam phang);
+    nguoc lai day chinh no. Tra so phan tu da them."""
+    if node_kind(pool, node_id) != "joinedstr":
+        ids.append(node_id)
+        return 1
+    kids = []
+    n = node_children(pool, node_id, kids)
+    j = 0
+    while j < n:
+        ids.append(kids[j])
+        j = j + 1
+    return n
+
+
+def _parse_str_run(pool: "list[str]", toks: "list[str]", i: "i32", n: "i32") -> "i32":
+    """Gop n token STR lien tiep tu i thanh MOT node. Neu khong manh nao la
+    f-string -> const_str (noi noi dung da giai thoat). Neu co -> joinedstr
+    voi cac con la const_str/formatted_value theo dung thu tu. Tra node id."""
+    has_f = 0
+    j = 0
+    while j < n:
+        if _has_f_prefix(tok_text(toks, i + j)) == 1:
+            has_f = 1
+        j = j + 1
+    if has_f == 0:
+        out = ""
+        j = 0
+        while j < n:
+            out = out + _unescape_str(tok_text(toks, i + j))
+            j = j + 1
+        # Literal bytes b"..." la KIEU KHAC (ast.Constant mang `bytes`).
+        # Ghi kind rieng thay vi de const_str: 0 ca trong compiler/**/*.py
+        # nen cong P2a khong the phu, nhung cay .tkv co ca that.
+        if _has_b_prefix(tok_text(toks, i)) == 1:
+            return new_stmt_node(pool, "const_bytes", out, "", "", _dong_o(toks, i))
+        return new_stmt_node(pool, "const_str", out, "", "", _dong_o(toks, i))
+    ids = []
+    j = 0
+    while j < n:
+        raw = tok_text(toks, i + j)
+        if _has_f_prefix(raw) == 1:
+            part_id = _parse_fstring(pool, raw)
+            _append_joined_children(pool, part_id, ids)
+        else:
+            ids.append(new_stmt_node(pool, "const_str", _unescape_str(raw), "", "", _dong_o(toks, i)))
+        j = j + 1
+    merged = []
+    _merge_joined_lits(pool, ids, merged)
+    # Cot a = ky tu nhay cua manh f-string DAU TIEN trong chuoi noi (xem
+    # _str_quote_char): thu duy nhat arena danh mat ma linter can.
+    quote = ""
+    j = 0
+    while j < n:
+        raw2 = tok_text(toks, i + j)
+        if _has_f_prefix(raw2) == 1:
+            quote = _str_quote_char(raw2)
+            j = n
+        else:
+            j = j + 1
+    return new_stmt_node(pool, "joinedstr", quote, "", csv_of(merged), _dong_o(toks, i))
+
+
+def _merge_joined_lits(pool: "list[str]", ids: "list[i32]", out: "list[i32]") -> "i32":
+    """Gop cac con const_str LIEN KE cua mot joinedstr thanh MOT node.
+    CPython luon gop literal lien nhau trong JoinedStr, va KHONG bao gio
+    sinh Constant rong - nen doan tich luy rong bi bo qua. Tra so con."""
+    acc = ""
+    n = 0
+    j = 0
+    while j < len(ids):
+        cid = ids[j]
+        if node_kind(pool, cid) == "const_str":
+            acc = acc + node_a(pool, cid)
+        else:
+            if len(acc) > 0:
+                out.append(new_node(pool, "const_str", acc, "", ""))
+                n = n + 1
+                acc = ""
+            out.append(cid)
+            n = n + 1
+        j = j + 1
+    if len(acc) > 0:
+        out.append(new_node(pool, "const_str", acc, "", ""))
+        n = n + 1
+    return n
+
+
+def _parse_lambda(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Parse 'lambda <params>: <body>'. Tra '<node_id>\t<next_i>'.
+    Than lambda keo dai toi het bieu thuc - dung parse_expr_at (KHONG gom dau
+    phay) de khong nuot danh sach doi so bao ngoai."""
+    defs = []
+    packed_p = _parse_lambda_params(pool, toks, i + 1, defs)
+    parts_p = packed_p.split("\t", 1)
+    params = parts_p[0]
+    j = _ast_atoi(parts_p[1])
+    packed = parse_expr_at(pool, toks, j)
+    parts = packed.split("\t", 1)
+    body_id = _ast_atoi(parts[0])
+    j2 = _ast_atoi(parts[1])
+    # children = [body, default x K]; K default ung voi K tham so CUOI
+    # (Python bat buoc default nam cuoi), nen khong can cot dem rieng.
+    kids = [body_id]
+    k = 0
+    while k < len(defs):
+        kids.append(defs[k])
+        k = k + 1
+    node_id = new_stmt_node(pool, "lambda", "", params, csv_of(kids), _dong_o(toks, i))
+    return str(node_id) + "\t" + str(j2)
+
+
+def _parse_lambda_params(pool: "list[str]", toks: "list[str]", i: "i32", defs: "list[i32]") -> "str":
+    """Doc danh sach tham so lambda toi dau ':'.
+    Tra '<csv_ten>\t<next_i>' voi next_i tro NGAY SAU dau ':'.
+    Gia tri mac dinh duoc parse va day vao `defs` theo thu tu.
+
+    P3 Task 4 (sua gioi han co chu dich cua P2a): ban cu chi nhat token
+    NAME nen 'lambda x=d: x' BIA THEM tham so 'd' (ra 'x,d') va
+    'lambda *a: a' MAT dau '*' - sai LANG LE. Du cho 25 lambda trong
+    compiler/*.py (0 default, 0 *args) nhung cay .tkv co ca that
+    ('lambda e, r, d=depth: ...' trong test/parity/generator.py)."""
+    names = []
+    j = i
+    looping = 1
+    while looping == 1:
+        if j >= len(toks):
+            looping = 0
+        elif _peek_op(toks, j) == ":":
+            j = j + 1
+            looping = 0
+        elif _peek_op(toks, j) == ",":
+            j = j + 1
+        else:
+            star = ""
+            if _peek_op(toks, j) == "*":
+                star = "*"
+                j = j + 1
+            elif _peek_op(toks, j) == "**":
+                star = "**"
+                j = j + 1
+            if tok_kind(toks, j) == "NAME":
+                names.append(star + tok_text(toks, j))
+                j = j + 1
+                if _peek_op(toks, j) == "=":
+                    packed_d = parse_expr_at(pool, toks, j + 1)
+                    parts_d = packed_d.split("\t", 1)
+                    defs.append(_ast_atoi(parts_d[0]))
+                    j = _ast_atoi(parts_d[1])
+            else:
+                j = j + 1
+    return ",".join(names) + "\t" + str(j)
+
+
+def parse_atom(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Parse 1 atom (Name/Constant/parenthesized) roi tang chain postfix
+    (.name, [idx], (args)). Tra ve dong goi '<node_id>\t<next_i>'."""
+    k = tok_kind(toks, i)
+    t = tok_text(toks, i)
+    node_id = 0
+    next_i = i + 1
+    if k == "NAME":
+        if i + 1 < len(toks):
+            if tok_kind(toks, i + 1) == "OP":
+                if tok_text(toks, i + 1) == ":=":
+                    packed_v = parse_expr_at(pool, toks, i + 2)
+                    parts_v = packed_v.split("\t", 1)
+                    val_id = _ast_atoi(parts_v[0])
+                    j_v = _ast_atoi(parts_v[1])
+                    node_id = new_stmt_node(pool, "namedexpr", t, "", csv_of([val_id]), _dong_o(toks, i))
+                    return _parse_postfix(pool, toks, node_id, j_v)
+        node_id = new_stmt_node(pool, "name", t, "", "", _dong_o(toks, i))
+    elif k == "NUM":
+        node_id = new_stmt_node(pool, "const_num", t, "", "", _dong_o(toks, i))
+    elif k == "STR":
+        run = _str_run_len(toks, i)
+        node_id = _parse_str_run(pool, toks, i, run)
+        next_i = i + run
+    elif k == "KW":
+        if t == "lambda":
+            return _parse_lambda(pool, toks, i)
+        if t == "yield":
+            return _parse_yield(pool, toks, i)
+        if t == "True":
+            node_id = new_stmt_node(pool, "const_bool", "True", "", "", _dong_o(toks, i))
+        elif t == "False":
+            node_id = new_stmt_node(pool, "const_bool", "False", "", "", _dong_o(toks, i))
+        elif t == "None":
+            node_id = new_stmt_node(pool, "const_none", "", "", "", _dong_o(toks, i))
+        else:
+            node_id = new_stmt_node(pool, "name", t, "", "", _dong_o(toks, i))
+    elif k == "OP":
+        if t == "(":
+            return _parse_paren(pool, toks, i)
+        if t == "[":
+            return _parse_bracket_list(pool, toks, i)
+        if t == "{":
+            return _parse_brace(pool, toks, i)
+        node_id = new_stmt_node(pool, "name", "?ERR?", "", "", _dong_o(toks, i))
+    else:
+        node_id = new_stmt_node(pool, "name", "?ERR?", "", "", _dong_o(toks, i))
+    return _parse_postfix(pool, toks, node_id, next_i)
+
+
+def _dong_het(pool: "list[str]", toks: "list[str]", node_id: "i32", i: "i32") -> "i32":
+    """Vie lai dong CUOI cua mot node bieu thuc vua dung xong.
+
+    Cac ham _parse_* dat `lines` = '<dong dau>-<dong dau>' vi luc tao node
+    chung chua biet cau truc ket thuc o dau - giong het van de da gap voi
+    CAU LENH (xem set_node_lines). Voi bieu thuc, do that: neu de lo == hi
+    thi moi comprehension deu trong nhu nam gon MOT dong, va linter se
+    MIEN TRU oan comprehension nhieu dong - thu ma macro comprehension.py
+    that su KHONG mo rong duoc. Tuc im lang thoi bao mot loi co that.
+
+    `i` la chi so token NGAY SAU cau truc, nen token cuoi la i-1."""
+    txt = node_lines(pool, node_id)
+    if not txt:
+        return 0
+    if i <= 0:
+        return 0
+    phan = txt.split("-")
+    lo = phan[0]
+    if not lo:
+        return 0
+    hi = tok_line(toks, i - 1)
+    if hi <= 0:
+        return 0
+    set_node_lines(pool, node_id, lo + "-" + str(hi))
+    return 1
+
+
+def _parse_postfix(pool: "list[str]", toks: "list[str]", node_id: "i32", i: "i32") -> "str":
+    """Vong lap hau to: .name, [subscript], (call). Tra dong goi giong parse_atom."""
+    _dong_het(pool, toks, node_id, i)
+    cur = node_id
+    j = i
+    while j < len(toks):
+        k = tok_kind(toks, j)
+        if k != "OP":
+            break
+        t = tok_text(toks, j)
+        if t == ".":
+            name = tok_text(toks, j + 1)
+            cur = new_stmt_node(pool, "attr", name, "", csv_of([cur]), _dong_o(toks, i))
+            j = j + 2
+            continue
+        if t == "(":
+            packed = _parse_call_args(pool, toks, j + 1, j)
+            parts = packed.split("\t", 2)
+            args_csv = parts[0]
+            kw_b = parts[1]
+            j = _ast_atoi(parts[2])
+            children = args_csv
+            if len(args_csv) > 0:
+                children = str(cur) + "," + args_csv
+            else:
+                children = str(cur)
+            cur = new_stmt_node(pool, "call", "", kw_b, children, _dong_o(toks, i))
+            continue
+        if t == "[":
+            packed = _parse_subscript_index(pool, toks, j + 1)
+            parts = packed.split("\t", 1)
+            idx_id = _ast_atoi(parts[0])
+            j = _ast_atoi(parts[1]) + 1
+            cur = new_stmt_node(pool, "subscript", "", "", csv_of([cur, idx_id]), _dong_o(toks, i))
+            continue
+        break
+    return str(cur) + "\t" + str(j)
+
+
+def _slice_part_ends(toks: "list[str]", i: "i32") -> "i32":
+    """1 neu vi tri `i` KHONG mo dau mot thanh phan slice (thanh phan
+    vang mat): het token, hoac gap ':' / ']' / ','."""
+    if i >= len(toks):
+        return 1
+    op = _peek_op(toks, i)
+    if op == ":":
+        return 1
+    if op == "]":
+        return 1
+    if op == ",":
+        return 1
+    return 0
+
+
+def _parse_slice_rest(pool: "list[str]", toks: "list[str]", i: "i32", lower: "i32") -> "str":
+    """Da an dau ':' thu nhat, `i` tro NGAY SAU no. Doc `upper` roi (neu
+    co ':' thu hai) `step`. Thanh phan vang mat = sentinel -1."""
+    j = i
+    upper = 0 - 1
+    if _slice_part_ends(toks, j) == 0:
+        packed = parse_expr_at(pool, toks, j)
+        parts = packed.split("\t", 1)
+        upper = _ast_atoi(parts[0])
+        j = _ast_atoi(parts[1])
+    step = 0 - 1
+    if _peek_op(toks, j) == ":":
+        j = j + 1
+        if _slice_part_ends(toks, j) == 0:
+            packed2 = parse_expr_at(pool, toks, j)
+            parts2 = packed2.split("\t", 1)
+            step = _ast_atoi(parts2[0])
+            j = _ast_atoi(parts2[1])
+    node_id = new_stmt_node(pool, "slice", "", "", csv_of([lower, upper, step]), _dong_o(toks, i))
+    return str(node_id) + "\t" + str(j)
+
+
+def _parse_subscript_index(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Parse RUOT cua '[...]' (i tro ngay sau '['): hoac 1 bieu thuc chi
+    muc thuong, hoac mot `slice` 'lower:upper[:step]'. Tra dong goi
+    '<node_id>\t<vi_tri_dau_]>'."""
+    j = i
+    lower = 0 - 1
+    if _slice_part_ends(toks, j) == 0:
+        packed = parse_expr_at(pool, toks, j)
+        parts = packed.split("\t", 1)
+        lower = _ast_atoi(parts[0])
+        j = _ast_atoi(parts[1])
+    if _peek_op(toks, j) == ",":
+        # Chi muc nhieu chieu 'w[i, j]' -> mot node `tuple` (khop
+        # ast.Subscript(slice=Tuple(...)) cua CPython). 0 ca trong
+        # compiler/**/*.py nen cong P2a/P2b khong the phu; lo ra o P3 khi
+        # doi chieu cay .tkv (kieu numpy 'w1[i, j]').
+        ids = [lower]
+        while _peek_op(toks, j) == ",":
+            j = j + 1
+            if _peek_op(toks, j) == "]":
+                break
+            packed_n = _parse_list_item(pool, toks, j)
+            parts_n = packed_n.split("\t", 1)
+            ids.append(_ast_atoi(parts_n[0]))
+            j = _ast_atoi(parts_n[1])
+        tup_id = new_stmt_node(pool, "tuple", "", "", csv_of(ids), _dong_o(toks, i))
+        return str(tup_id) + "\t" + str(j)
+    if _peek_op(toks, j) != ":":
+        return str(lower) + "\t" + str(j)
+    return _parse_slice_rest(pool, toks, j + 1, lower)
+
+
+def _parse_list_item(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Nhu parse_expr_at nhung nhan them '*expr' -> node 'starred'. Dung cho
+    tung phan tu trong danh sach ngan cach ',' (doi so call, phan tu
+    list/set literal) - KHONG dung cho de quy noi bo 1 bieu thuc don."""
+    if _peek_op(toks, i) == "*":
+        packed = parse_expr_at(pool, toks, i + 1)
+        parts = packed.split("\t", 1)
+        val_id = _ast_atoi(parts[0])
+        j = _ast_atoi(parts[1])
+        node_id = new_stmt_node(pool, "starred", "", "", csv_of([val_id]), _dong_o(toks, i))
+        return str(node_id) + "\t" + str(j)
+    return parse_expr_at(pool, toks, i)
+
+
+def _parse_yield(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Parse 'yield' / 'yield from X' / 'yield' tran. Tra '<node_id>\t<next_i>'.
+    Backend hien CHUA sinh ma cho 'yield from' (xem spike Task 9), nhung
+    parser VAN phai doc duoc vi il_codegen.tkv con 57 cho dung no."""
+    if _peek_kw(toks, i + 1) == "from":
+        packed = parse_expr_at(pool, toks, i + 2)
+        parts = packed.split("\t", 1)
+        val_id = _ast_atoi(parts[0])
+        j = _ast_atoi(parts[1])
+        node_id = new_stmt_node(pool, "yield_from", "", "", csv_of([val_id]), _dong_o(toks, i))
+        return _parse_postfix(pool, toks, node_id, j)
+    if _yield_ends_at(toks, i + 1) == 1:
+        node_id = new_stmt_node(pool, "yield_expr", "", "", "", _dong_o(toks, i))
+        return str(node_id) + "\t" + str(i + 1)
+    packed = _parse_list_item(pool, toks, i + 1)
+    parts = packed.split("\t", 1)
+    val_id = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    if _peek_op(toks, j) == ",":
+        packed_t = _parse_yield_tuple(pool, toks, j, val_id)
+        parts_t = packed_t.split("\t", 1)
+        val_id = _ast_atoi(parts_t[0])
+        j = _ast_atoi(parts_t[1])
+    node_id = new_stmt_node(pool, "yield_expr", "", "", csv_of([val_id]), _dong_o(toks, i))
+    return _parse_postfix(pool, toks, node_id, j)
+
+
+def _parse_yield_tuple(pool: "list[str]", toks: "list[str]", i: "i32", first: "i32") -> "str":
+    """Gom 'yield a, b, c' thanh MOT node tuple - CPython cho yield nuot ca
+    danh sach ngan cach ',' (Yield(Tuple(...))), khac voi phan tu literal."""
+    ids = [first]
+    j = i
+    while _peek_op(toks, j) == ",":
+        j = j + 1
+        if _yield_ends_at(toks, j) == 1:
+            break
+        packed = _parse_list_item(pool, toks, j)
+        parts = packed.split("\t", 1)
+        ids.append(_ast_atoi(parts[0]))
+        j = _ast_atoi(parts[1])
+    node_id = new_stmt_node(pool, "tuple", "", "", csv_of(ids), _dong_o(toks, i))
+    return str(node_id) + "\t" + str(j)
+
+
+def _yield_ends_at(toks: "list[str]", i: "i32") -> "i32":
+    """1 neu vi tri `i` ket thuc mot 'yield' tran (khong co gia tri)."""
+    if i >= len(toks):
+        return 1
+    k = tok_kind(toks, i)
+    if k == "NEWLINE":
+        return 1
+    if k == "OP":
+        t = tok_text(toks, i)
+        if t == ")":
+            return 1
+        if t == "]":
+            return 1
+        if t == "}":
+            return 1
+        if t == ",":
+            return 1
+    return 0
+
+
+def _kwarg_name_at(toks: "list[str]", i: "i32") -> "str":
+    """Nhan dien ten kwarg tai vi tri `i`. Tra '<ten>\t<next_i>': ten rong =
+    doi so vi tri (khong tieu thu token nao), '**' = dict-unpack. Dung chung
+    cho doi so dau va cac doi so sau dau phay."""
+    if _peek_op(toks, i) == "**":
+        return "**\t" + str(i + 1)
+    if tok_kind(toks, i) == "NAME":
+        if _peek_op(toks, i + 1) == "=":
+            return tok_text(toks, i) + "\t" + str(i + 2)
+    return "\t" + str(i)
+
+
+def _parse_call_args(pool: "list[str]", toks: "list[str]", i: "i32", mo: "i32") -> "str":
+    """Parse danh sach doi so call den ')'. Tra '<args_csv>\t<kw_b>\t<next_i>'
+    (next_i tro NGAY SAU ')'). Truong hop dac biet: dung 1 doi so vi tri
+    theo sau boi 'for' -> genexp tran (Python: genexp tran chi hop le
+    khi la doi so DUY NHAT, khong the la kwarg)."""
+    j = i
+    if tok_kind(toks, j) == "OP":
+        if tok_text(toks, j) == ")":
+            return "\t\t" + str(j + 1)
+    packed_k0 = _kwarg_name_at(toks, j)
+    parts_k0 = packed_k0.split("\t", 1)
+    kw_name0 = parts_k0[0]
+    j0 = _ast_atoi(parts_k0[1])
+    packed0 = _parse_list_item(pool, toks, j0)
+    parts0 = packed0.split("\t", 1)
+    first_id = _ast_atoi(parts0[0])
+    j1 = _ast_atoi(parts0[1])
+    if kw_name0 == "":
+        if _la_dau_comp(toks, j1) == 1:
+            packed_c = _parse_comp_clauses(pool, toks, j1)
+            parts_c = packed_c.split("\t", 1)
+            clauses_csv = parts_c[0]
+            j2 = _ast_atoi(parts_c[1])
+            gen_id = new_stmt_node(pool, "genexp", "", "", str(first_id) + "," + clauses_csv, _dong_o(toks, mo))
+            return str(gen_id) + "\t\t" + str(j2 + 1)
+    ids = [first_id]
+    kw_names = [kw_name0]
+    j3 = j1
+    while _peek_op(toks, j3) == ",":
+        j3 = j3 + 1
+        if _peek_op(toks, j3) == ")":
+            break
+        packed_k = _kwarg_name_at(toks, j3)
+        parts_k = packed_k.split("\t", 1)
+        kw_name = parts_k[0]
+        j3 = _ast_atoi(parts_k[1])
+        packed = _parse_list_item(pool, toks, j3)
+        parts = packed.split("\t", 1)
+        ids.append(_ast_atoi(parts[0]))
+        kw_names.append(kw_name)
+        j3 = _ast_atoi(parts[1])
+    j3 = j3 + 1
+    return csv_of(ids) + "\t" + ",".join(kw_names) + "\t" + str(j3)
+
+
+_CMP_OPS = " == != < <= > >= "
+_ADD_OPS = " + - "
+# `@` (nhan ma tran) cung muc uu tien voi `*` - 0 ca trong
+# compiler/**/*.py nen cong P2a khong the phu; cay .tkv co ca that
+# (`x @ w1 + b1` trong test/verify/alphaai_codegen_test.py).
+_MUL_OPS = " * / // % @ "
+
+
+def _peek_op(toks: "list[str]", i: "i32") -> "str":
+    if i >= len(toks):
+        return ""
+    if tok_kind(toks, i) != "OP":
+        return ""
+    return tok_text(toks, i)
+
+
+def _peek_kw(toks: "list[str]", i: "i32") -> "str":
+    if i >= len(toks):
+        return ""
+    if tok_kind(toks, i) != "KW":
+        return ""
+    return tok_text(toks, i)
+
+
+def parse_expr_at(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Diem vao dequy noi bo. Task 4: boc them 1 tang ngoai cung cho
+    ternary Python (`a if c else b`), phia trong la toan bo tang
+    precedence tu Task 3, tu 'or' (thap nhat) xuong atom/postfix (Task 2,
+    cao nhat)."""
+    packed = _parse_or(pool, toks, i)
+    parts = packed.split("\t", 1)
+    body = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    if _peek_kw(toks, j) == "if":
+        packed2 = _parse_or(pool, toks, j + 1)
+        parts2 = packed2.split("\t", 1)
+        test_id = _ast_atoi(parts2[0])
+        j2 = _ast_atoi(parts2[1])
+        if _peek_kw(toks, j2) != "else":
+            return str(body) + "\t" + str(j)
+        packed3 = parse_expr_at(pool, toks, j2 + 1)
+        parts3 = packed3.split("\t", 1)
+        orelse_id = _ast_atoi(parts3[0])
+        j3 = _ast_atoi(parts3[1])
+        node_id = new_stmt_node(pool, "ifexp", "", "", csv_of([test_id, body, orelse_id]), _dong_o(toks, i))
+        return str(node_id) + "\t" + str(j3)
+    return str(body) + "\t" + str(j)
+
+
+def _parse_or(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    packed = _parse_and(pool, toks, i)
+    parts = packed.split("\t", 1)
+    first = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    ids = [first]
+    while _peek_kw(toks, j) == "or":
+        packed2 = _parse_and(pool, toks, j + 1)
+        parts2 = packed2.split("\t", 1)
+        ids.append(_ast_atoi(parts2[0]))
+        j = _ast_atoi(parts2[1])
+    if len(ids) == 1:
+        return str(first) + "\t" + str(j)
+    node_id = new_stmt_node(pool, "boolop", "or", "", csv_of(ids), _dong_o(toks, i))
+    return str(node_id) + "\t" + str(j)
+
+
+def _parse_and(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    packed = _parse_not(pool, toks, i)
+    parts = packed.split("\t", 1)
+    first = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    ids = [first]
+    while _peek_kw(toks, j) == "and":
+        packed2 = _parse_not(pool, toks, j + 1)
+        parts2 = packed2.split("\t", 1)
+        ids.append(_ast_atoi(parts2[0]))
+        j = _ast_atoi(parts2[1])
+    if len(ids) == 1:
+        return str(first) + "\t" + str(j)
+    node_id = new_stmt_node(pool, "boolop", "and", "", csv_of(ids), _dong_o(toks, i))
+    return str(node_id) + "\t" + str(j)
+
+
+def _parse_not(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    if _peek_kw(toks, i) == "not":
+        packed = _parse_not(pool, toks, i + 1)
+        parts = packed.split("\t", 1)
+        operand = _ast_atoi(parts[0])
+        j = _ast_atoi(parts[1])
+        node_id = new_stmt_node(pool, "unaryop", "not", "", csv_of([operand]), _dong_o(toks, i))
+        return str(node_id) + "\t" + str(j)
+    return _parse_compare(pool, toks, i)
+
+
+def _cmp_op_at(toks: "list[str]", i: "i32") -> "str":
+    """Tra ky hieu so sanh tai `i` (gom is/is not/in/not in), '' neu khong phai."""
+    op = _peek_op(toks, i)
+    if _CMP_OPS.find(" " + op + " ") >= 0:
+        return op
+    kw = _peek_kw(toks, i)
+    if kw == "is":
+        if _peek_kw(toks, i + 1) == "not":
+            return "is not"
+        return "is"
+    if kw == "in":
+        return "in"
+    if kw == "not":
+        if _peek_kw(toks, i + 1) == "in":
+            return "not in"
+    return ""
+
+
+def _cmp_op_width(op: "str") -> "i32":
+    if op == "is not":
+        return 2
+    if op == "not in":
+        return 2
+    return 1
+
+
+def _parse_compare(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    packed = _parse_bitor(pool, toks, i)
+    parts = packed.split("\t", 1)
+    left = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    ops = []
+    comparators = []
+    looping = 1
+    while looping == 1:
+        op = _cmp_op_at(toks, j)
+        if op == "":
+            looping = 0
+        else:
+            j = j + _cmp_op_width(op)
+            packed2 = _parse_bitor(pool, toks, j)
+            parts2 = packed2.split("\t", 1)
+            comparators.append(_ast_atoi(parts2[0]))
+            j = _ast_atoi(parts2[1])
+            ops.append(op)
+    if len(ops) == 0:
+        return str(left) + "\t" + str(j)
+    node_id = new_stmt_node(pool, "compare", "", ",".join(ops), csv_of([left] + comparators), _dong_o(toks, i))
+    return str(node_id) + "\t" + str(j)
+
+
+def _parse_bitor(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    """Ghi chu TokenVector: spike xac nhan truyen ham lam bien (vd
+    `next_level`) KHONG compile duoc - TranspileError o duck_typing.py
+    (tham so kieu 'inferred' dung GIAN TIEP lam argument cho loi goi ham
+    khac). Phuong an B: 6 ham muc do rieng, moi ham lap lai cau truc
+    vong lap binop thay vi goi chung 1 ham bac cao."""
+    packed = _parse_bitxor(pool, toks, i)
+    parts = packed.split("\t", 1)
+    left = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    looping = 1
+    while looping == 1:
+        op = _peek_op(toks, j)
+        if " | ".find(" " + op + " ") < 0:
+            looping = 0
+        else:
+            packed2 = _parse_bitxor(pool, toks, j + 1)
+            parts2 = packed2.split("\t", 1)
+            right = _ast_atoi(parts2[0])
+            j = _ast_atoi(parts2[1])
+            left = new_stmt_node(pool, "binop", op, "", csv_of([left, right]), _dong_o(toks, i))
+    return str(left) + "\t" + str(j)
+
+
+def _parse_bitxor(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    packed = _parse_bitand(pool, toks, i)
+    parts = packed.split("\t", 1)
+    left = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    looping = 1
+    while looping == 1:
+        op = _peek_op(toks, j)
+        if " ^ ".find(" " + op + " ") < 0:
+            looping = 0
+        else:
+            packed2 = _parse_bitand(pool, toks, j + 1)
+            parts2 = packed2.split("\t", 1)
+            right = _ast_atoi(parts2[0])
+            j = _ast_atoi(parts2[1])
+            left = new_stmt_node(pool, "binop", op, "", csv_of([left, right]), _dong_o(toks, i))
+    return str(left) + "\t" + str(j)
+
+
+def _parse_bitand(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    packed = _parse_shift(pool, toks, i)
+    parts = packed.split("\t", 1)
+    left = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    looping = 1
+    while looping == 1:
+        op = _peek_op(toks, j)
+        if " & ".find(" " + op + " ") < 0:
+            looping = 0
+        else:
+            packed2 = _parse_shift(pool, toks, j + 1)
+            parts2 = packed2.split("\t", 1)
+            right = _ast_atoi(parts2[0])
+            j = _ast_atoi(parts2[1])
+            left = new_stmt_node(pool, "binop", op, "", csv_of([left, right]), _dong_o(toks, i))
+    return str(left) + "\t" + str(j)
+
+
+def _parse_shift(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    packed = _parse_add(pool, toks, i)
+    parts = packed.split("\t", 1)
+    left = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    looping = 1
+    while looping == 1:
+        op = _peek_op(toks, j)
+        if " << >> ".find(" " + op + " ") < 0:
+            looping = 0
+        else:
+            packed2 = _parse_add(pool, toks, j + 1)
+            parts2 = packed2.split("\t", 1)
+            right = _ast_atoi(parts2[0])
+            j = _ast_atoi(parts2[1])
+            left = new_stmt_node(pool, "binop", op, "", csv_of([left, right]), _dong_o(toks, i))
+    return str(left) + "\t" + str(j)
+
+
+def _parse_add(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    packed = _parse_mul(pool, toks, i)
+    parts = packed.split("\t", 1)
+    left = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    looping = 1
+    while looping == 1:
+        op = _peek_op(toks, j)
+        if _ADD_OPS.find(" " + op + " ") < 0:
+            looping = 0
+        else:
+            packed2 = _parse_mul(pool, toks, j + 1)
+            parts2 = packed2.split("\t", 1)
+            right = _ast_atoi(parts2[0])
+            j = _ast_atoi(parts2[1])
+            left = new_stmt_node(pool, "binop", op, "", csv_of([left, right]), _dong_o(toks, i))
+    return str(left) + "\t" + str(j)
+
+
+def _parse_mul(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    packed = _parse_unary(pool, toks, i)
+    parts = packed.split("\t", 1)
+    left = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    looping = 1
+    while looping == 1:
+        op = _peek_op(toks, j)
+        if _MUL_OPS.find(" " + op + " ") < 0:
+            looping = 0
+        else:
+            packed2 = _parse_unary(pool, toks, j + 1)
+            parts2 = packed2.split("\t", 1)
+            right = _ast_atoi(parts2[0])
+            j = _ast_atoi(parts2[1])
+            left = new_stmt_node(pool, "binop", op, "", csv_of([left, right]), _dong_o(toks, i))
+    return str(left) + "\t" + str(j)
+
+
+def _parse_unary(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    op = _peek_op(toks, i)
+    if op == "-":
+        return _parse_unary_op(pool, toks, i, "-")
+    if op == "+":
+        return _parse_unary_op(pool, toks, i, "+")
+    if op == "~":
+        return _parse_unary_op(pool, toks, i, "~")
+    if _peek_kw(toks, i) == "await":
+        # 'await x' rang buoc chat hon moi toan tu hai ngoi, giong unary.
+        # 0 ca trong compiler/**/*.py (nen cong P2b khong the phu); 8 ca
+        # that trong cay .tkv - lo ra o P3 khi mo rong tap doi chieu.
+        packed = _parse_unary(pool, toks, i + 1)
+        parts = packed.split("\t", 1)
+        node_id = new_node(pool, "await", "", "",
+                           csv_of([_ast_atoi(parts[0])]))
+        return str(node_id) + "\t" + parts[1]
+    return _parse_pow(pool, toks, i)
+
+
+def _parse_unary_op(pool: "list[str]", toks: "list[str]", i: "i32", op: "str") -> "str":
+    packed = _parse_unary(pool, toks, i + 1)
+    parts = packed.split("\t", 1)
+    operand = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    node_id = new_stmt_node(pool, "unaryop", op, "", csv_of([operand]), _dong_o(toks, i))
+    return str(node_id) + "\t" + str(j)
+
+
+def _parse_pow(pool: "list[str]", toks: "list[str]", i: "i32") -> "str":
+    packed = parse_atom(pool, toks, i)
+    parts = packed.split("\t", 1)
+    left = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    if _peek_op(toks, j) == "**":
+        packed2 = _parse_unary(pool, toks, j + 1)
+        parts2 = packed2.split("\t", 1)
+        right = _ast_atoi(parts2[0])
+        j2 = _ast_atoi(parts2[1])
+        node_id = new_stmt_node(pool, "binop", "**", "", csv_of([left, right]), _dong_o(toks, i))
+        return str(node_id) + "\t" + str(j2)
+    return str(left) + "\t" + str(j)
+
+
+def parse_expr_native(pool: "list[str]", toks: "list[str]") -> "i32":
+    """Diem vao cong khai P2a. Parse TRON `toks` (dung 1 cua so bieu
+    thuc), tra chi so node goc trong `pool`.
+
+    TRA -1 khi cua so KHONG duoc tieu thu het. Truoc P3 Task 1 ham nay
+    tra node bo phan va vut lang le phan token con lai - vd cua so
+    `Exception as e` cho ra node `name` Exception, `as e` bien mat. Loi
+    do khong mot cong nao cua P2b phan biet duoc; sang P3 cay nay sinh
+    IL that nen phai bao loi."""
+    packed = parse_expr_at(pool, toks, 0)
+    parts = packed.split("\t", 1)
+    j = _ast_atoi(parts[1])
+    if j != len(toks):
+        return -1
+    return _ast_atoi(parts[0])
+
+
+def parse_exprlist_native(pool: "list[str]", toks: "list[str]") -> "i32":
+    """Diem vao cong khai thu hai: mot DANH SACH bieu thuc KHONG NGOAC o
+    vi tri cau lenh - 'a, b', 'return stmts, pos', 'x = a,' - gom thanh
+    MOT node `tuple` (khop ast.Tuple cua CPython). Khong co ',' o cap
+    cao nhat -> tra dung node bieu thuc don, y het parse_expr_native.
+
+    Vi sao tach ham rieng thay vi cho parse_expr_native tu gom: ben
+    trong f(a, b) / [a, b] / {k: v, ...} dau ',' mang nghia KHAC (ngan
+    cach doi so / phan tu), nen parse_expr_native phai giu dung nghia
+    "dung MOT bieu thuc" cho moi loi goi de quy noi bo. Tang cau lenh
+    (P2b) goi ham nay dung o nhung cho grammar Python cho phep
+    `exprlist`: RHS cua Assign, Return.value, target cua for, ...
+
+    Nhu parse_expr_native, TRA -1 khi cua so khong duoc tieu thu het
+    (xem docstring ham do). Dau phay treo `a,` VAN HOP LE - Python coi
+    do la tuple mot phan tu."""
+    packed = _parse_list_item(pool, toks, 0)
+    parts = packed.split("\t", 1)
+    first = _ast_atoi(parts[0])
+    j = _ast_atoi(parts[1])
+    if _peek_op(toks, j) != ",":
+        if j != len(toks):
+            return -1
+        return first
+    ids = [first]
+    while _peek_op(toks, j) == ",":
+        j = j + 1
+        if j >= len(toks):
+            break
+        packed2 = _parse_list_item(pool, toks, j)
+        parts2 = packed2.split("\t", 1)
+        ids.append(_ast_atoi(parts2[0]))
+        j = _ast_atoi(parts2[1])
+    if j != len(toks):
+        return -1
+    return new_stmt_node(pool, "tuple", "", "", csv_of(ids), _dong_o(toks, 0))

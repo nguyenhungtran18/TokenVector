@@ -1,0 +1,570 @@
+# -*- coding: utf-8 -*-
+"""tkv_lexer - tokenizer Python-subset cho self-host parser (P1). Seed tu tools/pytok.tkv (giu bo may quet 4 ca kho), tien hoa hop dong dau ra o P1 Task 2-6."""
+
+
+def is_digit(ch: "str") -> "i32":
+    """1 neu `ch` la chu so."""
+    if ch >= "0":
+        if ch <= "9":
+            return 1
+    return 0
+
+
+def is_name_start(ch: "str") -> "i32":
+    """1 neu `ch` mo dau duoc mot dinh danh."""
+    if ch == "_":
+        return 1
+    if ch >= "a":
+        if ch <= "z":
+            return 1
+    if ch >= "A":
+        if ch <= "Z":
+            return 1
+    # Ky tu ngoai ASCII (tieng Viet trong ten bien) - hiem nhung co that.
+    # NGUONG phai la '~' (126) chu KHONG phai 'z' (122): '{', '|', '}', '~'
+    # deu lon hon 'z' nen luat cu bam '{' thanh ten bien. Da do that: sinh
+    # ra token gia '{a' trong moi f-string.
+    if ch > "~":
+        return 1
+    return 0
+
+
+def is_name_char(ch: "str") -> "i32":
+    """1 neu `ch` nam duoc trong than mot dinh danh."""
+    if is_name_start(ch) == 1:
+        return 1
+    return is_digit(ch)
+
+
+def is_quote(ch: "str") -> "i32":
+    """1 neu `ch` la dau nhay mo chuoi."""
+    if ch == "\"":
+        return 1
+    if ch == "'":
+        return 1
+    return 0
+
+
+def is_space(ch: "str") -> "i32":
+    """1 neu `ch` la khoang trang hoac tab."""
+    if ch == " ":
+        return 1
+    if ch == "\t":
+        return 1
+    return 0
+
+
+def is_bracket_open(ch: "str") -> "i32":
+    """1 neu `ch` mo mot cap ngoac."""
+    if ch == "(":
+        return 1
+    if ch == "[":
+        return 1
+    if ch == "{":
+        return 1
+    return 0
+
+
+def is_bracket_close(ch: "str") -> "i32":
+    """1 neu `ch` dong mot cap ngoac."""
+    if ch == ")":
+        return 1
+    if ch == "]":
+        return 1
+    if ch == "}":
+        return 1
+    return 0
+
+
+def triple_at(src: "str", i: "i32") -> "str":
+    """Tra ve dau ba nhay bat dau tai `i`, '' neu khong phai."""
+    if i + 3 > len(src):
+        return ""
+    three = src[i:i + 3]
+    if three == "\"\"\"":
+        return three
+    if three == "'''":
+        return three
+    return ""
+
+
+def skip_string(src: "str", i: "i32") -> "i32":
+    """Vi tri NGAY SAU chuoi bat dau tai `i`.
+
+    Xu ly ca 3 ca: ba nhay, mot nhay, va ky tu thoat '\\'. Chuoi tho r''
+    van dung vi ta chi can tim dau dong, va trong r'' thi '\\' khong thoat
+    - nhung r'\\' la ca cuc hiem; danh doi nay duoc ghi ro thay vi giau."""
+    tri = triple_at(src, i)
+    if len(tri) > 0:
+        j = i + 3
+        while j < len(src):
+            if src[j] == "\\":
+                j = j + 2
+                continue
+            if triple_at(src, j) == tri:
+                return j + 3
+            j = j + 1
+        return len(src)
+    q = src[i]
+    j = i + 1
+    while j < len(src):
+        ch = src[j]
+        if ch == "\\":
+            j = j + 2
+            continue
+        if ch == q:
+            return j + 1
+        # Chuoi mot nhay KHONG duoc vat qua dong: neu gap xuong dong thi
+        # chuoi hong (hoac ta doc nham) - dung lai de khong nuot ca file.
+        if ch == "\n":
+            return j
+        j = j + 1
+    return len(src)
+
+
+def indent_width(src: "str", i: "i32") -> "i32":
+    """So cot thut le tinh tu `i` (tab tinh 4 cot, dung quy uoc PEP 8)."""
+    n = 0
+    j = i
+    while j < len(src):
+        ch = src[j]
+        if ch == " ":
+            n = n + 1
+        elif ch == "\t":
+            n = n + 4
+        else:
+            return n
+        j = j + 1
+    return n
+
+
+def is_str_prefix(word: "str") -> "i32":
+    """1 neu `word` la tien to chuoi (r, b, u, f, rb, fr...).
+
+    Khong co ham nay thi `f"..."` sinh ra mot NAME gia ten 'f' - da do
+    that: hang tram token 'f' bia ra trong repo."""
+    if len(word) == 0:
+        return 0
+    if len(word) > 2:
+        return 0
+    low = word.lower()
+    i = 0
+    while i < len(low):
+        ch = low[i]
+        if ch != "r":
+            if ch != "b":
+                if ch != "u":
+                    if ch != "f":
+                        return 0
+        i = i + 1
+    return 1
+
+
+def indent_before(src: "str", i: "i32") -> "i32":
+    """So cot thut le cua dong chua vi tri `i`, tinh nguoc ve dau dong.
+
+    Phai tinh NGUOC: vong lap chinh da an het khoang trang dau dong roi
+    moi biet day la token dau tien, luc do khong con biet no bat dau tu
+    cot nao nua."""
+    j = i - 1
+    n = 0
+    while j >= 0:
+        ch = src[j]
+        if ch == "\n":
+            return n
+        if ch == " ":
+            n = n + 1
+        elif ch == "\t":
+            n = n + 4
+        else:
+            return n
+        j = j - 1
+    return n
+
+
+def blank_or_comment(src: "str", i: "i32") -> "i32":
+    """1 neu dong bat dau tai `i` chi co khoang trang / chu thich."""
+    j = i
+    while j < len(src):
+        ch = src[j]
+        if ch == "\n":
+            return 1
+        if ch == "#":
+            return 1
+        if is_space(ch) == 0:
+            return 0
+        j = j + 1
+    return 1
+
+
+def emit(out: "list[str]", line: "i32", col: "i32", kind: "str", text: "str") -> "i32":
+    """Ghi mot token: <line>\t<col>\t<kind>\t<text>. Tra ve 1 de dem."""
+    out.append(str(line) + "\t" + str(col) + "\t" + kind + "\t" + text)
+    return 1
+
+
+def op_len_at(src: "str", i: "i32") -> "i32":
+    """Do dai toan tu bat dau tai `i`: 3, 2, hoac 1 ky tu.
+
+    Tra ve so ky tu, luon <= len(src) - i (nen slice src[i:i+ket qua]
+    khong bao gio vuot bien)."""
+    n = len(src)
+    ops3 = " **= //= >>= <<= ... "
+    ops2 = " == != <= >= -> ** // := += -= *= /= %= &= |= ^= >> << "
+    if i + 3 <= n:
+        three = src[i:i + 3]
+        if ops3.find(" " + three + " ") >= 0:
+            return 3
+    if i + 2 <= n:
+        two = src[i:i + 2]
+        if ops2.find(" " + two + " ") >= 0:
+            return 2
+    return 1
+
+
+def is_keyword(word: "str") -> "i32":
+    """1 neu `word` la keyword Python (bao gom True/False/None)."""
+    kw = " False None True and as assert async await break class continue "
+    kw = kw + "def del elif else except finally for from global if import "
+    kw = kw + "in is lambda nonlocal not or pass raise return try while with yield "
+    if kw.find(" " + word + " ") >= 0:
+        return 1
+    return 0
+
+
+def _atoi(s: "str") -> "i32":
+    """Chuyen chuoi so nguyen khong am -> i32 (lexer tu lo, khong dua int()).
+
+    KHONG dung ord(): spike (test/_out/_ord_probe.tkv) xac nhan il_codegen
+    khong co ham 'ord' (SyntaxError luc bien dich). Thay bang bang tra
+    "0123456789".find(ch) - da co san va dang dung (op_len_at o tren)."""
+    v = 0
+    i = 0
+    digits = "0123456789"
+    while i < len(s):
+        ch = s[i]
+        d = digits.find(ch)
+        if d < 0:
+            return v
+        v = v * 10 + d
+        i = i + 1
+    return v
+
+
+def pack4(i: "i32", line: "i32", line_start: "i32", depth: "i32") -> "str":
+    """Dong goi 4 truong trang thai (i, line, line_start, depth) thanh chuoi cach tab, dung lam gia tri tra ve tu scan_token va cac ham con cua no."""
+    return str(i) + "\t" + str(line) + "\t" + str(line_start) + "\t" + str(depth)
+
+
+def pack7(i: "i32", line: "i32", line_start: "i32", at_bol: "i32", cont: "i32", logical: "i32", consumed: "i32") -> "str":
+    """Dong goi 7 truong trang thai (i, line, line_start, at_bol, cont, logical, consumed) thanh chuoi cach tab, dung lam gia tri tra ve tu skip_trivia."""
+    s = str(i) + "\t" + str(line) + "\t" + str(line_start) + "\t" + str(at_bol)
+    s = s + "\t" + str(cont) + "\t" + str(logical) + "\t" + str(consumed)
+    return s
+
+
+def skip_line_comment_and_emit(src: "str", i: "i32", line: "i32", line_start: "i32", out: "list[str]") -> "i32":
+    """Bam mot token CMT tu vi tri `i` (dau '#') den cuoi dong vat ly, tra ve vi tri con tro sau khi bam (tai '\\n' hoac EOF)."""
+    j = i
+    while j < len(src):
+        if src[j] == "\n":
+            break
+        j = j + 1
+    emit(out, line, i - line_start, "CMT", "")
+    return j
+
+
+def bol_skip_step(src: "str", i: "i32", line: "i32", line_start: "i32", out: "list[str]") -> "str":
+    """Mot buoc xu ly dau dong logic: bo qua khoang trang/dong-trong/comment, hoac phat token BOL khi gap ky tu dau tien; tra ve '<i_moi>\\t<at_bol_moi>\\t<logical_inc>'."""
+    ch = src[i]
+    if is_space(ch) == 1:
+        return str(i + 1) + "\t1\t0"
+    if blank_or_comment(src, i) == 1:
+        # Dong trong / chi chu thich: khong mo dong logic moi.
+        if ch == "#":
+            j = skip_line_comment_and_emit(src, i, line, line_start, out)
+            return str(j) + "\t1\t0"
+        return str(i + 1) + "\t1\t0"
+    emit(out, line, indent_before(src, i), "BOL", str(indent_before(src, i)))
+    return str(i) + "\t0\t1"
+
+
+def scan_newlines_in(seg: "str") -> "str":
+    """Dem so dong xuong trong `seg`, tra ve '<so_dong>\\t<vi_tri_dong_cuoi>' (vi_tri=-1 neu khong co dong xuong nao)."""
+    n = 0
+    last = -1
+    k = 0
+    while k < len(seg):
+        if seg[k] == "\n":
+            n = n + 1
+            last = k
+        k = k + 1
+    return str(n) + "\t" + str(last)
+
+
+def scan_name_end(src: "str", i: "i32") -> "i32":
+    """Tra ve vi tri NGAY SAU dinh danh bat dau tai `i`."""
+    j = i
+    while j < len(src):
+        if is_name_char(src[j]) == 0:
+            break
+        j = j + 1
+    return j
+
+
+def scan_number_end(src: "str", i: "i32") -> "i32":
+    """Tra ve vi tri NGAY SAU token NUM bat dau tai `i` (cho phep '.' trong so).
+
+    DAU cua so mu cung thuoc ve token: '1.5e-3' la MOT so, khong phai
+    '1.5e' - '3'. `compiler/**/*.py` khong co literal nao dang nay nen
+    cong doi chieu cua P1 khong the phu; lo ra o P3 khi mo rong tap doi
+    chieu sang cay `.tkv` (float('1e') -> ValueError)."""
+    j = i
+    while j < len(src):
+        ch = src[j]
+        if ch == "e" or ch == "E":
+            # Chi la so mu khi dung sau chu so va co dau +/- roi chu so.
+            if j > i:
+                if j + 2 <= len(src) - 1 + 1:
+                    sign = src[j + 1]
+                    if sign == "-" or sign == "+":
+                        if j + 2 < len(src):
+                            if is_digit(src[j + 2]) == 1:
+                                j = j + 2
+                                continue
+        if is_name_char(ch) == 0:
+            if ch != ".":
+                break
+        j = j + 1
+    return j
+
+
+def read_plain_string(src: "str", i: "i32", line: "i32", line_start: "i32", depth: "i32", out: "list[str]") -> "str":
+    """Bam token STR thuong (khong tien to) bat dau tai `i`, phat token, tra ve trang thai dong goi (pack4)."""
+    start_line = line
+    start_col = i - line_start
+    nxt = skip_string(src, i)
+    seg = src[i:nxt]
+    info = scan_newlines_in(seg)
+    p = info.split("\t", 1)
+    nl = _atoi(p[0])
+    if nl > 0:
+        last = _atoi(p[1])
+        line = line + nl
+        line_start = i + last + 1
+    emit(out, start_line, start_col, "STR", seg)
+    return pack4(nxt, line, line_start, depth)
+
+
+def read_prefixed_string(src: "str", i: "i32", j: "i32", word: "str", line: "i32", line_start: "i32", depth: "i32", out: "list[str]") -> "str":
+    """Bam chuoi co tien to `word` (vd f, rb) voi noi dung chuoi bat dau tai `j`, phat mot token STR gop ca tien to, tra ve trang thai dong goi (pack4)."""
+    fs_line = line
+    fs_col = i - line_start
+    nxt2 = skip_string(src, j)
+    seg2 = src[j:nxt2]
+    info = scan_newlines_in(seg2)
+    p = info.split("\t", 1)
+    nl = _atoi(p[0])
+    if nl > 0:
+        last = _atoi(p[1])
+        line = line + nl
+        line_start = j + last + 1
+    # P1: khong flatten f-string - P2 (tkv_expr.tkv) se bam ruot { } tu
+    # chinh van ban STR nay (spec Muc 5.4). Lexer chi tra nguyen van ban.
+    emit(out, fs_line, fs_col, "STR", word + seg2)
+    return pack4(nxt2, line, line_start, depth)
+
+
+def scan_operator_and_emit(src: "str", i: "i32", line: "i32", line_start: "i32", depth: "i32", out: "list[str]") -> "str":
+    """Bam mot token OP (ke ca ngoac) tai `i`, cap nhat `depth`, tra ve trang thai dong goi (pack4)."""
+    ch = src[i]
+    if is_bracket_open(ch) == 1:
+        depth = depth + 1
+    if is_bracket_close(ch) == 1:
+        if depth > 0:
+            depth = depth - 1
+    oplen = op_len_at(src, i)
+    emit(out, line, i - line_start, "OP", src[i:i + oplen])
+    return pack4(i + oplen, line, line_start, depth)
+
+
+def scan_name_token(src: "str", i: "i32", line: "i32", line_start: "i32", depth: "i32", out: "list[str]") -> "str":
+    """Bam token NAME/KW hoac chuoi co tien to (f"...", rb'...') bat dau tai `i`, tra ve trang thai dong goi (pack4)."""
+    j = scan_name_end(src, i)
+    name_col = i - line_start
+    word = src[i:j]
+    # Tien to chuoi (f"...", rb'...') KHONG phai dinh danh.
+    if j < len(src):
+        if is_quote(src[j]) == 1:
+            if is_str_prefix(word) == 1:
+                return read_prefixed_string(src, i, j, word, line, line_start, depth, out)
+    if is_keyword(word) == 1:
+        emit(out, line, name_col, "KW", word)
+    else:
+        emit(out, line, name_col, "NAME", word)
+    return pack4(j, line, line_start, depth)
+
+
+def scan_number_token(src: "str", i: "i32", line: "i32", line_start: "i32", depth: "i32", out: "list[str]") -> "str":
+    """Bam token NUM bat dau tai `i`, tra ve trang thai dong goi (pack4)."""
+    j = scan_number_end(src, i)
+    emit(out, line, i - line_start, "NUM", src[i:j])
+    return pack4(j, line, line_start, depth)
+
+
+def scan_token(src: "str", i: "i32", line: "i32", line_start: "i32", depth: "i32", out: "list[str]") -> "str":
+    """Bam DUNG MOT token (STR/NAME/KW/NUM/OP) tai vi tri `i` (da biet KHONG con trivia), tra ve trang thai dong goi (pack4)."""
+    ch = src[i]
+    if is_quote(ch) == 1:
+        return read_plain_string(src, i, line, line_start, depth, out)
+    if is_name_start(ch) == 1:
+        return scan_name_token(src, i, line, line_start, depth, out)
+    if is_digit(ch) == 1:
+        return scan_number_token(src, i, line, line_start, depth, out)
+    return scan_operator_and_emit(src, i, line, line_start, depth, out)
+
+
+def skip_trivia(src: "str", i: "i32", line: "i32", line_start: "i32", depth: "i32", at_bol: "i32", cont: "i32", logical: "i32", out: "list[str]") -> "str":
+    """Xu ly newline/BOL/khoang-trang/comment/noi-dong tai `i`; tra ve trang thai dong goi (pack7) voi co 'consumed' (1 = vong ngoai nen continue, 0 = `i` dang tro toi mot token that, goi scan_token)."""
+    ch = src[i]
+    if ch == "\n":
+        line = line + 1
+        i = i + 1
+        line_start = i
+        if depth == 0:
+            if cont == 0:
+                # Dong logic THAT SU dang mo (at_bol==0) ket thuc ngay tai
+                # day: NEWLINE phai phat NGAY, khong duoc de tram den BOL
+                # ke tiep - neu khong, cac dong chi-comment dung sau se bi
+                # CMT chen VAO TRUOC NEWLINE nay (lech thu tu so voi
+                # CPython, vd import x  # c1\n# c2\n). 'line - 1' = dong
+                # VUA DONG (truoc khi tang o tren).
+                if at_bol == 0:
+                    emit(out, line - 1, 0, "NEWLINE", "")
+                at_bol = 1
+        cont = 0
+        return pack7(i, line, line_start, at_bol, cont, logical, 1)
+    if at_bol == 1:
+        step = bol_skip_step(src, i, line, line_start, out)
+        parts = step.split("\t", 2)
+        i = _atoi(parts[0])
+        at_bol = _atoi(parts[1])
+        if _atoi(parts[2]) == 1:
+            logical = logical + 1
+        if at_bol == 1:
+            return pack7(i, line, line_start, at_bol, cont, logical, 1)
+    if is_space(ch) == 1:
+        return pack7(i + 1, line, line_start, at_bol, cont, logical, 1)
+    if ch == "#":
+        j = skip_line_comment_and_emit(src, i, line, line_start, out)
+        return pack7(j, line, line_start, at_bol, cont, logical, 1)
+    if ch == "\\":
+        # Noi dong tuong minh: dong ke tiep VAN thuoc dong logic nay.
+        return pack7(i + 1, line, line_start, at_bol, 1, logical, 1)
+    return pack7(i, line, line_start, at_bol, cont, logical, 0)
+
+
+def tokenize_raw(src: "str", out: "list[str]") -> "i32":
+    """Bam `src` thanh token, ghi vao `out`. Tra ve so dong LOGIC.
+
+    Vong lap chinh goi skip_trivia() moi vong; neu con trivia (khoang
+    trang/comment/BOL/noi dong) thi lap lai vong ngoai, neu khong thi goi
+    scan_token() de bam dung mot token roi lap lai. Mot dong logic keo dai
+    qua nhieu dong vat ly khi con ngoac chua dong hoac dong ket thuc bang
+    '\\'."""
+    i = 0
+    line = 1
+    line_start = 0
+    depth = 0
+    at_bol = 1
+    logical = 0
+    cont = 0
+    while i < len(src):
+        t = skip_trivia(src, i, line, line_start, depth, at_bol, cont, logical, out)
+        tp = t.split("\t", 6)
+        i = _atoi(tp[0])
+        line = _atoi(tp[1])
+        line_start = _atoi(tp[2])
+        at_bol = _atoi(tp[3])
+        cont = _atoi(tp[4])
+        logical = _atoi(tp[5])
+        if _atoi(tp[6]) == 1:
+            continue
+        s = scan_token(src, i, line, line_start, depth, out)
+        sp = s.split("\t", 3)
+        i = _atoi(sp[0])
+        line = _atoi(sp[1])
+        line_start = _atoi(sp[2])
+        depth = _atoi(sp[3])
+    # File khong ket bang '\n' nhung con dong logic dang mo (at_bol==0):
+    # NEWLINE cuoi cung khong bao gio duoc phat boi nhanh trong vong lap
+    # (khong con ky tu '\n' nao de kich) - phat bu o day, khop CPython.
+    if at_bol == 0:
+        emit(out, line, 0, "NEWLINE", "")
+    return logical
+
+
+def _row_parts(row: "str", out4: "list[str]") -> "i32":
+    """Tach 1 dong token '<line>\t<col>\t<kind>\t<text>' -> 4 phan tu
+    noi vao out4. Tra 1."""
+    p = row.split("\t", 3)
+    out4.append(p[0])
+    out4.append(p[1])
+    out4.append(p[2])
+    out4.append(p[3])
+    return 1
+
+
+def apply_layout(raw: "list[str]", out: "list[str]") -> "i32":
+    """Doc `raw` (stream co 'BOL'), ghi INDENT/DEDENT/ENDMARKER vao `out`,
+    tra ve so token da ghi. Stack cot bat dau [0]; moi 'BOL' (col = cot
+    thut le): col > dinh -> push + INDENT; col < dinh -> pop + DEDENT cho
+    toi khi dinh <= col; col == dinh -> khong gi. NEWLINE da duoc
+    tokenize_raw() phat thang vao `raw`. Cuoi stream: DEDENT ve 0 + ENDMARKER.
+    GIOI HAN: dedent lech muc (vd stack [0,4], gap col=2) KHONG bao loi
+    (Python that se TabError) - P2 tu quyet dinh co bao loi hay khong."""
+    stack = [0]
+    stack_len = 1
+    n = 0
+    for row in raw:
+        parts = []
+        _row_parts(row, parts)
+        ln = parts[0]
+        kind = parts[2]
+        text = parts[3]
+        if kind == "BOL":
+            col = _atoi(text)
+            top = stack[stack_len - 1]
+            if col > top:
+                stack.append(col)
+                stack_len = stack_len + 1
+                out.append(ln + "\t" + str(col) + "\tINDENT\t")
+                n = n + 1
+            else:
+                while col < stack[stack_len - 1]:
+                    stack.pop()
+                    stack_len = stack_len - 1
+                    out.append(ln + "\t0\tDEDENT\t")
+                    n = n + 1
+            continue
+        out.append(row)
+        n = n + 1
+    while stack_len > 1:
+        stack.pop()
+        stack_len = stack_len - 1
+        out.append("0\t0\tDEDENT\t")
+        n = n + 1
+    out.append("0\t0\tENDMARKER\t")
+    n = n + 1
+    return n
+
+
+def tokenize_lex(src: "str", out: "list[str]") -> "i32":
+    """Diem vao lexer: bam + ap tang layout (INDENT/DEDENT/NEWLINE).
+
+    P1 Task 1: uy quyen thang cho tokenize_raw. Task 5: them apply_layout
+    thay the hoan toan BOL bang INDENT/DEDENT/NEWLINE + ENDMARKER cuoi
+    stream - day la hop dong tkv_parser (P2) tieu thu truc tiep."""
+    raw = []
+    tokenize_raw(src, raw)
+    return apply_layout(raw, out)

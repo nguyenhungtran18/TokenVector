@@ -1,0 +1,80 @@
+# -*- coding: utf-8 -*-
+"""Tra chu so huu FIELD/METHOD trong pha he ke thua record - module LA.
+
+Tach khoi `record_feature.py` (2026-09-18) de go chu trinh
+`record_feature <-> control_flow` va `record_feature <-> tkvstr`:
+ba file do chi can DUNG hai ham nay, nhung `record_feature` lai import
+nguoc ca hai o cap module, nen truoc day phai `import` trong THAN HAM.
+
+Ca hai ham THUAN: chi doc `ctx.get(...)`, khong goi gi trong
+`record_feature`. Module nay KHONG import gi - no phai la LA.
+"""
+
+# Khai `Ctx` cho trinh bien dich TokenVector: hai ham duoi deu nhan tham so
+# `ctx: "Ctx"`, ma `Ctx` la record dinh nghia o il_dispatch. Python KHONG can
+# import (annotation la chuoi), nhung ban .tkv thi CAN - khong co dong nay,
+# `transpile_file` bao `Ky vong dtype, gap 'Ctx'`.
+from tkv_types import base_that, cac_base
+__tkv_import__ = "il_dispatch"
+
+
+
+def _field_owner_class(ctx: "Ctx", record_name: "str", field_name: "str") -> "str":
+    """B1 (2026-07-29): tra ve TEN CLASS THAT SU khai bao 'field_name'
+    trong ca pha he ke thua cua 'record_name' (chinh no hoac 1 to tien) -
+    BAT BUOC cho ldfld/stfld dung: CIL doi hoi field reference PHAI ghi
+    dung class KHAI BAO field do (khong phai class con ke thua) - da xac
+    minh THAT qua loi runtime "MissingFieldException: Dog.sound_code"
+    (field 'sound_code' khai bao o Animal, KHONG duoc khai bao lai o Dog -
+    xem gen_record_types's own_fields). record_bases rong (khong ke thua,
+    truong hop pho bien nhat) -> tra ve THANG record_name (hanh vi CU,
+    khong doi 1 buoc nao)."""
+    # Ten rieng `bang_record` chu KHONG phai `records`: trinh bien dich
+    # tu-host suy kieu bien theo TEN tren TOAN ban gop, ma ten `records`
+    # trong cay nay mang HAI kieu khac nhau - o day la
+    # `dict[str,list[(str,TkvTypeAnn)]]`, nhung hang chuc ham khac khai
+    # `records: "dict[str,list[(str,TkvTypeAnn)]]"` (handle type, khong doc duoc phan tu).
+    # Kieu handle thang the, nen vong lap hai bien o duoi bao "gap str".
+    bang_record = ctx.records
+    record_bases = ctx.record_bases
+    visited = set()
+    queue = [record_name]
+    while queue:
+        cur = queue.pop(0)
+        if cur in visited:
+            continue
+        visited.add(cur)
+        bases = cac_base(record_bases, cur)
+        # records[cur] la fields DA FLATTEN (field cua base TRUOC, xem
+        # gen_record_types) - PHAI tru field cua base DAU TIEN (base con
+        # lai trong list, neu co, la interface KHONG dong gop field) truoc
+        # khi so sanh, neu khong 'own_fields' se luon chua field ke thua va
+        # cur (lop con) bi nham la chu so huu THAT (bug goc: MissingField-
+        # Exception 'Dog.name' du 'name' khai bao o Animal).
+        base0 = base_that(record_bases, cur)
+        base_fields = bang_record.get(base0, []) if base0 else []
+        # Ten rieng `field_rieng` chu KHONG phai `own_fields`: cung ly do
+        # ten-toan-cuc nhu `bang_record` o tren (mot ham khac co
+        # `own_fields = []`, suy ra list[str]).
+        tat_ca_field = bang_record.get(cur, [])
+        field_rieng = tat_ca_field[len(base_fields):]
+        for cap_field in field_rieng:
+            if cap_field[0] == field_name:
+                return cur
+        queue.extend(bases)
+    return record_name
+
+
+def _method_owner_class(ctx: "Ctx", record_name: "str", method_name: "str") -> "str":
+    record_methods_own = ctx.record_methods_own
+    mdict = record_methods_own.get(record_name, {})
+    if method_name in mdict:
+        return record_name
+    record_bases = ctx.record_bases
+    _bs = cac_base(record_bases, record_name)
+    base = _bs[0] if len(_bs) == 1 else None
+    if base is not None:
+        bmdict = record_methods_own.get(base, {})
+        if method_name in bmdict:
+            return base
+    return record_name

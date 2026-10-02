@@ -1,0 +1,512 @@
+"""Duck-typing qua type-inference tinh (Task 3/5, 2026-08-17, plan
+duck-typing-inference) - thu thap "interface an" tu than ham cho MOI tham
+so ham top-level mang dtype 'inferred' (xem tkv_compile.py's
+INFERRED_DTYPE_MARKER, gan boi _params_with_defaults khi allow_inferred=True
+va annotation thieu, Task 2/5).
+
+Module nay CHI lam buoc THU THAP (quet AST goc cua than ham, ghi lai CACH
+tham so 'inferred' duoc dung TRUC TIEP - doc field/goi method/toan tu nhi
+nguyen) - CHUA lam resolve tai call-site/monomorphize (Task 4). Dat CUNG
+cap voi operators.py/record_feature.py (compiler/il_features/*.py) theo
+dung de xuat Task 1 report, muc 6.
+
+Vi sao quet tren ast.FunctionDef GOC (khong phai body_lines text da dedent/
+rewrite): AST co san cau truc Attribute/Call/BinOp/Compare day du, khong can
+re-parse text qua il_core.py's _ExprParser (khac voi cach il_codegen.py xu
+ly bieu thuc luc CODEGEN, o day chi can XAC DINH HINH DANG usage, khong can
+sinh CIL) - dung dung thoi diem con AST (truoc khi _body_source_lines()
+chuyen thanh danh sach dong text trong tkv_compile.py's vong lap
+tree.body, xem _parse_program_ast)."""
+
+# P3 Task 2: dung lop tuong thich thay cho `ast` cua CPython - xem
+# compiler/_ast_compat.py. Thu muc compiler/ da nam tren sys.path
+# luc tkv_compile.py import file nay.
+from ast_row import kind_of, col_a, col_b, kids
+from ast_walk import duyet
+import il_extern_dtype
+from tkv_types import Constraint, TranspileError, cac_base
+import il_codegen
+from typed_dsl_parser import Signature, Param, TypeAnn
+
+
+# MOT record duy nhat cho ca BA dang rang buoc, phan biet bang truong
+# `kind`.  Truoc 2026-09-17 day la mot lop co so RONG `Constraint` va ba
+# subclass FieldConstraint/MethodConstraint/OperatorConstraint.
+#
+# VI SAO GOP chu khong chi va cho du: ca ba nam CHUNG mot list
+# (`constraints[param]`), nen kieu that cua list do la mot UNION - ma DSL
+# khong co union.  Moi cach va cuc bo deu vap lai dung cho do: khai
+# `__eq__(self, other: "FieldConstraint")` la noi doi (other co the la ca
+# ba), va tach mot ham `_trung(a, b)` rieng thi chinh a/b lai khong khai
+# duoc.  Gop lai la cach DUY NHAT dien dat dung.
+#
+# Day dung la quy uoc `TypeAnn` da ghi trong cay: "Ngon ngu khong co sum
+# type, nen record tach lam HAI truong co bien phan biet".
+#
+# `__eq__`/`__hash__`/`__repr__` cu bi GO:
+#   __eq__   -> `_trung()`, so sanh truong don thuan (tuong duong that:
+#               cac truong khong dung duoc chuan hoa ve ""/0 nen khong
+#               the trung nham giua hai kind khac nhau)
+#   __hash__ -> da do: KHONG cho nao dua Constraint vao set/dict, no chi
+#               ton tai vi Python doi co __hash__ khi da dinh nghia __eq__
+#   __repr__ -> da do: khong cho nao goi (thong bao loi dung thang
+#               constraint.name/.arity/.op)
+# `Constraint` chuyen sang tkv_types (2026-09-24): `Signature` tham chieu
+# no, ma file nay lai import tkv_types -> vong. Cung ly do voi Scope/Binding.
+
+
+# Ba ham tao - giu lai ten goi cu o diem su dung cho de doc, va CHUAN HOA
+# cac truong khong dung ve ""/0 (dieu kien de `_trung` dung duoc).
+def rb_field(name: "str") -> "Constraint":
+    """Tham so doc TRUC TIEP 1 thuoc tinh: 'param.field'."""
+    return Constraint('field', name, 0, "")
+
+
+def rb_method(name: "str", arity: "i32") -> "Constraint":
+    """Tham so goi TRUC TIEP 1 method: 'param.method(a, b)' -> arity=2."""
+    return Constraint('method', name, arity, "")
+
+
+def rb_op(op: "str") -> "Constraint":
+    """Tham so dung TRUC TIEP lam mot ve cua 1 toan tu nhi nguyen/so sanh:
+    'param + x' / 'x + param' / 'param == y' / ... - `op` la ky hieu toan
+    tu van ban ('+', '==', ...), KHONG phan biet ve trai/phai (ca hai deu
+    can cung 1 dunder/toan tu ho tro tai buoc resolve o Task 4)."""
+    return Constraint('operator', "", 0, op)
+
+
+def _trung(a: "Constraint", b: "Constraint") -> "i32":
+    """Hai rang buoc TRUNG nhau - thay cho `__eq__` cu."""
+    return (a.kind == b.kind and a.name == b.name
+            and a.arity == b.arity and a.op == b.op)
+
+
+# --- toan tu duoc chap nhan ------------------------------------------
+# TRUOC (P8 Task 6): hai dict `ast.Add -> '+'` / `ast.Eq -> '=='`. Trong
+# arena, COT cua node DA la ky hieu ('binop' cot a = '+', 'compare' cot b =
+# '<,<='), nen phan ANH XA bien mat. Nhung khong xoa han duoc: hai dict cu
+# chi nhan mot TAP CON (khong co 'is'/'in'/'<<'/...), nen chung tro thanh
+# TAP KY HIEU HOP LE.
+_BINOP_OK: "set[str]" = {'+', '-', '*', '/', '//', '%', '**'}
+_CMPOP_OK: "set[str]" = {'==', '!=', '<', '<=', '>', '>='}
+
+
+__tkv_import__ = ["il_dispatch", "tkv_types"]
+
+
+def _thu_thap(pool: "list[str]", nid: "i32", param_names: "set[str]", constraints: "dict[str,list[Constraint]]", handled: "set[i32]"):
+    """Duyet DE QUY mot node arena, ghi nhan usage TRUC TIEP cua tham so.
+
+    Thay cho `_ConstraintVisitor(ast.NodeVisitor)`. Giu nguyen ngu nghia
+    `generic_visit`: nhanh nao khong xu ly rieng thi de quy xuong MOI con.
+
+    `handled` la tap CHI SO POOL cua nhung node `name` da duoc mot trong ba
+    nhanh (field/method/toan tu) xu ly. Truoc day la `id(node)` - danh tinh
+    doi tuong Python; chi so pool vua on dinh hon vua khong phu thuoc GC
+    (dung bai hoc P8/3b-1: dua danh tinh ve MOT mien duy nhat)."""
+    kind = kind_of(pool, nid)
+    con = kids(pool, nid)
+
+    if kind == "attr":
+        # 'param.field' (doc) VA 'param.field = x' (ghi) deu la
+        # rb_field('field') GIONG NHAU - buoc THU THAP nay khong phan
+        # biet field co ghi duoc hay khong (Task 4's resolve_call_site() lo).
+        # Chi field TANG 1 duoc bat: 'param.field.sub' dung lai o '.field'.
+        if con and kind_of(pool, con[0]) == "name":
+            ten = col_a(pool, con[0])
+            if ten in param_names:
+                handled.add(con[0])
+                _them(constraints, ten, rb_field(col_a(pool, nid)))
+                return
+    elif kind == "call":
+        # kids[0] = ham duoc goi, kids[1:] = argument (ke ca keyword - cot b
+        # giu CSV ten keyword). arity = so argument TRUYEN VAO.
+        if con:
+            f = con[0]
+            if kind_of(pool, f) == "attr":
+                fcon = kids(pool, f)
+                if fcon and kind_of(pool, fcon[0]) == "name":
+                    ten = col_a(pool, fcon[0])
+                    if ten in param_names:
+                        handled.add(fcon[0])
+                        _them(constraints, ten,
+                              rb_method(col_a(pool, f), len(con) - 1))
+                        # Van duyet tiep argument: chung co the chua usage
+                        # cua mot tham so inferred KHAC (vd 'p.m(q)') - do la
+                        # usage GIAN TIEP, phai bi bat o buoc quet cuoi.
+                        for a in con[1:]:
+                            _thu_thap(pool, a, param_names, constraints, handled)
+                        return
+    elif kind == "binop":
+        ky_hieu = col_a(pool, nid)
+        if ky_hieu in _BINOP_OK and len(con) == 2:
+            trai_la_tham_so = _ten_tham_so(pool, con[0], param_names)
+            phai_la_tham_so = _ten_tham_so(pool, con[1], param_names)
+            if trai_la_tham_so is not None or phai_la_tham_so is not None:
+                for k in (0, 1):
+                    ten = trai_la_tham_so if k == 0 else phai_la_tham_so
+                    if ten is not None:
+                        handled.add(con[k])
+                        _them(constraints, ten, rb_op(ky_hieu))
+                    else:
+                        _thu_thap(pool, con[k], param_names, constraints, handled)
+                return
+    elif kind == "compare":
+        # cot b = CSV cac toan tu; kids = cac toan hang (n toan tu, n+1 hang).
+        ops = [o for o in col_b(pool, nid).split(",") if o]
+        for idx, op in enumerate(ops):
+            if op not in _CMPOP_OK or idx + 1 >= len(con):
+                continue
+            for k in (idx, idx + 1):
+                ten = _ten_tham_so(pool, con[k], param_names)
+                if ten is not None:
+                    handled.add(con[k])
+                    _them(constraints, ten, rb_op(op))
+        for c in con:
+            if _ten_tham_so(pool, c, param_names) is None:
+                _thu_thap(pool, c, param_names, constraints, handled)
+        return
+
+    for c in con:                       # generic_visit
+        if c >= 0:
+            _thu_thap(pool, c, param_names, constraints, handled)
+
+
+def _ten_tham_so(pool: "list[str]", nid: "i32", param_names: "set[str]") -> "str":
+    """Ten tham so neu `nid` la node `name` cua mot tham so inferred, else None."""
+    if nid < 0 or kind_of(pool, nid) != "name":
+        return None
+    ten = col_a(pool, nid)
+    return ten if ten in param_names else None
+
+
+def _them(constraints: "dict[str,list[Constraint]]", param: "str",
+          constraint: "Constraint"):
+    lst = constraints[param]
+    for cu in lst:
+        if _trung(cu, constraint):
+            return
+    lst.append(constraint)
+
+
+
+def _bang_rang_buoc_rong() -> "dict[str,list[Constraint]]":
+    """Bang RONG co kieu ten tham so -> rang buoc (2026-09-25)."""
+    return {}
+
+
+def collect_inferred_constraints(sig: "TkvSig", pool: "list[str]", fn_nid: "i32", records: "dict[str,list[(str,TkvTypeAnn)]]", record_methods: "dict[str,dict[str,Signature]]") -> "dict[str,list[Constraint]]":
+    """sig: Signature DA parse (typed_dsl_parser.py) cua CHINH ham o `fn_nid`
+    - dung de xac dinh tham so nao dtype == 'inferred' (INFERRED_DTYPE_MARKER,
+    gan boi tkv_compile.py's _params_with_defaults khi allow_inferred=True).
+
+    `pool`/`fn_nid`: ARENA cua parser native va chi so dong `funcdef` cua
+    chinh ham do. TRUOC P8 Task 6 day la mot node `ast.FunctionDef` da vat
+    chat hoa; doc thang arena bo duoc tang object trung gian - xem
+    docs/superpowers/plans/2026-09-10-P8-task6-xoa-shim-ast.md.
+
+    records/record_methods: NHAN de khop dung chu ky brief (Task 1 report,
+    muc 6) - o buoc THU THAP nay CHUA can dung toi (khong resolve kieu cu
+    the, chi ghi lai HINH DANG usage) - viec kiem tra field/method/toan tu
+    do co ton tai tren 1 kieu CU THE nao khong la viec cua Task 4's
+    resolve_call_site(). Giu tham so o day de khong phai doi chu ky sau.
+
+    Tra ve: dict[param_name(str), list[Constraint]] - CHI gom cac tham so co
+    dtype == 'inferred' trong `sig`. Tham so inferred KHONG dung usage truc
+    tiep nao van co mat voi list RONG.
+
+    raise: TranspileError NGAY khi gap 1 usage `name(param)` ctx=load KHONG
+    thuoc 3 shape truc tiep (field/method/toan tu)."""
+
+    inferred_params = {p.name for p in sig.params
+                        if p.type_ann is not None and p.type_ann.dtype == 'inferred'}
+    if not inferred_params:
+        return {}
+
+    # Vong lap + bang rong co kieu (2026-09-25) thay dict-comp: bien 'p' cua
+    # comp trung ten 'p' (Param) o comp phia tren - ban tu-host suy khoa sai.
+    constraints = _bang_rang_buoc_rong()
+    for ten_p in inferred_params:
+        constraints[ten_p] = []
+    handled = set()
+    for st in kids(pool, fn_nid):
+        if st >= 0:
+            _thu_thap(pool, st, inferred_params, constraints, handled)
+
+    ra_nid = []
+    ra_ctx = []
+    duyet(pool, fn_nid, ra_nid, ra_ctx)
+
+    # AugAssign tren CHINH tham so ('param += x') duoc kiem TRUOC vong
+    # Store/Del ben duoi (target cua augassign cung la name ctx=store ve mat
+    # ky thuat) de thong diep loi RO RANG hon - nguoi dung hieu DUNG nguyen
+    # nhan la "augmented assign chua ho tro" chu khong nham voi "gan lai".
+    augassign_targets = set()
+    for nid_ in ra_nid:
+        if kind_of(pool, nid_) != "augassign":
+            continue
+        tcon = kids(pool, nid_)
+        if not tcon or tcon[0] < 0 or kind_of(pool, tcon[0]) != "name":
+            continue
+        ten = col_a(pool, tcon[0])
+        if ten in inferred_params:
+            augassign_targets.add(tcon[0])
+            raise TranspileError(
+                f"ham '{sig.name}': tham so '{ten}' (dtype 'inferred', suy kieu qua "
+                f"cach dung) dung augmented assign ('param += x' hoac tuong tu) o dong "
+                f"~? - augmented assign tren tham so kieu suy tu "
+                f"dong (inferred) CHUA duoc ho tro. Neu can gan lai gia tri, khai kieu tuong "
+                f"minh cho tham so nay thay vi de trong (bo annotation).")
+
+    # Gan lai/xoa CHINH bien tham so ('param = x' / 'del param'). PHAN BIET
+    # voi 'param.f = 1': o do node `name(param)` nam TRONG `attr`, va ctx cua
+    # no van la LOAD (luat lan xuong cua ast_walk: attr/subscript nhan store
+    # nhung con BEN TRONG chung la load) - nen khong bi vong nay bat.
+    for i in range(len(ra_nid)):
+        nid_ = ra_nid[i]
+        if kind_of(pool, nid_) != "name":
+            continue
+        ten = col_a(pool, nid_)
+        if ten not in inferred_params or nid_ in augassign_targets:
+            continue
+        ctx = ra_ctx[i]
+        if ctx == "store" or ctx == "del":
+            action = 'xoa (del)' if ctx == "del" else 'gan lai'
+            raise TranspileError(
+                f"ham '{sig.name}': tham so '{ten}' (dtype 'inferred', suy kieu qua "
+                f"cach dung) bi {action} o dong ~? - gan lai/xoa "
+                f"CHINH bien tham so (vd 'param = x' hoac 'del param') lam mat kha nang suy kieu "
+                f"tu cach dung ban dau, chua duoc ho tro. Neu can gan lai gia tri, khai kieu "
+                f"tuong minh cho tham so nay thay vi de trong (bo annotation).")
+
+    for i in range(len(ra_nid)):
+        nid_ = ra_nid[i]
+        if kind_of(pool, nid_) != "name":
+            continue
+        ten = col_a(pool, nid_)
+        if ten not in inferred_params or ra_ctx[i] != "load" or nid_ in handled:
+            continue
+        raise TranspileError(
+            f"ham '{sig.name}': tham so '{ten}' (dtype 'inferred', suy kieu qua "
+            f"cach dung) o dong ~? dung theo cach GIAN TIEP "
+            f"khong suy duoc kieu (vd truyen lam argument cho 1 loi goi ham/method KHAC, "
+            f"dung lam chi so 'param[i]', hoac gan lai 'x = param' roi dung 'x' thay the) - "
+            f"chi ho tro dung TRUC TIEP: doc thuoc tinh 'param.field', goi method "
+            f"'param.method(...)', hoac toan tu nhi nguyen/so sanh 'param + x'/'param == x'. "
+            f"Neu can dung theo cach khac, khai kieu tuong minh cho tham so nay thay vi de "
+            f"trong (bo annotation).")
+
+    return constraints
+
+
+
+def mangle_name(func_name: "str", concrete_types: "list[str]") -> "str":
+    """concrete_types: list[str] cac dtype/ten-record CU THE (THEO DUNG THU
+    TU cac tham so 'inferred' xuat hien trong sig.params, KHONG phai thu tu
+    xuat hien trong loi goi) da duoc resolve cho 1 ham co >=1 tham so
+    'inferred'. Tra ve 1 ten ham MOI, DUY NHAT cho tung to hop (func_name,
+    concrete_types) - dung lam '.name' cua Signature monomorphize VA lam
+    khoa cache (cung voi func_name) trong _expr_call/il_codegen.py."""
+    return f'{func_name}$T${"$".join(concrete_types)}'
+
+
+def _ancestors(record_bases: "dict[str,list[str]]", type_name: "str") -> "set[str]":
+    """Tap {type_name} UNION toan bo to tien (dung ho tro record ke thua,
+    xem 'ancestors' duoc dung y HET trong operators.py's compile_binop/
+    compile_compare - dong dung 1 vong lap thu cong TRUC TIEP tren
+    record_bases, KHONG qua _field_owner_class/_method_owner_class, dung
+    theo dung Task 1 report muc 4.3)."""
+    ancestors = {type_name}
+    walk = type_name
+    while len(cac_base(record_bases, walk)) == 1:
+        walk = cac_base(record_bases, walk)[0]
+        ancestors.add(walk)
+    return ancestors
+
+
+def _co_field(records: "dict[str,list[(str,TkvTypeAnn)]]", ten_rec: "str", ten_field: "str") -> "i32":
+    """Record `ten_rec` co field `ten_field` khong (thay 'x in dict(pairs)')."""
+    if ten_rec not in records:
+        return False
+    for cap in records[ten_rec]:
+        if cap[0] == ten_field:
+            return True
+    return False
+
+
+def _check_constraint(func_name: "str", param_name: "str", constraint: "Constraint", concrete_type: "str",
+                       records: "dict[str,list[(str,TkvTypeAnn)]]", record_methods: "dict[str,dict[str,Signature]]", record_bases: "dict[str,list[str]]", caller_desc: "str"):
+    """1 rang buoc (Constraint, phan biet bang `.kind`) ->
+    raise TranspileError NGAY neu 'concrete_type' KHONG thoa. Tai dung DUNG
+    co che tra cuu dunder cua operators.py's compile_binop/compile_compare
+    (Task 1 report muc 4) - KHONG viet lai logic khac."""
+    loc = (f"ham '{func_name}': tham so '{param_name}' (kieu cu the "
+           f"'{concrete_type}', suy ra tu loi goi trong ham '{caller_desc}')")
+
+    if concrete_type in il_extern_dtype._EXTERN_CLASS_DEFS:
+        raise TranspileError(
+            f"duck-typing: tham so 'inferred' khong the la extern-class handle type "
+            f"{concrete_type!r} - handle type khong tham gia co che suy kieu nay, "
+            f"khai annotation tuong minh")
+
+    if constraint.kind == 'field':
+        if concrete_type not in records:
+            raise TranspileError(
+                f"{loc} can co field '.{constraint.name}' nhung kieu "
+                f"'{concrete_type}' la kieu vo huong (scalar), khong phai record "
+                f"nen khong co field nao.")
+        for anc in _ancestors(record_bases, concrete_type):
+            if _co_field(records, anc, constraint.name):
+                return
+        raise TranspileError(
+            f"{loc} can co field '.{constraint.name}' nhung record "
+            f"'{concrete_type}' (va to tien cua no) khong co field nay.")
+
+    if constraint.kind == 'method':
+        if concrete_type not in records:
+            raise TranspileError(
+                f"{loc} can co method '.{constraint.name}(...)' nhung kieu "
+                f"'{concrete_type}' la kieu vo huong (scalar), khong phai record "
+                f"nen khong co method nao.")
+        method_sig = None
+        for anc in _ancestors(record_bases, concrete_type):
+            m = (record_methods.get(anc) or {}).get(constraint.name)
+            if m is not None:
+                method_sig = m
+                break
+        if method_sig is None:
+            raise TranspileError(
+                f"{loc} can co method '.{constraint.name}(...)' nhung record "
+                f"'{concrete_type}' (va to tien cua no) khong co method nay.")
+        if len(method_sig.params) != constraint.arity:
+            raise TranspileError(
+                f"{loc} goi method '.{constraint.name}(...)' voi {constraint.arity} "
+                f"tham so nhung method that cua record '{concrete_type}' can dung "
+                f"{len(method_sig.params)} tham so.")
+        return
+
+    if constraint.kind == 'operator':
+        op = constraint.op
+        if concrete_type not in records:
+            # Kieu vo huong (i32/i64/f32/f64/str/int/complex/...) ho tro
+            # toan tu nhi nguyen/so sanh TU NHIEN qua ha tang codegen co
+            # san (operators.py) - khong can kiem tra them o day.
+            return
+        if op == '+':
+            for anc in _ancestors(record_bases, concrete_type):
+                if (record_methods.get(anc) or {}).get('__add__') is not None:
+                    return
+            raise TranspileError(
+                f"{loc} dung toan tu '+' nhung record '{concrete_type}' (va to tien "
+                f"cua no) khong co '__add__' - '+' tren record can dinh nghia "
+                f"'def __add__(self, other) -> \"T\":'.")
+        if op in ('==', '!='):
+            # __eq__ CO THI DUNG, KHONG CO thi ROI xuong so sanh mac dinh
+            # (reference-compare) - operators.py's compile_compare khong
+            # bao gio raise cho '=='/'!=' tren record, xem Task 1 report
+            # muc 4.2. Vi vay KHONG can kiem tra gi them o day.
+            return
+        # '<'/'<='/'>'/'>=' tren record: operators.py's compile_compare
+        # HIEN KHONG tra cuu dunder nao cho 4 toan tu nay (chi '=='/'!=' co
+        # __eq__, xem muc 4.2) - neu de qua, codegen se sinh so sanh mac
+        # dinh SAI (so sanh tham chieu doi tuong bang < / > vo nghia).
+        # Chan RO tai day thay vi de loi am tham o tang codegen.
+        raise TranspileError(
+            f"{loc} dung toan tu '{op}' tren record '{concrete_type}' - toan tu nay "
+            f"CHUA duoc ho tro cho record (hien chi ho tro '+' qua __add__ va "
+            f"'=='/'!=' mac dinh). Khai kieu tuong minh cho tham so nay neu can "
+            f"dung toan tu khac.")
+
+
+def resolve_call_site(sig: "TkvSig", concrete_arg_types: "dict[str,str]", records: "dict[str,list[(str,TkvTypeAnn)]]", record_methods: "dict[str,dict[str,Signature]]", record_bases: "dict[str,list[str]]",
+                       call_site_info: "dict[str,str]"=None) -> "Signature":
+    """sig: Signature GOC (co >=1 tham so dtype=='inferred', voi
+    sig.inferred_constraints da duoc collect_inferred_constraints() gan san,
+    xem Task 3). concrete_arg_types: dict[ten_tham_so(str) -> kieu_cu_the(str)]
+    - CHI can gom cac tham so 'inferred' (kieu cu the: dtype vo huong nhu
+    'i32'/'str'/... HOAC ten 1 record). records/record_methods/record_bases:
+    3 bang da co san, TRUYEN THANG tu ctx (xem il_codegen.py's _expr_call).
+    call_site_info: dict tuy chon, CHI dung de lam thong bao loi ro hon (vd
+    {'caller_name': ten_ham_dang_goi}).
+
+    Kiem tra TUNG rang buoc da thu thap (Task 3) cho TUNG tham so inferred so
+    voi kieu cu the tuong ung trong concrete_arg_types - KHONG thoa 1 rang
+    buoc nao -> raise TranspileError NGAY (xem _check_constraint). Thoa HET
+    -> tra ve 1 Signature MOI (params da thay 'inferred' bang kieu cu the,
+    '.name' da mangle qua mangle_name) - Signature GOC (sig) KHONG bi doi.
+
+    Neu sig KHONG co tham so 'inferred' nao, tra ve NGUYEN sig (khong mangle,
+    khong tao object moi) - cho phep goi ham nay VO DIEU KIEN tai diem chen
+    trong _expr_call (kiem tra "co can resolve khong" o CHINH ham nay, caller
+    khong can tu kiem tra truoc)."""
+
+    inferred_params = [p for p in sig.params
+                        if p.type_ann is not None and p.type_ann.dtype == 'inferred']
+    if not inferred_params:
+        return sig
+
+    if not call_site_info:
+
+        call_site_info = {}
+    caller_desc = call_site_info.get('caller_name') or '?'
+    # `inferred_constraints` GIO LA TRUONG khai san cua Signature (mac dinh
+    # {}), nen doc thang. Truoc day `getattr(sig, ..., None) or {}` - gan
+    # DONG roi doc dong - la dang TokenVector khong doc duoc.
+    constraints = sig.inferred_constraints
+
+    resolved_by_param = {}
+    for p in inferred_params:
+        concrete_type = concrete_arg_types.get(p.name)
+        if not concrete_type:
+            raise TranspileError(
+                f"ham '{sig.name}': khong suy duoc kieu cu the cho tham so '{p.name}' "
+                f"(dtype 'inferred') tai loi goi trong ham '{caller_desc}' - doi so truyen "
+                f"vao co dtype khong xac dinh duoc (vd 1 bieu thuc phuc tap chua ho tro suy "
+                f"kieu tinh). Khai kieu tuong minh cho tham so nay, hoac dung 1 bien don "
+                f"gian lam doi so.")
+        resolved_by_param[p.name] = concrete_type
+        # Tham so 'inferred' KHONG duoc nhan extern-class handle type - kiem
+        # tra NAY phai chay VO DIEU KIEN (khong phu thuoc constraints.get(p.name))
+        # vi 1 tham so 'inferred' HOP LE co the KHONG co rang buoc nao (than
+        # than KHONG dung trong body - xem docstring collect_inferred_constraints
+        # o Task 3), khien vong for c in constraints.get(...) o duoi khong
+        # chay lan nao va _check_constraint (noi dang co kiem tra
+        # _EXTERN_CLASS_DEFS) khong bao gio duoc goi cho tham so do - handle
+        # type se lot qua het qua khoi resolve_call_site va gay KeyError o
+        # il_type_str sau nay (xem 5th instance cua bug class trong
+        # docs/BUGS_TODO.md muc O). Import cham (tranh vong lap import voi
+        # il_codegen o module-load-time, giong cach _check_constraint lam).
+        if concrete_type in il_extern_dtype._EXTERN_CLASS_DEFS:
+            raise TranspileError(
+                f"ham '{sig.name}': tham so 'inferred' '{p.name}' khong the la "
+                f"extern-class handle type {concrete_type!r} (tai loi goi trong ham "
+                f"'{caller_desc}') - handle type khong tham gia co che suy kieu nay, "
+                f"du tham so co dung trong than ham hay khong. Khai annotation tuong minh.")
+        for c in constraints.get(p.name, []):
+            _check_constraint(sig.name, p.name, c, concrete_type,
+                               records, record_methods, record_bases, caller_desc)
+
+    concrete_types_in_order = []
+    for p in inferred_params:
+        concrete_types_in_order.append(resolved_by_param[p.name])
+    mangled = mangle_name(sig.name, concrete_types_in_order)
+
+    new_params = []
+    for p in sig.params:
+        if p.name in resolved_by_param:
+            ct = resolved_by_param[p.name]
+            new_ta = TypeAnn(ct, 'record' if ct in records else None)
+            new_params.append(Param(p.name, new_ta, default_node=p.default_node,
+                                     is_vararg=p.is_vararg, is_kwarg=p.is_kwarg))
+        else:
+            new_params.append(p)
+
+    new_sig = Signature(mangled, new_params, sig.return_type, sig.body_mode,
+                         body_expr=sig.body_expr, is_static=sig.is_static,
+                         is_async=sig.is_async)
+    # Rang buoc CHI can cho lan resolve NAY (tham so da thanh kieu cu the
+    # that, khong con 'inferred' nao) - khong can giu lai tren Signature moi
+    # (tranh resolve-lai vo nghia neu co code nao vo tinh doc lai thuoc tinh
+    # nay tren new_sig).
+    new_sig.inferred_constraints = {}
+    return new_sig

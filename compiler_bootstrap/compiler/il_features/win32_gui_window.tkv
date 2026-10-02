@@ -1,0 +1,55 @@
+# -*- coding: utf-8 -*-
+"""win32_gui_window.py - Native Windows Forms GUI Window Launcher for TokenVector
+"""
+
+import stmt_row as _row
+import re
+from il_dispatch import register_assign_rhs_parser, register_first_pass_walk, register_stmt_codegen
+from tkv_types import TypeAnn
+from il_core import parse_expr
+from stmt_row import intern, lay_str, make3
+
+_WIN_GUI_RE = re.compile(r'^show_native_winforms_gui\((.+)\)$')
+
+
+__tkv_import__ = ["il_dispatch", "tkv_types"]
+
+def try_rhs_win_gui(rhs: "str", name: "str", known_shapes: "dict[str,str]") -> "i32":
+    m = _WIN_GUI_RE.match(rhs.strip())
+    if not m:
+        return None
+    return intern(make3('assign_win_gui', name, m.group(1)))
+
+
+def fpw_win_gui(stmt: "i32", ctx: "WalkCtx"):
+    ta = TypeAnn('i32', None)
+    ctx.declare_named(lay_str(stmt, 'name'), ta)
+
+
+def codegen_win_gui(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    # Khởi tạo cửa sổ System.Windows.Forms.Form native trên Windows
+    # THAM SO tung bi BO ROI: regex bat no, make3 luu no, roi khong cho
+    # nao doc - moi chuong trinh goi ham nay deu ra mot cua so mang tieu de
+    # VIET CUNG cua mot tro choi, bat ke nguoi dung truyen gi. Khong loi nao
+    # bao. Nay tieu de LA tham so, dung nhu ten ham goi y.
+    body.append('    newobj instance void [System.Windows.Forms]System.Windows.Forms.Form::.ctor()')
+    body.append('    dup')
+    # Truong nay ten la 'title_expr' o CA hai bang schema (stmt_row.py), tuc
+    # no KHONG theo quy uoc '*_text' -> '*_node' nen khong duoc tu dong phan
+    # tich: lay_nut(stmt, 'arg_node') tra None. Phan tich tuong minh.
+    ctx.compile_expr(parse_expr(lay_str(stmt, 'title_expr')), scope, body, 'str', ctx)
+    body.append('    callvirt instance void [System.Windows.Forms]System.Windows.Forms.Control::set_Text(string)')
+    body.append('    call void [System.Windows.Forms]System.Windows.Forms.Application::Run(class [System.Windows.Forms]System.Windows.Forms.Form)')
+    body.append('    ldc.i4.1')
+    ctx.store_var(lay_str(stmt, 'name'), scope, body)
+
+
+def bootstrap_win32_gui_window(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_assign_rhs_parser(reg, 'win_gui', try_rhs_win_gui)
+    register_first_pass_walk(reg, 'assign_win_gui', fpw_win_gui)
+    register_stmt_codegen(reg, 'assign_win_gui', codegen_win_gui)

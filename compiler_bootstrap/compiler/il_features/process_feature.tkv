@@ -1,0 +1,177 @@
+# -*- coding: utf-8 -*-
+"""Goi TIEN TRINH NGOAI (2026-09-17): `proc_run(exe, args) -> i32`.
+
+VI SAO CAN - day la rao CUNG cuoi cung tren duong fixed-point cua P7,
+do duoc ngay truoc khi viet file nay: `tkv_compile` import
+`assemble_il_to_exe` tu `tokenvector_compile`, va ham do goi `ilasm.exe`
+qua `subprocess`. Mot compiler TU-HOST bat buoc phai goi duoc ilasm, ma
+TokenVector KHONG co builtin nao chay tien trinh ngoai (da grep toan cay:
+khong mot cho nao phat `Process::Start`). Tuc du co di tru het annotation
+thi compiler van khong tu dung duoc chinh no.
+
+THIET KE - chep khuon `IPOW_CLASS` cua stdlib_math.py, KHONG chep khuon
+`*_CIL_HELPERS`: bon hang `*_CIL_HELPERS` (dynamic_exec/ffi_feature/
+pycapi_shim/stdlib_bcl) chua than IL cua helper nhung KHONG AI THAM CHIEU
+chung, nen moi builtin cua bon module do nem MissingMethodException luc
+chay (do that 2026-09-17). O day than IL duoc phat qua
+`ctx.extra_classes` voi canh gac `emitted_types`, tuc no CHAC CHAN co mat
+trong assembly sinh ra.
+
+PHAM VI CO Y HEP: mot chu ky duy nhat, dong bo, tra ve MA THOAT.
+  - KHONG bat stdout/stderr (can RedirectStandardOutput + doc stream, la
+    mot tinh nang rieng).
+  - KHONG chay nen (khong async).
+  - `UseShellExecute = false`: chay THANG file thuc thi, khong qua shell -
+    tranh mo cua so console va tranh dien giai chuoi theo kieu shell.
+HIEM HOA DA VAP THAT: `WaitForExit()` cho VO HAN. Goi mot chuong trinh
+TUONG TAC (vd `cmd.exe` khong tham so) se treo chuong trinh mai mai -
+khong co timeout. Chi goi cac tien trinh CHAC CHAN tu thoat.
+GIOI HAN DA DO (khong phai suy doan): `args` duoc truyen NGUYEN VAN cho
+`ProcessStartInfo.Arguments`, tuc Windows tach theo DAU CACH. Duong dan
+co dau cach PHAI tu boc dau nhay trong chinh chuoi `args`. Da vap that:
+goi ilasm voi duong dan tuyet doi chua "Claude AI Project" thi ilasm bao
+"Could not open AI.il". Dung duong dan tuong doi (hoac tu boc nhay) thi
+chay dung.
+Duoi CPython, ham cung ten trong `tkv_runtime_shim` KHONG ton tai: file
+.tkv dung `proc_run` chi chay duoc qua duong bien dich. Ghi ro thay vi de
+nguoi dung phat hien luc chay.
+"""
+from il_dispatch import register_expr_builtin
+
+__tkv_import__ = "il_dispatch"
+
+PROC_CLASS = 'TkvProc'
+
+
+def _gen_proc_class_il() -> "list[str]":
+    """`.class TkvProc` voi mot method tinh `Chay(string, string) -> int32`.
+
+    `Process.Start(ProcessStartInfo)` la method TINH tra ve `Process`;
+    `UseShellExecute` la property cua `ProcessStartInfo` nen phai set qua
+    `set_UseShellExecute`. `System.Diagnostics.Process` nam trong
+    `System.dll`, ma `.assembly extern System` DA duoc phat san cho moi
+    chuong trinh - khong can khai them."""
+    psi = 'class [System]System.Diagnostics.ProcessStartInfo'
+    proc = 'class [System]System.Diagnostics.Process'
+    return [
+        '.class public abstract sealed auto ansi ' + PROC_CLASS,
+        '       extends [mscorlib]System.Object',
+        '{',
+        '  .method public static int32 Chay(string exe, string args) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (' + psi + ' psi, ' + proc + ' p)',
+        '    ldarg.0',
+        '    ldarg.1',
+        '    newobj instance void [System]System.Diagnostics.ProcessStartInfo::.ctor(string, string)',
+        '    stloc.0',
+        '    ldloc.0',
+        '    ldc.i4.0',
+        '    callvirt instance void [System]System.Diagnostics.ProcessStartInfo::set_UseShellExecute(bool)',
+        '    ldloc.0',
+        '    call ' + proc + ' [System]System.Diagnostics.Process::Start(' + psi + ')',
+        '    stloc.1',
+        '    ldloc.1',
+        '    callvirt instance void [System]System.Diagnostics.Process::WaitForExit()',
+        '    ldloc.1',
+        '    callvirt instance int32 [System]System.Diagnostics.Process::get_ExitCode()',
+        '    ret',
+        '  }',
+        # Khong dung ong: dung `cmd.exe /c "<exe>" <args> > "<tep>" 2>&1` de
+        # HE DIEU HANH ghi thang ra tep. Doc hai ong tuan tu bao gio cung co
+        # the ket (da bat duoc that: 4 byte stdout / 149 KB stderr).
+        # Quy tac cua cmd: neu phan sau /c bat dau bang dau nhay thi cmd BO
+        # cap nhay ngoai cung - nen phai boc them mot cap nua.
+        '  .method public static int32 ChayRa(string exe, string args, string ra_f) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (' + psi + ' psi, ' + proc + ' p, string c)',
+        '    ldstr "/c \\"\\""',
+        '    ldarg.0',
+        '    call string [mscorlib]System.String::Concat(string, string)',
+        '    ldstr "\\" "',
+        '    call string [mscorlib]System.String::Concat(string, string)',
+        '    ldarg.1',
+        '    call string [mscorlib]System.String::Concat(string, string)',
+        '    ldstr " > \\""',
+        '    call string [mscorlib]System.String::Concat(string, string)',
+        '    ldarg.2',
+        '    call string [mscorlib]System.String::Concat(string, string)',
+        '    ldstr "\\" 2>&1\\""',
+        '    call string [mscorlib]System.String::Concat(string, string)',
+        '    stloc.2',
+        '    ldstr "cmd.exe"',
+        '    ldloc.2',
+        '    newobj instance void [System]System.Diagnostics.ProcessStartInfo::.ctor(string, string)',
+        '    stloc.0',
+        '    ldloc.0',
+        '    ldc.i4.0',
+        '    callvirt instance void [System]System.Diagnostics.ProcessStartInfo::set_UseShellExecute(bool)',
+        '    ldloc.0',
+        '    ldc.i4.1',
+        '    callvirt instance void [System]System.Diagnostics.ProcessStartInfo::set_CreateNoWindow(bool)',
+        '    ldloc.0',
+        '    call ' + proc + ' [System]System.Diagnostics.Process::Start(' + psi + ')',
+        '    stloc.1',
+        '    ldloc.1',
+        '    callvirt instance void [System]System.Diagnostics.Process::WaitForExit()',
+        '    ldloc.1',
+        '    callvirt instance int32 ' + proc + '::get_ExitCode()',
+        '    ret',
+        '  }',
+        '}',
+    ]
+
+
+def _ensure_proc_class(ctx: "Ctx"):
+    """Chen `.class TkvProc` DUNG MOT LAN - cung co che `_ensure_ipow_class`."""
+    emitted = ctx.emitted_types
+    if emitted is None or PROC_CLASS in emitted:
+        return
+    emitted.add(PROC_CLASS)
+    ctx.extra_classes.append(_gen_proc_class_il())
+
+
+def push_proc_run(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`proc_run(exe, args)` -> ma thoat cua tien trinh (i32).
+
+    Cho 1 tham so thi `args` la chuoi rong."""
+    if len(args) not in (1, 2):
+        raise SyntaxError(
+            "il_codegen: proc_run(exe) hoac proc_run(exe, args) - nhan 1 hoac 2 tham so string, khong phai %d" % len(args))
+    _ensure_proc_class(ctx)
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    if len(args) == 2:
+        ctx.compile_expr(args[1], scope, out, 'str', ctx)
+    else:
+        out.append('    ldstr ""')
+    out.append('    call int32 class ' + PROC_CLASS + '::Chay(string, string)')
+    if dtype:
+        ctx.widen_if_needed('i32', dtype, out)
+
+
+def push_proc_ra(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`proc_ra(exe, args, tep_ra)` -> ma thoat, GHI stdout+stderr vao tep.
+
+    `proc_run` khong bat duoc dau ra. Di vong qua `cmd /c ... > f 2>&1` thi
+    quoting khong on dinh (ghi chu san co o hat giong, va da thu that).
+
+    GIOI HAN da biet: doc het stdout roi moi doc stderr. Tien trinh con ghi
+    RAT NHIEU ra stderr trong khi ta dang cho stdout co the ket - du voi dau
+    ra co kich thuoc cua mot bai test."""
+    if len(args) != 3:
+        raise SyntaxError(
+            "il_codegen: proc_ra(exe, args, tep_ra) - nhan DUNG 3 tham so string, khong phai %d" % len(args))
+    _ensure_proc_class(ctx)
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    ctx.compile_expr(args[1], scope, out, 'str', ctx)
+    ctx.compile_expr(args[2], scope, out, 'str', ctx)
+    out.append('    call int32 class ' + PROC_CLASS + '::ChayRa(string, string, string)')
+    if dtype:
+        ctx.widen_if_needed('i32', dtype, out)
+
+
+def bootstrap_process_feature(reg: "Registry") -> "i32":
+    register_expr_builtin(reg, 'proc_run', push_proc_run, 'i32')
+    register_expr_builtin(reg, 'proc_ra', push_proc_ra, 'i32')
+    return 0

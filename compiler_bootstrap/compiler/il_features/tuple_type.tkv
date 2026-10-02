@@ -1,0 +1,855 @@
+# -*- coding: utf-8 -*-
+"""Kieu IL cua ValueTuple<T1..TN> - tach rieng file theo tinh nang
+(2026-07-28).
+
+Tu Phase 1 buoc 3 (2026-07-28), file nay CUNG so huu logic parse+codegen
++first-pass cua 'tuple_assign' (x, y = ...) VA 'return_tuple' (return a,
+b, ...), cung quy uoc dependency-injection qua `ctx` nhu list/set/dict.
+NGOAI LE (theo dung plan da duyet): line-parser cua 'return_tuple' VAN O
+CORE - no dung CHUNG 1 ham (`_lp_return`) voi 'return' (scalar) vi CA
+HAI cung xuat phat tu 1 regex `_RETURN_RE`/`return_tuple`-vs-`return`
+chi phan biet duoc SAU KHI parse xong danh sach bieu thuc (so luong gia
+tri) - khong the tach thanh 2 line-parser doc lap ma khong parse 2 lan.
+Se chuyen dich vao target import khi control_flow.py (so huu 'return')
+ra doi o buoc 10."""
+import stmt_row as _row
+import re
+
+from il_core import IL_SCALAR, parse_expr_list, nid
+from il_dispatch import register_line_parser, register_macro_expander, register_stmt_codegen, register_first_pass_walk
+from tkv_types import TypeAnn, bit_logic
+from stmt_row import intern, lay_ds_nut, lay_ds_str, lay_str, make3
+from il_features.regex_match import emit_groups_unpack, is_groups_call
+from expr_row import ea_ds, ea_nut, ea_str, eb_ds, eb_str, ekind, la_node
+import il_features.regex_match as _regex_match
+import il_features.list_type as _lt
+
+MAX_TUPLE_ARITY = 7  # ValueTuple`1..`7 co san (`8 can TRest long nhau, ngoai pham vi)
+
+
+__tkv_import__ = ["il_dispatch", "tkv_types"]
+
+def il_tupleN_type(dtypes: "list[str]", tas: "list[TypeAnn]"=None,
+                   records: "dict[str,list[(str,TkvTypeAnn)]]"=None,
+                   il_type_str_fn: "func(TkvTypeAnn, dict[str,list[(str,TkvTypeAnn)]])->str"=None) -> "str":
+    """Kieu IL cua System.ValueTuple<T1,...,TN> (struct, co san trong
+    mscorlib). Xac minh THAT bang probe .il rieng cho N=2 (session truoc)
+    VA N=3 (probe_tuple3.il, 2026-07-28, tong quat hoa tu ban CHI ho tro
+    2 phan tu) - cung 1 pattern Item1..ItemN cho moi arity, khong co gi
+    khac biet giua N=2 va N=3 ngoai so luong tham so generic."""
+    n = len(dtypes)
+    if not (2 <= n <= MAX_TUPLE_ARITY):
+        raise SyntaxError(f"il_codegen: tuple {n} phan tu khong hop le (chi ho tro 2-{MAX_TUPLE_ARITY})")
+    if tas:
+        # Phan tu KHONG vo huong (record/handle/container) - render de quy.
+        # ValueTuple`N nhan kieu bat ky lam tham so generic, khong co rao can
+        # nao o tang IL; cho duy nhat gia dinh "vo huong" la dong IL_SCALAR
+        # ben duoi. Xem tuple_tas trong tkv_types.TypeAnn.
+        # Nhan ham render QUA THAM SO thay vi `from il_codegen import` trong
+        # than ham (2026-09-18). Day la de quy TUONG HO that su - kieu IL cua
+        # tuple can kieu IL cua tung phan tu, ma phan tu co the lai la tuple -
+        # nen KHONG go duoc bang cach chuyen ham sang module khac. Moi plugin
+        # KHAC trong cay von da lay ham nay qua `ctx.il_type_str` (Ctx khai san,
+        # il_dispatch.py dong 355); `il_tupleN_type` la NGOAI LE DUY NHAT vi no
+        # khong nhan ctx.
+        if il_type_str_fn is None:
+            raise SyntaxError(
+                "il_codegen: il_tupleN_type can il_type_str_fn khi tuple co phan tu "
+                "KHONG vo huong - nguoi goi phai truyen ctx.il_type_str")
+        params = ', '.join([il_type_str_fn(t, records) for t in tas])
+        return f'class [mscorlib]System.Tuple`{n}<{params}>'
+    params = ', '.join([IL_SCALAR[d] for d in dtypes])
+    return f'class [mscorlib]System.Tuple`{n}<{params}>'
+
+
+_TUPLE_ASSIGN_RE = re.compile(r'^(\w+(?:\s*,\s*\w+)+)\s*=\s*(.+)$')
+
+
+def try_parse_tuple_assign(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
+    """LINE_PARSERS entry: 'x, y, ... = ...' (2-7 target) - hoac giai nen
+    1 loi goi ham tra ve tuple N phan tu (xem 'return_tuple'), hoac gan
+    song song N bieu thuc doc lap ('x, y, z = a, b, c', ke ca hoan doi
+    'x, y = y, x') - CHUA BIET o day RHS thuoc dang nao (can func_table,
+    chi co o first-pass/codegen) - luu CA HAI kha nang (rhs_nodes co the
+    co 1 hoac N phan tu) de quyet dinh sau."""
+    m = _TUPLE_ASSIGN_RE.match(line)
+    if not m:
+        return None
+    targets_text, rhs = m.groups()
+    targets = [t.strip() for t in targets_text.split(',')]
+    rhs_nodes = parse_expr_list(rhs)
+    if (len(rhs_nodes) == 1 and ekind(rhs_nodes[0]) == 'tuple_lit'
+            and len(ea_ds(rhs_nodes[0])) == len(targets)):
+        # 'a, b = (x, y)' (2026-09-26): tuple trong ngoac = N ve phai rieng.
+        # stmt luu VAN BAN rhs (parse lai sau) nen phai bo ngoac o van ban.
+        rhs_nodes = ea_ds(rhs_nodes[0])
+        rhs = rhs.strip()
+        rhs = rhs[1:len(rhs) - 1]
+    if len(rhs_nodes) not in (1, len(targets)):
+        raise SyntaxError(
+            f"il_codegen: '{targets_text} = {rhs}' - ve phai co {len(rhs_nodes)} gia "
+            f"tri, can 1 (goi ham tra ve tuple {len(targets)} phan tu) hoac "
+            f"{len(targets)} (gan song song)")
+    return intern(make3('tuple_assign', targets_text, rhs)), pos + 1
+
+
+def _ta_ve_phai(nut: "TkvNode", infer_scope: "Scope", records: "dict[str,list[(str,TkvTypeAnn)]]", func_table: "dict[str,TkvSig]") -> "TypeAnn":
+    """TypeAnn CO HINH DANG cua 1 ve phai don gian: bien, hoac truong record;
+    None neu vo huong/khong biet (caller tu suy dtype)."""
+    if infer_scope is None:
+        return None
+    k = ekind(nut)
+    if k == 'var':
+        if ea_str(nut) not in infer_scope:
+            return None
+        ta = infer_scope.tra(ea_str(nut)).ta
+    elif k == 'attr' and records:
+        if ea_str(nut) not in infer_scope:
+            return None
+        o_ta = infer_scope.tra(ea_str(nut)).ta
+        if o_ta is None or o_ta.dtype not in records:
+            return None
+        ta = dict(records[o_ta.dtype]).get(eb_str(nut))
+    elif k == 'call' and func_table and ea_str(nut) in func_table:
+        # ham nguoi dung tra container/func (vd 'ec_ds(node)')
+        ta = func_table[ea_str(nut)].return_type
+    else:
+        return None
+    if ta is None or ta.la_vo_huong():
+        return None
+    return ta
+
+
+def _luu_dich(t: "str", nguon_dtype: "str", scope: "Scope", body: "list[str]", ctx: "Ctx"):
+    """Luu gia tri (dtype nguon_dtype) tren stack vao dich `t`, NANG kieu neu
+    dich khai kieu khac (2026-09-26: 'v = 0' khai TkvInt roi 'k, v = t' voi
+    phan tu int32 -> cat int32 vao o TkvInt = InvalidCastException)."""
+    tta = scope.tra(t).ta
+    if tta is not None and tta.la_vo_huong() and nguon_dtype != tta.dtype:
+        ctx.widen_if_needed(nguon_dtype, tta.dtype, body)
+    ctx.store_var(t, scope, body)
+
+
+def _ta_bien_tuple(infer_scope: "Scope", nut: "TkvNode") -> "TypeAnn":
+    """TypeAnn neu `nut` la 1 BIEN kieu tuple, nguoc lai None."""
+    if infer_scope is None or ekind(nut) != 'var' or ea_str(nut) not in infer_scope:
+        return None
+    ta = infer_scope.tra(ea_str(nut)).ta
+    if ta is None or ta.shape_ten != 'tuple':
+        return None
+    return ta
+
+
+def _ta_bien_ds(infer_scope: "Scope", nut: "TkvNode") -> "TypeAnn":
+    """TypeAnn neu `nut` la 1 BIEN kieu list, nguoc lai None."""
+    if infer_scope is None or ekind(nut) != 'var' or ea_str(nut) not in infer_scope:
+        return None
+    ta = infer_scope.tra(ea_str(nut)).ta
+    if ta is None or ta.shape_ten != 'list':
+        return None
+    return ta
+
+
+def _unpack_bien_ds(nut: "TkvNode", ds_ta: "TypeAnn", targets: "list[str]", scope: "Scope", body: "list[str]", ctx: "Ctx"):
+    """'a, b = ds': so phan tu KHAC so dich -> ValueError (FormatException)
+    nhu Python; roi gan tung phan tu theo chi so."""
+    kieu = ctx.il_type_str(ds_ta, ctx.records)
+    ctx.label_counter[0] += 1
+    ok = f'{ctx.prefix}_unpk{ctx.label_counter[0]}_ok'
+    ctx.load_var_ref(ea_str(nut), scope, body)
+    body.append(f'    callvirt instance int32 {kieu}::get_Count()')
+    body.append(f'    ldc.i4 {len(targets)}')
+    body.append(f'    beq {ok}')
+    body.append(f'    ldstr "so gia tri de giai nen khac {len(targets)}"')
+    body.append('    newobj instance void [mscorlib]System.FormatException::.ctor(string)')
+    body.append('    throw')
+    body.append(f'  {ok}:')
+    for i, t in enumerate(targets):
+        if t == '_':
+            continue
+        ctx.load_var_ref(ea_str(nut), scope, body)
+        body.append(f'    ldc.i4 {i}')
+        body.append(f'    callvirt instance !0 {kieu}::get_Item(int32)')
+        _luu_dich(t, ds_ta.dtype, scope, body, ctx)
+
+
+def _ta_bien_func(infer_scope: "Scope", ten: "str") -> "TypeAnn":
+    """TypeAnn cua bien/tham so kieu func ten `ten`, hoac None."""
+    if infer_scope is None or ten not in infer_scope:
+        return None
+    ta = infer_scope.tra(ten).ta
+    if ta is None or ta.shape_ten != 'func':
+        return None
+    return ta
+
+
+def _khai_target_tuple(targets: "list[str]", dtypes: "list[str]", tas: "list[TypeAnn]", declare_named: "func(str, TkvTypeAnn)->void", ten_tmp: "str", logic: "i32"=0):
+    """Khai bao cac target cua mot phep giai nen tuple + local tam giu tuple.
+
+    `tas` (tuple_tas) mang TypeAnn DAY DU cua tung phan tu khi co phan tu
+    KHONG vo huong. Thieu no thi `k, v = f()` voi f tra `(str, TypeAnn)` se
+    khai 'v' thanh mot vo huong dtype='TypeAnn' - sai AM THAM: bien mat
+    shape='record' nen moi phep doc truong sau do deu hong.
+    """
+    for i, t in enumerate(targets):
+        declare_named(t, tas[i] if tas else TypeAnn(dtypes[i], None, logic=bit_logic(logic, i)))
+    declare_named(ten_tmp, TypeAnn(dtypes[0], 'tuple', tuple_dtypes=dtypes,
+                                    tuple_tas=tas))
+
+
+def codegen_return_tuple(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'return a, b, ...'."""
+    if sig.return_type is None or sig.return_type.shape_ten != 'tuple' or \
+            len(sig.return_type.tuple_dtypes) != len(lay_ds_nut(stmt, 'expr_nodes')):
+        raise SyntaxError(
+            f"il_codegen: ham '{sig.name}' co 'return {lay_str(stmt, 'expr_text')}' "
+            f"({len(lay_ds_nut(stmt, 'expr_nodes'))} gia tri) nhung chu ky khong khai bao return "
+            f"type dang tuple cung so phan tu")
+    dtypes = sig.return_type.tuple_dtypes
+    _tas = sig.return_type.tuple_tas
+    tuple_type = il_tupleN_type(dtypes, _tas, (ctx.records if ctx is not None else None), ctx.il_type_str)
+    compile_expr = ctx.compile_expr
+    _i_pt = 0
+    for expr_node, d in zip(lay_ds_nut(stmt, 'expr_nodes'), dtypes):
+        # `d` la dtype cua phan tu: voi record/handle do la TEN CLASS, voi
+        # container do la dtype phan tu ben trong - dung quy uoc compile_expr
+        # da dung o moi cho khac, khong che them duong rieng.
+        #
+        # NHUNG quy uoc do LAM MAT HINH DANG, va voi container thi dieu do
+        # sinh MA SAI AM THAM: `so` la list[int] ma chu ky khai list[i32] thi
+        # compile_expr nhan dtype 'i32' va phat phep doi VO HUONG
+        # `TkvInt::ToI32` len mot THAM CHIEU List - dich sach, roi nem
+        # OverflowException luc chay voi thong bao lac huong ("chi so int qua
+        # lon") cho mot gia tri bang 7. Repro 9 dong, xem
+        # test/verify/return_tuple_container_test.py.
+        # O day tha TU CHOI LUC DICH con hon nhan roi sinh ma sai.
+        _ta_pt = _tas[_i_pt] if _tas is not None and _i_pt < len(_tas) else None
+        if _ta_pt is not None and _ta_pt.shape_ten in ('list', 'set', 'dict'):
+            _thuc = ctx.infer_dtype(expr_node, scope, ctx.func_table,
+                                    ctx.records, ctx.record_methods,
+                                    None)
+            if _thuc is not None and _thuc != d:
+                raise SyntaxError(
+                    f"il_codegen: ham '{sig.name}' khai phan tu thu {_i_pt + 1} cua "
+                    f"tuple tra ve la {_ta_pt.shape_ten}[{d}] nhung gia tri tra ve la "
+                    f"{_ta_pt.shape_ten}[{_thuc}]. Hai kieu container khac nhau KHONG "
+                    f"tu doi duoc; sua annotation hoac sua gia tri cho khop "
+                    f"(vd 'xs = []' suy ra list[int] chu khong phai list[i32]).")
+        _i_pt = _i_pt + 1
+        if (_ta_pt is not None and not _ta_pt.la_vo_huong()
+                and ekind(expr_node) in ('dict_rong', 'dict_lit', 'list_literal', 'tuple_lit')):
+            # literal container theo kieu phan tu (2026-09-28), vd 'return [], {}'
+            _lt.compile_theo_ta(expr_node, _ta_pt, d, scope, body, ctx)
+        else:
+            compile_expr(expr_node, scope, body, d, ctx)
+    # Vong lap thay `', '.join(f'!{i}' for i in range(N))`: trinh bien
+    # dich tu-host chua chay `range` BEN TRONG mot bieu thuc sinh.
+    _ps = []
+    _i = 0
+    while _i < len(dtypes):
+        _ps.append(f'!{_i}')
+        _i = _i + 1
+    ctor_params = ', '.join(_ps)
+    body.append(f'    newobj instance void {tuple_type}::.ctor({ctor_params})')
+    if ctx.try_depth > 0:
+        ctx.store_var(ctx.ret_tmp_name, scope, body)
+        body.append(f'    leave {ctx.epilogue_lbl}')
+    else:
+        body.append('    ret')
+
+
+def codegen_tuple_assign(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'x, y, ... = ...'."""
+    rhs_nodes = lay_ds_nut(stmt, 'rhs_nodes')
+    targets = lay_ds_str(stmt, 'targets')
+    compile_expr = ctx.compile_expr
+    store_var = ctx.store_var
+    if len(rhs_nodes) == 1 and ekind(rhs_nodes[0]) == 'method_call':
+        # 'a, b = m.groups()' (P6, 2026-09-08) - xem il_features/regex_match.py.
+
+        def _ta_of(nm: "str") -> "TypeAnn":
+            nonlocal scope
+            return scope.tra(nm).ta if nm in scope else None
+        if is_groups_call(rhs_nodes[0], _ta_of):
+            emit_groups_unpack(rhs_nodes[0], targets, scope, body,
+                                             ctx, store_var)
+            return
+    if len(rhs_nodes) == 1 and ekind(rhs_nodes[0]) == 'index':
+        # 'k, v = lst[i]' (Phase 3.2, 2026-08-11 - most_common(c,n) tra ve
+        # list[(K,i32)], can doc lai tung phan tu) - 'lst' phai la 1 BIEN
+        # list-cua-tuple (elem_ta.shape_ten=='tuple'). Dung LAI y het mau
+        # ldloc-roi-ldfld cua nhanh 'call' ben duoi (da xac minh THAT) -
+        # chi khac buoc lay GIA TRI tuple: get_Item(int32) thay vi goi ham.
+        idx_node = rhs_nodes[0]
+        list_name, indices = ea_str(idx_node), eb_ds(idx_node)
+        if len(indices) != 1:
+            raise SyntaxError(f"il_codegen: '{', '.join(targets)} = {list_name}[...]' chi ho tro 1 chi so")
+        list_ta = scope.tra(list_name).ta
+        dtypes = list_ta.elem_ta.tuple_dtypes
+        tuple_type = il_tupleN_type(dtypes, list_ta.elem_ta.tuple_tas,
+                                     ctx.records, ctx.il_type_str)
+        list_type = ctx.il_type_str(list_ta, ctx.records)
+        tmp_idx = scope.tra(f'__tupleassign{nid(stmt)}_tmp').idx
+        ctx.load_var_ref(list_name, scope, body)
+        compile_expr(indices[0], scope, body, 'i32', ctx)
+        body.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
+        body.append(f'    stloc.s {tmp_idx}')
+        for i, t in enumerate(targets):
+            body.append(f'    ldloc.s {tmp_idx}')
+            body.append(f'    callvirt instance !{i} {tuple_type}::get_Item{i + 1}()')
+            _luu_dich(t, dtypes[i], scope, body, ctx)
+    elif len(rhs_nodes) == 1:
+        # 'x, y, ... = f(...)' - f co the la HAM NGUOI DUNG (func_table)
+        # HOAC 1 BUILTIN dang ky return_ta shape='tuple' (xem
+        # fpw_tuple_assign o tren, CUNG logic phan nhanh). f tra ve 1
+        # ValueTuple<T1..TN> that - luu vao local tam TRUOC roi doc lai
+        # N lan (ldfld doc truc tiep tren 1 gia tri value-type KHONG can
+        # dia chi, nhung can nap lai MOI LAN vi ldfld 'tieu thu' instance
+        # tren dinh stack - da xac minh THAT bang probe .il rieng, N=2
+        # session truoc + N=3 probe_tuple3.il).
+        call_node = rhs_nodes[0]
+        builtin_name = ea_str(call_node)
+        _tp_ta = _ta_bien_tuple(scope, call_node)
+        if _tp_ta is not None:
+            kieu_tp = il_tupleN_type(_tp_ta.tuple_dtypes, _tp_ta.tuple_tas, ctx.records, ctx.il_type_str)
+            for i, t in enumerate(targets):
+                if t == '_':
+                    continue
+                ctx.load_var_ref(ea_str(call_node), scope, body)
+                body.append(f'    callvirt instance !{i} {kieu_tp}::get_Item{i + 1}()')
+                _luu_dich(t, _tp_ta.tuple_dtypes[i], scope, body, ctx)
+            return
+        _ds_ta = _ta_bien_ds(scope, call_node)
+        if _ds_ta is not None:
+            _unpack_bien_ds(call_node, _ds_ta, targets, scope, body, ctx)
+            return
+        _m_ta = _tuple_ta_cua_method(call_node, scope, ctx.records, ctx.record_methods)
+        _f_ta = _ta_bien_func(scope, builtin_name) if ekind(call_node) == 'call' else None
+        if _m_ta is not None:
+            _ret_ta = _m_ta
+        elif _f_ta is not None:
+            _ret_ta = _f_ta.func_ret_ta
+        elif ctx.func_table and builtin_name in ctx.func_table:
+            _ret_ta = ctx.func_table[builtin_name].return_type
+        elif builtin_name in ctx.reg.expr_builtin_return_ta:
+            _ret_ta = ctx.reg.expr_builtin_return_ta[builtin_name]
+        else:
+            _ret_ta = ctx.reg.expr_builtin_return_ta_fn[builtin_name](eb_ds(call_node), scope, ctx.func_table)
+        dtypes = _ret_ta.tuple_dtypes
+        tuple_type = il_tupleN_type(dtypes, _ret_ta.tuple_tas, ctx.records, ctx.il_type_str)
+        tmp_idx = scope.tra(f'__tupleassign{nid(stmt)}_tmp').idx
+        compile_expr(call_node, scope, body, dtypes[0], ctx)
+        body.append(f'    stloc.s {tmp_idx}')
+        for i, t in enumerate(targets):
+            body.append(f'    ldloc.s {tmp_idx}')
+            body.append(f'    callvirt instance !{i} {tuple_type}::get_Item{i + 1}()')
+            _luu_dich(t, dtypes[i], scope, body, ctx)
+    else:
+        # 'x, y, ... = a, b, ...' - danh gia CA N ve vao local tam
+        # TRUOC roi moi gan vao target - dam bao ngu nghia hoan doi
+        # dung THAT (vd 'x, y = y, x'), khong bi ghi de giua chung.
+        for i, rhs_node in enumerate(rhs_nodes):
+            _rb = scope.tra(f'__tupleassign{nid(stmt)}_t{i + 1}')
+            tmp_idx = _rb.idx
+            tmp_ta = _rb.ta
+            compile_expr(rhs_node, scope, body, tmp_ta.dtype, ctx)
+            body.append(f'    stloc.s {tmp_idx}')
+        for i, t in enumerate(targets):
+            tmp_idx = scope.tra(f'__tupleassign{nid(stmt)}_t{i + 1}').idx
+            body.append(f'    ldloc.s {tmp_idx}')
+            store_var(t, scope, body)
+
+
+def _tuple_ta_cua_method(call_node: "TkvNode", scope: "Scope", records: "dict[str,list[(str,TkvTypeAnn)]]", record_methods: "dict[str,dict[str,Signature]]") -> "TypeAnn":
+    """Kieu tuple tra ve cua 'obj.method(...)' khi obj la RECORD va method tra
+    tuple; None neu khong phai (2026-09-25)."""
+    if ekind(call_node) != 'method_call':
+        return None
+    try:
+        obj_ta = scope.tra(ea_str(call_node)).ta
+    except Exception:
+        return None
+    if obj_ta is None or not records or obj_ta.dtype not in records:
+        return None
+    m_sig = ((record_methods or {}).get(obj_ta.dtype) or {}).get(eb_str(call_node))
+    if m_sig is None or m_sig.return_type is None or m_sig.return_type.shape_ten != 'tuple':
+        return None
+    return m_sig.return_type
+
+
+def fpw_return_tuple(stmt: "i32", ctx: "WalkCtx"):
+    reg = ctx.reg
+    collect_ternary_temps = ctx.collect_ternary_temps
+    for expr_node in lay_ds_nut(stmt, 'expr_nodes'):
+        collect_ternary_temps(expr_node)
+
+
+def _dtype_hang_so(node: "TkvNode") -> "str":
+    """dtype cua hang so 'num' (hoac dau tru cua no) theo cu phap: co '.' -> f64, khong -> i32;
+    None neu khong phai hang so (2026-09-30: 'a, b = 1, 2' trong ham tra str khai a,b la str)."""
+    if not la_node(node):
+        return None
+    k = ekind(node)
+    if k == 'num':
+        if '.' in ea_str(node):
+            return 'f64'
+        return 'i32'
+    if k == 'neg':
+        return _dtype_hang_so(ea_nut(node))
+    return None
+
+
+def fpw_tuple_assign(stmt: "i32", ctx: "WalkCtx"):
+    reg = ctx.reg
+    rhs_nodes = lay_ds_nut(stmt, 'rhs_nodes')
+    targets = lay_ds_str(stmt, 'targets')
+    func_table = ctx.func_table
+    declare_named = ctx.declare_named
+    collect_ternary_temps = ctx.collect_ternary_temps
+    infer_scope = ctx.infer_scope
+    if len(rhs_nodes) == 1 and ekind(rhs_nodes[0]) == 'method_call' and infer_scope is not None:
+
+        def _ta_of(nm: "str") -> "TypeAnn":
+            nonlocal infer_scope
+            try:
+                return infer_scope.tra(nm).ta
+            except (KeyError, SyntaxError):
+                return None
+        if is_groups_call(rhs_nodes[0], _ta_of):
+            # Moi group la mot chuoi (Group.Value) - khai bao het la 'str'.
+            for t in targets:
+                declare_named(t, TypeAnn('str', None))
+            return
+    if len(rhs_nodes) == 1 and ekind(rhs_nodes[0]) == 'index' and infer_scope is not None:
+        # 'k, v = lst[i]' (Phase 3.2, 2026-08-11) - 'lst' phai la 1 BIEN
+        # list-cua-tuple da khai bao (elem_ta.shape_ten=='tuple') - xem
+        # codegen_tuple_assign's nhanh tuong ung.
+        idx_node = rhs_nodes[0]
+        list_name, indices = ea_str(idx_node), eb_ds(idx_node)
+        try:
+            list_ta = infer_scope.tra(list_name).ta
+        except KeyError:
+            raise SyntaxError(f"il_codegen: '{', '.join(targets)} = {list_name}[...]' - '{list_name}' chua duoc khai bao")
+        if list_ta.shape_ten != 'list' or list_ta.elem_ta is None or list_ta.elem_ta.shape_ten != 'tuple':
+            raise SyntaxError(
+                f"il_codegen: '{', '.join(targets)} = {list_name}[...]' - '{list_name}' phai la "
+                f"1 list-cua-tuple (vd 'list[(K,i32)]' tra ve tu most_common(...))")
+        dtypes = list_ta.elem_ta.tuple_dtypes
+        if len(dtypes) != len(targets):
+            raise SyntaxError(
+                f"il_codegen: '{', '.join(targets)} = {list_name}[...]' - can {len(dtypes)} "
+                f"target (tuple {len(dtypes)} phan tu), gap {len(targets)}")
+        _khai_target_tuple(targets, dtypes, list_ta.elem_ta.tuple_tas,
+                           declare_named, f'__tupleassign{nid(stmt)}_tmp')
+        for idx_expr in indices:
+            collect_ternary_temps(idx_expr)
+    elif len(rhs_nodes) == 1:
+        # 'x, y, ... = f(...)' - f tra ve 1 tuple that. f co the la HAM
+        # NGUOI DUNG (tra func_table, nhu truoc gio) HOAC 1 BUILTIN dang
+        # ky return_ta shape='tuple' (batch 5.5b muc 4, 2026-08-13 - vd
+        # path_splitext(p) -> (str,str)) - tra EXPR_BUILTIN_RETURN_TA
+        # TRUOC, chi raise loi neu CA HAI deu khong khop.
+        call_node = rhs_nodes[0]
+        _tp_ta = _ta_bien_tuple(infer_scope, call_node)
+        if _tp_ta is not None:
+            # 'a, b = t' voi t la BIEN tuple (2026-09-26)
+            if len(_tp_ta.tuple_dtypes) != len(targets):
+                raise SyntaxError(f"il_codegen: tuple {len(_tp_ta.tuple_dtypes)} phan tu, khong khop {len(targets)} dich")
+            _khai_target_tuple(targets, _tp_ta.tuple_dtypes, _tp_ta.tuple_tas, declare_named,
+                               f'__tupleassign{nid(stmt)}_tmp', _tp_ta.logic)
+            return
+        _ds_ta = _ta_bien_ds(infer_scope, call_node)
+        if _ds_ta is not None:
+            # 'a, b = ds' voi ds la BIEN list (2026-09-26): moi dich = 1 phan tu
+            _pt = _ds_ta.elem_ta if _ds_ta.elem_ta is not None else TypeAnn(_ds_ta.dtype, None)
+            for t in targets:
+                if t != '_':
+                    declare_named(t, _pt)
+            return
+        _m_ta = _tuple_ta_cua_method(call_node, infer_scope, ctx.records, ctx.record_methods)
+        if _m_ta is not None:
+            if len(_m_ta.tuple_dtypes) != len(targets):
+                raise SyntaxError(
+                    f"il_codegen: method '{eb_str(call_node)}' tra ve tuple "
+                    f"{len(_m_ta.tuple_dtypes)} phan tu, khong khop {len(targets)} target")
+            _khai_target_tuple(targets, _m_ta.tuple_dtypes, _m_ta.tuple_tas, declare_named,
+                               f'__tupleassign{nid(stmt)}_tmp')
+            collect_ternary_temps(call_node)
+            return
+        if ekind(call_node) != 'call':
+            raise SyntaxError(
+                f"il_codegen: '{', '.join(targets)} = ...' voi 1 gia tri ben phai "
+                f"phai la 1 loi goi ham TRA VE TUPLE {len(targets)} phan tu "
+                f"(vd 'x, y = f(...)')")
+        builtin_name = ea_str(call_node)
+        _f_ta = _ta_bien_func(infer_scope, builtin_name)
+        if _f_ta is not None:
+            # 'x, y = f(...)' voi f la BIEN/THAM SO kieu func tra tuple (2026-09-26)
+            _fr = _f_ta.func_ret_ta
+            if _fr is None or _fr.shape_ten != 'tuple' or len(_fr.tuple_dtypes) != len(targets):
+                raise SyntaxError(
+                    f"il_codegen: '{builtin_name}' (kieu func) khong tra ve tuple {len(targets)} phan tu")
+            dtypes = _fr.tuple_dtypes
+            _tas = _fr.tuple_tas
+        elif func_table and builtin_name in func_table:
+            callee = func_table[builtin_name]
+            if callee.return_type is None or callee.return_type.shape_ten != 'tuple' or \
+                    len(callee.return_type.tuple_dtypes) != len(targets):
+                raise SyntaxError(
+                    f"il_codegen: ham '{builtin_name}' khong tra ve tuple {len(targets)} "
+                    f"phan tu (can '-> \"({', '.join(['dtype' for _t in targets])})\"' trong chu ky)")
+            dtypes = callee.return_type.tuple_dtypes
+            _tas = callee.return_type.tuple_tas
+        elif builtin_name in ctx.reg.expr_builtin_return_ta and \
+                ctx.reg.expr_builtin_return_ta[builtin_name].shape_ten == 'tuple':
+            builtin_ta = ctx.reg.expr_builtin_return_ta[builtin_name]
+            if len(builtin_ta.tuple_dtypes) != len(targets):
+                raise SyntaxError(
+                    f"il_codegen: '{builtin_name}(...)' tra ve tuple "
+                    f"{len(builtin_ta.tuple_dtypes)} phan tu, khong khop "
+                    f"{len(targets)} target ben trai")
+            dtypes = builtin_ta.tuple_dtypes
+            _tas = builtin_ta.tuple_tas
+        elif builtin_name in ctx.reg.expr_builtin_return_ta_fn:
+            # dtype PHU THUOC tham so (vd divmod(a,b) - batch 5.5b muc
+            # cuoi, 2026-08-13). Goi fn(args, infer_scope) NGAY O FIRST
+            # PASS de suy dtype tu bien 'a' da khai bao truoc do.
+            dyn_ta = ctx.reg.expr_builtin_return_ta_fn[builtin_name](eb_ds(call_node), infer_scope, None)
+            if dyn_ta is None or dyn_ta.shape_ten != 'tuple':
+                raise SyntaxError(
+                    f"il_codegen: '{builtin_name}(...)' khong suy duoc kieu tra ve tuple "
+                    f"(tham so dau co the chua phai 1 BIEN da khai bao kieu ro rang)")
+            if len(dyn_ta.tuple_dtypes) != len(targets):
+                raise SyntaxError(
+                    f"il_codegen: '{builtin_name}(...)' tra ve tuple "
+                    f"{len(dyn_ta.tuple_dtypes)} phan tu, khong khop "
+                    f"{len(targets)} target ben trai")
+            dtypes = dyn_ta.tuple_dtypes
+            _tas = dyn_ta.tuple_tas
+        else:
+            raise SyntaxError(
+                f"il_codegen: '{', '.join(targets)} = ...' voi 1 gia tri ben phai "
+                f"phai la 1 loi goi ham TRA VE TUPLE {len(targets)} phan tu "
+                f"(vd 'x, y = f(...)')")
+        _khai_target_tuple(targets, dtypes, _tas, declare_named,
+                           f'__tupleassign{nid(stmt)}_tmp')
+        collect_ternary_temps(call_node)
+    else:
+        # Local tam RIENG cho tung ve (KHONG gan thang vao target) - dam
+        # bao ngu nghia hoan doi dung THAT ('x, y = y, x' phai danh gia
+        # CA N ve TRUOC khi gan bat ky target nao, giong Python that).
+        infer_scope = ctx.infer_scope
+        body_dtype = ctx.body_dtype
+        infer_dtype = ctx.infer_dtype
+        for i, (t, rhs_node) in enumerate(zip(targets, rhs_nodes)):
+            # 2026-09-26: GIU hinh dang day du (bien/truong record container
+            # hoac func) - truoc day moi ve deu khai vo huong.
+            ta_day_du = _ta_ve_phai(rhs_node, infer_scope, ctx.records, func_table)
+            if ta_day_du is None:
+                d = infer_dtype(rhs_node, infer_scope, func_table, None, None, None)
+                if d is None:
+                    d = _dtype_hang_so(rhs_node)
+                if d is None:
+                    d = body_dtype
+                ta_day_du = TypeAnn(d, None)
+            declare_named(t, ta_day_du)
+            declare_named(f'__tupleassign{nid(stmt)}_t{i + 1}', ta_day_du)
+            collect_ternary_temps(rhs_node)
+
+
+_multi_target_counter: "i32" = 0
+_MULTI_TARGET_RE = re.compile(r'^[A-Za-z_]\w*(?:\[.*\]|\.\w+)*$')
+_TU_KHOA_DAU_DONG: "set[str]" = {'for', 'while', 'if', 'elif', 'else', 'return', 'assert', 'del', 'with', 'print', 'raise', 'yield', 'lambda', 'global', 'nonlocal', 'import', 'from', 'def', 'class', 'try', 'except'}
+
+
+def _tach_phay_muc0(s: "str") -> "list[str]":
+    """Tach theo dau ',' o do sau ngoac 0, bo qua noi dung trong chuoi va ngoac."""
+    kq = []
+    sau = 0
+    dau = ''
+    cur = ''
+    i = 0
+    while i < len(s):
+        c = s[i]
+        if dau != '':
+            cur = cur + c
+            if c == chr(92) and i + 1 < len(s):
+                cur = cur + s[i + 1]
+                i = i + 1
+            elif c == dau:
+                dau = ''
+        elif c == '"' or c == chr(39):
+            dau = c
+            cur = cur + c
+        elif c == '(' or c == '[' or c == '{':
+            sau = sau + 1
+            cur = cur + c
+        elif c == ')' or c == ']' or c == '}':
+            sau = sau - 1
+            cur = cur + c
+        elif c == ',' and sau == 0:
+            kq.append(cur.strip())
+            cur = ''
+        else:
+            cur = cur + c
+        i = i + 1
+    kq.append(cur.strip())
+    return kq
+
+
+def _vi_tri_gan_ngoai(s: "str") -> "i32":
+    """Vi tri dau '=' don le (khong phai == <= >= !=) o do sau 0, ngoai chuoi; -1 neu khong co."""
+    sau = 0
+    dau = ''
+    i = 0
+    while i < len(s):
+        c = s[i]
+        if dau != '':
+            if c == chr(92):
+                i = i + 1
+            elif c == dau:
+                dau = ''
+        elif c == '"' or c == chr(39):
+            dau = c
+        elif c == '(' or c == '[' or c == '{':
+            sau = sau + 1
+        elif c == ')' or c == ']' or c == '}':
+            sau = sau - 1
+        elif c == '=' and sau == 0:
+            truoc = ''
+            if i > 0:
+                truoc = s[i - 1]
+            sau_c = ''
+            if i + 1 < len(s):
+                sau_c = s[i + 1]
+            if sau_c != '=' and truoc not in ('=', '<', '>', '!', ':', '+', '-', '*', '/', '%', '&', '|', '^'):
+                return i
+            if sau_c == '=':
+                i = i + 1
+        i = i + 1
+    return -1
+
+
+def try_expand_multi_target(line: "str") -> "str":
+    """MACRO_EXPANDERS entry (2026-09-30): 'xs[i], xs[j] = xs[j], xs[i]' / 'a.x, b[0] = e1, e2'
+    - gan dong thoi vao dich la phan tu/thuoc tinh. Tinh het ve phai vao bien tam TRUOC roi moi gan
+    (dung ngu nghia Python: ve phai danh gia xong moi gan), nen hoan vi dung. Dich toan ten don
+    ('a, b = b, a') di duong tuple_assign co san, khong o day."""
+    stripped = line.strip()
+    if stripped == '' or not (stripped[0].isalpha() or stripped[0] == '_'):
+        return None
+    dau_tu = stripped.split(' ')[0].split('(')[0].split('[')[0].split('.')[0]
+    if dau_tu in _TU_KHOA_DAU_DONG:
+        return None
+    vt = _vi_tri_gan_ngoai(stripped)
+    if vt < 0:
+        return None
+    lhs = stripped[:vt].strip()
+    rhs = stripped[vt + 1:].strip()
+    dich = _tach_phay_muc0(lhs)
+    if len(dich) < 2:
+        return None
+    co_phuc_tap = False
+    for d in dich:
+        if not _MULTI_TARGET_RE.match(d):
+            return None
+        if '[' in d or '.' in d:
+            co_phuc_tap = True
+    if not co_phuc_tap:
+        return None
+    ve = _tach_phay_muc0(rhs)
+    if len(ve) != len(dich) and rhs.startswith('(') and rhs.endswith(')'):
+        ve = _tach_phay_muc0(rhs[1:len(rhs) - 1])
+    if len(ve) != len(dich):
+        return None
+    global _multi_target_counter
+    n = _multi_target_counter
+    _multi_target_counter = _multi_target_counter + 1
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    ra = []
+    k = 0
+    while k < len(ve):
+        ra.append(ind + '__mt' + str(n) + '_' + str(k) + ' = ' + ve[k])
+        k = k + 1
+    k = 0
+    while k < len(dich):
+        ra.append(ind + dich[k] + ' = __mt' + str(n) + '_' + str(k))
+        k = k + 1
+    return chr(10).join(ra)
+
+
+_double_index_counter: "i32" = 0
+_GAN_SAU_CHI_SO_RE = re.compile(r'^\s*(=|//=|\*\*=|<<=|>>=|[-+*/%&|^]=)(?!=)\s*(.*)$')
+
+
+def _cac_nhom_chi_so(s: "str") -> "list[str]":
+    """'NAME[a][b]...' -> ['NAME', '[a]', '[b]', ..., phan con lai]. Nhom '[..]' can bang, bo qua chuoi.
+    Phan tu cuoi = phan con lai sau nhom ngoac cuoi cung."""
+    ra = []
+    i = 0
+    n = len(s)
+    while i < n and ((s[i].isalpha() or s[i].isdigit()) or s[i] == '_'):
+        i = i + 1
+    ra.append(s[:i])
+    while i < n and s[i] == '[':
+        sau = 0
+        dau = ''
+        j = i
+        while j < n:
+            c = s[j]
+            if dau != '':
+                if c == chr(92):
+                    j = j + 1
+                elif c == dau:
+                    dau = ''
+            elif c == '"' or c == chr(39):
+                dau = c
+            elif c == '[' or c == '(' or c == '{':
+                sau = sau + 1
+            elif c == ']' or c == ')' or c == '}':
+                sau = sau - 1
+                if sau == 0:
+                    break
+            j = j + 1
+        if j >= n:
+            return []
+        ra.append(s[i:j + 1])
+        i = j + 1
+    ra.append(s[i:])
+    return ra
+
+
+def try_expand_double_index(line: "str") -> "str":
+    """MACRO_EXPANDERS entry (2026-09-30): 'g[i][j] = v' / 'g[i][j] += v' - gan/gan kep vao phan tu
+    cua list long nhau. Tach thanh 'hang = g[i]' (tham chieu, list la doi tuong) roi 'hang[j] = v'."""
+    stripped = line.strip()
+    if stripped == '' or not (stripped[0].isalpha() or stripped[0] == '_'):
+        return None
+    if '][' not in stripped:
+        return None
+    dau_tu = stripped.split(' ')[0].split('(')[0].split('[')[0]
+    if dau_tu in _TU_KHOA_DAU_DONG:
+        return None
+    nhom = _cac_nhom_chi_so(stripped)
+    if len(nhom) < 4:
+        return None
+    ten = nhom[0]
+    con_lai = nhom[len(nhom) - 1]
+    m = _GAN_SAU_CHI_SO_RE.match(con_lai)
+    if not m:
+        return None
+    global _double_index_counter
+    n = _double_index_counter
+    _double_index_counter = _double_index_counter + 1
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    goc = ten
+    k = 1
+    while k < len(nhom) - 2:
+        goc = goc + nhom[k]
+        k = k + 1
+    hang = '__hang' + str(n)
+    dong1 = ind + hang + ' = ' + goc
+    dong2 = ind + hang + nhom[len(nhom) - 2] + ' ' + m.group(1) + ' ' + m.group(2)
+    return dong1 + chr(10) + dong2
+
+
+_DICT_LIT_DICH_RE = re.compile(r'^[A-Za-z_]\w*(?:\s*:\s*".*")?$')
+_DICT_UPDATE_LIT_RE = re.compile(r'^([A-Za-z_]\w*)\.update\(\{(.*)\}\)$')
+
+
+def _vi_tri_hai_cham_ngoai(s: "str") -> "i32":
+    """Vi tri dau ':' dau tien o do sau 0, ngoai chuoi (phan cach khoa/gia tri dict); -1 neu khong co."""
+    sau = 0
+    dau = ''
+    i = 0
+    while i < len(s):
+        c = s[i]
+        if dau != '':
+            if c == chr(92):
+                i = i + 1
+            elif c == dau:
+                dau = ''
+        elif c == '"' or c == chr(39):
+            dau = c
+        elif c == '(' or c == '[' or c == '{':
+            sau = sau + 1
+        elif c == ')' or c == ']' or c == '}':
+            sau = sau - 1
+        elif c == ':' and sau == 0:
+            return i
+        i = i + 1
+    return -1
+
+
+def _cap_khoa_gia_tri(trong: "str") -> "list[str]":
+    """'"a": 1, "b": f(x)' -> ['"a"', '1', '"b"', 'f(x)']; [] neu khong phai dict literal (set, comprehension, thieu ':')."""
+    if ' for ' in trong:
+        return []
+    ra = []
+    for p in _tach_phay_muc0(trong):
+        if p == '':
+            continue
+        vt = _vi_tri_hai_cham_ngoai(p)
+        if vt < 0:
+            return []
+        ra.append(p[:vt].strip())
+        ra.append(p[vt + 1:].strip())
+    return ra
+
+
+def try_expand_dict_literal(line: "str") -> "str":
+    """MACRO_EXPANDERS entry (2026-09-30): 'd = {k: v, ...}' / 'd: "dict[K,V]" = {k: v}' / 'd.update({k: v})'
+    -> 'd = {}' roi 'd[k] = v' tung cap (dict rong va gan chi so da ho tro day du). Chi ap dung khi ve phai
+    la dict literal khong rong, khong phai comprehension/set."""
+    stripped = line.strip()
+    if stripped == '':
+        return None
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _DICT_UPDATE_LIT_RE.match(stripped)
+    if m:
+        cap = _cap_khoa_gia_tri(m.group(2).strip())
+        if len(cap) == 0:
+            return None
+        ra = []
+        k = 0
+        while k + 1 < len(cap):
+            ra.append(ind + m.group(1) + '[' + cap[k] + '] = ' + cap[k + 1])
+            k = k + 2
+        return chr(10).join(ra)
+    vt = _vi_tri_gan_ngoai(stripped)
+    if vt < 0:
+        return None
+    lhs = stripped[:vt].strip()
+    rhs = stripped[vt + 1:].strip()
+    if not (rhs.startswith('{') and rhs.endswith('}')) or len(rhs) < 3:
+        return None
+    if not _DICT_LIT_DICH_RE.match(lhs):
+        return None
+    cap = _cap_khoa_gia_tri(rhs[1:len(rhs) - 1].strip())
+    if len(cap) == 0:
+        return None
+    ten = lhs.split(':')[0].strip()
+    ra = [ind + lhs + ' = {}']
+    k = 0
+    while k + 1 < len(cap):
+        ra.append(ind + ten + '[' + cap[k] + '] = ' + cap[k + 1])
+        k = k + 2
+    return chr(10).join(ra)
+
+
+def bootstrap_tuple_type(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    # Dang ky vao il_dispatch NGAY LUC MODULE NAP. 'return_tuple' KHONG dang
+    # ky LINE_PARSERS o day (van o core's _lp_return, xem docstring dau file).
+    register_macro_expander(reg, 'dict_literal', try_expand_dict_literal)
+    register_macro_expander(reg, 'multi_target', try_expand_multi_target)
+    register_macro_expander(reg, 'double_index', try_expand_double_index)
+    register_line_parser(reg, 'tuple_assign', try_parse_tuple_assign)
+    register_stmt_codegen(reg, 'return_tuple', codegen_return_tuple)
+    register_stmt_codegen(reg, 'tuple_assign', codegen_tuple_assign)
+    register_first_pass_walk(reg, 'return_tuple', fpw_return_tuple)
+    register_first_pass_walk(reg, 'tuple_assign', fpw_tuple_assign)

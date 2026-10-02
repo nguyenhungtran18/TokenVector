@@ -1,0 +1,539 @@
+# -*- coding: utf-8 -*-
+"""min(a,b)/max(a,b) (2 tham so vo huong) + sum/min/max/sorted/any/all
+(1 tham so: list HOAC set) - Wave 3 quick-win (2026-07-29), nang cap
+2026-08-03.
+
+min(a,b)/max(a,b): macro TEXT-LEVEL (giong for_in_list/for_enumerate) -
+viet lai THANH 1 ternary co san ('a < b ? a : b') NGAY TAI VI TRI xuat
+hien trong dong (khong chi toan dong nhu cac macro khac - giong f-string's
+subn), nen dung duoc o BAT KY vi tri bieu thuc nao (vd 'clip = min(max(x,
+lo), hi)'). Quet ngoac CAN BANG THU CONG (tu viet _find_balanced_call,
+khong regex thuan) de tach dung 2 tham so ke ca khi long nhau bieu thuc
+phuc tap - CHAP NHAN nhan ban VAN BAN cua a/b vi bieu thuc trong DSL nay
+KHONG co tac dung phu.
+
+sum/min/max/sorted/any/all (1 tham so): TU 2026-08-03 dang ky qua
+register_expr_builtin nen goi duoc o MOI vi tri bieu thuc ('return
+sum(xs) + 1', 'if max(xs) > 10:', 'f(sorted(xs))') - truoc do CHI o RHS 1
+phep gan don le. Duong ASSIGN_RHS_PARSERS/FIRST_PASS_WALK/STMT_CODEGEN cu
+da BO HAN (cung nguyen tac voi Giai doan 0.2: xoa duong cu, khong them
+duong moi).
+
+Cung dip nay nhan them SET (truoc chi list): HashSet<T> khong co indexer
+nen duoc chuyen sang List<T> 1 lan qua List`1::.ctor(IEnumerable`1<!0>)
+roi lap nhu binh thuong - dung ky thuat cua set.to_list()/list.copy().
+Nho vay 'sorted(mot_set)' chay duoc (truoc day khong co duong nao).
+
+'sum' tra ve dtype cua PHAN TU (khong phai 1 chuoi co dinh) nen can co
+che moi EXPR_BUILTIN_DTYPE_FN trong il_dispatch.py - doi xung voi
+return_ta_fn cua method (nhom 5).
+
+Tham so van phai la 1 BIEN don (khong phai bieu thuc long nhau) - giong
+gioi han cua json_dumps: codegen doc TypeAnn tu scope de biet dtype phan
+tu. min(lst)/max(lst) NEM ArgumentOutOfRangeException luc CHAY neu nguon
+rong (list[0] tu nhien throw - KHONG gia lap ValueError cua Python)."""
+from il_core import nid
+import re
+
+from il_dispatch import register_macro_expander, register_expr_builtin, register_expr_builtin_nut
+from il_features.list_type import il_list_type, reject_if_handle_type_elem, reject_if_elem_ta, emit_list_sort, emit_str_chars
+import il_features.int_type as _int_type
+from tkv_types import TypeAnn
+from il_features.int_type import emit_add, emit_cmp, emit_is_zero, ensure_class_int
+from expr_row import ea_str, eb_ds, ekind, mk2, o_str
+
+# ---------------------------------------------------------------------
+# min(a,b) / max(a,b) - macro text-level, viet lai thanh ternary co san.
+# ---------------------------------------------------------------------
+_MINMAX_CALL_RE = re.compile(r'\b(min|max)\(')
+
+
+__tkv_import__ = ["il_dispatch", "tkv_types"]
+
+def _find_balanced_call(text: "str", open_paren_idx: "i32") -> "(i32,list[str])":
+    """text[open_paren_idx] == '(' - quet toi ')' dong khop (dem do sau
+    ngoac, bo qua dau ',' BEN TRONG chuoi "..." hoac ngoac long hon), tra
+    ve (idx cua ')' dong khop, list cac tham so da strip())."""
+    depth = 0
+    parts = []
+    part_start = open_paren_idx + 1
+    in_str = False
+    i = open_paren_idx
+    while i < len(text):
+        c = text[i]
+        if in_str:
+            if c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+            if depth == 0:
+                parts.append(text[part_start:i].strip())
+                return i, parts
+        elif c == ',' and depth == 1:
+            parts.append(text[part_start:i].strip())
+            part_start = i + 1
+        i += 1
+    raise SyntaxError(f"il_codegen: '(' o vi tri {open_paren_idx} khong co ')' dong khop trong: {text!r}")
+
+
+def try_expand_minmax_2arg(line: "str") -> "str":
+    m = _MINMAX_CALL_RE.search(line)
+    if not m:
+        return None
+    name = m.group(1)
+    open_idx = m.end() - 1
+    close_idx, parts = _find_balanced_call(line, open_idx)
+    if len(parts) < 2:
+        # min(lst)/max(lst) 1 tham so (aggregate) - KHONG phai viec cua
+        # macro nay, de builtin ben duoi xu ly.
+        return None
+    op = '<' if name == 'min' else '>'
+    # N-ary (2026-08-12, Phase 5 uu tien "sum/min/max variadic"): gap
+    # trai qua tung cap theo thu tu TRAI->PHAI, giong min(a, min(b,c))
+    # nhung viet phang thanh 1 ternary long nhau - van CHAP NHAN nhan
+    # ban VAN BAN (khong tac dung phu, xem docstring dau file).
+    expr = parts[0]
+    for p in parts[1:]:
+        expr = f'({expr} {op} {p} ? {expr} : {p})'
+    return line[:m.start()] + expr + line[close_idx + 1:]
+
+
+# ---------------------------------------------------------------------
+# sum/min/max/sorted/any/all (1 tham so: list HOAC set) - expr builtin.
+# ---------------------------------------------------------------------
+_NUMERIC_DTYPES: "set[str]" = {'i32', 'i64', 'f32', 'f64', 'int'}
+
+
+def _agg_arg_ta(args: "list[TkvNode]", scope: "Scope", fname: "str", max_args: "i32"=1) -> "(str,TypeAnn)":
+    """TypeAnn cua tham so + kiem tra no la 1 BIEN list/set. max_args>1
+    cho phep them tham so phu (vd sum(xs, start)) - CHI args[0] duoc xet
+    o day, cac tham so sau do caller tu xu ly rieng."""
+    if not (1 <= len(args) <= max_args) or ekind(args[0]) != 'var':
+        extra = f" (toi da {max_args} tham so)" if max_args > 1 else ""
+        raise SyntaxError(
+            f"il_codegen: {fname}() can 1 tham so DAU la 1 BIEN list/set (vd {fname}(xs)){extra} "
+            f"- bieu thuc long nhau chua ho tro, gan ra 1 bien truoc")
+    name = ea_str(args[0])
+    try:
+        ta = scope.tra(name).ta
+    except KeyError:
+        raise SyntaxError(f"il_codegen: {fname}({name}) - '{name}' chua duoc khai bao")
+    if ta.shape_ten not in ('list', 'set', 'frozenset'):
+        raise SyntaxError(
+            f"il_codegen: {fname}({name}) can '{name}' la list, set hoac frozenset (dang co "
+            f"shape={ta.shape_repr()})")
+    return name, ta
+
+
+def _agg_elem_dtype(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "str":
+    """EXPR_BUILTIN_DTYPE_FN: sum/min/max/sorted deu mang dtype PHAN TU cua
+    nguon. Tra None khi chua suy duoc (caller tu fallback). sum(xs, start)
+    (2026-08-12): args[1:] (start) khong anh huong dtype ket qua - VAN
+    LAY tu args[0] (nguon list), chi noi long check do dai tu ==1 sang
+    >=1 - BUG THAT tung phat hien: thieu nhanh nay khien infer_dtype tra
+    None cho 'sum(xs, start)', keo theo compile_str_builtin() khai bao
+    sai dtype cho local __strtmp (mismatch voi ket qua i32 THAT tren
+    stack), gay NullReferenceException luc chay."""
+    if len(args) < 1 or ekind(args[0]) != 'var':
+        return None
+    try:
+        return scope.tra(ea_str(args[0])).ta.dtype
+    except KeyError:
+        return None
+
+
+def _require_numeric(ta: "TypeAnn", fname: "str"):
+    if ta.dtype not in _NUMERIC_DTYPES:
+        raise SyntaxError(
+            f"il_codegen: {fname}() chi ap dung cho list/set SO (i32/i64/f32/f64), "
+            f"phan tu dang la {ta.dtype!r}")
+
+
+def _temps_agg(node: "TkvNode", ctx: "WalkCtx", prefix: "str", res_dtype_fn: "func(TypeAnn)->str"):
+    """3 bien an: nguon (List<T> - CAN ca khi tham so von la list, vi trong
+    bieu thuc khong 'load lai' duoc 1 gia tri tam), chi so, va ket qua."""
+    args = eb_ds(node)
+    if len(args) < 1 or ekind(args[0]) != 'var':
+        return
+    try:
+        ta = ctx.infer_scope.tra(ea_str(args[0])).ta
+    except KeyError:
+        return
+    if ta.shape_ten not in ('list', 'set', 'frozenset'):
+        return
+    ctx.declare_named(f'__{prefix}{nid(node)}_src', TypeAnn(ta.dtype, 'list'))
+    ctx.declare_named(f'__{prefix}{nid(node)}_idx', TypeAnn('i32', None))
+    ctx.declare_named(f'__{prefix}{nid(node)}_res', TypeAnn(res_dtype_fn(ta), None))
+
+
+def _loop_prelude(args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx: "Ctx", prefix: "str", fname: "str", node: "TkvNode", max_args: "i32"=1) -> "(str,TypeAnn,i32,i32,i32,(str,str,str))":
+    """src = <list/set nguon> (set duoc chuyen sang List 1 lan), tra ve
+    (list_type, ta, cac chi so local, 3 nhan) - dung chung cho
+    sum/min/max/any/all."""
+    name, ta = _agg_arg_ta(args, scope, fname, max_args=max_args)
+    reject_if_handle_type_elem(ta, ctx.extern_class_defs, fname)
+    reject_if_elem_ta(ta, fname)
+    if ta.dtype == 'int':
+        # Ham co the KHONG dung phep so hoc 'int' nao khac ngoai sum(xs)
+        # - luc do khong ai khac goi ensure_class va .class TkvInt se
+        # thieu han khoi file IL.
+        ensure_class_int(ctx)
+    # reject o tren da chan handle type khi ctx co extern_class_defs; neu ctx
+    # thieu key nay se roi ve message loi cu mo ho hon - xem
+    # test/verify/list_handle_type_reject_test.py
+    list_type = il_list_type(ta.dtype, ctx.records)
+    ctx.load_var_ref(name, scope, out)
+    if ta.shape_ten in ('set', 'frozenset'):
+        out.append(
+            f'    newobj instance void {list_type}::.ctor(class '
+            f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    src_idx = scope.tra(f'__{prefix}{nid(node)}_src').idx
+    idx_idx = scope.tra(f'__{prefix}{nid(node)}_idx').idx
+    res_idx = scope.tra(f'__{prefix}{nid(node)}_res').idx
+    out.append(f'    stloc.s {src_idx}')
+    ctx.label_counter[0] += 1
+    n = ctx.label_counter[0]
+    labels = (f"{ctx.prefix}_{prefix}{n}_start", f"{ctx.prefix}_{prefix}{n}_skip",
+              f"{ctx.prefix}_{prefix}{n}_end")
+    return list_type, ta, src_idx, idx_idx, res_idx, labels
+
+
+def _emit_loop_head(out: "list[str]", list_type: "str", src_idx: "i32", idx_idx: "i32", start_lbl: "str", end_lbl: "str"):
+    out.append(f'  {start_lbl}:')
+    out.append(f'    ldloc.s {idx_idx}')
+    out.append(f'    ldloc.s {src_idx}')
+    out.append(f'    callvirt instance int32 {list_type}::get_Count()')
+    out.append(f'    bge {end_lbl}')
+
+
+def _emit_loop_tail(out: "list[str]", idx_idx: "i32", start_lbl: "str", end_lbl: "str", res_idx: "i32"):
+    out.append(f'    ldloc.s {idx_idx}')
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append(f'    stloc.s {idx_idx}')
+    out.append(f'    br {start_lbl}')
+    out.append(f'  {end_lbl}:')
+    out.append(f'    ldloc.s {res_idx}')
+
+
+def _emit_get_item(out: "list[str]", list_type: "str", src_idx: "i32", idx_idx: "i32"):
+    out.append(f'    ldloc.s {src_idx}')
+    out.append(f'    ldloc.s {idx_idx}')
+    out.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
+
+
+def _ensure_class_sumf(ctx: "Ctx"):
+    """TkvSumF::Sum(List<f64>, start): sum() cua Python 3.12 (tong bu sai Neumaier) (2026-10-01)."""
+    if ctx.emitted_types is None or 'TkvSumF' in ctx.emitted_types:
+        return
+    ctx.emitted_types.add('TkvSumF')
+    c = []
+    c.append('.class public auto ansi beforefieldinit TkvSumF extends [mscorlib]System.Object')
+    c.append('{')
+    c.append('  .method public static float64 Sum(class [mscorlib]System.Collections.Generic.List`1<float64> l, float64 s) cil managed')
+    c.append('  {')
+    c.append('    .maxstack 8')
+    c.append('    .locals init (float64 c, int32 i, float64 x, float64 t)')
+    c.append('    ldc.r8 0.0')
+    c.append('    stloc.0')
+    c.append('    ldc.i4.0')
+    c.append('    stloc.1')
+    c.append('  SF_L:')
+    c.append('    ldloc.1')
+    c.append('    ldarg.0')
+    c.append('    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float64>::get_Count()')
+    c.append('    bge SF_E')
+    c.append('    ldarg.0')
+    c.append('    ldloc.1')
+    c.append('    callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<float64>::get_Item(int32)')
+    c.append('    stloc.2')
+    c.append('    ldarg.1')
+    c.append('    ldloc.2')
+    c.append('    add')
+    c.append('    stloc.3')
+    c.append('    ldarg.1')
+    c.append('    call float64 [mscorlib]System.Math::Abs(float64)')
+    c.append('    ldloc.2')
+    c.append('    call float64 [mscorlib]System.Math::Abs(float64)')
+    c.append('    blt SF_B')
+    c.append('    ldloc.0')
+    c.append('    ldarg.1')
+    c.append('    ldloc.3')
+    c.append('    sub')
+    c.append('    ldloc.2')
+    c.append('    add')
+    c.append('    add')
+    c.append('    stloc.0')
+    c.append('    br SF_N')
+    c.append('  SF_B:')
+    c.append('    ldloc.0')
+    c.append('    ldloc.2')
+    c.append('    ldloc.3')
+    c.append('    sub')
+    c.append('    ldarg.1')
+    c.append('    add')
+    c.append('    add')
+    c.append('    stloc.0')
+    c.append('  SF_N:')
+    c.append('    ldloc.3')
+    c.append('    starg.s s')
+    c.append('    ldloc.1')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append('    stloc.1')
+    c.append('    br SF_L')
+    c.append('  SF_E:')
+    c.append('    ldloc.0')
+    c.append('    ldc.r8 0.0')
+    c.append('    beq SF_R')
+    c.append('    ldloc.0')
+    c.append('    ldloc.0')
+    c.append('    sub')
+    c.append('    ldc.r8 0.0')
+    c.append('    bne.un SF_R')
+    c.append('    ldarg.1')
+    c.append('    ldloc.0')
+    c.append('    add')
+    c.append('    starg.s s')
+    c.append('  SF_R:')
+    c.append('    ldarg.1')
+    c.append('    ret')
+    c.append('  }')
+    c.append('}')
+    ctx.extra_classes.append(c)
+
+
+def push_sum(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx", node: "TkvNode"):
+    """sum(xs) hoac sum(xs, start) (2026-08-12, Phase 5 uu tien "sum
+    variadic") - tham so thu 2 la GIA TRI KHOI TAO (bieu thuc bat ky,
+    khong bat buoc la bien), thay cho hang so 0 mac dinh - dung ngu
+    nghia Python that."""
+    # Tach lam HAI lenh thay vi thao TUPLE LONG ngay trong phep gan:
+    # trinh bien dich tu-host chi thao long duoc trong `for ... in`,
+    # chua thao trong phep gan - nen `start_lbl`/`end_lbl` khong bao gio
+    # duoc buoc, keo theo ca than ham hong.
+    list_type, ta, src_idx, idx_idx, res_idx, _nhan = \
+        _loop_prelude(args, scope, out, ctx, 'sum', 'sum', node, max_args=2)
+    start_lbl, _skip, end_lbl = _nhan
+    _require_numeric(ta, 'sum')
+    if ta.dtype == 'f64':
+        _ensure_class_sumf(ctx)
+        out.append(f'    ldloc.s {src_idx}')
+        if len(args) == 2:
+            ctx.compile_expr(args[1], scope, out, 'f64', ctx)
+        else:
+            out.append('    ldc.r8 0.0')
+        out.append('    call float64 TkvSumF::Sum(class [mscorlib]System.Collections.Generic.List`1<float64>, float64)')
+        out.append(f'    stloc.s {res_idx}')
+        out.append(f'    ldloc.s {res_idx}')
+        return
+    if len(args) == 2:
+        ctx.compile_expr(args[1], scope, out, ta.dtype, ctx)
+    else:
+        ctx.compile_expr(mk2('num', o_str('0')), scope, out, ta.dtype, ctx)
+    out.append(f'    stloc.s {res_idx}')
+    out.append('    ldc.i4.0')
+    out.append(f'    stloc.s {idx_idx}')
+    _emit_loop_head(out, list_type, src_idx, idx_idx, start_lbl, end_lbl)
+    out.append(f'    ldloc.s {res_idx}')
+    _emit_get_item(out, list_type, src_idx, idx_idx)
+    if ta.dtype == 'int':
+        # Kieu 'int': 'add' cua CIL khong cong duoc hai struct. Goi
+        # TkvInt::Add (duong nhanh int64 + duong BigInteger khi tran).
+        emit_add(out)
+    else:
+        out.append('    add')
+    out.append(f'    stloc.s {res_idx}')
+    _emit_loop_tail(out, idx_idx, start_lbl, end_lbl, res_idx)
+
+
+def _push_minmax(args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx: "Ctx", cmp_opcode: "str", fname: "str", node: "TkvNode"):
+    # Tach lam HAI lenh thay vi thao TUPLE LONG ngay trong phep gan:
+    # trinh bien dich tu-host chi thao long duoc trong `for ... in`,
+    # chua thao trong phep gan - nen `start_lbl`/`end_lbl` khong bao gio
+    # duoc buoc, keo theo ca than ham hong.
+    list_type, ta, src_idx, idx_idx, res_idx, _nhan = \
+        _loop_prelude(args, scope, out, ctx, 'agg', fname, node)
+    start_lbl, skip_lbl, end_lbl = _nhan
+    if ta.dtype != 'str':
+        _require_numeric(ta, fname)
+    # res = src[0] (nguon rong -> ArgumentOutOfRangeException luc chay)
+    out.append(f'    ldloc.s {src_idx}')
+    out.append('    ldc.i4.0')
+    out.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
+    out.append(f'    stloc.s {res_idx}')
+    out.append('    ldc.i4.1')
+    out.append(f'    stloc.s {idx_idx}')
+    _emit_loop_head(out, list_type, src_idx, idx_idx, start_lbl, end_lbl)
+    _emit_get_item(out, list_type, src_idx, idx_idx)
+    out.append(f'    ldloc.s {res_idx}')
+    if ta.dtype == 'int':
+        # 'clt'/'cgt' khong so sanh duoc hai struct - qua TkvInt::Cmp.
+        emit_cmp(out, cmp_opcode)
+    elif ta.dtype == 'str':
+        # min/max chuoi: so sanh ORDINAL nhu Python (2026-10-01)
+        out.append('    call int32 [mscorlib]System.String::CompareOrdinal(string, string)')
+        out.append('    ldc.i4.0')
+        out.append(f'    {cmp_opcode}')
+    else:
+        out.append(f'    {cmp_opcode}')
+    out.append(f'    brfalse {skip_lbl}')
+    _emit_get_item(out, list_type, src_idx, idx_idx)
+    out.append(f'    stloc.s {res_idx}')
+    out.append(f'  {skip_lbl}:')
+    _emit_loop_tail(out, idx_idx, start_lbl, end_lbl, res_idx)
+
+
+def push_min_list(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx", node: "TkvNode"):
+    _push_minmax(args, scope, out, ctx, 'clt', 'min', node)
+
+
+def push_max_list(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx", node: "TkvNode"):
+    _push_minmax(args, scope, out, ctx, 'cgt', 'max', node)
+
+
+def _push_any_all(args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx: "Ctx", init_val: "i32", flip_val: "i32", skip_when_zero: "i32", fname: "str", node: "TkvNode"):
+    # Tach lam HAI lenh thay vi thao TUPLE LONG ngay trong phep gan:
+    # trinh bien dich tu-host chi thao long duoc trong `for ... in`,
+    # chua thao trong phep gan - nen `start_lbl`/`end_lbl` khong bao gio
+    # duoc buoc, keo theo ca than ham hong.
+    list_type, ta, src_idx, idx_idx, res_idx, _nhan = \
+        _loop_prelude(args, scope, out, ctx, 'anyall', fname, node)
+    start_lbl, skip_lbl, end_lbl = _nhan
+    _require_numeric(ta, fname)
+    out.append(f'    ldc.i4.{init_val}')
+    out.append(f'    stloc.s {res_idx}')
+    out.append('    ldc.i4.0')
+    out.append(f'    stloc.s {idx_idx}')
+    _emit_loop_head(out, list_type, src_idx, idx_idx, start_lbl, end_lbl)
+    _emit_get_item(out, list_type, src_idx, idx_idx)
+    if ta.dtype == 'int':
+        # 'ceq' khong so sanh duoc struct - TkvInt::IsZero tra thang 0/1,
+        # dung y nghia "phan tu nay co falsy khong".
+        emit_is_zero(out)
+    else:
+        ctx.compile_expr(mk2('num', o_str('0')), scope, out, ta.dtype, ctx)
+        out.append('    ceq')
+    # 'ceq' = 1 khi phan tu BANG 0 (falsy). any(): bo qua khi falsy. all():
+    # bo qua khi TRUTHY -> lat nguoc ket qua ceq.
+    if not skip_when_zero:
+        out.append('    ldc.i4.0')
+        out.append('    ceq')
+    out.append(f'    brtrue {skip_lbl}')
+    out.append(f'    ldc.i4.{flip_val}')
+    out.append(f'    stloc.s {res_idx}')
+    out.append(f'  {skip_lbl}:')
+    _emit_loop_tail(out, idx_idx, start_lbl, end_lbl, res_idx)
+
+
+def push_any_list(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx", node: "TkvNode"):
+    _push_any_all(args, scope, out, ctx, 0, 1, True, 'any', node)
+
+
+def push_all_list(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx", node: "TkvNode"):
+    _push_any_all(args, scope, out, ctx, 1, 0, False, 'all', node)
+
+
+def _ta_dict_bien(args: "list[TkvNode]", scope: "Scope") -> "TypeAnn":
+    """TypeAnn neu args[0] la 1 BIEN dict, nguoc lai None."""
+    if len(args) != 1 or ekind(args[0]) != 'var':
+        return None
+    try:
+        ta = scope.tra(ea_str(args[0])).ta
+    except KeyError:
+        return None
+    if ta.shape_ten != 'dict':
+        return None
+    return ta
+
+
+def _sorted_dtype(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "str":
+    """sorted(d) voi d la dict (2026-09-28) -> dtype KHOA; con lai nhu cu."""
+    d_ta = _ta_dict_bien(args, scope)
+    if d_ta is not None:
+        return d_ta.key_dtype
+    return _agg_elem_dtype(args, scope, func_table)
+
+
+def push_sorted(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """KHONG can bien an nao: List moi nam san tren stack, 'dup' de goi
+    Sort() (tra void) roi van con chinh no lam ket qua bieu thuc."""
+    d_ta = _ta_dict_bien(args, scope)
+    if d_ta is not None:
+        # sorted(d) = khoa da sap (2026-09-28): List<K>(d.Keys) roi Sort()
+        k_list = il_list_type(d_ta.key_dtype, ctx.records)
+        d_il = ctx.il_type_str(d_ta, ctx.records)
+        ctx.load_var_ref(ea_str(args[0]), scope, out)
+        out.append(f'    callvirt instance class [mscorlib]System.Collections.Generic.Dictionary`2/KeyCollection<!0, !1> {d_il}::get_Keys()')
+        out.append(f'    newobj instance void {k_list}::.ctor(class '
+                   f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+        out.append('    dup')
+        emit_list_sort(out, k_list, d_ta.key_dtype)
+        return
+    if len(args) == 1 and ekind(args[0]) == 'var':
+        try:
+            s_ta = scope.tra(ea_str(args[0])).ta
+        except KeyError:
+            s_ta = None
+        if s_ta is not None and (not s_ta.shape_ten) and s_ta.dtype == 'str':
+            # sorted(chuoi) = cac ky tu da sap (2026-09-30)
+            ctx.load_var_ref(ea_str(args[0]), scope, out)
+            emit_str_chars(ctx, out)
+            out.append('    dup')
+            emit_list_sort(out, il_list_type('str', ctx.records), 'str')
+            return
+    name, ta = _agg_arg_ta(args, scope, 'sorted')
+    reject_if_handle_type_elem(ta, ctx.extern_class_defs, 'sorted')
+    reject_if_elem_ta(ta, 'sorted')
+    # reject o tren da chan handle type khi ctx co extern_class_defs; neu ctx
+    # thieu key nay se roi ve message loi cu mo ho hon - xem
+    # test/verify/list_handle_type_reject_test.py
+    list_type = il_list_type(ta.dtype, ctx.records)
+    ctx.load_var_ref(name, scope, out)
+    out.append(
+        f'    newobj instance void {list_type}::.ctor(class '
+        f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    out.append('    dup')
+    emit_list_sort(out, list_type, ta.dtype)
+
+
+# Ham CO TEN thay cho `lambda`: trinh bien dich tu-host khong co lambda,
+# va o day lambda khong mang lai gi hon mot ham mot dong.
+def _ta_dtype(ta: "TypeAnn") -> "str":
+    return ta.dtype
+
+
+def _ta_i32(ta: "TypeAnn") -> "str":
+    return "i32"
+
+
+def _make_temps(prefix: "str", res_dtype_fn: "func(TypeAnn)->str") -> "func(TkvNode,WalkCtx)->void":
+    def temps_fn(node: "TkvNode", ctx: "WalkCtx"):
+        nonlocal prefix, res_dtype_fn
+        _temps_agg(node, ctx, prefix, res_dtype_fn)
+    return temps_fn
+
+
+def bootstrap_stdlib_aggregates(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_macro_expander(reg, 'minmax_2arg', try_expand_minmax_2arg)
+    register_expr_builtin_nut(reg, 'sum', push_sum, None, temps_fn=_make_temps('sum', _ta_dtype),
+                           return_dtype_fn=_agg_elem_dtype)
+    register_expr_builtin_nut(reg, 'min', push_min_list, None, temps_fn=_make_temps('agg', _ta_dtype),
+                           return_dtype_fn=_agg_elem_dtype)
+    register_expr_builtin_nut(reg, 'max', push_max_list, None, temps_fn=_make_temps('agg', _ta_dtype),
+                           return_dtype_fn=_agg_elem_dtype)
+    register_expr_builtin_nut(reg, 'any', push_any_list, 'i32', temps_fn=_make_temps('anyall', _ta_i32))
+    register_expr_builtin_nut(reg, 'all', push_all_list, 'i32', temps_fn=_make_temps('anyall', _ta_i32))
+    # sorted() tra ve 1 CONTAINER -> return_shape de bien nhan ket qua duoc
+    # khai bao dung hinh dang VA tang parser giu duoc kenh known_shapes.
+    register_expr_builtin(reg, 'sorted', push_sorted, None, return_shape='list',
+                           return_dtype_fn=_sorted_dtype)

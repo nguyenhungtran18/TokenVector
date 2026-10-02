@@ -1,0 +1,1387 @@
+# -*- coding: utf-8 -*-
+"""Kieu IL cua List<T> dong - tach rieng file theo tinh nang (2026-07-28)
+de sua bug/test list KHONG can dong den phan dict/set/tuple. Xem
+il_core.py cho kernel dung chung.
+
+Tu Phase 1 buoc 1 (2026-07-28), file nay CUNG so huu logic parse+codegen
++first-pass rieng cua list (khong chi ham kieu-IL thuan nhu truoc). Cac
+ham can goi lai vao core (_compile_expr/_load_var_ref/_widen_if_needed...)
+nhan chung qua tham so `ctx` (dictionary duoc 'tiem' san cac ham nay -
+xem gen_il_function trong il_codegen.py) THAY VI import truc tiep tu
+il_codegen.py - BAT BUOC de tranh circular import (il_codegen.py import
+CA file nay, file nay khong bao gio duoc import nguoc lai)."""
+import stmt_row as _row
+import il_extern_dtype
+import il_features.tuple_type as _tt
+import re
+
+from il_core import IL_SCALAR, parse_expr, emit_index_value, nid
+from il_dispatch import (
+    register_assign_rhs_parser, register_line_parser,
+    register_stmt_codegen, register_first_pass_walk, register_expr_codegen,
+)
+from tkv_types import TypeAnn, cac_base
+from typed_dsl_parser import parse_type_ann_str
+from stmt_row import body_of, intern, lay_ds_nut, lay_handlers_vung, lay_nut, lay_str, lay_than, make2, make3, make4
+from expr_row import con_nut, ea_ds, ea_nut, ea_str, eb_ds, eb_nut, eb_str, ec_ds, ec_nut, ekind, la_node
+
+
+__tkv_import__ = ["il_dispatch", "tkv_types"]
+
+
+def il_list_elem_ilstr(dtype: "str", records: "dict[str,list[(str,TkvTypeAnn)]]" = None, extern_class_defs: "dict[str,i32]" = None) -> "str":
+    """Kieu IL cua 1 PHAN TU List<T>/Dictionary value/HashSet<T> - dtype
+    vo huong THAT (tra ve IL_SCALAR[dtype]) HOAC ten 1 'class dang record'
+    da khai bao (tra ve 'class TenRecord' - khoang trong ngon ngu #2,
+    "List chua record"; DA doi tu 'valuetype' sang 'class' cung B1,
+    2026-07-29 - record gio la reference type, xem project-tokenvector-
+    wave2-status memory) HOAC ten 1 extern-class da khai bao (tra ve
+    'class [assembly]ClassName' - Task 2, extern-class-list, 2026-08-18).
+    Dung CHUNG boi ca list_type.py/dict_type.py/set_type.py (khong dat
+    rieng moi noi, tranh trung lap logic). `extern_class_defs` mac dinh
+    None de KHONG pha cac call site cu (record-only, chua biet
+    extern-class)."""
+    elem = IL_SCALAR.get(dtype)
+    if elem is not None:
+        return elem
+    if records and dtype in records:
+        return f'class {dtype}'
+    if extern_class_defs and dtype in extern_class_defs:
+        d = extern_class_defs[dtype]
+        return f"class [{il_extern_dtype.ex_assembly(d)}]{il_extern_dtype.ex_lop(d)}"
+    raise SyntaxError(
+        f"il_codegen: List phan tu kieu {dtype!r} khong hop le - phai la dtype vo huong "
+        f"(f32/f64/i32/i64/str) hoac ten 1 class dang record/extern-class da khai bao")
+
+
+def il_list_type(dtype: "str", records: "dict[str,list[(str,TkvTypeAnn)]]" = None, extern_class_defs: "dict[str,i32]" = None) -> "str":
+    """Kieu IL cua 1 List<T> DONG (closed generic) - dung CHUNG cho khai
+    bao local, .ctor, va cac method Add/get_Item/get_Count (khi goi tren
+    generic type DA DONG, IL ghi THANG kieu cu the, KHONG dung placeholder
+    !0 - placeholder chi dung khi goi tren DINH NGHIA generic mo).
+    `extern_class_defs` mac dinh None (Task 2, extern-class-list)."""
+    return (f'class [mscorlib]System.Collections.Generic.List`1'
+            f'<{il_list_elem_ilstr(dtype, records, extern_class_defs)}>')
+
+
+def emit_str_chars(ctx: "Ctx", out: "list[str]"):
+    """Chuoi tren stack -> List<string> cac ky tu (list(s) / sorted(s)), TkvChars::Of."""
+    emitted = ctx.emitted_types
+    if emitted is not None and 'TkvChars' not in emitted:
+        emitted.add('TkvChars')
+        L = 'class [mscorlib]System.Collections.Generic.List`1<string>'
+        S = '[mscorlib]System.String'
+        ctx.extra_classes.append([
+            '.class public auto ansi beforefieldinit TkvChars extends [mscorlib]System.Object',
+            '{',
+            f'  .method public static {L} Of(string s) cil managed',
+            '  {',
+            '    .maxstack 8',
+            f'    .locals init ({L} r, int32 i)',
+            f'    newobj instance void {L}::.ctor()', '    stloc.0', '    ldc.i4.0', '    stloc.1',
+            '  CH_LAP:',
+            '    ldloc.1', '    ldarg.0', f'    callvirt instance int32 {S}::get_Length()', '    bge CH_HET',
+            '    ldloc.0', '    ldarg.0', '    ldloc.1', '    ldc.i4.1', f'    callvirt instance string {S}::Substring(int32, int32)',
+            f'    callvirt instance void {L}::Add(!0)',
+            '    ldloc.1', '    ldc.i4.1', '    add', '    stloc.1', '    br CH_LAP',
+            '  CH_HET:',
+            '    ldloc.0', '    ret',
+            '  }',
+            '}',
+        ])
+    out.append('    call class [mscorlib]System.Collections.Generic.List`1<string> TkvChars::Of(string)')
+
+
+def emit_list_sort(out: "list[str]", list_type: "str", dtype: "str"):
+    """List<T>.Sort(): chuoi PHAI sap theo ORDINAL nhu Python (Comparer<string>.Default
+    la culture-sensitive: 'a' < 'B' - sai am tham, 2026-09-30)."""
+    if dtype == 'str':
+        out.append('    call class [mscorlib]System.StringComparer [mscorlib]System.StringComparer::get_Ordinal()')
+        out.append(f'    callvirt instance void {list_type}::Sort(class [mscorlib]System.Collections.Generic.IComparer`1<!0>)')
+    else:
+        out.append(f'    callvirt instance void {list_type}::Sort()')
+
+
+def il_container_type_of_spec(spec: "str", records: "dict[str,list[(str,TkvTypeAnn)]]"=None, extern_class_defs: "dict[str,i32]"=None) -> "str":
+    """Chuoi CIL cua 1 GIA TRI duoc mo ta boi `spec` - NGUON DUY NHAT cho
+    quy uoc "dtype co the la 1 chuoi mang shape" dung xuyen suot codebase
+    ('i32', 'Point', 'Sb', 'list[i32]', 'list[list[i32]]',
+    'dict[str,i32]', 'dict[str,list[i32]]'...). Hop nhat 2 implementation
+    TRUNG LAP truoc day - `_il_list_of` (duong list thuan .tkv, file nay)
+    va `_il_ctor_param_type` (duong extern-class ctor/method,
+    il_codegen.py) - moi ben tu de quy rieng, gay IL sai am tham khi 1
+    ben duoc mo rong (them lop long/handle-type/dict long) con ben kia
+    thi khong (xem docs/BUGS_TODO.md muc F, phat hien lai lai qua muc O/P
+    voi 1 lop bug KHAC nhung CUNG goc "2 noi lam 1 viec").
+
+    De quy 1 lop cho moi lop 'list['/'dict[' - dung LAI il_list_elem_ilstr
+    cho phan tu la (i) scalar (IL_SCALAR), (ii) record da khai bao (can
+    `records`), (iii) extern-class da khai bao qua __tkv_extern_class__
+    (can `extern_class_defs`) - KHONG dinh nghia lai logic do o day.
+
+    Luu y (final-review round 3, docs/BUGS_TODO.md muc F): ham nay KHONG
+    tu validate `spec` - no CHAP NHAN nhieu input hon 2 caller goc tung
+    chap nhan rieng le (vd: dict[...] lam element spec cua list[...], hay
+    key khong-scalar cua dict[...]). Cac caller dua vao 1 lop validate O
+    TREN (tkv_compile.py) da chan cac input do truoc khi toi codegen -
+    hien tai vo hai vi khong con duong nao goi toi day voi input nhu vay,
+    nhung ham nay tu no khong con la hang rao chan."""
+    if extern_class_defs and spec in extern_class_defs:
+        d = extern_class_defs[spec]
+        return f"class [{il_extern_dtype.ex_assembly(d)}]{il_extern_dtype.ex_lop(d)}"
+    if spec.startswith('list[') and spec.endswith(']'):
+        inner_spec = spec[len('list['):-1].strip()
+        inner_il = il_container_type_of_spec(inner_spec, records, extern_class_defs)
+        return f'class [mscorlib]System.Collections.Generic.List`1<{inner_il}>'
+    if spec.startswith('dict[') and spec.endswith(']'):
+        kv = spec[len('dict['):-1]
+        key_spec, val_spec = kv.split(',', 1)
+        key_spec, val_spec = key_spec.strip(), val_spec.strip()
+        key_il = il_container_type_of_spec(key_spec, records, extern_class_defs)
+        val_il = il_container_type_of_spec(val_spec, records, extern_class_defs)
+        return f'class [mscorlib]System.Collections.Generic.Dictionary`2<{key_il}, {val_il}>'
+    return il_list_elem_ilstr(spec, records, extern_class_defs)
+
+
+def reject_if_nested_container_elem(ta: "TypeAnn", fname: "str"):
+    """Tu choi ro rang neu list nguon co phan tu la container long nhau
+    (list[list[T]]/list[dict[K,V]], nhan biet qua ta.elem_ta khac None -
+    xem TypeAnn.elem_ta trong typed_dsl_parser.py) - dung cho remove()/
+    index()/count()/'in' (review vong 4, task-1-review-round4-report.md).
+    GIOI HAN KIEN TRUC THAT, khong phai bug co the va don gian sua: cac
+    ham nay dung List<T>.Remove/IndexOf/Contains, tat ca deu so sanh qua
+    EqualityComparer<T>.Default - voi T la 1 container (List<T> khac),
+    default comparer la SO SANH THAM CHIEU, khong phai noi dung. 1 gia
+    tri list-literal MOI (newobj) tai diem goi se KHONG BAO GIO khop
+    tham chieu voi phan tu da co trong list dich, du noi dung giong het -
+    khong the vay bang shape-string dtype convention nhu 3 vong review
+    truoc, PHAI chan o day (giong reject_if_handle_type_elem cho
+    Nhom C/D/E o list-handle-type-aggregate-guard, muc P)."""
+    if ta.elem_ta is not None:
+        raise SyntaxError(
+            f"il_codegen: {fname}() khong ho tro list chua container long nhau "
+            f"(list[list[...]]/list[dict[...]]) - List<T> so sanh phan tu container "
+            f"THEO THAM CHIEU (khong theo noi dung), ket qua se sai am tham")
+
+
+def reject_if_elem_ta(ta: "TypeAnn", fname: "str"):
+    """Tu choi list co phan tu la container/ham (ta.elem_ta khac None) o
+    cac ham chi dung `il_list_type(ta.dtype)` - voi list[list[str]] hay
+    list[func()->i32], `ta.dtype` la dtype VO HUONG ben trong ('str'/'i32')
+    nen kieu IL sinh ra la List<string>/List<int32> tren mot doi tuong that
+    ra la List<List<string>>/List<Func<int32>>: CLR van chay, sai am tham
+    (lo ra 2026-09-24, xem nhanh len() trong il_codegen._expr_call)."""
+    if ta.elem_ta is not None:
+        raise SyntaxError(
+            f"il_codegen: {fname}() chua ho tro list co phan tu la container/ham "
+            f"(list[list[...]]/list[dict[...]]/list[func(...)]) - gan tung phan tu ra bien truoc")
+
+
+def reject_if_handle_type_elem(ta: "TypeAnn", extern_class_defs: "dict[str,i32]", fname: "str"):
+    """Tu choi ro rang neu list/set nguon co phan tu la handle type (extern-
+    class da khai qua __tkv_extern_class__) - dung cho cac ham CAN so sanh/
+    so hoc/serialize tren phan tu (sum/min/max/any/all/sorted/json_dumps),
+    KHAC map/filter/reduce/choice/shuffle/sample (pass-through, khong dong
+    den noi dung phan tu, nen KHONG goi ham nay - xem il_list_type's tham so
+    extern_class_defs cho nhanh do thay vao do)."""
+    if extern_class_defs and ta.dtype in extern_class_defs:
+        raise SyntaxError(
+            f"il_codegen: {fname}() khong ho tro list/set chua handle type "
+            f"('{ta.dtype}' da khai qua __tkv_extern_class__) - .NET class "
+            f"tuy y khong tu co IComparable/phep toan/serialize duoc")
+
+
+# Co NOI TUYEN `(?s)` thay cho tham so `re.S` (2026-09-18): dang co co
+# lam `_re_compile_pattern` tu choi -> chan phep gop self-host. `(?s)`
+# la cu phap CA .NET Regex LAN Python `re` deu hieu, nen hanh vi khong
+# doi va ban .py van chay duoi CPython y het.
+_LIST_LIT_RE = re.compile(r'(?s)^\[.*\]$')
+_LIST_APPEND_RE = re.compile(r'^(\w+)\.append\((.+)\)\s*$')
+
+
+def compile_index_list(name: "str", indices: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """CIL cho 'lst[i]' (doc 1 phan tu List<T>) - tag 'index' cua
+    _compile_expr khi shape=='list', xem il_codegen.py's _expr_index.
+    Dung ctx['il_type_str'] (DE QUY) thay vi il_list_type(dtype,...) THANG
+    - can THIET tu Wave 2 (2026-07-29, container long nhau): khi 'lst' la
+    List<List<T>>/List<Dict<K,V>> (type_ann.elem_ta khac None), chi
+    il_type_str moi tinh dung kieu IL day du cua CHINH list nay (xem
+    il_codegen.py's il_type_str) - voi list thuong (elem_ta=None), 2 ham
+    cho ra CHUOI GIONG HET NHAU (khong doi hanh vi cu)."""
+    if len(indices) != 1:
+        raise SyntaxError(f"il_codegen: list '{name}' chi ho tro 1 chi so")
+    type_ann = scope.tra(name).ta
+    list_type = ctx.il_type_str(type_ann, (ctx.records if ctx is not None else None))
+    ctx.load_var_ref(name, scope, out)
+    emit_index_value(name, indices[0], scope, out, ctx,
+                      f'callvirt instance int32 {list_type}::get_Count()')
+    # QUAN TRONG: tra ve '!0' (placeholder generic param), KHONG phai
+    # kieu da thay the (vd float32) - bug that phat hien qua test
+    # (MissingMethodException luc chay): metadata cua get_Item duoc dinh
+    # nghia TREN generic type DINH NGHIA MO voi kieu tra ve la !0;
+    # methodref phai ghi DUNG nhu vay, phan <float32> chi cung cap ngu
+    # canh thay the cho KIEU KHAI BAO, khong doi chu ky cua chinh method.
+    out.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
+    ctx.widen_if_needed(type_ann.dtype, dtype, out)
+
+
+def try_rhs_list_literal(rhs: "str", name: "str", known_shapes: "dict[str,str]") -> "i32":
+    """ASSIGN_RHS_PARSERS entry: 'lst = []' HOAC 'xs = [3, 1, 2]' - Giai
+    doan 0.1 (2026-08-03, dong Python-parity-gap v2): dung PARSER THAT
+    (parse_expr, tag 'list_literal' vua them vao il_core.py's parse_factor)
+    thay vi tu tach dau phay bang tay - tu dong dung ke ca phan tu chua
+    bieu thuc long nhau/dau phay trong ham (vd '[f(1, 2), 3]').
+
+    RONG ('[]'): dtype phan tu CHUA biet o day, suy sau tu LAN GOI
+    '.append(...)' DAU TIEN tren bien nay (xem declare_list) - giu NGUYEN
+    hanh vi cu (stmt kind 'assign_list_new'), khong doi gi.
+
+    CO PHAN TU ('[3, 1, 2]'): dtype suy THANG tu chinh cac phan tu (xem
+    declare_list_literal), khong can quet '.append()' sau do."""
+    rhs_s = rhs.strip()
+    if not _LIST_LIT_RE.match(rhs_s):
+        return None
+    node = parse_expr(rhs_s)
+    if ekind(node) != 'list_literal':
+        return None
+    known_shapes[name] = 'list'
+    if not ea_ds(node):
+        return intern(make2('assign_list_new', name))
+    return intern(make3('assign_list_literal', name, rhs_s))
+
+
+def try_parse_list_append(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
+    """LINE_PARSERS entry: 'lst.append(x)' - PHAI dang ky TRUOC
+    method_call_stmt (pattern method-call tong quat cung khop dong nay).
+
+    Loai tru known_shapes=='bytearray' (muc 6.8, 3/4, 2026-08-13, giong het
+    cach try_parse_list_remove da loai tru set/frozenset o duoi): 'ba.append(x)'
+    tren bytearray CAN codegen RIENG (chen 'conv.u1' truoc Add(!0) - xem
+    bytearray_type.py) - neu KHONG loai tru o day, nhanh list nay se cuop
+    mat truoc (list_type.py duoc import/dang ky TRUOC bytearray_type.py
+    trong il_codegen.py, LINE_PARSERS thu THEO THU TU dang ky) va bo lo
+    buoc narrow bat buoc do.
+
+    Loai tru THEM known_shapes=='bytes' (muc 6.8, 4/4, 2026-08-13): 'data.append(x)'
+    tren bien 'bytes' (bat bien) PHAI bi try_parse_bytes_append_blocked
+    (bytes_type.py) bat va nem SyntaxError bat bien - neu KHONG loai tru o
+    day, nhanh list nay se cuop mat truoc va sinh IL append hop le (SAI,
+    'bytes' khong duoc mutate)."""
+    m = _LIST_APPEND_RE.match(line)
+    if not m or known_shapes.get(m.group(1)) in ('bytearray', 'bytes'):
+        return None
+    name, arg_expr = m.groups()
+    return intern(make3('list_append', name, arg_expr)), pos + 1
+
+
+def codegen_assign_list_new(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'lst = []'. Dung ctx['il_type_str'] (DE QUY, xem
+    il_codegen.py) thay il_list_type THANG - can THIET tu Wave 2
+    (2026-07-29) de ho tro dung List<List<T>>/List<Dict<K,V>> khi ta.elem_ta
+    khac None; voi list thuong ra CUNG 1 chuoi nhu truoc."""
+    ta = scope.tra(lay_str(stmt, 'name')).ta
+    body.append(f'    newobj instance void {ctx.il_type_str(ta, ctx.records)}::.ctor()')
+    ctx.store_var(lay_str(stmt, 'name'), scope, body)
+
+
+def codegen_list_append(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'lst.append(x)' (x co the la 1 bien container
+    khac khi lst la List long nhau, Wave 2 2026-07-29)."""
+    ta = scope.tra(lay_str(stmt, 'name')).ta
+    ctx.load_var_ref(lay_str(stmt, 'name'), scope, body)
+    if ta.elem_ta is not None and ta.elem_ta.shape_ten == 'func':
+        # P5 (2026-09-07): 'fns.append(add_ten)' voi fns la
+        # list[func(...)->...] - gia tri la FUNCREF, phai sinh 'ldftn' qua
+        # compile_funcref_arg; duong compile_expr thuong coi 'add_ten' la
+        # TEN BIEN va bao 'chua duoc khai bao'.
+        ctx.compile_funcref_arg(lay_nut(stmt, 'value_node'), ta.elem_ta, scope,
+                                    body, ctx)
+    elif (ta.elem_ta is not None and ta.elem_ta.shape_ten == 'tuple'
+          and ekind(lay_nut(stmt, 'value_node')) == 'tuple_lit'):
+        # 'lst.append((a, b))' (2026-09-25): kieu tung phan tu lay tu KHAI BAO
+        # cua danh sach, khong doan tu gia tri.
+        compile_tuple_lit_theo_ta(lay_nut(stmt, 'value_node'), ta.elem_ta, scope, body, ctx)
+    else:
+        ctx.compile_expr(lay_nut(stmt, 'value_node'), scope, body,
+                            _append_value_dtype_spec(ta, lay_nut(stmt, 'value_node')), ctx)
+    body.append(f'    callvirt instance void {ctx.il_type_str(ta, ctx.records)}::Add(!0)')
+
+
+def compile_tuple_lit_theo_ta(node: "TkvNode", tuple_ta: "TypeAnn", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """'(a, b, ...)' voi kieu tuple DA BIET (tuple_ta.shape_ten == 'tuple'):
+    moi phan tu dich theo dtype khai bao, roi newobj ValueTuple."""
+    phan = ea_ds(node)
+    dts = tuple_ta.tuple_dtypes
+    if dts is None or len(dts) != len(phan):
+        raise SyntaxError(
+            f"il_codegen: tuple {len(phan)} phan tu khong khop kieu tuple khai bao "
+            f"({'' if dts is None else ', '.join(dts)})")
+    for i in range(len(phan)):
+        ctx.compile_expr(phan[i], scope, out, dts[i], ctx)
+    kieu = _tt.il_tupleN_type(dts, tuple_ta.tuple_tas, ctx.records, ctx.il_type_str)
+    ts = []
+    for i in range(len(dts)):
+        ts.append('!' + str(i))
+    out.append(f'    newobj instance void {kieu}::.ctor({", ".join(ts)})')
+
+
+def compile_theo_ta(node: "TkvNode", ta: "TypeAnn", dtype: "str", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Bieu thuc dich theo TypeAnn DAY DU khi biet (2026-09-26): list-literal
+    cua tuple '[(a, b), ...]' -> newobj List<ValueTuple> + Add tung phan tu
+    (duong list-literal chung chi biet dtype vo huong). Con lai: compile_expr."""
+    if (ta is not None and ta.shape_ten == 'list' and ta.elem_ta is not None
+            and ta.elem_ta.shape_ten == 'tuple' and ekind(node) == 'list_literal'):
+        kieu_ds = ctx.il_type_str(ta, ctx.records)
+        out.append(f'    newobj instance void {kieu_ds}::.ctor()')
+        for el in ea_ds(node):
+            out.append('    dup')
+            if ekind(el) == 'tuple_lit':
+                compile_tuple_lit_theo_ta(el, ta.elem_ta, scope, out, ctx)
+            else:
+                ctx.compile_expr(el, scope, out, ta.elem_ta.dtype, ctx)
+            out.append(f'    callvirt instance void {kieu_ds}::Add(!0)')
+        return
+    if (ta is not None and ta.shape_ten == 'list' and ta.elem_ta is not None
+            and ta.elem_ta.shape_ten in ('list', 'dict', 'set')
+            and ekind(node) == 'list_literal' and len(ea_ds(node)) > 0):
+        # '[[a, b], [c]]' theo kieu list[list[T]] DA BIET (2026-09-29), vd phan tu cua
+        # 'return s, [[...], [...]]': truoc day dung List<T> phang -> ArrayTypeMismatch luc chay
+        kieu_ds = ctx.il_type_str(ta, ctx.records)
+        out.append(f'    newobj instance void {kieu_ds}::.ctor()')
+        for el in ea_ds(node):
+            out.append('    dup')
+            compile_theo_ta(el, ta.elem_ta, ta.elem_ta.dtype, scope, out, ctx)
+            out.append(f'    callvirt instance void {kieu_ds}::Add(!0)')
+        return
+    if (ta is not None and ta.shape_ten in ('list', 'dict', 'set')
+            and (ekind(node) == 'dict_rong'
+                 or (ekind(node) == 'list_literal' and len(ea_ds(node)) == 0)
+                 or (ekind(node) == 'call' and ea_str(node) in ('set', 'dict', 'list')
+                     and len(eb_ds(node)) == 0))):
+        # 'return {}' / 'return []' / 'return set()' (2026-09-26): container
+        # RONG theo kieu tra ve da khai
+        out.append(f'    newobj instance void {ctx.il_type_str(ta, ctx.records)}::.ctor()')
+        return
+    if ta is not None and ta.shape_ten == 'tuple' and ekind(node) == 'tuple_lit':
+        # 'return (a, b)' (2026-09-26): tuple trong ngoac theo kieu tra ve
+        compile_tuple_lit_theo_ta(node, ta, scope, out, ctx)
+        return
+    if ta is not None and ta.shape_ten == 'dict' and ekind(node) == 'dict_lit':
+        # '{k: v, ...}' theo kieu dict DA BIET (2026-09-26)
+        kieu_d = ctx.il_type_str(ta, ctx.records)
+        out.append(f'    newobj instance void {kieu_d}::.ctor()')
+        cap = ea_ds(node)
+        i = 0
+        while i + 1 < len(cap):
+            out.append('    dup')
+            ctx.compile_expr(cap[i], scope, out, ta.key_dtype, ctx)
+            if ta.elem_ta is not None:
+                compile_theo_ta(cap[i + 1], ta.elem_ta, ta.elem_ta.dtype, scope, out, ctx)
+            else:
+                ctx.compile_expr(cap[i + 1], scope, out, ta.dtype, ctx)
+            out.append(f'    callvirt instance void {kieu_d}::set_Item(!0, !1)')
+            i = i + 2
+        return
+    ctx.compile_expr(node, scope, out, dtype, ctx)
+
+
+def codegen_expr_dict_lit(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'{k: v}' o vi tri CHUA biet kieu dict (2026-09-26): bao loi ro."""
+    raise SyntaxError(
+        "il_codegen: dict literal '{k: v, ...}' hien chi dung duoc khi kieu dict da biet "
+        "(return trong ham khai '-> dict[K,V]') - gan tung khoa vao 1 dict '{}' truoc")
+
+
+def codegen_expr_tuple_lit(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'(a, b)' o vi tri bieu thuc chua biet kieu tuple: bao loi RO thay vi
+    doan kieu phan tu (2026-09-25)."""
+    raise SyntaxError(
+        "il_codegen: tuple '(a, b, ...)' lam bieu thuc hien chi ho tro khi them vao "
+        "danh sach da khai kieu list[(...)] ('lst.append((a, b))'), hoac 'return a, b'")
+
+
+def _append_value_dtype_spec(ta: "TypeAnn", value_node: "TkvNode") -> "str":
+    """dtype NGU CANH truyen xuong cho GIA TRI duoc Add vao List<T> cua
+    `ta`. Voi list THUONG day la ta.dtype (giu nguyen hanh vi cu). Voi
+    list LONG NHAU (ta.elem_ta.shape_ten == 'list', vd 'm = [[1,2],[3,4]]' ->
+    ta = TypeAnn('i32','list',elem_ta=TypeAnn('i32','list'))) va gia tri
+    dang Add LA 1 list-literal, ta.dtype ('i32') MO TA SAI gia tri do
+    (no la 1 List<int32>, khong phai 1 int32) - tra ve chuoi MANG SHAPE
+    'list[i32]' theo dung quy uoc "dtype co the la chuoi mang shape" da
+    dung o il_codegen.py's _il_ctor_param_type (Task 2/Phase 7).
+
+    CHI ap dung cho value_node la 'list_literal' (thu hep pham vi anh
+    huong): khi gia tri la 1 BIEN container da khai bao, duong cu
+    (ta.dtype) van dung - _expr_var khong hieu chuoi mang shape.
+
+    Round 3 (2026-08-19): than ham nay TRUOC day tu tinh
+    f'list[{ta.elem_ta.dtype}]' - chi dung 2 TANG, LECH voi ta_list_spec
+    (de quy moi tang). Nay UY QUYEN cho ta_list_spec de chi con 1 NGUON
+    SU THAT duy nhat cho "TypeAnn -> chuoi shape-string" (chong tai dien
+    lop loi nay lan thu 4)."""
+    if (value_node and ekind(value_node) == 'list_literal'
+            and ta.elem_ta is not None and ta.elem_ta.shape_ten == 'list'):
+        return ta_list_spec(ta.elem_ta)
+    return ta.dtype
+
+
+def ta_list_spec(ta: "TypeAnn") -> "str":
+    """Chuoi dtype MANG SHAPE ('list[i32]', 'list[list[i32]]') tu 1 TypeAnn
+    day du co shape=='list'. Quy uoc GIONG HET _append_value_dtype_spec/
+    _il_ctor_param_type (extern-class) - KHONG phat minh cach thu ba."""
+    if ta.shape_ten == 'list' and ta.elem_ta is not None \
+            and ta.elem_ta.shape_ten == 'list':
+        return f'list[{ta_list_spec(ta.elem_ta)}]'
+    return f'list[{ta.dtype}]'
+
+
+def value_dtype_spec_for_ta(ta: "TypeAnn", value_node: "TkvNode") -> "str":
+    """dtype NGU CANH truyen xuong cho 1 GIA TRI (doi so ham/gia tri
+    return/tham so method) co kieu khai bao `ta`.
+
+    Critical round 2 (2026-08-19): cac diem goi _compile_expr cho doi so/
+    return truoc day dung `ta.dtype` PHANG - voi 'list[list[i32]]' thi
+    ta.dtype chi la 'i32', MAT lop long nhau, khien
+    codegen_expr_list_literal sinh 'newobj List<int32>' thay vi
+    'List<List<int32>>' (AccessViolationException/NullReferenceException
+    luc chay). Tra ve chuoi mang shape trong DUNG truong hop do.
+
+    Pham vi HEP co y (chi list-literal long nhau): voi cac gia tri khac
+    (bien, loi goi ham...) duong cu `ta.dtype` van dung - _expr_var va
+    dong doi KHONG hieu chuoi mang shape."""
+    if ta is None:
+        return None
+    if (value_node and la_node(value_node) and ekind(value_node) == 'list_literal'
+            and ta.shape_ten == 'list'
+            and ta.elem_ta is not None
+            and ta.elem_ta.shape_ten == 'list'):
+        return ta_list_spec(ta)
+    return ta.dtype
+
+
+def _il_list_of(elem_spec: "str", records: "dict[str,list[(str,TkvTypeAnn)]]"=None, extern_class_defs: "dict[str,i32]"=None) -> "str":
+    """Chuoi IL cua 1 List<elem_spec>. THIN WRAPPER quanh
+    il_container_type_of_spec (muc F, docs/BUGS_TODO.md - hop nhat 2
+    implementation trung lap). `extern_class_defs` THEM MOI (Task 1's
+    investigation, task-1-report.md gia thuyet 1): TRUOC day ham nay
+    KHONG nhan tham so nay, khien list-literal LONG NHAU chua phan tu
+    extern-class (vd 'grid = [[a, b]]' voi a,b la handle-type) build FAIL
+    - 'SyntaxError: List phan tu kieu Sb khong hop le' - du list[T] PHANG
+    cung loai T da build duoc tu lau qua duong ctor/method (bat nhat).
+    Ham nay boc them 1 lop 'List<...>' NGOAI CUNG so voi
+    il_container_type_of_spec(elem_spec, ...) truc tiep - vi elem_spec o
+    day la kieu PHAN TU (khong bao gom 'list[' ngoai cung nhu spec day
+    du)."""
+    inner = il_container_type_of_spec(elem_spec, records, extern_class_defs)
+    return f'class [mscorlib]System.Collections.Generic.List`1<{inner}>'
+
+
+def _literal_dtype_fallback(el: "TkvNode") -> "str":
+    """dtype doan tu CU PHAP hang so truc tiep - luoi cuoi cung khi ctx
+    KHONG co ctx['infer_literal_dtype'] (khoa nay CHI co trong walk_ctx
+    cua first-pass, khong co trong ctx giai doan codegen)."""
+    if la_node(el) and ekind(el) == 'num':
+        return 'f64' if '.' in ea_str(el) or 'e' in ea_str(el).lower() else 'i32'
+    if la_node(el) and ekind(el) == 'str_lit':
+        return 'str'
+    return None
+
+
+class NguonKieu:
+    """5 truong suy kieu phan tu list-literal can - CHUNG cho Ctx (codegen) va
+    WalkCtx (first-pass), hai lop KHAC nhau cung mang cac truong nay
+    (2026-09-25: truoc day ham nhan thang `ctx` luc la Ctx luc la WalkCtx - ban
+    tu-host doc truong theo bo cuc SAI LOP)."""
+    infer_dtype: "func(TkvNode, Scope, dict[str,TkvSig], TkvTable, TkvTable, TkvTable)->str"
+    func_table: "dict[str,TkvSig]"
+    records: "dict[str,list[(str,TkvTypeAnn)]]"
+    record_methods: "dict[str,dict[str,Signature]]"
+    record_bases: "dict[str,list[str]]"
+
+    def __init__(self, infer_dtype: "func(TkvNode, Scope, dict[str,TkvSig], TkvTable, TkvTable, TkvTable)->str",
+                 func_table: "dict[str,TkvSig]", records: "dict[str,list[(str,TkvTypeAnn)]]",
+                 record_methods: "dict[str,dict[str,Signature]]", record_bases: "dict[str,list[str]]"):
+        self.infer_dtype = infer_dtype
+        self.func_table = func_table
+        self.records = records
+        self.record_methods = record_methods
+        self.record_bases = record_bases
+
+
+def nguon_kieu_ctx(ctx: "Ctx") -> "NguonKieu":
+    return NguonKieu(ctx.infer_dtype, ctx.func_table or {}, ctx.records or {},
+                     ctx.record_methods or {}, ctx.record_bases or {})
+
+
+def nguon_kieu_walk(ctx: "WalkCtx") -> "NguonKieu":
+    return NguonKieu(ctx.infer_dtype, ctx.func_table or {}, ctx.records or {},
+                     ctx.record_methods or {}, ctx.record_bases or {})
+
+
+def list_literal_elem_spec_of(el: "TkvNode", infer_scope: "Scope", nk: "NguonKieu") -> "str":
+    """dtype (spec) cua MOT phan tu list-literal - NGUON SU THAT DUY NHAT,
+    dung CHUNG boi declare_list_literal (first-pass) VA
+    codegen_expr_list_literal (codegen). Truoc 2026-08-19 (final review C1)
+    day la 2 duong suy kieu KHAC nhau trong CUNG 1 tinh nang, gay IL sai
+    am tham. Tra ve chuoi vo huong, hoac 'list[T]' khi phan tu lai la 1
+    list-literal long nhau. Cac khoa ctx chi co o first-pass
+    (infer_literal_dtype/contains_float_literal/int_dtypes) duoc doc bang
+    .get() + fallback de ham chay duoc o CA HAI giai doan."""
+    if ekind(el) == 'list_literal':
+        inner = list_literal_elem_spec(ea_ds(el), infer_scope, nk)
+        return f'list[{inner}]' if inner is not None else None
+    if ekind(el) == 'binop' and ea_str(el) == '*':
+        # '[0] * n' / 'row * n' la phan tu list (2026-09-30): spec 'list[T]' nhu literal long nhau
+        _lap_ta = _ta_list_lap(el, nk.func_table, infer_scope)
+        if _lap_ta is not None and _lap_ta.elem_ta is None:
+            return 'list[' + _lap_ta.dtype + ']'
+    try:
+        d = nk.infer_dtype(el, infer_scope, nk.func_table, nk.records, nk.record_methods, None)
+    except (KeyError, SyntaxError):
+        d = None
+    # (2026-09-25) Bo hai nhanh CHET: 'contains_float_literal' va
+    # 'infer_literal_dtype' KHONG phai truong cua Ctx - ctx.get(...) luon
+    # tra None duoi CPython nen hai nhanh chua bao gio chay.
+    if d is None:
+        d = _literal_dtype_fallback(el)
+    return d
+
+
+def _chuoi_to_tien(record_bases: "dict[str,list[str]]", ten: "str") -> "list[str]":
+    """Chuoi to tien GAN TRUOC: [ten, base, base-cua-base, ...].
+
+    NO DA BIET: vong lap nay la BAN THU BA - `duck_typing._ancestors` va
+    `operators.compile_binop` deu lap lai no (xem docstring cua _ancestors).
+    Ban do tra ve TAP, con cho nay can THU TU de lay to tien GAN NHAT. Gom ba
+    ban lam mot la tai cau truc code khong lien quan -> ghi vao
+    docs/BUGS_TODO.md thay vi tu lam.
+
+    GIOI HAN GIU NGUYEN nhu hai ban kia: `record_bases[x]` co the la mot LIST
+    khi record co nhieu base (xem _extract_record_def) - luc do vong lap dung
+    lai. Da ke thua GIUA NHIEU RECORD von khong duoc CLR ho tro (1 base class
+    that), nen day khong phai thieu sot moi."""
+    chuoi = [ten]
+    walk = ten
+    while len(cac_base(record_bases, walk)) == 1:
+        walk = cac_base(record_bases, walk)[0]
+        chuoi.append(walk)
+    return chuoi
+
+
+def _to_tien_chung(record_bases: "dict[str,list[str]]", a: "str", b: "str") -> "str":
+    """To tien chung GAN NHAT cua hai record; None neu khong co."""
+    if a == b:
+        return a
+    tap_b = set(_chuoi_to_tien(record_bases, b))
+    for x in _chuoi_to_tien(record_bases, a):
+        if x in tap_b:
+            return x
+    return None
+
+
+def _fold_elem(elem_dtype: "str", d: "str", records: "dict[str,list[(str,TkvTypeAnn)]]", record_bases: "dict[str,list[str]]") -> "str":
+    """Gop dtype phan tu dang co voi phan tu ke tiep - MOT luat duy nhat.
+
+    VI SAO CO HAM NAY (2026-09-10): luat fold TRUOC DAY co HAI BAN - mot o
+    `list_literal_elem_spec`, mot o `declare_list_literal`. Docstring cua
+    `list_literal_elem_spec_of` khang dinh no la "nguon su that duy nhat" ve
+    suy kieu TUNG PHAN TU, nhung phep FOLD thi khong. Hau qua: sua luat o mot
+    ban ma quen ban kia thi khong co gi bao - dung cach loi record-tron-lop-con
+    song sot qua lan sua dau tien cua chinh no.
+
+    Hai luat, theo thu tu:
+      - widen ve float: [1, 2.0] la list[float] (giong Python that).
+      - record tron lop con: lay TO TIEN CHUNG GAN NHAT; khong co -> bao loi
+        RO LUC COMPILE thay vi de chet ArrayTypeMismatchException luc chay."""
+    if elem_dtype is None:
+        return d
+    if elem_dtype not in ('f32', 'f64') and d in ('f32', 'f64'):
+        return d
+    if d != elem_dtype and d in records and elem_dtype in records:
+        chung = _to_tien_chung(record_bases, elem_dtype, d)
+        if chung is None:
+            raise SyntaxError(
+                "il_codegen: list tron cac record KHONG co to tien chung (%s va %s) - CIL can mot kieu phan tu duy nhat. Cho chung ke thua mot base chung, hoac tach thanh hai list."
+                % (elem_dtype, d))
+        return chung
+    return elem_dtype
+
+
+def list_literal_elem_spec(elements: "list[TkvNode]", infer_scope: "Scope", nk: "NguonKieu") -> "str":
+    """dtype (spec) PHAN TU cua CA list-literal - fold quy tac widen ve
+    float (Python that: [1, 2.0] la list[float]) tren
+    list_literal_elem_spec_of. Xem docstring ham do ve ly do dung chung.
+
+    RECORD TRON LOP CON (2026-09-10): truoc day fold nay giu PHAN TU DAU, nen
+    `[Name(...), Num(...)]` ra `List<Name>` va `Add(Num)` chet
+    `ArrayTypeMismatchException` LUC CHAY. Nay lay TO TIEN CHUNG GAN NHAT.
+    Khong co to tien chung -> bao loi RO LUC COMPILE, khong de chet luc chay.
+
+    Truoc thay doi nay, cung mot dong `[a, b]` chay hay chet con phu thuoc
+    RANG BUOC TU XA: neu ve sau co ham nhan `ds: "list[Base]"` thi kieu phan
+    tu duoc suy tu cho dung do va no chay; khong co thi chet. Do la loai bat
+    ngo te nhat cho nguoi dung."""
+    elem_dtype = None
+    for el in elements:
+        d = list_literal_elem_spec_of(el, infer_scope, nk)
+        elem_dtype = _fold_elem(elem_dtype, d, nk.records, nk.record_bases)
+    return elem_dtype
+
+
+def codegen_expr_list_literal(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"=None):
+    """EXPR_CODEGEN entry: '[3, 1, 2]' o VI TRI BIEU THUC (Phase 7 follow-up,
+    2026-08-19, Gap 2) - KHAC codegen_assign_list_literal (statement-level,
+    RHS truc tiep cua 1 phep gan): tag 'list_literal' truoc day CHI dang
+    ky duoc xu ly o tang STATEMENT, chua co entry trong EXPR_CODEGEN nen
+    khi no xuat hien LONG trong 1 bieu thuc khac (vi du: la 1 PHAN TU cua
+    1 list-literal NGOAI, nhu 'grid = [[1, 2], [3, 4]]' - codegen_list_append
+    goi ctx['compile_expr'] tren TUNG phan tu, va phan tu do LAI la 1
+    'list_literal' khac) se nem SyntaxError "AST node khong ro".
+
+    dtype NGU CANH (tham so `dtype`, do CALLER truyen xuong) la NGUON UU
+    TIEN cho dtype phan tu - dung quy uoc chung cua MOI entry EXPR_CODEGEN
+    (xem _compile_expr/_expr_call: doi so duoc compile voi
+    p.type_ann.dtype, tuc voi 'def total(xs: "list[f64]")' thi dtype='f64'
+    CHINH LA dtype phan tu ky vong). Sua final-review C1 (2026-08-19):
+    truoc day ham BO QUA `dtype` va tu suy bang 1 duong suy kieu THU HAI
+    -> 'total([1.5, 2.5])' dung List<float32> cho tham so List<float64>
+    (in ra 8.0000019 thay vi 4.0), 'list[int]' (TkvInt) nem
+    AccessViolationException, 'm = [[1,2],[3,4]]' nem
+    ArrayTypeMismatchException.
+
+    `dtype` co the la chuoi MANG SHAPE 'list[T]' (khi literal nay la 1
+    PHAN TU cua 1 list-literal NGOAI, xem _append_value_dtype_spec) - khi
+    do phan boc 'list[' cho ra dtype phan tu THAT cua literal nay, dung
+    quy uoc cua il_codegen.py's _il_ctor_param_type.
+
+    Khi dtype la None (khong co ngu canh), suy bang CHINH ham dung chung
+    voi declare_list_literal (list_literal_elem_spec) - MOT nguon su that
+    duy nhat, khong con 2 duong suy kieu lech nhau."""
+    elements = ea_ds(node)
+    if dtype is not None and isinstance(dtype, str) \
+            and dtype.startswith('list[') and dtype.endswith(']'):
+        elem_spec = dtype[len('list['):-1].strip()
+    elif dtype is not None:
+        elem_spec = dtype
+    else:
+        elem_spec = list_literal_elem_spec(elements, scope, nguon_kieu_ctx(ctx))
+    if elem_spec is None:
+        raise SyntaxError(
+            "il_codegen: khong suy duoc dtype PHAN TU cho list-literal o vi tri "
+            "bieu thuc (khong co ngu canh kieu tu noi dung, va noi dung vuot "
+            "pham vi suy kieu) - gan ra 1 bien co khai bao kieu truoc.")
+    # Sanity check (Minor 1, re-review round 2 2026-08-19): `dtype` NGU
+    # CANH duoc TIN TUONG hoan toan o tren - neu no lech voi noi dung
+    # literal that (vd '[1.5, 2.5]' o vi tri can 'list[i32]') thi IL sinh
+    # ra sai va loi chi lo ra o tang toolchain tho ('ilasm.exe that bai').
+    # Chan SOM truong hop de gap+de nhan biet nhat: phan tu la hang so
+    # THUC nhung ngu canh doi kieu NGUYEN.
+    if elem_spec in ('i32', 'i64', 'int'):
+        for el in elements:
+            if _literal_dtype_fallback(el) in ('f32', 'f64'):
+                raise SyntaxError(
+                    f"il_codegen: list-literal chua hang so thuc ({ea_str(el)!r}) nhung ngu "
+                    f"canh doi kieu phan tu nguyen '{elem_spec}' - sua khai bao kieu "
+                    f"(vd 'list[f64]') hoac dung hang so nguyen.")
+    list_type = _il_list_of(elem_spec, (ctx.records if ctx is not None else None),
+                             (ctx.extern_class_defs if ctx is not None else None))
+    out.append(f'    newobj instance void {list_type}::.ctor()')
+    for el in elements:
+        out.append('    dup')
+        ctx.compile_expr(el, scope, out, elem_spec, ctx)
+        out.append(f'    callvirt instance void {list_type}::Add(!0)')
+
+
+def _dtype_phan_tu_hang(e: "TkvNode", scope: "Scope") -> "str":
+    """dtype vo huong cua 1 phan tu literal (so/chuoi/bien vo huong) - None neu khong suy duoc."""
+    if not la_node(e):
+        return None
+    k = ekind(e)
+    if k == 'num':
+        if '.' in ea_str(e):
+            return 'f64'
+        return 'i32'
+    if k == 'neg':
+        return _dtype_phan_tu_hang(ea_nut(e), scope)
+    if k == 'str_lit':
+        return 'str'
+    if k == 'var':
+        try:
+            ta = scope.tra(ea_str(e)).ta
+        except (KeyError, SyntaxError):
+            return None
+        if ta is not None and ta.la_vo_huong():
+            return ta.dtype
+    return None
+
+
+def _ta_ds_hang(node: "TkvNode", scope: "Scope") -> "TypeAnn":
+    """TypeAnn list cua literal '[a, b, ...]' (phan tu dau quyet dinh dtype); None neu rong/khong suy duoc."""
+    if not la_node(node) or ekind(node) != 'list_literal':
+        return None
+    es = ea_ds(node)
+    if len(es) == 0:
+        return None
+    d = _dtype_phan_tu_hang(es[0], scope)
+    if d is None:
+        return None
+    return TypeAnn(d, 'list')
+
+
+def _ta_ds_mot_ben(ben: "TkvNode", func_table: "dict[str,TkvSig]", scope: "Scope") -> "TypeAnn":
+    """TypeAnn list cua MOT toan hang '+'/'*' (bien / cat lat / loi goi ham / '+' long nhau), hoac None."""
+    k = ekind(ben)
+    if k == 'var' or k == 'slice':
+        try:
+            ta = scope.tra(ea_str(ben)).ta
+        except (KeyError, SyntaxError):
+            ta = None
+        if ta is not None and ta.shape_ten == 'list':
+            return ta
+    elif k == 'call' and func_table and ea_str(ben) in func_table:
+        rt = func_table[ea_str(ben)].return_type
+        if rt is not None and rt.shape_ten == 'list':
+            return rt
+    elif k == 'binop' and ea_str(ben) == '+':
+        return _ta_list_cong(ben, func_table, scope)
+    return None
+
+
+def _ta_list_cong(node: "TkvNode", func_table: "dict[str,TkvSig]", scope: "Scope") -> "TypeAnn":
+    """TypeAnn list cua phep '+' hai list, hoac None."""
+    for ben in (eb_nut(node), ec_nut(node)):
+        ta = _ta_ds_mot_ben(ben, func_table, scope)
+        if ta is not None:
+            return ta
+    return None
+
+
+_SET_OPS_TOAN_TU: "dict[str, str]" = {'|': 'UnionWith', '&': 'IntersectWith', '-': 'ExceptWith', '^': 'SymmetricExceptWith'}
+
+
+def ta_set_toan_tu(node: "TkvNode", scope: "Scope") -> "TypeAnn":
+    """TypeAnn (shape 'set') cua 'a | b' / 'a & b' / 'a - b' / 'a ^ b' khi mot ben la BIEN set (2026-09-30); None neu khong."""
+    k = ekind(node)
+    if k == 'var':
+        try:
+            ta = scope.tra(ea_str(node)).ta
+        except (KeyError, SyntaxError):
+            return None
+        if ta is not None and ta.shape_ten == 'set':
+            return ta
+        return None
+    if k == 'binop' and ea_str(node) in _SET_OPS_TOAN_TU:
+        t = ta_set_toan_tu(eb_nut(node), scope)
+        if t is not None:
+            return t
+        return ta_set_toan_tu(ec_nut(node), scope)
+    return None
+
+
+def _ta_list_lap(node: "TkvNode", func_table: "dict[str,TkvSig]", scope: "Scope") -> "TypeAnn":
+    """TypeAnn list cua 'ds * n' / 'n * ds' (lap list), ds la bien/literal/loi goi; None neu khong phai."""
+    for ben in (eb_nut(node), ec_nut(node)):
+        ta = _ta_ds_hang(ben, scope)
+        if ta is None:
+            ta = _ta_ds_mot_ben(ben, func_table, scope)
+        if ta is not None:
+            return ta
+    return None
+
+
+def find_first_append_dtype(stmts: "list[i32]", name: "str", infer_scope: "Scope", ctx: "WalkCtx", kind: "str"='list_append') -> "str":
+    """Tim LAN GOI '.append(...)' (hoac '.add(...)' cho set, `kind=
+    'set_add'`) DAU TIEN tren list/set `name` (duyet CA cay, ke ca long
+    trong for/if/while) va suy dtype phan tu tu gia tri do - can THIET
+    vi 'lst = []'/'s = set()' KHONG mang thong tin dtype (giu dung cu
+    phap Python that, khong bia syntax rieng). Best-effort: neu gia tri
+    tham chieu bien CHUA duoc khai bao (tham chieu xuoi hiem gap), tra
+    ve None (caller se fallback ve body_dtype). Dung ctx['infer_dtype']/
+    ctx['contains_float_literal']/ctx['int_dtypes'] (tiem tu core - xem
+    _fpp_ctx trong il_codegen.py) vi suy dtype la logic core, KHONG the
+    import truc tiep (circular import)."""
+    func_table, records = ctx.func_table, ctx.records
+    for stmt in stmts:
+        if lay_str(stmt, 'kind') == kind and lay_str(stmt, 'name') == name:
+            try:
+                # record_methods (2026-08-03): thieu no thi
+                # 'toks.append(lx.next_tok())' KHONG suy duoc kieu tra ve
+                # cua method record -> roi ve body_dtype (vd 'str') ->
+                # list bi khai bao List<string> trong khi THAT SU chua
+                # record. Cung LOAI bug voi 2 ghi chu ben duoi.
+                d = ctx.infer_dtype(lay_nut(stmt, 'value_node'), infer_scope, func_table, records,
+                                       ctx.record_methods, None)
+            except KeyError:
+                return None
+            # Bug that tim thay 2026-07-28 (giong het loai da vay cho
+            # 'compare'/dict): '.append(i * 1.0)' voi 'i' la bien i32 va
+            # '1.0' la hang so float LONG trong 1 binop - infer_dtype
+            # short-circuit tren 'i' truoc, bo lo hang so float, khien
+            # list bi khai bao List<i32> thay vi List<f32> -> codegen
+            # sau do ep '1.0' thanh 'ldc.i4 1.0' (loi cu phap ILASM that).
+            if d in ctx.int_dtypes and ctx.contains_float_literal(lay_nut(stmt, 'value_node')):
+                d = 'f64'
+            # Bug that KHAC tim thay 2026-07-29 (giong het loai da vay cho
+            # dict-value, xem _infer_literal_dtype trong il_codegen.py):
+            # '.append(1)' voi '1' la hang so KHONG dtype co dinh (infer_dtype
+            # tra None co y) trong 1 HAM TRA VE 'str' (vd dumps_int_list()
+            # -> "str") truoc day roi thang ve ctx['body_dtype']='str' ->
+            # IL_LDC_OP['str'] KeyError luc codegen (khong co ma lenh 'ldc'
+            # cho string). Thu doan CHINH cu phap hang so (co dau '.' hay
+            # khong) TRUOC KHI roi vao body_dtype.
+            return d or ctx.infer_literal_dtype(lay_nut(stmt, 'value_node'))
+        for sub_key in ('body', 'else_body'):
+            sub = lay_than(stmt, sub_key)
+            if sub:
+                found = find_first_append_dtype(sub, name, infer_scope, ctx, kind)
+                if found:
+                    return found
+    return None
+
+
+def find_first_append_elem_ta(stmts: "list[i32]", name: "str", infer_scope: "Scope", kind: "str"='list_append') -> "TypeAnn":
+    """Container long nhau (Wave 2, 2026-07-29): giong find_first_append_dtype
+    nhung tra ve TypeAnn DAY DU cua gia tri append/add DAU TIEN, CHI khi
+    gia tri do la 1 BIEN tham chieu THANG 1 container KHAC (list/dict) -
+    dung de declare_list biet phan tu cua 'lst' co phai CHINH NO la 1
+    List/Dict khac hay khong (khong the bieu dien bang 1 dtype string
+    don nhu truong hop vo huong/record). Tra None khi khong tim thay HOAC
+    gia tri DAU TIEN khong phai container (khi do find_first_append_dtype
+    (goi RIENG, khong o day) xu ly truong hop vo huong/record nhu cu).
+
+    GIOI HAN THU TU DA BIET (xac nhan qua test that): bien duoc THAM
+    CHIEU (vd 'inner' trong 'outer.append(inner)') PHAI duoc khai bao
+    ('inner = []'/'inner = {}') o dong VAN BAN dung TRUOC dong khai bao
+    'outer' - vi infer_scope duoc dien DAN theo thu tu WALK (khong phai
+    lookahead toan cuc du ham nay tu no CO quet ca cay `stmts`), giong
+    het gioi han da ghi nhan cho dtype khoa cua dict (xem STATUS.md).
+    Sai thu tu se khien 'outer' bi suy NHAM thanh list vo huong (KHONG
+    bao loi im lang - loi ro rang se lo ra sau o _expr_index khi doc lai
+    phan tu, xem il_codegen.py)."""
+    for stmt in stmts:
+        if lay_str(stmt, 'kind') == kind and lay_str(stmt, 'name') == name:
+            vn = lay_nut(stmt, 'value_node')
+            if ekind(vn) == 'binop' and ea_str(vn) == '*':
+                # 'g.append([0] * n)' / 'g.append(row * n)' (2026-09-30): phan tu la list moi
+                _lap_ta = _ta_list_lap(vn, None, infer_scope)
+                if _lap_ta is not None:
+                    return _lap_ta
+            if ekind(vn) == 'var':
+                try:
+                    var_ta = infer_scope.tra(ea_str(vn)).ta
+                except KeyError:
+                    return None
+                # 'tuple' (2026-09-28): '[fd for fd in <list tuple>]' -> list tuple;
+                # truoc day chi con dtype nen 'for a, b in <ket qua>' doc sai.
+                if var_ta.shape_ten in ('list', 'dict', 'tuple'):
+                    return var_ta
+            return None
+        for sub_key in ('body', 'else_body'):
+            sub = lay_than(stmt, sub_key)
+            if sub:
+                found = find_first_append_elem_ta(sub, name, infer_scope, kind)
+                if found is not None:
+                    return found
+    return None
+
+
+def _params_of_call(call_node: "TkvNode", ctx: "WalkCtx") -> "list[Param]":
+    """Danh sach Param cua ham/method ma 'call_node' goi toi (None neu
+    khong tra cuu duoc)."""
+    func_table = ctx.func_table or {}
+    if ekind(call_node) == 'call':
+        sig = func_table.get(ea_str(call_node))
+        return sig.params if sig is not None else None
+    if ekind(call_node) == 'method_call':
+        record_methods = ctx.record_methods or {}
+        try:
+            obj_ta = ctx.infer_scope.tra(ea_str(call_node)).ta
+        except KeyError:
+            return None
+        methods = record_methods.get(obj_ta.dtype) or {}
+        sig = methods.get(eb_str(call_node))
+        return sig.params if sig is not None else None
+    return None
+
+
+def _scan_nodes_for_arg_use(node: "TkvNode", name: "str", ctx: "WalkCtx") -> "str":
+    """Tim 'name' xuat hien lam DOI SO cua 1 loi goi trong cay bieu thuc
+    'node'; tra ve dtype phan tu khai bao cua tham so tuong ung."""
+    if not la_node(node):
+        return None
+    if node and ekind(node) in ('call', 'method_call'):
+        args = eb_ds(node) if ekind(node) == 'call' else ec_ds(node)
+        params = _params_of_call(node, ctx)
+        if params is not None:
+            for i in range(min(len(args), len(params))):
+                a = args[i]
+                if la_node(a) and ekind(a) == 'var' and ea_str(a) == name:
+                    ta = params[i].type_ann
+                    if ta is not None and ta.shape_ten == 'list':
+                        return ta.dtype
+    for sub in con_nut(node):
+        found = _scan_nodes_for_arg_use(sub, name, ctx)
+        if found:
+            return found
+    return None
+
+
+def _elem_dtype_from_arg_use(stmts: "list[i32]", name: "str", ctx: "WalkCtx") -> "str":
+    """Duyet CA cay cau lenh, tim lan dau 'name' duoc TRUYEN lam doi so
+    cho 1 ham/method co khai bao tham so 'list[T]' -> tra ve T."""
+    for stmt in stmts:
+        for key in ('rhs_node', 'expr_node', 'value_node', 'call_node', 'cond_node'):
+            node = lay_nut(stmt, key)
+            if node is not None:
+                found = _scan_nodes_for_arg_use(node, name, ctx)
+                if found:
+                    return found
+        for sub_key in ('body', 'else_body', 'finally_body'):
+            sub = lay_than(stmt, sub_key)
+            if sub:
+                found = _elem_dtype_from_arg_use(sub, name, ctx)
+                if found:
+                    return found
+        for handler_body in [body_of(_v) for _v in lay_handlers_vung(stmt)]:
+            found = _elem_dtype_from_arg_use(handler_body, name, ctx)
+            if found:
+                return found
+    return None
+
+
+def _has_append_stmt(stmts: "list[i32]", name: "str", kind: "str") -> "i32":
+    """Co bat ky '<name>.append(...)' / '<name>.add(...)' nao trong cay
+    cau lenh khong - phan biet 'container rong suot doi' (kieu phan tu
+    khong quan sat duoc VA khong anh huong gi) voi 'co manh moi nhung
+    chua suy duoc' (phai hoan lai hoac bao loi)."""
+    for stmt in stmts:
+        if lay_str(stmt, 'kind') == kind and lay_str(stmt, 'name') == name:
+            return True
+        for sub_key in ('body', 'else_body', 'finally_body'):
+            sub = lay_than(stmt, sub_key)
+            if sub and _has_append_stmt(sub, name, kind):
+                return True
+        for handler_body in [body_of(_v) for _v in lay_handlers_vung(stmt)]:
+            if _has_append_stmt(handler_body, name, kind):
+                return True
+    return False
+
+
+def _elem_dtype_from_extend(stmts: "list[i32]", name: "str", infer_scope: "Scope", ctx: "WalkCtx") -> "str":
+    """dtype phan tu cua `name` suy tu lan '.extend(<nguon>)' DAU TIEN khi khong co
+    '.append' nao (2026-09-29): 'q = []' roi 'q.extend(f(x))' khai bao List<i32> mac dinh
+    -> chua List<string> vao List<int32> (EntryPointNotFoundException luc chay)."""
+    for stmt in stmts:
+        k = lay_str(stmt, 'kind')
+        if lay_str(stmt, 'name') == name:
+            if k == 'list_extend':
+                try:
+                    return infer_scope.tra(lay_str(stmt, 'other_name')).ta.dtype
+                except (KeyError, SyntaxError):
+                    return None
+            if k == 'list_extend_expr':
+                try:
+                    return ctx.infer_dtype(lay_nut(stmt, 'expr_node'), infer_scope, ctx.func_table, ctx.records,
+                                           ctx.record_methods, None)
+                except KeyError:
+                    return None
+        for sub_key in ('body', 'else_body'):
+            sub = lay_than(stmt, sub_key)
+            if sub:
+                found = _elem_dtype_from_extend(sub, name, infer_scope, ctx)
+                if found:
+                    return found
+    return None
+
+
+def declare_list(name: "str", ctx: "WalkCtx") -> "i32":
+    """FIRST_PASS_WALK helper: khai bao local List<T> - dtype phan tu suy
+    tu find_first_append_dtype. `ctx` o day la walk_ctx (xem il_codegen.py
+    _first_pass_collect_locals) - CHUA them 'infer_dtype'/'contains_float_literal'/
+    'int_dtypes'/'stmts' (tiem lien tu core, xem noi goi ham nay).
+
+    Wave 2 (2026-07-29): thu tim container long nhau TRUOC (xem
+    find_first_append_elem_ta) - neu lan '.append(...)' DAU TIEN tren
+    'name' la 1 bien list/dict khac, 'name' tro thanh List<List<T>>/
+    List<Dict<K,V>> (elem_ta = TypeAnn DAY DU cua bien do); nguoc lai
+    (append gia tri vo huong/record nhu cu) roi ve nhanh CU khong doi."""
+    declared_names = ctx.declared_names
+    if name in declared_names:
+        return 0
+    hint = ctx.container_arg_hints.get(name, None)
+    if hint is not None and hint.shape_ten == 'list' and (
+            hint.elem_ta is None or hint.elem_ta.shape_ten == 'tuple'):
+        # Chu thich TUONG MINH (tham so cua ham duoc goi, hoac kieu tra ve
+        # cua chinh ham nay) thang phong doan tu lan '.append()' dau tien -
+        # xem _container_arg_hints trong il_codegen.py. Chi ap dung cho
+        # list phan tu VO HUONG (elem_ta None): container long nhau van do
+        # find_first_append_elem_ta lo, no chinh xac hon.
+        declared_names.add(name)
+        ctx.locals_decl.append((name, hint))
+        ctx.infer_scope.set(name, hint)
+        return 0
+    tuple_ta = _list_tuple_ta_tu_append(ctx.stmts, name, ctx)
+    nested_ta = find_first_append_elem_ta(ctx.stmts, name, ctx.infer_scope)
+    if tuple_ta is not None:
+        ta = tuple_ta
+    elif nested_ta is not None:
+        ta = TypeAnn('__nested__', 'list', elem_ta=nested_ta)
+    else:
+        elem_dtype = (find_first_append_dtype(ctx.stmts, name, ctx.infer_scope, ctx)
+                      # 2026-08-03: list KHONG duoc append trong CHINH ham
+                      # nay ma chi TRUYEN cho ham/method khac ('vals = []'
+                      # roi 'store.assign(names, vals, ...)') - suy kieu
+                      # phan tu tu KHAI BAO THAM SO cua noi nhan. Truoc
+                      # day roi thang ve body_dtype -> List<string> cho 1
+                      # list THAT SU chua so, sai am tham.
+                      or _elem_dtype_from_arg_use(ctx.stmts, name, ctx)
+                      or _elem_dtype_from_extend(ctx.stmts, name, ctx.infer_scope, ctx))
+        if elem_dtype is None and not _has_append_stmt(ctx.stmts, name, 'list_append'):
+            # KHONG co '.append(...)' nao trong ca ham -> list RONG suot
+            # doi (vd 'lst = []' roi 'json_dumps(lst)'): kieu phan tu
+            # khong the quan sat duoc VA cung khong anh huong ket qua.
+            # Chon 1 kieu trung tinh thay vi doan theo kieu tra ve cua ham.
+            elem_dtype = 'i32'
+        if elem_dtype is None and not ctx.final_pass:
+            # Manh moi co the nam o 1 bien khai bao SAU (vd bien vong lap)
+            # - hoan lai, thu lai sau khi di het than ham.
+            ctx.defer(lambda: declare_list(name, ctx))
+            return 0
+        if elem_dtype is None:
+            raise SyntaxError(
+                f"il_codegen: khong suy duoc kieu PHAN TU cua list {name!r} - hay cho 1 "
+                f"manh moi ('{name}.append(<gia tri co kieu ro rang>)' truoc, hoac truyen "
+                f"'{name}' cho 1 ham co khai bao tham so 'list[...]'). TRUOC 2026-08-03 cho "
+                f"nay am tham lay kieu TRA VE cua ham dang bien dich - nguon cua 5 bug sai "
+                f"am tham trong 1 phien.")
+        ta = TypeAnn(elem_dtype, 'list')
+    declared_names.add(name)
+    ctx.locals_decl.append((name, ta))
+    ctx.infer_scope.set(name, ta)
+    return 0
+
+
+def _nut_append_dau(stmts: "list[i32]", name: "str") -> "TkvNode":
+    """Node gia tri cua '.append(...)' DAU TIEN tren `name` (duyet ca cay)."""
+    for stmt in stmts:
+        if lay_str(stmt, 'kind') == 'list_append' and lay_str(stmt, 'name') == name:
+            return lay_nut(stmt, 'value_node')
+        for sub_key in ('body', 'else_body'):
+            sub = lay_than(stmt, sub_key)
+            if sub:
+                found = _nut_append_dau(sub, name)
+                if found is not None:
+                    return found
+    return None
+
+
+def _list_tuple_ta_tu_append(stmts: "list[i32]", name: "str", ctx: "WalkCtx") -> "TypeAnn":
+    """'lst = []' ma lan append dau la TUPLE viet thang '(a, b)' (2026-09-25):
+    kieu list[(t1, t2, ...)] suy tu tung phan tu. Phan tu nao chua suy duoc
+    -> None (duong cu bao loi / hoan lai)."""
+    nut = _nut_append_dau(stmts, name)
+    if nut is None or ekind(nut) != 'tuple_lit':
+        return None
+    kieu = []
+    tas_el = []
+    co_container = False
+    for el in ea_ds(nut):
+        try:
+            d = ctx.infer_dtype(el, ctx.infer_scope, ctx.func_table, ctx.records,
+                                ctx.record_methods, None)
+        except KeyError:
+            return None
+        if d is None:
+            return None
+        kieu.append(d)
+        t_el = None
+        if ekind(el) == 'var':
+            # phan tu la BIEN container (vd 'bodies.append((sig, body_lines))'): infer_dtype chi
+            # tra dtype phan tu ('str'), mat hinh dang list -> khai List<Tuple<..,string>> sai (2026-09-29)
+            try:
+                v_ta = ctx.infer_scope.tra(ea_str(el)).ta
+            except KeyError:
+                v_ta = None
+            if v_ta is not None and v_ta.shape_ten in ('list', 'dict', 'set', 'tuple'):
+                t_el = v_ta
+                co_container = True
+        tas_el.append(t_el)
+    ten_rec: "set[str]" = set()
+    for r in (ctx.records or {}):
+        ten_rec.add(r)
+    if co_container and 2 <= len(kieu) <= 7:
+        tas_day = []
+        for i in range(len(kieu)):
+            if tas_el[i] is not None:
+                tas_day.append(tas_el[i])
+            else:
+                tas_day.append(parse_type_ann_str(kieu[i], record_names=ten_rec))
+        tup = TypeAnn(kieu[0], 'tuple', tuple_dtypes=kieu, tuple_tas=tas_day)
+        return TypeAnn(kieu[0], 'list', elem_ta=tup)
+    return parse_type_ann_str('list[(' + ','.join(kieu) + ')]', record_names=ten_rec)
+
+
+def fpw_assign_list_new(stmt: "i32", ctx: "WalkCtx"):
+    declare_list(lay_str(stmt, 'name'), ctx)
+
+
+def declare_list_literal(name: "str", elements: "list[TkvNode]", ctx: "WalkCtx"):
+    """FIRST_PASS_WALK helper: khai bao local List<T> cho 'xs = [3, 1, 2]'
+    (Giai doan 0.1, 2026-08-03) - dtype phan tu suy THANG tu chinh cac
+    phan tu literal (KHONG can quet '.append()' sau do nhu declare_list).
+    Widen ve float NEU BAT KY phan tu nao la float (Python that: [1, 2.0]
+    la list[float]) - giong het logic widen da co cho '.append()' dau
+    tien trong find_first_append_dtype."""
+    declared_names = ctx.declared_names
+    if name in declared_names:
+        return
+    declared_names.add(name)
+    infer_scope = ctx.infer_scope
+    hint = ctx.container_arg_hints.get(name, None)
+    if hint is not None and hint.shape_ten == 'list':
+        # Chu thich cua ham nhan thang phong doan tu hang so - xem
+        # _container_arg_hints trong il_codegen.py.
+        ctx.locals_decl.append((name, hint))
+        infer_scope.set(name, hint)
+        return
+    records = (ctx.records if ctx is not None else None) or {}
+    record_bases = (ctx.record_bases if ctx is not None else None) or {}
+    elem_dtype = None
+    elem_ta = None
+    for el in elements:
+        # NGUON SU THAT DUY NHAT ve suy kieu phan tu, dung CHUNG voi
+        # codegen_expr_list_literal (final-review C1, 2026-08-19) - phan
+        # tu la 1 list-literal LONG NHAU (vd 'grid = [[1,2],[3,4]]') tra
+        # ve chuoi MANG SHAPE 'list[T]', boc ra thanh TypeAnn(T,'list')
+        # lam elem_ta cua phan tu nay.
+        d = list_literal_elem_spec_of(el, infer_scope, nguon_kieu_walk(ctx))
+        if isinstance(d, str) and d.startswith('list[') and d.endswith(']'):
+            inner_elem_dtype = d[len('list['):-1].strip()
+            d = inner_elem_dtype
+            d_ta = TypeAnn(inner_elem_dtype, 'list')
+        else:
+            d_ta = None
+        moi = _fold_elem(elem_dtype, d, records, record_bases)
+        if moi != elem_dtype:
+            elem_dtype = moi
+            elem_ta = d_ta
+    if elem_ta is not None:
+        ta = TypeAnn(elem_dtype, 'list', elem_ta=elem_ta)
+    else:
+        logic = 0
+        if elem_dtype == 'i32' and len(elements) > 0:
+            # '[True, False, a > b]' (2026-10-01): moi phan tu mang nghia logic -> list[bool]
+            logic = 1
+            for el in elements:
+                if ekind(el) != 'not' and ekind(el) != 'compare' and ekind(el) != 'in':
+                    logic = 0
+        ta = TypeAnn(elem_dtype, 'list', logic=logic)
+    ctx.locals_decl.append((name, ta))
+    ctx.infer_scope.set(name, ta)
+
+
+def fpw_assign_list_literal(stmt: "i32", ctx: "WalkCtx"):
+    declare_list_literal(lay_str(stmt, 'name'), lay_ds_nut(stmt, 'elements'), ctx)
+    for el in lay_ds_nut(stmt, 'elements'):
+        ctx.collect_ternary_temps(el)
+
+
+def codegen_assign_list_literal(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'xs = [3, 1, 2]' (Giai doan 0.1, 2026-08-03) -
+    tai dung 100% codegen_assign_list_new (newobj + store) roi codegen_list_append
+    tung phan tu (tuong duong 'xs = []' + N lan '.append()'), khong viet
+    lai logic newobj/Add rieng - dung nguyen tac DRY."""
+    codegen_assign_list_new(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
+    for el in lay_ds_nut(stmt, 'elements'):
+        # Cau lenh TAM, dung roi bo. Truoc 2026-09-18 no la mot DICT -
+        # cai dict cuoi cung trong cay. No khong vao than nao nen khong
+        # chan `body_of`, nhung no di THANG vao codegen, noi nay chi con
+        # nhan row. Dung o luu THANG chi so node (co che A1) vi `el` la
+        # node dung san, khong co van ban nguon.
+        codegen_list_append(intern(make4('list_append', lay_str(stmt, 'name'), None, str(el))),
+                             scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
+
+
+def fpw_list_append(stmt: "i32", ctx: "WalkCtx"):
+    ctx.collect_ternary_temps(lay_nut(stmt, 'value_node'))
+
+
+_LIST_REMOVE_RE = re.compile(r'^(\w+)\.remove\((.+)\)\s*$')
+_LIST_INSERT_RE = re.compile(r'^(\w+)\.insert\(\s*(.+?)\s*,\s*(.+)\s*\)\s*$')
+
+
+def try_parse_list_remove(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
+    """LINE_PARSERS entry: 'lst.remove(x)' - PHAI dang ky TRUOC
+    method_call_stmt (pattern method-call tong quat cung khop dong nay),
+    giong list_append. 2026-07-29 (Huong A stdlib mo rong, khi them
+    set.remove() o set_methods_batch2.py): them dieu kien loai tru
+    known_shapes=='set' - regex 'x.remove(...)' giong het set.remove(),
+    NEU KHONG loai tru se cuop mat luon moi loi goi set.remove() (LINE_PARSERS
+    la list thu THEO THU TU dang ky, file nay import TRUOC nen luon thang
+    neu khong co dieu kien nay)."""
+    m = _LIST_REMOVE_RE.match(line)
+    if not m or known_shapes.get(m.group(1)) in ('set', 'frozenset', 'bytearray'):
+        return None
+    name, arg_expr = m.groups()
+    return intern(make3('list_remove', name, arg_expr)), pos + 1
+
+
+def codegen_list_remove(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'lst.remove(x)' - xoa phan tu DAU TIEN khop
+    gia tri x. GIOI HAN DA BIET: Python list.remove() nem ValueError neu
+    khong tim thay x; .NET List<T>.Remove(T) chi tra ve bool (khong nem
+    loi) - o day CHAP NHAN hanh vi .NET (bo qua gia tri bool tra ve qua
+    'pop'), KHONG gia lap ValueError."""
+    ta = scope.tra(lay_str(stmt, 'name')).ta
+    reject_if_nested_container_elem(ta, 'list.remove')
+    ctx.load_var_ref(lay_str(stmt, 'name'), scope, body)
+    ctx.compile_expr(lay_nut(stmt, 'value_node'), scope, body, ta.dtype, ctx)
+    body.append(f'    callvirt instance bool {ctx.il_type_str(ta, ctx.records)}::Remove(!0)')
+    body.append('    pop')
+
+
+def fpw_list_remove(stmt: "i32", ctx: "WalkCtx"):
+    ctx.collect_ternary_temps(lay_nut(stmt, 'value_node'))
+
+
+def try_parse_list_insert(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
+    """LINE_PARSERS entry: 'lst.insert(i, x)' - PHAI dang ky TRUOC
+    method_call_stmt, giong list_append/list_remove."""
+    m = _LIST_INSERT_RE.match(line)
+    if not m or known_shapes.get(m.group(1)) == 'bytearray':
+        return None
+    name, idx_expr, val_expr = m.groups()
+    return intern(make4('list_insert', name, idx_expr, val_expr)), pos + 1
+
+
+def codegen_list_insert(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'lst.insert(i, x)' - List<T>.Insert(int32, !0)."""
+    ta = scope.tra(lay_str(stmt, 'name')).ta
+    ctx.load_var_ref(lay_str(stmt, 'name'), scope, body)
+    ctx.compile_expr(lay_nut(stmt, 'index_node'), scope, body, 'i32', ctx)
+    ctx.compile_expr(lay_nut(stmt, 'value_node'), scope, body, ta.dtype, ctx)
+    body.append(f'    callvirt instance void {ctx.il_type_str(ta, ctx.records)}::Insert(int32, !0)')
+
+
+def fpw_list_insert(stmt: "i32", ctx: "WalkCtx"):
+    ctx.collect_ternary_temps(lay_nut(stmt, 'index_node'))
+    ctx.collect_ternary_temps(lay_nut(stmt, 'value_node'))
+
+
+
+
+def fpw_for_in_call_list(stmt: "i32", ctx: "WalkCtx"):
+    """FIRST_PASS_WALK cho 'for x in f(...):' khi f tra ve 1 LIST thuong
+    (2026-08-03, dot 2) - khai bao 1 local AN giu ket qua loi goi, 1 local
+    dem, va bien vong lap."""
+    sig = ctx.func_table[lay_str(stmt, 'callee_name')]
+    ret_ta = sig.return_type
+    src_ta = ret_ta
+    if ret_ta.shape_ten == 'set' or ret_ta.shape_ten == 'frozenset':
+        # 'for x in f()' voi f tra SET (2026-09-29): sao ra List<T> roi duyet theo chi so
+        # (HashSet khong co get_Item).
+        src_ta = TypeAnn(ret_ta.dtype, 'list')
+    ctx.declare_named(f'__forsrc{nid(stmt)}', src_ta)
+    ctx.declare_named(f'__foridx{nid(stmt)}', TypeAnn('i32', None))
+    # Task 3 review fix thu 4 (extern-class-list, 2026-08-18): doi xung voi
+    # declare_scalar/_fpp_assign_scalar (il_codegen.py) - 'for x in f(...):'
+    # khi f() tra ve list[HandleType] phai suy shape='extern_class' cho 'x',
+    # khong chi biet nhanh 'record'. Thieu nhanh nay -> shape=None ->
+    # il_type_str's nhanh shape=None tra IL_SCALAR[dtype] -> KeyError, va
+    # 'x.method()'/'x.field' sau do tra cuu SAI (khong dung extern-class).
+    extern_class_defs = ctx.extern_class_defs
+    if extern_class_defs and ret_ta.dtype in extern_class_defs:
+        elem_shape = 'extern_class'
+    elif ctx.records and ret_ta.dtype in ctx.records:
+        elem_shape = 'record'
+    else:
+        elem_shape = None
+    ctx.declare_named(lay_str(stmt, 'var'), TypeAnn(ret_ta.dtype, elem_shape))
+    for arg_node in lay_ds_nut(stmt, 'arg_nodes'):
+        ctx.collect_ternary_temps(arg_node)
+    ctx.walk_fn(lay_than(stmt, 'body'))
+
+
+def codegen_for_in_call_list(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN cho 'for x in f(...):' (f tra ve list) - goi ham 1 LAN,
+    do ket qua vao 1 local an, roi lap theo chi so nhu 'for x in bien:'."""
+    callee = ctx.func_table[lay_str(stmt, 'callee_name')]
+    compile_expr = ctx.compile_expr
+    il_type_str = ctx.il_type_str
+    records = ctx.records
+    _rb = scope.tra(f'__forsrc{nid(stmt)}')
+    src_idx = _rb.idx
+    src_ta = _rb.ta
+    idx_idx = scope.tra(f'__foridx{nid(stmt)}').idx
+    list_type = il_type_str(src_ta, records)
+
+    for arg_node, p in zip(lay_ds_nut(stmt, 'arg_nodes'), callee.params):
+        # Round 3 (2026-08-19): shape-string convention cho list-literal
+        # long nhau lam doi so ('for x in rows([[1,2],[3,4]]):').
+        compile_expr(arg_node, scope, body,
+                     value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
+    params_il = ', '.join([il_type_str(p.type_ann, records) for p in callee.params])
+    class_name = ctx.class_name or 'Program'
+    ret_il = il_type_str(callee.return_type, records)
+    body.append(f"    call {ret_il} {class_name}::{ctx.il_ident(lay_str(stmt, 'callee_name'))}({params_il})")
+    if callee.return_type.shape_ten == 'set' or callee.return_type.shape_ten == 'frozenset':
+        body.append(f'    newobj instance void {list_type}::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    body.append(f'    stloc.s {src_idx}')
+
+    ctx.label_counter[0] += 1
+    n = ctx.label_counter[0]
+    start_lbl = f"{ctx.prefix}_FCL{n}_start"
+    cont_lbl = f"{ctx.prefix}_FCL{n}_cont"
+    end_lbl = f"{ctx.prefix}_FCL{n}_end"
+    body.append('    ldc.i4.0')
+    body.append(f'    stloc.s {idx_idx}')
+    body.append(f'  {start_lbl}:')
+    body.append(f'    ldloc.s {idx_idx}')
+    body.append(f'    ldloc.s {src_idx}')
+    body.append(f'    callvirt instance int32 {list_type}::get_Count()')
+    body.append(f'    bge {end_lbl}')
+    body.append(f'    ldloc.s {src_idx}')
+    body.append(f'    ldloc.s {idx_idx}')
+    body.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
+    ctx.store_var(lay_str(stmt, 'var'), scope, body)
+    ctx.loop_stack.append((cont_lbl, end_lbl))
+    codegen_stmts_fn(lay_than(stmt, 'body'), scope, body, body_dtype, ctx, sig)
+    ctx.loop_stack.pop()
+    body.append(f'  {cont_lbl}:')
+    body.append(f'    ldloc.s {idx_idx}')
+    body.append('    ldc.i4.1')
+    body.append('    add')
+    body.append(f'    stloc.s {idx_idx}')
+    body.append(f'    br {start_lbl}')
+    body.append(f'  {end_lbl}:')
+
+
+def bootstrap_list_type(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    # Dang ky vao il_dispatch NGAY LUC MODULE NAP (il_dispatch.py khong phu
+    # thuoc il_codegen.py nen import truc tiep an toan, khong circular).
+    register_assign_rhs_parser(reg, 'list_literal', try_rhs_list_literal)
+    register_line_parser(reg, 'list_append', try_parse_list_append)
+    register_line_parser(reg, 'list_remove', try_parse_list_remove)
+    register_line_parser(reg, 'list_insert', try_parse_list_insert)
+    register_stmt_codegen(reg, 'assign_list_new', codegen_assign_list_new)
+    register_stmt_codegen(reg, 'assign_list_literal', codegen_assign_list_literal)
+    register_stmt_codegen(reg, 'list_append', codegen_list_append)
+    register_stmt_codegen(reg, 'list_remove', codegen_list_remove)
+    register_stmt_codegen(reg, 'list_insert', codegen_list_insert)
+    register_first_pass_walk(reg, 'assign_list_new', fpw_assign_list_new)
+    register_first_pass_walk(reg, 'assign_list_literal', fpw_assign_list_literal)
+    register_first_pass_walk(reg, 'list_append', fpw_list_append)
+    register_first_pass_walk(reg, 'list_remove', fpw_list_remove)
+    register_first_pass_walk(reg, 'list_insert', fpw_list_insert)
+    # Gap 2 (Phase 7 follow-up, 2026-08-19): 'list_literal' o VI TRI BIEU THUC
+    # (long trong 1 list-literal khac) - xem codegen_expr_list_literal.
+    register_expr_codegen(reg, 'list_literal', codegen_expr_list_literal)
+    register_expr_codegen(reg, 'tuple_lit', codegen_expr_tuple_lit)
+    register_expr_codegen(reg, 'dict_lit', codegen_expr_dict_lit)
+    register_stmt_codegen(reg, 'for_in_call_list', codegen_for_in_call_list)
+    register_first_pass_walk(reg, 'for_in_call_list', fpw_for_in_call_list)

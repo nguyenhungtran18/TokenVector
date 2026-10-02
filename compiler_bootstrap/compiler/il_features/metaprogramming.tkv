@@ -1,0 +1,143 @@
+# -*- coding: utf-8 -*-
+"""Metaprogramming (Moc 17, 2026-08-09): hasattr(obj, "attr") & getattr(obj, "attr", default).
+
+NOI DAY 2026-09-17: truoc ngay nay module chua bao gio duoc dang ky -
+`bootstrap_all` khong goi `bootstrap_metaprogramming`, va file chi nam o
+cay tu-host nen che do dev cung khong nap. Do that ca hai builtin truoc
+khi noi day:
+  - `hasattr`: CHAY DUNG (in 1/0).
+  - `getattr`: chay dung voi truong kieu `str`, nhung NEM
+    NullReferenceException voi truong kieu khac - vi builtin nay khai
+    return dtype CO DINH la 'str' (xem cuoi file), trong khi kieu tra ve
+    that phu thuoc TUNG TRUONG. Nay chan tuong minh thay vi phat IL sai:
+    truong khong phai 'str' bao loi ro luc BIEN DICH."""
+from il_dispatch import register_expr_builtin
+
+__tkv_import__ = "il_dispatch"
+from il_features import int_type as _int_type
+from il_features import tkvstr as _tkvstr
+from il_features.int_type import ensure_class_int
+from il_features.tkvstr import ensure_class
+from expr_row import ea_str, ekind, eso_o, la_node, mk3, o_str
+
+def push_hasattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    ensure_class_int(ctx)
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: hasattr(obj, attr_name) nhan dung 2 tham so")
+    obj_arg, attr_arg = args[0], args[1]
+    if ekind(obj_arg) != 'var':
+        raise SyntaxError("il_codegen: hasattr(obj, attr_name) can tham so 1 la 1 bien")
+    obj_name = ea_str(obj_arg)
+    if obj_name not in scope:
+        raise SyntaxError(f"il_codegen: bien '{obj_name}' chua duoc khai bao")
+    obj_ta = scope.tra(obj_name).ta
+    
+    attr_name = None
+    if la_node(attr_arg) and eso_o(attr_arg) >= 2:
+        attr_name = str(ea_str(attr_arg)).strip('"\'')
+    
+    # Truong co kieu cua Ctx (2026-09-25) thay ctx.get(...) - cung gia tri.
+    records: "dict[str,list[(str,TypeAnn)]]" = {}
+    if ctx is not None and ctx.records:
+        records = ctx.records
+    record_methods: "dict[str,dict[str,Signature]]" = {}
+    if ctx is not None and ctx.record_methods:
+        record_methods = ctx.record_methods
+    # records: dict[str,list[(str,TypeAnn)]] - gia tri LUON la list, nhanh
+    # dict (.keys()) cu la ma chet.
+    field_names: "list[str]" = []
+    if obj_ta.dtype in records:
+        for f in records[obj_ta.dtype]:
+            field_names.append(f[0])
+    has_attr = False
+    if attr_name and attr_name in field_names:
+        has_attr = True
+    elif attr_name and obj_ta.dtype in record_methods and attr_name in record_methods[obj_ta.dtype]:
+        has_attr = True
+    
+    if has_attr:
+        out.append('    ldc.i4.1')
+    else:
+        out.append('    ldc.i4.0')
+
+def push_getattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    ensure_class_int(ctx)
+    ensure_class(ctx)
+    if len(args) < 2 or len(args) > 3:
+        raise SyntaxError("il_codegen: getattr(obj, attr_name, default) nhan 2 hoac 3 tham so")
+    obj_arg, attr_arg = args[0], args[1]
+    default_arg = args[2] if len(args) == 3 else None
+    
+    if ekind(obj_arg) != 'var':
+        raise SyntaxError("il_codegen: getattr(obj, attr_name) can tham so 1 la 1 bien")
+    obj_name = ea_str(obj_arg)
+    if obj_name not in scope:
+        raise SyntaxError(f"il_codegen: bien '{obj_name}' chua duoc khai bao")
+    obj_ta = scope.tra(obj_name).ta
+    
+    attr_name = None
+    if la_node(attr_arg) and eso_o(attr_arg) >= 2:
+        attr_name = str(ea_str(attr_arg)).strip('"\'')
+
+    # Truong co kieu cua Ctx (2026-09-25) thay ctx.get(...) - cung gia tri.
+    # ctx luon co o day (ensure_class_int(ctx) o dong dau da dung no).
+    records = ctx.records
+    # records: dict[str,list[(str,TypeAnn)]] - gia tri LUON la list, nhanh
+    # dict (.keys()) cu la ma chet.
+    field_names = []
+    if records and obj_ta.dtype in records:
+        for f in records[obj_ta.dtype]:
+            field_names.append(f[0])
+    
+    if attr_name and attr_name in field_names:
+        # Chan truoc thay vi sai am tham: return dtype khai CO DINH 'str'
+        # (register_expr_builtin cuoi file), nen truong kieu khac se bi
+        # doc nhu mot tham chieu chuoi -> NullReferenceException luc chay.
+        # Da do that: truong 'i32' lam chuong trinh sap, truong 'str' dung.
+        # Vong lap thay dict(...).get (2026-09-25): trung ten thi CAI SAU thang,
+        # dung nhu dict() cu.
+        fta = None
+        for f in records[obj_ta.dtype]:
+            if f[0] == attr_name:
+                fta = f[1]
+        # `records` anh xa ten truong -> TypeAnn (KHONG phai chuoi dtype).
+        f_dtype = None
+        f_shape = ""
+        if fta is not None:
+            f_dtype = fta.dtype
+            f_shape = fta.shape_ten
+        # `shape_ten` la "" khi VO HUONG (khac `.shape` cu tra None). Doi
+        # sang shape_ten ma quen doi phep so `is not None` thi dieu kien
+        # LUON dung -> getattr() TU CHOI MOI truong, ke ca truong str hop
+        # le, va thong bao loi tu mau thuan ("truong nay kieu 'str' shape
+        # ''" roi van bao chi ho tro str vo huong). Da xay ra that o commit
+        # 27a88c93 va nam im cho toi khi ma tran phu bat dau bit o nay.
+        if f_dtype != 'str' or f_shape != "":
+            raise SyntaxError(
+                "il_codegen: getattr(" + obj_name + ", '" + attr_name +
+                "') - hien CHI ho tro truong kieu 'str' vo huong, truong nay "
+                "kieu " + repr(f_dtype) + " shape " + repr(f_shape) +
+                ". Doc thang '" + obj_name + "." + attr_name +
+                "' thay vi dung getattr()")
+        attr_node = mk3('attr', o_str(obj_name), o_str(attr_name))
+        ctx.compile_expr(attr_node, scope, out, dtype, ctx)
+    elif default_arg is not None:
+        ctx.compile_expr(default_arg, scope, out, dtype, ctx)
+    else:
+        raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co attribute '{attr_name}' va khong co default")
+
+
+def bootstrap_metaprogramming(reg: "Registry") -> "i32":
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh giong moi bootstrap_<module>() khac. Truoc day
+    cac loi goi nay nam o CAP MODULE va con dung chu ky cu (thieu
+    tham so `reg`) - phep kiem cua P6 chi quet cay .py nen khong
+    nhin thay file CHI-CO-TKV nay.
+    """
+    register_expr_builtin(reg, 'hasattr', push_hasattr_builtin, 'bool')
+    # return dtype CO DINH 'str' - day la GIOI HAN THAT, khong phai bo sot:
+    # kieu tra ve cua getattr phu thuoc tung truong, ma bang nay chi nhan
+    # MOT dtype. push_getattr_builtin chan truong khong phai 'str'.
+    register_expr_builtin(reg, 'getattr', push_getattr_builtin, 'str')
+    return 0
