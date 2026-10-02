@@ -1,0 +1,28 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    p1 = "a/b/file.txt"
+    root1, ext1 = path_splitext(p1)
+    tested = tested + 1
+    total = total + check("splitext_root", root1, "a/b/file")
+    tested = tested + 1
+    total = total + check("splitext_ext", ext1, ".txt")
+
+    p2 = "noext"
+    root2, ext2 = path_splitext(p2)
+    tested = tested + 1
+    total = total + check("splitext_no_ext_root", root2, "noext")
+    tested = tested + 1
+    total = total + check("splitext_no_ext_ext", ext2, "")
+
+    p3 = "archive.tar.gz"
+    root3, ext3 = path_splitext(p3)
+    tested = tested + 1
+    total = total + check("splitext_multi_dot_root", root3, "archive.tar")
+    tested = tested + 1
+    total = total + check("splitext_multi_dot_ext", ext3, ".gz")
+
+    return test_summary("path_splitext_test", total, tested)

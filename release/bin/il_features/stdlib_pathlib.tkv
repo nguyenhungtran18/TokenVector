@@ -1,0 +1,71 @@
+# -*- coding: utf-8 -*-
+"""stdlib_pathlib.tkv - Module ho tro thao tac duong dan va file I/O theo phong cach pathlib.
+
+Cung cap cac ham:
+- path_stem(p) -> str (Phan ten file khong kem duoi mo rong, Path.GetFileNameWithoutExtension)
+- path_suffix(p) -> str (Phan mo rong cua file, Path.GetExtension)
+- path_name(p) -> str (Ten day du cua file, Path.GetFileName)
+- path_parent(p) -> str (Duong dan thu muc cha, Path.GetDirectoryName)
+- path_read_text(p) -> str (Doc toan bo noi dung text cua file, File.ReadAllText)
+- path_write_text(p, text) -> i32 (Ghi text vao file, File.WriteAllText)
+"""
+
+from il_dispatch import register_expr_builtin
+
+
+def _push_path_stem(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_stem(p) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.IO.Path::GetFileNameWithoutExtension(string)')
+
+
+def _push_path_suffix(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_suffix(p) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.IO.Path::GetExtension(string)')
+
+
+def _push_path_name(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_name(p) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.IO.Path::GetFileName(string)')
+
+
+def _push_path_parent(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_parent(p) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.IO.Path::GetDirectoryName(string)')
+
+
+def _push_path_read_text(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: path_read_text(p) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.IO.File::ReadAllText(string)')
+    out.append('    ldstr "\\r\\n"')
+    out.append('    ldstr "\\n"')
+    out.append('    callvirt instance string [mscorlib]System.String::Replace(string, string)')
+    out.append('    ldstr "\\r"')
+    out.append('    ldstr "\\n"')
+    out.append('    callvirt instance string [mscorlib]System.String::Replace(string, string)')
+
+
+def _push_path_write_text(args, scope, out, dtype, ctx):
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: path_write_text(p, text) can dung 2 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    ctx['compile_expr'](args[1], scope, out, 'str', ctx)
+    out.append('    call void [mscorlib]System.IO.File::WriteAllText(string, string)')
+    out.append('    ldc.i4.1')
+
+
+register_expr_builtin('path_stem', _push_path_stem, 'str')
+register_expr_builtin('path_suffix', _push_path_suffix, 'str')
+register_expr_builtin('path_name', _push_path_name, 'str')
+register_expr_builtin('path_parent', _push_path_parent, 'str')
+register_expr_builtin('path_read_text', _push_path_read_text, 'str')
+register_expr_builtin('path_write_text', _push_path_write_text, 'i32')

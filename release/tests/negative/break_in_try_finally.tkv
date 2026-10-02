@@ -1,0 +1,21 @@
+# EXPECT-SUBSTRING: trong than 'try' khi co 'finally:'
+# -*- coding: utf-8 -*-
+# `break`/`continue` trong than TRY khi co `finally:` PHAI bi tu choi.
+#
+# Do bang probe doi chieu CPython (2026-09-30): truoc khi co guard nay, truong
+# hop nay BIEN DICH THANH CONG nhung sinh IL SAI - chay thi nem
+# `InvalidProgramException: Common Language Runtime detected an invalid
+# program`. Python tra ket qua dung: 3 lan finally chay roi `break` o i==2.
+#
+# Cac guard sẵn co chi chan `break` trong `finally:` va trong `else` cua try -
+# CHUA chan thang nay. Do ma no khong bao loi luc bien dich ma chi sup luc
+# chay, nen phai chan.
+def run() -> "i32":
+    n = 0
+    for i in range(5):
+        try:
+            if i == 2:
+                break
+        finally:
+            n = n + 1
+    return n

@@ -1,0 +1,16 @@
+# EXPECT-SUBSTRING: bang bieu thuc chuoi
+# -*- coding: utf-8 -*-
+# Gan lai local kieu int bang bieu thuc CHUOI PHAI bi tu choi.
+#
+# Truoc khi sua (2026-09-30): `x = 1` roi `x = "abc"` bien dich THANH CONG,
+# chay THANH CONG, exit code 0 - va `str(x)` in ra CHUOI RONG. Mat hoan toan
+# gia tri ma khong bao gi. Lenh `ldstr` cua chuoi bi day vao slot 4 byte cua
+# local i32 nen doc ra rong.
+#
+# Python cho phep doi kieu dong bien; TokenVector khong, va do la gioi han
+# hop le - nhung phai noi RO, khong duoc im lang cho ra gia tri rac.
+def run() -> "i32":
+    x = 1
+    x = "abc"
+    print(str(x))
+    return 0

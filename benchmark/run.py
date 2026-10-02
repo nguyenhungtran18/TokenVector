@@ -50,6 +50,7 @@ NP_KERNELS = {"add", "matmul32"}
 # "mot lan goi" nen phai doi cung don vi khi so sanh. Lan truot ban dau
 # da so sanh tong cua TokenVector (20 reps) voi MOT LAN cua NumPy ->
 # phong to gia 20 lan.
+NO_NUMPY = "--no-numpy" in sys.argv
 REPS = {"fib": 1, "string": 3, "sort": 20, "add": 20, "matmul32": 20,
         "f32mm": 100, "f32mm_vec": 100}
 
@@ -123,6 +124,12 @@ def time_cmd(cmd, runs=RUNS):
     return best, out
 
 
+# `--no-numpy`: bo cot so sanh voi NumPy. NumPy la thu vien C, KHONG phai
+# mot ngon ngu khac, nen doi chieu CPU-to-CPU khong cong bang so voi so sanh
+# TokenVector-vs-CPython (mot transpiler vs mot interpreter cung ngon ngu).
+# Van con dung khi phat trien: no chi ra mat vector hoa cua TokenVector.
+
+
 def main():
     build_kernels()
     # startup overhead cua mot exe TokenVector rong
@@ -155,20 +162,21 @@ def main():
         match, detail = compare(name, tv_out, py_out)
 
         np_us = None
-        if name in NP_KERNELS:
+        if not NO_NUMPY and name in NP_KERNELS:
             np_us = numpy_time(name)
         rows.append((name, tkv_us, py_us,
                      tkv_us / py_us if py_us else float("inf"),
                      tv_out, py_out, match, np_us, detail))
 
     print()
+    np_cols = "" if NO_NUMPY else f"{'  NumPy':>12}{'  TV/NumPy':>11}"
     hdr = (f"{'kernel':<10}{'TokenVector':>14}{'CPython':>14}{'TV speedup':>12}"
-           f"{'  NumPy':>12}{'  TV/NumPy':>11}  checksum")
+           f"{np_cols}  checksum")
     print(hdr)
     print("-" * len(hdr))
     for (name, tkv_us, py_us, ratio, tv_out, py_out, match, np_us, detail) in rows:
-        nps = f"{np_us:10.1f}us" if np_us else "         -"
-        npr = f"{tkv_us/np_us:9.1f}x" if np_us else "         -"
+        nps = "" if NO_NUMPY else (f"{np_us:10.1f}us" if np_us else " " * 11)
+        npr = "" if NO_NUMPY else (f"{tkv_us/np_us:9.1f}x" if np_us else " " * 10)
         tag = "OK" if match else "MISMATCH"
         if detail:
             tag += f" [{detail}]"
@@ -181,7 +189,7 @@ def main():
         else:
             spd = f" 1/{1.0 / ratio:5.1f}x"
         print(f"{name:<10}{tkv_us:12.1f}us{py_us:12.1f}us{spd}"
-              f"  {nps}{npr}  {tag}  {tv_out[:34]}")
+              f"{nps:>12}{npr:>11}  {tag}  {tv_out[:34]}")
         if not match:
             print(f"{'':<10}  TV : {tv_out}")
             print(f"{'':<10}  PY : {py_out}")

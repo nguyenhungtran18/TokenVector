@@ -1,0 +1,361 @@
+# -*- coding: utf-8 -*-
+"""int(x) - doi xung voi str(x) da co san (string_feature.py), THEM
+2026-08-03 (Giai doan 1). Truoc do DSL CHI co mot chieu so->chuoi; chieu
+nguoc lai KHONG CO gi ca, nen moi doan code doc so tu chuoi (tham so dong
+lenh, 1 truong CSV, ket qua json_get_str, giao thuc chuoi trong
+buffer.tkv...) deu ket - do la ly do THAT khien buffer_size() cua
+buffer.tkv phai hardcode 1024 (bug ghi trong ke hoach v2).
+
+Ho tro:
+- str  -> i32: Int32.Parse voi InvariantCulture (BAT BUOC dung culture
+  bat bien - may nay locale vi-VN, da tung co bug THAT y het voi
+  Single.Parse, xem STATUS.md).
+- str  -> i64: Int64.Parse - xuat hien o 2 noi: khi noi canh goi CHI
+  DONG i64, VA (R6, 2026-09-28) khi tham so la chuoi LITERAL ma CHAC
+  CHAN vuot int32 (`int("2147483648")`). Truoc R6 truong hop thu 2 emit
+  Int32.Parse nem OverflowException that; xem _int_return_dtype.
+- f32/f64 -> i32: 'conv.i4' - CAT phan thap phan HUONG VE 0, giong het
+  int(3.7)==3 va int(-3.7)==-3 cua Python (KHONG lam tron).
+- i64 -> i32: 'conv.i4' (cat bit cao neu tran - giong hanh vi ep kieu cua
+  .NET unchecked, KHONG giong Python int vo han; ghi ro khong giau).
+- i32 -> i32: khong sinh lenh nao.
+
+CHUOI KHONG LITERAL (bien) van parse theo noi canh: noi canh i32 thi
+Int32.Parse nem OverflowException - dung `int64(s)` cho chuoi bien can
+64 bit (xem push_int64_builtin).
+
+KHAC Python co y thuc: chuoi KHONG hop le lam Int32.Parse NEM exception
+(chuong trinh dung ngay) thay vi ValueError bat duoc. Chon NEM thay vi
+tra 0 am tham - sai am tham la thu dat nhat trong 3 bug cua phien truoc."""
+from il_dispatch import register_expr_builtin
+from il_core import _is_float_literal
+
+
+def _float_literal_in(node):
+    """True neu `node` CO chua hang so thuc truc tiep (vd 'int(3.9)').
+
+    CAN CHO VAY (2026-09-30): `_infer_dtype` tra None cho moi node 'num' -
+    hang so co 'ldc' dung voi BAT KY dtype nao caller yeu cau, nen khong
+    can suy ra (xem docstring `_infer_dtype` va dong 'return None' cho
+    'num'). Hau qua la nhanh cuoi cua `push_int_builtin` bien doi chinh
+    hang so do bang dtype 'i32', sinh `ldc.i4 3.9` - IL KHONG HOP LE,
+    ilasm bao 'syntax error at token 3.9'. Bien chay dung roi nhung hang
+    so truc tiep thi vong, `int(3.9)` la Python hop le va phai ra 3.
+
+    Chi xet cac hinh dang ma `push_int_builtin` sua duoc: 'num', 'neg' va
+    'binop' (dong thu tu index nhu `_contains_float_literal` o il_codegen).
+    Node hinh dang khac - va ca 'src is not None' - giu nguyen duong di cu
+    cua chinh no, nen ham nay KHONG duoc bien doi gi kha nua.
+    """
+    if not isinstance(node, tuple) or not node:
+        return False
+    tag = node[0]
+    if tag == 'num':
+        return _is_float_literal(node[1])
+    if tag == 'neg':
+        return _float_literal_in(node[1])
+    if tag == 'binop':
+        return _float_literal_in(node[2]) or _float_literal_in(node[3])
+    return False
+
+
+def _int_literal_value(args):
+    """Gia tri cua `int(<chuoi literal>)` neu CHAC CHAN la so nguyen, neu
+    khong thi None. Tach rieng de dung chung cho ca phep kiem i32 va i64."""
+    if len(args) != 1:
+        return None
+    a = args[0]
+    if not (isinstance(a, tuple) and a[0] == 'str_lit'):
+        return None
+    text = str(a[1]).strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+        text = text[1:-1]
+    try:
+        return int(text.strip(), 10)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_literal_fits_i32(args):
+    """True neu `int(<chuoi literal>)` CHAC CHAN vua int32 - khi do giu
+    nguyen Int32.Parse (khong doi hanh vi hien co).
+
+    False khi: khong phai literal, hoac literal ma gia tri vuot int32
+    (vd "2147483648", "-2147483649") - khi do can 64 bit.
+
+    Luu y: `node[1]` cua tag 'str_lit' VAN CON CA DAU NGOAC KEP tu
+    tokenizer (xem string_feature.compile_str_lit: `ldstr {node[1]}`) -
+    nen phai bo dau ngoac truoc khi parse, neu lai `int('"2147483648"')`
+    se ValueError va nham nhu "vua int32".
+    """
+    if len(args) != 1:
+        return True
+    a = args[0]
+    if not (isinstance(a, tuple) and a[0] == 'str_lit'):
+        return True
+    text = str(a[1]).strip()
+    # TokenVector chi nhan chuoi boi dau ngoac kép (SIMD_NOTES.md 8.4) -
+    # nhung bo ca 2 dau ngoac de an toan neu co lenh doc lenh khac dua
+    # vao day sau nay.
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+        text = text[1:-1]
+    try:
+        v = int(text.strip(), 10)
+    except (TypeError, ValueError):
+        # Chuoi khong phai so nguyen ("abc", "1.5") - de Int32.Parse nem
+        # ValueError cua chinh no, giong hanh vi hien co.
+        return True
+    return -2147483648 <= v <= 2147483647
+
+
+def _int_return_dtype(args, scope, func_table):
+    """dtype THAT cua `int(...)` (R6, 2026-09-28).
+
+    Mac dinh 'i32' - giu NGUYEN y nghia cua `int()` hien co, nen khong
+    dung `return_dtype='i64'` (do do se lam doi kieu cua MOI noi dung
+    `int()`, khong chi noi dung can 64 bit - blast-radius len
+    divmod/range/locals suy kieu i32 khap repo; xem ghi chu R6 o
+    `push_int64_builtin`).
+
+    NGOAI LAI: khi tham so la chuoi LITERAL ma CHAC CHAN vuot int32 thi
+    tra 'i64'. Day la mau thong tin co san TAI COMPILE TIME, nen dung
+    duoc ma khong doan - va no sua DUNG thu con dung Gap B3: truoc day
+    `str(int("2147483648"))` emit `Int32::Parse` nem OverflowException
+    that; gio suy i64 nen emit `Int64::Parse` va chay duoc.
+
+    Khong sua gi khi tham so khong phai literal (chuoi bien): khong biet
+    gia tri luc bien dich, nen giu 'i32' - ngoi lech thi Int32.Parse nem,
+    dung nhu moi truoc. Muon chuoi bien > 2^31 thi goi `int64(s)`.
+    """
+    if _int_literal_fits_i32(args):
+        return 'i32'
+    # (2026-09-30) Vuot Int64 thi phai dung BigInteger (TkvInt), KHONG phai
+    # Int64::Parse. `int("123456789012345678901234567890")` truoc day sinh
+    # `Int64::Parse` nen CHAY THI nem OverflowException - "khong gia tri
+    # chua"? Python int vo han chu so nen tra dung ket qua. Gia tri la
+    # LITERAL nen biet CHAC CHAN tai compile-time: khong can doan.
+    _v = _int_literal_value(args)
+    if _v is not None and not (-9223372036854775808 <= _v <= 9223372036854775807):
+        return 'int'
+    return 'i64'
+
+
+def push_int64_builtin(args, scope, out, dtype, ctx):
+    """R6 (2026-09-22): int64(x) - ban 64-bit RIENG cua int() (thay the
+    cho 'int() parse 64-bit' ma khong doi hanh vi int() -> i32 hien co,
+    tranh blast-radius len divmod/range/locals suy kieu i32 khap repo).
+
+    - str  -> i64: Int64.Parse voi InvariantCulture (nhan "2147483648",
+      ma int() hien nem OverflowException).
+    - int  -> i64: TkvInt::ToI64 (nem ON AO neu that su vuot int64).
+    - f32/f64/i32 -> i64: conv.i8 (cat phan thap phan huong ve 0 nhu int()).
+    - i64  -> i64: khong sinh lenh nao.
+    Ngu canh 'i32' (vd truyen vao tham so i32): conv.ovf.i4 co kiem tra.
+    Ngu canh 'int': de dispatch chung tu nang i64 -> TkvInt (FromI64)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: int64() chi nhan dung 1 tham so")
+    src = ctx['infer_dtype'](args[0], scope, ctx.get('func_table'), ctx.get('records'),
+                             ctx.get('record_methods'))
+    int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+    if src == 'str':
+        ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+        out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+                   '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+        out.append('    call int64 [mscorlib]System.Int64::Parse(string, '
+                   'class [mscorlib]System.IFormatProvider)')
+    elif src == 'int':
+        import il_features.int_type as _int_type
+        _int_type.ensure_class(ctx)
+        ctx['compile_expr'](args[0], scope, out, 'int', ctx)
+        out.append(f'    call int64 {_int_type.TKVINT_CLASS}::ToI64'
+                   f'(valuetype {_int_type.TKVINT_CLASS})')
+    elif src in float_dtypes or src == 'i32':
+        ctx['compile_expr'](args[0], scope, out, src, ctx)
+        out.append('    conv.i8')
+    else:
+        # i64 hoac khong suy duoc kieu (None) - bien dich thang sang i64.
+        ctx['compile_expr'](args[0], scope, out, 'i64', ctx)
+    if dtype == 'i32':
+        # Ngu canh hep (vd tham so i32): thu hep CO KIEM TRA. Cac ngu canh
+        # khac de dispatch chung lo: 'int' -> widen i64->TkvInt co san,
+        # 'i64'/None -> giu nguyen (khong can lenh nao).
+        out.append('    conv.ovf.i4')
+
+
+def push_int_builtin(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: int() chi nhan dung 1 tham so")
+    src = ctx['infer_dtype'](args[0], scope, ctx.get('func_table'), ctx.get('records'),
+                             ctx.get('record_methods'))
+    int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+
+    # (2026-09-30) `src is None` cho moi hang so, khai bao o tren - nhung
+    # neu chinh no la hang so THUC thi `src` phai la 'f64', con lai
+    # nhanh cuoi ben duoi se bien dich no bang 'i32' va sinh `ldc.i4 3.9`.
+    if src is None and _float_literal_in(args[0]):
+        src = 'f64'
+
+    if dtype == 'int':
+        # Ngu canh 'int' (vo han chu so, moc 6 lat 3 2026-08-05): KHONG
+        # duoc di duong Int32.Parse roi nho _widen_if_needed nang len -
+        # nhu the int("99999999999999999999") NEM trong khi Python tra ve
+        # dung so. Xem int_type.compile_to_int.
+        import il_features.int_type as _int_type
+        return _int_type.compile_to_int(args[0], src, scope, out, ctx)
+
+    if src == 'str':
+        ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+        out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+                   '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+        if dtype == 'i64':
+            # BUGS_TODO.md muc T.1 (2026-08-31): truoc day LUON dung
+            # Int32.Parse roi nho _widen_if_needed nang len i64 sau -
+            # nhung Int32.Parse tu no da NEM OverflowException that voi
+            # gia tri > i32.MaxValue (vd datetime_ticks() dang chuoi) TRUOC
+            # KHI kip widen. Khi ngu canh goi (dtype tham so nay) THAT SU
+            # can i64 (vd 'x: "i64" = int(s)'), goi thang Int64.Parse -
+            # khong di qua Int32 nua.
+            out.append('    call int64 [mscorlib]System.Int64::Parse(string, '
+                       'class [mscorlib]System.IFormatProvider)')
+        elif not _int_literal_fits_i32(args):
+            # R6 (2026-09-28): literal CHAC CHAN vuot int32 (vd
+            # int("2147483648")) - Int32.Parse se nem OverflowException.
+            # _int_return_dtype da suy ra 'i64' cho truong hop nay nen
+            # noi dung dung lai day (khong qua Int32).
+            out.append('    call int64 [mscorlib]System.Int64::Parse(string, '
+                       'class [mscorlib]System.IFormatProvider)')
+            if dtype == 'i32':
+                # Ngu canh CHI DONG vai 'i32' (truyen vao tham so kieu
+                # i32) - phai thu HEP co kiem tra. KHONG bo: '_widen_if_needed'
+                # bo qua cap i64->i32 (khong phai la mau chieu), nen bo
+                # lenh nay thi day int64 vao noi dung int32 -> IL sai
+                # kieu, dung y het loi BadImageFormat ghi o nhanh
+                # float/int o tren.
+                out.append('    conv.ovf.i4')
+        else:
+            out.append('    call int32 [mscorlib]System.Int32::Parse(string, '
+                       'class [mscorlib]System.IFormatProvider)')
+        return
+    if src in float_dtypes or src == 'i64':
+        # (2026-09-26) PHAI TON TRONG `dtype` - ngu canh noi cua lenh goi.
+        #
+        # Truoc day nhanh nay LUON emit 'conv.i4' bat ke `dtype` la gi. `int()`
+        # van tra i32 o ngu canh mac dinh (xem register o dong 109) nen
+        # phan lon noi dung dung nghu, NHUNG khi noi canh la 'i64' thi
+        # 'conv.i4' day mot int32 len stack trong khi noi dung doi int64:
+        #
+        #     conv.i4
+        #     callvirt instance void class [mscorlib]...List`1<int64>::Add(!0)
+        #
+        # -> sai kieu, JIT nem BadImageFormatException ("An attempt was made
+        # to load a program with an incorrect format") khi nap assembly.
+        # Do do: ngu canh i64 phai sinh 'conv.i8', con lai giu 'conv.i4'.
+        ctx['compile_expr'](args[0], scope, out, src, ctx)
+        if dtype == 'i64':
+            out.append('    conv.i8')
+        else:
+            out.append('    conv.i4')
+        return
+    # i32 hoac khong suy duoc kieu (None) - bien dich thang sang i32,
+    # de _compile_expr tu bao loi neu that su khong hop le.
+    ctx['compile_expr'](args[0], scope, out, 'i32', ctx)
+
+
+register_expr_builtin('int', push_int_builtin, 'i32', native_int=True,
+                      return_dtype_fn=_int_return_dtype)
+register_expr_builtin('int64', push_int64_builtin, 'i64')
+
+
+_BASE_BUILTIN = {2: ('bin', '0b'), 8: ('oct', '0o'), 16: ('hex', '0x')}
+
+
+def _push_base_conv(args, scope, out, dtype, ctx, base, prefix, fname):
+    """`bin(x)` / `oct(x)` / `hex(x)` - giong Python, ke ca so am.
+
+    `Convert.ToString(long, int)` cua .NET BO DAU AM, nen phai tu them.
+    Thu tu san chuoi truoc, roi day them ket qua Convert len tren, roi
+    `Concat` - tranh can 1 local phu.
+    """
+    if len(args) != 1:
+        raise SyntaxError(f"il_codegen: {fname}(x) chi nhan dung 1 tham so")
+    if args[0][0] != 'var':
+        raise SyntaxError(
+            f"il_codegen: {fname}(x) hien CHI ho tro 1 bien (vd {fname}(n))")
+    name = args[0][1]
+    if name not in scope:
+        raise SyntaxError(f"il_codegen: bien '{name}' chua duoc khai bao")
+    _kind, idx, ta = scope[name]
+    int_dtypes = ctx['int_dtypes']
+    if ta.dtype not in int_dtypes:
+        raise SyntaxError(
+            f"il_codegen: {fname}() chi nhan bien so nguyen, '{name}' co "
+            f"dtype={ta.dtype!r}")
+    ld = f'ldarg.s {idx}' if _kind == 'arg' else f'ldloc.s {idx}'
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    p_lbl = f"{ctx['prefix']}_{fname}_pos{n}"
+    n_lbl = f"{ctx['prefix']}_{fname}_neg{n}"
+    end_lbl = f"{ctx['prefix']}_{fname}_end{n}"
+    out.append(f'    {ld}')
+    out.append('    ldc.i4.0')
+    out.append(f'    blt {n_lbl}')
+    out.append(f'    ldstr "{prefix}"')
+    out.append(f'    {ld}')
+    out.append(f'    ldc.i4 {base}')
+    out.append('    call string [mscorlib]System.Convert::ToString(int64, int32)')
+    out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    out.append(f'    br {end_lbl}')
+    out.append(f'  {n_lbl}:')
+    out.append(f'    ldstr "-{prefix}"')
+    out.append(f'    {ld}')
+    out.append('    neg')
+    out.append(f'    ldc.i4 {base}')
+    out.append('    call string [mscorlib]System.Convert::ToString(int64, int32)')
+    out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    out.append(f'  {p_lbl}:')
+    out.append(f'  {end_lbl}:')
+
+
+def push_bin(args, scope, out, dtype, ctx):
+    _push_base_conv(args, scope, out, dtype, ctx, 2, '0b', 'bin')
+
+
+def push_oct(args, scope, out, dtype, ctx):
+    _push_base_conv(args, scope, out, dtype, ctx, 8, '0o', 'oct')
+
+
+def push_hex(args, scope, out, dtype, ctx):
+    _push_base_conv(args, scope, out, dtype, ctx, 16, '0x', 'hex')
+
+
+def push_bool(args, scope, out, dtype, ctx):
+    """`bool(x)` - 0/1 nhu Python (True/False la 1/0)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: bool(x) chi nhan dung 1 tham so")
+    a = args[0]
+    int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+    if a[0] == 'str_lit':
+        v = str(a[1]).strip('"')
+        out.append(f'    ldc.i4.{1 if v else 0}')
+        return
+    if a[0] == 'var' and a[1] in scope:
+        _k, _i, ta = scope[a[1]]
+        if ta.dtype in int_dtypes:
+            ctx['load_var_ref'](a[1], scope, out)
+            out.append('    ldc.i4.0')
+            out.append('    cgt.un')
+            return
+        if ta.dtype in float_dtypes:
+            ctx['load_var_ref'](a[1], scope, out)
+            out.append('    ldc.r8 0.0')
+            out.append('    cgt.un')
+            return
+    raise SyntaxError(
+        "il_codegen: bool() hien chi ho tro bien so/chuoi literal - vi tri "
+        "giatri la compile-time, dung `!= 0` thay the")
+
+
+register_expr_builtin('bin', push_bin, 'str')
+register_expr_builtin('oct', push_oct, 'str')
+register_expr_builtin('hex', push_hex, 'str')
+register_expr_builtin('bool', push_bool, 'i32')

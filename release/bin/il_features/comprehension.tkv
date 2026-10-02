@@ -1,0 +1,153 @@
+# -*- coding: utf-8 -*-
+"""List/dict/set comprehension - macro TEXT-LEVEL, khong sinh codegen
+moi (chi khai trien thanh for-loop+append/idx_assign/add da co san, xem
+list_type.py/dict_type.py/set_type.py). Tach rieng file theo tinh nang
+(Phase 1 buoc 4, 2026-07-28) - hoan toan tu than (khong phu thuoc
+_Scope/CIL/parse_expr), nen KHONG can quy uoc dependency-injection qua
+`ctx` nhu cac buoc truoc."""
+import re
+
+from il_dispatch import register_macro_expander
+
+_LIST_COMP_OUTER_RE = re.compile(r'^(\w+)\s*=\s*\[(.+)\]\s*$')
+_DICT_COMP_OUTER_RE = re.compile(r'^(\w+)\s*=\s*\{(.+)\}\s*$')
+
+
+def parse_comprehension_inner(inner):
+    """Tach 'EXPR for VAR[, VAR2] in ITERABLE [if COND]' thanh cau truc co
+    danh sach GENERATOR (dung chung cho list/dict/set comprehension - dict
+    truyen ca 'KEXPR: VEXPR' lam EXPR, tach rieng o noi goi).
+
+    2026-09-28: ho tro N vong `for` long nhau (`for x in a for y in b` ->
+    2 generator), truoc day chi tach duoc 1 - phan `for` thu 2 bi lan vao
+    ITERABLE nen macro sinh ra `for x in a for y in b:` (sai cu phap).
+    Moi generator mang `conds` (danh sach, vi Python cho phep nhieu `if`:
+    `[x for x in y if p if q]`).
+
+    Tim tu khoa 'for' DAU TIEN (khong dung regex 1 khoi vi EXPR/ITERABLE co
+    the chua dau ngoac vuong long nhau, giong bai hoc tu bug 'd[lst[i]]' truoc
+    do) - tra ve None neu khong phai dang comprehension (khong co 'for').
+
+    Thoi diem ket thuc ITERABLE la 'if' hoac 'for' DAU TIEN xuat hien - phai
+    so sanh ca hai roi lay vi tri nho hon; chi tim 'if' se cat sai iterable
+    khi co vong for thu hai, va chi tim 'for' se cat sai khi co 'if'."""
+    m = re.search(r'\bfor\b', inner)
+    if not m:
+        return None
+    head = inner[:m.start()].strip()
+    rest = inner[m.end():].strip()
+
+    def _next_kw(s):
+        """(vi tri, loai) cua 'if'/'for' dau tien trong s, hoac (len, None)."""
+        found = [(x.start(), k) for x, k in
+                 ((re.search(r'\bif\b', s), 'if'), (re.search(r'\bfor\b', s), 'for'))
+                 if x]
+        return min(found) if found else (len(s), None)
+
+    generators = []
+    while True:
+        m_in = re.search(r'\bin\b', rest)
+        if not m_in:
+            return None
+        var_part = rest[:m_in.start()].strip()
+        rest = rest[m_in.end():].strip()
+        pos, kind = _next_kw(rest)
+        iterable = rest[:pos].strip()
+        rest = rest[pos:].strip()
+        conds = []
+        while kind == 'if':
+            rest = rest[2:].strip()          # bo khoa 'if'
+            pos, kind = _next_kw(rest)
+            conds.append(rest[:pos].strip())
+            rest = rest[pos:].strip()
+        if not iterable or any(not c for c in conds):
+            return None
+        generators.append({'var_part': var_part, 'iterable': iterable, 'conds': conds})
+        if kind != 'for':
+            break
+        rest = rest[3:].strip()              # bo khoa 'for'
+    return {'expr': head, 'generators': generators}
+
+
+def _nested_lines(ind, name, parsed, emit):
+    """Sinh cac dong van ban cua 1 comprehension co N vong `for`.
+
+    `emit(indent, ...)` nhan indent HIEN TAI (chuoi da nhin) va phai ghi
+    'name' vao container. Moi `if` cua generator tang them 1 cap indent, vi
+    `if` la 1 khoi chua 1 khoi, khong phai 1 bieu thuc gan - `[x for x in y
+    if a if b]` phai thanh 2 khoi `if` long nhau chu khong phai `if a if b`
+    tren 1 dong (dong do la sai cu phap).
+    """
+    lines = []
+    pad = ''
+    for g in parsed['generators']:
+        lines.append(f'{ind}{pad}for {g["var_part"]} in {g["iterable"]}:')
+        pad += '    '
+        for cond in g['conds']:
+            lines.append(f'{ind}{pad}if {cond}:')
+            pad += '    '
+    lines.append(emit(f'{ind}{pad}'))
+    return lines
+
+
+def _has_tuple_target(parsed):
+    """Co generator nao dung target nhieu bien (`for i, v in ...`) khong. Chi
+    dict-comprehension tren `.items()` moi cho phep (xem
+    `_comp_generator_ok` o syntax_baseline.tkv)."""
+    return any(',' in g['var_part'] for g in parsed['generators'])
+
+
+def try_expand_list_comp(line):
+    """MACRO_EXPANDERS entry: list comprehension - CHI la duong tat cu
+    phap cho for-loop+append DA CO SAN (khong sinh codegen moi) - giong
+    tinh than 'for x in lst:'. Ket qua co the con dang 'for x in lst:'
+    (macro CHUA mo rong o VONG NAY) - _expand_macros (ham bao trong
+    il_codegen.py) lap toi diem co dinh nen se duoc mo rong o vong sau."""
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _LIST_COMP_OUTER_RE.match(stripped)
+    if not m:
+        return None
+    name, inner = m.groups()
+    parsed = parse_comprehension_inner(inner)
+    if not (parsed and not _has_tuple_target(parsed)):
+        return None
+    expr = parsed['expr']
+    return '\n'.join([f'{ind}{name} = []']
+                     + _nested_lines(ind, name, parsed,
+                                     lambda p: f'{p}{name}.append({expr})'))
+
+
+def try_expand_dict_or_set_comp(line):
+    """MACRO_EXPANDERS entry: dict/set comprehension - CUNG 1 cu phap
+    ngoai '{...}', phan biet dict-comp ('{k: v for ...}') vs set-comp
+    ('{expr for ...}') bang su co mat ':'. LUU Y gioi han: bieu thuc
+    ba-ngoi ('cond ? a : b') cung chua ':', nen kiem tra THEM '?' KHONG
+    co mat truoc khi ket luan la dict-comp (set-comp dung ternary se van
+    roi dung nhanh set, vi co '?'). Heuristic van ban nay MONG MANH (co
+    the nham trong truong hop bat thuong) - GIU NGUYEN, khong sua trong
+    pham vi refactor nay."""
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _DICT_COMP_OUTER_RE.match(stripped)
+    if not m:
+        return None
+    name, inner = m.groups()
+    parsed = parse_comprehension_inner(inner)
+    if parsed and ':' in parsed['expr'] and '?' not in parsed['expr']:
+        kexpr, vexpr = parsed['expr'].split(':', 1)
+        kexpr, vexpr = kexpr.strip(), vexpr.strip()
+        return '\n'.join([f'{ind}{name} = {{}}']
+                         + _nested_lines(ind, name, parsed,
+                                         lambda p: f'{p}{name}[{kexpr}] = {vexpr}'))
+    if parsed and not _has_tuple_target(parsed):
+        expr = parsed['expr']
+        return '\n'.join([f'{ind}{name} = set()']
+                         + _nested_lines(ind, name, parsed,
+                                         lambda p: f'{p}{name}.add({expr})'))
+    return None
+
+
+# Dang ky vao il_dispatch NGAY LUC MODULE NAP.
+register_macro_expander('list_comp', try_expand_list_comp)
+register_macro_expander('dict_or_set_comp', try_expand_dict_or_set_comp)

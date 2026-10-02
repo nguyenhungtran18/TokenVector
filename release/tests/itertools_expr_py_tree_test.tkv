@@ -1,0 +1,31 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def enumerate_expr() -> "str":
+    xs = ["a", "b", "c"]
+    pairs: "list[(i32,str)]" = enumerate(xs)
+    i0, v0 = pairs[0]
+    i2, v2 = pairs[2]
+    return str(len(pairs)) + ":" + str(i0) + v0 + ":" + str(i2) + v2
+
+
+def zip_expr(a: "list[i32]", b: "list[str]") -> "str":
+    pairs: "list[(i32,str)]" = zip(a, b)
+    n0, s0 = pairs[0]
+    n2, s2 = pairs[2]
+    return str(len(pairs)) + ":" + str(n0) + s0 + ":" + str(n2) + s2
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("enumerate_expr", enumerate_expr(), "3:0a:2c")
+
+    a = [1, 2, 3]
+    b = ["x", "y", "z", "w"]
+    tested = tested + 1
+    total = total + check("zip_expr_min_len", zip_expr(a, b), "3:1x:3z")
+
+    return test_summary("itertools_expr_py_tree_test", total, tested)

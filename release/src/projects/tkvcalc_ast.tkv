@@ -1,0 +1,921 @@
+# -*- coding: utf-8 -*-
+"""tkvcalc_ast - CUNG mot may tinh bieu thuc nhu tools/tkvcalc.tkv nhung
+dung CAY CU PHAP (AST) bang doi tuong THAT thay cho ky phap hau to phang.
+
+Muc dich: chung minh do thi doi tuong (field cua class la 1 CLASS KHAC,
+ke ca TU THAM CHIEU) dung duoc o quy mo 1 chuong trinh that. Ban RPN va
+ban AST phai cho ket qua GIONG HET NHAU tren cung bo bieu thuc - phep thu
+tuong duong manh nhat co duoc (xem test/verify/tkvcalc_ast_test.py).
+
+Phan tu vung (Tok/SrcCursor/Lexer) va phan tinh (apply_*) giu NGUYEN VAN
+tu tkvcalc.tkv; chi khac phan phan tich cu phap va tinh: recursive-descent
+sinh cay 'Expr' -> duyet cay de tinh."""
+
+# -*- coding: utf-8 -*-
+"""tkvcalc_ast - CUNG mot may tinh bieu thuc nhu tools/tkvcalc.tkv nhung
+dung CAY CU PHAP (AST) bang doi tuong THAT thay cho ky phap hau to phang.
+
+Muc dich: chung minh do thi doi tuong (field cua class la 1 CLASS KHAC,
+ke ca TU THAM CHIEU) dung duoc o quy mo 1 chuong trinh that. Ban RPN va
+ban AST phai cho ket qua GIONG HET NHAU tren cung bo 95 bieu thuc - day
+la phep thu tuong duong manh nhat co duoc (xem test/verify/tkvcalc_ast_test.py).
+
+Phan tu vung (Tok/SrcCursor/Lexer) va phan tinh toan (apply_*) giu
+NGUYEN VAN tu tkvcalc.tkv; chi phan phan tich cu phap va tinh la khac:
+recursive-descent sinh cay 'Expr' -> duyet cay de tinh."""
+
+# ---------------------------------------------------------------------
+# Hang so
+# ---------------------------------------------------------------------
+
+KIND_NUM = "NUM"
+KIND_NAME = "NAME"
+KIND_OP = "OP"
+KIND_LPAREN = "LPAREN"
+KIND_RPAREN = "RPAREN"
+KIND_COMMA = "COMMA"
+KIND_SEMI = "SEMI"
+KIND_ASSIGN = "ASSIGN"
+KIND_EOF = "EOF"
+
+ASSOC_LEFT = 0
+ASSOC_RIGHT = 1
+
+MAX_STACK = 256
+MAX_VARS = 64
+
+# ---------------------------------------------------------------------
+# Loi (co phan cap ke thua that)
+# ---------------------------------------------------------------------
+
+
+class CalcError(Exception):
+    """Loi CO SO cua may tinh. Truong dau tien kieu str duoc dung lam
+    thong diep that cua System.Exception (quy uoc cua TokenVector)."""
+
+    msg: "str"
+
+    def __init__(self, msg):
+        self.msg = msg
+
+    def label(self) -> "str":
+        return "loi"
+
+    def render(self) -> "str":
+        return self.label() + ": " + self.msg
+
+
+class LexError(CalcError):
+    """Ky tu khong hop le trong chuoi nguon."""
+
+    def __init__(self, msg):
+        super().__init__(msg)
+
+    def label(self) -> "str":
+        return "loi tu vung"
+
+
+class ParseError(CalcError):
+    """Cau truc bieu thuc sai (thieu ngoac, thieu toan hang...)."""
+
+    def __init__(self, msg):
+        super().__init__(msg)
+
+    def label(self) -> "str":
+        return "loi cu phap"
+
+
+class EvalError(CalcError):
+    """Loi luc tinh (chia 0, bien chua dat, tran ngan xep...)."""
+
+    def __init__(self, msg):
+        super().__init__(msg)
+
+    def label(self) -> "str":
+        return "loi tinh toan"
+
+# ---------------------------------------------------------------------
+# The (token)
+# ---------------------------------------------------------------------
+
+
+class Tok:
+    """1 the tu vung: loai, van ban nguyen goc, vi tri cot (0-based)."""
+
+    kind: "str"
+    text: "str"
+    pos: "i32"
+
+    def __init__(self, kind, text, pos):
+        self.kind = kind
+        self.text = text
+        self.pos = pos
+
+    def show(self) -> "str":
+        return self.kind + "(" + self.text + ")@" + str(self.pos)
+
+    def is_kind(self, want: "str") -> "i32":
+        if self.kind == want:
+            return 1
+        return 0
+
+    def is_value_start(self) -> "i32":
+        """The nay co the MO DAU 1 toan hang khong?"""
+        if self.kind == KIND_NUM:
+            return 1
+        if self.kind == KIND_NAME:
+            return 1
+        if self.kind == KIND_LPAREN:
+            return 1
+        return 0
+
+    def is_end(self) -> "i32":
+        if self.kind == KIND_EOF:
+            return 1
+        if self.kind == KIND_SEMI:
+            return 1
+        return 0
+
+    def numeric_value(self) -> "f64":
+        if self.kind != KIND_NUM:
+            raise EvalError("the '" + self.text + "' khong phai so")
+        return float(self.text)
+
+
+def make_eof(pos: "i32") -> "Tok":
+    """The ket thuc dung chung o nhieu cho."""
+    return Tok(KIND_EOF, "", pos)
+
+# ---------------------------------------------------------------------
+# Con tro nguon + Lexer (ke thua)
+# ---------------------------------------------------------------------
+
+
+class SrcCursor:
+    """Con tro doc 1 chuoi nguon theo ky tu. Lop CO SO cua Lexer - tach
+    rieng de phan doc-ky-tu khong lan voi phan nhan dang the."""
+
+    src: "str"
+    pos: "i32"
+
+    def __init__(self, src, pos):
+        self.src = src
+        self.pos = pos
+
+    def at_end(self) -> "i32":
+        if self.pos >= len(self.src):
+            return 1
+        return 0
+
+    def peek_ch(self) -> "str":
+        if self.at_end() == 1:
+            return ""
+        return self.src[self.pos]
+
+    def peek_ch_at(self, offset: "i32") -> "str":
+        k = self.pos + offset
+        if k >= len(self.src):
+            return ""
+        if k < 0:
+            return ""
+        return self.src[k]
+
+    def advance(self) -> "str":
+        ch = self.peek_ch()
+        self.pos = self.pos + 1
+        return ch
+
+    def remaining(self) -> "i32":
+        return len(self.src) - self.pos
+
+    def describe(self) -> "str":
+        return "cursor@" + str(self.pos) + "/" + str(len(self.src))
+
+
+def is_space(ch: "str") -> "i32":
+    if ch == " ":
+        return 1
+    if ch == "\t":
+        return 1
+    if ch == "\n":
+        return 1
+    if ch == "\r":
+        return 1
+    return 0
+
+
+def is_digit(ch: "str") -> "i32":
+    if len(ch) != 1:
+        return 0
+    if ch >= "0":
+        if ch <= "9":
+            return 1
+    return 0
+
+
+def is_alpha(ch: "str") -> "i32":
+    if len(ch) != 1:
+        return 0
+    if ch == "_":
+        return 1
+    if ch >= "a":
+        if ch <= "z":
+            return 1
+    if ch >= "A":
+        if ch <= "Z":
+            return 1
+    return 0
+
+
+def is_alnum(ch: "str") -> "i32":
+    if is_alpha(ch) == 1:
+        return 1
+    return is_digit(ch)
+
+
+class Lexer(SrcCursor):
+    """Nhan dang the tu chuoi nguon. Ke thua SrcCursor de dung lai toan
+    bo phan di chuyen con tro; chi them phan nhan dang."""
+
+    count: "i32"
+
+    def __init__(self, src, pos, count):
+        super().__init__(src, pos)
+        self.count = count
+
+    def describe(self) -> "str":
+        """Ghi de method cua lop cha - dispatch ao THAT."""
+        return "lexer@" + str(self.pos) + " da doc " + str(self.count) + " the"
+
+    def skip_blanks(self) -> "i32":
+        """Bo qua khoang trang va chu thich '#...'. Tra ve so ky tu da bo."""
+        skipped = 0
+        while self.at_end() == 0:
+            ch = self.peek_ch()
+            if is_space(ch) == 1:
+                self.pos = self.pos + 1
+                skipped = skipped + 1
+            elif ch == "#":
+                while self.at_end() == 0:
+                    if self.peek_ch() == "\n":
+                        break
+                    self.pos = self.pos + 1
+                    skipped = skipped + 1
+            else:
+                return skipped
+        return skipped
+
+    def read_number(self) -> "Tok":
+        """So nguyen hoac so thuc ('12', '3.5', '2.'). Khong ho tro ky
+        hieu khoa hoc - bao loi RO RANG neu gap 'e' ngay sau so."""
+        start = self.pos
+        digits = ""
+        dots = 0
+        while self.at_end() == 0:
+            ch = self.peek_ch()
+            if is_digit(ch) == 1:
+                digits = digits + ch
+                self.pos = self.pos + 1
+            elif ch == ".":
+                if dots == 1:
+                    raise LexError("so co 2 dau cham tai cot " + str(self.pos + 1))
+                dots = 1
+                digits = digits + ch
+                self.pos = self.pos + 1
+            else:
+                break
+        nxt = self.peek_ch()
+        if nxt == "e":
+            raise LexError("chua ho tro ky hieu khoa hoc tai cot " + str(self.pos + 1))
+        if nxt == "E":
+            raise LexError("chua ho tro ky hieu khoa hoc tai cot " + str(self.pos + 1))
+        if digits == ".":
+            raise LexError("so khong hop le tai cot " + str(start + 1))
+        return Tok(KIND_NUM, digits, start)
+
+    def read_name(self) -> "Tok":
+        """Ten bien hoac ten ham."""
+        start = self.pos
+        name = ""
+        while self.at_end() == 0:
+            ch = self.peek_ch()
+            if is_alnum(ch) == 0:
+                break
+            name = name + ch
+            self.pos = self.pos + 1
+        return Tok(KIND_NAME, name, start)
+
+    def read_operator(self) -> "Tok":
+        """Toan tu 1 hoac 2 ky tu. '=' don la phep GAN, '==' la so sanh."""
+        start = self.pos
+        ch = self.advance()
+        nxt = self.peek_ch()
+        if ch == "/":
+            if nxt == "/":
+                self.pos = self.pos + 1
+                return Tok(KIND_OP, "//", start)
+            return Tok(KIND_OP, "/", start)
+        if ch == "<":
+            if nxt == "=":
+                self.pos = self.pos + 1
+                return Tok(KIND_OP, "<=", start)
+            return Tok(KIND_OP, "<", start)
+        if ch == ">":
+            if nxt == "=":
+                self.pos = self.pos + 1
+                return Tok(KIND_OP, ">=", start)
+            return Tok(KIND_OP, ">", start)
+        if ch == "=":
+            if nxt == "=":
+                self.pos = self.pos + 1
+                return Tok(KIND_OP, "==", start)
+            return Tok(KIND_ASSIGN, "=", start)
+        if ch == "!":
+            if nxt == "=":
+                self.pos = self.pos + 1
+                return Tok(KIND_OP, "!=", start)
+            raise LexError("ky tu '!' don le tai cot " + str(start + 1))
+        if ch == "+":
+            return Tok(KIND_OP, "+", start)
+        if ch == "-":
+            return Tok(KIND_OP, "-", start)
+        if ch == "*":
+            return Tok(KIND_OP, "*", start)
+        if ch == "%":
+            return Tok(KIND_OP, "%", start)
+        if ch == "^":
+            return Tok(KIND_OP, "^", start)
+        raise LexError("ky tu la '" + ch + "' tai cot " + str(start + 1))
+
+    def next_tok(self) -> "Tok":
+        """The ke tiep (bo qua khoang trang / chu thich truoc)."""
+        skipped = self.skip_blanks()
+        if self.at_end() == 1:
+            return make_eof(self.pos)
+        self.count = self.count + 1
+        ch = self.peek_ch()
+        if is_digit(ch) == 1:
+            return self.read_number()
+        if ch == ".":
+            if is_digit(self.peek_ch_at(1)) == 1:
+                return self.read_number()
+            raise LexError("dau cham don le tai cot " + str(self.pos + 1))
+        if is_alpha(ch) == 1:
+            return self.read_name()
+        if ch == "(":
+            self.pos = self.pos + 1
+            return Tok(KIND_LPAREN, "(", self.pos - 1)
+        if ch == ")":
+            self.pos = self.pos + 1
+            return Tok(KIND_RPAREN, ")", self.pos - 1)
+        if ch == ",":
+            self.pos = self.pos + 1
+            return Tok(KIND_COMMA, ",", self.pos - 1)
+        if ch == ";":
+            self.pos = self.pos + 1
+            return Tok(KIND_SEMI, ";", self.pos - 1)
+        return self.read_operator()
+
+def tokenize(src: "str") -> "list[Tok]":
+    """Chuoi nguon -> danh sach the (khong gom the EOF)."""
+    lx = Lexer(src, 0, 0)
+    toks = []
+    guard = 0
+    while lx.at_end() == 0:
+        t = lx.next_tok()
+        if t.kind == KIND_EOF:
+            break
+        toks.append(t)
+        guard = guard + 1
+        if guard > 4096:
+            raise LexError("bieu thuc qua dai")
+    return toks
+
+
+# ---------------------------------------------------------------------
+# Bang toan tu
+
+def func_arity(name: "str") -> "i32":
+    """So tham so cua 1 ham dung san; 0 = khong phai ten ham."""
+    if name == "abs":
+        return 1
+    if name == "sqrt":
+        return 1
+    if name == "floor":
+        return 1
+    if name == "ceil":
+        return 1
+    if name == "round":
+        return 1
+    if name == "sign":
+        return 1
+    if name == "min":
+        return 2
+    if name == "max":
+        return 2
+    if name == "pow":
+        return 2
+    if name == "hypot":
+        return 2
+    return 0
+
+class TokCursor:
+    """Con tro doc 1 danh sach the. Danh sach duoc TRUYEN VAO tung loi
+    goi (record cua TokenVector chi chua field vo huong)."""
+
+    pos: "i32"
+
+    def __init__(self, pos):
+        self.pos = pos
+
+    def at_end(self, toks: "list[Tok]") -> "i32":
+        if self.pos >= len(toks):
+            return 1
+        return 0
+
+    def peek(self, toks: "list[Tok]") -> "Tok":
+        if self.at_end(toks) == 1:
+            return make_eof(self.pos)
+        return toks[self.pos]
+
+    def take(self, toks: "list[Tok]") -> "Tok":
+        t = self.peek(toks)
+        self.pos = self.pos + 1
+        return t
+
+    def skip(self) -> "i32":
+        self.pos = self.pos + 1
+        return self.pos
+
+
+# ---------------------------------------------------------------------
+# Phep tinh (giu NGUYEN VAN tu tkvcalc.tkv)
+# ---------------------------------------------------------------------
+
+
+def is_int_value(v: "f64") -> "i32":
+    """Gia tri co phai so nguyen dung nghia khong?"""
+    r = round(v)
+    if v == r:
+        return 1
+    return 0
+
+
+def floor_div(a: "f64", b: "f64") -> "f64":
+    """'//' theo dung ngu nghia Python (lam tron XUONG, ke ca so am)."""
+    if b == 0.0:
+        raise EvalError("chia cho 0")
+    q = a / b
+    return floor(q)
+
+
+def float_mod(a: "f64", b: "f64") -> "f64":
+    """'%' theo dung ngu nghia Python: dau ket qua theo SO CHIA."""
+    if b == 0.0:
+        raise EvalError("chia cho 0")
+    return a - floor_div(a, b) * b
+
+
+def apply_binary(sym: "str", a: "f64", b: "f64") -> "f64":
+    """Ap dung 1 toan tu 2 ngoi. So sanh tra ve 1.0 / 0.0."""
+    if sym == "+":
+        return a + b
+    if sym == "-":
+        return a - b
+    if sym == "*":
+        return a * b
+    if sym == "/":
+        if b == 0.0:
+            raise EvalError("chia cho 0")
+        return a / b
+    if sym == "//":
+        return floor_div(a, b)
+    if sym == "%":
+        return float_mod(a, b)
+    if sym == "^":
+        return a ** b
+    if sym == "<":
+        if a < b:
+            return 1.0
+        return 0.0
+    if sym == "<=":
+        if a <= b:
+            return 1.0
+        return 0.0
+    if sym == ">":
+        if a > b:
+            return 1.0
+        return 0.0
+    if sym == ">=":
+        if a >= b:
+            return 1.0
+        return 0.0
+    if sym == "==":
+        if a == b:
+            return 1.0
+        return 0.0
+    if sym == "!=":
+        if a != b:
+            return 1.0
+        return 0.0
+    raise EvalError("toan tu 2 ngoi la '" + sym + "'")
+
+
+def apply_unary(sym: "str", a: "f64") -> "f64":
+    if sym == "u-":
+        return 0.0 - a
+    if sym == "u+":
+        return a
+    raise EvalError("toan tu 1 ngoi la '" + sym + "'")
+
+
+def apply_func1(name: "str", a: "f64") -> "f64":
+    if name == "abs":
+        if a < 0.0:
+            return 0.0 - a
+        return a
+    if name == "sqrt":
+        if a < 0.0:
+            raise EvalError("sqrt cua so am")
+        return sqrt(a)
+    if name == "floor":
+        return floor(a)
+    if name == "ceil":
+        return ceil(a)
+    if name == "round":
+        return round(a)
+    if name == "sign":
+        if a > 0.0:
+            return 1.0
+        if a < 0.0:
+            return 0.0 - 1.0
+        return 0.0
+    raise EvalError("ham 1 tham so la '" + name + "'")
+
+
+def apply_func2(name: "str", a: "f64", b: "f64") -> "f64":
+    if name == "min":
+        if a < b:
+            return a
+        return b
+    if name == "max":
+        if a > b:
+            return a
+        return b
+    if name == "pow":
+        return a ** b
+    if name == "hypot":
+        return sqrt(a * a + b * b)
+    raise EvalError("ham 2 tham so la '" + name + "'")
+
+
+
+
+# ---------------------------------------------------------------------
+# Dinh dang so
+# ---------------------------------------------------------------------
+
+
+def fmt_value(v: "f64") -> "str":
+    """In so theo kieu de doc: so nguyen thi khong co '.0'."""
+    if is_int_value(v) == 1:
+        r = round(v)
+        return str(int(r))
+    return str(v)
+
+
+def fmt_pair(name: "str", v: "f64") -> "str":
+    return name + "=" + fmt_value(v)
+
+# ---------------------------------------------------------------------
+# Cay cu phap (AST) - doi tuong THAT, tu tham chieu
+# ---------------------------------------------------------------------
+
+
+class Expr:
+    """1 nut cua cay cu phap. 'a'/'b' la 2 nut con - field kieu CHINH
+    class nay (TU THAM CHIEU), thu ma truoc 2026-08-03 khong lam duoc.
+
+    kind: "num" | "var" | "un" | "bin" | "call1" | "call2"
+    """
+
+    kind: "str"
+    num: "f64"
+    text: "str"
+    a: "Expr"
+    b: "Expr"
+
+    def __init__(self, kind, num, text, a, b):
+        self.kind = kind
+        self.num = num
+        self.text = text
+        self.a = a
+        self.b = b
+
+    def is_leaf(self) -> "i32":
+        if self.a is None:
+            if self.b is None:
+                return 1
+        return 0
+
+    def node_count(self) -> "i32":
+        n = 1
+        if self.a is not None:
+            n = n + self.a.node_count()
+        if self.b is not None:
+            n = n + self.b.node_count()
+        return n
+
+    def depth(self) -> "i32":
+        da = 0
+        db = 0
+        if self.a is not None:
+            da = self.a.depth()
+        if self.b is not None:
+            db = self.b.depth()
+        if da > db:
+            return da + 1
+        return db + 1
+
+    def render(self) -> "str":
+        """In cay dang tien to co ngoac - dung cho che do 'tree'."""
+        if self.kind == "num":
+            return fmt_value(self.num)
+        if self.kind == "var":
+            return self.text
+        if self.kind == "un":
+            return "(" + self.text + " " + self.a.render() + ")"
+        if self.kind == "call1":
+            return "(" + self.text + " " + self.a.render() + ")"
+        if self.kind == "call2":
+            return "(" + self.text + " " + self.a.render() + " " + self.b.render() + ")"
+        return "(" + self.text + " " + self.a.render() + " " + self.b.render() + ")"
+
+    def eval_with(self, names: "list[str]", vals: "list[f64]") -> "f64":
+        """Tinh gia tri cay - de quy qua 2 field kieu record."""
+        if self.kind == "num":
+            return self.num
+        if self.kind == "var":
+            for i in range(len(names)):
+                if names[i] == self.text:
+                    return vals[i]
+            raise EvalError("bien '" + self.text + "' chua duoc dat")
+        if self.kind == "un":
+            av = self.a.eval_with(names, vals)
+            return apply_unary(self.text, av)
+        if self.kind == "call1":
+            av = self.a.eval_with(names, vals)
+            return apply_func1(self.text, av)
+        if self.kind == "call2":
+            av = self.a.eval_with(names, vals)
+            bv = self.b.eval_with(names, vals)
+            return apply_func2(self.text, av, bv)
+        av = self.a.eval_with(names, vals)
+        bv = self.b.eval_with(names, vals)
+        return apply_binary(self.text, av, bv)
+
+
+def num_node(v: "f64") -> "Expr":
+    return Expr("num", v, "", None, None)
+
+
+def var_node(name: "str") -> "Expr":
+    return Expr("var", 0.0, name, None, None)
+
+
+def bin_node(sym: "str", a: "Expr", b: "Expr") -> "Expr":
+    return Expr("bin", 0.0, sym, a, b)
+
+
+def un_node(sym: "str", a: "Expr") -> "Expr":
+    return Expr("un", 0.0, sym, a, None)
+
+
+# ---------------------------------------------------------------------
+# Phan tich cu phap: recursive-descent + leo do uu tien
+# ---------------------------------------------------------------------
+
+
+POW_PREC = 7
+
+
+def bin_prec(sym: "str") -> "i32":
+    """Do uu tien cua toan tu 2 ngoi; 0 = khong phai toan tu 2 ngoi."""
+    if sym == "==":
+        return 1
+    if sym == "!=":
+        return 1
+    if sym == "<":
+        return 2
+    if sym == "<=":
+        return 2
+    if sym == ">":
+        return 2
+    if sym == ">=":
+        return 2
+    if sym == "+":
+        return 3
+    if sym == "-":
+        return 3
+    if sym == "*":
+        return 4
+    if sym == "/":
+        return 4
+    if sym == "//":
+        return 4
+    if sym == "%":
+        return 4
+    if sym == "^":
+        return 7
+    return 0
+
+
+def is_right_assoc(sym: "str") -> "i32":
+    if sym == "^":
+        return 1
+    return 0
+
+
+def parse_primary(toks: "list[Tok]", cur: "TokCursor") -> "Expr":
+    """So / bien / loi goi ham / ngoac / dau 1 ngoi."""
+    t = cur.take(toks)
+    if t.kind == KIND_NUM:
+        return num_node(float(t.text))
+    if t.kind == KIND_OP:
+        if t.text == "-":
+            # Dau am 1 ngoi LONG HON luy thua, dung nhu Python:
+            # '-2 ^ 2' = -(2^2) = -4, con '2 ^ -1' = 0.5.
+            return un_node("u-", parse_binary(toks, cur, POW_PREC))
+        if t.text == "+":
+            return parse_binary(toks, cur, POW_PREC)
+        raise ParseError("thieu toan hang truoc '" + t.text + "' tai cot " + str(t.pos + 1))
+    if t.kind == KIND_LPAREN:
+        inner = parse_binary(toks, cur, 1)
+        closing = cur.take(toks)
+        if closing.kind != KIND_RPAREN:
+            raise ParseError("thieu dau ')'")
+        return inner
+    if t.kind == KIND_NAME:
+        arity = func_arity(t.text)
+        if arity == 0:
+            return var_node(t.text)
+        opening = cur.take(toks)
+        if opening.kind != KIND_LPAREN:
+            raise ParseError("ham '" + t.text + "' can dau '(' tai cot " + str(t.pos + 1))
+        first = parse_binary(toks, cur, 1)
+        if arity == 1:
+            closing = cur.take(toks)
+            if closing.kind != KIND_RPAREN:
+                raise ParseError("ham '" + t.text + "' can dung 1 tham so")
+            return Expr("call1", 0.0, t.text, first, None)
+        comma = cur.take(toks)
+        if comma.kind != KIND_COMMA:
+            raise ParseError("ham '" + t.text + "' can dung 2 tham so")
+        second = parse_binary(toks, cur, 1)
+        closing = cur.take(toks)
+        if closing.kind != KIND_RPAREN:
+            raise ParseError("ham '" + t.text + "' can dung 2 tham so")
+        return Expr("call2", 0.0, t.text, first, second)
+    if t.kind == KIND_EOF:
+        raise ParseError("bieu thuc rong")
+    raise ParseError("the la '" + t.text + "' tai cot " + str(t.pos + 1))
+
+
+def parse_binary(toks: "list[Tok]", cur: "TokCursor", min_prec: "i32") -> "Expr":
+    """Leo do uu tien (precedence climbing) - '^' ket hop PHAI."""
+    left = parse_primary(toks, cur)
+    guard = 0
+    while cur.at_end(toks) == 0:
+        guard = guard + 1
+        if guard > 4096:
+            raise ParseError("bieu thuc qua phuc tap")
+        t = cur.peek(toks)
+        if t.kind != KIND_OP:
+            break
+        prec = bin_prec(t.text)
+        if prec < min_prec:
+            break
+        cur.skip()
+        next_min = prec + 1
+        if is_right_assoc(t.text) == 1:
+            next_min = prec
+        right = parse_binary(toks, cur, next_min)
+        left = bin_node(t.text, left, right)
+    return left
+
+
+def parse_statement(toks: "list[Tok]", cur: "TokCursor") -> "Expr":
+    """1 cau lenh (den ';' hoac het the)."""
+    if cur.at_end(toks) == 1:
+        raise ParseError("bieu thuc rong")
+    head = cur.peek(toks)
+    if head.kind == KIND_SEMI:
+        raise ParseError("bieu thuc rong")
+    tree = parse_binary(toks, cur, 1)
+    if cur.at_end(toks) == 0:
+        nxt = cur.peek(toks)
+        if nxt.kind != KIND_SEMI:
+            raise ParseError("the thua '" + nxt.text + "' tai cot " + str(nxt.pos + 1))
+    return tree
+
+
+def read_assign_name(toks: "list[Tok]", cur: "TokCursor") -> "str":
+    """'ten =' o dau cau lenh -> tra ve ten (da tieu thu 2 the)."""
+    if cur.at_end(toks) == 1:
+        return ""
+    first = cur.peek(toks)
+    if first.kind != KIND_NAME:
+        return ""
+    if func_arity(first.text) > 0:
+        return ""
+    nxt_pos = cur.pos + 1
+    if nxt_pos >= len(toks):
+        return ""
+    second = toks[nxt_pos]
+    if second.kind != KIND_ASSIGN:
+        return ""
+    cur.skip()
+    cur.skip()
+    return first.text
+
+
+def store_value(names: "list[str]", vals: "list[f64]", name: "str", v: "f64") -> "i32":
+    for i in range(len(names)):
+        if names[i] == name:
+            vals[i] = v
+            return i
+    names.append(name)
+    vals.append(v)
+    return len(names) - 1
+
+
+def run_source(src: "str", mode: "str") -> "str":
+    """Chay toan bo chuoi nguon qua cay cu phap."""
+    toks = tokenize(src)
+    cur = TokCursor(0)
+    names = []
+    vals = []
+    result = 0.0
+    produced = 0
+    nodes = 0
+    deepest = 0
+    stmts = 0
+    last_tree = Expr("num", 0.0, "", None, None)
+    guard = 0
+    while cur.at_end(toks) == 0:
+        guard = guard + 1
+        if guard > 1024:
+            raise ParseError("qua nhieu cau lenh")
+        head = cur.peek(toks)
+        if head.kind == KIND_SEMI:
+            cur.skip()
+            continue
+        target = read_assign_name(toks, cur)
+        tree = parse_statement(toks, cur)
+        last_tree = tree
+        value = tree.eval_with(names, vals)
+        if len(target) > 0:
+            store_value(names, vals, target, value)
+        result = value
+        produced = 1
+        stmts = stmts + 1
+        nodes = nodes + tree.node_count()
+        d = tree.depth()
+        if d > deepest:
+            deepest = d
+    if produced == 0:
+        raise ParseError("khong co cau lenh nao")
+    if mode == "tree":
+        return last_tree.render()
+    line = fmt_value(result)
+    if mode == "stats":
+        line = (line + " | cau lenh=" + str(stmts) + " nut=" + str(nodes)
+                + " sau nhat=" + str(deepest) + " | bien=" + str(len(names)))
+    return line
+
+
+def describe_tokens(src: "str") -> "str":
+    toks = tokenize(src)
+    parts = []
+    for t in toks:
+        parts.append(t.show())
+    return " ".join(parts)
+
+
+def evaluate(src: "str", mode: "str") -> "str":
+    """Diem vao chinh, da bat loi."""
+    try:
+        if mode == "tokens":
+            return describe_tokens(src)
+        return run_source(src, mode)
+    except LexError as e:
+        return e.render()
+    except ParseError as e:
+        return e.render()
+    except EvalError as e:
+        return e.render()
+
+
+def main(src: "str", mode: "str") -> "str":
+    """Entry CLI: tkvcalc_ast.exe "<bieu thuc>" [che_do]."""
+    return evaluate(src, mode)

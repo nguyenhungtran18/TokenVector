@@ -1,0 +1,35 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    name = "World"
+    tested = tested + 1
+    total = total + check("format_auto_index", "Hello, {}!".format(name), "Hello, World!")
+
+    tested = tested + 1
+    total = total + check("format_explicit_index", "{0} + {1} = {2}".format(1, 2, 3), "1 + 2 = 3")
+
+    pi = 3.14159
+    tested = tested + 1
+    total = total + check("format_precision_spec", "pi is about {:.2f}".format(pi), "pi is about 3.14")
+
+    n = 42
+    tested = tested + 1
+    total = total + check("format_index_reuse", "n={0}, n again={0}".format(n), "n=42, n again=42")
+
+    tested = tested + 1
+    total = total + check("format_str_literal_int", str(7), "7")
+
+    tested = tested + 1
+    total = total + check("format_kwargs_only",
+                           "Hello, {name}! You are {age}.".format(name="Alice", age=str(30)),
+                           "Hello, Alice! You are 30.")
+
+    tested = tested + 1
+    total = total + check("format_mixed_positional_kwargs",
+                           "{0} says hi to {name}".format("Bob", name="Carol"),
+                           "Bob says hi to Carol")
+
+    return test_summary("string_format_test", total, tested)

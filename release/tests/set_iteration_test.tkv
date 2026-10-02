@@ -1,0 +1,175 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO duyet set: `for v in s:` (2026-09-28).
+
+Macro `for_in_list` (control_flow.tkv) viet lai mac dinh
+`for v in s:` thanh `for i in range(len(s)): v = s[i]`. Do HashSet<T> KHONG co
+indexer, buoc `s[i]` hong - loi "'s[...]' - 's' la set, ma set KHONG lay duoc
+theo chi so" (giong het Python: set la container bat thu tu).
+
+Da xac minh day la loi CO SAN, khong phai hoi quy: `s = set()` roi `.add()`
+cung loi y het. Macro o tang VAN BAN khong he biet hinh dang bien, nen phai quet
+truoc tap bien set (giong `_known_dict_vars`/`_known_record_vars` da co).
+
+Sua bang cach chuyen sang list roi lap nhu binh thuong, dung chinh
+`s.to_list()` da co san (set_to_list.tkv sinh rieng cho dung truong hop nay).
+KHONG viet duong lap rieng tren Enumerator cua HashSet: phai code
+valuetype/Enumerator moi, lap 1 lan - tai su dung het duong list da
+kiem chung, chi ton mot lan chuyen doi O(n) mot vong lap.
+
+Gia tri mong doi tinh tay. Thu tu phan tu KHONG kiem tra: HashSet<T> khong dam
+bao thu tu duyet, giong het set cua Python.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def count_set(s: "set[i64]") -> "i32":
+    n = 0
+    for v in s:
+        n = n + 1
+    return n
+
+
+def iterate_set() -> "i32":
+    total = 0
+    tested = 0
+    s = {1, 2, 3}
+    n = 0
+    for v in s:
+        n = n + 1
+    total += check("set literal iteration count", str(n), "3")
+    tested += 1
+    a = set()
+    a.add(7)
+    a.add(8)
+    m = 0
+    for v in a:
+        m = m + 1
+    total += check("set() iteration count", str(m), "2")
+    tested += 1
+    b = {"x", "y"}
+    p = 0
+    for v in b:
+        p = p + 1
+    total += check("string set iteration count", str(p), "2")
+    tested += 1
+    return total
+
+
+def values_correct() -> "i32":
+    """Lap so luong dung khong du - phan tu phai la GIA TRI trong set, khong
+    phai chi so hay rong."""
+    total = 0
+    tested = 0
+    s = {5, 6, 7}
+    hit = 0
+    for v in s:
+        if v == 6:
+            hit = 1
+    total += check("element value is the set member", str(hit), "1")
+    tested += 1
+    return total
+
+
+def empty_set() -> "i32":
+    total = 0
+    tested = 0
+    s = set()
+    n = 0
+    for v in s:
+        n = n + 1
+    total += check("empty set iterates zero times", str(n), "0")
+    tested += 1
+    return total
+
+
+def two_loops_same_set() -> "i32":
+    """Hai vong lap tren cung 1 bien set - bien tam cua macro phai KHAC nhau,
+    khong de vong sau cham vao ket qua vong truoc."""
+    total = 0
+    tested = 0
+    s = {1, 2, 3}
+    a = 0
+    for v in s:
+        a = a + 1
+    b = 0
+    for v in s:
+        b = b + 10
+    total += check("two loops over same set", str(a) + "," + str(b), "3,30")
+    tested += 1
+    return total
+
+
+def set_as_param() -> "i32":
+    """Truyen set literal cho tham so kieu set - can `container_arg_hints` o
+    khai bao, neu khong se khai HashSet<i64> trong khi tham so la set[i32] va
+    CLR nem OverflowException luc CHAY (khong phai luc bien dich).
+
+    Gan qua bien truoc - set literal trong vi tri DOI SO cua lenh goi chua
+    ho tro (chi dang 'ten = {...}'), xem README cua file nay.
+
+    Dung HAM THUONG, khong dung `__init__` cua lop: truyen set cho
+    `__init__` hong voi MOI set (ke ca 's = set()' + '.add()') - loi co san,
+    `container_arg_hints` khong duoc nap cho vi tri goi constructor. Xem
+    REPOSITORY-NOTES."""
+    total = 0
+    tested = 0
+    t = {1, 2, 3, 4}
+    total += check("set literal as set[i64] param", str(count_set(t)), "4")
+    tested += 1
+    u = set()
+    u.add(1)
+    total += check("set() as set param", str(count_set(u)), "1")
+    tested += 1
+    return total
+
+
+def nested_in_list() -> "i32":
+    """Vong lap set NAM TRONG vong lap list - bien tam cua 2 macro khong duoc
+    de len nhau."""
+    total = 0
+    tested = 0
+    a = [1, 2]
+    s = {9, 8}
+    total_n = 0
+    for x in a:
+        for v in s:
+            total_n = total_n + 1
+    total += check("set loop inside list loop", str(total_n), "4")
+    tested += 1
+    return total
+
+
+def list_and_dict_unaffected() -> "i32":
+    """Hoi quy: cung macro nen phai kiem list va dict van dung - neu nhanh set
+    sai thi 'for v in lst:' hoac 'for k in d:' se hong theo."""
+    total = 0
+    tested = 0
+    a = [1, 2, 3]
+    n = 0
+    for v in a:
+        n = n + 1
+    total += check("list still iterates", str(n), "3")
+    tested += 1
+    d = {}
+    d["a"] = 1
+    d["b"] = 2
+    m = 0
+    for k in d:
+        m = m + 1
+    total += check("dict still iterates", str(m), "2")
+    tested += 1
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += iterate_set()
+    total += values_correct()
+    total += empty_set()
+    total += two_loops_same_set()
+    total += set_as_param()
+    total += nested_in_list()
+    total += list_and_dict_unaffected()
+    # 3 + 1 + 1 + 1 + 2 + 1 + 2
+    return test_summary("set_iteration_test", total, 11)

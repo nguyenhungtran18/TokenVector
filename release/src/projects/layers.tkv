@@ -1,0 +1,156 @@
+# -*- coding: utf-8 -*-
+"""layers - cong cu THAT viet bang TokenVector.
+
+Phan tang kien truc cho tung file, suy TU DO THI thay vi hoi LLM.
+
+Understand-Anything dung mot agent LLM (`architecture-analyzer`) de gan
+tang. O day khong can: vi tri cua mot file trong do thi import DA noi ro
+vai tro cua no. Suy tu bac vao/bac ra la deterministic, mien phi, va
+kiem tra lai duoc.
+
+Nam tang, moi file thuoc DUNG MOT tang (uu tien tu tren xuong):
+
+  test        file kiem thu (theo ten/duong dan)
+  entry       khong ai trong du an import no, nhung no import file khac
+              -> diem bat dau chay
+  foundation  co nguoi import, nhung no khong import file nao trong du an
+              -> tang day, khong phu thuoc noi bo
+  core        vua duoc import vua import -> tang giua
+  isolated    khong dinh vao canh import nao
+
+Dung:
+    layers.exe <manifest.txt> <import_edges.json> <layers.json>
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def base_of(rel: "str") -> "str":
+    """'a/b/c.py' -> 'c.py'."""
+    cut = -1
+    i = 0
+    while i < len(rel):
+        if rel[i] == "/":
+            cut = i
+        i = i + 1
+    return rel[cut + 1:len(rel)]
+
+
+def is_test(rel: "str") -> "i32":
+    """1 neu file la file kiem thu."""
+    name = base_of(rel)
+    if name.startswith("test_"):
+        return 1
+    if name.endswith("_test.py"):
+        return 1
+    if rel.find("/tests/") >= 0:
+        return 1
+    if rel.startswith("tests/"):
+        return 1
+    return 0
+
+
+def edge_side(line: "str", key: "str") -> "str":
+    """Duong dan o dau 'source'/'target' cua mot dong canh JSON."""
+    pat = "\"" + key + "\":\"file:"
+    at = line.find(pat)
+    if at < 0:
+        return ""
+    rest = line[at + len(pat):len(line)]
+    return cut_at(rest, "\"")
+
+
+def bump(d: "dict[str,str]", k: "str") -> "i32":
+    """Tang bo dem cua khoa k len 1 (dem luu dang chuoi).
+    Ghi chu: dict[str,i32] truyen lam THAM SO gay segfault - xem
+    docs/PARITY_GAPS_2026-08-04.md muc 6."""
+    cur = d.get(k, "0")
+    d[k] = str(int(cur) + 1)
+    return 1
+
+
+def layer_of(rel: "str", indeg: "str", outdeg: "str") -> "str":
+    """Tang cua mot file, theo bac vao/bac ra trong do thi import."""
+    if is_test(rel) == 1:
+        return "test"
+    has_in = 0
+    if indeg != "0":
+        has_in = 1
+    has_out = 0
+    if outdeg != "0":
+        has_out = 1
+    if has_in == 0:
+        if has_out == 1:
+            return "entry"
+        return "isolated"
+    if has_out == 0:
+        return "foundation"
+    return "core"
+
+
+def layer_names() -> "list[str]":
+    """Thu tu tang khi xuat ra, tu tang day len tren."""
+    out = []
+    out.append("foundation")
+    out.append("core")
+    out.append("entry")
+    out.append("test")
+    out.append("isolated")
+    return out
+
+
+def json_ids(ids: "list[str]") -> "str":
+    """Mang JSON cac id nut, MOI ID MOT DONG.
+    Khong don het vao mot dong: dong dai 15KB tung lam graphreview sap,
+    va diff trong git khong doc duoc."""
+    parts = []
+    i = 0
+    while i < len(ids):
+        parts.append("\n   \"file:" + ids[i] + "\"")
+        i = i + 1
+    return ",".join(parts)
+
+
+def run(manifest: "str", edges_path: "str", out_path: "str") -> "str":
+    """Tinh tang cho moi file va ghi ra JSON."""
+    paths = []
+    raw = read_file(manifest)
+    rows = raw.split("\n")
+    for r in rows:
+        p = norm_slashes(r.strip())
+        if len(p) > 0:
+            paths.append(p)
+
+    indeg = {}
+    outdeg = {}
+    edoc = read_file(edges_path)
+    elines = edoc.split("\n")
+    for ln in elines:
+        if ln.find("\"type\":\"imports\"") < 0:
+            continue
+        src = edge_side(ln, "source")
+        tgt = edge_side(ln, "target")
+        if len(src) > 0:
+            bump(outdeg, src)
+        if len(tgt) > 0:
+            bump(indeg, tgt)
+
+    assigned = {}
+    for rel in paths:
+        assigned[rel] = layer_of(rel, indeg.get(rel, "0"), outdeg.get(rel, "0"))
+
+    names = layer_names()
+    blocks = []
+    counts = []
+    for name in names:
+        ids = []
+        for rel in paths:
+            if assigned.get(rel, "") == name:
+                ids.append(rel)
+        blocks.append("  {\"name\":\"" + name + "\",\"nodeIds\":[" + json_ids(ids) + "\n  ]}")
+        counts.append("\"" + name + "\":" + str(len(ids)))
+
+    doc = "{\n \"layers\": [\n" + ",\n".join(blocks) + "\n ],\n \"stats\": {"
+    doc = doc + "\"files\":" + str(len(paths)) + "," + ",".join(counts) + "}\n}\n"
+    write_file(out_path, doc)
+    return "files=" + str(len(paths)) + " " + " ".join(counts)

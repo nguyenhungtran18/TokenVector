@@ -1,0 +1,626 @@
+# -*- coding: utf-8 -*-
+"""str()/fmt_float() (Phase "tach tkvc.exe thanh plugin", 2026-08-12) -
+TACH RA khoi string_feature.py (file do GIU LAI compile_index_str/
+compile_len_str/compile_binop_concat/compile_compare_str - ngu nghia
+kieu 'str' CO BAN cua ngon ngu, khong tach duoc, xem docstring dau file
+do). 2 ham nay la BUILTIN DANG HAM ('str(x)'/'fmt_float(x,n)'), thuoc
+nhom "thu vien" tach duoc theo thiet ke o
+docs/superpowers/specs/2026-08-12-tkvc-plugin-architecture-design.md
+muc 3.2. Ke ca cac ham phu chi phuc vu rieng str() (_is_bool_shaped,
+_str_of_slot, _temps_str_builtin) cung chuyen theo - chung KHONG duoc
+dung boi 4 ham con lai o string_feature.py (da xac minh qua grep truoc
+khi tach, xem task-8-report.md)."""
+import re
+
+from il_core import IL_SCALAR
+from il_dispatch import register_expr_builtin, EXPR_BUILTIN_TEMPS
+
+
+_BOOL_SHAPED_CALL_NAMES = ('all', 'any')
+_BOOL_SHAPED_METHOD_NAMES = ('startswith', 'endswith', 'isdigit')
+
+
+def _is_bool_shaped(node, ctx=None):
+    """True neu bieu thuc 'node' co dtype='i32' nhưng MANG NGHIA logic
+    (Python se in "True"/"False", khong phai so). compare/boolop/not/in
+    LUON tra ve i32 0/1 (xem _infer_dtype trong il_codegen.py - co tinh
+    khai cung de tranh AccessViolationException voi TkvInt); all()/any()
+    va .startswith()/.endswith()/.isdigit() cung tra i32 0/1 cung ly do
+    (dang ky dtype='i32' trong stdlib_aggregates.py / string_methods_batch3.py).
+    KHONG bao gom .find() - do la CHI SO that, khong phai co/khong.
+
+    2026-09-30: them nhanh BIEN DANG GIU boolean (`ctx['bool_locals']` do
+    first-pass suu - xem il_codegen's _collect_bool_locals). Truoc day
+    `t = 1 > 0; str(t)` in "1" trong khi `str(1 > 0)` in "True" - cung mot
+    gia tri, khac o hinh dang node; xem muc 3.4 cua
+    `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md`."""
+    tag = node[0]
+    if tag == 'compare' or tag in ('not', 'in'):
+        return True
+    if tag == 'boolop':
+        # 2026-09-30: `a and b` tra TOAN HANG (khong phai 0/1) - `1 and 2`
+        # la 2 nen `str(1 and 2)` phai la '2'. Nhung `p and q` khi ca hai
+        # ve deu la boolean thi ra boolean (Python in True/False). Phai
+        # xet CA HAI ve, khong chi tag.
+        return (_is_bool_shaped(node[2], ctx) and _is_bool_shaped(node[3], ctx))
+    if tag == 'call' and node[1] in _BOOL_SHAPED_CALL_NAMES:
+        return True
+    if tag in ('method_call', 'method_call_expr') and node[2] in _BOOL_SHAPED_METHOD_NAMES:
+        return True
+    if tag == 'var' and ctx is not None:
+        bl = ctx.get('bool_locals')
+        if bl and node[1] in bl:
+            return True
+    return False
+
+
+def compile_str_builtin(args, scope, out, dtype, ctx):
+    """Nhanh 'str(x)' cua _expr_call - chuyen 1 bien so (f32/f64/i32/i64)
+    sang string. GIOI HAN THAT (chua ho tro bieu thuc phuc tap):
+    ToString() la INSTANCE method tren value type - CIL can DIA CHI
+    (managed pointer, ldarga/ldloca), khong the lay dia chi cua 1 gia
+    tri TAM tren stack (ket qua 1 bieu thuc bat ky) - CHI bien don da co
+    san 1 memory slot (arg/local) moi lay dia chi truc tiep duoc."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: str() chi nhan dung 1 tham so")
+    arg = args[0]
+    int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+    # (2026-09-30) HINH DANG khong phai kieu - dung truoc moi nhanh scalar.
+    #
+    # `_infer_dtype` CHI tra DTYPE, khong tra shape. Ma `list[int]` va
+    # `t = (5, 7)` deu mang dtype 'int' (dtypes[0] cua container), nen nhanh
+    # 'int' ben duoi uong `str(x)` coi do la TkvInt va goi `TkvInt.Str` -
+    # ham do doc 4 byte DAU TIEN cua struct nen:
+    #   - tuple   -> tra ve PHAN TU DAU: `t = (5, 7); str(t)` ra "5",
+    #                con Python ra "(5, 7)". Bo mat 7 ma KHONG BAO GI.
+    #   - list[int] -> nem InvalidCastException luc chay
+    #                (`str(xs)` tren list[int] - nem loi bien dich).
+    # Cai sau cung im lang, chi khac la no SAP nhat thay vi doc sai.
+    #
+    # SAI AM THAM nen sua thanh BAO LOI: moi duong rut gon scalar ben duoi
+    # deu phai kiem `shape is None` truoc khi dung.
+    _arg_shape = None
+    if (isinstance(arg, tuple) and arg and arg[0] == 'var'
+            and arg[1] in scope):
+        _arg_shape = scope[arg[1]][2].shape
+    if _arg_shape == 'tuple':
+        raise SyntaxError(
+            f"il_codegen: str() khong ho tro bien tuple ('{arg[1]}') - "
+            f"TokenVector khong co ban 'str' cho tuple, va im lang in ra PHAAN "
+            f"TU DAU se ra so sai. Python in ra ca tuple. Neu can noi cac "
+            f"phan tu, tu noi bang `+`.")
+    if _is_bool_shaped(arg, ctx):
+        # 2026-09-30: bien dang GIU boolean phai in "True"/"False" nhu Python
+        # (`t = 1 > 0; str(t)`), bat ke duong nao ben duoi se xu ly no
+        # (bien i32, bien 'int', hay bien do qua local an) - `bool` la bi
+        # danh cua `i32` nen compiler khong tu phan biet. Xem muc 3.4 cua
+        # `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md`.
+        import il_features.tkvstr as _tkvstr
+        if (isinstance(arg, tuple) and arg[0] == 'var'
+                and ctx['infer_dtype'](arg, scope, ctx.get('func_table')) != 'int'):
+            ctx['load_var_ref'](arg[1], scope, out)
+        else:
+            ctx['compile_expr'](arg, scope, out, 'i32', ctx)
+        return _tkvstr.emit_to_str('bool', out, ctx)
+    if ctx['infer_dtype'](arg, scope, ctx.get('func_table')) == 'int' \
+            and _arg_shape is None:
+        # Kieu 'int' (vo han chu so) - Str() la STATIC nhan gia tri nen
+        # KHONG vuong han che "phai co dia chi" cua ToString() o duoi:
+        # 'str(a * b)' chay duoc thang, khong can local an.
+        # `_arg_shape is None`: container cung mang dtype 'int' - xem ghi chu
+        # o tren, khong thi `str(list[int])` nem InvalidCastException luc chay.
+        import il_features.int_type as _int_type
+        return _int_type.compile_str_of_int(arg, scope, out, ctx)
+    if arg[0] != 'var':
+        # moc 7 (2026-08-05): duong DUY NHAT, qua TkvStr::* - cac ham do
+        # la STATIC va nhan GIA TRI nen 'str(a + b)' khong con can local
+        # AN nao (xem docstring cua tkvstr.py). Nhanh __strtmp cu ben
+        # duoi chi con giu cho dtype chua co trong bang cua TkvStr.
+        import il_features.tkvstr as _tkvstr
+        # 'infer_literal_dtype' CHI co trong ctx cua pass 1 (first-pass suy
+        # kieu, xem print_feature.py) - pass 2 (codegen that) KHONG co key
+        # nay. Truoc day index truc tiep ('ctx[...]') gay KeyError CRASH
+        # NOI BO khi 'infer_dtype' tra None o pass 2 (vd str(lst[-1:5]) -
+        # ket qua slice co shape='list', khong phai scalar) - .get() voi
+        # fallback None de roi xuong nhanh duoi, tu bao SyntaxError co
+        # kiem soat ("khong suy duoc kieu") thay vi crash khong debug duoc.
+        _d = (ctx['infer_dtype'](arg, scope, ctx.get('func_table'), ctx.get('records'),
+                                  ctx.get('record_methods'))
+              or ctx.get('infer_literal_dtype', lambda n: None)(arg))
+        if _d in ('i32', 'i64', 'f32', 'f64', 'str', 'complex') \
+                and _arg_shape is None:
+            ctx['compile_expr'](arg, scope, out, _d, ctx)
+            if _d == 'i32' and _is_bool_shaped(arg, ctx):
+                return _tkvstr.emit_to_str('bool', out, ctx)
+            return _tkvstr.emit_to_str(_d, out, ctx)
+        # 2026-08-03: 'str(<bieu thuc>)' (vd str(i + 1), str(len(xs))) -
+        # ToString() la instance method tren value type nen CIL can DIA
+        # CHI; gia tri tam tren stack khong co dia chi. Cach lam: do ket
+        # qua bieu thuc vao 1 local AN (khai bao san boi _temps_str_builtin
+        # o first-pass) roi lay dia chi cua local do - dung 1 lan, khong
+        # doi ngu nghia.
+        tmp_name = f'__strtmp{id(arg)}'
+        try:
+            tmp_kind, tmp_idx, tmp_ta = scope[tmp_name]
+        except SyntaxError:
+            raise SyntaxError(
+                "il_codegen: str(<bieu thuc>) khong suy duoc kieu cua bieu thuc "
+                "- gan ra 1 bien truoc roi str() bien do")
+        ctx['compile_expr'](arg, scope, out, tmp_ta.dtype, ctx)
+        out.append(f'    stloc.s {tmp_idx}')
+        return _str_of_slot('local', tmp_idx, tmp_ta, out, ctx, int_dtypes, float_dtypes)
+    var_kind, var_idx, var_ta = scope[arg[1]]
+    if (var_ta.dtype == 'i32' and var_ta.shape is None
+            and _is_bool_shaped(arg, ctx)):
+        # 2026-09-30: `t = 1 > 0; str(t)` phai in "True" nhu Python, khong
+        # phai "1". Nhanh nay (bien trần) TACH khoi nhanh `_d in (...)` o
+        # tren, nen phai kiem bool rieng - xem muc 3.4 cua
+        # `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md`.
+        import il_features.tkvstr as _tkvstr
+        ctx['load_var_ref'](arg[1], scope, out)
+        return _tkvstr.emit_to_str('bool', out, ctx)
+    if var_ta.dtype == 'str' and var_ta.shape is None:
+        # str(s) khi 's' DA LA string - Python that: str(mot_chuoi) tra
+        # ve CHINH chuoi do (khong doi) - can THEM (Wave 2, 2026-07-29)
+        # de f-string macro (xem fstring.py) co the BOC DONG LOAT moi
+        # {var} bang str(var) ma khong can biet truoc dtype cua var luc
+        # macro-expand (van ban, TRUOC first-pass suy kieu).
+        ctx['load_var_ref'](arg[1], scope, out)
+        return
+    if var_kind == 'const' and var_ta.shape is None and var_ta.dtype in (int_dtypes | float_dtypes):
+        # HANG SO module ('LIMIT = 50' o dau file): scope giu THANG gia tri
+        # o cho cua chi so local, nen duong ToString cu sinh 'ldloca.s 50'
+        # = dia chi local so 50 (khong ton tai) -> InvalidProgramException
+        # LUC CHAY (bug that, tim qua cong cu codestat 2026-08-03). Gia tri
+        # da biet luc bien dich nen sinh thang chuoi, dinh dang theo Python
+        # (float luon co phan thap phan).
+        text = (str(int(var_idx)) if var_ta.dtype in int_dtypes
+                else repr(float(var_idx)))
+        out.append(f'    ldstr "{text}"')
+        return
+    if var_ta.dtype == 'Exception' or (ctx and var_ta.dtype in ctx.get('records', {}) and
+                                        ctx.get('record_bases', {}).get(var_ta.dtype) == 'Exception'):
+        # str(e) voi 'e' la bien loi ('except ... as e:', xem control_flow.py's
+        # fpw_try) - ca 'Exception' (BCL, chua ep record) lan record TU DINH
+        # NGHIA ke thua Exception deu dung .Message (port tu cay .tkv tu-host,
+        # Phase 6.3/6.9, 2026-08-12).
+        ctx['load_var_ref'](arg[1], scope, out)
+        out.append('    callvirt instance string [mscorlib]System.Exception::get_Message()')
+        return
+    if var_ta.dtype == 'object':
+        ctx['load_var_ref'](arg[1], scope, out)
+        out.append('    callvirt instance string [mscorlib]System.Object::ToString()')
+        return
+    if var_ta.dtype == 'complex':
+        # Muc 6.8 (2/4, 2026-08-13): str(c) voi 'c' la 1 BIEN 'complex' -
+        # di CHUNG duong voi record/object o tren (nap gia tri qua
+        # load_var_ref roi uy quyen emit_to_str, TU do vao scratch local
+        # de lay dia chi truoc khi goi ToString() - xem tkvstr.py).
+        import il_features.tkvstr as _tkvstr
+        ctx['load_var_ref'](arg[1], scope, out)
+        return _tkvstr.emit_to_str(var_ta.dtype, out, ctx)
+    if ctx and var_ta.dtype in ctx.get('records', {}):
+        # record co __str__ (6.5, 2026-08-13): di CHUNG duong voi cac dtype
+        # khac qua emit_to_str (diem dispatch chung) - truoc day nhanh nay
+        # goi thang ToString() mac dinh (chi in ten class, khong dung
+        # __str__ nguoi dung dinh nghia). emit_to_str tu validate + raise
+        # SyntaxError ro rang neu record khong co __str__.
+        import il_features.tkvstr as _tkvstr
+        ctx['load_var_ref'](arg[1], scope, out)
+        return _tkvstr.emit_to_str(var_ta.dtype, out, ctx)
+    if var_ta.dtype not in (int_dtypes | float_dtypes) or var_ta.shape is not None:
+        raise SyntaxError(
+            f"il_codegen: str() chi nhan bien so vo huong (f32/f64/i32/i64), "
+            f"'{arg[1]}' khong hop le (dtype={var_ta.dtype}, shape={var_ta.shape})")
+    # moc 7: bien don cung di CHUNG duong voi bieu thuc - _str_of_slot cu
+    # (ToString + va ".0" tai cho) da bi thay han, hai duong dinh dang so
+    # thuc song song chac chan lech nhau.
+    import il_features.tkvstr as _tkvstr
+    ctx['load_var_ref'](arg[1], scope, out)
+    return _tkvstr.emit_to_str(var_ta.dtype, out, ctx)
+
+
+def _str_of_slot(var_kind, var_idx, var_ta, out, ctx, int_dtypes, float_dtypes):
+    """Sinh ToString(InvariantCulture) cho 1 SLOT (arg/local) da co dia
+    chi - dung chung cho ca 'str(bien)' va 'str(bieu thuc)' (bieu thuc da
+    duoc do vao 1 local an truoc do).
+
+    BUG THAT sua 2026-08-11 (phat hien khi verify .format(), xem
+    string_format.py): dtype='int' (TkvInt, so nguyen vo han chu so cua
+    DSL) truoc day RƠI vao nhanh chung ben duoi (gia dinh MOI dtype so co
+    instance method 'ToString(IFormatProvider)') -> MissingMethodException
+    THAT luc chay ('str(1)', 'str(i+1)' voi i la 'int' deu vo). TkvInt
+    KHONG co ToString(IFormatProvider) - chi co ham STATIC rieng
+    'TkvInt::Str(valuetype TkvInt)' (xem int_type.py's compile_str_of_int,
+    duong DUY NHAT truoc day hoat dong dung la khi ca node la 1 BIEN da
+    biet dtype='int' NGAY TU DAU, di qua nhanh rieng o string_feature.py's
+    compile_str_builtin truoc khi toi ham nay - nhanh do KHONG bao phu
+    truong hop bieu thuc/hang so can qua local an nhu o day)."""
+    if var_ta.dtype == 'int':
+        import il_features.int_type as _int_type
+        _int_type.ensure_class(ctx)
+        out.append(f'    {"ldarg.s" if var_kind == "arg" else "ldloc.s"} {var_idx}')
+        out.append(f'    call string {_int_type.TKVINT_CLASS}::Str(valuetype {_int_type.TKVINT_CLASS})')
+        return
+    out.append(f'    {"ldarga.s" if var_kind == "arg" else "ldloca.s"} {var_idx}')
+    if var_ta.dtype == 'f64':
+        # Dinh dang "R" (round-trip) - Double.ToString() MAC DINH cua .NET
+        # Framework chi in 15 chu so co nghia, nen str(0.1 + 0.2) ra "0.3"
+        # trong khi Python in "0.30000000000000004" (repr ngan nhat DOC
+        # LAI DUNG). Bug that tim qua tools/tkvcalc.tkv - "R" khop Python
+        # o moi truong hop da thu.
+        out.append('    ldstr "R"')
+        out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+                    '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+        out.append('    call instance string [mscorlib]System.Double'
+                    '::ToString(string, class [mscorlib]System.IFormatProvider)')
+    else:
+        out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+                    '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+        out.append(f'    call instance string {IL_SCALAR[var_ta.dtype]}'
+                    '::ToString(class [mscorlib]System.IFormatProvider)')
+    if var_ta.dtype in float_dtypes:
+        # .NET Single/Double.ToString() bo dau cham thap phan cho so
+        # tron (vd 0.0f -> "0"), nhung Python str(0.0) LUON co ".0" -
+        # bug that phat hien qua test doi chieu CPython (celsius=0.0 ->
+        # exe in "0C", CPython in "0.0C"). Them ".0" neu ket qua CHUA co
+        # dau cham.
+        #
+        # (2026-09-30) SAI AM THAM khi DAN KHOA HOC: comment cu o day tung
+        # ghi "'ToString mac dinh ... khong tu chuyen sang dang E trong
+        # khoang gia tri thuong gap'" - DO LA SAI. `Double.ToString("R")`
+        # CHINH xac la ra dang khoa hoc ngoai khoang [1e-5, 1e16]: str(1e-7)
+        # ra "1E-07", khong co dau cham, nen code cu noi them ".0" ra
+        # "1E-07.0" - CHUOI NAY KHONG PARSE LAI DUOC thanh so (Double.Parse
+        # nem FormatException). Phat hien qua probe v2 so sanh CPython.
+        # Sua: chi them ".0" khu VANG co dau cham HOAC ky tu mu.
+        #
+        # (2026-09-30) Ha chu 'E' cho khop Python: CPython in "1e-07",
+        # .NET in "1E-07". Gia tri doc lai thi ca hai deu dung, nhung so
+        # sanh chuoi (va CSV/JSON ghi ra) thi lech - ha chu 'E' la rong
+        # vi chuoi so CHI co duy nhat mot chu cai la 'E' ky tu mu.
+        ctx['label_counter'][0] += 1
+        n = ctx['label_counter'][0]
+        has_dot_lbl = f"{ctx['prefix']}_strfix{n}_hasdot"
+        has_exp_lbl = f"{ctx['prefix']}_strfix{n}_hasexp"
+        end_lbl = f"{ctx['prefix']}_strfix{n}_end"
+        out.append('    ldstr "E"')
+        out.append('    ldstr "e"')
+        out.append('    callvirt instance string [mscorlib]System.String'
+                    '::Replace(string, string)')
+        out.append('    dup')
+        out.append('    ldstr "."')
+        out.append('    callvirt instance bool [mscorlib]System.String::Contains(string)')
+        out.append(f'    brtrue {has_dot_lbl}')
+        out.append('    dup')
+        out.append('    ldstr "e"')
+        out.append('    callvirt instance bool [mscorlib]System.String::Contains(string)')
+        out.append(f'    brtrue {has_exp_lbl}')
+        out.append('    ldstr ".0"')
+        out.append('    call string [mscorlib]System.String::Concat(string, string)')
+        out.append(f'    br {end_lbl}')
+        out.append(f'  {has_dot_lbl}:')
+        out.append(f'  {has_exp_lbl}:')
+        out.append(f'  {end_lbl}:')
+
+
+def _temps_str_builtin(node, ctx):
+    """First-pass: 'str(<bieu thuc>)' can 1 local AN giu ket qua bieu thuc
+    (xem compile_str_builtin). Khoa theo id(arg) - CHINH node doi so, on
+    dinh giua 2 pass. Khong suy duoc dtype thi bo qua: pass 2 se bao loi
+    RO RANG thay vi sinh ma sai."""
+    args = node[2]
+    if len(args) != 1 or args[0][0] == 'var':
+        return
+    arg = args[0]
+    d = (ctx['infer_dtype'](arg, ctx['infer_scope'], ctx['func_table'], ctx['records'],
+                            ctx.get('record_methods'))
+         or ctx['infer_literal_dtype'](arg))
+    if d is None or d == 'str':
+        return
+    ctx['declare_named'](f'__strtmp{id(arg)}', ctx['TypeAnn'](d, None))
+
+
+# (2026-08-12) Truoc day 'str' co duong dispatch RIENG trong _expr_call
+# (if name == 'str': ...), nen moc temps o first-pass phai dang ky THANG
+# vao EXPR_BUILTIN_TEMPS (khong qua register_expr_builtin, ham do khong
+# nhan temps_fn tu 1 lenh goi rieng cho 'str'). Gio 'str' DA chuyen sang
+# register_expr_builtin(...) o cuoi file (dispatch chung EXPR_BUILTIN_CODEGEN),
+# nhung temps_fn van dang ky THANG o day (khong truyen qua tham so
+# temps_fn cua register_expr_builtin) - GIU NGUYEN cach cu vi hanh vi
+# giong het nhau (ca 2 deu ghi vao cung dict EXPR_BUILTIN_TEMPS['str']),
+# doi lai chi them rui ro khong can thiet.
+EXPR_BUILTIN_TEMPS['str'] = _temps_str_builtin
+
+
+def compile_fmt_float(args, scope, out, dtype, ctx):
+    """Nhanh 'fmt_float(x, n)' cua _expr_call (Wave 3, 2026-07-29) - dung
+    cho f-string format spec '{x:.2f}' (xem fstring.py's _fstring_to_concat_expr)
+    VA dung truc tiep duoc trong code neu can. GIOI HAN GIONG str():
+    'x' CHI 1 BIEN don (can dia chi de goi ToString - value type), 'n'
+    CHI hang so nguyen KHONG AM tai compile-time (tro thanh literal
+    "F{n}" ngay trong IL, khong dung duoc bien dong)."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: fmt_float(x, n) can dung 2 tham so")
+    arg, n_node = args
+    if arg[0] != 'var':
+        raise SyntaxError(
+            "il_codegen: fmt_float() hien CHI ho tro 1 BIEN don (vd fmt_float(x, 2)), "
+            "chua ho tro bieu thuc phuc tap")
+    if n_node[0] != 'num' or '.' in n_node[1]:
+        raise SyntaxError(
+            "il_codegen: fmt_float(x, n) - 'n' phai la hang so nguyen KHONG AM tai "
+            "compile-time (vd 2), khong ho tro bieu thuc dong")
+    n = int(n_node[1])
+    var_kind, var_idx, var_ta = scope[arg[1]]
+    int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+    if var_ta.dtype not in (int_dtypes | float_dtypes) or var_ta.shape is not None:
+        raise SyntaxError(
+            f"il_codegen: fmt_float() chi nhan bien so vo huong (f32/f64/i32/i64), "
+            f"'{arg[1]}' khong hop le (dtype={var_ta.dtype}, shape={var_ta.shape})")
+    addr_op = 'ldarga.s' if var_kind == 'arg' else 'ldloca.s'
+    out.append(f'    {addr_op} {var_idx}')
+    out.append(f'    ldstr "F{n}"')
+    out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+                '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+    out.append(f'    call instance string {IL_SCALAR[var_ta.dtype]}'
+                '::ToString(string, class [mscorlib]System.IFormatProvider)')
+
+
+def compile_fmt_num(args, scope, out, dtype, ctx):
+    """Nhanh 'fmt_num(x, "spec")' - dinh dang so bang format string cua .NET.
+
+    Dung cho f-string voi spec DANG SO NGUYEN va cac spec float khac `.Nf`
+    (2026-09-30). Truoc day f-string CHI ho tro `{var}` va `{var:.Nf}`; moi
+    spec khac - `{n:05d}`/`{n:x}`/`{n:+}` - KHONG KHOP regex nen ca f-string
+    bi giu nguyen va phat ra NGUYEN VAN, ton tai nhu `f"{n:05d}"` in ra
+    chuoi `"{n:05d}"`. Do la sai am tham: xem muc 3.3 cua
+    `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md`.
+
+    'spec' phai la LITERAL chuoi tai compile-time. Translate spec cua Python
+    sang cua .NET:
+      - `0<rong><type>` -> `0` lap `width` lan + type (zero-pad)
+      - khac: truyen nguyen cho .NET
+    Spec co can THANG ('>6', '<6', '^6') hoac phan tach nhom (',') thi KHONG
+    translate duoc - nem loi ro, khong bo qua.
+    """
+    if len(args) != 2:
+        raise SyntaxError('il_codegen: fmt_num(x, spec) can dung 2 tham so')
+    arg, spec_node = args
+    if arg[0] != 'var':
+        raise SyntaxError(
+            "il_codegen: fmt_num() hien CHI ho tro 1 BIEN don (vd fmt_num(n, 'x'))")
+    if spec_node[0] != 'str_lit':
+        raise SyntaxError(
+            "il_codegen: fmt_num(x, spec) - 'spec' phai la LITERAL chuoi tai "
+            "compile-time, khong ho tro bien dong")
+    raw = spec_node[1][1:-1]
+    netspec = _py_spec_to_net(raw)
+    var_kind, var_idx, var_ta = scope[arg[1]]
+    int_dtypes, float_dtypes = ctx['int_dtypes'], ctx['float_dtypes']
+    if var_ta.dtype not in (int_dtypes | float_dtypes) or var_ta.shape is not None:
+        raise SyntaxError(
+            f"il_codegen: fmt_num() chi nhan bien so vo huong (f32/f64/i32/i64), "
+            f"'{arg[1]}' khong hop le (dtype={var_ta.dtype}, shape={var_ta.shape})")
+    addr_op = 'ldarga.s' if var_kind == 'arg' else 'ldloca.s'
+    out.append(f'    {addr_op} {var_idx}')
+    out.append(f'    ldstr "{netspec}"')
+    out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+               '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+    out.append(f'    call instance string {IL_SCALAR[var_ta.dtype]}'
+               '::ToString(string, class [mscorlib]System.IFormatProvider)')
+
+
+def _py_spec_to_net(raw):
+    """Format spec cua Python -> chuoi format cua .NET (hoac nem loi).
+
+    PHAI PHAI BIET PHAI BIET: .NET tach 2 loai format:
+      - CHUOI CHUONG 1 KY TU ('d','x','X','o','b','e','E','f','g','G','n'):
+        .NET hieu la format CHUAN va KHONG phan biet hoa/thuong. Truyen
+        thang cho khop Python (`f"{n:x}"` -> "2a", `f"{n:X}"` -> "2A").
+      - CHUOI DAU (nhieu ky tu): la CUSTOM, CHI co `0` `#` `.` `,` `%` va
+        dau +/- la ky dac biet - MOI KY TU CHU CAI LA CHUOI THUONG! Nen
+        "00000d" cho ra "000042d" (co ky tu 'd' thua) chu khong phai "00042".
+    Do do:
+      - `0<width>d`  -> "0"*width            (chi con cho so nguyen duong)
+      - `+d` / `+0d` -> "+0"                 (dau '+' la ky tu thuong)
+      - `+<0w>d`     -> "+" + "0"*w
+      - radix co them 0/can -> nem loi, vi .NET KHONG tron custom format
+        voi chuyen he co so (dang chuan 'X' lai khong tinh duoc '0').
+    """
+    if raw == '':
+        raise SyntaxError(
+            "il_codegen: f-string co format spec rong ':}' - bo qua dau ':'")
+    if ',' in raw:
+        raise SyntaxError(
+            f"il_codegen: f-string spec '{raw}' - dau ',' (tach nhom nghien da) "
+            f"chua duoc ho tro; bo qua 'neu dung de tach nhom")
+    if any(c in raw for c in '><^'):
+        raise SyntaxError(
+            f"il_codegen: f-string spec '{raw}' - can THANG ('>','<','^') chua "
+            f"duoc ho tro. Dung '0<width>d' de them so 0, vd '{{n:05d}}'")
+    # Chuoi chuan 1 ky tu: chi nhung gi .NET That SU chap nhan. Do kiem
+    # truc tiep tren may nay (Int64 42 .ToString(f, InvariantCulture)):
+    #   d/D -> 42      x -> 2a      X -> 2A
+    #   b/B -> LOI     o/O -> LOI   (khong ton tai o .NET)
+    #   n/N -> "42.00" (SAI voi so nguyen - tra ve dang tien thap phan)
+    # Nen 'b'/'o' va 'n' tren so nguyen phai bao loi, khong duoc bo qua.
+    if raw in ('d', 'D', 'x', 'X'):
+        return raw
+    if raw in ('b', 'B', 'o', 'O'):
+        raise SyntaxError(
+            f"il_codegen: f-string spec '{raw}' chua duoc ho tro - .NET khong co "
+            f"format chuyen he co so nay (Int64.ToString('{raw}') nem "
+            f"FormatException). Python co, TokenVector chua.")
+    if raw in ('n', 'N'):
+        raise SyntaxError(
+            f"il_codegen: f-string spec '{raw}' tren bien so nguyen chua duoc ho "
+            f"tro - .NET tra '42.00' cho so nguyen (sai). Bo qua.")
+    # so nguyen co dau: chi custom '0' + dau
+    m = re.match(r'^([+ ])0?(\d*)d$', raw)
+    if m:
+        sign, width = m.group(1), m.group(2)
+        w = int(width) if width else 1
+        return sign + '0' * w
+    # khong dau, chi zero-pad
+    m = re.match(r'^0(\d*)d$', raw)
+    if m:
+        width = m.group(1)
+        return '0' * (int(width) if width else 1)
+      # do chinh xac cua float -> phai DICH sang format CHUAN cua .NET
+      # (2026-09-30). Truoc day ham nay tra ve NGUYEN VAN `.2f`, nhung
+      # `Double.ToString(".2f")` KHONG phai format chuan cua .NET: chuoi
+      # nhieu ky tu bi .NET doc thanh CUSTOM format, trong do '.' = dau thap
+      # phan, '2' = cho so chu so, 'f' = KY TU THUONG. Do do
+      # `format(3.14159, ".2f")` ra "32f" thay vi "3.14". .NET dung `F2`
+      # (KHONG co dau cham, chu cai VIET HOA).
+    m = re.match(r'^\.(\d+)([fFeEgG])$', raw)
+    if m:
+        return f'{m.group(2).upper()}{m.group(1)}'
+    if re.match(r'^[fFeEgG]$', raw):
+        return raw.upper()
+    raise SyntaxError(
+        f"il_codegen: f-string spec '{raw}' chua duoc ho tro. Ho tro: "
+        f"'d','x','X' (chuoi chuan 1 ky tu), '.Nf' va 'N' (do chinh xac, vd "
+        f"'2f'), zero-pad dang '05d', va dau '+'/' ' truoc 'd'. Cac dang khac - "
+        f"'b'/'o' (khong co trong .NET), 'n' tren so nguyen, do rong co khoang "
+        f"trang (vd '5d', '>6'), tach nhom (',') - phai bao loi ro")
+
+
+def push_repr(args, scope, out, dtype, ctx):
+    """`repr(x)` - giong Python (2026-09-30).
+
+    - chuoi  -> them dau nhay kep, nhu `repr("a")` = `'\"a\"'`
+    - so     -> giong `str()` het (Python cung vay)
+    - bool   -> `"True"` / `"False"`
+    """
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: repr(x) chi nhan dung 1 tham so")
+    a = args[0]
+    if _is_bool_shaped(a, ctx):
+        out.append('    ldstr "True"')
+        return
+    is_str = False
+    if a[0] == 'str_lit':
+        is_str = True
+    elif a[0] == 'var' and a[1] in scope:
+        is_str = scope[a[1]][2].dtype == 'str'
+    if is_str:
+        # `Concat(a, b, c)` lay theo THU TU tren stack, nen day dau nhay
+        # TRUOC roi moi den gia tri - neu day gia tri truoc ra "a\"\"".
+        # Python dung dau NHAY DON: repr("a") == "'a'" - theo dung de khop.
+        out.append("    ldstr \"'\"")
+        compile_str_builtin(args, scope, out, 'str', ctx)
+        out.append("    ldstr \"'\"")
+        out.append('    call string [mscorlib]System.String'
+                   '::Concat(string, string, string)')
+        return
+    compile_str_builtin(args, scope, out, 'str', ctx)
+
+
+register_expr_builtin('str', compile_str_builtin, 'str')
+register_expr_builtin('fmt_float', compile_fmt_float, 'str')
+register_expr_builtin('fmt_num', compile_fmt_num, 'str')
+
+
+def compile_format_builtin(args, scope, out, dtype, ctx):
+    """`format(v)` va `format(v, spec)` - tuong duong Python.
+
+    `format(v)` == `str(v)`: chuyen thang cho compile_str_builtin.
+
+    `format(v, spec)` DUNG LAI `compile_fmt_num` (dich spec Python sang .NET
+    roi goi ToString) - khong viet lai phep dich, tranh 2 noi cho 1 quy tac.
+
+    LY DO TON TAI (2026-09-30): truoc day `format` co chu dich KHONG dang ky
+    no, ly do ghi la "CHUA biet nguyen nhan": `format(3.14159, ".2f")` ra
+    "32f". Nguyen nhan la `compile_fmt_num` CHI nhan BIEN (`if arg[0] !=
+    'var': raise`) - literal float di vao nhanh khac nen spec khong duoc
+    dich. Day la ly do 'chua biet' vi nhanh loi nam o ham khac.
+
+    Nay sua bang cach tu day LITERAL SO vao stack roi goi `ToString` voi
+    spec da dich - dung khu cu cua compile_fmt_num. Bieu thuc khong phai
+    bien/literal (vd `format(a+b, ".2f")`) thi BAO LOI TO, khong doan - noi
+    nay khong co temp local de giu ket qua bieu thuc vao, va doan sai se ra
+    gia tri sai am thanh (dung cai do truoc day da lam roi).
+    """
+    if len(args) == 1:
+        compile_str_builtin(args, scope, out, 'str', ctx)
+        return
+    if len(args) != 2:
+        raise SyntaxError(
+            "il_codegen: format(value) hoac format(value, spec) - nhan 1 hoac 2 "
+            f"tham so, gap {len(args)}")
+    val_node, spec_node = args[0], args[1]
+    if spec_node[0] != 'str_lit':
+        raise SyntaxError(
+            "il_codegen: format(value, spec) - 'spec' phai la LITERAL chuoi tai "
+            "compile-time (vd format(n, \"05d\")), khong ho tro bien dong")
+    if val_node[0] == 'var':
+        # Da thuoc ve compile_fmt_num: doc scope, dung addr_op + ToString
+        compile_fmt_num(args, scope, out, dtype, ctx)
+        return
+    if val_node[0] != 'num':
+        raise SyntaxError(
+            "il_codegen: format(value, spec) - 'value' phai la BIEN hoac SO "
+            "LITERAL. Hay gan bien truoc: `t = <bieu thuc>; format(t, \".2f\")` "
+            "(khong co temp local cho bieu thuc de day vao day ngay)")
+    raw = val_node[1]
+    try:
+        is_float = ('.' in str(raw) or 'e' in str(raw).lower())
+        num_val = float(raw) if is_float else int(str(raw), 0)
+    except ValueError:
+        raise SyntaxError(f"il_codegen: format({raw}, spec) - khong doc duoc so")
+    netspec = _py_spec_to_net(spec_node[1][1:-1])
+    # `float64`/`int32` la VALUE TYPE: goi instance method tren value type
+    # trong CIL phai day DIA CHI (ldarga/ldloca), KHONG phai gia tri - day
+    # gia tri thi runtime nem AccessViolationException (gap 2026-09-30).
+    # Static overload `ToString(value, format, provider)` thi KHONG ton tai
+    # trong profile .NET cua runtime nay (MissingMethodException). Nen tao
+    # MOT local an giu so (xem _temps_format_builtin), luu vao do roi lay
+    # dia chi - dung dung khu cu cua compile_fmt_num.
+    tmp_name = f'__fmttmp{id(val_node)}'
+    if tmp_name not in scope:
+        raise SyntaxError(
+            f"il_codegen: format({raw}, spec) - local tam '{tmp_name}' chua duoc "
+            f"khai bao (first-pass khong chay). Hay gan bien truoc: "
+            f"`t = <gia tri>; format(t, \".2f\")`")
+    _k, tmp_idx, _tmp_ta = scope[tmp_name]
+    if is_float:
+        out.append(f'    ldc.r8 {num_val!r}')
+        il_scalar = 'float64'
+    else:
+        out.append(f'    ldc.i4 {int(num_val)}')
+        il_scalar = 'int32'
+    store_op = 'starg.s' if _k == 'arg' else 'stloc.s'
+    load_op = 'ldarga.s' if _k == 'arg' else 'ldloca.s'
+    out.append(f'    {store_op} {tmp_idx}')
+    out.append(f'    {load_op} {tmp_idx}')
+    out.append(f'    ldstr "{netspec}"')
+    out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+               '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+    out.append(f'    call instance string {il_scalar}'
+               '::ToString(string, class [mscorlib]System.IFormatProvider)')
+
+
+def _temps_format_builtin(node, ctx):
+    """First-pass: `format(<so literal>, spec)` can 1 local AN de giu so -
+    xem compile_format_builtin. Khoa theo id(node) de 2 pass thay nhau."""
+    args = node[2]
+    if len(args) != 2 or args[0][0] != 'num':
+        return
+    arg = args[0]
+    raw = str(arg[1])
+    try:
+        is_float = ('.' in raw or 'e' in raw.lower())
+        float(raw) if is_float else int(raw, 0)
+    except ValueError:
+        return
+    ctx['declare_named'](f'__fmttmp{id(arg)}',
+                         ctx['TypeAnn']('f64' if is_float else 'i32', None))
+
+
+EXPR_BUILTIN_TEMPS['format'] = _temps_format_builtin
+
+
+register_expr_builtin('format', compile_format_builtin, 'str')
+register_expr_builtin('repr', push_repr, 'str')

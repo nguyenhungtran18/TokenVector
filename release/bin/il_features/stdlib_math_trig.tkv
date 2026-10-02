@@ -1,0 +1,20 @@
+# -*- coding: utf-8 -*-
+"""Nhom ham luong giac/log mo rong (2026-07-29, Huong A - "stdlib mo rong
+qua bang du lieu" tu brainstorm 5-diem-yeu). File nay KHONG dinh nghia
+codegen moi - chi khai bao 1 bang du lieu (ten DSL -> ten static method
+cua System.Math), duoc il_codegen.py's _MATH_FUNCS.update() nhap vao dung
+1 lan luc import. Co che 1-tham-so-float64 (conv.r8 truoc goi, conv nguoc
+lai sau goi neu dtype != f64) da co san va dung chung cho toan bo
+_MATH_FUNCS - nhom nay tai su dung 100%, khong code moi.
+
+Chi them ham co that trong System.Math cua .NET Framework 4.0 (Log2 la
+.NET Core 2.0+ moi co, KHONG dua vao day)."""
+
+EXTRA_FUNCS = {
+    'tan': 'Tan', 'asin': 'Asin', 'acos': 'Acos', 'atan': 'Atan',
+    'sinh': 'Sinh', 'cosh': 'Cosh', 'log10': 'Log10', 'trunc': 'Truncate',
+}
+
+from il_features.stdlib_math import register_math_extra_funcs
+
+register_math_extra_funcs(EXTRA_FUNCS)

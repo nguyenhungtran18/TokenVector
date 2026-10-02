@@ -1,0 +1,38 @@
+# -*- coding: utf-8 -*-
+"""chr(code) - builtin tra ve 1 ky tu tu ma Unicode (R9, 2026-09-22).
+
+Xoa lookup-table `if`-chain (`char_code_from_i64` trong TkvUI.SQLite.tkv):
+`chr(65)` -> "A", `chr(234)` -> "ê" (U+00EA, non-ASCII).
+
+Trien khai qua Char.ConvertFromUtf32 (tra string, xu ly dung ca
+supplementary planes - surrogate pairs - khac Convert.ToChar chi dung
+BMP). Dau vao am hoac >0x10FFFF: ConvertFromUtf32 NEM ArgumentOutOfRange
+ON AO (dung nguyen tac 'sai am tham nguy hiem hon loi on ao', giong
+Python's chr() nem ValueError ngoai pham vi).
+
+Dau vao chap nhan i32/i64/int (qua ToI32 co kiem tra neu la 'int').
+"""
+from il_dispatch import register_expr_builtin
+
+
+def push_chr_builtin(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: chr() chi nhan dung 1 tham so")
+    src = ctx['infer_dtype'](args[0], scope, ctx.get('func_table'), ctx.get('records'),
+                             ctx.get('record_methods'))
+    if src == 'int':
+        import il_features.int_type as _int_type
+        _int_type.ensure_class(ctx)
+        ctx['compile_expr'](args[0], scope, out, 'int', ctx)
+        out.append(f'    call int32 {_int_type.TKVINT_CLASS}::ToI32'
+                   f'(valuetype {_int_type.TKVINT_CLASS})')
+    elif src == 'i64':
+        ctx['compile_expr'](args[0], scope, out, 'i64', ctx)
+        out.append('    conv.ovf.i4')
+    else:
+        # i32 hoac khong suy duoc kieu (None) - bien dich thang sang i32.
+        ctx['compile_expr'](args[0], scope, out, 'i32', ctx)
+    out.append('    call string [mscorlib]System.Char::ConvertFromUtf32(int32)')
+
+
+register_expr_builtin('chr', push_chr_builtin, 'str')

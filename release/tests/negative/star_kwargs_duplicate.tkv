@@ -1,0 +1,11 @@
+# EXPECT-SUBSTRING: tham so 'a' duoc truyen
+# -*- coding: utf-8 -*-
+# Python that nem TypeError khi truyen 2 lan cho cung 1 tham so. Sau khi noi
+# `**`, danh sach tham so day du keyword nen `kwarg_resolve` bat duoc -
+# day la mau chung cho ca `f(a=1, **{"a": 2})` va `f(a=1, a=2)`.
+def k2(a: "i32", b: "i32") -> "i32":
+    return a * 10 + b
+
+
+def run() -> "i32":
+    return k2(a=1, **{"a": 2})

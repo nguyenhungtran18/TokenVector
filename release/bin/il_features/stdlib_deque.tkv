@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+"""stdlib_deque.tkv - Module ho tro cac thao tac danh cho Deque & List (Reverse, Clear).
+
+Cung cap cac ham:
+- deque_reverse(lst) -> list[str] : Dao nguoc danh sach chuoi tai cho va tra ve tham chieu
+- deque_clear(lst) -> i32         : Xoa sach tat ca cac phan tu trong danh sach
+"""
+
+from il_dispatch import register_expr_builtin
+
+
+def _push_deque_reverse(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: deque_reverse(lst) can dung 1 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    dup')
+    out.append('    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<string>::Reverse()')
+
+
+def _push_deque_clear(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: deque_clear(lst) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<string>::Clear()')
+    out.append('    ldc.i4.0')
+
+
+register_expr_builtin('deque_reverse', _push_deque_reverse, return_dtype='str', return_shape='list')
+register_expr_builtin('deque_clear', _push_deque_clear, return_dtype='i32')

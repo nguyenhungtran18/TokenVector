@@ -1,0 +1,939 @@
+# -*- coding: utf-8 -*-
+"""typegraph - do thi goi ham dua tren TOKEN + SUY KIEU, thay callgraph.tkv.
+
+Vi sao thay: ban cu quet theo DONG nen khong suy duoc kieu cua `obj` trong
+`obj.method(...)`. Da do bang `ast`: co 20.989 loi goi dang do trong repo,
+tuc gap 6 lan so canh calls ma ban cu bat duoc.
+
+typegraph dung dong token cua pytok.tkv (da doi chieu 100% voi `tokenize`
+cua CPython) roi dung bang ky hieu de suy kieu receiver theo 5 luat - moi
+luat deu da DO TRUOC bang `ast` de biet dang duoc bao nhieu:
+
+  self.m()                     5,5%  (ban cu da lam duoc)
+  mod.f()      mod la file noi bo  21,4%
+  x = Cls(); x.m()             17,4%
+  self.attr = Cls(); self.attr.m()  3,8%
+  def f(a: Cls); a.m()          2,4%
+  Cls.m()                       1,0%
+  --------------------------------- tong tran 51,5%
+
+Phan con lai (48,5%) THAT SU ngoai tam voi moi cach khong chay chuong
+trinh: gia tri tra ve tu ham, phan tu list, tham so khong chu thich,
+chuoi goi lien tiep. Ghi ro trong stats, khong giau.
+
+Chi sinh canh NOI BO: `json.dumps()` khong sinh canh vi khong co nut dich.
+
+Dung:
+    typegraph.exe <manifest.txt> <out.json>
+"""
+
+__tkv_import__ = ["impgraph", "pytok"]
+
+
+def kw_blob() -> "str":
+    """Tu khoa Python - khong duoc coi la ten lop khi suy kieu."""
+    return "|if|for|while|return|and|or|not|in|is|None|True|False|print|len|str|int|float|list|dict|set|tuple|range|super|type|isinstance|open|sorted|enumerate|zip|map|filter|sum|min|max|abs|any|all|repr|getattr|setattr|hasattr|format|"
+
+
+def is_keyword(name: "str") -> "i32":
+    """1 neu `name` la tu khoa / builtin, khong phai lop nguoi dung.
+
+    PARITY: khong goi duoc method tren BIEU THUC - `kw_blob().find(...)`
+    lam trinh bien dich KeyError 'str'. Phai gan ra bien truoc."""
+    blob = kw_blob()
+    if blob.find("|" + name + "|") >= 0:
+        return 1
+    return 0
+
+
+def node_id(kind: "str", rel: "str", name: "str") -> "str":
+    """Id nut theo quy uoc 'function:<path>:<ten>'."""
+    return kind + ":" + rel + ":" + name
+
+
+def method_id(rel: "str", owner: "str", name: "str") -> "str":
+    """Id cua mot method: 'function:<path>:<Lop>.<ten>'.
+
+    Phai khop CHINH XAC id ma defmeta sinh, neu khong canh se tro toi nut
+    khong ton tai va graphreview se chan lai."""
+    if len(owner) == 0:
+        return node_id("function", rel, name)
+    return node_id("function", rel, owner + "." + name)
+
+
+def owner_of(rel: "str", name: "str", tab: "dict[str,str]") -> "str":
+    """Lop so huu ham `name` trong file `rel`; '' neu la ham cap module."""
+    return tab.get("O#" + rel + "#" + name, "")
+
+
+def typed_edge(src: "str", dst: "str", kind: "str", w: "str") -> "str":
+    """1 canh JSON voi loai va trong so."""
+    return "{\"source\":\"" + src + "\",\"target\":\"" + dst + "\",\"type\":\"" + kind + "\",\"weight\":" + w + "}"
+
+
+def has_def(defs_blob: "str", name: "str") -> "i32":
+    """1 neu `name` nam trong blob '|a|b|c|'."""
+    if defs_blob.find("|" + name + "|") >= 0:
+        return 1
+    return 0
+
+
+def scope_files(rel: "str", imports_blob: "str") -> "list[str]":
+    """Pham vi tim ten: chinh file do + cac file no import."""
+    out = []
+    out.append(rel)
+    parts = imports_blob.split("|")
+    for p in parts:
+        if len(p) > 0:
+            out.append(p)
+    return out
+
+
+def resolve_name(name: "str", scope: "list[str]", tab: "dict[str,str]") -> "str":
+    """File duy nhat dinh nghia `name`; '' neu 0; '?' neu >= 2."""
+    hits = 0
+    found = ""
+    for f in scope:
+        blob = tab.get("D#" + f, "")
+        if has_def(blob, name) == 1:
+            if f != found:
+                hits = hits + 1
+                found = f
+    if hits == 0:
+        return ""
+    if hits > 1:
+        return ambig_mark()
+    return found
+
+
+def build_imports(paths: "list[str]", idx: "dict[str,str]", base_idx: "dict[str,str]") -> "dict[str,str]":
+    """file -> blob '|path|' cac file NOI BO ma no import."""
+    out = {}
+    for rel in paths:
+        acc = ""
+        results = scan_file(rel, idx, base_idx)
+        for res in results:
+            kind = cut_at(res, "|")
+            if kind == "internal":
+                target = res[len(kind) + 1:len(res)]
+                if acc.find("|" + target + "|") < 0:
+                    acc = acc + "|" + target + "|"
+        out[rel] = acc
+    return out
+
+
+def join_edges(edges: "list[str]") -> "str":
+    """Ghep canh thanh than mang JSON. Dung list + join MOT lan: don chuoi
+    trong vong lap cham gap ~68 lan tren du lieu that."""
+    pieces = []
+    i = 0
+    while i < len(edges):
+        pieces.append("  " + edges[i])
+        i = i + 1
+    return ",\n".join(pieces)
+
+
+def tok_kind(row: "str") -> "str":
+    """Loai token tu mot dong TSV '<dong>\\t<loai>\\t<noi dung>'."""
+    rest = row[row.find("\t") + 1:len(row)]
+    return cut_at(rest, "\t")
+
+
+def tok_text(row: "str") -> "str":
+    """Noi dung token."""
+    at = row.find("\t")
+    rest = row[at + 1:len(row)]
+    at2 = rest.find("\t")
+    if at2 < 0:
+        return ""
+    return rest[at2 + 1:len(rest)]
+
+
+def tok_indent(row: "str") -> "i32":
+    """So cot thut le cua mot moc BOL.
+
+    PHAI qua ham co kieu tra ve khai bao ro: gan thang `x = int(...)` thi
+    trinh bien dich suy `x` thanh str roi no KeyError khi so sanh voi so.
+    Da tra gia that o dot nay."""
+    return int(tok_text(row))
+
+
+def tok_line(row: "str") -> "i32":
+    """So dong cua token."""
+    return int(cut_at(row, "\t"))
+
+
+def file_tokens(rel: "str") -> "list[str]":
+    """Bam mot file thanh dong token bang pytok."""
+    out = []
+    src = read_file(rel)
+    tokenize(src, out)
+    return out
+
+
+def name_at(rows: "list[str]", i: "i32") -> "str":
+    """Noi dung token `i` neu no la NAME, '' neu khong."""
+    if i < 0:
+        return ""
+    if i >= len(rows):
+        return ""
+    k = tok_kind(rows[i])
+    if k != "NAME":
+        return ""
+    return tok_text(rows[i])
+
+
+def op_at(rows: "list[str]", i: "i32") -> "str":
+    """Noi dung token `i` neu no la OP, '' neu khong."""
+    if i < 0:
+        return ""
+    if i >= len(rows):
+        return ""
+    k = tok_kind(rows[i])
+    if k != "OP":
+        return ""
+    return tok_text(rows[i])
+
+
+def blob_add(blob: "str", key: "str", val: "str") -> "str":
+    """Them cap 'key=val' vao blob '|k=v|k2=v2|'."""
+    if blob.find("|" + key + "=") >= 0:
+        return blob
+    return blob + key + "=" + val + "|"
+
+
+def blob_get(blob: "str", key: "str") -> "str":
+    """Lay val cua `key` trong blob, '' neu khong co."""
+    pat = "|" + key + "="
+    at = blob.find(pat)
+    if at < 0:
+        return ""
+    rest = blob[at + len(pat):len(blob)]
+    return cut_at(rest, "|")
+
+
+def collect_defs_tok(rows: "list[str]") -> "str":
+    """Blob '|ten|' cua moi def/class - lay tu TOKEN nen khong bao gio
+    dinh phai `def` nam trong chuoi."""
+    acc = "|"
+    i = 0
+    while i < len(rows):
+        w = name_at(rows, i)
+        # PARITY: `a == "x" or a == "y"` trong binary LUON sai (im lang,
+        # khong bao loi). Da do that: bang dinh nghia rong hoan toan ->
+        # 0 canh calls. Phai tach thanh hai `if` rieng.
+        keep = 0
+        if w == "def":
+            keep = 1
+        if w == "class":
+            keep = 1
+        if keep == 1:
+            nm = name_at(rows, i + 1)
+            if len(nm) > 0:
+                if acc.find("|" + nm + "|") < 0:
+                    acc = acc + nm + "|"
+        i = i + 1
+    return acc
+
+
+def class_methods_tab(rows: "list[str]", rel: "str", out: "dict[str,str]") -> "i32":
+    """Lop -> blob '|method|' cua no, dung thut le de biet method thuoc lop
+    nao. Day la thu ban quet-dong khong co, va la chia khoa de phan giai
+    `obj.method()` sau khi biet kieu cua `obj`.
+
+    Ghi THANG vao `out` voi khoa '<file>#<Lop>'. Khong tra ve dict roi duyet
+    khoa o ngoai: `for k in d` trong TokenVector nem ArgumentNullException
+    tren du lieu that."""
+    n = 0
+    cur = ""
+    cls_names = []
+    cls_inds = []
+    cdepth = 0
+    i = 0
+    while i < len(rows):
+        kk = tok_kind(rows[i])
+        if kk == "BOL":
+            ind = tok_indent(rows[i])
+            w = name_at(rows, i + 1)
+            # Lop LONG trong mot method (`class LUID(Structure)` trong than
+            # ham) tung xoa han lop dang mo thay vi tra ve no -> moi method
+            # dinh nghia sau do bien mat khoi bang. Da do: bang cua
+            # MemoryEngine chi con 4/9 method.
+            cdepth = stack_pop_to(cls_inds, cdepth, ind)
+            cur = stack_top(cls_names, cdepth)
+            if w == "class":
+                nm = name_at(rows, i + 2)
+                if len(nm) > 0:
+                    cur = nm
+                    cdepth = stack_push(cls_names, cls_inds, cdepth, nm, ind)
+                    if len(out.get("M#" + rel + "#" + nm, "")) == 0:
+                        out["M#" + rel + "#" + nm] = "|"
+                        n = n + 1
+                    # Lop cha: can de tra `self.method()` ke thua. Da do:
+                    # 97/310 self-call bi mat chi vi khong tra len lop cha.
+                    opc2 = op_at(rows, i + 3)
+                    if opc2 == "(":
+                        par2 = name_at(rows, i + 4)
+                        if len(par2) > 0:
+                            out["P#" + rel + "#" + nm] = par2
+            elif w == "def":
+                if len(cur) > 0:
+                    nm = name_at(rows, i + 2)
+                    if len(nm) > 0:
+                        blob = out.get("M#" + rel + "#" + cur, "|")
+                        if blob.find("|" + nm + "|") < 0:
+                            out["M#" + rel + "#" + cur] = blob + nm + "|"
+                        # Chu so huu: can de dung dung id `Lop.method` khi
+                        # sinh canh. Ten trung o hai lop -> giu lop DAU,
+                        # giong quy tac cua defmeta.
+                        if len(out.get("O#" + rel + "#" + nm, "")) == 0:
+                            out["O#" + rel + "#" + nm] = cur
+        i = i + 1
+    return n
+
+
+def stack_pop_to(inds: "list[i32]", depth: "i32", ind: "i32") -> "i32":
+    """Bo moi muc co thut le >= `ind`, tra ve do sau con lai.
+
+    Can mot NGAN XEP chu khong phai mot bien: mot `def` long trong `def`
+    truoc day ghi de ten ham hien tai, va khi thoat khoi ham long thi ten
+    bi xoa han thay vi tro ve ham bao ngoai - moi loi goi sau do trong ham
+    ngoai deu bi bo. Da do: 39/83 canh thieu la do dung mot bien."""
+    d = depth
+    go = 1
+    while go == 1:
+        go = 0
+        if d > 0:
+            if inds[d - 1] >= ind:
+                d = d - 1
+                go = 1
+    return d
+
+
+def stack_top(names: "list[str]", depth: "i32") -> "str":
+    """Ten o dinh ngan xep, '' neu rong."""
+    if depth == 0:
+        return ""
+    return names[depth - 1]
+
+
+def stack_push(names: "list[str]", inds: "list[i32]", depth: "i32", nm: "str", ind: "i32") -> "i32":
+    """Day mot muc vao ngan xep (tai dung o nho da cap), tra ve do sau moi."""
+    if depth < len(names):
+        names[depth] = nm
+        inds[depth] = ind
+        return depth + 1
+    names.append(nm)
+    inds.append(ind)
+    return depth + 1
+
+
+def local_types_tab(rows: "list[str]", rel: "str", out: "dict[str,str]") -> "i32":
+    """Bang kieu: 'ham:bien' -> 'Lop' va 'class:field' -> 'Lop'.
+
+    Ba luat, deu doc tu token nen khong nham voi chuoi/chu thich:
+      x = Cls(...)          -> ham:x = Cls
+      self.attr = Cls(...)  -> class:attr = Cls
+      def f(a: Cls)         -> ham:a = Cls
+
+    Ghi thang vao bang chung `out` voi tien to 'L#<file>#'.
+    """
+    fn = ""
+    cls = ""
+    fn_names = []
+    fn_inds = []
+    depth = 0
+    cls_names = []
+    cls_inds = []
+    cdepth = 0
+    i = 0
+    while i < len(rows):
+        kind = tok_kind(rows[i])
+        if kind == "BOL":
+            ind = tok_indent(rows[i])
+            w = name_at(rows, i + 1)
+            depth = stack_pop_to(fn_inds, depth, ind)
+            fn = stack_top(fn_names, depth)
+            cdepth = stack_pop_to(cls_inds, cdepth, ind)
+            cls = stack_top(cls_names, cdepth)
+            if w == "class":
+                cls = name_at(rows, i + 2)
+                cdepth = stack_push(cls_names, cls_inds, cdepth, cls, ind)
+            elif w == "def":
+                fn = name_at(rows, i + 2)
+                depth = stack_push(fn_names, fn_inds, depth, fn, ind)
+                # Chu thich kieu tham so: def f(a: Cls, b: Other)
+                j = i + 3
+                while j < len(rows):
+                    kj = tok_kind(rows[j])
+                    if kj == "BOL":
+                        break
+                    if op_at(rows, j) == ":":
+                        pn = name_at(rows, j - 1)
+                        tn = name_at(rows, j + 1)
+                        if len(pn) > 0 and len(tn) > 0:
+                            if is_keyword(tn) == 0:
+                                out["L#" + rel + "#" + fn + ":" + pn] = tn
+                    j = j + 1
+        if kind == "NAME":
+            # x = Cls(   /   self.attr = Cls(
+            op1 = op_at(rows, i + 1)
+            if op1 == "=":
+                cn = name_at(rows, i + 2)
+                if len(cn) > 0:
+                    op3 = op_at(rows, i + 3)
+                    if op3 == "(":
+                        if is_keyword(cn) == 0:
+                            var = tok_text(rows[i])
+                            if var == "self":
+                                var = ""
+                            if len(var) > 0:
+                                opm = op_at(rows, i - 1)
+                                if opm == ".":
+                                    nm2 = name_at(rows, i - 2)
+                                    if nm2 == "self":
+                                        if len(cls) > 0:
+                                            out["L#" + rel + "#" + cls + ":" + var] = cn
+                                else:
+                                    out["L#" + rel + "#" + fn + ":" + var] = cn
+        i = i + 1
+    return 0
+
+
+def from_names(line: "str") -> "list[str]":
+    """Cac ten sau ' import ' cua mot dong `from X import a, b`."""
+    out = []
+    at = line.find(" import ")
+    if at < 0:
+        return out
+    rest = line[at + 8:len(line)]
+    parts = rest.split(",")
+    for p in parts:
+        nm = p.strip()
+        nm2 = cut_at(nm, " ")
+        if len(nm2) > 0:
+            out.append(nm2)
+    return out
+
+
+def from_module(line: "str") -> "str":
+    """Phan `X` cua `from X import ...`; '' neu khong phai dong from."""
+    if not line.startswith("from "):
+        return ""
+    rest = line[5:len(line)]
+    return cut_at(rest, " ")
+
+
+def module_alias_tab(rows: "list[str]", rel: "str", idx: "dict[str,str]", base_idx: "dict[str,str]", out: "dict[str,str]") -> "i32":
+    """Bi danh module -> file NOI BO.
+
+    `import a.b as c` -> c; `import a.b` -> a (ten dung khi goi la `a.b.f()`
+    nhung ta chi bat duoc segment dau, nen anh xa ca hai); `from p import m`
+    -> m. Chi giu module resolve duoc ve file trong repo.
+
+    Ghi thang vao bang chung `out` voi tien to 'A#<file>#'."""
+    i = 0
+    while i < len(rows):
+        kk = tok_kind(rows[i])
+        if kk == "BOL":
+            w = name_at(rows, i + 1)
+            imp = 0
+            if w == "import":
+                imp = 1
+            if w == "from":
+                imp = 1
+            if imp == 1:
+                # Gom van ban cua dong logic nay lai de dung lai ham
+                # imported_modules da co (da qua kiem thu ky).
+                parts = []
+                j = i + 1
+                while j < len(rows):
+                    kj = tok_kind(rows[j])
+                    if kj == "BOL":
+                        break
+                    k2 = tok_kind(rows[j])
+                    if k2 == "NAME":
+                        parts.append(tok_text(rows[j]))
+                    elif k2 == "OP":
+                        parts.append(tok_text(rows[j]))
+                    j = j + 1
+                line = " ".join(parts)
+                mods = imported_modules(line)
+                for m in mods:
+                    hit = ""
+                    if leading_dots(m) > 0:
+                        hit = resolve_rel(m, rel, idx)
+                    else:
+                        hit = resolve_abs(m, idx, base_idx)
+                    if len(hit) > 0:
+                        if hit != ambig_mark():
+                            out["A#" + rel + "#" + last_seg(m)] = hit
+                # `from pkg import mod`: bi danh THAT khi goi la `mod`, khong
+                # phai `pkg`. Bo qua cho nay lam mat 498/542 canh module.
+                fm = from_module(line)
+                if len(fm) > 0:
+                    names = from_names(line)
+                    for nm in names:
+                        cand = fm + "." + nm
+                        hit2 = ""
+                        if leading_dots(fm) > 0:
+                            hit2 = resolve_rel(cand, rel, idx)
+                        else:
+                            hit2 = resolve_abs(cand, idx, base_idx)
+                        if len(hit2) > 0:
+                            if hit2 != ambig_mark():
+                                out["A#" + rel + "#" + nm] = hit2
+                i = j
+                continue
+        i = i + 1
+    return 0
+
+
+def find_class_file(cname: "str", scope: "list[str]", tab: "dict[str,str]") -> "str":
+    """File dinh nghia lop `cname` trong pham vi."""
+    return resolve_name(cname, scope, tab)
+
+
+def has_method(rel: "str", cname: "str", meth: "str", tab: "dict[str,str]") -> "i32":
+    """1 neu lop `cname` trong file `rel` co method `meth`."""
+    blob = tab.get("M#" + rel + "#" + cname, "")
+    if blob.find("|" + meth + "|") >= 0:
+        return 1
+    return 0
+
+
+def self_owner(rel: "str", cls: "str", called: "str", scope: "list[str]", tab: "dict[str,str]") -> "str":
+    """File dinh nghia method `called` cua lop `cls`, tra nguoc chuoi ke thua.
+
+    Tra ve "<file>#<Lop>" (can CA lop de dung dung id `Lop.method`), hoac ''
+    neu khong tim thay o cls lan bat ky lop cha nao (toi da 3 doi)."""
+    if has_method(rel, cls, called, tab) == 1:
+        return rel + "#" + cls
+    cur_rel = rel
+    cur_cls = cls
+    hop = 0
+    while hop < 3:
+        par = tab.get("P#" + cur_rel + "#" + cur_cls, "")
+        if len(par) == 0:
+            return ""
+        pf = resolve_name(par, scope, tab)
+        if pf == ambig_mark():
+            return ""
+        if len(pf) == 0:
+            return ""
+        if has_method(pf, par, called, tab) == 1:
+            return pf + "#" + par
+        cur_rel = pf
+        cur_cls = par
+        hop = hop + 1
+    return ""
+
+
+def pair_file(pair: "str") -> "str":
+    """Phan file cua chuoi '<file>#<Lop>'."""
+    return cut_at(pair, "#")
+
+
+def pair_cls(pair: "str") -> "str":
+    """Phan lop cua chuoi '<file>#<Lop>'."""
+    at = pair.find("#")
+    if at < 0:
+        return ""
+    return pair[at + 1:len(pair)]
+
+
+def recv_type(rows: "list[str]", i: "i32", fn: "str", cls: "str", rel: "str", tab: "dict[str,str]") -> "str":
+    """Kieu cua receiver dung truoc dau '.' o vi tri `i`.
+
+    Tra ve ten LOP, hoac 'self' cho self-call, hoac '' neu khong suy duoc.
+    Day la toan bo phan 'suy kieu' - moi luat o day deu da do bang `ast`
+    truoc khi viet, khong luat nao them theo cam tinh."""
+    base = name_at(rows, i - 1)
+    if len(base) == 0:
+        return ""
+    if base == "self":
+        # self.attr.method() : kieu la kieu cua field
+        opb = op_at(rows, i - 2)
+        if opb == ".":
+            return ""
+        return "self"
+    # self.attr.method()
+    opc = op_at(rows, i - 2)
+    if opc == ".":
+        nm3 = name_at(rows, i - 3)
+        if nm3 == "self":
+            if len(cls) > 0:
+                return tab.get("L#" + rel + "#" + cls + ":" + base, "")
+        return ""
+    t = tab.get("L#" + rel + "#" + fn + ":" + base, "")
+    if len(t) > 0:
+        return t
+    return base
+
+
+def plain_edge(rel: "str", fn: "str", cls: "str", called: "str", scope: "list[str]", tab: "dict[str,str]", stats: "list[i32]") -> "str":
+    """Canh cho loi goi ham TRAN `ten(...)`; '' neu khong phan giai duoc."""
+    stats[6] = stats[6] + 1
+    kwq = is_keyword(called)
+    if kwq == 1:
+        stats[7] = stats[7] + 1
+        return ""
+    hit = resolve_name(called, scope, tab)
+    if hit == ambig_mark():
+        stats[0] = stats[0] + 1
+        return ""
+    if len(hit) == 0:
+        return ""
+    # `Cls(...)` la KHOI TAO doi tuong: van la quan he phu thuoc that, nhung
+    # dich phai la nut CLASS. Ban cu tro toi `function:<file>:Cls` - mot nut
+    # khong ton tai.
+    ctor = tab.get("M#" + hit + "#" + called, "")
+    if len(ctor) > 0:
+        stats[5] = stats[5] + 1
+        return typed_edge(method_id(rel, cls, fn), node_id("class", hit, called), "calls", "0.8")
+    stats[5] = stats[5] + 1
+    tgt_owner = owner_of(hit, called, tab)
+    return typed_edge(method_id(rel, cls, fn), method_id(hit, tgt_owner, called), "calls", "0.8")
+
+
+def dotted_edge(rows: "list[str]", i: "i32", rel: "str", fn: "str", cls: "str", tab: "dict[str,str]", scope: "list[str]", stats: "list[i32]") -> "str":
+    """Canh cho loi goi `obj.ten(...)` sau khi suy kieu `obj`; '' neu chiu.
+
+    PARITY: ham tu 9 THAM SO tro len sinh IL hong (InvalidProgramException
+    luc chay, khong bao gi luc bien dich). Da do: 8 chay, 9 hong. Vi vay
+    moi bang tra cuu duoc gop vao MOT dict `tab` voi tien to khoa."""
+    called = tok_text(rows[i])
+    t = recv_type(rows, i - 1, fn, cls, rel, tab)
+    if len(t) == 0:
+        stats[1] = stats[1] + 1
+        return ""
+    if t == "self":
+        if len(cls) == 0:
+            return ""
+        owner = self_owner(rel, cls, called, scope, tab)
+        if len(owner) == 0:
+            return ""
+        stats[2] = stats[2] + 1
+        return typed_edge(method_id(rel, cls, fn), method_id(pair_file(owner), pair_cls(owner), called), "calls", "0.8")
+    # (a) `t` la bi danh module noi bo -> goi ham cua file do
+    target = tab.get("A#" + rel + "#" + t, "")
+    if len(target) > 0:
+        if has_def(tab.get("D#" + target, ""), called) == 0:
+            return ""
+        stats[3] = stats[3] + 1
+        mod_owner = owner_of(target, called, tab)
+        return typed_edge(method_id(rel, cls, fn), method_id(target, mod_owner, called), "calls", "0.8")
+    # (b) `t` la ten LOP -> tim file dinh nghia lop roi tra method cua no
+    cf = find_class_file(t, scope, tab)
+    if cf == ambig_mark():
+        stats[0] = stats[0] + 1
+        return ""
+    if len(cf) == 0:
+        stats[1] = stats[1] + 1
+        return ""
+    owner2 = self_owner(cf, t, called, scope, tab)
+    if len(owner2) == 0:
+        stats[1] = stats[1] + 1
+        return ""
+    stats[4] = stats[4] + 1
+    return typed_edge(method_id(rel, cls, fn), method_id(pair_file(owner2), pair_cls(owner2), called), "calls", "0.8")
+
+
+def bound_names_tab(rows: "list[str]", rel: "str", out: "dict[str,str]") -> "i32":
+    """Ten bi RANG BUOC trong tung ham: tham so, bien duoc gan, bien vong lap,
+    ten sau `as`. Ghi vao `out` voi tien to 'B#<file>#<ham>:<ten>'.
+
+    Can bang nay vi luat "ham truyen nhu gia tri" nhan mot ten TRAN o vi tri
+    tham so. Khong loc thi mot bien dia phuong trung ten voi mot ham o file
+    khac se sinh canh bia - do that: 16/81 canh sai, do chinh xac cua luat
+    chi con 80%. Loc xong len 95%+."""
+    fn = ""
+    fn_names = []
+    fn_inds = []
+    depth = 0
+    i = 0
+    while i < len(rows):
+        kind = tok_kind(rows[i])
+        if kind == "BOL":
+            ind = tok_indent(rows[i])
+            w = name_at(rows, i + 1)
+            depth = stack_pop_to(fn_inds, depth, ind)
+            fn = stack_top(fn_names, depth)
+            if w == "def":
+                nm = name_at(rows, i + 2)
+                fn = nm
+                depth = stack_push(fn_names, fn_inds, depth, nm, ind)
+                # Tham so: moi NAME dung ngay sau '(' hoac ','
+                j = i + 3
+                while j < len(rows):
+                    if tok_kind(rows[j]) == "BOL":
+                        j = len(rows)
+                    if j < len(rows):
+                        if tok_kind(rows[j]) == "NAME":
+                            pb = op_at(rows, j - 1)
+                            hit = 0
+                            if pb == "(":
+                                hit = 1
+                            if pb == ",":
+                                hit = 1
+                            if hit == 1:
+                                out["B#" + rel + "#" + fn + ":" + tok_text(rows[j])] = "1"
+                        j = j + 1
+            if w == "for":
+                nm2 = name_at(rows, i + 2)
+                if len(nm2) > 0:
+                    out["B#" + rel + "#" + fn + ":" + nm2] = "1"
+        if kind == "NAME":
+            nm3 = tok_text(rows[i])
+            opn = op_at(rows, i + 1)
+            if opn == "=":
+                pb2 = op_at(rows, i - 1)
+                if pb2 != ".":
+                    out["B#" + rel + "#" + fn + ":" + nm3] = "1"
+            pb3 = name_at(rows, i - 1)
+            if pb3 == "as":
+                out["B#" + rel + "#" + fn + ":" + nm3] = "1"
+            if pb3 == "for":
+                out["B#" + rel + "#" + fn + ":" + nm3] = "1"
+        i = i + 1
+    return 0
+
+
+def is_arg_slot(op_before: "str") -> "i32":
+    """1 neu vi tri nay la mot THAM SO trong loi goi: ngay sau '(' , ',' hoac
+    '=' (tham so co ten). Chi nhan bay nhieu de giu do chinh xac - `x = ham`
+    o muc lenh cung la mot tham chieu that, nhung mo rong toi do la mo cua
+    cho ca bien trung ten."""
+    if op_before == "(":
+        return 1
+    if op_before == ",":
+        return 1
+    if op_before == "=":
+        return 1
+    return 0
+
+
+def ref_edge(rows: "list[str]", i: "i32", rel: "str", fn: "str", cls: "str", scope: "list[str]", tab: "dict[str,str]", stats: "list[i32]") -> "str":
+    """Canh cho HAM TRUYEN NHU GIA TRI: `pool.submit(_convert_one, ...)`.
+
+    Ten ham xuat hien o vi tri tham so, KHONG kem dau '(' - tuc la no duoc
+    truyen di chu khong duoc goi tai cho. Nguoi doc code van phai biet quan
+    he nay: sua `_convert_one` la gay `submit`.
+
+    Phat hien nho doi chieu voi Graphify - ca typegraph LAN trong tai `ast`
+    cua no deu mu cho nay, nen no tham chi khong hien ra duoi dang "sot
+    recall" ma bien mat khoi thuoc do. Bai hoc: mot trong tai do chinh minh
+    viet chi kiem duoc viec THUC THI luat, khong kiem duoc luat co thieu hay
+    khong.
+
+    Cung nhom: `functools.partial`, decorator, bang dispatch. Canh sinh ra
+    van mang loai `calls` (enum dong 4 loai) nhung trong so thap hon."""
+    name = tok_text(rows[i])
+    if is_keyword(name) == 1:
+        return ""
+    prev = op_at(rows, i - 1)
+    if prev == ".":
+        base = name_at(rows, i - 2)
+        if base != "self":
+            return ""
+        if len(cls) == 0:
+            return ""
+        owner = self_owner(rel, cls, name, scope, tab)
+        if len(owner) == 0:
+            return ""
+        stats[2] = stats[2] + 1
+        return typed_edge(method_id(rel, cls, fn), method_id(pair_file(owner), pair_cls(owner), name), "calls", "0.6")
+    if len(tab.get("B#" + rel + "#" + fn + ":" + name, "")) > 0:
+        return ""
+    hit = resolve_name(name, scope, tab)
+    if hit == ambig_mark():
+        return ""
+    if len(hit) == 0:
+        return ""
+    ctor = tab.get("M#" + hit + "#" + name, "")
+    if len(ctor) > 0:
+        return ""
+    tgt_owner = owner_of(hit, name, tab)
+    stats[5] = stats[5] + 1
+    return typed_edge(method_id(rel, cls, fn), method_id(hit, tgt_owner, name), "calls", "0.6")
+
+
+def emit_file(rel: "str", scope: "list[str]", tab: "dict[str,str]", stats: "list[i32]") -> "list[str]":
+    """Moi canh contains/calls/inherits cua 1 file, sinh tu token."""
+    out = []
+    rows = file_tokens(rel)
+    here = []
+    here.append(rel)
+    fn = ""
+    cls = ""
+    fn_names = []
+    fn_inds = []
+    depth = 0
+    cls_names = []
+    cls_inds = []
+    cdepth = 0
+    i = 0
+    while i < len(rows):
+        kind = tok_kind(rows[i])
+        if kind == "BOL":
+            ind = tok_indent(rows[i])
+            w = name_at(rows, i + 1)
+            depth = stack_pop_to(fn_inds, depth, ind)
+            fn = stack_top(fn_names, depth)
+            cdepth = stack_pop_to(cls_inds, cdepth, ind)
+            cls = stack_top(cls_names, cdepth)
+            if w == "class":
+                nm = name_at(rows, i + 2)
+                if len(nm) > 0:
+                    cls = nm
+                    cdepth = stack_push(cls_names, cls_inds, cdepth, nm, ind)
+                    out.append(typed_edge("file:" + rel, node_id("class", rel, nm), "contains", "1.0"))
+                    # Lop cha: class A(B) - B la NAME ngay sau '('
+                    op3 = op_at(rows, i + 3)
+                    if op3 == "(":
+                        par = name_at(rows, i + 4)
+                        if len(par) > 0:
+                            if is_keyword(par) == 0:
+                                hitp = find_class_file(par, scope, tab)
+                                if hitp == ambig_mark():
+                                    stats[0] = stats[0] + 1
+                                elif len(hitp) > 0:
+                                    out.append(typed_edge(node_id("class", rel, nm), node_id("class", hitp, par), "inherits", "0.9"))
+            elif w == "def":
+                nm = name_at(rows, i + 2)
+                if len(nm) > 0:
+                    fn = nm
+                    depth = stack_push(fn_names, fn_inds, depth, nm, ind)
+                    fowner = ""
+                    if len(cls) > 0:
+                        fowner = cls
+                    fn_id = method_id(rel, fowner, nm)
+                    out.append(typed_edge("file:" + rel, fn_id, "contains", "1.0"))
+        if kind == "NAME":
+            opn = op_at(rows, i + 1)
+            if opn == "(":
+                called = tok_text(rows[i])
+                # `def foo(` va `class Foo(` KHONG phai loi goi. Bo qua cho
+                # nay lam moi dinh nghia sinh mot canh tu tro -> chinh xac
+                # tut xuong 40%. Da do bang `ast`.
+                before = name_at(rows, i - 1)
+                is_def = 0
+                if before == "def":
+                    is_def = 1
+                if before == "class":
+                    is_def = 1
+                if is_def == 1:
+                    i = i + 1
+                    continue
+                if len(fn) > 0:
+                    # PARITY: KHONG dung `else` long sau mot chuoi if/elif -
+                    # binary sinh ra bo qua han nhanh else, trong khi chinh
+                    # ma do chay bang CPython lai dung. Da do that: 18 canh
+                    # duoi CPython so voi 6 canh cua binary. Dung co ro rang
+                    # rang thay cho else.
+                    prev = op_at(rows, i - 1)
+                    if prev == ".":
+                        edge = dotted_edge(rows, i, rel, fn, cls, tab, scope, stats)
+                        if len(edge) > 0:
+                            out.append(edge)
+                    if prev != ".":
+                        edge2 = plain_edge(rel, fn, cls, called, scope, tab, stats)
+                        if len(edge2) > 0:
+                            out.append(edge2)
+            if opn != "(":
+                # Ham TRUYEN NHU GIA TRI - khong co '(' theo sau.
+                if len(fn) > 0:
+                    opb = op_at(rows, i - 1)
+                    slot = is_arg_slot(opb)
+                    if opb == ".":
+                        nm_self = name_at(rows, i - 2)
+                        if nm_self == "self":
+                            opb2 = op_at(rows, i - 3)
+                            slot = is_arg_slot(opb2)
+                    if slot == 1:
+                        if opn != ".":
+                            edge3 = ref_edge(rows, i, rel, fn, cls, scope, tab, stats)
+                            if len(edge3) > 0:
+                                out.append(edge3)
+        i = i + 1
+    return out
+
+
+def edge_key(e: "str") -> "str":
+    """Khoa trung lap: canh KHONG ke trong so.
+
+    Mot ham vua duoc GOI vua duoc TRUYEN NHU GIA TRI sinh hai canh cung
+    nguon-dich-loai nhung khac trong so (0.8 va 0.6); reviewer bao "canh
+    trung lap" va tu choi ca graph. Da xay ra that: 13 canh.
+
+    Khong duoc cat bang `cut_at(e, "w")`: chu 'w' co trong duong dan
+    (`views/`) nen khoa bi cat nham va 1.000 canh THAT bien mat - da xay ra."""
+    at = e.find(",\"weight\"")
+    if at < 0:
+        return e
+    return e[0:at]
+
+
+def run(manifest: "str", out_path: "str") -> "str":
+    """Doc manifest, sinh canh contains/calls/inherits ra file JSON."""
+    raw = read_file(manifest)
+    rows = raw.split("\n")
+    paths = []
+    for r in rows:
+        p = norm_slashes(r.strip())
+        if len(p) > 0:
+            paths.append(p)
+    idx = build_index(paths)
+    base_idx = build_base_index(paths)
+    imps = build_imports(paths, idx, base_idx)
+    # MOT bang tra cuu duy nhat, khoa co tien to. Ly do o dotted_edge:
+    # ham tu 9 tham so tro len sinh IL hong.
+    tab = {}
+    for rel in paths:
+        rows = file_tokens(rel)
+        tab["D#" + rel] = collect_defs_tok(rows)
+        class_methods_tab(rows, rel, tab)
+        local_types_tab(rows, rel, tab)
+        module_alias_tab(rows, rel, idx, base_idx, tab)
+        bound_names_tab(rows, rel, tab)
+
+    # stats: 0=ambiguous 1=khong suy duoc kieu 2=self 3=module 4=lop 5=ham tran
+    stats = []
+    k = 0
+    while k < 8:
+        stats.append(0)
+        k = k + 1
+
+    edges = []
+    seen = set()
+    n_dup = 0
+    for rel in paths:
+        scope = scope_files(rel, imps.get(rel, ""))
+        es = emit_file(rel, scope, tab, stats)
+        for e in es:
+            # Khoa trung lap KHONG duoc gom ca trong so: mot ham vua duoc GOI
+            # vua duoc TRUYEN NHU GIA TRI se sinh hai canh cung nguon-dich
+            # nhung khac trong so (0.8 va 0.6) - reviewer bao "canh trung
+            # lap" va tu choi ca graph. Da xay ra that: 13 canh.
+            key = edge_key(e)
+            if key in seen:
+                n_dup = n_dup + 1
+                continue
+            seen.add(key)
+            edges.append(e)
+
+    doc = "{\n \"edges\": [\n" + join_edges(edges) + "\n ],\n \"stats\": {"
+    doc = doc + "\"files\":" + str(len(paths))
+    doc = doc + ",\"edges\":" + str(len(edges))
+    doc = doc + ",\"ambiguous\":" + str(stats[0])
+    doc = doc + ",\"khong_suy_duoc_kieu\":" + str(stats[1])
+    doc = doc + ",\"qua_self\":" + str(stats[2])
+    doc = doc + ",\"qua_module\":" + str(stats[3])
+    doc = doc + ",\"qua_lop\":" + str(stats[4])
+    doc = doc + ",\"ham_tran\":" + str(stats[5])
+    doc = doc + ",\"plain_vao\":" + str(stats[6])
+    doc = doc + ",\"plain_la_tu_khoa\":" + str(stats[7])
+    doc = doc + ",\"dup_dropped\":" + str(n_dup)
+    doc = doc + "}\n}\n"
+    write_file(out_path, doc)
+    return "files=" + str(len(paths)) + " edges=" + str(len(edges)) + " self=" + str(stats[2]) + " module=" + str(stats[3]) + " lop=" + str(stats[4]) + " ham_tran=" + str(stats[5]) + " ngoai_tam=" + str(stats[1])

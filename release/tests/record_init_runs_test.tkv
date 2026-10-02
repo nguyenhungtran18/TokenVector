@@ -1,0 +1,192 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO: `__init__` CHAY THAT (2026-09-29).
+
+TRUOC day `__init__` bi bo qua HOAN TOAN khi bien dich - no duoc doc (de
+file `.tkv` van chay duoc duoi CPython that) roi VUT. Moi dong trong do la
+DEAD CODE ma nguoi doc lai thi tin no chay. Probe quyet dinh:
+
+    class P:
+        x: "i32"
+        def __init__(self, a: "i32") -> "i32":
+            self.x = a * 10      # bi vut di
+            return 0
+    P(3).x   ->  3   (dung la 30 neu __init__ chay)
+
+Hau qua: (a) moi `self.X = ...` trong `__init__` o 2 repo khac deu vo
+nghia; (b) `.ctor` tu `newobj` container rong cho moi field container nen
+field do LUON rong - khong bao gio null, va bug that la **rong am tham**
+(dung loi da gap o TokenVector.Data: "Series.take ctru thieu 3/4 buffer ->
+nhom I64/STR/BOOL mat gia tri").
+
+Gioi han (co chu dich, xem `_ctor_init_body_il`):
+- tham so `.ctor` lay tu FIELD nen `__init__` phai cung SO va cung KIEU
+  theo thu tu - sai thi bao loi ro rang (ten tham so thi KHONG can trung:
+  `def __init__(self, a: "i32")` cho field `x: "i32"` la cach viet Python
+  binh thuong);
+- `return` o GIUA than `__init__` chua ho tro (bo no se chay tiep cac lenh
+  sau do) - bao loi ro rang;
+- `-> "None"` = tra vo huong, chap nhan (Python viet `-> None`).
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class Scal:
+    x: "i32"
+    y: "str"
+
+    def __init__(self, a: "i32", b: "str") -> "i32":
+        self.x = a * 10
+        self.y = b + "!"
+        return 0
+
+    def sum_xy(self) -> "i32":
+        return self.x
+
+
+class Reads:
+    """Doc field DA duoc gan tu tham so .ctor truoc khi than __init__ chay."""
+    a: "i32"
+    b: "i32"
+
+    def __init__(self, a: "i32", b: "i32") -> "i32":
+        self.a = a
+        self.b = self.a + b
+        return 0
+
+
+class Filled:
+    """Field container lap day bang GIA TRI THAT trong `__init__` - truoc day
+    dieu nay khong the (chu khong phai bo qua ma la mat) vi `.ctor` luon
+    `newobj` container RONG."""
+    items: "list[i32]"
+    n: "i32"
+
+    def __init__(self, k: "i32") -> "i32":
+        self.items = [k, k + 1, k + 2]
+        # `len(self.items)` khong dung duoc: `len` chi nhan 1 TEN BIEN tran
+        # (xem CLAUDE.md 'Known gaps') - `self.items` la bieu thuc attr.
+        self.n = 3
+        return 0
+
+
+class WithLoop:
+    """`__init__` phai nhan DUNG SO tham so .ctor - day la field khai bao
+    (ca 2), con gia tri cua chung thi than `__init__` tinh ra (de do kiem
+    `self.total`/`self.steps` co bi ghi de bang gia tri TINH khong)."""
+    total: "i32"
+    steps: "str"
+
+    def __init__(self, total: "i32", steps: "str") -> "i32":
+        t = 0
+        s = ""
+        i = 1
+        while i <= 4:
+            t = t + i
+            s = s + str(i) + ","
+            i = i + 1
+        self.total = t
+        self.steps = s
+        return 0
+
+
+class CallsOwnMethod:
+    v: "i32"
+
+    def __init__(self, a: "i32") -> "i32":
+        self.v = self.bump(a)
+        return 0
+
+    def bump(self, a: "i32") -> "i32":
+        return a + 1
+
+
+class Base:
+    p: "i32"
+
+    def __init__(self, a: "i32") -> "i32":
+        self.p = a + 100
+        return 0
+
+
+class Derived(Base):
+    q: "i32"
+
+    def __init__(self, p: "i32", q: "i32") -> "i32":
+        self.q = q * 2
+        return 0
+
+
+class VoidRet:
+    n: "i32"
+
+    def __init__(self, a: "i32") -> "None":
+        self.n = a - 1
+        return 0
+
+
+def scalar_fields() -> "i32":
+    total = 0
+    s = Scal(3, "hi")
+    total += check("bieu thuc trong __init__", str(s.x), "30")
+    total += check("chuoi trong __init__", s.y, "hi!")
+    total += check("method doc field", str(s.sum_xy()), "30")
+    return total
+
+
+def reads_field() -> "i32":
+    r = Reads(2, 5)
+    return check("doc field da gan tu tham so", str(r.b), "7")
+
+
+def container_filled() -> "i32":
+    total = 0
+    f = Filled(10)
+    its = f.items
+    total += check("len tu __init__", str(f.n), "3")
+    total += check("gia tri that", str(its[0]) + "/" + str(its[1]) + "/" + str(its[2]), "10/11/12")
+    return total
+
+
+def loop_in_init() -> "i32":
+    w = WithLoop(0, "")
+    return check("vong lap trong __init__", str(w.total) + " " + w.steps, "10 1,2,3,4,")
+
+
+def calls_own_method() -> "i32":
+    c = CallsOwnMethod(7)
+    return check("goi method cua chinh no", str(c.v), "8")
+
+
+def inheritance() -> "i32":
+    """Record KE THUA: `.ctor` base chay (va duoc chay `__init__` base), NHUNG
+    than `__init__` cua class con thi BI BO QUA.
+
+    Ly do: tham so `.ctor` cua class con la [field base..., field rieng...],
+    con `__init__` cua class con chi khai field RIENG - hai danh sach lech
+    nhau, nen neu chay than no thi no se doc SAI tham so (o day `q` se nhan
+    gia tri cua `p`). Compiler chon bo qua hon la bien dich sai am tham.
+    """
+    total = 0
+    d = Derived(3, 3)
+    total += check("field cua base (qua __init__ base)", str(d.p), "103")
+    total += check("field rieng: __init__ con bi bo qua", str(d.q), "3")
+    return total
+
+
+def void_return() -> "i32":
+    v = VoidRet(5)
+    return check("-> \"None\"", str(v.n), "4")
+
+
+def run() -> "i32":
+    total = 0
+    total += scalar_fields()
+    total += reads_field()
+    total += container_filled()
+    total += loop_in_init()
+    total += calls_own_method()
+    total += inheritance()
+    total += void_return()
+    # 3 + 1 + 2 + 1 + 1 + 2 + 1
+    return test_summary("record_init_runs_test", total, 11)

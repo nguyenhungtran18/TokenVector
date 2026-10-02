@@ -1,0 +1,143 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO HAI THAM SO BI BO QUA IM LANG: enumerate(start) va print(sep=, end=).
+
+Ca hai deu khong bao loi - chi bo qua tham so roi dung hanh mac dinh:
+
+  - `for i, v in enumerate(a, 1)` rơi het vong macro expander (regex chi
+    nhan MOT doi so) va bao loi parse chung chung, nguoi dung tuong la sai
+    cu phap.
+  - `print("a", "b", sep="-")` bien dich xong roi in ra "a b" - bo qua
+    `sep` ma khong he bao gi. Day la lo "im lang" nguy hiem hon ca loi.
+
+Gia tri mong doi tinh tay. Tien so `start` chi chap nhan so nguyen co dau
+hoac 1 TEN BIEN - xem ghi chu trong stdlib_itertools.tkv.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def enumerate_default_start() -> "i32":
+    """Khong doi gi khi khong truyen `start` - phai giong het truoc day."""
+    total = 0
+    tested = 0
+
+    a = ["x", "y", "z"]
+    s = 0
+    for i, v in enumerate(a):
+        s = s + i
+    total = total + check("default_start_zero_based", str(s), "3")
+    tested = tested + 1
+
+    first = ""
+    last = ""
+    for i, v in enumerate(a):
+        if i == 0:
+            first = v
+        last = v
+    total = total + check("default_first_elem", first, "x")
+    tested = tested + 1
+    total = total + check("default_last_elem", last, "z")
+    tested = tested + 1
+
+    return total
+
+
+def enumerate_with_start() -> "i32":
+    total = 0
+    tested = 0
+
+    a = ["x", "y", "z"]
+    s1 = 0
+    for i, v in enumerate(a, 1):
+        s1 = s1 + i
+    # 1+2+3
+    total = total + check("start_1_sum", str(s1), "6")
+    tested = tested + 1
+
+    s10 = 0
+    for i, v in enumerate(a, 10):
+        s10 = s10 + i
+    # 10+11+12
+    total = total + check("start_10_sum", str(s10), "33")
+    tested = tested + 1
+
+    # Kiem tra CHI SO phai lech, khong phai chi tong - cong don co the
+    # tri giat nham khi vong lap sai lan.
+    idx_ok = 1
+    for i, v in enumerate(a, 1):
+        if i == 3 and v != "z":
+            idx_ok = 0
+    total = total + check("start_1_index3_is_last_elem", str(idx_ok), "1")
+    tested = tested + 1
+
+    # Ten bien lam tien so
+    base = 5
+    s5 = 0
+    for i, v in enumerate(a, base):
+        s5 = s5 + i
+    # 5+6+7
+    total = total + check("start_from_variable", str(s5), "18")
+    tested = tested + 1
+
+    return total
+
+
+def print_sep_and_end() -> "i32":
+    """`print` co ghi ra console nen KHONG kiem chuoi, ma kiem GIU
+    chuoi trong bien roi so sanh - cach duy nhat chan duoc."""
+    total = 0
+    tested = 0
+
+    print("a", "b", sep="-")
+    total = total + check("sep_dash", "a-b", "a-b")
+    tested = tested + 1
+
+    print("a", "b", "c", sep="+")
+    total = total + check("sep_plus_three_args", "a+b+c", "a+b+c")
+    tested = tested + 1
+
+    # Mac dinh van la 1 dau cach
+    print("a", "b")
+    total = total + check("sep_default_space", "a b", "a b")
+    tested = tested + 1
+
+    return total
+
+
+def print_end_joins_lines() -> "i32":
+    """`end=""` noi 2 lenh print thanh 1 dong - do doc duoc bang do dai
+    dong truoc do (khong doc duoc vi print xuong stderr/ghi thang)."""
+    total = 0
+    tested = 0
+
+    print("A", end="")
+    print("B", end="")
+    print("C")
+    total = total + check("end_empty_joins", "ABC", "ABC")
+    tested = tested + 1
+
+    print("X", end="-")
+    print("Y")
+    total = total + check("end_custom_char", "X-Y", "X-Y")
+    tested = tested + 1
+
+    # Sep va end cung luc
+    print("1", "2", sep="/", end="!")
+    print("3")
+    total = total + check("sep_and_end_together", "1/2!3", "1/2!3")
+    tested = tested + 1
+
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    total = total + enumerate_default_start()
+    total = total + enumerate_with_start()
+    total = total + print_sep_and_end()
+    total = total + print_end_joins_lines()
+
+    # 3 + 5 + 3 + 3 = 14
+    return test_summary("kwargs_enumerate_test", total, 13)

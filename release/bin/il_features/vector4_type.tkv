@@ -1,0 +1,220 @@
+# -*- coding: utf-8 -*-
+"""Kieu `f32x4` qua System.Numerics.Vector4 - SIMD 4 lane, THUAN TOKENVECTOR.
+
+VA Y DO
+-------
+R7 (2026-09-28) giu bien dem/chi so o dang native int64, matmul 32x32 giam
+5.1x. Con mot buc nua nua: phan SO HOC 32-bit. Do la noi mot lenh
+`mul` + `add` scalar phai lam het 1 MAC, con may co 4 (AVX) hoac 8 (AVX2)
+lane SSE/AVX de lay - cung 1 lenh, gap 4-8 lan.
+
+YEU TO QUAN TRONG: `System.Numerics.Vector4` KHONG can gi ngoai TokenVector:
+no la mot valuetype co san cua .NET Framework, dung assembly
+`System.Numerics.dll` - CHUNG assembly ma kieu `complex` da dung. Nen:
+
+  - khong them file, khong them assembly, khong P/Invoke, khong C
+  - PE ket qua van la 1 file doc lap, chi can mscorlib + System.Numerics
+    (cai sau da co san trong moi cai dat .NET Framework)
+
+CLR 4.x THUC SU ha `Vector4` xuong phan cung (`Vector4` la kieu intrinsic
+cua JIT tu lâu, khac voi `Vector<T>`). Do tren chinh CLR 4.x, matmul f32
+32x32 do duoc:
+
+    f32 scalar    48.26 us   1.473 ns/MAC
+    f32 Vector4   17.96 us   0.548 ns/MAC    -> 2.69x
+
+xem docs/REPOSITORY-NOTES.md ("SIMD scoping, measured rather than assumed").
+
+GIOI HAN PHIA BEN
+----------------
+`System.Numerics.Vector<T>` KHONG ton tai tren CLR 4.x, nen **f64 khong
+vector hoa duoc tren .NET Framework** (khong co kieu rong 2 x f64 in-box).
+Dinh nghia nay chi phu f32. muon vector hoa f64 thi phai doi runtime sang
+.NET 8 - xem P8 trong plan. Workload that cua TokenVector (inference LSTM)
+dung f32 nen day khong nam tren duong chinh.
+
+QUAN HE VOI `f32x8` (vector_block.tkv)
+-------------------------------------
+`f32x8` / `VBuf8` la khoi 8 SO f32 rời trong mot struct unmanaged - KHONG
+phai SIMD, chi la mot bo dem dung thu cong. `f32x4` day la vector THAT, mot
+lenh IL mot phan tu rong. Hai thu trung ten mot khu vuc; gop lai la viec
+don dep rieng, khong lam trong P2 de giu bien the phong vi bien doi.
+
+SUBSTRATE: CON TRO THO, KHONG PHAI `List<T>._items`
+--------------------------------------------------
+`v_load4`/`v_store4` doc/ghi 16 byte lien tiep, nen can DIA CHI cua mot vung
+bo nho lien tiep. TokenVector chi co substrate do `nativebuf.tkv` cap
+(`alloc_bytes` + `read_*`/`write_*`) - dung y het `v_load8`/`v_store8` va
+`Testkit/vector_block_test.tkv`.
+
+Da CAN NHAC: co the lay dia chi phan tu cua `List<T>` qua field private
+`_items` + `ldelema`, va no ton tai tren ca CLR 4.x va .NET Core. KHONG
+dung, vi (a) `List<T>._items` khong phai API hop dong - khong co gi dam bao
+o mot runtime dot nao khac, (b) TokenVector chua co tien le nao cham vao
+field private cua BCL, nen se la mau dau tien. Con tro tho thi la API cong
+bo khai bao cua chinh du an.
+"""
+
+from il_core import IL_SCALAR
+from il_dispatch import register_expr_builtin
+
+# Class ref TRAN (khong 'valuetype' o truoc) - dung sau '::' trong 1 loi
+# goi static/instance method, giong COMPLEX_CLASS cua complex_type.tkv.
+VEC4_CLASS = '[System.Numerics]System.Numerics.Vector4'
+# Mo ta VALUETYPE day du - dung lam kieu tra ve/tham so va khai bao local.
+VEC4 = f'valuetype {VEC4_CLASS}'
+
+# Vector4 dinh nghia day du 4 toan tu hai tham so. KHONG phai goi
+# `Add`/`Multiply` nhu Complex - Complex co method tinh, Vector4 dung
+# operator (op_*) vi no la kieu vector.
+_VEC4_BINOPS = {
+    '+': 'op_Addition',
+    '-': 'op_Subtraction',
+    '*': 'op_Multiply',
+    '/': 'op_Division',
+}
+
+# 4 LANE. KHONG PHAI property!
+#
+# Do bang reflection tren chinh System.Numerics.dll cua .NET Framework 4.8:
+#   - `op_Addition`/`op_Subtraction`/`op_Multiply`/`op_Division` CÓ (dung duoc)
+#   - `X`/`Y`/`Z`/`W` la FIELD `Single`, KHONG co `get_X`/... (GetMethod('get_X')
+#     = null). Nen phai `ldfld`, khong duoc `call get_X` - ban doan sai se
+#     bien dich duoc roi nem MissingMethodException luc CHAY.
+#   - property thi chi co 6 cai STATIC: Zero/One/UnitX/UnitY/UnitZ/UnitW
+_VEC4_PROPS = {'x': 'X', 'y': 'Y', 'z': 'Z', 'w': 'W'}
+
+
+def register_vector4_dtype():
+    IL_SCALAR['f32x4'] = VEC4
+
+
+def compile_binop(op, left, right, scope, out, ctx):
+    """'+'/'-'/'*'/'/' giua 2 gia tri 'f32x4' - goi THANG operator cua
+    BCL. Mot lenh `call` = 4 (hoac 8 voi AVX2) MAC cung luc."""
+    if op not in _VEC4_BINOPS:
+        raise SyntaxError(
+            f"il_codegen: '{op}' khong ho tro tren 'f32x4' (chi +,-,*,/ - "
+            f"khong co % va khong co so sanh kieu vector)")
+    compile_expr = ctx['compile_expr']
+    compile_expr(left, scope, out, 'f32x4', ctx)
+    compile_expr(right, scope, out, 'f32x4', ctx)
+    method = _VEC4_BINOPS[op]
+    out.append(f'    call {VEC4} {VEC4_CLASS}::{method}({VEC4}, {VEC4})')
+
+
+def compile_attr(obj_name, field_name, scope, out, dtype, ctx):
+    """'.x'/'.y'/'.z'/'.w' tren 1 bien 'f32x4' - doc LANE.
+
+    `X`/`Y`/`Z`/`W` la FIELD (khong phai property) - xem ghi chu o _VEC4_PROPS.
+    Dia chi qua ctx['load_var_addr'] (KHONG hardcode ten slot IL), giong het
+    complex_type.tkv's compile_attr. Ket qua la f32 nen ep sang `dtype` ma
+    ben ngoai yeu cau.
+    """
+    field = _VEC4_PROPS[field_name]
+    ctx['load_var_addr'](obj_name, scope, out)
+    out.append(f'    ldfld float32 {VEC4_CLASS}::{field}')
+    ctx['widen_if_needed']('f32', dtype, out)
+
+
+def compile_ctor(args, scope, out, dtype, ctx):
+    """'f32x4(a, b, c, d)' - constructor 4 tham so, ca 4 ep ve f32."""
+    if len(args) != 4:
+        raise SyntaxError(
+            "il_codegen: f32x4() chi nhan DUNG 4 tham so (4 lane; khong co "
+            "constructor 1/2/3 tham so va khong co literal vector)")
+    compile_expr = ctx['compile_expr']
+    for a in args:
+        compile_expr(a, scope, out, 'f32', ctx)
+    out.append(
+        f'    newobj instance void {VEC4_CLASS}::.ctor(float32, float32, float32, float32)')
+
+
+# Local nhap de gom 4 lane ve 1 so - xem push_v_hsum4. KHONG DUNG `stloc`
+# truc tiep tren bien nguoi viet: gia tri f32x4 da nam tren stack, can noi
+# trung gian de doc lai 4 field. Khai bao VO DIEU KIEN trong moi ham
+# (mirror complex_type.tkv's SCRATCH_STR) vi khong co duong de "co ho tro
+# khi can" - va 16 byte/ham la chi phi nho so voi do gianh.
+SCRATCH_H4 = '__v4hsum'
+
+
+def scratch_locals():
+    """(ten, dtype) local nhap can khai bao VO DIEU KIEN o moi ham - xem
+    il_codegen.tkv's _first_pass_collect_locals (mirror int_type.py's
+    scratch_locals va complex_type.tkv)."""
+    return [(SCRATCH_H4, 'f32x4')]
+
+
+def push_v_hsum4(args, scope, out, dtype, ctx):
+    """'v_hsum4(v)' - gom 4 lane ve 1 f32. DAY LA BUOC P4 VA LA NOI NGUA
+    NGHIA FLOAT DOI LAN DAU.
+
+    Thu tu cong: CHON TUAN TU `((X+Y)+Z)+W`, KHONG dung ghep cap
+    `(X+Y)+(Z+W)`. Ly do: 4 phan tu cuoi cua vong scalar duoc cong theo
+    chieu tuan tu, nen `((X+Y)+Z)+W` TAI TAO DUNG phep cong do. Nho vay
+    thu tu cong CHI doi o cho bat buoc cua SIMD - giua 4 tich luy tach
+    biet - va KHONG them thay doi nao ben trong phep gop. Dung ghep cap se
+    sua ca hai, dong thoi khong tang them gi toc do (4 phep cong, 4 lan
+    doc field - y het).
+
+    Ket qua: gia tri se LECH so voi vong scalar tuan tu, do 4 tich luy
+    tang len song thay vi cong mot. Do do phai so sanh bang dung sai,
+    khong con bang so sanh chuoi tuyet doi - xem muc "DUNG SAI" va
+    docs/REPOSITORY-NOTES.md (bench f32mm, 1e-5 theo phan tu).
+    """
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: v_hsum4(v) chi nhan 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'f32x4', ctx)
+    out.append(f'    stloc.s {SCRATCH_H4}')
+    # `add` phai nam GIUA hai lenh nap, khong phai sau moi lenh nap. Ban
+    # dau tien emit `add` ngay sau ldfld X -> stack chi con 1 toan hang ->
+    # InvalidProgramException luc chay (bat duoc nho day). Chi them `add`
+    # TU LAN NHAI troi.
+    for i, field in enumerate(('X', 'Y', 'Z', 'W')):
+        out.append(f'    ldloca.s {SCRATCH_H4}')
+        out.append(f'    ldfld float32 {VEC4_CLASS}::{field}')
+        if i > 0:
+            out.append('    add')
+
+
+def push_v_load4(args, scope, out, dtype, ctx):
+    """'v_load4(p, off)' - NAP 16 BYTE (4 lane) tu dia chi native, tra 1
+    gia tri 'f32x4'.
+
+    Day la buoc P3 va KHONG co phep so hoc nao: chi la move 16 byte, nen
+    phai BIT-EXACT tuyet doi - moi thu`v_mul8` ben canh doc/ghi 8 so rieng
+    bang 8 cap `ldind.r4`/`stind.r4` (16 lenh cho 8 so, va KHONG phai SIMD),
+    con day la MOT lenh `ldobj` doc nguyen 16 byte.
+
+    `off` tinh theo BYTE, giong het read_f32/write_f32 (nativebuf.tkv) va
+    giong het v_load8. `_addr` da ket thuc bang `conv.i` nen len ra san dia
+    chi co quan ly cho `ldobj`.
+
+    Substrate la CON TRO THO (`alloc_bytes`), giong het v_load8 - xem muc
+    "SUBSTRATE" o dau file vi sao khong dung `List<T>._items`."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: v_load4(p, off) can dung 2 tham so")
+    import il_features.vector_block as _vb
+    _vb._addr(args[0], args[1], 0, scope, out, ctx)
+    out.append(f'    ldobj {VEC4}')
+
+
+def push_v_store4(args, scope, out, dtype, ctx):
+    """'v_store4(p, off, v)' - ghi 16 BYTE (4 lane) xuong dia chi native.
+
+    `stobj` pop [dia chi, gia tri] - dia chi phai DAY DUOI. Xem v_load4."""
+    if len(args) != 3:
+        raise SyntaxError(
+            "il_codegen: v_store4(p, off, v) can dung 3 tham so")
+    import il_features.vector_block as _vb
+    _vb._addr(args[0], args[1], 0, scope, out, ctx)
+    ctx['compile_expr'](args[2], scope, out, 'f32x4', ctx)
+    out.append(f'    stobj {VEC4}')
+    out.append('    ldc.i4 0')
+
+
+register_vector4_dtype()
+register_expr_builtin('f32x4', compile_ctor, 'f32x4')
+register_expr_builtin('v_load4', push_v_load4, 'f32x4')
+register_expr_builtin('v_store4', push_v_store4, 'i32')
+register_expr_builtin('v_hsum4', push_v_hsum4, 'f32')

@@ -1,0 +1,253 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO `else` cua `for` / `while` (2026-09-28).
+
+`else` cua vong lap chay khi vong lap het MA KHONG gap `break` - giong het
+Python, va KHAC `try/except/else` (noi do, mot handler bat duoc loi thi do la
+ly do BO QUA `else`). Hai chuyen nghinh nhat:
+
+- `continue` KHONG bo qua `else` - vong lap van co the chay het binh thuong.
+- `break` trong vong lap TRONG chi bo qua `else` cua vong lap do, KHONG phai
+  `else` cua vong lap ngoai - vong lap ngoai van chay tiep.
+
+Dung NHAN, KHONG dung co `did_break` nhu du kien trong PLAN.md buoc 4. Ky thuat
+co do can 1 local moi, va ten local phai duy nhat giua hai lan duyet cau lenh
+(first pass khai bao, codegen doc) - ma so lan dem o hai lan duet khong duy nhat
+khong so voi nhau. Chi can them mot nhan: `break` tro toi nhan nam SAU `else`.
+
+Gia tri mong doi tinh tay, doi chieu CPython 3.11.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class R:
+    """Record co `__iter__`/`__next__` - duong ghi rieng cho
+    `for v in <record>` (khong qua macro `for_in_list`)."""
+
+    n: "i32"
+
+    def __iter__(self) -> "R":
+        return self
+
+    def __next__(self) -> "(i32, i32)":
+        v = self.n
+        self.n = self.n + 1
+        if v < 3:
+            return v, 1
+        return 0, 0
+
+
+def for_range() -> "i32":
+    total = 0
+    tested = 0
+    # het vong lap, khong break -> else chay
+    a = 0
+    for i in range(3):
+        a = a + 10
+    else:
+        a = 900
+    total += check("for range else runs", str(a), "900")
+    tested += 1
+    # break -> else bi bo qua
+    b = 0
+    for i in range(5):
+        if i == 2:
+            break
+        b = b + 1
+    else:
+        b = 900
+    total += check("for range break skips else", str(b), "2")
+    tested += 1
+    # vong lap rong: khong lap lan nao -> van la 'het khong break' -> else chay
+    c = 0
+    for i in range(0):
+        c = c + 1
+    else:
+        c = 900
+    total += check("empty range still runs else", str(c), "900")
+    tested += 1
+    return total
+
+
+def while_loop() -> "i32":
+    total = 0
+    tested = 0
+    a = 0
+    i = 0
+    while i < 5:
+        if i == 3:
+            break
+        i = i + 1
+        a = a + 1
+    else:
+        a = 900
+    total += check("while break skips else", str(a), "3")
+    tested += 1
+    b = 0
+    j = 0
+    while j < 3:
+        j = j + 1
+        b = b + 1
+    else:
+        b = 900
+    total += check("while else runs", str(b), "900")
+    tested += 1
+    return total
+
+
+def over_list() -> "i32":
+    """`for x in <list>` chay qua macro ghi lai thanh `for i in range(len(x))`
+    nen dong `else:` goc van nguyen tai cho - `else` hoat dong ma khong can
+    ma nguon rieng cho duong nay."""
+    total = 0
+    tested = 0
+    lst = [1, 2, 3]
+    a = 0
+    for v in lst:
+        a = a + v
+    else:
+        a = 900
+    total += check("for list else runs", str(a), "900")
+    tested += 1
+    b = 0
+    for v in lst:
+        if v == 2:
+            break
+        b = b + v
+    else:
+        b = 900
+    total += check("for list break skips else", str(b), "1")
+    tested += 1
+    return total
+
+
+def over_record() -> "i32":
+    """Duong ghi rieng: `for v in <record>` dung `__iter__`/`__next__`, khong
+    qua macro, nen can kiem rieng."""
+    total = 0
+    tested = 0
+    r = R(0)
+    a = 0
+    for v in r:
+        a = a + v
+    else:
+        a = 900
+    total += check("for record else runs", str(a), "900")
+    tested += 1
+    r2 = R(0)
+    b = 0
+    for v in r2:
+        if v == 2:
+            break
+        b = b + v
+    else:
+        b = 900
+    total += check("for record break skips else", str(b), "1")
+    tested += 1
+    return total
+
+
+def continue_does_not_skip() -> "i32":
+    """`continue` KHONG lam vong lap ket thuc - vong lap van het mot lan
+    binh thuong nen `else` van chay. `break` moi la thu lam bo qua."""
+    total = 0
+    tested = 0
+    n = 0
+    for i in range(3):
+        continue
+        n = 100
+    else:
+        n = 900
+    total += check("continue does not skip else", str(n), "900")
+    tested += 1
+    return total
+
+
+def nested_loops() -> "i32":
+    """`break` chi bo qua `else` cua vong lap TRONG. Vong lap NGOAI van chay
+    het, nen `else` cua no van phai chay - day la ca de sai nhat."""
+    total = 0
+    tested = 0
+    log = ""
+    for i in range(3):
+        for j in range(3):
+            if j == 1:
+                break
+            log = log + "x"
+        else:
+            log = log + "I"
+    else:
+        log = log + "O"
+    total += check("inner break skips only inner else", log, "xxxO")
+    tested += 1
+    # vong lap trong chay HET o vong lap ngoai thu hai -> else trong chay
+    log2 = ""
+    for i in range(2):
+        for j in range(3):
+            if i == 0:
+                break
+            log2 = log2 + "y"
+        else:
+            log2 = log2 + "I"
+    else:
+        log2 = log2 + "O"
+    total += check("inner else runs when inner completes", log2, "yyyIO")
+    tested += 1
+    return total
+
+
+def _via_break() -> "i32":
+    for i in range(3):
+        if i == 1:
+            break
+    else:
+        return 20
+    return 99
+
+
+def _via_completion() -> "i32":
+    for i in range(3):
+        k = i
+    else:
+        return 20
+    return 99
+
+
+def return_in_else() -> "i32":
+    total = 0
+    tested = 0
+    total += check("return in else", str(_via_completion()), "20")
+    tested += 1
+    total += check("break skips else, falls through", str(_via_break()), "99")
+    tested += 1
+    return total
+
+
+def code_after_loop_runs() -> "i32":
+    """Code nam sau ca vong lap va `else` phai chay du - `else` la code THAT,
+    khong phai `return` hay `continue`."""
+    total = 0
+    tested = 0
+    n = 0
+    for i in range(2):
+        n = n + 1
+    else:
+        n = n + 5
+    n = n * 2
+    total += check("code after loop runs", str(n), "14")
+    tested += 1
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += for_range()
+    total += while_loop()
+    total += over_list()
+    total += over_record()
+    total += continue_does_not_skip()
+    total += nested_loops()
+    total += return_in_else()
+    total += code_after_loop_runs()
+    # 3 + 2 + 2 + 2 + 1 + 2 + 2 + 1
+    return test_summary("for_while_else_test", total, 15)

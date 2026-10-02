@@ -1,0 +1,29 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def argv_at_least_one() -> "i32":
+    a = sys_argv()
+    if len(a) >= 1:
+        return 1
+    return 0
+
+
+def argv_has_exe_path() -> "i32":
+    a = sys_argv()
+    if len(a) > 0:
+        if len(a[0]) > 0:
+            return 1
+    return 0
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("argv_at_least_one", str(argv_at_least_one()), "1")
+
+    tested = tested + 1
+    total = total + check("argv_has_exe_path", str(argv_has_exe_path()), "1")
+
+    return test_summary("sys_module_py_tree_test", total, tested)

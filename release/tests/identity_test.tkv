@@ -1,0 +1,195 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO SO SANH THAM CHIEU: == tren container, va is / is not.
+
+Hai thu nay di cung nhau vi chung mot nguyen nhan.
+
+`a == b` voi hai list NEM InvalidCastException tai TkvInt::Cmp. Ly do:
+_infer_dtype tra `scope[name][2].dtype` va BO QUA `shape`, nen `a = [1, 2]`
+suy ra dtype 'int' (tu literal ben trong) va phep so sanh di thang vao
+nhanh TkvInt - no dem mot `List<int>` reference roi lam so moi chu la so.
+Testkit khong co test nao so sanh 2 container nen loi nay chua bao loi.
+
+`_compile_container_compare` sua bang cach dat truoc nhanh 'int': container
+thi `ceq` tren 2 object reference - la DUNG y nghia so sanh ma runtime
+.NET (va .NET List<T> KHONG override ==, nen day cung la mac dinh cua
+noi suy dich). KHONG so sanh NOI DUNG, vi do la mot tinh nang rieng, ton
+nhieu hon nhieu va cham hon.
+
+`is` / `is not` thi mo dun dung thu do nen khong ton them duong codegen nao:
+trong parser no bien `is` thanh `==` va `is not` thanh `!=`. Nghia cua no
+la:
+  - container: so DANH TINH that, dung nhu Python.
+  - scalar/chuoi: bien scalar la UNBOXED, khong co 'cung doi tuong' de so,
+    nen `is` == `==` - dung nhu Python voi None/True/1 (cac doi tuong con
+    lkp cua nho) va rat la thu nguoi dung viet nham.
+Docstring ghi ro dieu nay de khong ai lam `is` va `==` mot cai khac biet.
+
+Gia tri mong doi tinh tay, KHONG chay CPython de sinh ra.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def container_eq_is_reference() -> "i32":
+    total = 0
+    tested = 0
+
+    a = [1, 2]
+    b = [1, 2]
+    c = a
+    # NOI DUNG giong nhau, bien KHAC -> 0. Day la mau bao lai cho thay
+    # khong phai so noi dung.
+    r = a == b
+    total = total + check("list_eq_different_objects", str(r), "False")
+    tested = tested + 1
+    r2 = a == c
+    total = total + check("list_eq_same_object", str(r2), "True")
+    tested = tested + 1
+    r3 = a != b
+    total = total + check("list_ne_different_objects", str(r3), "True")
+    tested = tested + 1
+    r4 = a != c
+    total = total + check("list_ne_same_object", str(r4), "False")
+    tested = tested + 1
+
+    d = {}
+    d["k"] = 1
+    e = {}
+    e["k"] = 1
+    r5 = d == e
+    total = total + check("dict_eq_different_objects", str(r5), "False")
+    tested = tested + 1
+    r6 = d == d
+    total = total + check("dict_eq_same_object", str(r6), "True")
+    tested = tested + 1
+
+    return total
+
+
+def is_on_containers() -> "i32":
+    total = 0
+    tested = 0
+
+    a = [1, 2]
+    b = [1, 2]
+    c = a
+    r1 = a is b
+    total = total + check("list_is_different", str(r1), "False")
+    tested = tested + 1
+    r2 = a is c
+    total = total + check("list_is_same", str(r2), "True")
+    tested = tested + 1
+    r3 = a is not b
+    total = total + check("list_is_not_different", str(r3), "True")
+    tested = tested + 1
+    r4 = a is not c
+    total = total + check("list_is_not_same", str(r4), "False")
+    tested = tested + 1
+
+    d = {}
+    e = {}
+    r5 = d is e
+    total = total + check("dict_is_different", str(r5), "False")
+    tested = tested + 1
+    r6 = d is d
+    total = total + check("dict_is_same", str(r6), "True")
+    tested = tested + 1
+
+    return total
+
+
+def is_on_scalars_matches_eq() -> "i32":
+    """Bien scalar la unboxed nen `is` phai TRUNG kieu `==`."""
+    total = 0
+    tested = 0
+
+    x = 5
+    y = 5
+    r1 = x is y
+    total = total + check("scalar_is_equal", str(r1), "True")
+    tested = tested + 1
+    r2 = x is not y
+    total = total + check("scalar_is_not_equal", str(r2), "False")
+    tested = tested + 1
+    p = 5
+    q = 6
+    r3 = p is q
+    total = total + check("scalar_is_unequal", str(r3), "False")
+    tested = tested + 1
+
+    s = "ab"
+    t = "ab"
+    r4 = s is t
+    total = total + check("str_is_equal", str(r4), "True")
+    tested = tested + 1
+
+    return total
+
+
+def is_usable_in_conditions() -> "i32":
+    """`is` phai dung duoc trong `if` - do la noi nguoi dung that su viet."""
+    total = 0
+    tested = 0
+
+    a = [1]
+    b = [1]
+    c = a
+    n = 0
+    if a is c:
+        n = n + 1
+    total = total + check("is_in_if_true", str(n), "1")
+    tested = tested + 1
+    if a is b:
+        n = n + 100
+    total = total + check("is_in_if_false", str(n), "1")
+    tested = tested + 1
+    if a is not b:
+        n = n + 10
+    total = total + check("is_not_in_if_true", str(n), "11")
+    tested = tested + 1
+
+    return total
+
+
+def other_equality_still_works() -> "i32":
+    """Cac so sanh khac phai GIONG NGUYEN - 'is' khong duoc lam hong chung.
+
+    Moi phep so sanh deu GAN BIEN TRUOC khi str(). Ky do: `str(<so sanh>)`
+    noi tai in ra "True"/"False" con gia tri da gan bien thi in "1"/"0" -
+    xem bool_type_test.tkv. Bat buoc lam dung o moi noi kiem chuoi."""
+    total = 0
+    tested = 0
+
+    e1 = 1 == 1
+    total = total + check("scalar_eq", str(e1), "True")
+    tested = tested + 1
+    e2 = 1 == 2
+    total = total + check("scalar_neq", str(e2), "False")
+    tested = tested + 1
+    s = "ab"
+    t = "ab"
+    e3 = s == t
+    total = total + check("str_eq", str(e3), "True")
+    tested = tested + 1
+    e4 = 1 < 2
+    total = total + check("scalar_lt", str(e4), "True")
+    tested = tested + 1
+    e5 = 2 > 1
+    total = total + check("scalar_gt", str(e5), "True")
+    tested = tested + 1
+
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    total = total + container_eq_is_reference()
+    total = total + is_on_containers()
+    total = total + is_on_scalars_matches_eq()
+    total = total + is_usable_in_conditions()
+    total = total + other_equality_still_works()
+
+    # 6 + 6 + 5 + 3 + 5 = 25
+    return test_summary("identity_test", total, 24)

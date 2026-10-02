@@ -1,0 +1,169 @@
+# -*- coding: utf-8 -*-
+"""mergedefs - cong cu THAT viet bang TokenVector.
+
+Gop summary do LLM sinh (TSV) vao file nut function/class do defmeta sinh,
+va KIEM TRA tung summary truoc khi nhan - cung tinh than mergemeta nhung
+khoa la ID NUT ("function:<path>:<ten>") chu khong phai duong dan file.
+
+Khac mergemeta o ba cho, deu la loi da gap that:
+  - khoa dai va co dau hai cham, khong the cat theo ':' dau tien;
+  - luat "chi chep lai ten" phai so voi TEN HAM, khong phai ten file;
+  - summary bat dau bang "Ham nay" / "Lop nay" la mo dau thua.
+
+Dung:
+    mergedefs.exe <defs.json> <summaries.tsv> <defs_out.json> <rejected.txt>
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def min_len() -> "i32":
+    """Do dai toi thieu cua mot summary duoc chap nhan."""
+    return 20
+
+
+def max_len() -> "i32":
+    """Do dai toi da."""
+    return 220
+
+
+def id_tail(nid: "str") -> "str":
+    """'function:a/b.py:ten' -> 'ten'. Khong dung split vi duong dan cung
+    chua dau hai cham tren Windows."""
+    cut = -1
+    i = 0
+    while i < len(nid):
+        if nid[i] == ":":
+            cut = i
+        i = i + 1
+    return nid[cut + 1:len(nid)]
+
+
+def has_any(s: "str", bad: "str") -> "i32":
+    """1 neu `s` chua bat ky ky tu nao trong `bad`."""
+    i = 0
+    while i < len(bad):
+        if s.find(bad[i]) >= 0:
+            return 1
+        i = i + 1
+    return 0
+
+
+def json_escape(s: "str") -> "str":
+    """Thoat chuoi cho JSON. Summary do LLM sinh co the chua dau nhay kep -
+    khong thoat thi ca file JSON hong. Da xay ra that."""
+    step = s.replace("\\", "\\\\")
+    return step.replace("\"", "\\\"")
+
+
+def strip_ticks(s: "str") -> "str":
+    """Bo backtick: vuong dinh dang thi go ra, dung vut ca cau."""
+    return s.replace("`", "")
+
+
+def reject_reason(nid: "str", summary: "str") -> "str":
+    """Ly do tu choi summary, '' neu hop le."""
+    s = summary.strip()
+    if len(s) < min_len():
+        return "qua ngan"
+    if len(s) > max_len():
+        return "qua dai"
+    # Ky tu don le KHONG phai dinh dang: "dich sang C#" va cong thuc
+    # "a*b/gcd" deu la NOI DUNG. Luat cu cam ca '*' lan '#' da chan nham 6
+    # summary that. Chi chan dung dinh dang markdown: '**' in dam, '|' bang,
+    # va '#' dau cau (tieu de).
+    if s.find("**") >= 0:
+        return "con ky tu markdown"
+    if has_any(s, "|") == 1:
+        return "con ky tu markdown"
+    if s.startswith("#"):
+        return "con ky tu markdown"
+    if s.startswith("*"):
+        return "con ky tu markdown"
+    name = id_tail(nid)
+    if s.find(name) >= 0:
+        if len(s) < len(name) + 25:
+            return "chi chep lai ten ham"
+    low = s.lower()
+    if low.startswith("ham nay"):
+        return "mo dau thua"
+    if low.startswith("lop nay"):
+        return "mo dau thua"
+    if low.startswith("day la"):
+        return "mo dau thua"
+    return ""
+
+
+def load_tsv(text: "str", into: "dict[str,str]") -> "i32":
+    """Doc TSV 'id<TAB>summary'. Tra ve so dong doc duoc."""
+    n = 0
+    rows = text.split("\n")
+    for r in rows:
+        line = r.strip()
+        if len(line) == 0:
+            continue
+        p = cut_at(line, "\t")
+        if len(p) + 1 > len(line):
+            continue
+        into[p] = line[len(p) + 1:len(line)].strip()
+        n = n + 1
+    return n
+
+
+def node_id(line: "str") -> "str":
+    """Lay id tu mot dong JSON cua nut def. Rong neu dong khong phai nut."""
+    pat = "\"id\":\""
+    at = line.find(pat)
+    if at < 0:
+        return ""
+    rest = line[at + len(pat):len(line)]
+    return cut_at(rest, "\"")
+
+
+def patch_line(line: "str", summary: "str") -> "str":
+    """Thay summary rong bang summary moi va danh dau nguon la 'llm'."""
+    repl = "\"summary\":\"" + summary + "\""
+    step = line.replace("\"summary\":\"\"", repl)
+    return step.replace("\"summary_source\":\"missing\"", "\"summary_source\":\"llm\"")
+
+
+def run(defs_in: "str", tsv_in: "str", defs_out: "str", rejected_out: "str") -> "str":
+    """Gop, kiem tra, ghi file nut moi + danh sach bi tu choi."""
+    sums = {}
+    raw_tsv = read_file(tsv_in)
+    n_tsv = load_tsv(raw_tsv, sums)
+
+    out_lines = []
+    rejected = []
+    n_ok = 0
+    n_rej = 0
+    n_skip = 0
+    # PARITY: khong goi duoc method tren BIEU THUC - phai gan ra bien truoc.
+    raw_nodes = read_file(defs_in)
+    lines = raw_nodes.split("\n")
+    for ln in lines:
+        nid = node_id(ln)
+        if len(nid) == 0:
+            out_lines.append(ln)
+            continue
+        if ln.find("\"summary_source\":\"missing\"") < 0:
+            n_skip = n_skip + 1
+            out_lines.append(ln)
+            continue
+        raw = sums.get(nid, "")
+        if len(raw) == 0:
+            out_lines.append(ln)
+            continue
+        cand = strip_ticks(raw)
+        why = reject_reason(nid, cand)
+        if len(why) > 0:
+            n_rej = n_rej + 1
+            rejected.append(nid + "\t" + why + "\t" + cand)
+            out_lines.append(ln)
+            continue
+        n_ok = n_ok + 1
+        out_lines.append(patch_line(ln, json_escape(cand)))
+
+    write_file(defs_out, "\n".join(out_lines))
+    write_file(rejected_out, "\n".join(rejected))
+    return "tsv=" + str(n_tsv) + " nhan=" + str(n_ok) + " tu_choi=" + str(n_rej) + " da_co_san=" + str(n_skip)

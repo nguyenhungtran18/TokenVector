@@ -1,0 +1,67 @@
+# -*- coding: utf-8 -*-
+"""stdlib_csv.tkv - Module ho tro xu ly CSV (Comma-Separated Values).
+
+Cung cap cac ham:
+- csv_parse_line(line, delimiter) -> list[str] : Tach 1 dong csv theo ky tu phan cach
+- csv_read_lines(filepath) -> list[str]        : Doc toan bo cac dong tu file thanh list[str]
+- csv_join_row(fields, delimiter) -> str       : Noi danh sach chuoi thanh 1 dong voi delimiter
+- csv_write_lines(filepath, lines) -> i32      : Ghi danh sach dong vao file
+"""
+
+from il_dispatch import register_expr_builtin
+
+
+def _push_csv_parse_line(args, scope, out, dtype, ctx):
+    """csv_parse_line(line, sep) -> List<string>"""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: csv_parse_line(line, delimiter) can dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    ldc.i4.1')
+    out.append('    newarr [mscorlib]System.Char')
+    out.append('    dup')
+    out.append('    ldc.i4.0')
+    compile_expr(args[1], scope, out, 'str', ctx)
+    out.append('    ldc.i4.0')
+    out.append('    callvirt instance char [mscorlib]System.String::get_Chars(int32)')
+    out.append('    stelem.i2')
+    out.append('    callvirt instance string[] [mscorlib]System.String::Split(char[])')
+    out.append('    newobj instance void class [mscorlib]System.Collections.Generic.List`1<string>::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+
+
+def _push_csv_read_lines(args, scope, out, dtype, ctx):
+    """csv_read_lines(filepath) -> List<string>"""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: csv_read_lines(filepath) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    call string[] [mscorlib]System.IO.File::ReadAllLines(string)')
+    out.append('    newobj instance void class [mscorlib]System.Collections.Generic.List`1<string>::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+
+
+def _push_csv_join_row(args, scope, out, dtype, ctx):
+    """csv_join_row(fields, delimiter) -> string"""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: csv_join_row(fields, delimiter) can dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[1], scope, out, 'str', ctx)
+    compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    callvirt instance !0[] class [mscorlib]System.Collections.Generic.List`1<string>::ToArray()')
+    out.append('    call string [mscorlib]System.String::Join(string, string[])')
+
+
+def _push_csv_write_lines(args, scope, out, dtype, ctx):
+    """csv_write_lines(filepath, lines) -> i32"""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: csv_write_lines(filepath, lines) can dung 2 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[0], scope, out, 'str', ctx)
+    compile_expr(args[1], scope, out, 'str', ctx)
+    out.append('    callvirt instance !0[] class [mscorlib]System.Collections.Generic.List`1<string>::ToArray()')
+    out.append('    call void [mscorlib]System.IO.File::WriteAllLines(string, string[])')
+    out.append('    ldc.i4.1')
+
+
+register_expr_builtin('csv_parse_line', _push_csv_parse_line, return_dtype='str', return_shape='list')
+register_expr_builtin('csv_read_lines', _push_csv_read_lines, return_dtype='str', return_shape='list')
+register_expr_builtin('csv_join_row', _push_csv_join_row, return_dtype='str')
+register_expr_builtin('csv_write_lines', _push_csv_write_lines, return_dtype='i32')

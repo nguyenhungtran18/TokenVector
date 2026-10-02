@@ -1,0 +1,80 @@
+# -*- coding: utf-8 -*-
+# So phuc / bytearray / frozenset / async: PHAN CUOI cua bang "chua do".
+#
+# Nhom nay CHI kiem nhung gi DUNG va khop CPython. Rieng `str(complex)` KHONG
+# khop (TokenVector in "(4, 6)" theo .NET, CPython in "(4+6j)"), va
+# `abs(complex)` da bi chuyen thanh LOI BIEN DICH (truoc do nem
+# MissingMethodException luc chay) - xem muc 3.7 cua
+# docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md. `complex_test.tkv` co san CHI kiem
+# `.real`/`.imag`, nen khong ai thay 2 lech nay.
+#
+# Gia tri ky vong lay truc tiep tu CPython 3.14.
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def pick(c: "bool") -> "str":
+    if c:
+        return "True"
+    return "False"
+
+
+async def worker(x: "i32") -> "i32":
+    return x * 2
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    # --- so phuc (KHONG kiem str) ---
+    a = complex(1.0, 2.0)
+    b = complex(3.0, 4.0)
+    s = a + b
+    tested = tested + 1
+    total = total + check("cplx_add_re", str(s.real), "4.0")
+    tested = tested + 1
+    total = total + check("cplx_add_im", str(s.imag), "6.0")
+    m = a * b
+    tested = tested + 1
+    total = total + check("cplx_mul_re", str(m.real), "-5.0")
+    tested = tested + 1
+    total = total + check("cplx_mul_im", str(m.imag), "10.0")
+    q = a * a
+    tested = tested + 1
+    total = total + check("cplx_sq_re", str(q.real), "-3.0")
+    tested = tested + 1
+    total = total + check("cplx_sq_im", str(q.imag), "4.0")
+    c3 = complex(3.0, 4.0)
+    tested = tested + 1
+    total = total + check("cplx_abs_sq", str(c3.real * c3.real + c3.imag * c3.imag), "25.0")
+    tested = tested + 1
+    total = total + check("cplx_eq", pick(a == a), "True")
+
+    # --- bytearray ---
+    ba = bytearray()
+    ba.append(65)
+    ba.append(66)
+    tested = tested + 1
+    total = total + check("bytearray_len", str(len(ba)), "2")
+    tested = tested + 1
+    total = total + check("bytearray_idx", str(ba[0]), "65")
+
+    # --- frozenset ---
+    src = [1, 2, 2, 3]
+    fs = frozenset(src)
+    tested = tested + 1
+    total = total + check("frozenset_len", str(len(fs)), "3")
+    tested = tested + 1
+    total = total + check("frozenset_in", pick(2 in fs), "True")
+    tested = tested + 1
+    total = total + check("frozenset_notin", pick(9 in fs), "False")
+
+    # --- async/await ---
+    a1 = await worker(21)
+    tested = tested + 1
+    total = total + check("async_ret", str(a1), "42")
+    a2 = await worker(5) + await worker(10)
+    tested = tested + 1
+    total = total + check("async_sum", str(a2), "30")
+
+    return test_summary("cplx_cont_test", total, tested)

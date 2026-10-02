@@ -1,0 +1,127 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO DANG SO 2026-09-28: octal 0o, nhi phan 0b, va khoa hoc 1e3.
+
+Ca ba deu thieu truoc hom nay, va ca ba deu bao loi SAI:
+
+  - `0o17` va `0b101`: "con thua token khong parse duoc sau bieu thuc: 'o17'".
+    Thong bao do KHONG noi den dang so nen nguoi dung tuong la sai cu phap.
+  - `1e3`: token hoa la so nguyen (khong co dau '.') nen bi ep kieu i32,
+    roi `int('1e3', 0)` nem ValueError. Cach duy nhat la viet `1000.0`.
+
+Da them vao NUM trong _EXPR_TOKEN_RE va tap trung hoa quy tac "hang so nay
+co phai float khong" vao _is_float_literal (il_core) - truoc day quy tac
+'co dau . thi la float' nam rai o 3 cho (il_codegen: 3 vi tri), nen su them
+mot dang so moi bat bu sua ca 3 cho va 3 cho deu phai nho - de bi quen.
+
+Gia tri mong doi tinh tay, KHONG chay CPython de sinh ra.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def octal_literal() -> "i32":
+    total = 0
+    tested = 0
+
+    a = 0o17
+    total = total + check("octal_0o17", str(a), "15")
+    tested = tested + 1
+    b = 0O7
+    total = total + check("octal_0O7", str(b), "7")
+    tested = tested + 1
+    # 0o377 = 255 - can boundary, trong khi 0o400 = 256 vuot 1 byte
+    c = 0o377
+    total = total + check("octal_0o377", str(c), "255")
+    tested = tested + 1
+    d = 0o0
+    total = total + check("octal_zero", str(d), "0")
+    tested = tested + 1
+    e = -0o17
+    total = total + check("octal_negative", str(e), "-15")
+    tested = tested + 1
+
+    return total
+
+
+def binary_literal() -> "i32":
+    total = 0
+    tested = 0
+
+    a = 0b101
+    total = total + check("binary_0b101", str(a), "5")
+    tested = tested + 1
+    b = 0B1111
+    total = total + check("binary_0B1111", str(b), "15")
+    tested = tested + 1
+    c = 0b0
+    total = total + check("binary_zero", str(c), "0")
+    tested = tested + 1
+    d = 0b10000000
+    total = total + check("binary_128", str(d), "128")
+    tested = tested + 1
+    e = -0b101
+    total = total + check("binary_negative", str(e), "-5")
+    tested = tested + 1
+
+    return total
+
+
+def scientific_literal() -> "i32":
+    total = 0
+    tested = 0
+
+    a = 1e3
+    total = total + check("sci_1e3", str(a), "1000.0")
+    tested = tested + 1
+    b = 1.5e2
+    total = total + check("sci_1.5e2", str(b), "150.0")
+    tested = tested + 1
+    c = 2E-2
+    total = total + check("sci_2E-2", str(c), "0.02")
+    tested = tested + 1
+    d = 1e3 + 0.5
+    total = total + check("sci_in_expression", str(d), "1000.5")
+    tested = tested + 1
+    e = -1.5e-2
+    total = total + check("sci_negative", str(e), "-0.015")
+    tested = tested + 1
+
+    return total
+
+
+def hex_still_works() -> "i32":
+    """'hex' da co tu truoc - bai nay chay lai de chắc thay doi regex
+    NUM khong lam hong dang dang co."""
+    total = 0
+    tested = 0
+
+    a = 0xFF
+    total = total + check("hex_0xFF", str(a), "255")
+    tested = tested + 1
+    b = 0x0
+    total = total + check("hex_zero", str(b), "0")
+    tested = tested + 1
+    c = 0x10 + 0x10
+    total = total + check("hex_in_expression", str(c), "32")
+    tested = tested + 1
+    d = 1.5
+    total = total + check("plain_float_still_f64", str(d), "1.5")
+    tested = tested + 1
+    e = 42
+    total = total + check("plain_int_still_int", str(e), "42")
+    tested = tested + 1
+
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    total = total + octal_literal()
+    total = total + binary_literal()
+    total = total + scientific_literal()
+    total = total + hex_still_works()
+
+    # 5 + 5 + 5 + 5 = 20
+    return test_summary("num_literal_test", total, 20)

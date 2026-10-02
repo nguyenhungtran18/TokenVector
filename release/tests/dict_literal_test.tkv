@@ -1,0 +1,145 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO dict literal `d = {"a": 1}` (2026-09-29).
+
+Nua con lai cua cu phap `{...}`: set literal xong 2026-09-28, dict literal
+thi parser CHI BAO LOI ("dict literal co noi dung chua ho tro"). Nay
+`il_core.py` sinh node 'dict_literal' (danh sach cap khoa/gia tri) va
+`dict_type.py` sinh `.ctor()` rong roi `set_Item` tung cap - dung CHUNG
+idiom voi `_compile_index_store` (il_codegen.tkv) nen khong phat lai chu ky IL.
+
+Tuong ung het voi set literal: chi dang `ten_don = {...}` tren MOT dong.
+`{}` van la DICT RONG trong Python that (va `d = {}` da chay truoc) - nhanh
+parser tra node rong de duong gop cu di tiep, khong nem loi.
+
+Hai loi parse da gap khi viet, ghi lai vi ca hai deu "trong nhe":
+- Vong lap kiem `,` TRUOC khi xu ly cap dau tien, nen thoat ngay roi
+  `expect_op('}')` gap `:`.
+- Quen TIEU THU dau ':' sau khoa dau tien, nen `parse_expr` cho gia tri bat
+  dau tai `:` va bao "khong parse duoc factor tai OP ':'".
+
+Gia tri mong doi tinh tay, doi chieu CPython 3.11.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def basic() -> "i32":
+    total = 0
+    tested = 0
+    d = {"a": 1, "b": 2}
+    total += check("length", str(len(d)), "2")
+    tested += 1
+    total += check("read a", str(d["a"]), "1")
+    tested += 1
+    total += check("read b", str(d["b"]), "2")
+    tested += 1
+    return total
+
+
+def membership() -> "i32":
+    total = 0
+    tested = 0
+    d = {"x": 10}
+    total += check("key present", str("x" in d), "True")
+    tested += 1
+    total += check("key absent", str("z" in d), "False")
+    tested += 1
+    return total
+
+
+def int_keys() -> "i32":
+    """Khoa khong phai string - `Dictionary` thi loai khoa, khong phai
+    chuan hoa nhu trong Python."""
+    total = 0
+    tested = 0
+    d = {1: "a", 2: "b"}
+    total += check("int keys length", str(len(d)), "2")
+    tested += 1
+    total += check("int key read", d[1], "a")
+    tested += 1
+    return total
+
+
+def string_values() -> "i32":
+    total = 0
+    tested = 0
+    d = {1: "a", 2: "b"}
+    total += check("str values", d[2], "b")
+    tested += 1
+    return total
+
+
+def mixed_dtypes() -> "i32":
+    """Gia tri la so thuc - phai rong kieu float (Dictionary<long,double>),
+    giong quy tac widen ma list/set literal dung."""
+    total = 0
+    tested = 0
+    d = {"pi": 3.5}
+    total += check("float value", str(d["pi"]), "3.5")
+    tested += 1
+    return total
+
+
+def still_mutable() -> "i32":
+    total = 0
+    tested = 0
+    d = {"a": 1}
+    d["b"] = 2
+    total += check("assign after literal", str(len(d)), "2")
+    tested += 1
+    d["a"] = 9
+    total += check("overwrite key", str(d["a"]), "9")
+    tested += 1
+    return total
+
+
+def empty_dict_still_works() -> "i32":
+    """Hoi quy: `d = {}` la DICT RONG (khong phai set rong) - dang nay phai
+    chay y nguyen sau khi them nhanh dict literal."""
+    total = 0
+    tested = 0
+    d = {}
+    total += check("empty dict length", str(len(d)), "0")
+    tested += 1
+    d["k"] = 1
+    total += check("assign into empty", str(len(d)) + "=" + str(d["k"]), "1=1")
+    tested += 1
+    return total
+
+
+def duplicate_key_last_wins() -> "i32":
+    """Khoa trung lap - gia tri CUOI CUNG thang, dung nhu Python va nhu
+    `set_Item` cua .NET."""
+    total = 0
+    tested = 0
+    d = {"a": 1, "b": 2, "a": 7}
+    total += check("dup key collapses", str(len(d)), "2")
+    tested += 1
+    total += check("dup key last value", str(d["a"]), "7")
+    tested += 1
+    return total
+
+
+def trailing_comma() -> "i32":
+    """`{"a": 1,}` hop le trong Python that."""
+    total = 0
+    tested = 0
+    d = {"a": 1,}
+    total += check("trailing comma", str(len(d)) + "=" + str(d["a"]), "1=1")
+    tested += 1
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += basic()
+    total += membership()
+    total += int_keys()
+    total += string_values()
+    total += mixed_dtypes()
+    total += still_mutable()
+    total += empty_dict_still_works()
+    total += duplicate_key_last_wins()
+    total += trailing_comma()
+    # 3 + 2 + 2 + 1 + 1 + 2 + 2 + 2 + 1
+    return test_summary("dict_literal_test", total, 16)

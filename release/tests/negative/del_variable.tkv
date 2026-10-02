@@ -1,0 +1,16 @@
+# EXPECT-SUBSTRING: chua ho tro
+# -*- coding: utf-8 -*-
+# `del <bien>` phai bi tu choi, khong duoc bien dich xong roi moi bao.
+#
+# Local cua TokenVector la local IL co kieu khai bao san. `del x` cua Python
+# tao trai thai "khong con binding" va dung `x` sau do la NameError. Mu tao
+# duoc trai thai do thi moi noi dung `x` deu phai kiem tra - va CHI MOT quyet
+# dinh sai se bien loi NameError thanh gia tri rac, tuc LOI SAI chu khong phai
+# loi on ao. Do la thay doi kien truc lon.
+#
+# Nen day la "khong ho tro co chu dich", khong phai "con can lam". Cach thay
+# the da ghi trong thong bao loi: gan gia tri mac dinh cua kieu.
+def run() -> "i32":
+    x = 5
+    del x
+    return 0

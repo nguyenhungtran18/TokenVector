@@ -1,0 +1,66 @@
+# -*- coding: utf-8 -*-
+# CUAA A: field CONTAINER cua record gan BEN NGOAI constructor (2026-09-30).
+#
+# Truoc day chi duoc gan trong `__init__`, va `_extract_record_def` (tkv_compile)
+# chan truong hop con lai. Ly do cua han chan cu: `.ctor` lay tham so tu field
+# roi BO QUA field container (xem `_expr_call` o il_codegen.tkv), nen field
+# container khong duoc gan = luon null, va `It(xs)` se sinh IL sai
+# (`TkvInt::ToI64(container)`) ma ilasm van nuot - loi am thanh.
+#
+# Cua A giu nguyen dac tinh do va chi doi CHI EU kiem tra: "`co duoc gan o dau
+# hay khong`" thay vi "`co gan trong __init__ hay khong`". Do do
+# `Testkit/negative/record_container_uninit.tkv` (chua gan o dau ca) van bi
+# tu choi.
+#
+# GHI CHU KIEU: field phai khai `list[int]` chu khong phai `list[i32]` khi
+# nguon la list literal - list literal co dtype 'int' (TkvInt struct), khac
+# 'i32' (int32 tho); tron 2 kieu nay gay type-confusion THAT trong IL.
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class It:
+    src: "list[int]"
+    pos: "i32"
+    def __init__(self, start: "i32"):
+        self.pos = start
+
+
+class Box:
+    items: "list[int]"
+    def __init__(self):
+        self.items = []
+
+
+def late_fill(xs: "list[int]") -> "i32":
+    it = It(0)
+    it.src = xs
+    it.pos = 0
+    return it.src[it.pos] + it.src[it.pos + 1]
+
+
+def fill_then_advance(xs: "list[int]") -> "i32":
+    """Container + con tro deu gan ben ngoai - dung khu mau cua `iter()`."""
+    it = It(5)
+    it.src = xs
+    it.pos = 1
+    return it.src[it.pos] + it.pos
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    xs = [10, 20, 30]
+    tested = tested + 1
+    total = total + check("late_fill", str(late_fill(xs)), "30")
+    tested = tested + 1
+    total = total + check("fill_then_advance", str(fill_then_advance(xs)), "21")
+
+    # Gan ben ngoai KHONG duoc lam `self.items` cua Box trong __init__ mat di:
+    # Box van phai gan trong __init__ (duong nay chay, va con lai thi bi chan).
+    b = Box()
+    b.items.append(7)
+    tested = tested + 1
+    total = total + check("init_assign_still_works", str(len(b.items)), "1")
+
+    return test_summary("record_late_container_test", total, tested)

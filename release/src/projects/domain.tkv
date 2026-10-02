@@ -1,0 +1,251 @@
+# -*- coding: utf-8 -*-
+"""domain - cong cu THAT viet bang TokenVector.
+
+Gom file thanh MIEN (domain) va do quan he giua cac mien, suy TU DO THI
+import chu khong hoi LLM.
+
+Understand-Anything dung mot agent LLM (`domain-analyzer`) de doan "quy
+trinh nghiep vu". O day khong doan: mien duoc lay tu THU MUC CAP MOT -
+day la su that ghi trong cay thu muc, khong phai suy dien. Phan them vao
+la cac so do duoc tu do thi:
+
+  files        so file .py cua mien
+  internal     so canh import NAM TRONG mien
+  out / in     so canh import di ra mien khac / tu mien khac vao
+  cohesion     internal * 100 / (internal + out)  - mien cang cao cang
+               doc lap; thap nghia la no phu thuoc nhieu vao mien khac
+  depends_on   cac mien no import, kem so canh
+  used_by      cac mien import no, kem so canh
+  api          file cua mien bi mien KHAC import nhieu nhat - be mat cong
+               khai that su, khong phai file ai do goi la "public"
+  entry        file khong ai import nhung co import file khac - diem chay
+
+Khong bia ten mien "nghiep vu": ten mien LA ten thu muc. Muon dat ten
+khac thi doi ten thu muc, dung de cong cu doan.
+
+Dung:
+    domain.exe <manifest.txt> <import_edges.json> <domains.json>
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def root_name() -> "str":
+    """Ten mien cho file nam ngay goc repo."""
+    return "(goc)"
+
+
+def domain_of(rel: "str") -> "str":
+    """Mien cua mot file = thu muc cap mot. 'A/b/c.py' -> 'A'."""
+    at = rel.find("/")
+    if at < 0:
+        return root_name()
+    return rel[0:at]
+
+
+def edge_side(line: "str", key: "str") -> "str":
+    """Duong dan o dau 'source'/'target' cua mot dong canh JSON."""
+    pat = "\"" + key + "\":\"file:"
+    at = line.find(pat)
+    if at < 0:
+        return ""
+    rest = line[at + len(pat):len(line)]
+    return cut_at(rest, "\"")
+
+
+def bump(d: "dict[str,str]", k: "str") -> "i32":
+    """Tang bo dem cua khoa k len 1 (dem luu dang chuoi).
+    Ghi chu: dict[str,i32] truyen lam THAM SO gay segfault - xem
+    docs/PARITY_GAPS_2026-08-04.md muc 6."""
+    cur = d.get(k, "0")
+    d[k] = str(int(cur) + 1)
+    return 1
+
+
+def num(d: "dict[str,str]", k: "str") -> "i32":
+    """Gia tri bo dem dang so, 0 neu chua co."""
+    return int(d.get(k, "0"))
+
+
+def percent(part: "i32", whole: "i32") -> "i32":
+    """part*100/whole, lam tron xuong; whole = 0 thi tra 100."""
+    if whole == 0:
+        return 100
+    return part * 100 // whole
+
+
+def pick_top(keys: "list[str]", cnt: "dict[str,str]", top: "i32") -> "list[str]":
+    """`top` khoa co bo dem lon nhat, giam dan. Chon truc tiep (O(n*top)) -
+    danh sach o day chi vai chuc phan tu, khong can sap xep that."""
+    used = {}
+    out = []
+    k = 0
+    while k < top:
+        best = ""
+        best_n = 0
+        i = 0
+        while i < len(keys):
+            key = keys[i]
+            if len(used.get(key, "")) == 0:
+                n = num(cnt, key)
+                if n > best_n:
+                    best = key
+                    best_n = n
+            i = i + 1
+        if len(best) == 0:
+            return out
+        used[best] = "1"
+        out.append(best)
+        k = k + 1
+    return out
+
+
+def pair_key(a: "str", b: "str") -> "str":
+    """Khoa canh giua hai mien."""
+    return a + ">" + b
+
+
+def pair_other(key: "str", head: "str") -> "str":
+    """Doc dau con lai cua khoa 'a>b' khi biet mot dau."""
+    at = key.find(">")
+    left = key[0:at]
+    right = key[at + 1:len(key)]
+    if left == head:
+        return right
+    return left
+
+
+def json_list(items: "list[str]", prefix: "str") -> "str":
+    """Mang JSON cac chuoi, moi phan tu mot dong (diff git doc duoc)."""
+    parts = []
+    i = 0
+    while i < len(items):
+        parts.append("\n    \"" + prefix + items[i] + "\"")
+        i = i + 1
+    return ",".join(parts)
+
+
+def json_pairs(keys: "list[str]", cnt: "dict[str,str]", head: "str") -> "str":
+    """Mang JSON {"domain":..,"edges":N} cho quan he giua cac mien."""
+    parts = []
+    i = 0
+    while i < len(keys):
+        other = pair_other(keys[i], head)
+        n = num(cnt, keys[i])
+        parts.append("\n    {\"domain\":\"" + other + "\",\"edges\":" + str(n) + "}")
+        i = i + 1
+    return ",".join(parts)
+
+
+def run(manifest: "str", edges_path: "str", out_path: "str") -> "str":
+    """Gom file thanh mien, do quan he giua cac mien, ghi ra JSON."""
+    paths = []
+    raw = read_file(manifest)
+    rows = raw.split("\n")
+    for r in rows:
+        p = norm_slashes(r.strip())
+        if len(p) > 0:
+            paths.append(p)
+
+    doms = []
+    seen = {}
+    files_of = {}
+    for rel in paths:
+        d = domain_of(rel)
+        if len(seen.get(d, "")) == 0:
+            seen[d] = "1"
+            doms.append(d)
+        bump(files_of, d)
+
+    internal = {}
+    out_cnt = {}
+    in_cnt = {}
+    pair_cnt = {}
+    out_pairs = {}
+    in_pairs = {}
+    file_indeg = {}
+    file_outdeg = {}
+    file_cross_in = {}
+    # Gom khoa NGAY LUC THEM: `for k in dict` nem ArgumentNullException
+    # (xem docs/PARITY_GAPS_2026-08-04.md).
+    pair_keys = []
+
+    edoc = read_file(edges_path)
+    elines = edoc.split("\n")
+    for ln in elines:
+        if ln.find("\"type\":\"imports\"") < 0:
+            continue
+        src = edge_side(ln, "source")
+        tgt = edge_side(ln, "target")
+        if len(src) == 0:
+            continue
+        if len(tgt) == 0:
+            continue
+        bump(file_outdeg, src)
+        bump(file_indeg, tgt)
+        ds = domain_of(src)
+        dt = domain_of(tgt)
+        if ds == dt:
+            bump(internal, ds)
+            continue
+        bump(out_cnt, ds)
+        bump(in_cnt, dt)
+        bump(file_cross_in, tgt)
+        key = pair_key(ds, dt)
+        if len(out_pairs.get(key, "")) == 0:
+            out_pairs[key] = ds
+            in_pairs[key] = dt
+            pair_keys.append(key)
+        bump(pair_cnt, key)
+
+    blocks = []
+    n_cross = 0
+    for d in doms:
+        mine_out = []
+        mine_in = []
+        i = 0
+        while i < len(pair_keys):
+            key = pair_keys[i]
+            if out_pairs.get(key, "") == d:
+                mine_out.append(key)
+            if in_pairs.get(key, "") == d:
+                mine_in.append(key)
+            i = i + 1
+
+        api_cand = []
+        entries = []
+        for rel in paths:
+            if domain_of(rel) != d:
+                continue
+            if num(file_cross_in, rel) > 0:
+                api_cand.append(rel)
+            if num(file_indeg, rel) == 0:
+                if num(file_outdeg, rel) > 0:
+                    entries.append(rel)
+
+        n_int = num(internal, d)
+        n_out = num(out_cnt, d)
+        n_cross = n_cross + n_out
+        api = pick_top(api_cand, file_cross_in, 5)
+        top_entry = pick_top(entries, file_outdeg, 5)
+
+        blk = "  {\"name\":\"" + d + "\""
+        blk = blk + ",\"files\":" + str(num(files_of, d))
+        blk = blk + ",\"internal\":" + str(n_int)
+        blk = blk + ",\"out\":" + str(n_out)
+        blk = blk + ",\"in\":" + str(num(in_cnt, d))
+        blk = blk + ",\"cohesion\":" + str(percent(n_int, n_int + n_out))
+        blk = blk + ",\"depends_on\":[" + json_pairs(mine_out, pair_cnt, d) + "\n   ]"
+        blk = blk + ",\"used_by\":[" + json_pairs(mine_in, pair_cnt, d) + "\n   ]"
+        blk = blk + ",\"api\":[" + json_list(api, "file:") + "\n   ]"
+        blk = blk + ",\"entry\":[" + json_list(top_entry, "file:") + "\n   ]}"
+        blocks.append(blk)
+
+    doc = "{\n \"domains\": [\n" + ",\n".join(blocks) + "\n ],\n \"stats\": {"
+    doc = doc + "\"files\":" + str(len(paths))
+    doc = doc + ",\"domains\":" + str(len(doms))
+    doc = doc + ",\"cross_edges\":" + str(n_cross)
+    doc = doc + ",\"domain_pairs\":" + str(len(pair_keys))
+    doc = doc + "}\n}\n"
+    write_file(out_path, doc)
+    return "domains=" + str(len(doms)) + " files=" + str(len(paths)) + " cross=" + str(n_cross) + " pairs=" + str(len(pair_keys))

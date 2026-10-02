@@ -1,0 +1,31 @@
+# Regression BUG-1 (2026-09-20): int_var * float_literal phai tra float,
+# khong crash int('0.5') va khong sinh gia tri rac trong vong lap.
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    # Ca 1: crash truc tiep - k * 0.5 voi k la bien int.
+    k = 3
+    v = k * 0.5
+    tested = tested + 1
+    total = total + check("int_var_float_literal", str(v), "1.5")
+
+    # Ca 2: gia tri rac trong vong lap - 1.0 + (i % 7) * 0.5 luu buffer.
+    fb = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    i = 0
+    while i < 8:
+        fb[i] = 1.0 + (i % 7) * 0.5
+        i = i + 1
+    tested = tested + 1
+    total = total + check("loop_int_mod_float", str(fb[3]), "2.5")
+    tested = tested + 1
+    total = total + check("loop_int_mod_float_wrap", str(fb[7]), "1.0")
+
+    # Ca 3: chieu nguoc - float literal ben trai.
+    w = 0.5 * 4
+    tested = tested + 1
+    total = total + check("float_literal_int_literal", str(w), "2.0")
+
+    return test_summary("bug_int_float_mul_test", total, tested)
