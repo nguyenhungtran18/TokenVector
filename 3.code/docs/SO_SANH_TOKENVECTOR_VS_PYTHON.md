@@ -180,7 +180,7 @@ ra `000042d`, vì chuỗi custom của .NET coi chữ cái là ký tự thườn
 |---|---|
 | `with open("f","r") as h:` | **CÓ** (probe 2026-09-30) — hỗ trợ `encoding=` |
 | `sorted()` | **CÓ** (thêm 2026-09-30), cả `for v in sorted(xs):` |
-| `max`/`min`/`sum` với `key=` | Không có (không có tham số từ khoá) |
+| `max`/`min`/`sum` với `key=` | Có (2026-10-02) — xem `REFERENCE.md` §7.14. Lưu ý: CPython `sum()` **không** có `key`, TokenVector có (mở rộng) |
 | `format(v, spec)` | **CÓ** (2026-09-30). Lỗi cũ `format(3.14159, ".2f")` ra `"32f"` đã **chẩn đoán được**: `_py_spec_to_net` trả nguyên văn `.2f`, mà .NET đọc chuỗi nhiều ký tự là *custom format* (`.` = dấu thập phân, `2` = chỗ chữ số, `f` = ký tự thường) nên cần `F2`. `format` chỉ nhận **biến hoặc số literal** (`f = a + b` trước), spec chỉ nhận chuỗi literal, spec không dịch được (`,` `>` `<` `^`) thì báo lỗi biên dịch chứ không đoán. |
 | `getattr` / `setattr` | **CÓ** (2026-09-30) — trước đây `getattr` đăng ký cứng dtype `'str'` nên đọc field `i32` ra IL lệch kiể và **sập `NullReferenceException` lúc chạy**; nay suy kiểu thật của field. `attr_name` phải là chuỗi literal; field không tồn tại mà không có default thì báo lỗi biên dịch. |
 | `del xs[1]` | **CÓ** (probe) |

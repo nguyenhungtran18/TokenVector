@@ -32,7 +32,9 @@ import re
 from il_core import parse_expr
 from il_dispatch import register_line_parser, register_stmt_codegen, register_first_pass_walk
 from il_features.tuple_type import il_tupleN_type
-from il_features.stdlib_functional import _resolve_func_ta
+from il_features.stdlib_functional import (_resolve_func_ta,
+                                            emit_sort_by_key as _emit_sort_by_key,
+                                            sort_key_temp_names as _sort_key_temp_names)
 
 _LIST_SORT_RE = re.compile(r'^(\w+)\.sort\(\s*(.*?)\s*\)\s*$')
 _LIST_EXTEND_RE = re.compile(r'^(\w+)\.extend\((\w+)\)\s*$')
@@ -161,85 +163,16 @@ def codegen_list_sort(stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn)
             f"il_codegen: '{name}.sort(key={stmt['key_name']}, ...)' - chu ky key "
             f"(({', '.join(f_ta.func_params)}) -> {f_ta.dtype}) khong khop dtype phan tu "
             f"cua '{name}' ({ta.dtype!r})")
-    key = id(stmt)
+    # Phat IL (decorate-sort-undecorate) do `stdlib_functional` so huu - cung
+    # 1 bo bien an cho ca `sorted(xs, key=f)`, nen sua 1 noi la sua het.
     try:
-        _, f_idx, _ = scope[f'__sortkey{key}_f']
-        _, pairs_idx, _ = scope[f'__sortkey{key}_pairs']
-        _, idx_idx, _ = scope[f'__sortkey{key}_idx']
-    except KeyError:
+        _f_idx, _pairs_idx, _idx_idx = _sort_key_temp_names(id(stmt))
+        _ = scope[_f_idx], scope[_pairs_idx], scope[_idx_idx]
+    except (KeyError, SyntaxError):
         raise SyntaxError(
             f"il_codegen: '{name}.sort(key=...)' - khong cap phat duoc local an (co the do "
             f"'{name}' chua duoc khai bao la list truoc dong nay)")
-    tuple_dtypes = [f_ta.dtype, ta.dtype]
-    tuple_type = il_tupleN_type(tuple_dtypes)
-    pairs_list_type = f'class [mscorlib]System.Collections.Generic.List`1<{tuple_type}>'
-    func_il = ctx['il_type_str'](f_ta, ctx.get('records'))
-    n_params = len(f_ta.func_params)
-    invoke_params = ', '.join(f'!{i}' for i in range(n_params))
-
-    ctx['compile_funcref_arg'](('var', stmt['key_name']), f_ta, scope, body, ctx)
-    body.append(f'    stloc.s {f_idx}')
-    body.append(f'    newobj instance void {pairs_list_type}::.ctor()')
-    body.append(f'    stloc.s {pairs_idx}')
-
-    ctx['label_counter'][0] += 1
-    n = ctx['label_counter'][0]
-    build_start = f"{ctx['prefix']}_sortkey{n}_build_start"
-    build_end = f"{ctx['prefix']}_sortkey{n}_build_end"
-    wb_start = f"{ctx['prefix']}_sortkey{n}_wb_start"
-    wb_end = f"{ctx['prefix']}_sortkey{n}_wb_end"
-
-    # pairs.Add((g(lst[i]), lst[i])) voi i = 0..len(lst)-1
-    body.append('    ldc.i4.0')
-    body.append(f'    stloc.s {idx_idx}')
-    body.append(f'  {build_start}:')
-    body.append(f'    ldloc.s {idx_idx}')
-    ctx['load_var_ref'](name, scope, body)
-    body.append(f'    callvirt instance int32 {list_type}::get_Count()')
-    body.append(f'    bge {build_end}')
-    body.append(f'    ldloc.s {pairs_idx}')
-    body.append(f'    ldloc.s {f_idx}')
-    ctx['load_var_ref'](name, scope, body)
-    body.append(f'    ldloc.s {idx_idx}')
-    body.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
-    body.append(f'    callvirt instance !{n_params} {func_il}::Invoke({invoke_params})')
-    ctx['load_var_ref'](name, scope, body)
-    body.append(f'    ldloc.s {idx_idx}')
-    body.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
-    body.append(f'    newobj instance void {tuple_type}::.ctor(!0, !1)')
-    body.append(f'    callvirt instance void {pairs_list_type}::Add(!0)')
-    body.append(f'    ldloc.s {idx_idx}')
-    body.append('    ldc.i4.1')
-    body.append('    add')
-    body.append(f'    stloc.s {idx_idx}')
-    body.append(f'    br {build_start}')
-    body.append(f'  {build_end}:')
-
-    # pairs.Sort() (Comparer<ValueTuple<K,T>>.Default - so sanh Item1 truoc)
-    body.append(f'    ldloc.s {pairs_idx}')
-    body.append(f'    callvirt instance void {pairs_list_type}::Sort()')
-
-    # ghi lai lst[i] = pairs[i].Item2
-    body.append('    ldc.i4.0')
-    body.append(f'    stloc.s {idx_idx}')
-    body.append(f'  {wb_start}:')
-    body.append(f'    ldloc.s {idx_idx}')
-    ctx['load_var_ref'](name, scope, body)
-    body.append(f'    callvirt instance int32 {list_type}::get_Count()')
-    body.append(f'    bge {wb_end}')
-    ctx['load_var_ref'](name, scope, body)
-    body.append(f'    ldloc.s {idx_idx}')
-    body.append(f'    ldloc.s {pairs_idx}')
-    body.append(f'    ldloc.s {idx_idx}')
-    body.append(f'    callvirt instance !0 {pairs_list_type}::get_Item(int32)')
-    body.append(f'    ldfld !1 {tuple_type}::Item2')
-    body.append(f'    callvirt instance void {list_type}::set_Item(int32, !0)')
-    body.append(f'    ldloc.s {idx_idx}')
-    body.append('    ldc.i4.1')
-    body.append('    add')
-    body.append(f'    stloc.s {idx_idx}')
-    body.append(f'    br {wb_start}')
-    body.append(f'  {wb_end}:')
+    _emit_sort_by_key(scope, body, ctx, name, ta, stmt['key_name'], f_ta, id(stmt))
 
     if stmt.get('reverse'):
         ctx['load_var_ref'](name, scope, body)
@@ -291,10 +224,11 @@ def fpw_list_sort(stmt, ctx):
         return
     TypeAnn = ctx['TypeAnn']
     key = id(stmt)
-    ctx['declare_named'](f'__sortkey{key}_f', f_ta)
-    ctx['declare_named'](f'__sortkey{key}_pairs', TypeAnn(
+    f_n, pairs_n, idx_n = _sort_key_temp_names(key)
+    ctx['declare_named'](f_n, f_ta)
+    ctx['declare_named'](pairs_n, TypeAnn(
         f_ta.dtype, 'list', elem_ta=TypeAnn(lst_ta.dtype, 'tuple', tuple_dtypes=[f_ta.dtype, lst_ta.dtype])))
-    ctx['declare_named'](f'__sortkey{key}_idx', TypeAnn('i32', None))
+    ctx['declare_named'](idx_n, TypeAnn('i32', None))
 
 
 def fpw_list_extend(stmt, ctx):

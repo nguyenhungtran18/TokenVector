@@ -138,7 +138,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 | `kwarg_resolve.tkv` | 3.482 |
 | `list_copy.tkv` | 1.540 |
 | `list_count_index.tkv` | 7.278 |
-| `list_methods_batch2.tkv` | 15.204 |
+| `list_methods_batch2.tkv` | 12.298 |
 | `list_methods_batch3.tkv` | 2.141 |
 | `list_pop.tkv` | 7.956 |
 | `list_type.tkv` | 68.841 |
@@ -158,7 +158,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 | `set_to_list.tkv` | 2.754 |
 | `set_type.tkv` | 31.523 |
 | `slicing.tkv` | 12.201 |
-| `stdlib_aggregates.tkv` | 19.200 |
+| `stdlib_aggregates.tkv` | 37.731 |
 | `stdlib_asyncio.tkv` | 1.324 |
 | `stdlib_base64.tkv` | 3.066 |
 | `stdlib_bcl.tkv` | 2.127 |
@@ -166,7 +166,7 @@ luan "ham do chua co" - rat nhieu lan toi sai theo huong nguoc.
 | `stdlib_csv.tkv` | 3.549 |
 | `stdlib_deque.tkv` | 1.306 |
 | `stdlib_eval.tkv` | 10.506 |
-| `stdlib_functional.tkv` | 16.919 |
+| `stdlib_functional.tkv` | 22.366 |
 | `stdlib_functools.tkv` | 1.678 |
 | `stdlib_hashlib.tkv` | 4.009 |
 | `stdlib_http.tkv` | 19.227 |

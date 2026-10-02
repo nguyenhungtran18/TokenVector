@@ -77,8 +77,8 @@ Cong them **5 ham xu ly TRUC TIEP** khong qua bang dang ky: `print`, `len`,
 | `argmax(xs)` | Chỉ số phần tử lớn nhất |
 | `iter(xs)` / `next(it[, default])` | Con trỏ tiến qua `list` — xem 7.12 (chỉ `list`) |
 
-> **`key=` chưa dùng được** — `max(xs, key=f)` hỏng ở **tầng parser**
-> (*"expected ')', got '='"*), không phải thiếu hàm. Xem mục 5.
+> **`key=` dùng được** (2026-10-02) cho `min`/`max`/`sum`/`sorted`, và
+> `reverse=` cho `sorted`. Xem mục 7.14.
 
 ### 2.4 Hàm bậc cao
 
@@ -432,7 +432,7 @@ vì thông điệp đã `raise`) — cần kiểm lại ánh xạ lỗi.
 
 | Hạng mục | Thực trạng |
 |---|---|
-| `max/min/sum` với `key=` | Hỏng ở **tầng parser**: *"expected ')', got '='"*. Không phải thiếu hàm |
+| ~~`max/min/sum` với `key=`~~ | **Đã có** (2026-10-02) — xem 7.14 |
 | Bước âm của lát `a[::-1]` | Bị từ chối (chỉ nhận bước dương) |
 | `del xs[i:j]` | Không có (`del xs[i]` thì có) |
 | `yield from` | Không có |
@@ -797,6 +797,56 @@ for v in xs:        # tương đương iter()
 **`delattr()` cố ý không chạy.** Field của record là field **của struct** trong IL, số lượng và vị trí đã chốt lúc biên dịch. Xoá một field mà giữ nguyên phần tử sẽ hỏng IL; bỏ qua thì sai nghĩa so với Python. Nên báo lỗi biên dịch kèm gợi ý `del xs[i]` cho container.
 
 **Ghi chú thẳng thắn:** đường `ascii()` với ký tự > 127 **chưa được xác nhận** bằng file `.tkv`, vì byte UTF-8 của ký tự không ASCII phụ thuộc cách compiler đọc file. Test chỉ ghim phần ASCII. Đừng tin phần này khi chưa tự chạy.
+
+### 7.14 `key=` và `reverse=` (2026-10-02) — cho `min`/`max`/`sum`/`sorted`
+
+```tokenvector
+def neg(v: "int") -> "int":
+    return 0 - v
+
+xs = [3, 1, 2]
+a = max(xs, key=neg)              # 1  (gia tri -1 la lon nhat)
+b = min(xs, key=neg)              # 3  (gia tri -3 la nho nhat)
+ys = sorted(xs, key=neg)         # [3, 2, 1] - LIST MOI, khong sua xs
+zs = sorted(xs, reverse=True)     # [3, 2, 1]
+```
+
+**Đây là thứ CHƯA BAO GIỜ chạy được — và lý do sai hai lần.** `CLAUDE.md` và
+bản cũ của mục này ghi *"`key=` hỏng ở **tầng parser**"*. Sai:
+
+1. Parser **không** hỏng. `il_core._parse_one_call_arg` đã trả
+   `('kwarg', ten, expr)` đúng cách từ 2026-08-28 (chính tài liệu cũ cũng
+   ghi nhận điều đó rồi vẫn kết luận sai).
+2. Thứ làm hỏng là **macro text-level `min`/`max`** trong `stdlib_aggregates.tkv`:
+   nó chỉ **đếm dấu phẩy**, nên `max(xs, key=f)` bị viết lại thành
+   `(xs > (key=f) ? xs : (key=f))` và parser báo lỗi trên `=`. Nay macro **nhận
+   ra kwarg và từ chối việc phẳng** (`_has_kwarg`), để builtin xử lý.
+
+#### Ngữ nghĩa — đã đối chiếu CPython
+
+| Cú pháp | Kết quả |
+|---|---|
+| `max(xs, key=f)` / `min(xs, key=f)` | trả về **PHẦN TỬ**, không phải khóa (giống Python) |
+| Trùng khóa | giữ **phần tử ĐẦU** (so sánh tuyệt đối) — giống Python |
+| `sorted(xs, key=f)` | trả **list mới**, không sửa `xs` |
+| `sorted(xs, reverse=<số/bool>)` | `reverse` **chưa được đánh giá lúc biên dịch**, rẽ nhánh lúc chạy → `reverse=flag` chạy đúng như Python |
+| `sorted(xs, key=f, reverse=True)` | khoá tăng rồi đảo — giống Python |
+| `sum(xs, key=f)` | **MỞ RỘNG, không có trong Python.** CPython `sum()` **không** nhận `key` (tra `TypeError`). TokenVector nhận và cộng tổng **KHÓA**; dtype kết quả là dtype của `f`, không phải dtype phần tử |
+
+#### Ràng buộc — đã probe
+
+| Ràng buộc | Vì sao |
+|---|---|
+| Nguồn phải là **1 BIẾN** `list`/`set` | giới hạn có sẵn của `sum/min/max/sorted` (đọc `TypeAnn` từ `scope` cần một *tên*) |
+| `key` phải nhận **đúng 1 tham số** đúng dtype phần tử | nếu không, IL sai kiểu |
+| Kiểu **trả về** của `key` phải so sánh được: `i32 i64 f32 f64 int bool` | `min/max/sum` phát `cgt`/`clt` trực tiếp; so sánh 2 chuỗi bằng cách đó là IL sai |
+| `sorted` **được phép** khóa kiểu `str` | nó so sánh qua `List<ValueTuple<K,T>>.Sort()` của .NET, `ValueTuple` có sẵn `IComparable` theo K |
+| `key` phải là **TÊN** (biến kiểu `func`, hoặc hàm top-level) | cùng giới hạn với `map(f, xs)`; không nhận lambda tại chỗ |
+| Tên keyword sai / lặp lại → **lỗi biên dịch** | im lặng bỏ qua là loại sai âm thành nguy hiểm nhất: `max(xs, keyy=f)` sẽ biên dịch thành `max(xs)` và cho kết quả **đúng theo ý mình** |
+| `min/max` **2+ tham số** vẫn là macro ternary | `max(a, b)` / `max(a, max(b, c))` không đổi |
+
+**Không ổn định khi trùng khóa** (`sorted`, giống `.sort(key=)`): khác Python
+dùng stable sort. Đã ghi ở phần `emit_sort_by_key`.
 
 ---
 

@@ -1672,3 +1672,52 @@ có giá trị (dòng 5818) → `declare_scalar` sẽ suy lại ở lượt th�
 
 **Gate:** 116/116, negative 28/28, parity 119/119, ext_smoke 4/4, Data 18/18,
 Inference 26/26.
+
+---
+
+## `key=` / `reverse=` cho min/max/sum/sorted (2026-10-02) — XONG, gate 117/117 + 31/31
+
+**Tài liệu sai HAI LẦN, và cả hai đều đã được đo lại.** `CLAUDE.md` và
+`REFERENCE.md` ghi *"`key=` hỏng ở **tầng parser**"*. Thực tế:
+
+- Parser **không** hỏng — `il_core._parse_one_call_arg` đã trả
+  `('kwarg', ten, expr)` từ 2026-08-28. Probe trực tiếp:
+  `parse_expr('max(xs, key=neg)')` → `('call','max',[('var','xs'),('kwarg','key',('var','neg'))])`.
+- Thứ làm hỏng là **macro text-level `min`/`max`** (`_expand_minmax_in` /
+  `try_expand_minmax_2arg` trong `stdlib_aggregates.tkv`): nó chỉ **đếm dấu
+  phẩy** nên coi `key=f` là tham số thứ hai và viết lại thành
+  `(xs > (key=f) ? xs : (key=f))`. Nay `_has_kwarg` (regex `^\w+\s*=`) phát
+  hiện kwarg và macro **từ chối**, để builtin xử lý.
+  - Regex phải khu được `a == b` / `a <= b`: `CMPOP` gộp 2 dấu `=` nên trong
+    **văn bản** vẫn có 2 ký tự, nên `^\w+\s*=` (một dấu) không khớp.
+
+**Sửa chỗ khác phải chú ý (3 bẫy đã đo):**
+
+1. `id()` của danh sách tham số **POSITIONAL sau khi tách** khác `id()` của
+   danh sách GÓC mà `temps_fn` dùng làm khoá biến ẩn. Phải truyền
+   `id_args=id(args_goc)` xuống `_loop_prelude` — nếu không, pass 2 tra
+   `__sum<id>.src` rồi báo *"biến chưa được khai báo"* dù temps đã cấp phát.
+   (Đã dính đúng lỗi này ở `sum` không có `key`.)
+2. **`dup` trên value type là IL sai.** Bản đầu dùng `dup` để lấy phần tử đầu
+   cho cả `res` lẫn `resk`; với `list[int]` (struct `TkvInt`) `dup` chỉ hợp lệ
+   với *reference* → ilasm vẫn nuot, **JIT báo `InvalidProgramException` lúc
+   chạy**. Nay đọc `get_Item` hai lần. Bài học chung của dự án: phát sinh IL
+   hỏng ở dạng này thì **build vẫn xanh**.
+3. `_temps_*` **không được nuốt** `SyntaxError` từ kiểm tra chữ ký `key`. Nuốt
+   đi thì biến ẩn không được cấp phát và pass 2 báo lỗi **sai nguyên nhân**
+   (*"biến `__sortkey..._f` chưa được khai báo"*) — che mất lỗi thật.
+
+**Tái sử dụng thay vì chép code:** phần phát IL "decorate – sort – undecorate"
+được nhấc ra thành `emit_sort_by_key` + `sort_key_temp_names` trong
+`stdlib_functional.tkv`, dùng chung cho `.sort(key=f)` (`list_methods_batch2`)
+và `sorted(xs, key=f)`. Cùng một bộ biến ẩn, cùng thuật toán — sửa một chỗ là
+sửa hết, thay vì 2 bản chép 60 dòng IL lệch nhau theo thời gian.
+
+**Quyết định cần nói rõ:** `sum(xs, key=f)` là **mở rộng của TokenVector** —
+CPython `sum()` không nhận `key` (tra `TypeError`). Ghi rõ trong test và tài
+liệu để không ai đọc nhầm là parity. Ngược lại, `sorted` được phép khóa kiểu
+`str` (so sánh qua `List<ValueTuple<K,T>>.Sort()` của .NET) còn `min/max/sum`
+thì phải chặn (phát `cgt`/`clt` trực tiếp).
+
+**Gate:** 117/117, negative 31/31, parity 119/119, ext_smoke 4/4, Data 18/18,
+Inference 26/26.

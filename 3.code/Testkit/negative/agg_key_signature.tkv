@@ -1,0 +1,17 @@
+# EXPECT-SUBSTRING: khong so sanh duoc
+# -*- coding: utf-8 -*-
+# Kieu TRA VE cua `key` phai so sanh duoc. `min/max/sum` so sanh truc tiep
+# bang `cgt`/`clt` tren 2 gia tri - ap 2 chuoi vao do ra IL sai, ilasm van
+# nuot, chi loi luc CHAY. (`sorted` thi duoc phep chuoi: no so sanh qua
+# `List<ValueTuple<K,T>>.Sort()` cua .NET.)
+def to_str(v: "i32") -> "str":
+    return "x"
+
+
+def f(xs: "list[i32]") -> "i32":
+    return max(xs, key=to_str)
+
+
+def run() -> "i32":
+    print("should_not_build")
+    return f([1, 2])

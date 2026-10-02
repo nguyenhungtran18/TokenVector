@@ -30,8 +30,8 @@
   `.\3.code\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run`
 - **Run Built Binary**: `.\<output.exe>`
 - **Acceptance Gate (run this, not native_test_suite)**:
-  `.\3.code\tools\testkit_gate.ps1` — builds and runs all 116 `Testkit\*_test.tkv`
-  plus 28 negative cases (currently `PASS=116 BUILDFAIL=0 TESTFAIL=0 NEG=28/28`),
+  `.\3.code\tools\testkit_gate.ps1` — builds and runs all 117 `Testkit\*_test.tkv`
+  plus 31 negative cases (currently `PASS=117 BUILDFAIL=0 TESTFAIL=0 NEG=31/31`),
   writes output to TEMP so a run never litters the repo, exits non-zero on any failure.
   Other gates, all green as of 2026-10-02: parity probe
   `.\3.code\tools\parity_probe\run.ps1` (**119/119** match CPython),
@@ -145,13 +145,18 @@
   `yield from`, `slice()` as a callable,
   a **negative** slice step (`a[::-1]`), keyword-only and positional-only
   parameters, nested/tuple literals.
-- **`key=` at a call site fails in the PARSER**, not in codegen: `max(xs,
-  key=neg)` → *"expected ')', got '='"*; with a lambda the message changes to
-  *"expected ']', got ':'"*. Note `il_core._parse_one_call_arg` **does**
-  already emit `('kwarg', name, expr)`, so kwargs work on some call forms —
-  plain `f(a, b=1)` takes a different path that stops at `=`. Fixing
-  `max/min/sum` with `key=` therefore means touching the core call parser,
-  which is why it is still listed as missing rather than half-done.
+- **`key=` / `reverse=` at a call site WORKS (2026-10-02)** for `min`/`max`/
+  `sum`/`sorted` (`REFERENCE.md` §7.14). The long-standing note here saying it
+  *"fails in the PARSER"* was **wrong twice**: `il_core._parse_one_call_arg`
+  has emitted `('kwarg', name, expr)` correctly since 2026-08-28, and what
+  actually broke it was the **text-level `min/max` macro**, which only counted
+  commas and rewrote `max(xs, key=f)` into `(xs > (key=f) ? ...)`; it now
+  detects kwargs and declines (`_has_kwarg`). `min/max/sum` return the
+  **element**, not the key (Python parity); `reverse=` is evaluated at
+  *runtime* so `reverse=flag` works; `sum(xs, key=f)` is an **extension** —
+  CPython's `sum()` has no `key`. A key's return type must be comparable
+  (`i32 i64 f32 f64 int bool`) for `min/max/sum`; `sorted` additionally allows
+  `str` because it compares through .NET's `List<ValueTuple<K,T>>.Sort()`.
   `*`/`**` unpacking at a call site **is** implemented
   (`('star'|'star2', expr)` + `il_features/call_star_args.py`) — the older
   claim that it is missing is wrong. Note calls still have statically known
