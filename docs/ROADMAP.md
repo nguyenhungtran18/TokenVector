@@ -1,7 +1,7 @@
 # BẢN QUY HOẠCH TOÀN DIỆN HỆ SINH THÁI THƯ VIỆN TOKENVECTOR
 *(Tài liệu lưu trữ nội bộ - Comprehensive Internal Architecture & Ecosystem Roadmap)*
 
-**Mã tài liệu:** INTERNAL-LIB-ROADMAP-2026-FINAL  
+**Mã tài liệu:** ROADMAP-2026  
 **Ngày cập nhật:** 13/09/2026  
 **Dự án:** Hệ sinh thái ngôn ngữ TokenVector (TokenVector Ecosystem)  
 **Vị trí tài nguyên liên kết:**

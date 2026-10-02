@@ -38,7 +38,7 @@ if (-not (Test-Path $Compiler)) {
 # generated .exe files behind.
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-$tests = Get-ChildItem (Join-Path $code "Testkit") -Filter "*_test.tkv" | Sort-Object Name
+$tests = Get-ChildItem (Join-Path $code "tests") -Filter "*_test.tkv" | Sort-Object Name
 Write-Output "compiler : $Compiler"
 Write-Output "tests    : $($tests.Count)"
 Write-Output ""
@@ -88,7 +88,7 @@ $stdinData = @{
 # nam) thi ho khong con dung noi dung nen test that. Cung la, mot test nao do
 # vong tinh tuy thu muc hien tai cung se dung mot lan khi gate duoc chay o
 # cho khac - nen thu muc lam cong lai cho TAT CA test, khong de may may.
-$workDir = Join-Path $code "Testkit"
+$workDir = Join-Path $code "tests"
 
 $pass = 0; $buildFail = 0; $testFail = 0; $other = 0; $timeouts = 0
 $failures = @()
@@ -188,7 +188,7 @@ foreach ($t in $tests) {
 Write-Output "=== IL ASSERTIONS ($($ilChecks.Count) checks) ==="
 $ilFail = 0
 foreach ($c in $ilChecks) {
-  $src = Join-Path $code "Testkit\$($c.Test)"
+  $src = Join-Path $code "tests\$($c.Test)"
   $stem = Join-Path $OutDir "$([IO.Path]::GetFileNameWithoutExtension($c.Test)).ilassert"
   $exe = "$stem.exe"
   $il  = "$stem.il"
@@ -238,7 +238,7 @@ Write-Output ""
 # dau tien `# EXPECT-SUBSTRING: <doan>`, va thong bao loi phai CHUA doan do.
 # Neu khong, mot file sai chinh ta (say typo lam bien dich that) van PASS -
 # giong het loi "test luon xanh" ma gate da tung co.
-$negDir = Join-Path $code "Testkit\negative"
+$negDir = Join-Path $code "tests\negative"
 $negPass = 0
 $negFail = 0
 $negTests = @()

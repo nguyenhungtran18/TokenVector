@@ -1,7 +1,7 @@
 # Smoke gate cho 2 repo KHAC: TokenVector.Inference va TokenVector.Data.
 #
 # LY DO CO (PLAN muc 1.1): co 1 lan, quy tac "chan field container tren
-# record" pha 2 repo do, va CONG TESTKIT (chi phu `3.code/Testkit/`) KHONG
+# record" pha 2 repo do, va CONG TESTKIT (chi phu `tests/`) KHONG
 # bat duoc - phai het 15 commit moi phat hien, va bang so "26/26" stale
 # trong PLAN. Cong nay build thi MOT PHAN nho (khong chay het suite) de
 # hoi compiler "2 repo do con build duoc khong", nhanh hon nhieu.

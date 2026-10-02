@@ -12,18 +12,18 @@ and every fix made to it with it.
 | `compiler/` | Compiler implementation. `.tkv` modules loaded by the bootstrap; `il_features/` holds the IL feature plugins (`operators.tkv`, `int_builtin.tkv`, `control_flow.tkv`, …). |
 | `build_tkvc.ps1` | Builds the compiler with PyInstaller into `dist/`. |
 | `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv` | Compiler entry points and the `--class-name` / `--emit-il` CLI. |
-| `Testkit/`, `test/`, `verify/`, `tools/` | Test suites. |
+| `tests/`, `test/`, `verify/`, `tools/` | Test suites. |
 | `examples/`, `stdlib/`, `docs/` | Samples, runtime library, documentation. |
 | `build/`, `dist/` | Build output. Ignored; recreated by `build_tkvc.ps1`. |
 
-`.il` files are **tracked on purpose**. The `Testkit/*_regress.il` files are
+`.il` files are **tracked on purpose**. The `tests/*_regress.il` files are
 golden baselines for regression tests, and `tools/*.il` are checked-in IL
 samples. Only `*.exe`, `build/` and `dist/` are ignored.
 
 ## How to build
 
 ```powershell
-cd D:\TokenVector\3.code
+cd D:\TokenVector\
 .\build_tkvc.ps1
 ```
 
@@ -57,7 +57,7 @@ worth recording, because the arrangement was actively dangerous:
   frozen `il_features\` copy that had drifted from `compiler/il_features/`
   (four files differing, plus a `list_pop.tkv` that no longer exists), and it
   failed a test the current compiler passes: building
-  `Testkit/iterator_protocol_test.tkv` died with
+  `tests/iterator_protocol_test.tkv` died with
   `UnboundLocalError: cannot access local variable 'ta'` in
   `il_codegen.py::declare_scalar`.
 
@@ -126,7 +126,7 @@ already certain at compile time:
   reproduce the exact `BadImageFormatException` documented in that function.
 
 **Blast radius: one construct.** `int("5")` still emits `Int32.Parse`.
-Verified unchanged by `Testkit/i64_int_test.tkv` (16/16), which pins
+Verified unchanged by `tests/i64_int_test.tkv` (16/16), which pins
 `i32max`, `i32min`, and the plain-integer path.
 
 ### What is still deliberately not changed
@@ -397,7 +397,7 @@ Neither would have been caught by a runtime test alone. The IL assertion counts
 
 ## P5: matmul f32 4-lane as a gated artifact (2026-09-28)
 
-`Testkit/vector4_matmul_test.tkv` — a full 32x32 f32 matmul on `f32x4`,
+`tests/vector4_matmul_test.tkv` — a full 32x32 f32 matmul on `f32x4`,
 self-verifying inside the compiler's own gate, so the whole stack is shown to
 compose into a real algorithm rather than a probe. It computes the same product
 twice, once scalar-sequential and once 4-lane, and compares **all 1024 outputs**
@@ -535,7 +535,7 @@ test above built in from the start.
 ## Known gap: the self-hosted compiler has no `yield from` (2026-09-28)
 
 Found while rebuilding `dist/tkvc.exe` from the working tree to run the gate.
-`Testkit/native_test_suite.tkv` does not build with `tkvc.exe`:
+`tests/native_test_suite.tkv` does not build with `tkvc.exe`:
 
     il_codegen: con thua token khong parse duoc sau bieu thuc: 'sub_numbers'
     (trong 'from sub_numbers()')
@@ -583,7 +583,7 @@ packaging path or not at all, and are left alone.
 
 ## `raise <bien>` (2026-09-28)
 
-Dung xong va da gate: `Testkit/raise_var_test.tkv` 7/7. Phan biet parser chi la
+Dung xong va da gate: `tests/raise_var_test.tkv` 7/7. Phan biet parser chi la
 dau hau khoi `(` - `raise X(...)` co, `raise e` khong. Codegen nap bien roi
 `throw`; kieu THAT kiem o bien dich, dung chung quy tac voi tham so cua
 `raise ... from`, nen `raise <so>` bi tu choi luc bien dich thay vi box roi nem
@@ -604,7 +604,7 @@ Ca hai dong nay **da ton tai** va phai giữ:
 
 ## `try/except/else` (2026-09-28)
 
-Dung xong va da gate: `Testkit/try_except_else_test.tkv` 10/10. Xem "Buoc 3" o
+Dung xong va da gate: `tests/try_except_else_test.tkv` 10/10. Xem "Buoc 3" o
 `PLAN.md` cho so do nhan. Hai diem can nho khi sua tiep:
 
 - Thuan `else` (khong `finally`) duoc sinh NGOAI vung `.try`, nen `break`/
@@ -654,7 +654,7 @@ truoc phien nay. Tieu chi bi chan o PRE-FLIGHT LINTER
 
 Day la loai sai nguy hiem hon loai "chua lam": danh sach gap khai bao mot tinh
 nang **da chay**, nen nguoi doc tuong tin la no chua lam. Da giu lai tu do
-nay bang `Testkit/comprehension_multi_for_test.tkv` (17/17) - co ca cac dang
+nay bang `tests/comprehension_multi_for_test.tkv` (17/17) - co ca cac dang
 1 `for` va dang `.items()` da co san truoc, de khong ai xoa nham di.
 
 Tu do sua tieu chi cua linter: cho N generator, va bo `len(ifs) > 1` trong
@@ -799,7 +799,7 @@ Dung `startswith`.
 **Gioi han cua cong kiem tra — doc truoc khi them check.** Cong BAT BUOC moi file
 test build duoc (`BUILDFAIL` la that bai). File test chua class co field
 container de chung minh bi chan thi CHINH no khong build. Vi vay
-`Testkit/record_container_field_test.tkv` chi kiem **khong chan nham** (moi kieu
+`tests/record_container_field_test.tkv` chi kiem **khong chan nham** (moi kieu
 field scalar van chay: i32/str/f64, doc trong bieu thuc, so sanh, cong); phan
 "bi chan" duoc chung minh bang 3 probe tach rieng. KHONG duoc them
 `check("bi tu choi", "1", "1")` vao do - do la kiem tra rong.
@@ -919,7 +919,7 @@ Hai giới hạn cần biết:
    biên lại là hằng số nên không khớp mẫu — phải truyền `n` qua tham số mới thử
    được.
 
-Gate: `Testkit/p6_vectorize_test.tkv` 16/16, toàn bộ **82/82**. Đã đối chiếu
+Gate: `tests/p6_vectorize_test.tkv` 16/16, toàn bộ **82/82**. Đã đối chiếu
 bit-exact với CPython trên 13 độ dài × 3 phép (0, 1, 2, 3, 4, 5, 7, 8, 9, 15,
 16, 17, 33).
 
@@ -1134,7 +1134,7 @@ Số đo ở đây **có nhiễu lớn giữa các lần chạy** (cùng một c
 - **Cache PyInstaller bẩn** (`ModuleNotFoundError` khi build dù staging có file đúng):
   xoá `build/pyinstaller/tkvc`.
 
-Gate: `Testkit/f32buf_bounds_free_test.tkv` 19/19, toàn bộ **83/83**.
+Gate: `tests/f32buf_bounds_free_test.tkv` 19/19, toàn bộ **83/83**.
 
 ## P6 bước 6: tối ưu địa chỉ trong vòng vector (2026-09-29)
 
@@ -1416,11 +1416,11 @@ test cua P6** (xem P6 buoc 3) va cac truong hop `field container tren record`,
 `match/case pattern`, so khong dung san.
 
 **De xuat:** them `-ExpectBuildFail` vao gate, cho phep khai mot file
-`Testkit/negative/*.tkv` ma file do **PHAI bien dich that bai**; neu bien dich
+`tests/negative/*.tkv` ma file do **PHAI bien dich that bai**; neu bien dich
 thanh cong thi gate FAIL. Rat re, va dong lai ca lop loi hien chi duoc bao ve
 bang lời.
 
-## `Testkit/negative/` — gate cuoi cung "phai bi tu choi" (2026-09-29)
+## `tests/negative/` — gate cuoi cung "phai bi tu choi" (2026-09-29)
 
 Mot lo test ma gate truoc day **khong the kiem chung**: file ma compiler phai tu
 choi. Khong viet duoc bang `check()` - noi dung do bien dich thanh cong roi moi
@@ -1433,8 +1433,8 @@ nho), field container tren record, `match/case` pattern khong ho tro.
 
 ### Cach lam
 
-`Testkit/negative/*.tkv` - bien dich THAT BAI thi PASS. File o thu muc con nen
-khong bi vong `Testkit/*_test.tkv` lay.
+`tests/negative/*.tkv` - bien dich THAT BAI thi PASS. File o thu muc con nen
+khong bi vong `tests/*_test.tkv` lay.
 
 **Kiem tra ca LY DO, khong chi "co that bai khong".** File bat buoc co dong dau
 tien:
@@ -1558,7 +1558,7 @@ gọi nhận thiếu tham số. Nhóm này cũng tự khớp newline, nên khôn
 Dấu nháy kép trong nội dung được đổi thành `\"` lúc sinh `ldstr`.
 
 **Bài học về test**: gate chạy `--entry run` CỐ ĐỊNH cho cả test thường lẫn
-negative. `Testkit/negative/module_var_without_global.tkv` (thêm ở commit trước)
+negative. `tests/negative/module_var_without_global.tkv` (thêm ở commit trước)
 chỉ có entry `uses_k`, nên nó không hề báo lỗi thật — nó báo "không tìm thấy hàm
 entry 'run'", và gate báo sai LÝ DO. Đã thêm `def run()` cho file đó. Bài test
 mới cũng phải đặt tên entry `run`, không phải `main`.
@@ -1567,7 +1567,7 @@ mới cũng phải đặt tên entry `run`, không phải `main`.
 
 ## `yield from` + `return <gia tri>` trong generator (2026-09-29) — XONG
 
-Gỡ nút thắt bằng cách viết `Testkit/generator_yield_from_test.tkv` **trước** và
+Gỡ nút thắt bằng cách viết `tests/generator_yield_from_test.tkv` **trước** và
 xác nhận nó ĐỎ đúng lý do (`from src` bị parse thành biến `from`), rồi mới viết
 compiler. Không làm vậy thì không có cái neo nào để biết mình đúng.
 
@@ -1726,7 +1726,7 @@ Inference 26/26.
 
 ## `open().close()` that file (2026-10-02) — XONG
 
-Tài liệu (và docstring cua chinh `Testkit/open_function_test.tkv`) ghi
+Tài liệu (và docstring cua chinh `tests/open_function_test.tkv`) ghi
 *"file van bi khoa sau `.close()` — chua tim ra nguyen nhan"*. **Nguyen nhan
 thi co, va chi mot dong.**
 

@@ -1,0 +1,6 @@
+﻿<Project>
+  <!-- TokenVector build targets integration -->
+  <Target Name="TokenVectorInfo" BeforeTargets="Build">
+    <Message Importance="low" Text="TokenVector Compiler located at $(TokenVectorCompilerPath)" />
+  </Target>
+</Project>

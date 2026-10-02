@@ -40,12 +40,12 @@ $$\text{Tệp } \texttt{.tkv} \quad \xrightarrow{\text{1. AST Parse}} \quad \tex
 
 **Trên Windows Command Prompt (cmd)**:
 ```cmd
-set PATH=%PATH%;D:\Claude AI Project\TokenVector\release\3.code\dist
+set PATH=%PATH%;D:\Claude AI Project\TokenVector\release\\dist
 ```
 
 **Trên Windows PowerShell**:
 ```powershell
-$env:Path += ";D:\Claude AI Project\TokenVector\release\3.code\dist"
+$env:Path += ";D:\Claude AI Project\TokenVector\release\\dist"
 ```
 
 ### 2.2 Chi tiết Danh mục Lệnh CLI (`tkvc`)
@@ -219,7 +219,7 @@ TokenVector cung cấp bộ thư viện chuẩn Native `.tkv` đặt tại thư 
    - `tkv_now()`: Lấy thời gian hệ thống hiện tại.
    - `tkv_randint(min, max)`: Sinh số nguyên ngẫu nhiên.
 
-Ngoài 2 file "thư viện mẫu" trên, các hàm builtin `re`/`datetime`/`random`/`os`/`json`/`hashlib` khác được compiler hỗ trợ TRỰC TIẾP (không cần file `.tkv` riêng) — xem `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md` mục 2 để biết danh sách đầy đủ.
+Ngoài 2 file "thư viện mẫu" trên, các hàm builtin `re`/`datetime`/`random`/`os`/`json`/`hashlib` khác được compiler hỗ trợ TRỰC TIẾP (không cần file `.tkv` riêng) — xem `docs/COMPARISON-PYTHON.md` mục 2 để biết danh sách đầy đủ.
 
 ---
 
@@ -287,7 +287,7 @@ Ba dạng khai báo `__tkv_extern_assembly__` (top-level, trước/sau `def` đ�
 > (không phải lúc build): `FileLoadException: 'X, Version=4.0.0.0, ..., b77a...'`
 > dù file DLL nằm cạnh exe — fusion tìm thấy file nhưng từ chối vì identity lệch.
 > Gặp lỗi này thì đổi sang dạng 2 hoặc 3. Hồi quy khóa cả 3 dạng:
-> `3.code/test/verify/extern_assembly_identity_test.tkv` (bare → FileLoadException
+> `test/verify/extern_assembly_identity_test.tkv` (bare → FileLoadException
 > đúng thiết kế; tuple/full → `Add42(8) = 50`).
 
 ---
@@ -297,7 +297,7 @@ Ba dạng khai báo `__tkv_extern_assembly__` (top-level, trước/sau `def` đ�
 Để tiến hành kiểm thử toàn bộ 97 bài test quy chuẩn bằng file Native `ledger_test.tkv`:
 
 ```cmd
-tkvc build release/3.code/test/verify/ledger_test.tkv --out ledger_test.exe --entry run
+tkvc build test/verify/ledger_test.tkv --out ledger_test.exe --entry run
 ledger_test.exe
 ```
 

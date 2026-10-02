@@ -10,7 +10,7 @@ Python that nen Python bao loi doc duoc ngay), chay:
     %TEMP%\\x.exe
 
 File `.tkv` la Python that, chi doi duoi hien thi. File nay vay meta_path
-finder: ten module -> `<ten>.tkv` trong `3.code/compiler/` truoc, roi `3.code/`.
+finder: ten module -> `<ten>.tkv` trong `compiler/` truoc, roi o goc repo.
 Do do `tkv.tkv` (o goc), `tkv_compile.tkv`, `il_codegen.tkv` va
 `il_features/*.tkv` deu nap duoc nhu module that, va `plugin_loader` van
 tu nap `compiler/il_features/` nhu khi dev.
@@ -29,7 +29,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class TkvFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     """Cho phep `import <ten>` quy ve `<ten>.tkv` (module trong compiler/
-    truoc, roi cap goc 3.code/ - giong thu tu sys.path cua build script)."""
+    truoc, roi o goc repo - giong thu tu sys.path cua build script)."""
 
     def find_spec(self, fullname, path=None, target=None):
         stem = fullname.rsplit('.', 1)[-1]
@@ -52,7 +52,7 @@ def main():
     sys.path.insert(0, ROOT)
     sys.path.insert(0, os.path.join(ROOT, 'compiler'))
     sys.meta_path.insert(0, TkvFinder())
-    import tkv  # noqa: E402  (tkv.tkv o goc 3.code, nap qua finder o tren)
+    import tkv  # noqa: E402  (tkv.tkv o goc repo, nap qua finder o tren)
     return tkv.main()
 
 

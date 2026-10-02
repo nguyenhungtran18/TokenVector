@@ -1,4 +1,4 @@
-# Testkit — bộ kiểm thử CHUẨN cho TokenVector
+# tests/ — bộ kiểm thử CHUẨN cho TokenVector
 
 **Mục đích**: chứng minh `tkvc.exe` biên dịch và **chạy đúng** các tính năng
 ngôn ngữ. Đây là **cổng nghiệm thu** của dự án — mọi thay đổi compiler phải
@@ -7,7 +7,7 @@ làm nó xanh trước khi báo "xong".
 ## Chạy cổng (bắt buộc trước khi báo xong)
 
 ```powershell
-cd D:\TokenVector\3.code
+cd D:\TokenVector
 powershell -NoProfile -File tools\testkit_gate.ps1
 ```
 
@@ -41,7 +41,7 @@ gộp thêm file `.tkv` vào cùng một assembly.
 ## Bắt lỗi sớm trước khi build
 
 ```powershell
-cd D:\TokenVector\3.code
+cd D:\TokenVector
 powershell -File tools\build_tkv_guide.ps1        # 1 lần / sau khi tool đổi
 dist\tkv_guide.exe lint my_engine.tkv             # bắt lỗi biên dịch bỏ qua
 dist\tkv_guide.exe rules                          # các ràng buộc hay cắn người viết

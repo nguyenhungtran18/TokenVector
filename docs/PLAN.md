@@ -14,7 +14,7 @@ trỏ tới mục không tồn tại. Bản này viết lại từ đầu theo t
 
 | Cổng | Kết quả |
 |---|---|
-| `3.code\tools\testkit_gate.ps1` | **105/105** + **negative 20/20** (timeout 0, ILFAIL 0) — đo 2026-09-30 |
+| `tools\testkit_gate.ps1` | **105/105** + **negative 20/20** (timeout 0, ILFAIL 0) — đo 2026-09-30 |
 | Inference | **26/26** PASS (`tv/tests/inference_tests.tkv`) |
 | Data gate | **PASS (18/18)** |
 | Parity probe CPython | **119/119** khớp, 0 khác — `tools/parity_probe/` |
@@ -36,7 +36,7 @@ Benchmark đo trên máy này (đo lại 2026-09-29, đã trừ startup). **Số
 SIMD 4-lane đạt **4.08×** so với scalar — ngay tại trần lý thuyết 4 lane.
 Startup 24.6 ms so với CPython 35.8 ms.
 
-**P6 (vector hoá TỰ ĐỘNG) — đo riêng bằng `3.code\bench\p6_bench.py`.**
+**P6 (vector hoá TỰ ĐỘNG) — đo riêng bằng `\bench\p6_bench.py`.**
 Bảng trên dùng SIMD viết tay, nên không phản ánh P6. P6 đo bằng cách so
 **chính compiler với chính nó**: hai kernel giống hệt nhau, chỉ khác ở điều
 kiện vòng lặp (`while i < nb` — biến, vector hoá; `while i < 262144` — hằng
@@ -85,7 +85,7 @@ Luận cứ đó **sai vì bỏ sót một đường**: field vẫn được `__
 bằng `self.fmap = {}` — đó chính là cách Inference và Data dùng. Cơ chế `.ctor`
 không lấp được, nhưng phép gán trong `__init__` thì có, và đó là cách hợp lệ.
 
-**Vì sao 85/85 không bắt được:** cổng Testkit chỉ phủ `Testkit/`. Hai hệ thống
+**Vì sao 85/85 không bắt được:** cổng Testkit chỉ phủ `tests/`. Hai hệ thống
 dùng nó là Inference và Data **không nằm trong Testkit**. Và bảng mục 1 vẫn ghi
 kết quả cũ mà không ai chạy lại — đó là lỗi của PLAN, không chỉ của code.
 
@@ -106,7 +106,7 @@ Ngay khi áp dụng, nó bắt được **bệnh thật** chứ không phải v�
 | Inference | **19** (77 bản sao) |
 | Data | **31** (90 bản sao) |
 
-Quét hết bằng: `python .\3.code\tools\scan_uninit_container_fields.py D:\TokenVector.Inference`
+Quét hết bằng: `python .\\tools\scan_uninit_container_fields.py D:\TokenVector.Inference`
 
 Gồm `DataFrame.cols`, `Col.f64s`, `Grammar.rules`, `GenRequest.tokens`,
 `SymbolicShape.dims`… Tức **~50 null-deref tiềm ẩn**. Hai hệ thống này trước
@@ -137,8 +137,8 @@ Lệnh rõ của anh: **tập trung compiler, lỗi các repo khác để sau.**
 
 **Hệ quả phải nói thẳng:** công cụ không còn kiểm chứng được bằng hệ thống
 thật. Phần "cho phép" hiện **đã** được kiểm chứng bằng bản dương — xem
-`Testkit/record_container_field_test.tkv`'s `container_field_positive` (4 check) và
-`Testkit/record_method_name_collision_test.tkv` (18/18). Bản dương này trước đây
+`tests/record_container_field_test.tkv`'s `container_field_positive` (4 check) và
+`tests/record_method_name_collision_test.tkv` (18/18). Bản dương này trước đây
 **không viết được** vì lỗi `literal '5' khong dung voi dtype 'Acc'` — nguyên nhân là
 method của record trùng tên method của container bị line parser của container cướp
 mất; **đã sửa** (commit `b1ba163`).
@@ -164,7 +164,7 @@ Data gate **2/2 + 18/18**, Inference **26/26 PASS** — trước đó cả hai r
 
 Mỗi dòng có commit và file gate. Cổng phải xanh sau **từng** commit.
 
-| Tính năng | `3.code` | Test |
+| Tính năng | `` | Test |
 |---|---|---|
 | Timeout mỗi test trong cổng | `fb73f8b` | — |
 | `raise <biến>` | `7863ee3` | `raise_var_test.tkv` 7/7 |
@@ -176,7 +176,7 @@ Mỗi dòng có commit và file gate. Cổng phải xanh sau **từng** commit.
 | Dict literal `d = {"a": 1}` | `ff48634` | `dict_literal_test.tkv` 16/16 |
 | Duyệt set `for v in s:` | `268e050` | `set_iteration_test.tkv` 11/11 |
 | Chặn field container trên record | `a2919f9` | `record_container_field_test.tkv` 6/6 |
-| Cổng `Testkit/negative/` ("phải bị từ chối") | `f41b391` | 3/3, có mutation check |
+| Cổng `tests/negative/` ("phải bị từ chối") | `f41b391` | 3/3, có mutation check |
 | Kiểu `bool` (alias của `i32`) | `04f80d3` | `bool_type_test.tkv` 20 |
 | `is` / `is not` | `a24a347` | `identity_test.tkv` |
 | Literal `0o` / `0b` / `1e3` | `dca987d` | `num_literal_test.tkv` |
@@ -236,7 +236,7 @@ Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector.
 | ~~Chuỗi nhiều dòng `"""..."""`~~ | **XONG (2026-09-29)** — `_join_triple_quoted` (il_codegen.tkv) nối dòng khi `"""` chưa đóng, đổi newline thành escape 2 ký tự ngay tại nơi nối; nhom `TRIPLESTR` trong `_EXPR_TOKEN_RE` (il_core.tkv) nhận nội dung. Test `multiline_string_test.tkv` 8/8. Xem REPOSITORY-NOTES |
 | ~~Biểu thức điều kiện~~ | **XONG** — dạng Python `a if c else b` đã có. Dạng `c ? a : b` vẫn bị chặn bởi `ast.parse` của Python — xem mục 4 |
 | ~~Literal lồng `[{"a":1}]`, `{"k":[1,2]}`~~ | **XONG (2026-09-29)** — list/dict/set chứa nhau, tới 4 cấp. Test `nested_literal_test.tkv` 7/7. Các phép so sánh theo NỘI DUNG trên container lồng (`remove`/`in`/`index`/`count`) **vẫn bị từ chối** — `List<T>`/`HashSet<T>` so sánh theo tham chiếu |
-| ~~Tuple literal `(1, 2)`~~ | **XONG (2026-09-29)** — ghi chú cũ "DSL **không có kiểu tuple**" SAI: kiểu tuple có sẵn và chạy (`-> "(i32,i32)"`, `return a, b`, `a, b = f()`, `p[0]`, `for_in_iter`). Đã làm: literal ở vị trí biểu thức, phá huỷ từ literal (`a, b = (3,4)`), phá huỷ từ biến (`x, y = t`), khai báo local kiểu tuple, truyền literal làm tham số, và `for a, b in <nguồn>`. Test `tuple_literal_test.tkv` 7/7. **CÒN:** nguồn của `for a, b in` hiện **chỉ** nhận list literal chứa tuple literal; biến list-của-tuple bị từ chối (`Testkit/negative/for_tuple_pairs_var.tkv`) |
+| ~~Tuple literal `(1, 2)`~~ | **XONG (2026-09-29)** — ghi chú cũ "DSL **không có kiểu tuple**" SAI: kiểu tuple có sẵn và chạy (`-> "(i32,i32)"`, `return a, b`, `a, b = f()`, `p[0]`, `for_in_iter`). Đã làm: literal ở vị trí biểu thức, phá huỷ từ literal (`a, b = (3,4)`), phá huỷ từ biến (`x, y = t`), khai báo local kiểu tuple, truyền literal làm tham số, và `for a, b in <nguồn>`. Test `tuple_literal_test.tkv` 7/7. **CÒN:** nguồn của `for a, b in` hiện **chỉ** nhận list literal chứa tuple literal; biến list-của-tuple bị từ chối (`tests/negative/for_tuple_pairs_var.tkv`) |
 | ~~`f(*xs)`, `f(**kw)`~~ | **XONG (2026-09-29)** — không đổi mô hình arity: desugar tại điểm gọi, khi độ dài/khoá nguồn biết lúc biên dịch thì sinh N đối số cố định (hoặc node `('kwarg', …)` cho `**`), rồi đi tiếp vào đường `call` sẵn có (arity check / tham số mặc định / monomorphize y nguyên trạng). `**` tái dùng `kwarg_resolve` nên trùng tên/khoá lạ/thiếu tham số đều đã có sẵn. Nguồn nhận: `f(*[1,2,3])`, `f(**{"a":1})`, và biến `xs = [...]` / `kw = {...}` dùng ngay, không dùng ở chỗ khác. Nguồn động bị từ chối rõ ràng. Test `star_args_test.tkv` 11/11 + `star_kwargs_test.tkv` 11/11 + 5 negative. **Giai đoạn 2 xong toàn bộ** |
 | ~~`yield from`~~ | **XONG (2026-09-29)** — ho tro **list** (vong lap theo chi so) va **ham generator** (ban giao `MoveNext`/`get_Current`). Nguon khac bi tu choi VOI LY DO. Test `generator_yield_from_test.tkv` 10/10. Xem mục 5 |
 | ~~`return <giá trị>` trong generator~~ | **XONG (2026-09-29)** — `return v` DUNG vong lap + ghi `v` vao bien module `__gen_ret__` (xem mục 5 vi sao khong phai `StopIteration.value`) |
@@ -286,7 +286,7 @@ nào**. Nguyên tắc của dự án ("sai âm thẩm nguy hiểm hơn lỗi ồ
 Trước đây mục này ghi "vì sao chưa làm". Lý do lúc đó: `native_test_suite.tkv` là
 bộ case duy nhất dùng nó mà file đó **không build** vì thiếu `yield from` — vòng
 luẩn quy, làm thì không kiểm chứng được. Đã gỡ bằng cách viết
-`Testkit/generator_yield_from_test.tkv` **trước** (đỏ đúng lý do), rồi mới
+`tests/generator_yield_from_test.tkv` **trước** (đỏ đúng lý do), rồi mới
 implement.
 
 **Cú pháp**: `yield from <nguon>`, 2 dạng nguồn —
@@ -319,7 +319,7 @@ Cùng nhóm: `yield from` trên set/dict/record (**chưa làm**). `iter()`/`next
 
 ## 6. Bài học đã tích lũy — đọc trước khi sửa gì
 
-Chi tiết đầy đủ: `3.code/docs/SESSION_HANDOFF.md` (mục bẫy) và
+Chi tiết đầy đủ: `docs/SESSION_HANDOFF.md` (mục bẫy) và
 `REPOSITORY-NOTES.md` (829 dòng nhật ký). Ở đây chỉ những điều định hình cách làm:
 
 **Cổng chỉ phủ những gì ai đó ngồi viết test cho.** 80 file test bảo chứng cho 80
@@ -357,13 +357,13 @@ Chạy trước khi coi bất cứ thay đổi nào là xong:
 
 ```powershell
 # 1. Build lại compiler TỪ CÂY NGUỒN (binary cũ che hồi quy)
-.\3.code\build_tkvc.ps1
+.\\build_tkvc.ps1
 
 # 2. Testkit — 88 file + 9 negative, timeout 120s/test
-.\3.code\tools\testkit_gate.ps1
+.\\tools\testkit_gate.ps1
 
 # 3. Inference
-.\3.code\dist\tkvc.exe build D:\TokenVector.Inference\tv\tests\inference_tests.tkv `
+.\\dist\tkvc.exe build D:\TokenVector.Inference\tv\tests\inference_tests.tkv `
     --entry main --out $env:TEMP\inf.exe --no-lint
 .\%TEMP%\inf.exe
 
@@ -371,18 +371,18 @@ Chạy trước khi coi bất cứ thay đổi nào là xong:
 powershell -File D:\TokenVector.Data\tools\datagate.ps1
 
 # 4b. Smoke Inference + Data — CHỈ build, không chạy (mất vài chục giây)
-#     Cổng Testkit chỉ phủ 3.code, nên 2 repo kia có thể hỏng mà không ai biết.
-powershell -File .\3.code\tools\ext_smoke.ps1
+#     Cổng Testkit chỉ phủ , nên 2 repo kia có thể hỏng mà không ai biết.
+powershell -File .\\tools\ext_smoke.ps1
 
 # 5. Benchmark — tự build kernel từ dist\tkvc.exe
-python .\3.code\bench\run.py
+python .\\bench\run.py
 ```
 
 Bước 1 **không được bỏ** — binary cũ từng che một test suite không build được.
 Bước 4 mất ~296 s vì nó build rồi **thực thi** 18 check, không chỉ biên dịch.
 
-**Quy tắc commit:** mỗi thay đổi commit vào **cả hai** repo (`3.code` và parent),
-ghi rõ `(mirrors 3.code <hash>)` trong message của parent.
+**Quy tắc commit:** mỗi thay đổi commit vào **cả hai** repo (`` và parent),
+ghi rõ `(mirrors  <hash>)` trong message của parent.
 
 ---
 
@@ -392,7 +392,7 @@ ghi rõ `(mirrors 3.code <hash>)` trong message của parent.
 |---|---|
 | `tokenvector-grammar` | Working tree bẩn: **xoá** `tokenvector-syntax-1.0.0.vsix` (file đã track) + ~15 file scratch. Cần chọn khôi phục hay chấp nhận xoá. Con trỏ gitlink **không đổi**. |
 | 4 fragment Data | `tokenvector_compute`/`datetime`/`io`/`stats` cần hằng số module. Đã ghi ở `Data\SESSION_HANDOFF.md`. |
-| Xoá repo con `3.code` | Không hoàn tác được. Mọi commit đã có trong parent qua tag `nested-3code-snapshot`. Chờ quyết định. |
+| Xoá repo con `` | Không hoàn tác được. Mọi commit đã có trong parent qua tag `nested-3code-snapshot`. Chờ quyết định. |
 | `f32x8`/`VBuf8` retire | Đã ghi chú là không phải SIMD nhưng chưa gỡ. 8 số rời, không lợi. |
 | Nâng `i*4` ra khỏi vòng vector | Còn 6/36 lệnh IL do `i*4` bị tính 3 lần. Cần `first_pass_walk` cho `while` chạy cùng logic khớp mẫu ở cả 2 pass — lệch một chút là `InvalidProgramException` **lúc chạy**, không phải lúc build. Đổi lại ~17% trên đường đã nhanh hơn scalar ~4×. Tỷ lệ giá trị/chi phí không tốt; để thành việc riêng. |
 | Tích hợp SIMD vào `TokenVector.Data` | Handoff ở `Data\SESSION_HANDOFF_SIMD.md`. Chưa làm. |

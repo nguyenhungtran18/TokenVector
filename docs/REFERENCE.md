@@ -818,7 +818,7 @@ Mọi cặp thao tác sau đều chạy đúng:
 | `r` → đóng → `r` (đọc lại) | ✅ |
 | `w` → đóng → `r` (đọc lại) | ✅ |
 
-Ghim bằng `Testkit/open_function_test.tkv` — bài test đó trước đây **cố tình
+Ghim bằng `tests/open_function_test.tkv` — bài test đó trước đây **cố tình
 chỉ mỗi đường dẫn một lần** để tránh bug; nay mở lại liên tục cùng đường dẫn.
 
 Vẫn nên cân nhắc `path_write_text`/`path_read_text` cho code ngắn gọn, và
@@ -920,7 +920,7 @@ Dùng trong hàm là cách duy nhất.
 
 | Trường hợp | Kết quả |
 |---|---|
-| `iter()` chỉ ở **vị trí gán** `it = iter(<tên biến>)` | `next(iter(xs))` → lỗi biên dịch rõ (xem `Testkit/negative/iter_in_expression.tkv`) |
+| `iter()` chỉ ở **vị trí gán** `it = iter(<tên biến>)` | `next(iter(xs))` → lỗi biên dịch rõ (xem `tests/negative/iter_in_expression.tkv`) |
 | Nguồn là `tuple` | lỗi biên dịch rõ (xem `iter_on_tuple.tkv`) |
 | `default` **phải cùng dtype** với phần tử | `next(list[i32], "")` → lỗi biên dịch. Python tự nâng rộng kiểu; TokenVector không (một biến chỉ giữ một kiểu, và 2 nhánh của một biểu thức phải cùng kiểu) |
 | Không chia sẻ qua `copy`/truyền hàm | `next` chỉ nhận **tên biến** |
@@ -948,7 +948,7 @@ newobj instance void It::.ctor(int64)                      ; truyen vao tham so 
 
 Đây là **biên dịch sai mà không báo lỗi**. Nay đã chặn ở **hai** tầng:
 
-- `Testkit/negative/next_default_wrong_dtype.tkv` và các test còn lại chặn phía
+- `tests/negative/next_default_wrong_dtype.tkv` và các test còn lại chặn phía
   người dùng;
 - `_expr_call` (il_codegen) chặn phía compiler: đối số container bị zip nhầm vào
   field vô hướng giờ **báo lỗi** thay vì phát sinh `TkvInt::ToI64(container)`.
@@ -972,7 +972,7 @@ it.pos = 0
 - Quy tắc cũ *"field container phải được gán trong `__init__`"* đã đổi thành
   **"phải được gán ở đâu đó"** (`_check_container_fields_assigned` trong
   `tkv_compile.tkv`, quét **toàn bộ** AST). Field nào không được gán ở đâu cả vẫn
-  bị từ chối — `Testkit/negative/record_container_uninit.tkv`.
+  bị từ chối — `tests/negative/record_container_uninit.tkv`.
 - **Cảnh báo kiểu:** khi nguồn là *list literal* thì phải khai `list[int]`
   (dtype `int` → struct `TkvInt`), **không** phải `list[i32]` (int32 thô). Trộn hai
   kieu này gây type-confusion *thật* trong IL sinh ra — đã xác nhận bằng thực
@@ -1307,4 +1307,4 @@ ghi đè làm hỏng cả bước biên dịch.
 3. **Tài liệu cũ đã sai nhiều lần.** Biểu thức điều kiện `a if c else b`
    bị ghi là "không có" nhưng chạy đúng.
 
-→ **Hãy probe thật.** Quy trình và bằng chứng: `3.code/docs/PLAN.md` mục 6.
+→ **Hãy probe thật.** Quy trình và bằng chứng: `docs/PLAN.md` mục 6.

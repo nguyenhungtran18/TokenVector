@@ -1,9 +1,30 @@
 # TokenVector Engine & Ecosystem Guidelines
 
+## Repository Layout
+The repo root **is** the code root — there is no `3.code/` wrapper (removed
+2026-10-02; it was a release-package layout, and it hid a nested `.git` repo that
+silently swallowed every `git` command run from inside it).
+
+| Path | What |
+|---|---|
+| `compiler/` | The compiler: `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `il_codegen.tkv` + 119 `il_features/*.tkv` |
+| `tests/` | 117 acceptance tests + 31 negative cases + `tkv_test_lib.tkv` |
+| `tools/` | Gates, `tkv_guide.tkv`, dev scripts |
+| `projects/` | 19 real tools written in `.tkv` |
+| `examples/` | Sample programs + `stdlib/` |
+| `benchmark/` | Kernels vs CPython/NumPy (`python benchmark\run.py`) |
+| `docs/` | All documentation — `REFERENCE.md` is the single reference |
+| `packaging/` | NuGet nuspec, MSBuild props/targets, `pack.ps1` |
+| `assets/` | Diagrams, HTML demos, preview image |
+| `dist/`, `build/` | Generated. `dist/tkvc.exe` must exist to run any gate |
+| `tokenvector-grammar/` | Submodule (VS Code extension) — do not edit casually |
+
 ## Environment & Identity
 - **Language**: TokenVector (`.tkv`, `.tv`).
 - **Target**: .NET Common Intermediate Language (CIL) via AOT compiler (`tkvc.exe`).
-- **Runtime Model**: Standalone native PE binaries (~8.5 KB), unboxed scalar types, true No-GIL multicore execution.
+- **Runtime Model**: Standalone native PE binaries (**~6 KB** hello-world,
+  measured; ~13.5 KB for a test binary with stdlib), unboxed scalar types,
+  true No-GIL multicore execution.
 - **Rule**: DO NOT treat as Python. Do NOT recommend Python venv, pip, or standard CPython modules.
 
 ## Toolchain & Commands
@@ -11,12 +32,12 @@
   file, `.cursorrules`, `CODEX.md`, `ANTIGRAVITY.md` and `.cursor/rules` were
   five copies of the same rules, and they had **drifted into false claims**:
   f-strings/`.format()`/triple-quoted strings were all listed as unsupported
-  while Testkit tests for them pass; later `str()` was listed as "variable
+  while tests in `tests/` cover them; later `str()` was listed as "variable
   only" while it accepts any expression).
-  - The tool is `3.code/tools/tkv_guide.tkv`, **written in TokenVector**, and it
+  - The tool is `tools/tkv_guide.tkv`, **written in TokenVector**, and it
     is the **only** copy. It was a Python script first; both copies drifted, so
     the Python one was deleted.
-  - `powershell -File 3.code\tools\build_tkv_guide.ps1` → `dist\tkv_guide.exe`
+  - `powershell -File tools\build_tkv_guide.ps1` → `dist\tkv_guide.exe`
     (`dist/` is gitignored, so the `.tkv` is the source of truth).
   - `dist\tkv_guide.exe rules` — the pitfalls that actually bite
   - `dist\tkv_guide.exe find <name|topic>` — exact syntax + behaviour, read
@@ -34,13 +55,13 @@
     through `Console::WriteLine`, and redirected .NET stdout defaults to
     **UTF-16LE**, which PowerShell 5.1 renders as `?` for non-ASCII.
 - **CHECK BEFORE ADDING ANYTHING** — the reference is now **ONE file**:
-  `3.code/docs/REFERENCE.md`. §2 lists every builtin with **syntax + what it
+  `docs/REFERENCE.md`. §2 lists every builtin with **syntax + what it
   does + where it differs from Python**; §7 is the auto-generated name catalog.
   - **376 names already registered** — run
-    `python 3.code\tools\gen_builtin_ref.py` to rewrite §7 in place (it writes
+    `python tools\gen_builtin_ref.py` to rewrite §7 in place (it writes
     **only between `<!-- BEGIN GENERATED -->` markers** and refuses to run if
     they are missing — the file can no longer be overwritten by accident).
-  - `python 3.code\tools\gen_builtin_ref.py --check` **fails** if any registered
+  - `python tools\gen_builtin_ref.py --check` **fails** if any registered
     name is not documented in the hand-written part. Run it after adding a
     function.
   - **Before creating any file in `compiler/il_features/`, check the file does
@@ -49,7 +70,7 @@
     — it broke the entire compiler (104/104 BUILDFAIL, `ModuleNotFoundError`).
     §7 of the reference lists every existing file with its size, plus all
     registered builtins, methods, line/assign/statement parsers.
-- **Build `tkvc.exe`**: `powershell -NoProfile -ExecutionPolicy Bypass -File .\3.code\build_tkvc.ps1`
+- **Build `tkvc.exe`**: `powershell -NoProfile -ExecutionPolicy Bypass -File .\\build_tkvc.ps1`
   Phân nhóm module `compiler/il_features/` do **`tools/il_features_manifest.txt`**
   đăng ký (CORE đã khai báo tường minh — tin nó, đừng đoán). Script
   `tools/_split_il_features.py` **FAIL build sớm** nếu có module import một tên
@@ -59,23 +80,23 @@
   cache `--workpath` của PyInstaller (cache này che thay đổi, từng làm build
   "thành công" nhưng exe cũ). Xem `tools/_split_il_features.py` phần docstring.
 - **Compile Standalone Binary**:
-  `.\3.code\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run`
+  `.\\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run`
 - **Run Built Binary**: `.\<output.exe>`
 - **Acceptance Gate (the only gate that matters for compiler changes)**:
-  `.\3.code\tools\testkit_gate.ps1` — builds and runs all 117 `Testkit\*_test.tkv`
+  `.\\tools\testkit_gate.ps1` — builds and runs all 117 `tests\*_test.tkv`
   plus 31 negative cases (currently `PASS=117 BUILDFAIL=0 TESTFAIL=0 NEG=31/31`),
   writes output to TEMP so a run never litters the repo, exits non-zero on any failure.
   Other gates, all green as of 2026-10-02: parity probe
-  `.\3.code\tools\parity_probe\run.ps1` (**119/119** match CPython),
-  `.\3.code\tools\ext_smoke.ps1` (4/4), `D:\TokenVector.Data\tools\datagate.ps1`
+  `.\\tools\parity_probe\run.ps1` (**119/119** match CPython),
+  `.\\tools\ext_smoke.ps1` (4/4), `D:\TokenVector.Data\tools\datagate.ps1`
   (18/18), `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` (26/26),
-  `.\3.code\tools\lint_rules_gate.ps1` (8/8 traps caught, 0 false positives).
-  `Testkit\native_test_suite.tkv` and its `check_file` entry were **deleted
+  `.\\tools\lint_rules_gate.ps1` (8/8 traps caught, 0 false positives).
+  `tests\native_test_suite.tkv` and its `check_file` entry were **deleted
   2026-10-02**: it compiled but crashed at run time (`c_puts` →
   `MissingMethodException`) and no gate ran it. Its static-check role is now
   `tkv_guide.exe lint`.
 - **Benchmark**:
-  `python .\3.code\bench\run.py` — TokenVector vs CPython/NumPy, 7 kernels, builds
+  `python .\\bench\run.py` — TokenVector vs CPython/NumPy, 7 kernels, builds
   its own kernels from `dist\tkvc.exe`. Do not report a speedup from a
   pre-built binary.
 
@@ -100,14 +121,14 @@
     reference comparison and `a < b` reports a misleading "record has no
     `__lt__`" error. This cost me a false bug report — `__eq__`/`__lt__`/`__gt__`
     on records all work correctly (verified 2026-09-30, pinned in
-    `Testkit/rec_tuple_mb_test.tkv`). See `Testkit/record_lt_test.tkv`.
+    `tests/rec_tuple_mb_test.tkv`). See `tests/record_lt_test.tkv`.
 - **Identity**: `is` / `is not` exist. Containers compare by reference (correct
   for this runtime — .NET `List<T>` does not override `==`). Scalars and strings
   compare by *value*, because an unboxed scalar has no object identity; this is
   an approximation, matching Python for `None`/`True`/small ints.
 - **Strings**: literals are **double quotes only** — `'abc'` is a compile error.
   `+ str(val)` always works. **f-strings and `.format()` also work** (both
-  probed and both covered by Testkit: `f"{n}"`, `f"{n:05d}"`, `f"{v:.2f}"`,
+  probed and both covered by tests in `tests/`: `f"{n}"`, `f"{n:05d}"`, `f"{v:.2f}"`,
   `"{}".format(x)`, `"{0}+{1}".format(a, b)`), as do **triple-quoted**
   multi-line literals. The older claim here that these are unsupported was
   wrong and cost a harness real work — see `tools/tkv_guide.py rules`.
@@ -182,7 +203,7 @@
   scalars / constants / functions), and `iter()` requires a variable name.
   `StopIteration` and `RuntimeError` are the same CLR type, so
   `except RuntimeError:` also catches it.
-  Full limits in `3.code/docs/REFERENCE.md` §7.12.
+  Full limits in `docs/REFERENCE.md` §7.12.
 - **Known gaps** (all verified by probe, not assumed):
   `yield from`, `slice()` as a callable,
   a **negative** slice step (`a[::-1]`), keyword-only and positional-only
@@ -229,5 +250,5 @@
   "unknown cause" of `format(3.14159, ".2f") == "32f"` was
   `_py_spec_to_net` returning `.2f` verbatim; .NET reads that as a *custom*
   format and needs `F2`. Full list with difficulty
-  ranking in `3.code/docs/PLAN.md`; per-item status in
-  `3.code/docs/REPOSITORY-NOTES.md`.
+  ranking in `docs/PLAN.md`; per-item status in
+  `docs/REPOSITORY-NOTES.md`.

@@ -24,7 +24,7 @@ def run() -> "i32":
 ```
 
 ```powershell
-cd D:\TokenVector\3.code
+cd D:\TokenVector
 dist\tkvc.exe build demo.tkv --out demo.exe --entry run
 .\demo.exe
 ```
@@ -53,8 +53,8 @@ Everything below is checked by a gate in this repository. Numbers are from
 `compiler/il_features/`) — the compiler is written in TokenVector itself.
 
 > **Do not trust a claim in this repo that no gate checks.** Benchmarks in
-> `INTERNAL_LIB_ROADMAP.md` are dated measurements; reproduce with
-> `python bench\run.py`, never from a pre-built binary.
+> `docs/ROADMAP.md` are dated measurements; reproduce with
+> `python benchmark\run.py`, never from a pre-built binary.
 
 ## 2. What TokenVector is *not*
 
@@ -68,17 +68,32 @@ It is **not** CPython with a faster interpreter. It is a **transpiler to CIL**:
 
 ## 3. Where things live
 
-| Path | What |
+```
+compiler/      the compiler — il_codegen.tkv + 119 il_features/*.tkv
+tkv*.tkv       CLI driver (staged as Python at build time)
+tests/         117 acceptance tests + 31 negative cases
+tools/         gates + tkv_guide.tkv (the language guide, written in TokenVector)
+projects/      19 real tools written in .tkv
+examples/      sample programs + stdlib/
+benchmark/     kernels vs CPython/NumPy
+docs/          all documentation (see below)
+packaging/     NuGet nuspec, MSBuild props/targets, pack.ps1
+assets/        diagrams, HTML demos, preview image
+dist/, build/  generated — never committed
+```
+
+| Doc | What |
 |---|---|
-| `3.code/compiler/` | The compiler. `il_codegen.tkv` + 119 `il_features/*.tkv` |
-| `3.code/dist/tkvc.exe` | The compiler binary (gitignored; rebuild via `build_tkvc.ps1`) |
-| `3.code/Testkit/` | **117 acceptance tests + 31 negative cases** + `tkv_test_lib.tkv` |
-| `3.code/tools/` | Gates, plus `tkv_guide.tkv` (see §4) |
-| `3.code/docs/REFERENCE.md` | **The one reference.** Syntax + behaviour + Python differences for every builtin |
-| `3.code/docs/REPOSITORY-NOTES.md` | Engineering journal: every bug found, and how it was proven |
-| `3.code/docs/PLAN.md` | Gap list, ranked |
-| `3.code/examples/` | Sample programs and real case-study tools written in `.tkv` |
-| `nuget/` | `pack.ps1` + nuspec for the published package |
+| `docs/REFERENCE.md` | **The one reference.** Syntax + behaviour + Python differences for every builtin |
+| `docs/HANDBOOK.md` | Bilingual orientation + the rules that bite most |
+| `docs/HANDBOOK.vi.md` | Full 10-chapter handbook (Vietnamese) |
+| `docs/TUTORIAL.md` | Programming guide, chapter by chapter |
+| `docs/ARCHITECTURE.md` | Compiler pipeline, file registry |
+| `docs/COMPARISON-PYTHON.md` | Where TokenVector differs from CPython |
+| `docs/PLAN.md` | Gap list, ranked by difficulty |
+| `docs/REPOSITORY-NOTES.md` | Engineering journal: every bug found, and how it was proven |
+| `docs/ROADMAP.md`, `docs/STRATEGY.md` | Product roadmap and positioning |
+| `docs/llms.txt` | Compact machine-readable summary |
 
 ## 4. For agents and new contributors: ask the tool
 
@@ -87,7 +102,7 @@ was simply wrong. The tool is written **in TokenVector** and is the single
 source of truth for language rules:
 
 ```powershell
-cd D:\TokenVector\3.code
+cd D:\TokenVector
 powershell -File tools\build_tkv_guide.ps1
 
 dist\tkv_guide.exe rules              # the pitfalls that actually bite
@@ -130,7 +145,7 @@ yet, so the tool cannot build for you. Run both and read the output.
 
 ## 6. Known gaps
 
-Verified by probe; the ranked list with difficulty is `3.code/docs/PLAN.md`.
+Verified by probe; the ranked list with difficulty is `docs/PLAN.md`.
 
 - **No `subprocess`** — a program cannot start another process. (This is why
   `tkv_guide verify` can only print commands.)
@@ -158,7 +173,7 @@ Verified by probe; the ranked list with difficulty is `3.code/docs/PLAN.md`.
 powershell -NoProfile -File .\build_tkvc.ps1
 ```
 
-Only `3.code/compiler/**` plus `build_tkvc.ps1` are needed. The script
+Only `compiler/**` plus `build_tkvc.ps1` are needed. The script
 regenerates the plugin bootstrap so every feature module is really loaded, and
 clears the PyInstaller cache — without that, a "successful" build can silently
 ship the previous `exe`.
@@ -166,5 +181,5 @@ ship the previous `exe`.
 ---
 
 *Licence: see `LICENSE`. Roadmap and strategy documents live in
-`INTERNAL_LIB_ROADMAP.md` and `TOKENVECTOR_VS_RUST_AND_KERNEL.md`; engineering
-history lives in `3.code/docs/REPOSITORY-NOTES.md`.*
+`docs/ROADMAP.md` and `docs/STRATEGY.md`; engineering
+history lives in `docs/REPOSITORY-NOTES.md`.*

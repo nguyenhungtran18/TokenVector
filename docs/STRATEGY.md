@@ -1,10 +1,10 @@
 # TOKENVECTOR VS RUST & BARE-METAL OS KERNEL STRATEGY
 *(Tài liệu Chiến lược Kỹ thuật & Định vị Cạnh tranh Hệ thống - Strategic Architecture & Kernel Design)*
 
-**Mã tài liệu:** STRATEGY-RUST-COMPETITION-KERNEL-2026  
+**Mã tài liệu:** STRATEGY-RUST-KERNEL  
 **Ngày lập:** 14/09/2026  
 **Dự án:** Hệ sinh thái ngôn ngữ TokenVector (TokenVector Ecosystem)  
-**Vị trí lưu trữ:** `D:\TokenVector\TOKENVECTOR_VS_RUST_AND_KERNEL.md`
+**Vị trí lưu trữ:** `D:\TokenVector\docs/STRATEGY.md`
 
 ---
 

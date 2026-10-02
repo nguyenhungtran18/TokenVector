@@ -24,7 +24,7 @@ def run() -> "i32":
 ```
 
 ```powershell
-cd D:\TokenVector\3.code
+cd D:\TokenVector
 dist\tkvc.exe build demo.tkv --out demo.exe --entry run
 .\demo.exe
 ```
@@ -53,7 +53,7 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 `compiler/il_features/`) — chính compiler được viết bằng TokenVector.
 
 > **Đừng tin claim nào không có cổng kiểm.** Số benchmark trong
-> `INTERNAL_LIB_ROADMAP.md` là số đo có ngày; hãy tự chạy lại bằng
+> `docs/ROADMAP.md` là số đo có ngày; hãy tự chạy lại bằng
 > `python bench\run.py`, đừng lấy số từ binary dựng sẵn.
 
 ## 2. TokenVector KHÔNG phải là gì
@@ -71,15 +71,32 @@ CIL**:
 
 | Đường dẫn | Nội dung |
 |---|---|
-| `3.code/compiler/` | Compiler. `il_codegen.tkv` + 119 file `il_features/*.tkv` |
-| `3.code/dist/tkvc.exe` | Binary compiler (gitignored; build lại bằng `build_tkvc.ps1`) |
-| `3.code/Testkit/` | **117 test nghiệm thu + 31 negative** + `tkv_test_lib.tkv` |
-| `3.code/tools/` | Các cổng kiểm, cộng `tkv_guide.tkv` (xem mục 4) |
-| `3.code/docs/REFERENCE.md` | **Tài liệu duy nhất.** Cú pháp + hành vi + khác biệt với Python cho từng builtin |
-| `3.code/docs/REPOSITORY-NOTES.md` | Nhật ký kỹ thuật: từng bug tìm ra và cách chứng minh |
-| `3.code/docs/PLAN.md` | Danh sách gap, xếp theo độ khó |
-| `3.code/examples/` | Chương trình mẫu và các công cụ case-study viết bằng `.tkv` |
-| `nuget/` | `pack.ps1` + nuspec cho gói phát hành |
+```
+compiler/      compiler — il_codegen.tkv + 119 file il_features/*.tkv
+tkv*.tkv       driver CLI (được chuyển thành Python lúc build)
+tests/         117 test nghiệm thu + 31 negative
+tools/         các cổng kiểm + tkv_guide.tkv (tool hỏi đáp ngôn ngữ)
+projects/      19 công cụ thật viết bằng .tkv
+examples/      chương trình mẫu + stdlib/
+benchmark/     kernel so với CPython/NumPy
+docs/          toàn bộ tài liệu (xem bảng dưới)
+packaging/     nuspec NuGet, MSBuild props/targets, pack.ps1
+assets/        sơ đồ, demo HTML, ảnh xem trước
+dist/, build/  thư mục sinh ra — không commit
+```
+
+| Tài liệu | Nội dung |
+|---|---|
+| `docs/REFERENCE.md` | **Tài liệu duy nhất.** Cú pháp + hành vi + khác biệt với Python cho từng builtin |
+| `docs/HANDBOOK.md` | Sổ tay song ngữ + những ràng buộc hay cắn nhất |
+| `docs/HANDBOOK.vi.md` | Sổ tay đầy đủ 10 chương (tiếng Việt) |
+| `docs/TUTORIAL.md` | Hướng dẫn lập trình theo từng chương |
+| `docs/ARCHITECTURE.md` | Quy trình compiler, sổ file hệ thống |
+| `docs/COMPARISON-PYTHON.md` | Chỗ khác biệt với CPython |
+| `docs/PLAN.md` | Danh sách gap, xếp theo độ khó |
+| `docs/REPOSITORY-NOTES.md` | Nhật ký kỹ thuật: từng bug tìm ra và cách chứng minh |
+| `docs/ROADMAP.md`, `docs/STRATEGY.md` | Roadmap sản phẩm và định vị |
+| `docs/llms.txt` | Bản tóm tắt ngắn gọn cho máy đọc |
 
 ## 4. Dành cho agent và người mới: hỏi tool đừng nhớ
 
@@ -87,7 +104,7 @@ Chi tiết rất nhiều, và "tài liệu" trước đây đã từng sai. Tool
 TokenVector** và là nguồn duy nhất cho các quy tắc ngôn ngữ:
 
 ```powershell
-cd D:\TokenVector\3.code
+cd D:\TokenVector
 powershell -File tools\build_tkv_guide.ps1
 
 dist\tkv_guide.exe rules              # những ràng buộc thật sự cắn người viết
@@ -131,7 +148,7 @@ nên tool không tự build được. Hãy chạy cả hai rồi đọc kết qu
 
 ## 6. Giới hạn đã biết
 
-Đã probe; danh sách xếp theo độ khó nằm ở `3.code/docs/PLAN.md`.
+Đã probe; danh sách xếp theo độ khó nằm ở `docs/PLAN.md`.
 
 - **Không có `subprocess`** — chương trình không thể khởi chạy tiến trình khác.
   (Đây là lý do `tkv_guide verify` chỉ in lệnh.)
@@ -158,12 +175,12 @@ nên tool không tự build được. Hãy chạy cả hai rồi đọc kết qu
 powershell -NoProfile -File .\build_tkvc.ps1
 ```
 
-Chỉ cần `3.code/compiler/**` cộng `build_tkvc.ps1`. Script sinh lại bootstrap
+Chỉ cần `compiler/**` cộng `build_tkvc.ps1`. Script sinh lại bootstrap
 để mọi module tính năng thật sự được nạp, và xoá cache PyInstaller — thiếu bước
 đó thì một lần "build thành công" có thể lặng lẽ đóng gói exe cũ.
 
 ---
 
 *Giấy phép: xem `LICENSE`. Tài liệu roadmap và chiến lược nằm ở
-`INTERNAL_LIB_ROADMAP.md` và `TOKENVECTOR_VS_RUST_AND_KERNEL.md`; lịch sử kỹ
-thuật nằm ở `3.code/docs/REPOSITORY-NOTES.md`.*
+`docs/ROADMAP.md` và `docs/STRATEGY.md`; lịch sử kỹ
+thuật nằm ở `docs/REPOSITORY-NOTES.md`.*

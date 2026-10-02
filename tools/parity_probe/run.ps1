@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # Chay doi chieu TokenVector voi CPython.
 #
-#   cd 3.code
+#   cd <repo root>
 #   python tools\parity_probe\run.ps1
 #
 # Hai file nguon `cmp_tkv.tkv` va `cmp_py.py` cung in ra cung mot danh sach
 # NHAN, nen `diff.py` so dong mot mot. Khong sua tay: neu mot ben bao loi bien
-# dich, chay lai va ghi vao `docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md` muc "GACH".
+# dich, chay lai va ghi vao `docs/COMPARISON-PYTHON.md` muc "GACH".
 #
 # LUON Y: viet code bang Write/Edit tool. `Set-Content -Encoding utf8` cua
 # PowerShell them BOM (U+FEFF) o dau file va compiler bao loi bien dich.

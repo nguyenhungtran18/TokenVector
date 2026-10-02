@@ -17,7 +17,7 @@
 - **CIL emitter** — plain text CIL/MSIL, mapped to .NET CTS types.
 - **`ilasm.exe`** — assembles the `.il` into a standalone `.exe`.
 - **Self-hosted** — the compiler is written in TokenVector
-  (`3.code/compiler/`, `3.code/tkv_compile.tkv`, `3.code/tkv.tkv`, 126 `.tkv`
+  (`compiler/`, `tkv_compile.tkv`, `tkv.tkv`, 126 `.tkv`
   files).
   **Honest caveat:** `build_tkvc.ps1` stages those `.tkv` files as Python and
   freezes them with PyInstaller, so *building* `tkvc.exe` needs CPython. Running
@@ -98,17 +98,17 @@ def run() -> "i32":
 
 ```powershell
 # Build an executable
-.\3.code\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run
+.\\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run
 
 # Run the acceptance gate (117 tests + 31 negative cases)
-powershell -File .\3.code\tools\testkit_gate.ps1
+powershell -File .\\tools\testkit_gate.ps1
 
 # Ask the guide tool instead of guessing (written in TokenVector itself)
-powershell -File .\3.code\tools\build_tkv_guide.ps1
-.\3.code\dist\tkv_guide.exe rules
-.\3.code\dist\tkv_guide.exe find sorted
-.\3.code\dist\tkv_guide.exe lint my_file.tkv
-.\3.code\dist\tkv_guide.exe verify my_file.tkv   # prints build+run commands
+powershell -File .\\tools\build_tkv_guide.ps1
+.\\dist\tkv_guide.exe rules
+.\\dist\tkv_guide.exe find sorted
+.\\dist\tkv_guide.exe lint my_file.tkv
+.\\dist\tkv_guide.exe verify my_file.tkv   # prints build+run commands
 ```
 
 **A green build is not a correct program** — bugs exist that compile cleanly and
@@ -116,14 +116,14 @@ then return a wrong value. Always run the output.
 
 ## 5. Project structure
 
-* **Compiler core:** `3.code/compiler/` — 126 `.tkv` files (119 in
+* **Compiler core:** `compiler/` — 126 `.tkv` files (119 in
   `il_features/`).
-* **CLI driver:** `3.code/dist/tkvc.exe`, rebuilt by `3.code/build_tkvc.ps1`.
-* **Acceptance suite:** `3.code/Testkit/` — 117 tests + 31 negative cases.
-* **Reference (the one doc that matters):** `3.code/docs/REFERENCE.md`.
-* **Engineering journal:** `3.code/docs/REPOSITORY-NOTES.md` — every bug and how
+* **CLI driver:** `dist/tkvc.exe`, rebuilt by `build_tkvc.ps1`.
+* **Acceptance suite:** `tests/` — 117 tests + 31 negative cases.
+* **Reference (the one doc that matters):** `docs/REFERENCE.md`.
+* **Engineering journal:** `docs/REPOSITORY-NOTES.md` — every bug and how
   it was proven.
-* **Gap list:** `3.code/docs/PLAN.md`.
+* **Gap list:** `docs/PLAN.md`.
 * **VS Code extension:** `nguyenhungtran18.tokenvector-syntax` (separate repo,
   vendored as the `tokenvector-grammar` submodule).
 

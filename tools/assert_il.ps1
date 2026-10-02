@@ -45,7 +45,7 @@ param(
     [string[]]$Forbid = @(),
     [string[]]$ExpectCount = @(),
     [string]$WorkDir = $env:TEMP,
-    [string]$Compiler = 'D:\TokenVector\3.code\dist\tkvc.exe'
+    [string]$Compiler = 'D:\TokenVector\dist\tkvc.exe'
 )
 
 $ErrorActionPreference = 'Stop'

@@ -76,7 +76,7 @@ nguyên nhân gốc đáng nhớ:
 | `str(1 and 2)` ra `True` | cùng gốc với dòng trên |
 
 Bài học đã được ghim vào gate: cổng trước đó chỉ kiểm **đúng→sai**, nên cả 6 lỗi
-này lọt qua. Nay có `Testkit/parity_pin_test.tkv` làm chiều **sai→đúng**.
+này lọt qua. Nay có `tests/parity_pin_test.tkv` làm chiều **sai→đúng**.
 
 ### 3.2 Mới tì ra ở vòng ra soát lần 2 — cả 3 đều SAI ÂM THẦM
 
@@ -99,7 +99,7 @@ chuyển sang dạng E trong khoảng giá trị thường gặp" — sai, ngoà
 luôn dùng dạng khoa học. Sửa: chỉ nối `.0` khi **không** có `.` và **không** có `e`,
 và hạ chữ `E` cho khớp Python.
 
-Ba lỗi này ghim bằng `Testkit/parity_div_float_test.tkv` (12 phép) và
+Ba lỗi này ghim bằng `tests/parity_div_float_test.tkv` (12 phép) và
 `parity_probe` nhóm 14 (15 phép).
 
 ### 3.3 Vòng ra soát thứ 3 — đo lại toàn bộ, tìm 4 lỗi nữa
@@ -127,9 +127,9 @@ escape khớp CPython; riêng `\U0001F600` cho độ dài **2** vì chuỗi là 
 (surrogate pair), xem mục 3.4.
 
 Cả 4 lỗi giờ **báo lỗi biên dịch rõ ràng** (nguyên tắc "sai âm thầm nguy hiểm hơn
-lỗi ồn ào"). Ghim bằng `Testkit/negative/str_tuple.tkv`,
-`Testkit/negative/reassign_int_str.tkv`, `Testkit/rec_tuple_mb_test.tkv`,
-`Testkit/str_escape_test.tkv`.
+lỗi ồn ào"). Ghim bằng `tests/negative/str_tuple.tkv`,
+`tests/negative/reassign_int_str.tkv`, `tests/rec_tuple_mb_test.tkv`,
+`tests/str_escape_test.tkv`.
 
 **Sai lần thứ tư — `len()`:**
 
@@ -215,8 +215,8 @@ Khi gộp **tất cả** các nhóm trên vào **một hàm `run`**, chương tr
 chạy: `NullReferenceException` trong `TkvInt.Str`. Tách ra thành hai file thì
 **các phần đều chạy đúng**. Tức là lỗi phụ thuộc kích thước file, không phải lỗi
 logic của bất kỳ mục nào. Tôi chưa khoanh vùng được nên **ghi lại là chưa chẩn
-đoán**, không đoán. Ghim bằng `Testkit/gap_lang_test.tkv` +
-`Testkit/gap_exc_gen_test.tkv` (tách sẵn để tránh lỗi trên).
+đoán**, không đoán. Ghim bằng `tests/gap_lang_test.tkv` +
+`tests/gap_exc_gen_test.tkv` (tách sẵn để tránh lỗi trên).
 
 **Thiếu, đã đo (báo lỗi rõ):** `str.isalpha` và mọi method chuỗi ngoài danh sách
 cho phép · phép `|` `&` trên set · `int("ff", 16)` có cơ số · `del` trên biến ·

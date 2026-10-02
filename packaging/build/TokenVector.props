@@ -1,0 +1,6 @@
+﻿<Project>
+  <PropertyGroup>
+    <TokenVectorCompilerPath Condition="'$(TokenVectorCompilerPath)' == ''">$(MSBuildThisFileDirectory)..\tools\tkvc.exe</TokenVectorCompilerPath>
+    <TokenVectorFeaturesPath Condition="'$(TokenVectorFeaturesPath)' == ''">$(MSBuildThisFileDirectory)..\tools\il_features</TokenVectorFeaturesPath>
+  </PropertyGroup>
+</Project>
