@@ -1799,3 +1799,41 @@ bao cap module, dung ghi lai de khong ai dinh sua nham.
 
 Negative test `iter_on_string.tkv` (vu khi la bang chung) da doi thanh
 `iter_on_tuple.tkv`.
+
+---
+
+## `tkv_guide.py` + rut gon 5 file huong dan harness (2026-10-02)
+
+Tai lieu cho agent nam o **5 file**: `.cursorrules`, `.cursor/rules/tokenvector.mdc`,
+`CODEX.md`, `ANTIGRAVITY.md`, `CLAUDE.md` - trung noi dung va **nhieu cho SAI**:
+ca 5 deu noi "f-string / `.format()` / chuoi 3 nhay khong ho tro" trong khi
+`fstring_bigint_test.tkv`, `string_format_test.tkv`, `multiline_string_test.tkv`
+**PASS**. Mot agent lam theo do se viet ra code sai.
+
+Bai nay gom phan "nhac" vao `tools/tkv_guide.py`: `rules` (16 luat), `find`
+(tra cuu cu phap/tinh nang trong muc 2 cua tai lieu), `names`, `lint`, `check`,
+`verify` (lint + build + CHAY). 5 file huong dan rut con 17-23 dong chi tro toi
+no; `CLAUDE.md` giu phan "cach build + trong thu compiler" (khong trung).
+
+**Bai hoc lon nhat cua phien nay - suy ra `lint` tu `CLAUDE.md` thi SAI 416 lan.**
+Ban `lint` dau bat (a) truyen list literal cho tham so `list[i32]` -> bao loi
+`InvalidProgramException` luc chay. Probe lai: compiler **TU EP** container o
+diem goi (`_emit_container_coerce`) va `f([1,2,3])` cho `list[f32]` **chay dung**.
+Bai do viet nhanh `REPOSITORY-NOTES` nho "truyen list literal -> tham so
+`list[i32]` la loi that" trong khi chinh phien nay do la **DOAN**, va no da gay
+loi khi t. Probe moi moi khoi. Bao loi gia hon khong co phep kiem: vi vay
+`lint` cuoi cung chi con **3 quy tac chung minh duoc**, quet 117 file Testkit
+chi ra **2 canh bao** (ca hai deu la su that).
+
+**Khong dung `ast.parse` cua Python de phan tich `.tkv`.** TokenVector co
+`a ? b : c` va cac thu tu toan tu khac; Python parse THAT roi `lint` bao loi cho
+nguoi viet ma **dung** (1/117 file). Bai nay chuyen sang quy tac TAI DONG THEO
+DONG.
+
+Ghi chu them: `class A: xs: "list[i32]"` + `a.xs = <list literal>` doc ra **0**
+(sai am thanh, build xanh) - NHUNG hai case gan nhau cho ket qua `0` va `20` o
+hai shape khac nhau, nen **khong ma hoa duoc thanh quy tac tinh**; chi ghi vao
+`rules` voi dieu kien chinh xac.
+
+Gate: 117/117 + negative 31/31; parity 119/119; ext_smoke 4/4; Data 18/18;
+Inference 26/26.

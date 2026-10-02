@@ -11,6 +11,10 @@
 > **Không đầy đủ thì gate sẽ báo.** Chạy `python tools\gen_builtin_ref.py --check`
 > — FAIL nếu có tên đã đăng ký mà tài liệu này chưa đề cập.
 >
+> **Harness (agent) đừng đoán — hỏi tool:**
+> `python tools\tkv_guide.py rules | find <tên> | names | lint | verify <file>`.
+> `verify` = lint + build + **chạy**; bắt buộc trước khi nói "xong".
+>
 > **Quy ước kiểu** (chi tiết ở `CLAUDE.md`): `i32`/`i64`/`f32`/`f64`/`str` là kiểu
 > vô hướng; `bool` là **bí danh của `i32`**; `int` là số nguyên vô hạn (struct
 > `TkvInt`) — khác `i32` thật, trộn hai kểu gây type-confusion thật trong IL.

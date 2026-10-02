@@ -7,6 +7,18 @@
 - **Rule**: DO NOT treat as Python. Do NOT recommend Python venv, pip, or standard CPython modules.
 
 ## Toolchain & Commands
+- **ASK THE TOOL, do not recall from memory** (2026-10-02 — added because this
+  file, `.cursorrules`, `CODEX.md`, `ANTIGRAVITY.md` and `.cursor/rules` were
+  five copies of the same rules, and they had **drifted into false claims**:
+  f-strings/`.format()`/triple-quoted strings were all listed as unsupported
+  while Testkit tests for them pass).
+  - `python 3.code\tools\tkv_guide.py rules` — the pitfalls that actually bite
+  - `python 3.code\tools\tkv_guide.py find <name|topic>` — exact syntax +
+    behaviour, read from `REFERENCE.md` (never guess a signature)
+  - `python 3.code\tools\tkv_guide.py names <filter>` — every registered name
+  - `python 3.code\tools\tkv_guide.py verify <file.tkv>` — **required before
+    reporting a `.tkv` file as done**: build green ≠ correct, and some bugs
+    compile cleanly and return a *wrong value*.
 - **CHECK BEFORE ADDING ANYTHING** — the reference is now **ONE file**:
   `3.code/docs/REFERENCE.md`. §2 lists every builtin with **syntax + what it
   does + where it differs from Python**; §7 is the auto-generated name catalog.
@@ -77,9 +89,12 @@
   for this runtime — .NET `List<T>` does not override `==`). Scalars and strings
   compare by *value*, because an unboxed scalar has no object identity; this is
   an approximation, matching Python for `None`/`True`/small ints.
-- **String Concatenation**: Use explicit `+ str(val)` rather than f-strings.
-  - String literals are **double quotes only** — `'abc'` is a compile error.
-  - Triple-quoted multi-line strings are not supported.
+- **Strings**: literals are **double quotes only** — `'abc'` is a compile error.
+  `+ str(val)` always works. **f-strings and `.format()` also work** (both
+  probed and both covered by Testkit: `f"{n}"`, `f"{n:05d}"`, `f"{v:.2f}"`,
+  `"{}".format(x)`, `"{0}+{1}".format(a, b)`), as do **triple-quoted**
+  multi-line literals. The older claim here that these are unsupported was
+  wrong and cost a harness real work — see `tools/tkv_guide.py rules`.
   - Methods can only be called on named variables, not on literals or
     arbitrary expressions: `"a,b".split(",")` fails, bind it first.
 - **Literals**: `0x` hex, `0o` octal, `0b` binary, and `1e3`/`1.5e2` scientific

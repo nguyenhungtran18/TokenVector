@@ -1,34 +1,17 @@
-# TokenVector Rules for OpenAI Codex & LLM Agents
+# TokenVector — dùng tool, đừng nhớ từ đầu
 
-## 📌 Identity & Core Constraints
-- **Project**: TokenVector Language Platform
-- **File Extensions**: `.tkv`, `.tv`
-- **Compiler Target**: .NET CIL Ahead-Of-Time (AOT) via `tkvc.exe`
-- **Execution Model**: Standalone native PE binaries (~8.5 KB), unboxed scalars, True No-GIL multicore execution.
+Nguồn duy nhất cho mọi câu hỏi về cú pháp/tính năng TokenVector:
 
-## ⚠️ Strict Rules for Codex / LLM Code Generation:
-1. **NO Python Runtime**: Never generate Python bytecode, dynamic types, or import CPython standard modules (`os`, `sys`, `math`, `json`, `re`).
-2. **File Header**: Every source file MUST begin with `# -*- coding: utf-8 -*-`.
-3. **Explicit Function Typing**: All function parameters and return values must use quoted type strings:
-   ```tokenvector
-   def process_data(count: "i32", scale: "f64") -> "str":
-       val = float(count) * scale
-       return "RESULT:" + str(val)
-   ```
-4. **Local Variable Inference**: Do NOT annotate types on local variables inside function bodies (types are inferred from the RHS expression).
-5. **Class Field Declarations**: Class members must be typed at the class level before `__init__`:
-   ```tokenvector
-   class Particle:
-       pos_x: "f64"
-       pos_y: "f64"
+```powershell
+python 3.code\tools\tkv_guide.py rules            # các luật THẬT sự gây lỗi
+python 3.code\tools\tkv_guide.py find sorted      # cú pháp + tính năng thật
+python 3.code\tools\tkv_guide.py names str        # tên đã đăng ký
+python 3.code\tools\tkv_guide.py lint a.tkv       # bẫy tĩnh (ít báo động giả)
+python 3.code\tools\tkv_guide.py verify a.tkv     # lint + build + chạy
+```
 
-       def __init__(self, x, y):
-           self.pos_x = x
-           self.pos_y = y
-   ```
-6. **String Operations**: Use explicit string concatenation with `+ str(...)`. Do not use Python f-strings.
-7. **Entry Point**: Standard application entry point is `def run() -> "str":` (returning `"SUCCESS"` or status string).
+`verify` là **bước bắt buộc** trước khi nói "xong": build xanh **không** có
+nghĩa là chạy đúng — có bug biên dịch thành công rồi trả về **giá trị sai**.
 
-## 🔨 Build & Run Commands:
-- **Build**: `.\3.code\dist\tkvc.exe build <file.tkv> --out <file.exe> --entry run`
-- **Run**: `.\<file.exe>`
+Tài liệu đầy đủ (một file): `3.code/docs/REFERENCE.md`.
+Mã nguồn compiler và cách build: `CLAUDE.md`.
