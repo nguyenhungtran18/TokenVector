@@ -616,14 +616,15 @@ def ghi() -> "i32":
                 i = i + 1
             k = k + 1
         else:
-              if la_import(DONG[i]) == 1:
-                  SO_IMPORT_BO = SO_IMPORT_BO + 1
-              else:
-                  d = doi_ten(DONG[i])
-                  quet_module_con_lai(d)
-                  ra = ra + d + "\n"
-                  SO_DONG_RA = SO_DONG_RA + 1
-              i = i + 1
+            if la_import(DONG[i]) == 1:
+                SO_IMPORT_BO = SO_IMPORT_BO + 1
+            else:
+                d = fold_module(DONG[i])
+                d = doi_ten(d)
+                quet_module_con_lai(d)
+                ra = ra + d + "\n"
+                SO_DONG_RA = SO_DONG_RA + 1
+            i = i + 1
     write_file(DUONG_RA, ra)
     return 0
 
@@ -761,6 +762,151 @@ def la_hang_so(x: "str") -> "i32":
     if d == "True" or d == "False":
         return 1
     return 0
+
+
+GOC: "str" = ""
+TEN_DA: "list[str]" = []
+GT_DA: "list[str]" = []
+SO_FOLD: "i32" = 0
+SO_FOLD_HONG: "i32" = 0
+
+
+def tach_dau(ten: "str", d: "str") -> "list[str]":
+    """`f(...)` -> [\"f\", \"a, b, c\"] neu d bat dau bang `ten(`."""
+    x = d.strip()
+    if not x.startswith(ten + "("):
+        return []
+    p = x.find("(")
+    q = x.rfind(")")
+    if p < 0 or q <= p:
+        return []
+    ra: "list[str]" = []
+    ra.append(ten)
+    ra.append(x[p + 1:q].strip())
+    return ra
+
+
+def tach_nhieu(d: "str") -> "list[str]":
+    ra: "list[str]" = []
+    muc = 0
+    hien = ""
+    i = 0
+    while i < len(d):
+        c = d[i:i + 1]
+        if c == "(":
+            muc = muc + 1
+        if c == ")":
+            muc = muc - 1
+        if c == "," and muc == 0:
+            ra.append(hien.strip())
+            hien = ""
+        else:
+            hien = hien + c
+        i = i + 1
+    if hien.strip() != "":
+        ra.append(hien.strip())
+    return ra
+
+
+def noi_path(a: "str", b: "str") -> "str":
+    if a == "":
+        return b
+    if b == "":
+        return a
+    if a.endswith("\\") or a.endswith("/"):
+        return a + b
+    return a + "\\" + b
+
+
+def fold_expr(e: "str") -> "str":
+    """Gap bieu thuc duong dan thanh CHUOI. \"\" neu khong gap duoc."""
+    x = e.strip()
+    if x == "__file__":
+        # PHAI TUYET DOI: `tools\gen_builtin_ref.py` thi dirname hai lan se
+        # len tren tren thu muc goc roi rfind(92) = -1 -> gap that bai.
+        return path_abspath(DUONG_VAO)
+    if la_chuoi(x) == 1:
+        return bo_ngoac_doi(x)
+    if la_ten(x[0:1]) == 1 and x.find("(") < 0:
+        i = 0
+        while i < len(TEN_DA):
+            if TEN_DA[i] == x:
+                return GT_DA[i]
+            i = i + 1
+        return ""
+    p = tach_dau("path_join", x)
+    if len(p) == 2:
+        ds = tach_nhieu(p[1])
+        ra = ""
+        i = 0
+        while i < len(ds):
+            v = fold_expr(ds[i])
+            if v == "":
+                return ""
+            ra = noi_path(ra, v)
+            i = i + 1
+        return ra
+    p = tach_dau("path_dirname", x)
+    if len(p) == 2:
+        v = fold_expr(p[1])
+        if v == "":
+            return ""
+        q = v.rfind(chr(92))
+        if q < 0:
+            return ""
+        return v[:q]
+    p = tach_dau("path_abspath", x)
+    if len(p) == 2:
+        v = fold_expr(p[1])
+        if v == "":
+            return ""
+        return v
+    p = tach_dau("os.path.join", x)
+    if len(p) == 2:
+        return fold_expr("path_join(" + p[1] + ")")
+    p = tach_dau("os.path.dirname", x)
+    if len(p) == 2:
+        return fold_expr("path_dirname(" + p[1] + ")")
+    p = tach_dau("os.path.abspath", x)
+    if len(p) == 2:
+        return fold_expr("path_abspath(" + p[1] + ")")
+    return ""
+
+
+def bo_ngoac_doi(x: "str") -> "str":
+    n = len(x)
+    if n >= 2:
+        return x[1:n - 1]
+    return x
+
+
+def fold_module(d: "str") -> "str":
+    """`X = <bieu thuc duong dan>` -> `X: "str" = "<gia tri tinh san>"`.
+
+    Bien cap module o TokenVector CHI nhan hang so don gian. Nhung `ROOT`,
+    `FEAT`, `OUT` trong cong cu Python deu la DUONG DAN - bien dich thi da
+    biet thu muc goc, nen gap san con de biet ngay luc chuyen doi.
+    """
+    global SO_FOLD
+    global SO_FOLD_HONG
+    x = d.strip()
+    p = x.find("=")
+    if p < 0 or x.find("==") > 0:
+        return d
+    if indent(d) != 0:
+        return d
+    ten = x[:p].strip()
+    if la_ten(ten[0:1]) == 0:
+        return d
+    v = fold_expr(x[p + 1:])
+    if v == "":
+        if x[p + 1:].find("path_") >= 0 or x[p + 1:].find("os.path") >= 0:
+            SO_FOLD_HONG = SO_FOLD_HONG + 1
+        return d
+    SO_FOLD = SO_FOLD + 1
+    TEN_DA.append(ten)
+    GT_DA.append(v)
+    return ten + ": \"str\" = \"" + v + "\""
 
 
 def quet_chan_cau_truc() -> "i32":
@@ -920,17 +1066,18 @@ def main() -> "i32":
     quet_import()
     suy_dich(4)
     print("vao   : " + DUONG_VAO + "  (" + str(SO_DONG_VA) + " dong, "
-          + str(len(DOC)) + " file, bo " + str(SO_GOP) + " dong import)")
+          + str(len(DOC)) + " file, bo " + str(SO_GOP) + " import, gap " + str(SO_FOLD) + " bien duong dan)")
     print("ham   : " + str(FN_N) + "   import cap module: " + str(SO_IMPORT)
           + "   chan cau truc: " + str(SO_CHAN_CAU_TRUC))
-    bao()
     quet_chan_cau_truc()
     if CHI_DO == 1:
         return 0
     if CHI_BIET == 1:
         print("chua suy: " + str(SO_BIET))
         return 0 if SO_BIET == 0 else 1
+    bao()
     ghi()
+    print("gap   : " + str(SO_FOLD) + " bien duong dan, " + str(SO_FOLD_HONG) + " khong gap duoc")
     print("ra    : " + DUONG_RA + "  (" + str(SO_DONG_RA) + " dong)")
     return 0
 
