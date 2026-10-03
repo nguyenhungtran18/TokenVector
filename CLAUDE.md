@@ -7,7 +7,7 @@ silently swallowed every `git` command run from inside it).
 
 | Path | What |
 |---|---|
-| **`compiler_src/`** | **Compiler written in TokenVector** — 8 `.tkv`, 23,971 lines. Self-hosting fixed point (`g1.il == g2.il == tv2s.il`, verified by SHA-256). `ds_gop.txt` = module list to merge, `feature_can.txt` = which are CORE |
+| **`compiler_src/`** | 8 `.tkv`, 23,971 lines. Self-hosting fixed point (`g1.il == g2.il == tv2s.il`, verified by SHA-256). **But only `tkvc_main.tkv` (56 lines) is actually in the build** — the other 23,915 lines are a historical seed. `ds_gop.txt` = module list to merge, `feature_can.txt` = which are CORE. See `docs/TOKENVECTOR-PURITY.md` |
 | `dist/tkvc-tv.exe` | **The self-hosted TokenVector compiler.** CLI is positional: `tkvc-tv.exe <src> <out> <entry>`. This is the direction |
 | `compiler_bootstrap/` | The 124-file source list `compiler_src\ds_gop.txt` points at (mirrors old `release\3.code\`). **Content is mostly Python** — 6/125 files are pure TokenVector, see `docs/TOKENVECTOR-PURITY.md`. `compiler_src/` alone is only the *seed* |
 | `dist/tkvc.exe` | Python bootstrap compiler (PyInstaller) — only used to build `tkvc-tv` and for the gates below |
@@ -36,10 +36,11 @@ never become a native standalone binary — that would need a working compiler t
 compile the compiler. Never write "the compiler is written in TokenVector" or
 "self-hosted".
 
-The genuinely TokenVector sources are `compiler_src/` (23,971 lines — the pure
-**seed** compiler; the full 125-file input list is `compiler_bootstrap/`, and
-**only 6 of 125 are pure TokenVector** — see `docs/TOKENVECTOR-PURITY.md`),
-`tests/` (148 files), `tests_suite/` (203 samples + 85 generated),
+The genuinely TokenVector sources are `compiler_bootstrap/` (the 125-file input
+list behind `compiler_src\ds_gop.txt`), `compiler_src/` (of which **only
+`tkvc_main.tkv`, 56 lines, is in the build** — the other 23,915 lines are a
+historical seed), `tests/` (148 files), `tests_suite/` (203 samples + 85
+generated),
 `projects/` (19), `examples/` (8) and `tools/` (3). Do not edit or move anything under
 `compiler/`, `build/`, `dist/`, or the four `tkv*.tkv` drivers without a full
 gate run: their **content** is Python, so a `.tkv` extension does not mean the
