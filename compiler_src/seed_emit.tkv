@@ -8148,7 +8148,7 @@ def ten_an_tup(vt: "i32") -> "str":
 # Khai ba bien an + bien lap cua mot rut gon danh sach tai '[' o vi tri vt_lb.
 # PHAI goi duoc tu HAI cho: khi duyet toi dau '[', va khi suy kieu ve phai
 # cua 'd = [...]' - vi bien 'd' duoc duyet TRUOC dau '[' cua chinh no.
-KRG_CHU: "i32" = 0 - 1
+KRG_CHU: "i32" = -1
 
 
 # CHU SO HUU = CHINH RUT GON (0 - 2 - vt_lb), khong phai muc hoan dang goi
@@ -8622,7 +8622,7 @@ LG_BAT: "list[str]" = []
 LG_KBAT: "list[str]" = []
 LG_N: "i32" = 0
 # Ham dang duoc PHAT (token 'def' cua no), de doi ten loi goi cho dung pham vi.
-LG_HIEN: "i32" = 0 - 1
+LG_HIEN: "i32" = -1
 
 
 def them_lg(vt: "i32", chu: "i32") -> "i32":

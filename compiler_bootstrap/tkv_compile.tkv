@@ -3721,6 +3721,18 @@ def _parse_program_ast(source_text: "str", la_import: "i32"=False, hoan_giai_fie
                 module_globals[gname] = _cap_toan_cuc(gdtype, [[ar_col_a(_pool, _con_ann[2])]])
             elif _kv == "const_num":
                 module_globals[gname] = _cap_toan_cuc(gdtype, [[_hang_so_co_kieu(_pool, _con_ann[2])[1]]])
+            elif (_kv == "unaryop" and ar_col_a(_pool, _con_ann[2]) == "-"
+                  and gdtype in ('i32', 'i64', 'f32', 'f64')):
+                # HANG SO AM o cap module: `KRG_CHU: "i32" = -1`. Nhanh tren chi
+                # nhan `const_num` nen truoc day bi tu choi, va `seed_emit.tkv`
+                # phai viet `0 - 1` de NE chinh gioi han cua compiler nay.
+                _kn = ar_kids(_pool, _con_ann[2])
+                if not (_kn and _kn[0] >= 0 and ar_kind(_pool, _kn[0]) == "const_num"):
+                    raise TranspileError(
+                        f"bien module-level '{gname}': hang so am chi chap nhan "
+                        f"'-<so>' don gian")
+                module_globals[gname] = _cap_toan_cuc(
+                    gdtype, [['-' + _hang_so_co_kieu(_pool, _kn[0])[1]]])
             else:
                 raise TranspileError(
                     f"bien module-level '{gname}': gia tri khoi tao phai la 1 hang so/chuoi "
