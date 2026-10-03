@@ -46,10 +46,61 @@ MAP_TU: "list[str]" = []
 MAP_DEN: "list[str]" = []
 SO_IMPORT_BO: "i32" = 0
 
+# Bang tham so cho tung ham (index = FN_N - 1 khi dang ky)
+FN_THAM_SO: "list[str]" = []
+
+
+def fn_tham_so_get(k: "i32") -> "str":
+    """Lay chuoi tham so cua ham k, rong neu khong co."""
+    if k < 0 or k >= len(FN_THAM_SO):
+        return ""
+    return FN_THAM_SO[k]
+
+
+def fn_tham_so_set(k: "i32", ts: "str") -> "i32":
+    """Gan chuoi tham so cho ham k."""
+    if k < 0 or k >= FN_N:
+        return 0
+    FN_THAM_SO[k] = ts
+    return 1
+
+# Bang bien cuc bo cho suy dien kieu, luu duoi dang chuoi ";ten:kieu;ten:kieu;"
+# Ghi chu: khong dung .append() tren global - compiler chi ho tro gan don gian.
+BIEN_CUC_BO: "str" = ";"
+
+
+def bien_cuc_bo_xoa() -> "i32":
+    global BIEN_CUC_BO
+    BIEN_CUC_BO = ";"
+    return 0
+
+
+def bien_cuc_bo_them(ten: "str", kieu: "str") -> "i32":
+    global BIEN_CUC_BO
+    if BIEN_CUC_BO.find(";" + ten + ":") >= 0:
+        return 0
+    BIEN_CUC_BO = BIEN_CUC_BO + ten + ":" + kieu + ";"
+    return 0
+
+
+def bien_cuc_bo_lay(ten: "str") -> "str":
+    p = BIEN_CUC_BO.find(";" + ten + ":")
+    if p < 0:
+        return ""
+    p = p + len(ten) + 2
+    q = BIEN_CUC_BO.find(";", p)
+    if q < 0:
+        q = len(BIEN_CUC_BO)
+    return BIEN_CUC_BO[p:q]
+
 
 # ---------------------------------------------------------------- tien ich
 def la_so(c: "str") -> "i32":
-    return 1 if c >= "0" and c <= "9" else 0
+    if c < "0":
+        return 0
+    if c > "9":
+        return 0
+    return 1
 
 
 def la_chu(c: "str") -> "i32":
@@ -114,6 +165,347 @@ def la_chuoi(x: "str") -> "i32":
     return 0
 
 
+def vi_tri_chu_thich(d: "str") -> "i32":
+    """Vi tri dau `#` NGOAI chuoi, -1 neu khong co. Hieu ca chuoi 3 nhay."""
+    trong = ""
+    i = 0
+    n = len(d)
+    while i < n:
+        if trong != "":
+            m = len(trong)
+            if m > 0 and d[i:i + m] == trong:
+                i = i + m
+                trong = ""
+            else:
+                if d[i:i + 1] == "\\" and i + 1 < n:
+                    i = i + 2
+                else:
+                    i = i + 1
+        else:
+            c = d[i:i + 1]
+            if c == "'" or c == "\"":
+                if i + 2 < n and d[i:i + 3] == c + c + c:
+                    trong = c + c + c
+                    i = i + 3
+                else:
+                    trong = c
+                    i = i + 1
+            else:
+                if c == "#":
+                    return i
+                else:
+                    i = i + 1
+    return -1
+
+
+def bo_chu_thich(d: "str") -> "str":
+    vt = vi_tri_chu_thich(d)
+    if vt < 0:
+        return d
+    return d[:vt]
+
+
+def vi_tri_bang_gan(ts: "str") -> "i32":
+    """Vi tri dau `=` GAN NGOAI chuoi/ngoac, -1 neu khong co.
+
+    Bo qua `==`, `>=`, `<=`, `!=` va `:=` (walrus).
+    """
+    trong = ""
+    muc = 0
+    i = 0
+    n = len(ts)
+    while i < n:
+        if trong != "":
+            m = len(trong)
+            if m > 0 and ts[i:i + m] == trong:
+                i = i + m
+                trong = ""
+            else:
+                if ts[i:i + 1] == "\\" and i + 1 < n:
+                    i = i + 2
+                else:
+                    i = i + 1
+        else:
+            c = ts[i:i + 1]
+            if c == "'" or c == "\"":
+                if i + 2 < n and ts[i:i + 3] == c + c + c:
+                    trong = c + c + c
+                    i = i + 3
+                else:
+                    trong = c
+                    i = i + 1
+            else:
+                if c == "(" or c == "[" or c == "{":
+                    muc = muc + 1
+                    i = i + 1
+                else:
+                    if c == ")" or c == "]" or c == "}":
+                        muc = muc - 1
+                        i = i + 1
+                    else:
+                        if c == "=" and muc == 0:
+                            truoc = ts[i - 1:i] if i > 0 else ""
+                            sau = ts[i + 1:i + 2] if i + 1 < n else ""
+                            if truoc == "=" or truoc == "!" or truoc == "<" or truoc == ">" or truoc == ":":
+                                i = i + 1
+                            else:
+                                if sau == "=":
+                                    i = i + 2
+                                else:
+                                    return i
+                        else:
+                            i = i + 1
+    return -1
+
+
+def vi_tri_hai_cham(s: "str") -> "i32":
+    """Vi tri dau `:` NGOAI chuoi/ngoac, -1 neu khong co."""
+    trong = ""
+    muc = 0
+    i = 0
+    n = len(s)
+    while i < n:
+        if trong != "":
+            m = len(trong)
+            if m > 0 and s[i:i + m] == trong:
+                i = i + m
+                trong = ""
+            else:
+                if s[i:i + 1] == "\\" and i + 1 < n:
+                    i = i + 2
+                else:
+                    i = i + 1
+        else:
+            c = s[i:i + 1]
+            if c == "'" or c == "\"":
+                if i + 2 < n and s[i:i + 3] == c + c + c:
+                    trong = c + c + c
+                    i = i + 3
+                else:
+                    trong = c
+                    i = i + 1
+            else:
+                if c == "(" or c == "[" or c == "{":
+                    muc = muc + 1
+                    i = i + 1
+                else:
+                    if c == ")" or c == "]" or c == "}":
+                        muc = muc - 1
+                        i = i + 1
+                    else:
+                        if c == ":" and muc == 0:
+                            return i
+                        else:
+                            i = i + 1
+    return -1
+
+
+def tach_danh_sach_cap0(s: "str") -> "list[str]":
+    """Tach theo dau phay NGOAI chuoi/ngoac."""
+    ra: "list[str]" = []
+    hien = ""
+    muc = 0
+    trong = ""
+    i = 0
+    n = len(s)
+    while i < n:
+        if trong != "":
+            m = len(trong)
+            if m > 0 and s[i:i + m] == trong:
+                hien = hien + trong
+                i = i + m
+                trong = ""
+            else:
+                hien = hien + s[i:i + 1]
+                if s[i:i + 1] == "\\" and i + 1 < n:
+                    hien = hien + s[i + 1:i + 2]
+                    i = i + 2
+                else:
+                    i = i + 1
+        else:
+            c = s[i:i + 1]
+            if c == "'" or c == "\"":
+                if i + 2 < n and s[i:i + 3] == c + c + c:
+                    trong = c + c + c
+                    hien = hien + trong
+                    i = i + 3
+                else:
+                    trong = c
+                    hien = hien + c
+                    i = i + 1
+            else:
+                if c == "(" or c == "[" or c == "{":
+                    muc = muc + 1
+                    hien = hien + c
+                    i = i + 1
+                else:
+                    if c == ")" or c == "]" or c == "}":
+                        muc = muc - 1
+                        hien = hien + c
+                        i = i + 1
+                    else:
+                        if c == "," and muc == 0:
+                            if hien.strip() != "":
+                                ra.append(hien.strip())
+                            hien = ""
+                            i = i + 1
+                        else:
+                            hien = hien + c
+                            i = i + 1
+    if hien.strip() != "":
+        ra.append(hien.strip())
+    return ra
+
+
+def tim_dong_ngoac(s: "str", mo: "i32") -> "i32":
+    """Vi tri `)` dong voi `(` tai `mo`, bo qua chuoi. -1 neu khong co."""
+    muc = 0
+    trong = ""
+    i = mo
+    n = len(s)
+    while i < n:
+        if trong != "":
+            m = len(trong)
+            if m > 0 and s[i:i + m] == trong:
+                i = i + m
+                trong = ""
+            else:
+                if s[i:i + 1] == "\\" and i + 1 < n:
+                    i = i + 2
+                else:
+                    i = i + 1
+        else:
+            c = s[i:i + 1]
+            if c == "'" or c == "\"":
+                if i + 2 < n and s[i:i + 3] == c + c + c:
+                    trong = c + c + c
+                    i = i + 3
+                else:
+                    trong = c
+                    i = i + 1
+            else:
+                if c == "(" or c == "[" or c == "{":
+                    muc = muc + 1
+                    i = i + 1
+                else:
+                    if c == ")" or c == "]" or c == "}":
+                        muc = muc - 1
+                        if muc == 0:
+                            return i
+                        i = i + 1
+                    else:
+                        i = i + 1
+    return -1
+
+
+def ngoac_can_ma(code: "str") -> "i32":
+    """(mo - dong) NGOAI chuoi. Dung de noi chu ky nhieu dong."""
+    dem = 0
+    trong = ""
+    i = 0
+    n = len(code)
+    while i < n:
+        if trong != "":
+            m = len(trong)
+            if m > 0 and code[i:i + m] == trong:
+                i = i + m
+                trong = ""
+            else:
+                if code[i:i + 1] == "\\" and i + 1 < n:
+                    i = i + 2
+                else:
+                    i = i + 1
+        else:
+            c = code[i:i + 1]
+            if c == "'" or c == "\"":
+                if i + 2 < n and code[i:i + 3] == c + c + c:
+                    trong = c + c + c
+                    i = i + 3
+                else:
+                    trong = c
+                    i = i + 1
+            else:
+                if c == "(":
+                    dem = dem + 1
+                if c == ")":
+                    dem = dem - 1
+                i = i + 1
+    return dem
+
+
+def ngoac_can_ma_day(code: "str") -> "i32":
+    """(mo - dong) NGOAI chuoi, dem ca `[`, `{`, `(`.
+
+    `ngoac_can_ma` chi dem `(` `)` (dung de noi chu ky). Literal container
+    nhieu dung them ca `[]` `{}` nen can ban rieng cho liet lie.
+    """
+    dem = 0
+    trong = ""
+    i = 0
+    n = len(code)
+    while i < n:
+        if trong != "":
+            m = len(trong)
+            if m > 0 and code[i:i + m] == trong:
+                i = i + m
+                trong = ""
+            else:
+                if code[i:i + 1] == "\\" and i + 1 < n:
+                    i = i + 2
+                else:
+                    i = i + 1
+        else:
+            c = code[i:i + 1]
+            if c == "'" or c == "\"":
+                if i + 2 < n and code[i:i + 3] == c + c + c:
+                    trong = c + c + c
+                    i = i + 3
+                else:
+                    trong = c
+                    i = i + 1
+            else:
+                if c == "(" or c == "[" or c == "{":
+                    dem = dem + 1
+                if c == ")" or c == "]" or c == "}":
+                    dem = dem - 1
+                i = i + 1
+    return dem
+
+
+def doan_kieu_gia_tri(d: "str") -> "str":
+    """Suy kieu tu MOT gia tri literal/bieu thuc don. "" neu khong biet."""
+    x = d.strip()
+    if x == "":
+        return ""
+    if x == "None":
+        return ""
+    if x == "True" or x == "False":
+        return "bool"
+    if la_so_nguyen(x) == 1:
+        return "i32"
+    if la_so_thuc(x) == 1:
+        return "f64"
+    if la_chuoi(x) == 1:
+        return "str"
+    if x.startswith("f\"") or x.startswith("f'"):
+        return "str"
+    if x == "[]":
+        return "list[i32]"
+    if x == "{}":
+        return "dict[str,i32]"
+    return ""
+
+
+def fn_o_dong(dong_so: "i32") -> "i32":
+    """Chi so ham co dong `def` dung tai dong_so, -1 neu khong co."""
+    i = 0
+    while i < FN_N:
+        if FN_DAU[i] == dong_so:
+            return i
+        i = i + 1
+    return -1
+
+
 def indent(s: "str") -> "i32":
     i = 0
     n = len(s)
@@ -165,37 +557,26 @@ def ten_ham(chu_ky: "str") -> "str":
 
 
 def tach_tham_so(chu_ky: "str") -> "list[str]":
-    ra: "list[str]" = []
-    i = chu_ky.find("(")
-    j = chu_ky.rfind(")")
-    if i < 0 or j <= i:
-        return ra
-    trong = chu_ky[i + 1:j]
-    if trong.strip() == "":
-        return ra
-    muc = 0
-    hien = ""
-    k = 0
-    n = len(trong)
-    while k < n:
-        c = trong[k:k + 1]
-        if c == "(" or c == "[" or c == "{":
-            muc = muc + 1
-        if c == ")" or c == "]" or c == "}":
-            muc = muc - 1
-        if c == "," and muc == 0:
-            ra.append(hien.strip())
-            hien = ""
-        else:
-            hien = hien + c
-        k = k + 1
-    if hien.strip() != "":
-        ra.append(hien.strip())
-    return ra
+    code = bo_chu_thich(chu_ky)
+    i = code.find("(")
+    if i < 0:
+        return []
+    j = tim_dong_ngoac(code, i)
+    if j < 0:
+        return []
+    return tach_danh_sach_cap0(code[i + 1:j])
 
 
 def co_chu_ky(ts: "str") -> "i32":
-    return 1 if ts.find(":") > 0 and (ts.find("=") < 0 or ts.find(":") < ts.find("=")) else 0
+    p = ts.find(":")
+    if p <= 0:
+        return 0
+    q = ts.find("=")
+    if q < 0:
+        return 1
+    if p < q:
+        return 1
+    return 0
 
 
 def doan_kieu_mac_dinh(ts: "str") -> "str":
@@ -237,7 +618,81 @@ def doan_kieu_ten(ten: "str") -> "str":
     return ""
 
 
-def doan_bieu_thuc(e: "str") -> "str":
+def chuan_hoa_co_le(t: "str") -> "str":
+    """Kieu don Python -> TokenVector. Rong neu khong biet."""
+    x = t.strip()
+    if x == "int":
+        return "i32"
+    if x == "float":
+        return "f64"
+    if x == "str":
+        return "str"
+    if x == "bool":
+        return "bool"
+    if x == "bytes":
+        return "str"
+    if x == "i32" or x == "i64" or x == "f32" or x == "f64":
+        return x
+    return ""
+
+
+def chuan_hoa_kieu(t: "str") -> "str":
+    """Kieu Python (co the la container) -> TokenVector. Rong neu khong biet."""
+    x = t.strip()
+    if x == "":
+        return ""
+    if x == "None" or x == "Any" or x == "object":
+        return ""
+    lt = chuan_hoa_co_le(x)
+    if lt != "":
+        return lt
+    y = x
+    if y.find("typing.List[") == 0:
+        y = "list[" + y[12:]
+    if y.find("typing.Dict[") == 0:
+        y = "dict[" + y[12:]
+    if y.find("List[") == 0:
+        y = "list[" + y[5:]
+    if y.find("Dict[") == 0:
+        y = "dict[" + y[5:]
+    if y.find("list[") == 0 and y.endswith("]"):
+        lt = chuan_hoa_co_le(y[5:-1])
+        if lt == "i32":
+            return "list[i32]"
+        if lt == "str":
+            return "list[str]"
+        if lt == "f64":
+            return "list[f64]"
+        return ""
+    if y.find("dict[str,") == 0 and y.endswith("]"):
+        ve = chuan_hoa_co_le(y[9:-1])
+        if ve == "i32":
+            return "dict[str,i32]"
+        if ve == "str":
+            return "dict[str,str]"
+        if ve == "f64":
+            return "dict[str,f64]"
+        return ""
+    return ""
+
+
+def kieu_tra_ve_chu_ky(chu_ky: "str") -> "str":
+    """Kieu tra ve khai bao `-> T` trong chu ky, da chuan hoa. Rong neu khong co."""
+    x = bo_chu_thich(chu_ky)
+    p = x.rfind(")")
+    if p < 0:
+        return ""
+    q = x.find("->", p)
+    if q < 0:
+        return ""
+    t = x[q + 2:].strip()
+    if t.endswith(":"):
+        t = t[:-1].strip()
+    t = t.strip("\"'")
+    return chuan_hoa_kieu(t)
+
+
+def doan_bieu_thuc(e: "str", k_func: "i32") -> "str":
     x = e.strip()
     if x == "":
         return ""
@@ -251,7 +706,7 @@ def doan_bieu_thuc(e: "str") -> "str":
         return "f64"
     if la_chuoi(x) == 1:
         return "str"
-    if x.startswith("f\"") or x.startswith("f'"):
+    if x.startswith("f\"") or x.startswith("f\'"):
         return "str"
     if x.startswith("len(") and x.endswith(")"):
         return "i32"
@@ -280,22 +735,26 @@ def doan_bieu_thuc(e: "str") -> "str":
     if x.find("+") > 0:
         # KHONG doan "`a + b` la str" - a + b cua hai so la i32/f64. Chi noi
         # chuoi khi MOT TRONG hai toan hang CHAC CHAN la str.
-        return kieu_cong(x)
+        return kieu_cong(x, k_func)
     if x.find("*") > 0:
-        return kieu_nhan(x)
+        return kieu_nhan(x, k_func)
     if x.find("/") > 0:
         return "f64"
     if x.startswith("[") and x.endswith("]"):
         return "list[i32]"
     if x.startswith("{") and x.endswith("}"):
         return "dict[str,i32]"
-    k = doan_method(x)
-    if k != "":
-        return k
+    kk = doan_method(x)
+    if kk != "":
+        return kk
     if la_ten(x[0:1]) == 1:
-        k = doan_kieu_ten(x)
-        if k != "":
-            return k
+        # Bien cuc bo cua ham dang xet (tham so, bien gan trong than)
+        kk = bien_cuc_bo_lay(x)
+        if kk != "":
+            return kk
+        kk = doan_kieu_ten(x)
+        if kk != "":
+            return kk
     return ""
 
 
@@ -321,24 +780,39 @@ def quet() -> "i32":
     global FN_N
     n = len(DONG)
     i = 0
+    doc = ""
     while i < n:
-        if bat_dau_ham(DONG[i]) == 1:
-            cu = i
-            chu_ky = DONG[i].strip()
-            while ngoac_can(chu_ky) > 0 and cu + 1 < n:
-                cu = cu + 1
-                chu_ky = chu_ky + " " + DONG[cu].strip()
-            ten = ten_ham(chu_ky)
-            if ten != "":
-                FN_TEN.append(ten)
-                FN_DAU.append(i)
-                FN_CUOI.append(cu)
-                FN_SIG_CUOI.append(cu)
-                FN_RET.append("")
-                FN_TT.append(0)
-                FN_N = FN_N + 1
-            i = cu
-        i = i + 1
+        x = DONG[i].strip()
+        if doc != "":
+            if doc == "\"\"\"" and x.endswith("\"\"\""):
+                doc = ""
+            if doc == "'''" and x.endswith("'''"):
+                doc = ""
+            i = i + 1
+        else:
+            if x.startswith("\"\"\"") or x.startswith("'''"):
+                if len(x) < 6 or (x.endswith("\"\"\"") == 0 and x.endswith("'''") == 0):
+                    doc = x[0:3]
+                i = i + 1
+            else:
+                if bat_dau_ham(DONG[i]) == 1:
+                    cu = i
+                    chu_ky = bo_chu_thich(DONG[i]).strip()
+                    while ngoac_can_ma(chu_ky) > 0 and cu + 1 < n:
+                        cu = cu + 1
+                        chu_ky = chu_ky + " " + bo_chu_thich(DONG[cu]).strip()
+                    ten = ten_ham(chu_ky)
+                    if ten != "":
+                        FN_TEN.append(ten)
+                        FN_DAU.append(i)
+                        FN_CUOI.append(cu)
+                        FN_SIG_CUOI.append(cu)
+                        FN_RET.append(kieu_tra_ve_chu_ky(chu_ky))
+                        FN_TT.append(0)
+                        FN_THAM_SO.append(chu_ky)
+                        FN_N = FN_N + 1
+                    i = cu
+                i = i + 1
     for k in range(FN_N):
         FN_CUOI[k] = dong_ket_thuoc(k)
     return FN_N
@@ -352,13 +826,13 @@ def so_return_gia_tri(k: "i32") -> "i32":
     i = dau
     while i < cuoi:
         x = DONG[i].strip()
-        if x.startswith("return") and len(x) > 6:
-            if x[6:7] != " " and x[6:7] != "(":
-                i = i + 1
-                continue
-            b = x[6:].strip()
-            if b != "":
-                dem = dem + 1
+        if x.startswith("return"):
+            if len(x) > 6:
+                c = x[6:7]
+                if c == " " or c == "(":
+                    b = x[6:].strip()
+                    if b != "":
+                        dem = dem + 1
         i = i + 1
     return dem
 
@@ -369,6 +843,9 @@ def la_void(k: "i32") -> "i32":
 
 
 def chu_ky_cua(k: "i32") -> "str":
+    s = fn_tham_so_get(k)
+    if s != "":
+        return s
     return DONG[FN_DAU[k]].strip()
 
 
@@ -400,7 +877,7 @@ def doan_method(x: "str") -> "str":
     return ""
 
 
-def kieu_cong(x: "str") -> "str":
+def kieu_cong(x: "str", k_func: "i32") -> "str":
     """`a + b`: str neu mot toan hang la str, con lai theo toan hang so."""
     vt = tach_toan_hang(x)
     if len(vt) == 0:
@@ -409,7 +886,7 @@ def kieu_cong(x: "str") -> "str":
     co_so = 0
     k_so = ""
     for t in vt:
-        kk = doan_bieu_thuc(t)
+        kk = doan_bieu_thuc(t, k_func)
         if kk == "str":
             co_str = 1
         if kk == "i32" or kk == "f64" or kk == "bool":
@@ -426,21 +903,21 @@ def kieu_cong(x: "str") -> "str":
     return ""
 
 
-def kieu_nhan(x: "str") -> "str":
+def kieu_nhan(x: "str", k_func: "i32") -> "str":
     vt = tach_toan_hang(x)
     if len(vt) == 0:
         return ""
     for t in vt:
-        kk = doan_bieu_thuc(t)
+        kk = doan_bieu_thuc(t, k_func)
         if kk == "f64":
             return "f64"
     for t in vt:
-        kk = doan_bieu_thuc(t)
+        kk = doan_bieu_thuc(t, k_func)
         if kk == "i32":
             return "i32"
         if kk == "str":
             return "i32"
-    return ""
+        return ""
 
 
 def tach_toan_hang(x: "str") -> "list[str]":
@@ -474,18 +951,42 @@ def tim_ten(ten: "str") -> "i32":
 
 def kieu_tham_so(k: "i32", ts: "str") -> "str":
     """Kieu cua 1 tham so: chu ky san > mac dinh > ten."""
-    if co_chu_ky(ts) == 1:
-        p = ts.find(":")
-        q = ts.find("=")
-        if q > 0 and q < p:
-            p = q
-        return ts[p + 1:q if q > 0 and q < p else len(ts)].strip().strip("\"")
+    p = vi_tri_hai_cham(ts)
+    if p > 0:
+        q = vi_tri_bang_gan(ts)
+        g = ts[p + 1:] if q < 0 else ts[p + 1:q]
+        return chuan_hoa_kieu(g.strip().strip("\"'"))
     kd = doan_kieu_mac_dinh(ts)
     if kd != "":
         return kd
-    p = ts.find("=")
-    ten = ts[0:p] if p > 0 else ts
+    q = vi_tri_bang_gan(ts)
+    ten = ts if q < 0 else ts[0:q]
     return doan_kieu_ten(ten.strip())
+
+
+def nap_bien_tham_so(k: "i32") -> "i32":
+    """Nap kieu cac tham so cua ham k vao bang bien cuc bo de suy bieu thuc."""
+    bien_cuc_bo_xoa()
+    ds = tach_tham_so(fn_tham_so_get(k))
+    for idx in range(len(ds)):
+        ts = ds[idx]
+        if la_ten(ts[0:1]) == 0:
+            continue
+        p = vi_tri_hai_cham(ts)
+        q = vi_tri_bang_gan(ts)
+        ten = ts
+        if p > 0:
+            ten = ts[0:p]
+        if q > 0 and q < len(ten):
+            ten = ts[0:q]
+        ten = ten.strip()
+        if ten == "self" or ten == "cls":
+            continue
+        kc = kieu_tham_so(k, ts)
+        if kc == "":
+            continue
+        bien_cuc_bo_them(ten, kc)
+    return 0
 
 
 def suy_ve_1(k: "i32") -> "str":
@@ -495,23 +996,27 @@ def suy_ve_1(k: "i32") -> "str":
         return ""                       # da co chu ky, khong can suy
     if chu_ky.rfind(":") <= chu_ky.rfind(")"):
         return ""                       # khong phai he chu ky chuan
+    nap_bien_tham_so(k)
     dau = FN_DAU[k] + 1
     cuoi = FN_CUOI[k]
     co = ""
     i = dau
     while i < cuoi:
         x = DONG[i].strip()
-        if x.startswith("return") and (len(x) == 6 or x[6:7] in (" ", "(")):
-            b = x[6:].strip()
-            if b != "":
-                kk = doan_bieu_thuc(b)
-                if kk == "":
-                    kk = doan_qua_goi(b)
-                if kk != "":
-                    if co == "":
-                        co = kk
-                    elif co != kk:
-                        return ""          # nhieu kieu khac nhau -> bo
+        if x.startswith("return"):
+            if len(x) > 6:
+                c = x[6:7]
+                if c == " " or c == "(":
+                    b = x[6:].strip()
+                    if b != "":
+                        kk = doan_bieu_thuc(b, k)
+                        if kk == "":
+                            kk = doan_qua_goi(b)
+                        if kk != "":
+                            if co == "":
+                                co = kk
+                            elif co != kk:
+                                return ""          # nhieu kieu khac nhau -> bo
         i = i + 1
     return co
 
@@ -567,9 +1072,10 @@ def sua_chu_ky(k: "i32") -> "str":
         if la_ten(ts[0:1]) == 0:
             moi = noi(moi, ts)
             continue
-        p_eq = ts.find("=")
-        ten = ts[0:p_eq] if p_eq > 0 else ts
-        ten = ten.split(":")[0].strip()
+        p_eq = vi_tri_bang_gan(ts)
+        ten = ts if p_eq < 0 else ts[0:p_eq]
+        pc = vi_tri_hai_cham(ten)
+        ten = ten[0:pc].strip() if pc > 0 else ten.strip()
         mac_dinh = ts[p_eq + 1:].strip() if p_eq > 0 else ""
         if ten == "self" or ten == "cls":
             moi = noi(moi, ten)
@@ -598,6 +1104,7 @@ def noi(moi: "str", them: "str") -> "str":
 def ghi() -> "i32":
     global SO_IMPORT_BO
     global SO_DONG_RA
+    global SO_CHUA_DOI
     ra = "# -*- coding: utf-8 -*-\n"
     ra = ra + "# sinh boi py2tkv (TokenVector) tu " + DUONG_VAO + "\n\n"
     n = len(DONG)
@@ -609,20 +1116,27 @@ def ghi() -> "i32":
             SO_DONG_RA = SO_DONG_RA + 1
             # bo phan chu ky con lai (chu ky nhieu dong)
             i = FN_SIG_CUOI[k] + 1
-            # ghi nguyen than ham
+            # doi ten trong than ham, giu nguyen chuoi/chu thich
             while i < FN_CUOI[k]:
-                ra = ra + DONG[i] + "\n"
+                bv = doi_ten(DONG[i], i + 1)
+                bao_fstring_co_the(DONG[i], i + 1)
+                ra = ra + bv + "\n"
                 SO_DONG_RA = SO_DONG_RA + 1
                 i = i + 1
             k = k + 1
         else:
             if la_import(DONG[i]) == 1:
-                SO_IMPORT_BO = SO_IMPORT_BO + 1
+                if indent(DONG[i]) == 0:
+                    SO_IMPORT_BO = SO_IMPORT_BO + 1
+                else:
+                    print("  IMPORT trong ham tai dong " + str(i + 1) + ", can xem tay: " + DONG[i].strip())
+                    SO_CHUA_DOI = SO_CHUA_DOI + 1
             else:
-                d = fold_module(DONG[i])
-                d = doi_ten(d)
-                quet_module_con_lai(d)
-                ra = ra + d + "\n"
+                d0 = DONG[i]
+                d1 = fold_module(d0)
+                d2 = doi_ten(d1, i + 1)
+                bao_fstring_co_the(d0, i + 1)
+                ra = ra + d2 + "\n"
                 SO_DONG_RA = SO_DONG_RA + 1
             i = i + 1
     write_file(DUONG_RA, ra)
@@ -645,6 +1159,7 @@ def quet_import() -> "i32":
             if x.startswith("import ") or x.startswith("from "):
                 print("  IMPORT cap module (dong " + str(i + 1) + "): " + x)
                 SO_IMPORT = SO_IMPORT + 1
+                nho_import(x, i + 1)
         i = i + 1
     return SO_IMPORT
 
@@ -673,22 +1188,87 @@ def nap_map() -> "i32":
     MAP_DEN.append("path_abspath(")
     MAP_TU.append("os.remove(")
     MAP_DEN.append("os_remove(")
+    MAP_TU.append("os.getenv(")
+    MAP_DEN.append("os_getenv(")
+    MAP_TU.append("os.listdir(")
+    MAP_DEN.append("os_list_files(")
+    MAP_TU.append("os.mkdir(")
+    MAP_DEN.append("os_mkdir(")
     MAP_TU.append("sys.argv")
     MAP_DEN.append("sys_argv()")
-    MAP_TU.append("io.open(")
-    MAP_DEN.append("open_tkv(")
-    MAP_TU.append("open(")
-    MAP_DEN.append("open_tkv(")
     return len(MAP_TU)
 
 
-def doi_ten(d: "str") -> "str":
-    """Ap bang chuyen doi cho 1 dong."""
-    ra = d
+MAP_DOC: "str" = ""
+
+
+def ap_bang(hien: "str") -> "str":
+    ra = hien
     i = 0
     while i < len(MAP_TU):
         ra = ra.replace(MAP_TU[i], MAP_DEN[i])
         i = i + 1
+    return ra
+
+
+def doi_ten(d: "str", dong_so: "i32") -> "str":
+    global MAP_DOC
+    global SO_CHUA_DOI
+    ra = ""
+    hien = ""
+    i = 0
+    n = len(d)
+    while i < n:
+        if MAP_DOC != "":
+            m = len(MAP_DOC)
+            if m > 0 and d[i:i + m] == MAP_DOC:
+                ra = ra + MAP_DOC
+                i = i + m
+                MAP_DOC = ""
+            else:
+                ra = ra + d[i:i + 1]
+                i = i + 1
+        else:
+            c = d[i:i + 1]
+            if c == "'" or c == "\"":
+                delim = c
+                if i + 2 < n and d[i:i + 3] == c + c + c:
+                    delim = c + c + c
+                ra = ra + ap_bang(hien)
+                bao_module_trong_ma(hien, dong_so)
+                hien = ""
+                ra = ra + delim
+                i = i + len(delim)
+                while i < n:
+                    if len(delim) == 1 and d[i:i + 1] == "\\":
+                        ra = ra + d[i:i + 1]
+                        if i + 1 < n:
+                            ra = ra + d[i + 1:i + 2]
+                            i = i + 2
+                        else:
+                            i = i + 1
+                    else:
+                        if d[i:i + len(delim)] == delim:
+                            ra = ra + delim
+                            i = i + len(delim)
+                            break
+                        else:
+                            ra = ra + d[i:i + 1]
+                            i = i + 1
+                if i >= n and len(delim) == 3:
+                    MAP_DOC = delim
+            else:
+                if c == "#":
+                    ra = ra + ap_bang(hien)
+                    bao_module_trong_ma(hien, dong_so)
+                    hien = ""
+                    ra = ra + d[i:]
+                    break
+                else:
+                    hien = hien + c
+                    i = i + 1
+    ra = ra + ap_bang(hien)
+    bao_module_trong_ma(hien, dong_so)
     return ra
 
 
@@ -700,42 +1280,110 @@ def la_import(d: "str") -> "i32":
     return 0
 
 
-MODULES: "list[str]" = []
+IMPORTS: "list[str]" = []
 SO_CHUA_DOI: "i32" = 0
 
 
-def quet_module_con_lai(d: "str") -> "i32":
-    """Bao cac module ma BANG CHUA CO quy tac - phai xem tay."""
-    global SO_CHUA_DOI
-    ra = ""
+def da_nhap(m: "str") -> "i32":
     i = 0
-    while i < len(MODULES):
-        m = MODULES[i]
-        if ra == "":
-            ra = m
-        else:
-            ra = ra + "," + m
+    while i < len(IMPORTS):
+        if IMPORTS[i] == m:
+            return 1
         i = i + 1
-    # tim cac module con xuat hien trong dong
+    return 0
+
+
+def them_nhap(m: "str") -> "i32":
+    if m == "":
+        return 0
+    if da_nhap(m) == 1:
+        return 0
+    IMPORTS.append(m)
+    return 1
+
+
+def lay_goc(mod: "str") -> "str":
+    x = mod.strip()
+    while x.startswith("."):
+        x = x[1:]
+    p = x.find(".")
+    if p > 0:
+        return x[:p].strip()
+    return x
+
+
+def nho_import(x: "str", dong_so: "i32") -> "i32":
+    global SO_CHUA_DOI
+    if x.startswith("import "):
+        phan = x[7:].strip()
+        if phan == "":
+            return 0
+        if phan.find("\\") >= 0 or phan.find("(") >= 0 or phan.find(")") >= 0:
+            print("  IMPORT phuc tap tai dong " + str(dong_so) + ", can xem tay: " + x)
+            SO_CHUA_DOI = SO_CHUA_DOI + 1
+            return 0
+        ds = phan.split(",")
+        i = 0
+        while i < len(ds):
+            it = ds[i].strip()
+            if it != "":
+                p = it.find(" as ")
+                goc = it
+                bi_danh = ""
+                if p > 0:
+                    goc = it[:p].strip()
+                    bi_danh = it[p + 4:].strip()
+                goc = lay_goc(goc)
+                if goc != "":
+                    them_nhap(goc)
+                if bi_danh != "" and bi_danh != goc:
+                    print("  IMPORT bi danh tai dong " + str(dong_so) + ", can xem tay: " + x)
+                    SO_CHUA_DOI = SO_CHUA_DOI + 1
+            i = i + 1
+        return 1
+    if x.startswith("from "):
+        print("  FROM tai dong " + str(dong_so) + ", can xem tay: " + x)
+        SO_CHUA_DOI = SO_CHUA_DOI + 1
+        rest = x[5:].strip()
+        p = rest.find(" ")
+        mod = rest
+        if p > 0:
+            mod = rest[:p]
+        goc = lay_goc(mod.strip())
+        if goc != "":
+            them_nhap(goc)
+        return 0
+    return 0
+
+
+def bao_module_trong_ma(hien: "str", dong_so: "i32") -> "i32":
+    global SO_CHUA_DOI
     i = 0
-    while i < len(MODULES):
-        m = MODULES[i]
+    while i < len(IMPORTS):
+        m = IMPORTS[i]
         q = m + "."
-        if d.find(q) >= 0:
-            print("  CHUA QUY TAC: " + q + "  (dong chua doi)")
+        if hien.find(q) >= 0:
+            print("  CHUA QUY TAC tai dong " + str(dong_so) + ": " + q)
             SO_CHUA_DOI = SO_CHUA_DOI + 1
         i = i + 1
     return 0
 
 
-def nap_modules() -> "i32":
-    MODULES.append("subprocess")
-    MODULES.append("re")
-    MODULES.append("ast")
-    MODULES.append("json")
-    MODULES.append("argparse")
-    MODULES.append("shutil")
-    return len(MODULES)
+def bao_fstring_co_the(d: "str", dong_so: "i32") -> "i32":
+    global SO_CHUA_DOI
+    if d.find("f\"") < 0 and d.find("F\"") < 0 and d.find("f'") < 0 and d.find("F'") < 0:
+        return 0
+    if d.find("{") < 0:
+        return 0
+    i = 0
+    while i < len(IMPORTS):
+        m = IMPORTS[i]
+        q = m + "."
+        if d.find(q) >= 0:
+            print("  CHUA QUY TAC trong f-string co the tai dong " + str(dong_so) + ": " + q)
+            SO_CHUA_DOI = SO_CHUA_DOI + 1
+        i = i + 1
+    return 0
 
 
 SO_CHAN_CAU_TRUC: "i32" = 0
@@ -769,6 +1417,7 @@ TEN_DA: "list[str]" = []
 GT_DA: "list[str]" = []
 SO_FOLD: "i32" = 0
 SO_FOLD_HONG: "i32" = 0
+SO_NOI_DONG: "i32" = 0
 
 
 def tach_dau(ten: "str", d: "str") -> "list[str]":
@@ -880,6 +1529,163 @@ def bo_ngoac_doi(x: "str") -> "str":
     return x
 
 
+def bat_dau_liet_lie(x: "str") -> "i32":
+    """1 neu dong la `TEN = <mo ngoac>` - hang so container viet nhieu dong."""
+    if x.find("=") < 0:
+        return 0
+    if x.find("==") > 0 or x.find("!=") > 0:
+        return 0
+    if x.find("<=") > 0 or x.find(">=") > 0:
+        return 0
+    ten = x[0:x.find("=")].strip()
+    if la_ten(ten[0:1]) == 0:
+        return 0
+    g = x[x.find("=") + 1:].strip()
+    if g == "[" or g == "{" or g == "(":
+        return 1
+    return 0
+
+
+def noi_liet_lie_cap_module() -> "i32":
+    """Gop `X = [` ... `]` nhieu dong thanh MOT dong o cap module.
+
+    TokenVector chi nhan hang so cap module viet thang tren mot dong, nen mot
+    list/dict/set literal nhieu dong trong Python phai duoc noi lai truoc khi
+    gan kieu. Khong vao chuoi 3 dau dong va khong vao ham.
+    """
+    global DONG
+    global SO_NOI_DONG
+    ra: "list[str]" = []
+    n = len(DONG)
+    i = 0
+    doc = ""
+    while i < n:
+        d = DONG[i]
+        x = d.strip()
+        if doc != "":
+            ra.append(d)
+            if doc == "\"\"\"" and x.endswith("\"\"\""):
+                doc = ""
+            if doc == "'''" and x.endswith("'''"):
+                doc = ""
+            i = i + 1
+            continue
+        if x.startswith("\"\"\"") or x.startswith("'''"):
+            ra.append(d)
+            if len(x) < 6 or (x.endswith("\"\"\"") == 0 and x.endswith("'''") == 0):
+                doc = x[0:3]
+            i = i + 1
+            continue
+        ghep = 0
+        if indent(d) == 0 and la_import(d) == 0 and bat_dau_liet_lie(x) == 1:
+            ghep = ngoac_can_ma_day(x)
+        if ghep > 0:
+            gop = x
+            j = i + 1
+            while ngoac_can_ma_day(gop) > 0 and j < n:
+                gop = gop + " " + bo_chu_thich(DONG[j]).strip()
+                j = j + 1
+            ra.append(gop)
+            SO_NOI_DONG = SO_NOI_DONG + 1
+            i = j
+            continue
+        ra.append(d)
+        i = i + 1
+    DONG = ra
+    return 0
+
+
+def kieu_phan_tu(noi: "str") -> "str":
+    """Kieu phan tu cua literal container. Rong neu rong hoac khong homhet."""
+    ds = tach_danh_sach_cap0(noi)
+    if len(ds) == 0:
+        return ""
+    kc = ""
+    for idx in range(len(ds)):
+        e = ds[idx].strip()
+        if e == "":
+            continue
+        ke = chuan_hoa_kieu(e)
+        if ke == "":
+            ke = kieu_hang_so_cap_module(e)
+        if ke == "":
+            return ""
+        if kc == "":
+            kc = ke
+        elif kc != ke:
+            return ""
+    return kc
+
+
+def kieu_dict_liet_lie(g: "str") -> "str":
+    """Kieu `dict[K,V]` cho literal `{...}`. Rong neu khong homhet."""
+    ds = tach_danh_sach_cap0(g[1:-1])
+    if len(ds) == 0:
+        return "dict[str,i32]"
+    kk = ""
+    vv = ""
+    for idx in range(len(ds)):
+        e = ds[idx]
+        if e.strip() == "":
+            continue
+        p = vi_tri_hai_cham(e)
+        if p <= 0:
+            return ""
+        kt = chuan_hoa_kieu(e[0:p].strip())
+        if kt == "":
+            kt = kieu_hang_so_cap_module(e[0:p].strip())
+        vt = chuan_hoa_kieu(e[p + 1:].strip())
+        if vt == "":
+            vt = kieu_hang_so_cap_module(e[p + 1:].strip())
+        if kt == "" or vt == "":
+            return ""
+        if kk == "":
+            kk = kt
+            vv = vt
+        elif kk != kt or vv != vt:
+            return ""
+    return "dict[" + kk + "," + vv + "]"
+
+
+def kieu_hang_so_cap_module(g: "str") -> "str":
+    """Kieu cho hang so cap module. Rong neu khong phai literal co the dat.
+
+    TokenVector KHONG ho tro `bool` o cap module (chi i32/i64/f32/f64/str va
+    container), nen `True`/`False` o day phai gan thanh `i32`.
+    """
+    if g == "":
+        return ""
+    if la_so_nguyen(g) == 1:
+        return "i32"
+    if la_so_thuc(g) == 1:
+        return "f64"
+    if la_chuoi(g) == 1:
+        return "str"
+    if g == "True" or g == "False":
+        return "i32"
+    if g.startswith("[") and g.endswith("]"):
+        kc = kieu_phan_tu(g[1:-1])
+        if kc == "":
+            return "list[i32]"
+        return "list[" + kc + "]"
+    if g.startswith("(") and g.endswith(")"):
+        kc = kieu_phan_tu(g[1:-1])
+        if kc == "":
+            return ""
+        return "list[" + kc + "]"
+    if g.startswith("{") and g.endswith("}"):
+        noi = g[1:-1]
+        if noi.strip() == "":
+            return "dict[str,i32]"
+        if vi_tri_hai_cham(noi) > 0:
+            return kieu_dict_liet_lie(g)
+        kc = kieu_phan_tu(noi)
+        if kc == "":
+            return ""
+        return "set[" + kc + "]"
+    return ""
+
+
 def fold_module(d: "str") -> "str":
     """`X = <bieu thuc duong dan>` -> `X: "str" = "<gia tri tinh san>"`.
 
@@ -898,15 +1704,52 @@ def fold_module(d: "str") -> "str":
     ten = x[:p].strip()
     if la_ten(ten[0:1]) == 0:
         return d
-    v = fold_expr(x[p + 1:])
-    if v == "":
-        if x[p + 1:].find("path_") >= 0 or x[p + 1:].find("os.path") >= 0:
+    g = x[p + 1:].strip()
+    v = fold_expr(g)
+    if v != "":
+        SO_FOLD = SO_FOLD + 1
+        TEN_DA.append(ten)
+        GT_DA.append(v)
+        return ten + ": \"str\" = \"" + v + "\""
+    if ten.find(":") > 0:
+        return d                      # da co kieu san - giu nguyen
+    kc = kieu_hang_so_cap_module(g)
+    if kc == "":
+        if g.find("path_") >= 0 or g.find("os.path") >= 0:
             SO_FOLD_HONG = SO_FOLD_HONG + 1
         return d
     SO_FOLD = SO_FOLD + 1
-    TEN_DA.append(ten)
-    GT_DA.append(v)
-    return ten + ": \"str\" = \"" + v + "\""
+    gia = g
+    if g == "True":
+        gia = "1"
+    if g == "False":
+        gia = "0"
+    return ten + ": \"" + kc + "\" = " + gia
+
+
+def can_fold_module(d: "str") -> "i32":
+    """1 neu `fold_module` xu ly duoc dong nay (hoac dong nay khong phai gan).
+
+    Dung de `quet_chan_cau_truc` bao cao DUNG: truoc day no dung `la_hang_so`
+    rieng, nen bao cao nham cho nhung dong `fold_module` xu ly tot.
+    """
+    if indent(d) != 0:
+        return 1
+    x = d.strip()
+    p = x.find("=")
+    if p < 0 or x.find("==") > 0:
+        return 1
+    ten = x[:p].strip()
+    if la_ten(ten[0:1]) == 0:
+        return 1
+    if ten.find(":") > 0:
+        return 1
+    g = x[p + 1:].strip()
+    if fold_expr(g) != "":
+        return 1
+    if kieu_hang_so_cap_module(g) != "":
+        return 1
+    return 0
 
 
 def quet_chan_cau_truc() -> "i32":
@@ -920,15 +1763,28 @@ def quet_chan_cau_truc() -> "i32":
     global SO_CHAN_CAU_TRUC
     n = len(DONG)
     i = 0
+    doc = ""
     while i < n:
         d = DONG[i]
         x = d.strip()
+        if doc != "":
+            if doc == "\"\"\"" and x.endswith("\"\"\""):
+                doc = ""
+            if doc == "'''" and x.endswith("'''"):
+                doc = ""
+            i = i + 1
+            continue
+        if x.startswith("\"\"\"") or x.startswith("'''"):
+            if len(x) < 6 or (x.endswith("\"\"\"") == 0 and x.endswith("'''") == 0):
+                doc = x[0:3]
+            i = i + 1
+            continue
         if la_import(d) == 0 and indent(d) == 0 and x != "":
             if x.find("__file__") >= 0:
                 print("  CHAN: __file__ tai dong " + str(i + 1) + " (TokenVector khong co)")
                 SO_CHAN_CAU_TRUC = SO_CHAN_CAU_TRUC + 1
             if x.find("=") > 0 and x.find("==") < 0 and x.find(":") < 0:
-                if la_ten(x[0:1]) == 1 and la_hang_so(x) == 0:
+                if can_fold_module(d) == 0:
                     print("  CHAN: bien cap module khong co kieu tai dong " + str(i + 1)
                           + ": " + x)
                     SO_CHAN_CAU_TRUC = SO_CHAN_CAU_TRUC + 1
@@ -1028,13 +1884,14 @@ def main() -> "i32":
     global CHI_DO
     global FLAT
     global DONG
+    global MAP_DOC
     tham = sys_argv()
     if len(tham) < 2:
         print("dung: py2tkv.exe <vao.py> <ra.tkv> | --biet | --do")
         print("     py2tkv.exe --flat <ra.tkv> <a.py> <b.py> ...   gop nhieu file")
         return 2
     nap_map()
-    nap_modules()
+    MAP_DOC = ""
     if tham[1] == "--flat":
         FLAT = 1
         if len(tham) < 4:
@@ -1062,6 +1919,7 @@ def main() -> "i32":
             DUONG_RA = tham[2]
         DOC.append(DUONG_VAO)
     DONG = doc_vao()
+    noi_liet_lie_cap_module()
     quet()
     quet_import()
     suy_dich(4)
@@ -1077,7 +1935,8 @@ def main() -> "i32":
         return 0 if SO_BIET == 0 else 1
     bao()
     ghi()
-    print("gap   : " + str(SO_FOLD) + " bien duong dan, " + str(SO_FOLD_HONG) + " khong gap duoc")
+    print("gap   : " + str(SO_FOLD) + " bien duong dan, " + str(SO_FOLD_HONG) + " khong gap duoc, "
+          + str(SO_NOI_DONG) + " liet lie da noi")
     print("ra    : " + DUONG_RA + "  (" + str(SO_DONG_RA) + " dong)")
     return 0
 
