@@ -25,6 +25,7 @@ DUONG_RA: "str" = ""
 CHI_BIET: "i32" = 0
 CHI_DO: "i32" = 0
 FLAT: "i32" = 0
+DUONG_KHAI: "str" = ""
 
 FN_TEN: "list[str]" = []
 FN_DAU: "list[i32]" = []
@@ -98,6 +99,75 @@ def bien_cuc_bo_lay(ten: "str") -> "str":
 # file ra nen phai ton tai qua ca hai lan quet.
 BIEN_RONG: "str" = ";"
 K_HIEN_TAI: "i32" = -1
+
+# Khai bao kieu thu cong cho cho tool KHONG suy duoc. Moi dong co dang
+#   ten_ham -> kieu
+#   ten_ham.ten_tham_so -> kieu
+#   __ten_tham_so -> kieu          (ap dung cho moi ham)
+DONG_KHAI: "list[str]" = []
+SO_KHAI_DUNG: "i32" = 0
+
+
+def khai_doc(dong: "str") -> "str":
+    """Khoa ben trai cua dong khai `a.b -> str`; "" neu khong phai khai."""
+    x = bo_chu_thich(dong).strip()
+    if x == "" or x.startswith("#"):
+        return ""
+    p = x.rfind("->")
+    if p < 0:
+        return ""
+    return x[0:p].strip()
+
+
+def khai_kieu(dong: "str") -> "str":
+    x = bo_chu_thich(dong).strip()
+    p = x.rfind("->")
+    if p < 0:
+        return ""
+    return chuan_hoa_kieu(x[p + 2:].strip().strip("\"'"))
+
+
+def khai_tim(khoa: "str") -> "str":
+    """Kieu da khai cho `khoa` (co the la `ham` hoac `ham.tham_so`)."""
+    ra = ""
+    for idx in range(len(DONG_KHAI)):
+        if khai_doc(DONG_KHAI[idx]) == khoa:
+            ra = khai_kieu(DONG_KHAI[idx])
+    if ra != "":
+        return ra
+    return ""
+
+
+def khai_tham_so(ten_ham: "str", ten_ts: "str") -> "str":
+    """Kieu da khai cho tham so `ten_ts` cua ham `ten_ham`."""
+    kc = khai_tim(ten_ham + "." + ten_ts)
+    if kc != "":
+        return kc
+    return khai_tim("__" + ten_ts)
+
+
+def kieu_tra_ve_chi_dinh(ten_ham: "str", chu_ky: "str") -> "str":
+    """Kieu tra ve: chu ky san > khai thu cong. Rong neu ca hai deu rong."""
+    kr = kieu_tra_ve_chu_ky(chu_ky)
+    if kr != "":
+        return kr
+    return khai_tim(ten_ham)
+
+
+def nap_khai(duong: "str") -> "i32":
+    """Doc file khai kieu thu cong. File khong ton tai -> khong co gi."""
+    if path_exists(duong) == 0:
+        return 0
+    noi = read_file(duong)
+    noi = noi.replace("\r\n", "\n")
+    noi = noi.replace("\r", "\n")
+    d = tach_dong(noi)
+    i = 0
+    while i < len(d):
+        if khai_doc(d[i]) != "":
+            DONG_KHAI.append(d[i])
+        i = i + 1
+    return len(DONG_KHAI)
 
 
 def them_bien_rong(k: "i32", ten: "str", kc: "str") -> "i32":
@@ -854,7 +924,7 @@ def quet() -> "i32":
                         FN_DAU.append(i)
                         FN_CUOI.append(cu)
                         FN_SIG_CUOI.append(cu)
-                        FN_RET.append(kieu_tra_ve_chu_ky(chu_ky))
+                        FN_RET.append(kieu_tra_ve_chi_dinh(ten, chu_ky))
                         FN_TT.append(0)
                         FN_THAM_SO.append(chu_ky)
                         FN_N = FN_N + 1
@@ -1126,6 +1196,8 @@ def nap_bien_tham_so(k: "i32") -> "i32":
         if kc == "":
             kc = kieu_ten_tham_so(k, ten)
         if kc == "":
+            kc = khai_tham_so(FN_TEN[k], ten)
+        if kc == "":
             continue
         bien_cuc_bo_them(ten, kc)
     nap_bien_trong_than(k)
@@ -1271,6 +1343,8 @@ def sua_chu_ky(k: "i32") -> "str":
         kc = kieu_tham_so(k, ts)
         if kc == "":
             kc = kieu_ten_tham_so(k, ten)
+        if kc == "":
+            kc = khai_tham_so(FN_TEN[k], ten)
         if kc == "":
             # KHONG DOAN kieu tham so. Giu nguyen `ten = mac_dinh` va bao cao.
             moi = noi(moi, ts)
@@ -2305,6 +2379,9 @@ def main() -> "i32":
                 CHI_BIET = 1
             if tham[i] == "--do":
                 CHI_DO = 1
+            if tham[i] == "--khai" and i + 1 < len(tham):
+                DUONG_KHAI = tham[i + 1]
+                i = i + 1
             i = i + 1
         if CHI_BIET == 0 and CHI_DO == 0:
             if len(tham) < 3:
@@ -2312,6 +2389,7 @@ def main() -> "i32":
                 return 2
             DUONG_RA = tham[2]
         DOC.append(DUONG_VAO)
+    nap_khai(DUONG_KHAI)
     DONG = doc_vao()
     noi_dong_tieu()
     goi_vao_main()
