@@ -728,9 +728,29 @@ def doan_bieu_thuc(e: "str", k_func: "i32") -> "str":
         return "bool"
     if x.find(">=") > 0 or x.find("<=") > 0:
         return "bool"
+    if x.find(" is not ") > 0 or x.find(" is None") > 0:
+        return "bool"
+    if x.find(" is ") > 0:
+        return "bool"
+    # `A if C else B` - chi tra ve kieu khi A va B cung kieu.
+    if x.startswith("lambda") == 0:
+        p = x.find(" if ")
+        q = x.rfind(" else ")
+        if p > 0 and q > p:
+            ka = doan_bieu_thuc(x[0:p].strip(), k_func)
+            kb = doan_bieu_thuc(x[q + 6:].strip(), k_func)
+            if ka != "" and ka == kb:
+                return ka
+            return ""
+    if x.find(">") > 0 or x.find("<") > 0:
+        return "bool"
     if x.find(" in ") > 0:
         return "bool"
     if x.find(" not in ") > 0:
+        return "bool"
+    if x.find(" is not ") > 0 or x.find(" is None") > 0:
+        return "bool"
+    if x.find(" is ") > 0:
         return "bool"
     if x.find("+") > 0:
         # KHONG doan "`a + b` la str" - a + b cua hai so la i32/f64. Chi noi
@@ -986,6 +1006,51 @@ def nap_bien_tham_so(k: "i32") -> "i32":
         if kc == "":
             continue
         bien_cuc_bo_them(ten, kc)
+    nap_bien_trong_than(k)
+    return 0
+
+
+def ten_sach(s: "str") -> "i32":
+    """1 neu `s` chi la mot TEN hop le (khong phai `a + b`, `a.b`, `a[0]`)."""
+    if s == "":
+        return 0
+    if la_ten(s[0:1]) == 0:
+        return 0
+    i = 1
+    while i < len(s):
+        if la_ten(s[i:i + 1]) == 0:
+            return 0
+        i = i + 1
+    return 1
+
+
+def nap_bien_trong_than(k: "i32") -> "i32":
+    """Nap kieu bien cuc bo gan trong than ham k (vd `out = ""` -> str).
+
+    KHONG doan container rong (`[]`, `{}`) vi khong biet phan tu la gi. Lap
+    vai vong vi thu tu gan trong than co quyen nhau.
+    """
+    vong = 0
+    while vong < 4:
+        vong = vong + 1
+        them = 0
+        i = FN_DAU[k] + 1
+        while i < FN_CUOI[k]:
+            x = bo_chu_thich(DONG[i]).strip()
+            q = vi_tri_bang_gan(x)
+            if q > 0:
+                ten = x[0:q].strip()
+                if ten_sach(ten) == 1 and ten.find(".") < 0:
+                    if bien_cuc_bo_lay(ten) == "":
+                        g = x[q + 1:].strip()
+                        if g != "[]" and g != "{}":
+                            kc = doan_bieu_thuc(g, k)
+                            if kc != "":
+                                bien_cuc_bo_them(ten, kc)
+                                them = them + 1
+            i = i + 1
+        if them == 0:
+            break
     return 0
 
 
@@ -1928,12 +1993,12 @@ def main() -> "i32":
     print("ham   : " + str(FN_N) + "   import cap module: " + str(SO_IMPORT)
           + "   chan cau truc: " + str(SO_CHAN_CAU_TRUC))
     quet_chan_cau_truc()
+    bao()
     if CHI_DO == 1:
         return 0
     if CHI_BIET == 1:
         print("chua suy: " + str(SO_BIET))
         return 0 if SO_BIET == 0 else 1
-    bao()
     ghi()
     print("gap   : " + str(SO_FOLD) + " bien duong dan, " + str(SO_FOLD_HONG) + " khong gap duoc, "
           + str(SO_NOI_DONG) + " liet lie da noi")
