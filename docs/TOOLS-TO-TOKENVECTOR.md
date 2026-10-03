@@ -51,6 +51,38 @@ còn hàm chưa suy được            : 14
 .tkv sinh ra BIÊN DỊCH ĐƯỢC     :  0 / 21     <-- xem dưới
 ```
 
+## Đo thời gian trong TokenVector — CÓ, dùng hệ `datetime*`
+
+Đừng kết luận "không đo được giờ" chỉ vì một cái tên không tồn tại. TokenVector
+**đo được thời gian trong tiến trình**:
+
+```python
+def do_gio() -> "i64":
+    return datetime_ticks(datetime())
+
+def main() -> "i32":
+    a = do_gio()
+    thread_sleep(300)
+    b = do_gio()
+    print(str(b - a))          # don vị tick
+```
+
+Kiểm chứng: `thread_sleep(300)` cho chênh lệch ~3.170.000 tick ≈ 0,317 s, tức
+**10⁷ tick/giây** (chuẩn .NET, 100 ns/tick). Đo ổn định qua nhiều lần chạy.
+
+Danh mục liên quan ở `REFERENCE.md` §2: `datetime()` (0 tham số = UtcNow),
+`datetime_ticks(d)`, `datetime_diff(d1, d2)`, `datetime_add`, `datetime_sub`,
+`datetime_strptime`, `thread_sleep(ms)`.
+
+**Hai cái bẫy khi dò tên hàm:**
+
+1. Gọi **không tham số** cho hàm cần tham số sẽ báo *"không tồn tại"* — đó là sai
+   số tham số, không phải thiếu hàm. `thread_sleep()` (0 tham số) báo thiếu,
+   `thread_sleep(300)` thì có. Kết luận "không có hàm đo giờ" là sai vì lý do này.
+2. Đừng bịa tên rồi thử. Tôi từng viết `thoi_gian()` rồi kết luận TokenVector
+   không đo được giờ — `thoi_gian` là tên tôi tự đặt, không phải builtin.
+   Cách đúng: tra `REFERENCE.md` §2, hoặc probe với tên có thật.
+
 ## Vì sao 0/21 — và đó là phát hiện quan trọng nhất
 
 Gần như mọi lỗi đều **giống hệt nhau**:
