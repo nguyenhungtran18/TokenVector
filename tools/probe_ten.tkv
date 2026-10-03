@@ -1,0 +1,153 @@
+# -*- coding: utf-8 -*-
+"""Probe xem 1 TEN co ton tai trong TokenVector khong.
+
+Phan biet 2 loai loi - day la mau soan:
+  - `ham 'X' khong ton tai` / `khong tim thay ham`  -> X KHONG ton tai
+  - loi ve SO THAM SO                              -> X TON TAI (chi sai arity)
+
+Dung 1 build cho moi ten: `v = X("a")` chay duoc voi da so ham; ham can
+khac so tham so se bao loi arity - van ket luan "co ton tai".
+
+KHAC VOI ban Python (`tools/probe_name_exists.py` cu):
+  * goi `dist\tkvc-tv.exe` - compiler TokenVector THAT - bang CLI vi tri
+    `<nguon> <ra.exe> <entry>`, khong phai compiler bootstrap Python
+  * TokenVector co `read_file`/`write_file` nen khong can `io`. Ghi chu:
+    REFERENCE.md muc 2 van liet ke `path_read_text` va `path_write_text`,
+    nhung hai ham do CHUA duoc dang ky that - compiler tu choi. Xem
+    `docs/TOOLS-TO-TOKENVECTOR.md`
+  * `subprocess.run` -> `proc_run`, output con bat bang redirect `> file`
+  * tuple `MISS_MARKERS` -> `list` (TokenVector khong co tuple literal)
+  * TokenVector KHONG co `os.makedirs`; thay bang `cmd.exe /c mkdir`
+
+Dung:  probe_ten.exe <ten.txt>
+"""
+TKVC: "str" = "dist\\tkvc-tv.exe"
+WORK: "str" = "build\\probe"
+LOG: "str" = "build\\probe\\log.txt"
+
+MARKERS: "list[str]" = []
+
+
+def nap_markers() -> "i32":
+    """Nap danh sach loi 'khong ton tai'. Tuong duong tuple Python cu."""
+    MARKERS.append("khong ton tai")
+    MARKERS.append("khong tim thay ham")
+    MARKERS.append("khong phai ham toan hoc")
+    MARKERS.append("khong ton tai trong compiler")
+    MARKERS.append("chua duoc khai bao")
+    MARKERS.append("khong phai builtin")
+    return len(MARKERS)
+
+
+def co_marker(blob: "str") -> "i32":
+    """1 neu blob chua mot trong cac loi 'khong ton tai'."""
+    thap = blob.lower()
+    i = 0
+    while i < len(MARKERS):
+        if thap.find(MARKERS[i]) >= 0:
+            return 1
+        i = i + 1
+    return 0
+
+
+def tao_nguon(ten: "str") -> "str":
+    """Ghi file nguon probe va tra ve duong dan."""
+    p = path_join(WORK, "p_" + ten + ".tkv")
+    src = "# -*- coding: utf-8 -*-\n"
+    src = src + "def run() -> \"i32\":\n"
+    src = src + "    v = " + ten + "(\"a\")\n"
+    src = src + "    print(str(v))\n"
+    src = src + "    return 0\n"
+    write_file(p, src)
+    return p
+
+
+def probe(ten: "str") -> "str":
+    """'EXISTS' | 'MISSING' | 'OTHER' cho ten da cho."""
+    nguon = tao_nguon(ten)
+    ra = path_join(WORK, "p_" + ten + ".exe")
+    if path_exists(ra):
+        os_remove(ra)
+    # proc_run thua ke stdout, nen phai redirect vao file roi doc lai
+    cmd = TKVC + " \"" + nguon + "\" \"" + ra + "\" run > \"" + LOG + "\" 2>&1"
+    proc_run("cmd.exe", "/c " + cmd)
+    if path_exists(ra):
+        return "EXISTS"
+    if path_exists(LOG) == 0:
+        return "OTHER"
+    blob = read_file(LOG)
+    if co_marker(blob) == 1:
+        return "MISSING"
+    # Khong khop loi "khong ton tai": hoac la loi arity (co ton tai), hoac la
+    # loi bien dich khac do lenh goi sai. Ca hai deu khong phai "thieu ham".
+    return "OTHER"
+
+
+def in_nhom(tieu_de: "str", ds: "list[str]") -> "i32":
+    print("")
+    print(tieu_de + " (" + str(len(ds)) + "):")
+    i = 0
+    while i < len(ds):
+        hang = ""
+        j = 0
+        while j < 6 and i + j < len(ds):
+            hang = hang + ds[i + j] + "    "
+            j = j + 1
+        print("   " + hang)
+        i = i + 6
+    return 0
+
+
+def tach_ten(noidung: "str") -> "list[str]":
+    ra: "list[str]" = []
+    dong = noidung.split("\n")
+    i = 0
+    while i < len(dong):
+        # Giu vao bien rieng: TokenVector TU CHOI lát cắt ben trong subscript
+        # long (`dong[i][j:j+1]`), du `dong[i][j]` thi duoc.
+        hang = dong[i]
+        hien = ""
+        j = 0
+        while j < len(hang):
+            c = hang[j:j + 1]
+            if c == " " or c == "\t" or c == "\r":
+                if hien != "":
+                    ra.append(hien)
+                    hien = ""
+            else:
+                hien = hien + c
+            j = j + 1
+        if hien != "":
+            ra.append(hien)
+        i = i + 1
+    return ra
+
+
+def main() -> "i32":
+    tham = sys_argv()
+    if len(tham) < 2:
+        print("dung: probe_ten.exe <ten.txt>")
+        return 2
+    nap_markers()
+    proc_run("cmd.exe", "/c mkdir \"" + WORK + "\" 2>nul")
+    ten = tach_ten(read_file(tham[1]))
+    print("probe " + str(len(ten)) + " ten bang " + TKVC)
+    ton_tai: "list[str]" = []
+    thieu: "list[str]" = []
+    khac: "list[str]" = []
+    i = 0
+    while i < len(ten):
+        r = probe(ten[i])
+        if r == "EXISTS":
+            ton_tai.append(ten[i])
+        if r == "MISSING":
+            thieu.append(ten[i])
+        if r == "OTHER":
+            khac.append(ten[i])
+        if (i + 1) % 10 == 0:
+            print("  ..." + str(i + 1) + "/" + str(len(ten)))
+        i = i + 1
+    in_nhom("TON TAI (probe xac nhan)", ton_tai)
+    in_nhom("THIEU - compiler bao \"khong ton tai\"", thieu)
+    in_nhom("LOI KHAC (khong ket luan duoc - can xem tay)", khac)
+    return 0

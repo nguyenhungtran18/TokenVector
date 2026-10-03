@@ -116,3 +116,67 @@ Còn lại (Python, theo thứ tự nên chuyển):
 
 Bước kế: `proc_ra` cho phép chạy tiến trình con, đó là mấu chốt để parity probe
 và benchmark chuyển sang TokenVector mà vẫn so được với CPython.
+
+---
+
+# Công cụ đầu tiên đã chuyển xong: `tools/probe_ten.tkv`
+
+Bản Python `tools/probe_name_exists.py` (76 dòng) → `tools/probe_ten.tkv`
+(~160 dòng TokenVector), **biên dịch và chạy thật**: `build/probe_ten.exe` 16 KB.
+
+## Bốn khác biệt bắt buộc khi chuyển
+
+| Python | TokenVector |
+|---|---|
+| `import os, io, sys, subprocess` | không có; dùng builtin `path_*`, `read_file`, `write_file`, `sys_argv` |
+| `subprocess.run(..., capture_output=True)` | `proc_run` — **thừa kế stdout**, phải redirect `> file` rồi `read_file` |
+| `os.makedirs(WORK)` | **không có** `path_mkdir` → `proc_run("cmd.exe", "/c mkdir ...")` |
+| `MISS_MARKERS = (...)` | tuple literal **không tồn tại** → `list` + `append` |
+| `TKVC = dist/tkvc.exe build --out --entry` | `dist/tkvc-tv.exe <nguon> <ra> <entry>` (CLI vị trí, compiler **thật**) |
+
+## Ba giới hạn TokenVector gặp phải (đều đã kiểm bằng probe, không đoán)
+
+1. **Lát cắt trong subscript lồng bị từ chối.** `dong[i][j:j+1]` → lỗi
+   `ky vong ']', gap ':'`. Còn `dong[i][j]` thì được. Sửa: gán `hang = dong[i]`
+   trước rồi cắt trên `hang`.
+2. **`path_read_text` / `path_write_text` được liệt kê trong `REFERENCE.md` §2
+   nhưng CHƯA đăng ký thật** → `read_file` / `write_file`.
+3. **Hàm phải định nghĩa trước khi dùng.** `nap_markers()` gọi `MARKERS_n()`
+   định nghĩa sau → `ham 'MARKERS_n' khong ton tai`.
+
+Ngoài ra: chú thích nằm lệch thụt so với lệnh sau sẽ phá IND/DED của lexer.
+
+## Tool này đã tìm ra sai lệch thật trong tài liệu
+
+Chạy nó lên **173 tên builtin** mà `REFERENCE.md` §7 liệt kê:
+
+```
+TON TAI (probe xac nhan)          :  40
+THIEU - compiler bao "khong ton tai": 76
+```
+
+Kiểm chứng trực tiếp 4 tên bị báo thiếu:
+
+```
+format(3.14159, ".2f")  -> khong ton tai
+int64(5)                -> khong ton tai
+path_stem("a.txt")      -> khong ton tai
+hash("a")               -> khong ton tai
+len("a")                -> TON TAI
+```
+
+Nghĩa là **`REFERENCE.md` §7 liệt kê 173 tên nhưng ít nhất 76 tên không được
+đăng ký thật** — kể cả `format` và `int64` mà `CLAUDE.md` khẳng định là hoạt
+động. Tài liệu sai ở đúng chỗ mà cổng `gen_builtin_ref.py --check` không soi:
+cổng đó so tên trong tài liệu với tên đã đăng ký theo **chiều một** (thiếu thì
+báo), nên tên liệt kê thừa vẫn lọt.
+
+Lưu ý về phương pháp: probe gọi `v = X("a")`, nên **tên là method** (`split`,
+`lower`, `join`…) sẽ ra THIỀU một cách **đúng** — chúng không phải hàm độc lập.
+Giới hạn này thừa kế từ bản Python gốc.
+
+## Đề xuất
+
+Sửa `gen_builtin_ref.py --check` để kiểm **chiều hai**: mọi tên liệt kê trong
+§7 phải được probe xác nhận là tồn tại. Đó chính là `probe_ten.exe` — và nó
+đã viết bằng TokenVector.
