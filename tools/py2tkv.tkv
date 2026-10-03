@@ -24,6 +24,7 @@ DUONG_VAO: "str" = ""
 DUONG_RA: "str" = ""
 CHI_BIET: "i32" = 0
 CHI_DO: "i32" = 0
+FLAT: "i32" = 0
 
 FN_TEN: "list[str]" = []
 FN_DAU: "list[i32]" = []
@@ -41,6 +42,9 @@ SO_LOI: "i32" = 0
 SO_IMPORT: "i32" = 0
 SO_DONG_RA: "i32" = 0
 CHU_KY_MOI: "list[str]" = []
+MAP_TU: "list[str]" = []
+MAP_DEN: "list[str]" = []
+SO_IMPORT_BO: "i32" = 0
 
 
 # ---------------------------------------------------------------- tien ich
@@ -592,6 +596,7 @@ def noi(moi: "str", them: "str") -> "str":
 
 
 def ghi() -> "i32":
+    global SO_IMPORT_BO
     global SO_DONG_RA
     ra = "# -*- coding: utf-8 -*-\n"
     ra = ra + "# sinh boi py2tkv (TokenVector) tu " + DUONG_VAO + "\n\n"
@@ -611,9 +616,14 @@ def ghi() -> "i32":
                 i = i + 1
             k = k + 1
         else:
-            ra = ra + DONG[i] + "\n"
-            SO_DONG_RA = SO_DONG_RA + 1
-            i = i + 1
+              if la_import(DONG[i]) == 1:
+                  SO_IMPORT_BO = SO_IMPORT_BO + 1
+              else:
+                  d = doi_ten(DONG[i])
+                  quet_module_con_lai(d)
+                  ra = ra + d + "\n"
+                  SO_DONG_RA = SO_DONG_RA + 1
+              i = i + 1
     write_file(DUONG_RA, ra)
     return 0
 
@@ -638,6 +648,148 @@ def quet_import() -> "i32":
     return SO_IMPORT
 
 
+def nap_map() -> "i32":
+    """BANG chuyen doi choi goi Python -> builtin TokenVector.
+
+    Day la phan giai quyet bai toan CHAN CHINH: `import` cap module khong duoc
+    phep trong mot file TokenVector (phai `__tkv_import__` + noi nguon lai).
+    Voi cac module chuan da co san trong compiler, cach dung nhat la CHI
+    DUNG lai: xoa dong import, doi ten choi goi sang builtin tuong duong.
+    """
+    MAP_TU.append("os.path.join(")
+    MAP_DEN.append("path_join(")
+    MAP_TU.append("os.path.exists(")
+    MAP_DEN.append("path_exists(")
+    MAP_TU.append("os.path.isfile(")
+    MAP_DEN.append("path_isfile(")
+    MAP_TU.append("os.path.isdir(")
+    MAP_DEN.append("path_isdir(")
+    MAP_TU.append("os.path.basename(")
+    MAP_DEN.append("path_basename(")
+    MAP_TU.append("os.path.dirname(")
+    MAP_DEN.append("path_dirname(")
+    MAP_TU.append("os.path.abspath(")
+    MAP_DEN.append("path_abspath(")
+    MAP_TU.append("os.remove(")
+    MAP_DEN.append("os_remove(")
+    MAP_TU.append("sys.argv")
+    MAP_DEN.append("sys_argv()")
+    MAP_TU.append("io.open(")
+    MAP_DEN.append("open_tkv(")
+    MAP_TU.append("open(")
+    MAP_DEN.append("open_tkv(")
+    return len(MAP_TU)
+
+
+def doi_ten(d: "str") -> "str":
+    """Ap bang chuyen doi cho 1 dong."""
+    ra = d
+    i = 0
+    while i < len(MAP_TU):
+        ra = ra.replace(MAP_TU[i], MAP_DEN[i])
+        i = i + 1
+    return ra
+
+
+def la_import(d: "str") -> "i32":
+    """Dong import cap module - TokenVector tu choi, phai bo hoac ghi __tkv_import__."""
+    x = d.strip()
+    if x.startswith("import ") or x.startswith("from "):
+        return 1
+    return 0
+
+
+MODULES: "list[str]" = []
+SO_CHUA_DOI: "i32" = 0
+
+
+def quet_module_con_lai(d: "str") -> "i32":
+    """Bao cac module ma BANG CHUA CO quy tac - phai xem tay."""
+    global SO_CHUA_DOI
+    ra = ""
+    i = 0
+    while i < len(MODULES):
+        m = MODULES[i]
+        if ra == "":
+            ra = m
+        else:
+            ra = ra + "," + m
+        i = i + 1
+    # tim cac module con xuat hien trong dong
+    i = 0
+    while i < len(MODULES):
+        m = MODULES[i]
+        q = m + "."
+        if d.find(q) >= 0:
+            print("  CHUA QUY TAC: " + q + "  (dong chua doi)")
+            SO_CHUA_DOI = SO_CHUA_DOI + 1
+        i = i + 1
+    return 0
+
+
+def nap_modules() -> "i32":
+    MODULES.append("subprocess")
+    MODULES.append("re")
+    MODULES.append("ast")
+    MODULES.append("json")
+    MODULES.append("argparse")
+    MODULES.append("shutil")
+    return len(MODULES)
+
+
+SO_CHAN_CAU_TRUC: "i32" = 0
+
+
+def la_hang_so(x: "str") -> "i32":
+    """1 neu phan ben phai cua `=` la HANG SO don gian - TokenVector cho phep.
+
+    Cho phep: so, chuoi, `[]`, `{}`, `True`/`False`. KHONG cho phep: goi ham,
+    bien khac - do la thu ton tai de tinh ra gia tri o cap module.
+    """
+    p = x.find("=")
+    if p < 0:
+        return 1
+    d = x[p + 1:].strip()
+    if d == "":
+        return 0
+    if la_so_nguyen(d) == 1 or la_so_thuc(d) == 1:
+        return 1
+    if la_chuoi(d) == 1:
+        return 1
+    if d == "[]" or d == "{}":
+        return 1
+    if d == "True" or d == "False":
+        return 1
+    return 0
+
+
+def quet_chan_cau_truc() -> "i32":
+    """Bao cac thu TokenVector KHONG cho phep o cap module - phai sua tay.
+
+    1. `X = <bieu thuc>` o cap module: chi HANG SO don gian moi hop le.
+       `ROOT = os.path.dirname(...)` bi tu choi.
+    2. `__file__`: TokenVector khong co.
+    Day la ly do con lai mot .py KHONG bien dich duoc du da bo import.
+    """
+    global SO_CHAN_CAU_TRUC
+    n = len(DONG)
+    i = 0
+    while i < n:
+        d = DONG[i]
+        x = d.strip()
+        if la_import(d) == 0 and indent(d) == 0 and x != "":
+            if x.find("__file__") >= 0:
+                print("  CHAN: __file__ tai dong " + str(i + 1) + " (TokenVector khong co)")
+                SO_CHAN_CAU_TRUC = SO_CHAN_CAU_TRUC + 1
+            if x.find("=") > 0 and x.find("==") < 0 and x.find(":") < 0:
+                if la_ten(x[0:1]) == 1 and la_hang_so(x) == 0:
+                    print("  CHAN: bien cap module khong co kieu tai dong " + str(i + 1)
+                          + ": " + x)
+                    SO_CHAN_CAU_TRUC = SO_CHAN_CAU_TRUC + 1
+        i = i + 1
+    return SO_CHAN_CAU_TRUC
+
+
 def bao() -> "i32":
     global SO_THAO
     global SO_BIET
@@ -659,15 +811,50 @@ def bao() -> "i32":
     return 0
 
 
-def doc_vao() -> "i32":
-    global DONG
+DOC: "list[str]" = []
+SO_GOP: "i32" = 0
+
+
+def doc_vao() -> "list[str]":
+    """Doc MOT hoac NHIEU file .py vao mot danh sach dong, tra ve danh sach do.
+
+    Che do `--flat` gop nhieu file: day la cach giai quyet bai toan CHAN CHINH
+    khi chuyen tool - `import gen_builtin_ref` tro than mot lenh goi, nguon
+    thi phai noi vao cung mot file TokenVector.
+
+    KHONG dung `global DONG`: compiler chi cho phep `global` voi gan don gian
+    (`x = expr`), khong cho gan literal `[]`.
+    """
     global SO_DONG_VA
-    src = read_file(DUONG_VAO)
-    src = src.replace("\r\n", "\n")
-    src = src.replace("\r", "\n")
-    DONG = tach_dong(src)
-    SO_DONG_VA = len(DONG)
-    return 0
+    global SO_GOP
+    ra: "list[str]" = []
+    i = 0
+    while i < len(DOC):
+        p = DOC[i]
+        src = read_file(p)
+        src = src.replace("\r\n", "\n")
+        src = src.replace("\r", "\n")
+        d = tach_dong(src)
+        k = 0
+        if i > 0:
+            ra.append("# --- gop tu: " + p + " ---")
+        while k < len(d):
+            goc = d[k]
+            x = goc.strip()
+            if la_import(goc) == 1:
+                ra.append("# da bo: " + x)
+                SO_GOP = SO_GOP + 1
+                k = k + 1
+                continue
+            if x.startswith("__tkv_"):
+                ra.append("# da bo: " + x)
+                k = k + 1
+                continue
+            ra.append(goc)
+            k = k + 1
+        i = i + 1
+    SO_DONG_VA = len(ra)
+    return ra
 
 
 def tach_dong(src: "str") -> "list[str]":
@@ -693,30 +880,51 @@ def main() -> "i32":
     global DUONG_RA
     global CHI_BIET
     global CHI_DO
+    global FLAT
+    global DONG
     tham = sys_argv()
     if len(tham) < 2:
         print("dung: py2tkv.exe <vao.py> <ra.tkv> | --biet | --do")
+        print("     py2tkv.exe --flat <ra.tkv> <a.py> <b.py> ...   gop nhieu file")
         return 2
-    DUONG_VAO = tham[1]
-    i = 2
-    while i < len(tham):
-        if tham[i] == "--biet":
-            CHI_BIET = 1
-        if tham[i] == "--do":
-            CHI_DO = 1
-        i = i + 1
-    if CHI_BIET == 0 and CHI_DO == 0:
-        if len(tham) < 3:
-            print("dung: py2tkv.exe <vao.py> <ra.tkv> | --biet | --do")
+    nap_map()
+    nap_modules()
+    if tham[1] == "--flat":
+        FLAT = 1
+        if len(tham) < 4:
+            print("dung: py2tkv.exe --flat <ra.tkv> <a.py> <b.py> ...")
             return 2
         DUONG_RA = tham[2]
-    doc_vao()
+        i = 3
+        while i < len(tham):
+            DOC.append(tham[i])
+            i = i + 1
+        DUONG_VAO = tham[3]
+    else:
+        DUONG_VAO = tham[1]
+        i = 2
+        while i < len(tham):
+            if tham[i] == "--biet":
+                CHI_BIET = 1
+            if tham[i] == "--do":
+                CHI_DO = 1
+            i = i + 1
+        if CHI_BIET == 0 and CHI_DO == 0:
+            if len(tham) < 3:
+                print("dung: py2tkv.exe <vao.py> <ra.tkv> | --biet | --do")
+                return 2
+            DUONG_RA = tham[2]
+        DOC.append(DUONG_VAO)
+    DONG = doc_vao()
     quet()
     quet_import()
     suy_dich(4)
-    print("vao   : " + DUONG_VAO + "  (" + str(SO_DONG_VA) + " dong)")
-    print("ham   : " + str(FN_N) + "   import cap module: " + str(SO_IMPORT))
+    print("vao   : " + DUONG_VAO + "  (" + str(SO_DONG_VA) + " dong, "
+          + str(len(DOC)) + " file, bo " + str(SO_GOP) + " dong import)")
+    print("ham   : " + str(FN_N) + "   import cap module: " + str(SO_IMPORT)
+          + "   chan cau truc: " + str(SO_CHAN_CAU_TRUC))
     bao()
+    quet_chan_cau_truc()
     if CHI_DO == 1:
         return 0
     if CHI_BIET == 1:

@@ -72,10 +72,85 @@ IMPORT cap module (dong 25): import sys
 ```
 
 **Chuyển công cụ Python sang TokenVector phần lớn là bài toán GỘP IMPORT, không
-phải bài toán chú ký kiểu.** Chỉ 2/21 lỗi là thiếu chú ký (`sorted_keys`, `load`).
+phải bài toán chú ký kiểu.** Chỉ 2/21 lỗi là thiếu chú ký.
 
 `py2tkv` giữ nguyên nội dung và báo cáo cả hai loại vướng, nhưng **chưa** gộp
 import — việc đó cần nghĩ lại cấu trúc từng công cụ.
+
+## Phiên bản 2: bỏ import + đổi chỗ gọi sang builtin
+
+Thêm bảng chuyển đổi Python → builtin, và **xoá hẳn** dòng `import` cấp module:
+
+| Python | TokenVector |
+|---|---|
+| `os.path.join(` | `path_join(` |
+| `os.path.exists(` / `isfile(` / `isdir(` | `path_exists(` / `path_isfile(` / `path_isdir(` |
+| `os.path.basename(` / `dirname(` / `abspath(` | `path_basename(` / `path_dirname(` / `path_abspath(` |
+| `os.remove(` | `os_remove(` |
+| `sys.argv` | `sys_argv()` |
+
+Chạy lại: `tkvdev.py` giờ **không còn dòng import nào**, và
+`os.path.dirname(os.path.dirname(os.path.abspath(__file__)))` đã thành
+`path_dirname(path_dirname(path_abspath(__file__)))`.
+
+## Ràng buộc còn lại — không tự động được
+
+`.tkv sinh ra BIÊN DỊCH ĐƯỢC: 0/21`. Lý do **không còn là import**. Hai ràng
+buộc cấu trúc của TokenVector:
+
+1. **Biến cấp module phải là hằng đơn giản.** `ROOT = os.path.dirname(...)`
+   bị từ chối (`gia tri khoi tao phai la 1 hang so/chuoi don gian`). Muốn giữ
+   phải tính trong `main()` rồi gán local — thay đổi cấu trúc, không làm tự động.
+2. **Không có `__file__`.**
+
+`py2tkv` giờ **báo cáo** hai thứ này thay vì im lặng:
+
+```
+CHAN: __file__ tai dong 27 (TokenVector khong co)
+CHAN: bien cap module khong co kieu tai dong 27: ROOT = os.path.dirname(...)
+```
+
+Cùng với `CHUA SUY` (hàm chưa suy được kiểu) và `CHUA QUY TAC` (module chưa có
+bảng chuyển đổi: `subprocess`, `re`, `ast`, `json`, `argparse`, `shutil`).
+
+**Kết luận thẳng:** công cụ này xong phần *tự động* — nó lo chú ký kiểu, bỏ
+import, đổi chỗ gọi, gộp nhiều module, và **liệt kê chính xác những gì phải sửa
+tay**. Phần còn lại cần viết lại từng công cụ; `tools/probe_ten.tkv` là ví dụ đã
+làm xong tay.
+
+## Chế độ `--flat`: gộp nhiều module
+
+Đây là cách giải bài toán "import trở thành lời gọi". `cmp_python_builtins.py`
+gọi `import gen_builtin_ref` — trong TokenVector phải nối nguồn lại:
+
+```
+build\py2tkv.exe --flat ra.tkv tools\gen_builtin_ref.py tools\cmp_python_builtins.py
+  vao   : tools\gen_builtin_ref.py  (302 dong, 2 file, bo 9 dong import)
+  ham   : 9
+```
+
+## Phân loại chính xác 21 lỗi còn lại
+
+Không còn lỗi "import". Tất cả thuộc 4 nhóm, và **mọi nhóm đều được tool báo
+trước khi ghi file**:
+
+| Số lần | Nguyên nhân | Tool có báo? |
+|---|---|---|
+| **15** | biến cấp module tính bằng biểu thức | `CHAN: bien cap module khong co kieu` |
+| **5** | hàm chưa suy được kiểu | `CHUA SUY: <tên>` |
+| 1 | file không có entry `main` | — (tên entry khác) |
+| 1 | truy cập thuộc tính `param.field` | — (giới hạn TokenVector khác) |
+
+## Bug của chính tool, đã sửa
+
+`doc_vao()` từng `.strip()` **mọi dòng**, xoá mất thụt đầu dòng. Hậu quả kép:
+thân hàm bị dính vào cột 0, và bộ dò blocker báo nhầm các dòng **bên trong**
+hàm là "biến cấp module". Sửa: giữ nguyên dòng gốc, chỉ dùng bản `strip()` để
+kiểm tra `import`.
+
+Bộ dò blocker cũng từng báo nhầm hằng literal (`END = '<!-- ... -->'`,
+`FILES = []`) là phi pháp — thêm `la_hang_so()` để chỉ flag khi RHS thật sự là
+biểu thức.
 
 ## Bẫy: `tkvc-tv.exe` LUÔN exit code 0
 
