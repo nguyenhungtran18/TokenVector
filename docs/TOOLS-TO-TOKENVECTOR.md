@@ -226,64 +226,72 @@ và benchmark chuyển sang TokenVector mà vẫn so được với CPython.
 
 ---
 
-# Công cụ đầu tiên đã chuyển xong: `tools/probe_ten.tkv`
+# Đã viết lại: `probe_ten` không gọi compiler lúc chạy
 
-Bản Python `tools/probe_name_exists.py` (76 dòng) → `tools/probe_ten.tkv`
-(~160 dòng TokenVector), **biên dịch và chạy thật**: `build/probe_ten.exe` 16 KB.
+Bản cũ giữ đúng hành vi của `probe_name_exists.py`: mỗi tên là một lần gọi
+`tkvc-tv.exe`. Hai bản cho kết quả phân loại giống hệt, nhưng đó là thiết kế
+sai cho công cụ lúc chạy: compiler là công cụ build, không phải phụ thuộc của
+mỗi câu tra cứu.
 
-## Bốn khác biệt bắt buộc khi chuyển
+Bản mới chia trách nhiệm:
 
-| Python | TokenVector |
-|---|---|
-| `import os, io, sys, subprocess` | không có; dùng builtin `path_*`, `read_file`, `write_file`, `sys_argv` |
-| `subprocess.run(..., capture_output=True)` | `proc_run` — **thừa kế stdout**, phải redirect `> file` rồi `read_file` |
-| `os.makedirs(WORK)` | **không có** `path_mkdir` → `proc_run("cmd.exe", "/c mkdir ...")` |
-| `MISS_MARKERS = (...)` | tuple literal **không tồn tại** → `list` + `append` |
-| `TKVC = dist/tkvc.exe build --out --entry` | `dist/tkvc-tv.exe <nguon> <ra> <entry>` (CLI vị trí, compiler **thật**) |
+- `tools/danh_muc_ten_lib.tkv`: thư viện quét danh mục tĩnh, không có `main`.
+  Mọi hàm/biến toàn cục đều có tiền tố `dm_` vì TokenVector gộp toàn bộ các
+  module và báo lỗi nếu trùng tên hàm/class.
+- `tools/tra_ten.tkv`: CLI mỏng, gọi thư viện.
+- `tools/probe_ten.tkv`: CLI mỏng, gọi thư viện, **không còn `proc_run`,
+  không tạo file `.tkv` tạm, không gọi compiler**.
 
-## Ba giới hạn TokenVector gặp phải (đều đã kiểm bằng probe, không đoán)
+Xây một lần:
 
-1. **Lát cắt trong subscript lồng bị từ chối.** `dong[i][j:j+1]` → lỗi
-   `ky vong ']', gap ':'`. Còn `dong[i][j]` thì được. Sửa: gán `hang = dong[i]`
-   trước rồi cắt trên `hang`.
-2. **`path_read_text` / `path_write_text` được liệt kê trong `REFERENCE.md` §2
-   nhưng CHƯA đăng ký thật** → `read_file` / `write_file`.
-3. **Hàm phải định nghĩa trước khi dùng.** `nap_markers()` gọi `MARKERS_n()`
-   định nghĩa sau → `ham 'MARKERS_n' khong ton tai`.
-
-Ngoài ra: chú thích nằm lệch thụt so với lệnh sau sẽ phá IND/DED của lexer.
-
-## Tool này đã tìm ra sai lệch thật trong tài liệu
-
-Chạy nó lên **173 tên builtin** mà `REFERENCE.md` §7 liệt kê:
-
-```
-TON TAI (probe xac nhan)          :  40
-THIEU - compiler bao "khong ton tai": 76
+```powershell
+dist\tkvc-tv.exe tools\tra_ten.tkv build\tra_ten.exe main
+dist\tkvc-tv.exe tools\probe_ten.tkv build\probe_ten.exe main
 ```
 
-Kiểm chứng trực tiếp 4 tên bị báo thiếu:
+## Quy tắc rút tên và ý nghĩa phân loại
 
+- `CHAC`: chỉ từ lệnh `register_x(reg, 'ten', ...)` có chuỗi literal ở tham số
+  thứ hai. Bỏ qua dòng chú thích Python bắt đầu bằng `#`.
+- `KHA`: chỉ từ khóa dict literal `'ten' : ...`. Đây là nguồn khả năng, có thể
+  bao gồm khóa không phải tên đăng ký, nên báo riêng và **không gộp** với CHAC.
+- `THIEU`: không thấy trong danh mục tĩnh.
+
+Do đó `CHAC` là bằng chứng đăng ký trực tiếp, còn `KHA` chỉ là manh mối. Muốn
+chứng minh một tên gọi được với bộ tham số cụ thể, vẫn cần biên dịch thử một
+chương trình mẫu — nhưng đó là việc kiểm chứng một lần, không phải chi phí cho
+mỗi câu tra cứu.
+
+## So sánh công bằng: cùng workload, cùng quy tắc, không gọi compiler
+
+Cả hai bản cùng:
+
+- đọc `compiler_src/ds_gop.txt`
+- đọc cùng 125 file nguồn
+- áp dụng cùng quy tắc rút `CHAC`/`KHA`
+- tra cứu cùng 60 tên trong cùng một file
+- in cùng 64 dòng báo cáo
+
+Kiểm tra đầu ra: **64/64 dòng giống hệt nhau**.
+
+Đo 5 lần, bỏ qua chi phí in ra màn hình:
+
+```text
+TV_MS = 469, 462, 460, 460, 462   (min 460, median 462)
+PY_MS = 877, 874, 868, 874, 872   (min 868, median 874)
 ```
-format(3.14159, ".2f")  -> khong ton tai
-int64(5)                -> khong ton tai
-path_stem("a.txt")      -> khong ton tai
-hash("a")               -> khong ton tai
-len("a")                -> TON TAI
-```
 
-Nghĩa là **`REFERENCE.md` §7 liệt kê 173 tên nhưng ít nhất 76 tên không được
-đăng ký thật** — kể cả `format` và `int64` mà `CLAUDE.md` khẳng định là hoạt
-động. Tài liệu sai ở đúng chỗ mà cổng `gen_builtin_ref.py --check` không soi:
-cổng đó so tên trong tài liệu với tên đã đăng ký theo **chiều một** (thiếu thì
-báo), nên tên liệt kê thừa vẫn lọt.
+Trên workload quét văn bản này, bản TokenVector nhanh hơn khoảng **1,89 lần**;
+bản Python chậm hơn khoảng **89%**.
 
-Lưu ý về phương pháp: probe gọi `v = X("a")`, nên **tên là method** (`split`,
-`lower`, `join`…) sẽ ra THIỀU một cách **đúng** — chúng không phải hàm độc lập.
-Giới hạn này thừa kế từ bản Python gốc.
+Kết luận này không chứng minh TokenVector luôn nhanh hơn. Nó chỉ chứng minh
+đúng một việc đã đo: với cùng công việc quét/trích xuất văn bản và cùng đầu ra,
+bản TokenVector hiện tại chạy nhanh hơn bản Python viết tương đương.
 
-## Đề xuất
+## Kiểm chứng chéo danh mục thiếu
 
-Sửa `gen_builtin_ref.py --check` để kiểm **chiều hai**: mọi tên liệt kê trong
-§7 phải được probe xác nhận là tồn tại. Đó chính là `probe_ten.exe` — và nó
-đã viết bằng TokenVector.
+19 tên `THIEU` trên bộ 60 đã được kiểm bằng bản probe thực nghiệm cũ
+(mỗi tên một lần biên dịch, chỉ làm một lần để kiểm chứng, không phải thiết kế
+chạy thường xuyên). Kết quả: cả 19 đều được compiler báo thiếu. Do đó danh mục
+tĩnh không bỏ sót 19 tên này theo cách phân loại hiện tại.
+
