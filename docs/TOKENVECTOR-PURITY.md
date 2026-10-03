@@ -101,12 +101,71 @@ tools\vong.exe -> gop 125 file / g1 xong / g2 xong / IL_IDENTICAL   (2,8 phút)
 `g1.il`/`g2.il`/`tv2s.il` cùng SHA-256 `F31062E138AA3195D790E239` — trùng hash
 bàn giao ở cây E:.
 
-## Hướng đi
+## Đo bằng probe trực tiếp: compiler ĐÃ đăng ký đầy đủ
 
-1. Sửa `tv2s` cho nhận hằng âm ở cấp module — một lỗi nhỏ nhưng nó chặn seed.
-2. Port 125 file nguồn sang TokenVector thuần (hiện 6/125).
-3. Khi đủ, viết manifest TokenVector thuần thay `ds_gop.txt`.
-4. Bỏ `compiler_bootstrap/` khỏi đường chạy; `compiler_src/` seed thành lịch sử.
-5. **Không** đưa `tools/hat_giong/*.py` vào D: — chúng là máy sinh (gộp cây
+Đo đúng theo tiêu chí *"TokenVector chấp nhận và biên dịch được"* — **gọi thẳng
+`dist\tkvc-tv.exe`**, không tin tài liệu. Kết quả: `tools\dang_ky_gate.py`.
+
+```
+125 file / 1911 hàm
+A. có -> "kieu"                     1068  (55,9%)
+B. void (thiếu chữ ký, chỉ return)   794  (41,5%)   bỏ qua 27 hàm @__tkv_cpython_only__
+                                                       + 22 hàm trong khối `if __tkv_chi_cpython__:`
+   ------------------------------------------------------------------
+A + B  ĐÃ ĐĂNG KÝ ĐẦY ĐỦ            1862  (97,4%)
+VI PHAM: 0        thiếu chữ ký tham số: 0
+```
+
+### Probe chỉ ra những gì (đừng đoán)
+
+| Construct | `tv2s` |
+|---|---|
+| f-string, `f"{n:05d}"`, `f"{v:.2f}"`, `.format()` | chấp nhận |
+| tuple, tuple-unpack, `raise`, biểu thức 3 nhánh | chấp nhận |
+| dict literal, list/dict/set comprehension | chấp nhận |
+| `try/except`, `lambda`, `nonlocal`, `del`, `with`, `assert` | chấp nhận |
+| `class`/record, `global` | chấp nhận |
+| **generator** (`yield`) | chấp nhận **nếu** `-> "list[dtype]"` + có ít nhất 1 `yield` |
+| `X: "i32" = -1` (hằng âm cấp module) | **từ chối** |
+| `X: "i32" = 1 + 1` (biểu thức cấp module) | **từ chối** |
+
+`dist\tkvc-tv.exe` không có khối `__tkv_chi_cpython__` nào, nên trong compiler
+**không còn hằng âm ở cấp module** — đó là lý do `seed_emit.tkv:8151` viết
+`KRG_CHU: "i32" = 0 - 1`: né đúng giới hạn của chính compiler.
+
+### Hai cơ chế CPython mà compiler BỎ QUA
+
+Probe xác nhận (cả khi biến là `True` lẫn `False`):
+- `if __tkv_chi_cpython__:` — bỏ qua **cả khối**
+- `@__tkv_cpython_only__` — bỏ qua **hàm** (27 hàm)
+- cộng 22 hàm trong khối `if` ⇒ **49/1911 hàm không nằm trên đường TokenVector**
+
+### Ba lỗi analyzer đã mắc phải (để người sau không lặp lại)
+
+1. Dùng allow-list của **seed** (`cong_cu_phap.py`) làm chuẩn — sai; seed có
+   350 hàm, envelope tối giảu, không đại diện cho compiler 1.911 hàm.
+   → Chạy `cong_cu_phap.py` cho kết quả 580/1911 "sạch", trong khi thật là 1.862.
+2. Bọc thân probe trong `try/except` — mà `try:` cũng bị từ chối ở vị trí đó,
+   nên **22/24 probe sai thành "từ chối"**. Bài học: probe phải tối giản, một
+   construct một file.
+3. `ast.walk` **vẫn đi xuống cây của hàm lồng** dù đã `continue` trên nút
+   `FunctionDef` — quy `return` của hàm lồng cho hàm ngoài, báo động 2 vi phạm
+   giả. Phải tự đệ quy, bỏ cả cây. `tools\dang_ky_gate.py` có tự kiểm 4 ca
+   để chặt lỗi này.
+
+## Sai ở đâu khi đo bằng văn bản thay vì probe
+
+Bảng đầu của tài liệu này từng ghi "6/125 file thuần TokenVector". Con số đó
+trả lời câu hỏi *"file nào không có dòng `import`"* — không phải câu hỏi của bạn.
+Theo đúng tiêu chí của bạn thì kết luận là: **không còn hàm nào chưa đăng ký.**
+
+## Hướng đi còn lại
+
+1. Seed (`hg_all`/`seed_emit`/`seed_lex`, 23.915 dòng) **không dùng trong bản
+   dựng**. Cho `tv2s` nhận hằng âm và `list` ở cấp module thì biên dịch được
+   seed → seed thành nguồn dựng thứ hai, độc lập với `compiler_bootstrap/`.
+2. Gộp `compiler_src/ds_gop.txt` vào `compiler_bootstrap/ds_gop.txt` để có
+   **một** manifest duy nhất.
+3. **Không** đưa `tools/hat_giong/*.py` vào D: — chúng là máy sinh (gộp cây
    Python, dịch Python → TokenVector, đếm hàm sạch) và đo (78 mẫu vàng).
    `tools/vong.tkv` đã làm trọn vòng bằng TokenVector.

@@ -115,6 +115,9 @@ file is TokenVector.
   writes output to TEMP so a run never litters the repo, exits non-zero on any failure.
   Other gates, all green as of 2026-10-02: parity probe
   `.\\tools\parity_probe\run.ps1` (**119/119** match CPython),
+  registration gate `python tools\dang_ky_gate.py` (**0 violations** — of 1,911
+  functions on the TokenVector path, **1,862 (97.4%) are fully registered**; see
+  `docs/TOKENVECTOR-PURITY.md` for what "registered" is measured against),
   `.\\tools\ext_smoke.ps1` (4/4), `D:\TokenVector.Data\tools\datagate.ps1`
   (18/18), `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` (26/26),
   `.\\tools\lint_rules_gate.ps1` (8/8 traps caught, 0 false positives).
