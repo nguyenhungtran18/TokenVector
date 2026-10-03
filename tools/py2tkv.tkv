@@ -1691,6 +1691,8 @@ SO_NOI_DONG: "i32" = 0
 SO_GOI_MAIN: "i32" = 0
 SO_MAIN_NO: "i32" = 0
 SO_ANNOT_RONG: "i32" = 0
+SO_WITH: "i32" = 0
+SO_WITH_CHUA: "i32" = 0
 
 
 def tach_dau(ten: "str", d: "str") -> "list[str]":
@@ -2087,6 +2089,118 @@ def la_khoa_che(x: "str") -> "i32":
     return 0
 
 
+def la_dong_with(x: "str") -> "i32":
+    if x.startswith("with ") == 0:
+        return 0
+    if x.find(" as ") < 0:
+        return 0
+    if x.find("open(") < 0:
+        return 0
+    return 1
+
+
+def with_ten(x: "str") -> "str":
+    p = x.rfind(" as ")
+    if p < 0:
+        return ""
+    t = x[p + 4:].strip()
+    if t.endswith(":"):
+        t = t[:-1].strip()
+    return t
+
+
+def with_path(x: "str") -> "str":
+    q = x.find("(")
+    if q < 0:
+        return ""
+    j = tim_dong_ngoac(x, q)
+    if j < 0:
+        return ""
+    ds = tach_danh_sach_cap0(x[q + 1:j])
+    if len(ds) == 0:
+        return ""
+    return ds[0].strip()
+
+
+def xuli_with_1(b: "str", h: "str", p: "str") -> "str":
+    """That 1 lenh than cua `with open(p) as h` bang 1 lenh. "" neu khong duoc.
+
+    TokenVector lam viec tren CAI FILE (`read_file`/`write_file`) - khong co
+    file handle - nen cu phap `with` khong ton tai o phia TokenVector.
+    """
+    if b.startswith(h + ".write(") and b.endswith(")"):
+        q = b.find("(")
+        return "write_file(" + p + ", " + b[q + 1:len(b) - 1] + ")"
+    if b.find(h + ".read()") >= 0:
+        return b.replace(h + ".read()", "read_file(" + p + ")")
+    return ""
+
+
+def xuli_with() -> "i32":
+    global SO_WITH
+    global SO_WITH_CHUA
+    ra: "list[str]" = []
+    n = len(DONG)
+    i = 0
+    doc = ""
+    while i < n:
+        d = DONG[i]
+        x = d.strip()
+        if doc != "":
+            ra.append(d)
+            if doc == "\"\"\"" and x.endswith("\"\"\""):
+                doc = ""
+            if doc == "'''" and x.endswith("'''"):
+                doc = ""
+            i = i + 1
+            continue
+        if x.startswith("\"\"\"") or x.startswith("'''"):
+            ra.append(d)
+            if len(x) < 6 or (x.endswith("\"\"\"") == 0 and x.endswith("'''") == 0):
+                doc = x[0:3]
+            i = i + 1
+            continue
+        if la_dong_with(x) == 1:
+            ne = indent(d)
+            h = with_ten(x)
+            p = with_path(x)
+            j = i + 1
+            while j < n:
+                y = DONG[j]
+                if y.strip() == "":
+                    j = j + 1
+                    continue
+                if indent(y) <= ne:
+                    break
+                j = j + 1
+            dem = 0
+            b = ""
+            t = i + 1
+            while t < j:
+                if DONG[t].strip() != "":
+                    dem = dem + 1
+                    b = DONG[t].strip()
+                t = t + 1
+            moi = ""
+            if dem == 1 and h != "" and p != "":
+                moi = xuli_with_1(b, h, p)
+            if moi == "":
+                SO_WITH_CHUA = SO_WITH_CHUA + 1
+                ra.append(d)
+                while i < j:
+                    ra.append(DONG[i])
+                    i = i + 1
+                continue
+            SO_WITH = SO_WITH + 1
+            ra.append(d[0:ne] + moi)
+            i = j
+            continue
+        ra.append(d)
+        i = i + 1
+    them_dong(ra)
+    return 0
+
+
 def noi_dong_tieu() -> "i32":
     """Noi cac dong tiep noi (nhieu dong) thanh MOT dong.
 
@@ -2119,8 +2233,8 @@ def noi_dong_tieu() -> "i32":
             i = i + 1
             continue
         # dong can bang: noi cac dong sau vao
-        if x != "" and ngoac_can_ma_day(x) > 0 and la_khoa_che(x) == 0:
-            gop = d[0:indent(d)] + x
+        if x != "" and ngoac_can_ma_day(bo_chu_thich(d).strip()) > 0 and la_khoa_che(bo_chu_thich(d).strip()) == 0:
+            gop = d[0:indent(d)] + bo_chu_thich(d).strip()
             j = i + 1
             while ngoac_can_ma_day(gop) > 0 and j < n:
                 y = DONG[j]
@@ -2392,6 +2506,7 @@ def main() -> "i32":
     nap_khai(DUONG_KHAI)
     DONG = doc_vao()
     noi_dong_tieu()
+    xuli_with()
     goi_vao_main()
     quet()
     quet_import()
@@ -2410,6 +2525,7 @@ def main() -> "i32":
     ghi()
     print("gap   : " + str(SO_FOLD) + " bien duong dan, " + str(SO_FOLD_HONG) + " khong gap duoc, "
           + str(SO_NOI_DONG) + " liet lie da noi, " + str(SO_GOI_MAIN) + " file boc vao main, "
-          + str(SO_MAIN_NO) + " file sinh main rong, " + str(SO_ANNOT_RONG) + " container rong duoc khai bao")
+          + str(SO_MAIN_NO) + " file sinh main rong, " + str(SO_ANNOT_RONG) + " container rong duoc khai bao, " + str(SO_WITH) + " `with` da doi, "
+          + str(SO_WITH_CHUA) + " `with` chua doi duoc")
     print("ra    : " + DUONG_RA + "  (" + str(SO_DONG_RA) + " dong)")
     return 0
