@@ -38,6 +38,10 @@ FN_N: "i32" = 0
 
 DONG: "list[str]" = []
 SO_DONG_VA: "i32" = 0
+SO_XOA_DOC: "i32" = 0
+SO_FIELD_THEM: "i32" = 0
+TEN_LOP: "list[str]" = []
+TRUONG_LOP: "list[str]" = []
 SO_THAO: "i32" = 0
 SO_BIET: "i32" = 0
 SO_LOI: "i32" = 0
@@ -2906,6 +2910,331 @@ def xuli_with() -> "i32":
     return 0
 
 
+def vi_tri_trich_dau(x: "str") -> "i32":
+    """Vi tri dau trich `'`/`"` trong `x`, -1 neu khong co.
+
+    Cho phep TIEN TO CHUOI truoc (`r`, `f`, `b`, `u`, `rb`...) nhung
+    KHONG cho phep `=` hay `(` truoc - do la bieu thuc, khong phai docstring.
+    """
+    n = len(x)
+    i = 0
+    while i < n:
+        c = x[i:i + 1]
+        if c == "\"" or c == "'":
+            return i
+        if la_ten(c) == 0:
+            return -1
+        i = i + 1
+    return -1
+
+
+def dem_dau_trich(x: "str", p: "i32") -> "i32":
+    """Dem cac dau trich lien tiep bat dau tu vi tri p.
+
+    Tra 3 khi gap mot chuoi ba dau trich (mo dau/tan docstring nhieu dong).
+    KHONG duoc viet chuoi ba dau trich trong docstring nay - se tu ket thuc
+    docstring som va phan con lai bien thanh code.
+    """
+    if p < 0 or p >= len(x):
+        return 0
+    c = x[p:p + 1]
+    d = 0
+    i = p
+    while i < len(x) and x[i:i + 1] == c:
+        d = d + 1
+        i = i + 1
+    return d
+
+
+def xoa_docstring() -> "i32":
+    """Thay THE toan bo than docstring bang dong rong.
+
+    TokenVector khong co docstring. Noi dung docstring duoc phat ra nhu code
+    thi sinh `class '...'`/`def ...` GIA o cap module. Tham du that:
+    `tools\\scan_uninit_container_fields.py` dong 6 la noi dung docstring
+    module (`class 'X': field 'y' ...`) - duoc phat ra nguyen van, va compiler
+    bao loi `record khong co field nao`.
+
+    Chi xoa o VI TRI HOP LE (sau dong `def`/`class`, hoac dau module truoc khi
+    co code nao); chuoi gan vao bien (`s = <3 dau trich>...`) la CODE THAT.
+
+    LUU Y KHI SUA HAM NAY: trong docstring TokenVector, `\"` bi giai escape
+    thanh `"`. Nen KHONG duoc viet chuoi 3 dau trich co escape trong docstring
+    o day - se lam docstring KET THUC SOM, phan con lai bien thanh code, va
+    compiler bao `khong tim thay ham entry 'main'`.
+    """
+    global SO_XOA_DOC
+    n = len(DONG)
+    i = 0
+    trong = 0
+    dau = ""
+    chua_code = 1
+    truoc = ""
+    while i < n:
+        x = DONG[i].strip()
+        if trong == 1:
+            p = x.find(dau)
+            if p < 0:
+                DONG[i] = ""
+                SO_XOA_DOC = SO_XOA_DOC + 1
+                i = i + 1
+                continue
+            DONG[i] = ""
+            SO_XOA_DOC = SO_XOA_DOC + 1
+            q = x[p + 3:]
+            d = dem_dau_trich(q, 0)
+            if d >= 3:
+                trong = 1
+            else:
+                trong = 0
+                if q.strip() != "":
+                    truoc = q.strip()
+                    chua_code = 0
+            i = i + 1
+            continue
+        if x == "" or x.startswith("#"):
+            i = i + 1
+            continue
+        p = vi_tri_trich_dau(x)
+        if p < 0 or dem_dau_trich(x, p) < 3:
+            truoc = x
+            chua_code = 0
+            i = i + 1
+            continue
+        if chua_code == 1 or truoc.endswith(":"):
+            d = dem_dau_trich(x, p)
+            con = x[p + d:]
+            if d >= 6 or con.find(x[p:p + 3]) >= 0:
+                # docstring MOT DONG: mo va dong cung tren mot dong -
+                # phai kiem `con` TRUOC khi bat trang thai "trong docstring",
+                # neu khong ca file se bi nuot het.
+                DONG[i] = ""
+                SO_XOA_DOC = SO_XOA_DOC + 1
+                i = i + 1
+                continue
+            trong = 1
+            dau = x[p:p + 3]
+            DONG[i] = ""
+            SO_XOA_DOC = SO_XOA_DOC + 1
+            i = i + 1
+            continue
+        truoc = x
+        chua_code = 0
+        i = i + 1
+    return 0
+
+
+def la_base_lop(x: "str") -> "str":
+    """Ten base class neu `x` la dong `class Ten(Base):`, "" neu khong co."""
+    y = x.strip()
+    if y.startswith("class ") == 0:
+        return ""
+    duoi = y[6:]
+    p = duoi.find("(")
+    q = duoi.find(")")
+    if p < 0 or q < 0 or q < p:
+        return ""
+    ten = duoi[p + 1:q]
+    return ten.strip()
+
+
+def co_yield(k: "i32") -> "i32":
+    """1 neu than ham k co `yield` (generator).
+
+    TokenVector KHONG co generator. `yield` va `yield from` deu khong doi
+    duoc - nen ham generator phai HA CAP va bao cao, khong phai phat ra code
+    ma compiler se tu choi. Tham du that: `tools/parity_probe/cmp_py.py`
+    (`gen_upto`, `gen_chain`) - file do dung de SO SANH Python voi
+    TokenVector, nen phan khong the dich la MOT PHAN cua muc tieu.
+    """
+    i = FN_DAU[k] + 1
+    while i < FN_CUOI[k]:
+        x = bo_chu_thich(DONG[i]).strip()
+        if x == "yield" or x.find("yield ") == 0:
+            return 1
+        i = i + 1
+    return 0
+
+
+def truong_bo(ds: "list[str]", ten: "str") -> "list[str]":
+    ra: "list[str]" = []
+    for idx in range(len(ds)):
+        if ds[idx] != ten:
+            ra.append(ds[idx])
+    return ra
+
+
+def truong_chua(ds: "list[str]", ten: "str") -> "i32":
+    for idx in range(len(ds)):
+        if ds[idx] == ten:
+            return 1
+    return 0
+
+
+def chu_ky_giua(d: "str") -> "str":
+    """Phan trong ngoac ngoac dau tien cua dong `def ...(...)`."""
+    p = d.find("(")
+    if p < 0:
+        return ""
+    q = d.find(")", p)
+    if q < 0:
+        return ""
+    return d[p + 1:q]
+
+
+def tach_ten_tham_so(ts: "str") -> "str":
+    x = ts.strip()
+    p = vi_tri_bang_gan(x)
+    ten = x if p < 0 else x[0:p]
+    pc = vi_tri_hai_cham(ten)
+    ten = ten[0:pc].strip() if pc > 0 else ten.strip()
+    return ten
+
+
+def la_dau_class(x: "str") -> "str":
+    """Ten class neu `x` la dong `class Ten(Base):` o cap module, "" neu khong."""
+    if indent(x) != 0:
+        return ""
+    y = x.strip()
+    if y.startswith("class ") == 0:
+        return ""
+    duoi = y[6:]
+    p = duoi.find("(")
+    if p < 0:
+        ten = duoi
+    else:
+        ten = duoi[0:p]
+    ten = ten.strip()
+    if ten.endswith(":"):
+        ten = ten[0:len(ten) - 1].strip()
+    return ten
+
+
+def them_field_cho_record() -> "i32":
+    """TokenVector BAT BUOC khai bao field o than class TRUOC `__init__`.
+
+    Python thi `self.msg = m` trong `__init__` duoc. Giong nguyen thi compiler
+    bao `record khong co field nao` - tham du that: `class MyErr(Exception)`
+    trong `tools/parity_probe/cmp_py.py`.
+
+    O day suu moi `self.<ten> = ...` trong than `__init__`, them dong khai bao
+    field, va doi chu ky `__init__` thanh DUNG bang danh sach field - TokenVector
+    yeu cau `__init__` nhan DUNG so field da khai bao.
+    """
+    global SO_FIELD_THEM
+    global DONG
+    n = len(DONG)
+    i = 0
+    while i < n:
+        ten = la_dau_class(DONG[i])
+        if ten == "":
+            i = i + 1
+            continue
+        het = i + 1
+        ne = indent(DONG[i])
+        while het < n:
+            if DONG[het].strip() != "" and indent(DONG[het]) <= ne:
+                break
+            het = het + 1
+        vt = -1
+        j = i + 1
+        while j < het:
+            if DONG[j].strip().startswith("def __init__(") == 1:
+                vt = j
+                break
+            j = j + 1
+        if vt < 0:
+            i = het
+            continue
+        co_field = 0
+        j = i + 1
+        while j < het:
+            if DONG[j].strip().find(": \"") > 0:
+                co_field = 1
+                break
+            j = j + 1
+        truong: "list[str]" = []
+        j = vt + 1
+        while j < het:
+            x = DONG[j].strip()
+            if x.startswith("self.") == 1:
+                q = vi_tri_bang_gan(x)
+                if q > 0:
+                    f = x[5:q].strip()
+                    if f.find(".") < 0 and f.find("[") < 0 and f != "":
+                        if truong_chua(truong, f) == 0:
+                            truong.append(f)
+            j = j + 1
+        if len(truong) > 0 and co_field == 0:
+            # field da khai bao o BASE khong duoc khai lai (TokenVector: "field
+            # da co san o base class"). Bo chung o day truoc khi sinh.
+            base = la_base_lop(DONG[i])
+            if base != "":
+                for idx in range(len(TEN_LOP)):
+                    if TEN_LOP[idx] == base:
+                        for f3 in TRUONG_LOP[idx].split(","):
+                            if f3 != "" and truong_chua(truong, f3) == 1:
+                                print("  FIELD: class " + ten + " bo truong '" + f3 + "' da co o base " + base)
+                                truong = truong_bo(truong, f3)
+            if len(truong) == 0:
+                TEN_LOP.append(ten)
+                TRUONG_LOP.append("")
+                i = het
+                continue
+            # thu le cua dong `def __init__` - giu nguyen de khong doi
+            # thut le nhung phan body con lai cua class
+            lt = DONG[vt]
+            ha = indent(lt)
+            le = ""
+            for idx in range(0, ha):
+                le = le + " "
+            ra: "list[str]" = []
+            for idx in range(i + 1, vt):
+                ra.append(DONG[idx])
+            for idx in range(len(truong)):
+                ra.append(le + truong[idx] + ": \"str\"")
+            ds2 = "self"
+            for idx in range(len(truong)):
+                ds2 = ds2 + ", " + truong[idx] + ": \"str\""
+            ra.append(le + "def __init__(" + ds2 + ") -> \"i32\":")
+            for idx in range(len(truong)):
+                ra.append(le + le + "self." + truong[idx] + " = " + truong[idx])
+            for idx in range(vt + 1, het):
+                # bo dong gan `self.<field>` - da sinh o tren
+                y2 = DONG[idx].strip()
+                bo = 0
+                if y2.startswith("self.") == 1:
+                    q2 = vi_tri_bang_gan(y2)
+                    if q2 > 0:
+                        f2 = y2[5:q2].strip()
+                        if truong_chua(truong, f2) == 1:
+                            bo = 1
+                if bo == 0:
+                    ra.append(DONG[idx])
+            ra.append(le + le + "return 0")
+            moi: "list[str]" = []
+            for idx in range(0, i + 1):
+                moi.append(DONG[idx])
+            for idx in range(len(ra)):
+                moi.append(ra[idx])
+            for idx in range(het, n):
+                moi.append(DONG[idx])
+            DONG = moi
+            n = len(DONG)
+            het = i + 1 + len(ra)
+            SO_FIELD_THEM = SO_FIELD_THEM + 1
+            print("  FIELD: class " + ten + " -> " + str(len(truong)) + " field khai bao tu self.*")
+            gh = ""
+            for idx in range(len(truong)):
+                if gh != "":
+                    gh = gh + ","
+                gh = gh + truong[idx]
+            TEN_LOP.append(ten)
+            TRUONG_LOP.append(gh)
+        i = het
+    return 0
+
+
 def noi_dong_tieu() -> "i32":
     """Noi cac dong tiep noi (nhieu dong) thanh MOT dong.
 
@@ -3200,6 +3529,9 @@ def bao() -> "i32":
         # goi trong nhanh suy, thi ham co `-> T` san se khong bao gio duoc
         # khai bao container rong.
         nap_container_rong(i)
+        if fn_la_stub(i) == 0 and co_yield(i) == 1:
+            if fn_danh_stub(i, "co `yield` - TokenVector khong co generator") == 1:
+                SO_HA_CAP = SO_HA_CAP + 1
         chu_ky = chu_ky_cua(i)
         if chu_ky.find("->") > 0:
             SO_THAO = SO_THAO + 1
@@ -3350,6 +3682,8 @@ def main() -> "i32":
         DOC.append(DUONG_VAO)
     nap_khai(DUONG_KHAI)
     DONG = doc_vao()
+    xoa_docstring()
+    them_field_cho_record()
     noi_dong_tieu()
     noi_chuoi_lien_dong()
     xuli_thu_vien()
