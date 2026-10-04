@@ -1,12 +1,32 @@
 # -*- coding: utf-8 -*-
 """Vong tu-host viet bang TokenVector (thay `_scratch/vong.sh` + `dung_tv.py`, khong con Python).
 
-Doc danh sach file gop `tools/hat_giong/ds_gop.txt` (moi dong mot duong dan; dong cuoi la compiler_src/tkvc_main.tkv),
-gop thanh MOT nguon (bo cac dong `__tkv_import__`), roi:
-    g1 = tv2s(nguon)     # trinh bien dich tu-host hien co dich cay MA HIEN TAI
-    g2 = g1(nguon)       # ban vua dich lai dich chinh no
-    g1.il == g2.il   ->  diem bat dong giu (IL_IDENTICAL)
-Neu giu, g1 thanh tv2s moi (tv2s.exe/tv2s.il) de lan sau dung cay ma moi nhat.
+Doc danh sach file trong `compiler_src/ds_gop.txt` (moi dong mot duong dan), bo
+cac dong `__tkv_import__`, roi gop thanh MOT nguon `NGUON`, sau do:
+
+    g1 = tv2s(nguon)     # the he HIEN TAI bien dich nguon
+    g2 = g1(nguon)       # g1 bien dich LAI CHINH NO -> the he ke tiep
+    g1.il == g2.il       -> g1 == g2: DA DINH, in `IL_IDENTICAL`
+
+Y NGHIA - can phan biet ro, de doc nham:
+day KHONG phai phep so sanh "ban cu" voi "ban moi". `tv2s` la the he hien tai;
+g1 la the he sinh ra tu chinh no; g2 la the he sinh ra tu g1. KHI g1 bien dich
+lai chinh no ma ra CHINH g1 (g1 == g2), thi moi the he sinh ra deu giong het
+the he sinh ra no - do la DIEM BAT DONG.
+
+`g1 != g2` KHONG co nghia la loi, va cung khong phai dot ngung goc. Do la TIEN
+HOA: neu vong truoc da nang cap mot the he moi vao `tv2s`, the he do co the
+bien dich nguon ra mot thu khac (vi du doi nghia sinh ma). Khi do `vong` TU
+nang cap g2 thanh `tv2s` va in ra yeu cau chay lai; vong sau lai bien dich
+tu g2, va vong lap lai cho den khi `IL_IDENTICAL` - luc do compiler da on dinh
+va ngung lai.
+
+HAI NHANH NANG CAP (xem `main`):
+  - `IL_IDENTICAL` -> copy g1 len `dist\tkvc-tv.exe`. Vi `g1.il == g2.il` hai
+    file nay CUNG mot chuong trinh, nen copy file nao cung tuong duong; chon g1
+    vi g1 chinh la san pham cua `tv2s` hien tai.
+  - `IL KHAC NHAU` -> copy g2 len `dist\tkvc-tv.exe`, vi g2 moi la the he mang
+    y nghia moi va phai duoc tu kiem lai o vong sau.
 
 Cach dung (tu goc du an):  tools\vong.exe
 Dich lan dau: dist\tkvc-tv.exe tools\vong.tkv tools\vong.exe main
@@ -71,8 +91,10 @@ def main() -> "i32":
     il1 = read_file(THU_MUC + "\\g1.il")
     il2 = read_file(THU_MUC + "\\g2.il")
     if il1 != il2:
-        # Doi nghia sinh ma (vd True/False thanh 'not 0'): g1 do trinh CU dich nen mang nghia cu cho chinh no, g2 moi
-        # mang nghia moi - khac nhau la DUNG khi nghia vua doi. Thang cap g2 len lam tv2s roi chay LAI de kiem.
+        # g1 != g2 KHONG phai loi. Do la TIEN HOA: `tv2s` hien tai co the moi
+        # la the he moi sinh ra o vong truoc, va no bien dich nguon ra thu khac
+        # voi the he sinh ra no (vi du doi nghia sinh ma). Vay thang cap g2 -
+        # the he moi nhat - len `tv2s`, roi vong sau se bien dich lai tu g2.
         print("IL KHAC NHAU: g1.il (" + str(len(il1)) + " ky tu) != g2.il (" + str(len(il2)) + " ky tu) - thang cap g2 lam tv2s, chay lai vong")
         _c3 = proc_run("cmd.exe", "/c copy /Y \"" + THU_MUC + "\\g2.exe\" \"" + TV2S + "\" > nul")
         _c4 = proc_run("cmd.exe", "/c copy /Y \"" + THU_MUC + "\\g2.il\" \"" + THU_MUC + "\\tv2s.il\" > nul")
