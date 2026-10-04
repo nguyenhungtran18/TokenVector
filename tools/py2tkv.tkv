@@ -2596,13 +2596,104 @@ def can_fold_module(d: "str") -> "i32":
     return 0
 
 
+def pre_quet_hang_so() -> "i32":
+    """Gap san hang so duong dan cap module TRUOC khi bao cao CHAN.
+
+    `quet_chan_cau_truc` chay truoc `ghi`, luc do `TEN_DA`/`GT_DA` con rong,
+    nen `fold_expr` khong giai duoc `ROOT` va se bao nham rang
+    `FEAT = os.path.join(ROOT, ...)` khong phai hang so. O day quet truoc mot
+    luot de bang nay co du lieu.
+    """
+    n = len(DONG)
+    i = 0
+    doc = ""
+    while i < n:
+        d = DONG[i]
+        x = d.strip()
+        if doc != "":
+            if doc == "\"\"\"" and x.endswith("\"\"\""):
+                doc = ""
+            if doc == "'''" and x.endswith("'''"):
+                doc = ""
+            i = i + 1
+            continue
+        if x.startswith("\"\"\"") or x.startswith("'''"):
+            if len(x) < 6 or (x.endswith("\"\"\"") == 0 and x.endswith("'''") == 0):
+                doc = x[0:3]
+            i = i + 1
+            continue
+        p = x.find("=")
+        if indent(d) == 0 and la_import(d) == 0 and p > 0 and x.find("==") < 0:
+            ten = x[:p].strip()
+            if la_ten(ten[0:1]) == 1 and ten.find(":") < 0:
+                v = fold_expr(go_tieu_module(x[p + 1:]))
+                if v != "":
+                    TEN_DA.append(ten)
+                    GT_DA.append(v)
+        i = i + 1
+    return 0
+
+
+def chan_cap_module(d: "str", dong_so: "i32") -> "str":
+    """Tra ve thong diep CHAN cap module, hoac "" neu dong la hop le.
+
+    TokenVector o cap module CHI nhan `def`, `class`, hang so co kieu va
+    `__tkv_import__`. Khong co cau lenh chay duoc, khong co `try`, khong co
+    tuple literal, khong co `__file__`.
+
+    Khong bao gi bo am im mot cau truc: bo di se lam mat hanh vi, che do
+    `--biet`/`--do` se bao cho nguoi dung biet can sua gi va o dong nao.
+    """
+    x = d.strip()
+    if x == "" or x.startswith("#"):
+        return ""
+    if x.startswith("def ") or x.startswith("class ") or x.startswith("@"):
+        return ""
+    if x.startswith("try:") or x.startswith("try :"):
+        return ("  CHAN cap module: `try` tai dong " + str(dong_so)
+                + " - TokenVector chi cho `def`/`class`/hang so o cap module."
+                + " Dua khoi nay vao mot ham (thuong la `main`).")
+    if x.startswith("except"):
+        return ("  CHAN cap module: `except` tai dong " + str(dong_so)
+                + " - cap module khong co khoi bao loi. Dua vao mot ham.")
+    if x.startswith("finally") or x.startswith("else"):
+        return ("  CHAN cap module: `" + x[0:x.find(":") if x.find(":") > 0 else len(x)]
+                + "` tai dong " + str(dong_so)
+                + " - cap module khong co khoi bao loi. Dua vao mot ham.")
+    if x.find("__file__") >= 0:
+        return ("  CHAN cap module: `__file__` tai dong " + str(dong_so)
+                + " - TokenVector khong co bien nay. Gap san duong dan khi chuyen doi.")
+    q = vi_tri_bang_gan(x)
+    if q > 0:
+        ten = x[0:q].strip()
+        g = x[q + 1:].strip()
+        if ten_sach(ten) == 1 and can_fold_module(d) == 0:
+            if g.startswith("(") and g.endswith(")"):
+                return ("  CHAN cap module: hang so TUPLE tai dong " + str(dong_so)
+                        + ": " + ten + " - TokenVector khong co tuple literal."
+                        + " Doi thanh list, ho tach thanh hai bien rieng.")
+            if g.find("re.compile(") >= 0:
+                return ("  CHAN cap module: `re.compile` tai dong " + str(dong_so)
+                        + " - TokenVector khong co doi tuong regex; dung thang"
+                        + " `re_search`/`re_findall` voi mau literal.")
+            return ("  CHAN cap module: gia tri TINH LUC CHAY tai dong " + str(dong_so)
+                    + ": " + x + " - TokenVector chi nhan HANG SO cap module."
+                    + " Dua phep tinh nay vao mot ham va goi tu ham do.")
+    if la_import(d) == 0 and x != "":
+        if can_fold_module(d) == 1:
+            return ""               # fold_module xu ly duoc -> khong phai CHAN
+        return ("  CHAN cap module: cau lenh tai dong " + str(dong_so)
+                + ": " + x + " - TokenVector chi cho `def`/`class`/hang so"
+                + " o cap module. Dua vao mot ham.")
+    return ""
+
+
 def quet_chan_cau_truc() -> "i32":
     """Bao cac thu TokenVector KHONG cho phep o cap module - phai sua tay.
 
     1. `X = <bieu thuc>` o cap module: chi HANG SO don gian moi hop le.
-       `ROOT = os.path.dirname(...)` bi tu choi.
-    2. `__file__`: TokenVector khong co.
-    Day la ly do con lai mot .py KHONG bien dich duoc du da bo import.
+    2. `try`/`except` o cap module, tuple literal, `__file__`.
+    Day la ly do con lai mot so .py KHONG bien dich duoc du da bo import.
     """
     global SO_CHAN_CAU_TRUC
     n = len(DONG)
@@ -2623,15 +2714,11 @@ def quet_chan_cau_truc() -> "i32":
                 doc = x[0:3]
             i = i + 1
             continue
-        if la_import(d) == 0 and indent(d) == 0 and x != "":
-            if x.find("__file__") >= 0:
-                print("  CHAN: __file__ tai dong " + str(i + 1) + " (TokenVector khong co)")
+        if indent(d) == 0 and x != "":
+            tb = chan_cap_module(d, i + 1)
+            if tb != "":
+                print(tb)
                 SO_CHAN_CAU_TRUC = SO_CHAN_CAU_TRUC + 1
-            if x.find("=") > 0 and x.find("==") < 0 and x.find(":") < 0:
-                if can_fold_module(d) == 0:
-                    print("  CHAN: bien cap module khong co kieu tai dong " + str(i + 1)
-                          + ": " + x)
-                    SO_CHAN_CAU_TRUC = SO_CHAN_CAU_TRUC + 1
         i = i + 1
     return SO_CHAN_CAU_TRUC
 
@@ -2788,7 +2875,8 @@ def main() -> "i32":
     print("vao   : " + DUONG_VAO + "  (" + str(SO_DONG_VA) + " dong, "
           + str(len(DOC)) + " file, bo " + str(SO_GOP) + " import, gap " + str(SO_FOLD) + " bien duong dan)")
     print("ham   : " + str(FN_N) + "   import cap module: " + str(SO_IMPORT)
-          + "   chan cau truc: " + str(SO_CHAN_CAU_TRUC))
++ "   chan cau truc: " + str(SO_CHAN_CAU_TRUC))
+    pre_quet_hang_so()
     quet_chan_cau_truc()
     bao()
     if CHI_DO == 1:

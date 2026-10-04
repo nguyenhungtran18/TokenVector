@@ -18,6 +18,8 @@ TABLE = {
 }
 KEYS = {"p", "q"}
 EMPTY = []
+# Tuple cap module: TokenVector khong co tuple literal, py2tkv doi thanh list.
+PAIR = ("a", "b")
 
 
 def show() -> int:
@@ -28,7 +30,9 @@ def show() -> int:
     print(NAMES)
     print(TABLE)
     print(KEYS)
-    return len(EMPTY)
+    print(len(EMPTY))
+    print(len(PAIR))
+    return 0
 
 
 def main() -> int:

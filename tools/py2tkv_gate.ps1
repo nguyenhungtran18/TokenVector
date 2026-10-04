@@ -55,9 +55,14 @@ Remove-Item -Recurse -Force $OutDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 $fixtures = Get-ChildItem (Join-Path $code "tests\py2tkv") -Filter "*.py" | Sort-Object Name
+$negatives = @()
+$negDir = Join-Path $code "tests\py2tkv_neg"
+if (Test-Path $negDir) {
+  $negatives = Get-ChildItem $negDir -Filter "*.py" | Sort-Object Name
+}
 Write-Output "compiler : $Compiler"
 Write-Output "converter: $Converter"
-Write-Output "fixtures : $($fixtures.Count)"
+Write-Output "fixtures : $($fixtures.Count)  (+ $($negatives.Count) negative)"
 Write-Output ""
 
 # --- KY VONG cho tung fixture ------------------------------------------------
@@ -75,8 +80,9 @@ $expect = @{
   "module_const.py" = @{
     can = @('MAX: "i32" = 10', 'NAME: "str" = "abc"', 'PI: "f64" = 3.14',
             'FLAG: "i32" = 1', 'SIZES: "list[i32]"', 'NAMES: "list[str]"',
-            'TABLE: "dict[str,i32]"', 'KEYS: "set[str]"', 'EMPTY: "list[i32]" = []')
-    khong = @('= True', '= False')
+            'TABLE: "dict[str,i32]"', 'KEYS: "set[str]"', 'EMPTY: "list[i32]" = []',
+            'PAIR: "list[str]" = ["a", "b"]')
+    khong = @('= True', '= False', '("a", "b")')
   }
   "file_io.py" = @{
     can = @('read_file(', 'write_file(')
@@ -104,6 +110,15 @@ $expect = @{
 $pass = 0
 $fail = 0
 $problems = @()
+
+# Fixture am: chuoi BAO CAO ma py2tkv phai in ra. Xem phan chay ben duoi.
+# Fixture am: chuoi BAO CAO ma py2tkv phai in ra. Xem phan chay ben duoi.
+# DUNG NHAC DON: trong chuoi nhay kép PowerShell, dau ` la KY TU ESCAPE, nen
+# 'CHAN ...: `try` tai dong' se thanh '... <TAB>ry tai dong' va gate bao sai.
+$negExpect = @{
+  'mod_try.py'  = 'CHAN cap module: `try` tai dong'
+  'mod_tinh.py' = 'CHAN cap module: gia tri TINH LUC CHAY tai dong'
+}
 
 foreach ($f in $fixtures) {
   $name = $f.Name
@@ -159,6 +174,52 @@ foreach ($f in $fixtures) {
 
 Write-Output ""
 Write-Output "=== py2tkv_gate: $pass/$($fixtures.Count) PASS ==="
+
+# ---- FIXTURE AM (PY2TKV_KHONG_THO_BIEN_DICH) --------------------------------
+# Mot so cau truc Python KHONG TON TAI o TokenVector: `try` cap module, gia tri
+# cap module tinh luc chay, tuple literal... Nhiem vu cua py2tkv KHONG phai la
+# bien dich duoc (lam the se sinh code sai), ma la BAO CAO DUNG va CHI CACH
+# SUA. Fixture am kiem tra DUNG hai dieu do:
+#   1. file .tkv sinh ra KHONG bien dich duoc (neu "lap lam" thi gate bao loi)
+#   2. bao cao phai CHUA dung chuoi dinh danh va chi duong sua
+$negPass = 0
+$negFail = 0
+if ($negatives.Count -gt 0) {
+  Write-Output ""
+  Write-Output "--- fixture am (py2tkv phai bao cao, khong bien dich) ---"
+  foreach ($f in $negatives) {
+    $name = $f.Name
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($name)
+    $tkv = Join-Path $OutDir "neg_$base.tkv"
+    $exe = Join-Path $OutDir "neg_$base.exe"
+    $rep = & $Converter $f.FullName $tkv 2>&1 | Out-String
+
+    $want = ""
+    if ($negExpect.ContainsKey($name)) { $want = $negExpect[$name] }
+    $bad = @()
+
+    if ($want -ne "" -and -not $rep.Contains($want)) {
+      $bad += "THIEU BAO CAO: $want"
+    }
+    # phai BIEN DICH that bai
+    Remove-Item $exe -ErrorAction SilentlyContinue
+    $cerr = & $Compiler $tkv $exe main 2>&1 | Select-String -Pattern "^\[tkvc\] loi" | Select-Object -First 1
+    if (-not $cerr -and (Test-Path $exe)) {
+      $bad += "VAN BIEN DICH DUOC - trong khi phai that bai (co the py2tkv bo am im ma cau truc)"
+    }
+    if ($bad.Count -eq 0) {
+      $negPass++
+      Write-Output "PASS neg/$base"
+    } else {
+      $negFail++
+      Write-Output "FAIL neg/$base"
+      $bad | ForEach-Object { Write-Output "      $_" }
+    }
+  }
+  Write-Output ""
+  Write-Output "=== py2tkv_gate (am): $negPass/$($negatives.Count) PASS ==="
+}
+
 if ($fail -gt 0) {
   Write-Output ""
   Write-Output "TOM TAT:"
@@ -170,5 +231,5 @@ if ($KeepOutput) {
 } else {
   Remove-Item -Recurse -Force $OutDir -ErrorAction SilentlyContinue
 }
-if ($fail -gt 0) { exit 1 }
+if ($fail -gt 0 -or $negFail -gt 0) { exit 1 }
 exit 0
