@@ -2088,11 +2088,6 @@ def ghi() -> "i32":
     k = 0
     while i < n:
         if k < FN_N and i == FN_DAU[k]:
-            # GIU THUT LE: day la thang quyet dinh method co nam trong class
-            # hay khong. `sua_chu_ky` tra ve `def ...` khong co thut le, nen
-            # phai them `dd[0:indent(dd)]` - y giong `ghi_than` da lam cho
-            # ham long nhau. Khong co dong nay, METHOD THOAT KHOI CLASS va
-            # compiler bao `trung ten ham ['__init__']`.
             dd0 = DONG[i]
             RA_GHI = RA_GHI + dd0[0:indent(dd0)] + sua_chu_ky(k) + "\n"
             SO_DONG_RA = SO_DONG_RA + 1
@@ -3326,6 +3321,16 @@ def them_field_cho_record() -> "i32":
             # thu le cua dong `def __init__` - giu nguyen de khong doi
             # thut le nhung phan body con lai cua class
             lt = DONG[vt]
+            # CUOI than CUA CHINH `__init__`, khong phai cuoi class. `het` la
+            # pham vi ca class (den dong `def` cap module ke tiep) - dung `het`
+            # se HUT `def speak`, `def tag` vao than `__init__` va pha cay
+            # class.
+            het2 = vt + 1
+            ne2 = indent(lt)
+            while het2 < het:
+                if DONG[het2].strip() != "" and indent(DONG[het2]) <= ne2:
+                    break
+                het2 = het2 + 1
             # Thut le than class: `la_dau_class` chi nhan class CAP MODULE, nen
             # than class luon o indent 4. Do lao tu dong `def __init__` khong
             # tin - dong do co the da bi chinh sua o lan truoc.
@@ -3344,7 +3349,7 @@ def them_field_cho_record() -> "i32":
             ra.append(le + "def __init__(" + ds2 + ") -> \"i32\":")
             for idx in range(len(truong)):
                 ra.append(le + le + "self." + truong[idx] + " = " + truong[idx])
-            for idx in range(vt + 1, het):
+            for idx in range(vt + 1, het2):
                 # bo dong gan `self.<field>` - da sinh o tren
                 y2 = DONG[idx].strip()
                 bo = 0
@@ -3356,13 +3361,13 @@ def them_field_cho_record() -> "i32":
                             bo = 1
                 if bo == 0:
                     ra.append(DONG[idx])
-            ra.append(le + le + "return 0")
+            ra.append(le + le + "return 0")
             moi: "list[str]" = []
             for idx in range(0, i + 1):
                 moi.append(DONG[idx])
             for idx in range(len(ra)):
                 moi.append(ra[idx])
-            for idx in range(het, n):
+            for idx in range(het2, n):
                 moi.append(DONG[idx])
             DONG = moi
             n = len(DONG)
@@ -3827,10 +3832,10 @@ def main() -> "i32":
         DOC.append(DUONG_VAO)
     nap_khai(DUONG_KHAI)
     DONG = doc_vao()
-    xoa_docstring()
-    them_field_cho_record()
     noi_dong_tieu()
     noi_chuoi_lien_dong()
+    xoa_docstring()
+    them_field_cho_record()
     xuli_thu_vien()
     xuli_subprocess_va_chen()
     xuli_io_open()
