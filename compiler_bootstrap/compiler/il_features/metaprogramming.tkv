@@ -10,7 +10,13 @@ khi noi day:
     NullReferenceException voi truong kieu khac - vi builtin nay khai
     return dtype CO DINH la 'str' (xem cuoi file), trong khi kieu tra ve
     that phu thuoc TUNG TRUONG. Nay chan tuong minh thay vi phat IL sai:
-    truong khong phai 'str' bao loi ro luc BIEN DICH."""
+    truong khong phai 'str' bao loi ro luc BIEN DICH.
+
+NOI DAY 2026-10-04: them `callable` (missing thu ba). Truoc do module nay
+chi port hasattr/getattr, con `callable` chi ton tai o ban bootstrap
+(compiler/il_features/metaprogramming.tkv, L267) nen reflection_test fail voi
+MISSING_BUILTIN tren dist/tkvc-tv.exe. Ly do goc KHONG phai dang ky sai ma la
+port chua DAY DU - dung cap do kieu chu ky."""
 from il_dispatch import register_expr_builtin
 
 __tkv_import__ = "il_dispatch"
@@ -18,6 +24,8 @@ from il_features import int_type as _int_type
 from il_features import tkvstr as _tkvstr
 from il_features.int_type import ensure_class_int
 from il_features.tkvstr import ensure_class
+from il_features.list_type import il_list_type
+from typed_dsl_parser import TypeAnn
 from expr_row import ea_str, ekind, eso_o, la_node, mk3, o_str
 
 def push_hasattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
@@ -127,6 +135,98 @@ def push_getattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]"
         raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co attribute '{attr_name}' va khong co default")
 
 
+def push_callable_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`callable(x)` -> 1 neu x la HAM, 0 neu khong (giong Python).
+
+    TokenVector la AOT: kieu cua bien biet LUC BIEN DICH nen tra loi ngay o
+    bien dich, khong can doi gia tri runtime.
+
+    PORT tu compiler/il_features/metaprogramming.tkv L267. Dung `shape_ten`
+    chu khong phai `.shape`: xem ghi chu o push_getattr_builtin - `shape_ten`
+    la "" khi VO HUONG, con `.shape` tra None. Do day la ham moi them vao
+    duong TokenVector (truoc day module nay chi port hasattr/getattr nen
+    `callable` MISSING_BUILTIN trong reflection_test)."""
+    ensure_class_int(ctx)
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: callable(x) nhan dung 1 tham so")
+    node = args[0]
+    if ekind(node) != 'var':
+        raise SyntaxError(
+            "il_codegen: callable(x) - x phai la BIEN dang co kieu, vi kieu la "
+            "thu biet duoc o bien dich (AOT). Hay gan bien truoc: "
+            "`f2 = my_func; callable(f2)`")
+    name = ea_str(node)
+    if name not in scope:
+        raise SyntaxError(f"il_codegen: bien '{name}' chua duoc khai bao")
+    ta = scope.tra(name).ta
+    if ta.shape_ten == 'func':
+        out.append('    ldc.i4.1')
+    else:
+        out.append('    ldc.i4.0')
+
+def _var_ta_mp(args: "list[TkvNode]", scope: "Scope", what: "str") -> "(str,TypeAnn)":
+    """Tham so 1 phai la 1 BIEN da khai bao. Tra (ten, TypeAnn).
+
+    PORT tu compiler/il_features/metaprogramming.tkv L253. Dung `ekind`/`ea_str`
+    va `scope.tra(name).ta` thay cho `node[0]`/`node[1]`/`scope[name]`."""
+    if len(args) != 1 or ekind(args[0]) != 'var':
+        raise SyntaxError(
+            "il_codegen: " + what + "(x) - tham so phai la 1 BIEN da khai bao "
+            "(vd " + what + "(xs)), khong nhan bieu thuc tai day")
+    name = ea_str(args[0])
+    if name not in scope:
+        raise SyntaxError("il_codegen: bien '" + name + "' chua duoc khai bao")
+    return (name, scope.tra(name).ta)
+
+def _field_names_mp(records: "dict[str,list[(str,TypeAnn)]]", rec_name: "str") -> "list[str]":
+    """Ten truong cua 1 record.
+
+    PORT tu compiler/il_features/metaprogramming.tkv L244. KHONG port nhanh
+    `isinstance(raw, list)` cua ban bootstrap: `isinstance` CHUA duoc dang ky
+    tren duong TokenVector (0 khop o il_core/il_dispatch/il_codegen). O day
+gia tri cua `records` LUON la list (xem ghi chu o push_getattr_builtin:
+    "gia tri LUON la list"), nen chi can duyet truc tiep.
+
+    KHONG giu `records[rec_name]` vao bien tam `raw` roi duyet `raw`: bien do
+    duoc gan bang `[]` o tren nen suy kieu thanh `list[?]` va `f[0]` sau do
+    hong - loi "'f' khong phai list/dict/string/mang". Duyet `records[rec_name]`
+    truc tiep, y het push_getattr_builtin L89-90, moi chay duoc."""
+    names: "list[str]" = []
+    if records and rec_name in records:
+        for f in records[rec_name]:
+            names.append(f[0])
+    return names
+
+def push_dir_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`dir(o)` -> List<string> ten truong + method cua record `o`.
+
+    Danh sach BIET LUC BIEN DICH (compiler da phai khai bao record truoc) nen
+    sinh san `List<string>` thay vi do khoi tao luc chay.
+
+    PORT tu compiler/il_features/metaprogramming.tkv L288. Ba khu: doc
+    `ctx.records` (bat buoc, ctx la attribute-holder o day, KHONG phai dict),
+    dung `list(record_methods[...].keys())` roi `sorted` (ham `sorted` chi
+    nhan bare name), va `.ctor()` KHONG tham so - dua `ldc.i4 len(names)` se
+    thua -> InvalidProgramException (da gap o ban bootstrap)."""
+    name, ta = _var_ta_mp(args, scope, 'dir')
+    records = ctx.records
+    record_methods = ctx.record_methods
+    names = list(_field_names_mp(records, ta.dtype))
+    mn: "list[str]" = []
+    if record_methods and ta.dtype in record_methods:
+        mn = list(record_methods[ta.dtype].keys())
+    names += sorted(mn)
+    if len(names) == 0:
+        raise SyntaxError(
+            "il_codegen: dir(" + name + ") - '" + name + "' co kieu '" + ta.dtype +
+            "' khong co truong/method nao; dir() chi ap dung cho record da khai bao")
+    list_il = il_list_type('str', ctx.records)
+    out.append('    newobj instance void ' + list_il + '::.ctor()')
+    for nm in names:
+        out.append('    dup')
+        out.append('    ldstr "' + nm + '"')
+        out.append('    callvirt instance void ' + list_il + '::Add(!0)')
+
 def bootstrap_metaprogramming(reg: "Registry") -> "i32":
     """Dang ky cua module nay - P6: KHONG chay luc import.
 
@@ -140,4 +240,15 @@ def bootstrap_metaprogramming(reg: "Registry") -> "i32":
     # kieu tra ve cua getattr phu thuoc tung truong, ma bang nay chi nhan
     # MOT dtype. push_getattr_builtin chan truong khong phai 'str'.
     register_expr_builtin(reg, 'getattr', push_getattr_builtin, 'str')
+    # callable: AOT - kieu cua bien biet luc bien dich, nen chi can day
+    # 0/1. Khong phai bien thi tra loi SOM o bien dich chu khong doi gia tri
+    # runtime. Day la builtin thu 3 cua module, da bi bo sot khi port
+    # (module TokenVector chi co hasattr/getattr - 143 dong so voi 434 dong
+    # o bootstrap).
+    register_expr_builtin(reg, 'callable', push_callable_builtin, 'bool')
+    # `dir` tra CONTAINER nen can return_ta (dtype phan tu + shape), khong
+    # dung return_dtype (chi dung cho gia tri vo huong).
+    register_expr_builtin(reg, 'dir', push_dir_builtin, None,
+                          return_ta=TypeAnn('str', 'list'),
+                          return_ta_dtype='str', return_ta_shape='list')
     return 0
