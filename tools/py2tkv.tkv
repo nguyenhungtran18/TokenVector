@@ -162,6 +162,11 @@ def nap_khai(duong: "str") -> "i32":
     noi = read_file(duong)
     noi = noi.replace("\r\n", "\n")
     noi = noi.replace("\r", "\n")
+    # BOM (U+FEFF) o dau file - PowerShell 5.1 `Set-Content -Encoding UTF8`
+    # hay ghi. Neu khong cat, khoa cua dong DAU TIEN se khac "" nen khai
+    # doan do im lang khong hieu sao.
+    if noi.find("\ufeff") >= 0:
+        noi = noi.replace("\ufeff", "")
     d = tach_dong(noi)
     i = 0
     while i < len(d):
@@ -741,6 +746,38 @@ def chuan_hoa_kieu(t: "str") -> "str":
         return ""
     if x == "None" or x == "Any" or x == "object":
         return ""
+    # Kieu tra ve NHIEU GIA TRI: `"(dtype, dtype)"`. TokenVector ho tro (probe
+    # 2026-10-04: `return a, b` + `p, q = f()` chay dung, va `None` trong
+    # tuple dien bang `i64` nen `x is None` van dung). Tay tach o day vi
+    # `tach_nhieu_gt` duoc dinh nghia SAU ham nay.
+    if x.startswith("(") and x.endswith(")"):
+        y = x[1:len(x) - 1]
+        phan: "list[str]" = []
+        trong = 0
+        sau = -1
+        i = 0
+        while i < len(y):
+            c = y[i:i + 1]
+            if c == "\"":
+                trong = 1 - trong
+            if c == "," and trong == 0:
+                phan.append(y[sau + 1:i])
+                sau = i
+            i = i + 1
+        if len(phan) == 0:
+            return ""
+        phan.append(y[sau + 1:len(y)])
+        ra = "("
+        for idx in range(len(phan)):
+            if idx > 0:
+                ra = ra + ", "
+            if phan[idx].strip() == "":
+                return ""
+            kt = chuan_hoa_kieu(phan[idx].strip())
+            if kt == "":
+                return ""
+            ra = ra + kt
+        return ra + ")"
     lt = chuan_hoa_co_le(x)
     if lt != "":
         return lt
@@ -770,6 +807,15 @@ def chuan_hoa_kieu(t: "str") -> "str":
             return "dict[str,str]"
         if ve == "f64":
             return "dict[str,f64]"
+        return ""
+    if y.find("set[") == 0 and y.endswith("]"):
+        lt = chuan_hoa_co_le(y[4:-1])
+        if lt == "i32":
+            return "set[i32]"
+        if lt == "str":
+            return "set[str]"
+        if lt == "f64":
+            return "set[f64]"
         return ""
     return ""
 
@@ -1117,6 +1163,56 @@ def kieu_phan_tu_append(k: "i32", ten: "str") -> "str":
     return ra
 
 
+def nap_container_rong_luong() -> "i32":
+    """Nap kieu container rong cho MOI ham truoc khi suy kieu tra ve.
+
+    Thu tu QUAN TRONG: `suy_dich` cache FN_RET. Neu chay truoc `nap_container_rong`
+    thi `doan_bieu_thuc` thay bien container rong (`{}`, `set()`) khong ra kieu,
+    ket qua la kieu SAI duoc cache va khong bao gio sua lai.
+    """
+    i = 0
+    while i < FN_N:
+        nap_container_rong(i)
+        i = i + 1
+    return 0
+
+
+def kieu_phan_tu_dict(k: "i32", ten: "str") -> "str":
+    """Kieu phan tu cua `ten[ch Khoa] = gia tri` trong than ham k.
+
+    Tra ve `"{kieuKhoa,kieuGiaTri}"`, hoac "" neu khong thay / cac lan gan
+    khac nhau. `{}` trong Python la dict RONG; TokenVector cung vay, nhung
+    de biet kieu phan tu phai nhin cach gan, khac voi `[]`/`.append()`.
+    """
+    ra = ""
+    i = FN_DAU[k] + 1
+    while i < FN_CUOI[k]:
+        x = bo_chu_thich(DONG[i]).strip()
+        if x.find(ten + "[") != 0:
+            i = i + 1
+            continue
+        q = x.find("]", len(ten))
+        if q < 0:
+            i = i + 1
+            continue
+        phan = x[len(ten) + 1:q].strip()
+        con = x[q + 1:].strip()
+        if phan == "" or vi_tri_bang_gan(con) <= 0:
+            i = i + 1
+            continue
+        kk = doan_bieu_thuc(phan, k)
+        gv = con[vi_tri_bang_gan(con) + 1:].strip()
+        kg = doan_bieu_thuc(gv, k)
+        if kk == "" or kg == "":
+            return ""
+        if ra == "":
+            ra = "{" + kk + "," + kg + "}"
+        elif ra != "{" + kk + "," + kg + "}":
+            return ""
+        i = i + 1
+    return ra
+
+
 def nap_container_rong(k: "i32") -> "i32":
     """Ghi kieu cho container rong (`xs = []`) theo `.append(...)`/`.add(...)`."""
     i = FN_DAU[k] + 1
@@ -1132,6 +1228,10 @@ def nap_container_rong(k: "i32") -> "i32":
                     kc = "list"
                 if g == "set()":
                     kc = "set"
+                if g == "{}":
+                    lt = kieu_phan_tu_dict(k, ten)
+                    if lt != "":
+                        them_bien_rong(k, ten, "dict" + lt)
                 if kc != "":
                     lt = kieu_phan_tu_append(k, ten)
                     if lt != "":
@@ -1261,6 +1361,85 @@ def nap_bien_trong_than(k: "i32") -> "i32":
     return 0
 
 
+def tach_nhieu_gt(e: "str") -> "list[str]":
+    """Tach `a, b, c` thanh cac thanh phan theo dau phay cap NGOAI CUNG ngoac.
+
+    Tra ve danh sach rong khi `e` khong phai bieu thuc nhieu gia tri.
+    """
+    ra: "list[str]" = []
+    x = e
+    n = len(x)
+    do_sau = 0
+    sau = -1
+    trong = 0
+    i = 0
+    while i < n:
+        c = x[i:i + 1]
+        if trong == 1:
+            if c == "\\":
+                i = i + 2
+                continue
+            if c == "\"":
+                trong = 0
+            i = i + 1
+            continue
+        if c == "\"":
+            trong = 1
+            i = i + 1
+            continue
+        if c == "(" or c == "[" or c == "{":
+            do_sau = do_sau + 1
+            i = i + 1
+            continue
+        if c == ")" or c == "]" or c == "}":
+            do_sau = do_sau - 1
+            i = i + 1
+            continue
+        if c == "," and do_sau == 0:
+            ra.append(x[sau + 1:i])
+            sau = i
+            i = i + 1
+            continue
+        i = i + 1
+    if len(ra) == 0:
+        return ra
+    ra.append(x[sau + 1:n])
+    for idx in range(len(ra)):
+        ra[idx] = ra[idx].strip()
+        if ra[idx] == "":
+            return []
+    return ra
+
+
+def kieu_tuple_tra_ve(b: "str", k: "i32") -> "str":
+    """`return a, b` -> `"(i32, str)"`; hoac "" neu khong phai tuple /
+    co thanh phan khong doan duoc kieu."""
+    ds = tach_nhieu_gt(b)
+    if len(ds) < 2:
+        return ""
+    ra = ""
+    idx = 0
+    while idx < len(ds):
+        p = ds[idx]
+        kt = ""
+        # `None` trong tuple: TokenVector co datatype cho tuple chi nhan
+        # f32/f64/i32/i64/str. Probe 2026-10-04: `i64` chay dung va
+        # `x is None` van dung. KHONG dung `ptr`/`any` - compiler tu choi.
+        if p == "None":
+            kt = "i64"
+        if kt == "":
+            kt = doan_bieu_thuc(p, k)
+        if kt == "":
+            return ""                  # doan sai -> de cho P1 ha cap
+        if ra != "":
+            ra = ra + ", "
+        ra = ra + kt
+        idx = idx + 1
+    if ra == "":
+        return ""
+    return "(" + ra + ")"
+
+
 def suy_ve_1(k: "i32") -> "str":
     """Suy kieu tra ve cua ham k tu cac lenh `return` trong than."""
     chu_ky = chu_ky_cua(k)
@@ -1281,7 +1460,15 @@ def suy_ve_1(k: "i32") -> "str":
                 if c == " " or c == "(":
                     b = x[6:].strip()
                     if b != "":
-                        kk = doan_bieu_thuc(b, k)
+                        # `return a, b` la bieu thuc NHIEU GIA TRI that su.
+                        # Neu khong doan duoc kieu tung thanh phan thi tra "",
+                        # KHONG duoc de doan_bieu_thuc doan lung tang ra mot
+                        # kieu don le - no se bi SAI CACH CACHE vao FN_RET
+                        # truoc khi nap_container_rong co them co hoi suy.
+                        if len(tach_nhieu_gt(b)) >= 2:
+                            kk = kieu_tuple_tra_ve(b, k)
+                        else:
+                            kk = doan_bieu_thuc(b, k)
                         if kk == "":
                             kk = doan_qua_goi(b)
                         if kk != "":
@@ -1588,7 +1775,10 @@ def fn_danh_stub(k: "i32", ly_do: "str") -> "i32":
     global FN_STUB
     if fn_la_stub(k) == 1:
         return 0
-    FN_STUB = FN_STUB + str(k) + ";"
+    # PHAI co `;` o DAU: `fn_la_stub` tim theo mieu `;<k>;`, nen phan tu
+    # dau tien cung phai co moc hai ben - truoc day ham HA CAP DAU TIEN
+    # khong bao gio duoc nhan ra la stub.
+    FN_STUB = ";" + FN_STUB + str(k) + ";"
     print("  HA CAP: " + FN_TEN[k] + " - " + ly_do)
     return 1
 
@@ -3169,6 +3359,7 @@ def main() -> "i32":
     goi_vao_main()
     quet()
     quet_import()
+    nap_container_rong_luong()
     suy_dich(4)
     print("vao   : " + DUONG_VAO + "  (" + str(SO_DONG_VA) + " dong, "
           + str(len(DOC)) + " file, bo " + str(SO_GOP) + " import, gap " + str(SO_FOLD) + " bien duong dan)")
