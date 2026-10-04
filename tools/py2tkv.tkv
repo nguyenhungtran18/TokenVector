@@ -41,6 +41,7 @@ SO_DONG_VA: "i32" = 0
 SO_XOA_DOC: "i32" = 0
 SO_EXEC_BO: "i32" = 0
 SO_KHONG_BOM: "i32" = 0
+SO_TACH_PHAY: "i32" = 0
 SO_FIELD_THEM: "i32" = 0
 TEN_LOP: "list[str]" = []
 TRUONG_LOP: "list[str]" = []
@@ -3385,6 +3386,88 @@ def them_field_cho_record() -> "i32":
     return 0
 
 
+def tach_dau_phay() -> "i32":
+    """Tach `a = 1; b = 2` thanh HAI DONG.
+
+    Python cho phep nhieu lenh tren mot dong, tach bang `;`. TokenVector
+    KHONG co `;` - compiler bao `con thua token khong parse duoc sau bieu thuc`.
+    Tham du that: `benchmark/tol.py` dong
+    `a=np.array(a).reshape(n,n); b=np.array(b).reshape(n,n)`.
+
+    Chi tach dau phay o CAP NGOAI CUNG ngoac va ngoai chuoi, va bo qua
+    dong docstring. Giu nguyen thut le.
+    """
+    global SO_TACH_PHAY
+    n = len(DONG)
+    ra: "list[str]" = []
+    i = 0
+    doc = ""
+    while i < n:
+        d = DONG[i]
+        x = d.strip()
+        if doc != "":
+            ra.append(d)
+            if doc == "\"\"\"" and x.find("\"\"\"") > 0:
+                doc = ""
+            if doc == "'''" and x.find("'''") > 0:
+                doc = ""
+            i = i + 1
+            continue
+        if x.find("\"\"\"") == 0 or x.find("'''") == 0:
+            ra.append(d)
+            if x.find("\"\"\"") <= 0 or x.find("'''") <= 0:
+                doc = x[0:3]
+            i = i + 1
+            continue
+        if x.find(";") < 0 or indent(d) == 0 and la_dong_exe(d) == 0:
+            ra.append(d)
+            i = i + 1
+            continue
+        # tach
+        phan: "list[str]" = []
+        do_sau = 0
+        trong = 0
+        sau = -1
+        k = 0
+        co = 0
+        while k < len(d):
+            c = d[k:k + 1]
+            if trong == 1:
+                if c == "\\":
+                    k = k + 2
+                    continue
+                if c == "\"":
+                    trong = 0
+                k = k + 1
+                continue
+            if c == "\"":
+                trong = 1
+                k = k + 1
+                continue
+            if c == "(" or c == "[" or c == "{":
+                do_sau = do_sau + 1
+            elif c == ")" or c == "]" or c == "}":
+                do_sau = do_sau - 1
+            elif c == ";" and do_sau == 0:
+                phan.append(d[sau + 1:k])
+                sau = k
+                co = co + 1
+            k = k + 1
+        if co == 0:
+            ra.append(d)
+            i = i + 1
+            continue
+        phan.append(d[sau + 1:len(d)])
+        for idx in range(len(phan)):
+            y = phan[idx].strip()
+            if y != "":
+                ra.append(d[0:indent(d)] + y)
+        SO_TACH_PHAY = SO_TACH_PHAY + 1
+        i = i + 1
+    them_dong(ra)
+    return 0
+
+
 def noi_dong_tieu() -> "i32":
     """Noi cac dong tiep noi (nhieu dong) thanh MOT dong.
 
@@ -3832,14 +3915,15 @@ def main() -> "i32":
         DOC.append(DUONG_VAO)
     nap_khai(DUONG_KHAI)
     DONG = doc_vao()
+    tach_dau_phay()
     noi_dong_tieu()
     noi_chuoi_lien_dong()
     xoa_docstring()
-    them_field_cho_record()
     xuli_thu_vien()
     xuli_subprocess_va_chen()
     xuli_io_open()
     xuli_with()
+    them_field_cho_record()
     goi_vao_main()
     quet()
     quet_import()
