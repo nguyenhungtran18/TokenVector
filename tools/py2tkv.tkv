@@ -39,6 +39,8 @@ FN_N: "i32" = 0
 DONG: "list[str]" = []
 SO_DONG_VA: "i32" = 0
 SO_XOA_DOC: "i32" = 0
+SO_EXEC_BO: "i32" = 0
+SO_KHONG_BOM: "i32" = 0
 SO_FIELD_THEM: "i32" = 0
 TEN_LOP: "list[str]" = []
 TRUONG_LOP: "list[str]" = []
@@ -2706,6 +2708,48 @@ def them_dong(nguon: "list[str]") -> "i32":
     return 0
 
 
+def thanh_bo(ds: "list[str]", bo: "str") -> "list[str]":
+    ra: "list[str]" = []
+    for idx in range(len(ds)):
+        if ds[idx] != bo:
+            ra.append(ds[idx])
+    return ra
+
+
+def vi_tri_ten(x: "str", ten: "str") -> "i32":
+    """Vi tri `ten` trong `x` co bien gioi dung (khong phai con ten bien khac)."""
+    p = x.find(ten)
+    while p >= 0:
+        ok = 1
+        if p > 0 and la_ten(x[p - 1:p]) == 1:
+            ok = 0
+        q = p + len(ten)
+        if q < len(x) and la_ten(x[q:q + 1]) == 1:
+            ok = 0
+        if ok == 1:
+            return p
+        p = x.find(ten, p + 1)
+    return -1
+
+
+def ham_dung_ten(ten: "str") -> "i32":
+    """1 neu MOT ham cap module nao do DOC bien `ten` trong than."""
+    n = len(DONG)
+    i = 0
+    trong = 0
+    while i < n:
+        d = DONG[i]
+        x = d.strip()
+        if x.startswith("def ") and indent(d) == 0:
+            trong = 1
+        elif trong == 1 and x != "" and indent(d) == 0:
+            trong = 0
+        if trong == 1 and vi_tri_ten(bo_chu_thich(d), ten) >= 0:
+            return 1
+        i = i + 1
+    return 0
+
+
 def goi_vao_main() -> "i32":
     """Dam bao file co entry `main` cho `tkvc-tv <file> <exe> main`.
 
@@ -2719,21 +2763,9 @@ def goi_vao_main() -> "i32":
     """
     global SO_GOI_MAIN
     global SO_MAIN_NO
-    if co_def_toplevel() == 1:
-        if co_ten_ham("main") == 1:
-            return 0
-        ra: "list[str]" = []
-        i = 0
-        while i < len(DONG):
-            ra.append(DONG[i])
-            i = i + 1
-        ra.append("")
-        ra.append("")
-        ra.append("def main() -> \"i32\":")
-        ra.append("    return 0")
-        them_dong(ra)
-        SO_MAIN_NO = SO_MAIN_NO + 1
-        return 1
+    global GOI_KHOI_DONG
+    global SO_EXEC_BO
+    global SO_KHONG_BOM
     ra2: "list[str]" = []
     thanh: "list[str]" = []
     n = len(DONG)
@@ -2767,21 +2799,115 @@ def goi_vao_main() -> "i32":
                     thanh.append(y)
                     i = i + 1
                 continue
+            # TokenVector khong co `exec`. Bo co bao - im lang bo se lam mat
+            # hanh vi (binary bien dich duoc nhung khong chay gi).
+            if x.startswith("exec("):
+                SO_EXEC_BO = SO_EXEC_BO + 1
+                print("  BO QUA: dong " + str(i + 1) + " `exec(...)` - TokenVector khong co `exec`")
+                i = i + 1
+                continue
+            # HANG SO cap module (`MAX = 10`, `ROOT = "x"`) TokenVector doc o
+            # cap module va HAM o cap module duoc doc. Dua vao ham se lam
+            # ham khong con thay no -> phai GIU nguyen o cap module.
+            # CHI Y: `can_fold_module` tra 1 khi `fold_module` xu ly duoc, NHUNG
+            # no cung tra 1 cho dong KHONG phai gan (`print(...)`) - do
+            # `find("=") < 0`. Nen phai doi chieu CA HAI: co gan va gấp duoc.
+            if x.find("=") > 0 and x.find("==") < 0 and can_fold_module(d) == 1:
+                ra2.append(d)
+                i = i + 1
+                continue
             thanh.append(d)
             i = i + 1
             continue
         ra2.append(d)
         i = i + 1
-    if len(thanh) == 0:
+    if len(thanh) > 0:
+        # `exec(...)` co the nam trong ca khoi `if __name__`, nen loc MOT LAN
+        # o day thay vi dua vao nhanh khi quet.
+        thanh2: "list[str]" = []
+        for idx in range(len(thanh)):
+            if thanh[idx].strip().startswith("exec("):
+                SO_EXEC_BO = SO_EXEC_BO + 1
+                print("  BO QUA: `exec(...)` o cap module - TokenVector khong co `exec`")
+                continue
+            thanh2.append(thanh[idx])
+        thanx: "list[str]" = []
+        for idx in range(len(thanh2)):
+            thanx.append(thanh2[idx])
+        # AN TOAN: bien gan o cap module ma dua vao ham se thanh BIEN CUC BO,
+        # ham khac o cap module doc no se khong thay. Khi do KHONG bom - giu
+        # nguyen o cap module de compiler bao loi, thay vi lam code bien dich
+        # duoc nhung chay SAI.
+        for idx in range(len(thanx)):
+            q3 = vi_tri_bang_gan(thanx[idx].strip())
+            if q3 <= 0:
+                continue
+            dd3 = thanx[idx].strip()
+            tn3 = dd3[0:q3].strip()
+            if ten_sach(tn3) == 1 and ham_dung_ten(tn3) == 1:
+                print("  KHONG BOM: bien cap module '" + tn3 + "' duoc ham khac doc - "
+                      + "chuyen no vao ham se lam ham doc bien rong")
+                SO_KHONG_BOM = SO_KHONG_BOM + 1
+                thanx = thanh_bo(thanx, thanx[idx])
+        if len(thanx) == 0:
+            if co_ten_ham("main") == 1:
+                return 0
+            ra3b: "list[str]" = []
+            i = 0
+            while i < len(DONG):
+                ra3b.append(DONG[i])
+                i = i + 1
+            ra3b.append("")
+            ra3b.append("")
+            ra3b.append("def main() -> \"i32\":")
+            ra3b.append("    return 0")
+            them_dong(ra3b)
+            SO_MAIN_NO = SO_MAIN_NO + 1
+            return 1
+        # Code cap module -> ham `__khoi_dong()`. Ham nay duoc goi o DAU
+        # `main` boi `ghi` (co bien `GOI_KHOI_DONG`) - tuong duong nghia vi
+        # `main` chinh la diem vao cua chuong trinh.
+        ra2.append("")
+        ra2.append("")
+        ra2.append("def __khoi_dong() -> \"i32\":")
+        for idx in range(len(thanx)):
+            ra2.append("    " + thanx[idx].strip())
+        ra2.append("    return 0")
+        them_dong(ra2)
+        GOI_KHOI_DONG = 1
+        if co_ten_ham("main") == 0:
+            # File co `def` top-level nen khong co `main`: phai sinh, va no
+            # phai GOI `__khoi_dong()` - neu chi sinh `main` rong thi code
+            # cap module vua gom se khong bao gio chay. `GOI_KHOI_DONG` phai
+            # TAT o day, neu khong `ghi` se chen them mot lan goi nua.
+            ra3: "list[str]" = []
+            i = 0
+            while i < len(DONG):
+                ra3.append(DONG[i])
+                i = i + 1
+            ra3.append("")
+            ra3.append("")
+            ra3.append("def main() -> \"i32\":")
+            ra3.append("    __khoi_dong()")
+            ra3.append("    return 0")
+            them_dong(ra3)
+            GOI_KHOI_DONG = 0
+            SO_MAIN_NO = SO_MAIN_NO + 1
+        SO_GOI_MAIN = SO_GOI_MAIN + 1
+        return 1
+    if co_ten_ham("main") == 1:
         return 0
-    ra2.append("")
-    ra2.append("")
-    ra2.append("def main() -> \"i32\":")
-    for idx in range(len(thanh)):
-        ra2.append("    " + thanh[idx].strip())
-    ra2.append("    return 0")
-    them_dong(ra2)
-    SO_GOI_MAIN = SO_GOI_MAIN + 1
+    ra: "list[str]" = []
+    i = 0
+    while i < len(DONG):
+        ra.append(DONG[i])
+        i = i + 1
+    ra.append("")
+    ra.append("")
+    ra.append("def main() -> \"i32\":")
+    ra.append("    return 0")
+    them_dong(ra)
+    SO_MAIN_NO = SO_MAIN_NO + 1
     return 1
 
 

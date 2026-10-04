@@ -111,6 +111,11 @@ $expect = @{
     # do chinh py2tkv sinh ra va LUON chua tu do. Chi kiem tra LOI GOI con lai.
     khong = @('subprocess.run(', 'r.returncode', 'r.stdout', 'r.stderr')
   }
+  "py_module_code.py" = @{
+    can = @('def __khoi_dong() -> "i32":', 'print("bat dau")',
+            '    __khoi_dong()')
+    khong = @()
+  }
 }
 
 $pass = 0
