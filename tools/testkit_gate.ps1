@@ -93,14 +93,43 @@ $workDir = Join-Path $code "tests"
 $pass = 0; $buildFail = 0; $testFail = 0; $other = 0; $timeouts = 0
 $failures = @()
 
+# --- ADAPTER CHO COMPILER TU HOST -------------------------------------------
+# Hai compiler KHAC NHAU ve CLI, va truoc day chi co mot trong hai duoc gate:
+#   dist\tkvc.exe   (bootstrap Python) : tkvc build <src> --entry <e> --out <exe> --no-lint [--emit-il]
+#   dist\tkvc-tv.exe (TU HOST, san pham) : tkvc <src> <exe> <entry>   - KHONG co flag
+#
+# `tkvc-tv` LUON tra process exit code 0, ke ca khi bien dich that bai, nen
+# phai doc stdout tim `[tkvc] loi` - khong the tin vao exit code.
+#
+# VI SAO PHAI CO: `vong.exe` chi chung minh g1 == g2 (compiler bien dich lai
+# chinh no ra chinh no). NO khong chung minh bytecode do CHAY DUNG tren chuong
+# trinh that. Truoc khi co adapter nay, KHONG gate nao chay mot dong lenh nao
+# qua `tkvc-tv` - nen moi bug chi xuat hien o compiler san pham deu nhin sau
+# duoi qua 118/119 PASS cua gate.
+$posCli = ($Compiler -like "*tkvc-tv*")
+Write-Output "compiler : $Compiler"
+if ($posCli) {
+  Write-Output "CLI      : TU HOST (vi tri) - doc loi qua stdout, exit code khong dung duoc"
+}
+
+function Invoke-TkvBuild([string]$src, [string]$exe, [string]$entry, [string[]]$extra) {
+  Remove-Item $exe -Force -ErrorAction SilentlyContinue
+  if ($posCli) {
+    $b = & $Compiler $src $exe $entry 2>&1 | Out-String
+    if ($b -match '\[tkvc\] loi') { return @($false, $b) }
+    return @((Test-Path $exe), $b)
+  }
+  $argv2 = @('build', $src, '--entry', $entry, '--out', $exe, '--no-lint') + $extra
+  $b = & $Compiler @argv2 2>&1 | Out-String
+  return @((Test-Path $exe), $b)
+}
+
 foreach ($t in $tests) {
   $exe = Join-Path $OutDir "$($t.BaseName).exe"
-  if (Test-Path $exe) { Remove-Item $exe -Force }
-
   # --no-lint matches the established gate: the linter is a library-author
   # tool, and several Testkit files are deliberately minimal.
-  & $Compiler build $t.FullName --entry run --out $exe --no-lint 2>&1 | Out-Null
-  if (-not (Test-Path $exe)) {
+  $r = Invoke-TkvBuild $t.FullName $exe 'run' @()
+  if (-not $r[0]) {
     $buildFail++; $failures += "BUILDFAIL  $($t.Name)"; continue
   }
 
@@ -193,7 +222,7 @@ foreach ($c in $ilChecks) {
   $exe = "$stem.exe"
   $il  = "$stem.il"
   Remove-Item $exe, $il -Force -ErrorAction SilentlyContinue
-  & $Compiler build $src --entry run --out $exe --emit-il --no-lint 2>&1 | Out-Null
+  $r = Invoke-TkvBuild $src $exe 'run' @('--emit-il')
   if (-not (Test-Path $il)) {
     $ilFail++; $failures += "ILFAIL    $($c.Test) (khong sinh duoc .il)"; continue
   }
@@ -257,9 +286,10 @@ foreach ($nt in $negTests) {
     continue
   }
   $nexe = Join-Path $OutDir "neg_$($nt.BaseName).exe"
-  Remove-Item $nexe -Force -ErrorAction SilentlyContinue
-  $bout = & $Compiler build $nt.FullName --entry run --out $nexe --no-lint 2>&1 | Out-String
-  if (Test-Path $nexe) {
+  $r = Invoke-TkvBuild $nt.FullName $nexe 'run' @()
+  $negOk = $r[0]
+  $bout = $r[1]
+  if ($negOk) {
     # Bien dich THANH CONG -> cai ma phai bi tu choi da khong duoc chan.
     $negFail++
     $failures += "NEGFAIL   $($nt.Name) (BIEN DICH THANH CONG - cai do phai bi tu choi)"
