@@ -2,12 +2,12 @@
 # Do la SO DO, khong phai gate. De cap nhat: chay lai voi -Update
 _split_il_features.py|TUPLE_RETURN|7
 build_reflector.py|TYPE_INFER|2
-cmp_py.py|BUILTIN_SHAPE|15
+cmp_py.py|BUILTIN_SHAPE|16
 cmp_python_builtins.py|BUILTIN_SHAPE|1
 dang_ky_gate.py|PY_ONLY_API|1
 diff.py|MODULE_LEVEL|1
 find_csc.py|TYPE_INFER|0
-gen_builtin_ref.py|BUILTIN_SHAPE|7
+gen_builtin_ref.py|TYPE_INFER|6
 generator.py|PASS|6
 main.py|OTHER|0
 p6_bench.py|MODULE_LEVEL|4

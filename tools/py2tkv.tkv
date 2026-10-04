@@ -42,6 +42,7 @@ SO_XOA_DOC: "i32" = 0
 SO_EXEC_BO: "i32" = 0
 SO_KHONG_BOM: "i32" = 0
 SO_TACH_PHAY: "i32" = 0
+SO_TACH_BIEN: "i32" = 0
 SO_FIELD_THEM: "i32" = 0
 TEN_LOP: "list[str]" = []
 TRUONG_LOP: "list[str]" = []
@@ -1357,11 +1358,18 @@ def nap_bien_trong_than(k: "i32") -> "i32":
                 if ten_sach(ten) == 1 and ten.find(".") < 0:
                     if bien_cuc_bo_lay(ten) == "":
                         g = x[q + 1:].strip()
-                        if g != "[]" and g != "{}":
+                        kc = ""
+                        if g == "[]" or g == "{}" or g == "set()":
+                            # Container rong: KHONG doan `[]` -> `list[i32]`
+                            # (doan lung se sai). Nhung `nap_container_rong`
+                            # DA suy duoc phan tu qua `.append`/`.add`/
+                            # `d[k] = v` - dung kieu do, khong phai doan.
+                            kc = lay_bien_rong(k, ten)
+                        else:
                             kc = doan_bieu_thuc(g, k)
-                            if kc != "":
-                                bien_cuc_bo_them(ten, kc)
-                                them = them + 1
+                        if kc != "":
+                            bien_cuc_bo_them(ten, kc)
+                            them = them + 1
             i = i + 1
         if them == 0:
             break
@@ -1457,10 +1465,28 @@ def suy_ve_1(k: "i32") -> "str":
     nap_bien_tham_so(k)
     dau = FN_DAU[k] + 1
     cuoi = FN_CUOI[k]
+    # BO QUA `return` cua HAM LONG NHAU trong than. Neu khong, kieu tra ve
+    # cua ham ngoai bi tron: `resolve` trong `_split_il_features.py` co
+    # `return None, None, errs` (3 phan) nhung ham long `find`/`dfs` trong
+    # than tra ve `x` va tra ve rong - tron lai thi khong suy duoc gi.
+    ne2 = indent(DONG[FN_DAU[k]])
+    trong_long = 0
     co = ""
     i = dau
     while i < cuoi:
-        x = DONG[i].strip()
+        dd = DONG[i]
+        xx = dd.strip()
+        if trong_long == 1:
+            if xx != "" and indent(dd) <= ne2:
+                trong_long = 0
+            else:
+                i = i + 1
+                continue
+        if xx.startswith("def ") and indent(dd) > ne2:
+            trong_long = 1
+            i = i + 1
+            continue
+        x = xx
         if x.startswith("return"):
             if len(x) > 6:
                 c = x[6:7]
@@ -3386,6 +3412,71 @@ def them_field_cho_record() -> "i32":
     return 0
 
 
+def tach_bien_nhieu() -> "i32":
+    """Tach `a, b = {}, []` thanh `a = {}` va `b = []`.
+
+    Python cho phep gán nhieu bien tu MOT tuple literal. TokenVector thi khong
+    co tuple literal, va `a, b = <goi>` la dang GIAI TUPLE - nen chi tach khi
+    VE PHAI cung la nhieu bieu thuc tach duoc bang dau phay, va SO PHAN khop
+    voi so ben trai. Tham du that: `pins, errs = {}, []` trong
+    `tools/_split_il_features.py` - `load_manifest` tra ve `(pins, errs)`, va
+    `errs` lai la tham so cua `resolve`, nen mot cho sai lan day lao mot lo
+    ham bi HA CAP.
+    """
+    global SO_TACH_BIEN
+    n = len(DONG)
+    ra: "list[str]" = []
+    i = 0
+    tach = 0
+    while i < n:
+        d = DONG[i]
+        x = d.strip()
+        if x == "" or x.startswith("#"):
+            ra.append(d)
+            i = i + 1
+            continue
+        if x.startswith("def ") or x.startswith("class ") or x.startswith("@"):
+            ra.append(d)
+            i = i + 1
+            continue
+        if x.find("=") < 0 or x.find("==") >= 0 or la_dong_exe(d) == 0 and indent(d) == 0 and la_import(d) == 1:
+            ra.append(d)
+            i = i + 1
+            continue
+        q = vi_tri_bang_gan(x)
+        if q <= 0:
+            ra.append(d)
+            i = i + 1
+            continue
+        trai = tach_nhieu_gt(x[0:q])
+        if len(trai) < 2:
+            ra.append(d)
+            i = i + 1
+            continue
+        for idx in range(len(trai)):
+            if trai[idx].find(".") >= 0 or trai[idx].find("[") >= 0:
+                trai = []
+                break
+        if len(trai) < 2:
+            ra.append(d)
+            i = i + 1
+            continue
+        phai = tach_nhieu_gt(x[q + 1:])
+        if len(phai) != len(trai):
+            ra.append(d)
+            i = i + 1
+            continue
+        le = d[0:indent(d)]
+        for idx in range(len(trai)):
+            ra.append(le + trai[idx] + " = " + phai[idx])
+        tach = tach + 1
+        i = i + 1
+    if tach > 0:
+        them_dong(ra)
+        SO_TACH_BIEN = SO_TACH_BIEN + tach
+    return 0
+
+
 def tach_dau_phay() -> "i32":
     """Tach `a = 1; b = 2` thanh HAI DONG.
 
@@ -3919,6 +4010,7 @@ def main() -> "i32":
     noi_dong_tieu()
     noi_chuoi_lien_dong()
     xoa_docstring()
+    tach_bien_nhieu()
     xuli_thu_vien()
     xuli_subprocess_va_chen()
     xuli_io_open()
@@ -3947,6 +4039,6 @@ def main() -> "i32":
           + str(SO_NOI_DONG) + " liet lie da noi, " + str(SO_GOI_MAIN) + " file boc vao main, "
           + str(SO_MAIN_NO) + " file sinh main rong, " + str(SO_ANNOT_RONG) + " container rong duoc khai bao, " + str(SO_WITH) + " `with` da doi, "
           + str(SO_WITH_CHUA) + " `with` chua doi duoc, " + str(SO_NOI_CHUOI) + " dong noi chuoi, " + str(SO_IO_OPEN) + " `open().write()` da doi, " + str(SO_THU_VIEN) + " dong ma hoa thu vien, " + str(SO_SUBPROC) + " `subprocess.run` da doi, "
-          + str(SO_HA_CAP) + " ham HA CAP, " + str(SO_GOM_CAP) + " file gom code cap module")
+          + str(SO_HA_CAP) + " ham HA CAP, " + str(SO_TACH_PHAY) + " dong tach `;`, " + str(SO_TACH_BIEN) + " dong tach gan nhieu bien")
     print("ra    : " + DUONG_RA + "  (" + str(SO_DONG_RA) + " dong)")
     return 0
