@@ -9,8 +9,19 @@
 # Committing the harness makes the number checkable by anyone.
 #
 # Usage (from the repo root):
-#   .\tools\testkit_gate.ps1
-#   .\tools\testkit_gate.ps1 -Compiler ..\dist\tkvc.exe
+#   .\tools\testkit_gate.ps1                              # SAN PHAM (tkvc-tv)
+#   .\tools\testkit_gate.ps1 -Compiler ..\dist\tkvc.exe   # bootstrap Python
+#
+# MAC DINH LA `dist\tkvc-tv.exe` - COMPILER TU HOST, TURN SAN PHAM.
+# Truoc day mac dinh la `dist\tkvc.exe` (bootstrap Python), nen gate bao
+# 118/118 trong khi san pham that chi 72/118. `vong.exe` chi chung minh
+# g1 == g2 (compiler bien dich lai chinh no ra chinh no) - NO khong chung
+# minh bytecode do CHAY DUNG. Do do, gate mac dinh do san pham, va
+# `dist\tkvc.exe` chi de doi khi can so sanh hai compiler.
+#
+# HANH DONG KHAC BIET giua hai compiler:
+#   tkvc.exe    build <src> --entry <e> --out <exe> --no-lint [--emit-il]
+#   tkvc-tv.exe <src> <exe> <entry>        va LUON tra exit code 0
 #
 # Exit code 0 only when every test passes AND every IL assertion holds.
 
@@ -26,7 +37,7 @@ param(
 
 $ErrorActionPreference = "Continue"
 $code = Split-Path -Parent $PSScriptRoot
-if (-not $Compiler) { $Compiler = Join-Path $code "dist\tkvc.exe" }
+if (-not $Compiler) { $Compiler = Join-Path $code "dist\tkvc-tv.exe" }
 if (-not $OutDir)  { $OutDir = Join-Path $env:TEMP "opencode\testkit_gate" }
 
 if (-not (Test-Path $Compiler)) {

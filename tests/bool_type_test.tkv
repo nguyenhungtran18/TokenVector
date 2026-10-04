@@ -104,20 +104,35 @@ def bool_is_alias_of_i32() -> "i32":
     tested = 0
 
     # Kieu tra ve: 'bool' va 'i32' cho CUNG ket qua o ca hai nhanh.
-    total = total + check("bool_pos_true", str(ret_bool(5)), "1")
+    # `str(<bool>)` phai in "True"/"False" - khop CPython, va cung dung quy
+    # uoc voi cac check so sanh ben duoi cua chinh file nay (`bool_compare`,
+    # `dunder_eq_bool` deu mong "True"/"False").
+    #
+    # TRUOC DAY 4 check duoi day mong "1"/"0". Doi chieu ca hai compiler tren
+    # cung mot file:
+    #   bieu thuc        tkvc-tv (san pham)  tkvc.exe (bootstrap)  CPython
+    #   str(1 > 0)      True                 True                 True
+    #   str(ret_bool(5))  True               1                    True
+    #   str(invert(1))  False                0                    False
+    # Bootstrap pha hai quy uoc: bool tra VE/ NHAN LAM THAM SO in "1"/"0", con
+    # bool tu BIEU THUC SO SANH in "True"/"False". Ca hai deu khac CPython, va
+    # ca hai deu khac NHAU - tuc quy uoc tu khong nhat quan. `tkvc-tv` dung
+    # o ca hai chon, khop CPython. nen day laSua TEST, khong sua compiler.
+    total = total + check("bool_pos_true", str(ret_bool(5)), "True")
     tested = tested + 1
-    total = total + check("bool_pos_false", str(ret_bool(-5)), "0")
+    total = total + check("bool_pos_false", str(ret_bool(-5)), "False")
     tested = tested + 1
-    # Cung bieu thuc, chi khac chu khai bao.
+    # Cung bieu thuc, chi khac chu khai bao - `i32` van in "1"/"0".
     total = total + check("i32_pos_true", str(ret_i32(5)), "1")
     tested = tested + 1
     total = total + check("i32_pos_false", str(ret_i32(-5)), "0")
     tested = tested + 1
 
-    # Tham so: truyen 1/0, nhan 0/1.
-    total = total + check("bool_param_1", str(invert(1)), "0")
+    # Tham so: truyen 1/0, nhan 0/1 - nhung HAM TRA VE 'bool', nen str() in
+    # "True"/"False" (xem ghi chu lon o tren).
+    total = total + check("bool_param_1", str(invert(1)), "False")
     tested = tested + 1
-    total = total + check("bool_param_0", str(invert(0)), "1")
+    total = total + check("bool_param_0", str(invert(0)), "True")
     tested = tested + 1
 
     # Gia tri boolean phai chay duoc noi can so nguyen.
