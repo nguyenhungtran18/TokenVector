@@ -621,6 +621,44 @@ vì thông điệp đã `raise`) — cần kiểm lại ánh xạ lỗi.
 | `*` / `**` unpacking tại call site | **Đã có** (`('star'|'star2', ...)`) |
 | `divmod(a, b)` | Tham số phải là **biến**, không nhận literal |
 
+### 5.6 Sai khác giữa bootstrap và `dist/tkvc-tv.exe` (2026-10-05)
+
+Đo bằng probe trực tiếp lên `dist\tkvc-tv.exe`, **không** tin bootstrap.
+`tkvc.exe` (bootstrap Python) chạy được những thứ sản phẩm không có:
+
+| Mức độ | Mục | `tkvc.exe` | `tkvc-tv.exe` |
+|---|---|---|---|
+| **Sai âm thầm** | `"%02x" % v` (có spec độ rộng/zero-pad) | `41` | in ra nguyên chuỗi `"%02x"` |
+| Không đăng ký | `format(v, spec)` | có | `ham 'format' khong ton tai` |
+| Không đăng ký | `isinstance(x, T)` | có | `ham 'isinstance' khong ton tai` |
+| Không đăng ký | `callable`, `dir`, `hash`, `ascii`, `delattr` | có | thiếu (port dần 2026-10-05) |
+
+**Dòng đầu tiên nguy hiểm nhất.** `%` với `%d`/`%s` thì **đúng**; chỉ hỏng
+khi có spec độ rộng. Hỏng kiểu này **biên dịch vẫn xanh và exit 0** — chỉ sai
+khi chạy:
+
+```tokenvector
+a = 65
+s = "%02x" % a     # CPython: "41"   -> tkvc-tv in ra: "%02x"
+```
+
+Bởi vậy **không dùng `%` khi port code Python sang đường TokenVector.**
+Thay bằng f-string — đã probe đúng cả hai bên:
+
+```tokenvector
+f"{a:02x}"         # -> "41"      DUNG tren ca hai compiler
+f"{a:05d}"         # -> "00065"   DUNG tren ca hai compiler
+```
+
+**Còn chạy đúng trên `tkvc-tv`** (đã probe từng cái, kể cả lúc chạy):
+f-string kèm format spec, generator expression bên trong `join()`, `.format()`
+trên chuỗi literal.
+
+> `CLAUDE.md` từng ghi `format(v, spec)` "hoạt động" và `.format()` "được
+> probe". Cả hai chỉ đúng với **bootstrap**. Với sản phẩm: `format()`
+> không tồn tại. Đây là lần thứ hai một tuyên bố trong tài liệu hỏng vì
+> được kiểm bằng compiler sai — hãy luôn probe `tkvc-tv`.
+
 ---
 
 ---

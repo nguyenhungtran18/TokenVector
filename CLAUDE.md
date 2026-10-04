@@ -279,6 +279,12 @@ file is TokenVector.
   compile error. `format(v, spec)` also works again — the long-standing
   "unknown cause" of `format(3.14159, ".2f") == "32f"` was
   `_py_spec_to_net` returning `.2f` verbatim; .NET reads that as a *custom*
-  format and needs `F2`. Full list with difficulty
+  format and needs `F2`. **BUT (2026-10-05): `format()` is NOT registered on
+  `dist\tkvc-tv.exe`** — direct probe gives `ham 'format' khong ton tai`. The
+  claim above is only true of bootstrap `dist\tkvc.exe`. Use f-strings
+  (`f"{v:.2f}"`, `f"{n:05d}"`, `f"{a:02x}"`) — probed CORRECT on both.
+  Also `"%02x" % v` is **silently wrong** on `tkvc-tv` (prints the format
+  string itself; build stays green, exit 0), and `isinstance` is not
+  registered either. Evidence: `docs/REFERENCE.md` §5.6. Full list with difficulty
   ranking in `docs/PLAN.md`; per-item status in
   `docs/REPOSITORY-NOTES.md`.
