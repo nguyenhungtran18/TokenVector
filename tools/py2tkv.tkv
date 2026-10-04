@@ -1330,7 +1330,61 @@ def suy_dich(n: "i32") -> "i32":
 
 
 # ---------------------------------------------------------------- ghi
+def gia_tri_mac_dinh(kc: "str") -> "str":
+    """Gia tri tra ve an toan cho ham bi HA CAP theo kieu khai bao."""
+    if kc == "f64":
+        return "0.0"
+    if kc == "bool":
+        return "False"
+    if kc == "str":
+        return "\"\""
+    if kc.find("list[") == 0:
+        return "[]"
+    if kc.find("set[") == 0:
+        return "set()"
+    if kc.find("dict[") == 0:
+        return "{}"
+    return "0"
+
+
+def chu_ky_ha_cap(k: "i32") -> "str":
+    """Chu ky cho ham bi HA CAP: moi tham so co kieu, co gia tri tra ve.
+
+    Tham so khong doan duoc -> `str` (gia tri trung tinh cua moi tham so).
+    """
+    ds = tach_tham_so(chu_ky_cua(k))
+    moi = ""
+    for idx in range(len(ds)):
+        ts = ds[idx].strip()
+        if la_ten(ts[0:1]) == 0:
+            moi = noi(moi, ts)
+            continue
+        p_eq = vi_tri_bang_gan(ts)
+        ten = ts if p_eq < 0 else ts[0:p_eq]
+        pc = vi_tri_hai_cham(ten)
+        ten = ten[0:pc].strip() if pc > 0 else ten.strip()
+        if ten == "self" or ten == "cls":
+            moi = noi(moi, ten)
+            continue
+        kc = kieu_tham_so(k, ts)
+        if kc == "":
+            kc = kieu_ten_tham_so(k, ten)
+        if kc == "":
+            kc = khai_tham_so(FN_TEN[k], ten)
+        if kc == "":
+            kc = "str"
+        moi = noi(moi, ten + ": \"" + kc + "\"")
+    ra = "def " + FN_TEN[k] + "(" + moi + ")"
+    kc = FN_RET[k]
+    if kc == "":
+        kc = "str"
+    ra = ra + " -> \"" + kc + "\":"
+    return ra
+
+
 def sua_chu_ky(k: "i32") -> "str":
+    if fn_la_stub(k) == 1:
+        return chu_ky_ha_cap(k)
     chu_ky = chu_ky_cua(k)
     x = chu_ky
     if x.endswith(":"):
@@ -1514,6 +1568,29 @@ def xuli_thu_vien() -> "i32":
 
 PROC_VARS: "str" = ";"
 SO_SUBPROC: "i32" = 0
+SO_HA_CAP: "i32" = 0
+SO_GOM_CAP: "i32" = 0
+GOI_KHOI_DONG: "i32" = 0
+
+# TRIZ P1 (CHIA NHO): danh sach ham bi HA CAP - the kieu chua biet nen khong
+# bien dich duoc cho ca file. Mot ham ha cap van co CHU KY hop le (tham so co
+# kieu, co gia tri tra ve) de file bien dich duoc, nhung than no duoc thay bang
+# mot stub. LUON duoc BAO CAO - ham stub tra ve gia tri SAI, nen khong bao gi
+# im lang.
+FN_STUB: "str" = ";"
+
+
+def fn_la_stub(k: "i32") -> "i32":
+    return FN_STUB.find(";" + str(k) + ";") >= 0
+
+
+def fn_danh_stub(k: "i32", ly_do: "str") -> "i32":
+    global FN_STUB
+    if fn_la_stub(k) == 1:
+        return 0
+    FN_STUB = FN_STUB + str(k) + ";"
+    print("  HA CAP: " + FN_TEN[k] + " - " + ly_do)
+    return 1
 
 
 def la_ten_hoac_chuoi(s: "str") -> "i32":
@@ -1764,6 +1841,12 @@ def ghi_than(k: "i32", i: "i32") -> "i32":
         k2 = ham_tiep_theo(k, i)
         if k2 >= 0:
             dd = DONG[i]
+            if fn_la_stub(k2) == 1:
+                RA_GHI = RA_GHI + dd[0:indent(dd)] + chu_ky_ha_cap(k2) + "\n"
+                RA_GHI = RA_GHI + dd[0:indent(dd)] + "    return " + gia_tri_mac_dinh(FN_RET[k2] if FN_RET[k2] != "" else "str") + "\n"
+                SO_DONG_RA = SO_DONG_RA + 2
+                i = FN_CUOI[k2]
+                continue
             RA_GHI = RA_GHI + dd[0:indent(dd)] + sua_chu_ky(k2) + "\n"
             SO_DONG_RA = SO_DONG_RA + 1
             i = ghi_than(k2, FN_SIG_CUOI[k2] + 1)
@@ -1811,8 +1894,16 @@ def ghi() -> "i32":
         if k < FN_N and i == FN_DAU[k]:
             RA_GHI = RA_GHI + sua_chu_ky(k) + "\n"
             SO_DONG_RA = SO_DONG_RA + 1
+            if GOI_KHOI_DONG == 1 and FN_TEN[k] == "main" and fn_la_stub(k) == 0:
+                RA_GHI = RA_GHI + "    __khoi_dong()\n"
+                SO_DONG_RA = SO_DONG_RA + 1
             # bo phan chu ky con lai (chu ky nhieu dong)
-            i = ghi_than(k, FN_SIG_CUOI[k] + 1)
+            if fn_la_stub(k) == 1:
+                RA_GHI = RA_GHI + "    return " + gia_tri_mac_dinh(FN_RET[k] if FN_RET[k] != "" else "str") + "\n"
+                SO_DONG_RA = SO_DONG_RA + 1
+                i = FN_CUOI[k]
+            else:
+                i = ghi_than(k, FN_SIG_CUOI[k] + 1)
             k = ham_sau(i, k)
         else:
             if la_import(DONG[i]) == 1:
@@ -2885,9 +2976,33 @@ def quet_chan_cau_truc() -> "i32":
     return SO_CHAN_CAU_TRUC
 
 
+def tham_so_het(k: "i32") -> "str":
+    """Ten tham so DONG DAU khong biet kieu, hoac "" neu moi tham so deu biet."""
+    ds = tach_tham_so(chu_ky_cua(k))
+    for idx in range(len(ds)):
+        ts = ds[idx].strip()
+        if la_ten(ts[0:1]) == 0:
+            continue
+        p_eq = vi_tri_bang_gan(ts)
+        ten = ts if p_eq < 0 else ts[0:p_eq]
+        pc = vi_tri_hai_cham(ten)
+        ten = ten[0:pc].strip() if pc > 0 else ten.strip()
+        if ten == "self" or ten == "cls":
+            continue
+        kc = kieu_tham_so(k, ts)
+        if kc == "":
+            kc = kieu_ten_tham_so(k, ten)
+        if kc == "":
+            kc = khai_tham_so(FN_TEN[k], ten)
+        if kc == "":
+            return ten
+    return ""
+
+
 def bao() -> "i32":
     global SO_THAO
     global SO_BIET
+    global SO_HA_CAP
     i = 0
     while i < FN_N:
         # Phai cho MOI ham, khong chi ham dang can suy return: `them_container_rong`
@@ -2903,10 +3018,21 @@ def bao() -> "i32":
         elif la_void(i) == 1:
             SO_THAO = SO_THAO + 1
         elif suy_ve_1(i) == "":
-            print("  CHUA SUY: " + FN_TEN[i] + "  (dong " + str(FN_DAU[i] + 1) + ")")
-            SO_BIET = SO_BIET + 1
+            # TRIZ P1: ha cap DUNG HAM NAY, khong bo ca file. Ham van co chu ky
+            # hop le va gia tri tra ve, nhung than la stub - luon duoc bao cao.
+            if fn_danh_stub(i, "khong suy duoc kieu tra ve") == 1:
+                SO_HA_CAP = SO_HA_CAP + 1
+            else:
+                SO_BIET = SO_BIET + 1
         else:
             SO_THAO = SO_THAO + 1
+        # TRIZ P1: tham so khong ro kieu CUNG lam ca ham khong bien dich duoc
+        # (TokenVector tu suy kieu tham so qua cach dung, het cach thi loi).
+        if fn_la_stub(i) == 0:
+            ts_het = tham_so_het(i)
+            if ts_het != "":
+                if fn_danh_stub(i, "khong biet kieu tham so '" + ts_het + "'") == 1:
+                    SO_HA_CAP = SO_HA_CAP + 1
         i = i + 1
     return 0
 
@@ -2973,6 +3099,8 @@ def tach_dong(src: "str") -> "list[str]":
     if hien != "":
         ra.append(hien)
     return ra
+
+
 
 
 def main() -> "i32":
@@ -3059,6 +3187,7 @@ def main() -> "i32":
     print("gap   : " + str(SO_FOLD) + " bien duong dan, " + str(SO_FOLD_HONG) + " khong gap duoc, "
           + str(SO_NOI_DONG) + " liet lie da noi, " + str(SO_GOI_MAIN) + " file boc vao main, "
           + str(SO_MAIN_NO) + " file sinh main rong, " + str(SO_ANNOT_RONG) + " container rong duoc khai bao, " + str(SO_WITH) + " `with` da doi, "
-          + str(SO_WITH_CHUA) + " `with` chua doi duoc, " + str(SO_NOI_CHUOI) + " dong noi chuoi, " + str(SO_IO_OPEN) + " `open().write()` da doi, " + str(SO_THU_VIEN) + " dong ma hoa thu vien, " + str(SO_SUBPROC) + " `subprocess.run` da doi")
+          + str(SO_WITH_CHUA) + " `with` chua doi duoc, " + str(SO_NOI_CHUOI) + " dong noi chuoi, " + str(SO_IO_OPEN) + " `open().write()` da doi, " + str(SO_THU_VIEN) + " dong ma hoa thu vien, " + str(SO_SUBPROC) + " `subprocess.run` da doi, "
+          + str(SO_HA_CAP) + " ham HA CAP, " + str(SO_GOM_CAP) + " file gom code cap module")
     print("ra    : " + DUONG_RA + "  (" + str(SO_DONG_RA) + " dong)")
     return 0
