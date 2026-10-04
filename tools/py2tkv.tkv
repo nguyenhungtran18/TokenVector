@@ -184,7 +184,7 @@ def lay_bien_rong(k: "i32", ten: "str") -> "str":
     p = BIEN_RONG.find(khoa)
     if p < 0:
         return ""
-    p = p + len(khoa) - 1
+    p = p + len(khoa)
     q = BIEN_RONG.find(";", p)
     if q < 0:
         q = len(BIEN_RONG)
@@ -819,6 +819,11 @@ def doan_bieu_thuc(e: "str", k_func: "i32") -> "str":
         return "str"
     if x.startswith("bool(") and x.endswith(")"):
         return "bool"
+    # Kieu tra ve DA BIET cua mot so builtin - lay tu tai lieu, khong phai doan.
+    if x.startswith("read_file(") and x.endswith(")"):
+        return "str"
+    if x.startswith("read_lines(") and x.endswith(")"):
+        return "list[str]"
     if x.find("==") > 0:
         return "bool"
     if x.find("!=") > 0:
@@ -968,11 +973,17 @@ def chu_ky_cua(k: "i32") -> "str":
 
 # ---------------------------------------------------------------- suy kieu
 def doan_method(x: "str") -> "str":
-    """Kieu tra ve cua `x.method(...)` theo BANG - do tai lieu, khong phai doan."""
+    """Kieu tra ve cua `x.method(...)` theo BANG - do tai lieu, khong phai doan.
+
+    Phai tim dau `(` SAU dau `.` moi dung. Tim `(` dau tien se lam sai voi
+    lời goi chuoi: `read_file(p).strip()` - dau `(` cua `read_file` nam TRUOC
+    dau `.`, nen slice `x[p+1:q]` ra chuoi rong va ket qua la "khong biet".
+    """
     p = x.rfind(".")
     if p <= 0:
         return ""
-    ten = x[p + 1:x.find("(") if x.find("(") > 0 else len(x)]
+    q = x.find("(", p)
+    ten = x[p + 1:] if q < 0 else x[p + 1:q]
     if ten == "join" or ten == "format" or ten == "strip" or ten == "lstrip":
         return "str"
     if ten == "rstrip":
@@ -1416,22 +1427,21 @@ def xuli_io_open() -> "i32":
 
 
 def the_ten(x: "str", cu: "str", moi: "str") -> "str":
-    """Thay `cu` bang `moi` trong x, co bien gioi dung (khong trong ten lon hon)."""
+    """Thay `cu` bang `moi` trong x, co bien gioi dung ben TRAI.
+
+    CHI kiem tra bien gioi ben trai: `cu` thuong ket thuc bang `(` (vd
+    `json.dumps(`) nen ke tiep la ky tu ten bien `json.dumps(obj)` - neu
+    kiem tra ben phai se khong bao gio khop.
+    """
     ra = ""
     i = 0
     n = len(x)
     lc = len(cu)
     while i < n:
         if x[i:i + lc] == cu:
-            ok = 1
-            if i > 0 and la_ten(x[i - 1:i]) == 1:
-                ok = 0
-            q = i + lc
-            if q < n and la_ten(x[q:q + 1]) == 1:
-                ok = 0
-            if ok == 1:
+            if i == 0 or la_ten(x[i - 1:i]) == 0:
                 ra = ra + moi
-                i = q
+                i = i + lc
                 continue
         ra = ra + x[i:i + 1]
         i = i + 1
@@ -1608,6 +1618,20 @@ def ghi_than(k: "i32", i: "i32") -> "i32":
     return i
 
 
+def ham_sau(i: "i32", k: "i32") -> "i32":
+    """Chi so ham dau tiep theo se duoc ghi sau dong i.
+
+    Khi ghi xong than ham k, thu muc dem `k` len 1 chi dung khi ham do
+    KHONG co ham long nhau. Neu co, `k` phai nhay qua het cac ham long nhau
+    da ghi, neu lai cac ham sau bi phat NGUYEN DONG THO (sua chu ky khong
+    chay) - da gap: `def big() -> int:` lot ra nguyen, khong phai DSL.
+    """
+    m = k + 1
+    while m < FN_N and FN_DAU[m] < i:
+        m = m + 1
+    return m
+
+
 def ghi() -> "i32":
     global SO_IMPORT_BO
     global SO_DONG_RA
@@ -1627,7 +1651,7 @@ def ghi() -> "i32":
             SO_DONG_RA = SO_DONG_RA + 1
             # bo phan chu ky con lai (chu ky nhieu dong)
             i = ghi_than(k, FN_SIG_CUOI[k] + 1)
-            k = k + 1
+            k = ham_sau(i, k)
         else:
             if la_import(DONG[i]) == 1:
                 if indent(DONG[i]) == 0:
@@ -2617,6 +2641,11 @@ def bao() -> "i32":
     global SO_BIET
     i = 0
     while i < FN_N:
+        # Phai cho MOI ham, khong chi ham dang can suy return: `them_container_rong`
+        # doc bang nay khi ghi file, ma chi `suy_ve_1` moi nap bang - neu chi
+        # goi trong nhanh suy, thi ham co `-> T` san se khong bao gio duoc
+        # khai bao container rong.
+        nap_container_rong(i)
         chu_ky = chu_ky_cua(i)
         if chu_ky.find("->") > 0:
             SO_THAO = SO_THAO + 1
