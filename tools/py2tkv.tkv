@@ -1365,34 +1365,179 @@ def noi(moi: "str", them: "str") -> "str":
     return moi + ", " + them
 
 
+def xuli_io_open_1(d: "str") -> "str":
+    """`io.open(p, 'w').write(s)` -> `write_file(p, s)`.
+
+    TokenVector lam viec tren CAI FILE (`read_file`/`write_file`) - khong co
+    file handle. `open`/`io.open` + `.write()`/`.read()` viet co la giup convert.
+    """
+    q = d.find("open(")
+    if q < 0:
+        return d
+    q = q + 4
+    j = tim_dong_ngoac(d, q)
+    if j < 0:
+        return d
+    ds = tach_danh_sach_cap0(d[q + 1:j])
+    if len(ds) == 0:
+        return d
+    path = ds[0].strip()
+    a = q
+    while a > 0 and la_ten(d[a - 1:a]) == 1:
+        a = a - 1
+    if a > 0 and d[a - 1:a] == ".":
+        c = a - 1
+        while c > 0 and la_ten(d[c - 1:c]) == 1:
+            c = c - 1
+        if d[c:a - 1] == "io":
+            a = c
+        else:
+            return d
+    rest = d[j + 1:].strip()
+    if rest.startswith(".write(") and rest.endswith(")"):
+        return d[0:a] + "write_file(" + path + ", " + rest[7:len(rest) - 1] + ")"
+    if rest == ".read()":
+        return d[0:a] + "read_file(" + path + ")"
+    return d
+
+
+def xuli_io_open() -> "i32":
+    global SO_IO_OPEN
+    ra: "list[str]" = []
+    i = 0
+    while i < len(DONG):
+        bv = xuli_io_open_1(DONG[i])
+        if bv != DONG[i]:
+            SO_IO_OPEN = SO_IO_OPEN + 1
+        ra.append(bv)
+        i = i + 1
+    them_dong(ra)
+    return 0
+
+
+def noi_chuoi_lien(d: "str") -> "str":
+    """Gop hai chuoi ke nhau: `'a' 'b'` -> `'ab'`.
+
+    Python cho phep noi chuoi ngam (ke nhau, cung dau nhay). TokenVector KHONG
+    ho tro nen phai gop lai. KHONG vao comment.
+    """
+    ra = ""
+    i = 0
+    n = len(d)
+    while i < n:
+        c = d[i:i + 1]
+        if c == "#":
+            return ra + d[i:]
+        if c == "'" or c == "\"":
+            q = c
+            noi = ""
+            i2 = i + 1
+            k = i2
+            while True:
+                j = i2
+                while j < n:
+                    if d[j:j + 1] == "\\":
+                        j = j + 2
+                        continue
+                    if d[j:j + 1] == q:
+                        break
+                    j = j + 1
+                if j >= n:
+                    return ra + d[i:]
+                noi = noi + d[i2:j]
+                k = j + 1
+                while k < n and d[k] == " ":
+                    k = k + 1
+                if k < n and d[k:k + 1] == q:
+                    i2 = k + 1
+                    continue
+                i = j + 1
+                k = j
+                break
+            ra = ra + q + noi + q
+            i = k + 1
+            continue
+        ra = ra + c
+        i = i + 1
+    return ra
+
+
+def noi_chuoi_lien_dong() -> "i32":
+    global DONG
+    global SO_NOI_CHUOI
+    ra: "list[str]" = []
+    i = 0
+    while i < len(DONG):
+        bv = noi_chuoi_lien(DONG[i])
+        if bv != DONG[i]:
+            SO_NOI_CHUOI = SO_NOI_CHUOI + 1
+        ra.append(bv)
+        i = i + 1
+    them_dong(ra)
+    return 0
+
+
+def ham_tiep_theo(k: "i32", i: "i32") -> "i32":
+    """Chi so ham nao BAT DAU tai dong i va lon hon k. -1 neu khong co.
+
+    TokenVector CO ho tro `def` long nhau (da probe) - can dung cho cac ham
+    dinh nghia trong than ham khac.
+    """
+    m = k + 1
+    while m < FN_N:
+        if FN_DAU[m] == i:
+            return m
+        if FN_DAU[m] > i:
+            return -1
+        m = m + 1
+    return -1
+
+
+def ghi_than(k: "i32", i: "i32") -> "i32":
+    """Ghi than ham k tu dong i (de quy cho ham long nhau). Tra dong tiep theo."""
+    global RA_GHI
+    global SO_DONG_RA
+    global SO_ANNOT_RONG
+    global K_HIEN_TAI
+    K_HIEN_TAI = k
+    while i < FN_CUOI[k]:
+        k2 = ham_tiep_theo(k, i)
+        if k2 >= 0:
+            dd = DONG[i]
+            RA_GHI = RA_GHI + dd[0:indent(dd)] + sua_chu_ky(k2) + "\n"
+            SO_DONG_RA = SO_DONG_RA + 1
+            i = ghi_than(k2, FN_SIG_CUOI[k2] + 1)
+            continue
+        bv = doi_ten(DONG[i], i + 1)
+        bv = them_container_rong(bv)
+        if bv != DONG[i]:
+            SO_ANNOT_RONG = SO_ANNOT_RONG + 1
+        bao_fstring_co_the(DONG[i], i + 1)
+        RA_GHI = RA_GHI + bv + "\n"
+        SO_DONG_RA = SO_DONG_RA + 1
+        i = i + 1
+    return i
+
+
 def ghi() -> "i32":
     global SO_IMPORT_BO
     global SO_DONG_RA
     global SO_CHUA_DOI
     global SO_ANNOT_RONG
     global K_HIEN_TAI
+    global RA_GHI
     ra = "# -*- coding: utf-8 -*-\n"
     ra = ra + "# sinh boi py2tkv (TokenVector) tu " + DUONG_VAO + "\n\n"
+    RA_GHI = ra
     n = len(DONG)
     i = 0
     k = 0
     while i < n:
         if k < FN_N and i == FN_DAU[k]:
-            ra = ra + sua_chu_ky(k) + "\n"
+            RA_GHI = RA_GHI + sua_chu_ky(k) + "\n"
             SO_DONG_RA = SO_DONG_RA + 1
             # bo phan chu ky con lai (chu ky nhieu dong)
-            i = FN_SIG_CUOI[k] + 1
-            K_HIEN_TAI = k
-            # doi ten trong than ham, giu nguyen chuoi/chu thich
-            while i < FN_CUOI[k]:
-                bv = doi_ten(DONG[i], i + 1)
-                bv = them_container_rong(bv)
-                if bv != DONG[i]:
-                    SO_ANNOT_RONG = SO_ANNOT_RONG + 1
-                bao_fstring_co_the(DONG[i], i + 1)
-                ra = ra + bv + "\n"
-                SO_DONG_RA = SO_DONG_RA + 1
-                i = i + 1
+            i = ghi_than(k, FN_SIG_CUOI[k] + 1)
             k = k + 1
         else:
             if la_import(DONG[i]) == 1:
@@ -1406,10 +1551,10 @@ def ghi() -> "i32":
                 d1 = fold_module(d0)
                 d2 = doi_ten(d1, i + 1)
                 bao_fstring_co_the(d0, i + 1)
-                ra = ra + d2 + "\n"
+                RA_GHI = RA_GHI + d2 + "\n"
                 SO_DONG_RA = SO_DONG_RA + 1
             i = i + 1
-    write_file(DUONG_RA, ra)
+    write_file(DUONG_RA, RA_GHI)
     return 0
 
 
@@ -1693,6 +1838,9 @@ SO_MAIN_NO: "i32" = 0
 SO_ANNOT_RONG: "i32" = 0
 SO_WITH: "i32" = 0
 SO_WITH_CHUA: "i32" = 0
+SO_NOI_CHUOI: "i32" = 0
+SO_IO_OPEN: "i32" = 0
+RA_GHI: "str" = ""
 
 
 def tach_dau(ten: "str", d: "str") -> "list[str]":
@@ -2506,6 +2654,8 @@ def main() -> "i32":
     nap_khai(DUONG_KHAI)
     DONG = doc_vao()
     noi_dong_tieu()
+    noi_chuoi_lien_dong()
+    xuli_io_open()
     xuli_with()
     goi_vao_main()
     quet()
@@ -2526,6 +2676,6 @@ def main() -> "i32":
     print("gap   : " + str(SO_FOLD) + " bien duong dan, " + str(SO_FOLD_HONG) + " khong gap duoc, "
           + str(SO_NOI_DONG) + " liet lie da noi, " + str(SO_GOI_MAIN) + " file boc vao main, "
           + str(SO_MAIN_NO) + " file sinh main rong, " + str(SO_ANNOT_RONG) + " container rong duoc khai bao, " + str(SO_WITH) + " `with` da doi, "
-          + str(SO_WITH_CHUA) + " `with` chua doi duoc")
+          + str(SO_WITH_CHUA) + " `with` chua doi duoc, " + str(SO_NOI_CHUOI) + " dong noi chuoi, " + str(SO_IO_OPEN) + " `open().write()` da doi")
     print("ra    : " + DUONG_RA + "  (" + str(SO_DONG_RA) + " dong)")
     return 0
