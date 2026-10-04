@@ -43,6 +43,8 @@ SO_EXEC_BO: "i32" = 0
 SO_KHONG_BOM: "i32" = 0
 SO_TACH_PHAY: "i32" = 0
 SO_TACH_BIEN: "i32" = 0
+SO_PY_ONLY: "i32" = 0
+SO_LOCAL_IMPORT: "i32" = 0
 SO_FIELD_THEM: "i32" = 0
 TEN_LOP: "list[str]" = []
 TRUONG_LOP: "list[str]" = []
@@ -3559,6 +3561,70 @@ def tach_dau_phay() -> "i32":
     return 0
 
 
+THU_VIEN_AN_TOAN: "str" = ";sys;os;re;json;hashlib;typing;math;time;shutil;glob;itertools;functools;collections;string;random;textwrap;subprocess;io;csv;"
+
+# Chi NHUNG module da KIEM CHUNG la that su khong co ban tuong duong. KHONG
+# dung logic "khong nam trong danh sach an toan" - doan do bao oan: `generator.py`
+# import `type_map` (module CUNG DU AN, khong phai thu vien Python) va
+# `run_reflector.py` import `subprocess` (da duoc map sang `proc_ra`) deu bi
+# quy oan la PY-ONLY, lam 18/21 file ve cung nhom.
+PY_ONLY_LIST: "str" = ";pathlib;fractions;numpy;ast;argparse;pickle;socket;threading;multiprocessing;sqlite3;asyncio;ctypes;importlib;inspect;decimal;statistics;unittest;"
+
+def bao_import_khong_map() -> "i32":
+    """BAO CAO module Python ma TokenVector KHONG co ban tuong duong.
+
+    Truoc day `py2tkv` bo DIEN TICH import o cap module ma khong bao gi. Hinh
+    thuc sau do compiler bao loi SAI NGHIA - `khong suy duoc kieu PHAN TU cua
+    list` cho mot comprehension goi `Path(...)`, trong khi nguyen nhan that la
+    `pathlib` khong ton tai o TokenVector.
+
+    Im lang bo la lam mat hanh vi: nguoi doc bao cao khong bao gio biet file
+    can P2/P13. Do day la bao cao, khong phai tu choi dung - TokenVector van
+    co `def`/`class`/hang so o cap module va `import` la khong hop le.
+    """
+    global SO_PY_ONLY
+    global SO_LOCAL_IMPORT
+    n = len(DONG)
+    i = 0
+    while i < n:
+        d = DONG[i]
+        x = d.strip()
+        la_ok = 0
+        if indent(d) == 0:
+            if la_import(d) == 1:
+                la_ok = 1
+        # `doc_vao` DA thay dong import cap module bang comment `# da bo: ...`
+        # truoc khi ham nay chay - nen phai doc lai tu comment do, con bang
+        # `la_import` thi khong bao gio ra duoc gi.
+        y2 = x
+        if la_ok == 0 and y2.find("# da bo: ") == 0:
+            y2 = y2[8:].strip()
+            if la_import(y2) == 1:
+                la_ok = 1
+                x = y2
+        if la_ok == 1:
+            ten = ""
+            if x.find("import ") == 0:
+                ten = x[7:].split(" ")[0].strip()
+            if x.find("from ") == 0:
+                ten = x[5:].split(" ")[0].strip()
+            if ten.find(".") > 0:
+                ten = ten[0:ten.find(".")]
+            if ten != "" and la_ten(ten[0:1]) == 1:
+                if PY_ONLY_LIST.find(";" + ten + ";") >= 0:
+                    SO_PY_ONLY = SO_PY_ONLY + 1
+                    print("  PY-ONLY: import " + ten + " o dong " + str(i + 1)
+                          + " - TokenVector khong co ban tuong duong, can P2/P13")
+                elif THU_VIEN_AN_TOAN.find(";" + ten + ";") < 0:
+                    # KHONG phai thu vien Python -> module cung du an. Khong
+                    # phai P2/P13, can `--flat` de gop vao mot file.
+                    SO_LOCAL_IMPORT = SO_LOCAL_IMPORT + 1
+                    print("  LOCAL-IMPORT: " + ten + " o dong " + str(i + 1)
+                          + " - module cung du an, dung `--flat` de gop")
+        i = i + 1
+    return 0
+
+
 def noi_dong_tieu() -> "i32":
     """Noi cac dong tiep noi (nhieu dong) thanh MOT dong.
 
@@ -4006,6 +4072,7 @@ def main() -> "i32":
         DOC.append(DUONG_VAO)
     nap_khai(DUONG_KHAI)
     DONG = doc_vao()
+    bao_import_khong_map()
     tach_dau_phay()
     noi_dong_tieu()
     noi_chuoi_lien_dong()
@@ -4039,6 +4106,6 @@ def main() -> "i32":
           + str(SO_NOI_DONG) + " liet lie da noi, " + str(SO_GOI_MAIN) + " file boc vao main, "
           + str(SO_MAIN_NO) + " file sinh main rong, " + str(SO_ANNOT_RONG) + " container rong duoc khai bao, " + str(SO_WITH) + " `with` da doi, "
           + str(SO_WITH_CHUA) + " `with` chua doi duoc, " + str(SO_NOI_CHUOI) + " dong noi chuoi, " + str(SO_IO_OPEN) + " `open().write()` da doi, " + str(SO_THU_VIEN) + " dong ma hoa thu vien, " + str(SO_SUBPROC) + " `subprocess.run` da doi, "
-          + str(SO_HA_CAP) + " ham HA CAP, " + str(SO_TACH_PHAY) + " dong tach `;`, " + str(SO_TACH_BIEN) + " dong tach gan nhieu bien")
+          + str(SO_HA_CAP) + " ham HA CAP, " + str(SO_TACH_PHAY) + " dong tach `;`, " + str(SO_TACH_BIEN) + " dong tach gan nhieu bien, " + str(SO_PY_ONLY) + " import PY-ONLY, " + str(SO_LOCAL_IMPORT) + " import LOCAL")
     print("ra    : " + DUONG_RA + "  (" + str(SO_DONG_RA) + " dong)")
     return 0

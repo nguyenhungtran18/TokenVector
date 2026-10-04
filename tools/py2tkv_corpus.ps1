@@ -76,19 +76,32 @@ foreach ($f in $files) {
   if ($err) { $raw = (($err.Line -replace '^.*?tkv: ', '') -split ' - ')[0] }
   elseif (-not (Test-Path -LiteralPath $exe)) { $raw = "KHONG SINH RA .exe" }
 
+  # Uu tien NGUYEN NHAN GOC hon trieu chung. Mot import Python ma khong co ban
+  # tuong duong se bien thanh loi kieu lan truyen ("khong suy duoc kieu PHAN TU
+  # cua list") - bao cao loi kieu lam nguoi sac sai cho co sua duoc.
+  # NGUYEN NHAN GOC khong phai LY DO CHAN. Mot file co `numpy` van co the
+  # bien dich duoc (ham dung numpy se bi HA CAP). Nu ep `PY_ONLY_API` lam NHOM,
+  # da mat tin hieu "file da bien dich" - `py_ref_f32.py` la vi du.
+  $pyOnly = ([regex]::Matches($out, 'PY-ONLY:')).Count
+  $localImp = ([regex]::Matches($out, 'LOCAL-IMPORT:')).Count
   $bucket = Get-Bucket $raw
+
+  $goc = ""
+  if ($pyOnly -gt 0) { $goc = "$pyOnly import Python-only" }
+  elseif ($localImp -gt 0) { $goc = "$localImp module cung du an" }
+
   $detail = $raw
-  if ($detail.Length -gt 58) { $detail = $detail.Substring(0, 58) }
+  if ($detail.Length -gt 52) { $detail = $detail.Substring(0, 52) }
   $rows += [pscustomobject]@{
-    Ten = $f.Name; Bucket = $bucket; HaCap = $haCap; Detail = $detail
+    Ten = $f.Name; Bucket = $bucket; HaCap = $haCap; Detail = $detail; Goc = $goc
   }
 }
 
 Write-Output "=== CORPUS: $($rows.Count) file .py (khong tinh fixture gate)"
 Write-Output ""
-Write-Output ("{0,-30} {1,-15} {2,5}  {3}" -f "FILE", "NHOM", "HA CAP", "CHI TIET")
+Write-Output ("{0,-30} {1,-15} {2,5}  {3,-26} {4}" -f "FILE", "NHOM", "HA CAP", "CHI TIET", "NGUYEN NHAN GOC")
 foreach ($r in $rows) {
-  Write-Output ("{0,-30} {1,-15} {2,5}  {3}" -f $r.Ten, $r.Bucket, $r.HaCap, $r.Detail)
+  Write-Output ("{0,-30} {1,-15} {2,5}  {3,-26} {4}" -f $r.Ten, $r.Bucket, $r.HaCap, $r.Detail, $r.Goc)
 }
 
 Write-Output ""
