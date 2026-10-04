@@ -12,15 +12,22 @@ from typed_dsl_parser import TypeAnn
 
 
 def compile_path_join(args, scope, out, dtype, ctx):
-    """path_join(a, b) - System.IO.Path::Combine(string, string). CHI ho
-    tro dung 2 tham so (Python os.path.join nhan so luong bat ky - gioi
-    han da biet, chua ho tro *args)."""
-    if len(args) != 2:
-        raise SyntaxError("il_codegen: path_join(a, b) chi nhan dung 2 tham so")
+    """path_join(a, b, ...) - System.IO.Path::Combine ghep TRAI -> PHAI.
+
+    Python `os.path.join` nhan SO LUONG tham so BAT KY. Ghep nhieu tham so bang
+    nhieu lenh Combine lien tiep: `path_join(a, b, c)` ->
+    `Combine(Combine(a, b), c)` - dung chinh sai quyet tac "mo ben phai chay
+    truoc ben trai" cua noi duong dan. `path_join(a)` tra ve chinh `a`.
+    """
+    if len(args) < 1:
+        raise SyntaxError("il_codegen: path_join() can it nhat 1 tham so")
     compile_expr = ctx['compile_expr']
-    compile_expr(args[0], scope, out, 'str', ctx)
-    compile_expr(args[1], scope, out, 'str', ctx)
-    out.append('    call string [mscorlib]System.IO.Path::Combine(string, string)')
+    i = 0
+    while i < len(args):
+        compile_expr(args[i], scope, out, 'str', ctx)
+        if i > 0:
+            out.append('    call string [mscorlib]System.IO.Path::Combine(string, string)')
+        i = i + 1
 
 
 def compile_path_exists(args, scope, out, dtype, ctx):

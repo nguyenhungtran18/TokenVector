@@ -16,15 +16,31 @@ from expr_row import eb_ds
 __tkv_import__ = ["il_dispatch", "tkv_types"]
 
 def compile_path_join(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
-    """path_join(a, b) - System.IO.Path::Combine(string, string). CHI ho
-    tro dung 2 tham so (Python os.path.join nhan so luong bat ky - gioi
-    han da biet, chua ho tro *args)."""
-    if len(args) != 2:
-        raise SyntaxError("il_codegen: path_join(a, b) chi nhan dung 2 tham so")
+    """path_join(a, b, ...) - System.IO.Path::Combine ghep TRAI -> PHAI.
+
+    Python `os.path.join` nhan SO LUONG tham so BAT KY. Truoc day ham nay chi
+    nhan DUNG 2 va compiler bao `path_join(a, b) chi nhan dung 2 tham so` -
+    lam `os.path.join(ROOT, 'compiler', 'il_features')` (3 tham so) khong bien
+    dich duoc, keo theo hang loat loi thuoc ha trong cac file khac.
+
+    Nay ghep nhieu tham so bang nhieu lenh Combine lien tiep:
+        path_join(a, b, c) -> Combine(Combine(a, b), c)
+    dung CHINH SAI quyet tac "mo ben phai chay truoc ben trai" cua noi duong
+    dan. Khong can local tam: moi bieu thuc duoc `compile_expr` day vao stack
+    ngay truoc lenh Combine, nen thu tu danh gia la trai -> phai.
+
+    `path_join(a)` tra ve chinh `a` - .NET KHONG co Combine 1 tham so, va
+    Python `os.path.join('a')` cung tra ve `'a'`.
+    """
+    if len(args) < 1:
+        raise SyntaxError("il_codegen: path_join() can it nhat 1 tham so")
     compile_expr = ctx.compile_expr
-    compile_expr(args[0], scope, out, 'str', ctx)
-    compile_expr(args[1], scope, out, 'str', ctx)
-    out.append('    call string [mscorlib]System.IO.Path::Combine(string, string)')
+    i = 0
+    while i < len(args):
+        compile_expr(args[i], scope, out, 'str', ctx)
+        if i > 0:
+            out.append('    call string [mscorlib]System.IO.Path::Combine(string, string)')
+        i = i + 1
 
 
 def compile_path_exists(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
