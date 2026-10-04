@@ -295,3 +295,51 @@ bản TokenVector hiện tại chạy nhanh hơn bản Python viết tương đ�
 chạy thường xuyên). Kết quả: cả 19 đều được compiler báo thiếu. Do đó danh mục
 tĩnh không bỏ sót 19 tên này theo cách phân loại hiện tại.
 
+
+## Dieu tra `BadImageFormatException` (2026-10-04, chua giai quyet)
+
+`gom_cap_module()` (gom code cap module vao ham `__khoi_dong()`) lam binary
+`py2tkv.exe` chet luc chay:
+
+```text
+Unhandled Exception: System.BadImageFormatException: An attempt was made to
+load a program with an incorrect format. (0x8007000B)
+   at TKVApp.gom_cap_module()
+```
+
+### Da biet - va day la diem quan trong nhat
+
+1. **Khong phai forward reference.** Ban dau ham nam truoc `can_fold_module`;
+   chuyen xuoi sau do va do lai - van cung loi.
+2. **Khong phai gioi han bien cục bộ.** Probe voi 20 bien `i32` + 10 bien `str`
+   + 4 list trong mot ham: chay tot.
+3. **Khong phai nhieu list cục bộ, `continue`/`break` long nhau, hay goi phuong
+   thuc tren ket qua phuong thuc** - ca ba deu co probe rieng, deu chay tot.
+4. **Loi XAY RA O LUC NANG HAM (load-time), khong phai luc chay.** Khi file
+   khong co code cap module nao thi `len(dau) == 0` va ham tra ve ngay - nhanh
+   cho `return 0` truoc khi doan nghi van. VAY MA VAN CHET. Nghia la IL sinh
+   ra sai ngay tu khi bien dich, va chi can **CO MAT** doan do trong than ham
+   la du - kiem chung nhanh `return 0` co gi khong "an" duoc.
+5. **Bisect da khoanh vung**: vong quet + kiem tra an toan -> sach. Phai them
+   khoi *dung lai `DONG`* (tim `def main`, vong `while` co `for z in
+   range(len(dau))` long nhau de cat theo khoi, roi `them_dong(ra)`) moi
+   no. Chua tach duoc duong len bi lo trong khoi do.
+
+### Hanh dong dung khi gap loi nay
+
+Khi mot ham TokenVector chet luc chay voi `BadImageFormatException`, phai
+**coi do la loi bien dich**, khong phai logic sai. Khong cach nao "chay thi
+thay": dung co che return truoc khi doan nghi van **khong** loai duoc loi -
+phai tach bo cac KHOI code ra cho den khi het, roi xem khoi nao la chet.
+Bien dich cac khoi do lau mot cac du an va doc lap, de khong lam hong ban goc.
+
+Chua sua duoc. `gom_cap_module()` hien dang **khong co trong `py2tkv.tkv`**
+(commit 63d47ee) - 7 file con loi cap module van phai chan.
+
+### Nhom loi cap module con lai (do la bang converter)
+
+Khong phai moi loi cap module deu do compiler. Bao cao `CHAN cap module` da
+chi ra tung thu, va nhieu thu la thuoc ve chinh py2tkv:
+
+- `gen_builtin_ref.py`: `__file__` va `re.compile(...)` o cap module.
+- `tol.py`: list comprehension `[float(...) for i in range(n*n)]` o cap module.
