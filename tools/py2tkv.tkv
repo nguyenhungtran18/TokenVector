@@ -1415,12 +1415,101 @@ def xuli_io_open() -> "i32":
     return 0
 
 
+def the_ten(x: "str", cu: "str", moi: "str") -> "str":
+    """Thay `cu` bang `moi` trong x, co bien gioi dung (khong trong ten lon hon)."""
+    ra = ""
+    i = 0
+    n = len(x)
+    lc = len(cu)
+    while i < n:
+        if x[i:i + lc] == cu:
+            ok = 1
+            if i > 0 and la_ten(x[i - 1:i]) == 1:
+                ok = 0
+            q = i + lc
+            if q < n and la_ten(x[q:q + 1]) == 1:
+                ok = 0
+            if ok == 1:
+                ra = ra + moi
+                i = q
+                continue
+        ra = ra + x[i:i + 1]
+        i = i + 1
+    return ra
+
+
+def xuli_hash_1(d: "str") -> "str":
+    """`hashlib.sha256(X).hexdigest()` -> `sha256_hex(X)`."""
+    bv = xuli_hash_2(d, "hashlib.sha256(", "sha256_hex(")
+    if bv != d:
+        return bv
+    return xuli_hash_2(d, "hashlib.md5(", "md5_hex(")
+
+
+def xuli_hash_2(d: "str", cu: "str", moi: "str") -> "str":
+    p = d.find(cu)
+    if p < 0:
+        return d
+    q = p + len(cu) - 1
+    j = tim_dong_ngoac(d, q)
+    if j < 0:
+        return d
+    duoi = d[j + 1:].strip()
+    if duoi != ".hexdigest()":
+        return d
+    return d[0:p] + moi + d[q + 1:j] + ")"
+
+
+def xuli_thu_vien_1(d: "str") -> "str":
+    """Ma hoa thu vien Python -> builtin TokenVector.
+
+    TokenVector DA CO san: sha256_hex, md5_hex, hash, json_dumps, json_loads,
+    re_match, re_search, re_fullmatch, re_findall, re_split, re_sub. Nen
+    `hashlib`/`json`/`re` khong can extern-class.
+    KHONG sua trong chuoi hay chu thich.
+    """
+    vt = vi_tri_chu_thich(d)
+    if vt >= 0:
+        return xuli_thu_vien_code(d[0:vt]) + d[vt:]
+    return xuli_thu_vien_code(d)
+
+
+def xuli_thu_vien_code(c: "str") -> "str":
+    bv = xuli_hash_1(c)
+    bv = the_ten(bv, "json.dumps(", "json_dumps(")
+    bv = the_ten(bv, "json.loads(", "json_loads(")
+    bv = the_ten(bv, "re.fullmatch(", "re_fullmatch(")
+    bv = the_ten(bv, "re.findall(", "re_findall(")
+    bv = the_ten(bv, "re.search(", "re_search(")
+    bv = the_ten(bv, "re.match(", "re_match(")
+    bv = the_ten(bv, "re.split(", "re_split(")
+    bv = the_ten(bv, "re.sub(", "re_sub(")
+    return bv
+
+
+def xuli_thu_vien() -> "i32":
+    global SO_THU_VIEN
+    ra: "list[str]" = []
+    i = 0
+    while i < len(DONG):
+        bv = xuli_thu_vien_1(DONG[i])
+        if bv != DONG[i]:
+            SO_THU_VIEN = SO_THU_VIEN + 1
+        ra.append(bv)
+        i = i + 1
+    them_dong(ra)
+    return 0
+
+
 def noi_chuoi_lien(d: "str") -> "str":
     """Gop hai chuoi ke nhau: `'a' 'b'` -> `'ab'`.
 
-    Python cho phep noi chuoi ngam (ke nhau, cung dau nhay). TokenVector KHONG
-    ho tro nen phai gop lai. KHONG vao comment.
+Python cho phep noi chuoi ngam (ke nhau, cung dau nhay). TokenVector KHONG
+ho tro nen phai gop lai. KHONG vao comment. KHONG vao dong chua ky tu
+    bao docstring (ba dau nhay) - neu khong se bi doc nham la chuoi rong.
     """
+    if d.find("\"\"\"") >= 0 or d.find("'''") >= 0:
+        return d
     ra = ""
     i = 0
     n = len(d)
@@ -1840,6 +1929,7 @@ SO_WITH: "i32" = 0
 SO_WITH_CHUA: "i32" = 0
 SO_NOI_CHUOI: "i32" = 0
 SO_IO_OPEN: "i32" = 0
+SO_THU_VIEN: "i32" = 0
 RA_GHI: "str" = ""
 
 
@@ -2630,6 +2720,10 @@ def main() -> "i32":
         DUONG_RA = tham[2]
         i = 3
         while i < len(tham):
+            if tham[i] == "--khai" and i + 1 < len(tham):
+                DUONG_KHAI = tham[i + 1]
+                i = i + 2
+                continue
             DOC.append(tham[i])
             i = i + 1
         DUONG_VAO = tham[3]
@@ -2655,6 +2749,7 @@ def main() -> "i32":
     DONG = doc_vao()
     noi_dong_tieu()
     noi_chuoi_lien_dong()
+    xuli_thu_vien()
     xuli_io_open()
     xuli_with()
     goi_vao_main()
@@ -2676,6 +2771,6 @@ def main() -> "i32":
     print("gap   : " + str(SO_FOLD) + " bien duong dan, " + str(SO_FOLD_HONG) + " khong gap duoc, "
           + str(SO_NOI_DONG) + " liet lie da noi, " + str(SO_GOI_MAIN) + " file boc vao main, "
           + str(SO_MAIN_NO) + " file sinh main rong, " + str(SO_ANNOT_RONG) + " container rong duoc khai bao, " + str(SO_WITH) + " `with` da doi, "
-          + str(SO_WITH_CHUA) + " `with` chua doi duoc, " + str(SO_NOI_CHUOI) + " dong noi chuoi, " + str(SO_IO_OPEN) + " `open().write()` da doi")
+          + str(SO_WITH_CHUA) + " `with` chua doi duoc, " + str(SO_NOI_CHUOI) + " dong noi chuoi, " + str(SO_IO_OPEN) + " `open().write()` da doi, " + str(SO_THU_VIEN) + " dong ma hoa thu vien")
     print("ra    : " + DUONG_RA + "  (" + str(SO_DONG_RA) + " dong)")
     return 0
