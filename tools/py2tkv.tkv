@@ -26,6 +26,7 @@ CHI_BIET: "i32" = 0
 CHI_DO: "i32" = 0
 FLAT: "i32" = 0
 DUONG_KHAI: "str" = ""
+DUONG_KIEM: "str" = ""
 
 FN_TEN: "list[str]" = []
 FN_DAU: "list[i32]" = []
@@ -1631,6 +1632,46 @@ def xuli_subprocess_va_chen() -> "i32":
     return 1
 
 
+def kiem_bien_dich() -> "i32":
+    """TRIZ P10+P24: goi CHINH COMPILER kiem tra file vua ghi ra.
+
+    Khong doi phai dung compiler lam giam khao: py2tkv tu bien dich roi chay
+    `proc_ra` tren `tkvc-tv.exe`. Loi cua compiler tro thanh dau vao de sua
+    tiep - thay vi de nguoi dung doc. Day la kien truc "vong kinh" co lai.
+
+    Khong co `--kiem` (hoac compiler khong ton tai) -> bo qua, van ghi file.
+    """
+    if DUONG_KIEM == "":
+        return 0
+    if path_exists(DUONG_KIEM) == 0:
+        print("  (khong tim thay compiler " + DUONG_KIEM + " - bo qua kiem tra)")
+        return 0
+    ra = DUONG_RA + ".kiem.tmp"
+    ra_exe = DUONG_RA + ".kiem.exe"
+    ma = proc_ra(DUONG_KIEM, "\"" + DUONG_RA + "\" \"" + ra_exe + "\" main", ra)
+    noi = ""
+    if path_exists(ra) == 1:
+        noi = read_file(ra)
+    # TUYET DOI khong tin ma thoat: `tkvc-tv.exe` LUON tra 0, ke ca khi loi
+    # (ra so 0 la "het PASS, dung lam exit code" - xem CLAUDE.md). Phan doan
+    # bang NOI DUNG output va bang file .exe co sinh ra hay khong.
+    if noi.find("[tkvc] loi") >= 0 or path_exists(ra_exe) == 0:
+        print("  BIEN DICH FAIL (ma " + str(ma) + ") - compiler bao:")
+        dong = tach_dong(noi)
+        i = 0
+        dem = 0
+        while i < len(dong):
+            if dong[i].find("[tkvc] loi") >= 0:
+                print("      " + dong[i].strip())
+                dem = dem + 1
+            i = i + 1
+        if dem == 0:
+            print("      (khong doc duoc dong loi)")
+        return 0
+    print("  BIEN DICH OK: " + DUONG_RA)
+    return 1
+
+
 def noi_chuoi_lien(d: "str") -> "str":
     """Gop hai chuoi ke nhau: `'a' 'b'` -> `'ab'`.
 
@@ -2942,9 +2983,13 @@ def main() -> "i32":
     global FLAT
     global DONG
     global MAP_DOC
+    global DUONG_KHAI
+    global DUONG_KIEM
     tham = sys_argv()
     if len(tham) < 2:
         print("dung: py2tkv.exe <vao.py> <ra.tkv> | --biet | --do")
+        print("     them: --khai <file>  (khai kieu thu cong)")
+        print("           --kiem <tkvc.exe>  (TRIZ P24: tu goi compiler kiem)")
         print("     py2tkv.exe --flat <ra.tkv> <a.py> <b.py> ...   gop nhieu file")
         return 2
     nap_map()
@@ -2974,6 +3019,9 @@ def main() -> "i32":
                 CHI_DO = 1
             if tham[i] == "--khai" and i + 1 < len(tham):
                 DUONG_KHAI = tham[i + 1]
+                i = i + 1
+            if tham[i] == "--kiem" and i + 1 < len(tham):
+                DUONG_KIEM = tham[i + 1]
                 i = i + 1
             i = i + 1
         if CHI_BIET == 0 and CHI_DO == 0:
@@ -3007,6 +3055,7 @@ def main() -> "i32":
         print("chua suy: " + str(SO_BIET))
         return 0 if SO_BIET == 0 else 1
     ghi()
+    kiem_bien_dich()
     print("gap   : " + str(SO_FOLD) + " bien duong dan, " + str(SO_FOLD_HONG) + " khong gap duoc, "
           + str(SO_NOI_DONG) + " liet lie da noi, " + str(SO_GOI_MAIN) + " file boc vao main, "
           + str(SO_MAIN_NO) + " file sinh main rong, " + str(SO_ANNOT_RONG) + " container rong duoc khai bao, " + str(SO_WITH) + " `with` da doi, "
