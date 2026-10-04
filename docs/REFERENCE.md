@@ -1063,6 +1063,25 @@ for v in xs:        # tương đương iter()
 
 **Ghi chú thẳng thắn:** đường `ascii()` với ký tự > 127 **chưa được xác nhận** bằng file `.tkv`, vì byte UTF-8 của ký tự không ASCII phụ thuộc cách compiler đọc file. Test chỉ ghim phần ASCII. Đừng tin phần này khi chưa tự chạy.
 
+**Giới hạn `hash()` với ký tự > 127 (2026-10-05, đã đo trên `tkvc-tv`).**
+
+Bản TokenVector của `hash()` lấy `ord(ch)` trực tiếp, **không** đi qua
+`s.encode('utf-8')` — vì trên đường TokenVector `.encode(...)` chỉ nhận biến
+kiểu **record**, gọi trên chuỗi thì báo lỗi biên dịch. Hệ quả:
+
+| Chuỗi | Kết quả |
+|---|---|
+| Thuần ASCII | **giống hệt** (1 byte = 1 ord) |
+| Có ký tự > 127 | **khác** — TokenVector hash theo *code point*, không phải *byte UTF-8* |
+
+`hash("abc")` kiểm chứng đúng: `0x0E71FA2190541574B` (vector chuẩn FNV-1a-64).
+Nếu cần hash ổn định **và** phải khớp cả hai compiler, chỉ dùng chuỗi ASCII.
+
+Lưu ý kỹ thuật: literal số nguyên TokenVector là số **không giới hạn**
+(`struct TkvInt`), và phép `&` trên giá trị vượt `Int32` cắt cụt **đúng bằng
+mod 2⁶⁴** (đã đối chiếu BigInteger). Nên `& 18446744073709551615` là mask
+đúng cho FNV-1a-64. Không cần `int64()` cho việc này.
+
 ### 6.14 `key=` và `reverse=` (2026-10-02) — cho `min`/`max`/`sum`/`sorted`
 
 ```tokenvector
