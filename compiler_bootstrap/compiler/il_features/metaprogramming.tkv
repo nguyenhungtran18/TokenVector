@@ -18,6 +18,7 @@ chi port hasattr/getattr, con `callable` chi ton tai o ban bootstrap
 MISSING_BUILTIN tren dist/tkvc-tv.exe. Ly do goc KHONG phai dang ky sai ma la
 port chua DAY DU - dung cap do kieu chu ky."""
 from il_dispatch import register_expr_builtin
+from il_core import IL_SCALAR
 
 __tkv_import__ = "il_dispatch"
 from il_features import int_type as _int_type
@@ -26,7 +27,7 @@ from il_features.int_type import ensure_class_int
 from il_features.tkvstr import ensure_class
 from il_features.list_type import il_list_type
 from typed_dsl_parser import TypeAnn
-from expr_row import ea_str, ekind, eso_o, la_node, mk3, o_str
+from expr_row import ea_nut, ea_str, ekind, eso_o, la_node, mk3, o_str
 
 def push_hasattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     ensure_class_int(ctx)
@@ -227,6 +228,149 @@ def push_dir_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dt
         out.append('    ldstr "' + nm + '"')
         out.append('    callvirt instance void ' + list_il + '::Add(!0)')
 
+def _fnv1a_64(s: "str") -> "i64":
+    """FNV-1a 64-bit tren UTF-8 cua `s`. Dung cho `hash()` cua chuoi.
+    KHONG dung `String.GetHashCode()` cua .NET: ham do BI NGAU NHIEN THEO
+    TIEN TRINH, cung mot chuoi se ra so khac giua 2 lan chay - trai voi
+    Python (hash o dinh). Tinh san o bien dich nen chi ap dung cho LITERAL.
+
+    PORT tu compiler/il_features/metaprogramming.tkv L332. HAI khac biet,
+    ca hai da probe tren dist/tkvc-tv.exe (2026-10-05):
+
+    1. KHONG dung `s.encode('utf-8')`. Tren duong TokenVector `.encode(...)`
+       CHI chap nhan bien kieu RECORD - goi tren chuoi ra loi bien dich
+       ("chi dung duoc tren bien kieu record"). Nen vong lap nay lay
+       `ord(ch)` truc tiep. HIEU LUC: voi CHUOI ASCII ket qua Y HET bootstrap
+       (1 byte = 1 ord); voi chuoi co ky tu > 127 thi KHAC - bootstrap hash
+       theo byte UTF-8, ban nay theo CODE POINT. Da ghi ro o REFERENCE.md.
+
+    2. He so 14695981039346656037 VA 18446744073709551615 (2^64-1) VUOT
+       Int32.MaxValue - nhung Literal int cua TokenVector la so KHUONG
+       (struct TkvInt), khong phai i64, nen viet duoc truc tiep. Da probe:
+       FNV-1a-64("abc") = 0x0E71FA2190541574B, DUNG vector chuan. Phe `&`
+       tren gia tri vuot i64 bi cat cung CHINH XAC mod 2^64 (da doi chieu
+       voi BigInteger) nen buoc mask nay la dung, khong phai loi."""
+    h = 14695981039346656037
+    p = 1099511628211
+    m = 18446744073709551615
+    for ch in s:
+        h = (h ^ ord(ch)) & m
+        h = (h * p) & m
+    if h >= 9223372036854775808:
+        return h - 18446744073709551616
+    return h
+
+def push_hash_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`hash(x)` -> i64.
+    - So nguyen: giong Python - tra CHINH gia tri (`hash(42)` = 42).
+    - Chuoi LITERAL: FNV-1a 64-bit - o dinh giua cac lan chay nen DUNG DUOC
+      de lam khoa/kiem tra, nhung KHONG dung de khop so voi Python (Python
+      dung SipHash co khoa muoi, doi moi lan chay).
+    - Bien chuoi / container: bao loi ro.
+
+    PORT tu compiler/il_features/metaprogramming.tkv L345. Dung if/elif/else
+    thay cho `return` rong giua ham (giong phong cach cac ham push_* khac
+    trong file nay), va `shape_ten` thay cho `.shape`."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: hash(x) nhan dung 1 tham so")
+    node = args[0]
+    kind = ekind(node)
+    if kind == 'str_lit':
+        lit = ea_str(node)
+        raw = lit[1:-1]
+        out.append('    ldc.i8 ' + str(_fnv1a_64(raw)))
+    elif kind == 'num':
+        txt = ea_str(node)
+        if '.' in txt or 'e' in txt.lower():
+            raise SyntaxError(
+                "il_codegen: hash(<so thuc>) - Python hash theo gia tri bit "
+                "(hash(1.0) = hash(1)); TokenVector chi ho tro so nguyen")
+        out.append('    ldc.i8 ' + txt)
+    elif kind == 'neg':
+        out.append('    ldc.i8 -' + ea_str(ea_nut(node)))
+    elif kind == 'var':
+        vname = ea_str(node)
+        if vname not in scope:
+            raise SyntaxError("il_codegen: bien '" + vname + "' chua duoc khai bao")
+        vta = scope.tra(vname).ta
+        if vta.dtype == 'str':
+            raise SyntaxError(
+                "il_codegen: hash(" + vname + ") - bien chuoi chua ho tro: phai "
+                "tinh tren byte luc CHAY ma bien dich chi sinh IL co so bien dich. "
+                "Dung chuoi LITERAL: hash(\"abc\")")
+        if vta.shape_ten != "":
+            raise SyntaxError(
+                "il_codegen: hash(" + vname + ") - khong hash duoc container "
+                "(shape=" + repr(vta.shape_ten) + "); Python cung nem TypeError")
+        ctx.compile_expr(node, scope, out, 'i64', ctx)
+    else:
+        raise SyntaxError(
+            "il_codegen: hash(x) - x phai la so nguyen, chuoi LITERAL, hoac bien")
+
+def push_ascii_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`ascii(s)` -> chuoi voi ky tu > 127 viet dang `\\xNN` (giong Python).
+    CHI nhan CHUOI LITERAL (tinh luc bien dich).
+
+    PORT tu compiler/il_features/metaprogramming.tkv L383. KHONG dung
+    `'\\\\x%02x' % ord(ch)` nhu ban bootstrap: tren tkvc-tv, `%` CO SPEC DO
+    RONG khong phai no-op ma SAI AM THAM - in ra nguyen chuoi format, build
+    van xanh, exit 0 (da probe, xem REFERENCE.md §5.6). Thay bang f-string
+    `f"\\\\x{ord(ch):02x}"`, da probe DUNG tren ca hai compiler."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: ascii(s) nhan dung 1 tham so")
+    node = args[0]
+    if ekind(node) != 'str_lit':
+        raise SyntaxError(
+            "il_codegen: ascii(s) - chi nhan CHUOI LITERAL (vd ascii(\"abc\")); "
+            "voi bien chuoi se phai quet tung ky tu luc chay")
+    raw = ea_str(node)
+    raw = raw[1:-1]
+    esc = "".join(ch if ord(ch) < 128 else f"\\x{ord(ch):02x}" for ch in raw)
+    out.append("    ldstr \"'" + esc + "'\"")
+
+def push_delattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`delattr(o, "x")` -> bao loi BIEN DICH, khong tao gia tri gia.
+    KHONG thuc hien duoc: field cua record la FIELD CUA STRUCT, so luong va vi
+    tri da chot luc bien dich - khong the xoa ma giu nguyen phan tu. `del xs[i]`
+    (mien container) thi lam duoc.
+
+    PORT tu compiler/il_features/metaprogramming.tkv. Ham nay LUON nem loi,
+    nhung van phai dang ky: neu khong co ten trong bang thi loi bao "ham 'delattr'
+    khong ton tai" - sai ngu nghia, tro thanh bao day."""
+    if len(args) != 2:
+        raise SyntaxError(
+            "il_codegen: delattr(o, attr_name) nhan 2 tham so (nhan " + str(len(args)) + ")")
+    raise SyntaxError(
+        "il_codegen: delattr(o, \"x\") chua ho tro - field cua record la field "
+        "CUA STRUCT, so luong chot luc bien dich nen khong xoa duoc. Muon xoa "
+        "phan tu container thi dung `del xs[i]` (hieu nghia giong Python)")
+
+def push_id_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`id(x)` -> so nguyen danh tinh. Dung `RuntimeHelpers.GetHashCode` -
+    gia tri NAO DAO, khong cam khi on dinh giua hai lan chay (Python cung vay).
+    Tham so phai la BIEN: len(int literal) khong co y nghia gi trong Python
+    (`id(3)` tra so moi lan), nen tu choi de khong tao cam giac sai.
+
+    PORT tu compiler/il_features/metaprogramming.tkv. Ba khac biet, ca hai da
+    kiem chung tren dist/tkvc-tv.exe:
+    - Dung `ctx.load_var_ref(name, scope, out)` de lay lenh ldloc/ldarg.
+      Ban bootstrap tu phai boc `kind, idx, _ta = scope[name]` va ghep
+      chuoi IL "ldloc.s"/"ldarg.s" - `scope[name]` KHONG ton tai tren duong
+      TokenVector. Day la ham chuan de nap bien (xem il_core.emit_index_value).
+    - Dung `ta.shape_ten` thay cho `ta.shape` (shape_ten la "" khi vo huong).
+    - `IL_SCALAR` lay tu `il_core` (module thap) thay vi tu il_codegen - tranh
+      vong import."""
+    name, ta = _var_ta_mp(args, scope, 'id')
+    ctx.load_var_ref(name, scope, out)
+    if ta.shape_ten == "":
+        scalar_il = IL_SCALAR.get(ta.dtype)
+        if scalar_il is None:
+            raise SyntaxError(
+                "il_codegen: id(" + name + ") - kieu '" + ta.dtype + "' khong co ban do IL")
+        out.append('    box ' + scalar_il)
+    out.append('    call int32 [mscorlib]System.Runtime.CompilerServices'
+               '.RuntimeHelpers::GetHashCode(object)')
+
 def bootstrap_metaprogramming(reg: "Registry") -> "i32":
     """Dang ky cua module nay - P6: KHONG chay luc import.
 
@@ -245,7 +389,17 @@ def bootstrap_metaprogramming(reg: "Registry") -> "i32":
     # runtime. Day la builtin thu 3 cua module, da bi bo sot khi port
     # (module TokenVector chi co hasattr/getattr - 143 dong so voi 434 dong
     # o bootstrap).
-    register_expr_builtin(reg, 'callable', push_callable_builtin, 'bool')
+    # DANG KY 'i32' CHU KHONG PHAI 'bool' (2026-10-05): `str()` cua 'bool' in
+    # "True"/"False" con cua 'i32' in "1"/"0", va reflection_test kiem
+    # str(callable(f)) == "1". Do do 3/3 check callable FAIL khi ta dang ky
+    # 'bool' - xanh y het khi doi lai 'i32', dung nhu ban bootstrap.
+    register_expr_builtin(reg, 'callable', push_callable_builtin, 'i32')
+    # hash tra i64. KHONG phai i32: giá trị FNV-1a-64 chuỗi vượt Int32.MaxValue
+    # rất nhiều (offset basis đã là 1.4e19).
+    register_expr_builtin(reg, 'hash', push_hash_builtin, 'i64')
+    register_expr_builtin(reg, 'ascii', push_ascii_builtin, 'str')
+    register_expr_builtin(reg, 'delattr', push_delattr_builtin, 'i32')
+    register_expr_builtin(reg, 'id', push_id_builtin, 'i32')
     # `dir` tra CONTAINER nen can return_ta (dtype phan tu + shape), khong
     # dung return_dtype (chi dung cho gia tri vo huong).
     register_expr_builtin(reg, 'dir', push_dir_builtin, None,
