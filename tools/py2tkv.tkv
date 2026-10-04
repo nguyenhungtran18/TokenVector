@@ -2088,14 +2088,20 @@ def ghi() -> "i32":
     k = 0
     while i < n:
         if k < FN_N and i == FN_DAU[k]:
-            RA_GHI = RA_GHI + sua_chu_ky(k) + "\n"
+            # GIU THUT LE: day la thang quyet dinh method co nam trong class
+            # hay khong. `sua_chu_ky` tra ve `def ...` khong co thut le, nen
+            # phai them `dd[0:indent(dd)]` - y giong `ghi_than` da lam cho
+            # ham long nhau. Khong co dong nay, METHOD THOAT KHOI CLASS va
+            # compiler bao `trung ten ham ['__init__']`.
+            dd0 = DONG[i]
+            RA_GHI = RA_GHI + dd0[0:indent(dd0)] + sua_chu_ky(k) + "\n"
             SO_DONG_RA = SO_DONG_RA + 1
             if GOI_KHOI_DONG == 1 and FN_TEN[k] == "main" and fn_la_stub(k) == 0:
                 RA_GHI = RA_GHI + "    __khoi_dong()\n"
                 SO_DONG_RA = SO_DONG_RA + 1
             # bo phan chu ky con lai (chu ky nhieu dong)
             if fn_la_stub(k) == 1:
-                RA_GHI = RA_GHI + "    return " + gia_tri_mac_dinh(FN_RET[k] if FN_RET[k] != "" else "str") + "\n"
+                RA_GHI = RA_GHI + dd0[0:indent(dd0)] + "    return " + gia_tri_mac_dinh(FN_RET[k] if FN_RET[k] != "" else "str") + "\n"
                 SO_DONG_RA = SO_DONG_RA + 1
                 i = FN_CUOI[k]
             else:
@@ -3292,6 +3298,14 @@ def them_field_cho_record() -> "i32":
                             truong.append(f)
             j = j + 1
         if len(truong) > 0 and co_field == 0:
+            # `truong` = field phai KHAI BAO (truong da co o base se bi bo
+            # o nhanh canh ben duoi). `truong_goc` = TAT CA field gan trong
+            # `__init__`, dung de LOC bo cac dong `self.X = ...` - neu loc
+            # bang `truong` da thieu, dong gan cho field ke thua se con lai
+            # va tro thanh bien CUC BIEN ma khong co tham so tuong ung.
+            truong_goc: "list[str]" = []
+            for idx in range(len(truong)):
+                truong_goc.append(truong[idx])
             # field da khai bao o BASE khong duoc khai lai (TokenVector: "field
             # da co san o base class"). Bo chung o day truoc khi sinh.
             base = la_base_lop(DONG[i])
@@ -3303,14 +3317,19 @@ def them_field_cho_record() -> "i32":
                                 print("  FIELD: class " + ten + " bo truong '" + f3 + "' da co o base " + base)
                                 truong = truong_bo(truong, f3)
             if len(truong) == 0:
+                print("  FIELD: class " + ten + " - moi field da co o base "
+                      + base + ", `__init__` sinh khong tham so")
                 TEN_LOP.append(ten)
                 TRUONG_LOP.append("")
-                i = het
-                continue
+                # KHONG `continue`: van phai sinh `__init__(self)` rong de
+                # no khong con gan lai field cua base.
             # thu le cua dong `def __init__` - giu nguyen de khong doi
             # thut le nhung phan body con lai cua class
             lt = DONG[vt]
-            ha = indent(lt)
+            # Thut le than class: `la_dau_class` chi nhan class CAP MODULE, nen
+            # than class luon o indent 4. Do lao tu dong `def __init__` khong
+            # tin - dong do co the da bi chinh sua o lan truoc.
+            ha = indent(DONG[i]) + 4
             le = ""
             for idx in range(0, ha):
                 le = le + " "
@@ -3333,7 +3352,7 @@ def them_field_cho_record() -> "i32":
                     q2 = vi_tri_bang_gan(y2)
                     if q2 > 0:
                         f2 = y2[5:q2].strip()
-                        if truong_chua(truong, f2) == 1:
+                        if truong_chua(truong_goc, f2) == 1:
                             bo = 1
                 if bo == 0:
                     ra.append(DONG[idx])
