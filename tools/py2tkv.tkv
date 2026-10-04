@@ -1511,6 +1511,126 @@ def xuli_thu_vien() -> "i32":
     return 0
 
 
+PROC_VARS: "str" = ";"
+SO_SUBPROC: "i32" = 0
+
+
+def la_ten_hoac_chuoi(s: "str") -> "i32":
+    """1 neu `s` la mot TEN hoac mot chuoi literal - dua thang vao duoc
+    vao chuoi `args` cua ProcessStartInfo. KHONG dua duoc `f(a, b)`."""
+    x = s.strip()
+    if x == "":
+        return 0
+    if x[0:1] == "\"" or x[0:1] == "'":
+        return 1
+    return ten_sach(x)
+
+
+def xuli_subprocess(d: "str") -> "str":
+    """`r = subprocess.run([exe, a, b], ...)` -> `r = proc_ra(exe, "a b", TMP)`.
+
+    TokenVector co `proc_ra(exe, args, tep_ra) -> i32`: chay tien trinh ngoai,
+    tra ve MA THOAT va ghi stdout+stderr vao `tep_ra`. Day la duong duy nhat de
+    chay tien trinh ngoai (xem compiler_bootstrap/.../process_feature.tkv).
+
+    `args` duoc truyen NGUYEN VAN cho ProcessStartInfo.Arguments nen Windows
+    tach theo DAU CACH - chinh vi vay khong boc ngoac.
+    """
+    x = bo_chu_thich(d).strip()
+    p = x.find("=")
+    if p <= 0 or x.find("==") > 0:
+        return d
+    ten = x[0:p].strip()
+    if ten_sach(ten) == 0:
+        return d
+    g = x[p + 1:].strip()
+    if g.find("subprocess.run(") < 0:
+        return d
+    q = g.find("(")
+    if q < 0:
+        return d
+    j = tim_dong_ngoac(g, q)
+    if j < 0:
+        return d
+    trong = g[q + 1:j].strip()
+    # `subprocess.run([a, b], capture_output=True)` - tach PHAI cap 0 truoc,
+    # roi moi tach phan trong list. `tach_danh_sach_cap0` coi `[]` la tang do
+    # sau nen dau phay trong list se khong bao gio o cap 0.
+    ds = tach_danh_sach_cap0(trong)
+    if len(ds) == 0:
+        return d
+    phan = ds[0].strip()
+    if phan.startswith("[") and phan.endswith("]"):
+        ds = tach_danh_sach_cap0(phan[1:-1].strip())
+        if len(ds) == 0:
+            return d
+    exe = ds[0].strip()
+    if la_ten_hoac_chuoi(exe) == 0:
+        return d
+    # Gom phan con lai thanh MOT chuoi `args`. TokenVector KHONG ho tro noi
+    # chuoi ngam (`"/c" "echo"`), nen phai noi bang `+` het.
+    b = ""
+    for idx in range(1, len(ds)):
+        v = ds[idx].strip()
+        if v.find("=") > 0:
+            continue
+        if la_ten_hoac_chuoi(v) == 0:
+            return d
+        if b == "":
+            b = v
+        else:
+            b = b + " + \" \" + " + v
+    if b == "":
+        args = "\"\""
+    elif b[0:1] == "\"" or b[0:1] == "'":
+        args = b
+    else:
+        args = "\" \" + " + b
+    global PROC_VARS
+    if PROC_VARS.find(";" + ten + ";") < 0:
+        PROC_VARS = PROC_VARS + ten + ";"
+    return d[0:indent(d)] + ten + " = proc_ra(" + exe + ", " + args + ", PY2TKV_TMP)"
+
+
+def xuli_proc_attr(d: "str") -> "str":
+    """`r.stdout` / `r.stderr` -> `read_file(PY2TKV_TMP)`, `r.returncode` -> `r`."""
+    ra = d
+    i = 1
+    while i < len(PROC_VARS):
+        j = PROC_VARS.find(";", i)
+        if j < 0:
+            break
+        ten = PROC_VARS[i:j]
+        i = j + 1
+        ra = the_ten(ra, ten + ".returncode", ten)
+        ra = the_ten(ra, ten + ".stdout", "read_file(PY2TKV_TMP)")
+        ra = the_ten(ra, ten + ".stderr", "read_file(PY2TKV_TMP)")
+    return ra
+
+
+def xuli_subprocess_va_chen() -> "i32":
+    global DONG
+    global PROC_VARS
+    global SO_SUBPROC
+    ra: "list[str]" = []
+    i = 0
+    while i < len(DONG):
+        ra.append(xuli_subprocess(DONG[i]))
+        i = i + 1
+    them_dong(ra)
+    if PROC_VARS == ";":
+        return 0
+    SO_SUBPROC = SO_SUBPROC + 1
+    ra2: "list[str]" = []
+    ra2.append("PY2TKV_TMP: \"str\" = \"py2tkv_proc_out.txt\"")
+    i = 0
+    while i < len(ra):
+        ra2.append(ra[i])
+        i = i + 1
+    them_dong(ra2)
+    return 1
+
+
 def noi_chuoi_lien(d: "str") -> "str":
     """Gop hai chuoi ke nhau: `'a' 'b'` -> `'ab'`.
 
@@ -1607,7 +1727,8 @@ def ghi_than(k: "i32", i: "i32") -> "i32":
             SO_DONG_RA = SO_DONG_RA + 1
             i = ghi_than(k2, FN_SIG_CUOI[k2] + 1)
             continue
-        bv = doi_ten(DONG[i], i + 1)
+        bv = xuli_proc_attr(DONG[i])
+        bv = doi_ten(bv, i + 1)
         bv = them_container_rong(bv)
         if bv != DONG[i]:
             SO_ANNOT_RONG = SO_ANNOT_RONG + 1
@@ -2548,6 +2669,8 @@ def fold_module(d: "str") -> "str":
     ten = x[:p].strip()
     if la_ten(ten[0:1]) == 0:
         return d
+    if ten.find(":") > 0:
+        return d                      # da co kieu san - giu nguyen
     g = go_tieu_module(x[p + 1:])
     v = fold_expr(g)
     if v != "":
@@ -2555,8 +2678,6 @@ def fold_module(d: "str") -> "str":
         TEN_DA.append(ten)
         GT_DA.append(v)
         return ten + ": \"str\" = \"" + v + "\""
-    if ten.find(":") > 0:
-        return d                      # da co kieu san - giu nguyen
     kc = kieu_hang_so_cap_module(g)
     if kc == "":
         if g.find("path_") >= 0 or g.find("os.path") >= 0:
@@ -2866,6 +2987,7 @@ def main() -> "i32":
     noi_dong_tieu()
     noi_chuoi_lien_dong()
     xuli_thu_vien()
+    xuli_subprocess_va_chen()
     xuli_io_open()
     xuli_with()
     goi_vao_main()
@@ -2888,6 +3010,6 @@ def main() -> "i32":
     print("gap   : " + str(SO_FOLD) + " bien duong dan, " + str(SO_FOLD_HONG) + " khong gap duoc, "
           + str(SO_NOI_DONG) + " liet lie da noi, " + str(SO_GOI_MAIN) + " file boc vao main, "
           + str(SO_MAIN_NO) + " file sinh main rong, " + str(SO_ANNOT_RONG) + " container rong duoc khai bao, " + str(SO_WITH) + " `with` da doi, "
-          + str(SO_WITH_CHUA) + " `with` chua doi duoc, " + str(SO_NOI_CHUOI) + " dong noi chuoi, " + str(SO_IO_OPEN) + " `open().write()` da doi, " + str(SO_THU_VIEN) + " dong ma hoa thu vien")
+          + str(SO_WITH_CHUA) + " `with` chua doi duoc, " + str(SO_NOI_CHUOI) + " dong noi chuoi, " + str(SO_IO_OPEN) + " `open().write()` da doi, " + str(SO_THU_VIEN) + " dong ma hoa thu vien, " + str(SO_SUBPROC) + " `subprocess.run` da doi")
     print("ra    : " + DUONG_RA + "  (" + str(SO_DONG_RA) + " dong)")
     return 0

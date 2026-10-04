@@ -105,6 +105,12 @@ $expect = @{
     can = @("s = 'xy'", "return 'pqr'")
     khong = @("'x' 'y'", "'p' 'q' 'r'")
   }
+"proc_run.py" = @{
+    can = @('proc_ra(', 'PY2TKV_TMP', 'read_file(PY2TKV_TMP)')
+    # KHONG kiem tra chu "subprocess" trần: comment `# da bo: import subprocess`
+    # do chinh py2tkv sinh ra va LUON chua tu do. Chi kiem tra LOI GOI con lai.
+    khong = @('subprocess.run(', 'r.returncode', 'r.stdout', 'r.stderr')
+  }
 }
 
 $pass = 0
