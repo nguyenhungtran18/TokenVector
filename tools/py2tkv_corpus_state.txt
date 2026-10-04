@@ -1,0 +1,23 @@
+# Trang thai corpus py2tkv - sinh boi tools\py2tkv_corpus.ps1 -Update
+# Do la SO DO, khong phai gate. De cap nhat: chay lai voi -Update
+_split_il_features.py|TUPLE_RETURN|7
+build_reflector.py|TYPE_INFER|2
+cmp_py.py|BUILTIN_SHAPE|15
+cmp_python_builtins.py|BUILTIN_SHAPE|1
+dang_ky_gate.py|PY_ONLY_API|1
+diff.py|MODULE_LEVEL|1
+find_csc.py|TYPE_INFER|0
+gen_builtin_ref.py|BUILTIN_SHAPE|7
+generator.py|PASS|6
+main.py|OTHER|0
+p6_bench.py|MODULE_LEVEL|4
+probe_name_exists.py|PY_ONLY_API|1
+py_kernels.py|OTHER|2
+py_ref_f32.py|PASS|1
+run.py|SYNTAX|3
+run_reflector.py|PASS|1
+scan_uninit_container_fields.py|MODULE_LEVEL|0
+tally_unmapped_types.py|PY_ONLY_API|6
+tkvdev.py|STRUCTURE_CLASS|4
+tol.py|TYPE_INFER|1
+type_map.py|PASS|6
