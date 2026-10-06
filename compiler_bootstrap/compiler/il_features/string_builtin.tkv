@@ -30,6 +30,42 @@ _BOOL_SHAPED_METHOD_NAMES: "set[str]" = {'startswith', 'endswith', 'isdigit', 'i
 
 __tkv_import__ = ["il_dispatch", "tkv_types"]
 
+def _num_int_dtype_of_text(text: "str") -> "str":
+    """Suy dtype cho 1 node 'num' la so nguyen decimal TU NO (CHUA den tu caller).
+    Khong goi int(text) - tren TokenVector `int()` tra i32 va se tran ngu
+    khong vua phai. Chi so-chu-so + so sanh dien la du: i32 max 10 chu so,
+    i64 max 19 chu so.
+
+    (Trc day trong str(...): FALLBACK
+    `_d = 'i32'` cho node 'num' bat ke kich thuoc so chu so, dan den 'ldc.i4'
+    nhan 1 chuoi vuot Int32.MaxValue va tran sang so am.)
+    """
+    t = text.strip()
+    if t == "":
+        return 'i32'
+    neg = False
+    if t[0] == '-':
+        neg = True
+        t = t[1:]
+    i = 0
+    while i + 1 < len(t) and t[i] == '0':
+        i = i + 1
+    t = t[i:]
+    if len(t) < 10:
+        return 'i32'
+    if len(t) == 10:
+        bound = "2147483648" if neg else "2147483647"
+        if t <= bound:
+            return 'i32'
+    if len(t) < 19:
+        return 'i64'
+    if len(t) == 19:
+        bound = "9223372036854775808" if neg else "9223372036854775807"
+        if t <= bound:
+            return 'i64'
+    return 'int'
+
+
 def _is_bool_shaped(node: "TkvNode", scope: "Scope"=None, func_table: "dict[str,TkvSig]"=None) -> "i32":
     """True neu bieu thuc 'node' co dtype='i32' nhung MANG NGHIA logic
     (Python se in "True"/"False", khong phai so). compare/boolop/not/in
@@ -174,8 +210,15 @@ def compile_str_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]",
             # pass 2 khong co truong do), suy TAI CHO theo DUNG quy uoc
             # chung ma print_feature.py da dung: co dau '.' la f64.
             if ekind(arg) == 'num':
-                _d = 'f64' if '.' in ea_str(arg) else 'i32'
-        if _d in ('i32', 'i64', 'f32', 'f64', 'str', 'complex', 'datetime', 'date', 'timedelta'):
+                _t = ea_str(arg)
+                if '.' in _t or 'e' in _t.lower():
+                    _d = 'f64'
+                else:
+                    # num la so nguyen decimal: chon dung i32/i64/'int' theo
+                    # kich thuoc CHU SO (khong dung Fallbac 'i32' - bug Tile:
+                    # str(0x80000002) ra '-2147483646' do ldc.i4 nhureick).
+                    _d = _num_int_dtype_of_text(_t)
+        if _d in ('i32', 'i64', 'int', 'f32', 'f64', 'str', 'complex', 'datetime', 'date', 'timedelta'):
             ctx.compile_expr(arg, scope, out, _d, ctx)
             if _d == 'i32' and _is_bool_shaped(arg, scope, ctx.func_table):
                 emit_to_str('bool', out, ctx)
