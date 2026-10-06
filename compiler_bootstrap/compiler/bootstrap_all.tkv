@@ -57,6 +57,7 @@ from il_features.fstring import bootstrap_fstring
 from il_features.generator_lazy import bootstrap_generator_lazy
 from il_features.int_builtin import bootstrap_int_builtin
 from il_features.int_type import bootstrap_int_type
+from il_features.iter_next import bootstrap_iter_next
 from il_features.list_copy import bootstrap_list_copy
 from il_features.list_count_index import bootstrap_list_count_index
 from il_features.list_methods_batch2 import bootstrap_list_methods_batch2
@@ -160,6 +161,7 @@ def bootstrap_all(reg: "Registry"):
     bootstrap_generator_lazy(reg)
     bootstrap_int_builtin(reg)
     bootstrap_int_type(reg)
+    bootstrap_iter_next(reg)
     bootstrap_list_copy(reg)
     bootstrap_list_count_index(reg)
     bootstrap_list_methods_batch2(reg)

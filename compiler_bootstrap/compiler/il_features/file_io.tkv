@@ -72,7 +72,7 @@ def compile_file_exists(args: "list[TkvNode]", scope: "Scope", out: "list[str]",
     ctx.widen_if_needed('i32', dtype, out)
 
 
-_BUILTIN_LENH_DOC_LAP: "set[str]" = {'atomic_add', 'atomic_inc', 'lock_acquire', 'lock_release', 'parallel_for', 'thread_sleep', 'simd_add', 'simd_sub', 'simd_mul', 'simd_scale', 'simd_axpy', 'time_sleep', 'os_remove', 'os_mkdir', 'proc_run', 'proc_ra'}
+_BUILTIN_LENH_DOC_LAP: "set[str]" = {'atomic_add', 'atomic_inc', 'lock_acquire', 'lock_release', 'parallel_for', 'thread_sleep', 'simd_add', 'simd_sub', 'simd_mul', 'simd_scale', 'simd_axpy', 'time_sleep', 'os_remove', 'os_mkdir', 'proc_run', 'proc_ra', 'next'}
 
 
 def _extern_void_builtin_names() -> "set[str]":
@@ -186,7 +186,7 @@ def codegen_call_stmt(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype
             # goi HAM LONG o dang lenh (2026-09-28), ke ca ham long void
             sig = _nc[name].nested_sig
         if sig is None and name in _BUILTIN_LENH_DOC_LAP and name in ctx.reg.expr_builtin_codegen:
-            # builtin song song/SIMD/khoa/thread_sleep goi mot minh tren 1 dong (2026-09-30): bieu thuc roi pop
+            # builtin song song/SIMD/khoa/thread_sleep/next goi mot minh tren 1 dong (2026-09-30, 2026-10-06 next): bieu thuc roi pop
             compile_expr(lay_nut(stmt, 'call_node'), scope, body, 'i32', ctx)
             body.append('    pop')
             return

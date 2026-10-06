@@ -60,8 +60,12 @@ EXC_CLR: "dict[str, str]" = {
     'AttributeError': '[mscorlib]System.MissingMemberException',
     'RuntimeError': '[mscorlib]System.ApplicationException',
     'AssertionError': '[mscorlib]System.NotSupportedException',
-    'OSError': '[mscorlib]System.IO.IOException',
-}
+      'OSError': '[mscorlib]System.IO.IOException',
+      # (2026-10-06) StopIteration = InvalidOperationException - chinh la kieu
+      # ma push_next (iter_next.tkv) `newobj` + `throw` khi iterator het du lieu
+      # ma khong co default. Giong CPython: `except StopIteration` bat duoc.
+      'StopIteration': '[mscorlib]System.InvalidOperationException',
+  }
 
 __tkv_type_alias__ = {
     "TkvNode": "i32",
