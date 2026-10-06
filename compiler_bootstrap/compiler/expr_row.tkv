@@ -60,6 +60,59 @@ def reset_pool_bieu_thuc():
     nhan than ham dang VAN BAN, chua phan tich) - giong het arena cau lenh.
     """
     _POOL.clear()
+
+
+def num_lit_to_dec(text: "str") -> "str":
+    """Chuan hoa literal so ve thap phan. '0x'->he 16, '0o'->he 8,
+    '0b'->he 2. Decimal/scientific/dau am -> giu nguyen.
+
+    Muc dich: sdt '0x80000002', '0o17', '0b101' thanh dang thuan thap phan
+    TRUOC khi node 'num' duoc tao ra. KHONG goi int(text, base) - tren duong
+    TokenVector `int()` tra i32 va tran neu nhap vuot 2^31."""
+    t = text.strip()
+    if t == "":
+        return t
+    if len(t) >= 3 and t[0] == '0' and (t[1] == 'x' or t[1] == 'X'):
+        return _digits_to_dec(t[2:], 16)
+    if len(t) >= 3 and t[0] == '0' and (t[1] == 'o' or t[1] == 'O'):
+        return _digits_to_dec(t[2:], 8)
+    if len(t) >= 3 and t[0] == '0' and (t[1] == 'b' or t[1] == 'B'):
+        return _digits_to_dec(t[2:], 2)
+    return t
+
+
+def _digit_val(ch: "str") -> "i32":
+    c = ch.lower()
+    if c >= '0' and c <= '9':
+        return ord(c) - ord('0')
+    return ord(c) - ord('a') + 10
+
+
+def _dec_mul_acc(acc: "str", base: "i32", v: "i32") -> "str":
+    carry = v
+    res: "str" = ""
+    i = len(acc) - 1
+    while i >= 0:
+        d = ord(acc[i]) - ord('0')
+        t = d * base + carry
+        res = chr(t % 10 + ord('0')) + res
+        carry = t // 10
+        i = i - 1
+    while carry > 0:
+        res = chr(carry % 10 + ord('0')) + res
+        carry = carry // 10
+    if res == "":
+        res = "0"
+    return res
+
+
+def _digits_to_dec(digits: "str", base: "i32") -> "str":
+    dec: "str" = "0"
+    for ch in digits:
+        dec = _dec_mul_acc(dec, base, _digit_val(ch))
+    return dec
+
+
 def esc_o(s: "str") -> "str":
     """Che tab va backslash de `split('\\t')` khong bao gio lech."""
     return s.replace("\\", "\\\\").replace("\t", "\\t")

@@ -5,7 +5,7 @@ khoa ILASM. KHONG import il_codegen.py (tranh circular import: cac file
 il_features/*.py import TU day, il_codegen.py import CA day LAN
 il_features/*.py)."""
 import re
-from expr_row import ekind, mk1, mk2, mk3, mk4, o_ds, o_ds_str, o_i32, o_nut, o_str, reset_pool_bieu_thuc
+from expr_row import ekind, mk1, mk2, mk3, mk4, o_ds, o_ds_str, o_i32, o_nut, o_str, reset_p, num_lit_to_decool_bieu_thuc
 
 __tkv_import__ = "il_dispatch"
 
@@ -214,7 +214,7 @@ _EXPR_TOKEN_RE = re.compile(r'''(?x)
       | (?P<STR>"(?:[^"\\]|\\.)*")
       | (?P<STRDON>'(?:[^'\\]|\\.)*')
       | (?P<FSTRDON>[fF][rR]?'(?:[^'\\]|\\.)*')
-      | (?P<NUM>\d+\.\d+[eE][+-]?\d+|\d+[eE][+-]?\d+|\d+\.\d+|\d+)
+      | (?P<NUM>0[xX][0-9A-Fa-f]+|0[oO][0-7]+|0[bB][01]+|\d+\.\d+[eE][+-]?\d+|\d+[eE][+-]?\d+|\d+\.\d+|\d+)
       | (?P<ID>[A-Za-z_]\w*)
       | (?P<CMPOP>>=|<=|==|!=)
       | (?P<POW>\*\*)
@@ -928,7 +928,7 @@ class _ExprParser:
                                         # dau nhay mo cua ve phai
             return mk2('str_lit', o_str(v))  # v giu nguyen ca dau ngoac kep - dung THANG cho 'ldstr'
         if k == 'NUM':
-            return mk2('num', o_str(v))
+            return mk2('num', o_str(num_lit_to_dec(v)))
         if k == 'ID':
             if v == 'await':
                 # 'await task_expr' (Phase 4, 2026-08-11) - xem

@@ -47,7 +47,7 @@ TOKEN_RE = re.compile(r'''(?x)
         (?P<FATARROW>=>)
       | (?P<ARROW>->)
       | (?P<STRING>"[^"]*")
-      | (?P<NUMBER>\d+(?:\.\d+)?)
+      | (?P<NUMBER>0[xX][0-9A-Fa-f]+|0[oO][0-7]+|0[bB][01]+|\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)
       | (?P<IDENT>[A-Za-z_]\w*)
       | (?P<OP>\*\*|[():,\[\]=*-])
     )
@@ -89,7 +89,7 @@ def tokenize(src: "str") -> "list[(str,str,i32)]":
 # dich duoc, ma file NAY chua (ham `tokenize` tra tuple 3 phan tu).
 # Import lai de moi cho `from typed_dsl_parser import TypeAnn/...` van chay.
 from tkv_types import TypeAnn, Param, Signature
-from expr_row import ekind, mk1, mk2, o_nut, o_str
+from expr_row import ekind, mk1, mk2, o_nut, o_str, num_lit_to_dec
 
 __tkv_import__ = "tkv_types"
 
@@ -429,7 +429,7 @@ class Parser:
         if kind != 'NUMBER':
             raise SyntaxError(f"il_codegen: gia tri mac dinh cho tham so kieu '{dtype}' "
                                f"phai la 1 so literal, gap {kind} {value!r} (vi tri ~{pos})")
-        node = mk2('num', o_str(value))
+        node = mk2('num', o_str(num_lit_to_dec(value)))
         return mk2('neg', o_nut(node)) if neg else node
 
     def parse_param(self) -> "Param":
