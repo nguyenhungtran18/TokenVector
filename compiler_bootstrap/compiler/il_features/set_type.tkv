@@ -18,9 +18,10 @@ from il_dispatch import (
     register_assign_rhs_parser, register_line_parser,
     register_stmt_codegen, register_first_pass_walk,
 )
-from il_features.list_type import il_list_elem_ilstr, find_first_append_dtype
+from il_features.list_type import il_list_elem_ilstr, find_first_append_dtype, list_literal_elem_spec_of, _fold_elem, nguon_kieu_walk
+from expr_row import ea_ds, ekind
 from tkv_types import TypeAnn
-from stmt_row import intern, lay_nut, lay_str, make2, make3
+from stmt_row import intern, lay_nut, lay_str, make2, make3, lay_ds_nut
 
 
 __tkv_import__ = ["il_dispatch", "tkv_types"]
@@ -49,6 +50,8 @@ def il_set_type(dtype: "str", records: "dict[str,list[(str,TkvTypeAnn)]]" = None
 _SET_NEW_RE = re.compile(r'^set\(\)\s*$')
 _SET_ADD_RE = re.compile(r'^(\w+)\.add\((.+)\)\s*$')
 _FROZENSET_NEW_RE = re.compile(r'^frozenset\((\w+)\)\s*$')
+_FROZENSET_EMPTY_RE = re.compile(r'^frozenset\(\s*\)\s*$')
+_FROZENSET_LIT_RE = re.compile(r'^frozenset\(\s*(\[.*\])\s*\)\s*$')
 
 
 def compile_in_set(key_node: "TkvNode", coll_name: "str", scope: "Scope", out: "list[str]", ctx: "Ctx"):
@@ -78,16 +81,23 @@ def try_rhs_frozenset_new(rhs: "str", name: "str", known_shapes: "dict[str,str]"
     theo thu tu parse - xem _lp_assign trong il_codegen.py) - neu chua,
     bao loi ro NGAY tai day thay vi de loi kho hieu ve sau."""
     m = _FROZENSET_NEW_RE.match(rhs.strip())
-    if not m:
-        return None
-    src = m.group(1)
-    if known_shapes.get(src) != 'list':
-        raise SyntaxError(
-            f"il_codegen: frozenset({src}) - '{src}' phai la 1 BIEN list DA KHAI BAO "
-            f"TRUOC dong nay (dang co known_shapes={known_shapes.get(src)!r}) - frozenset() "
-            f"hien CHI ho tro frozenset(<bien_list_don>)")
-    known_shapes[name] = 'frozenset'
-    return intern(make3('assign_frozenset_new', name, src))
+    if m:
+        src = m.group(1)
+        if known_shapes.get(src) != 'list':
+            raise SyntaxError(
+                f"il_codegen: frozenset({src}) - '{src}' phai la 1 BIEN list DA KHAI BAO "
+                f"TRUOC dong nay (dang co known_shapes={known_shapes.get(src)!r}) - frozenset() "
+                f"hien CHI ho tro frozenset(<bien_list_don>)")
+        known_shapes[name] = 'frozenset'
+        return intern(make3('assign_frozenset_new', name, src))
+    if _FROZENSET_EMPTY_RE.match(rhs.strip()):
+        known_shapes[name] = 'frozenset'
+        return intern(make2('assign_frozenset_empty', name))
+    m = _FROZENSET_LIT_RE.match(rhs.strip())
+    if m:
+        known_shapes[name] = 'frozenset'
+        return intern(make3('assign_frozenset_literal', name, m.group(1)))
+    return None
 
 
 def try_parse_set_add(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
@@ -210,6 +220,95 @@ def fpw_set_add(stmt: "i32", ctx: "WalkCtx"):
     ctx.collect_ternary_temps(lay_nut(stmt, 'value_node'))
 
 
+def codegen_assign_frozenset_empty(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'fs = frozenset()'."""
+    ta = scope.tra(lay_str(stmt, 'name')).ta
+    body.append(f'    newobj instance void {il_set_type(ta.dtype, ctx.records, ctx.extern_class_defs)}::.ctor()')
+    ctx.store_var(lay_str(stmt, 'name'), scope, body)
+
+
+def codegen_assign_frozenset_literal(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'fs = frozenset([1, 2, 3])'."""
+    ta = scope.tra(lay_str(stmt, 'name')).ta
+    elements = lay_ds_nut(stmt, 'elements')
+    set_type = il_set_type(ta.dtype, ctx.records, ctx.extern_class_defs)
+    body.append(f'    newobj instance void {set_type}::.ctor()')
+    for el in elements:
+        body.append('    dup')
+        ctx.compile_expr(el, scope, body, ta.dtype, ctx)
+        body.append(f'    callvirt instance bool {set_type}::Add(!0)')
+        body.append('    pop')
+    ctx.store_var(lay_str(stmt, 'name'), scope, body)
+
+
+def fpw_assign_frozenset_empty(stmt: "i32", ctx: "WalkCtx"):
+    """FIRST_PASS_WALK: 'fs = frozenset()' - dtype phan tu lay hint tu
+    container_arg_hints, neu khong co thi mac dinh i32."""
+    name = lay_str(stmt, 'name')
+    declared_names = ctx.declared_names
+    if name in declared_names:
+        return
+    hint = None
+    if ctx.container_arg_hints is not None:
+        hint = ctx.container_arg_hints.get(name, None)
+    if hint is not None and hint.shape_ten == 'frozenset':
+        ta = hint
+    else:
+        ta = TypeAnn('i32', 'frozenset')
+    declared_names.add(name)
+    ctx.locals_decl.append((name, ta))
+    ctx.infer_scope.set(name, ta)
+
+
+def fpw_assign_frozenset_literal(stmt: "i32", ctx: "WalkCtx"):
+    """FIRST_PASS_WALK: 'fs = frozenset([1, 2])' - gom logic cua
+    declare_list_literal (suy dtype phan tu CHUoi) roi chuyen shape sang
+    'frozenset'."""
+    name = lay_str(stmt, 'name')
+    elements = lay_ds_nut(stmt, 'elements')
+    declared_names = ctx.declared_names
+    if name in declared_names:
+        return
+    hint = None
+    if ctx.container_arg_hints is not None:
+        hint = ctx.container_arg_hints.get(name, None)
+    if hint is not None and hint.shape_ten == 'frozenset':
+        ta = hint
+        declared_names.add(name)
+        ctx.locals_decl.append((name, ta))
+        ctx.infer_scope.set(name, ta)
+        for el in elements:
+            ctx.collect_ternary_temps(el)
+        return
+    records = (ctx.records if ctx is not None else None) or {}
+    record_bases = (ctx.record_bases if ctx is not None else None) or {}
+    elem_dtype = None
+    elem_ta = None
+    for el in elements:
+        d = list_literal_elem_spec_of(el, ctx.infer_scope, nguon_kieu_walk(ctx))
+        if d is not None and d.startswith('list[') and d.endswith(']'):
+            inner = d[len('list['):-1].strip()
+            d = inner
+            d_ta = TypeAnn(inner, 'list')
+        else:
+            d_ta = None
+        moi = _fold_elem(elem_dtype, d, records, record_bases)
+        if moi != elem_dtype:
+            elem_dtype = moi
+            elem_ta = d_ta
+    if elem_dtype is None:
+        elem_dtype = 'i32'
+    if elem_ta is not None:
+        ta = TypeAnn(elem_dtype, 'frozenset', elem_ta=elem_ta)
+    else:
+        ta = TypeAnn(elem_dtype, 'frozenset')
+    declared_names.add(name)
+    ctx.locals_decl.append((name, ta))
+    ctx.infer_scope.set(name, ta)
+    for el in elements:
+        ctx.collect_ternary_temps(el)
+
+
 def bootstrap_set_type(reg: "Registry"):
     """Dang ky cua module nay - P6: KHONG chay luc import.
 
@@ -227,3 +326,7 @@ def bootstrap_set_type(reg: "Registry"):
     register_first_pass_walk(reg, 'assign_set_new', fpw_assign_set_new)
     register_first_pass_walk(reg, 'assign_frozenset_new', fpw_assign_frozenset_new)
     register_first_pass_walk(reg, 'set_add', fpw_set_add)
+    register_stmt_codegen(reg, 'assign_frozenset_empty', codegen_assign_frozenset_empty)
+    register_stmt_codegen(reg, 'assign_frozenset_literal', codegen_assign_frozenset_literal)
+    register_first_pass_walk(reg, 'assign_frozenset_empty', fpw_assign_frozenset_empty)
+    register_first_pass_walk(reg, 'assign_frozenset_literal', fpw_assign_frozenset_literal)
