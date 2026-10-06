@@ -7511,6 +7511,40 @@ def _cuoi_la_nhan_dich(body: "list[str]") -> "i32":
     return 0
 
 
+def _body_ends_with_ret(body: "list[str]") -> "i32":
+    """Dong cuối thật của body co phai 'ret' khong (bo qua directive `.line`,
+    dong trong, chu thich)."""
+    for ln in reversed(body):
+        st = ln.strip()
+        if not st or st.startswith('.'):
+            continue
+        return st == 'ret'
+    return 0
+
+
+def _default_value_il(ret_type: "str") -> "list[str]":
+    """Gia tri mac dinh cho `ret_type` - de them 'ret' hop le cho ham co
+    kieu tra NHUNG khong co `return` nao that (2026-09-28). KHONG nen nem loi
+    o day: nguoi goi mong nhan gia tri hop le va loi bien dich chan nhieu
+    nguoi hon loi runtime."""
+    t = (ret_type or '').strip()
+    if t == 'int32':
+        return ['    ldc.i4.0']
+    if t == 'int64':
+        return ['    ldc.i8 0']
+    if t == 'float32':
+        return ['    ldc.r4 0.0']
+    if t == 'float64':
+        return ['    ldc.r8 0.0']
+    if 'TkvInt' in t:
+        # TkvInt la valuetype - khong 'ldnull' duoc. Dung duong khoi tao nhu
+        # int_builtin.tkv: int64 0 -> FromI64. Ten full la bat buoc.
+        return ['    ldc.i8 0', '    call valuetype ' + _int_type.TKVINT_CLASS +
+                                ' ' + _int_type.TKVINT_CLASS + '::FromI64(int64)']
+    # string, record, class, extern class... deu la tham chieu -> ldnull an toan.
+    return ['    ldnull']
+
+
 def gen_il_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", with_guards: "i32" = True,
                      func_table: "dict[str,TkvSig]" = None, class_name: "str" = None, records: "dict[str,list[(str,TkvTypeAnn)]]" = None,
                      self_type_ann: "TypeAnn" = None, record_methods: "dict[str,dict[str,Signature]]" = None,
@@ -7827,6 +7861,14 @@ def gen_il_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", wit
         # InvalidProgramException (roi tu do het than ham). 2026-09-29.
         body.append('    ldnull')
         body.append('    throw')
+    elif not _body_ends_with_ret(body):
+        # Ham co kieu tra nhung roi het than khong qua 'return' (than chi co
+        # 'pass', ket thuc bang `if` ma moi nhanh co return, vong lap voi
+        # return ben trong but khong co ben ngoai): bootstrap da them
+        # _default_value_il(ret_type) + 'ret' o day tu 2026-09-28.
+        if sig.return_type is not None:
+            body.extend(_default_value_il(ret_type))
+        body.append('    ret')
 
     lines_out = []
     if self_type_ann is not None or is_closure_method:

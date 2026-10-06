@@ -657,7 +657,14 @@ def compile_method_call(node: "TkvNode", scope: "Scope", out: "list[str]", dtype
     owner_cls = _method_owner_class(ctx, obj_ta.dtype, method_name)
     out.append(f'    {call_op} {call_kind}{ret_il} {owner_cls}::{ctx.il_ident(method_name)}({params_il})')
     if m_sig.return_type is not None:
-        ctx.widen_if_needed(m_sig.return_type.dtype, dtype, out)
+        if dtype == 'void':
+            # Noi goi Y BO KET QUA (REC(...)'s inner __init__) - vi call
+            # 'callvirt instance int32' se de lai 1 int32 tren stack, ma la
+            # tai noi goi dang mong 1 REC instance, lech stack ->
+            # InvalidProgramException. Pop la phep hop le moi kieu tra.
+            out.append('    pop')
+        else:
+            ctx.widen_if_needed(m_sig.return_type.dtype, dtype, out)
 
 
 def bootstrap_record_feature(reg: "Registry"):
