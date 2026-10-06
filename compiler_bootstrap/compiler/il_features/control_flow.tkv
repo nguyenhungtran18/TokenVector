@@ -100,6 +100,9 @@ _FOR_IN_EXPR_RE = re.compile(r'^for\s+(\w+)\s+in\s+(?!\w+\s*\()(.+?)\s*:\s*$')
 __tkv_import__ = ["il_dispatch", "tkv_types"]
 
 
+_EXC_CTOR_2STR: "set[str]" = {'IndexError'}
+
+
 def _derives_from_exception(name: "str", record_bases: "dict[str,list[str]]") -> "i32":
     """Record 'name' co ke thua System.Exception khong - XET CA CHUOI base
     (2026-08-03): code that hay co PHAN CAP loi ('class CalcError(Exception)'
@@ -1803,10 +1806,12 @@ def codegen_raise(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "s
     # probe_raise.il: .ctor(string) gan dung Message (voi System.Exception),
     # va code SAU 'throw' (khong branch) khong bi verifier tu choi ('throw'
     # la 1 dang ket thuc khoi HOP LE, khong can 'br').
-    # LUU Y (gioi han da biet, khong sua): ArgumentOutOfRangeException
-    # (anh xa cua IndexError) dung .ctor(string) 1 tham so se gan gia tri
-    # do vao 'paramName', KHONG PHAI 'Message' - quy uoc rieng cua chinh
-    # class do trong .NET, khong phai loi codegen.
+    # (2026-10-06) ArgumentOutOfRangeException (anh xa cua IndexError) dung
+    # .ctor(string) 1 tham so se gan gia tri do vao 'paramName', KHONG PHAI
+    # 'Message' - dung .ctor(string, string) voi ("", msg) nhu ban bootstrap
+    # (_EXC_CTOR_2STR, 2026-09-30) de `str(e)` ra dung thong diep.
+    clr_type = _resolve_exc_clr_type(lay_str(stmt, 'exc_type'), ctx,
+                                      f"'raise {lay_str(stmt, 'exc_type')}(...)'")
     clr_type = _resolve_exc_clr_type(lay_str(stmt, 'exc_type'), ctx,
                                       f"'raise {lay_str(stmt, 'exc_type')}(...)'")
     from_name = lay_str(stmt, 'from_name')
@@ -1844,8 +1849,17 @@ def codegen_raise(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "s
         body.append('    throw')
         return
     if lay_nut(stmt, 'msg_node') is not None:
-        ctx.compile_expr(lay_nut(stmt, 'msg_node'), scope, body, 'str', ctx)
-        body.append(f'    newobj instance void {clr_type}::.ctor(string)')
+        if lay_str(stmt, 'exc_type') in _EXC_CTOR_2STR:
+            # Loai nay co .ctor(string) rieng: tham so DAU la `paramName`,
+            # KHONG phai `Message`. Dung .ctor(paramName, message) voi
+            # ("", msg) => Message = msg (giong ban bootstrap).
+            body.append('    ldstr ""')
+            ctx.compile_expr(lay_nut(stmt, 'msg_node'), scope, body, 'str', ctx)
+            body.append(
+                f'    newobj instance void {clr_type}::.ctor(string, string)')
+        else:
+            ctx.compile_expr(lay_nut(stmt, 'msg_node'), scope, body, 'str', ctx)
+            body.append(f'    newobj instance void {clr_type}::.ctor(string)')
     else:
         body.append(f'    newobj instance void {clr_type}::.ctor()')
     body.append('    throw')

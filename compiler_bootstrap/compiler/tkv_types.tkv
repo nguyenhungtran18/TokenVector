@@ -65,6 +65,18 @@ EXC_CLR: "dict[str, str]" = {
       # ma push_next (iter_next.tkv) `newobj` + `throw` khi iterator het du lieu
       # ma khong co default. Giong CPython: `except StopIteration` bat duoc.
       'StopIteration': '[mscorlib]System.InvalidOperationException',
+      # (2026-10-06) dong bo voi _EXC_TYPE_MAP cua bootstrap
+      # (compiler/il_features/control_flow.tkv): chi them loai co tuong duong
+      # CLR that su, gia tri y het ban bootstrap.
+      'NotImplementedError': '[mscorlib]System.NotImplementedException',
+      'MemoryError': '[mscorlib]System.OutOfMemoryException',
+      'ArithmeticError': '[mscorlib]System.ArithmeticException',
+      'EOFError': '[mscorlib]System.IO.EndOfStreamException',
+      'FileNotFoundError': '[mscorlib]System.IO.FileNotFoundException',
+      'PermissionError': '[mscorlib]System.UnauthorizedAccessException',
+      'IsADirectoryError': '[mscorlib]System.UnauthorizedAccessException',
+      'NotADirectoryError': '[mscorlib]System.UnauthorizedAccessException',
+      'ImportError': '[mscorlib]System.IO.FileNotFoundException',
   }
 
 __tkv_type_alias__ = {
