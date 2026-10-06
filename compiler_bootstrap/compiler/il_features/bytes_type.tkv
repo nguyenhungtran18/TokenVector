@@ -113,6 +113,174 @@ def fpw_assign_bytes_literal(stmt: "i32", ctx: "WalkCtx"):
     ctx.declare_named(lay_str(stmt, 'name'), TypeAnn('i32', 'bytes'))
 
 
+# ================= CONSTRUCTOR bytes(...) =================
+# Port tu compiler/il_features/bytes_type.tkv (bootstrap) L177-289. Chu y:
+# KHONG dung raw.encode('utf-8') nhu ban bootstrap - tren duong
+# TokenVector `.encode` KHONG co o compiler tu-host. Thay bang _decode_and_utf8
+# thu cong: giai ma escape, ord tung char, encode UTF-8 bang cong thuc
+# so hoc (khong dung .encode/int() de tranh tran compiler).
+
+_BYTES_REPEAT_RE = re.compile(r'^bytes\(\s*(\d+)\s*\)\s*$')
+_BYTES_STR_RE = re.compile(r'^bytes\(\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')\s*\)\s*$')
+_BYTES_STR_VAR_RE = re.compile(r'^bytes\(\s*(\w+)\s*,\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\')\s*\)\s*$')
+_BYTES_LIST_RE = re.compile(r'^bytes\(\s*\[([^\[\]]*)\]\s*\)\s*$')
+
+
+def _encoding_ok(enc_text: "str") -> "i32":
+    """True neu tham so ma hoa la chuoi literal 'utf-8' (hoa thuong)."""
+    e = enc_text.strip().strip('"').strip("'").lower().replace('-', '')
+    if e in ('utf8', 'u8'):
+        return True
+    raise SyntaxError(
+        f"il_codegen: bytes(chuoi, ma-hoa) - chi ho tro 'utf-8' trong giai "
+        f"doan, nhan '{enc_text.strip()}'. Ma hoa khac can ep thanh byte thu "
+        f"cong o bien dich rieng.")
+
+
+def _push_utf8_of(c: "i32", out: "list[i32]"):
+    """Encode 1 code point Unicode thanh 1-4 byte UTF-8. Khong dung .encode:
+    bang cac phep tinh so hoc thuan (i32), tiec bus big-fast. c phai >= 0 va
+    < 0x110000 (ord của char)."""
+    if c < 128:
+        out.append(c)
+    elif c < 2048:
+        out.append(192 + c // 64)
+        out.append(128 + c % 64)
+    elif c < 65536:
+        out.append(224 + c // 4096)
+        out.append(128 + (c // 64) % 64)
+        out.append(128 + c % 64)
+    else:
+        out.append(240 + c // 262144)
+        out.append(128 + (c // 4096) % 64)
+        out.append(128 + (c // 64) % 64)
+        out.append(128 + c % 64)
+
+
+def _decode_and_utf8(raw: "str") -> "list[i32]":
+    """raw: noi dung giua 2 dau nhay cua 1 string literal (con nguyen escape).
+    Giai ma cac escape pho bien (\\ \\" \\n \\t \\r \\0 \\xHH), roi encode
+    tung code point thanh byte UTF-8. Tra ve list[i32] cac byte.
+    KHONG phai truong hop escape lai: goi truc tiep."""
+    out: "list[i32]" = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        ch = raw[i]
+        if ch == '\\' and i + 1 < n:
+            nxt = raw[i + 1]
+            if nxt == 'x' and i + 3 < n:
+                hex_digits = raw[i + 2:i + 4]
+                hex_val = int(hex_digits, 16)
+                _push_utf8_of(hex_val, out)
+                i = i + 4
+                continue
+            if nxt == '0':
+                out.append(0)
+                i = i + 2
+                continue
+            if nxt == 'n':
+                out.append(10)
+                i = i + 2
+                continue
+            if nxt == 't':
+                out.append(9)
+                i = i + 2
+                continue
+            if nxt == 'r':
+                out.append(13)
+                i = i + 2
+                continue
+            if nxt == '\\':
+                out.append(92)
+                i = i + 2
+                continue
+            if nxt == '"':
+                out.append(34)
+                i = i + 2
+                continue
+            if nxt == "'":
+                out.append(39)
+                i = i + 2
+                continue
+            _push_utf8_of(ord(nxt), out)
+            i = i + 2
+            continue
+        _push_utf8_of(ord(ch), out)
+        i = i + 1
+    return out
+
+
+def try_rhs_bytes_new(rhs: "str", name: "str", known_shapes: "dict[str,str]") -> "i32":
+    """ASSIGN_RHS_PARSERS entry: 'b = bytes(...)' cua bootstrap tu trunk."""
+    s = rhs.strip()
+    m = _BYTES_REPEAT_RE.match(s)
+    if m:
+        known_shapes[name] = 'bytes'
+        return intern(make3('assign_bytes_new', name, s))
+    m = _BYTES_STR_RE.match(s)
+    if m:
+        _encoding_ok(m.group(2))
+        node = parse_expr(m.group(1))
+        if ekind(node) != 'str_lit':
+            return None
+        known_shapes[name] = 'bytes'
+        return intern(make3('assign_bytes_new', name, s))
+    m = _BYTES_STR_VAR_RE.match(s)
+    if m:
+        _encoding_ok(m.group(2))
+        raise SyntaxError(
+            "il_codegen: bytes(<bien chuoi>, \"utf-8\") - duong chay (dung "
+            "Encoding.UTF8.GetBytes) CHUA san: `List<byte>` khong co ctor "
+            "nhan IEnumerable ma `List<int>` co, nen bien dich duoc roi chay "
+            "thi nem EntryPointNotFoundException. Hay truyen CHUOI LITERAL "
+            "(bytes(\"abc\", \"utf-8\")) - duong do giai ma ngay luc bien dich.")
+    m = _BYTES_LIST_RE.match(s)
+    if m:
+        known_shapes[name] = 'bytes'
+        return intern(make3('assign_bytes_new', name, s))
+    return None
+
+
+def codegen_assign_bytes_new(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry: 'data = bytes(...)' - moi hinh thuc deu unroll
+    N gia tri THUC (count 0 va count literal) thanh N lan 'dup'+'ldc.i4'+
+    'conv.u1'+'Add(!0)', theo mau byte literal (see code gen assign_bytes_literal)."""
+    rhs = lay_str(stmt, 'values_text').strip()
+    m = _BYTES_REPEAT_RE.match(rhs)
+    if m:
+        values: "list[i32]" = []
+        for i in range(int(m.group(1))):
+            values.append(0)
+    else:
+        m = _BYTES_STR_RE.match(rhs)
+        if m:
+            q = m.group(1)
+            values = _decode_and_utf8(q[1:-1])
+        else:
+            m = _BYTES_LIST_RE.match(rhs)
+            if m:
+                values = []
+                parts = m.group(1).split(',')
+                for piece in parts:
+                    p = piece.strip()
+                    if p:
+                        values.append(int(p))
+            else:
+                raise SyntaxError(f"il_codegen: assign_bytes_new khong khop dang bytes(...): {rhs}")
+    body.append(f'    newobj instance void {il_bytearray_type()}::.ctor()')
+    for value in values:
+        body.append('    dup')
+        body.append(f'    ldc.i4 {value}')
+        body.append('    conv.u1')
+        body.append(f'    callvirt instance void {il_bytearray_type()}::Add(!0)')
+    ctx.store_var(lay_str(stmt, 'name'), scope, body)
+
+
+def fpw_assign_bytes_new(stmt: "i32", ctx: "WalkCtx"):
+    ctx.declare_named(lay_str(stmt, 'name'), TypeAnn('i32', 'bytes'))
+
+
 def bootstrap_bytes_type(reg: "Registry"):
     """Dang ky cua module nay - P6: KHONG chay luc import.
 
@@ -123,3 +291,6 @@ def bootstrap_bytes_type(reg: "Registry"):
     register_line_parser(reg, 'bytes_append_blocked', try_parse_bytes_append_blocked)
     register_stmt_codegen(reg, 'assign_bytes_literal', codegen_assign_bytes_literal)
     register_first_pass_walk(reg, 'assign_bytes_literal', fpw_assign_bytes_literal)
+    register_assign_rhs_parser(reg, 'bytes_new', try_rhs_bytes_new)
+    register_stmt_codegen(reg, 'assign_bytes_new', codegen_assign_bytes_new)
+    register_first_pass_walk(reg, 'assign_bytes_new', fpw_assign_bytes_new)
