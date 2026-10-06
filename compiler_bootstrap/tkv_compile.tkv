@@ -4809,13 +4809,21 @@ def _bang_funcref_push(ten_ham: "str", class_name: "str", func_table: "dict[str,
         raise TranspileError(
             f"bang dieu phoi cap module '{gname}': '{ten_ham}' khong phai "
             f"1 ham top-level da dinh nghia trong chuong trinh")
-    mong_doi = ta.elem_ta.func_param_dtypes
-    co = [p.type_ann.dtype for p in callee.params]
-    if co != mong_doi:
+    # (2026-10-06) Gom 2 list dtype thanh 2 CHUOI roi so `!=`: `!=` tren 2
+    # list la SO THAM CHIEU (ceq) nen khong dung truc tiep duoc. String so
+    # theo GIA TRI (da probe) nen cach nay dung ca duoi compiler cu va moi.
+    mong_s = ""
+    _fps = ta.elem_ta.func_params
+    if _fps is not None:
+        for _p in _fps:
+            mong_s = mong_s + "," + str(_p.dtype)
+    co_s = ""
+    for _q in callee.params:
+        co_s = co_s + "," + str(_q.type_ann.dtype)
+    if co_s != mong_s:
         raise TranspileError(
             f"bang dieu phoi cap module '{gname}': chu ky ham '{ten_ham}' "
-            f"(({', '.join([str(x) for x in co])})) khong khop kieu gia tri "
-            f"khai bao (({', '.join([str(x) for x in mong_doi])}))")
+            f"({co_s}) khong khop kieu gia tri khai bao ({mong_s})")
     params_il = ', '.join([_func_slot_il(p.type_ann, records) for p in callee.params])
     ret_il = _func_slot_il(callee.return_type, records) if callee.return_type is not None else 'void'
     return ['    ldnull',

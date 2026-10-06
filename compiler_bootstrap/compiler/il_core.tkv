@@ -607,6 +607,22 @@ class _ExprParser:
             self.advance()
             rhs = self.parse_bor()
             return mk3('in', o_nut(node), o_nut(rhs))
+        if k == 'ID' and v == 'is':
+            # 'x is y' / 'x is not y' (port 2026-10-06 tu bootstrap il_core):
+            # `is` la SO DANH TINH nhung scalar TokenVector la UNBOXED nen
+            # `is` == `==` voi scalar/str, va `ceq` tren reference voi
+            # container - dung nhu Python voi None/True/so nguyen nho. Ha ca
+            # hai ve 'compare' hien co, khong them duong codegen moi.
+            self.advance()
+            negate = False
+            k2, v2 = self.peek()
+            if k2 == 'ID' and v2 == 'not':
+                self.advance()
+                negate = True
+            rhs = self.parse_bor()
+            if negate:
+                return mk4('compare', o_str('!='), o_nut(node), o_nut(rhs))
+            return mk4('compare', o_str('=='), o_nut(node), o_nut(rhs))
         if not (k == 'OP' and v in _COMPARE_OPS):
             return node
         # Chained comparison (Wave 3, 2026-07-29 - 'a < b < c' giong

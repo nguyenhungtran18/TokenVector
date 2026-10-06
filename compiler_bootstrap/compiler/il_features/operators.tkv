@@ -636,6 +636,57 @@ def _compile_so_sanh_ds(op: "str", left: "TkvNode", right: "TkvNode", scope: "Sc
     return True
 
 
+def _container_ta(node: "TkvNode", scope: "Scope", records: "dict[str,list[(str,TkvTypeAnn)]]") -> "TypeAnn":
+    """TypeAnn cua toan hang neu no la CONTAINER (list/dict/set/...).
+
+    Tra None neu toan hang khong phai bien container - tuc la hoac la
+    scalar, hoac la bien chua co TypeAnn (chua qua first-pass).
+
+    Ly do can ham nay (port 2026-10-06 tu bootstrap operators L~641):
+    _infer_dtype tra dtype ma BO QUA shape. `a = [1, 2]` suy ra dtype='int'
+    (tu literal) nen `a == b` cho hai list di vao nhanh TkvInt va nem
+    InvalidCastException luc chay - `TkvInt.Cmp` cuon mot `List<int>`
+    reference. So sanh 2 container phai la SO THAM CHIEU (`ceq` tren 2
+    object reference), va day la thu duy nhat co y nghia dung trong
+    runtime .NET."""
+    if ekind(node) != 'var':
+        return None
+    vname = ea_str(node)
+    if vname not in scope:
+        return None
+    ta = scope.tra(vname).ta
+    if ta is None or ta.shape_ten not in (
+            'list', 'dict', 'set', 'frozenset', 'defaultdict', 'counter'):
+        return None
+    return ta
+
+
+def _compile_container_compare(op: "str", left: "TkvNode", right: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx", records: "dict[str,list[(str,TkvTypeAnn)]]", dtype: "str") -> "i32":
+    """'==' / '!=' tren 2 container: SO THAM CHIEU bang `ceq`.
+
+    Tra 1 neu da xu ly xong (ca hai deu bien container). Tra 0 neu 1 trong
+    2 ve khong phai bien container (de caller di tiep duong cu)."""
+    lta = _container_ta(left, scope, records)
+    rta = _container_ta(right, scope, records)
+    if lta is None and rta is None:
+        return 0
+    if lta is None or rta is None:
+        return 0
+    if op != '==' and op != '!=':
+        raise SyntaxError(
+            "il_codegen: '" + op + "' khong ap dung cho container (chi '==' va '!=' "
+            "- so sanh vung tren tham chieu khong co nghia; hay so sanh "
+            "theo phan tu)")
+    # Nap bang dtype PHAN TU: truyen dtype container se bien bien thanh gia tri.
+    ctx.compile_expr(left, scope, out, lta.dtype, ctx)
+    ctx.compile_expr(right, scope, out, rta.dtype, ctx)
+    out.append('    ceq')
+    if op == '!=':
+        out.append('    ldc.i4.0')
+        out.append('    ceq')
+    return 1
+
+
 def compile_compare(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"=None):
     """EXPR_CODEGEN entry cho tag 'compare' - nhanh string uy quyen ra
     ctx['compile_compare_str'] (string_feature.py), phan con lai (so
@@ -646,6 +697,12 @@ def compile_compare(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "s
     '!=' tren 2 gia tri CUNG kieu record co __eq__(self, other) -> "i32"
     goi callvirt thay vi ceq (reference-compare mac dinh)."""
     op, left, right = ea_str(node), eb_nut(node), ec_nut(node)
+    # (2026-10-06) Hai bien container thi so THAM CHIEU (ceq) truoc moi
+    # nhanh khac - neu khong, `a == b` voi hai list di vao TkvInt::Cmp va
+    # nem InvalidCastException luc chay. `x == []` (1 ve la literal) van
+    # roi xuong nhanh cu ben duoi.
+    if (op == '==' or op == '!=') and ctx is not None and _compile_container_compare(op, left, right, scope, out, ctx, (ctx.records if ctx is not None else None) or {}, dtype) == 1:
+        return
     if (op == '==' or op == '!=') and ctx is not None and _compile_so_sanh_ds(op, left, right, scope, out, ctx):
         return
     operand_dtype = ctx.resolve_compare_operand_dtype(
