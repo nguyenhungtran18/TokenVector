@@ -91,6 +91,7 @@ compiler_bootstrap\compiler\il_features\stdlib_math.tkv
 compiler_bootstrap\compiler\il_features\stdlib_math_trig.tkv
 compiler_bootstrap\compiler\il_features\stdlib_os.tkv
 compiler_bootstrap\compiler\il_features\stdlib_path.tkv
+compiler_bootstrap\compiler\il_features\stdlib_pathlib.tkv
 compiler_bootstrap\compiler\il_features\stdlib_random.tkv
 compiler_bootstrap\compiler\il_features\stdlib_re.tkv
 compiler_bootstrap\compiler\il_features\stdlib_repeat.tkv

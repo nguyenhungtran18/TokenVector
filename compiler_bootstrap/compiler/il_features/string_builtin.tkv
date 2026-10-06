@@ -24,7 +24,7 @@ import il_codegen as _ilc
 from il_features.list_type import il_list_type, emit_list_sort
 
 
-_BOOL_SHAPED_CALL_NAMES: "set[str]" = {'all', 'any', 'path_exists', 'path_isfile', 'path_isdir', 'file_exists'}
+_BOOL_SHAPED_CALL_NAMES: "set[str]" = {'all', 'any'}
 _BOOL_SHAPED_METHOD_NAMES: "set[str]" = {'startswith', 'endswith', 'isdigit', 'isalpha', 'isalnum', 'isspace', 'isnumeric', 'isdecimal', 'isupper', 'islower', 'isascii', 'istitle'}
 
 

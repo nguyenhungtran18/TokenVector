@@ -72,7 +72,7 @@ def compile_file_exists(args: "list[TkvNode]", scope: "Scope", out: "list[str]",
     ctx.widen_if_needed('i32', dtype, out)
 
 
-_BUILTIN_LENH_DOC_LAP: "set[str]" = {'atomic_add', 'atomic_inc', 'lock_acquire', 'lock_release', 'parallel_for', 'thread_sleep', 'simd_add', 'simd_sub', 'simd_mul', 'simd_scale', 'simd_axpy', 'time_sleep', 'os_remove', 'os_mkdir', 'proc_run', 'proc_ra', 'next'}
+_BUILTIN_LENH_DOC_LAP: "set[str]" = {'atomic_add', 'atomic_inc', 'lock_acquire', 'lock_release', 'parallel_for', 'thread_sleep', 'simd_add', 'simd_sub', 'simd_mul', 'simd_scale', 'simd_axpy', 'time_sleep', 'os_remove', 'os_mkdir', 'proc_run', 'proc_ra', 'next', 'path_write_text'}
 
 
 def _extern_void_builtin_names() -> "set[str]":
@@ -327,11 +327,24 @@ def compile_file_readlines(node: "TkvNode", scope: "Scope", out: "list[str]", dt
 
 
 def compile_file_readline(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
-    """f.readline() -> str (giu ky tu xuong dong; '' o cuoi tep)."""
+    """f.readline() -> str (cat newline, '' o cuoi tep).
+
+    PHAI dang ky method ('file','readline') o day de suy kieu tra ve la
+    'str' (khong thi `l1 = m.readline()` suy sai kieu, str(l1) in ra dia
+    chi). NHUNG body phai giong control_flow.compile_file_method_call:
+    TextReader::ReadLine (CAT newline) + null -> '', chu KHONG dung
+    TkvFileX::ReadLine (giu newline - sai so voi bootstrap + test)."""
     obj_name = _kiem_file_doc(node, scope, 'readline')
-    _ensure_class_filex(ctx)
     ctx.load_var_ref(obj_name, scope, out)
-    out.append('    call string TkvFileX::ReadLine(class [mscorlib]System.IO.TextReader)')
+    out.append('    callvirt instance string [mscorlib]System.IO.TextReader::ReadLine()')
+    out.append('    dup')
+    ctx.label_counter[0] += 1
+    eof_lbl = f'__rl_notnull_{ctx.label_counter[0]}'
+    out.append(f'    brtrue {eof_lbl}')
+    out.append('    pop')
+    out.append('    ldstr ""')
+    out.append(f'  {eof_lbl}:')
+    ctx.widen_if_needed('str', dtype, out)
 
 
 def _ta_ds_chuoi_tep(_obj_ta: "TypeAnn") -> "TypeAnn":

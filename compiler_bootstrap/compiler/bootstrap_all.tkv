@@ -90,6 +90,7 @@ from il_features.stdlib_json import bootstrap_stdlib_json
 from il_features.stdlib_json_get import bootstrap_stdlib_json_get
 from il_features.stdlib_os import bootstrap_stdlib_os
 from il_features.stdlib_path import bootstrap_stdlib_path
+from il_features.stdlib_pathlib import bootstrap_stdlib_pathlib
 from il_features.stdlib_re import bootstrap_stdlib_re
 from il_features.stdlib_repeat import bootstrap_stdlib_repeat
 from il_features.stdlib_shutil import bootstrap_stdlib_shutil
@@ -194,6 +195,7 @@ def bootstrap_all(reg: "Registry"):
     bootstrap_stdlib_json_get(reg)
     bootstrap_stdlib_os(reg)
     bootstrap_stdlib_path(reg)
+    bootstrap_stdlib_pathlib(reg)
     bootstrap_stdlib_re(reg)
     bootstrap_stdlib_repeat(reg)
     bootstrap_stdlib_shutil(reg)
