@@ -50,6 +50,7 @@ from il_features.list_type import (
 from il_features.bytearray_type import il_bytearray_type as _il_bytearray_type  # muc 6.8 (3/4, 2026-08-13): dang ky parser/codegen luc import, xem module do
 import il_features.bytes_type as _bytes_type  # noqa: F401 - muc 6.8 (4/4, 2026-08-13): dang ky parser/codegen luc import, xem module do
 from il_features.set_type import il_set_type, compile_in_set as _set_compile_in_set
+from il_features.f32buf_type import il_f32buf_type as _il_f32buf_type, f32buf_len_name as _f32buf_len_name, next_f32buf_label as _next_f32buf_label, emit_f32buf_index_check as _emit_f32buf_index_check
 from il_features.dict_type import (
     il_dict_type, il_dict_enumerator_type, il_kvpair_type,
     compile_index_dict as _dict_compile_index_dict, compile_in_dict as _dict_compile_in_dict,
@@ -281,6 +282,10 @@ def il_type_str(type_ann: "TypeAnn", records: "dict[str,list[(str,TkvTypeAnn)]]"
         # Local AN cho phep don chuoi trong vong lap (il_features/
         # str_accum.py) - khong bao gio la kieu do NGUOI DUNG viet ra.
         return 'class [mscorlib]System.Text.StringBuilder'
+    if type_ann.shape_ten == 'f32buf':
+        # P6 (2026-09-29, port tu bootstrap il_codegen L280): bo dem f32
+        # native DO DUAN so huu. Gia tri bien la DIA CHI (native int).
+        return 'native int'
     if type_ann.shape_ten in ('dict', 'defaultdict', 'counter'):
         # 'defaultdict'/'counter' (Phase 3.2, 2026-08-11): vat ly VAN LA
         # Dictionary<K,V> giong het 'dict' - chi khac hanh vi doc chi so
@@ -2408,6 +2413,23 @@ def _expr_index(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str",
     if type_ann.shape_ten == 'dict':
         _dict_compile_index_dict(name, indices, scope, out, dtype, ctx)
         return
+    if type_ann.shape_ten == 'f32buf':
+        # P6 (2026-09-29, port tu bootstrap il_codegen L1992): 'a[i]' ->
+        # ldind.r4 tai dia chi a + i*4. KHONG phai List<T> nen KHONG co
+        # get_Item. Offset (i*4) tinh o DAY - cung cong thuc ben ghi dung.
+        if len(indices) != 1:
+            raise SyntaxError(f"il_codegen: f32buf '{name}' chi ho tro 1 chi so")
+        _load_var_ref(name, scope, out)
+        _compile_expr(indices[0], scope, out, 'i32', ctx)
+        _emit_f32buf_index_check(out, _f32buf_len_name(name),
+                                 _next_f32buf_label(ctx, name), name)
+        out.append('    ldc.i4.4')
+        out.append('    mul')
+        out.append('    conv.i8')
+        out.append('    add')
+        out.append('    conv.i')
+        out.append('    ldind.r4')
+        return
     if type_ann.shape_ten == 'tuple':
         if not _chi_so_la_hang(indices) and _tuple_dong_deu(type_ann):
             _tuple_index_chay(name, indices, type_ann, scope, out, dtype, ctx)
@@ -3978,6 +4000,12 @@ def _expr_call(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", 
             out.append('    ldc.i4 ' + str(len(arg_ta.tuple_dtypes)))
             _widen_if_needed('i32', dtype, out)
             return
+        if arg_ta.shape_ten == 'f32buf':
+            # P6 (2026-10-06, port tu bootstrap): len(b) doc local AN giu
+            # chieu dai (khong dem gi tren vung nho).
+            _load_var_ref(_f32buf_len_name(ea_str(arg)), scope, out)
+            _widen_if_needed('i32', dtype, out)
+            return
         if arg_ta.shape_ten not in ('list', 'dict', 'defaultdict', 'counter', 'set', 'frozenset', 'bytearray', 'bytes'):
             raise SyntaxError(
                 f"il_codegen: len() hien CHI ho tro list/dict/set/frozenset/bytearray/bytes/string, hoac 1 record co "
@@ -4452,6 +4480,22 @@ def _compile_index_store(name: "str", indices: "list[TkvNode]", value_node: "Tkv
             f"il_codegen: '{name}[i] = ...' khong hop le - string la BAT BIEN "
             f"trong Python that (gan qua chi so nem TypeError luc CPython chay "
             f"that), TokenVector cung khong ho tro.")
+    if type_ann.shape_ten == 'f32buf':
+        # P6 (2026-09-29, port tu bootstrap _compile_index_store): 'a[i] = v'
+        # -> stind.r4 tai dia chi a + i*4. KHONG dung set_Item/get_Item.
+        if len(indices) != 1:
+            raise SyntaxError(f"il_codegen: f32buf '{name}' chi ho tro 1 chi so")
+        _load_var_ref(name, scope, out)
+        _compile_expr(indices[0], scope, out, 'i32', ctx)
+        _emit_f32buf_index_check(out, _f32buf_len_name(name),
+                                 _next_f32buf_label(ctx, name), name)
+        out.append('    ldc.i4.4')
+        out.append('    mul')
+        out.append('    conv.i8')
+        out.append('    add')
+        _compile_expr(value_node, scope, out, 'f32', ctx)
+        out.append('    stind.r4')
+        return
     rank = len(type_ann.dims)
     _load_var_ref(name, scope, out)
     for idx_node in indices:

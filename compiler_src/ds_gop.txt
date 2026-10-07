@@ -42,6 +42,7 @@ compiler_bootstrap\compiler\il_features\expr_hoist.tkv
 compiler_bootstrap\compiler\il_features\ffi_feature.tkv
 compiler_bootstrap\compiler\il_features\file_io.tkv
 compiler_bootstrap\compiler\il_features\float_builtin.tkv
+compiler_bootstrap\compiler\il_features\f32buf_type.tkv
 compiler_bootstrap\compiler\il_features\for_in_kvlist.tkv
 compiler_bootstrap\compiler\il_features\fstring.tkv
 compiler_bootstrap\compiler\il_features\generator_feature.tkv

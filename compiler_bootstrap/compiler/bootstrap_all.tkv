@@ -52,6 +52,7 @@ from il_features.stdlib_sys import bootstrap_stdlib_sys
 from il_features.stdlib_random import bootstrap_stdlib_random
 from il_features.file_io import bootstrap_file_io
 from il_features.float_builtin import bootstrap_float_builtin
+from il_features.f32buf_type import bootstrap_f32buf
 from il_features.for_in_kvlist import bootstrap_for_in_kvlist
 from il_features.fstring import bootstrap_fstring
 from il_features.generator_lazy import bootstrap_generator_lazy
@@ -160,6 +161,7 @@ def bootstrap_all(reg: "Registry"):
     bootstrap_stdlib_random(reg)
     bootstrap_file_io(reg)
     bootstrap_float_builtin(reg)
+    bootstrap_f32buf(reg)
     bootstrap_for_in_kvlist(reg)
     bootstrap_fstring(reg)
     bootstrap_generator_lazy(reg)
