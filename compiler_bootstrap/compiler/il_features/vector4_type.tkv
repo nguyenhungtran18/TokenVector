@@ -11,13 +11,15 @@ giu nguyen (chua trung) va goi trong bootstrap_vector4.
 
 Vong `for i, field in enumerate(...)` trong push_v_hsum4 viet lai vong
 index tren list module `_VEC4_LANES` (tuple-unpack trong for khong chac).
-`import il_features.vector_block` de o CAP MODULE (vector_block khong
-import nguoc lai nen khong vong tron).
+`import il_features.vector_block as _vb` KHONG dung duoc - dang nay lam
+vo build voi loi 'append(...)' dang lenh doc lap (2026-10-07, chua ro
+nguyen nhan sau, co the import bi bo qua am tham); dung
+`from il_features.vector_block import _vb_addr` truc tiep thay the.
 """
 
 from il_core import IL_SCALAR
 from il_dispatch import register_expr_builtin
-import il_features.vector_block as _vb
+from il_features.vector_block import _vb_addr
 
 __tkv_import__ = "il_dispatch"
 
@@ -129,7 +131,7 @@ def push_v_load4(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype:
     (`alloc_bytes`), giong v_load8."""
     if len(args) != 2:
         raise SyntaxError("il_codegen: v_load4(p, off) can dung 2 tham so")
-    _vb._vb_addr(args[0], args[1], 0, scope, out, ctx)
+    _vb_addr(args[0], args[1], 0, scope, out, ctx)
     out.append(f'    ldobj {VEC4}')
 
 
@@ -140,7 +142,7 @@ def push_v_store4(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype
     if len(args) != 3:
         raise SyntaxError(
             "il_codegen: v_store4(p, off, v) can dung 3 tham so")
-    _vb._vb_addr(args[0], args[1], 0, scope, out, ctx)
+    _vb_addr(args[0], args[1], 0, scope, out, ctx)
     ctx.compile_expr(args[2], scope, out, 'f32x4', ctx)
     out.append(f'    stobj {VEC4}')
     out.append('    ldc.i4 0')

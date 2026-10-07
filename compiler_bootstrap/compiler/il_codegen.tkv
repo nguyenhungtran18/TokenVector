@@ -155,6 +155,7 @@ def _il_scalar_or_handle(dtype: "str") -> "str":
 from typed_dsl_parser import parse_type_ann_str as _parse_type_ann_str
 from stmt_row import assign_name, assign_rhs_node, body_of, cac_nut_trong_ds, cac_than_vung, intern, items_nut, kind_of_stmt, lay_ds_nut, lay_handlers_vung, lay_i32, lay_nut, lay_str, lay_than, lay_type_ann, make2, make3, make4, reset_pool, src_line_of, with_src_line
 from il_features.complex_type import scratch_locals_complex
+from il_features.vector4_type import scratch_locals_vector4
 from il_features.int_type import compile_abs, compile_literal, ensure_class_int, scratch_locals
 from il_features.kwarg_resolve import resolve_call_args
 from il_features.nested_array_extern import emit_arg_marshal_loop, emit_return_marshal_loop, scratch_locals_nae
@@ -6475,6 +6476,15 @@ def _first_pass_collect_locals(reg: "Registry", stmts: "list[i32]", sig: "TkvSig
         # tren (cung ly do: dieu kien "ham co dung array[array[T]] khong"
         # de bo sot).
         for _sname, _sdtype in scratch_locals_nae():
+            if _sname not in declared_names:
+                declared_names.add(_sname)
+                _sta = TypeAnn(_sdtype, None)
+                locals_decl.append((_sname, _sta))
+                infer_scope.set(_sname, _sta)
+        # Local scratch cho 'f32x4' (vector4_type, R7) - cap phat VO DIEU
+        # KIEN giong het 'int'/'complex' o tren (Vector4 la kieu BCL nen
+        # khong can phat class).
+        for _sname, _sdtype in scratch_locals_vector4():
             if _sname not in declared_names:
                 declared_names.add(_sname)
                 _sta = TypeAnn(_sdtype, None)

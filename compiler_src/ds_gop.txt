@@ -120,6 +120,7 @@ compiler_bootstrap\compiler\il_features\tkvstr.tkv
 compiler_bootstrap\compiler\il_features\tuple_type.tkv
 compiler_bootstrap\compiler\il_features\typecheck.tkv
 compiler_bootstrap\compiler\il_features\vector_block.tkv
+compiler_bootstrap\compiler\il_features\vector4_type.tkv
 compiler_bootstrap\compiler\il_features\nativebuf.tkv
 compiler_bootstrap\compiler\il_features\win32_gui_window.tkv
 compiler_bootstrap\compiler\il_codegen.tkv

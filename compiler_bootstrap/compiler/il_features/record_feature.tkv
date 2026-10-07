@@ -46,6 +46,7 @@ from il_features.list_type import value_dtype_spec_for_ta as _value_dtype_spec_f
 from il_features import kwarg_resolve
 from stmt_row import intern, lay_nut, lay_str, make4
 from il_features.complex_type import compile_attr
+from il_features.vector4_type import compile_attr_vector4
 from il_features.datetime_py import compile_dt_attr, dt_attr_dtype
 from il_features.kwarg_resolve import resolve_call_args
 from il_features.tuple_type import il_tupleN_type
@@ -211,6 +212,12 @@ def compile_attr_record(node: "TkvNode", scope: "Scope", out: "list[str]", dtype
         # 2/4, 2026-08-13) - uy quyen ra complex_type.py (dia chi qua
         # ctx['load_var_addr'], KHONG hardcode ten slot IL).
         compile_attr(obj_name, field_name, scope, out, dtype, ctx)
+        return
+    if obj_ta.dtype == 'f32x4' and field_name in ('x', 'y', 'z', 'w'):
+        # (port 2026-10-06 tu bootstrap record_feature): '.x'/'.y'/'.z'/'.w'
+        # tren 1 bien 'f32x4' - doc LANE (X/Y/Z/W la FIELD Single, phai
+        # `ldfld`, khong duoc `call get_X`).
+        compile_attr_vector4(obj_name, field_name, scope, out, dtype, ctx)
         return
     if obj_ta.shape_ten == 'dict_kvpair' and field_name in ('key', 'val'):
         # KeyValuePair<K,V> la VALUE TYPE - can DIA CHI (ldloca/ldarga) de

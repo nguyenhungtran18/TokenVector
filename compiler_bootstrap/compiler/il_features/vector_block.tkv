@@ -81,9 +81,8 @@ def _vb_addr(p_node: "TkvNode", ofs_node: "TkvNode", lane_byte_off: "i32", scope
     `ofs` tinh theo BYTE - giong het read_f32/write_f32/read_i32/... o
     nativebuf.tkv."""
     ctx.compile_expr(p_node, scope, out, 'i64', ctx)
-    if ofs_node is not None:
-        _ofs_native(ofs_node, scope, out, ctx)
-        out.append('    add')
+    _ofs_native(ofs_node, scope, out, ctx)
+    out.append('    add')
     if lane_byte_off:
         out.append(f'    ldc.i4.s {lane_byte_off}')
         out.append('    conv.i8')
@@ -220,7 +219,7 @@ def push_v_lane(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: 
     if len(args) != 1:
         raise SyntaxError("il_codegen: v_lane(i) can dung 1 tham so")
     n = _literal_int(args[0])
-    if n is None or n < 0 or n >= VEC_W:
+    if n < 0 or n >= VEC_W:
         hi = VEC_W - 1
         raise SyntaxError(
             f"il_codegen: v_lane(i) - chi nhan HANG SO trong 0..{hi}")
@@ -230,18 +229,28 @@ def push_v_lane(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: 
 
 
 def _literal_int(node: "TkvNode") -> "i32":
-    """Gia tri int cua 1 node 'num' thap phan, None neu khong phai."""
+    """Gia tri int cua 1 node 'num' thap phan, -1 neu khong phai.
+
+    KHONG dung None lam sentinel: `n is None` voi n kieu so CRASH luc chay
+    (TkvInt.Cmp khong nhan null - probe 2026-10-07). Lane hop le la 0..7
+    nen -1 lam sentinel an toan."""
     if ekind(node) != 'num':
-        return None
-    txt = ea_str(node).strip()
+        return -1
+    raw = ea_str(node)
+    txt = raw.strip()
+    neg = False
     if len(txt) > 0 and txt[0] == '-':
+        neg = True
         txt = txt[1:]
     if txt == "":
-        return None
+        return -1
     for ch in txt:
         if ch < '0' or ch > '9':
-            return None
-    return int(ea_str(node))
+            return -1
+    v = int(txt)
+    if neg:
+        return 0 - v
+    return v
 
 
 def bootstrap_vector_block(reg: "Registry"):

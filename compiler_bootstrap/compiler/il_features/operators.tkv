@@ -23,6 +23,7 @@ import il_features.int_type as _int_type
 from il_dispatch import register_macro_expander, register_expr_codegen
 from il_features.stdlib_math import compile_pow as _compile_pow
 from il_features.complex_type import compile_binop_complex
+from il_features.vector4_type import compile_binop_vector4
 from il_features.datetime_py import la_dtype_ngay_gio, hop_kieu_ngay_gio
 from il_features.int_type import compile_binop_int, compile_compare_int, compile_divmod_pow, compile_neg_int
 from il_features.regex_match import emit_success
@@ -401,6 +402,12 @@ def compile_binop(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str
         # 'complex' - uy quyen ra complex_type.py (goi static Add/Subtract/
         # Multiply/Divide co san tren System.Numerics.Complex).
         compile_binop_complex(op, left, right, scope, out, ctx)
+        return
+    if operand_dtype == 'f32x4':
+        # (port 2026-10-06 tu bootstrap operators): '+'/'-'/'*'/'/' giua 2
+        # gia tri 'f32x4' - uy quyen ra vector4_type.py (operator op_* cua
+        # System.Numerics.Vector4, 1 lenh = 4 MAC).
+        compile_binop_vector4(op, left, right, scope, out, ctx)
         return
     compile_expr = ctx.compile_expr
     if op == '**':
