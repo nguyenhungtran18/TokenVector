@@ -16,7 +16,7 @@ from il_dispatch import (
     register_stmt_codegen, register_first_pass_walk, register_first_pass_prescan,
     register_macro_expander,    register_expr_codegen,
 )
-from il_features.list_type import il_list_elem_ilstr
+from il_features.list_type import il_list_elem_ilstr, _record_stmt_fallback
 from il_features.dict_remove_keep import emit_dict_remove
 from il_core import emit_index_value
 from typed_dsl_parser import TypeAnn
@@ -636,6 +636,9 @@ def try_parse_container_clear(reg: "Registry", line: "str", lines: "list[(i32,st
 
 def codegen_container_clear(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
     name = lay_str(stmt, 'name')
+    _noargs_clr: "list[TkvNode]" = []
+    if _record_stmt_fallback(name, 'clear', _noargs_clr, scope, body, ctx):
+        return
     ta = scope.tra(name).ta
     ctx.load_var_ref(name, scope, body)
     # set (2026-09-29): HashSet<T>::Clear() - frozenset bat bien nen KHONG.

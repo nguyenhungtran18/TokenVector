@@ -36,7 +36,7 @@ from il_features.tuple_type import il_tupleN_type
 from il_features.stdlib_functional import _resolve_func_ta
 from tkv_types import TypeAnn
 from stmt_row import intern, lay_nut, lay_str, make3, make4
-from il_features.list_type import compile_theo_ta, emit_list_sort
+from il_features.list_type import compile_theo_ta, emit_list_sort, _record_stmt_fallback
 from expr_row import mk2, o_str
 
 _LIST_SORT_RE = re.compile(r'^(\w+)\.sort\(\s*(.*?)\s*\)\s*$')
@@ -328,6 +328,13 @@ def codegen_list_extend(stmt: "i32", scope: "Scope", body: "list[str]", body_dty
     """STMT_CODEGEN entry: 'lst.extend(other)' - List<T>.AddRange(IEnumerable<T>).
     List<T> chinh no da implement IEnumerable<T> nen truyen thang duoc."""
     name, other_name = lay_str(stmt, 'name'), lay_str(stmt, 'other_name')
+    _ext_node = mk2('num', o_str(other_name))
+    if not other_name.lstrip('-').isdigit():
+        _ext_node = mk2('var', o_str(other_name))
+    _ext_list: "list[TkvNode]" = []
+    _ext_list.append(_ext_node)
+    if _record_stmt_fallback(name, 'extend', _ext_list, scope, body, ctx):
+        return
     ta = scope.tra(name).ta
     ta_other = scope.tra(other_name).ta
     if ta_other.shape_ten != 'list':
