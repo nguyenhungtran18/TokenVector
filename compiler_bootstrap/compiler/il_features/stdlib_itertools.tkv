@@ -30,6 +30,10 @@ def try_expand_for_enumerate(line: "str") -> "str":
     ind = ' ' * (len(line) - len(line.lstrip(' ')))
     # 'i' la ten bien THAT nguoi dung dat (khac for_in_list phai tu sinh
     # ten an) - dung THANG, khong can bo dem.
+    # KHONG them `start` o day: il_features/comprehension.tkv da co macro
+    # 'enumerate_start' lo phan `enumerate(xs, start)` roi, va 2 macro
+    # cung khop se chay macro dang ky truoc - ban 'for_enumerate' se
+    # CUOP mat, sinh ra dong `<helper> = <start>` ma parser khong doc.
     return f'{ind}for {idx_name} in range(len({container})):\n{ind}    {elem_name} = {container}[{idx_name}]'
 
 
