@@ -198,6 +198,33 @@ def reject_if_handle_type_elem(ta: "TypeAnn", extern_class_defs: "dict[str,i32]"
 # doi va ban .py van chay duoi CPython y het.
 _LIST_LIT_RE = re.compile(r'(?s)^\[.*\]$')
 _LIST_APPEND_RE = re.compile(r'^(\w+)\.append\((.+)\)\s*$')
+_BIEN_DON_RE = re.compile(r'^\w+$')
+
+
+def try_rhs_list_call(rhs: "str", name: "str", known_shapes: "dict[str,str]") -> "i32":
+    """ASSIGN_RHS_PARSERS entry: `xs = list()` va `xs = list(ys)` (port tu
+    Python 2026-09-30, sang TokenVector 2026-10-09).
+
+    - `list()` rong: tra ve CUNG stmt kind `assign_list_new` nhu `xs = []`,
+      nen moi phu thu `declare_list`/`codegen_assign_list_new` - het.
+    - `list(ys)`: `ys` phai la 1 BIEN da khai bao co shape='list' (check qua
+      known_shapes o day; fpw se check lai qua infer_scope).
+
+    TokenVector: `m.groups()` chi unpack duoc ('a, b = m.groups()'), con
+    `m.group(1)` KHONG ton tai - nen KHONG dung regex group de lay `src`;
+    tach tay bang find/slice nhu tach ten ham o cac macro khac."""
+    rhs_s = rhs.strip()
+    # Tach tay: phai bat dau 'list(' va ket thuc ')' va khong co ngoac long.
+    if not rhs_s.startswith('list(') or not rhs_s.endswith(')'):
+        return None
+    src = rhs_s[5:len(rhs_s) - 1].strip()
+    if '(' in src or ')' in src:
+        return None
+    if not src:
+        known_shapes[name] = 'list'
+        return intern(make2('assign_list_new', name))
+    known_shapes[name] = 'list'
+    return intern(make3('assign_list_from', name, src))
 
 
 def compile_index_list(name: "str", indices: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
@@ -249,6 +276,7 @@ def try_rhs_list_literal(rhs: "str", name: "str", known_shapes: "dict[str,str]")
     if not ea_ds(node):
         return intern(make2('assign_list_new', name))
     return intern(make3('assign_list_literal', name, rhs_s))
+
 
 
 def try_parse_list_append(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
@@ -1257,6 +1285,32 @@ def fpw_assign_list_literal(stmt: "i32", ctx: "WalkCtx"):
         ctx.collect_ternary_temps(el)
 
 
+def fpw_assign_list_from(stmt: "i32", ctx: "WalkCtx"):
+    """FIRST_PASS_WALK: `xs = list(ys)` (port 2026-10-09) - khai List<T> voi
+    dtype phan tu lay THANG tu `ys` (ban sao cung kieu phan tu)."""
+    name = lay_str(stmt, 'name')
+    if name in ctx.declared_names:
+        return
+    src = lay_str(stmt, 'src')
+    src_ta = ctx.infer_scope.tra(src).ta
+    if src_ta.shape_ten != 'list':
+        raise SyntaxError(f"il_codegen: list({src}) can '{src}' la list")
+    ctx.declared_names.add(name)
+    # Dung THANG src_ta (nhung bien container khac) thay TypeAnn(...) moi:
+    # local moi tu constructor khong duoc infer kieu cho tuple append.
+    ctx.locals_decl.append((name, src_ta))
+    ctx.infer_scope.set(name, src_ta)
+
+
+def codegen_assign_list_from(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN: `xs = list(ys)` (port 2026-10-09) - `List<T>(IEnumerable<T>)`."""
+    ctx.load_var_ref(lay_str(stmt, 'src'), scope, body)
+    ta = scope.tra(lay_str(stmt, 'name')).ta
+    list_il = ctx.il_type_str(ta, ctx.records)
+    body.append(f'    newobj instance void {list_il}::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    ctx.store_var(lay_str(stmt, 'name'), scope, body)
+
+
 def codegen_assign_list_literal(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
     """STMT_CODEGEN entry: 'xs = [3, 1, 2]' (Giai doan 0.1, 2026-08-03) -
     tai dung 100% codegen_assign_list_new (newobj + store) roi codegen_list_append
@@ -1440,16 +1494,19 @@ def bootstrap_list_type(reg: "Registry"):
     # Dang ky vao il_dispatch NGAY LUC MODULE NAP (il_dispatch.py khong phu
     # thuoc il_codegen.py nen import truc tiep an toan, khong circular).
     register_assign_rhs_parser(reg, 'list_literal', try_rhs_list_literal)
+    register_assign_rhs_parser(reg, 'list_call', try_rhs_list_call)
     register_line_parser(reg, 'list_append', try_parse_list_append)
     register_line_parser(reg, 'list_remove', try_parse_list_remove)
     register_line_parser(reg, 'list_insert', try_parse_list_insert)
     register_stmt_codegen(reg, 'assign_list_new', codegen_assign_list_new)
     register_stmt_codegen(reg, 'assign_list_literal', codegen_assign_list_literal)
+    register_stmt_codegen(reg, 'assign_list_from', codegen_assign_list_from)
     register_stmt_codegen(reg, 'list_append', codegen_list_append)
     register_stmt_codegen(reg, 'list_remove', codegen_list_remove)
     register_stmt_codegen(reg, 'list_insert', codegen_list_insert)
     register_first_pass_walk(reg, 'assign_list_new', fpw_assign_list_new)
     register_first_pass_walk(reg, 'assign_list_literal', fpw_assign_list_literal)
+    register_first_pass_walk(reg, 'assign_list_from', fpw_assign_list_from)
     register_first_pass_walk(reg, 'list_append', fpw_list_append)
     register_first_pass_walk(reg, 'list_remove', fpw_list_remove)
     register_first_pass_walk(reg, 'list_insert', fpw_list_insert)
