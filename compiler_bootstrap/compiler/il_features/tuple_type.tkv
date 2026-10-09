@@ -16,7 +16,7 @@ import stmt_row as _row
 import re
 
 from il_core import IL_SCALAR, parse_expr_list, nid
-from il_dispatch import register_line_parser, register_macro_expander, register_stmt_codegen, register_first_pass_walk
+from il_dispatch import register_line_parser, register_macro_expander, register_stmt_codegen, register_first_pass_walk, register_assign_rhs_parser
 from tkv_types import TypeAnn, bit_logic
 from stmt_row import intern, lay_ds_nut, lay_ds_str, lay_str, make3
 from il_features.regex_match import emit_groups_unpack, is_groups_call
@@ -91,6 +91,72 @@ def try_parse_tuple_assign(reg: "Registry", line: "str", lines: "list[(i32,str)]
             f"tri, can 1 (goi ham tra ve tuple {len(targets)} phan tu) hoac "
             f"{len(targets)} (gan song song)")
     return intern(make3('tuple_assign', targets_text, rhs)), pos + 1
+
+
+_TUPLE_CALL_RE = re.compile(r'^tuple\((.*)\)\s*$')
+_BIEN_DON_RE_TC = re.compile(r'^\w+$')
+
+
+def try_rhs_tuple_call(rhs: "str", name: "str", known_shapes: "dict[str,str]") -> "i32":
+    """ASSIGN_RHS_PARSERS entry: `t = tuple(...)` (port tu Python bootstrap
+    2026-09-30, sang TokenVector 2026-10-09).
+
+    KHAC BIET KIEN TRUC: `tuple` cua TokenVector KHONG phai container bien do
+    dai nhu Python. No la `System.ValueTuple<T1..TN>`, mot VALUE TYPE co so
+    luong phan tu CO DINH 2..7 biet luc bien dich. Vi vay khong the co
+    `tuple()` rong hay `tuple(xs)` khi do dai chua biet - bao loi ro rang.
+
+    Chi lam duoc phan BIEU DIEN DUOC:
+      - `tuple(t)`          - t la bien: stmt 'assign_tuple_identity' (fpw kiem
+                              tra kieu that; Python cung tra ve chinh t)
+      - `tuple([a, b, c])`  - LIST LITERAL: doi van ban sang `(a, b, c)` roi
+                              di duong assign_scalar san co
+      - `tuple((a, b))`     - TUPLE LITERAL: chinh no la tuple literal"""
+    m = _TUPLE_CALL_RE.match(rhs.strip())
+    if not m:
+        return None
+    arg = m.group(1).strip()
+    if arg == '':
+        raise SyntaxError(
+            "il_codegen: tuple() - tuple cua TokenVector la ValueTuple co so "
+            "phan tu CO DINH (2..7, biet luc bien dich), khong co dang rong "
+            "nhu Python. Hay viet `(1, 2)` cho tuple 2 phan tu.")
+    if _BIEN_DON_RE_TC.match(arg):
+        # `tuple(u)`: u PHAI la bien kieu tuple - nhung known_shapes CHI ghi
+        # container (list/set/dict...), khong bao gio ghi 'tuple', nen o tang
+        # parse khong biet duoc. Tra stmt identity va de FIRST PASS kiem tra
+        # kieu that (fpw_assign_tuple_identity co infer_scope day du).
+        if arg in known_shapes:
+            _sh_arg = known_shapes.get(arg)
+            if _sh_arg == 'list':
+                raise SyntaxError(
+                    f"il_codegen: tuple({arg}) - '{arg}' la LIST, do dai chua "
+                    f"biet luc bien dich nen khong doi duoc sang ValueTuple. "
+                    f"Hay viet truc tiep `(a, b, c)`, hoac `tuple([a, b, c])`.")
+            if _sh_arg != 'tuple':
+                raise SyntaxError(
+                    f"il_codegen: tuple({arg}) - '{arg}' co shape="
+                    f"{_sh_arg!r}, khong phai tuple")
+        known_shapes[name] = 'tuple'
+        return intern(make3('assign_tuple_identity', name, arg))
+    # Con lai: co the la LIST LITERAL - do dai biet luc bien dich
+    if arg.startswith('[') and arg.endswith(']'):
+        trong = arg[1:len(arg) - 1].strip()
+        phan_tu = _tach_phay_muc0(trong)
+        if len(phan_tu) < 2:
+            raise SyntaxError(
+                f"il_codegen: tuple([{trong}]) - chi {len(phan_tu)} phan tu; "
+                f"ValueTuple yeu cau it nhat 2")
+        known_shapes[name] = 'tuple'
+        return intern(make3('assign_scalar', name, '(' + trong + ')'))
+    if arg.startswith('(') and arg.endswith(')'):
+        # `tuple((4, 5))` - giong het dang literal `(4, 5)`
+        known_shapes[name] = 'tuple'
+        return intern(make3('assign_scalar', name, arg))
+    raise SyntaxError(
+        f"il_codegen: tuple({arg}) - chi nhan BIEN da khai bao (kieu tuple), "
+        f"LIST LITERAL `tuple([a, b])`, hoac TUPLE LITERAL `tuple((a, b))`, vi "
+        f"ValueTuple can SO PHAN TU biet luc bien dich.")
 
 
 def _ta_ve_phai(nut: "TkvNode", infer_scope: "Scope", records: "dict[str,list[(str,TkvTypeAnn)]]", func_table: "dict[str,TkvSig]") -> "TypeAnn":
@@ -382,6 +448,34 @@ def fpw_return_tuple(stmt: "i32", ctx: "WalkCtx"):
     collect_ternary_temps = ctx.collect_ternary_temps
     for expr_node in lay_ds_nut(stmt, 'expr_nodes'):
         collect_ternary_temps(expr_node)
+
+
+def fpw_assign_tuple_identity(stmt: "i32", ctx: "WalkCtx"):
+    """FIRST_PASS_WALK: `t = tuple(u)` (2026-10-09) - khai lai y kieu tuple
+    cua `u`. CAN rieng (khong di duoc assign_scalar) vi `v = u` thuan khong
+    propagate duoc TypeAnn tuple qua first-pass."""
+    name = lay_str(stmt, 'name')
+    if name in ctx.declared_names:
+        return
+    src = lay_str(stmt, 'src')
+    try:
+        src_ta = ctx.infer_scope.tra(src).ta
+    except SyntaxError:
+        raise SyntaxError(
+            f"il_codegen: tuple({src}) - '{src}' chua duoc khai bao TRUOC dong nay")
+    if src_ta.shape_ten != 'tuple':
+        raise SyntaxError(f"il_codegen: tuple({src}) - '{src}' khong phai tuple")
+    ctx.declared_names.add(name)
+    ta = TypeAnn(src_ta.dtype, 'tuple', tuple_dtypes=src_ta.tuple_dtypes)
+    ctx.locals_decl.append((name, ta))
+    ctx.infer_scope.set(name, ta)
+
+
+def codegen_assign_tuple_identity(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN: `t = tuple(u)` - `u` da la ValueTuple nen chi can gan
+    lai (ValueTuple la VALUE TYPE: copy bang `ldloc`)."""
+    ctx.load_var_ref(lay_str(stmt, 'src'), scope, body)
+    ctx.store_var(lay_str(stmt, 'name'), scope, body)
 
 
 def _dtype_hang_so(node: "TkvNode") -> "str":
@@ -849,7 +943,10 @@ def bootstrap_tuple_type(reg: "Registry"):
     register_macro_expander(reg, 'multi_target', try_expand_multi_target)
     register_macro_expander(reg, 'double_index', try_expand_double_index)
     register_line_parser(reg, 'tuple_assign', try_parse_tuple_assign)
+    register_assign_rhs_parser(reg, 'tuple_call', try_rhs_tuple_call)
     register_stmt_codegen(reg, 'return_tuple', codegen_return_tuple)
     register_stmt_codegen(reg, 'tuple_assign', codegen_tuple_assign)
     register_first_pass_walk(reg, 'return_tuple', fpw_return_tuple)
     register_first_pass_walk(reg, 'tuple_assign', fpw_tuple_assign)
+    register_stmt_codegen(reg, 'assign_tuple_identity', codegen_assign_tuple_identity)
+    register_first_pass_walk(reg, 'assign_tuple_identity', fpw_assign_tuple_identity)
