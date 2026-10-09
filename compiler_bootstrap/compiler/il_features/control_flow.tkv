@@ -327,6 +327,14 @@ def set_known_record_vars(names: "set[str]"):
     _known_record_vars = set(names)
 
 
+def is_known_record_var(name: "str") -> "i32":
+    """Getter cho macro khac module (vd dict_update) kiem tra receiver
+    co phai record da biet khong (2026-10-09)."""
+    if name in _known_record_vars:
+        return 1
+    return 0
+
+
 _SET_OP_RE = re.compile(r'^(\w+\s*(?::\s*"[^"]*"\s*)?=\s*)(\w+)\s*([-|&])\s*(\w+)\s*$')
 
 

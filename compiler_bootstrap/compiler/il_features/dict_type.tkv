@@ -17,6 +17,7 @@ from il_dispatch import (
     register_macro_expander,    register_expr_codegen,
 )
 from il_features.list_type import il_list_elem_ilstr, _record_stmt_fallback
+from il_features.control_flow import is_known_record_var
 from il_features.dict_remove_keep import emit_dict_remove
 from il_core import emit_index_value
 from typed_dsl_parser import TypeAnn
@@ -730,6 +731,10 @@ def try_expand_dict_update(line: "str") -> "str":
     # CHAC CHAN khong phai dict.update that (can dict variable) - co the la
     # record method. Decline de roi xuong method_call_stmt.
     if len(other_name) > 0 and other_name[0] >= "0" and other_name[0] <= "9":
+        return None
+    # 2026-10-09: receiver la record da biet (vd `b = Bag(0); b.update(other)`)
+    # thi KHONG phai dict.update - decline de method_call_stmt xu ly.
+    if is_known_record_var(dict_name):
         return None
     ind = ' ' * (len(line) - len(line.lstrip(' ')))
     n = _me_dict_update_counter

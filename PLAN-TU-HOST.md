@@ -97,7 +97,9 @@
 - [ ] `set_iteration_test`: set iteration
 - [ ] `record_container_field_test`: record vá»›i container fields
 - [ ] `record_init_runs_test`: record `__init__` execution
-- [ ] `record_method_name_collision_test`: method name collisions
+- [x] `record_method_name_collision_test`: 18/18 PASS 09/10 (dict.update macro guard via is_known_record_var)
+- [x] `set_iteration_test`: PASS (loop var reuse relax)
+- [x] `record_container_field_test`: PASS (build OK)
 
 ### 3.2. TESTFAIL (2) â¬œ
 - [ ] `parity_pin_test`: thÃªm `_emit_container_coerce` (coerce intâ†”i32 cho containers)
