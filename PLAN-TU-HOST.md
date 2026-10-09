@@ -1,8 +1,8 @@
 ﻿# PLAN: TokenVector Tá»±-Host Äáº§y Äá»§ (118/118 + NEG 31/31)
 
 **NgÃ y báº¯t Ä‘áº§u**: 08/10/2026
-**Cáº­p nháº­t cuá»‘i**: 09/10/2026 (phien tiep theo)
-**Tráº¡ng thÃ¡i**: Gate ~96/118 (record_method_name_collision FIXED 18/18), NEG 6/31, vÃ²ng tá»±-host IL_IDENTICAL
+**Cáº­p nháº­t cuá»‘i**: 09/10/2026 (phien 3)
+**Tráº¡ng thÃ¡i**: Gate ~97/118 (record_method_name_collision 18/18 + fstring_bigint 12/12 + -> None support), NEG 6/31, IL_IDENTICAL
 
 ---
 
@@ -100,6 +100,9 @@
 - [x] `record_method_name_collision_test`: 18/18 PASS 09/10 (dict.update macro guard via is_known_record_var)
 - [x] `set_iteration_test`: PASS (loop var reuse relax)
 - [x] `record_container_field_test`: PASS (build OK)
+- [x] `fstring_bigint_test`: 12/12 PASS (verified 09/10)
+- [~] `record_init_runs_test`: 9/11 (was BUILDFAIL; -> None accepted; remaining needs _ctor_init_body_il)
+- [~] `decorator_py_tree_test`: builds but decorator signature check fails (int/i32 compat, same as funcvar)
 
 ### 3.2. TESTFAIL (2) â¬œ
 - [ ] `parity_pin_test`: thÃªm `_emit_container_coerce` (coerce intâ†”i32 cho containers)
