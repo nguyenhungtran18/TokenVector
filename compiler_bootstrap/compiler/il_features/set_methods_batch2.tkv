@@ -37,6 +37,7 @@ from il_dispatch import (
     register_expr_method,
 )
 from il_features.set_type import il_set_type
+from il_features.list_type import _record_stmt_fallback
 from stmt_row import intern, lay_nut, lay_str, make3
 from expr_row import ea_str, ec_ds, ekind
 import il_extern_dtype
@@ -91,6 +92,13 @@ def _codegen_set_remove_like(stmt: "i32", scope: "Scope", body: "list[str]", bod
     cua Python - .NET khong co exception ten 'KeyError'). Khong tu viet
     message chua gia tri thieu - chap nhan sai khac nho ve loai/noi dung
     exception, giong tien le sample()/RFind da chap nhan truoc do."""
+    # Safety net R4/D6: receiver THAT SU la record (vd Bag.discard) nhung
+    # parser hieu nham la set_remove/discard. Phat lai thanh record method.
+    _mname = 'discard'
+    if lay_str(stmt, 'kind') == 'set_remove':
+        _mname = 'remove'
+    if _record_stmt_fallback(lay_str(stmt, 'name'), _mname, [lay_nut(stmt, 'value_node')], scope, body, ctx):
+        return
     ta = scope.tra(lay_str(stmt, 'name')).ta
     if ta.shape_ten != 'set' and ta.shape_ten != 'frozenset':
         ten_lenh = 'remove'

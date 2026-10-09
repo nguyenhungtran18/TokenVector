@@ -269,7 +269,15 @@ def try_parse_list_append(reg: "Registry", line: "str", lines: "list[(i32,str)]"
     day, nhanh list nay se cuop mat truoc va sinh IL append hop le (SAI,
     'bytes' khong duoc mutate)."""
     m = _LIST_APPEND_RE.match(line)
-    if not m or known_shapes.get(m.group(1)) in ('bytearray', 'bytes'):
+    if not m:
+        return None
+    _sh = known_shapes.get(m.group(1))
+    if _sh is not None and _sh != 'list':
+        # R4/D6 (port tu Python, 2026-09-22): 'rec.append(x)' tren record/
+        # str/dict/... phai roi xuong method_call_stmt, KHONG duoc cuop boi
+        # nhanh list nay. None = chua ro (tuong thich nguoc: van coi nhu list).
+        return None
+    if _sh in ('bytearray', 'bytes'):
         return None
     name, arg_expr = m.groups()
     return intern(make3('list_append', name, arg_expr)), pos + 1
@@ -1295,6 +1303,8 @@ def codegen_list_remove(stmt: "i32", scope: "Scope", body: "list[str]", body_dty
     khong tim thay x; .NET List<T>.Remove(T) chi tra ve bool (khong nem
     loi) - o day CHAP NHAN hanh vi .NET (bo qua gia tri bool tra ve qua
     'pop'), KHONG gia lap ValueError."""
+    if _record_stmt_fallback(lay_str(stmt, 'name'), 'remove', [lay_nut(stmt, 'value_node')], scope, body, ctx):
+        return
     ta = scope.tra(lay_str(stmt, 'name')).ta
     reject_if_nested_container_elem(ta, 'list.remove')
     ctx.load_var_ref(lay_str(stmt, 'name'), scope, body)
@@ -1319,6 +1329,8 @@ def try_parse_list_insert(reg: "Registry", line: "str", lines: "list[(i32,str)]"
 
 def codegen_list_insert(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
     """STMT_CODEGEN entry: 'lst.insert(i, x)' - List<T>.Insert(int32, !0)."""
+    if _record_stmt_fallback(lay_str(stmt, 'name'), 'insert', [lay_nut(stmt, 'index_node'), lay_nut(stmt, 'value_node')], scope, body, ctx):
+        return
     ta = scope.tra(lay_str(stmt, 'name')).ta
     ctx.load_var_ref(lay_str(stmt, 'name'), scope, body)
     ctx.compile_expr(lay_nut(stmt, 'index_node'), scope, body, 'i32', ctx)
