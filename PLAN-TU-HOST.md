@@ -1,8 +1,8 @@
 ﻿# PLAN: TokenVector Tá»±-Host Äáº§y Äá»§ (118/118 + NEG 31/31)
 
 **NgÃ y báº¯t Ä‘áº§u**: 08/10/2026
-**Cáº­p nháº­t cuá»‘i**: 09/10/2026 (phien 3)
-**Tráº¡ng thÃ¡i**: Gate ~97/118 (record_method_name_collision 18/18 + fstring_bigint 12/12 + -> None support), NEG 6/31, IL_IDENTICAL
+**Cáº­p nháº­t cuá»‘i**: 09/10/2026 (phien 4)
+**Tráº¡ng thÃ¡i**: Gate ~99/118 (record_method_name_collision 18/18 + fstring_bigint 12/12 + -> None + list_ctor 10/10 + tuple_ctor 10/10), NEG 6/31, IL_IDENTICAL
 
 ---
 
@@ -63,10 +63,14 @@
 ### 2.1. `list()` constructor - XONG (77ec891)
 - [x] Port `try_rhs_list_call` + `fpw_assign_list_from` + `codegen_assign_list_from`; stmt kind `assign_list_from` khai trong stmt_row.tkv (2 cho); `list_ctor_test` 10/10 PASS, IL_IDENTICAL.
 
-### 2.2. `tuple()` constructor (LON hon list())
-- [ ] `tuple([a, b, c])` tu LIST LITERAL, `tuple(t)` khi `t` da la tuple.
-- [ ] Can port type system tuple + unpacking (`p, q, r = ...`) - codegen hien bao loi.
-- [ ] Phan WIP: `compiler_bootstrap/compiler/il_features/question_ternary.tkv` (untracked, chua wire).
+### 2.2. `tuple()` constructor - XONG (d062de9)
+- [x] `tuple([a, b, c])` tu LIST LITERAL, `tuple(t)` khi `t` da la tuple.
+- [x] `try_rhs_tuple_call` + `fpw_assign_tuple_identity` + `codegen_assign_tuple_identity`;
+      stmt kind `assign_tuple_identity` khai trong stmt_row.tkv (2 cho: `_LAYOUT` + `_KHOA_LOGIC`)
+- [x] `tuple_ctor_test` 10/10 PASS, `tuple_empty_call` negative van bi tu choi (co "ValueTuple"), IL_IDENTICAL.
+- [x] BAO GOM: `known_shapes` KHONG BAO GIO ghi 'tuple' (no chi ghi container) - da thu them
+      vao `_result_container_shape` nhung lam gay loi "Index was out of range" -> DA REVERT.
+      Giai phap cuoi: parser tra stmt identity, FIRST PASS kiem tra kieu that qua infer_scope.
 
 ### 2.2b. `question_ternary` (`c ? a : b`)
 - [ ] Fix module-level code (tuple literals -> ham helper, triple-quote docstrings, typed globals)
@@ -74,11 +78,11 @@
 - [ ] Them vao `ds_gop.txt` + `bootstrap_all.tkv`
 - [ ] Rebuild, verify IL_IDENTICAL; chay test -> 9/9 (phu thuoc Phase 1)
 
-### 2.3. `tuple()` tá»« list literal â¬œ
-- [ ] Port `try_rhs_tuple_call` tá»« Python bootstrap
-- [ ] Port `fpw_assign_tuple_literal` + `codegen_assign_tuple_literal`
-- [ ] Port `fpw_assign_tuple_identity` + `codegen_assign_tuple_identity`
-- [ ] Rebuild, verify `tuple_ctor_test` pass
+### 2.3. `tuple()` tu list literal - XONG (d062de9)
+- [x] Port `try_rhs_tuple_call` tu Python bootstrap
+- [x] `tuple([...])` doi van ban thanh `(a, b, c)` roi di duong assign_scalar san co
+- [x] Port `fpw_assign_tuple_identity` + `codegen_assign_tuple_identity`
+- [x] `tuple_ctor_test` 10/10 PASS
 
 ### 2.4. `yield from` â¬œ
 - [ ] Port `yield_from` statement parser
@@ -162,8 +166,8 @@
 |---|---|
 | Phase 0: Generator overflow + Star-args + Record KeyError | âœ… XONG |
 | Phase 1: Ternary-arg garbage | ðŸ”„ ÄANG LÃ€M (fix Ä‘Ã£ implement, chá» vong converge) |
-| Phase 2: Ports (question_ternary, list(), tuple(), yield from, try/else) | â¬œ CHÆ¯A Báº®T Äáº¦U |
-| Phase 3: BUILDFAIL Ä‘Æ¡n giáº£n + TESTFAIL + ILFAIL | â¬œ CHÆ¯A Báº®T Äáº¦U |
+| Phase 2: Ports (list() + tuple() XONG; con question_ternary, yield from, try/else) | 2/5 |
+| Phase 3: BUILDFAIL + TESTFAIL + ILFAIL | TAM TOT (fstring_bigint 12/12, record_init_runs 9/11) |
 | Phase 4: NEGFAIL 25 cases | â¬œ CHÆ¯A Báº®T Äáº¦U |
 | Phase 5: Verification + dá»n dáº¹p | â¬œ CHÆ¯A Báº®T Äáº¦U |
 
