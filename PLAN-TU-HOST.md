@@ -63,19 +63,16 @@
 ### 2.1. `list()` constructor - XONG (77ec891)
 - [x] Port `try_rhs_list_call` + `fpw_assign_list_from` + `codegen_assign_list_from`; stmt kind `assign_list_from` khai trong stmt_row.tkv (2 cho); `list_ctor_test` 10/10 PASS, IL_IDENTICAL.
 
-### 2.2. `tuple()` constructor
-- [ ] `tuple([a,b,c])` tu LIST LITERAL, `tuple(t)` khi da la tuple. Can port type system tuple + unpacking (`p, q, r = ...`) - LON hon list(). â¬œ
-- [ ] Fix module-level code (tuple literals â†’ hÃ m helper, triple-quote docstrings, typed globals)
-- [ ] Wire `rewrite_question_ternary` vÃ o `tkv_compile.tkv::_parse_program_ast`
-- [ ] ThÃªm vÃ o `ds_gop.txt` + `bootstrap_all.tkv`
-- [ ] Rebuild, verify IL_IDENTICAL
-- [ ] Cháº¡y test â†’ 9/9 (phá»¥ thuá»™c Phase 1)
+### 2.2. `tuple()` constructor (LON hon list())
+- [ ] `tuple([a, b, c])` tu LIST LITERAL, `tuple(t)` khi `t` da la tuple.
+- [ ] Can port type system tuple + unpacking (`p, q, r = ...`) - codegen hien bao loi.
+- [ ] Phan WIP: `compiler_bootstrap/compiler/il_features/question_ternary.tkv` (untracked, chua wire).
 
-### 2.2. `list()` constructor â¬œ
-- [ ] Port `try_rhs_list_call` (parse `list()` vÃ  `list(ys)`)
-- [ ] Port `fpw_assign_list_from` + `codegen_assign_list_from`
-- [ ] ÄÄƒng kÃ½ parsers (dÃ¹ng `.get()` thay vÃ¬ `in`, dÃ¹ng `.tra()` thay vÃ¬ `[]`)
-- [ ] Rebuild, verify `list_ctor_test` pass
+### 2.2b. `question_ternary` (`c ? a : b`)
+- [ ] Fix module-level code (tuple literals -> ham helper, triple-quote docstrings, typed globals)
+- [ ] Wire `rewrite_question_ternary` vao `tkv_compile.tkv::_parse_program_ast`
+- [ ] Them vao `ds_gop.txt` + `bootstrap_all.tkv`
+- [ ] Rebuild, verify IL_IDENTICAL; chay test -> 9/9 (phu thuoc Phase 1)
 
 ### 2.3. `tuple()` tá»« list literal â¬œ
 - [ ] Port `try_rhs_tuple_call` tá»« Python bootstrap
