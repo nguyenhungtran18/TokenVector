@@ -17,6 +17,7 @@ import stmt_row as _row
 import re
 
 from il_dispatch import register_line_parser, register_stmt_codegen, register_first_pass_walk
+from il_features.list_type import _record_stmt_fallback
 from stmt_row import intern, lay_str, make2
 
 _LIST_REVERSE_RE = re.compile(r'^(\w+)\.reverse\(\)\s*$')
@@ -36,6 +37,9 @@ def try_parse_list_reverse(reg: "Registry", line: "str", lines: "list[(i32,str)]
 def codegen_list_reverse(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
     """STMT_CODEGEN entry: 'lst.reverse()' - List<T>.Reverse() (khong
     tham so, dao nguoc TAI CHO - dung ngu nghia Python list.reverse())."""
+    _noargs_rv: "list[TkvNode]" = []
+    if _record_stmt_fallback(lay_str(stmt, 'name'), 'reverse', _noargs_rv, scope, body, ctx):
+        return
     ta = scope.tra(lay_str(stmt, 'name')).ta
     ctx.load_var_ref(lay_str(stmt, 'name'), scope, body)
     body.append(f'    callvirt instance void {ctx.il_type_str(ta, ctx.records)}::Reverse()')

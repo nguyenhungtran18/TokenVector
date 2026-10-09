@@ -188,6 +188,9 @@ def codegen_list_sort(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype
     sort-undecorate qua List<ValueTuple<K,T>> - GIOI HAN THEM: khong on
     dinh (not stable) khi trung key, khac Python that (giu thu tu goc)."""
     name = lay_str(stmt, 'name')
+    _noargs_srt: "list[TkvNode]" = []
+    if _record_stmt_fallback(name, 'sort', _noargs_srt, scope, body, ctx):
+        return
     ta = scope.tra(name).ta
     list_type = ctx.il_type_str(ta, ctx.records)
     if not lay_str(stmt, 'key_name'):

@@ -726,6 +726,11 @@ def try_expand_dict_update(line: "str") -> "str":
     if not m:
         return None
     dict_name, other_name = m.groups()
+    # R4/D6 heuristic (2026-10-09): arg la literal so (vd `b.update(7)`) thi
+    # CHAC CHAN khong phai dict.update that (can dict variable) - co the la
+    # record method. Decline de roi xuong method_call_stmt.
+    if len(other_name) > 0 and other_name[0] >= "0" and other_name[0] <= "9":
+        return None
     ind = ' ' * (len(line) - len(line.lstrip(' ')))
     n = _me_dict_update_counter
     _me_dict_update_counter = _me_dict_update_counter + 1
