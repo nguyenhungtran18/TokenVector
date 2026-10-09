@@ -51,7 +51,20 @@
 
 ## Phase 2: Port TÃ­nh NÄƒng CÃ²n Thiáº¿u â¬œ
 
-### 2.1. `question_ternary` (`c ? a : b`) â¬œ
+### 2.0. BAI HOC KY THUAT (phien 09/10 - neu khong se mat hang gio)
+- [x] **KHONG BAO GIO dung `Set-Content -Encoding utf8` (PowerShell 5.1) tren file `.tkv`** - no them BOM, compiler bao loi sai huong (`khong tokenize duoc`, `tuple lam bieu thuc`) khong lien quan gi den code. Dung read/write bytes trong Python hoac edit tool.
+- [x] **STMT ROW MOI phai khai trong `compiler\stmt_row.tkv` CA 2 CHO**: `_LAYOUT` (~dong 557) va `_KHOA_LOGIC` (~dong 822). Thieu cho nao la `lay_str()` tra `None` am tham -> loi `bien None chua duoc khai bao` khong co so dong.
+- [x] **`m.groups()` CHI unpack duoc** (`a, b = m.groups()`); `m.group(1)` KHONG ton tai. Regex 1 group -> tach tay (startswith/slice).
+- [x] **`ctx.locals_decl.append((name, ta))` chi chay khi `ta` co kieu compiler suy duoc** (record field, tham so...). Local tu `TypeAnn(...)` khong infer duoc cho tuple -> g1 build OK nhung g1 compile tv_gop crash `Object reference not set`. Giai phap: append THANG bien nguon (`src_ta`).
+- [x] **Dang ky codegen + fpw PHAI DU BO** cho stmt kind moi. Parser tao stmt ma khong co codegen -> crash `Object reference not set` khi compile lai tv_gop.
+- [x] **`dist\tkvc-tv.exe` CO THE BI HONG**: sau 2 vong IL KHAC NHAU ma crash `Object reference not set` thi ban thang cap co bug codegen. Khoi phuc: `Copy-Item build\selfhost\g2x.exe dist\tkvc-tv.exe` (ban 08-Oct dung duoc) roi chay `tools\vong.exe` 2 lan (lan 1 co the bao IL KHAC NHAU, lan 2 phai ra IL_IDENTICAL). Chi ton khi nua phien bi crash.
+- [x] **Debug nhanh**: doc `build\selfhost\g2.exe.log` (hoac g1.exe.log) lay loi gan nhat; TAMTAT tung registration de bisect nhanh hon chay lai vong 2 phut.
+
+### 2.1. `list()` constructor - XONG (77ec891)
+- [x] Port `try_rhs_list_call` + `fpw_assign_list_from` + `codegen_assign_list_from`; stmt kind `assign_list_from` khai trong stmt_row.tkv (2 cho); `list_ctor_test` 10/10 PASS, IL_IDENTICAL.
+
+### 2.2. `tuple()` constructor
+- [ ] `tuple([a,b,c])` tu LIST LITERAL, `tuple(t)` khi da la tuple. Can port type system tuple + unpacking (`p, q, r = ...`) - LON hon list(). â¬œ
 - [ ] Fix module-level code (tuple literals â†’ hÃ m helper, triple-quote docstrings, typed globals)
 - [ ] Wire `rewrite_question_ternary` vÃ o `tkv_compile.tkv::_parse_program_ast`
 - [ ] ThÃªm vÃ o `ds_gop.txt` + `bootstrap_all.tkv`
