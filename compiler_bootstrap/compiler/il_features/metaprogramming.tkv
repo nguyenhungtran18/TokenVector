@@ -379,7 +379,7 @@ def bootstrap_metaprogramming(reg: "Registry") -> "i32":
     tham so `reg`) - phep kiem cua P6 chi quet cay .py nen khong
     nhin thay file CHI-CO-TKV nay.
     """
-    register_expr_builtin(reg, 'hasattr', push_hasattr_builtin, 'bool')
+    register_expr_builtin(reg, 'hasattr', push_hasattr_builtin, 'i32')
     # return dtype CO DINH 'str' - day la GIOI HAN THAT, khong phai bo sot:
     # kieu tra ve cua getattr phu thuoc tung truong, ma bang nay chi nhan
     # MOT dtype. push_getattr_builtin chan truong khong phai 'str'.

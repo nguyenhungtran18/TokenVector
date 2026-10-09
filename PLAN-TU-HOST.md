@@ -1,0 +1,156 @@
+﻿# PLAN: TokenVector Tá»±-Host Äáº§y Äá»§ (118/118 + NEG 31/31)
+
+**NgÃ y báº¯t Ä‘áº§u**: 08/10/2026
+**Cáº­p nháº­t cuá»‘i**: 09/10/2026
+**Tráº¡ng thÃ¡i xuáº¥t phÃ¡t**: Gate 94/118, NEG 6/31, vÃ²ng tá»±-host IL_IDENTICAL
+
+---
+
+## Phase 0: Bug Fixes Cá»‘t LÃµi (Blockers) âœ…
+
+### 0.1. Generator `list[...]` overflow âœ… XONG 07/10
+- [x] XÃ¡c Ä‘á»‹nh root cause: `label_counter = [0]` vÃ  `stack = [0]` infer thÃ nh `List<TkvInt>` thay vÃ¬ `List<int32>`
+- [x] ThÃªm helper `_zero_i32() -> "i32"` trong `tkv_lexer.tkv`
+- [x] Thay `label_counter = [0]` â†’ `label_counter = [_zero_i32()]` (2 chá»— trong `il_codegen.tkv`)
+- [x] Thay `stack = [0]` â†’ `stack = [_zero_i32()]` (trong `tkv_lexer.tkv::apply_layout`)
+- [x] Xá»­ lÃ½ order-of-definition (tkv_lexer compile trÆ°á»›c il_codegen)
+- [x] Verify: táº¥t cáº£ generator probes compile OK, vÃ²ng tá»±-host IL_IDENTICAL
+
+### 0.2. Star-args port (`call_star_args`) âœ… XONG (phiÃªn trÆ°á»›c)
+- [x] Module má»›i `call_star_args.tkv` (~530 dÃ²ng): `f(*xs)`, `f(**kw)`
+- [x] Parser: `star`/`star2` nodes, hook á»Ÿ `_first_pass_collect_locals`
+- [x] Marker `#__dictlit` phÃ¢n biá»‡t dict literal tháº­t vs tá»± xÃ¢y dáº§n
+- [x] Fix `kwarg_resolve.tkv` crash native 0xc0000005
+- [x] 5 star-negative tests xanh
+
+### 0.3. Record method KeyError (`Bag.add` â†’ `set.add` nháº§m) âœ… XONG 08/10
+- [x] XÃ¡c Ä‘á»‹nh root cause: `try_parse_set_add` khá»›p regex `x.add(...)` mÃ  khÃ´ng check shape, hijack record method statements
+- [x] Port parse-time guard tá»« Python (2026-09-29): decline khi `known_shapes` xÃ¡c nháº­n kiá»ƒu khÃ¡c
+- [x] Port `_record_stmt_fallback` vÃ o `list_type.tkv` (safety net codegen-time)
+- [x] ThÃªm safety-net call vÃ o `codegen_set_add` + `codegen_list_append`
+- [x] Verify: `Bag.add(3)` compile OK, cháº¡y Ä‘Ãºng (0+3=3)
+- [x] VÃ²ng tá»±-host IL_IDENTICAL, gate 94/118 (khÃ´ng há»“i quy)
+
+---
+
+## Phase 1: Ternary-Argument Garbage ðŸ”„ ÄANG LÃ€M
+
+### 1.1. Root cause Ä‘Ã£ xÃ¡c Ä‘á»‹nh âœ…
+- [x] So sÃ¡nh IL: assignment dÃ¹ng `FromI64` Ä‘Ãºng, call-arg dÃ¹ng `ldc.i4` sai
+- [x] NguyÃªn nhÃ¢n: branches compile theo outer dtype (`i32`) nhÆ°ng temp khai bÃ¡o `TkvInt` â†’ layout mismatch â†’ garbage
+- [x] Return "Ä‘Ãºng" do may máº¯n (runtime lenient), call thÃ¬ garbage (strict stack)
+
+### 1.2. Fix Ä‘Ã£ implement (chá» verify) ðŸ”„
+- [x] Sá»­a `_expr_ternary`: infer natural dtype, compile branches theo natural, widen vá» requested sau khi load temp
+- [ ] Cháº¡y vong.exe láº§n 2 Ä‘á»ƒ converge (láº§n 1: IL KHAC NHAU, Ä‘Ã£ upgrade g2 â†’ cáº§n cháº¡y láº¡i)
+- [ ] Verify: `pick(c ? 10 : 20)` tráº£ vá» Ä‘Ãºng 10
+- [ ] Verify: `b.set(c ? 10 : 20)` gÃ¡n Ä‘Ãºng
+- [ ] Cháº¡y `question_ternary_test` â†’ má»¥c tiÃªu 9/9 (hiá»‡n 7/9)
+
+---
+
+## Phase 2: Port TÃ­nh NÄƒng CÃ²n Thiáº¿u â¬œ
+
+### 2.1. `question_ternary` (`c ? a : b`) â¬œ
+- [ ] Fix module-level code (tuple literals â†’ hÃ m helper, triple-quote docstrings, typed globals)
+- [ ] Wire `rewrite_question_ternary` vÃ o `tkv_compile.tkv::_parse_program_ast`
+- [ ] ThÃªm vÃ o `ds_gop.txt` + `bootstrap_all.tkv`
+- [ ] Rebuild, verify IL_IDENTICAL
+- [ ] Cháº¡y test â†’ 9/9 (phá»¥ thuá»™c Phase 1)
+
+### 2.2. `list()` constructor â¬œ
+- [ ] Port `try_rhs_list_call` (parse `list()` vÃ  `list(ys)`)
+- [ ] Port `fpw_assign_list_from` + `codegen_assign_list_from`
+- [ ] ÄÄƒng kÃ½ parsers (dÃ¹ng `.get()` thay vÃ¬ `in`, dÃ¹ng `.tra()` thay vÃ¬ `[]`)
+- [ ] Rebuild, verify `list_ctor_test` pass
+
+### 2.3. `tuple()` tá»« list literal â¬œ
+- [ ] Port `try_rhs_tuple_call` tá»« Python bootstrap
+- [ ] Port `fpw_assign_tuple_literal` + `codegen_assign_tuple_literal`
+- [ ] Port `fpw_assign_tuple_identity` + `codegen_assign_tuple_identity`
+- [ ] Rebuild, verify `tuple_ctor_test` pass
+
+### 2.4. `yield from` â¬œ
+- [ ] Port `yield_from` statement parser
+- [ ] Port codegen cho `yield from` trong generators
+- [ ] Xá»­ lÃ½ `__gen_ret__` cho `return <value>` trong generator
+- [ ] Rebuild, verify `generator_yield_from_test` pass
+
+### 2.5. `try/except/else` â¬œ
+- [ ] Port `else` clause handling cho try blocks
+- [ ] TÃ¡ch nhÃ£n IL cho Ä‘Æ°á»ng "clean" vs "handler Ä‘Ã£ báº¯t"
+- [ ] Rebuild, verify `try_except_else_test` pass
+
+---
+
+## Phase 3: CÃ¡c BUILDFAIL ÄÆ¡n Giáº£n â¬œ
+
+### 3.1. Tests dá»… (Æ°u tiÃªn) â¬œ
+- [ ] `multiline_string_test`: triple-quoted strings (`_join_triple_quoted` + TRIPLESTR token)
+- [ ] `nested_literal_test`: nested containers (EXPR_CODEGEN cho dict/set literal)
+- [ ] `comprehension_multi_for_test`: multi-for comprehensions
+- [ ] `kwargs_enumerate_test`: kwargs handling
+- [ ] `agg_key_test`: aggregate key handling
+- [ ] `decorator_py_tree_test`: decorators
+- [ ] `funcvar_test`: func variable (reduce signature check)
+- [ ] `gap_exc_gen_test`: exception in generators
+- [ ] `set_iteration_test`: set iteration
+- [ ] `record_container_field_test`: record vá»›i container fields
+- [ ] `record_init_runs_test`: record `__init__` execution
+- [ ] `record_method_name_collision_test`: method name collisions
+
+### 3.2. TESTFAIL (2) â¬œ
+- [ ] `parity_pin_test`: thÃªm `_emit_container_coerce` (coerce intâ†”i32 cho containers)
+- [ ] `record_lt_test`: kiá»ƒm tra láº¡i (Ä‘Ã£ 16/16 qua probe)
+
+### 3.3. ILFAIL (1) â¬œ
+- [ ] `p6_vectorize_test`: stobj, _vstart, _tstart (vectorization)
+
+---
+
+## Phase 4: Negative Tests (NEG 6/31 â†’ 31/31) â¬œ
+
+- [ ] `abs_complex`, `agg_bad_kwarg_name`, `agg_key_signature`
+- [ ] `break_in_try_finally`, `cond_mixed_types`, `datetime_args`
+- [ ] `del_on_string`, `del_variable`, `delattr_not_supported`
+- [ ] `for_tuple_pairs_var`, `fstring_bad_spec`
+- [ ] `generator_return_no_gen_ret`, `getattr_missing_field`
+- [ ] `module_var_without_global`, `reassign_int_str`
+- [ ] `record_container_uninit`, `sorted_reverse_non_bool`
+- [ ] `star_args_dynamic_src`, `star_kwargs_*` (5 cases)
+- [ ] `str_tuple`, `tuple_empty_call`, `yield_from_bad_source`
+- [ ] Má»—i case: fix compiler Ä‘á»ƒ reject Ä‘Ãºng, hoáº·c sá»­a test expectation náº¿u compiler Ä‘Ãºng
+
+---
+
+## Phase 5: Verification Cuá»‘i CÃ¹ng â¬œ
+
+### 5.1. Gates â¬œ
+- [ ] `testkit_gate.ps1`: 118/118 PASS, NEG 31/31
+- [ ] `vong.exe`: IL_IDENTICAL á»•n Ä‘á»‹nh
+- [ ] `parity_probe/run.ps1`: 119/119 match CPython
+- [ ] `dang_ky_gate.py`: 0 violations
+- [ ] `lint_rules_gate.ps1`: 8/8
+- [ ] `ext_smoke.ps1`: 4/4
+
+### 5.2. Dá»n dáº¹p â¬œ
+- [ ] XÃ³a probes trong `%TEMP%\opencode\`
+- [ ] Cáº­p nháº­t `docs/REPOSITORY-NOTES.md`
+- [ ] Viáº¿t handoff cuá»‘i cÃ¹ng
+- [ ] Commit vá»›i message rÃµ rÃ ng
+
+---
+
+## Tiáº¿n Ä‘á»™ tá»•ng thá»ƒ
+
+| Phase | Tráº¡ng thÃ¡i |
+|---|---|
+| Phase 0: Generator overflow + Star-args + Record KeyError | âœ… XONG |
+| Phase 1: Ternary-arg garbage | ðŸ”„ ÄANG LÃ€M (fix Ä‘Ã£ implement, chá» vong converge) |
+| Phase 2: Ports (question_ternary, list(), tuple(), yield from, try/else) | â¬œ CHÆ¯A Báº®T Äáº¦U |
+| Phase 3: BUILDFAIL Ä‘Æ¡n giáº£n + TESTFAIL + ILFAIL | â¬œ CHÆ¯A Báº®T Äáº¦U |
+| Phase 4: NEGFAIL 25 cases | â¬œ CHÆ¯A Báº®T Äáº¦U |
+| Phase 5: Verification + dá»n dáº¹p | â¬œ CHÆ¯A Báº®T Äáº¦U |
+
+**Má»¥c tiÃªu cuá»‘i**: Gate 118/118, NEG 31/31, táº¥t cáº£ gates green, IL_IDENTICAL á»•n Ä‘á»‹nh.
+

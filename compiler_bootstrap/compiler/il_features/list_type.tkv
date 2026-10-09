@@ -13,6 +13,7 @@ CA file nay, file nay khong bao gio duoc import nguoc lai)."""
 import stmt_row as _row
 import il_extern_dtype
 import il_features.tuple_type as _tt
+import il_features.kwarg_resolve as kwarg_resolve
 import re
 
 from il_core import IL_SCALAR, parse_expr, emit_index_value, nid
@@ -284,9 +285,71 @@ def codegen_assign_list_new(stmt: "i32", scope: "Scope", body: "list[str]", body
     ctx.store_var(lay_str(stmt, 'name'), scope, body)
 
 
+def _record_stmt_fallback(name: "str", method_name: "str", arg_nodes: "list[TkvNode]", scope: "Scope", body: "list[str]", ctx: "Ctx") -> "i32":
+    """R4/D6 safety net (port tu Python bootstrap, 2026-09-29):
+    'rec.add/append/insert/remove(...)' dang lenh doc lap nhung receiver
+    THAT SU la record (luc parse known_shapes chua biet nen parser van
+    hieu nham la container). Phat lai dung logic record-statement cua
+    _stmt_method_call_stmt (load receiver + compile args theo m_sig +
+    callvirt + pop neu co return). Tra 1 neu da xu ly, 0 neu receiver
+    khong phai record (caller tiep tuc duong container nhu cu)."""
+    rec_methods = ctx.record_methods or {}
+    ta = scope.tra(name).ta
+    if ta.shape_ten != 'record':
+        return 0
+    methods = rec_methods.get(ta.dtype, {})
+    m_sig = methods.get(method_name)
+    if m_sig is None:
+        raise SyntaxError(
+            f"il_codegen: record '{ta.dtype}' khong co method '{method_name}' "
+            f"('{name}.{method_name}(...)' khong phai list.{method_name})")
+    args = kwarg_resolve.resolve_call_args(m_sig.params, arg_nodes, f'{name}.{method_name}')
+    n_required = 0
+    for p in m_sig.params:
+        if p.default_node < 0:
+            n_required = n_required + 1
+    if not (n_required <= len(args) <= len(m_sig.params)):
+        raise SyntaxError(
+            f"il_codegen: goi '{name}.{method_name}(...)' voi {len(args)} tham so "
+            f"nhung method can {n_required}-{len(m_sig.params)} tham so")
+    is_static = m_sig.is_static
+    if not is_static:
+        ctx.load_var_ref(name, scope, body)
+    for arg_node, p in zip(args, m_sig.params):
+        ctx.compile_expr(arg_node, scope, body,
+                         value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
+    for p in m_sig.params[len(args):]:
+        ctx.compile_expr(p.default_node, scope, body,
+                         value_dtype_spec_for_ta(p.type_ann, p.default_node), ctx)
+    if m_sig.return_type is not None:
+        ret_il = ctx.il_type_str(m_sig.return_type, None)
+    else:
+        ret_il = 'void'
+    sep = ', '
+    _ps = []
+    for p in m_sig.params:
+        _ps.append(ctx.il_type_str(p.type_ann, None))
+    params_il = sep.join(_ps)
+    if is_static:
+        call_op = 'call'
+    else:
+        call_op = 'callvirt'
+    if is_static:
+        call_kind = ''
+    else:
+        call_kind = 'instance '
+    qname = chr(39) + method_name + chr(39)
+    body.append(f'    {call_op} {call_kind}{ret_il} {ta.dtype}::{qname}({params_il})')
+    if m_sig.return_type is not None:
+        body.append('    pop')
+    return 1
+
+
 def codegen_list_append(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
     """STMT_CODEGEN entry: 'lst.append(x)' (x co the la 1 bien container
     khac khi lst la List long nhau, Wave 2 2026-07-29)."""
+    if _record_stmt_fallback(lay_str(stmt, 'name'), 'append', [lay_nut(stmt, 'value_node')], scope, body, ctx):
+        return
     ta = scope.tra(lay_str(stmt, 'name')).ta
     ctx.load_var_ref(lay_str(stmt, 'name'), scope, body)
     if ta.elem_ta is not None and ta.elem_ta.shape_ten == 'func':

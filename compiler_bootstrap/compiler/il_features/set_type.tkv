@@ -18,7 +18,7 @@ from il_dispatch import (
     register_assign_rhs_parser, register_line_parser,
     register_stmt_codegen, register_first_pass_walk,
 )
-from il_features.list_type import il_list_elem_ilstr, find_first_append_dtype, list_literal_elem_spec_of, _fold_elem, nguon_kieu_walk
+from il_features.list_type import il_list_elem_ilstr, find_first_append_dtype, list_literal_elem_spec_of, _fold_elem, nguon_kieu_walk, _record_stmt_fallback
 from expr_row import ea_ds, ekind
 from tkv_types import TypeAnn
 from stmt_row import intern, lay_nut, lay_str, make2, make3, lay_ds_nut
@@ -102,9 +102,18 @@ def try_rhs_frozenset_new(rhs: "str", name: "str", known_shapes: "dict[str,str]"
 
 def try_parse_set_add(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
     """LINE_PARSERS entry: 's.add(x)' - PHAI dang ky TRUOC method_call_stmt
-    (pattern method-call tong quat cung khop dong nay)."""
+    (pattern method-call tong quat cung khop dong nay).
+
+    2026-10-08 (port tu Python, 2026-09-29): phai loai tru khi
+    `known_shapes` da XAC NHAN la kieu khac (vd `b.add(1)` la method cua
+    record, KHONG phai set.add). Truoc day nhanh nay khong co guard nao.
+    Giong `try_parse_list_sort`/`try_parse_container_clear` (cung loai tru
+    shape khac 'set')."""
     m = _SET_ADD_RE.match(line)
     if not m:
+        return None
+    _sh = known_shapes.get(m.group(1))
+    if _sh is not None and _sh != 'set' and _sh != 'frozenset':
         return None
     name, arg_expr = m.groups()
     return intern(make3('set_add', name, arg_expr)), pos + 1
@@ -136,6 +145,12 @@ def codegen_set_add(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: 
     """STMT_CODEGEN entry: 's.add(x)' - HashSet<T>.Add(T) tra ve bool
     (khac List<T>.Add(T) la void, xac minh THAT qua probe_hashset.il) -
     can 'pop' bo ket qua khi dung nhu 1 lenh doc lap (khong gan bien)."""
+    # Safety net R4/D6 (port tu Python, 2026-09-29): receiver THAT SU la
+    # record nhung luc parse known_shapes chua biet nen van bi hieu nham
+    # la set_add (`b.add(3)` la method cua record). Phat lai thanh record
+    # method call o day - noi DUY NHAT con kieu de biet that.
+    if _record_stmt_fallback(lay_str(stmt, 'name'), 'add', [lay_nut(stmt, 'value_node')], scope, body, ctx):
+        return
     ta = scope.tra(lay_str(stmt, 'name')).ta
     if ta.shape_ten == 'frozenset':
         raise SyntaxError(

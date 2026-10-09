@@ -1,0 +1,596 @@
+# -*- coding: utf-8 -*-
+"""`f(*xs)` va `f(**kw)` - truyen lap tham so tai DIEM GOI HAM (port TokenVector 2026-10-07).
+
+Nguon goc: `compiler/il_features/call_star_args.tkv` (ban Python). Ly do
+giong het ban goc: TokenVector bien dich loi goi ham thanh lenh IL `call`
+voi so tham so TINH, kiem ngay voi chu ky luc bien dich. Thay vi doi mo
+hinh arity, lam DESUGAR tai diem goi: khi thong tin cua nguon BIET DUOC LUC
+BIEN DICH, `f(*xs)` duoc noi thanh DUNG N doi so co dinh roi moi di tiep
+vao duong `call` da co.
+
+Chay 1 LAN cho moi than ham, o DAU `_first_pass_collect_locals` (goi truc
+tiep tu `il_codegen`, khong qua registry - khong co registry nao khop cho
+"chay truoc first-pass tren toan than ham"). Ham luy thua (idempotent):
+lan hai khong con node `star` nao nen tra ve 0 ngay.
+
+KHAC BIET voi ban Python (do kien truc row/node, khong phai do y tuong):
+
+- Cay lenh o day la danh sach CHI SO row (`list[i32]`), node bieu thuc la
+  chi so pool bat bien (`TkvNode`). Khong sua tai cho duoc: viet nguoc bang
+  `dat_nut`/`dat_ds_nut` (nho dem `(stmt, khoa)` - dung khi o `*_node` dang
+  VANG, tuc row chi giu van ban) hoac `thay_nut` (tao hang moi - dung khi o
+  thang da co gia tri, vd `assign_typed_decl`), roi viet nguoc id moi vao
+  danh sach cha (`lst[i] = ...`).
+- Ban Python co kind `assign_dict_literal` mang `pairs`; ban TokenVector
+  KHONG co kind do - macro `dict_literal` (tuple_type) che `kw = {...}`
+  thanh `kw = {}` + `kw["k"] = v` TRUOC khi parse. De phan biet literal
+  THAT voi tu xay dan bang tay (trung van ban tung dong), macro danh dau
+  moi dong che ra bang comment `#__dictlit`; `_parse_block` go dau, ghi
+  note `__dictlit` vao hang. Chi nhan cum DU DAU (dict rong don doc thi
+  khoi can dau - khong co khoa nao de doan).
+- "Bien XUAT HIEN o cho khac" duoc kiem bang quet van ban hang THO
+  (`row_of`) voi ranh gioi dinh danh, thay cho gom chuoi tu cay dict -
+  bao phu moi truong ten (ke ca ten chi co trong van ban nhu `var` cua
+  vong `for`), lech ve phia loai bo (an toan).
+- Dung lai node KHOA GOC cua dict literal cho gia tri `kw["k"]`, va node
+  `('index', ten, [num])` cho `xs[i]` - dung dang ma codegen da biet.
+"""
+from stmt_row import body_of, co_ghi_chu, dat_ds_nut, dat_nut, items_nut, kind_of_stmt, lay_ds_nut, lay_handlers_vung, lay_nut, lay_str, lay_than, row_of, thay_nut
+from expr_row import VANG, ea_ds, ea_ds_str, ea_nut, ea_str, eb_ds, eb_i32, eb_nut, eb_str, ec_ds, ec_nut, ec_str, ekind, eso_o, la_node, mk2, mk3, mk4, o_ds, o_ds_str, o_i32, o_nut, o_str
+from expr_layout import KHUON
+
+__tkv_import__ = ["stmt_row", "expr_row", "expr_layout"]
+
+_SAO_DS_KHOA: "list[str]" = ["rhs_nodes", "expr_nodes", "arg_nodes", "idx_nodes", "elements"]
+
+
+def _sao_o_str(node: "TkvNode", i: "i32") -> "str":
+    if i == 1:
+        return ea_str(node)
+    if i == 2:
+        return eb_str(node)
+    return ec_str(node)
+
+
+def _sao_o_nut(node: "TkvNode", i: "i32") -> "TkvNode":
+    if i == 1:
+        return ea_nut(node)
+    if i == 2:
+        return eb_nut(node)
+    return ec_nut(node)
+
+
+def _sao_o_ds(node: "TkvNode", i: "i32") -> "list[TkvNode]":
+    if i == 1:
+        return ea_ds(node)
+    if i == 2:
+        return eb_ds(node)
+    return ec_ds(node)
+
+
+def _sao_nut_con(node: "TkvNode") -> "list[TkvNode]":
+    """MOI node con cua `node`, doc theo KHUON (o `nut` + node trong o `ds`)."""
+    ra: "list[TkvNode]" = []
+    if not la_node(node):
+        return ra
+    kind = ekind(node)
+    for i in range(1, eso_o(node)):
+        t = KHUON.get(kind + ":" + str(i))
+        if t is None or t == "":
+            continue
+        if t == "nut":
+            c = _sao_o_nut(node, i)
+            if c is not None:
+                ra.append(c)
+        elif t == "ds":
+            for d in _sao_o_ds(node, i):
+                ra.append(d)
+    return ra
+
+
+def _sao_co_sao(node: "TkvNode") -> "i32":
+    """1 neu cay co node `star`/`star2`."""
+    if not la_node(node):
+        return 0
+    if ekind(node) == "star" or ekind(node) == "star2":
+        return 1
+    for c in _sao_nut_con(node):
+        if _sao_co_sao(c):
+            return 1
+    return 0
+
+
+def _sao_gom_cau(lst: "list[i32]", ra: "list[i32]"):
+    for i, stmt in enumerate(lst):
+        ra.append(stmt)
+        for key in ('body', 'else_body', 'finally_body'):
+            _sao_gom_cau(lay_than(stmt, key) or [], ra)
+        for handler_body in [body_of(_v) for _v in lay_handlers_vung(stmt)]:
+            _sao_gom_cau(handler_body, ra)
+
+
+def _sao_moi_cau(stmts: "list[i32]") -> "list[i32]":
+    """MOI cau lenh cua than ham, ke ca trong than long nhau."""
+    ra: "list[i32]" = []
+    _sao_gom_cau(stmts or [], ra)
+    return ra
+
+
+def _sao_gom_khe(lst: "list[i32]", ra: "list[(list[i32],i32,i32)]"):
+    for i, stmt in enumerate(lst):
+        ra.append((lst, i, stmt))
+        for key in ('body', 'else_body', 'finally_body'):
+            _sao_gom_khe(lay_than(stmt, key) or [], ra)
+        for handler_body in [body_of(_v) for _v in lay_handlers_vung(stmt)]:
+            _sao_gom_khe(handler_body, ra)
+
+
+def _sao_khe(stmts: "list[i32]") -> "list[(list[i32],i32,i32)]":
+    """Nhu `_sao_moi_cau` nhung sinh (danh_sach, chi_so, cau_lenh) - can cho
+    cho GHI (viet nguoc hang moi vao danh sach cha)."""
+    ra: "list[(list[i32],i32,i32)]" = []
+    _sao_gom_khe(stmts or [], ra)
+    return ra
+
+
+def _sao_co_sao_trong(stmts: "list[i32]") -> "i32":
+    for stmt in _sao_moi_cau(stmts):
+        for _k, node in items_nut(stmt):
+            if _sao_co_sao(node):
+                return 1
+        for k in _SAO_DS_KHOA:
+            nodes = lay_ds_nut(stmt, k)
+            if nodes is None:
+                continue
+            for node in nodes:
+                if _sao_co_sao(node):
+                    return 1
+    return 0
+
+
+def _sao_thu_ten(node: "TkvNode", ten_moi: "dict[str,str]"):
+    """Gom ten bien duoc lam nguon `*`/`**` (dang `star(var)`)."""
+    if not la_node(node):
+        return
+    if (ekind(node) == "star" or ekind(node) == "star2") and eso_o(node) == 2:
+        con = ea_nut(node)
+        if la_node(con) and ekind(con) == "var" and eso_o(con) == 2:
+            ten = ea_str(con)
+            if ten not in ten_moi:
+                ten_moi[ten] = "1"
+        return
+    for c in _sao_nut_con(node):
+        _sao_thu_ten(c, ten_moi)
+
+
+def _sao_cay_giu(node: "TkvNode", ten: "str") -> "i32":
+    """Cay co chua dung nguon `*<ten>` hay `**<ten>` khong."""
+    if not la_node(node):
+        return 0
+    if (ekind(node) == "star" or ekind(node) == "star2") and eso_o(node) == 2:
+        con = ea_nut(node)
+        if la_node(con) and ekind(con) == "var" and eso_o(con) == 2 and ea_str(con) == ten:
+            return 1
+        return 0
+    for c in _sao_nut_con(node):
+        if _sao_cay_giu(c, ten):
+            return 1
+    return 0
+
+
+def _sao_cau_giu(stmt: "i32", ten: "str") -> "i32":
+    for _k, node in items_nut(stmt):
+        if _sao_cay_giu(node, ten):
+            return 1
+    for k in _SAO_DS_KHOA:
+        nodes = lay_ds_nut(stmt, k)
+        if nodes is None:
+            continue
+        for node in nodes:
+            if _sao_cay_giu(node, ten):
+                return 1
+    return 0
+
+
+def _sao_la_ky_tu_ten(ch: "str") -> "i32":
+    return ((ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9") or ch == "_")
+
+
+def _sao_chua_ten(van: "str", ten: "str") -> "i32":
+    """Tu `ten` co xuat hien NGUYEN VEN trong `van` khong (ranh gioi dinh
+    danh). Khong dung regex de khong them phu thuoc."""
+    n = len(ten)
+    m = len(van)
+    i = 0
+    while i + n <= m:
+        if van[i:i + n] == ten:
+            truoc_ok = 1
+            sau_ok = 1
+            if i > 0 and _sao_la_ky_tu_ten(van[i - 1]):
+                truoc_ok = 0
+            if i + n < m and _sao_la_ky_tu_ten(van[i + n]):
+                sau_ok = 0
+            if truoc_ok and sau_ok:
+                return 1
+            i += n
+        else:
+            i += 1
+    return 0
+
+
+def _sao_la_khoa_chuoi(node: "TkvNode") -> "i32":
+    return (la_node(node) and eso_o(node) == 2 and ekind(node) == "str_lit")
+
+
+def _sao_lay_khoa(node: "TkvNode", func_name: "str", desc: "str", nguon: "str") -> "str":
+    """Gia tri chuoi cua node khoa (bo dau ngoac kep ma parser giu lai)."""
+    van = ea_str(node)
+    if len(van) >= 2 and van[0] == '"' and van[len(van) - 1] == '"':
+        return van[1:len(van) - 1]
+    raise SyntaxError(f'il_codegen: nguon \'**\' phai co khoa CHUOI tinh: \'{desc}\' trong ham \'{func_name}\' - \'{nguon}\' co khoa khong phai chuoi literal, nen khong gan duoc vao tham so nao luc bien dich')
+
+
+def _sao_tim(ten: "str", ds_ten: "list[str]") -> "i32":
+    """Chi so cua `ten` trong danh sach nguon, -1 neu khong co."""
+    for i in range(len(ds_ten)):
+        if ds_ten[i] == ten:
+            return i
+    return -1
+
+
+def _sao_ghep_id(nodes: "list[TkvNode]") -> "str":
+    van: "list[str]" = []
+    for x in nodes:
+        van.append(str(x))
+    return ",".join(van)
+
+
+def _sao_tach_id(van: "str") -> "list[TkvNode]":
+    ra: "list[TkvNode]" = []
+    if van == "":
+        return ra
+    for t in van.split(","):
+        ra.append(int(t))
+    return ra
+
+
+def _sao_mo_rong_tung_nut(nodes: "list[TkvNode]", ds_ten: "list[str]", ds_loai: "list[str]", ds_a: "list[str]", ds_b: "list[str]", func_name: "str", desc: "str") -> "list[TkvNode]":
+    moi: "list[TkvNode]" = []
+    for x in nodes:
+        moi.append(_sao_mo_rong_nut(x, ds_ten, ds_loai, ds_a, ds_b, func_name, desc))
+    return moi
+
+
+def _sao_kw_tu_bien(ten: "str", khoa: "list[TkvNode]", tri: "list[TkvNode]", func_name: "str", desc: "str") -> "list[TkvNode]":
+    """`f(**kw)` voi `kw` la bien dict literal: doc truc tiep tu bien bang
+    node `index` - dung key node GOC cua dict literal nen gia tri khoa
+    giong het. Tra danh sach node `kwarg` dung dinh dang `kwarg_resolve`."""
+    ra: "list[TkvNode]" = []
+    for j in range(len(khoa)):
+        idx = mk3('index', o_str(ten), o_ds([khoa[j]]))
+        ra.append(mk3('kwarg', o_str(_sao_lay_khoa(khoa[j], func_name, desc, ten)), o_nut(idx)))
+    return ra
+
+
+def _sao_mo_rong_doi_so(args: "list[TkvNode]", ds_ten: "list[str]", ds_loai: "list[str]", ds_a: "list[str]", ds_b: "list[str]", func_name: "str", desc: "str") -> "list[TkvNode]":
+    """Noi danh sach tham so: thay `star`/`star2` bang cac phan tu that.
+
+    Sau khi noi xong, MOI tham so con lai deu duoc quet tiep - can thiet:
+    loi goi long nhu `f(str(g(*[3, 4])))` co star sau HON danh sach vua noi.
+    """
+    phang: "list[TkvNode]" = []
+    for arg in args:
+        la_sao = (la_node(arg) and eso_o(arg) == 2 and (ekind(arg) == "star" or ekind(arg) == "star2"))
+        if not la_sao:
+            phang.append(arg)
+            continue
+        muon_list = (ekind(arg) == "star")
+        nguon = ea_nut(arg)
+        if muon_list:
+            dang = "list"
+        else:
+            dang = "dict"
+        if la_node(nguon) and (ekind(nguon) == "list_literal" or ekind(nguon) == "dict_lit"):
+            co_list = (ekind(nguon) == "list_literal")
+            if co_list != muon_list:
+                if muon_list:
+                    raise SyntaxError(f'il_codegen: nguon \'*\' phai la list literal: \'{desc}\' trong ham \'{func_name}\' - gap dict literal')
+                raise SyntaxError(f'il_codegen: nguon \'**\' phai la dict literal: \'{desc}\' trong ham \'{func_name}\' - gap list literal')
+            if muon_list:
+                for el in ea_ds(nguon):
+                    phang.append(el)
+            else:
+                phang.extend(_sao_kw_tu_literal(ea_ds(nguon), func_name, desc, "dict literal"))
+            continue
+        if la_node(nguon) and ekind(nguon) == "var" and eso_o(nguon) == 2:
+            ten = ea_str(nguon)
+            vi_tri = _sao_tim(ten, ds_ten)
+            if vi_tri < 0 or ds_loai[vi_tri] != dang:
+                raise SyntaxError(f'il_codegen: nguon \'*\'/\'**\' phai la list/dict literal: \'{desc}\' trong ham \'{func_name}\' - bien \'{ten}\' khong duoc gan bang 1 {dang} literal duy nhat')
+            if muon_list:
+                pt = _sao_tach_id(ds_a[vi_tri])
+                for j in range(len(pt)):
+                    so = mk2('num', o_str(str(j)))
+                    phang.append(mk3('index', o_str(ten), o_ds([so])))
+            else:
+                phang.extend(_sao_kw_tu_bien(ten, _sao_tach_id(ds_a[vi_tri]), _sao_tach_id(ds_b[vi_tri]), func_name, desc))
+            continue
+        raise SyntaxError(f'il_codegen: nguon \'*\'/\'**\' phai la {dang} literal: \'{desc}\' trong ham \'{func_name}\' - chi nhan \'f(*{dang} literal)\' hoac bien duoc gan 1 {dang} literal')
+    return _sao_mo_rong_tung_nut(phang, ds_ten, ds_loai, ds_a, ds_b, func_name, desc)
+
+
+def _sao_kw_tu_literal(phang: "list[TkvNode]", func_name: "str", desc: "str", nguon: "str") -> "list[TkvNode]":
+    """[khoa, gia_tri, ...] xen ke -> [node `kwarg`]. Khoa trung/khong phai
+    chuoi bi tu choi ro rang (arity tinh khong doan duoc)."""
+    ra: "list[TkvNode]" = []
+    thay: "dict[str,str]" = {}
+    i = 0
+    n = len(phang)
+    while i < n:
+        if i + 1 >= n:
+            raise SyntaxError(f'il_codegen: nguon \'**\' thieu gia tri: \'{desc}\' trong ham \'{func_name}\'')
+        k_node = phang[i]
+        v_node = phang[i + 1]
+        if not _sao_la_khoa_chuoi(k_node):
+            raise SyntaxError(f'il_codegen: nguon \'**\' phai co khoa CHUOI tinh: \'{desc}\' trong ham \'{func_name}\' - \'{nguon}\' co khoa khong phai chuoi literal, nen khong gan duoc vao tham so nao luc bien dich')
+        khoa = _sao_lay_khoa(k_node, func_name, desc, nguon)
+        if khoa in thay:
+            raise SyntaxError(f'il_codegen: nguon \'**\' co khoa trung ten: \'{desc}\' trong ham \'{func_name}\' - \'{khoa}\' xuat hien 2 lan trong \'{nguon}\'')
+        thay[khoa] = "1"
+        ra.append(mk3('kwarg', o_str(khoa), o_nut(v_node)))
+        i += 2
+    return ra
+
+
+def _sao_mo_rong_nut(node: "TkvNode", ds_ten: "list[str]", ds_loai: "list[str]", ds_a: "list[str]", ds_b: "list[str]", func_name: "str", desc: "str") -> "TkvNode":
+    if not la_node(node):
+        return node
+    kind = ekind(node)
+    if kind == "call":
+        return mk3('call', o_str(ea_str(node)), o_ds(_sao_mo_rong_doi_so(eb_ds(node), ds_ten, ds_loai, ds_a, ds_b, func_name, desc)))
+    if kind == "method_call":
+        return mk4('method_call', o_str(ea_str(node)), o_str(eb_str(node)), o_ds(_sao_mo_rong_doi_so(ec_ds(node), ds_ten, ds_loai, ds_a, ds_b, func_name, desc)))
+    if kind == "method_call_expr":
+        co_so = _sao_mo_rong_nut(ea_nut(node), ds_ten, ds_loai, ds_a, ds_b, func_name, desc)
+        return mk4('method_call_expr', o_nut(co_so), o_str(eb_str(node)), o_ds(_sao_mo_rong_doi_so(ec_ds(node), ds_ten, ds_loai, ds_a, ds_b, func_name, desc)))
+    if kind == "index_call":
+        co_so = _sao_mo_rong_nut(ea_nut(node), ds_ten, ds_loai, ds_a, ds_b, func_name, desc)
+        return mk3('index_call', o_nut(co_so), o_ds(_sao_mo_rong_doi_so(eb_ds(node), ds_ten, ds_loai, ds_a, ds_b, func_name, desc)))
+    if kind == "star" or kind == "star2":
+        raise SyntaxError(f'il_codegen: ham \'{func_name}\' - con node \'{kind}\' chua duoc noi; chi dung trong danh sach tham so cua 1 loi goi ham')
+    moi_o: "list[str]" = []
+    for i in range(1, eso_o(node)):
+        t = KHUON.get(kind + ":" + str(i))
+        if t is None or t == "":
+            raise SyntaxError(f'il_codegen: ham \'{func_name}\' - node \'{kind}\' co o {i} khong khai trong KHUON, khong noi star duoc')
+        if t == "str":
+            moi_o.append(o_str(_sao_o_str(node, i)))
+        elif t == "nut":
+            c = _sao_o_nut(node, i)
+            if c is None:
+                moi_o.append(VANG)
+            else:
+                moi_o.append(o_nut(_sao_mo_rong_nut(c, ds_ten, ds_loai, ds_a, ds_b, func_name, desc)))
+        elif t == "ds":
+            moi_o.append(o_ds(_sao_mo_rong_tung_nut(_sao_o_ds(node, i), ds_ten, ds_loai, ds_a, ds_b, func_name, desc)))
+        elif t == "ds_str":
+            moi_o.append(o_ds_str(ea_ds_str(node)))
+        elif t == "i32":
+            moi_o.append(o_i32(eb_i32(node)))
+        else:
+            raise SyntaxError(f'il_codegen: ham \'{func_name}\' - node \'{kind}\' co o kieu \'{t}\' chua biet noi star')
+    if len(moi_o) == 1:
+        return mk2(kind, moi_o[0])
+    if len(moi_o) == 2:
+        return mk3(kind, moi_o[0], moi_o[1])
+    if len(moi_o) == 3:
+        return mk4(kind, moi_o[0], moi_o[1], moi_o[2])
+    raise SyntaxError(f'il_codegen: ham \'{func_name}\' - node \'{kind}\' co {len(moi_o)} o, vuot arity mk (toi da 3 o du lieu)')
+
+
+def _sao_idx_la_khoa_chuoi(stmt: "i32", func_name: "str", ten: "str") -> "TkvNode":
+    """Node khoa cua 1 `idx_assign` - phai la chi so DON bang chuoi literal
+    (`kw["a"] = ...`). Tra node khoa de tai dung cho `kw["k"]`."""
+    idx = lay_ds_nut(stmt, 'idx_nodes')
+    if idx is None or len(idx) != 1 or not _sao_la_khoa_chuoi(idx[0]):
+        raise SyntaxError(f'il_codegen: nguon \'**\' phai co khoa CHUOI tinh: \'{ten}\' trong ham \'{func_name}\' co chi so khong phai chuoi literal - khoa phai tinh duoc luc bien dich')
+    return idx[0]
+
+
+def _sao_ghi_nguon(ten: "str", moi_cau: "list[i32]", func_name: "str", ds_ten: "list[str]", ds_loai: "list[str]", ds_a: "list[str]", ds_b: "list[str]", ds_cau: "list[i32]"):
+    """Kiem chung + ghi 1 bien nguon vao cac danh sach song song.
+
+    `*` nhan `ten = [a, b, c]` (kind `assign_list_literal`, nguyen khoi).
+    `**` nhan dang CHE cua macro `dict_literal`: `ten = {}` (kind
+    `assign_dict_new`) + `ten["k"] = v` (kind `idx_assign`, khoa DON chuoi
+    literal, khoa khong trung) - VA TAT CA phai mang note `__dictlit`
+    (macro danh dau luc che; tu xay dan bang tay khong co dau nen bi loai).
+    Dict RONG (`ten = {}` don doc, khong idx nao) luon nhan - khong co khoa
+    nao thi khong co gi de doan.
+    Nhanh `assign_scalar` + rhs `dict_lit` giu lai de phong (macro luon che
+    truoc parse nen parser khong sinh ra dang do nua). Bat cu dang gan nao
+    khac (gan lai, gan thuong, viet cho khac) deu bi tu choi ro rang.
+    """
+    dinh: "list[i32]" = []
+    for stmt in moi_cau:
+        if lay_str(stmt, 'name') == ten:
+            dinh.append(stmt)
+    if len(dinh) == 0:
+        raise SyntaxError(f'il_codegen: nguon \'*\'/\'**\' phai la list/dict literal: \'{ten}\' trong ham \'{func_name}\' khong duoc gan bang literal nao - so phan tu/khoa phai tinh duoc luc bien dich')
+    if len(dinh) == 1 and kind_of_stmt(dinh[0]) == "assign_list_literal":
+        ds_ten.append(ten)
+        ds_loai.append("list")
+        ds_a.append(_sao_ghep_id(lay_ds_nut(dinh[0], 'elements') or []))
+        ds_b.append("")
+        ds_cau.append(dinh[0])
+        return
+    if len(dinh) == 1 and kind_of_stmt(dinh[0]) == "assign_dict_new":
+        ds_ten.append(ten)
+        ds_loai.append("dict")
+        ds_a.append("")
+        ds_b.append("")
+        ds_cau.append(dinh[0])
+        return
+    dem_new = 0
+    for stmt in dinh:
+        if kind_of_stmt(stmt) == "assign_dict_new":
+            dem_new += 1
+    if dem_new == 1 and len(dinh) >= 1:
+        chi_idx = 1
+        for stmt in dinh:
+            if kind_of_stmt(stmt) != "assign_dict_new" and kind_of_stmt(stmt) != "idx_assign":
+                chi_idx = 0
+        du_dau = 1
+        for stmt in dinh:
+            if not co_ghi_chu(stmt, '__dictlit'):
+                du_dau = 0
+        if chi_idx and du_dau:
+            khoa_id: "list[str]" = []
+            thay: "dict[str,str]" = {}
+            for stmt in dinh:
+                if kind_of_stmt(stmt) != "idx_assign":
+                    continue
+                k_node = _sao_idx_la_khoa_chuoi(stmt, func_name, ten)
+                k_text = _sao_lay_khoa(k_node, func_name, f'lenh \'idx_assign\'', ten)
+                if k_text in thay:
+                    raise SyntaxError(f'il_codegen: nguon \'**\' co khoa trung ten: lenh trong ham \'{func_name}\' - \'{k_text}\' xuat hien 2 lan trong \'{ten}\'')
+                thay[k_text] = "1"
+                khoa_id.append(str(k_node))
+            ds_ten.append(ten)
+            ds_loai.append("dict")
+            ds_a.append(",".join(khoa_id))
+            ds_b.append("")
+            for stmt in dinh:
+                ds_cau.append(stmt)
+            return
+    if len(dinh) > 1:
+        raise SyntaxError(f'il_codegen: nguon \'*\'/\'**\' phai la list/dict literal: \'{ten}\' trong ham \'{func_name}\' bi gan LAI nhieu lan - chi gan 1 literal duoc')
+    dinh_cau = dinh[0]
+    kind = kind_of_stmt(dinh_cau)
+    rhs = lay_nut(dinh_cau, 'rhs_node')
+    if kind == "assign_scalar" and la_node(rhs) and ekind(rhs) == "dict_lit":
+        phang = ea_ds(rhs)
+        khoa: "list[str]" = []
+        tri: "list[str]" = []
+        i = 0
+        n = len(phang)
+        while i < n:
+            if i + 1 >= n:
+                raise SyntaxError(f'il_codegen: nguon \'**\' thieu gia tri: lenh trong ham \'{func_name}\'')
+            if not _sao_la_khoa_chuoi(phang[i]):
+                raise SyntaxError(f'il_codegen: nguon \'**\' phai co khoa CHUOI tinh: lenh trong ham \'{func_name}\' - \'{ten}\' co khoa khong phai chuoi literal')
+            khoa.append(str(phang[i]))
+            tri.append(str(phang[i + 1]))
+            i += 2
+        ds_ten.append(ten)
+        ds_loai.append("dict")
+        ds_a.append(",".join(khoa))
+        ds_b.append(",".join(tri))
+        ds_cau.append(dinh_cau)
+        return
+    raise SyntaxError(f'il_codegen: nguon \'*\'/\'**\' phai la list/dict literal: \'{ten}\' trong ham \'{func_name}\' duoc gan bang \'{kind}\' - chi \'ten = [a, b, c]\' / \'ten = {{"a": 1}}\' (literal MOT dong) moi cho thong tin tinh khi bien dich')
+
+
+def _sao_thu_thap(stmts: "list[i32]", func_name: "str", ds_ten: "list[str]", ds_loai: "list[str]", ds_a: "list[str]", ds_b: "list[str]", ds_cau: "list[i32]"):
+    """{ten bien lam nguon} + kiem chung dinh nghia DON - literal - bat bien.
+
+    Quy tac CHI NHAN 2 dang dinh nghia, va chi mot lan:
+    - `ten = [a, b, c]` (kind `assign_list_literal`) cho `*`;
+    - `ten = {...}` (`assign_scalar` co rhs la node `dict_lit`) cho `**`.
+    Ten do KHONG duoc xuat hien o lenh nao khac (gan lai, doc cho khac,
+    lam bien vong lap...). Moi quy tac deu vi tri: sai 1 lan la sinh ra so
+    tham so sai HOAC gan sai tham so - nen phai CHAC chan.
+    """
+    muon: "dict[str,str]" = {}
+    moi_cau = _sao_moi_cau(stmts)
+    for stmt in moi_cau:
+        for _k, node in items_nut(stmt):
+            _sao_thu_ten(node, muon)
+        for k in _SAO_DS_KHOA:
+            nodes = lay_ds_nut(stmt, k)
+            if nodes is None:
+                continue
+            for node in nodes:
+                _sao_thu_ten(node, muon)
+    if len(muon) == 0:
+        return
+    for ten in muon:
+        _sao_ghi_nguon(ten, moi_cau, func_name, ds_ten, ds_loai, ds_a, ds_b, ds_cau)
+    for stmt in moi_cau:
+        la_dinh = 0
+        for d in ds_cau:
+            if d == stmt:
+                la_dinh = 1
+        if la_dinh:
+            continue
+        van = row_of(stmt)
+        for ten in ds_ten:
+            if _sao_chua_ten(van, ten) and not _sao_cau_giu(stmt, ten):
+                raise SyntaxError(f'il_codegen: nguon \'*\'/\'**\' phai la list/dict literal: \'{ten}\' trong ham \'{func_name}\' bi DUNG o cho khac - chi chu nhan \'ten = [...]\'/\'ten = {{...}}\' roi dung ngay trong \'f(*ten)\'/\'f(**ten)\'')
+
+
+def _sao_mo_rong_cau(stmt: "i32", ds_ten: "list[str]", ds_loai: "list[str]", ds_a: "list[str]", ds_b: "list[str]", func_name: "str") -> "(i32,i32)":
+    """Noi star trong MOT cau lenh. Tra (cau_lenh_moi, co_thay_hang).
+
+    O van ban (lazy) thi ghi de nho dem, giu nguyen id hang. O thang da co
+    gia tri thi tao hang moi bang `thay_nut` - caller viet nguoc vao cha.
+    """
+    moi_cau = stmt
+    thay = 0
+    desc = f'lenh \'{kind_of_stmt(stmt)}\''
+    for key, node in items_nut(stmt):
+        if not _sao_co_sao(node):
+            continue
+        moi_nut = _sao_mo_rong_nut(node, ds_ten, ds_loai, ds_a, ds_b, func_name, desc)
+        if lay_str(moi_cau, key) is None:
+            dat_nut(moi_cau, key, moi_nut)
+        else:
+            moi_cau = thay_nut(moi_cau, key, moi_nut)
+            thay = 1
+    for k in _SAO_DS_KHOA:
+        nodes = lay_ds_nut(moi_cau, k)
+        if nodes is None:
+            continue
+        can = 0
+        for node in nodes:
+            if _sao_co_sao(node):
+                can = 1
+        if not can:
+            continue
+        dat_ds_nut(moi_cau, k, _sao_mo_rong_tung_nut(nodes, ds_ten, ds_loai, ds_a, ds_b, func_name, desc))
+    return (moi_cau, thay)
+
+
+def expand_star_args_in_stmts(stmts: "list[i32]", func_name: "str") -> "i32":
+    """Noi `f(*xs)`/`f(**kw)` thanh N doi so co dinh, 1 LAN cho moi than ham.
+
+    Tra ve 1 neu co sua doi, 0 neu khong dung `*`/`**` nao (nhanh thoat O(n)
+    qua quet star - chuong trinh khong dung star khong mat gi dang ke).
+    Ham luy thua: chay lai lan hai khong con star de noi.
+    """
+    if not _sao_co_sao_trong(stmts):
+        return 0
+    ds_ten: "list[str]" = []
+    ds_loai: "list[str]" = []
+    ds_a: "list[str]" = []
+    ds_b: "list[str]" = []
+    ds_cau: "list[i32]" = []
+    _sao_thu_thap(stmts, func_name, ds_ten, ds_loai, ds_a, ds_b, ds_cau)
+    for lst, i, sub in _sao_khe(stmts):
+        moi_cau, thay = _sao_mo_rong_cau(sub, ds_ten, ds_loai, ds_a, ds_b, func_name)
+        if thay:
+            lst[i] = moi_cau
+    if _sao_co_sao_trong(stmts):
+        raise SyntaxError(f'il_codegen: ham \'{func_name}\' - con node star chua duoc noi sau khi mo rong (o bieu thuc khong duoc quet)')
+    return 1
+
+
+def bootstrap_call_star_args(reg: "Registry"):
+    """Dang ky cua module nay: KHONG dang ky gi.
+
+    Module duoc goi TRUC TIEP tu `_first_pass_collect_locals` cua
+    `il_codegen` (1 dong, dau ham) chu khong qua registry - khong co
+    registry nao khop cho "chay 1 lan tren toan than ham truoc first-pass".
+    Ham nay chi de `bootstrap_all` liet ke day du moi module nhu moi noi.
+    """
+    return

@@ -2,6 +2,10 @@
 """tkv_lexer - tokenizer Python-subset cho self-host parser (P1). Seed tu tools/pytok.tkv (giu bo may quet 4 ca kho), tien hoa hop dong dau ra o P1 Task 2-6."""
 
 
+def _zero_i32() -> "i32":
+    return 0
+
+
 def is_digit(ch: "str") -> "i32":
     """1 neu `ch` la chu so."""
     if ch >= "0":
@@ -523,7 +527,7 @@ def apply_layout(raw: "list[str]", out: "list[str]") -> "i32":
     tokenize_raw() phat thang vao `raw`. Cuoi stream: DEDENT ve 0 + ENDMARKER.
     GIOI HAN: dedent lech muc (vd stack [0,4], gap col=2) KHONG bao loi
     (Python that se TabError) - P2 tu quyet dinh co bao loi hay khong."""
-    stack = [0]
+    stack = [_zero_i32()]
     stack_len = 1
     n = 0
     for row in raw:

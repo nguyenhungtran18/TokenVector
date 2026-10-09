@@ -4393,14 +4393,26 @@ def _expr_ternary(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str
     # nhu dia chi - AccessViolation luc chay, khong phai loi bien dich.
     _compile_cond_tern(cond, scope, out, dtype, ctx)
     out.append(f'    brfalse {false_lbl}')
-    _compile_expr(true_e, scope, out, dtype, ctx)
+    # 2026-10-08: branches phai compile theo NATURAL dtype (kieu first-pass
+    # dung de khai bao temp), KHONG phai outer requested dtype. Neu khac nhau
+    # (vd temp la TkvInt nhung caller can i32 cho call arg), stloc/ldloc lech
+    # layout -> garbage am tham (phat hien qua pick(c ? 10 : 20) tra rac).
+    # Sau khi nap temp, widen ve dtype yeu cau.
+    try:
+        nat = _infer_dtype(ctx.reg, node, scope, ctx.func_table, ctx.records, ctx.record_methods, ctx.nested_closures)
+    except (KeyError, SyntaxError):
+        nat = None
+    if nat is None:
+        nat = dtype
+    _compile_expr(true_e, scope, out, nat, ctx)
     out.append(f'    stloc.s {tmp_idx}')
     out.append(f'    br {end_lbl}')
     out.append(f'  {false_lbl}:')
-    _compile_expr(false_e, scope, out, dtype, ctx)
+    _compile_expr(false_e, scope, out, nat, ctx)
     out.append(f'    stloc.s {tmp_idx}')
     out.append(f'  {end_lbl}:')
     out.append(f'    ldloc.s {tmp_idx}')
+    _widen_if_needed(nat, dtype, out)
     return
 
 
@@ -7814,7 +7826,7 @@ def gen_il_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", wit
     locals_sig = ', '.join([f'{_local_il_type(name, ta, boxed_names, records)} {_il_ident(name)}' for name, ta in locals_decl])
 
     body = []
-    label_counter = [0]
+    label_counter = [_zero_i32()]
     epilogue_lbl = f'{sig.name}_epilogue'
     # 'x or {}' -> ham helper (2026-09-29): dict RONG cung thay bang dict MOI
     # (dung ngu nghia 'or' cua Python); ban tu-host chua dich duoc 'x or {}'
@@ -8125,7 +8137,7 @@ def gen_il_generator_function(reg: "Registry", sig: "TkvSig", body_lines: "list[
         scope.add_local(name, i, ta)
     state_copy_idx = len(field_vars)  # 1 local scratch RIENG, KHONG phai field, chi dung trong 1 lan MoveNext()
 
-    label_counter = [0]
+    label_counter = [_zero_i32()]
     gen_ctx = tao_gen_ctx(reg=reg, class_name=gen_class, current_iltype=elem_iltype,
                       field_vars=field_vars, state_labels=[], next_state=[0])
     ctx = tao_ctx(reg=reg, label_counter=label_counter, prefix=sig.name, tern_temp_of_id=tern_temp_of_id,
