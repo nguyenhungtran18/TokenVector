@@ -344,6 +344,11 @@ class Parser:
         if kind == 'IDENT' and value == 'bool':
             # 'bool' (2026-10-01): luu int32 (nhu moi so sanh) nhung danh dau logic de in True/False
             return TypeAnn('i32', None, logic=1)
+        if kind == 'IDENT' and value == 'None':
+            # 'None' (2026-10-09, record_init_runs_test): `-> "None"` = tra ve
+            # vo huong (Python viet `-> None`). Luu nhu i32 (ham van return 0);
+            # chap nhan de __init__/ham void bien dich duoc.
+            return TypeAnn('i32', None)
         if kind != 'IDENT' or value not in DTYPES:
             if kind == 'IDENT' and value in self.type_aliases:
                 # BI DANH KIEU (`__tkv_type_alias__`, 2026-09-24): thay ten
