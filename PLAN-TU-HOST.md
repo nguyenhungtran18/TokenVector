@@ -1,8 +1,8 @@
 ﻿# PLAN: TokenVector Tá»±-Host Äáº§y Äá»§ (118/118 + NEG 31/31)
 
 **NgÃ y báº¯t Ä‘áº§u**: 08/10/2026
-**Cáº­p nháº­t cuá»‘i**: 09/10/2026 (phien 4)
-**Tráº¡ng thÃ¡i**: Gate ~99/118 (record_method_name_collision 18/18 + fstring_bigint 12/12 + -> None + list_ctor 10/10 + tuple_ctor 10/10), NEG 6/31, IL_IDENTICAL
+**Cáº­p nháº­t cuá»‘i**: 10/10/2026 (phien 5)
+**Tráº¡ng thÃ¡i**: Gate **99/118** (them print(sep=,end=) + key=/reverse=), NEG **10/31**, IL_IDENTICAL
 
 ---
 
@@ -59,6 +59,28 @@
 - [x] **Dang ky codegen + fpw PHAI DU BO** cho stmt kind moi. Parser tao stmt ma khong co codegen -> crash `Object reference not set` khi compile lai tv_gop.
 - [x] **`dist\tkvc-tv.exe` CO THE BI HONG**: sau 2 vong IL KHAC NHAU ma crash `Object reference not set` thi ban thang cap co bug codegen. Khoi phuc: `Copy-Item build\selfhost\g2x.exe dist\tkvc-tv.exe` (ban 08-Oct dung duoc) roi chay `tools\vong.exe` 2 lan (lan 1 co the bao IL KHAC NHAU, lan 2 phai ra IL_IDENTICAL). Chi ton khi nua phien bi crash.
 - [x] **Debug nhanh**: doc `build\selfhost\g2.exe.log` (hoac g1.exe.log) lay loi gan nhat; TAMTAT tung registration de bisect nhanh hon chay lai vong 2 phut.
+
+### 2.0c. BAI HOC KY THUAT (phien 10/10 - port `print` sep/end + `key=`)
+- [x] **`return <ham>()` trong ham khai bao void BI TU CHOI** (`ham 'x': thieu return-type annotation`). Phai tach `<ham>()` roi `return` mot dong rieng.
+- [x] **`{}` chi duoc o ve phai phep gan.** `func_table if func_table else {}` -> loi `'{}' chi dung duoc o ve phai phep gan`. Dung `func_table or {}`.
+- [x] **`Ctx` va `WalkCtx` KHONG cung layout.** Ham nhan `ctx: "Ctx"` ma duoc goi tu PASS 1 doc **SAI OFFSET** (dict rong) ma KHONG bao loi. Ham dung ca 2 giai doan phai nhan `func_table: "dict[str,TkvSig]"` truc tiep. Day la ly do `sum(xs, key=f)` bao "'neg' khong phai bien kieu func" trong khi `map(neg, xs)` lai chay dung.
+- [x] **COMMENT CO NGOAC LECH se bi macro `minmax_2arg` quet trong TEXT** -> `il_codegen: '(' ... khong co ')' dong khop`. Comment chay qua `_expand_macros` TRUOC khi duoc loai bo. Moi dong comment can CAN BANG ngoac.
+- [x] **`il_tupleN_type` tra `class [mscorlib]System.Tuple\`N`** (reference), KHONG phai ValueTuple. `Item2` la PROPERTY -> `callvirt get_Item2()`, `ldfld ::Item2` -> `MissingFieldException` luc chay.
+- [x] **Khong dung dict `{ten: node}` cho kwargs** - kieu node la alias cua so nguyen khong gon nhu `str`. Dung `_kwarg_node(args, ten)` / `_co_kwarg(args, ten)` doc lai tu danh sach tham so.
+- [x] **Mot tinh nang TOI DA 2 DUONG DANH TINH = moi fix phai lam 2 lan.** `sorted/min/max(xs, key=f)` ton tai ca macro text-level `key_agg` (comprehension.tkv) va builtin. Da BO DANG KY macro - giu lai thi moi fix phai lam 2 lan.
+
+### 2.2c. `print(sep=, end=)` - XONG (1b071fc)
+- [x] Port `compile_print` tu Python bootstrap sang TokenVector; tach kwarg bang `ekind`/`ea_str`/`eb_nut`.
+- [x] **Thu tu HAI lenh `Console::Write` la bat buoc**: lenh 1 day het chuoi doi so vua ghep xuong, lenh 2 moi noi `end`. Ghi 1 lenh se bo chuoi doi so tren ngan xep -> `InvalidProgramException` luc chay.
+- [x] `kwargs_enumerate_test` 13/13 PASS. (`enumerate(xs, start)` da duoc macro `enumerate_start` trong comprehension.tkv lo tu truoc - khong can port.)
+
+### 2.2d. `key=` / `reverse=` cho min/max/sum/sorted - PORT XONG, agg_key_test VAN FAIL (2471670)
+- [x] `_has_kwarg` cho macro `minmax_2arg` (truoc day chi dem dau phay nen `max(xs, key=f)` bi viet lai thanh ternary roi parser bao loi tren `=`).
+- [x] Port `_key_func` / `_push_minmax_key` / `_push_sum_key` / `_push_sorted_key` / `_reverse_node_check` / `_temps_sorted` / `_sum_result_dtype`.
+- [x] Port `sort_key_temp_names` + `emit_sort_by_key` + `_ds_phong_so` vao stdlib_functional (dung chung voi `list.sort(key=g)`).
+- [x] BO DANG KY macro `key_agg` (comprehension.tkv).
+- [x] NEG xanh them: `agg_bad_kwarg_name`, `agg_key_signature`, `sorted_reverse_non_bool` (NEG 7/31 -> 10/31).
+- [ ] **CHAN CUOI CUA `agg_key_test`: `xsum = [3, 1, 2]` suy ra `list[i32]` trong `tkvc-tv` nhung `list[int]` trong `tkvc.exe`.** Docstring CLAUDE.md ("a list literal's dtype is `int`") SAI cho compiler tu-host. Do la bug RIENG ve suy kieu list-literal: `list_literal_elem_spec_of` -> `nk.infer_dtype(node 'num')` tra `'i32'` trong khi `_literal_dtype_fallback` cung file tra `'int'`. **BLAST RADIUS LON** (doi element dtype cua moi list-literal) - bat buoc chay gate + parity_probe sau khi sua.
 
 ### 2.1. `list()` constructor - XONG (77ec891)
 - [x] Port `try_rhs_list_call` + `fpw_assign_list_from` + `codegen_assign_list_from`; stmt kind `assign_list_from` khai trong stmt_row.tkv (2 cho); `list_ctor_test` 10/10 PASS, IL_IDENTICAL.
@@ -166,9 +188,9 @@
 |---|---|
 | Phase 0: Generator overflow + Star-args + Record KeyError | âœ… XONG |
 | Phase 1: Ternary-arg garbage | ðŸ”„ ÄANG LÃ€M (fix Ä‘Ã£ implement, chá» vong converge) |
-| Phase 2: Ports (list() + tuple() XONG; con question_ternary, yield from, try/else) | 2/5 |
-| Phase 3: BUILDFAIL + TESTFAIL + ILFAIL | TAM TOT (fstring_bigint 12/12, record_init_runs 9/11) |
-| Phase 4: NEGFAIL 25 cases | â¬œ CHÆ¯A Báº®T Äáº¦U |
+| Phase 2: Ports | 4/6 (list(), tuple(), print sep/end, key=/reverse= XONG; con question_ternary, yield from, try/else) |
+| Phase 3: BUILDFAIL + TESTFAIL + ILFAIL | 99/118, 15 BUILDFAIL + 4 TESTFAIL + 1 ILFAIL |
+| Phase 4: NEGFAIL | 10/31 (3 xanh trong phien 10/10) |
 | Phase 5: Verification + dá»n dáº¹p | â¬œ CHÆ¯A Báº®T Äáº¦U |
 
 **Má»¥c tiÃªu cuá»‘i**: Gate 118/118, NEG 31/31, táº¥t cáº£ gates green, IL_IDENTICAL á»•n Ä‘á»‹nh.
