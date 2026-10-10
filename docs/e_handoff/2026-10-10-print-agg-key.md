@@ -2,7 +2,9 @@
 
 **Nguoi viet**: phien opencode thu 5.
 **Trang thai xuat phat**: gate 98/118, NEG 7/31, vong tu-host IL_IDENTICAL.
-**Trang thai ket thuc**: gate **99/118**, NEG **10/31**, IL_IDENTICAL.
+**Trang thai ket thuc**: gate **101/118**, NEG **10/31**, IL_IDENTICAL.
+Cac gate khac cung xanh: parity_probe 119/119, dang_ky_gate 0 vi pham,
+lint_rules_gate 8/8, ext_smoke 4/4.
 
 ---
 
@@ -11,8 +13,8 @@
 | # | Viec | Ket qua | Commit |
 |---|---|---|---|
 | 1 | Port `print(sep=, end=)` | `kwargs_enumerate_test` 13/13 (truoc BUILDFAIL) | `1b071fc` |
-| 2 | Port `key=`/`reverse=` cho min/max/sum/sorted | 3 NEG xanh, `agg_key_test` **van BUILDFAIL** (xem 2.4) | `2471670` |
-| 3 | Bo macro `key_agg` (trung lap) | giup bo 1 nguon su that | `2471670` |
+| 2 | Port `key=`/`reverse=` cho min/max/sum/sorted | 3 NEG xanh, bo macro `key_agg` trung lap | `2471670` |
+| 3 | Khoi phuc `infer_literal_dtype` trong suy kieu list-literal | **`agg_key_test` 14/14** + `funcvar_test` + `parity_pin_test` | `32246a0` |
 
 **Khong co regression**: 98 test PASS truoc phien van PASS sau phien.
 3 NEG FAIL -> PASS, **0 NEG PASS -> FAIL**.
@@ -85,7 +87,7 @@ va da bo dang ky. Ly do: no viet lai `sorted(xs, key=f)` thanh
 `list[int]` → `fpw_list_sort` bao *"chu ky key ((int) -> int) khong khop"*.
 Hai duong danh tinh cho cung mot tinh nang = moi fix phai lam 2 lan.
 
-### 2.4. `agg_key_test` VAN FAIL — bug RIENG ve suy kieu list-literal
+### 2.4. `xsum = [3, 1, 2]` phai la `list[int]` — DA SUA (32246a0)
 
 Sau khi port xong, 14/14 kiem tra chi con **1** chan:
 ```
@@ -97,39 +99,47 @@ il_codegen: sum(..., key=neg) - chu ky key ((int) -> int)
 - `dist\tkvc.exe` (bootstrap Python): suy ra `list[int]` → khop → PASS 14/14.
 - `dist\tkvc-tv.exe` (tu-host): suy ra `list[i32]` → **khong khop**.
 
-Day la **suy kieu sai list-literal**, KHONG phai loi cua `key=`. Docstring
-`CLAUDE.md` ghi *"a list literal's dtype is `int`"* — cau do **SAI** cho
-compiler tu-host.
+**NGUYEN NHAN** (tim ra sau ~40 phut doc code, khong phai bang may):
+comment *"Bo hai nhanh CHET (2026-09-25)"* trong `list_literal_elem_spec_of`
+dung khi code con la **Python** — khi do `ctx` la dict CPython nen
+`ctx.get('infer_literal_dtype')` luon tra `None`. Trong ban tu-host
+`ctx` la **OBJECT** (`WalkCtx`) va truong do **CO THAT**.
 
-**Da khoanh vong tim** (khong sua duoc an toan trong phien nay):
-`declare_list_literal` → `list_literal_elem_spec_of` →
-`nk.infer_dtype(el, ...)` tra `'i32'` cho node `('num','3')`, trong khi
-`_literal_dtype_fallback` (cua chinh file do) tra `'int'`. Phai so sanh
-`_infer_dtype` nhanh `num` cua `compiler/il_codegen.tkv` voi ban
-`compiler_bootstrap/...` — **blast radius rat lon**: doi element dtype cua
-MOI list-literal trong MOI file.
+Hau qua: moi so nguyen trong list-literal roi xuong
+`_literal_dtype_fallback` = `'i32'`, thay vi `'int'`.
 
-Kiem chung nhanh (2 file, khong can rebuild):
-```
-# tkvc-tv: loi "khong khop dtype phan tu cua list (i32)"
-# tkvc.exe: PASS 14/14
-```
+**SUA**: `NguonKieu` them `infer_literal_dtype` + co hieu `co_infer_literal`;
+`nguon_kieu_walk` (pass 1) truyen `ctx.infer_literal_dtype`/co=1,
+`nguon_kieu_ctx` (pass 2) truyen ham stub/co=0.
+
+**BAT moi**:
+- Tham so kieu `'func'` **KHONG chap nhan `None` lam doi so** → can ham stub.
+- Kiem `func is not None` cung khong an toan → dung co hieu kieu `i32`.
+- Nhanh `contains_float_literal` (int-family → `'f32'`) **VAN CHUA dua lai**:
+  no gan `'f32'` trong khi phan con lai compiler dung `'f64'`. Sua rieng
+  cho nhanh do can mot phien rieng.
+
+**KET QUA**: 99/118 → **101/118**, 0 regression. Xinh them 3 test, ca 3
+cung loai lech int/i32 ma handoff da ghi nho tu truoc.
 
 ---
 
-## 3. Gate hien tai (`%TEMP%\opencode\gate_s5b.log`)
+## 3. Gate hien tai (`%TEMP%\opencode\gate_s6.log`)
 
 ```
-PASS=99  BUILDFAIL=15  TESTFAIL=4  OTHER=0  TIMEOUT=0  ILFAIL=1  NEG=10/31
+PASS=101  BUILDFAIL=13  TESTFAIL=3  OTHER=0  TIMEOUT=0  ILFAIL=1  NEG=10/31
 ```
 
-**TESTFAIL (4)**: `parity_pin_test`, `question_ternary_test`,
-`record_init_runs_test`, `record_lt_test`
-**BUILDFAIL (15)**: `agg_key`, `comprehension_multi_for`, `conditional_expr`,
-`decorator_py_tree`, `funcvar`, `gap_exc_gen`, `generator_yield_from`,
-`meta_format`, `multiline_string`, `nested_literal`, `py_builtins`,
-`set_literal`, `star_args`, `star_kwargs`, `try_except_else`
+**TESTFAIL (3)**: `question_ternary_test`, `record_init_runs_test`,
+`record_lt_test`
+**BUILDFAIL (13)**: `comprehension_multi_for`, `conditional_expr`,
+`decorator_py_tree`, `gap_exc_gen`, `generator_yield_from`, `meta_format`,
+`multiline_string`, `nested_literal`, `py_builtins`, `set_literal`,
+`star_args`, `star_kwargs`, `try_except_else`
 **ILFAIL (1)**: `p6_vectorize_test` → `stobj, _vstart, _tstart`
+
+**Gate khac**: `parity_probe` 119/119 · `dang_ky_gate` 0 vi pham (2014/2014,
+97.6%) · `lint_rules_gate` 8/8 · `ext_smoke` 4/4 · `vong.exe` IL_IDENTICAL
 
 **NEG con lai (21)**: `abs_complex`, `break_in_try_finally`, `cond_mixed_types`,
 `datetime_args`, `del_on_string`, `del_variable`, `delattr_not_supported`,
@@ -146,14 +156,15 @@ PASS=99  BUILDFAIL=15  TESTFAIL=4  OTHER=0  TIMEOUT=0  ILFAIL=1  NEG=10/31
 
 ## 4. Viec tuc an (phien sau) — theo thu tu khuyen nghi
 
-1. **`xsum = [3, 1, 2]` phai la `list[int]`, khong phai `list[i32]`**
-   (mo khoa `agg_key_test`). Bat buoc chay `tools\testkit_gate.ps1` +
-   `tools\parity_probe\run.ps1` sau khi sua — blast radius lon.
-2. **Multi-for comprehension** (`comprehension_multi_for_test`) —
-   macro `_FOR_IN_LIST_RE` chi match 1 vong for.
-3. **`question_ternary_test`** (TESTFAIL) + file chua track
-   `compiler_bootstrap/compiler/il_features/question_ternary.tkv`.
-4. **`p6_vectorize_test` ILFAIL** — vector hoa khong con chay.
+1. **Multi-for comprehension** (`comprehension_multi_for_test`) —
+   macro `_FOR_IN_LIST_RE` chi match 1 vong for; vong thu hai bi long
+   vao ITERABLE.
+2. **`question_ternary_test`** (TESTFAIL 3/9) + file chua track
+   `compiler_bootstrap/compiler/il_features/question_ternary.tkv`
+   (dang nam trong working tree, **chua commit** — xem `git status`).
+3. **`p6_vectorize_test` ILFAIL** — vector hoa khong con chay.
+4. **Nhanh `contains_float_literal`** trong `list_literal_elem_spec_of` van
+   chua dua lai (xem 2.4) — can phien rieng de quyet dinh `'f32'` hay `'f64'`.
 5. Con lai trong `PLAN-TU-HOST.md` Phase 2 (`yield from`, `try/except/else`)
    va Phase 4 (21 NEG).
 

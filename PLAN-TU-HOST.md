@@ -2,7 +2,7 @@
 
 **NgÃ y báº¯t Ä‘áº§u**: 08/10/2026
 **Cáº­p nháº­t cuá»‘i**: 10/10/2026 (phien 5)
-**Tráº¡ng thÃ¡i**: Gate **99/118** (them print(sep=,end=) + key=/reverse=), NEG **10/31**, IL_IDENTICAL
+**Tráº¡ng thÃ¡i**: Gate **101/118** (them print(sep=,end=), key=/reverse=, khoi phuc infer_literal_dtype), NEG **10/31**, IL_IDENTICAL. Gate khac: parity 119/119, dang_ky 0, lint 8/8, ext_smoke 4/4
 
 ---
 
@@ -80,7 +80,14 @@
 - [x] Port `sort_key_temp_names` + `emit_sort_by_key` + `_ds_phong_so` vao stdlib_functional (dung chung voi `list.sort(key=g)`).
 - [x] BO DANG KY macro `key_agg` (comprehension.tkv).
 - [x] NEG xanh them: `agg_bad_kwarg_name`, `agg_key_signature`, `sorted_reverse_non_bool` (NEG 7/31 -> 10/31).
-- [ ] **CHAN CUOI CUA `agg_key_test`: `xsum = [3, 1, 2]` suy ra `list[i32]` trong `tkvc-tv` nhung `list[int]` trong `tkvc.exe`.** Docstring CLAUDE.md ("a list literal's dtype is `int`") SAI cho compiler tu-host. Do la bug RIENG ve suy kieu list-literal: `list_literal_elem_spec_of` -> `nk.infer_dtype(node 'num')` tra `'i32'` trong khi `_literal_dtype_fallback` cung file tra `'int'`. **BLAST RADIUS LON** (doi element dtype cua moi list-literal) - bat buoc chay gate + parity_probe sau khi sua.
+
+### 2.2e. Khoi phuc `infer_literal_dtype` - XONG (32246a0)
+- [x] `xs = [3, 1, 2]` bi khai `List<int32>` thay vi `List<TkvInt>` -> moi noi so sanh chu ky lech 1 don (`sorted(xs, key=f)`).
+- [x] **NGUYEN NHAN**: comment *"Bo hai nhanh CHET (2026-09-25)"* dung khi code con la PYTHON - `ctx` la dict CPython nen `ctx.get('infer_literal_dtype')` luon None. Trong ban tu-host `ctx` la OBJECT (`WalkCtx`) va truong do **CO THAT**.
+- [x] `NguonKieu` + 2 truong (`infer_literal_dtype`, `co_infer_literal`); `nguon_kieu_walk` co=1, `nguon_kieu_ctx` (pass 2) co=0.
+- [x] **BAT**: tham so kieu `'func'` KHONG chap nhan `None` lam doi so -> can ham stub `_infer_literal_khong_co`. Và kiem `func is not None` cung khong an toan -> dung co hieu `i32`.
+- [x] **NHANH `contains_float_literal` (int-family -> `'f32'`) VAN CHUA dua lai** - no gan `'f32'` trong khi phan con lai compiler dung `'f64'`. Sua rieng cho nhanh do can mot phien rieng.
+- [x] Gate 99/118 -> **101/118**, NEG khong doi, 0 regression. Xinh them `agg_key_test` 14/14 + `funcvar_test` + `parity_pin_test` (ca 3 cung loai lech int/i32).
 
 ### 2.1. `list()` constructor - XONG (77ec891)
 - [x] Port `try_rhs_list_call` + `fpw_assign_list_from` + `codegen_assign_list_from`; stmt kind `assign_list_from` khai trong stmt_row.tkv (2 cho); `list_ctor_test` 10/10 PASS, IL_IDENTICAL.
@@ -189,7 +196,7 @@
 | Phase 0: Generator overflow + Star-args + Record KeyError | âœ… XONG |
 | Phase 1: Ternary-arg garbage | ðŸ”„ ÄANG LÃ€M (fix Ä‘Ã£ implement, chá» vong converge) |
 | Phase 2: Ports | 4/6 (list(), tuple(), print sep/end, key=/reverse= XONG; con question_ternary, yield from, try/else) |
-| Phase 3: BUILDFAIL + TESTFAIL + ILFAIL | 99/118, 15 BUILDFAIL + 4 TESTFAIL + 1 ILFAIL |
+| Phase 3: BUILDFAIL + TESTFAIL + ILFAIL | 101/118, 13 BUILDFAIL + 3 TESTFAIL + 1 ILFAIL |
 | Phase 4: NEGFAIL | 10/31 (3 xanh trong phien 10/10) |
 | Phase 5: Verification + dá»n dáº¹p | â¬œ CHÆ¯A Báº®T Äáº¦U |
 
