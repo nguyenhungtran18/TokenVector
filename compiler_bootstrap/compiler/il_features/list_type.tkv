@@ -587,7 +587,7 @@ def _literal_dtype_fallback(el: "TkvNode") -> "str":
 
 
 class NguonKieu:
-    """5 truong suy kieu phan tu list-literal can - CHUNG cho Ctx (codegen) va
+    """6 truong suy kieu phan tu list-literal can - CHUNG cho Ctx (codegen) va
     WalkCtx (first-pass), hai lop KHAC nhau cung mang cac truong nay
     (2026-09-25: truoc day ham nhan thang `ctx` luc la Ctx luc la WalkCtx - ban
     tu-host doc truong theo bo cuc SAI LOP)."""
@@ -596,25 +596,47 @@ class NguonKieu:
     records: "dict[str,list[(str,TkvTypeAnn)]]"
     record_methods: "dict[str,dict[str,Signature]]"
     record_bases: "dict[str,list[str]]"
+    # `co_infer_literal` = 1 chi o PASS 1 (WalkCtx co `infer_literal_dtype`).
+    # Dung CO HIEU thay vi `infer_literal_dtype is not None`: ham kieu
+    # `func` so sanh voi None khong phai kieu ma trinh bien dich tu-host
+    # chap nhan (xem ghi chu tuong tu o `_reverse_node_check`).
+    infer_literal_dtype: "func(TkvNode)->str"
+    co_infer_literal: "i32"
 
     def __init__(self, infer_dtype: "func(TkvNode, Scope, dict[str,TkvSig], TkvTable, TkvTable, TkvTable)->str",
                  func_table: "dict[str,TkvSig]", records: "dict[str,list[(str,TkvTypeAnn)]]",
-                 record_methods: "dict[str,dict[str,Signature]]", record_bases: "dict[str,list[str]]"):
+                 record_methods: "dict[str,dict[str,Signature]]", record_bases: "dict[str,list[str]]",
+                 infer_literal_dtype: "func(TkvNode)->str", co_infer_literal: "i32"):
         self.infer_dtype = infer_dtype
         self.func_table = func_table
         self.records = records
         self.record_methods = record_methods
         self.record_bases = record_bases
+        self.infer_literal_dtype = infer_literal_dtype
+        self.co_infer_literal = co_infer_literal
+
+
+def _infer_literal_khong_co(node: "TkvNode") -> "str":
+    """Ham stub cho pass 2 - `Ctx` khong co `infer_literal_dtype`. KHONG
+    bao gio duoc goi (gu `co_infer_literal`); ton tai chi vi tham so kieu
+    'func' khong chap nhan `None` lam doi so."""
+    return None
 
 
 def nguon_kieu_ctx(ctx: "Ctx") -> "NguonKieu":
+    # Pass 2: `Ctx` KHONG co truong `infer_literal_dtype` -> co = 0.
     return NguonKieu(ctx.infer_dtype, ctx.func_table or {}, ctx.records or {},
-                     ctx.record_methods or {}, ctx.record_bases or {})
+                     ctx.record_methods or {}, ctx.record_bases or {},
+                     _infer_literal_khong_co, 0)
 
 
 def nguon_kieu_walk(ctx: "WalkCtx") -> "NguonKieu":
+    # Pass 1: WalkCtx CO `infer_literal_dtype` (il_dispatch.WalkCtx) - day
+    # la nhanh quyet dinh `[3, 1, 2]` la `list[int]` chu khong phai
+    # `list[i32]` (xem `list_literal_elem_spec_of`).
     return NguonKieu(ctx.infer_dtype, ctx.func_table or {}, ctx.records or {},
-                     ctx.record_methods or {}, ctx.record_bases or {})
+                     ctx.record_methods or {}, ctx.record_bases or {},
+                     ctx.infer_literal_dtype, 1)
 
 
 def list_literal_elem_spec_of(el: "TkvNode", infer_scope: "Scope", nk: "NguonKieu") -> "str":
@@ -638,9 +660,24 @@ def list_literal_elem_spec_of(el: "TkvNode", infer_scope: "Scope", nk: "NguonKie
         d = nk.infer_dtype(el, infer_scope, nk.func_table, nk.records, nk.record_methods, None)
     except (KeyError, SyntaxError):
         d = None
-    # (2026-09-25) Bo hai nhanh CHET: 'contains_float_literal' va
-    # 'infer_literal_dtype' KHONG phai truong cua Ctx - ctx.get(...) luon
-    # tra None duoi CPython nen hai nhanh chua bao gio chay.
+    # Nhanh `infer_literal_dtype` (2026-10-10, Khoi phuc):
+    # comment "Bo hai nhanh CHET" ben duoi (2026-09-25) dung khi code con
+    # la PYTHON bo kha nho thi `ctx` la dict CPython va `ctx.get(...)` lam
+    # vo hieu hoa `infer_literal_dtype`. Trong ban tu-host `ctx` la OBJECT
+    # (`WalkCtx`) va truong do CO THAT - bo nhanh nay ngam say "so nguyen
+    # trong list-literal" xuong 'i32'.
+    #
+    # HAQ QUANG: `xs = [3, 1, 2]` khai List<int32> thay vi List<TkvInt>.
+    # Moi noi doc dtype phan tu cua `xs` roi so sanh chu ky se lech - vi du
+    # `sorted(xs, key=f)` bao "chu ky key ((int) -> int) khong khop dtype
+    # phan tu cua list (i32)". Bootstrap Python tra 'int' o day.
+    if d is None and nk.co_infer_literal == 1:
+        d = nk.infer_literal_dtype(el)
+    # NHANH `contains_float_literal` (int-family -> 'f32') van CHUA dua
+    # lai: no gan 'f32' trong khi phan con lai cua compiler (va
+    # `_literal_dtype_fallback` ben duoi) dung 'f64' cho so thuc. Dua no
+    # ve se tao list[float32] cho `[1, 2.5]` - lech voi phan con lai. Sua
+    # rieng cho nhanh do can mot phien rieng.
     if d is None:
         d = _literal_dtype_fallback(el)
     return d
