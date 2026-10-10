@@ -2,7 +2,7 @@
 
 **NgÃ y báº¯t Ä‘áº§u**: 08/10/2026
 **Cáº­p nháº­t cuá»‘i**: 10/10/2026 (phien 5)
-**Tráº¡ng thÃ¡i**: Gate **102/118** (them print(sep=,end=), key=/reverse=, khoi phuc infer_literal_dtype, multi-for/multi-if comprehension), NEG **10/31**, IL_IDENTICAL. Gate khac: parity 119/119, dang_ky 0, lint 8/8, ext_smoke 4/4
+**Tráº¡ng thÃ¡i**: Gate **103/118** (them print(sep=,end=), key=/reverse=, khoi phuc infer_literal_dtype, multi-for/multi-if comprehension, fix ternary-arg garbage), NEG **10/31**, IL_IDENTICAL. Gate khac: parity 119/119, dang_ky 0, lint 8/8, ext_smoke 4/4
 
 ---
 
@@ -40,12 +40,24 @@
 - [x] NguyÃªn nhÃ¢n: branches compile theo outer dtype (`i32`) nhÆ°ng temp khai bÃ¡o `TkvInt` â†’ layout mismatch â†’ garbage
 - [x] Return "Ä‘Ãºng" do may máº¯n (runtime lenient), call thÃ¬ garbage (strict stack)
 
-### 1.2. Fix Ä‘Ã£ implement (chá» verify) ðŸ”„
-- [x] Sá»­a `_expr_ternary`: infer natural dtype, compile branches theo natural, widen vá» requested sau khi load temp
-- [ ] Cháº¡y vong.exe láº§n 2 Ä‘á»ƒ converge (láº§n 1: IL KHAC NHAU, Ä‘Ã£ upgrade g2 â†’ cáº§n cháº¡y láº¡i)
-- [ ] Verify: `pick(c ? 10 : 20)` tráº£ vá» Ä‘Ãºng 10
-- [ ] Verify: `b.set(c ? 10 : 20)` gÃ¡n Ä‘Ãºng
-- [ ] Cháº¡y `question_ternary_test` â†’ má»¥c tiÃªu 9/9 (hiá»‡n 7/9)
+### 1.2. Fix - XONG (ce33b74, 9/9)
+- [x] Root cause THAT (doc `.il` moi bat): first-pass khai `__ternN` bang
+      `_infer_dtype or _infer_literal_dtype or body_dtype` -> `'int'` (TkvInt),
+      nhung `_expr_ternary` (pass 2) TU SUY LAI bang `_infer_dtype or dtype` -> `'i32'`.
+      => nhanh ghi `ldc.i4 1; stloc.s __ternN`: ghi 4 byte vao slot 16 byte;
+      `ldloc` nap 16 byte cho tham so int32 -> rac am thanh.
+- [x] Fix: `_expr_ternary` dung DUNG chuoi suy luoi cua first-pass (them
+      `_infer_literal_dtype(node)` giua `_infer_dtype` va fallback). 5 dong.
+- [x] Verify: `pick(c ? 10 : 20)` / `pick(c ? 1 : 0)` tra dung; `b.add(c ? 3 : 4)` dung.
+- [x] `question_ternary_test` **9/9**, gate 102/118 -> 103/118, IL_IDENTICAL.
+- [ ] **GHI CHU**: bootstrap Python luu `tern_temp_of_id[id] = (slot, dtype)` de 2 pass
+      KHONG tu suy dtype rieng. Da thu dua sang bang do trong ban tu-host, nhung
+      TokenVector **KHONG cho unpack tuple tu DICT** (`'__hoist603' phai la 1
+      list-cua-tuple`) - phai them 1 bang moi vao ca `Ctx` + `WalkCtx` + 2 noi
+      `tao_ctx`. Chon `cung chuoi suy luoi` - it rui ro hon va du diff doc ngay.
+- [ ] **`question_ternary.tkv` LA CODE CHET**: da git-tracking nhung KHONG co trong
+      `compiler_src/ds_gop.txt` -> KHONG bao gio duoc bien dich. Tinh nang `?`
+      chay qua duong khac (tkv_compile). Hoac wire vao ds_gop.txt, hoac xoa file.
 
 ---
 
@@ -108,11 +120,15 @@
       vao `_result_container_shape` nhung lam gay loi "Index was out of range" -> DA REVERT.
       Giai phap cuoi: parser tra stmt identity, FIRST PASS kiem tra kieu that qua infer_scope.
 
-### 2.2b. `question_ternary` (`c ? a : b`)
-- [ ] Fix module-level code (tuple literals -> ham helper, triple-quote docstrings, typed globals)
-- [ ] Wire `rewrite_question_ternary` vao `tkv_compile.tkv::_parse_program_ast`
-- [ ] Them vao `ds_gop.txt` + `bootstrap_all.tkv`
-- [ ] Rebuild, verify IL_IDENTICAL; chay test -> 9/9 (phu thuoc Phase 1)
+### 2.2b. `question_ternary` (`c ? a : b`) - CHAY DUOC, nhung file la CODE CHET
+- [x] `question_ternary_test` 9/9 (sau khi Phase 1 xong) - tien xu ly `X ? Y : Z`
+      -> `Y if X else Z` chay qua duong `tkv_compile`, KHONG qua file trong `il_features`.
+- [ ] **FILE `il_features/question_ternary.tkv` KHONG duoc bien dich**: da git-tracking
+      nhung KHONG co trong `compiler_src/ds_gop.txt`. Hoac wire vao ds_gop.txt
+      (khi do phai kiem no khong lam trung chuc nang), hoac xoa file de khong
+      nham nguoi doc lai.
+- [ ] `rewrite_question_ternary` can nhac: KHONG doi so dong (ke ca noi dung doc
+      o ben trong nhanh) - `start_line` lech se bao sai choang.
 
 ### 2.3. `tuple()` tu list literal - XONG (d062de9)
 - [x] Port `try_rhs_tuple_call` tu Python bootstrap
@@ -135,32 +151,64 @@
 
 ## Phase 3: CÃ¡c BUILDFAIL ÄÆ¡n Giáº£n â¬œ
 
-### 3.1. Tests dá»… (Æ°u tiÃªn) â¬œ
-- [ ] `multiline_string_test`: triple-quoted strings (`_join_triple_quoted` + TRIPLESTR token)
-- [ ] `nested_literal_test`: nested containers (EXPR_CODEGEN cho dict/set literal)
-- [ ] `comprehension_multi_for_test`: multi-for comprehensions
-- [ ] `kwargs_enumerate_test`: kwargs handling
-- [ ] `agg_key_test`: aggregate key handling
-- [ ] `decorator_py_tree_test`: decorators
-- [ ] `funcvar_test`: func variable (reduce signature check)
-- [ ] `gap_exc_gen_test`: exception in generators
-- [ ] `set_iteration_test`: set iteration
-- [ ] `record_container_field_test`: record vá»›i container fields
-- [ ] `record_init_runs_test`: record `__init__` execution
-- [x] `record_method_name_collision_test`: 18/18 PASS 09/10 (dict.update macro guard via is_known_record_var)
-- [x] `set_iteration_test`: PASS (loop var reuse relax)
-- [x] `record_container_field_test`: PASS (build OK)
-- [x] `fstring_bigint_test`: 12/12 PASS (verified 09/10)
-- [~] `record_init_runs_test`: 9/11 (was BUILDFAIL; -> None accepted; remaining needs _ctor_init_body_il)
-- [~] `decorator_py_tree_test`: builds but decorator signature check fails (int/i32 compat, same as funcvar)
+### 3.1. Tests CON FAIL (sau gate 103/118, 10/10/2026)
 
-### 3.2. TESTFAIL (2) â¬œ
-- [ ] `parity_pin_test`: thÃªm `_emit_container_coerce` (coerce intâ†”i32 cho containers)
-- [ ] `record_lt_test`: kiá»ƒm tra láº¡i (Ä‘Ã£ 16/16 qua probe)
+**BUILDFAIL (11)**: `conditional_expr`, `decorator_py_tree`, `gap_exc_gen`,
+`generator_yield_from`, `meta_format`, `multiline_string`, `nested_literal`,
+`py_builtins`, `set_literal`, `star_args`, `star_kwargs`, `try_except_else`
 
-### 3.3. ILFAIL (1) â¬œ
+**TESTFAIL (2)**:
+- [ ] `record_init_runs_test`: 9/11. Con 2 case ke thua. **CAN PORT `record_init_bodies`** (xem 3.1a)
+- [ ] `record_lt_test`: kiem tra lai (da 16/16 qua probe)
+
+**DA XINH (gio gate 103/118)**:
+- [x] `kwargs_enumerate_test` 13/13 (1b071fc) - `print(sep=,end=)`
+- [x] `agg_key_test` 14/14 (2471670 + 32246a0) - `key=`/`reverse=` + `infer_literal_dtype`
+- [x] `comprehension_multi_for_test` 17/17 (2fcd2b3) - multi-for/multi-if
+- [x] `question_ternary_test` 9/9 (ce33b74) - ternary-arg garbage
+- [x] `funcvar_test`, `parity_pin_test` (32246a0) - cung loai lech int/i32
+- [x] `record_method_name_collision_test` 18/18, `set_iteration_test`,
+      `record_container_field_test`, `fstring_bigint_test` 12/12 (phien truoc)
+
+### 3.1a. PORT `record_init_bodies` (mo khoa `record_init_runs_test`)
+
+`record_init_runs_test` 9/11. 2 case con lai deu o KE THUA:
+- `field cua base (qua __init__ base)`: `Derived(3, 3)` cho `d.p` = 0, can 103.
+  `.ctor` cua `Derived` **CO** goi `call Base::.ctor(p)` (constructor chaining)
+  nhung `.ctor` cua `Base` **khong co than `__init__`** nen chi gan `p = p`
+  thay vi `p + 100`.
+- `field rieng: __init__ con bi bo qua`: `d.q` = 6, can 3.
+
+Bootstrap Python lam 2 chuyen:
+1. Thu thap `(sig_line, body_lines)` cua `__init__` moi record vao dict
+   `record_init_bodies`, truyen vao `gen_record_types`.
+2. `_ctor_init_body_il(...)` bien dich than do bang `gen_il_function(...,
+   self_type_ann=TypeAnn(record_name,'record'))`, tach ra bang
+   `_split_method_il` (locals_line, maxstack, body) roi NOI VAO `.ctor`:
+   `.maxstack`/`.locals` in TRUOC (IL chi cho MOT `.maxstack` moi method),
+   than `__init__` chen SAU khi field da gan (nen doc/ghi duoc `self.<field>`),
+   bo epilogue `ldc.*` + `ret` cuoi vi `.ctor` tra void.
+
+QUY TAC AN TOAN (bat buoc, ghi trong docstring cua ham):
+- Record KE THUA co field cua base -> `base_ctor_len != 0` -> BO QUA than
+  `__init__` (tham so `.ctor` la [field base..., field rieng] con `__init__`
+  chi khai field rieng - 2 danh sach lech nhau, chay se doc SAI tham so).
+- So tham so cua `__init__` phai bang DUNG so field cua `.ctor`, cung kieu
+  theo thu tu - sai thi bo qua than, giu hanh vi cu.
+- `return` trong `__init__` bo bang TEXT truoc khi bien dich; `return` o GIUA
+  than -> bao loi ro rang (bo no se lech hanh vi CPython).
+- `.locals` cua ham bien dich va cua `.ctor` cung danh so bat dau tu 0 va
+  `self` o arg 0 -> NOI TRUC TIEP, khong can dich chi so.
+
+**Trang thai trong ban tu-host: `record_init_bodies` CHUA TON TAI** (grep khong
+ra gi trong `compiler_bootstrap/`) - day la port day du, khong phai sua 1 dong.
+Kiem `gen_il_function` / `parse_typed_signature` co san de goi hay chua truoc
+khi bat dau.
+
+### 3.3. ILFAIL (1)
 - [ ] `p6_vectorize_test`: stobj, _vstart, _tstart (vectorization)
 
+---
 ---
 
 ## Phase 4: Negative Tests (NEG 6/31 â†’ 31/31) â¬œ
@@ -201,9 +249,9 @@
 | Phase | Tráº¡ng thÃ¡i |
 |---|---|
 | Phase 0: Generator overflow + Star-args + Record KeyError | âœ… XONG |
-| Phase 1: Ternary-arg garbage | ðŸ”„ ÄANG LÃ€M (fix Ä‘Ã£ implement, chá» vong converge) |
+| Phase 1: Ternary-arg garbage | **XONG 10/10** (_expr_ternary + _infer_literal_dtype) |
 | Phase 2: Ports | 4/6 (list(), tuple(), print sep/end, key=/reverse= XONG; con question_ternary, yield from, try/else) |
-| Phase 3: BUILDFAIL + TESTFAIL + ILFAIL | 102/118, 12 BUILDFAIL + 3 TESTFAIL + 1 ILFAIL |
+| Phase 3: BUILDFAIL + TESTFAIL + ILFAIL | 103/118, 11 BUILDFAIL + 2 TESTFAIL + 1 ILFAIL |
 | Phase 4: NEGFAIL | 10/31 (3 xanh trong phien 10/10) |
 | Phase 5: Verification + dá»n dáº¹p | â¬œ CHÆ¯A Báº®T Äáº¦U |
 

@@ -2,7 +2,7 @@
 
 **Nguoi viet**: phien opencode thu 5.
 **Trang thai xuat phat**: gate 98/118, NEG 7/31, vong tu-host IL_IDENTICAL.
-**Trang thai ket thuc**: gate **102/118**, NEG **10/31**, IL_IDENTICAL.
+**Trang thai ket thuc**: gate **103/118**, NEG **10/31**, IL_IDENTICAL.
 Cac gate khac cung xanh: parity_probe 119/119, dang_ky_gate 0 vi pham,
 lint_rules_gate 8/8, ext_smoke 4/4.
 
@@ -16,6 +16,7 @@ lint_rules_gate 8/8, ext_smoke 4/4.
 | 2 | Port `key=`/`reverse=` cho min/max/sum/sorted | 3 NEG xanh, bo macro `key_agg` trung lap | `2471670` |
 | 3 | Khoi phuc `infer_literal_dtype` trong suy kieu list-literal | **`agg_key_test` 14/14** + `funcvar_test` + `parity_pin_test` | `32246a0` |
 | 4 | Multi-for + multi-if comprehension (dict/set/if) | **`comprehension_multi_for_test` 17/17** | `2fcd2b3` |
+| 5 | Fix ternary-arg garbage (Phase 1) | **`question_ternary_test` 9/9** | `ce33b74` |
 
 **Khong co regression**: 98 test PASS truoc phien van PASS sau phien.
 3 NEG FAIL -> PASS, **0 NEG PASS -> FAIL**.
@@ -143,15 +144,45 @@ nguon cua no. Fix = `_vi_tri_tu_khoa_ngoai(s, tu)`, ban tong quat cua
 
 ---
 
-## 3. Gate hien tai (`%TEMP%\opencode\gate_s7.log`)
+## 2ter. Ternary-arg garbage — Phase 1 XONG (ce33b74)
+
+`pick(c ? 1 : 0)` tra `1/1` thay vi `1/2`; `b.add(c ? 3 : 4)` tra rac
+(13625968). Lần sửa trước (2026-10-08) đã bị REVERT vì crash native.
+
+**NGUYÊN NHÂN (đọc `.il` mới bắt được):**
+
+| pass | cách suy dtype của `__ternN` | kết quả |
+|---|---|---|
+| first-pass | `_infer_dtype or _infer_literal_dtype or body_dtype` | `'int'` (TkvInt, 16 byte) |
+| `_expr_ternary` (pass 2) | `_infer_dtype or dtype` | `'i32'` |
+
+→ nhánh ghi `ldc.i4 1; stloc.s __ternN`: ghi **4 byte vào slot 16 byte**;
+`ldloc` nạp 16 byte cho tham số `int32` → rác **âm thàm**.
+
+**Sửa**: `_expr_ternary` dùng **đúng chuỗi suy luận** của first-pass (thêm
+`_infer_literal_dtype(node)` giữa `_infer_dtype` và fallback). 5 dòng.
+
+**BẪY đã thử và bỏ**: đưa sang `tern_temp_of_id[id] = (slot, dtype)` như
+Python — TokenVector **không cho unpack tuple từ DICT**
+(`'__hoist603' phai la 1 list-cua-tuple`), phải thêm 1 bảng mới vào cả
+`Ctx` + `WalkCtx` + 2 nơi `tao_ctx`. Chọn cách rẻ hơn.
+
+**PHÁT HIỆN THÊM**: `compiler_bootstrap/compiler/il_features/question_ternary.tkv`
+đã được git-tracking nhưng **KHÔNG có trong `compiler_src/ds_gop.txt`** →
+không bao giờ được biên dịch. Tính năng `?` hiện chạy qua đường khác
+(`tkv_compile`). Cần wire hoặc xóa.
+
+---
+
+## 3. Gate hien tai (`%TEMP%\opencode\gate_s8.log`)
 
 ```
-PASS=102  BUILDFAIL=12  TESTFAIL=3  OTHER=0  TIMEOUT=0  ILFAIL=1  NEG=10/31
+PASS=103  BUILDFAIL=11  TESTFAIL=2  OTHER=0  TIMEOUT=0  ILFAIL=1  NEG=10/31
 ```
 
-**TESTFAIL (3)**: `question_ternary_test`, `record_init_runs_test`,
+**TESTFAIL (2)**: `record_init_runs_test` (9/11 — cần port `record_init_bodies`),
 `record_lt_test`
-**BUILDFAIL (12)**: `conditional_expr`, `decorator_py_tree`, `gap_exc_gen`,
+**BUILDFAIL (11)**: `conditional_expr`, `decorator_py_tree`, `gap_exc_gen`,
 `generator_yield_from`, `meta_format`, `multiline_string`, `nested_literal`,
 `py_builtins`, `set_literal`, `star_args`, `star_kwargs`, `try_except_else`
 **ILFAIL (1)**: `p6_vectorize_test` → `stobj, _vstart, _tstart`
@@ -174,11 +205,10 @@ PASS=102  BUILDFAIL=12  TESTFAIL=3  OTHER=0  TIMEOUT=0  ILFAIL=1  NEG=10/31
 
 ## 4. Viec tuc an (phien sau) — theo thu tu khuyen nghi
 
-1. **`question_ternary_test`** (TESTFAIL 3/9) + file chua track
-   `compiler_bootstrap/compiler/il_features/question_ternary.tkv`
-   (dang nam trong working tree, **chua commit** — xem `git status`).
+1. **Port `record_init_bodies`** (mo khoa `record_init_runs_test`) — recipe day du
+   trong `PLAN-TU-HOST.md` §3.1a. Ban tu-host **CHUA CO** co che nay.
 2. **`p6_vectorize_test` ILFAIL** — vector hoa khong con chay.
-3. **`record_init_runs_test`** — can port `_ctor_init_body_il`.
+3. **Wire hoac xoa `question_ternary.tkv`** — dang la code chet (xem 2ter).
 4. **Nhanh `contains_float_literal`** trong `list_literal_elem_spec_of` van
    chua dua lai (xem 2.4) — can phien rieng de quyet dinh `'f32'` hay `'f64'`.
 5. Con lai trong `PLAN-TU-HOST.md` Phase 2 (`yield from`, `try/except/else`)
