@@ -1831,7 +1831,22 @@ def bootstrap_comprehension(reg: "Registry"):
     register_macro_expander(reg, 'enumerate_start', try_expand_enumerate_start)
     register_macro_expander(reg, 'map_filter', try_expand_map_filter)
     register_macro_expander(reg, 'hoist_agg', try_expand_hoist_agg)
-    register_macro_expander(reg, 'key_agg', try_expand_key_agg)
+    # 'key_agg' (2026-10-10): DA BO DANG KY. Tinh nang khoa sap xep cho
+    # sorted/min/max gio do BUILTIN xu ly (stdlib_aggregates:
+    # `_push_sorted_key` va `_push_minmax_key`), dung y het bootstrap Python.
+    #
+    # Ly do bo: macro text-level nay viet lai `sorted(xs, key=f)` thanh
+    # 1 bien tam roi goi `.sort(key=f)` - va `list(xs)` suy ra 'i32' cho
+    # list[int] (dung coi dau hieu khi scan bang vong lap!), nen
+    # `fpw_list_sort` bao "chu ky key ((int) -> int) khong khop dtype phan
+    # tu cua __k0". Hai duong danh tinh cho cung mot tinh nang la mo
+    # duong sua - giu lai thi moi fix phai lam 2 lan.
+    #
+    # GHI CHU khi sua comment o day: dong comment CUOC chay qua
+    # `_expand_macros` TRUOC khi duoc loai bo, nen moi dong phai CAN
+    # BANG ngoac - comment co ngoac lech se lam macro `minmax_2arg` quet
+    # trong text comment va nem loi "'(' khong co ')' dong khop".
+    #register_macro_expander(reg, 'key_agg', try_expand_key_agg)
     register_macro_expander(reg, 'list_goi_ham', try_expand_list_goi_ham)
     register_macro_expander(reg, 'attr_sau_goi', try_expand_thuoc_tinh_sau_goi)
     register_macro_expander(reg, 'ngoac_dt', try_expand_ngoac_thuoc_tinh_dt)

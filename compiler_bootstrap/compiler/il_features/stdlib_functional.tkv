@@ -20,8 +20,9 @@ scope can 1 TEN, khong phai 1 gia tri tam)."""
 from il_core import nid
 from il_dispatch import register_expr_builtin, register_expr_builtin_nut
 from il_features.list_type import il_list_type, reject_if_elem_ta
+from il_features.tuple_type import il_tupleN_type
 from tkv_types import TypeAnn
-from expr_row import ea_str, eb_ds, ekind
+from expr_row import ea_str, eb_ds, ekind, mk2, o_str
 
 
 __tkv_import__ = ["il_dispatch", "tkv_types"]
@@ -374,6 +375,130 @@ def _filter_result_dtype(args: "list[TkvNode]", scope: "Scope", func_table: "dic
         return _list_arg_ta(args[1], scope, 'filter', 2)[1].dtype
     except SyntaxError:
         return None
+
+
+# ---------------------------------------------------------------------
+# Sap xep theo KHOA - dung chung cho `lst.sort(key=g)` va
+# `sorted(xs, key=f)` / `sorted(xs, reverse=...)`.
+#
+# THUAT TOAN: decorate - sort - undecorate. Khong the dua `Func<K,T>` vao
+# `List<T>.Sort(IComparer<T>)` cua .NET ma khong can sinh 1 method wrapper
+# moi trong IL, nen tao `List<ValueTuple<K,T>>` roi sap xep THAT (Comparer
+# mac dinh so sanh `Item1` = khoa truoc), roi ghi lai phan tu `Item2` ve
+# list goc.
+#
+# **KHONG on dinh** khi trung khoa - khac Python that (Python dung stable
+# sort). Do la han che da biet, khong phai bug an.
+def sort_key_temp_names(key: "i32") -> "(str,str,str)":
+    """3 ten bien an cua `key=<id>` - dung chung giua temps (first pass) va
+    codegen (pass 2), vi 2 pass phai tro CUNG 1 key."""
+    return f'__sortkey{key}_f', f'__sortkey{key}_pairs', f'__sortkey{key}_idx'
+
+
+def _ds_phong_so(n: "i32") -> "str":
+    """'!0, !1, ...' cho `n` tham so cua `Func::Invoke`. Vong lap thay
+    `', '.join(f'!{i}' for i in range(n))`: trinh bien dich tu-host chua
+    chay `range` BEN TRONG mot bieu thuc sinh."""
+    ra = ""
+    i = 0
+    while i < n:
+        if i > 0:
+            ra = ra + ", "
+        ra = ra + "!" + str(i)
+        i = i + 1
+    return ra
+
+
+def emit_sort_by_key(scope: "Scope", out: "list[str]", ctx: "Ctx", list_name: "str", ta: "TypeAnn", key_name: "str", f_ta: "TypeAnn", key: "i32"):
+    """Sap xep list `list_name` (dang la 1 BIEN trong `scope`) theo khoa
+    `key_name(f)`, ghi lai CHINH list do (in-place).
+
+    Bien an: `sort_key_temp_names(key)` - **phai da duoc khai bao o first
+    pass** truoc khi goi ham nay. `list_name` co the la bien an cua chinh
+    no (dung cho `sorted()`, noi tao 1 ban sao roi goi ham nay).
+    """
+    f_n, pairs_n, idx_n = sort_key_temp_names(key)
+    try:
+        f_idx = scope.tra(f_n).idx
+        pairs_idx = scope.tra(pairs_n).idx
+        idx_idx = scope.tra(idx_n).idx
+    except KeyError:
+        raise SyntaxError(
+            f"il_codegen: sap xep theo khoa cho '{list_name}' - khong cap phat duoc "
+            f"bien an (co the do bien chua duoc khai bao la list truoc dong nay)")
+    list_type = ctx.il_type_str(ta, ctx.records)
+    tuple_dtypes = [f_ta.dtype, ta.dtype]
+    tuple_type = il_tupleN_type(tuple_dtypes)
+    pairs_list_type = f'class [mscorlib]System.Collections.Generic.List`1<{tuple_type}>'
+    func_il = ctx.il_type_str(f_ta, ctx.records)
+    n_params = len(f_ta.func_params)
+    invoke_params = _ds_phong_so(n_params)
+
+    ctx.compile_funcref_arg(mk2('var', o_str(key_name)), f_ta, scope, out, ctx)
+    out.append(f'    stloc.s {f_idx}')
+    out.append(f'    newobj instance void {pairs_list_type}::.ctor()')
+    out.append(f'    stloc.s {pairs_idx}')
+
+    ctx.label_counter[0] += 1
+    n = ctx.label_counter[0]
+    build_start = f"{ctx.prefix}_sortkey{n}_build_start"
+    build_end = f"{ctx.prefix}_sortkey{n}_build_end"
+    wb_start = f"{ctx.prefix}_sortkey{n}_wb_start"
+    wb_end = f"{ctx.prefix}_sortkey{n}_wb_end"
+
+    # pairs.Add((f(lst[i]), lst[i])) voi i = 0..len(lst)-1
+    out.append('    ldc.i4.0')
+    out.append(f'    stloc.s {idx_idx}')
+    out.append(f'  {build_start}:')
+    out.append(f'    ldloc.s {idx_idx}')
+    ctx.load_var_ref(list_name, scope, out)
+    out.append(f'    callvirt instance int32 {list_type}::get_Count()')
+    out.append(f'    bge {build_end}')
+    out.append(f'    ldloc.s {pairs_idx}')
+    out.append(f'    ldloc.s {f_idx}')
+    ctx.load_var_ref(list_name, scope, out)
+    out.append(f'    ldloc.s {idx_idx}')
+    out.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
+    out.append(f'    callvirt instance !{n_params} {func_il}::Invoke({invoke_params})')
+    ctx.load_var_ref(list_name, scope, out)
+    out.append(f'    ldloc.s {idx_idx}')
+    out.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
+    out.append(f'    newobj instance void {tuple_type}::.ctor(!0, !1)')
+    out.append(f'    callvirt instance void {pairs_list_type}::Add(!0)')
+    out.append(f'    ldloc.s {idx_idx}')
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append(f'    stloc.s {idx_idx}')
+    out.append(f'    br {build_start}')
+    out.append(f'  {build_end}:')
+
+    # pairs.Sort() - Comparer<ValueTuple<K,T>>.Default so sanh Item1 truoc
+    out.append(f'    ldloc.s {pairs_idx}')
+    out.append(f'    callvirt instance void {pairs_list_type}::Sort()')
+
+    # ghi lai lst[i] = pairs[i].Item2
+    out.append('    ldc.i4.0')
+    out.append(f'    stloc.s {idx_idx}')
+    out.append(f'  {wb_start}:')
+    out.append(f'    ldloc.s {idx_idx}')
+    ctx.load_var_ref(list_name, scope, out)
+    out.append(f'    callvirt instance int32 {list_type}::get_Count()')
+    out.append(f'    bge {wb_end}')
+    ctx.load_var_ref(list_name, scope, out)
+    out.append(f'    ldloc.s {idx_idx}')
+    out.append(f'    ldloc.s {pairs_idx}')
+    out.append(f'    ldloc.s {idx_idx}')
+    out.append(f'    callvirt instance !0 {pairs_list_type}::get_Item(int32)')
+    # `System.Tuple\`N` la REFERENCE - `Item2` la PROPERTY nen phai
+    # `get_Item2()`, KHONG phai `ldfld` (la ValueTuple moi co field).
+    out.append(f'    callvirt instance !1 {tuple_type}::get_Item2()')
+    out.append(f'    callvirt instance void {list_type}::set_Item(int32, !0)')
+    out.append(f'    ldloc.s {idx_idx}')
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append(f'    stloc.s {idx_idx}')
+    out.append(f'    br {wb_start}')
+    out.append(f'  {wb_end}:')
 
 
 def bootstrap_stdlib_functional(reg: "Registry"):
