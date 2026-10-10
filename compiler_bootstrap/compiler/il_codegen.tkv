@@ -4393,16 +4393,20 @@ def _expr_ternary(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str
     # nhu dia chi - AccessViolation luc chay, khong phai loi bien dich.
     _compile_cond_tern(cond, scope, out, dtype, ctx)
     out.append(f'    brfalse {false_lbl}')
-    # 2026-10-08: branches phai compile theo NATURAL dtype (kieu first-pass
-    # dung de khai bao temp), KHONG phai outer requested dtype. Neu khac nhau
-    # (vd temp la TkvInt nhung caller can i32 cho call arg), stloc/ldloc lech
-    # layout -> garbage am tham (phat hien qua pick(c ? 10 : 20) tra rac).
-    # Sau khi nap temp, widen ve dtype yeu cau.
-    try:
-        nat = _infer_dtype(ctx.reg, node, scope, ctx.func_table, ctx.records, ctx.record_methods, ctx.nested_closures)
-    except (KeyError, SyntaxError):
-        nat = None
-    if nat is None:
+    # 2026-10-10: branches phai compile theo dtype CHINH first-pass da dung
+    # de khai bao temp. Chuoi suy luoi **phai trung khop** voi dong 6217
+    # (`_infer_dtype` -> `_infer_literal_dtype` -> body_dtype): truoc day
+    # pass 2 THIEU `_infer_literal_dtype`, nen hang so (`1 if c else 0`)
+    # ra 'i32' o day nhung local `__ternN` o first-pass ra 'int' (TkvInt)
+    # -> `stloc` ghi 4 byte vao slot 16 byte, `ldloc` nap 16 byte cho tham
+    # so int32 -> rac am tham (`pick(c ? 1 : 0)` tra 1/1 thay vi 1/2).
+    # Day cung la ly do bootstrap Python luu `tern_temp_of_id[id] =
+    # (slot, dtype)` - 2 pass KHONG duoc tu suy lai dtype rieng.
+    # Sau khi nap temp, widen ve dtype caller yeu cau.
+    nat = _infer_dtype(ctx.reg, node, scope, ctx.func_table, ctx.records, ctx.record_methods, ctx.nested_closures)
+    if not nat:
+        nat = _infer_literal_dtype(node)
+    if not nat:
         nat = dtype
     _compile_expr(true_e, scope, out, nat, ctx)
     out.append(f'    stloc.s {tmp_idx}')
