@@ -2,7 +2,7 @@
 
 **NgÃ y báº¯t Ä‘áº§u**: 08/10/2026
 **Cáº­p nháº­t cuá»‘i**: 10/10/2026 (phien 5)
-**Tráº¡ng thÃ¡i**: Gate **101/118** (them print(sep=,end=), key=/reverse=, khoi phuc infer_literal_dtype), NEG **10/31**, IL_IDENTICAL. Gate khac: parity 119/119, dang_ky 0, lint 8/8, ext_smoke 4/4
+**Tráº¡ng thÃ¡i**: Gate **102/118** (them print(sep=,end=), key=/reverse=, khoi phuc infer_literal_dtype, multi-for/multi-if comprehension), NEG **10/31**, IL_IDENTICAL. Gate khac: parity 119/119, dang_ky 0, lint 8/8, ext_smoke 4/4
 
 ---
 
@@ -88,6 +88,13 @@
 - [x] **BAT**: tham so kieu `'func'` KHONG chap nhan `None` lam doi so -> can ham stub `_infer_literal_khong_co`. Và kiem `func is not None` cung khong an toan -> dung co hieu `i32`.
 - [x] **NHANH `contains_float_literal` (int-family -> `'f32'`) VAN CHUA dua lai** - no gan `'f32'` trong khi phan con lai compiler dung `'f64'`. Sua rieng cho nhanh do can mot phien rieng.
 - [x] Gate 99/118 -> **101/118**, NEG khong doi, 0 regression. Xinh them `agg_key_test` 14/14 + `funcvar_test` + `parity_pin_test` (ca 3 cung loai lech int/i32).
+
+### 2.2f. Multi-for / multi-if comprehension - XONG (2fcd2b3)
+- [x] List-comp da ho tro N vong `for` tu 2026-09-30, nhung **dict/set** thì khong, va **nhieu `if` tren MOT vong `for`** thi khong.
+- [x] `_mo_rong_nhieu_for` nhan them `kexpr`/`vexpr`/`loai` (`dict`/`set`/`list`) va co hieu `force` (cho phep ca 1 vong `for` khi chi co N dieu kien `if`).
+- [x] `try_expand_dict_or_set_comp` goi `_mo_rong_nhieu_for` cho ca 2 nhanh dict va set.
+- [x] **BAT BUOC: tach `if` phai quet MUC NGOAI, bo qua noi dung chuoi.** `re.search(r'\bif\b', s)` dem nham `if v == "if"` -> sinh ra `if v == ":` (sai cu phap, compiler tu-host crash). Them `_vi_tri_tu_khoa_ngoai(s, tu)` - ban tong quat cua `_vi_tri_for_ngoai`.
+- [x] `comprehension_multi_for_test` 17/17 PASS, 0 regression. Gate 101/118 -> **102/118**.
 
 ### 2.1. `list()` constructor - XONG (77ec891)
 - [x] Port `try_rhs_list_call` + `fpw_assign_list_from` + `codegen_assign_list_from`; stmt kind `assign_list_from` khai trong stmt_row.tkv (2 cho); `list_ctor_test` 10/10 PASS, IL_IDENTICAL.
@@ -196,7 +203,7 @@
 | Phase 0: Generator overflow + Star-args + Record KeyError | âœ… XONG |
 | Phase 1: Ternary-arg garbage | ðŸ”„ ÄANG LÃ€M (fix Ä‘Ã£ implement, chá» vong converge) |
 | Phase 2: Ports | 4/6 (list(), tuple(), print sep/end, key=/reverse= XONG; con question_ternary, yield from, try/else) |
-| Phase 3: BUILDFAIL + TESTFAIL + ILFAIL | 101/118, 13 BUILDFAIL + 3 TESTFAIL + 1 ILFAIL |
+| Phase 3: BUILDFAIL + TESTFAIL + ILFAIL | 102/118, 12 BUILDFAIL + 3 TESTFAIL + 1 ILFAIL |
 | Phase 4: NEGFAIL | 10/31 (3 xanh trong phien 10/10) |
 | Phase 5: Verification + dá»n dáº¹p | â¬œ CHÆ¯A Báº®T Äáº¦U |
 

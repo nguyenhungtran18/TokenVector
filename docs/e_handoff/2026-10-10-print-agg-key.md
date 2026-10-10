@@ -2,7 +2,7 @@
 
 **Nguoi viet**: phien opencode thu 5.
 **Trang thai xuat phat**: gate 98/118, NEG 7/31, vong tu-host IL_IDENTICAL.
-**Trang thai ket thuc**: gate **101/118**, NEG **10/31**, IL_IDENTICAL.
+**Trang thai ket thuc**: gate **102/118**, NEG **10/31**, IL_IDENTICAL.
 Cac gate khac cung xanh: parity_probe 119/119, dang_ky_gate 0 vi pham,
 lint_rules_gate 8/8, ext_smoke 4/4.
 
@@ -15,6 +15,7 @@ lint_rules_gate 8/8, ext_smoke 4/4.
 | 1 | Port `print(sep=, end=)` | `kwargs_enumerate_test` 13/13 (truoc BUILDFAIL) | `1b071fc` |
 | 2 | Port `key=`/`reverse=` cho min/max/sum/sorted | 3 NEG xanh, bo macro `key_agg` trung lap | `2471670` |
 | 3 | Khoi phuc `infer_literal_dtype` trong suy kieu list-literal | **`agg_key_test` 14/14** + `funcvar_test` + `parity_pin_test` | `32246a0` |
+| 4 | Multi-for + multi-if comprehension (dict/set/if) | **`comprehension_multi_for_test` 17/17** | `2fcd2b3` |
 
 **Khong co regression**: 98 test PASS truoc phien van PASS sau phien.
 3 NEG FAIL -> PASS, **0 NEG PASS -> FAIL**.
@@ -124,18 +125,35 @@ cung loai lech int/i32 ma handoff da ghi nho tu truoc.
 
 ---
 
-## 3. Gate hien tai (`%TEMP%\opencode\gate_s6.log`)
+## 2bis. Multi-for / multi-if comprehension (2fcd2b3)
+
+`[x * 10 + y for x in a for y in b]` (list) chay duoc tu 2026-09-30, nhung
+**dict/set** thi khong, va **nhieu `if` tren MOT vong `for`** thi khong:
+
+- dict/set: macro sinh `for x in A for y in B:` (sai cu phap) → parser bao
+  *"ternary dang Python thieu 'else'"*
+- nhieu `if`: `parse_comprehension_inner` chi tach `if` DAU TIEN nen
+  `if x > 5 if x < 8:` tren 1 dong (sai cu phap Python)
+
+**BAT BUOC — tach `if` phai quet MUC NGOAI, bo qua noi dung chuoi.**
+`re.search(r'\bif\b', s)` dem nham `if v == "if"` → sinh ra `if v == ":`.
+Da gap that: compiler tu-host crash `ky vong ']', gap 'for'` tren chinh
+nguon cua no. Fix = `_vi_tri_tu_khoa_ngoai(s, tu)`, ban tong quat cua
+`_vi_tri_for_ngoai`.
+
+---
+
+## 3. Gate hien tai (`%TEMP%\opencode\gate_s7.log`)
 
 ```
-PASS=101  BUILDFAIL=13  TESTFAIL=3  OTHER=0  TIMEOUT=0  ILFAIL=1  NEG=10/31
+PASS=102  BUILDFAIL=12  TESTFAIL=3  OTHER=0  TIMEOUT=0  ILFAIL=1  NEG=10/31
 ```
 
 **TESTFAIL (3)**: `question_ternary_test`, `record_init_runs_test`,
 `record_lt_test`
-**BUILDFAIL (13)**: `comprehension_multi_for`, `conditional_expr`,
-`decorator_py_tree`, `gap_exc_gen`, `generator_yield_from`, `meta_format`,
-`multiline_string`, `nested_literal`, `py_builtins`, `set_literal`,
-`star_args`, `star_kwargs`, `try_except_else`
+**BUILDFAIL (12)**: `conditional_expr`, `decorator_py_tree`, `gap_exc_gen`,
+`generator_yield_from`, `meta_format`, `multiline_string`, `nested_literal`,
+`py_builtins`, `set_literal`, `star_args`, `star_kwargs`, `try_except_else`
 **ILFAIL (1)**: `p6_vectorize_test` → `stobj, _vstart, _tstart`
 
 **Gate khac**: `parity_probe` 119/119 · `dang_ky_gate` 0 vi pham (2014/2014,
@@ -156,13 +174,11 @@ PASS=101  BUILDFAIL=13  TESTFAIL=3  OTHER=0  TIMEOUT=0  ILFAIL=1  NEG=10/31
 
 ## 4. Viec tuc an (phien sau) — theo thu tu khuyen nghi
 
-1. **Multi-for comprehension** (`comprehension_multi_for_test`) —
-   macro `_FOR_IN_LIST_RE` chi match 1 vong for; vong thu hai bi long
-   vao ITERABLE.
-2. **`question_ternary_test`** (TESTFAIL 3/9) + file chua track
+1. **`question_ternary_test`** (TESTFAIL 3/9) + file chua track
    `compiler_bootstrap/compiler/il_features/question_ternary.tkv`
    (dang nam trong working tree, **chua commit** — xem `git status`).
-3. **`p6_vectorize_test` ILFAIL** — vector hoa khong con chay.
+2. **`p6_vectorize_test` ILFAIL** — vector hoa khong con chay.
+3. **`record_init_runs_test`** — can port `_ctor_init_body_il`.
 4. **Nhanh `contains_float_literal`** trong `list_literal_elem_spec_of` van
    chua dua lai (xem 2.4) — can phien rieng de quyet dinh `'f32'` hay `'f64'`.
 5. Con lai trong `PLAN-TU-HOST.md` Phase 2 (`yield from`, `try/except/else`)
