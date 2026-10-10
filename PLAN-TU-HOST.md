@@ -170,40 +170,56 @@
 - [x] `record_method_name_collision_test` 18/18, `set_iteration_test`,
       `record_container_field_test`, `fstring_bigint_test` 12/12 (phien truoc)
 
-### 3.1a. PORT `record_init_bodies` (mo khoa `record_init_runs_test`)
+### 3.1a. `record_init_runs_test` 9/11 - HAI CO CHE KHAC NHAU (can QUYET DINH THOI)
 
-`record_init_runs_test` 9/11. 2 case con lai deu o KE THUA:
-- `field cua base (qua __init__ base)`: `Derived(3, 3)` cho `d.p` = 0, can 103.
-  `.ctor` cua `Derived` **CO** goi `call Base::.ctor(p)` (constructor chaining)
-  nhung `.ctor` cua `Base` **khong co than `__init__`** nen chi gan `p = p`
-  thay vi `p + 100`.
-- `field rieng: __init__ con bi bo qua`: `d.q` = 6, can 3.
+**KHONG phai "port 2 ham".** Khi so sanh 2 compiler da thay ra co che
+`__init__` cua ban tu-host **KHAC HOAN TOAN** voi bootstrap Python:
 
-Bootstrap Python lam 2 chuyen:
-1. Thu thap `(sig_line, body_lines)` cua `__init__` moi record vao dict
-   `record_init_bodies`, truyen vao `gen_record_types`.
-2. `_ctor_init_body_il(...)` bien dich than do bang `gen_il_function(...,
-   self_type_ann=TypeAnn(record_name,'record'))`, tach ra bang
-   `_split_method_il` (locals_line, maxstack, body) roi NOI VAO `.ctor`:
-   `.maxstack`/`.locals` in TRUOC (IL chi cho MOT `.maxstack` moi method),
-   than `__init__` chen SAU khi field da gan (nen doc/ghi duoc `self.<field>`),
-   bo epilogue `ldc.*` + `ret` cuoi vi `.ctor` tra void.
+| | bootstrap Python | ban tu-host (`tkvc-tv`) |
+|---|---|---|
+| noi luu than `__init__` | **inline vao `.ctor`** (`record_init_bodies` + `_ctor_init_body_il`) | **bien dich `__init__` thanh method CIL that** |
+| `__init__` khong chu thich kieu | van inline | **bo qua luc transpile** (`tkv_compile.tkv:1796`) |
+| khoi tao record | `.ctor` (than da inline san) | `newobj .ctor` roi **goi them `__init__`** (`il_codegen.tkv:3916-3920` -> `_tao_record_qua_init`) |
+| record KE THUA | `base_ctor_len != 0` -> BO QUA than `__init__` (diem 4 cua docstring Python) | `Derived.__init__` CHAY, `Base.__init__` **KHONG BAO GIO chay** |
 
-QUY TAC AN TOAN (bat buoc, ghi trong docstring cua ham):
-- Record KE THUA co field cua base -> `base_ctor_len != 0` -> BO QUA than
-  `__init__` (tham so `.ctor` la [field base..., field rieng] con `__init__`
-  chi khai field rieng - 2 danh sach lech nhau, chay se doc SAI tham so).
-- So tham so cua `__init__` phai bang DUNG so field cua `.ctor`, cung kieu
-  theo thu tu - sai thi bo qua than, giu hanh vi cu.
-- `return` trong `__init__` bo bang TEXT truoc khi bien dich; `return` o GIUA
-  than -> bao loi ro rang (bo no se lech hanh vi CPython).
-- `.locals` cua ham bien dich va cua `.ctor` cung danh so bat dau tu 0 va
-  `self` o arg 0 -> NOI TRUC TIEP, khong can dich chi so.
+**2 case con fail deu la hieu qua cua chenh lech nay:**
+- `field cua base (qua __init__ base)`: `Derived(3, 3)` -> `d.p` = 0, can 103.
+  `Base::.ctor` chi gan `p = p` (khong co than inline). Tham so `Base.__init__`
+  co chu thich kieu nen no la method THAT - nhung `_expr_call` chi goi
+  `__init__` cua class DUNG record do, khong goi method cua base.
+- `field rieng: __init__ con bi bo qua`: `d.q` = 6, can 3. TV goi
+  `Derived.__init__` (theo co che "method that"), Python bo qua no.
 
-**Trang thai trong ban tu-host: `record_init_bodies` CHUA TON TAI** (grep khong
-ra gi trong `compiler_bootstrap/`) - day la port day du, khong phai sua 1 dong.
-Kiem `gen_il_function` / `parse_typed_signature` co san de goi hay chua truoc
-khi bat dau.
+**=> KHONG THE sua bang patch nho.** Phai chon 1 trong 2:
+
+**(A) Chuyen TV sang co che "inline vao `.ctor`" (giong Python).**
+- Thu thap `(sig_line, body_lines)` cua `__init__` o `tkv_compile.tkv:1796`
+  (noi dang `continue`) vao dict `record_init_bodies`.
+- Port `_split_method_il` + `_ctor_init_body_il` tu
+  `compiler/il_codegen.tkv:6296` va `:6338`.
+- `gen_record_types` nhan `record_init_bodies`, in `.maxstack`/`.locals` TRUOC,
+  noi than `__init__` SAU khi field da gan, bo epilogue `ret`.
+- **QUAN TRONG**: khi than da inline vao `.ctor` thi `_expr_call` KHONG duoc
+  goi them `__init__` nua - neu khong, than chay 2 lan. Va phai bo qua khi
+  `base_ctor_len != 0`.
+- **RUI RO**: doi moi `.class` cua record -> IL diff lon tren toan bo file.
+  Phai chay gate day du + parity probe. 9/11 -> 11/11 neu dung.
+
+**(B) Sua 2 case ke thua theo co che hien tai (it xam nhap hon).**
+- Cho `_expr_call` goi `__init__` cua class CHA theo chuoi (constructor
+  chaining) khi class con ke thua record khac.
+- Skip `Derived.__init__` khi so tham so `.ctor` > so tham so `__init__`.
+- **NHUNG**: phai khop bo phan "9/11 con lai" cua `record_init_runs_test`, va
+  test co the dang mo ta CHINH xu huong hien tai - doc lai docstring test
+  truoc khi chon (hien no ghi "`.ctor` base chay... than `__init__` cua class
+  con thi BI BO QUA", tuc mo ta co che Python).
+
+**KHUYEN NGHI: (A)** - khop CPython, va 2 case con lai cua test chinh la
+thuoc ve (A). Nhung can phien rieng vi lam doi IL cua moi record.
+
+**Kiem truoc khi bat dau**: `gen_il_function` va `parse_typed_signature` co
+san va goi duoc tu `gen_record_types` khong; `DinhNghiaLop` (tkv_compile.tkv:1642)
+can them 1 field de giu `init_raw`.
 
 ### 3.3. ILFAIL (1)
 - [ ] `p6_vectorize_test`: stobj, _vstart, _tstart (vectorization)

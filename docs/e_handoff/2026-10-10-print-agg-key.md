@@ -205,8 +205,10 @@ PASS=103  BUILDFAIL=11  TESTFAIL=2  OTHER=0  TIMEOUT=0  ILFAIL=1  NEG=10/31
 
 ## 4. Viec tuc an (phien sau) — theo thu tu khuyen nghi
 
-1. **Port `record_init_bodies`** (mo khoa `record_init_runs_test`) — recipe day du
-   trong `PLAN-TU-HOST.md` §3.1a. Ban tu-host **CHUA CO** co che nay.
+1. **`record_init_runs_test`** — KHONG phai "port 2 ham". Hai compiler dung hai
+   co che `__init__` KHAC NHAU (bang so sanh trong `PLAN-TU-HOST.md` §3.1a).
+   Phai **chon (A) chuyen sang "inline vao `.ctor`"** hoac **(B) sua co che
+   ke thua**. Phai la phien rieng vi (A) doi IL cua moi record.
 2. **`p6_vectorize_test` ILFAIL** — vector hoa khong con chay.
 3. **Wire hoac xoa `question_ternary.tkv`** — dang la code chet (xem 2ter).
 4. **Nhanh `contains_float_literal`** trong `list_literal_elem_spec_of` van
