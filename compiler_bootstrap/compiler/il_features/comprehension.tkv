@@ -72,8 +72,61 @@ def parse_comprehension_inner(inner: "str") -> "dict[str,str]":
     return {'expr': head, 'var_part': var_part, 'iterable': iterable, 'cond': cond}
 
 
-def _mo_rong_nhieu_for(name: "str", inner: "str", ind: "str") -> "str":
-    """'[E for a in A [if C] for b in B [if C2] ...]' -> 'name = []' + cac vong for/if long nhau + append."""
+def _vi_tri_tu_khoa_ngoai(s: "str", tu: "str") -> "i32":
+    """Vi tri tu khoa `tu` o MUC NGOAI (khong trong ngoac long, khong trong
+    chuoi); -1 neu khong co. Ban tong quat cua `_vi_tri_for_ngoai` -
+    can khi tach theo `if` vi `if v == "if"` co chuoi chua tu khoa.
+    """
+    sau = 0
+    nhay = ''
+    i = 0
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[' or c == '{':
+            sau += 1
+        elif c == ')' or c == ']' or c == '}':
+            sau -= 1
+        elif sau == 0 and s.startswith(tu, i):
+            truoc_ok = i == 0 or not _la_ky_tu_ten(s[i - 1])
+            sau_ok = i + len(tu) >= n or not _la_ky_tu_ten(s[i + len(tu)])
+            if truoc_ok and sau_ok:
+                return i
+        i += 1
+    return -1
+
+
+def _cond_nhieu_if(cond: "str") -> "i32":
+    """1 neu `cond` (sau khi da tach `if` dau tien) van chua mot `if`
+    nua - `[x for x in y if p if q]` phai thanh 2 khoi `if` LONG NHAU
+    chu khong phai `if p if q` tren 1 dong (dong do la sai cu phap Python).
+    `cond` rong -> 0.
+
+    QUET NGOAI CHUOI: `if v == "if"` co tu khoa nam TRONG chuoi - dung
+    regex `\bif\b` se dem nham va sinh ra `if v == ":` (sai cu phap).
+    """
+    if cond == "":
+        return 0
+    if _vi_tri_tu_khoa_ngoai(cond, 'if') < 0:
+        return 0
+    return 1
+
+
+def _mo_rong_nhieu_for(name: "str", inner: "str", ind: "str", kexpr: "str", vexpr: "str", loai: "str", force: "i32"=0) -> "str":
+    """'[E for a in A [if C] for b in B [if C2] ...]' -> 'name = []' + cac vong for/if long nhau + append.
+
+    `kexpr` rong -> LIST/SET (`name.append(E)` / `name.add(E)`, chon theo
+    `loai`); `kexpr` khac rong -> DICT (`name[kexpr] = vexpr`).
+    `loai` = 'list' | 'set' | 'dict'. `force` = 1 cho phep CA 1 vong `for`
+    (dung khi chi co N dieu kien `if`, xem `_cond_nhieu_if`).
+    """
     vt = _vi_tri_for_ngoai(inner)
     head = inner[:vt].strip()
     rest = inner[vt + 3:]
@@ -96,36 +149,49 @@ def _mo_rong_nhieu_for(name: "str", inner: "str", ind: "str") -> "str":
         iterable = tail
         cds = ''
         rem = tail
-        mx_if = re.search(r'\bif\b', rem)
-        if mx_if:
-            iterable = rem[:mx_if.start()].strip()
-            rem = rem[mx_if.end():]
-            mx_if = re.search(r'\bif\b', rem)
-            while mx_if:
-                cds = cds + rem[:mx_if.start()].strip() + '@@'
-                rem = rem[mx_if.end():]
-                mx_if = re.search(r'\bif\b', rem)
+        # Tach `if` o MUC NGOAI (khong phai regex thuan): dieu kien co the
+        # chua chuoi nhieu `if` (`if v == "if"`).
+        vt_if = _vi_tri_tu_khoa_ngoai(rem, 'if')
+        if vt_if >= 0:
+            iterable = rem[:vt_if].strip()
+            rem = rem[vt_if + 2:]
+            vt_if = _vi_tri_tu_khoa_ngoai(rem, 'if')
+            while vt_if >= 0:
+                cds = cds + rem[:vt_if].strip() + '@@'
+                rem = rem[vt_if + 2:]
+                vt_if = _vi_tri_tu_khoa_ngoai(rem, 'if')
             cds = cds + rem.strip() + '@@'
         m_var.append(seg[:mx_in.start()].strip())
         m_iter.append(iterable)
         m_cond.append(cds)
-    if len(m_var) < 3:
+    if len(m_var) < 3 and force == 0:
         return None
     dich = name
     if re.search(r'\b' + name + r'\b', inner):
         dich = _ten_tam_comp()
-    ra = [ind + dich + ' = []']
+    if loai == 'dict':
+        ra = [ind + dich + ' = {}']
+    elif loai == 'set':
+        ra = [ind + dich + ' = set()']
+    else:
+        ra = [ind + dich + ' = []']
     sau = ind
     k = 1
     while k < len(m_var):
         ra.append(sau + 'for ' + m_var[k] + ' in ' + m_iter[k] + ':')
         sau = sau + '    '
-        for cd in m_cond[k].split('@@'):
+        cd_list = m_cond[k].split('@@')
+        for cd in cd_list:
             if cd != '':
                 ra.append(sau + 'if ' + cd + ':')
                 sau = sau + '    '
         k += 1
-    ra.append(sau + dich + '.append(' + head + ')')
+    if loai == 'dict':
+        ra.append(sau + dich + '[' + kexpr + '] = ' + vexpr)
+    elif loai == 'set':
+        ra.append(sau + dich + '.add(' + head + ')')
+    else:
+        ra.append(sau + dich + '.append(' + head + ')')
     if dich != name:
         ra.append(ind + name + ' = ' + dich)
     return chr(10).join(ra)
@@ -147,8 +213,15 @@ def try_expand_list_comp(line: "str") -> "str":
     if not parsed:
         return None
     # nhieu menh de for: '[E for a in A for b in B if C]' (2026-09-30) -> vong for long nhau
+    # Nhieu dieu kien `if` tren MOT vong for ('[x for x in y if p if q]', 2026-10-10)
+    # cung phai di qua day - nhanh duoi chi sinh `if p if q:` tren 1 dong.
+    _force = 0
     if _vi_tri_for_ngoai(parsed['iterable']) >= 0 or (parsed['cond'] is not None and _vi_tri_for_ngoai(parsed['cond']) >= 0):
-        nhieu = _mo_rong_nhieu_for(name, inner, ind)
+        _force = 1
+    elif _cond_nhieu_if(parsed['cond'] if parsed['cond'] is not None else ""):
+        _force = 1
+    if _force == 1:
+        nhieu = _mo_rong_nhieu_for(name, inner, ind, "", "", "list", 1)
         if nhieu is not None:
             return nhieu
     # nhieu dich 'for a, b in X' (2026-09-26): de macro for_in_kvlist/ntuple lo
@@ -190,6 +263,19 @@ def try_expand_dict_or_set_comp(line: "str") -> "str":
     if parsed and ':' in parsed['expr'] and '?' not in parsed['expr']:
         kexpr, vexpr = parsed['expr'].split(':', 1)
         kexpr, vexpr = kexpr.strip(), vexpr.strip()
+        # N vong `for` long nhau (2026-10-10): truoc day chi 1 vong - phan
+        # `for` thu 2 bi lan vao ITERABLE nen macro sinh ra
+        # `for x in A for y in B:` (sai cu phap, parser bao loi "ternary
+        # dang Python thieu 'else'"). Giong nhanh list-comp o tren.
+        _force = 0
+        if _vi_tri_for_ngoai(parsed['iterable']) >= 0 or (parsed['cond'] is not None and _vi_tri_for_ngoai(parsed['cond']) >= 0):
+            _force = 1
+        elif _cond_nhieu_if(parsed['cond'] if parsed['cond'] is not None else ""):
+            _force = 1
+        if _force == 1:
+            nhieu = _mo_rong_nhieu_for(name, inner, ind, kexpr, vexpr, "dict", 1)
+            if nhieu is not None:
+                return nhieu
         var_part, iterable, cond = parsed['var_part'], parsed['iterable'], parsed['cond']
         lines_out = [f'{ind}{name} = {{}}', f'{ind}for {var_part} in {iterable}:']
         if cond:
@@ -201,6 +287,14 @@ def try_expand_dict_or_set_comp(line: "str") -> "str":
     if parsed and ',' not in parsed['var_part']:
         expr, var, iterable, cond = (parsed['expr'], parsed['var_part'],
                                       parsed['iterable'], parsed['cond'])
+        if _vi_tri_for_ngoai(parsed['iterable']) >= 0 or (parsed['cond'] is not None and _vi_tri_for_ngoai(parsed['cond']) >= 0):
+            nhieu = _mo_rong_nhieu_for(name, inner, ind, "", "", "set", 1)
+            if nhieu is not None:
+                return nhieu
+        elif _cond_nhieu_if(parsed['cond'] if parsed['cond'] is not None else ""):
+            nhieu = _mo_rong_nhieu_for(name, inner, ind, "", "", "set", 1)
+            if nhieu is not None:
+                return nhieu
         lines_out = [f'{ind}{name} = set()', f'{ind}for {var} in {iterable}:']
         if cond:
             lines_out.append(f'{ind}    if {cond}:')
