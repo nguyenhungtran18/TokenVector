@@ -210,6 +210,7 @@ def rename_reserved_identifiers(line: "str") -> "str":
 _EXPR_TOKEN_RE = re.compile(r'''(?x)
     \s*(?:
         (?P<BYTES>b"(?:[^"\\]|\\.)*")
+      | (?P<TRIPLESTR>"""(?:[^"\\]|\\.|"(?!"") )*""")
       | (?P<RAWSTR>[rR](?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'))
       | (?P<STR>"(?:[^"\\]|\\.)*")
       | (?P<STRDON>'(?:[^'\\]|\\.)*')
@@ -324,7 +325,7 @@ def _chuoi_don_sang_kep(raw: "str") -> "str":
     return NHAY_KEP + ''.join(ra) + NHAY_KEP
 
 
-_EXPR_NHOM: "list[str]" = ['BYTES', 'RAWSTR', 'STR', 'STRDON', 'FSTRDON', 'NUM', 'ID', 'CMPOP', 'POW', 'FLOORDIV', 'SHIFT', 'WALRUS', 'OP']
+_EXPR_NHOM: "list[str]" = ['BYTES', 'TRIPLESTR', 'RAWSTR', 'STR', 'STRDON', 'FSTRDON', 'NUM', 'ID', 'CMPOP', 'POW', 'FLOORDIV', 'SHIFT', 'WALRUS', 'OP']
 
 
 def _nhom_khop_expr(m: "match") -> "str":
@@ -767,6 +768,14 @@ class _ExprParser:
                 self.advance()  # '='
                 expr = self.parse_expr()
                 return mk3('kwarg', o_str(v), o_nut(expr))
+        if k == 'OP' and (v == '*' or v == '**'):
+            # Star-args (2026-09-29): `*`/`**` o DAU 1 tham so -> node
+            # ('star', expr)/('star2', expr) - chi la hinh thuc thoi, de
+            # `il_features/call_star_args.tkv` noi thanh N doi so co dinh.
+            self.advance()
+            expr = self.parse_expr()
+            ten_star = 'star' if v == '*' else 'star2'
+            return mk2(ten_star, o_nut(expr))
         return self.parse_expr()
 
     def parse_factor(self) -> "TkvNode":
@@ -821,12 +830,20 @@ class _ExprParser:
         """Doc '(' <bieu thuc> [',' ...] ')' - dung chung cho hau to goi.
 
         Tach ra tu than _parse_postfix_method de nhanh 'index_call' dung
-        LAI dung mot logic, khong chep doi."""
+        LAI dung mot logic, khong chep doi.
+
+        Dung `_parse_one_call_arg` (2026-10-11) chu KHONG dung `parse_expr`
+        truc tiep: nhanh nay la noi goi method tren BIEU THUC
+        ('Box(5).two(a=1)', '"sep".join(x)'), va truoc do KHONG doc duoc
+        keyword argument - `expr.meth(k=v)` bao loi "ky vong ')', gap '='"
+        trong khi `obj.meth(k=v)` (nhanh 'method_call') va `f(k=v)` (nhanh
+        'call') deu binh thuong. Ca 3 duong nay gio dung CHUNG mot parser
+        tham so, nen `**` noi thanh `k=v` cung di qua day mot lan."""
         self.expect_op('(')
         args = []
         k, v = self.peek()
         if not (k == 'OP' and v == ')'):
-            args.append(self.parse_expr())
+            args.append(self._parse_one_call_arg())
             while True:
                 k2, v2 = self.peek()
                 if k2 == 'OP' and v2 == ',':
@@ -835,7 +852,7 @@ class _ExprParser:
                     kd, vd = self.peek()
                     if kd == 'OP' and vd == ')':
                         break
-                    args.append(self.parse_expr())
+                    args.append(self._parse_one_call_arg())
                 else:
                     break
         self.expect_op(')')
@@ -929,6 +946,16 @@ class _ExprParser:
             return mk2('list_literal', o_ds(elements))
         if k == 'BYTES':
             return mk2('bytes_lit', o_str(v))  # v giu nguyen tien to 'b' + dau ngoac kep - xem bytes_type.py's parse_bytes_literal
+        if k == 'TRIPLESTR':
+            # 3 dau nhay kep -> 1 chuoi thay (xem _join_triple_quoted).
+            # KHONG giai ma escape: `ldstr` tu hieu, giai ma o day se lam
+            # file .il co chuoi nhieu dong.
+            _body = v[3:-3]
+            _body = _body.replace('\r\n', '\n').replace('\r', '\n')
+            _body = _body.replace('\n', '\\n')
+            _body = _body.replace('\\"', '\\x00').replace('"', '\\"')
+            _body = _body.replace('\\x00', '\\"')
+            return mk2('str_lit', o_str('"' + _body + '"'))
         if k == 'STR':
             # NOI CHUOI NGAM: hai chuoi hang canh nhau (`"a" "b"` hoac
             # xuong dong trong ngoac) la MOT chuoi trong Python. Truoc

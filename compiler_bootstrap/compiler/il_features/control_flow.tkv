@@ -32,7 +32,7 @@ from il_dispatch import (
     register_first_pass_walk, register_first_pass_prescan,
     register_assign_rhs_parser,
 )
-from stmt_row import body_of, dat_ghi_chu, intern, intern_body, lay_ds_str, lay_ghi_chu, lay_handlers_exc, lay_handlers_vung, lay_i32, lay_nut, lay_str, lay_than, make1, make2, make3, make4, make5, make6
+from stmt_row import body_of, dat_ghi_chu, intern, intern_body, lay_ds_str, lay_ghi_chu, lay_handlers_exc, lay_handlers_vung, lay_i32, lay_nut, lay_str, lay_than, make1, make2, make3, make4, make5, make6, make7
 from il_features.int_type import emit_is_zero
 from il_features.regex_match import emit_success
 from il_features.chan_ly import container_var_ta, la_chuoi_vo_huong, nap_container_khong_rong
@@ -41,6 +41,9 @@ from expr_row import ea_nut, ea_str, eb_ds, eb_nut, eb_str, ec_ds, ec_nut, ekind
 from il_features.tuple_type import il_tupleN_type
 import il_features.int_type as _int_type
 import il_features.regex_match as _regex_match
+
+# Kenh doc gia tri cua `return <v>` trong generator (khong co StopIteration).
+GEN_RET_NAME = '__gen_ret__'
 
 _FOR_RANGE_RE = re.compile(r'^for\s+(\w+)\s+in\s+range\((.+)\)\s*:\s*$')
 _WHILE_RE = re.compile(r'^while\s+(.+):\s*$')
@@ -698,6 +701,26 @@ def try_parse_while(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos:
                                  str(intern_body(body)))), pos
 
 
+def _co_break_thoat_khoi_vung(stmts: "list[i32]") -> "i32":
+    """True neu co break/continue THUC SU thoat khoi vung protected hien tai.
+
+    KHAC `_contains_break_continue`: khong quet than for/while long ben trong
+    (break o do thuoc ve vong lap con), va cung khong quet try long ben trong
+    (tranh doc bang handler trong luc parse - no la nguyen nhan gay
+    AccessViolation truoc day). Chi quet truc tiep va than 'if' long ngay."""
+    for stmt in stmts:
+        k = lay_str(stmt, 'kind')
+        if k == 'break' or k == 'continue':
+            return True
+        if k == 'for' or k == 'while' or k == 'try':
+            continue
+        for sub_key in ('body', 'else_body'):
+            sub = lay_than(stmt, sub_key)
+            if sub and _co_break_thoat_khoi_vung(sub):
+                return True
+    return False
+
+
 def try_parse_try(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
     if not _TRY_RE.match(line):
         return None
@@ -754,6 +777,21 @@ def try_parse_try(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "
         else:
             break
 
+    # 'else:' cua 'try' (2026-09-28) - chay khi KHONG co exception nao duoc
+    # bat. Thu tu dung: giao nhu Python, 'else' nam sau TAT CA 'except' va
+    # TRUOC 'finally'. Vong while o tren tu `break` ra o day vi cac regex
+    # 'except' khong khop 'else:'.
+    else_body = None
+    if pos < len(lines) and lines[pos][0] == indent_level and _ELSE_RE.match(lines[pos][1]):
+        if not handlers:
+            raise SyntaxError(
+                "il_codegen: 'try/else' khong co 'except' nao - 'else' chi co "
+                "nghia khi co it nhat 1 'except' (Python that cung tu choi)")
+        pos += 1
+        if pos >= len(lines) or lines[pos][0] <= indent_level:
+            raise SyntaxError("il_codegen: 'else:' cua 'try' khong co than khoi (block rong)")
+        else_body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+
     finally_body = None
     if pos < len(lines) and lines[pos][0] == indent_level and _FINALLY_RE.match(lines[pos][1]):
         pos += 1
@@ -780,17 +818,35 @@ def try_parse_try(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "
             "(CIL khong cho phep 'br' thuan tuy thoat khoi finally, chi 'endfinally' "
             "- ke ca khi vong lap dinh nghia BEN TRONG finally cung chua phan biet "
             "duoc o buoc nay, tu choi RONG HON can thiet de dam bao an toan)")
+    if else_body is not None and finally_body is not None and _contains_break_continue(else_body):
+        # Cung ly do voi 'finally' o tren: khi co 'finally', than 'else' duoc
+        # sinh BEN TRONG .try cua finally (de no chay truoc khi finally), nen
+        # 'br' thuan cua 'break' se thoat khoi mot vung protected - CIL tu choi.
+        raise SyntaxError(
+            "il_codegen: 'break'/'continue' trong 'else' cua 'try' KHI CO "
+            "'finally:' chua duoc ho tro - CIL khong cho phep 'br' thuan thoat "
+            "khoi vung .try bao vuc cua finally (chi 'leave' duoc phep)")
+    if finally_body is not None and _co_break_thoat_khoi_vung(body):
+        # `break`/`continue` THUC SU thuoc vong lap ngoai try khi co
+        # 'finally' se thoat bang `br` ra khoi vung .try bao vuc cua finally -
+        # CIL tu choi. Break trong vong lap long ben trong thi KHONG thuoc
+        # nhanh nay (xem `_co_break_thoat_khoi_vung`).
+        raise SyntaxError(
+            "il_codegen: 'break'/'continue' trong than 'try' khi co 'finally:' "
+            "chua duoc ho tro - CIL khong cho phep 'br' thuan thoat khoi vung "
+            ".try bao vuc cua finally (chi 'leave' duoc phep). Truoc khi chan, "
+            "truong hop nay sinh IL khong hop le va nem InvalidProgramException "
+            "LUC CHAY. Cach vong: bo 'finally' hoac dat 'break' o ngoai vong.")
     # `handlers` la danh sach cap (ten|None, than) -> hai truong SONG SONG:
     # ten ngan cach phay, va chi so vung than ngan cach phay.
-    return intern(make6(
+    return intern(make7(
         'try',
         str(intern_body(body)),
-        # handlers rong -> None (vang mat), KHONG phai chuoi rong: xem chu
-        # thich o nhanh 'handlers' trong stmt_row.get().
         ",".join([e or '' for e, _hb in handlers]) if handlers else None,
         ",".join([str(intern_body(hb)) for _e, hb in handlers]) if handlers else None,
         ",".join([v or '' for v in handler_vars]) if handler_vars else None,
-        None if finally_body is None else str(intern_body(finally_body)))), pos
+        None if finally_body is None else str(intern_body(finally_body)),
+        None if else_body is None else str(intern_body(else_body)))), pos
 
 
 def try_parse_break(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
@@ -942,7 +998,8 @@ def fpw_if(stmt: "i32", ctx: "WalkCtx"):
 
 def fpw_try(stmt: "i32", ctx: "WalkCtx"):
     if _contains_return(lay_than(stmt, 'body')) or \
-            any([_contains_return(body_of(v)) for v in lay_handlers_vung(stmt)]):
+            any([_contains_return(body_of(v)) for v in lay_handlers_vung(stmt)]) or \
+            (lay_than(stmt, 'else_body') is not None and _contains_return(lay_than(stmt, 'else_body'))):
         ctx.needs_epilogue[0] = True
     ctx.walk_fn(lay_than(stmt, 'body'))
     # 'except E as e:' - khai bao 'e' nhu 1 local kieu record E (voi
@@ -960,13 +1017,39 @@ def fpw_try(stmt: "i32", ctx: "WalkCtx"):
             ctx.declare_named(bind, TypeAnn('Exception', None))
     for handler_body in [body_of(_v) for _v in lay_handlers_vung(stmt)]:
         ctx.walk_fn(handler_body)
+    if lay_than(stmt, 'else_body') is not None:
+        ctx.walk_fn(lay_than(stmt, 'else_body'))
     if lay_than(stmt, 'finally_body') is not None:
         ctx.walk_fn(lay_than(stmt, 'finally_body'))
 
 
 def fpw_return(stmt: "i32", ctx: "WalkCtx"):
-    if lay_nut(stmt, 'expr_node') is None:
+    nut_tra = lay_nut(stmt, 'expr_node')
+    if nut_tra is None:
         return                                  # `return` tran cua ham void
+    # `return None` trong generator la ket thuc binh thuong (khong co gia tri)
+    # - khong can kenh `__gen_ret__`. Phan biet o day vi node 'null' van la
+    # mot BIEU THUC, khong phai `return` tran.
+    if ekind(nut_tra) == 'null':
+        ctx.collect_ternary_temps(nut_tra)
+        return
+    fn_sig = ctx.sig
+    if fn_sig is not None and fn_sig.is_generator == 1:
+        gdtype = None
+        bm = ctx.bien_mod
+        if GEN_RET_NAME in bm:
+            gdtype = bm[GEN_RET_NAME]
+        else:
+            try:
+                gdtype = ctx.infer_scope.tra(GEN_RET_NAME).ta.dtype
+            except Exception:
+                gdtype = None
+        if gdtype is None:
+            raise SyntaxError(
+                "il_codegen: '" + GEN_RET_NAME + "' CHUA duoc khai bao - ham generator "
+                + fn_sig.name + " co 'return " + (lay_str(stmt, 'expr_text') or '') +
+                "', can gia tri tra ve. Khai bao o cap module: " + GEN_RET_NAME + ': "i32" = 0')
+        dat_ghi_chu(stmt, 'gen_ret_dtype', gdtype)
     ctx.collect_ternary_temps(lay_nut(stmt, 'expr_node'))
 
 
@@ -992,6 +1075,8 @@ def fpp_try(stmt: "i32", ctx: "PrescanCtx"):
     ctx.prescan_fn(lay_than(stmt, 'body'))
     for handler_body in [body_of(_v) for _v in lay_handlers_vung(stmt)]:
         ctx.prescan_fn(handler_body)
+    if lay_than(stmt, 'else_body') is not None:
+        ctx.prescan_fn(lay_than(stmt, 'else_body'))
     if lay_than(stmt, 'finally_body') is not None:
         ctx.prescan_fn(lay_than(stmt, 'finally_body'))
 
@@ -1184,11 +1269,15 @@ def codegen_if(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str"
 
 def _emit_try_and_handlers(end_lbl: "str", stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig",
                            codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void",
-                           handler_excs: "list[str]", handler_vungs: "list[i32]"):
+                           handler_excs: "list[str]", handler_vungs: "list[i32]", no_exc_lbl: "str"=None):
     # Khoi .try{...}catch{...}catch{...} (0..N handler that - xem
     # EXC_CLR) - dung CHUNG cho ca truong hop "chi except" LAN
-    # "except + finally". HAM CAP MODULE (2026-09-26): truoc la ham long bat
-    # tham so vo huong body_dtype - closure chua bat duoc tham so vo huong.
+    # "except + finally".
+    # 'no_exc_lbl' (2026-09-28, cho 'else'): nhan RIENG cho duong khong co
+    # exception. Cac handler van `leave end_lbl`, nen khi co loi duoc bat,
+    # 'else' bi bo qua dung y Python. `br` thuan khong thoat duoc khoi .try,
+    # nen van phai `leave` - va nhan do nam NGOAI vung .try.
+    try_exit = no_exc_lbl or end_lbl
     body.append('    .try')
     body.append('    {')
     ctx.try_depth = ctx.try_depth + 1
@@ -1198,7 +1287,7 @@ def _emit_try_and_handlers(end_lbl: "str", stmt: "i32", scope: "Scope", body: "l
     # (da tu emit 'leave epilogue' rieng) - cung ly do voi bug 'br
     # thua sau ret' da sua o nhanh if/else (_stmts_end_in_return).
     if not _stmts_end_in_return(lay_than(stmt, 'body')):
-        body.append(f'      leave {end_lbl}')
+        body.append(f'      leave {try_exit}')
     body.append('    }')
     binds = lay_ds_str(stmt, 'handler_vars')
     if not binds:
@@ -1243,6 +1332,7 @@ def codegen_try(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str
     ctx.label_counter[0] += 1
     n = ctx.label_counter[0]
 
+    else_body = lay_than(stmt, 'else_body')
     if handler_vungs and finally_body is not None:
         # LONG: .try (ngoai, cho finally) { .try (trong, cho cac catch)
         # {...} catch {...} ... INNER_END: leave OUTER_END } finally
@@ -1250,10 +1340,18 @@ def codegen_try(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str
         # LONG NHAU van tu dong kich hoat finally cua khoi ben ngoai
         # dung 1 lan, ke ca khi co ngoai le duoc bat hoac khong.
         inner_end_lbl = f'{sig.name}_Try{n}_end'
+        inner_noexc_lbl = f'{sig.name}_Try{n}_noexc'
         outer_end_lbl = f'{sig.name}_TryF{n}_end'
         body.append('    .try')
         body.append('    {')
-        _emit_try_and_handlers(inner_end_lbl, stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn, handler_excs, handler_vungs)
+        _emit_try_and_handlers(inner_end_lbl, stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn,
+                               handler_excs, handler_vungs,
+                               inner_noexc_lbl if else_body is not None else None)
+        if else_body is not None:
+            # 'else' nam TRONG .try cua finally (nen finally van chay sau no),
+            # va 'noexc' nam ngoai vung .try con, ben trong vung nay.
+            body.append(f'  {inner_noexc_lbl}:')
+            codegen_stmts_fn(else_body, scope, body, body_dtype, ctx, sig)
         body.append(f'  {inner_end_lbl}:')
         body.append(f'    leave {outer_end_lbl}')
         body.append('    }')
@@ -1285,12 +1383,53 @@ def codegen_try(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str
         # Chi except (0 finally) - N handler (>= 1, da kiem tra luc parse),
         # tong quat hoa ban bare-except-1-handler cu.
         end_lbl = f'{sig.name}_Try{n}_end'
-        _emit_try_and_handlers(end_lbl, stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn, handler_excs, handler_vungs)
+        no_exc_lbl = f'{sig.name}_Try{n}_noexc'
+        _emit_try_and_handlers(end_lbl, stmt, scope, body, body_dtype, ctx, sig, codegen_stmts_fn,
+                               handler_excs, handler_vungs,
+                               no_exc_lbl if else_body is not None else None)
+        if else_body is not None:
+            # Ca 2 nhan nam NGOAI vung .try nen 'break'/'continue' trong 'else'
+            # van phat 'br' thuan binh thuong o truong hop nay.
+            body.append(f'  {no_exc_lbl}:')
+            codegen_stmts_fn(else_body, scope, body, body_dtype, ctx, sig)
         body.append(f'  {end_lbl}:')
 
 
 def codegen_return(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
     compile_expr, store_var = ctx.compile_expr, ctx.store_var
+    # `return <v>` trong generator (2026-09-29, Giai doan 2): phai xu ly TRUOC
+    # moi dong duoi vi `sig.return_type` cua generator da bi gen_il_program
+    # thay bang TypeAnn(<TenLop>, 'generator').
+    gen_ctx = ctx.gen_ctx
+    if gen_ctx is not None and lay_nut(stmt, 'expr_node') is not None and ekind(lay_nut(stmt, 'expr_node')) == 'null':
+        # `return None` trong generator: dung may trang thai, khong ghi
+        # `__gen_ret__` (khong co gia tri).
+        gen_class = gen_ctx.class_name
+        body.append('    ldarg.0')
+        body.append('    ldc.i4.m1')
+        body.append('    stfld int32 ' + gen_class + '::__state')
+        body.append('    ldc.i4.0')
+        body.append('    ret')
+        return
+    gen_ctx = ctx.gen_ctx
+    if gen_ctx is not None:
+        rt = lay_ghi_chu(stmt, 'gen_ret_dtype')
+        if rt is None:
+            raise SyntaxError(
+                "il_codegen: ham generator co 'return' nhung kieu cua '" + GEN_RET_NAME +
+                "' chua duoc xac dinh (first-pass phai chay truoc codegen)")
+        gen_class = gen_ctx.class_name
+        program_class = ctx.class_name or 'Program'
+        il_ret = ctx.il_scalar.get(rt, rt)
+        compile_expr(lay_nut(stmt, 'expr_node'), scope, body, rt, ctx)
+        body.append('    stsfld ' + il_ret + ' ' + program_class + '::' +
+                    ctx.il_ident(GEN_RET_NAME))
+        body.append('    ldarg.0')
+        body.append('    ldc.i4.m1')
+        body.append('    stfld int32 ' + gen_class + '::__state')
+        body.append('    ldc.i4.0')
+        body.append('    ret')
+        return
     if sig.return_type is None and lay_nut(stmt, 'expr_node') is None:
         # `return` tran cua ham void: trong try thi `leave` toi epilogue
         # (epilogue cua ham void khong nap __ret_tmp), ngoai thi `ret`.

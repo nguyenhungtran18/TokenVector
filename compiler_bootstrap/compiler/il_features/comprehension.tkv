@@ -483,6 +483,19 @@ def try_expand_set_literal(line: "str") -> "str":
         if _co_hai_cham_ngoai(x):
             return None
     ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    co_thuc = False
+    for x in phan:
+        xs = x.strip()
+        if xs == "":
+            continue
+        if ("." in xs) or ("e" in xs) or ("E" in xs):
+            if xs[0].isdigit() or (xs[0] == "-" and len(xs) > 1 and xs[1].isdigit()):
+                co_thuc = True
+    if co_thuc:
+        # `{1, 2.5}` can widen -> set(list-literal) doi duoc kieu phan tu.
+        # Int NGUYEN giu nguyen 'set()' + '.add()' de container_arg_hints
+        # van chon dung kieu tham so (xem set_iteration_test: set[i64]).
+        return f'{ind}{ten} = set([{inner}])'
     dong = [f'{ind}{ten} = set()']
     for x in phan:
         if x.strip() != '':
@@ -1282,6 +1295,18 @@ def try_expand_datetime_py(line: "str") -> "str":
     Chi doi ngoai chuoi ky tu. `date` duoc bieu dien bang dtype 'date' (int64 ticks, in 'yyyy-mm-dd')."""
     if 'datetime' not in line and 'timedelta' not in line and 'date.today' not in line and 'date(' not in line:
         return None
+    if line.strip().startswith('#'):
+        return None
+    # `datetime(2026, 9, 30)` (goi TRAN, khong phai `datetime.datetime(...)`)
+    # PHAI bi tu choi truoc khi macro viet lai thanh `datetime_make` - ham
+    # khong tham so `datetime()` tra thoi diem hien tai.
+    g_bare = _tim_goi_ten(line, 'datetime')
+    if (len(g_bare) == 3
+            and line[g_bare[1] + 1:g_bare[2]].strip() != ''
+            and 'datetime.datetime(' not in line and 'datetime.date(' not in line):
+        raise SyntaxError(
+            "il_codegen: datetime() KHONG tham so - no tra thoi diem hien tai "
+            "(UtcNow). Muon tao ngay cu the hay dung datetime_strptime(...)")
     cu = ['datetime.datetime.now()', 'datetime.datetime.utcnow()', 'datetime.datetime.today()', 'datetime.now()',
           'datetime.utcnow()', 'datetime.today()', 'datetime.date.today()', 'date.today()',
           'datetime.datetime.strptime(', 'datetime.strptime(', 'datetime.datetime.fromisoformat(',

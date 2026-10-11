@@ -38,6 +38,7 @@ _FOR_IN_KVLIST_RE = re.compile(r'^for\s+(\w+)\s*,\s*(\w+)\s+in\s+(\w+)\s*:\s*$')
 
 # 'for k, v in <bieu thuc>:' (2026-09-26): gan bieu thuc ra bien tam truoc.
 _FOR_IN_KVEXPR_RE = re.compile(r'^for\s+(\w+)\s*,\s*(\w+)\s+in\s+(.+?)\s*:\s*$')
+_FOR_TUPLE_BIEN_RE = re.compile(r'^\((\w+)\)$')
 _KHONG_NANG_RE = re.compile(r'^(enumerate|zip|chain)\(|.*\.items\(\)$|^\w+$')
 
 _ZIP_BT_RE = re.compile(r'^zip\((.+)\)$')
@@ -256,6 +257,14 @@ def try_expand_for_in_kvlist(line: "str") -> "str":
                     f'{ind}for {key_var}, {val_var} in enumerate({tam_e}):')
         if _KHONG_NANG_RE.match(bt):
             return None          # .items()/enumerate/zip co duong rieng
+        # `for a, b in (ten_bien):` khong the bien dich duoc: list-cua-tuple
+        # phai la LIST LITERAL ngay trong cau lenh de macro tach cot duoc.
+        m_bien_ngoac = _FOR_TUPLE_BIEN_RE.match(bt)
+        if m_bien_ngoac:
+            raise SyntaxError(
+                "il_codegen: 'for a, b in ...' chi ho tro list literal chua "
+                "tuple literal ([(0, 1), (1, 2)]) - khong ho tro bien "
+                + m_bien_ngoac.group(1) + " co kieu list-cua-tuple")
         container = f'__iterkv{_me_for_in_kvlist_counter}_src'
         dau = f'{ind}{container} = {bt}' + chr(10)
     n = _me_for_in_kvlist_counter

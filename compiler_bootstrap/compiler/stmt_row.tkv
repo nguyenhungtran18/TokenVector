@@ -345,6 +345,10 @@ def make6(kind: "str", a: "str", b: "str", c: "str", d: "str", e: "str") -> "str
     return _hang(kind, [esc(a), esc(b), esc(c), esc(d), esc(e)])
 
 
+def make7(kind: "str", a: "str", b: "str", c: "str", d: "str", e: "str", f: "str") -> "str":
+    return _hang(kind, [esc(a), esc(b), esc(c), esc(d), esc(e), esc(f)])
+
+
 def is_row(stmt: "i32") -> "i32":
     """`stmt` dang la dong arena (CHI SO) hay dict cu?"""
     return isinstance(stmt, int)
@@ -588,9 +592,10 @@ _LAYOUT: "dict[str, str]" = {
     "assign_typed_decl": "name,type_text,rhs_node",
     "assign_typed_container_new": "name,type_text",
     "sb_append": "name,sb_name,value_node",
-    "return": "expr_text,expr_node",
+    "return": "expr_text,expr_node,gen_ret_dtype",
     "raise": "exc_type,msg_text,from_name,bare",
     "yield_stmt": "expr_text",
+    "yield_from_stmt": "expr_text",
     "attr_assign": "obj_name,field_name,value_text",
     "call_stmt": "call_text,call_node",
     "index_call_stmt": "call_text,call_node",
@@ -613,7 +618,7 @@ _LAYOUT: "dict[str, str]" = {
     "if": "cond_text,body,else_body,cond_node",
     "with_open": "var,mode,path_text,body",
     "with_ctx": "var,expr_text,body",
-    "try": "body,handlers_exc,handlers_body,handler_vars_text,finally_body",
+    "try": "body,handlers_exc,handlers_body,handler_vars_text,finally_body,else_body",
     "for_in_iter": "var,record_var,body",
     "for_in_dict_items": "key_var,val_var,dict_name,body",
     "for_in_generator": "var,callee_name,arg_nodes_text,body",
@@ -852,9 +857,10 @@ _KHOA_LOGIC: "dict[str, str]" = {
     "assign_zeros2d": "kind,name,dim0,dim1",
     "break": "kind",
     "continue": "kind",
-    "return": "kind,expr_node",
+    "return": "kind,expr_node,gen_ret_dtype",
     "raise": "kind,exc_type,msg_node,from_name,bare",
     "yield_stmt": "kind,expr_node",
+    "yield_from_stmt": "kind,expr_node",
     "attr_assign": "kind,obj_name,field_name,value_node",
     "call_stmt": "kind,call_node",
     "index_call_stmt": "kind,call_node",
@@ -875,7 +881,7 @@ _KHOA_LOGIC: "dict[str, str]" = {
     "assign_typed_container_new": "kind,name,type_ann",
     "sb_append": "kind,name,sb_name,value_node",
     "with_ctx": "kind,var,expr_node,body",
-    "try": "kind,body,handlers,handler_vars,finally_body",
+    "try": "kind,body,handlers,handler_vars,finally_body,else_body",
     "for_in_iter": "kind,var,record_var,body",
     "for_in_dict_items": "kind,key_var,val_var,dict_name,body",
     "for_in_generator": "kind,var,callee_name,arg_nodes,body",
@@ -970,6 +976,53 @@ def set_(stmt: "i32", key: "str", value: "str") -> "i32":
         parts.append(ABSENT)
     parts[j] = esc(value)
     return intern("	".join(parts))
+
+
+def dat_nut(stmt: "i32", key: "str", node: "TkvNode") -> "i32":
+    """Ghi mot node vao truong node, SUA TAI CHO row, tra ve chinh chi so cu.
+
+    Neu kind luu truong do bang VAN BAN (`rhs_text`) ma khong co `<key>` trong
+    layout, ghi vao memo cua `lay_nut` - do la noi duy nhat `lay_nut` tim
+    truoc van ban parse luoi, nen caller van nhan node moi o CA HAI pass."""
+    lay = _layout_of(kind_of_stmt(stmt))
+    gia_tri = VANG if node is None else str(node)
+    if key in lay:
+        parts = _STMT_POOL[stmt].split("\t")
+        j = lay.index(key) + 2
+        while len(parts) <= j:
+            parts.append(ABSENT)
+        parts[j] = gia_tri
+        _STMT_POOL[stmt] = "\t".join(parts)
+        return stmt
+    _MEMO_NUT[_khoa_memo(stmt, key)] = int(gia_tri)
+    return stmt
+
+
+def thay_nut(stmt: "i32", key: "str", node: "TkvNode") -> "i32":
+    """Thay mot truong dang VAN BAN thanh node index (tra ve chinh chi so cu).
+
+    Khong tao hang moi: pool sua tai cho duoc, va caller van giu cung mot chi
+    so nen khong can viet nguoc vao cha."""
+    return dat_nut(stmt, key, node)
+
+
+def dat_ds_nut(stmt: "i32", key: "str", nodes: "list[TkvNode]") -> "i32":
+    """Ghi mot DANH SACH node, sua tai cho row, tra ve chinh chi so cu.
+
+    Neu kind luu truong danh sach bang van ban (`<key>_text`) thi ghi vao memo
+    cua `_lay_ds_so`."""
+    lay = _layout_of(kind_of_stmt(stmt))
+    van = ",".join([VANG if x is None else str(x) for x in nodes])
+    if key in lay:
+        parts = _STMT_POOL[stmt].split("\t")
+        j = lay.index(key) + 2
+        while len(parts) <= j:
+            parts.append(ABSENT)
+        parts[j] = van
+        _STMT_POOL[stmt] = "\t".join(parts)
+        return stmt
+    _MEMO_DS[_khoa_memo(stmt, key)] = van
+    return stmt
 
 
 # ---------------------------------------------------------------------------

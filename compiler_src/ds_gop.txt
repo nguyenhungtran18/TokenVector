@@ -1,5 +1,6 @@
 compiler_bootstrap\compiler\tkv_types.tkv
 compiler_bootstrap\compiler\expr_layout.tkv
+compiler_bootstrap\compiler\il_features\call_star_args.tkv
 compiler_bootstrap\compiler\ast_row.tkv
 compiler_bootstrap\compiler\expr_row.tkv
 compiler_bootstrap\compiler\stmt_row.tkv

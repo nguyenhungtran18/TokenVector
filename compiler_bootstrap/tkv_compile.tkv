@@ -1038,7 +1038,19 @@ def _expand_custom_decorator(pool: "list[str]", fn_nid: "i32", deco_nid: "i32", 
 
     orig_param_types, orig_ret_t = _func_type_signature(pool, fn_nid)
     wrap_param_types, wrap_ret_t = _func_type_signature(pool, wrapper_nid)
-    if orig_param_types != wrap_param_types or orig_ret_t != wrap_ret_t:
+    # SO SANH TAY (2026-10-10): container trong TokenVector so sanh THAM
+    # CHIEU, nen `orig_param_types != wrap_param_types` LUON dung ke ca khi
+    # hai list co cung noi dung - chinh no da chan oan test decorator.
+    khop_chu_ky = 1
+    if len(orig_param_types) != len(wrap_param_types):
+        khop_chu_ky = 0
+    else:
+        for _i_ck, _p_ck in enumerate(orig_param_types):
+            if _p_ck != wrap_param_types[_i_ck]:
+                khop_chu_ky = 0
+    if orig_ret_t != wrap_ret_t:
+        khop_chu_ky = 0
+    if not khop_chu_ky:
         raise TranspileError(
             f"decorator '@{deco_name}' tren ham '{public_name}': chu ky 'wrapper' trong "
             f"'{deco_name}' ({', '.join(wrap_param_types)} -> {wrap_ret_t}) phai KHOP CHINH XAC "
@@ -1631,20 +1643,27 @@ def _bang_ds_chuoi_rong() -> "dict[str,list[str]]":
 class DinhNghiaLop:
     """Ket qua _extract_record_def (2026-09-25) - thay bo 5 phan tu.
     methods_raw la 4-tuple (sig_line, body_lines, is_static, is_property);
-    base_name co the None (khong ke thua)."""
+    base_name co the None (khong ke thua); init_sig/init_body la chu ky va
+    than `__init__` CO CHU GIAI (chuoi rong/list rong neu khong co) - boc ra de
+    il_codegen xet viec noi than vao `.ctor`, KHONG phai de bien dich thanh
+    method rieng."""
 
     fields: "list[(str,str)]"
     methods_raw: "list[(str,list[str],i32,i32)]"
     base_name: "str"
     base_info: "list[str]"
     interface_names: "list[str]"
+    init_sig: "str"
+    init_body: "list[str]"
 
-    def __init__(self, fields: "list[(str,str)]", methods_raw: "list[(str,list[str],i32,i32)]", base_name: "str", base_info: "list[str]", interface_names: "list[str]"):
+    def __init__(self, fields: "list[(str,str)]", methods_raw: "list[(str,list[str],i32,i32)]", base_name: "str", base_info: "list[str]", interface_names: "list[str]", init_sig: "str", init_body: "list[str]"):
         self.fields = fields
         self.methods_raw = methods_raw
         self.base_name = base_name
         self.base_info = base_info
         self.interface_names = interface_names
+        self.init_sig = init_sig
+        self.init_body = init_body
 
 
 def _init_du_chu_thich(pool: "list[str]", fn_nid: "i32") -> "i32":
@@ -1671,7 +1690,7 @@ def _extract_record_def(pool: "list[str]", class_nid: "i32", source_lines: "list
     HO TRO 1 base class DUY NHAT ('(object)'/khong ngoac van tuong duong
     "khong ke thua" nhu truoc) - base PHAI la 1 record DA khai bao TRUOC DO
     trong CUNG file (known_records: dict ten->fields DA parse xong, theo
-    THU TU xuat hien - giong quy uoc Python that: dùng truoc khi dinh nghia
+    THU TU xuat hien - giong quy uoc Python that: dÃ¹ng truoc khi dinh nghia
     la loi). KHONG ho tro da ke thua GIUA 2 RECORD (nhieu base la record
     cung luc). KHONG nested class.
 
@@ -1789,6 +1808,8 @@ def _extract_record_def(pool: "list[str]", class_nid: "i32", source_lines: "list
             f"(se crash MissingFieldException luc chay neu khong chan o day). Doi ten field o 1 "
             f"trong cac base de tranh trung.")
     methods_raw = []
+    init_sig = ""
+    init_body: "list[str]" = []
     for stmt in _ar_than(pool, class_nid):
         k = ar_kind(pool, stmt)
         if _ar_la_docstring(pool, stmt):
@@ -1804,6 +1825,9 @@ def _extract_record_def(pool: "list[str]", class_nid: "i32", source_lines: "list
             # chieu ket qua), giong dung tinh than '.tkv van la Python that'
             # da xac lap tu Buoc 9 (doi ten .py->.tkv).
             continue
+        if k == "funcdef" and ar_col_a(pool, stmt) == '__init__':
+            init_sig = _extract_record_method_sig_line(pool, class_nid, stmt, is_static=False)
+            init_body = _body_source_lines(pool, source_lines, stmt)
         if (k == "funcdef" or k == "asyncfuncdef") and                 _ar_chi_cpython(pool, stmt):
             # PRAGMA `@__tkv_cpython_only__` (xem compiler/tkv_pragma.py):
             # gian giao DI TRU. Bo qua y het `__init__` o tren - CPython van
@@ -1884,7 +1908,7 @@ def _extract_record_def(pool: "list[str]", class_nid: "i32", source_lines: "list
         fields.append((ten_f, dtype))
     if not fields:
         raise TranspileError(f"class '{ten_c}': record khong co field nao")
-    return DinhNghiaLop(fields, methods_raw, base_name, base_info, interface_names)
+    return DinhNghiaLop(fields, methods_raw, base_name, base_info, interface_names, init_sig, init_body)
 
 
 def _tach_khoang_trang(v: "str") -> "list[str]":
@@ -3138,11 +3162,13 @@ class ChuongTrinh:
     module_consts: "dict[str,(str,str)]"
     module_globals: "dict[str,(str,list[list[str]])]"
     inferred_ast_nodes_by_func: "dict[str,(list[str],i32)]"
+    record_init_sigs: "dict[str,str]"
+    record_init_bodies: "dict[str,list[str]]"
 
     def __init__(self, record_defs: "dict[str,list[(str,TypeAnn)]]", record_defs_tho: "dict[str,list[(str,str)]]", record_methods_raw: "dict[str,list[(str,list[str],i32)]]", record_bases: "dict[str,list[str]]", record_interfaces: "dict[str,list[str]]",
                  interface_defs: "dict[str,dict[str,str]]", pairs: "list[(str,list[str],i32)]", import_names: "list[(str,i32)]", extern_assemblies: "list[(str,str,str)]", extern_methods: "list[ExternHam]",
                  extern_pinvokes: "list[ExternPinvoke]", extern_classes: "list[ExternLop]", module_consts: "dict[str,(str,str)]", module_globals: "dict[str,(str,list[list[str]])]",
-                 inferred_ast_nodes_by_func: "dict[str,(list[str],i32)]"):
+                 inferred_ast_nodes_by_func: "dict[str,(list[str],i32)]", record_init_sigs: "dict[str,str]", record_init_bodies: "dict[str,list[str]]"):
         self.record_defs = record_defs
         self.record_defs_tho = record_defs_tho
         self.record_methods_raw = record_methods_raw
@@ -3158,6 +3184,8 @@ class ChuongTrinh:
         self.module_consts = module_consts
         self.module_globals = module_globals
         self.inferred_ast_nodes_by_func = inferred_ast_nodes_by_func
+        self.record_init_sigs = record_init_sigs
+        self.record_init_bodies = record_init_bodies
 
 
 def _ten_extern_class(extern_classes: "list[ExternLop]") -> "set[str]":
@@ -3328,6 +3356,30 @@ def _nang_defaultdict(src: "str") -> "str":
     return ra + chr(10) + chr(10) + chr(10).join(them) + chr(10)
 
 
+def _kiem_container_chua_gan(record_defs_tho: "dict[str,list[(str,str)]]", record_methods_raw4: "dict[str,list[(str,list[str],i32,i32)]]", pairs: "list[(str,list[str],i32)]") -> "(str,str)":
+    """(ten_class, ten_field) cua field container CHUA co `.field = ...` o bat
+    ky than ham nao; (None, None) neu moi field deu duoc gan it nhat mot lan."""
+    gop_all = []
+    for rname in record_methods_raw4:
+        for _sig_line, body_lines, _is_static, _is_property in record_methods_raw4[rname]:
+            gop_all.append(chr(10).join(body_lines))
+    for _sig, body_lines, _start in pairs:
+        gop_all.append(chr(10).join(body_lines))
+    gop = chr(10).join(gop_all)
+    for rname in record_defs_tho:
+        for ten_f, dtype in record_defs_tho[rname]:
+            la_container = dtype.startswith('list[') or dtype.startswith('dict[') or dtype.startswith('set[')
+            if not la_container:
+                continue
+            mau = '.' + ten_f + ' ='
+            if gop.find(mau) >= 0:
+                continue
+            if gop.find('.' + ten_f + '=') >= 0:
+                continue
+            return rname, ten_f
+    return None, None
+
+
 def _parse_program_ast(source_text: "str", la_import: "i32"=False, hoan_giai_field: "i32"=False) -> "ChuongTrinh":
     """Parse THUAN 1 file nguon TokenVector (`.tkv`) THAT - KHONG doc file
     nao khac, KHONG resolve import - chi tra ve THANG PHAN NOI DUNG cua
@@ -3356,6 +3408,8 @@ def _parse_program_ast(source_text: "str", la_import: "i32"=False, hoan_giai_fie
     record_defs_tho = _bang_record_tho_rong()
     record_methods_raw4 = _bang_method_tho4()
     record_bases = {}
+    record_init_sigs: "dict[str,str]" = {}
+    record_init_bodies: "dict[str,list[str]]" = {}
     module_consts = {}
     module_globals = {}
     record_interfaces = {}
@@ -3472,6 +3526,9 @@ def _parse_program_ast(source_text: "str", la_import: "i32"=False, hoan_giai_fie
             record_methods_raw4[ten_nid] = dl.methods_raw
             record_bases[ten_nid] = dl.base_info
             record_interfaces[ten_nid] = dl.interface_names
+            if dl.init_sig != "":
+                record_init_sigs[ten_nid] = dl.init_sig
+                record_init_bodies[ten_nid] = dl.init_body
         elif _ten_gan == '__tkv_import__':
             # Co che IMPORT RIENG cua TokenVector (khoang trong ngon ngu #3):
             # 'import' THAT cua Python KHONG dung duoc de tham chieu 1 file
@@ -3830,7 +3887,16 @@ def _parse_program_ast(source_text: "str", la_import: "i32"=False, hoan_giai_fie
     record_defs = _bang_record_rong()
     if not hoan_giai_field:
         record_defs = _resolve_record_field_types(record_defs_tho, extern_class_names=_ten_extern_class(extern_classes))
-    return ChuongTrinh(record_defs, record_defs_tho, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs, import_names, extern_assemblies, extern_methods, extern_pinvokes, extern_classes, module_consts, module_globals, inferred_ast_nodes_by_func)
+    # Field container KHONG duoc gan o BAT CU dau nao phai bi tu choi: no se
+    # NULL am tham. Chu tinh ca gan trong `__init__` LAN gan ben ngoai ctor
+    # (Cua A, 2026-09-30) nen quet ca hai.
+    _r_cn, _f_cn = _kiem_container_chua_gan(record_defs_tho, record_methods_raw4, pairs)
+    if _r_cn is not None:
+        raise TranspileError(
+            f"class '{_r_cn}': field container '{_f_cn}' CHUA duoc gan o BAT CU "
+            f"dau nao - gan trong __init__ hoac ben ngoai constructor, neu khong "
+            f"field luon null va khong ai bao")
+    return ChuongTrinh(record_defs, record_defs_tho, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs, import_names, extern_assemblies, extern_methods, extern_pinvokes, extern_classes, module_consts, module_globals, inferred_ast_nodes_by_func, record_init_sigs, record_init_bodies)
 
 
 def _bang_record_rong() -> "dict[str,list[(str,TypeAnn)]]":
@@ -4276,6 +4342,8 @@ def extract_program_file(tkv_path: "str", _visited: "set[str]"=None, la_import: 
     module_consts = _ct.module_consts
     module_globals = _ct.module_globals
     inferred_ast_nodes_by_func = _ct.inferred_ast_nodes_by_func
+    record_init_sigs = _ct.record_init_sigs
+    record_init_bodies = _ct.record_init_bodies
     func_names = _ten_cac_ham(pairs)
 
     for imp_name, bat_buoc in import_names:
@@ -4325,6 +4393,8 @@ def extract_program_file(tkv_path: "str", _visited: "set[str]"=None, la_import: 
         imp_module_consts = _ct_imp.module_consts
         imp_module_globals = _ct_imp.module_globals
         imp_inferred_ast_nodes_by_func = _ct_imp.inferred_ast_nodes_by_func
+        imp_record_init_sigs = _ct_imp.record_init_sigs
+        imp_record_init_bodies = _ct_imp.record_init_bodies
         imp_func_names = _ten_cac_ham(imp_pairs)
 
         dup_funcs = set()
@@ -4378,6 +4448,9 @@ def extract_program_file(tkv_path: "str", _visited: "set[str]"=None, la_import: 
         # file IMPORT - dup_funcs o tren da dam bao khong trung ten voi file
         # goc nen .update() an toan (khong ghi de nham).
         inferred_ast_nodes_by_func.update(imp_inferred_ast_nodes_by_func)
+        for k_is in imp_record_init_sigs:
+            record_init_sigs.setdefault(k_is, imp_record_init_sigs[k_is])
+            record_init_bodies.setdefault(k_is, imp_record_init_bodies[k_is])
 
     # Phan giai kieu field MOT LAN, o cho goi NGOAI CUNG, khi `record_defs`
     # da gop du ca cay `__tkv_import__` - xem ghi chu `hoan_giai_field`.
@@ -4387,7 +4460,7 @@ def extract_program_file(tkv_path: "str", _visited: "set[str]"=None, la_import: 
     if not la_import:
         record_defs = _resolve_record_field_types(record_defs_tho,
                                      extern_class_names=_ten_extern_class(extern_classes))
-    return ChuongTrinh(record_defs, record_defs_tho, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs, [], extern_assemblies, extern_methods, extern_pinvokes, extern_classes, module_consts, module_globals, inferred_ast_nodes_by_func)
+    return ChuongTrinh(record_defs, record_defs_tho, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs, [], extern_assemblies, extern_methods, extern_pinvokes, extern_classes, module_consts, module_globals, inferred_ast_nodes_by_func, record_init_sigs, record_init_bodies)
 
 
 def _bang_method_rong() -> "dict[str,dict[str,Signature]]":
@@ -5208,6 +5281,8 @@ def compile_tkv_cli(tkv_path: "str", out_exe: "str", entry_name: "str"=None, cla
     module_consts = _ct.module_consts
     module_globals = _ct.module_globals
     inferred_ast_nodes_by_func = _ct.inferred_ast_nodes_by_func
+    record_init_sigs = _ct.record_init_sigs
+    record_init_bodies = _ct.record_init_bodies
 
     # Task 2 (extern-class, 2026-08-18): extern_class_defs (ten handle-type
     # -> decl dict goc {'name','assembly','class','ctor','methods'}) - dung
@@ -5231,6 +5306,25 @@ def compile_tkv_cli(tkv_path: "str", out_exe: "str", entry_name: "str"=None, cla
     # Xem ghi chu cung loai o `_transpile_extracted` - day la duong vao
     # THU HAI cua "mot chuong trinh".
     reset_pool_bieu_thuc()
+    # 2026-09-29: `__init__` noi duoc vao `.ctor` (it tham so, dung thu tu,
+    # dung kieu so voi danh sach field vo huong) -> LOAI no khoi bang method,
+    # vi `.ctor` se chay than no. Nguoc lai giu nguyen: `_expr_call` tao
+    # `.ctor` rong roi goi `__init__` that nhu truoc day. Xem
+    # il_codegen._init_noi_vao_ctor / _ctor_init_body_il.
+    ds_noi_vao_ctor: "list[str]" = []
+    for _rname in record_init_sigs:
+        if il_codegen._init_noi_vao_ctor(_rname, record_init_sigs[_rname], record_defs, record_bases):
+            ds_noi_vao_ctor.append(_rname)
+    init_sigs_noi: "dict[str,str]" = {}
+    init_bodies_noi: "dict[str,list[str]]" = {}
+    for _rname in ds_noi_vao_ctor:
+        init_sigs_noi[_rname] = record_init_sigs[_rname]
+        init_bodies_noi[_rname] = record_init_bodies[_rname]
+        _mr_moi: "list[(str,list[str],i32)]" = []
+        for _sig_line, _body_lines, _is_static in record_methods_raw[_rname]:
+            if _ten_truoc_ngoac(_sig_line) != '__init__':
+                _mr_moi.append((_sig_line, _body_lines, _is_static))
+        record_methods_raw[_rname] = _mr_moi
     record_methods, record_method_bodies, record_methods_own = _build_record_methods(
         record_defs, record_methods_raw, record_bases=record_bases,
         extern_class_names=extern_class_names)
@@ -5623,7 +5717,7 @@ def compile_tkv_cli(tkv_path: "str", out_exe: "str", entry_name: "str"=None, cla
                                        source_path=str(tkv_path), debug=debug,
                                        emitted_types=emitted_types,
                                        monomorphize_cache=monomorphize_cache,
-                                       pending_monomorphize=pending_monomorphize)
+                                        pending_monomorphize=pending_monomorphize)
         _monomorphize_rounds = 0
         while pending_monomorphize:
             _monomorphize_rounds += 1
@@ -5662,9 +5756,11 @@ def compile_tkv_cli(tkv_path: "str", out_exe: "str", entry_name: "str"=None, cla
                                               # text (extra_class_lines o duoi),
                                               # neu khong ilasm.exe bao 'Reference
                                               # to undefined class'.
-                                              extra_classes=extra_classes,
-                                              emitted_types=emitted_types,
-                                              source_path=str(tkv_path), debug=debug)
+                                               extra_classes=extra_classes,
+                                               emitted_types=emitted_types,
+                                               source_path=str(tkv_path), debug=debug,
+                                               record_init_sigs=init_sigs_noi,
+                                               record_init_bodies=init_bodies_noi)
         # Vong lap thay rut gon LONG HAI 'for' (2026-09-25) - ban tu-host suy
         # kieu phan tu cua rut gon hai tang ra i32 (List<int32> noi bang join).
         extra_class_lines: "list[str]" = []

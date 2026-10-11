@@ -65,6 +65,8 @@ KHUON: "dict[str,str]" = {
     'slice:1': 'str', 'slice:2': 'nut', 'slice:3': 'nut',
     # --- khac ---
     'kwarg:1': 'str', 'kwarg:2': 'nut',
+    'star:1': 'nut',
+    'star2:1': 'nut',
     'walrus:1': 'str', 'walrus:2': 'nut',
     'lambda:1': 'ds_str',    # il_core.py: params la danh sach TEN
     'lambda:2': 'nut',

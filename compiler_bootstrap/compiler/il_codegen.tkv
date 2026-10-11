@@ -58,6 +58,7 @@ from il_features.dict_type import (
 )
 from il_dispatch import TEN_CAP_MODULE, sao_ctx
 from il_features.tuple_type import MAX_TUPLE_ARITY as _MAX_TUPLE_ARITY, il_tupleN_type
+from il_features.call_star_args import expand_star_args_in_lines
 from il_features.string_feature import (
     compile_index_str as _string_compile_index_str, compile_len_str as _string_compile_len_str,
     compile_binop_concat as _string_compile_binop_concat,
@@ -67,6 +68,7 @@ from il_features.closures import _collect_var_names as _lambda_collect_var_names
 from il_features.comprehension import _tim_goi_ten, _tach_phay_ngoai, _la_ky_tu_ten, _KW_ARG_RE
 from il_features.string_builtin import _is_bool_shaped
 from il_features.generator_feature import is_generator_body as _is_generator_body  # noqa: F401 - phat hien ham generator (con lai sau khi thay eager-list bang lazy that, xem generator_lazy.py)
+from il_features.generator_lazy import emit_generator_drain_as_container as _emit_gen_as_container
 from il_features.stdlib_math import _MATH_FUNCS as _stdlib_math_funcs_names  # THAM CHIEU DOC (khong con literal) - chi dung cho _infer_dtype's nhanh 'ham toan hoc 1-tham-so luon tra f64' (xem duoi), _expr_call KHONG con dung ten nay (di qua active().expr_builtin_codegen)
 import il_features.int_type as _int_type  # kieu 'int' vo han chu so nhu Python (moc 6 buoc 2, 2026-08-05)
 import il_features.complex_type as _complex_type  # kieu 'complex' qua System.Numerics.Complex (muc 6.8, 2/4, 2026-08-13)
@@ -1061,8 +1063,18 @@ def _infer_dtype(reg: "Registry", node: "TkvNode", scope: "Scope", func_table: "
             return 'f64'
         return kq_so
     if tag == 'ternary':
-        return (_infer_dtype(reg, eb_nut(node), scope, func_table, records, record_methods)
-                or _infer_dtype(reg, ec_nut(node), scope, func_table, records, record_methods))
+        dt_dung = _infer_dtype(reg, eb_nut(node), scope, func_table, records, record_methods)
+        dt_sai = _infer_dtype(reg, ec_nut(node), scope, func_table, records, record_methods)
+        # CHAN HEP va SAN CO: mot nhanh la BIEN kieu khac chuoi, nhanh kia la
+        # CHUOI LITERAL. Day dung th vi negative cond_mixed_types, va khong
+        # dung rong hon (bieu thuc/f-string) de khong pha code dang chay.
+        lech_literal = ((ekind(eb_nut(node)) == 'var' and ekind(ec_nut(node)) == 'str_lit')
+                        or (ekind(ec_nut(node)) == 'var' and ekind(eb_nut(node)) == 'str_lit'))
+        if lech_literal and dt_dung is not None and dt_sai is not None and dt_dung != dt_sai:
+            raise SyntaxError(
+                'il_codegen: hai nhanh cua bieu thuc dieu kien KHAC KIEU '
+                f'({dt_dung} va {dt_sai}) - mot local chi giu mot kieu')
+        return dt_dung or dt_sai
     if tag == 'boolop' and _boolop_chuoi(reg, node, scope, func_table, records, record_methods):
         # 'a or b' / 'a and b' voi HAI VE LA CHUOI (2026-09-26): Python tra ve
         # MOT TRONG HAI CHUOI, khong phai 0/1.
@@ -1810,6 +1822,20 @@ def _infer_literal_dtype(node: "TkvNode") -> "str":
         # tren (dong 587) da xu ly rieng truong hop str; con lai (list) co
         # tinh tra None de pass 2 tu bao loi ro rang, khong doan mo.
         return None
+    if la_node(node) and ekind(node) == 'ternary':
+        # `1.5 if c == 0 else 9.5` - phai BO QUA node[1] (DIEU KIEN).
+        #
+        # Ly do: quet ca cay se gap hang so trong dieu kien truoc tien - `0`
+        # trong `c == 0` - va tra 'int'. Nhanh nhu vay khai bao local kieu
+        # 'int' o first-pass, roi guard o `_stmt_assign_scalar` bao loi
+        # "gan lai bien kieu 'int' bang bieu thuc chua so thuc". Hang so
+        # trong dieu kien KHONG dai dien cho kieu KET QUA, giong hang so
+        # trong chi so cua slice da duoc loai o nhanh tren.
+        for sub in (eb_nut(node), ec_nut(node)):
+            found = _infer_literal_dtype(sub)
+            if found:
+                return found
+        return None
     if la_node(node) and ekind(node) not in ('num',):
         # 2026-08-03 (dot 3): hang so nam LONG trong 1 bieu thuc - vd
         # 'd[k] = d.get(k, 0) + 1' (mau dem tan suat pho bien nhat cua
@@ -1858,7 +1884,7 @@ def _contains_float_literal(node: "TkvNode") -> "i32":
     (co dau '.') - duyet nong (binop/compare/neg/ternary), dung de phat
     hien truong hop hang so float bi CHON SAU trong 1 bieu thuc con (vd
     'n / 2.0' - '2.0' nam trong binop, khong phai node ngoai cung) ma
-    _infer_dtype/​_infer_literal_dtype tren CHINH node ngoai cung se bo lo."""
+    _infer_dtype / _infer_literal_dtype tren CHINH node ngoai cung se bo lo."""
     if not la_node(node):
         return False
     tag = ekind(node)
@@ -2923,6 +2949,16 @@ def _compile_lambda_funcref(arg_node: "TkvNode", target_ta: "TypeAnn", scope: "S
     out.append(f'    newobj instance void {func_il}::.ctor(object, native int)')
 
 
+def _sao_join_str(xs: "list[str]") -> "str":
+    """`', '.join([str(x) for x in xs])` nhung GOM ra bien truoc (2026-10-11).
+
+    Khong duoc ghep comprehension vao trong f-string: bien dich xong nhung
+    cho MANH RONG rong (va co bien lam crash 0xC0000005) - xem ghi chu o
+    `il_features/kwarg_resolve.tkv`."""
+    ys = [str(x) for x in xs]
+    return ', '.join(ys)
+
+
 def _compile_funcref_arg(arg_node: "TkvNode", target_ta: "TypeAnn", scope: "Scope", out: "list[str]", ctx: "Ctx" = None):
     """Bien 1 tham so goi ham kieu 'func' (function reference hep, Wave 3
     2026-07-29) thanh IL nap 1 delegate len stack. Nhan 3 dang bieu thuc:
@@ -3029,9 +3065,9 @@ def _compile_funcref_arg(arg_node: "TkvNode", target_ta: "TypeAnn", scope: "Scop
                 and _shape_tra_ve_cua_sig(callee.return_type)
                     != _hinh_dang_tra_ve_func(target_ta))):
         raise SyntaxError(
-            f"il_codegen: chu ky ham '{name}' (({', '.join([str(x) for x in callee_params])}) -> {callee_ret}"
+            f"il_codegen: chu ky ham '{name}' (({_sao_join_str(callee_params)}) -> {callee_ret}"
             f"{'' if _shape_tra_ve_cua_sig(callee.return_type) is None else ' shape=' + _shape_tra_ve_cua_sig(callee.return_type)}) "
-            f"khong khop kieu 'func' mong doi (({', '.join([str(x) for x in target_ta.func_param_dtypes])}) -> "
+            f"khong khop kieu 'func' mong doi (({_sao_join_str(target_ta.func_param_dtypes)}) -> "
             f"{target_ta.dtype}"
             f"{'' if _hinh_dang_tra_ve_func(target_ta) is None else ' shape=' + _hinh_dang_tra_ve_func(target_ta)})")
     class_name = (ctx.class_name if ctx is not None else None) or 'Program'
@@ -3913,6 +3949,11 @@ def _expr_call(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", 
     # So doi so phai KHOP __init__: lop con co __init__ rieng khong chu thich
     # (bi bo khi extract) se thua ke __init__ cua lop cha - khi do dung .ctor
     # theo field nhu cu.
+    #
+    # 2026-09-29: record chay duoc than `__init__` trong `.ctor` da bi
+    # `compile_tkv_cli` LOAI khoi bang method (xem `_init_noi_vao_ktor`) nen
+    # nhanh duoi KHONG chay. Nhanh con lai phuc vu record KHONG noi duoc
+    # (tham so mac dinh / so tham so lech) - giu nguyen co che cu.
     init_sig = ((ctx.record_methods or {}).get(name) or {}).get('__init__')
     if (name in records and init_sig is not None and _khop_so_doi_so_init(init_sig, args)
             and not _la_lop_ngoai_le(name, ctx.record_bases or {})):
@@ -3928,9 +3969,11 @@ def _expr_call(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", 
         # that viet 'self.items = []'.
         fields = [fd for fd in records[name] if not _is_container_field(fd[1])]
         if len(args) != len(fields):
+            # Gom comprehension ra bien truoc (2026-10-11) - xem _sao_join_str.
+            _ten_fd = [f for f, _ in fields]
             raise SyntaxError(
                 f"il_codegen: record '{name}' can {len(fields)} tham so "
-                f"({', '.join([f for f, _ in fields])}), gap {len(args)}")
+                f"({', '.join(_ten_fd)}), gap {len(args)}")
         # Duyet theo CHI SO (2026-09-24): `for a, (_, b) in zip(...)` - tach
         # tuple LONG - hat giong khong khai duoc bien. Moi field la TypeAnn tu
         # 2026-09-15 (xem _resolve_record_field_types) nen nhanh `isinstance(
@@ -4038,11 +4081,13 @@ def _expr_call(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", 
         if len(args) != 1:
             raise SyntaxError("il_codegen: ham 'abs' chi nhan dung 1 tham so")
         if ctx.infer_dtype(args[0], scope, ctx.func_table, ctx.records, ctx.record_methods, None) == 'complex':
-            # abs(complex) = modulus (float64), khong phai Math.Abs (2026-10-01)
-            _compile_expr(args[0], scope, out, 'complex', ctx)
-            out.append('    call float64 [System.Numerics]System.Numerics.Complex::Abs(valuetype [System.Numerics]System.Numerics.Complex)')
-            ctx.widen_if_needed('f64', dtype, out)
-            return
+            # abs(complex) CHUA ho tro dung: System.Numerics.Complex::Abs la
+            # ham TINH co san, nhung neu sai overload/khong ro se tra phan
+            # thuc - sai am tham. Tu choi thay vi sinh gia tri khong chac.
+            raise SyntaxError(
+                "il_codegen: abs() tren so phuc CHUA ho tro dung - gia tri tra "
+                "ve co the la phan thuc thay vi modulus. Tinh modulus bang tay "
+                "(re*re + im*im) roi sqrt()")
         if dtype == 'int':
             # Kieu 'int' (vo han chu so): System.Math::Abs KHONG co
             # overload nao nhan struct TkvInt - xem int_type.compile_abs.
@@ -4312,6 +4357,16 @@ def _expr_call(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", 
             # '[]' RONG cho tham so container (2026-09-29): newobj DUNG kieu tham so
             # (truoc day List<string> cho tham so list[(str,str)] - lech kieu am tham).
             _compile_arg_theo_ta(arg_node, p.type_ann, scope, out, ctx)
+        elif p.type_ann.shape_ten == 'list' and _ten_lop_gen_ctx(arg_node, scope, ctx) is not None:
+            _emit_gen_as_container(arg_node, _ten_lop_gen_ctx(arg_node, scope, ctx),
+                                   p.type_ann, scope, out, ctx)
+        elif p.type_ann.shape_ten == 'list' and _coerce_can(arg_node, p.type_ann, scope) == 1:
+            # 'list[int]' truyen vao tham so 'list[i32]' va nguoc lai: ep bang
+            # vong lap (container generic cua .NET khong co covariance).
+            # `_coerce_can` boc tuple `_list_coerce_pair` ra - KHONG index
+            # truc tiep tuple: ValueTuple khong co indexer (REFERENCE.md muc 7).
+            _at, _need = _list_coerce_pair(arg_node, p.type_ann, scope)
+            _emit_container_coerce(arg_node, _at, p.type_ann, scope, out, ctx)
         else:
             _compile_expr(arg_node, scope, out,
                           _value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
@@ -5392,6 +5447,76 @@ def _ds_so_rong() -> "list[i32]":
     return []
 
 
+def _can_bang_chuoi_tam_nhay(text: "str") -> "(str,i32)":
+    """Dem so lan chuoi tam nhay (3 dau nhay) xuat hien trong `text`, bo qua
+    chuoi hang thuong. Tra None neu khong co chuoi tam nhay nao.
+
+    Phai dem HET moi biet chuoi da dong hay chua."""
+    dem = 0
+    delim = None
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == chr(92):
+            i += 2
+            continue
+        if ch == chr(34) and text[i:i + 3] == '"""':
+            delim = '"""'
+            dem = dem + 1
+            i += 3
+            continue
+        if ch == chr(39) and text[i:i + 3] == "'''":
+            delim = "'''"
+            dem = dem + 1
+            i += 3
+            continue
+        if ch == chr(34) or ch == chr(39):
+            j = i + 1
+            while j < n:
+                if text[j] == chr(92):
+                    j += 2
+                    continue
+                if text[j] == ch:
+                    break
+                j += 1
+            i = j + 1
+            continue
+        i += 1
+    if dem == 0:
+        return None
+    return delim, dem
+
+
+def _noi_chuoi_tam_nhay(body: "str", body_lines: "list[str]", i: "i32") -> "(str,i32)":
+    """Neu `body` co chuoi tam nhay CHUA DONG, gom cac dong sau vao cho dong.
+
+    Tra (body_moi, i_moi) hoac None neu khong can gom.
+
+    Newline giua cac dong duoc doi thanh escape 2 ky tu backslash-n tai day -
+    noi dung chuoi phai la MOT DONG trong file `.il` sinh ra."""
+    got = _can_bang_chuoi_tam_nhay(body)
+    if got is None:
+        return None
+    delim = got[0]
+    dem = got[1]
+    phan = [body]
+    j = i
+    while dem % 2 == 1 and j + 1 < len(body_lines):
+        j += 1
+        tiep = body_lines[j].strip()
+        phan.append(tiep)
+        got2 = _can_bang_chuoi_tam_nhay(tiep)
+        if got2 is not None and got2[0] == delim:
+            dem += 1
+    if dem % 2 == 1:
+        raise SyntaxError(
+            "il_codegen: chuoi " + delim + " bat dau o dong nay nhung KHONG co " +
+            delim + " dong - thieu dong ket thuc")
+    sep = chr(92) + "n"
+    return sep.join(phan), j
+
+
 def _strip_lines(body_lines: "list[str]", start_line: "i32"=None) -> "(list[(i32,str)],list[i32])":
     """Bo dong trong, dong chu thich '#' va DOCSTRING (cau lenh chi gom 1
     chuoi tam nhay, 1 hoac nhieu dong). Docstring khong sinh ma nhung co
@@ -5438,6 +5563,12 @@ def _strip_lines(body_lines: "list[str]", start_line: "i32"=None) -> "(list[(i32
             continue
         indent = len(raw) - len(raw.lstrip(' '))
         line_no_here = (start_line + i) if start_line is not None else None
+        # CHUOI TAM NHAY CHUA DONG (2026-10-10): `return """a\nb"""` phai
+        # thanh MOT dong truoc khi xuong tokenizer/bo chu thich - newline that
+        # se lam hong `ldstr`.
+        noi_dl = _noi_chuoi_tam_nhay(body, body_lines, i)
+        if noi_dl is not None:
+            body, i = noi_dl
         # CHU THICH CUOI DONG (2026-08-03, dot 3): 'x = f(a)  # ghi chu' -
         # truoc day chi bo duoc dong chu thich NGUYEN DONG, con '#' o cuoi
         # 1 dong ma thi loi vao bieu thuc ("khong tokenize duoc"). Bo dau
@@ -5831,6 +5962,11 @@ def _lp_call_stmt(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "
     call_node = parse_expr(line)
     if ekind(call_node) != 'call':
         raise SyntaxError(f'il_codegen: khong dich duoc dong: {line!r}')
+    if ea_str(call_node) == 'delattr':
+        raise SyntaxError(
+            'il_codegen: delattr(o, "x") chua ho tro - field cua record la '
+            'field CUA STRUCT trong IL, so luong va vi tri da CHOT luc bien dich '
+            'nen khong xoa duoc. Muon xoa phan tu container thi dung "del xs[i]"')
     return intern(make2('call_stmt', line)), pos + 1
 
 
@@ -6174,6 +6310,194 @@ def _fp_declare_scalar(wc: "WalkCtx", reg: "Registry", name: "str", rhs_node: "T
         wc.infer_scope.set(name, ta)
 
 
+_SCALAR_FOR_COERCE: "set[str]" = {'i32', 'i64', 'f32', 'f64', 'int'}
+
+
+def _ta_tu_nhien_list(arg_node: "TkvNode", scope: "Scope") -> "TypeAnn":
+    """TypeAnn TU NHIEN cua 1 bieu thuc o vi tri doi so (bien, hoac
+    slice/index tren bien) - None neu khong xac dinh duoc.
+
+    `expr_layout.tkv`: `'index:1'` va `'slice:1'` deu la **STR** (ten bien),
+    KHONG phai node - `('index', ten, ds_chi_so)`. Doc bang `ea_nut` o day
+    lam field 1 bi hieu sai va bien dich g1/g2 CHET (FormatException) ngay
+    khi `_expr_call` bat dau goi ham nay cho moi cap doi so/tham so."""
+    k = ekind(arg_node)
+    if k == 'var':
+        return _ta_cua_bien(scope, ea_str(arg_node))
+    if k == 'index' or k == 'slice':
+        src_ta = _ta_cua_bien(scope, ea_str(arg_node))
+        if src_ta is not None and src_ta.elem_ta is not None:
+            return src_ta.elem_ta
+        return src_ta
+    return None
+
+
+def _can_coerce(arg_ta: "TypeAnn", param_ta: "TypeAnn") -> "i32":
+    if arg_ta is None or param_ta is None:
+        return 0
+    if arg_ta.shape_ten != 'list' or param_ta.shape_ten != 'list':
+        return 0
+    if arg_ta.dtype == param_ta.dtype:
+        return 0
+    if arg_ta.dtype not in _SCALAR_FOR_COERCE or param_ta.dtype not in _SCALAR_FOR_COERCE:
+        return 0
+    return 1
+
+
+def _list_coerce_pair(arg_node: "TkvNode", param_ta: "TypeAnn", scope: "Scope") -> "(TypeAnn,i32)":
+    """(arg_ta, can_ep) cho cap doi so/tham so list."""
+    if param_ta is None or param_ta.shape_ten != 'list':
+        return None, 0
+    arg_ta = _ta_tu_nhien_list(arg_node, scope)
+    if arg_ta is None or arg_ta.shape_ten != 'list':
+        return None, 0
+    return arg_ta, _can_coerce(arg_ta, param_ta)
+
+
+def _coerce_can(arg_node: "TkvNode", param_ta: "TypeAnn", scope: "Scope") -> "i32":
+    """Chi 1 phan cua `_list_coerce_pair` (thuoc so 'can_ep') - boc tuple ra
+    de lenh `elif` khong phai index truc tiep ValueTuple (khong co indexer)."""
+    _ta, can = _list_coerce_pair(arg_node, param_ta, scope)
+    return can
+
+
+def _emit_container_coerce(arg_node: "TkvNode", arg_ta: "TypeAnn", param_ta: "TypeAnn",
+                           scope: "Scope", out: "list[str]", ctx: "Ctx") -> "i32":
+    """Ep `list[int]` <-> `list[i32|i64|float]` bang vong lap ghi vao list moi."""
+    src_dt = arg_ta.dtype
+    dst_dt = param_ta.dtype
+    if src_dt == dst_dt:
+        return 0
+    if src_dt not in _SCALAR_FOR_COERCE or dst_dt not in _SCALAR_FOR_COERCE:
+        return 0
+    src_il = ctx.il_type_str(arg_ta, ctx.records)
+    dst_il = ctx.il_type_str(param_ta, ctx.records)
+    if src_il == dst_il:
+        return 0
+    tag = '__coerce' + str(nid(arg_node))
+    src_idx = scope.tra(tag + '_src').idx
+    out_idx = scope.tra(tag + '_out').idx
+    i_idx = scope.tra(tag + '_i').idx
+    ctx.label_counter[0] += 1
+    n = ctx.label_counter[0]
+    top_lbl = tag + '_L' + str(n) + '_top'
+    has_lbl = tag + '_L' + str(n) + '_has'
+    end_lbl = tag + '_L' + str(n) + '_end'
+    _compile_expr(arg_node, scope, out, _value_dtype_spec_for_ta(arg_ta, arg_node), ctx)
+    out.append('    dup')
+    out.append('    brtrue ' + has_lbl)
+    out.append('    pop')
+    out.append('    br ' + end_lbl)
+    out.append('  ' + has_lbl + ':')
+    out.append('    stloc.s ' + str(src_idx))
+    out.append('    newobj instance void ' + dst_il + '::.ctor()')
+    out.append('    stloc.s ' + str(out_idx))
+    out.append('    ldc.i4.0')
+    out.append('    stloc.s ' + str(i_idx))
+    out.append('  ' + top_lbl + ':')
+    out.append('    ldloc.s ' + str(i_idx))
+    out.append('    ldloc.s ' + str(src_idx))
+    out.append('    callvirt instance int32 ' + src_il + '::get_Count()')
+    out.append('    bge ' + end_lbl)
+    out.append('    ldloc.s ' + str(out_idx))
+    out.append('    ldloc.s ' + str(src_idx))
+    out.append('    ldloc.s ' + str(i_idx))
+    out.append('    callvirt instance !0 ' + src_il + '::get_Item(int32)')
+    if src_dt == 'int':
+        if dst_dt == 'i32':
+            out.append('    call int32 TkvInt::ToI32(valuetype TkvInt)')
+        elif dst_dt == 'i64':
+            out.append('    call int64 TkvInt::ToI64(valuetype TkvInt)')
+        elif dst_dt in _FLOAT_DTYPES:
+            out.append('    call float64 TkvInt::ToF64(valuetype TkvInt)')
+            if dst_dt == 'f32':
+                out.append('    conv.r4')
+    else:
+        out.append('    conv.i8')
+        out.append('    call valuetype TkvInt TkvInt::FromI64(int64)')
+    out.append('    callvirt instance void ' + dst_il + '::Add(!0)')
+    out.append('    ldloc.s ' + str(i_idx))
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append('    stloc.s ' + str(i_idx))
+    out.append('    br ' + top_lbl)
+    out.append('  ' + end_lbl + ':')
+    out.append('    ldloc.s ' + str(out_idx))
+    return 1
+
+
+def _ten_lop_gen_wc(arg_node: "TkvNode", ctx: "WalkCtx") -> "str":
+    """Bien WalkCtx: doc scope qua `infer_scope` (first-pass)."""
+    k = ekind(arg_node)
+    if k == 'call':
+        callee = (ctx.func_table or {}).get(ea_str(arg_node))
+        if callee is not None and callee.is_generator == 1:
+            return callee.generator_class_name
+        return None
+    if k == 'var':
+        try:
+            ta = ctx.infer_scope.tra(ea_str(arg_node)).ta
+        except Exception:
+            return None
+        if ta is not None and ta.shape_ten == 'generator':
+            return ta.dtype
+    return None
+
+
+def _ten_lop_gen_ctx(arg_node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "str":
+    """Bien Ctx + scope rieng: doc bien qua `scope.tra` (codegen)."""
+    k = ekind(arg_node)
+    if k == 'call':
+        callee = (ctx.func_table or {}).get(ea_str(arg_node))
+        if callee is not None and callee.is_generator == 1:
+            return callee.generator_class_name
+        return None
+    if k == 'var':
+        try:
+            ta = scope.tra(ea_str(arg_node)).ta
+        except Exception:
+            return None
+        if ta is not None and ta.shape_ten == 'generator':
+            return ta.dtype
+    return None
+
+
+def _khai_bien_tam_gen_cho_goi(call_node: "TkvNode", ctx: "WalkCtx"):
+    """Khai bao local an cho viec rut generator thanh list truyen vao ham."""
+    callee = (ctx.func_table or {}).get(ea_str(call_node))
+    if callee is None:
+        return
+    normal_params = [p for p in callee.params if not (p.is_vararg or p.is_kwarg)]
+    for arg_node, p in zip(eb_ds(call_node), normal_params):
+        ta = p.type_ann
+        if ta is None or ta.shape_ten != 'list':
+            continue
+        gen_class = _ten_lop_gen_wc(arg_node, ctx)
+        if gen_class is None:
+            arg_ta, need = _list_coerce_pair(arg_node, ta, ctx.infer_scope)
+            if need:
+                ctx.declare_named('__coerce' + str(nid(arg_node)) + '_src',
+                                  TypeAnn(arg_ta.dtype, 'list', elem_ta=arg_ta.elem_ta))
+                ctx.declare_named('__coerce' + str(nid(arg_node)) + '_out',
+                                  TypeAnn(ta.dtype, 'list', elem_ta=ta.elem_ta))
+                ctx.declare_named('__coerce' + str(nid(arg_node)) + '_i',
+                                  TypeAnn('i32', None))
+                continue
+            continue
+        tag = '__genaslst' + str(nid(arg_node))
+        ctx.declare_named(tag + '_it', TypeAnn(gen_class, 'generator'))
+        ctx.declare_named(tag + '_acc', TypeAnn(ta.dtype, 'list', elem_ta=ta.elem_ta))
+
+
+def _khai_bien_tam_gen_cho_bieu_thuc(expr_node: "TkvNode", ctx: "WalkCtx"):
+    """Duyet MOI loi goi trong 1 bieu thuc de khai bien an cho generator-as-arg."""
+    for call_node in _walk_call_nodes(expr_node):
+        try:
+            _khai_bien_tam_gen_cho_goi(call_node, ctx)
+        except Exception:
+            pass
+
+
 def _fp_collect_ternary_temps(wc: "WalkCtx", reg: "Registry", expr_node: "TkvNode"):
     """Ten giu NGUYEN (30+ noi goi trong il_features/*.py) nhung tu
     Giai doan 0.2 nhom 3 (2026-08-03) lam THEM 1 viec: cap phat hidden
@@ -6192,6 +6516,7 @@ def _fp_collect_ternary_temps(wc: "WalkCtx", reg: "Registry", expr_node: "TkvNod
     # giong khong nang duoc no (can doi tuong closure) - va MOI loi goi
     # truc tiep toi no tung dich thanh `call` toi method KHONG TON TAI.
     _declare_slice_temps(expr_node, tao_walk_ctx(declare_named=(lambda a0, a1: _khai_ten_wc(wc, a0, a1))))
+    _khai_bien_tam_gen_cho_bieu_thuc(expr_node, wc)
     # Walrus 'NAME := expr' (Phase 13, 2026-08-29): tai dung NGUYEN
     # VEN declare_scalar (dung boi 'x = expr' thuong) de suy dtype tu
     # ve phai va khai bao local MOI neu 'NAME' chua tung xuat hien -
@@ -6302,9 +6627,11 @@ def _them_hoan(ds: "list[func()->void]", hoan_fn: "func()->void") -> "i32":
 
 
 def _first_pass_collect_locals(reg: "Registry", stmts: "list[i32]", sig: "TkvSig", body_dtype: "str", func_table: "dict[str,TkvSig]" = None,
-                                records: "dict[str,list[(str,TkvTypeAnn)]]" = None, record_methods: "dict[str,dict[str,Signature]]" = None,
-                                extra_declared: "dict[str,TypeAnn]" = None, source_path: "str" = None,
-                                record_bases: "dict[str,list[str]]" = None) -> "(list[(str,TypeAnn)],dict[i32,i32],i32,set[str],dict[str,NestedClosure])":
+                               records: "dict[str,list[(str,TkvTypeAnn)]]" = None, record_methods: "dict[str,dict[str,Signature]]" = None,
+                               extra_declared: "dict[str,TypeAnn]" = None, source_path: "str" = None,
+                               record_bases: "dict[str,list[str]]" = None,
+                               bien_mod: "dict[str,str]" = None
+                               ) -> "(list[(str,TypeAnn)],dict[i32,i32],i32,set[str],dict[str,NestedClosure])":
     """Duyet cay Stmt (KHONG parse lai bieu thuc - da parse 1 lan trong
     _parse_block), khai bao local (.locals init) + temp cho ternary long
     nhau. Tra ve (locals_decl, tern_temp_of_id, needs_epilogue, boxed_names,
@@ -6429,6 +6756,7 @@ def _first_pass_collect_locals(reg: "Registry", stmts: "list[i32]", sig: "TkvSig
         # import truc tiep _EXTERN_CLASS_DEFS (circular import, xem
         # docstring dau list_type.py).
         extern_class_defs=il_extern_dtype._EXTERN_CLASS_DEFS,
+        bien_mod=bien_mod,
     )
     # Ba callback GOI HAM LONG gan SAU khi walk_ctx da ton tai (2026-09-24):
     # cac ham long do doc `walk_ctx`, ma lambda TokenVector bat bien THEO GIA
@@ -6963,6 +7291,11 @@ def _stmt_assign_scalar(stmt: "i32", scope: "Scope", body: "list[str]", body_dty
     idx = _rb.idx
     var_ta = _rb.ta
     _rhs0 = lay_nut(stmt, 'rhs_node')
+    if (var_ta is not None and var_ta.la_vo_huong() and var_ta.dtype == 'int'
+            and la_node(_rhs0) and ekind(_rhs0) == 'str_lit'):
+        raise SyntaxError(
+            f"il_codegen: '{name}' co kieu 'int' nhung duoc gan lai bang "
+            f"bieu thuc chuoi - mot local mot kieu, khong doi kieu duoc")
     if (la_node(_rhs0) and ekind(_rhs0) == 'null' and var_ta is not None and var_ta.la_vo_huong()
             and var_ta.dtype in ('i32', 'i64', 'f32', 'f64', 'bool', 'int', 'complex')):
         # 'x = None' voi x kieu SO (2026-09-26): kieu gia tri khong chua None -
@@ -7175,6 +7508,182 @@ def _ds_truong_rong() -> "list[(str,TypeAnn)]":
     return []
 
 
+def _init_noi_vao_ctor(name: "str", sig_line: "str",
+                       records: "dict[str,list[(str,TypeAnn)]]",
+                       record_bases: "dict[str,list[str]]") -> "i32":
+    """`__init__` cua record `name` co THE noi than vao `.ctor` khong?
+
+    Tra ve 1 neu DUOC. Day la PHAN 'kha nang' cua `_ctor_init_body_il`: chay
+    TRUOC `gen_il_program` de `compile_tkv_cli` biet co nen giu `__init__` la
+    method CIL that hay loai no di. Chay CA HAI se lam `self.X` bi gan 2 lan
+    va (khi so tham so lech) doc sai tham so - nen phai biet TRUOC khi sinh IL.
+
+    3 dieu kien (giong het phan 'khu vuc bien dich' cua `_ctor_init_body_il`):
+      1. `.ctor` khong co them tham so cua field base (diem 4 trong docstring
+         do) - `.ctor` cua class con co `[field base..., field rieng...]`.
+         Tra ve 1 (bo qua than, KHONG inline) chu khong phai 0: `__init__` cua
+         class con van phai BI BO khoi bang method, `.ctor` tu gan field -
+         xem `record_init_runs_test` (Derived.q = 3).
+      2. so tham so `__init__` bang DUNG so field vo huong cua `.ctor`.
+      3. kieu tung tham so khop kieu field tuong ung.
+    """
+    base_name = base_that(record_bases, name)
+    if base_name and base_name not in EXC_CLR:
+        for _fn_b, _fd_b in records[base_name]:
+            if not _is_container_field(_fd_b):
+                return 1
+    ctor_fields: "list[(str,TypeAnn)]" = []
+    for _fn_c, _fd_c in records[name]:
+        if not _is_container_field(_fd_c):
+            ctor_fields.append((_fn_c, _fd_c))
+    ten_record: "set[str]" = set()
+    for k_r in records:
+        ten_record.add(k_r)
+    sig = None
+    try:
+        sig = parse_typed_signature(sig_line, record_names=ten_record)
+    except SyntaxError as _loi_chu_ky:
+        sig = None
+    if sig is None:
+        return 0
+    # Tham so MAC DINH co the duoc goi bang KEYWORD (`Param(name=..., ...)`)
+    # ma duong `.ctor` theo field KHONG ho tro kwargs - giu nguyen method cu.
+    for p0 in sig.params:
+        if p0.default_node >= 0:
+            return 0
+    if len(sig.params) != len(ctor_fields):
+        return 0
+    for p, cf in zip(sig.params, ctor_fields):
+        if p.type_ann is None:
+            return 0
+        if _field_il_type(cf[1], records) != il_type_str(p.type_ann):
+            return 0
+    return 1
+
+
+_INIT_RETURN_RE = re.compile(r'^(\s*)return\b.*$')
+
+
+def _split_method_il(lines: "list[str]") -> "(str,list[str])":
+    """Tach 1 khoi `.method` sinh ra than (locals_line, body).
+
+    `locals_line` = dong `.locals ...` cua ham, hoac CHUOI RONG neu ham khong
+    co local nao. `body` LA CAC LEKH THUC BODY (khong phai header/footer) -
+    dung khi can noi than ham vao 1 method da co (xem `_ctor_init_body_il`).
+
+    KHONG tach `.maxstack`: `gen_record_types` tu uong lai bang `_max_stack_for`
+    tren chinh `body` (do la thuoc tinh cua body, khong phai cua ham goc)."""
+    locals_line = ""
+    body: "list[str]" = []
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith('.locals'):
+            locals_line = ln
+            continue
+        if s.startswith('.method') or s.startswith('.maxstack'):
+            continue
+        if s == '{' or s == '}':
+            continue
+        body.append(ln)
+    return locals_line, body
+
+
+def _ctor_init_body_il(reg: "Registry", record_name: "str", sig_line: "str", body_lines: "list[str]",
+                       records: "dict[str,list[(str,TypeAnn)]]", record_methods: "dict[str,dict[str,Signature]]",
+                       record_bases: "dict[str,list[str]]", record_methods_own: "dict[str,dict[str,Signature]]",
+                       func_table: "dict[str,TkvSig]", class_name: "str", hang_mod: "dict[str,(str,str)]",
+                       extra_classes: "list[list[str]]", emitted_types: "set[str]", source_path: "str",
+                       debug: "i32", ctor_fields: "list[(str,TypeAnn)]", base_ctor_len: "i32") -> "(str,list[str])":
+    """Bien dich THAN `__init__` de chen vao `.ctor` cua record.
+
+    TRA VE (locals_line, body) - con rong (chuoi rong + list rong) khi khong
+    bien dich duoc.
+
+    2026-09-29: `__init__` TRUOC day bi bo qua hoan toan khi bien dich, nen moi
+    dong trong no (vd `self.x = a * 10`) la DEAD CODE - ma nguoi doc lai thi
+    tin no chay. Bat day la no chay THAT.
+
+    4 diem ky thuat, ca 4 deu do lenh do bi doc nham neu thieu:
+
+    1. `return` trong `__init__` khong phai `ret` cua `.ctor` (ctor tra void).
+       Ta lo bang TEXT truoc khi bien dich, va BAO LOI RO RANG neu co `return`
+       o GIUA than (khong phai dong cuoi) - bo no se chay tiep cac lenh sau
+       do, lech hanh vi Python.
+    2. `.locals` cua ham bien dich co chi so bat dau tu 0 VA `self` o arg 0 -
+       giong het `.ctor` (cung `this` o arg 0, va cac `stfld` cua `.ctor`
+       khong dung local nao) nen NOI TRUC TIEP, khong can dich chi so.
+    3. `self.X` cho field container: `_hoist_container_fields` TU CHOI hoist
+       khi than co `self.X = ...` (no ghi ro ly do) - dung cho `__init__`, vi
+       day la noi gan lai container.
+    4. Record KE THUA co field cua base: tham so `.ctor` la [field base...
+       field rieng], con `__init__` cua class chi khai field RIENG - hai danh
+       sach lech nhau, nen than se doc SAI tham so. Truong hop nay GIU HANH VI
+       CU (bo qua than `__init__`) thay vi doan - doan sai thi IL sai chay
+       am thanh.
+    """
+    if base_ctor_len > 0:
+        return "", []
+    ten_record: "set[str]" = set()
+    if records:
+        for k_r in records:
+            ten_record.add(k_r)
+    sig = None
+    try:
+        sig = parse_typed_signature(sig_line, record_names=ten_record)
+    except SyntaxError as _loi_chu_ky:
+        sig = None
+    if sig is None:
+        return "", []
+    for p0 in sig.params:
+        if p0.default_node >= 0:
+            return "", []
+    if len(sig.params) != len(ctor_fields):
+        return "", []
+    for p, cf in zip(sig.params, ctor_fields):
+        if p.type_ann is None:
+            return "", []
+        if _field_il_type(cf[1], records) != il_type_str(p.type_ann):
+            return "", []
+    lines: "list[str]" = []
+    for ln in body_lines:
+        if not _INIT_RETURN_RE.match(ln):
+            lines.append(ln)
+    for i in range(len(body_lines)):
+        if not _INIT_RETURN_RE.match(body_lines[i]):
+            continue
+        co_dong_sau = False
+        for j in range(i + 1, len(body_lines)):
+            if body_lines[j].strip() != '':
+                co_dong_sau = True
+        if co_dong_sau:
+            raise SyntaxError(
+                f"il_codegen: '__init__' cua record '{record_name}' co 'return' o GIUA "
+                f"than ham (dong {i + 1}) - chua ho tro: bo dong do thi cac "
+                f"lenh sau no van chay, lech hanh vi CPython. Viet __init__ khong co "
+                f"return o giua than.")
+    if not lines:
+        return "", []
+    method_lines = gen_il_function(
+        reg, sig, lines, with_guards=False, func_table=func_table, class_name=class_name,
+        records=records, self_type_ann=TypeAnn(record_name, 'record'),
+        record_methods=record_methods, record_methods_own=record_methods_own,
+        virtual_kw=None, record_bases=record_bases, hang_mod=hang_mod,
+        extra_classes=extra_classes, emitted_types=emitted_types,
+        source_path=source_path, debug=debug)
+    locals_line, body = _split_method_il(method_lines)
+    if body and body[-1].strip() == 'ret':
+        khong_ret: "list[str]" = []
+        for k in range(len(body) - 1):
+            khong_ret.append(body[k])
+        body = khong_ret
+        if body and body[-1].strip().startswith('ldc.'):
+            khong_ldc: "list[str]" = []
+            for k in range(len(body) - 1):
+                khong_ldc.append(body[k])
+            body = khong_ldc
+    return locals_line, body
+
+
 def gen_record_types(reg: "Registry", records: "dict[str,list[(str,TkvTypeAnn)]]", record_method_bodies: "dict[str,list[(TkvSig,list[str])]]" = None, record_methods: "dict[str,dict[str,Signature]]" = None,
                       class_name: "str" = 'Program', func_table: "dict[str,TkvSig]" = None,
                       record_bases: "dict[str,list[str]]" = None, record_overrides: "dict[str,set[str]]" = None,
@@ -7182,7 +7691,9 @@ def gen_record_types(reg: "Registry", records: "dict[str,list[(str,TkvTypeAnn)]]
                       hang_mod: "dict[str,(str,str)]" = None, record_methods_own: "dict[str,dict[str,Signature]]" = None,
                       extra_classes: "list[list[str]]" = None, emitted_types: "set[str]" = None,
                       source_path: "str" = None, debug: "i32" = False,
-                      bien_mod: "dict[str,str]" = None) -> "list[str]":
+                      bien_mod: "dict[str,str]" = None,
+                      record_init_sigs: "dict[str,str]" = None,
+                      record_init_bodies: "dict[str,list[str]]" = None) -> "list[str]":
     """Sinh 1 '.class public auto ansi <Ten> extends <Base>' RIENG (kieu
     top-level, SONG SONG voi class chuong trinh chinh, khong long ben
     trong) cho MOI 'class dang record' - 1 REFERENCE TYPE (khong con la
@@ -7225,6 +7736,10 @@ def gen_record_types(reg: "Registry", records: "dict[str,list[(str,TkvTypeAnn)]]
         record_overrides = {}
     if not record_interfaces:
         record_interfaces = {}
+    if not record_init_sigs:
+        record_init_sigs = {}
+    if not record_init_bodies:
+        record_init_bodies = {}
     # extra_classes/emitted_types (Task 3, 2026-08-12, 'async def' method
     # tren record): CUNG co che OUT-parameter nhu gen_il_program - 1 method
     # 'async def' tren record se sinh 1 '.class' closure MOI (xem
@@ -7283,7 +7798,28 @@ def gen_record_types(reg: "Registry", records: "dict[str,list[(str,TkvTypeAnn)]]
             out.append(f'  .field public {_field_il_type(fd, records)} {_il_ident(ten_tr)}')
         out.append(f'  .method public hidebysig specialname rtspecialname instance void .ctor({fields_il}) cil managed')
         out.append('  {')
-        out.append('    .maxstack 8')
+        init_locals = ""
+        init_body: "list[str]" = []
+        if name in record_init_sigs:
+            base_ctor_len = 0
+            if base_name and not is_exc_base:
+                for _fn_b, _fd_b in base_fields_ta:
+                    if not _is_container_field(_fd_b):
+                        base_ctor_len = base_ctor_len + 1
+            init_locals, init_body = _ctor_init_body_il(
+                reg, name, record_init_sigs[name], record_init_bodies[name],
+                records, record_methods, record_bases, record_methods_own,
+                func_table, class_name, hang_mod, extra_classes, emitted_types,
+                source_path, debug, ctor_fields, base_ctor_len)
+        init_maxstack = 8
+        if init_body:
+            init_maxstack = _max_stack_for(init_body)
+        if init_maxstack > 8:
+            out.append(f'    .maxstack {init_maxstack}')
+        else:
+            out.append('    .maxstack 8')
+        if init_locals != '':
+            out.append(init_locals)
         out.append('    ldarg.0')
         if is_exc_base:
             # Neu field DAU TIEN la 'str' thi truyen no cho
@@ -7325,6 +7861,8 @@ def gen_record_types(reg: "Registry", records: "dict[str,list[(str,TkvTypeAnn)]]
             out.append('    ldarg.0')
             out.append(f'    newobj instance void {_field_il_type(fd, records)}::.ctor()')
             out.append(f'    stfld {_field_il_type(fd, records)} {name}::{_il_ident(ten_tr)}')
+        for dong_init in init_body:
+            out.append(dong_init)
         out.append('    ret')
         out.append('  }')
         overridden = record_overrides.get(name, set())
@@ -7582,7 +8120,7 @@ def _cuoi_la_nhan_dich(body: "list[str]") -> "i32":
 
 
 def _body_ends_with_ret(body: "list[str]") -> "i32":
-    """Dong cuối thật của body co phai 'ret' khong (bo qua directive `.line`,
+    """Dong cuoi cua body (than ham) co phai 'ret' khong (bo qua directive `.line`,
     dong trong, chu thich)."""
     for ln in reversed(body):
         st = ln.strip()
@@ -7791,6 +8329,11 @@ def gen_il_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", wit
             _bd2 = bien_mod[_bn]
             if _bn in _bang:
                 continue
+            # CHI container cap module duoc doc ngam (tham chieu: ghi qua
+            # Dictionary/List khong can global). Bien SO van phai khai
+            # 'global' ro rang - xem tests/negative/module_var_without_global.
+            if _module_table_ta(_bd2) is None:
+                continue
             _co_dung = False
             for _bl in body_lines:
                 if _ten_xuat_hien(_bl, _bn):
@@ -7801,6 +8344,7 @@ def gen_il_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", wit
             _g2 = TypeAnn(_bd2, None)
             scope.add_global(_bn, _g2)
             extra_declared[_bn] = _g2
+        body_lines = expand_star_args_in_lines(body_lines, sig.name)
         body_lines = _expand_macros(reg, body_lines, records=records, sig=sig, func_table=func_table)
         body_lines = [_rename_reserved_identifiers(l) for l in body_lines]
         lines, line_nos = _strip_lines(body_lines, start_line=body_start_line)
@@ -7817,7 +8361,8 @@ def gen_il_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", wit
     locals_decl, tern_temp_of_id, needs_epilogue, boxed_names, nested_closures = \
         _first_pass_collect_locals(reg, stmts, sig, body_dtype, func_table, records, record_methods,
                                    record_bases=record_bases,
-                                    extra_declared=extra_declared, source_path=source_path)
+                                    extra_declared=extra_declared, source_path=source_path,
+                                    bien_mod=bien_mod)
     for i, (name, ta) in enumerate(locals_decl):
         if name in boxed_names:
             scope.add_boxed(name, i, ta)
@@ -8059,6 +8604,7 @@ def _do_sau_ngan_xep(body: "list[str]") -> "i32":
 def gen_il_generator_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", func_table: "dict[str,TkvSig]" = None,
                                class_name: "str" = None, records: "dict[str,list[(str,TkvTypeAnn)]]" = None,
                                record_methods: "dict[str,dict[str,Signature]]" = None, record_bases: "dict[str,list[str]]" = None,
+                               bien_mod: "dict[str,str]" = None,
                                extra_classes: "list[list[str]]" = None, emitted_types: "set[str]" = None,
                                monomorphize_cache: "dict[str,Signature]" = None,
                                pending_monomorphize: "list[(TkvSig,list[str],i32)]" = None,
@@ -8102,6 +8648,7 @@ def gen_il_generator_function(reg: "Registry", sig: "TkvSig", body_lines: "list[
       CHUA duoc kiem tra rieng - se loi ro rang (KeyError/sai field) neu
       dung toi, chua co test cho to hop nay."""
     body_dtype = sig.generator_elem_dtype
+    body_lines = expand_star_args_in_lines(body_lines, sig.name)
     body_lines = _expand_macros(reg, body_lines, records=records, sig=sig, func_table=func_table)
     body_lines = [_rename_reserved_identifiers(l) for l in body_lines]
     lines, _line_nos = _strip_lines(body_lines)
@@ -8116,7 +8663,7 @@ def gen_il_generator_function(reg: "Registry", sig: "TkvSig", body_lines: "list[
 
     locals_decl, tern_temp_of_id, needs_epilogue, boxed_names, nested_closures = \
         _first_pass_collect_locals(reg, stmts, sig, body_dtype, func_table, records, record_methods,
-                                   record_bases=record_bases)
+                                   record_bases=record_bases, bien_mod=bien_mod)
     if boxed_names or nested_closures:
         raise SyntaxError(
             f"il_codegen: generator '{sig.name}' chua ho tro closure long ben trong "
@@ -8143,6 +8690,7 @@ def gen_il_generator_function(reg: "Registry", sig: "TkvSig", body_lines: "list[
 
     label_counter = [_zero_i32()]
     gen_ctx = tao_gen_ctx(reg=reg, class_name=gen_class, current_iltype=elem_iltype,
+                      elem_dtype=body_dtype,
                       field_vars=field_vars, state_labels=[], next_state=[0])
     ctx = tao_ctx(reg=reg, label_counter=label_counter, prefix=sig.name, tern_temp_of_id=tern_temp_of_id,
            func_table=func_table or {}, class_name=class_name or 'Program', loop_stack=[],
@@ -8499,9 +9047,10 @@ def gen_il_program(reg: "Registry", sig_body_pairs: "list[(TkvSig,list[str],i32)
             # vong lap fixpoint cua compile_tkv_cli).
             continue
         if sig.is_generator == 1:
-            all_lines.extend(gen_il_generator_function(reg, 
+            all_lines.extend(gen_il_generator_function(reg,
                 sig, body_lines, func_table=func_table, class_name=class_name,
                 records=records, record_methods=record_methods, record_bases=record_bases,
+                bien_mod=bien_mod,
                 extra_classes=extra_classes, emitted_types=emitted_types,
                 monomorphize_cache=monomorphize_cache,
                 pending_monomorphize=pending_monomorphize,

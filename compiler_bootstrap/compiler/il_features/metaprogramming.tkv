@@ -24,8 +24,9 @@ __tkv_import__ = "il_dispatch"
 from il_features import int_type as _int_type
 from il_features import tkvstr as _tkvstr
 from il_features.int_type import ensure_class_int
-from il_features.tkvstr import ensure_class
+from il_features.tkvstr import ensure_class, emit_to_str
 from il_features.list_type import il_list_type
+from record_owner import _field_owner_class
 from typed_dsl_parser import TypeAnn
 from expr_row import ea_nut, ea_str, ekind, eso_o, la_node, mk3, o_str
 
@@ -121,19 +122,35 @@ def push_getattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]"
         # le, va thong bao loi tu mau thuan ("truong nay kieu 'str' shape
         # ''" roi van bao chi ho tro str vo huong). Da xay ra that o commit
         # 27a88c93 va nam im cho toi khi ma tran phu bat dau bit o nay.
-        if f_dtype != 'str' or f_shape != "":
+        if f_dtype == 'str' and f_shape == "":
+            attr_node = mk3('attr', o_str(obj_name), o_str(attr_name))
+            ctx.compile_expr(attr_node, scope, out, dtype, ctx)
+        elif f_shape == "" and (f_dtype in ('i32', 'i64', 'f32', 'f64', 'bool', 'int')):
+            # 2026-10-10: getattr tra 'str' (dang ky backend), nen field SO
+            # phai duoc chuyen thanh chuoi o day. Truoc day ham tu choi toan
+            # bo field khong 'str', khien meta_format_test build fail.
+            attr_node = mk3('attr', o_str(obj_name), o_str(attr_name))
+            ctx.compile_expr(attr_node, scope, out, f_dtype, ctx)
+            emit_to_str(f_dtype, out, ctx)
+        else:
             raise SyntaxError(
                 "il_codegen: getattr(" + obj_name + ", '" + attr_name +
-                "') - hien CHI ho tro truong kieu 'str' vo huong, truong nay "
+                "') - hien CHI ho tro truong vo huong (str/so), truong nay "
                 "kieu " + repr(f_dtype) + " shape " + repr(f_shape) +
                 ". Doc thang '" + obj_name + "." + attr_name +
                 "' thay vi dung getattr()")
-        attr_node = mk3('attr', o_str(obj_name), o_str(attr_name))
-        ctx.compile_expr(attr_node, scope, out, dtype, ctx)
     elif default_arg is not None:
-        ctx.compile_expr(default_arg, scope, out, dtype, ctx)
+        # Default cung phai thanh CHUOI vi return dtype cua getattr dinh la
+        # 'str'. Hang so so thi bien dich theo kieu cua no roi emit_to_str;
+        # chuoi literal thi day thang.
+        if la_node(default_arg) and ekind(default_arg) == 'num':
+            _d = 'f64' if '.' in ea_str(default_arg) else 'i32'
+            ctx.compile_expr(default_arg, scope, out, _d, ctx)
+            emit_to_str(_d, out, ctx)
+        else:
+            ctx.compile_expr(default_arg, scope, out, dtype, ctx)
     else:
-        raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co attribute '{attr_name}' va khong co default")
+        raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co field '{attr_name}' va khong co default")
 
 
 def push_callable_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
@@ -371,6 +388,50 @@ def push_id_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dty
     out.append('    call int32 [mscorlib]System.Runtime.CompilerServices'
                '.RuntimeHelpers::GetHashCode(object)')
 
+def push_setattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`setattr(obj, "attr", value)` - gan field record (ATTR_ASSIGN ben duoi).
+
+    Khong co runtime reflection duoc vi record la reference type phat sinh
+    luc bien dich; `attr` phai la chuoi LITERAL de truy cap DUNG field."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: setattr(obj, attr_name, value) nhan dung 3 tham so")
+    obj_arg, attr_arg, value_arg = args[0], args[1], args[2]
+    if ekind(obj_arg) != 'var':
+        raise SyntaxError("il_codegen: setattr(obj, attr_name, value) can tham so 1 la 1 bien")
+    obj_name = ea_str(obj_arg)
+    if obj_name not in scope:
+        raise SyntaxError("il_codegen: bien '" + obj_name + "' chua duoc khai bao")
+    obj_ta = scope.tra(obj_name).ta
+    attr_name = None
+    if la_node(attr_arg) and eso_o(attr_arg) >= 2:
+        attr_name = str(ea_str(attr_arg)).strip('"\'')
+    if attr_name is None:
+        raise SyntaxError(
+            "il_codegen: setattr(obj, attr_name, value) - attr_name phai la "
+            "CHUOI LITERAL (vi du setattr(o, \"x\", 5)).")
+    records = ctx.records
+    fd_ta = None
+    for f in records[obj_ta.dtype]:
+        if f[0] == attr_name:
+            fd_ta = f[1]
+    if fd_ta is None:
+        raise SyntaxError(
+            "il_codegen: record '" + obj_ta.dtype + "' khong co field '" +
+            attr_name + "' nen setattr khong gan duoc. Python nem AttributeError.")
+    ctx.load_var_ref(obj_name, scope, out)
+    owner = _field_owner_class(ctx, obj_ta.dtype, attr_name)
+    field_il = ctx.il_ident(attr_name)
+    if fd_ta.la_vo_huong():
+        ctx.compile_expr(value_arg, scope, out, fd_ta.dtype, ctx)
+        out.append('    stfld ' + IL_SCALAR[fd_ta.dtype] + ' ' + owner + '::' + field_il)
+    else:
+        ctx.compile_expr(value_arg, scope, out, fd_ta.dtype, ctx)
+        out.append('    stfld ' + ctx.il_type_str(fd_ta, records) + ' ' + owner + '::' + field_il)
+    # Python setattr tra None; ATV giu con so 0 lam ket qua bieu thuc (khong
+    # co kieu None ben tren stack).
+    out.append('    ldc.i4.0')
+
+
 def bootstrap_metaprogramming(reg: "Registry") -> "i32":
     """Dang ky cua module nay - P6: KHONG chay luc import.
 
@@ -384,6 +445,7 @@ def bootstrap_metaprogramming(reg: "Registry") -> "i32":
     # kieu tra ve cua getattr phu thuoc tung truong, ma bang nay chi nhan
     # MOT dtype. push_getattr_builtin chan truong khong phai 'str'.
     register_expr_builtin(reg, 'getattr', push_getattr_builtin, 'str')
+    register_expr_builtin(reg, 'setattr', push_setattr_builtin, 'i32')
     # callable: AOT - kieu cua bien biet luc bien dich, nen chi can day
     # 0/1. Khong phai bien thi tra loi SOM o bien dich chu khong doi gia tri
     # runtime. Day la builtin thu 3 cua module, da bi bo sot khi port

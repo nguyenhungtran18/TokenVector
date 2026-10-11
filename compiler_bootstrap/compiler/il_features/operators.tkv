@@ -750,6 +750,53 @@ def compile_compare(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "s
                 out.append('    ldc.i4.0')
                 out.append('    ceq')
             return
+    if op in ('<', '>', '<=', '>=') and operand_dtype in records:
+        # 2026-09-28: __lt__ cho so sanh vung tren record. Truoc nay chi co
+        # '=='/'!=' nen 'a < b' roi xuong duong so hoc chung va tra ve MOT HANG
+        # SO - im lang va SAI. KHONG co Testkit nao so sanh 2 record nen khong
+        # ai bat.
+        #
+        # CHI can __lt__: '>' va '<=' goi __lt__ voi HAI VE DAO LAI, '>=' la
+        # 'not __lt__' - dung y het Python, Python cung khong can __le__/__ge__.
+        record_methods = (ctx.record_methods if ctx is not None else None) or {}
+        lt = record_methods.get(operand_dtype, {}).get('__lt__')
+        if lt is None:
+            raise SyntaxError(
+                f"il_codegen: so sanh vung ('{op}') tren record "
+                f"'{operand_dtype}' can '__lt__' - record do chua viet. "
+                f"Khong co no, phep so sanh se tra ve MOT HANG SO bat ke gia "
+                f"tri, nen bien dich bao loi o day thay vi sinh ma sai. "
+                f"(vd 'def __lt__(self, other) -> \"i32\":' - '>' va '>=' suy "
+                f"ra tu __lt__ theo he hop nhu Python)")
+        record_bases = (ctx.record_bases if ctx is not None else None) or {}
+        ancestors = {operand_dtype}
+        walk = operand_dtype
+        while len(cac_base(record_bases, walk)) == 1:
+            walk = cac_base(record_bases, walk)[0]
+            ancestors.add(walk)
+        if len(lt.params) != 1 or lt.params[0].type_ann.dtype not in ancestors or \
+                lt.params[0].type_ann.shape_ten != 'record' or \
+                lt.return_type is None or lt.return_type.dtype != 'i32' or \
+                not lt.return_type.la_vo_huong():
+            raise SyntaxError(
+                f"il_codegen: record '{operand_dtype}' co __lt__ nhung chu ky "
+                f"sai - can dung 1 tham so CUNG kieu record va tra ve \"i32\" "
+                f"('def __lt__(self, other) -> \"i32\":')")
+        # Thu tu len stack: this truoc, tham so sau. `swap` khi 'a > b' thanh
+        # 'b.__lt__(a)'.
+        if op in ('>', '<='):
+            compile_expr(right, scope, out, operand_dtype, ctx)
+            compile_expr(left, scope, out, operand_dtype, ctx)
+        else:
+            compile_expr(left, scope, out, operand_dtype, ctx)
+            compile_expr(right, scope, out, operand_dtype, ctx)
+        owner = _method_owner_class(ctx, operand_dtype, '__lt__')
+        param_il = ctx.il_type_str(lt.params[0].type_ann, records)
+        out.append(f'    callvirt instance int32 {owner}::__lt__({param_il})')
+        if op in ('<=', '>='):
+            out.append('    ldc.i4.0')
+            out.append('    ceq')
+        return
     compile_expr(left, scope, out, operand_dtype, ctx)
     compile_expr(right, scope, out, operand_dtype, ctx)
     compare_opcode, compare_negated = ctx.compare_opcode, ctx.compare_negated

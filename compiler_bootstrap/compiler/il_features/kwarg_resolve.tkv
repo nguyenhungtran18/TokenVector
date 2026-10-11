@@ -59,10 +59,19 @@ def resolve_call_args(sig_params: "list[Param]", arg_nodes: "list[TkvNode]", cal
     param_names = {p.name for p in sig_params}
     unknown = seen_kw - param_names
     if unknown:
+        # KHONG ghep comprehension vao trong f-string (2026-10-11):
+        # `{[p.name for p in sig_params]!r}` bien dich xong nhung cho
+        # MANH RONG rong - `f"{[x + '!' for x in xs]!r}"` in ra chuoi
+        # rong, va bien dich `k2(z=1)` (vao day) CRASH (0xC0000005).
+        # List comprehension chi hop le khi la TOAN BO ve phai cua phep gan
+        # ra 1 TEN DON tren MOT dong (REFERENCE.md §7) - nen phai boc ra
+        # bien truoc, roi moi noi vao f-string.
+        _ds = sorted(unknown)
+        _hp = [p.name for p in sig_params]
         raise SyntaxError(
-            f"il_codegen: '{call_desc}' - keyword argument {sorted(unknown)!r} "
+            f"il_codegen: '{call_desc}' - keyword argument {_ds!r} "
             f"khong khop bat ky tham so nao trong chu ky (cac tham so hop le: "
-            f"{[p.name for p in sig_params]!r})")
+            f"{_hp!r})")
 
     result = []
     missing = []

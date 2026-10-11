@@ -692,12 +692,14 @@ _json_co_cach: "i32" = 0
 
 def _json_dau_phay() -> "str":
     """Dau phan cach phan tu: ',' (json_dumps gon) hoac ', ' (json.dumps cua Python) (2026-10-01)."""
+    global _json_co_cach
     if _json_co_cach == 1:
         return ', '
     return ','
 
 
 def _json_dau_hai_cham() -> "str":
+    global _json_co_cach
     if _json_co_cach == 1:
         return ' '
     return ''

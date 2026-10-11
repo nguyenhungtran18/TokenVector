@@ -1,275 +1,170 @@
-﻿# PLAN: TokenVector Tá»±-Host Äáº§y Äá»§ (118/118 + NEG 31/31)
+﻿# PLAN: TokenVector Tu-Host Day Du (118/118 + NEG 31/31)
 
-**NgÃ y báº¯t Ä‘áº§u**: 08/10/2026
-**Cáº­p nháº­t cuá»‘i**: 10/10/2026 (phien 5)
-**Tráº¡ng thÃ¡i**: Gate **103/118** (them print(sep=,end=), key=/reverse=, khoi phuc infer_literal_dtype, multi-for/multi-if comprehension, fix ternary-arg garbage), NEG **10/31**, IL_IDENTICAL. Gate khac: parity 119/119, dang_ky 0, lint 8/8, ext_smoke 4/4
+**Ngay bat dau**: 08/10/2026
+**Cap nhat cuoi**: 11/10/2026 (phien 7)
+**Trang thai**: Gate **117/118** (PASS=117, BUILDFAIL=1, TESTFAIL=0, OTHER=0,
+ILFAIL=1), **NEG 31/31**, `vong` **IL_IDENTICAL** (132 file).
+Gate khac: parity **119/119**, dang_ky **PASS** (2069/2116 = 97.7%, 0 violation),
+lint **8/8**, ext_smoke **4/4**.
 
----
-
-## Phase 0: Bug Fixes Cá»‘t LÃµi (Blockers) âœ…
-
-### 0.1. Generator `list[...]` overflow âœ… XONG 07/10
-- [x] XÃ¡c Ä‘á»‹nh root cause: `label_counter = [0]` vÃ  `stack = [0]` infer thÃ nh `List<TkvInt>` thay vÃ¬ `List<int32>`
-- [x] ThÃªm helper `_zero_i32() -> "i32"` trong `tkv_lexer.tkv`
-- [x] Thay `label_counter = [0]` â†’ `label_counter = [_zero_i32()]` (2 chá»— trong `il_codegen.tkv`)
-- [x] Thay `stack = [0]` â†’ `stack = [_zero_i32()]` (trong `tkv_lexer.tkv::apply_layout`)
-- [x] Xá»­ lÃ½ order-of-definition (tkv_lexer compile trÆ°á»›c il_codegen)
-- [x] Verify: táº¥t cáº£ generator probes compile OK, vÃ²ng tá»±-host IL_IDENTICAL
-
-### 0.2. Star-args port (`call_star_args`) âœ… XONG (phiÃªn trÆ°á»›c)
-- [x] Module má»›i `call_star_args.tkv` (~530 dÃ²ng): `f(*xs)`, `f(**kw)`
-- [x] Parser: `star`/`star2` nodes, hook á»Ÿ `_first_pass_collect_locals`
-- [x] Marker `#__dictlit` phÃ¢n biá»‡t dict literal tháº­t vs tá»± xÃ¢y dáº§n
-- [x] Fix `kwarg_resolve.tkv` crash native 0xc0000005
-- [x] 5 star-negative tests xanh
-
-### 0.3. Record method KeyError (`Bag.add` â†’ `set.add` nháº§m) âœ… XONG 08/10
-- [x] XÃ¡c Ä‘á»‹nh root cause: `try_parse_set_add` khá»›p regex `x.add(...)` mÃ  khÃ´ng check shape, hijack record method statements
-- [x] Port parse-time guard tá»« Python (2026-09-29): decline khi `known_shapes` xÃ¡c nháº­n kiá»ƒu khÃ¡c
-- [x] Port `_record_stmt_fallback` vÃ o `list_type.tkv` (safety net codegen-time)
-- [x] ThÃªm safety-net call vÃ o `codegen_set_add` + `codegen_list_append`
-- [x] Verify: `Bag.add(3)` compile OK, cháº¡y Ä‘Ãºng (0+3=3)
-- [x] VÃ²ng tá»±-host IL_IDENTICAL, gate 94/118 (khÃ´ng há»“i quy)
+> **File nay da duoc VIET LAI ngay 11/10/2026.** Ban cu bi double-encode
+> (UTF-8 -> CP1252 -> UTF-8) tu mot lan `Set-Content -Encoding UTF8` o phien
+> truoc; mot so byte undefined-trong-CP1252 da mat khong khoi phuc duoc
+> (thay bang `?`). Noi dung duoc giu lai, chu ky chuan hoa lai.
 
 ---
 
-## Phase 1: Ternary-Argument Garbage ðŸ”„ ÄANG LÃ€M
+## Con lai (2 muc)
 
-### 1.1. Root cause Ä‘Ã£ xÃ¡c Ä‘á»‹nh âœ…
-- [x] So sÃ¡nh IL: assignment dÃ¹ng `FromI64` Ä‘Ãºng, call-arg dÃ¹ng `ldc.i4` sai
-- [x] NguyÃªn nhÃ¢n: branches compile theo outer dtype (`i32`) nhÆ°ng temp khai bÃ¡o `TkvInt` â†’ layout mismatch â†’ garbage
-- [x] Return "Ä‘Ãºng" do may máº¯n (runtime lenient), call thÃ¬ garbage (strict stack)
-
-### 1.2. Fix - XONG (ce33b74, 9/9)
-- [x] Root cause THAT (doc `.il` moi bat): first-pass khai `__ternN` bang
-      `_infer_dtype or _infer_literal_dtype or body_dtype` -> `'int'` (TkvInt),
-      nhung `_expr_ternary` (pass 2) TU SUY LAI bang `_infer_dtype or dtype` -> `'i32'`.
-      => nhanh ghi `ldc.i4 1; stloc.s __ternN`: ghi 4 byte vao slot 16 byte;
-      `ldloc` nap 16 byte cho tham so int32 -> rac am thanh.
-- [x] Fix: `_expr_ternary` dung DUNG chuoi suy luoi cua first-pass (them
-      `_infer_literal_dtype(node)` giua `_infer_dtype` va fallback). 5 dong.
-- [x] Verify: `pick(c ? 10 : 20)` / `pick(c ? 1 : 0)` tra dung; `b.add(c ? 3 : 4)` dung.
-- [x] `question_ternary_test` **9/9**, gate 102/118 -> 103/118, IL_IDENTICAL.
-- [ ] **GHI CHU**: bootstrap Python luu `tern_temp_of_id[id] = (slot, dtype)` de 2 pass
-      KHONG tu suy dtype rieng. Da thu dua sang bang do trong ban tu-host, nhung
-      TokenVector **KHONG cho unpack tuple tu DICT** (`'__hoist603' phai la 1
-      list-cua-tuple`) - phai them 1 bang moi vao ca `Ctx` + `WalkCtx` + 2 noi
-      `tao_ctx`. Chon `cung chuoi suy luoi` - it rui ro hon va du diff doc ngay.
-- [ ] **`question_ternary.tkv` LA CODE CHET**: da git-tracking nhung KHONG co trong
-      `compiler_src/ds_gop.txt` -> KHONG bao gio duoc bien dich. Tinh nang `?`
-      chay qua duong khac (tkv_compile). Hoac wire vao ds_gop.txt, hoac xoa file.
-
----
-
-## Phase 2: Port TÃ­nh NÄƒng CÃ²n Thiáº¿u â¬œ
-
-### 2.0. BAI HOC KY THUAT (phien 09/10 - neu khong se mat hang gio)
-- [x] **KHONG BAO GIO dung `Set-Content -Encoding utf8` (PowerShell 5.1) tren file `.tkv`** - no them BOM, compiler bao loi sai huong (`khong tokenize duoc`, `tuple lam bieu thuc`) khong lien quan gi den code. Dung read/write bytes trong Python hoac edit tool.
-- [x] **STMT ROW MOI phai khai trong `compiler\stmt_row.tkv` CA 2 CHO**: `_LAYOUT` (~dong 557) va `_KHOA_LOGIC` (~dong 822). Thieu cho nao la `lay_str()` tra `None` am tham -> loi `bien None chua duoc khai bao` khong co so dong.
-- [x] **`m.groups()` CHI unpack duoc** (`a, b = m.groups()`); `m.group(1)` KHONG ton tai. Regex 1 group -> tach tay (startswith/slice).
-- [x] **`ctx.locals_decl.append((name, ta))` chi chay khi `ta` co kieu compiler suy duoc** (record field, tham so...). Local tu `TypeAnn(...)` khong infer duoc cho tuple -> g1 build OK nhung g1 compile tv_gop crash `Object reference not set`. Giai phap: append THANG bien nguon (`src_ta`).
-- [x] **Dang ky codegen + fpw PHAI DU BO** cho stmt kind moi. Parser tao stmt ma khong co codegen -> crash `Object reference not set` khi compile lai tv_gop.
-- [x] **`dist\tkvc-tv.exe` CO THE BI HONG**: sau 2 vong IL KHAC NHAU ma crash `Object reference not set` thi ban thang cap co bug codegen. Khoi phuc: `Copy-Item build\selfhost\g2x.exe dist\tkvc-tv.exe` (ban 08-Oct dung duoc) roi chay `tools\vong.exe` 2 lan (lan 1 co the bao IL KHAC NHAU, lan 2 phai ra IL_IDENTICAL). Chi ton khi nua phien bi crash.
-- [x] **Debug nhanh**: doc `build\selfhost\g2.exe.log` (hoac g1.exe.log) lay loi gan nhat; TAMTAT tung registration de bisect nhanh hon chay lai vong 2 phut.
-
-### 2.0c. BAI HOC KY THUAT (phien 10/10 - port `print` sep/end + `key=`)
-- [x] **`return <ham>()` trong ham khai bao void BI TU CHOI** (`ham 'x': thieu return-type annotation`). Phai tach `<ham>()` roi `return` mot dong rieng.
-- [x] **`{}` chi duoc o ve phai phep gan.** `func_table if func_table else {}` -> loi `'{}' chi dung duoc o ve phai phep gan`. Dung `func_table or {}`.
-- [x] **`Ctx` va `WalkCtx` KHONG cung layout.** Ham nhan `ctx: "Ctx"` ma duoc goi tu PASS 1 doc **SAI OFFSET** (dict rong) ma KHONG bao loi. Ham dung ca 2 giai doan phai nhan `func_table: "dict[str,TkvSig]"` truc tiep. Day la ly do `sum(xs, key=f)` bao "'neg' khong phai bien kieu func" trong khi `map(neg, xs)` lai chay dung.
-- [x] **COMMENT CO NGOAC LECH se bi macro `minmax_2arg` quet trong TEXT** -> `il_codegen: '(' ... khong co ')' dong khop`. Comment chay qua `_expand_macros` TRUOC khi duoc loai bo. Moi dong comment can CAN BANG ngoac.
-- [x] **`il_tupleN_type` tra `class [mscorlib]System.Tuple\`N`** (reference), KHONG phai ValueTuple. `Item2` la PROPERTY -> `callvirt get_Item2()`, `ldfld ::Item2` -> `MissingFieldException` luc chay.
-- [x] **Khong dung dict `{ten: node}` cho kwargs** - kieu node la alias cua so nguyen khong gon nhu `str`. Dung `_kwarg_node(args, ten)` / `_co_kwarg(args, ten)` doc lai tu danh sach tham so.
-- [x] **Mot tinh nang TOI DA 2 DUONG DANH TINH = moi fix phai lam 2 lan.** `sorted/min/max(xs, key=f)` ton tai ca macro text-level `key_agg` (comprehension.tkv) va builtin. Da BO DANG KY macro - giu lai thi moi fix phai lam 2 lan.
-
-### 2.2c. `print(sep=, end=)` - XONG (1b071fc)
-- [x] Port `compile_print` tu Python bootstrap sang TokenVector; tach kwarg bang `ekind`/`ea_str`/`eb_nut`.
-- [x] **Thu tu HAI lenh `Console::Write` la bat buoc**: lenh 1 day het chuoi doi so vua ghep xuong, lenh 2 moi noi `end`. Ghi 1 lenh se bo chuoi doi so tren ngan xep -> `InvalidProgramException` luc chay.
-- [x] `kwargs_enumerate_test` 13/13 PASS. (`enumerate(xs, start)` da duoc macro `enumerate_start` trong comprehension.tkv lo tu truoc - khong can port.)
-
-### 2.2d. `key=` / `reverse=` cho min/max/sum/sorted - PORT XONG, agg_key_test VAN FAIL (2471670)
-- [x] `_has_kwarg` cho macro `minmax_2arg` (truoc day chi dem dau phay nen `max(xs, key=f)` bi viet lai thanh ternary roi parser bao loi tren `=`).
-- [x] Port `_key_func` / `_push_minmax_key` / `_push_sum_key` / `_push_sorted_key` / `_reverse_node_check` / `_temps_sorted` / `_sum_result_dtype`.
-- [x] Port `sort_key_temp_names` + `emit_sort_by_key` + `_ds_phong_so` vao stdlib_functional (dung chung voi `list.sort(key=g)`).
-- [x] BO DANG KY macro `key_agg` (comprehension.tkv).
-- [x] NEG xanh them: `agg_bad_kwarg_name`, `agg_key_signature`, `sorted_reverse_non_bool` (NEG 7/31 -> 10/31).
-
-### 2.2e. Khoi phuc `infer_literal_dtype` - XONG (32246a0)
-- [x] `xs = [3, 1, 2]` bi khai `List<int32>` thay vi `List<TkvInt>` -> moi noi so sanh chu ky lech 1 don (`sorted(xs, key=f)`).
-- [x] **NGUYEN NHAN**: comment *"Bo hai nhanh CHET (2026-09-25)"* dung khi code con la PYTHON - `ctx` la dict CPython nen `ctx.get('infer_literal_dtype')` luon None. Trong ban tu-host `ctx` la OBJECT (`WalkCtx`) va truong do **CO THAT**.
-- [x] `NguonKieu` + 2 truong (`infer_literal_dtype`, `co_infer_literal`); `nguon_kieu_walk` co=1, `nguon_kieu_ctx` (pass 2) co=0.
-- [x] **BAT**: tham so kieu `'func'` KHONG chap nhan `None` lam doi so -> can ham stub `_infer_literal_khong_co`. Và kiem `func is not None` cung khong an toan -> dung co hieu `i32`.
-- [x] **NHANH `contains_float_literal` (int-family -> `'f32'`) VAN CHUA dua lai** - no gan `'f32'` trong khi phan con lai compiler dung `'f64'`. Sua rieng cho nhanh do can mot phien rieng.
-- [x] Gate 99/118 -> **101/118**, NEG khong doi, 0 regression. Xinh them `agg_key_test` 14/14 + `funcvar_test` + `parity_pin_test` (ca 3 cung loai lech int/i32).
-
-### 2.2f. Multi-for / multi-if comprehension - XONG (2fcd2b3)
-- [x] List-comp da ho tro N vong `for` tu 2026-09-30, nhung **dict/set** thì khong, va **nhieu `if` tren MOT vong `for`** thi khong.
-- [x] `_mo_rong_nhieu_for` nhan them `kexpr`/`vexpr`/`loai` (`dict`/`set`/`list`) va co hieu `force` (cho phep ca 1 vong `for` khi chi co N dieu kien `if`).
-- [x] `try_expand_dict_or_set_comp` goi `_mo_rong_nhieu_for` cho ca 2 nhanh dict va set.
-- [x] **BAT BUOC: tach `if` phai quet MUC NGOAI, bo qua noi dung chuoi.** `re.search(r'\bif\b', s)` dem nham `if v == "if"` -> sinh ra `if v == ":` (sai cu phap, compiler tu-host crash). Them `_vi_tri_tu_khoa_ngoai(s, tu)` - ban tong quat cua `_vi_tri_for_ngoai`.
-- [x] `comprehension_multi_for_test` 17/17 PASS, 0 regression. Gate 101/118 -> **102/118**.
-
-### 2.1. `list()` constructor - XONG (77ec891)
-- [x] Port `try_rhs_list_call` + `fpw_assign_list_from` + `codegen_assign_list_from`; stmt kind `assign_list_from` khai trong stmt_row.tkv (2 cho); `list_ctor_test` 10/10 PASS, IL_IDENTICAL.
-
-### 2.2. `tuple()` constructor - XONG (d062de9)
-- [x] `tuple([a, b, c])` tu LIST LITERAL, `tuple(t)` khi `t` da la tuple.
-- [x] `try_rhs_tuple_call` + `fpw_assign_tuple_identity` + `codegen_assign_tuple_identity`;
-      stmt kind `assign_tuple_identity` khai trong stmt_row.tkv (2 cho: `_LAYOUT` + `_KHOA_LOGIC`)
-- [x] `tuple_ctor_test` 10/10 PASS, `tuple_empty_call` negative van bi tu choi (co "ValueTuple"), IL_IDENTICAL.
-- [x] BAO GOM: `known_shapes` KHONG BAO GIO ghi 'tuple' (no chi ghi container) - da thu them
-      vao `_result_container_shape` nhung lam gay loi "Index was out of range" -> DA REVERT.
-      Giai phap cuoi: parser tra stmt identity, FIRST PASS kiem tra kieu that qua infer_scope.
-
-### 2.2b. `question_ternary` (`c ? a : b`) - CHAY DUOC, nhung file la CODE CHET
-- [x] `question_ternary_test` 9/9 (sau khi Phase 1 xong) - tien xu ly `X ? Y : Z`
-      -> `Y if X else Z` chay qua duong `tkv_compile`, KHONG qua file trong `il_features`.
-- [ ] **FILE `il_features/question_ternary.tkv` KHONG duoc bien dich**: da git-tracking
-      nhung KHONG co trong `compiler_src/ds_gop.txt`. Hoac wire vao ds_gop.txt
-      (khi do phai kiem no khong lam trung chuc nang), hoac xoa file de khong
-      nham nguoi doc lai.
-- [ ] `rewrite_question_ternary` can nhac: KHONG doi so dong (ke ca noi dung doc
-      o ben trong nhanh) - `start_line` lech se bao sai choang.
-
-### 2.3. `tuple()` tu list literal - XONG (d062de9)
-- [x] Port `try_rhs_tuple_call` tu Python bootstrap
-- [x] `tuple([...])` doi van ban thanh `(a, b, c)` roi di duong assign_scalar san co
-- [x] Port `fpw_assign_tuple_identity` + `codegen_assign_tuple_identity`
-- [x] `tuple_ctor_test` 10/10 PASS
-
-### 2.4. `yield from` â¬œ
-- [ ] Port `yield_from` statement parser
-- [ ] Port codegen cho `yield from` trong generators
-- [ ] Xá»­ lÃ½ `__gen_ret__` cho `return <value>` trong generator
-- [ ] Rebuild, verify `generator_yield_from_test` pass
-
-### 2.5. `try/except/else` â¬œ
-- [ ] Port `else` clause handling cho try blocks
-- [ ] TÃ¡ch nhÃ£n IL cho Ä‘Æ°á»ng "clean" vs "handler Ä‘Ã£ báº¯t"
-- [ ] Rebuild, verify `try_except_else_test` pass
-
----
-
-## Phase 3: CÃ¡c BUILDFAIL ÄÆ¡n Giáº£n â¬œ
-
-### 3.1. Tests CON FAIL (sau gate 103/118, 10/10/2026)
-
-**BUILDFAIL (11)**: `conditional_expr`, `decorator_py_tree`, `gap_exc_gen`,
-`generator_yield_from`, `meta_format`, `multiline_string`, `nested_literal`,
-`py_builtins`, `set_literal`, `star_args`, `star_kwargs`, `try_except_else`
-
-**TESTFAIL (2)**:
-- [ ] `record_init_runs_test`: 9/11. Con 2 case ke thua. **CAN PORT `record_init_bodies`** (xem 3.1a)
-- [ ] `record_lt_test`: kiem tra lai (da 16/16 qua probe)
-
-**DA XINH (gio gate 103/118)**:
-- [x] `kwargs_enumerate_test` 13/13 (1b071fc) - `print(sep=,end=)`
-- [x] `agg_key_test` 14/14 (2471670 + 32246a0) - `key=`/`reverse=` + `infer_literal_dtype`
-- [x] `comprehension_multi_for_test` 17/17 (2fcd2b3) - multi-for/multi-if
-- [x] `question_ternary_test` 9/9 (ce33b74) - ternary-arg garbage
-- [x] `funcvar_test`, `parity_pin_test` (32246a0) - cung loai lech int/i32
-- [x] `record_method_name_collision_test` 18/18, `set_iteration_test`,
-      `record_container_field_test`, `fstring_bigint_test` 12/12 (phien truoc)
-
-### 3.1a. `record_init_runs_test` 9/11 - HAI CO CHE KHAC NHAU (can QUYET DINH THOI)
-
-**KHONG phai "port 2 ham".** Khi so sanh 2 compiler da thay ra co che
-`__init__` cua ban tu-host **KHAC HOAN TOAN** voi bootstrap Python:
-
-| | bootstrap Python | ban tu-host (`tkvc-tv`) |
+| Test | Loai | Nguyen nhan |
 |---|---|---|
-| noi luu than `__init__` | **inline vao `.ctor`** (`record_init_bodies` + `_ctor_init_body_il`) | **bien dich `__init__` thanh method CIL that** |
-| `__init__` khong chu thich kieu | van inline | **bo qua luc transpile** (`tkv_compile.tkv:1796`) |
-| khoi tao record | `.ctor` (than da inline san) | `newobj .ctor` roi **goi them `__init__`** (`il_codegen.tkv:3916-3920` -> `_tao_record_qua_init`) |
-| record KE THUA | `base_ctor_len != 0` -> BO QUA than `__init__` (diem 4 cua docstring Python) | `Derived.__init__` CHAY, `Base.__init__` **KHONG BAO GIO chay** |
-
-**2 case con fail deu la hieu qua cua chenh lech nay:**
-- `field cua base (qua __init__ base)`: `Derived(3, 3)` -> `d.p` = 0, can 103.
-  `Base::.ctor` chi gan `p = p` (khong co than inline). Tham so `Base.__init__`
-  co chu thich kieu nen no la method THAT - nhung `_expr_call` chi goi
-  `__init__` cua class DUNG record do, khong goi method cua base.
-- `field rieng: __init__ con bi bo qua`: `d.q` = 6, can 3. TV goi
-  `Derived.__init__` (theo co che "method that"), Python bo qua no.
-
-**=> KHONG THE sua bang patch nho.** Phai chon 1 trong 2:
-
-**(A) Chuyen TV sang co che "inline vao `.ctor`" (giong Python).**
-- Thu thap `(sig_line, body_lines)` cua `__init__` o `tkv_compile.tkv:1796`
-  (noi dang `continue`) vao dict `record_init_bodies`.
-- Port `_split_method_il` + `_ctor_init_body_il` tu
-  `compiler/il_codegen.tkv:6296` va `:6338`.
-- `gen_record_types` nhan `record_init_bodies`, in `.maxstack`/`.locals` TRUOC,
-  noi than `__init__` SAU khi field da gan, bo epilogue `ret`.
-- **QUAN TRONG**: khi than da inline vao `.ctor` thi `_expr_call` KHONG duoc
-  goi them `__init__` nua - neu khong, than chay 2 lan. Va phai bo qua khi
-  `base_ctor_len != 0`.
-- **RUI RO**: doi moi `.class` cua record -> IL diff lon tren toan bo file.
-  Phai chay gate day du + parity probe. 9/11 -> 11/11 neu dung.
-
-**(B) Sua 2 case ke thua theo co che hien tai (it xam nhap hon).**
-- Cho `_expr_call` goi `__init__` cua class CHA theo chuoi (constructor
-  chaining) khi class con ke thua record khac.
-- Skip `Derived.__init__` khi so tham so `.ctor` > so tham so `__init__`.
-- **NHUNG**: phai khop bo phan "9/11 con lai" cua `record_init_runs_test`, va
-  test co the dang mo ta CHINH xu huong hien tai - doc lai docstring test
-  truoc khi chon (hien no ghi "`.ctor` base chay... than `__init__` cua class
-  con thi BI BO QUA", tuc mo ta co che Python).
-
-**KHUYEN NGHI: (A)** - khop CPython, va 2 case con lai cua test chinh la
-thuoc ve (A). Nhung can phien rieng vi lam doi IL cua moi record.
-
-**Kiem truoc khi bat dau**: `gen_il_function` va `parse_typed_signature` co
-san va goi duoc tu `gen_record_types` khong; `DinhNghiaLop` (tkv_compile.tkv:1642)
-can them 1 field de giu `init_raw`.
-
-### 3.3. ILFAIL (1)
-- [ ] `p6_vectorize_test`: stobj, _vstart, _tstart (vectorization)
-
----
----
-
-## Phase 4: Negative Tests (NEG 6/31 â†’ 31/31) â¬œ
-
-- [ ] `abs_complex`, `agg_bad_kwarg_name`, `agg_key_signature`
-- [ ] `break_in_try_finally`, `cond_mixed_types`, `datetime_args`
-- [ ] `del_on_string`, `del_variable`, `delattr_not_supported`
-- [ ] `for_tuple_pairs_var`, `fstring_bad_spec`
-- [ ] `generator_return_no_gen_ret`, `getattr_missing_field`
-- [ ] `module_var_without_global`, `reassign_int_str`
-- [ ] `record_container_uninit`, `sorted_reverse_non_bool`
-- [ ] `star_args_dynamic_src`, `star_kwargs_*` (5 cases)
-- [ ] `str_tuple`, `tuple_empty_call`, `yield_from_bad_source`
-- [ ] Má»—i case: fix compiler Ä‘á»ƒ reject Ä‘Ãºng, hoáº·c sá»­a test expectation náº¿u compiler Ä‘Ãºng
+| `nested_literal_test` | BUILDFAIL | `dict_lit`/`set_literal` chi co 1 duong (gan `d = {...}`), chua duoc dang ky o `EXPR_CODEGEN`; `il_list_elem_ilstr` tu choi shape-string container nen list chua container bi tu choi |
+| `p6_vectorize_test` | ILFAIL | Chua port `_p6_vectorize_while` (SIMD step-4 `v_load4`/`v_store4`) tu Python sang `control_flow.tkv`. Test PASS runtime (duong scalar dung) nhung IL khong co `stobj`/`_vstart`/`_tstart` |
 
 ---
 
-## Phase 5: Verification Cuá»‘i CÃ¹ng â¬œ
+## Phien 11/10: da xong
 
-### 5.1. Gates â¬œ
-- [ ] `testkit_gate.ps1`: 118/118 PASS, NEG 31/31
-- [ ] `vong.exe`: IL_IDENTICAL á»•n Ä‘á»‹nh
-- [ ] `parity_probe/run.ps1`: 119/119 match CPython
-- [ ] `dang_ky_gate.py`: 0 violations
-- [ ] `lint_rules_gate.ps1`: 8/8
-- [ ] `ext_smoke.ps1`: 4/4
+### 1. `f(*xs)` / `f(**kw)` - XONG 11/11 + 11/11, NEG 5/5
 
-### 5.2. Dá»n dáº¹p â¬œ
-- [ ] XÃ³a probes trong `%TEMP%\opencode\`
-- [ ] Cáº­p nháº­t `docs/REPOSITORY-NOTES.md`
-- [ ] Viáº¿t handoff cuá»‘i cÃ¹ng
-- [ ] Commit vá»›i message rÃµ rÃ ng
+Khong port theo kieu Python (AST). Ly do da gap that:
+
+1. Row arena cua TokenVector la **chuoi bat bien**; `stmt_row.dat_nut` chi ghi
+   duoc khi truong co mat trong `_LAYOUT`, con `assign_scalar` luu ve phai bang
+   VAN BAN (`rhs_text`) nen moi lan ghi de deu phai nho qua `_MEMO_NUT` - noi do
+   khong duoc `_expand_macros` dat lai giua 2 pass.
+2. Cay `dict`/`list` long nhau cua Python la danh sach TkvNode; `_expand_node`
+   dang de quy tren dict khong co kieu tinh ngay duoc.
+
+Giai phap: **module o tang VAN BAN** -
+`compiler_bootstrap/compiler/il_features/call_star_args.tkv`, goi tu
+`gen_il_function`/`gen_il_generator_function` TRUOC `_expand_macros`.
+
+- Quet **CA THANH HAM 1 LAN** (noi cac dong bang `chr(10)`) chu khong tung dong:
+  lenh goi nhieu dong, chuoi nhieu dong va comment deu khong quet dung khi
+  tach theo tung dong. `expand_star_args_in_lines(body_lines, func_name)`.
+- Phat hien `*`/`**` chi khi ky tu da emit gan nhat (bo khoang trang) la `(` hoac
+  `,` - tach duoc `f(*xs)` khoi `a * b` / `xs[i] * n` / `res = a*b`.
+- Bieu thuc nguon duoc quet lai de quy truoc khi phan loai, nen long nhau
+  (`f(*g(*[1, 2]))`) chay.
+- Nguon: list/dict literal ngay tai choi goi, hoac bien gan DUNG MOT literal
+  trong ham nay va khong xuat hien o cho khac. Nguon khac bi tu choi bang thong
+  diep khop nguyen van ban `nguon '*'/'**' phai la list/dict literal`.
+- Moi trong `compiler_src/ds_gop.txt` (132 file). Module KHONG dang ky gi.
+
+### 2. Keyword argument tren method call - XONG
+
+`_parse_call_args_m` (nhanh `.ten(...)` tren BIEU THUC) dung `parse_expr` truc
+tiep nen `Box(5).two(a=1)` bao `ky vong ')', gap '='`, trong khi `obj.meth(k=v)`
+va `f(k=v)` binh thuong. Da doi sang dung CHUNG `_parse_one_call_arg` voi 2
+duong goi ham - ca 3 duong nay gio cung 1 parser tham so.
+
+### 3. Crash `k2(z=1)` (keyword argument khong ton tai) - XONG
+
+Bien dich `0xC0000005` (AccessViolation). Nguyen nhan: **comprehension ghep thang
+trong f-string**. `f"{[x + '!' for x in xs]!r}"` bien dich xong nhung cho MANH
+RONG rong; ben trong `kwarg_resolve` (`{[p.name for p in sig_params]!r}`) lam
+compiler chet.
+
+- Comprehension chi hop le khi la TOAN BO ve phai cua phep gan ra 1 TEN DON
+  tren MOT dong (REFERENCE.md §7).
+- Da boc ra bien truoc o 4 noi: `kwarg_resolve.tkv`, `il_codegen.tkv` (2 noi),
+  `il_features/tuple_type.tkv`. Helper moi `_sao_join_str`.
+
+### 4. `parity_pin_test` (container coerce) - XONG 117/118
+
+`lit = [1, 2, 3]` khai `list[int]` (TkvInt) nen truyen vao tham so `list[i32]`
+phai ep - .NET generic bat bien, truyen thang bien dich xong roi hong luc chay.
+
+- Bat nhanh `elif ... _coerce_can(...)` trong `_expr_call` + `_emit_container_coerce`
+  (sinh vong lap ghi tung phan tu vao list moi) + khai local an o first pass.
+- **Khong index duoc ValueTuple** (`_list_coerce_pair(...)[1]`) - phai boc tuple
+  ra bien (`_at, _need = ...`) qua helper `_coerce_can`.
+- **Goc cua crash `Input string was not in a correct format`**: `_ta_tu_nhien_list`
+  doc `ea_nut(arg_node)` cho node `'index'`, nhưng `expr_layout.tkv` khai
+  `'index:1': 'str'` (TEN BIEN, khong phai node con). Doc sai field -> chet.
+  Da doi sang `ea_str` cho ca `'index'` va `'slice'`.
 
 ---
 
-## Tiáº¿n Ä‘á»™ tá»•ng thá»ƒ
+## Bai hoc ky thuat (phien 11/10)
 
-| Phase | Tráº¡ng thÃ¡i |
-|---|---|
-| Phase 0: Generator overflow + Star-args + Record KeyError | âœ… XONG |
-| Phase 1: Ternary-arg garbage | **XONG 10/10** (_expr_ternary + _infer_literal_dtype) |
-| Phase 2: Ports | 4/6 (list(), tuple(), print sep/end, key=/reverse= XONG; con question_ternary, yield from, try/else) |
-| Phase 3: BUILDFAIL + TESTFAIL + ILFAIL | 103/118, 11 BUILDFAIL + 2 TESTFAIL + 1 ILFAIL |
-| Phase 4: NEGFAIL | 10/31 (3 xanh trong phien 10/10) |
-| Phase 5: Verification + dá»n dáº¹p | â¬œ CHÆ¯A Báº®T Äáº¦U |
+- [x] **TUYET DOI KHONG dung `Get-Content -Raw | Set-Content -Encoding UTF8`
+  tren file nguon `.tkv`.** PowerShell 5.1 doc bang CP1252 nen file UTF-8 bi
+  double-encode (mojibake `Tá»±`) **va** them BOM. Byte undefined-trong-CP1252
+  (0x90, 0x81...) mat khong khoi phuc duoc. Chi dung `edit`/`write` tool.
+  *Da vi pham chinh trong phien nay va ton 30 phut khoi phuc.*
+- [x] **`dist\tkvc-tv.exe` co the KHOI PHUC tu IL** khi ban goc bi hong:
+  `ilasm build\selfhost\tv2s.il /output=<moi>.exe` (Framework v4.0.30319).
+  `tv2s.il` la IL cua fixed point gan nhat ma vong `IL_IDENTICAL` vua ganh.
+- [x] **Bootstrap bang STUB khi compiler hien tai khong compile duoc module
+  moi**: ghi module that thanh stub tra ve nguyen tham so, chay `vong` (g1/g2
+  ra IL_IDENTICAL, `dist` = compiler goc), khoi phuc module that, chay `vong`
+  lai. Khong dung `dist\tkvc.exe` (Python bootstrap) - no khong ho tro
+  module-level container (`global` chi cho scalar).
+- [x] `vong.exe` bao LOI o `g1` vs `g2` la 2 trang thai khac nhau: loi o `g1`
+  = `dist` hong; loi o `g2` = compiler vua sua co bug. Doc dung `.log`.
+- [x] Doc `expr_layout.tkv` truoc khi dung `ea_*` tren 1 node - layout quyet
+  dinh field la `nut` hay `str`/`ds`, doc sai la chet khong bao loi.
 
-**Má»¥c tiÃªu cuá»‘i**: Gate 118/118, NEG 31/31, táº¥t cáº£ gates green, IL_IDENTICAL á»•n Ä‘á»‹nh.
+---
 
+## Phase 0-2: Da xong truoc do (tom tat)
+
+- **0.1** Generator `list[...]` overflow (label_counter/stack infer sai) - XONG 07/10.
+- **0.2** Star-args (`call_star_args`) - XONG 11/10 (xem tren).
+- **0.3** Record method KeyError (`Bag.add` vs `set.add`) - XONG 08/10.
+- **1** Ternary-argument garbage (`_expr_ternary` + `_infer_literal_dtype`) - XONG 09/10, `question_ternary_test` 9/9.
+- **2.1** `list()` constructor (77ec891) - `list_ctor_test` 10/10.
+- **2.2/2.3** `tuple()` constructor + `tuple([a,b,c])` (d062de9) - `tuple_ctor_test` 10/10.
+- **2.2b** `c ? a : b` chay qua duong `tkv_compile`; file `il_features/question_ternary.tkv`
+  van la **CODE CHET** (git-tracking nhung khong co trong `ds_gop.txt`).
+- **2.2c** `print(sep=, end=)` (1b071fc) - `kwargs_enumerate_test` 13/13.
+- **2.2d** `key=`/`reverse=` cho min/max/sum/sorted (2471670) - bo dang ky macro `key_agg`.
+- **2.2e** Khoi phuc `infer_literal_dtype` (32246a0) - `[3,1,2]` la `list[int]` chu khong phai `list[i32]`.
+- **2.2f** Multi-for / multi-if comprehension (2fcd2b3) - 17/17.
+- **2.4** `yield from` + `return <gia tri>` tu generator - `generator_yield_from_test` 10/10.
+- **2.5** `try/except/else` - `try_except_else_test` 10/10.
+- **3.1a** Record `__init__` noi vao `.ctor` (phuong an A) - `record_init_runs_test` 11/11.
+- **3.2** `__lt__` cho record - `record_lt_test` 16/16.
+- **3.4** `getattr`/`setattr`/`format`, decorator tuy bien, multiline string,
+  `bool()`, set literal, generator lam doi so container - lần lượt xanh.
+
+---
+
+## Phase 3/4/5: Trang thai
+
+- **Phase 3**: 117/118. Con `nested_literal_test` (BUILDFAIL) + `p6_vectorize_test` (ILFAIL).
+- **Phase 4**: **NEG 31/31** - da dong.
+- **Phase 5**:
+  - [x] `testkit_gate.ps1`: 117/118, NEG 31/31
+  - [x] `vong.exe`: IL_IDENTICAL on dinh
+  - [x] `parity_probe/run.ps1`: 119/119 khop CPython
+  - [x] `dang_ky_gate.py`: 0 violation
+  - [x] `lint_rules_gate.ps1`: 8/8
+  - [x] `ext_smoke.ps1`: 4/4
+  - [ ] `docs/REPOSITORY-NOTES.md` + handoff cuoi
+  - [ ] Commit
+
+---
+
+## Bai hoc ky thuat (phien 09/10 - 10/10, giu lai de doc)
+
+- **KHONG BAO GIO dung `Set-Content -Encoding utf8`** tren file `.tkv` (nay la
+  phien 11/10 da lap lai, xem tren).
+- **STMT ROW MOI phai khai trong `stmt_row.tkv` CA 2 CHO**: `_LAYOUT` va
+  `_KHOA_LOGIC`. Thieu cho nao la `lay_str()` tra `None` am tham.
+- **`m.groups()` CHI unpack duoc**; `m.group(1)` khong ton tai. Regex 1 group ->
+  tach tay (startswith/slice).
+- **`Ctx` va `WalkCtx` KHONG cung layout.** Ham nhan `ctx: "Ctx"` ma duoc goi
+  tu PASS 1 doc **SAI OFFSET** ma KHONG bao loi.
+- **COMMENT CO NGOAC LECH se bi macro text-level quet** -> can can bang ngoac.
+- **`il_tupleN_type` tra `Tuple\`N`** (reference), `Item2` la PROPERTY.
+- Mot tinh nang **TOI DA 2 DUONG DANH TINH** = moi fix phai lam 2 lan
+  (`sorted/min/max/sorted key=` ton tai ca macro text-level va builtin).
+
+---
+
+## Muc tieu cuoi
+
+Gate 118/118, NEG 31/31, tat ca gates green, IL_IDENTICAL on dinh.

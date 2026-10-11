@@ -142,6 +142,8 @@ def compile_str_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]",
     if _ta_li is not None and _ta_li.shape_ten == 'tuple' and _ta_li.logic != 0:
         raise SyntaxError("il_codegen: str(<tuple>) - tuple chua phan tu bool chua ho tro in ca tuple (se in 1/0 thay True/False); "
                           "in tung phan tu 't[i]'")
+    if _ta_li is not None and _ta_li.shape_ten == 'tuple':
+        raise SyntaxError("il_codegen: str(<tuple>) khong ho tro bien tuple - in tung phan tu 't[i]' thay vi in ca tuple")
     if (_ta_li is not None and not _ta_li.la_vo_huong()
             and (_ta_li.shape_ten in ('dict', 'defaultdict', 'counter', 'tuple')
                  or (_ta_li.shape_ten == 'list' and _ta_li.elem_ta is not None))):
@@ -193,7 +195,7 @@ def compile_str_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]",
             ctx.compile_expr(arg, scope, out, 'i32', ctx)
             out.append(f'    call string {_REPR_HELPER_CLASS}::' + ('DsB' if _ta_bt.logic == 1 else 'DsI') + f'({_DS_I32})')
             return
-        if _ta_bt is not None and _ta_bt.shape_ten in ('list', 'dict', 'tuple', 'defaultdict', 'counter'):
+        if _ta_bt is not None and _ta_bt.shape_ten in ('list', 'dict', 'defaultdict', 'counter'):
             _ensure_repr_any(ctx)
             ctx.compile_expr(arg, scope, out, _ta_bt.dtype, ctx)
             out.append('    call string TkvReprAny::Any(object)')
@@ -616,6 +618,11 @@ def compile_fmt_spec(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dt
         raise SyntaxError("il_codegen: f-string format spec ',' chi di voi type d hoac f: " + spec)
     if typ is None:
         typ = ''
+    if typ == 'd' and width is not None and not zero:
+        # Co 1 test CHOT chi dang 0-pad ('05d') cho type d; do rong khong
+        # 0-pad ('5d') bi tu choi ro rang thay vi hieu kha ac.
+        raise SyntaxError("il_codegen: f-string spec '" + spec +
+                          "' chi ho tro dang 0-pad cho type d (vd '05d')")
     if typ not in ('', 'd', 's', 'f', 'x', 'X', 'b', 'o'):
         raise SyntaxError("il_codegen: f-string format type " + typ + " chua ho tro (chi d s f x X b o): " + spec)
     if sign == ' ':
@@ -1175,6 +1182,18 @@ def compile_bool_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]"
         out.append('    ldc.i4.0')
         out.append('    ceq')
         return
+    if d == 'int':
+        # 'int' (TkvInt, so nguyen vo han chu so) - chuyen ve int64 roi lam nhu
+        # i64. `ToI64()` nem khi gia tri khong vua int64 (that su lon hon),
+        # con `bool(0)` binh thuong nen khong dinh loi.
+        tkvint = _int_type.TKVINT_CLASS
+        ctx.compile_expr(arg, scope, out, 'int', ctx)
+        out.append(f'    call int64 {tkvint}::ToI64(valuetype {tkvint})')
+        out.append('    ldc.i8 0')
+        out.append('    ceq')
+        out.append('    ldc.i4.0')
+        out.append('    ceq')
+        return
     if d == 'f64' or d == 'f32':
         ctx.compile_expr(arg, scope, out, d, ctx)
         out.append('    ldc.r8 0.0' if d == 'f64' else '    ldc.r4 0.0')
@@ -1196,6 +1215,17 @@ def compile_bool_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]"
     raise SyntaxError(f"il_codegen: bool() chua ho tro doi so kieu {d!r} - gan ra 1 bien truoc")
 
 
+def compile_format_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`format(value, spec)` (alias Python) - 1 tham so = `str(value)`, 2 tham so = `fmt_spec`."""
+    if len(args) == 1:
+        compile_str_builtin(args, scope, out, dtype, ctx)
+        return
+    if len(args) == 2:
+        compile_fmt_spec(args, scope, out, dtype, ctx)
+        return
+    raise SyntaxError("il_codegen: format(x, spec) nhan 1 hoac 2 tham so")
+
+
 def bootstrap_string_builtin(reg: "Registry"):
     # P6 chang 1c: truoc day la LENH CAP MODULE (xem ghi chu tren).
     reg.expr_builtin_temps['str'] = _temps_str_builtin
@@ -1208,9 +1238,11 @@ def bootstrap_string_builtin(reg: "Registry"):
     register_expr_builtin(reg, 'repr', compile_repr_builtin, 'str')
     register_expr_builtin(reg, 'chr', compile_chr_builtin, 'str')
     register_expr_builtin(reg, 'ord', compile_ord_builtin, 'i32')
-    register_expr_builtin(reg, 'bool', compile_bool_builtin, 'bool')
+    register_expr_builtin(reg, 'bool', compile_bool_builtin, 'i32')
     register_expr_builtin(reg, 'fmt_float', compile_fmt_float, 'str')
     register_expr_builtin(reg, 'fmt_spec', compile_fmt_spec, 'str')
+    # Alias hinh thi `format(value, spec)` cua Python, nhat quan voi `fmt_spec`.
+    register_expr_builtin(reg, 'format', compile_format_builtin, 'str')
     register_expr_builtin(reg, 'hex', compile_hex_builtin, 'str')
     register_expr_builtin(reg, 'bin', compile_bin_builtin, 'str')
     register_expr_builtin(reg, 'oct', compile_oct_builtin, 'str')

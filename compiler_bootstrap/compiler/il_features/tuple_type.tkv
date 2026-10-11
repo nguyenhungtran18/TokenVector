@@ -589,9 +589,13 @@ def fpw_tuple_assign(stmt: "i32", ctx: "WalkCtx"):
             callee = func_table[builtin_name]
             if callee.return_type is None or callee.return_type.shape_ten != 'tuple' or \
                     len(callee.return_type.tuple_dtypes) != len(targets):
+                # Gom comprehension ra bien truoc (2026-10-11): comprehension
+                # ghep thang trong f-string bien dich xong nhung cho MANH
+                # RONG rong - xem `_sao_join_str` o il_codegen.tkv.
+                _dt = ['dtype' for _t in targets]
                 raise SyntaxError(
                     f"il_codegen: ham '{builtin_name}' khong tra ve tuple {len(targets)} "
-                    f"phan tu (can '-> \"({', '.join(['dtype' for _t in targets])})\"' trong chu ky)")
+                    f"phan tu (can '-> \"({', '.join(_dt)})\"' trong chu ky)")
             dtypes = callee.return_type.tuple_dtypes
             _tas = callee.return_type.tuple_tas
         elif builtin_name in ctx.reg.expr_builtin_return_ta and \

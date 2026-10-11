@@ -104,6 +104,10 @@ def _push_ticks_as_datetime(out: "list[str]"):
 # ---------- HAM DUY NHAT de lay thoi diem hien tai (hop nhat 2026-08-11) --------
 
 def _push_datetime_now(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) > 0:
+        raise SyntaxError(
+            "il_codegen: datetime() KHONG tham so - no tra thoi diem hien tai "
+            "(UtcNow). Muon tao ngay cu the hay dung datetime_strptime(...)")
     out.append('    call valuetype [mscorlib]System.DateTime [mscorlib]System.DateTime::get_UtcNow()')
     out.append('    box [mscorlib]System.DateTime')
     out.append('    unbox [mscorlib]System.DateTime')

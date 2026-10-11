@@ -703,6 +703,7 @@ class GenCtx:
     reg: "Registry"
     class_name: "str"
     current_iltype: "str"
+    elem_dtype: "str"
     field_vars: "list[(str,TkvTypeAnn)]"
     state_labels: "list[str]"
     # O DEM mot phan tu: so hieu trang thai ke tiep. Giu dang danh sach
@@ -710,13 +711,14 @@ class GenCtx:
     next_state: "list[i32]"
 
     @__tkv_cpython_only__
-    def __init__(self, reg=None, class_name=None, current_iltype=None):
-        """KHOP .ctor tu sinh cua transpiler: 3 truong vo huong theo thu
+    def __init__(self, reg=None, class_name=None, current_iltype=None, elem_dtype=None):
+        """KHOP .ctor tu sinh cua transpiler: 4 truong vo huong theo thu
         tu khai bao, 3 container khoi tao RONG. Dung `tao_gen_ctx(...)`,
         dung goi thang. Xem `tao_ctx` o tren de biet vi sao."""
         self.reg = reg
         self.class_name = class_name
         self.current_iltype = current_iltype
+        self.elem_dtype = elem_dtype
         self.field_vars = []
         self.state_labels = []
         self.next_state = []
@@ -766,6 +768,9 @@ class WalkCtx:
     reg: "Registry"
     body_dtype: "str"
     source_path: "str"
+    # Bien module-level (ten -> kieu) - can cho `return <v>` trong generator
+    # biet kieu cua `__gen_ret__` (xem control_flow.fpw_return).
+    bien_mod: "dict[str,str]"
     final_pass: "i32"
     # `defer`: hoan mot phep khai bao lai toi khi di het than ham (xem
     # `gen_il_function`). TRUOC day khong duoc khai, du walk_ctx luon
@@ -825,6 +830,7 @@ class WalkCtx:
         self.reg = reg
         self.body_dtype = body_dtype
         self.source_path = source_path
+        self.bien_mod = {}
         self.final_pass = final_pass
         self.defer = defer
         self.sig = sig
@@ -1235,9 +1241,10 @@ def register_str_method_return_dtype(reg: "Registry",
         reg.str_method_return_dtype[_k] = _v
 
 
-def tao_gen_ctx(                reg: "Registry"=None,
+def tao_gen_ctx(reg: "Registry"=None,
                 class_name: "str"=None,
                 current_iltype: "str"=None,
+                elem_dtype: "str"=None,
                 field_vars: "list[(str,TkvTypeAnn)]"=None,
                 state_labels: "list[str]"=None,
                 next_state: "list[i32]"=None) -> "GenCtx":
@@ -1245,7 +1252,7 @@ def tao_gen_ctx(                reg: "Registry"=None,
 
     Cung ly do va cung khuon voi `tao_ctx` (xem docstring cua no).
     """
-    c = GenCtx(reg, class_name, current_iltype)
+    c = GenCtx(reg, class_name, current_iltype, elem_dtype)
     if field_vars is not None:
         c.field_vars = field_vars
     if state_labels is not None:
@@ -1286,7 +1293,8 @@ def tao_walk_ctx(                 reg: "Registry"=None,
                  container_recv_hints: "dict[str,str]"=None,
                  stmts: "list[i32]"=None,
                  locals_decl: "list[(str,TypeAnn)]"=None,
-                 needs_epilogue: "list[i32]"=None) -> "WalkCtx":
+                 needs_epilogue: "list[i32]"=None,
+                 bien_mod: "dict[str,str]"=None) -> "WalkCtx":
     """Dung `WalkCtx` bang tham so co ten - thay cho `WalkCtx({...})`.
 
     Cung ly do va cung khuon voi `tao_ctx` (xem docstring cua no).
@@ -1322,6 +1330,8 @@ def tao_walk_ctx(                 reg: "Registry"=None,
         c.locals_decl = locals_decl
     if needs_epilogue is not None:
         c.needs_epilogue = needs_epilogue
+    if bien_mod is not None:
+        c.bien_mod = bien_mod
     return c
 
 

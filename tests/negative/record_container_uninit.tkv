@@ -23,7 +23,3 @@ class Acc:
 def run() -> "i32":
     a = Acc()
     return 0
-
-def run() -> "i32":
-    a = Acc()
-    return 0

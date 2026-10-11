@@ -651,6 +651,7 @@ def codegen_container_clear(stmt: "i32", scope: "Scope", body: "list[str]", body
 
 
 _DEL_INDEX_RE = re.compile(r'^del\s+(\w+)\[(.+)\]\s*$')
+_DEL_VAR_RE = re.compile(r'^del\s+(\w+)\s*$')
 
 
 def try_parse_del_index(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
@@ -658,6 +659,15 @@ def try_parse_del_index(reg: "Registry", line: "str", lines: "list[(i32,str)]", 
     chua biet ten la dict hay list - codegen re nhanh theo shape."""
     m = _DEL_INDEX_RE.match(line)
     if not m:
+        # `del <bien>` (khong phai `del <bien>[i]|[...]`) - khong ho tro co
+        # chu dich: local IL co kieu chot luc bien dich, xoa binding thay vi
+        # gia tri se khong the mo phong duoc tren duong nay.
+        m_var = _DEL_VAR_RE.match(line)
+        if m_var:
+            raise SyntaxError(
+                f"il_codegen: del {m_var.group(1)} chua ho tro - local cua "
+                f"TokenVector co kieu da chot luc bien dich; gan gia tri mac "
+                f"dinh cua kieu do thay vi xoa binding")
         return None
     return intern(make3('del_index', m.group(1), m.group(2))), pos + 1
 
@@ -682,7 +692,7 @@ def codegen_del_index(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype
         body.append(f'    callvirt instance void {ctx.il_type_str(ta, ctx.records)}::RemoveAt(int32)')
     else:
         raise SyntaxError(
-            f"il_codegen: 'del {name}[...]' chi dung duoc tren dict/list, "
+            f"il_codegen: 'del {name}[...]' chi ap dung cho list/dict, "
             f"'{name}' co shape={ta.shape_repr()}")
 
 
