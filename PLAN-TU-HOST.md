@@ -143,7 +143,7 @@ phai ep - .NET generic bat bien, truyen thang bien dich xong roi hong luc chay.
   - [x] `testkit_gate.ps1`: **GATE: PASS (118/118, NEG 31/31)**
   - [x] `vong.exe`: IL_IDENTICAL on dinh
   - [x] `parity_probe/run.ps1`: 119/119 khop CPython
-  - [x] `dang_ky_gate.py`: 0 violation
+  - [x] `dang_ky_gate.tkv`: 0 violation
   - [x] `lint_rules_gate.ps1`: 8/8
   - [x] `ext_smoke.ps1`: 4/4
   - [x] `docs/REPOSITORY-NOTES.md` + handoff cuoi

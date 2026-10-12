@@ -45,7 +45,7 @@ Everything below is checked by a gate in this repository. Numbers are from
 | CPython parity probe | `powershell -File tools\parity_probe\run.ps1` | **119/119** identical output vs CPython 3.12 |
 | .NET extern smoke | `powershell -File tools\ext_smoke.ps1` | **4/4** |
 | Lint-rule self-test | `powershell -File tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
-| Doc coverage | `python tools\gen_builtin_ref.py --check` | **234/234** registered names documented |
+| Doc coverage | `dist\tkvc-tv.exe build\gen_ref.exe --check` | registered names documented |
 | Data ecosystem | `D:\TokenVector.Data\tools\datagate.ps1` | **18/18** |
 | Inference | `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` | **26/26** |
 

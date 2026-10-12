@@ -106,7 +106,7 @@ Ngay khi áp dụng, nó bắt được **bệnh thật** chứ không phải v�
 | Inference | **19** (77 bản sao) |
 | Data | **31** (90 bản sao) |
 
-Quét hết bằng: `python .\\tools\scan_uninit_container_fields.py D:\TokenVector.Inference`
+Quét hết bằng: `dist\tkvc-tv.exe tools\scan_container.tkv build\sc.exe run D:\TokenVector.Inference`
 
 Gồm `DataFrame.cols`, `Col.f64s`, `Grammar.rules`, `GenRequest.tokens`,
 `SymbolicShape.dims`… Tức **~50 null-deref tiềm ẩn**. Hai hệ thống này trước

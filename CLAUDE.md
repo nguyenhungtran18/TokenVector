@@ -94,15 +94,16 @@ gate — vì đổi mà không build lại thì gate đang đo compiler cũ.
 - **CHECK BEFORE ADDING ANYTHING** — the reference is now **ONE file**:
   `docs/REFERENCE.md`. §2 lists every builtin with **syntax + what it
   does + where it differs from Python**; §7 is the auto-generated name catalog.
-  - **376 names already registered** — run
-    `python tools\gen_builtin_ref.py` to rewrite §7 in place (it writes
-    **only between `<!-- BEGIN GENERATED -->` markers** and refuses to run if
-    they are missing — the file can no longer be overwritten by accident).
-  - `python tools\gen_builtin_ref.py --check` **fails** if any registered
-    name is not documented in the hand-written part. Run it after adding a
-    function.
-  - **Before creating any file in `compiler/il_features/`, check the file does
-    not already exist.** I once created `bytes_type.tkv` to add `bytes()` and
+    - **429 names already registered** — run
+      `dist\tkvc-tv.exe tools\gen_builtin_ref.tkv build\gen_ref.exe run` to
+      rewrite §7 in place (it writes **only between `<!-- BEGIN GENERATED -->`
+      markers** and refuses to run if they are missing — the file can no longer
+      be overwritten by accident).
+    - `build\gen_ref.exe --check` **fails** if any registered
+      name is not documented in the hand-written part. Run it after adding a
+      function. **Currently fails: 78 names not yet written up.**
+    - **Before creating any file in `compiler/il_features/`, check the file does
+      not already exist.** I once created `bytes_type.tkv` to add `bytes()` and
     silently overwrote a **live compiler module** that `il_codegen.tkv` imports
     — it broke the entire compiler (104/104 BUILDFAIL, `ModuleNotFoundError`).
     §7 of the reference lists every existing file with its size, plus all
@@ -125,8 +126,8 @@ gate — vì đổi mà không build lại thì gate đang đo compiler cũ.
   writes output to TEMP so a run never litters the repo, exits non-zero on any failure.
   Other gates, all green as of 2026-10-02: parity probe
   `.\\tools\parity_probe\run.ps1` (**119/119** match CPython),
-  registration gate `python tools\dang_ky_gate.py` (**0 violations** — of 1,911
-  functions on the TokenVector path, **1,862 (97.4%) are fully registered**; see
+registration gate `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run`
+    (**0 violations** — of 2,067 functions on the TokenVector path; see
   `docs/TOKENVECTOR-PURITY.md` for what "registered" is measured against),
   `.\\tools\ext_smoke.ps1` (4/4), `D:\TokenVector.Data\tools\datagate.ps1`
   (18/18), `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` (26/26),
