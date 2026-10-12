@@ -277,6 +277,13 @@ def il_type_str(type_ann: "TypeAnn", records: "dict[str,list[(str,TkvTypeAnn)]]"
         # (chi khac o cach tao - unroll hang so, va o cho .append() bi chan).
         return _il_bytearray_type()
     if type_ann.shape_ten in ('set', 'frozenset'):
+        # (2026-10-11, literal long nhau): phan tu la CONTAINER
+        # (`ss = {[1,2],[3,4]}` -> `ss.add([1, 2])`) nen phai de quy qua
+        # `elem_ta` giong nhanh 'list' ben tren - giu nguyen nhanh scalar
+        # (elem_ta None) cho phan tu thuong.
+        if type_ann.elem_ta is not None:
+            inner_il = il_type_str(type_ann.elem_ta, records)
+            return f'class [System.Core]System.Collections.Generic.HashSet`1<{inner_il}>'
         return il_set_type(type_ann.dtype, records, il_extern_dtype._EXTERN_CLASS_DEFS)
     if type_ann.shape_ten == 'file':
         return _il_file_type(type_ann.dtype)

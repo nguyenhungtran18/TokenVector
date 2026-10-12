@@ -12,6 +12,7 @@ il_codegen.py - BAT BUOC de tranh circular import (il_codegen.py import
 CA file nay, file nay khong bao gio duoc import nguoc lai)."""
 import stmt_row as _row
 import il_extern_dtype
+from il_features.set_type import il_set_type
 import il_features.tuple_type as _tt
 import il_features.kwarg_resolve as kwarg_resolve
 import re
@@ -30,6 +31,22 @@ from expr_row import con_nut, ea_ds, ea_nut, ea_str, eb_ds, eb_nut, eb_str, ec_d
 __tkv_import__ = ["il_dispatch", "tkv_types"]
 
 
+def _split_container_spec(spec: "str") -> "(str,str)":
+    """(kind, inner) neu `spec` la CHUOI MANG SHAPE, ('', '') nguoc lai.
+
+    NGUON SU THAT DUY NHAT cho viec 'co phai 1 spec container hay khong'.
+    `spec` co the la dtype container that (i32/str/...) - khi do kind rong.
+    `spec` co the la None (dieu kien dtype chua co) - phai chan TRUOC khi goi
+    `str.endswith`, khong thi compiler chet NullReferenceException.
+    Python: xem list_type.py's _split_container_spec (tra None)."""
+    if spec is None or spec == '' or not spec.endswith(']'):
+        return '', ''
+    for kind in ('list', 'dict', 'set'):
+        if spec.startswith(kind + '['):
+            return kind, spec[len(kind) + 1:-1].strip()
+    return '', ''
+
+
 def il_list_elem_ilstr(dtype: "str", records: "dict[str,list[(str,TkvTypeAnn)]]" = None, extern_class_defs: "dict[str,i32]" = None) -> "str":
     """Kieu IL cua 1 PHAN TU List<T>/Dictionary value/HashSet<T> - dtype
     vo huong THAT (tra ve IL_SCALAR[dtype]) HOAC ten 1 'class dang record'
@@ -41,7 +58,15 @@ def il_list_elem_ilstr(dtype: "str", records: "dict[str,list[(str,TkvTypeAnn)]]"
     Dung CHUNG boi ca list_type.py/dict_type.py/set_type.py (khong dat
     rieng moi noi, tranh trung lap logic). `extern_class_defs` mac dinh
     None de KHONG pha cac call site cu (record-only, chua biet
-    extern-class)."""
+    extern-class).
+
+    2026-10-11 (literal long nhau): nhan them CHUOI MANG SHAPE
+    ('list[i32]'/'dict[str,i32]'/'set[i32]') - chuyen ngay cho
+    il_container_type_of_spec. Truoc day chi 'la' (noi nhieu noi goi truc
+    tiep voi 1 dtype da bi boc sai cho 1 spec) nen chan sai am tham o giua
+    duong, trong khi ham nay da bi thiet ke de la NOI CUOI CUNG cua 1 spec
+    dang shape. KHONG phai noi long: khoi tao container long nhau van an
+    toan."""
     elem = IL_SCALAR.get(dtype)
     if elem is not None:
         return elem
@@ -50,6 +75,9 @@ def il_list_elem_ilstr(dtype: "str", records: "dict[str,list[(str,TkvTypeAnn)]]"
     if extern_class_defs and dtype in extern_class_defs:
         d = extern_class_defs[dtype]
         return f"class [{il_extern_dtype.ex_assembly(d)}]{il_extern_dtype.ex_lop(d)}"
+    k_ind, _inner = _split_container_spec(dtype)
+    if k_ind != '':
+        return il_container_type_of_spec(dtype, records, extern_class_defs)
     raise SyntaxError(
         f"il_codegen: List phan tu kieu {dtype!r} khong hop le - phai la dtype vo huong "
         f"(f32/f64/i32/i64/str) hoac ten 1 class dang record/extern-class da khai bao")
@@ -141,6 +169,12 @@ def il_container_type_of_spec(spec: "str", records: "dict[str,list[(str,TkvTypeA
         key_il = il_container_type_of_spec(key_spec, records, extern_class_defs)
         val_il = il_container_type_of_spec(val_spec, records, extern_class_defs)
         return f'class [mscorlib]System.Collections.Generic.Dictionary`2<{key_il}, {val_il}>'
+    if spec.startswith('set[') and spec.endswith(']'):
+        inner_spec = spec[len('set['):-1].strip()
+        # HashSet`1 nam trong [System.Core], KHONG phai [mscorlib] nhu
+        # List`1/Dictionary`2 - xem il_features/set_type.tkv's il_set_type
+        # (bug TypeLoadException luc probe, 2026-07-28).
+        return il_set_type(inner_spec, records, extern_class_defs)
     return il_list_elem_ilstr(spec, records, extern_class_defs)
 
 
@@ -485,10 +519,87 @@ def compile_theo_ta(node: "TkvNode", ta: "TypeAnn", dtype: "str", scope: "Scope"
 
 
 def codegen_expr_dict_lit(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
-    """'{k: v}' o vi tri CHUA biet kieu dict (2026-09-26): bao loi ro."""
-    raise SyntaxError(
-        "il_codegen: dict literal '{k: v, ...}' hien chi dung duoc khi kieu dict da biet "
-        "(return trong ham khai '-> dict[K,V]') - gan tung khoa vao 1 dict '{}' truoc")
+    print("NL_DICT " + str(dtype))
+    """EXPR_CODEGEN entry: '{"a": 1}' o VI TRI BIEU THUC (2026-10-11, literal
+    long nhau) - giong het codegen_expr_list_literal nhung cho dict.
+
+    THIEU nhanh nay la 1 trong 2 nguyen nhan doc lap cua
+    tests/nested_literal_test: node 'dict_lit' chi co 1 duong xu ly -
+    `d = {...}` (macro `try_expand_dict_literal` ben tang TEXT). No khong duoc
+    dang ky trong EXPR_CODEGEN nen khi xuat hien LONG trong 1 bieu thuc khac
+    (la gia tri cua dict/list khac, vi du `ld = [{"a": 1}]`) `_compile_expr`
+    nem loi ro rang.
+
+    GIA TRI DUNG o day KHAC duong gan: duong gan giu ket qua tren stack roi
+    `store_var` gan vao bien; ham nay GIU NGUYEN tren stack de caller dung
+    tiep (giong khoi `dup/.../pop` cua codegen_assign_dict_literal -
+    `newobj` + `dup` + set_Item + `dup` nen ket qua cuoi cung van dung 1 ban).
+
+    `dtype` la NGU CANH (chuoi spec 'dict[K,V]' hoac dtype cua phan tu) -
+    xuat phat tu cung quy uoc voi moi entry EXPR_CODEGEN khac. KHOA luon
+    suy tu noi dung literal, KHONG bao gio lay tu `dtype` khi `dtype` chi la
+    1 dtype vo huong: voi dict, `dtype` chi la dtype cua GIA TRI. Ly do
+    xem ghi chu cùng tên trong ban Python (dict_type.tkv)."""
+    pairs = ea_ds(node)
+    key_spec, val_spec = dict_literal_spec_of(pairs, scope, nguon_kieu_ctx(ctx))
+    k_ind, inner = _split_container_spec(dtype)
+    if k_ind == 'dict':
+        kv = inner.split(',', 1)
+        if len(kv) == 2:
+            key_spec = kv[0].strip()
+            val_spec = kv[1].strip()
+    elif k_ind == 'list':
+        val_spec = inner
+    elif dtype is not None:
+        val_spec = dtype
+    if key_spec is None or val_spec is None:
+        raise SyntaxError(
+            "il_codegen: khong suy duoc kieu KHOA/GIA TRI cho dict-literal o vi tri "
+            "bieu thuc (khong co ngu canh kieu tu noi dung, va noi dung vuot pham vi "
+            "suy kieu) - gan ra 1 bien co khai bao kieu truoc.")
+    dict_il = il_container_type_of_spec(f'dict[{key_spec}, {val_spec}]', ctx.records,
+                                        il_extern_dtype._EXTERN_CLASS_DEFS)
+    out.append(f'    newobj instance void {dict_il}::.ctor()')
+    for i in range(0, len(pairs) - 1, 2):
+        out.append('    dup')
+        ctx.compile_expr(pairs[i], scope, out, key_spec, ctx)
+        ctx.compile_expr(pairs[i + 1], scope, out, val_spec, ctx)
+        out.append(f'    callvirt instance void {dict_il}::set_Item(!0, !1)')
+
+
+def codegen_expr_set_lit(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """EXPR_CODEGEN entry: '{1, 2}' o VI TRI BIEU THUC (2026-10-11).
+
+    Node 'set_lit' (xem il_core.tkv, noi parse `{` ma khong co `:`). Duong GAN
+    `s = {1, 2}` van di qua macro VAN BAN `try_expand_set_literal`
+    (comprehension.tkv) - macro do giu nguyen kieu phan tu cho
+    `set_iteration_test` (set[i64]); nhanh nay phuc vu set LONG NHAU trong 1
+    literal khac, vi du `[{1,2},{3,4}]` va `{"k": {1,2}}`."""
+    elements = ea_ds(node)
+    k_ind, inner = _split_container_spec(dtype)
+    if k_ind == 'set':
+        elem_spec = inner
+    elif k_ind == 'list':
+        elem_spec = inner
+    elif dtype is not None:
+        elem_spec = dtype
+    else:
+        elem_spec = list_literal_elem_spec(elements, scope, nguon_kieu_ctx(ctx))
+    if elem_spec is None:
+        raise SyntaxError(
+            "il_codegen: khong suy duoc dtype PHAN TU cho set-literal o vi tri "
+            "bieu thuc (khong co ngu canh kieu tu noi dung, va noi dung vuot pham vi "
+            "suy kieu) - gan ra 1 bien co khai bao kieu truoc.")
+    set_il = il_container_type_of_spec(f'set[{elem_spec}]', ctx.records,
+                                       il_extern_dtype._EXTERN_CLASS_DEFS)
+    out.append(f'    newobj instance void {set_il}::.ctor()')
+    for el in elements:
+        out.append('    dup')
+        ctx.compile_expr(el, scope, out, elem_spec, ctx)
+        # HashSet<T>.Add tra BOOL (khac List<T>.Add tra void) - phai `pop` sau
+        # moi khi giu duoc set tren stack cho caller (xem codegen_set_add).
+        out.append(f'    callvirt instance bool {set_il}::Add(!0)')
+        out.append('    pop')
 
 
 def codegen_expr_tuple_lit(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
@@ -497,6 +608,35 @@ def codegen_expr_tuple_lit(node: "TkvNode", scope: "Scope", out: "list[str]", dt
     raise SyntaxError(
         "il_codegen: tuple '(a, b, ...)' lam bieu thuc hien chi ho tro khi them vao "
         "danh sach da khai kieu list[(...)] ('lst.append((a, b))'), hoac 'return a, b'")
+
+
+def ta_tu_spec(spec: "str") -> "TypeAnn":
+    """NGUOC cua `ta_list_spec`: TypeAnn DAY DU cho 1 chuoi shape.
+
+    Giu quy uoc 'dtype = dtype LEAF cuoi cung, elem_ta = TypeAnn cua 1 tang
+    trong' ma `declare_list_literal` dung cho list long nhau. `dict[K,V]` lay
+    `key_dtype` tu V, va `elem_ta` la TypeAnn cua GIA TRI (khong phai cua cap
+    khoa-gia tri).
+
+    KHONG dat sentinel '__nested__' vao `dtype` ma dung chinh dtype LEAF: phan
+    con lai cua compiler so sanh `ta.dtype` voi chuoi dtype that (vd khi
+    gan value vao container, hay khi truyen doi so) - sentinel se lam lech o
+    do va bao loi o noi lam, khong phai noi sinh ra. Python: xem
+    `ta_from_spec` trong list_type.tkv (ban Python)."""
+    kind, inner = _split_container_spec(spec)
+    if kind == 'list':
+        ta_in = ta_tu_spec(inner)
+        return TypeAnn(ta_in.dtype, 'list', elem_ta=ta_in)
+    if kind == 'set':
+        ta_in = ta_tu_spec(inner)
+        return TypeAnn(ta_in.dtype, 'set', elem_ta=ta_in)
+    if kind == 'dict':
+        kv = inner.split(',', 1)
+        if len(kv) == 2:
+            key_spec = kv[0].strip()
+            ta_in = ta_tu_spec(kv[1].strip())
+            return TypeAnn(ta_in.dtype, 'dict', key_dtype=key_spec, elem_ta=ta_in)
+    return TypeAnn(spec, None)
 
 
 def _append_value_dtype_spec(ta: "TypeAnn", value_node: "TkvNode") -> "str":
@@ -520,18 +660,53 @@ def _append_value_dtype_spec(ta: "TypeAnn", value_node: "TkvNode") -> "str":
     lop loi nay lan thu 4)."""
     if (value_node and ekind(value_node) == 'list_literal'
             and ta.elem_ta is not None and ta.elem_ta.shape_ten == 'list'):
-        return ta_list_spec(ta.elem_ta)
+        return ta_elem_spec(ta)
+    return ta.dtype
+
+
+def ta_to_spec(ta: "TypeAnn") -> "str":
+    """Chuoi spec cua 1 TypeAnn - nguoc cua `ta_tu_spec`, va la nguon cho
+    `dtype` NGU CANH khi bien dich 1 literal long nhau o VI TRI BIEU THUC
+    (xem `_append_value_dtype_spec`/`value_dtype_spec_for_ta`).
+
+    DE QUY vao `elem_ta` chu KHONG tin `ta.dtype`: 2 noi khai bao container
+    long nhau dat `dtype` KHAC NHAU (`declare_dict` dat sentinel '__nested__',
+    `declare_list_literal` dat dtype leaf) - de quy vao elem_ta cho ca 2 ra
+    cung ket qua, nen khong phai dong y nhau ve sentinel (chinh la nguon cua
+    'nhieu noi lam 1 viec' o muc F cua docs/BUGS_TODO.md).
+
+    Thay the `ta_list_spec` (chi 2 tang, chi 'list[') - ham do SAI khi phan
+    tu la dict/set: `list[dict[str,int32]]` ra `list[int32]`, bien dich xong
+    nhung ghi sai kieu vao `List<Dictionary<..>>` roi
+    `AccessViolationException` luc chay. Python: xem `ta_to_spec` trong
+    list_type.tkv (ban Python)."""
+
+    if ta is None:
+        return None
+    inner = ta_to_spec(ta.elem_ta) if ta.elem_ta is not None else ta.dtype
+    if ta.shape_ten == 'dict':
+        return f'dict[{ta.key_dtype}, {inner}]'
+    if ta.shape_ten == 'list' or ta.shape_ten == 'set' or ta.shape_ten == 'frozenset':
+        return f'{ta.shape_ten}[{inner}]'
+    return ta.dtype
+
+
+def ta_elem_spec(ta: "TypeAnn") -> "str":
+    """Spec cua MOT PHAN TU/GIA TRI cua container `ta` - KHAC `ta_to_spec`
+    (tra ve ca container) va `ta.dtype` (mat tang long nhau). Day la cai ma
+    1 caller truyen xuong `compile_expr` cho CAI GIA TRI dang them vao 1
+    container, nen 'dict[str,i32]' phai boc ra thanh 'i32' truoc khi con lai
+    no la context dtype cho 1 literal long nhau ben trong."""
+    if ta.elem_ta is not None:
+        return ta_to_spec(ta.elem_ta)
     return ta.dtype
 
 
 def ta_list_spec(ta: "TypeAnn") -> "str":
     """Chuoi dtype MANG SHAPE ('list[i32]', 'list[list[i32]]') tu 1 TypeAnn
-    day du co shape=='list'. Quy uoc GIONG HET _append_value_dtype_spec/
-    _il_ctor_param_type (extern-class) - KHONG phat minh cach thu ba."""
-    if ta.shape_ten == 'list' and ta.elem_ta is not None \
-            and ta.elem_ta.shape_ten == 'list':
-        return f'list[{ta_list_spec(ta.elem_ta)}]'
-    return f'list[{ta.dtype}]'
+    day du co shape=='list' - KHONG con dung o noi bien dich (chi con lai
+    cho goi cu, xem `ta_to_spec` là nguon su that duy nhat)."""
+    return ta_to_spec(ta)
 
 
 def value_dtype_spec_for_ta(ta: "TypeAnn", value_node: "TkvNode") -> "str":
@@ -550,11 +725,21 @@ def value_dtype_spec_for_ta(ta: "TypeAnn", value_node: "TkvNode") -> "str":
     dong doi KHONG hieu chuoi mang shape."""
     if ta is None:
         return None
-    if (value_node and la_node(value_node) and ekind(value_node) == 'list_literal'
-            and ta.shape_ten == 'list'
-            and ta.elem_ta is not None
-            and ta.elem_ta.shape_ten == 'list'):
-        return ta_list_spec(ta)
+    # (2026-10-11) bo dieu kien 'cha la list' va chuyen sang `ta_to_spec` -
+    # 1 nguon su that duy nhat cho ca 2 noi, giong ban Python. Nhanh
+    # container DAY DU (thay vi `ta.dtype`) rat quan trong cho DICT: `dtype`
+    # cua 1 TypeAnn shape='dict' chi la dtype cua GIA TRI, KHONG co khoa - neu
+    # truyen no xuong cho 1 dict-literal thi khoa se bi suy sai (thuong la
+    # 'i32' thay vi 'str') va `d[k]` luc chay se doc nho RAM
+    # (AccessViolationException trong Dictionary::FindEntry).
+    if (ta.shape_ten == 'list' or ta.shape_ten == 'dict' or ta.shape_ten == 'set'
+            or ta.shape_ten == 'frozenset'):
+        if ta.elem_ta is not None:
+            return ta_to_spec(ta)
+        if value_node is not None and la_node(value_node):
+            k = ekind(value_node)
+            if k == 'list_literal' or k == 'dict_lit' or k == 'set_lit':
+                return ta_to_spec(ta)
     return ta.dtype
 
 
@@ -623,6 +808,7 @@ def _infer_literal_khong_co(node: "TkvNode") -> "str":
     return None
 
 
+
 def nguon_kieu_ctx(ctx: "Ctx") -> "NguonKieu":
     # Pass 2: `Ctx` KHONG co truong `infer_literal_dtype` -> co = 0.
     return NguonKieu(ctx.infer_dtype, ctx.func_table or {}, ctx.records or {},
@@ -651,6 +837,18 @@ def list_literal_elem_spec_of(el: "TkvNode", infer_scope: "Scope", nk: "NguonKie
     if ekind(el) == 'list_literal':
         inner = list_literal_elem_spec(ea_ds(el), infer_scope, nk)
         return f'list[{inner}]' if inner is not None else None
+    if ekind(el) == 'set_lit':
+        # (2026-10-11) tap literal long nhau: '{[1,2],[3,4]}' -> 'set[list[i32]]'.
+        inner = list_literal_elem_spec(ea_ds(el), infer_scope, nk)
+        return f'set[{inner}]' if inner is not None else None
+    if ekind(el) == 'dict_lit':
+        # (2026-10-11) dict literal long nhau: '[{"a":1}]' -> 'dict[str,i32]'.
+        print("NL_ELEM_DICT " + str(len(ea_ds(el))))
+        kspec, vspec = dict_literal_spec_of(ea_ds(el), infer_scope, nk)
+        print("NL_ELEM_DICT2 " + str(kspec) + "|" + str(vspec))
+        if kspec is None or vspec is None:
+            return None
+        return f'dict[{kspec},{vspec}]'
     if ekind(el) == 'binop' and ea_str(el) == '*':
         # '[0] * n' / 'row * n' la phan tu list (2026-09-30): spec 'list[T]' nhu literal long nhau
         _lap_ta = _ta_list_lap(el, nk.func_table, infer_scope)
@@ -741,6 +939,38 @@ def _fold_elem(elem_dtype: "str", d: "str", records: "dict[str,list[(str,TkvType
                 % (elem_dtype, d))
         return chung
     return elem_dtype
+
+
+def _fold_spec_widen(cur: "str", d: "str") -> "str":
+    """Widen ve float nhu Python (Python that: `[1, 2.0]` la `list[float]`).
+    Dung chung cho ca phep gan list-literal va dict-literal nen 2 noi khong
+    the tach nhamh 'float' mot noi khong - nguyen tac cua muc F
+    (docs/BUGS_TODO.md): 1 noi, 1 su that."""
+    if cur is None:
+        return d
+    if cur not in ('f32', 'f64') and d in ('f32', 'f64'):
+        return d
+    return cur
+
+
+def dict_literal_spec_of(pairs: "list[TkvNode]", infer_scope: "Scope", nk: "NguonKieu") -> "(str,str)":
+    """(key_spec, val_spec) cho 1 dict literal - suy THANG tu cac cap trong
+    literal, khong can quet 'd[k] = v' sau do.
+
+    Dat O DAY (list_type.tkv) chu khong phai trong dict_type.tkv vi
+    `list_literal_elem_spec_of` - ham suy spec cua MOT phan tu, duoc goi boi
+    ca 3 loai literal - can no o noi ma 3 duong do cung dung 1 ham (dong do
+    voi muc F cua docs/BUGS_TODO.md: khong de 2 noi lam 1 viec).
+
+    `pairs` la danh sach khoa/gia tri XEN KE (nhu node 'dict_lit')."""
+    key_spec = None
+    val_spec = None
+    for i in range(0, len(pairs) - 1, 2):
+        kspec = list_literal_elem_spec_of(pairs[i], infer_scope, nk)
+        vspec = list_literal_elem_spec_of(pairs[i + 1], infer_scope, nk)
+        key_spec = _fold_spec_widen(key_spec, kspec)
+        val_spec = _fold_spec_widen(val_spec, vspec)
+    return key_spec, val_spec
 
 
 def list_literal_elem_spec(elements: "list[TkvNode]", infer_scope: "Scope", nk: "NguonKieu") -> "str":
@@ -975,6 +1205,64 @@ def find_first_append_dtype(stmts: "list[i32]", name: "str", infer_scope: "Scope
     return None
 
 
+def _spec_elem_lit(vn: "TkvNode") -> "str":
+    """dtype cua 1 phan tu LITERAL don (hang so / chuoi) theo dung quy tac
+    cua `_literal_dtype_fallback` - None la node khong phai literal vong huong.
+
+    Rieng cho `_spec_container_literal_of`: ham do duoc goi o ca 2 giai doan
+    (first-pass va codegen) nen KHONG co `ctx` de dua vao `NguonKieu`; container
+    literal long nhau trong thuc te co phan tu la hang so/chuoi nen du ham nay
+    du (2026-10-11)."""
+    if not la_node(vn):
+        return None
+    if ekind(vn) == 'num':
+        s = ea_str(vn)
+        return 'f64' if '.' in s or 'e' in s.lower() else 'int'
+    if ekind(vn) == 'str_lit':
+        return 'str'
+    return None
+
+
+def _spec_ds_lit(ds: "list[TkvNode]") -> "str":
+    """dtype chung cua cac phan tu trong 1 danh sach literal (widen ve float
+    nhu Python that: `[1, 2.0]` -> `f64`). '' neu khong suy duoc duoc.
+
+    Phan tu la CONTAINER literal thi de quy sang `_spec_container_literal_of` -
+    can cho `[{"n": 1}, {"n": 2}]` (long 3 cap)."""
+    cur = None
+    for el in ds:
+        d = _spec_elem_lit(el)
+        if d is None and la_node(el):
+            k = ekind(el)
+            if k == 'list_literal' or k == 'set_lit' or k == 'dict_lit':
+                d = _spec_container_literal_of(el, None)
+        if d is None:
+            continue
+        if cur is None or (cur not in ('f32', 'f64') and d in ('f32', 'f64')):
+            cur = d
+    return '' if cur is None else cur
+
+
+def _spec_container_literal_of(vn: "TkvNode", infer_scope: "Scope") -> "str":
+    """Shape-string cua 1 container LITERAL (`[..]`/`{k: v}`/`{a, b}`) -
+    '' neu node khong phai literal container hoac co phan tu chua suy duoc."""
+    k = ekind(vn)
+    if k == 'list_literal':
+        inner = _spec_ds_lit(ea_ds(vn))
+        return f'list[{inner}]' if inner != '' else ''
+    if k == 'set_lit':
+        inner = _spec_ds_lit(ea_ds(vn))
+        return f'set[{inner}]' if inner != '' else ''
+    if k == 'dict_lit':
+        caps = ea_ds(vn)
+        ks = _spec_ds_lit([caps[i] for i in range(0, len(caps) - 1, 2)])
+        vs = _spec_ds_lit([caps[i + 1] for i in range(0, len(caps) - 1, 2)])
+        if ks == '' or vs == '':
+            return ''
+        return f'dict[{ks},{vs}]'
+    return ''
+
+
 def find_first_append_elem_ta(stmts: "list[i32]", name: "str", infer_scope: "Scope", kind: "str"='list_append') -> "TypeAnn":
     """Container long nhau (Wave 2, 2026-07-29): giong find_first_append_dtype
     nhung tra ve TypeAnn DAY DU cua gia tri append/add DAU TIEN, CHI khi
@@ -1011,6 +1299,15 @@ def find_first_append_elem_ta(stmts: "list[i32]", name: "str", infer_scope: "Sco
                 # truoc day chi con dtype nen 'for a, b in <ket qua>' doc sai.
                 if var_ta.shape_ten in ('list', 'dict', 'tuple'):
                     return var_ta
+            # (2026-10-11) gia tri la CONTAINER LITERAL chu bien dich, vd
+            # `ss.add([1, 2])` (HashSet<List<T>>) hoac `ls.append({"a": 1})`
+            # (List<Dict<K,V>>) - phai TypeAnn DAY DU chu khong phai dtype
+            # LEAF, nen dung `list_literal_elem_spec` de suy roi boc bang
+            # `ta_tu_spec`.
+            if ekind(vn) == 'list_literal' or ekind(vn) == 'set_lit' or ekind(vn) == 'dict_lit':
+                spec = _spec_container_literal_of(vn, infer_scope)
+                if spec != '':
+                    return ta_tu_spec(spec)
             return None
         for sub_key in ('body', 'else_body'):
             sub = lay_than(stmt, sub_key)
@@ -1291,10 +1588,20 @@ def declare_list_literal(name: "str", elements: "list[TkvNode]", ctx: "WalkCtx")
         # ve chuoi MANG SHAPE 'list[T]', boc ra thanh TypeAnn(T,'list')
         # lam elem_ta cua phan tu nay.
         d = list_literal_elem_spec_of(el, infer_scope, nguon_kieu_walk(ctx))
-        if isinstance(d, str) and d.startswith('list[') and d.endswith(']'):
-            inner_elem_dtype = d[len('list['):-1].strip()
+        k_ind, _inner = _split_container_spec(d)
+        if k_ind == 'list':
+            # HANH VI CU (2026-08-19) cho list long nhau: boc 'list[' ra
+            # inner, `dtype` = LEAF, elem_ta = TypeAnn(inner, 'list') - KHONG
+            # dung `ta_tu_spec` o day (no tao them 1 tang elem_ta, lam
+            # `+` tren list long nhau roi vao nhanh "chua ho tro").
+            inner_elem_dtype = _inner
             d = inner_elem_dtype
             d_ta = TypeAnn(inner_elem_dtype, 'list')
+        elif k_ind == 'dict' or k_ind == 'set':
+            # (2026-10-11) '[{"a":1}]' -> 'dict[str,i32]', '{[1,2]}' ->
+            # 'set[list[i32]]': container MOI trong literal long nhau.
+            d_ta = ta_tu_spec(d)
+            d = d_ta.dtype
         else:
             d_ta = None
         moi = _fold_elem(elem_dtype, d, records, record_bases)
@@ -1552,5 +1859,6 @@ def bootstrap_list_type(reg: "Registry"):
     register_expr_codegen(reg, 'list_literal', codegen_expr_list_literal)
     register_expr_codegen(reg, 'tuple_lit', codegen_expr_tuple_lit)
     register_expr_codegen(reg, 'dict_lit', codegen_expr_dict_lit)
+    register_expr_codegen(reg, 'set_lit', codegen_expr_set_lit)
     register_stmt_codegen(reg, 'for_in_call_list', codegen_for_in_call_list)
     register_first_pass_walk(reg, 'for_in_call_list', fpw_for_in_call_list)

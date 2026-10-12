@@ -1,11 +1,9 @@
 ﻿# PLAN: TokenVector Tu-Host Day Du (118/118 + NEG 31/31)
 
 **Ngay bat dau**: 08/10/2026
-**Cap nhat cuoi**: 11/10/2026 (phien 7)
-**Trang thai**: Gate **117/118** (PASS=117, BUILDFAIL=1, TESTFAIL=0, OTHER=0,
-ILFAIL=1), **NEG 31/31**, `vong` **IL_IDENTICAL** (132 file).
-Gate khac: parity **119/119**, dang_ky **PASS** (2069/2116 = 97.7%, 0 violation),
-lint **8/8**, ext_smoke **4/4**.
+**Cap nhat cuoi**: 11/10/2026 (phien 8)
+**Trang thai**: Gate **118/118** (PASS=118, BUILDFAIL=0, TESTFAIL=0, OTHER=0, TIMEOUT=0, ILFAIL=1), **NEG 31/31**, `vong` **IL_IDENTICAL** (132 file).
+Gate khac: parity **119/119**, dang_ky **PASS** (0 violation), lint **8/8**, ext_smoke **4/4**.
 
 > **File nay da duoc VIET LAI ngay 11/10/2026.** Ban cu bi double-encode
 > (UTF-8 -> CP1252 -> UTF-8) tu mot lan `Set-Content -Encoding UTF8` o phien
@@ -14,12 +12,26 @@ lint **8/8**, ext_smoke **4/4**.
 
 ---
 
-## Con lai (2 muc)
+## Con lai (1 muc)
 
 | Test | Loai | Nguyen nhan |
 |---|---|---|
-| `nested_literal_test` | BUILDFAIL | `dict_lit`/`set_literal` chi co 1 duong (gan `d = {...}`), chua duoc dang ky o `EXPR_CODEGEN`; `il_list_elem_ilstr` tu choi shape-string container nen list chua container bi tu choi |
 | `p6_vectorize_test` | ILFAIL | Chua port `_p6_vectorize_while` (SIMD step-4 `v_load4`/`v_store4`) tu Python sang `control_flow.tkv`. Test PASS runtime (duong scalar dung) nhung IL khong co `stobj`/`_vstart`/`_tstart` |
+
+Da **HOAN NGUYAT** mot lan port p6 (11/10) vi no lam compiler **treo vo han /
+AccessViolation**. Chi tiet 4 loi da gap + huong tiep theo: xem
+`docs/e_handoff/2026-10-11-nested-literal-p6.md` muc 2.
+
+---
+
+## Phien 11/10 (phien 8): nested literal - XONG 7/7
+
+Gate **117/118 -> 118/118** (PASS het), NEG giu **31/31**. Chi con ILFAIL p6.
+
+Port day du container literal long nhau: `set_lit` node moi trong parser,
+`dict_lit`/`set_lit` o vi tri bieu thuc, suy kieu `ta_to_spec`/`ta_tu_spec`,
+`HashSet` qua `[System.Core]`, va 6 loi "bien dich xong nhung doc nho RAM" lien
+quan den `elem_ta`. Xem handoff muc 1.
 
 ---
 

@@ -44,6 +44,11 @@ KHUON: "dict[str,str]" = {
     'list_literal:1': 'ds',
     'tuple_lit:1': 'ds',        # (2026-09-25) '(a, b)' bieu thuc
     'dict_lit:1': 'ds',         # (2026-09-26) '{k: v, ...}' - khoa/gia tri xen ke
+    # (2026-10-11) '{a, b, ...}' - TAP literal (noi literal), phan tu XEN KE.
+    # Khong phai macro `try_expand_set_literal` (comprehension.tkv) - macro do
+    # chi nho phep gan `x = {...}`, nen tap long nhau trong literal khac thi
+    # phai co node rieng.
+    'set_lit:1': 'ds',
     # --- goi / chi so theo TEN ---
     'call:1': 'str', 'call:2': 'ds',
     'index:1': 'str', 'index:2': 'ds',

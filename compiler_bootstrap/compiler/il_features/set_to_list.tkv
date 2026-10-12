@@ -28,6 +28,13 @@ __tkv_import__ = ["il_dispatch", "tkv_types"]
 
 
 def _to_list_return_ta(set_ta: "TypeAnn") -> "TypeAnn":
+    # (2026-10-11) giu `elem_ta` - `for v in <set>:<container>` duoc macro
+    # for_in_list viet lai thanh `for v in <s>.to_list():`, nen khi phan tu
+    # la CONTAINER (`ss = {[1,2],[3,4]}` -> HashSet<List<T>>) thi bo mat
+    # `elem_ta` se sinh `List<TkvInt>` lech voi HashSet<List<TkvInt>> ->
+    # `EntryPointNotFoundException` luc chay.
+    if set_ta.elem_ta is not None:
+        return TypeAnn(set_ta.elem_ta.dtype, 'list', elem_ta=set_ta.elem_ta)
     return TypeAnn(set_ta.dtype, 'list')
 
 

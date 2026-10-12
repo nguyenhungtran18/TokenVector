@@ -482,6 +482,19 @@ def try_expand_set_literal(line: "str") -> "str":
     for x in phan:
         if _co_hai_cham_ngoai(x):
             return None
+    # (2026-10-11) Khi 1 phan tu bat dau bang `[` hoac `{` thi doi so phan
+    # tu o muc NGOAI moi la 2 tro len (vd `ss = {[1,2],[3,4]}`), va duong gan
+    # `x = set()` + `x.add(<phan tu>)` giong het truong hop binh thuong -
+    # `declare_set` tu suy kieu pheu tu `.add()`.
+    # CHI bo qua (de parser xu ly) khi `_tach_phay_ngoai` tra ve DUNG MOT
+    # phan tu: `ls = [{1,2},{3,4}]` - day la LIST chua SET, macro se sinh
+    # `ls = set()` + `ls.add([...])` sai ca nghia. Node 'set_lit'
+    # (il_core.tkv) + EXPR_CODEGEN `codegen_expr_set_lit` (list_type.tkv) lo
+    # truong hop do.
+    if len(phan) == 1:
+        xs0 = phan[0].strip()
+        if xs0 != '' and (xs0[0] == '[' or xs0[0] == '{'):
+            return None
     ind = ' ' * (len(line) - len(line.lstrip(' ')))
     co_thuc = False
     for x in phan:

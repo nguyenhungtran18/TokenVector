@@ -906,25 +906,40 @@ class _ExprParser:
         if k == 'OP' and v == '{':
             # '{}' RONG (2026-09-25) - node 'dict_rong'. '{k: v, ...}'
             # (2026-09-26) - node 'dict_lit', khoa/gia tri XEN KE trong 1 ds.
+            # '{a, b}' (2026-10-11) - node 'set_lit': CHUA co ':' ngay sau
+            # phan tu dau thi do la TAP, khong phai dict. Truoc day nhanh nay
+            # bat buoc `expect_op(':')` nen set literal chi chay duoc qua
+            # macro VAN BAN `try_expand_set_literal` (comprehension.tkv), ma
+            # macro do chi nho phep gan `x = {...}` - set long nhau trong 1
+            # literal khac (`[{1,2},{3,4}]`, `{"k": {1,2}}`) khong di duoc.
             k2, v2 = self.peek()
             if k2 == 'OP' and v2 == '}':
                 self.advance()
                 return mk1('dict_rong')
             cap = []
+            la_dict = 0
             while True:
-                cap.append(self.parse_expr())
-                self.expect_op(':')
-                cap.append(self.parse_expr())
-                k3, v3 = self.peek()
-                if k3 == 'OP' and v3 == ',':
+                e1 = self.parse_expr()
+                kd, vd = self.peek()
+                if kd == 'OP' and vd == ':':
+                    la_dict = 1
                     self.advance()
-                    k4, v4 = self.peek()
-                    if k4 == 'OP' and v4 == '}':
-                        break
-                    continue
-                break
+                    e2 = self.parse_expr()
+                    cap.append(e1)
+                    cap.append(e2)
+                else:
+                    cap.append(e1)
+                kt, vt = self.peek()
+                if not (kt == 'OP' and vt == ','):
+                    break
+                self.advance()
+                kc, vc = self.peek()
+                if kc == 'OP' and vc == '}':
+                    break
             self.expect_op('}')
-            return mk2('dict_lit', o_ds(cap))
+            if la_dict == 1:
+                return mk2('dict_lit', o_ds(cap))
+            return mk2('set_lit', o_ds(cap))
         if k == 'OP' and v == '[':
             # 'list_literal' - Giai doan 0.1 (2026-08-03, dong Python-parity-
             # gap v2): '[3, 1, 2]' (list co phan tu, khong chi '[]' rong).

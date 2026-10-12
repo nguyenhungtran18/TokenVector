@@ -18,7 +18,7 @@ from il_dispatch import (
     register_assign_rhs_parser, register_line_parser,
     register_stmt_codegen, register_first_pass_walk,
 )
-from il_features.list_type import il_list_elem_ilstr, find_first_append_dtype, list_literal_elem_spec_of, _fold_elem, nguon_kieu_walk, _record_stmt_fallback
+from il_features.list_type import (il_list_elem_ilstr, find_first_append_dtype, find_first_append_elem_ta, list_literal_elem_spec_of, _fold_elem, nguon_kieu_walk, _record_stmt_fallback, ta_elem_spec)
 from expr_row import ea_ds, ekind
 from tkv_types import TypeAnn
 from stmt_row import intern, lay_nut, lay_str, make2, make3, lay_ds_nut
@@ -120,9 +120,14 @@ def try_parse_set_add(reg: "Registry", line: "str", lines: "list[(i32,str)]", po
 
 
 def codegen_assign_set_new(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
-    """STMT_CODEGEN entry: 's = set()'."""
+    """STMT_CODEGEN entry: 's = set()'.
+
+    (2026-10-11) `il_type_str` chu KHONG `il_set_type(ta.dtype)`: khi phan tu
+    la container literal (`ss.add([1, 2])` -> HashSet<List<T>>) thi `ta.dtype`
+    chi la LEAF, sinh `newobj HashSet<TkvInt>` lech voi local khai
+    `HashSet<List<TkvInt>>` -> `AccessViolationException` luc chay."""
     ta = scope.tra(lay_str(stmt, 'name')).ta
-    body.append(f'    newobj instance void {il_set_type(ta.dtype, ctx.records, ctx.extern_class_defs)}::.ctor()')
+    body.append(f'    newobj instance void {ctx.il_type_str(ta, ctx.records)}::.ctor()')
     ctx.store_var(lay_str(stmt, 'name'), scope, body)
 
 
@@ -136,7 +141,7 @@ def codegen_assign_frozenset_new(stmt: "i32", scope: "Scope", body: "list[str]",
     ta = scope.tra(lay_str(stmt, 'name')).ta
     ctx.load_var_ref(lay_str(stmt, 'src'), scope, body)
     body.append(
-        f'    newobj instance void {il_set_type(ta.dtype, ctx.records, ctx.extern_class_defs)}::.ctor(class '
+        f'    newobj instance void {ctx.il_type_str(ta, ctx.records)}::.ctor(class '
         f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
     ctx.store_var(lay_str(stmt, 'name'), scope, body)
 
@@ -156,8 +161,13 @@ def codegen_set_add(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: 
         raise SyntaxError(
             f"il_codegen: '{lay_str(stmt, 'name')}' la frozenset (bat bien) - khong the .add()")
     ctx.load_var_ref(lay_str(stmt, 'name'), scope, body)
-    ctx.compile_expr(lay_nut(stmt, 'value_node'), scope, body, ta.dtype, ctx)
-    body.append(f'    callvirt instance bool {il_set_type(ta.dtype, ctx.records, ctx.extern_class_defs)}::Add(!0)')
+    # (2026-10-11) phan tu la CONTAINER literal: `il_set_type(ta.dtype)` bo
+    # qua `elem_ta` nen sinh `HashSet<TkvInt>` cho `ss = set(); ss.add([1, 2])`
+    # trong khi khai bao la HashSet<List<T>>. Dung `il_type_str` (DE QUY, giong
+    # codegen_list_append) va truyen spec day du cho gia tri.
+    value_dtype = ta_elem_spec(ta)
+    ctx.compile_expr(lay_nut(stmt, 'value_node'), scope, body, value_dtype, ctx)
+    body.append(f'    callvirt instance bool {ctx.il_type_str(ta, ctx.records)}::Add(!0)')
     body.append('    pop')
 
 
@@ -180,17 +190,24 @@ def declare_set(name: "str", ctx: "WalkCtx") -> "i32":
         return 0
     elem_dtype = find_first_append_dtype(
         ctx.stmts, name, ctx.infer_scope, ctx, kind='set_add')
-    if elem_dtype is None and not _has_append_stmt(ctx.stmts, name, 'set_add'):
+    elem_ta = find_first_append_elem_ta(ctx.stmts, name, ctx.infer_scope, kind='set_add')
+    if elem_dtype is None and elem_ta is None and not _has_append_stmt(ctx.stmts, name, 'set_add'):
         elem_dtype = 'i32'          # set RONG suot doi - xem declare_list
-    if elem_dtype is None and not ctx.final_pass:
+    if elem_dtype is None and elem_ta is None and not ctx.final_pass:
         ctx.defer(lambda: declare_set(name, ctx))
         return 0
-    if elem_dtype is None:
+    if elem_dtype is None and elem_ta is None:
         raise SyntaxError(
             f"il_codegen: khong suy duoc kieu PHAN TU cua set {name!r} - hay goi "
             f"'{name}.add(<gia tri co kieu ro rang>)' truoc. TRUOC 2026-08-03 cho nay am "
             f"tham lay kieu TRA VE cua ham dang bien dich (nguon cua 5 bug sai am tham).")
+    # (2026-10-11) `ss = set()` roi `ss.add([1, 2])` - phan tu la CONTAINER
+    # literal nen phai khai HashSet<List<T>>, khong phai HashSet<TkvInt>.
+    # `find_first_append_dtype` chi tra ve chuoi dtype LEAF nen can
+    # `find_first_append_elem_ta` de lay TypeAnn DAY DU.
     ta = TypeAnn(elem_dtype, 'set')
+    if elem_ta is not None:
+        ta = TypeAnn(elem_ta.dtype, 'set', elem_ta=elem_ta)
     declared_names.add(name)
     ctx.locals_decl.append((name, ta))
     ctx.infer_scope.set(name, ta)
@@ -238,7 +255,7 @@ def fpw_set_add(stmt: "i32", ctx: "WalkCtx"):
 def codegen_assign_frozenset_empty(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
     """STMT_CODEGEN entry: 'fs = frozenset()'."""
     ta = scope.tra(lay_str(stmt, 'name')).ta
-    body.append(f'    newobj instance void {il_set_type(ta.dtype, ctx.records, ctx.extern_class_defs)}::.ctor()')
+    body.append(f'    newobj instance void {ctx.il_type_str(ta, ctx.records)}::.ctor()')
     ctx.store_var(lay_str(stmt, 'name'), scope, body)
 
 
@@ -246,7 +263,7 @@ def codegen_assign_frozenset_literal(stmt: "i32", scope: "Scope", body: "list[st
     """STMT_CODEGEN entry: 'fs = frozenset([1, 2, 3])'."""
     ta = scope.tra(lay_str(stmt, 'name')).ta
     elements = lay_ds_nut(stmt, 'elements')
-    set_type = il_set_type(ta.dtype, ctx.records, ctx.extern_class_defs)
+    set_type = ctx.il_type_str(ta, ctx.records)
     body.append(f'    newobj instance void {set_type}::.ctor()')
     for el in elements:
         body.append('    dup')
