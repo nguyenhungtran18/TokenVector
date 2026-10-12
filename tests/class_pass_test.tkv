@@ -79,5 +79,9 @@ def run() -> "i32":
     tested = tested + 1
     total = total + check("pass_in_method", str(g.show()), "6")
 
-    print("class_pass_test: " + str(tested) + " cases")
-    return total
+    # 2026-10-12: dung `test_summary` thay vi `return total`. `check()` tra 1
+    # khi PASS nen `total` la SO CA PASS - tra no lam gia tri cho run() thi
+    # bay gio la EXIT CODE, va 6 ca pass se ra exit 6 (gate bao "EXIT6").
+    # `test_summary` tra ve MA THOAT chuan: 0 = het PASS, 1 = co FAIL - doc
+    # dung contract ma moi 118 test con lai dung.
+    return test_summary("class_pass_test", total, tested)

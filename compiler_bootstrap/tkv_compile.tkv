@@ -4965,7 +4965,18 @@ def build_generic_main(sig: "TkvSig", class_name: "str", module_globals: "dict[s
                                  func_table=func_table, records=records)
 
     ret_dtype = sig.return_type.dtype
-    if ret_dtype == 'str':
+    if ret_dtype in ('i32', 'i64'):
+        # 2026-10-12: ham entry tra SO NGUYEN thi gia tri do la EXIT CODE,
+        # khong phai con in ra (nhu moi ngon ngu khac: C/Go/Rust, Python
+        # `sys.exit(1)`). Truoc day chi `Console::WriteLine`, nen
+        # `return 1` in ra dong cuoi nhung process van exit 0 - moi gate
+        # tin `$LASTEXITCODE` deu bao PASS cho mot binary vua bao loi.
+        # `Environment::Exit` nhan int32, nen i64 can `conv.i4`.
+        if ret_dtype == 'i64':
+            body.append('    conv.i4')
+        body.append('    call void [mscorlib]System.Environment::Exit(int32)')
+        locals_decl = ''
+    elif ret_dtype == 'str':
         body.append('    call void [mscorlib]System.Console::WriteLine(string)')
         locals_decl = ''
     else:

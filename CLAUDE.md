@@ -87,8 +87,8 @@ gate — vì đổi mà không build lại thì gate đang đo compiler cũ.
     `.tkv` file as done**: build green ≠ correct, and some bugs compile
     cleanly and return a *wrong value*. It cannot build for you — TokenVector
     has no `subprocess` — so it **prints the two commands** (build, then run);
-    run both and read the **output** — **không** phải exit code (xem cảnh
-    báo `run()` KHÔNG đặt exit code ở phần Toolchain).
+    run both and read the **output** — and the exit code (see `run()` return =
+exit code in Toolchain).
   - Add `--file out.txt` to any subcommand to get UTF-8 output. `print` goes
     through `Console::WriteLine`, and redirected .NET stdout defaults to
     **UTF-16LE**, which PowerShell 5.1 renders as `?` for non-ASCII.
@@ -123,13 +123,17 @@ gate — vì đổi mà không build lại thì gate đang đo compiler cũ.
   có subcommand. (Compiler Python bootstrap dùng CLI khác:
   `tkvc.exe build <src> --out <exe> --entry run`.)
 - **Run Built Binary**: `.\<output.exe>`
-- **⚠️ `run()` KHÔNG đặt exit code (2026-10-12, đo thật).** Giá trị mà `run()`
-  trả về được **in ra stdout thành dòng cuối**, nhưng **process luôn exit 0**:
-  - `print("X"); return 5` → in `X` rồi `5`, `$LASTEXITCODE` = **0**
-  - `vong.exe` hỏng (return 3) → in `3`, `$LASTEXITCODE` = **0**
-  **Nên gate PHẢI đọc output, đừng tin exit code.** `testkit_gate.ps1` đang
-  đúng làm vậy (so chuỗi `PASS`/`FAIL` trong output). `--quiet` của
-  `dang_ky_gate.tkv` chỉ ẩn báo cáo, **không** ẩn dòng số cuối này.
+- **`run()` TRẢ VỀ = EXIT CODE (đúng chuẩn, sửa 2026-10-12).** Ham entry
+  tra `"i32"`/`"i64"` thi gia tri do **thanh exit code cua process** qua
+  `Environment::Exit` — giong C/Go/Rust va `sys.exit(1)` cua Python. Khong con
+  in gia tri do ra nua.
+  - `return 0` → exit 0 · `return 5` → **exit 5**
+  - Entry tra `"str"` hoac TUPLE thi van **in** ra (khong map duoc sang int).
+  - `testkit_gate.ps1` doc `$proc.ExitCode` (qua `Start-Process`, KHONG phai
+    `$LASTEXITCODE`); neu test nao tra gia tri khac 0 se bi ghi la `EXIT<rc>`.
+    Hop dong cua `tests/tkv_test_lib.tkv` la het: ket thuc `run()` bang
+    `return test_summary(<ten>, total, tested)` — ham do tra 0 khi het PASS,
+    1 khi co FAIL. **Dung cach nay cho moi test moi.**
 - **Acceptance Gate (the only gate that matters for compiler changes)**:
   `.\\tools\testkit_gate.ps1` — builds and runs all 119 `tests\*_test.tkv`
   plus 31 negative cases (currently `PASS=119 BUILDFAIL=0 TESTFAIL=0
