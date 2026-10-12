@@ -127,13 +127,9 @@ def goi_truc_tiep(n: "i32") -> "str":
     return a + str(b)
 
 
-__tkv_chi_cpython__ = True
-if __tkv_chi_cpython__:
-    def fmt_spec(x, spec):
-        return format(x, spec)
-
-    def slice_step(xs, a, b, c, co):
-        return xs[(a if co & 1 else None):(b if co & 2 else None):c]
+# 2026-10-12: khoi `if __tkv_chi_cpython__:` dinh nghia lai `fmt_spec` /
+# `slice_step` bang thu vien CPython da bi XOA. Compiler TokenVector dung
+# builtin cung ten cua no (`fmt_spec(n, "05d")`, `slice_step(...)`).
 
 
 def klen(w: "str") -> "i32":

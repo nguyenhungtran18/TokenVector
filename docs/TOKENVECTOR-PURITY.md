@@ -107,12 +107,11 @@ bàn giao ở cây E:.
 `dist\tkvc-tv.exe`**, không tin tài liệu. Kết quả: `tools\dang_ky_gate.py`.
 
 ```
-125 file / 1911 hàm
-A. có -> "kieu"                     1068  (55,9%)
-B. void (thiếu chữ ký, chỉ return)   794  (41,5%)   bỏ qua 27 hàm @__tkv_cpython_only__
-                                                       + 22 hàm trong khối `if __tkv_chi_cpython__:`
+132 file / 2090 hàm   (đo 2026-10-12, sau khi xoá khối `__tkv_chi_cpython__`)
+A. có -> "kieu"                     1263  (60,5%)
+B. void (thiếu chữ ký, chỉ return)   800  (38,3%)   bỏ qua 27 hàm @__tkv_cpython_only__
    ------------------------------------------------------------------
-A + B  ĐÃ ĐĂNG KÝ ĐẦY ĐỦ            1862  (97,4%)
+A + B  ĐÃ ĐĂNG KÝ ĐẦY ĐỦ            2063  (98,7%)
 VI PHAM: 0        thiếu chữ ký tham số: 0
 ```
 
@@ -157,16 +156,27 @@ da hoan chinh" la sai.**
 | `X: "i32" = -1` (hằng âm cấp module) | **từ chối** |
 | `X: "i32" = 1 + 1` (biểu thức cấp module) | **từ chối** |
 
-`dist\tkvc-tv.exe` không có khối `__tkv_chi_cpython__` nào, nên trong compiler
-**không còn hằng âm ở cấp module** — đó là lý do `seed_emit.tkv:8151` viết
-`KRG_CHU: "i32" = 0 - 1`: né đúng giới hạn của chính compiler.
+### Co che CPython con lai trong compiler
 
-### Hai cơ chế CPython mà compiler BỎ QUA
+**2026-10-12: khoi `if __tkv_chi_cpython__:` đã bị XOA khỏi nguồn compiler.**
 
-Probe xác nhận (cả khi biến là `True` lẫn `False`):
-- `if __tkv_chi_cpython__:` — bỏ qua **cả khối**
-- `@__tkv_cpython_only__` — bỏ qua **hàm** (27 hàm)
-- cộng 22 hàm trong khối `if` ⇒ **49/1911 hàm không nằm trên đường TokenVector**
+Trước đó compiler bỏ qua 2 loại cấu trúc CPython:
+
+| Cấu trúc | Trạng thái |
+|---|---|
+| `if __tkv_chi_cpython__:` | **ĐÃ XOA** — mọi khối và cả cơ chế nhận diện (`_la_khoi_chi_cpython`) trong `tkv_compile.tkv` |
+| `@__tkv_cpython_only__` | còn — bỏ qua **hàm** (27 hàm) |
+
+Lý do xoá: những khối đó chỉ tồn tại để file `.tkv` chạy được trên **hai**
+thế giới (TokenVector biên dịch, CPython chạy trực tiếp để đối chiếu). Khi
+TokenVector đã tự host, phía CPython đã tách hẳn sang repo
+`TokenVector.CompilerPy` (nơi có bản `tkv_compile.tkv` riêng, **không** cần cơ
+chế bỏ qua vì dưới CPython cờ chỉ là biến `True` và khối chạy bình thường).
+Giữ lại chỉ là Python thừa trong nguồn compiler mà không ai dùng.
+
+Hệ quả: `dist\tkvc-tv.exe` **không còn khối `if __tkv_chi_cpython__` nào**, và
+số hàm không nằm trên đường TokenVector giảm từ 49 xuống còn 27 (toàn bộ là
+`@__tkv_cpython_only__`).
 
 ### Ba lỗi analyzer đã mắc phải (để người sau không lặp lại)
 

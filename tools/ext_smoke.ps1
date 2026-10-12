@@ -17,12 +17,32 @@
 # (cau hoi, xem ky vong).
 param(
     [switch]$UpdateBaseline,
-    [int]$TimeoutSec = 600
+    [int]$TimeoutSec = 600,
+    # 2026-10-12: them tham so Compiler. Truoc day khong co, nen truyen
+    # `-Compiler ...` vo mot script phai [CmdletBinding] se bi BO QUA im
+    # lang - va ta tu kiem cong do `-Compiler .\dist\tkvc-tv.exe` xanh 4/4
+    # trong khi thuc te van dung compiler mac dinh. Phai khai bao tham so
+    # that moi cho phep doi compiler co chu dich.
+    [string]$Compiler = ''
 )
 
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
-$tkv = Join-Path $root 'dist\tkvc.exe'
+# 2026-10-12: mac dinh GIU NGUYEN compiler Python bootstrap (`dist\tkvc.exe`).
+# Da thu chuyen sang `tkvc-tv.exe` va gate FAIL 4/4 - KHONG phai vi self-host
+# hong, ma vi no CHUA build duoc 2 project ben ngoai:
+#   il_codegen: d.shape[0] khong hop le (shape=[])   tren inference_tests.tkv
+# Python bootstrap build duoc ca 4. Day la HUU ICH THAT cua gate nay (so sanh
+# kha nang cua hai compiler), nen mac dinh phai la compiler manh hon.
+# Con cau hoi "compiler TU-HOST co build duoc 2 project ngoai khong" thi day
+# CHINH la regression can bao cao, khong phai trang thai binh thuong.
+#
+# CLI hai compiler khac nhau (`build <src> --out <e>` co subcommand,
+# tkvc-tv.exe chi nhan positional `<src> <out> <entry>`) - xem nhanh goi
+# ben duoi.
+if ([string]::IsNullOrEmpty($Compiler)) { $tkv = Join-Path $root 'dist\tkvc.exe' }
+else { $tkv = $Compiler }
+$tuHost = ($tkv -like '*tkvc-tv.exe')
 $baselinePath = Join-Path $PSScriptRoot 'ext_smoke_baseline.txt'
 $outDir = Join-Path $env:TEMP 'ext_smoke'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
@@ -71,7 +91,14 @@ foreach ($t in $targets) {
     }
     $exe = Join-Path $outDir ("{0}.exe" -f $t.Name)
     Remove-Item $exe -Force -ErrorAction SilentlyContinue
-    $msg = & $tkv build $t.Path --entry $t.Entry --out $exe --no-lint 2>&1 | Out-String
+    # Hai CLI khac nhau - tkvc.exe co subcommand `build` va co `--out`,
+    # tkvc-tv.exe chi nhan positional `<src> <out> <entry>` va khong co
+    # co `--no-lint`.
+    if ($tuHost) {
+        $msg = & $tkv $t.Path $exe $t.Entry 2>&1 | Out-String
+    } else {
+        $msg = & $tkv build $t.Path --entry $t.Entry --out $exe --no-lint 2>&1 | Out-String
+    }
     $actual = if (Test-Path $exe) { 'BUILD_OK' } else { 'KNOWN_FAIL:' + (Get-NormalizedError $msg) }
     $observed[$t.Name] = $actual
     $want = if ($expected.ContainsKey($t.Name)) { $expected[$t.Name] } else { '<chua co ky vong>' }
