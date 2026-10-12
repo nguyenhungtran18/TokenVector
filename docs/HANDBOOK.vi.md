@@ -1,4 +1,4 @@
-﻿# TOKENVECTOR COMPILER PLATFORM - HƯỚNG DẪN SỬ DỤNG VÀ GIÁO TRÌNH KỸ THUẬT CHI TIẾT
+# TOKENVECTOR COMPILER PLATFORM - HƯỚNG DẪN SỬ DỤNG VÀ GIÁO TRÌNH KỸ THUẬT CHI TIẾT
 ### (Comprehensive Official Technical Handbook for TokenVector Native AOT Compiler Platform)
 
 **Mã tài liệu: TKV-USERGUIDE-2026-FULL**  
@@ -40,12 +40,12 @@ $$\text{Tệp } \texttt{.tkv} \quad \xrightarrow{\text{1. AST Parse}} \quad \tex
 
 **Trên Windows Command Prompt (cmd)**:
 ```cmd
-set PATH=%PATH%;D:\Claude AI Project\TokenVector\release\\dist
+set PATH=%PATH%;<duong-dan>\\Release\\dist
 ```
 
 **Trên Windows PowerShell**:
 ```powershell
-$env:Path += ";D:\Claude AI Project\TokenVector\release\\dist"
+$env:Path += ";<duong-dan>\\Release\\dist"
 ```
 
 ### 2.2 Chi tiết Danh mục Lệnh CLI (`tkvc`)
@@ -219,7 +219,7 @@ TokenVector cung cấp bộ thư viện chuẩn Native `.tkv` đặt tại thư 
    - `tkv_now()`: Lấy thời gian hệ thống hiện tại.
    - `tkv_randint(min, max)`: Sinh số nguyên ngẫu nhiên.
 
-Ngoài 2 file "thư viện mẫu" trên, các hàm builtin `re`/`datetime`/`random`/`os`/`json`/`hashlib` khác được compiler hỗ trợ TRỰC TIẾP (không cần file `.tkv` riêng) — xem `docs/COMPARISON-PYTHON.md` mục 2 để biết danh sách đầy đủ.
+Ngoài 2 file "thư viện mẫu" trên, các hàm builtin `re`/`datetime`/`random`/`os`/`json`/`hashlib` khác được compiler hỗ trợ TRỰC TIẾP (không cần file `.tkv` riêng) — xem `docs/REFERENCE.md` §2 để biết danh sách đầy đủ (mọi builtin đều được liệt kê ở đó).
 
 ---
 
@@ -286,25 +286,48 @@ Ba dạng khai báo `__tkv_extern_assembly__` (top-level, trước/sau `def` đ�
 > CẢNH BÁO footgun: khai bare string (dạng 1) cho DLL private unsigned sẽ nổ lúc CHẠY
 > (không phải lúc build): `FileLoadException: 'X, Version=4.0.0.0, ..., b77a...'`
 > dù file DLL nằm cạnh exe — fusion tìm thấy file nhưng từ chối vì identity lệch.
-> Gặp lỗi này thì đổi sang dạng 2 hoặc 3. Hồi quy khóa cả 3 dạng:
-> `test/verify/extern_assembly_identity_test.tkv` (bare → FileLoadException
+> Gặp lỗi này thì đổi sang dạng 2 hoặc 3. Xem `tests/` và chạy
+> `.\tools\testkit_gate.ps1` để khóa cả 3 dạng (bare → FileLoadException
 > đúng thiết kế; tuple/full → `Add42(8) = 50`).
 
 ---
 
-## CHƯƠNG 10: QUY TRÌNH KIỂM THỬ NGHIỆM THU NATIVE (NATIVE SUITE)
+## CHƯƠNG 10: QUY TRÌNH KIỂM THỬ NGHIỆM THU
 
-Để tiến hành kiểm thử toàn bộ 97 bài test quy chuẩn bằng file Native `ledger_test.tkv`:
+Toàn bộ bộ nghiệm thu chạy bằng **một lệnh gate** — không phải từng file:
 
-```cmd
-tkvc build test/verify/ledger_test.tkv --out ledger_test.exe --entry run
-ledger_test.exe
+```powershell
+.\tools\testkit_gate.ps1
 ```
 
-**Kết quả nghiệm thu tiêu chuẩn**:
+Gate tự build rồi chạy **119 test chấp nhận** trong `tests/*_test.tkv` cộng
+**31 test âm** (`tests/negative/`), và in bảng tổng kết:
+
 ```text
-ledger_test: dat (0 muc open, tat ca van lech DUNG loai da ghi; 97 muc tong cong trong so)
+=== SUMMARY (out of 119 tests) ===
+PASS=119  BUILDFAIL=0  TESTFAIL=0  OTHER=0 TIMEOUT=0 ILFAIL=0 NEG=31/31
+
+GATE: PASS (119/119, negative 31/31)
 ```
+
+Cổng kèm theo:
+
+| Lệnh | Đo gì |
+|---|---|
+| `.\tools\testkit_gate.ps1` | 119 test + 31 test âm |
+| `.\tools\vong.exe` | Vòng tự-host — phải ra `IL_IDENTICAL` |
+| `.\tools\lint_rules_gate.ps1` | Bẫy cú pháp (8/8, 0 báo nhầm) |
+
+Để biên dịch và chạy **một** file test:
+
+```powershell
+dist\tkvc-tv.exe tests\record_lt_test.tkv record_lt.exe run
+.\record_lt.exe
+```
+
+> **Đừng tin exit code khi build xanh.** Có những lỗi biên dịch sạch rồi trả
+> về **giá trị sai** — luôn **chạy** file `.exe` và đọc output. Gate trên làm
+> đúng việc đó: nó so chuỗi `PASS`/`FAIL` trong output.
 
 ---
 *HẾT TÀI LIỆU HƯỚNG DẪN KỸ THUẬT NỀN TẢNG TOKENVECTOR 2026*

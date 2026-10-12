@@ -1373,4 +1373,6 @@ compiler - ghi de lam hong ca buoc bien dich.
 3. **Tài liệu cũ đã sai nhiều lần.** Biểu thức điều kiện `a if c else b`
    bị ghi là "không có" nhưng chạy đúng.
 
-→ **Hãy probe thật.** Quy trình và bằng chứng: `docs/PLAN.md` mục 6.
+→ **Hãy probe thật.** Chạy `dist\bin\tkv_guide.exe verify <file.tkv>` — nó in ra
+hai lệnh cần chạy (build rồi chạy). Đọc cả **output** lẫn **exit code**: build
+xanh **không** bảo chứng giá trị đúng.
