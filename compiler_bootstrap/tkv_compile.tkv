@@ -1814,6 +1814,15 @@ def _extract_record_def(pool: "list[str]", class_nid: "i32", source_lines: "list
         k = ar_kind(pool, stmt)
         if _ar_la_docstring(pool, stmt):
             continue  # docstring cua class
+        if k == "pass":
+            # (2026-10-12) `pass` trong than record - bo qua y het, cung duong
+            # voi docstring o tren. Python that cho phep `class B(A): pass`:
+            # lop con KHONG khai bao gi them ma van thuoc pha he cua base.
+            # Record CIL duoc sinh tu danh sach field nen than rong la hop le.
+            # Truoc day dong nay ruc vao nhanh validate ben duoi (chi nhan
+            # 'annassign' / method THAT) nem TranspileError, va CA 2 compiler
+            # cung tu choi y het - gap chung da dong o day.
+            continue
         if k == "funcdef" and ar_col_a(pool, stmt) == '__init__' and (exc_bases or not _init_du_chu_thich(pool, stmt)):
             # (2026-09-25) CHI lop NGOAI LE con bo qua __init__ (thong diep di
             # qua System.Exception::.ctor(string)); lop thuong: __init__ la

@@ -85,6 +85,7 @@
 | Quy tắc | Nội dung |
 |---|---|
 | Khai báo | `class P:` rồi khai **field có kiểu ở thân class**, trước `__init__`. |
+| `pass` | `pass` trong thân record **bị bỏ qua hoàn toàn**, cùng đường với docstring — nên `class B(A): pass` (lớp con không khai báo gì thêm) là hợp lệ, đúng như Python. Đóng 2026-10-12; trước đó cả hai compiler đều từ chối. Phạm vi: chỉ trong thân **record**; `pass` ở cấp module vẫn bị từ chối (module chỉ nhận def/class/HẰNG SỐ/biến có kiểu/`__tkv_import__`). Record chỉ có `pass` mà **không field nào** vẫn là lỗi biên dịch. |
 | `__init__` | Phải nhận **đúng** các field đã khai. `Stub()` với field `value` sẽ lỗi. |
 | Toán tử | `__eq__`/`__lt__`/`__gt__`… phải khai `-> "i32"` (hoặc `"bool"`) **và nằm trong thân class**. Dunder đặt ở cấp module **không được đăng ký** → `a == b` rơi về so sánh tham chiếu, `a < b` báo lỗi sai nghĩa. |
 | Field container | Xem §6.12 (Cửa A) — được gán **bên ngoài** constructor, nhưng phải được gán **ở đâu đó**. |
