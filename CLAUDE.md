@@ -7,7 +7,7 @@ silently swallowed every `git` command run from inside it).
 
 | Path | What |
 |---|---|
-| **`compiler_bootstrap/`** | **NGUON COMPILER TU-HOST — 132 file TokenVector that.** `compiler_src\ds_gop.txt` liệt kê đúng 132 đường dẫn này; `tools\vong.tkv` gộp chúng thành một nguồn rồi tự-biên-dịch (`g1.il == g2.il` → `IL_IDENTICAL`). Sản phẩm: `dist/tkvc-tv.exe`. **Không có Python nào ở đây** |
+| **`compiler_bootstrap/`** | **NGUON COMPILER TU-HOST — 132 file TokenVector thuần.** `compiler_src\ds_gop.txt` liệt kê đúng 132 đường dẫn này; `tools\vong.tkv` gộp chúng thành một nguồn rồi tự-biên-dịch (`g1.il == g2.il` → `IL_IDENTICAL`). Sản phẩm: `dist/tkvc-tv.exe`. **Không còn CPython nào** — 6 khối `if __tkv_chi_cpython__:` và cả cơ chế nhận diện đã bị xoá 2026-10-12 |
 | **`compiler_py/`** | **SUBMODULE** → repo riêng [`nguyenhungtran18/TokenVector.CompilerPy`](https://github.com/nguyenhungtran18/TokenVector.CompilerPy) (local: `D:\TokenVector.CompilerPy`). Chứa toàn bộ compiler bootstrap **Python**: 126 file `.tkv` *có nội dung là Python*, `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `build_tkvc.ps1`, `tools/_split_il_features.py`. Sản phẩm: `dist/tkvc.exe` |
 | **`compiler_src/`** | 8 `.tkv` seed lịch sử (799 KB) + `ds_gop.txt` (manifest 132 dòng, **đang dùng**) + `feature_can.txt` (CORE). Chỉ 2 file manifest là cần; 8 file seed không ai biên dịch. See `docs/TOKENVECTOR-PURITY.md` |
 | `dist/tkvc-tv.exe` | **The self-hosted TokenVector compiler.** CLI là positional: `tkvc-tv.exe <src> <out> <entry>`. Đây là hướng đi |
@@ -74,20 +74,21 @@ gate — vì đổi mà không build lại thì gate đang đo compiler cũ.
   - The tool is `tools/tkv_guide.tkv`, **written in TokenVector**, and it
     is the **only** copy. It was a Python script first; both copies drifted, so
     the Python one was deleted.
-  - `powershell -File tools\build_tkv_guide.ps1` → `dist\tkv_guide.exe`
+  - `powershell -File tools\build_tkv_guide.ps1` → `dist\bin\tkv_guide.exe` (mac dinh compiler TU-HOST)
     (`dist/` is gitignored, so the `.tkv` is the source of truth).
-  - `dist\tkv_guide.exe rules` — the pitfalls that actually bite
-  - `dist\tkv_guide.exe find <name|topic>` — exact syntax + behaviour, read
+  - `dist\bin\tkv_guide.exe rules` — the pitfalls that actually bite
+  - `dist\bin\tkv_guide.exe find <name|topic>` — exact syntax + behaviour, read
     from `REFERENCE.md` (never guess a signature)
-  - `dist\tkv_guide.exe names <filter>` — registered builtins per module
-  - `dist\tkv_guide.exe lint <file.tkv>` — static traps, few false positives.
+  - `dist\bin\tkv_guide.exe names <filter>` — registered builtins per module
+  - `dist\bin\tkv_guide.exe lint <file.tkv>` — static traps, few false positives.
     Its rules have their own gate: `tools\lint_rules_gate.ps1` over
     `tools\lint_fixtures\{bad,ok}.tkv` (positive **and** negative cases).
-  - `dist\tkv_guide.exe verify <file.tkv>` — **required before reporting a
+  - `dist\bin\tkv_guide.exe verify <file.tkv>` — **required before reporting a
     `.tkv` file as done**: build green ≠ correct, and some bugs compile
     cleanly and return a *wrong value*. It cannot build for you — TokenVector
     has no `subprocess` — so it **prints the two commands** (build, then run);
-    run both and read the exit code and the output.
+    run both and read the **output** — **không** phải exit code (xem cảnh
+    báo `run()` KHÔNG đặt exit code ở phần Toolchain).
   - Add `--file out.txt` to any subcommand to get UTF-8 output. `print` goes
     through `Console::WriteLine`, and redirected .NET stdout defaults to
     **UTF-16LE**, which PowerShell 5.1 renders as `?` for non-ASCII.
@@ -117,28 +118,39 @@ gate — vì đổi mà không build lại thì gate đang đo compiler cũ.
   nạp thật (nếu không, lệnh `register_*` trong đó không bao giờ chạy) và tự xoá
   cache `--workpath` của PyInstaller (cache này che thay đổi, từng làm build
   "thành công" nhưng exe cũ). Xem `tools/_split_il_features.py` phần docstring.
-- **Compile Standalone Binary**:
-  `.\\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run`
+- **Compile Standalone Binary** (compiler tự-host):
+  `dist\tkvc-tv.exe <source.tkv> <out.exe> <entry>` — CLI **positional**, không
+  có subcommand. (Compiler Python bootstrap dùng CLI khác:
+  `tkvc.exe build <src> --out <exe> --entry run`.)
 - **Run Built Binary**: `.\<output.exe>`
+- **⚠️ `run()` KHÔNG đặt exit code (2026-10-12, đo thật).** Giá trị mà `run()`
+  trả về được **in ra stdout thành dòng cuối**, nhưng **process luôn exit 0**:
+  - `print("X"); return 5` → in `X` rồi `5`, `$LASTEXITCODE` = **0**
+  - `vong.exe` hỏng (return 3) → in `3`, `$LASTEXITCODE` = **0**
+  **Nên gate PHẢI đọc output, đừng tin exit code.** `testkit_gate.ps1` đang
+  đúng làm vậy (so chuỗi `PASS`/`FAIL` trong output). `--quiet` của
+  `dang_ky_gate.tkv` chỉ ẩn báo cáo, **không** ẩn dòng số cuối này.
 - **Acceptance Gate (the only gate that matters for compiler changes)**:
-  `.\\tools\testkit_gate.ps1` — builds and runs all 117 `tests\*_test.tkv`
-  plus 31 negative cases (currently `PASS=117 BUILDFAIL=0 TESTFAIL=0 NEG=31/31`),
-  writes output to TEMP so a run never litters the repo, exits non-zero on any failure.
-  Other gates, all green as of 2026-10-02: parity probe
-  `.\\tools\parity_probe\run.ps1` (**119/119** match CPython),
-registration gate `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run`
-    (**0 violations** — of 2,067 functions on the TokenVector path; see
+  `.\\tools\testkit_gate.ps1` — builds and runs all 119 `tests\*_test.tkv`
+  plus 31 negative cases (currently `PASS=119 BUILDFAIL=0 TESTFAIL=0
+  ILFAIL=0 NEG=31/31`), writes output to TEMP so a run never litters the repo,
+  exits non-zero on any failure. **Không cần Python** — gate dùng compiler
+  tự-host.
+  Other gates, green as of 2026-10-12:
+  registration gate `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run`
+    (**0 violations** — of 2,090 functions on the TokenVector path; see
   `docs/TOKENVECTOR-PURITY.md` for what "registered" is measured against),
-  `.\\tools\ext_smoke.ps1` (4/4), `D:\TokenVector.Data\tools\datagate.ps1`
-  (18/18), `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` (26/26),
+  `vong.exe` (**IL_IDENTICAL**, 132 file),
   `.\\tools\lint_rules_gate.ps1` (8/8 traps caught, 0 false positives).
+  Gate **cần Python** (đã tách sang repo khác — xem bảng layout):
+  parity probe `tools\parity_probe\run.ps1` (119/119) và
+  `ext_smoke.ps1` (4/4) — cả hai dùng compiler bootstrap `dist\tkvc.exe`.
   `tests\native_test_suite.tkv` and its `check_file` entry were **deleted
   2026-10-02**: it compiled but crashed at run time (`c_puts` →
   `MissingMethodException`) and no gate ran it. Its static-check role is now
   `tkv_guide.exe lint`.
-- **Benchmark**:
-  `python .\\bench\run.py` — TokenVector vs CPython/NumPy, 7 kernels, builds
-  its own kernels from `dist\tkvc.exe`. Do not report a speedup from a
+- **Benchmark**: đã tách sang repo `TokenVector.TestOracle` (cần baseline
+  CPython/NumPy nên không thể chuyển sang TokenVector).
   pre-built binary.
 
 ## Syntax & Coding Standards
@@ -172,7 +184,7 @@ registration gate `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run`
   probed and both covered by tests in `tests/`: `f"{n}"`, `f"{n:05d}"`, `f"{v:.2f}"`,
   `"{}".format(x)`, `"{0}+{1}".format(a, b)`), as do **triple-quoted**
   multi-line literals. The older claim here that these are unsupported was
-  wrong and cost a harness real work — see `tools/tkv_guide.py rules`.
+  wrong and cost a harness real work — see `dist\bin\tkv_guide.exe rules`.
   - Methods can only be called on named variables, not on literals or
     arbitrary expressions: `"a,b".split(",")` fails, bind it first.
 - **Literals**: `0x` hex, `0o` octal, `0b` binary, and `1e3`/`1.5e2` scientific
