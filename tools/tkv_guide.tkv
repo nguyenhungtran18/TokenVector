@@ -90,17 +90,26 @@ def ref_path() -> "str":
 
 
 def feat_dir() -> "str":
-    """Tim thu muc module cua compiler."""
+    """Tim thu muc module cua compiler TOKENVECTOR.
+
+    2026-10-12 (tach repo): `compiler/` da sang submodule `compiler_py/`. Ban
+    do dat sai o day nen tu dong dat vao 1 CA BA thu muc khong ton tai - `names`
+    in "KHONG tim thay compiler/il_features/ - hay chay tu trong repo 3.code".
+    Thu muc dung la `compiler_bootstrap/compiler/il_features` (cung nguon voi
+    `tools/dang_ky_gate.py` qua `compiler_src/ds_gop.txt`).
+
+    `3.code/` va `compiler/` giu lai chi de doc loi cu o ban build cao hon -
+    CA BA thu muc deu khong ton tai o repo hien tai."""
     argv = sys_argv()
     if len(argv) > 0:
         here = path_dirname(argv[0])
-        d1 = path_join(path_dirname(here), "compiler/il_features")
+        d1 = path_join(path_dirname(here), "compiler_bootstrap/compiler/il_features")
         if path_isdir(d1):
             return d1
+    if path_isdir("compiler_bootstrap/compiler/il_features"):
+        return "compiler_bootstrap/compiler/il_features"
     if path_isdir("3.code/compiler/il_features"):
         return "3.code/compiler/il_features"
-    if path_isdir("compiler/il_features"):
-        return "compiler/il_features"
     return ""
 
 
@@ -231,10 +240,18 @@ def build_find(query: "str") -> "str":
 # ------------------------------------------------------------------- names
 
 def _names_of(body: "str") -> "str":
-    """Ten builtin trong 1 module, tach bang dau cach."""
+    """Ten builtin trong 1 module, tach bang dau cach.
+
+    2026-10-12: compiler TokenVector goi `register_expr_builtin(reg, 'ten', ...)`
+    - co tham so `reg` o DAU. Ban dau ham nay khop dung chu ky
+    `register_expr_builtin('ten'` nen doc nguon TokenVector ra 0 ten. Cach moi
+    tach theo dau trich dan: `split(q)` cho
+        reg, 'ten', ...  -> ["reg, ", "ten", ...]   parts[1] = ten
+        'ten', ...       -> ["", "ten", ...]        parts[1] = ten
+    nen mot hai nhanh deu ra cung dap an - dung ca hai compiler."""
     out = ""
     lines = body.split(_nl())
-    marker = "register_expr_builtin(" + _q()
+    marker = "register_expr_builtin("
     mlen = len(marker)
     i = 0
     n = len(lines)
@@ -243,9 +260,11 @@ def _names_of(body: "str") -> "str":
         at = line.find(marker)
         if at >= 0:
             rest = line[at + mlen:]
-            end = rest.find(_q())
-            if end > 0:
-                out = out + rest[0:end] + " "
+            for qq in [_q(), chr(34)]:
+                parts = rest.split(qq)
+                if len(parts) >= 2 and parts[1].strip() != "":
+                    out = out + parts[1].strip() + " "
+                    break
         i = i + 1
     return out
 
@@ -255,7 +274,7 @@ def build_names(filt: "str") -> "str":
     fd = feat_dir()
     b = "# Ham builtin (register_expr_builtin) theo module" + nl + nl
     if fd == "":
-        return b + "KHONG tim thay compiler/il_features/ - hay chay tu trong repo 3.code" + nl
+        return b + "KHONG tim thay compiler_bootstrap/compiler/il_features/ - chay tu trong goc repo" + nl
     files = os_list_files(fd)
     fl = filt.lower()
     total = 0
@@ -265,7 +284,11 @@ def build_names(filt: "str") -> "str":
         f = files[i]
         sp = path_splitext(f)
         if sp[1] == ".tkv":
-            body = path_read_text(path_join(fd, f))
+            # `os_list_files` tra ve DUONG DAN DAY DU, nen dung `f` truc tiep.
+            # Join them `fd` se tao "...il_features\...\il_features\x.tkv" va
+            # nem DirectoryNotFoundException. Loi nay cu chua bao gio lo ra
+            # vi `feat_dir()` truoc do tra ve "" nen nhanh nay chua tung chay.
+            body = path_read_text(f)
             names = _names_of(body)
             if names != "":
                 parts = names.split(" ")
