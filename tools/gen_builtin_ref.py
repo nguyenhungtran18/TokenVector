@@ -21,21 +21,32 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FEAT = os.path.join(ROOT, 'compiler', 'il_features')
+# 2026-10-12 (tach repo): `compiler/` da sang submodule `compiler_py/`. Danh
+# muc nay mo ta compiler TOKENVECTOR, nen phai doc
+# `compiler_bootstrap/compiler/il_features` - cung nguon voi
+# `dang_ky_gate.py` (doc qua `compiler_src/ds_gop.txt`). Doc `compiler_py/`
+# se tao danh muc cua compiler bootstrap Python, dung sai muc dich.
+FEAT = os.path.join(ROOT, 'compiler_bootstrap', 'compiler', 'il_features')
 OUT = os.path.join(ROOT, 'docs', 'REFERENCE.md')
 
 BEGIN = '<!-- BEGIN GENERATED: danh muc ten + danh sach file -->'
 END = '<!-- END GENERATED -->'
 
 # (nhan hieu, regex, nhom)
+# 2026-10-12: moi nhanh `(?:reg\s*,\s*)?` cho phep kiem CA HAI chu ky goi:
+#   compiler Python      register_expr_builtin('ten', ...)
+#   compiler TokenVector register_expr_builtin(reg, 'ten', ...)   <- them 'reg'
+# Thieu no, regex chi thay 1/402 ten cua compiler TokenVector va bao "danh muc
+# rong" - cam giac nguoc lai ngay sau khi tach repo.
 PATTERNS = [
-    ('builtin', re.compile(r"register_expr_builtin\(\s*'([A-Za-z_][\w]*)'"), 'HAM BUILTIN (GOI DUOC TRUC TIEP)'),
-    ('method', re.compile(r"register_expr_method\(\s*'([\w]*)'\s*,\s*'([\w]*)'"), None),
-    ('method2', re.compile(r"register_expr_method\('([\w]*)',\s*'([\w]*)'"), None),    ('line', re.compile(r"register_line_parser\(\s*'([\w]*)'"), 'DANG CAU LENH (MACRO CAP DONG)'),
-    ('assign', re.compile(r"register_assign_rhs_parser\(\s*'([\w]*)'"), 'DANG PHAI PHAI CUA PHE GAN'),
-    ('stmt', re.compile(r"register_stmt_codegen\(\s*'([\w]*)'"), 'KIEU CAU LENH (SINH IL)'),
-    ('macro', re.compile(r"register_macro_expander\(\s*'([\w]*)'"), 'MACRO VIET TAY'),
-    ('dunder', re.compile(r"register_dunder_method\(\s*'([\w]*)'"), 'DUNDER CUA RECORD'),
+    ('builtin', re.compile(r"register_expr_builtin\(\s*(?:reg\s*,\s*)?'([A-Za-z_][\w]*)'"), 'HAM BUILTIN (GOI DUOC TRUC TIEP)'),
+    ('method', re.compile(r"register_expr_method\(\s*(?:reg\s*,\s*)?'([\w]*)'\s*,\s*'([\w]*)'"), None),
+    ('method2', re.compile(r"register_expr_method\(\s*'([\w]*)',\s*'([\w]*)'"), None),
+    ('line', re.compile(r"register_line_parser\(\s*(?:reg\s*,\s*)?'([\w]*)'"), 'DANG CAU LENH (MACRO CAP DONG)'),
+    ('assign', re.compile(r"register_assign_rhs_parser\(\s*(?:reg\s*,\s*)?'([\w]*)'"), 'DANG PHAI PHAI CUA PHE GAN'),
+    ('stmt', re.compile(r"register_stmt_codegen\(\s*(?:reg\s*,\s*)?'([\w]*)'"), 'KIEU CAU LENH (SINH IL)'),
+    ('macro', re.compile(r"register_macro_expander\(\s*(?:reg\s*,\s*)?'([\w]*)'"), 'MACRO VIET TAY'),
+    ('dunder', re.compile(r"register_dunder_method\(\s*(?:reg\s*,\s*)?'([\w]*)'"), 'DUNDER CUA RECORD'),
 ]
 
 # File nao dang TON TAI trong compiler - kiem tra file nay truoc khi tao file moi
