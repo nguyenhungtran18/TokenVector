@@ -80,6 +80,21 @@ $ilChecks = @(
     Test    = "p6_vectorize_test.tkv"
     Must    = @("stobj", "_vstart", "_tstart")
     MustNot = @()
+    MustRegex = @()
+  }
+  @{
+    # Loi 2026-10-12: 'r[k * 2] = v' day ket qua int64 (conv.i8/mul.ovf) vao
+    # tham so int32 cua set_Item - thieu conv.ovf.i4. Doc 'a[i]' thi co, ghi
+    # thi khong. JIT khong verify nen loi im lang, chi doc .il moi bat.
+    Test    = "index_store_narrow_test.tkv"
+    Must    = @()
+    MustNot = @()
+    # Hai compiler ep chieu khac nhau nen chap nhan CA HAI:
+    #   tkvc.exe (Python)      : conv.ovf.i4
+    #   tkvc-tv.exe (tu-host)  : call int32 TkvInt::ToI32(...) - tra int32
+    # Truoc 2026-10-12 nhanh GHI cua tkvc.exe day thang int64 (khong ep gi)
+    # nen khong co dang nao khop - do la dieu kiem co y nghia.
+    MustRegex = @('(?:conv\.ovf\.i4|call int32 TkvInt::ToI32\([^)]*\))\s+\S[^\r\n]*\s+callvirt[^\r\n]*set_Item\(int32')
   }
 )
 
@@ -244,6 +259,13 @@ foreach ($c in $ilChecks) {
   }
   foreach ($p in $c.MustNot) {
     if ($text -match [regex]::Escape($p)) { $missing += "KHONG duoc co: $p" }
+  }
+  # `MustRegex` - khi `Must`/`MustNot` khong phan biet duoc: chung mot chuoi
+  # co the nam o nhieu cho trong file (vi du `conv.ovf.i4` vua xuat hien trong
+  # code test vua trong helper runtime TkvInt::ToI32). Regex dinh nghia ca
+  # "chuoi A ngay TRUOC lenh B" - dung cho kiem loi thu tu lenh.
+  foreach ($p in $c.MustRegex) {
+    if ($text -notmatch $p) { $missing += "regex khong khop: $p" }
   }
   if ($missing.Count) {
     $ilFail++
