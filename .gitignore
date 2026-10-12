@@ -49,3 +49,7 @@ pkl_*_test.bin
 # Output cua bo test .ca (runner tạo exe + .lst + .log cho tung file)
 /build/tkv_suite/
 /tests_suite/*.exe
+
+# Ban Release: ban sao thuan TokenVector de phat trien ngon ngu.
+# KHONG track - no la ket qua sao chep, nguon nam o goc repo.
+/Release/
