@@ -29,6 +29,12 @@ param(
   [string]$Compiler = "",
   [string]$Converter = "",
   [string]$OutDir = "",
+  # 2026-10-12 (tach repo): fixture Python da chuyen sang repo
+  # `TokenVector.TestOracle` (vi chinh chung la ngu lieu de py2tkv dich, khong
+  # phai nguon TokenVector). Mac dinh tro sang cho do neu thu muc do ton tai,
+  # neu khong thi dung duong dan cuc bo nhu truoc.
+  [string]$FixtureDir = "",
+  [string]$NegDir = "",
   [switch]$KeepOutput
 )
 
@@ -37,6 +43,16 @@ $code = Split-Path -Parent $PSScriptRoot
 if (-not $Compiler) { $Compiler = Join-Path $code "dist\tkvc-tv.exe" }
 if (-not $Converter) { $Converter = Join-Path $code "build\py2tkv.exe" }
 if (-not $OutDir) { $OutDir = Join-Path $env:TEMP "opencode\py2tkv_gate" }
+if (-not $FixtureDir) {
+  $oracle = Join-Path (Split-Path -Parent $code) "TokenVector.TestOracle"
+  $FixtureDir = Join-Path $oracle "tests\py2tkv"
+  if (-not (Test-Path $FixtureDir)) { $FixtureDir = Join-Path $code "tests\py2tkv" }
+}
+if (-not $NegDir) {
+  $oracle = Join-Path (Split-Path -Parent $code) "TokenVector.TestOracle"
+  $NegDir = Join-Path $oracle "tests\py2tkv_neg"
+  if (-not (Test-Path $NegDir)) { $NegDir = Join-Path $code "tests\py2tkv_neg" }
+}
 
 if (-not (Test-Path $Compiler)) {
   Write-Output "MISSING compiler: $Compiler"
@@ -54,16 +70,25 @@ if (-not (Test-Path $Converter)) {
 Remove-Item -Recurse -Force $OutDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-$fixtures = Get-ChildItem (Join-Path $code "tests\py2tkv") -Filter "*.py" | Sort-Object Name
+$fixtures = @(Get-ChildItem $FixtureDir -Filter "*.py" -ErrorAction SilentlyContinue) | Sort-Object Name
 $negatives = @()
-$negDir = Join-Path $code "tests\py2tkv_neg"
-if (Test-Path $negDir) {
-  $negatives = Get-ChildItem $negDir -Filter "*.py" | Sort-Object Name
+if (Test-Path $NegDir) {
+  $negatives = @(Get-ChildItem $NegDir -Filter "*.py" -ErrorAction SilentlyContinue) | Sort-Object Name
 }
 Write-Output "compiler : $Compiler"
 Write-Output "converter: $Converter"
-Write-Output "fixtures : $($fixtures.Count)  (+ $($negatives.Count) negative)"
+Write-Output "fixtures : $($fixtures.Count)  (+ $($negatives.Count) negative)   <- $FixtureDir"
 Write-Output ""
+
+# 2026-10-12: KHONG BAO PASS KHI KHONG CO FIXTURE NAO. Gate chay tren 0 file
+# in ra "0/0 PASS" va exit 0 - do la XANH GIA, te hon ca FAIL vi no lam
+# nguoi tin rang py2tkv da duoc kiem chung trong khi chua kiem gi ca.
+if ($fixtures.Count -eq 0) {
+  Write-Output "MISSING FIXTURE: khong tim thay file .py nao trong '$FixtureDir'"
+  Write-Output "  Fixture Python nam o repo TokenVector.TestOracle (tests\py2tkv/)."
+  Write-Output "  Neu da doi choi: truyen -FixtureDir <thu-muc>."
+  exit 2
+}
 
 # --- KY VONG cho tung fixture ------------------------------------------------
 # "can" = chuoi PHAI xuat hien trong .tkv sinh ra (contract cua transform)
