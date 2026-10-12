@@ -1144,214 +1144,222 @@ dùng stable sort. Đã ghi ở phần `emit_sort_by_key`.
 > khi tạo module mới trong `compiler/il_features/`.
 
 <!-- BEGIN GENERATED: danh muc ten + danh sach file -->
-### Danh mục tên đã đăng ký
+### Danh muc ten da dang ky
 
-**Dùng để:** trước khi **thêm một hàm**, **đổi một kiểu** hay tạo file
-mới trong `compiler/il_features/`, kiểm danh mục này và kiểm tra file đã
-tồn tại chưa. Đã có một lần: tạo `bytes_type.tkv` để bổ sung hàm
-`bytes()` nhưng file đó **đã tồn tại** và là module thật của compiler —
-ghi đè làm hỏng cả bước biên dịch.
+**Dung de:** truoc khi **them mot ham**, **doi mot kieu** hay tao file
+moi trong `compiler_bootstrap/compiler/il_features/`, kiem danh muc nay va
+kiem tra file da ton tai chua. Da co mot lan: tao `bytes_type.tkv` de bo
+sung ham `bytes()` nhung file do **da ton tai** va la module that cua
+compiler - ghi de lam hong ca buoc bien dich.
 
-**CẢNH BÁO — có tên không nghĩa là có dùng được.** Mục này lấy từ
-`register_*`, nó chỉ chứng minh *có entry đăng ký*, KHÔNG chứng minh
-*tính năng chạy được đến cuối*. Hãy **probe thật** rồi tin kết quả.
+**CANH BAO - co ten khong nghia la co dung duoc.** Muc nay lay tu
+`register_*`, no chi chung minh *co entry dang ky*, KHONG chung minh
+*tinh nang chay duoc den cuoi*. Hay **probe that** roi tin ket qua.
 
 **DANG CAU LENH (MACRO CAP DONG) (37)**
 
-`attr_assign` `break` `bytearray_append` `bytes_append_blocked` `call_stmt` `container_clear` `continue` `del_stmt`
-`f32buf_free_stmt` `for` `for_in_dict_items` `for_in_generator` `for_in_iter` `for_tuple_pairs` `if` `list_append`
-`list_extend` `list_insert` `list_remove` `list_reverse` `list_sort` `match` `multi_assign` `nested_def`
+`attr_assign` `break` `bytearray_append` `bytes_append_blocked` `container_clear` `continue` `del_index` `f32buf_free_stmt`
+`for` `for_in_dict_items` `for_in_generator` `for_in_iter` `if` `index_call_stmt` `list_append` `list_extend`
+`list_extend_expr` `list_insert` `list_remove` `list_reverse` `list_sort` `match` `multi_assign` `nested_def`
 `pass` `raise` `return` `set_add` `set_discard` `set_remove` `try` `tuple_assign`
 `while` `with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
 
-**DANG PHAI PHAI CUA PHE GAN (31)**
+**DANG PHAI PHAI CUA PHE GAN (26)**
 
-`base64_decode` `base64_encode` `bytearray_new` `bytes_literal` `bytes_new` `datetime` `dict_literal` `dict_new`
-`f32buf_new` `frozenset_call` `frozenset_new` `iter_call` `list_call` `list_count` `list_literal` `list_repeat`
-`list_slice` `md5_hex` `open_call` `os_getenv` `os_list_files` `os_mkdir` `os_remove` `repeat_str`
-`set_literal` `set_new` `sha256_hex` `shutil_rmtree` `tuple_call` `tuple_literal` `win_gui`
+`base64_decode` `base64_encode` `bytearray_new` `bytes_literal` `bytes_new` `datetime` `dict_new` `f32buf_new`
+`frozenset_new` `iter_call` `list_call` `list_count` `list_literal` `list_repeat` `list_slice` `md5_hex`
+`open_call` `os_getenv` `os_list_files` `os_mkdir` `repeat_str` `set_new` `sha256_hex` `shutil_rmtree`
+`tuple_call` `win_gui`
 
-**HAM BUILTIN (GOI DUOC TRUC TIEP) (185)**
+**DUNDER CUA RECORD (0)**
 
-`all` `alloc_bytes` `any` `ascii` `asyncio_get_ticks` `asyncio_sleep_ms` `atan2` `base64_decode`
-`base64_encode` `bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `bytes_from_string` `c_puts`
-`callable` `chain` `choice` `chr` `cjson_delete` `cjson_get_obj` `cjson_get_str` `cjson_parse`
-`combinations` `complex` `csv_join_row` `csv_parse_line` `csv_read_lines` `csv_write_lines` `ctypes_call` `ctypes_cdll`
-`datetime` `datetime_add` `datetime_diff` `datetime_strptime` `datetime_sub` `datetime_ticks` `db_close` `db_exec`
-`db_open` `db_query_int` `db_query_text` `delattr` `deque_clear` `deque_reverse` `dir` `divmod`
-`enumerate` `eval_arith` `eval_code` `eval_expr` `exec_code` `f32x4` `factorial` `file_exists`
-`filter` `float` `fmt_float` `fmt_num` `format` `free_bytes` `functools_clamp_f64` `functools_clamp_i32`
-`getattr` `hasattr` `hash` `hex` `http_delete` `http_get` `http_post` `http_post_type`
-`http_put` `http_request` `http_server_generate` `hypot` `id` `input` `int` `int64`
-`isinstance` `issubclass` `iter` `json_dumps` `json_get_str` `json_loads` `launch_media_player_gui` `launch_tms_db_manager`
-`launch_tms_gui` `launch_tms_web` `map` `math_e` `math_gcd` `math_pi` `max` `md5_hex`
-`media_player_gui_window` `min` `most_common` `multiprocessing_cpu_count` `next` `oct` `ord` `os_getenv`
-`os_list_files` `os_mkdir` `os_remove` `path_abspath` `path_basename` `path_dirname` `path_exists` `path_isdir`
-`path_isfile` `path_join` `path_name` `path_normpath` `path_parent` `path_read_text` `path_splitext` `path_stem`
-`path_suffix` `path_write_text` `pow` `process_get_pid` `product` `py_dict_new` `py_tuple_new` `randint`
-`random` `random_randint` `randrange` `re_findall` `re_fullmatch` `re_match` `re_replace` `re_search`
-`re_split` `re_sub` `read_ansi` `read_f32` `read_file` `read_i32` `read_i64` `read_u8`
-`reduce` `repr` `reserve` `reversed` `sample` `setattr` `sha256_hex` `socket_resolve_host`
-`sorted` `str` `string_from_bytes` `struct_f64_to_hex` `struct_i32_to_hex` `sum` `sys_argv` `thread_join`
-`thread_sleep` `thread_spawn` `type` `uniform` `v_add8` `v_fill8` `v_hsum` `v_hsum4`
-`v_lane` `v_load4` `v_load8` `v_mul8` `v_mul8_add8` `v_store4` `v_store8` `v_sub8`
-`vtable_cell` `write_f32` `write_i32` `write_i64` `write_u8` `xml_encode_name` `zip` `zip_create`
-`zip_extract` 
 
-**KIEU CAU LENH (SINH IL) (70)**
+**HAM BUILTIN (GOI DUOC TRUC TIEP) (172)**
 
-`assign_base64_decode` `assign_base64_encode` `assign_bytearray_new` `assign_bytes_literal` `assign_bytes_new` `assign_datetime_now` `assign_dict_literal` `assign_dict_new`
-`assign_f32buf_new` `assign_frozenset_empty` `assign_frozenset_literal` `assign_frozenset_new` `assign_iter` `assign_list_count` `assign_list_from` `assign_list_literal`
-`assign_list_new` `assign_list_repeat` `assign_list_slice` `assign_md5_hex` `assign_multi_target` `assign_open` `assign_os_getenv` `assign_os_list_files`
-`assign_os_mkdir` `assign_os_remove` `assign_repeat_str` `assign_set_literal` `assign_set_new` `assign_sha256_hex` `assign_shutil_rmtree` `assign_tuple_identity`
-`assign_tuple_literal` `assign_win_gui` `attr_assign` `break` `bytearray_append` `call_stmt` `container_clear` `continue`
-`del_stmt` `f32buf_free_stmt` `for` `for_in_call_list` `for_in_dict_items` `for_in_generator` `for_in_iter` `for_tuple_pairs`
-`if` `list_append` `list_extend` `list_insert` `list_remove` `list_reverse` `list_sort` `nested_def`
-`raise` `return` `return_tuple` `sb_append` `set_add` `set_discard` `set_remove` `try`
-`tuple_assign` `while` `with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
+`__tkv_lap` `alloc_bytes` `ascii` `atan2` `atomic_add` `atomic_inc` `base64_decode` `base64_encode`
+`bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `c_puts` `callable` `choice`
+`chr` `cjson_delete` `cjson_get_obj` `cjson_get_str` `cjson_parse` `complex` `cpu_count` `ctypes_call`
+`ctypes_cdll` `date_make` `date_today` `datetime` `datetime_add` `datetime_diff` `datetime_fromisoformat` `datetime_make`
+`datetime_strptime` `datetime_sub` `datetime_ticks` `db_close` `delattr` `dict` `dir` `eval_arith`
+`eval_code` `exec_code` `f32x4` `factorial` `file_exists` `float` `fmt_float` `fmt_spec`
+`format` `free_bytes` `getattr` `hasattr` `hash` `hex` `http_delete` `http_get`
+`http_post` `http_post_type` `http_put` `hypot` `id` `int` `int64` `isinstance`
+`issubclass` `iter` `list` `lock_acquire` `lock_release` `math_degrees` `math_e` `math_gcd`
+`math_isinf` `math_isnan` `math_log2` `math_pi` `math_radians` `md5_hex` `next` `oct`
+`ord` `os_getenv` `os_list_files` `os_mkdir` `os_remove` `parallel_for` `path_abspath` `path_basename`
+`path_dirname` `path_exists` `path_isdir` `path_isfile` `path_join` `path_name` `path_normpath` `path_parent`
+`path_read_text` `path_stem` `path_suffix` `path_write_text` `pow` `proc_ra` `proc_run` `py_dict_new`
+`py_tuple_new` `randint` `random` `random_randint` `randrange` `re_fullmatch` `re_match` `re_replace`
+`re_search` `re_split` `re_sub` `read_ansi` `read_f32` `read_file` `read_i32` `read_i64`
+`read_u8` `repr` `reversed` `set` `setattr` `sha256_hex` `simd_add` `simd_axpy`
+`simd_dot` `simd_hw` `simd_isa` `simd_lanes_f32` `simd_lanes_f64` `simd_max` `simd_min` `simd_mul`
+`simd_scale` `simd_sub` `simd_sum` `slice_step` `str` `str_maketrans` `sys_argv` `thread_id`
+`thread_join` `thread_sleep` `thread_spawn` `time_perf` `time_sleep` `time_time` `timedelta_make` `type`
+`uniform` `v_add8` `v_fill8` `v_hsum` `v_hsum4` `v_lane` `v_load4` `v_load8`
+`v_mul8` `v_mul8_add8` `v_store4` `v_store8` `v_sub8` `vtable_cell` `write_f32` `write_i32`
+`write_i64` `write_u8` `xml_encode_name` `zip_extract`
 
-**MACRO VIET TAY (25)**
+**KIEU CAU LENH (SINH IL) (68)**
 
-`apply` `argmax` `assert` `binop_macro` `compound_attr` `compound_index` `compound_var` `dense`
-`dict_or_set_comp` `dict_update` `expr_hoist` `for_chain` `for_enumerate` `for_in_kvlist` `for_in_list` `for_zip`
-`fstring` `is_none` `list_comp` `matvec` `minmax_2arg` `normalize` `scale` `string_format`
-`string_percent_format` 
+`assign_base64_decode` `assign_base64_encode` `assign_bytearray_new` `assign_bytes_literal` `assign_bytes_new` `assign_datetime_now` `assign_dict_new` `assign_f32buf_new`
+`assign_frozenset_empty` `assign_frozenset_literal` `assign_frozenset_new` `assign_iter` `assign_list_count` `assign_list_from` `assign_list_literal` `assign_list_new`
+`assign_list_repeat` `assign_list_slice` `assign_md5_hex` `assign_multi_target` `assign_open` `assign_os_getenv` `assign_os_list_files` `assign_os_mkdir`
+`assign_repeat_str` `assign_set_new` `assign_sha256_hex` `assign_shutil_rmtree` `assign_tuple_identity` `assign_win_gui` `attr_assign` `break`
+`bytearray_append` `call_stmt` `container_clear` `continue` `del_index` `f32buf_free_stmt` `for` `for_in_call_list`
+`for_in_dict_items` `for_in_generator` `for_in_iter` `if` `index_call_stmt` `list_append` `list_extend` `list_extend_expr`
+`list_insert` `list_remove` `list_reverse` `list_sort` `nested_def` `pass` `raise` `return`
+`return_tuple` `sb_append` `set_add` `set_discard` `set_remove` `try` `tuple_assign` `while`
+`with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
 
-**METHOD CHUOI (str.) - qua dict STR_METHODS (13)**
+**MACRO VIET TAY (59)**
 
-`str.capitalize` `str.endswith` `str.find` `str.isdigit` `str.join` `str.lower` `str.lstrip` `str.replace`
-`str.rfind` `str.rstrip` `str.startswith` `str.strip` `str.upper`
+`apply` `argmax` `assert` `attr_sau_goi` `binop_macro` `boolop_gia_tri` `comp_in_expr` `compound_attr`
+`compound_index` `compound_var` `datetime_py` `dense` `deque` `dict_literal` `dict_or_set_comp` `dict_update`
+`double_index` `enumerate_start` `expr_hoist` `for_chain` `for_enum_tuple` `for_enumerate` `for_in_kvlist` `for_in_list`
+`for_in_ntuple` `for_tuple_literal` `for_zip` `fromkeys` `fstring` `genexp_call` `get_is_none` `hoist_agg`
+`hoist_count` `is_none` `key_agg` `list_comp` `list_goi_ham` `map_filter` `math_dot` `math_ext`
+`matvec` `minmax_2arg` `most_common` `multi_target` `next_genexp` `ngoac_dt` `normalize` `open_mode`
+`ordereddict` `partition` `scale` `set_literal` `set_op` `slice_gan` `sort_lambda` `star_unpack`
+`string_format` `string_percent_format` `unpack_split`
 
-**METHOD THEO KHU VUC (15)**
+**METHOD CHUOI (qua dict STR_METHODS) (28)**
 
-`datetime.strftime` `dict.items` `dict.keys` `dict.values` `frozenset.to_list` `list.copy` `set.to_list` `str.center`
-`str.count` `str.join` `str.ljust` `str.rjust` `str.split` `str.title` `str.zfill`
+`str.capitalize` `str.casefold` `str.endswith` `str.find` `str.index` `str.isalnum` `str.isalpha` `str.isascii`
+`str.isdecimal` `str.isdigit` `str.islower` `str.isnumeric` `str.isspace` `str.istitle` `str.isupper` `str.join`
+`str.lower` `str.lstrip` `str.removeprefix` `str.removesuffix` `str.replace` `str.rfind` `str.rindex` `str.rstrip`
+`str.startswith` `str.strip` `str.swapcase` `str.upper`
 
-**Tổng số tên đã đăng ký: 376**
+**METHOD CONTAINER (ten, dung chung nhieu kieu) (0)**
 
-### File trong `compiler/il_features/`
 
-| File | Kích thước |
+**METHOD THEO KHU VUC (39)**
+
+`date.isoformat` `date.isoweekday` `date.strftime` `date.weekday` `datetime.date` `datetime.isoformat` `datetime.isoweekday` `datetime.strftime`
+`datetime.weekday` `dict.items` `dict.keys` `dict.values` `file.readline` `file.readlines` `frozenset.to_list` `list.copy`
+`match.end` `match.group` `match.groups` `match.start` `set.to_list` `str.center` `str.count` `str.finditer`
+`str.join` `str.ljust` `str.match` `str.rjust` `str.rsplit` `str.search` `str.split` `str.splitlines`
+`str.sub` `str.title` `str.translate` `str.zfill` `timedelta.total_seconds` `tuple.count` `tuple.index`
+
+**Tong so ten da dang ky: 429**
+
+### File trong `compiler_bootstrap/compiler/il_features/`
+
+| File | Kich thuoc (ky tu) |
 |---|---|
 | `__init__.tkv` | 0 |
-| `async_await.tkv` | 1.603 |
-| `bytearray_type.tkv` | 5.961 |
-| `bytes_type.tkv` | 13.027 |
-| `call_star_args.tkv` | 14.917 |
-| `chr_builtin.tkv` | 1.661 |
-| `closures.tkv` | 15.795 |
-| `complex_type.tkv` | 5.606 |
-| `comprehension.tkv` | 6.711 |
-| `control_flow.tkv` | 116.347 |
-| `counter_type.tkv` | 17.988 |
-| `datetime_type.tkv` | 10.637 |
-| `defaultdict_type.tkv` | 5.437 |
-| `del_stmt.tkv` | 4.666 |
-| `dict_get.tkv` | 2.078 |
-| `dict_items_list.tkv` | 3.612 |
-| `dict_keys_values.tkv` | 3.663 |
-| `dict_pop.tkv` | 4.170 |
-| `dict_setdefault.tkv` | 2.323 |
-| `dict_type.tkv` | 42.361 |
-| `divmod_builtin.tkv` | 4.251 |
-| `duck_typing.tkv` | 26.440 |
-| `dynamic_exec.tkv` | 2.685 |
-| `expr_hoist.tkv` | 6.808 |
-| `f32buf_type.tkv` | 10.760 |
-| `ffi_feature.tkv` | 2.589 |
-| `file_io.tkv` | 11.748 |
-| `float_builtin.tkv` | 2.839 |
-| `for_in_kvlist.tkv` | 2.185 |
-| `fstring.tkv` | 6.453 |
-| `generator_feature.tkv` | 1.436 |
-| `generator_lazy.tkv` | 25.056 |
-| `int_builtin.tkv` | 16.848 |
-| `int_narrow.tkv` | 11.347 |
-| `int_type.tkv` | 35.952 |
-| `iter_next.tkv` | 18.377 |
-| `kwarg_resolve.tkv` | 3.482 |
-| `list_copy.tkv` | 1.540 |
-| `list_count_index.tkv` | 7.278 |
-| `list_methods_batch2.tkv` | 12.298 |
-| `list_methods_batch3.tkv` | 2.141 |
-| `list_pop.tkv` | 7.956 |
-| `list_type.tkv` | 68.841 |
-| `logging_feature.tkv` | 3.417 |
-| `media_player_gui_window.tkv` | 139.437 |
-| `metaprogramming.tkv` | 19.230 |
-| `multi_assign.tkv` | 3.145 |
-| `nativebuf.tkv` | 11.904 |
-| `nested_array_extern.tkv` | 6.408 |
-| `operators.tkv` | 47.494 |
-| `ord_builtin.tkv` | 1.167 |
-| `pickle_feature.tkv` | 3.600 |
-| `print_feature.tkv` | 4.226 |
-| `pycapi_shim.tkv` | 1.837 |
-| `record_feature.tkv` | 35.518 |
-| `set_methods_batch2.tkv` | 7.110 |
-| `set_to_list.tkv` | 2.754 |
-| `set_type.tkv` | 31.523 |
-| `slicing.tkv` | 12.201 |
-| `stdlib_aggregates.tkv` | 37.731 |
-| `stdlib_asyncio.tkv` | 1.324 |
-| `stdlib_base64.tkv` | 3.066 |
-| `stdlib_bcl.tkv` | 2.127 |
-| `stdlib_cjson.tkv` | 4.095 |
-| `stdlib_csv.tkv` | 3.549 |
-| `stdlib_deque.tkv` | 1.306 |
-| `stdlib_eval.tkv` | 10.506 |
-| `stdlib_functional.tkv` | 22.366 |
-| `stdlib_functools.tkv` | 1.678 |
-| `stdlib_hashlib.tkv` | 4.009 |
-| `stdlib_http.tkv` | 19.227 |
-| `stdlib_http_full.tkv` | 14.746 |
-| `stdlib_input.tkv` | 1.255 |
-| `stdlib_io.tkv` | 1.704 |
-| `stdlib_itertools.tkv` | 8.098 |
-| `stdlib_itertools_expr.tkv` | 9.424 |
-| `stdlib_itertools_real.tkv` | 16.250 |
-| `stdlib_json.tkv` | 33.931 |
-| `stdlib_json_get.tkv` | 4.151 |
-| `stdlib_math.tkv` | 17.318 |
-| `stdlib_math_trig.tkv` | 913 |
-| `stdlib_multiprocessing.tkv` | 1.199 |
-| `stdlib_os.tkv` | 7.535 |
-| `stdlib_path.tkv` | 17.655 |
-| `stdlib_pathlib.tkv` | 3.295 |
-| `stdlib_random.tkv` | 18.445 |
-| `stdlib_re.tkv` | 8.397 |
-| `stdlib_repeat.tkv` | 5.688 |
-| `stdlib_shutil.tkv` | 1.329 |
-| `stdlib_socket.tkv` | 865 |
-| `stdlib_sqlite.tkv` | 11.590 |
-| `stdlib_string_count.tkv` | 4.232 |
-| `stdlib_string_zfill.tkv` | 4.964 |
-| `stdlib_struct.tkv` | 1.665 |
-| `stdlib_sys.tkv` | 2.641 |
-| `stdlib_xml.tkv` | 1.122 |
-| `stdlib_zipfile.tkv` | 3.533 |
-| `str_accum.tkv` | 9.312 |
-| `string_builtin.tkv` | 33.183 |
-| `string_feature.tkv` | 10.282 |
-| `string_format.tkv` | 7.807 |
-| `string_join.tkv` | 7.712 |
-| `string_methods_batch2.tkv` | 5.228 |
-| `string_methods_batch3.tkv` | 7.717 |
-| `string_methods_batch4.tkv` | 2.770 |
-| `string_methods_batch5.tkv` | 8.686 |
-| `string_percent_format.tkv` | 6.041 |
-| `string_split.tkv` | 6.624 |
-| `string_title.tkv` | 5.889 |
-| `threading_feature.tkv` | 7.639 |
-| `tkvstr.tkv` | 23.500 |
-| `tms_db_manager.tkv` | 35.209 |
-| `tms_gui_window.tkv` | 196.363 |
-| `tms_web_launcher.tkv` | 26.391 |
-| `tuple_type.tkv` | 37.195 |
-| `typecheck.tkv` | 3.762 |
-| `vector4_type.tkv` | 9.584 |
-| `vector_block.tkv` | 14.088 |
-| `win32_gui_window.tkv` | 1.512 |
+| `async_await.tkv` | 1919 |
+| `bytearray_type.tkv` | 6280 |
+| `bytes_type.tkv` | 13014 |
+| `call_star_args.tkv` | 17460 |
+| `chan_ly.tkv` | 4902 |
+| `closures.tkv` | 19011 |
+| `complex_type.tkv` | 8603 |
+| `comprehension.tkv` | 76839 |
+| `control_flow.tkv` | 118816 |
+| `counter_type.tkv` | 19951 |
+| `datetime_py.tkv` | 16213 |
+| `datetime_type.tkv` | 11863 |
+| `defaultdict_type.tkv` | 5799 |
+| `dict_get.tkv` | 3226 |
+| `dict_items_list.tkv` | 3958 |
+| `dict_keys_values.tkv` | 4369 |
+| `dict_pop.tkv` | 3322 |
+| `dict_remove_keep.tkv` | 6840 |
+| `dict_setdefault.tkv` | 2422 |
+| `dict_type.tkv` | 45994 |
+| `divmod_builtin.tkv` | 4746 |
+| `duck_typing.tkv` | 25628 |
+| `dynamic_exec.tkv` | 3839 |
+| `expr_hoist.tkv` | 15585 |
+| `f32buf_type.tkv` | 8886 |
+| `ffi_feature.tkv` | 4089 |
+| `file_io.tkv` | 18978 |
+| `float_builtin.tkv` | 2767 |
+| `for_in_kvlist.tkv` | 11848 |
+| `fstring.tkv` | 11586 |
+| `generator_feature.tkv` | 1428 |
+| `generator_lazy.tkv` | 23903 |
+| `int_builtin.tkv` | 11538 |
+| `int_type.tkv` | 38748 |
+| `iter_next.tkv` | 19100 |
+| `kwarg_resolve.tkv` | 4052 |
+| `lap_chung.tkv` | 13469 |
+| `list_copy.tkv` | 1880 |
+| `list_count_index.tkv` | 7845 |
+| `list_methods_batch2.tkv` | 20635 |
+| `list_methods_batch3.tkv` | 2844 |
+| `list_pop.tkv` | 2645 |
+| `list_type.tkv` | 94201 |
+| `logging_feature.tkv` | 4498 |
+| `metaprogramming.tkv` | 23542 |
+| `multi_assign.tkv` | 4710 |
+| `nativebuf.tkv` | 12877 |
+| `nested_array_extern.tkv` | 6442 |
+| `operators.tkv` | 49597 |
+| `pickle_feature.tkv` | 4680 |
+| `print_feature.tkv` | 5703 |
+| `process_feature.tkv` | 8202 |
+| `pycapi_shim.tkv` | 3068 |
+| `question_ternary.tkv` | 11088 |
+| `record_feature.tkv` | 39894 |
+| `regex_match.tkv` | 17477 |
+| `set_methods_batch2.tkv` | 10306 |
+| `set_to_list.tkv` | 3291 |
+| `set_type.tkv` | 18201 |
+| `simd_feature.tkv` | 33786 |
+| `slicing.tkv` | 17277 |
+| `stdlib_aggregates.tkv` | 43929 |
+| `stdlib_base64.tkv` | 3892 |
+| `stdlib_bcl.tkv` | 3333 |
+| `stdlib_cjson.tkv` | 5622 |
+| `stdlib_eval.tkv` | 10910 |
+| `stdlib_functional.tkv` | 23462 |
+| `stdlib_hashlib.tkv` | 4812 |
+| `stdlib_http.tkv` | 12177 |
+| `stdlib_http_full.tkv` | 15046 |
+| `stdlib_input.tkv` | 1639 |
+| `stdlib_itertools.tkv` | 7732 |
+| `stdlib_itertools_expr.tkv` | 9856 |
+| `stdlib_itertools_real.tkv` | 16775 |
+| `stdlib_json.tkv` | 36316 |
+| `stdlib_json_get.tkv` | 4565 |
+| `stdlib_math.tkv` | 25031 |
+| `stdlib_math_trig.tkv` | 1532 |
+| `stdlib_os.tkv` | 7072 |
+| `stdlib_path.tkv` | 19046 |
+| `stdlib_pathlib.tkv` | 4128 |
+| `stdlib_random.tkv` | 20376 |
+| `stdlib_re.tkv` | 8994 |
+| `stdlib_repeat.tkv` | 6326 |
+| `stdlib_shutil.tkv` | 1883 |
+| `stdlib_sqlite.tkv` | 12357 |
+| `stdlib_str_translate.tkv` | 6348 |
+| `stdlib_string_count.tkv` | 4573 |
+| `stdlib_string_zfill.tkv` | 5286 |
+| `stdlib_sys.tkv` | 3027 |
+| `stdlib_xml.tkv` | 1438 |
+| `stdlib_zipfile.tkv` | 3987 |
+| `str_accum.tkv` | 12143 |
+| `string_builtin.tkv` | 61655 |
+| `string_feature.tkv` | 11032 |
+| `string_format.tkv` | 10607 |
+| `string_join.tkv` | 11394 |
+| `string_methods_batch2.tkv` | 5535 |
+| `string_methods_batch3.tkv` | 25926 |
+| `string_methods_batch4.tkv` | 2900 |
+| `string_methods_batch5.tkv` | 9135 |
+| `string_percent_format.tkv` | 8738 |
+| `string_split.tkv` | 11988 |
+| `string_title.tkv` | 6181 |
+| `threading_feature.tkv` | 14143 |
+| `tkvstr.tkv` | 25486 |
+| `tuple_methods.tkv` | 3844 |
+| `tuple_type.tkv` | 44283 |
+| `typecheck.tkv` | 7081 |
+| `vector4_type.tkv` | 7370 |
+| `vector_block.tkv` | 11329 |
+| `win32_gui_window.tkv` | 2596 |
+
 <!-- END GENERATED -->
 
 ---
