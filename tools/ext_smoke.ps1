@@ -36,7 +36,7 @@ $targets = @(
 )
 
 if (-not (Test-Path $tkv)) {
-    Write-Output "SMOKE: ERROR - khong thay $tkv. Build lai bang build_tkvc.ps1 truoc."
+    Write-Output "SMOKE: ERROR - khong thay $tkv. Build lai bang .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build truoc."
     exit 2
 }
 

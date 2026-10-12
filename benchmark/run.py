@@ -25,7 +25,8 @@ def build_kernels():
     do chinh la cach mot hoi quy so bien mat ma van ra so dep.
     """
     if not os.path.exists(TKVC):
-        print(f"!! thieu compiler {TKVC} - chay .\\build_tkvc.ps1 truoc",
+        print(f"!! thieu compiler {TKVC} - chay .\\compiler_py\\build_tkvc.ps1 "
+              f"-DistDir .\\dist -BuildDir .\\build truoc",
               file=sys.stderr)
         return False
     srcs = ["probe_noop.tkv"] + [f"k_{n}.tkv" for n in KERNELS]

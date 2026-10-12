@@ -179,13 +179,17 @@ Verified by probe; the ranked list with difficulty is `docs/PLAN.md`.
 ## 8. Rebuilding the compiler
 
 ```powershell
-powershell -NoProfile -File .\build_tkvc.ps1
+powershell -NoProfile -File .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build
 ```
 
-Only `compiler/**` plus `build_tkvc.ps1` are needed. The script
-regenerates the plugin bootstrap so every feature module is really loaded, and
-clears the PyInstaller cache — without that, a "successful" build can silently
-ship the previous `exe`.
+The Python bootstrap compiler lives in its **own repository**, wired in as the
+`compiler_py/` submodule. Run the above from the repository root so the relative
+output paths land in this repo's `dist/` and `build/`.
+
+Inside that submodule only `compiler/**` plus `build_tkvc.ps1` are needed. The
+script regenerates the plugin bootstrap so every feature module is really loaded,
+and clears the PyInstaller cache — without that, a "successful" build can
+silently ship the previous `exe`.
 
 ---
 

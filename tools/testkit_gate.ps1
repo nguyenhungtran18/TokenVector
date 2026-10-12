@@ -42,7 +42,7 @@ if (-not $OutDir)  { $OutDir = Join-Path $env:TEMP "opencode\testkit_gate" }
 
 if (-not (Test-Path $Compiler)) {
   Write-Output "MISSING compiler: $Compiler"
-  Write-Output "Build it first: .\build_tkvc.ps1"
+  Write-Output "Build it first: .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build"
   exit 2
 }
 # Gate output must never land in the repo, or a run leaves hundreds of

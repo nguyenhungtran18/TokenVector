@@ -7,12 +7,12 @@ silently swallowed every `git` command run from inside it).
 
 | Path | What |
 |---|---|
-| **`compiler_src/`** | 8 `.tkv`, 23,971 lines. Self-hosting fixed point (`g1.il == g2.il == tv2s.il`, verified by SHA-256). **But only `tkvc_main.tkv` (56 lines) is actually in the build** — the other 23,915 lines are a historical seed. `ds_gop.txt` = module list to merge, `feature_can.txt` = which are CORE. See `docs/TOKENVECTOR-PURITY.md` |
-| `dist/tkvc-tv.exe` | **The self-hosted TokenVector compiler.** CLI is positional: `tkvc-tv.exe <src> <out> <entry>`. This is the direction |
-| `compiler_bootstrap/` | The 124-file source list `compiler_src\ds_gop.txt` points at (mirrors old `release\3.code\`). **Content is mostly Python** — 6/125 files are pure TokenVector, see `docs/TOKENVECTOR-PURITY.md`. `compiler_src/` alone is only the *seed* |
-| `dist/tkvc.exe` | Python bootstrap compiler (PyInstaller) — only used to build `tkvc-tv` and for the gates below |
-| `compiler/` | The Python bootstrap, still in `.tkv`-named files (126 files). **Content is Python** |
-| `tests/` | 118 acceptance tests + 31 negative cases + `tkv_test_lib.tkv` |
+| **`compiler_bootstrap/`** | **NGUON COMPILER TU-HOST — 132 file TokenVector that.** `compiler_src\ds_gop.txt` liệt kê đúng 132 đường dẫn này; `tools\vong.tkv` gộp chúng thành một nguồn rồi tự-biên-dịch (`g1.il == g2.il` → `IL_IDENTICAL`). Sản phẩm: `dist/tkvc-tv.exe`. **Không có Python nào ở đây** |
+| **`compiler_py/`** | **SUBMODULE** → repo riêng [`nguyenhungtran18/TokenVector.CompilerPy`](https://github.com/nguyenhungtran18/TokenVector.CompilerPy) (local: `D:\TokenVector.CompilerPy`). Chứa toàn bộ compiler bootstrap **Python**: 126 file `.tkv` *có nội dung là Python*, `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `build_tkvc.ps1`, `tools/_split_il_features.py`. Sản phẩm: `dist/tkvc.exe` |
+| **`compiler_src/`** | 8 `.tkv` seed lịch sử (799 KB) + `ds_gop.txt` (manifest 132 dòng, **đang dùng**) + `feature_can.txt` (CORE). Chỉ 2 file manifest là cần; 8 file seed không ai biên dịch. See `docs/TOKENVECTOR-PURITY.md` |
+| `dist/tkvc-tv.exe` | **The self-hosted TokenVector compiler.** CLI là positional: `tkvc-tv.exe <src> <out> <entry>`. Đây là hướng đi |
+| `dist/tkvc.exe` | Compiler Python bootstrap (PyInstaller) — dùng để build `tkvc-tv` và chạy các gate bên dưới. **Sinh ra từ `compiler_py/`**, không nằm trong source của repo này |
+| `tests/` | 119 acceptance tests + 31 negative cases + `tkv_test_lib.tkv` |
 | `tests_suite/` | 154 `.ca` data-driven cases + 203 input samples; runner `chay.tkv`. See its README |
 | `tools/` | Gates, `tkv_guide.tkv`, `vong.tkv` (self-host loop), `diff_il.tkv` (IL diff) |
 | `projects/` | 19 real tools written in `.tkv` |
@@ -24,27 +24,37 @@ silently swallowed every `git` command run from inside it).
 | `dist/`, `build/` | Generated. `dist/tkvc.exe` must exist to run the Python-side gates |
 | `tokenvector-grammar/` | Submodule (VS Code extension) — do not edit casually |
 
+### Build compiler Python (sau khi tách repo)
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build
+```
+Đường dẫn tương đối được phân giải theo **thư mục gọi lệnh**, nên phải chạy từ gốc repo.
+
 ## What the Compiler Actually Is (read before calling it "self-hosted")
-`compiler/*.tkv` and `tkv*.tkv` are **126 files named `.tkv` whose content is
-PYTHON**, not TokenVector. `tkv_compile.tkv` says so in its own docstring: it is
-"a valid Python program, named `.tkv` instead of `.py` to break the link with
-Python". `build_tkvc.ps1` therefore stages them as Python and freezes them with
-PyInstaller.
+Hai compiler, hai repo, hai ngôn ngữ — đừng lẫn:
 
-**So `dist/tkvc.exe` is a CPython-frozen tool, not a TokenVector program.** It can
-never become a native standalone binary — that would need a working compiler to
-compile the compiler. Never write "the compiler is written in TokenVector" or
-"self-hosted".
+| | Compiler Python | Compiler TokenVector |
+|---|---|---|
+| Source | `compiler_py/` (**submodule**) | `compiler_bootstrap/` (132 file, ngay trong repo này) |
+| Ngôn ngữ nguồn | **PYTHON thật** | **TokenVector thật** |
+| Build | PyInstaller → `dist/tkvc.exe` | `tools\vong.tkv` → `dist/tkvc-tv.exe` |
+| CLI | `tkvc.exe build <src> --out <exe> --entry <e>` | `tkvc-tv.exe <src> <out> <entry>` |
 
-The genuinely TokenVector sources are `compiler_bootstrap/` (the 125-file input
-list behind `compiler_src\ds_gop.txt`), `compiler_src/` (of which **only
-`tkvc_main.tkv`, 56 lines, is in the build** — the other 23,915 lines are a
-historical seed), `tests/` (148 files), `tests_suite/` (203 samples + 85
-generated),
-`projects/` (19), `examples/` (8) and `tools/` (3). Do not edit or move anything under
-`compiler/`, `build/`, `dist/`, or the four `tkv*.tkv` drivers without a full
-gate run: their **content** is Python, so a `.tkv` extension does not mean the
-file is TokenVector.
+Trong `compiler_py/`, 126 file tên `.tkv` **có nội dung là Python**.
+`tkv_compile.tkv` tự nói trong docstring của nó: "a valid Python program, named
+`.tkv` instead of `.py` to break the link with Python".
+
+**Nên `dist/tkvc.exe` là công cụ đóng băng CPython, KHÔNG phải chương trình
+TokenVector.** Nó không bao giờ thành binary native độc lập — việc đó cần một
+compiler TokenVector đã biên dịch được chính nó. **Đừng bao giờ viết "compiler
+được viết bằng TokenVector" hay "self-hosted" về `tkvc.exe`.**
+
+Nguồn TokenVector thật là `compiler_bootstrap/` (132 file sau lưng `compiler_src\ds_gop.txt`),
+`tests/`, `tests_suite/`, `projects/`, `examples/` và `tools/`.
+**Không sửa/di chuyển bất cứ thứ gì dưới `compiler_bootstrap/`, `build/`, `dist/`
+mà không chạy full gate.** Riêng phía Python (`compiler_py/`) sửa ở repo riêng,
+và mỗi đổi thay đổi đều cần `compiler_py\build_tkvc.ps1` chạy lại rồi chạy lại
+gate — vì đổi mà không build lại thì gate đang đo compiler cũ.
 
 ## Environment & Identity
 - **Language**: TokenVector (`.tkv`, `.tv`).
@@ -97,7 +107,7 @@ file is TokenVector.
     — it broke the entire compiler (104/104 BUILDFAIL, `ModuleNotFoundError`).
     §7 of the reference lists every existing file with its size, plus all
     registered builtins, methods, line/assign/statement parsers.
-- **Build `tkvc.exe`**: `powershell -NoProfile -ExecutionPolicy Bypass -File .\\build_tkvc.ps1`
+- **Build `tkvc.exe`**: `powershell -NoProfile -ExecutionPolicy Bypass -File .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build`
   Phân nhóm module `compiler/il_features/` do **`tools/il_features_manifest.txt`**
   đăng ký (CORE đã khai báo tường minh — tin nó, đừng đoán). Script
   `tools/_split_il_features.py` **FAIL build sớm** nếu có module import một tên

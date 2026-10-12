@@ -15,7 +15,7 @@ $out = Join-Path $outDir 'tkv_guide.exe'
 $comp = Join-Path $root 'dist\tkvc.exe'
 
 if (-not (Test-Path $comp)) {
-    Write-Error "THIEU compiler: $comp`nBuild truoc: powershell -File build_tkvc.ps1"
+    Write-Error "THIEU compiler: $comp`nBuild truoc (tu goc repo): powershell -File .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build"
     exit 2
 }
 if (Test-Path $out) { Remove-Item $out -Force }

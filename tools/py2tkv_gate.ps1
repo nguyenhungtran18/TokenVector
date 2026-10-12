@@ -40,7 +40,7 @@ if (-not $OutDir) { $OutDir = Join-Path $env:TEMP "opencode\py2tkv_gate" }
 
 if (-not (Test-Path $Compiler)) {
   Write-Output "MISSING compiler: $Compiler"
-  Write-Output "Build it: build_tkvc.ps1 (or restore dist/tkvc-tv.exe)"
+  Write-Output "Build it: .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build (or restore dist/tkvc-tv.exe)"
   exit 2
 }
 if (-not (Test-Path $Converter)) {

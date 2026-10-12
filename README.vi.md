@@ -178,12 +178,16 @@ nên tool không tự build được. Hãy chạy cả hai rồi đọc kết qu
 ## 8. Build lại compiler
 
 ```powershell
-powershell -NoProfile -File .\build_tkvc.ps1
+powershell -NoProfile -File .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build
 ```
 
-Chỉ cần `compiler/**` cộng `build_tkvc.ps1`. Script sinh lại bootstrap
-để mọi module tính năng thật sự được nạp, và xoá cache PyInstaller — thiếu bước
-đó thì một lần "build thành công" có thể lặng lẽ đóng gói exe cũ.
+Compiler bootstrap Python nằm ở **repo riêng**, được nối vào dưới dạng submodule
+`compiler_py/`. Chạy lệnh trên từ gốc repo để đường dẫn output tương đối rơi
+đúng vào `dist/` và `build/` của repo này.
+
+Bên trong submodule đó chỉ cần `compiler/**` cộng `build_tkvc.ps1`. Script sinh
+lại bootstrap để mọi module tính năng thật sự được nạp, và xoá cache PyInstaller —
+thiếu bước đó thì một lần "build thành công" có thể lặng lẽ đóng gói exe cũ.
 
 ---
 
