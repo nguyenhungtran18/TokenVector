@@ -1,19 +1,59 @@
-# HANDOFF 2026-10-11 (phien 8) - nested literal XONG, p6 vectorizer CHUA PORT xong
+# HANDOFF 2026-10-11 (phien 8) - GATE PASS 118/118 + NEG 31/31
 
 **Trang thai khi ban giao**:
-- `testkit_gate.ps1`: **PASS=118/118**, BUILDFAIL=0, TESTFAIL=0, OTHER=0, TIMEOUT=0, **ILFAIL=1**, **NEG 31/31**
-  (chi con 1: `ILFAIL p6_vectorize_test.tkv -> stobj, _vstart, _tstart`)
+- `testkit_gate.ps1`: **GATE: PASS (118/118, NEG 31/31)** — BUILDFAIL=0,
+  TESTFAIL=0, OTHER=0, TIMEOUT=0, **ILFAIL=0**
 - `tools\vong.exe`: **IL_IDENTICAL** (132 file)
-- `parity_probe/run.ps1`: **119/119** khop CPython
+- `parity_probe/run.ps1`: **119/119**
 - `dang_ky_gate.py`: **PASS** (0 violation)
 - `lint_rules_gate.ps1`: **8/8**
 - `ext_smoke.ps1`: **4/4**
 
-> Handler cuoi: `PLAN-TU-HOST.md`. Loi cu cua tai liet ke trong file do.
+> Handler cuoi: `PLAN-TU-HOST.md`.
 
 ---
 
-## 1. XONG trong phien nay: `nested_literal_test` 7/7
+## 1. Xong: `nested_literal_test` 7/7
+
+Gate 117/118 -> 118/118. Chi tiet port o muc 3.
+
+---
+
+## 2. Xong (lan 3): `p6_vectorize_test` 17/17 + IL day du
+
+`ILFAIL` 1 -> 0. Gate in **GATE: PASS**.
+
+### Loi CHOT duoc sau 2 lan hoan nguyen
+
+| # | Loi | Nguyen nhan |
+|---|---|---|
+| 1 | `AccessViolationException` | Node arena la CHI SO (i32); moi o con cua `mk2/mk3/mk4` (khai `str`) phai boc **`o_nut(node)`** |
+| 2 | `NullReferenceException` luc chay | Dieu kien vong vector phai bien dich o **kieu THAT cua bien dem** (`scope.tra(iv).ta.dtype`), **KHONG** hard-code `'i32'`. `i` trong test la `int` = TkvInt (16 byte) -> ghi 4 byte vao local 16 byte, truong `big` con rong -> `NullReferenceException` |
+| 3 | Toan tu sai | `compare`/`binop`: toan tu o **FIELD 1** (`ea_str`), so hang o field 2/3 (`eb_nut`/`ec_nut`); arena chi co toi da 3 o (khong co `ed_nut`) |
+| 4 | Treo khi truyen list | `o_ds` nhan `list[TkvNode]`; moi danh sach moi phai la bien co **khai bao kieu**, khong dung list literal. Tuong tu cho `codegen_stmts_fn` |
+| 5 | Bien 1 kieu | `idx_st = None` roi `idx_st = <chi so>` bi tu choi — dung `-1` lam co hieu |
+
+**Ghi chu quan trong**: goc cua loi #2 KHONG phai intrinsic. Da probe
+`v_load4`/`v_store4` goi TRUC TIEP tu nguon nguoi viet — chay dung binh thuong.
+Goc cua loi #2 la **kieu cua bieu thuc do moi sinh ra**, khong phai ham.
+
+### Port da dua vao `control_flow.tkv`
+
+`_p6_num_is_one`, `_p6_var_is`, `_p6_vec_rhs_ok`, `_p6_is_f32buf`,
+`_p6_chi_so_la_iv`, `_p6_viet_lai_rhs`, `_p6_vectorize_while` + moi noi goi
+dau tien trong `codegen_while`. Van toan bo quy tac "hoi nghi = tu choi" cua ban
+Python (chi nhan `i < n` voi hai bien tran, than DUNG HAI lenh, moi `f[i]` dung
+chung `iv`, ve phai chi gom `v_load4` + `+ - * /`).
+
+### Biet khi nao phai HOAN NGUYAT
+
+Neu port P6 lam compiler **treo vo han** hoac bien dich sai (test FAIL), revert
+ngay (`git checkout -- compiler_bootstrap/compiler/il_features/control_flow.tkv`)
+va giu gate o trang thai da xanh - con ILFAIL hon la lam hong compiler.
+
+---
+
+## 3. Port `nested_literal_test` (chi tiet muc 1 cua ban giao truoc)
 
 Test can 7 dang container literal long nhau. Da port day du:
 
@@ -48,55 +88,27 @@ Test can 7 dang container literal long nhau. Da port day du:
 
 ---
 
-## 2. CHUA xong: `p6_vectorize_test` (ILFAIL)
-
-Test PASS runtime (duong scalar dung) nhung IL thieu `stobj`/`_vstart`/`_tstart`
-=> `_p6_vectorize_while` (SIMD buoc 4 tren `f32buf`) **chua duoc port**.
-
-**Da thu va DA HOAN NGUYAT** (`git checkout -- control_flow.tkv`) vi no lam
-compiler **treo/ca chet**. Cac loi da gap theo thu tu:
-
-| # | Loi | Nguyen nhan |
-|---|---|---|
-| 1 | `AccessViolationException` khi bien dich `while i < n: r[i] = a[i]` | Node trong arena phai **ma hoa o bang `o_str`/`o_nut`/`o_ds`** - truyen chuoi tho vao `mk2/mk3/mk4` doc sai o -> doc nho ngoai vung |
-| 2 | `AccessViolationException` | `codegen_stmts_fn([inc4], ...)` voi **LIST LITERAL** - tham so khai `func(list[i32],...)` nen list literal bi suy `list[TkvInt]` -> lenh goi sai IL |
-| 3 | `make2('assign_scalar', iv)` | `assign_scalar` luu **2 o** (`name,rhs_text`) - phai `make3` |
-| 4 | **Compiler TREO vo han** | Emit phan tang `iv` bang `ctx.compile_expr(...)` + `ctx.store_var(iv, ...)`, hoac `codegen_stmts_fn` voi list goc `idx_st`/`inc_st`. Bisect cho thay **van treo ngay ca khi BO HET vong duoi scalar** - nghi doan nam o `pop` / `compile_expr(iv+4)` / `store_var` |
-
-**Huong tiep theo duy nhat an toan**: khong tu tao node cua `TkvNode` trong
-`control_flow.tkv`; dung co che **`dat_nut` + `codegen_stmts_fn`** nhung phai
-truyen mot bien co **khai bao kieu** (`x: "list[i32]" = []`) chu khong phai list
-literal - va **do lai tu`v_store4` tro lai**, phai sua truoc phan `pop`/tang bien
-mot cach duy nhat. Neu khong chot duoc, nen de nguyên ILFAIL va ghi vao
-`PLAN-TU-HOST.md` (khong dung de lam hong compiler).
-
----
-
-## 3. Bai hoc ky thuat (vong nhieu, doc truoc khi sua source)
-
-- **Node trong arena PHIAI ma hoa o**: `mk2('var', o_str(ten))`,
-  `mk3('call', o_str('v_load4'), o_ds([...]))`. Truyen chuoi tho -> doc sai o ->
+## 4. Bai hoc ky thuat chung (vong nhieu)
+- Node trong arena PHAI ma hoa o: `mk2('var', o_str(ten))`,
+  `mk3('call', o_str('v_load4'), o_ds(args))`. Truyen chuoi tho -> doc sai o ->
   `AccessViolationException`.
-- **Toan tu cua node `compare`/`binop` nam o FIELD 1** (`ea_str`), con so hang o
+- **Bieu thuc do bien dich SANG PHAI dung kieu cua noi no se GAN VAO**, khong
+  hard-code: `ctx.compile_expr(node, ..., 'i32', ctx)` roi `store_var` vao mot
+  local kieu `int` se lam hong bo nho.
+- Toan tu cua node `compare`/`binop` nam o FIELD 1 (`ea_str`), con so hang o
   field 2/3 (`eb_nut`/`ec_nut`) - dung `eb_str` se tra ve **chi so node**.
   Node arena **chi co toi da 3 o**, khong co `ed_nut` (field 4).
-- **Mot bien chi giu MOT kieu**: `idx_st = None` roi `idx_st = <chi so>` bi tu choi
+- **Mot bien chi ghu MOT kieu**: `idx_st = None` roi `idx_st = <chi so>` bi tu choi
   (`khong ho tro None`). Dung `-1` lam co hieu.
-- **`_kiecm o`**: `{}` chi duoc o ve phai phep gan, truyen truc tiep lam DOI SO bi
-  tu choi -> can hang so cap module rong.
-- **Signature cua `NguonKieu.infer_dtype`** phai viet dung
-  `(TkvNode, Scope, dict[str,TkvSig], TkvTable, TkvTable, TkvTable)` - viet
-  `dict[str,list[(str,TkvTypeAnn)]]` se lech chu ky.
+- **MOI danh sach truyen cho 1 tham so co khai bao kieu phai la bien da khai
+  bao kieu** - truyen list literal se bi suy sai (`list[TkvInt]`) va lam lenh
+  goi sinh IL sai / treo.
 - `edit` tool **co the lam mat thut dong** khi `newString` viet sai - luoi chay
   `Select-String -Pattern "^[^ ]"` de bat dong 0 o dau function.
 - KHONG dung `Get-Content -Raw | Set-Content -Encoding UTF8` (xem handoff truoc).
 
 ---
 
-## 4. Vi tri can sua tiep theo
+## 5. Muc tieu: DA DAT
 
-```
-compiler_bootstrap/compiler/il_features/control_flow.tkv   (codegen_while)
-  -> can: _p6_num_val, _p6_vec_rhs_ok, _p6_vectorize_while
-  -> tham chu ban Python: compiler/il_features/control_flow.tkv dong 1226-1382
-```
+Gate 118/118 + NEG 31/31 + IL_IDENTICAL + tat ca gate phu xanh.

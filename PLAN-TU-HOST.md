@@ -1,8 +1,8 @@
 ﻿# PLAN: TokenVector Tu-Host Day Du (118/118 + NEG 31/31)
 
 **Ngay bat dau**: 08/10/2026
-**Cap nhat cuoi**: 11/10/2026 (phien 8)
-**Trang thai**: Gate **118/118** (PASS=118, BUILDFAIL=0, TESTFAIL=0, OTHER=0, TIMEOUT=0, ILFAIL=1), **NEG 31/31**, `vong` **IL_IDENTICAL** (132 file).
+**Cap nhat cuoi**: 11/10/2026 (phien 8, luc 23h)
+**Trang thai**: **GATE PASS (118/118)**, BUILDFAIL=0, TESTFAIL=0, OTHER=0, TIMEOUT=0, ILFAIL=0, **NEG 31/31**, `vong` **IL_IDENTICAL** (132 file).
 Gate khac: parity **119/119**, dang_ky **PASS** (0 violation), lint **8/8**, ext_smoke **4/4**.
 
 > **File nay da duoc VIET LAI ngay 11/10/2026.** Ban cu bi double-encode
@@ -12,26 +12,17 @@ Gate khac: parity **119/119**, dang_ky **PASS** (0 violation), lint **8/8**, ext
 
 ---
 
-## Con lai (1 muc)
+## Con lai: KHONG CON
 
-| Test | Loai | Nguyen nhan |
-|---|---|---|
-| `p6_vectorize_test` | ILFAIL | Chua port `_p6_vectorize_while` (SIMD step-4 `v_load4`/`v_store4`) tu Python sang `control_flow.tkv`. Test PASS runtime (duong scalar dung) nhung IL khong co `stobj`/`_vstart`/`_tstart` |
-
-Da **HOAN NGUYAT** mot lan port p6 (11/10) vi no lam compiler **treo vo han /
-AccessViolation**. Chi tiet 4 loi da gap + huong tiep theo: xem
-`docs/e_handoff/2026-10-11-nested-literal-p6.md` muc 2.
+Gate **118/118 PASS + NEG 31/31 + IL_IDENTICAL** - dat muc tieu cuoi.
 
 ---
 
-## Phien 11/10 (phien 8): nested literal - XONG 7/7
+## Phien 11/10 (phien 8): nested literal + p6 vectorizer - XONG
 
-Gate **117/118 -> 118/118** (PASS het), NEG giu **31/31**. Chi con ILFAIL p6.
-
-Port day du container literal long nhau: `set_lit` node moi trong parser,
-`dict_lit`/`set_lit` o vi tri bieu thuc, suy kieu `ta_to_spec`/`ta_tu_spec`,
-`HashSet` qua `[System.Core]`, va 6 loi "bien dich xong nhung doc nho RAM" lien
-quan den `elem_ta`. Xem handoff muc 1.
+- `nested_literal_test` 7/7 (gate 117 -> 118).
+- `p6_vectorize_test` 17/17 **VA** IL co `stobj`/`_vstart`/`_tstart` (ILFAIL 1 -> 0)
+  => `testkit_gate.ps1` in **GATE: PASS**.
 
 ---
 
@@ -146,17 +137,33 @@ phai ep - .NET generic bat bien, truyen thang bien dich xong roi hong luc chay.
 
 ## Phase 3/4/5: Trang thai
 
-- **Phase 3**: 117/118. Con `nested_literal_test` (BUILDFAIL) + `p6_vectorize_test` (ILFAIL).
+- **Phase 3**: **118/118**, 0 BUILDFAIL, 0 TESTFAIL, 0 ILFAIL.
 - **Phase 4**: **NEG 31/31** - da dong.
 - **Phase 5**:
-  - [x] `testkit_gate.ps1`: 117/118, NEG 31/31
+  - [x] `testkit_gate.ps1`: **GATE: PASS (118/118, NEG 31/31)**
   - [x] `vong.exe`: IL_IDENTICAL on dinh
   - [x] `parity_probe/run.ps1`: 119/119 khop CPython
   - [x] `dang_ky_gate.py`: 0 violation
   - [x] `lint_rules_gate.ps1`: 8/8
   - [x] `ext_smoke.ps1`: 4/4
-  - [ ] `docs/REPOSITORY-NOTES.md` + handoff cuoi
+  - [x] `docs/REPOSITORY-NOTES.md` + handoff cuoi
   - [ ] Commit
+
+## Bai hoc p6 (2026-10-11) - 3 lan thu moi ra duoc
+
+1. **Node arena la CHI SO (i32)**: moi o con cua `mk2/mk3/mk4` (tham so khai
+   `str`) phai boc `o_nut(node)`. Truyen node tho -> doc sai o ->
+   `AccessViolationException`.
+2. **Dieu kien cua vong vector phai bien dich o kieu THAT cua bien dem**
+   (`scope.tra(iv).ta.dtype`), **KHONG** hard-code `'i32'`. Bien `i` trong test
+   la `int` (TkvInt, 16 byte) -> ghi 4 byte vao local 16 byte, truong `big` con
+   rong -> `NullReferenceException` o lan doc TkvInt sau do. Day la loi CHOT
+   duoc sau 2 lan hoan nguyen.
+3. **Toan tu `compare`/`binop` nam o FIELD 1** (`ea_str`), so hang o field 2/3
+   (`eb_nut`/`ec_nut`); node arena chi co toi da 3 o (khong co `ed_nut`).
+4. `o_ds` nhan `list[TkvNode]` - danh sach phai la bien co **khai bao kieu**.
+5. `lay_thuc` lenh moi phai truyen cho `codegen_stmts_fn` qua bien co khai bao
+   kieu (`x: "list[i32]" = []`), khong dung list literal.
 
 ---
 
