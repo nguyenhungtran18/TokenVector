@@ -1,0 +1,12 @@
+"""re_match(pattern, s)/re_sub(pattern, repl, s) (Wave 2, 2026-07-29,
+soan boi Gemini, tich hop+verify boi Claude) - ten HAM PHANG (khong dau
+cham), xem il_features/stdlib_re.py."""
+from _re_helpers import re_match, re_sub
+
+
+def has_digit(s: "str") -> "i32":
+    return re_match("[0-9]+", s)
+
+
+def mask_digits(s: "str") -> "str":
+    return re_sub("[0-9]+", "#", s)

@@ -1,0 +1,39 @@
+
+__tkv_extern_assembly__ = [("ArrayApi", None, None)]
+__tkv_extern_class__ = [
+    {
+        "name": "ArrayApi", "assembly": "ArrayApi", "class": "ArrayApi",
+        "ctor": [],
+        "methods": [
+            {"name": "SumInts", "params": ["array[i32]"], "returns": "i32"},
+            {"name": "MakeNames", "params": ["i32"], "returns": "array[str]"},
+        ],
+        "static_methods": [
+            {"name": "MakeTags", "params": ["i32"], "returns": "array[str]"},
+        ],
+    },
+]
+
+
+def main() -> "i32":
+    a = ArrayApi()
+    # Check 1: marshal DOI SO List<i32> -> int32[] - tong dung. List-literal
+    # TRUYEN THANG (inline) tai vi tri doi so - dtype ngu canh 'array[i32]'
+    # (qua _tokenvector_facing_dtype -> 'list[i32]') buoc phan tu la i32
+    # THAT (khac 'int'/TkvInt mac dinh khi khong co ngu canh kieu, vd gan
+    # ra 1 bien roi khong annotation - se sai kieu phan tu luc ToArray()).
+    total = a.SumInts([1, 2, 3, 4])
+    print(total)
+    # Check 2: marshal KET QUA string[] -> List<str> - len + index dung
+    # (xac nhan gia tri THAT SU dung duoc nhu 1 list binh thuong).
+    names = a.MakeNames(3)
+    print(len(names))
+    print(names[1])
+    # Check 3 (Important 2, review Phase 9g): static_methods tra 'array[T]'
+    # goi qua cu phap 'ClassName.Method()' - bien nhan ket qua PHAI duoc
+    # khai bao dung shape='list' (khong phai KeyError luc khai bao local) -
+    # xac nhan gia tri THAT dung duoc nhu 1 list binh thuong (index/len).
+    tags = ArrayApi.MakeTags(2)
+    print(len(tags))
+    print(tags[0])
+    return 0

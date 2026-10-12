@@ -1,0 +1,27 @@
+# -*- coding: utf-8 -*-
+"""CA AM: list tron hai record KHONG co to tien chung.
+
+CIL can MOT kieu phan tu duy nhat cho `List<T>`. Truoc 2026-09-10 file nay
+bien dich QUA roi chet `ArrayTypeMismatchException` LUC CHAY; nay phai bi
+tu choi RO RANG luc compile.
+
+File nay KHONG duoc bien dich duoc - do la dieu dang kiem."""
+
+
+class A:
+    x: "i32"
+
+    def __init__(self, x):
+        self.x = x
+
+
+class B:
+    y: "i32"
+
+    def __init__(self, y):
+        self.y = y
+
+
+def demo_khong_to_tien() -> "i32":
+    ds = [A(1), B(2)]
+    return len(ds)

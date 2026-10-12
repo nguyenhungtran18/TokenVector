@@ -1,0 +1,19 @@
+
+__tkv_extern_assembly__ = [("StaticMethodFixture", None, None)]
+__tkv_extern_class__ = [
+    {
+        "name": "W", "assembly": "StaticMethodFixture", "class": "StaticMethodFixture.Widget",
+        "ctor": [], "methods": [],
+        "static_methods": [
+            {"name": "Val", "params": [], "returns": "f64"},
+            {"name": "Describe", "params": [], "returns": "i32"},
+        ],
+    },
+]
+
+def main() -> "i32":
+    if W.Describe() > 0:
+        print(1)
+    else:
+        print(0)
+    return 0

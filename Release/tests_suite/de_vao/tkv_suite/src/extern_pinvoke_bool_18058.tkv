@@ -1,0 +1,15 @@
+
+__tkv_extern_pinvoke__ = [
+    {"name": "is_debugger_present", "dll": "kernel32.dll",
+     "symbol": "IsDebuggerPresent", "convention": "stdcall",
+     "params": [], "returns": "bool"},
+]
+
+def main() -> "i32":
+    r = is_debugger_present()
+    print(r)
+    if r == 1:
+        print("debugger-present")
+    else:
+        print("no-debugger")
+    return 0

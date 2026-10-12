@@ -1,0 +1,50 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def low_level() -> "str":
+    raise ValueError("low level boom")
+
+
+def wrap_with_message() -> "str":
+    try:
+        low_level()
+    except ValueError as e:
+        raise OverflowError("wrapped failure") from e
+    return "unreachable"
+
+
+def wrap_without_message() -> "str":
+    try:
+        low_level()
+    except ValueError as e:
+        raise OverflowError() from e
+    return "unreachable"
+
+
+def catch_wrapped() -> "str":
+    try:
+        wrap_with_message()
+    except OverflowError as e:
+        return str(e)
+    return "no_exception"
+
+
+def catch_wrapped_empty_msg() -> "str":
+    try:
+        wrap_without_message()
+    except OverflowError as e:
+        return str(e)
+    return "no_exception"
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("raise_from_with_message", catch_wrapped(), "wrapped failure")
+
+    tested = tested + 1
+    total = total + check("raise_from_without_message", catch_wrapped_empty_msg(), "")
+
+    return test_summary("raise_from_py_tree_test", total, tested)

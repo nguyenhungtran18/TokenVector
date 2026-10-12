@@ -1,0 +1,43 @@
+
+__tkv_extern_assembly__ = [("ItemApi", None, None)]
+__tkv_extern_class__ = [
+    {
+        "name": "Item", "assembly": "ItemApi", "class": "Item",
+        "ctor": ["i32"],
+        "methods": [
+            {"name": "getValue", "params": [], "returns": "i32"},
+            {"name": "Bump", "params": [], "returns": "void"},
+        ],
+    },
+    {
+        "name": "ItemApi", "assembly": "ItemApi", "class": "ItemApi",
+        "ctor": [],
+        "methods": [],
+        "static_methods": [
+            {"name": "MakeItems", "params": ["i32"], "returns": "array[Item]"},
+            {"name": "MakeOne", "params": ["i32"], "returns": "Item"},
+            {"name": "MakeGrid", "params": ["i32"], "returns": "array[array[Item]]"},
+        ],
+    },
+]
+
+
+def main() -> "i32":
+    row2 = ItemApi.MakeItems(3)
+    # Bug fix that: goi method TRUC TIEP tren 1 bieu thuc index (KHONG qua
+    # bien trung gian) - phai in dung gia tri i32 THAT (20), khong phai
+    # dong trong/loi runtime tu viec bi coi nham la string.
+    print(row2[0].getValue())
+    v = row2[1].getValue() + row2[2].getValue()
+    print(v)
+    # Finding 4 (review fix, 2026-08-28): case 'call'-base - nguoi nhan la
+    # ket qua TRUC TIEP 1 loi goi static method (ItemApi.MakeOne(7)), KHONG
+    # qua bien trung gian lan cung khong qua index.
+    print(ItemApi.MakeOne(7).getValue())
+    # Finding 4 (review fix, 2026-08-28): case 'index_expr'-base - nguoi
+    # nhan la 1 phan tu cua mang 2 chieu (g[0][1]), ban than g[0] da la 1
+    # bieu thuc index (khong phai bien don) nen g[0][1] di qua tag
+    # 'index_expr', khong phai 'index' thuong.
+    g = ItemApi.MakeGrid(2)
+    print(g[0][1].getValue())
+    return 0

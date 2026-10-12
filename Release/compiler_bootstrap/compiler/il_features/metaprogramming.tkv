@@ -1,0 +1,470 @@
+# -*- coding: utf-8 -*-
+"""Metaprogramming (Moc 17, 2026-08-09): hasattr(obj, "attr") & getattr(obj, "attr", default).
+
+NOI DAY 2026-09-17: truoc ngay nay module chua bao gio duoc dang ky -
+`bootstrap_all` khong goi `bootstrap_metaprogramming`, va file chi nam o
+cay tu-host nen che do dev cung khong nap. Do that ca hai builtin truoc
+khi noi day:
+  - `hasattr`: CHAY DUNG (in 1/0).
+  - `getattr`: chay dung voi truong kieu `str`, nhung NEM
+    NullReferenceException voi truong kieu khac - vi builtin nay khai
+    return dtype CO DINH la 'str' (xem cuoi file), trong khi kieu tra ve
+    that phu thuoc TUNG TRUONG. Nay chan tuong minh thay vi phat IL sai:
+    truong khong phai 'str' bao loi ro luc BIEN DICH.
+
+NOI DAY 2026-10-04: them `callable` (missing thu ba). Truoc do module nay
+chi port hasattr/getattr, con `callable` chi ton tai o ban bootstrap
+(compiler/il_features/metaprogramming.tkv, L267) nen reflection_test fail voi
+MISSING_BUILTIN tren dist/tkvc-tv.exe. Ly do goc KHONG phai dang ky sai ma la
+port chua DAY DU - dung cap do kieu chu ky."""
+from il_dispatch import register_expr_builtin
+from il_core import IL_SCALAR
+
+__tkv_import__ = "il_dispatch"
+from il_features import int_type as _int_type
+from il_features import tkvstr as _tkvstr
+from il_features.int_type import ensure_class_int
+from il_features.tkvstr import ensure_class, emit_to_str
+from il_features.list_type import il_list_type
+from record_owner import _field_owner_class
+from typed_dsl_parser import TypeAnn
+from expr_row import ea_nut, ea_str, ekind, eso_o, la_node, mk3, o_str
+
+def push_hasattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    ensure_class_int(ctx)
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: hasattr(obj, attr_name) nhan dung 2 tham so")
+    obj_arg, attr_arg = args[0], args[1]
+    if ekind(obj_arg) != 'var':
+        raise SyntaxError("il_codegen: hasattr(obj, attr_name) can tham so 1 la 1 bien")
+    obj_name = ea_str(obj_arg)
+    if obj_name not in scope:
+        raise SyntaxError(f"il_codegen: bien '{obj_name}' chua duoc khai bao")
+    obj_ta = scope.tra(obj_name).ta
+    
+    attr_name = None
+    if la_node(attr_arg) and eso_o(attr_arg) >= 2:
+        attr_name = str(ea_str(attr_arg)).strip('"\'')
+    
+    # Truong co kieu cua Ctx (2026-09-25) thay ctx.get(...) - cung gia tri.
+    records: "dict[str,list[(str,TypeAnn)]]" = {}
+    if ctx is not None and ctx.records:
+        records = ctx.records
+    record_methods: "dict[str,dict[str,Signature]]" = {}
+    if ctx is not None and ctx.record_methods:
+        record_methods = ctx.record_methods
+    # records: dict[str,list[(str,TypeAnn)]] - gia tri LUON la list, nhanh
+    # dict (.keys()) cu la ma chet.
+    field_names: "list[str]" = []
+    if obj_ta.dtype in records:
+        for f in records[obj_ta.dtype]:
+            field_names.append(f[0])
+    has_attr = False
+    if attr_name and attr_name in field_names:
+        has_attr = True
+    elif attr_name and obj_ta.dtype in record_methods and attr_name in record_methods[obj_ta.dtype]:
+        has_attr = True
+    
+    if has_attr:
+        out.append('    ldc.i4.1')
+    else:
+        out.append('    ldc.i4.0')
+
+def push_getattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    ensure_class_int(ctx)
+    ensure_class(ctx)
+    if len(args) < 2 or len(args) > 3:
+        raise SyntaxError("il_codegen: getattr(obj, attr_name, default) nhan 2 hoac 3 tham so")
+    obj_arg, attr_arg = args[0], args[1]
+    default_arg = args[2] if len(args) == 3 else None
+    
+    if ekind(obj_arg) != 'var':
+        raise SyntaxError("il_codegen: getattr(obj, attr_name) can tham so 1 la 1 bien")
+    obj_name = ea_str(obj_arg)
+    if obj_name not in scope:
+        raise SyntaxError(f"il_codegen: bien '{obj_name}' chua duoc khai bao")
+    obj_ta = scope.tra(obj_name).ta
+    
+    attr_name = None
+    if la_node(attr_arg) and eso_o(attr_arg) >= 2:
+        attr_name = str(ea_str(attr_arg)).strip('"\'')
+
+    # Truong co kieu cua Ctx (2026-09-25) thay ctx.get(...) - cung gia tri.
+    # ctx luon co o day (ensure_class_int(ctx) o dong dau da dung no).
+    records = ctx.records
+    # records: dict[str,list[(str,TypeAnn)]] - gia tri LUON la list, nhanh
+    # dict (.keys()) cu la ma chet.
+    field_names = []
+    if records and obj_ta.dtype in records:
+        for f in records[obj_ta.dtype]:
+            field_names.append(f[0])
+    
+    if attr_name and attr_name in field_names:
+        # Chan truoc thay vi sai am tham: return dtype khai CO DINH 'str'
+        # (register_expr_builtin cuoi file), nen truong kieu khac se bi
+        # doc nhu mot tham chieu chuoi -> NullReferenceException luc chay.
+        # Da do that: truong 'i32' lam chuong trinh sap, truong 'str' dung.
+        # Vong lap thay dict(...).get (2026-09-25): trung ten thi CAI SAU thang,
+        # dung nhu dict() cu.
+        fta = None
+        for f in records[obj_ta.dtype]:
+            if f[0] == attr_name:
+                fta = f[1]
+        # `records` anh xa ten truong -> TypeAnn (KHONG phai chuoi dtype).
+        f_dtype = None
+        f_shape = ""
+        if fta is not None:
+            f_dtype = fta.dtype
+            f_shape = fta.shape_ten
+        # `shape_ten` la "" khi VO HUONG (khac `.shape` cu tra None). Doi
+        # sang shape_ten ma quen doi phep so `is not None` thi dieu kien
+        # LUON dung -> getattr() TU CHOI MOI truong, ke ca truong str hop
+        # le, va thong bao loi tu mau thuan ("truong nay kieu 'str' shape
+        # ''" roi van bao chi ho tro str vo huong). Da xay ra that o commit
+        # 27a88c93 va nam im cho toi khi ma tran phu bat dau bit o nay.
+        if f_dtype == 'str' and f_shape == "":
+            attr_node = mk3('attr', o_str(obj_name), o_str(attr_name))
+            ctx.compile_expr(attr_node, scope, out, dtype, ctx)
+        elif f_shape == "" and (f_dtype in ('i32', 'i64', 'f32', 'f64', 'bool', 'int')):
+            # 2026-10-10: getattr tra 'str' (dang ky backend), nen field SO
+            # phai duoc chuyen thanh chuoi o day. Truoc day ham tu choi toan
+            # bo field khong 'str', khien meta_format_test build fail.
+            attr_node = mk3('attr', o_str(obj_name), o_str(attr_name))
+            ctx.compile_expr(attr_node, scope, out, f_dtype, ctx)
+            emit_to_str(f_dtype, out, ctx)
+        else:
+            raise SyntaxError(
+                "il_codegen: getattr(" + obj_name + ", '" + attr_name +
+                "') - hien CHI ho tro truong vo huong (str/so), truong nay "
+                "kieu " + repr(f_dtype) + " shape " + repr(f_shape) +
+                ". Doc thang '" + obj_name + "." + attr_name +
+                "' thay vi dung getattr()")
+    elif default_arg is not None:
+        # Default cung phai thanh CHUOI vi return dtype cua getattr dinh la
+        # 'str'. Hang so so thi bien dich theo kieu cua no roi emit_to_str;
+        # chuoi literal thi day thang.
+        if la_node(default_arg) and ekind(default_arg) == 'num':
+            _d = 'f64' if '.' in ea_str(default_arg) else 'i32'
+            ctx.compile_expr(default_arg, scope, out, _d, ctx)
+            emit_to_str(_d, out, ctx)
+        else:
+            ctx.compile_expr(default_arg, scope, out, dtype, ctx)
+    else:
+        raise SyntaxError(f"il_codegen: record '{obj_ta.dtype}' khong co field '{attr_name}' va khong co default")
+
+
+def push_callable_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`callable(x)` -> 1 neu x la HAM, 0 neu khong (giong Python).
+
+    TokenVector la AOT: kieu cua bien biet LUC BIEN DICH nen tra loi ngay o
+    bien dich, khong can doi gia tri runtime.
+
+    PORT tu compiler/il_features/metaprogramming.tkv L267. Dung `shape_ten`
+    chu khong phai `.shape`: xem ghi chu o push_getattr_builtin - `shape_ten`
+    la "" khi VO HUONG, con `.shape` tra None. Do day la ham moi them vao
+    duong TokenVector (truoc day module nay chi port hasattr/getattr nen
+    `callable` MISSING_BUILTIN trong reflection_test)."""
+    ensure_class_int(ctx)
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: callable(x) nhan dung 1 tham so")
+    node = args[0]
+    if ekind(node) != 'var':
+        raise SyntaxError(
+            "il_codegen: callable(x) - x phai la BIEN dang co kieu, vi kieu la "
+            "thu biet duoc o bien dich (AOT). Hay gan bien truoc: "
+            "`f2 = my_func; callable(f2)`")
+    name = ea_str(node)
+    if name not in scope:
+        raise SyntaxError(f"il_codegen: bien '{name}' chua duoc khai bao")
+    ta = scope.tra(name).ta
+    if ta.shape_ten == 'func':
+        out.append('    ldc.i4.1')
+    else:
+        out.append('    ldc.i4.0')
+
+def _var_ta_mp(args: "list[TkvNode]", scope: "Scope", what: "str") -> "(str,TypeAnn)":
+    """Tham so 1 phai la 1 BIEN da khai bao. Tra (ten, TypeAnn).
+
+    PORT tu compiler/il_features/metaprogramming.tkv L253. Dung `ekind`/`ea_str`
+    va `scope.tra(name).ta` thay cho `node[0]`/`node[1]`/`scope[name]`."""
+    if len(args) != 1 or ekind(args[0]) != 'var':
+        raise SyntaxError(
+            "il_codegen: " + what + "(x) - tham so phai la 1 BIEN da khai bao "
+            "(vd " + what + "(xs)), khong nhan bieu thuc tai day")
+    name = ea_str(args[0])
+    if name not in scope:
+        raise SyntaxError("il_codegen: bien '" + name + "' chua duoc khai bao")
+    return (name, scope.tra(name).ta)
+
+def _field_names_mp(records: "dict[str,list[(str,TypeAnn)]]", rec_name: "str") -> "list[str]":
+    """Ten truong cua 1 record.
+
+    PORT tu compiler/il_features/metaprogramming.tkv L244. KHONG port nhanh
+    `isinstance(raw, list)` cua ban bootstrap: `isinstance` CHUA duoc dang ky
+    tren duong TokenVector (0 khop o il_core/il_dispatch/il_codegen). O day
+gia tri cua `records` LUON la list (xem ghi chu o push_getattr_builtin:
+    "gia tri LUON la list"), nen chi can duyet truc tiep.
+
+    KHONG giu `records[rec_name]` vao bien tam `raw` roi duyet `raw`: bien do
+    duoc gan bang `[]` o tren nen suy kieu thanh `list[?]` va `f[0]` sau do
+    hong - loi "'f' khong phai list/dict/string/mang". Duyet `records[rec_name]`
+    truc tiep, y het push_getattr_builtin L89-90, moi chay duoc."""
+    names: "list[str]" = []
+    if records and rec_name in records:
+        for f in records[rec_name]:
+            names.append(f[0])
+    return names
+
+def push_dir_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`dir(o)` -> List<string> ten truong + method cua record `o`.
+
+    Danh sach BIET LUC BIEN DICH (compiler da phai khai bao record truoc) nen
+    sinh san `List<string>` thay vi do khoi tao luc chay.
+
+    PORT tu compiler/il_features/metaprogramming.tkv L288. Ba khu: doc
+    `ctx.records` (bat buoc, ctx la attribute-holder o day, KHONG phai dict),
+    dung `list(record_methods[...].keys())` roi `sorted` (ham `sorted` chi
+    nhan bare name), va `.ctor()` KHONG tham so - dua `ldc.i4 len(names)` se
+    thua -> InvalidProgramException (da gap o ban bootstrap)."""
+    name, ta = _var_ta_mp(args, scope, 'dir')
+    records = ctx.records
+    record_methods = ctx.record_methods
+    names = list(_field_names_mp(records, ta.dtype))
+    mn: "list[str]" = []
+    if record_methods and ta.dtype in record_methods:
+        mn = list(record_methods[ta.dtype].keys())
+    names += sorted(mn)
+    if len(names) == 0:
+        raise SyntaxError(
+            "il_codegen: dir(" + name + ") - '" + name + "' co kieu '" + ta.dtype +
+            "' khong co truong/method nao; dir() chi ap dung cho record da khai bao")
+    list_il = il_list_type('str', ctx.records)
+    out.append('    newobj instance void ' + list_il + '::.ctor()')
+    for nm in names:
+        out.append('    dup')
+        out.append('    ldstr "' + nm + '"')
+        out.append('    callvirt instance void ' + list_il + '::Add(!0)')
+
+def _fnv1a_64(s: "str") -> "i64":
+    """FNV-1a 64-bit tren UTF-8 cua `s`. Dung cho `hash()` cua chuoi.
+    KHONG dung `String.GetHashCode()` cua .NET: ham do BI NGAU NHIEN THEO
+    TIEN TRINH, cung mot chuoi se ra so khac giua 2 lan chay - trai voi
+    Python (hash o dinh). Tinh san o bien dich nen chi ap dung cho LITERAL.
+
+    PORT tu compiler/il_features/metaprogramming.tkv L332. HAI khac biet,
+    ca hai da probe tren dist/tkvc-tv.exe (2026-10-05):
+
+    1. KHONG dung `s.encode('utf-8')`. Tren duong TokenVector `.encode(...)`
+       CHI chap nhan bien kieu RECORD - goi tren chuoi ra loi bien dich
+       ("chi dung duoc tren bien kieu record"). Nen vong lap nay lay
+       `ord(ch)` truc tiep. HIEU LUC: voi CHUOI ASCII ket qua Y HET bootstrap
+       (1 byte = 1 ord); voi chuoi co ky tu > 127 thi KHAC - bootstrap hash
+       theo byte UTF-8, ban nay theo CODE POINT. Da ghi ro o REFERENCE.md.
+
+    2. He so 14695981039346656037 VA 18446744073709551615 (2^64-1) VUOT
+       Int32.MaxValue - nhung Literal int cua TokenVector la so KHUONG
+       (struct TkvInt), khong phai i64, nen viet duoc truc tiep. Da probe:
+       FNV-1a-64("abc") = 0x0E71FA2190541574B, DUNG vector chuan. Phe `&`
+       tren gia tri vuot i64 bi cat cung CHINH XAC mod 2^64 (da doi chieu
+       voi BigInteger) nen buoc mask nay la dung, khong phai loi."""
+    h = 14695981039346656037
+    p = 1099511628211
+    m = 18446744073709551615
+    for ch in s:
+        h = (h ^ ord(ch)) & m
+        h = (h * p) & m
+    if h >= 9223372036854775808:
+        return h - 18446744073709551616
+    return h
+
+def push_hash_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`hash(x)` -> i64.
+    - So nguyen: giong Python - tra CHINH gia tri (`hash(42)` = 42).
+    - Chuoi LITERAL: FNV-1a 64-bit - o dinh giua cac lan chay nen DUNG DUOC
+      de lam khoa/kiem tra, nhung KHONG dung de khop so voi Python (Python
+      dung SipHash co khoa muoi, doi moi lan chay).
+    - Bien chuoi / container: bao loi ro.
+
+    PORT tu compiler/il_features/metaprogramming.tkv L345. Dung if/elif/else
+    thay cho `return` rong giua ham (giong phong cach cac ham push_* khac
+    trong file nay), va `shape_ten` thay cho `.shape`."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: hash(x) nhan dung 1 tham so")
+    node = args[0]
+    kind = ekind(node)
+    if kind == 'str_lit':
+        lit = ea_str(node)
+        raw = lit[1:-1]
+        out.append('    ldc.i8 ' + str(_fnv1a_64(raw)))
+    elif kind == 'num':
+        txt = ea_str(node)
+        if '.' in txt or 'e' in txt.lower():
+            raise SyntaxError(
+                "il_codegen: hash(<so thuc>) - Python hash theo gia tri bit "
+                "(hash(1.0) = hash(1)); TokenVector chi ho tro so nguyen")
+        out.append('    ldc.i8 ' + txt)
+    elif kind == 'neg':
+        out.append('    ldc.i8 -' + ea_str(ea_nut(node)))
+    elif kind == 'var':
+        vname = ea_str(node)
+        if vname not in scope:
+            raise SyntaxError("il_codegen: bien '" + vname + "' chua duoc khai bao")
+        vta = scope.tra(vname).ta
+        if vta.dtype == 'str':
+            raise SyntaxError(
+                "il_codegen: hash(" + vname + ") - bien chuoi chua ho tro: phai "
+                "tinh tren byte luc CHAY ma bien dich chi sinh IL co so bien dich. "
+                "Dung chuoi LITERAL: hash(\"abc\")")
+        if vta.shape_ten != "":
+            raise SyntaxError(
+                "il_codegen: hash(" + vname + ") - khong hash duoc container "
+                "(shape=" + repr(vta.shape_ten) + "); Python cung nem TypeError")
+        ctx.compile_expr(node, scope, out, 'i64', ctx)
+    else:
+        raise SyntaxError(
+            "il_codegen: hash(x) - x phai la so nguyen, chuoi LITERAL, hoac bien")
+
+def push_ascii_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`ascii(s)` -> chuoi voi ky tu > 127 viet dang `\\xNN` (giong Python).
+    CHI nhan CHUOI LITERAL (tinh luc bien dich).
+
+    PORT tu compiler/il_features/metaprogramming.tkv L383. KHONG dung
+    `'\\\\x%02x' % ord(ch)` nhu ban bootstrap: tren tkvc-tv, `%` CO SPEC DO
+    RONG khong phai no-op ma SAI AM THAM - in ra nguyen chuoi format, build
+    van xanh, exit 0 (da probe, xem REFERENCE.md §5.6). Thay bang f-string
+    `f"\\\\x{ord(ch):02x}"`, da probe DUNG tren ca hai compiler."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: ascii(s) nhan dung 1 tham so")
+    node = args[0]
+    if ekind(node) != 'str_lit':
+        raise SyntaxError(
+            "il_codegen: ascii(s) - chi nhan CHUOI LITERAL (vd ascii(\"abc\")); "
+            "voi bien chuoi se phai quet tung ky tu luc chay")
+    raw = ea_str(node)
+    raw = raw[1:-1]
+    esc = "".join(ch if ord(ch) < 128 else f"\\x{ord(ch):02x}" for ch in raw)
+    out.append("    ldstr \"'" + esc + "'\"")
+
+def push_delattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`delattr(o, "x")` -> bao loi BIEN DICH, khong tao gia tri gia.
+    KHONG thuc hien duoc: field cua record la FIELD CUA STRUCT, so luong va vi
+    tri da chot luc bien dich - khong the xoa ma giu nguyen phan tu. `del xs[i]`
+    (mien container) thi lam duoc.
+
+    PORT tu compiler/il_features/metaprogramming.tkv. Ham nay LUON nem loi,
+    nhung van phai dang ky: neu khong co ten trong bang thi loi bao "ham 'delattr'
+    khong ton tai" - sai ngu nghia, tro thanh bao day."""
+    if len(args) != 2:
+        raise SyntaxError(
+            "il_codegen: delattr(o, attr_name) nhan 2 tham so (nhan " + str(len(args)) + ")")
+    raise SyntaxError(
+        "il_codegen: delattr(o, \"x\") chua ho tro - field cua record la field "
+        "CUA STRUCT, so luong chot luc bien dich nen khong xoa duoc. Muon xoa "
+        "phan tu container thi dung `del xs[i]` (hieu nghia giong Python)")
+
+def push_id_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`id(x)` -> so nguyen danh tinh. Dung `RuntimeHelpers.GetHashCode` -
+    gia tri NAO DAO, khong cam khi on dinh giua hai lan chay (Python cung vay).
+    Tham so phai la BIEN: len(int literal) khong co y nghia gi trong Python
+    (`id(3)` tra so moi lan), nen tu choi de khong tao cam giac sai.
+
+    PORT tu compiler/il_features/metaprogramming.tkv. Ba khac biet, ca hai da
+    kiem chung tren dist/tkvc-tv.exe:
+    - Dung `ctx.load_var_ref(name, scope, out)` de lay lenh ldloc/ldarg.
+      Ban bootstrap tu phai boc `kind, idx, _ta = scope[name]` va ghep
+      chuoi IL "ldloc.s"/"ldarg.s" - `scope[name]` KHONG ton tai tren duong
+      TokenVector. Day la ham chuan de nap bien (xem il_core.emit_index_value).
+    - Dung `ta.shape_ten` thay cho `ta.shape` (shape_ten la "" khi vo huong).
+    - `IL_SCALAR` lay tu `il_core` (module thap) thay vi tu il_codegen - tranh
+      vong import."""
+    name, ta = _var_ta_mp(args, scope, 'id')
+    ctx.load_var_ref(name, scope, out)
+    if ta.shape_ten == "":
+        scalar_il = IL_SCALAR.get(ta.dtype)
+        if scalar_il is None:
+            raise SyntaxError(
+                "il_codegen: id(" + name + ") - kieu '" + ta.dtype + "' khong co ban do IL")
+        out.append('    box ' + scalar_il)
+    out.append('    call int32 [mscorlib]System.Runtime.CompilerServices'
+               '.RuntimeHelpers::GetHashCode(object)')
+
+def push_setattr_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`setattr(obj, "attr", value)` - gan field record (ATTR_ASSIGN ben duoi).
+
+    Khong co runtime reflection duoc vi record la reference type phat sinh
+    luc bien dich; `attr` phai la chuoi LITERAL de truy cap DUNG field."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: setattr(obj, attr_name, value) nhan dung 3 tham so")
+    obj_arg, attr_arg, value_arg = args[0], args[1], args[2]
+    if ekind(obj_arg) != 'var':
+        raise SyntaxError("il_codegen: setattr(obj, attr_name, value) can tham so 1 la 1 bien")
+    obj_name = ea_str(obj_arg)
+    if obj_name not in scope:
+        raise SyntaxError("il_codegen: bien '" + obj_name + "' chua duoc khai bao")
+    obj_ta = scope.tra(obj_name).ta
+    attr_name = None
+    if la_node(attr_arg) and eso_o(attr_arg) >= 2:
+        attr_name = str(ea_str(attr_arg)).strip('"\'')
+    if attr_name is None:
+        raise SyntaxError(
+            "il_codegen: setattr(obj, attr_name, value) - attr_name phai la "
+            "CHUOI LITERAL (vi du setattr(o, \"x\", 5)).")
+    records = ctx.records
+    fd_ta = None
+    for f in records[obj_ta.dtype]:
+        if f[0] == attr_name:
+            fd_ta = f[1]
+    if fd_ta is None:
+        raise SyntaxError(
+            "il_codegen: record '" + obj_ta.dtype + "' khong co field '" +
+            attr_name + "' nen setattr khong gan duoc. Python nem AttributeError.")
+    ctx.load_var_ref(obj_name, scope, out)
+    owner = _field_owner_class(ctx, obj_ta.dtype, attr_name)
+    field_il = ctx.il_ident(attr_name)
+    if fd_ta.la_vo_huong():
+        ctx.compile_expr(value_arg, scope, out, fd_ta.dtype, ctx)
+        out.append('    stfld ' + IL_SCALAR[fd_ta.dtype] + ' ' + owner + '::' + field_il)
+    else:
+        ctx.compile_expr(value_arg, scope, out, fd_ta.dtype, ctx)
+        out.append('    stfld ' + ctx.il_type_str(fd_ta, records) + ' ' + owner + '::' + field_il)
+    # Python setattr tra None; ATV giu con so 0 lam ket qua bieu thuc (khong
+    # co kieu None ben tren stack).
+    out.append('    ldc.i4.0')
+
+
+def bootstrap_metaprogramming(reg: "Registry") -> "i32":
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh giong moi bootstrap_<module>() khac. Truoc day
+    cac loi goi nay nam o CAP MODULE va con dung chu ky cu (thieu
+    tham so `reg`) - phep kiem cua P6 chi quet cay .py nen khong
+    nhin thay file CHI-CO-TKV nay.
+    """
+    register_expr_builtin(reg, 'hasattr', push_hasattr_builtin, 'i32')
+    # return dtype CO DINH 'str' - day la GIOI HAN THAT, khong phai bo sot:
+    # kieu tra ve cua getattr phu thuoc tung truong, ma bang nay chi nhan
+    # MOT dtype. push_getattr_builtin chan truong khong phai 'str'.
+    register_expr_builtin(reg, 'getattr', push_getattr_builtin, 'str')
+    register_expr_builtin(reg, 'setattr', push_setattr_builtin, 'i32')
+    # callable: AOT - kieu cua bien biet luc bien dich, nen chi can day
+    # 0/1. Khong phai bien thi tra loi SOM o bien dich chu khong doi gia tri
+    # runtime. Day la builtin thu 3 cua module, da bi bo sot khi port
+    # (module TokenVector chi co hasattr/getattr - 143 dong so voi 434 dong
+    # o bootstrap).
+    # DANG KY 'i32' CHU KHONG PHAI 'bool' (2026-10-05): `str()` cua 'bool' in
+    # "True"/"False" con cua 'i32' in "1"/"0", va reflection_test kiem
+    # str(callable(f)) == "1". Do do 3/3 check callable FAIL khi ta dang ky
+    # 'bool' - xanh y het khi doi lai 'i32', dung nhu ban bootstrap.
+    register_expr_builtin(reg, 'callable', push_callable_builtin, 'i32')
+    # hash tra i64. KHONG phai i32: giá trị FNV-1a-64 chuỗi vượt Int32.MaxValue
+    # rất nhiều (offset basis đã là 1.4e19).
+    register_expr_builtin(reg, 'hash', push_hash_builtin, 'i64')
+    register_expr_builtin(reg, 'ascii', push_ascii_builtin, 'str')
+    register_expr_builtin(reg, 'delattr', push_delattr_builtin, 'i32')
+    register_expr_builtin(reg, 'id', push_id_builtin, 'i32')
+    # `dir` tra CONTAINER nen can return_ta (dtype phan tu + shape), khong
+    # dung return_dtype (chi dung cho gia tri vo huong).
+    register_expr_builtin(reg, 'dir', push_dir_builtin, None,
+                          return_ta=TypeAnn('str', 'list'),
+                          return_ta_dtype='str', return_ta_shape='list')
+    return 0

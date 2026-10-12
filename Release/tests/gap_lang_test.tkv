@@ -1,0 +1,101 @@
+# -*- coding: utf-8 -*-
+# Vong do "mien CHUA BIET" (2026-09-30) - PHAN 1: chuoi, dict/set, so, gan.
+#
+# Nhung thu sau DA DUNG va khop CPython, truoc day CHUA CO phep thu nao nen
+# khong ai duoc bao nham la bug. Gia tri ky vong lay truc tiep tu CPython.
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def pick(c: "bool") -> "str":
+    if c:
+        return "True"
+    return "False"
+
+
+class Box:
+    v: "i32"
+
+    def __init__(self, v: "i32"):
+        self.v = v
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    # --- method chuoi ---
+    s = "banana"
+    tested = tested + 1
+    total = total + check("count", str(s.count("a")), "3")
+    t2 = "42"
+    tested = tested + 1
+    total = total + check("zfill", t2.zfill(5), "00042")
+    t3 = "hello world"
+    tested = tested + 1
+    total = total + check("title", t3.title(), "Hello World")
+    t4 = "ab"
+    tested = tested + 1
+    total = total + check("ljust", t4.ljust(5, "."), "ab...")
+    tested = tested + 1
+    total = total + check("center", t4.center(6, "-"), "--ab--")
+    t5 = "xxabc"
+    tested = tested + 1
+    total = total + check("lstrip_chars", t5.lstrip("x"), "abc")
+    t6 = "abcdef"
+    sl = t6[::2]
+    tested = tested + 1
+    total = total + check("slice_step", sl, "ace")
+
+    # --- dict/set ---
+    d = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+    ks = d.keys()
+    order = ""
+    for k in ks:
+        order = order + k + ","
+    tested = tested + 1
+    total = total + check("dict_order", order, "one,two,three,four,five,")
+    items_out = ""
+    for k, v in d.items():
+        items_out = items_out + k + str(v)
+    tested = tested + 1
+    total = total + check("items_loop", items_out, "one1two2three3four4five5")
+    vs = d.values()
+    tested = tested + 1
+    total = total + check("values_len", str(len(vs)), "5")
+
+    # --- so ---
+    n1 = 2147483647
+    n1 += 1
+    tested = tested + 1
+    total = total + check("i32_overflow_promote", str(n1), "2147483648")
+    acc = 0.0
+    for i in range(10):
+        acc = acc + 0.1
+    tested = tested + 1
+    total = total + check("float_accum", str(acc), "0.9999999999999999")
+    tested = tested + 1
+    total = total + check("bool_add", str(True + True), "2")
+
+    # --- gan tang / gan nhieu bien ---
+    b = Box(1)
+    b.v += 5
+    tested = tested + 1
+    total = total + check("attr_augassign", str(b.v), "6")
+    m = 10
+    m -= 3
+    m *= 2
+    tested = tested + 1
+    total = total + check("sub_mul", str(m), "14")
+    # KHONG kiem `a = b = 7` o day: linter (syntax_baseline) canh bao "multiple-
+    # target assignment chua ho tro". Noi dung co chay duoc voi --no-lint va ra
+    # dung gia tri, NHUNG do la cong chay co --no-lint chu khong phai ho tro
+    # da duoc cam ket - nen chua duoc phep vao test.
+
+    # --- bieu thuc ---
+    wn = 0
+    if (wnv := 5) > 3:
+        wn = wnv
+    tested = tested + 1
+    total = total + check("walrus", str(wn), "5")
+
+    return test_summary("gap_lang_test", total, tested)

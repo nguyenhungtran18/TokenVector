@@ -1,0 +1,103 @@
+# -*- coding: utf-8 -*-
+# Nhom ham PHAI CHIEU: callable, dir, id, hash, ascii - bo sung 2026-09-30.
+# `delattr` co y dinh bao loi bien dich (xem negative/).
+#
+# GHI NHU PHAN BIET SO VOI PYTHON (da kiem bang CPython):
+#  - `callable` tra i32 nen in "1"/"0", Python in "True"/"False" - CUNG NGHIA.
+#  - `dir(o)` chi liet ke TEN MA TOKENVECTOR CO (truong + method cua record).
+#    Python tra 32 ten (dam `__init__`, `__class__`...) - TokenVector khong co
+#    nhung thu do.
+#  - `hash("chuoi")` KHAC PYTHON: TKV dung FNV-1a (o dinh), Python dung
+#    SipHash co khoa muoi. Chi dung de can hash O DINH giua cac lan chay,
+#    KHONG dung de so sanh so voi Python. `hash(so nguyen)` thi giong het.
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class P:
+    x: "i32"
+    s: "str"
+
+    def total(self) -> "i32":
+        return self.x
+
+
+def helper(n: "i32") -> "i32":
+    return n
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+    o = P(1, "a")
+    f: "func(i32) -> i32" = helper
+    n = 5
+
+    # --- callable ---
+    c1 = callable(f)
+    tested = tested + 1
+    total = total + check("callable_func", str(c1), "1")
+    c2 = callable(n)
+    tested = tested + 1
+    total = total + check("callable_int", str(c2), "0")
+    c3 = callable(o)
+    tested = tested + 1
+    total = total + check("callable_record", str(c3), "0")
+
+    # --- dir: 2 truong + 1 method ---
+    names = dir(o)
+    tested = tested + 1
+    total = total + check("dir_len", str(len(names)), "3")
+    found_x = 0
+    found_total = 0
+    for i in range(len(names)):
+        one = names[i]
+        if one == "x":
+            found_x = 1
+        if one == "total":
+            found_total = 1
+    tested = tested + 1
+    total = total + check("dir_has_field", str(found_x), "1")
+    tested = tested + 1
+    total = total + check("dir_has_method", str(found_total), "1")
+
+    # --- hash: so nguyen giong het Python ---
+    hn = hash(42)
+    tested = tested + 1
+    total = total + check("hash_int_literal", str(hn), "42")
+    hv = hash(n)
+    tested = tested + 1
+    total = total + check("hash_int_var", str(hv), "5")
+
+    # --- hash chuoi: FNV-1a, O DINH (chay 2 lan cung ket qua) ---
+    hs1 = hash("abc")
+    hs2 = hash("abc")
+    tested = tested + 1
+    total = total + check("hash_str_stable", str(hs1), str(hs2))
+
+    # --- ascii: boc dau nhay nhu Python (ascii() = repr()) ---
+    a1 = ascii("abc")
+    tested = tested + 1
+    total = total + check("ascii_plain", str(a1), "'abc'")
+    tested = tested + 1
+    total = total + check("ascii_plain_len", str(len(a1)), "5")
+    first_quote = a1[0] == "'"
+    tested = tested + 1
+    total = total + check("ascii_has_quote", str(first_quote), "True")
+    # GHI CHU: duong escape ky tu > 127 CHUA duoc xac nhan bang file .tkv vi
+    # byte UTF-8 cua ky tu non-ASCII phu thuoc cach doc file cua compiler.
+    # Khong ghim phep tinh nay vao Testkit - neu lai doan se lai ghi sai.
+    # Xem `docs/REFERENCE.md` muc 7.10.
+
+    # --- id: khac 0, va KHAC id cua doi tuong khac ---
+    # `str(<so sanh>)` in "True"/"False" (khong phai "1"/"0") - xem CLAUDE.md
+    k1 = id(o)
+    nonzero = k1 != 0
+    tested = tested + 1
+    total = total + check("id_nonzero", str(nonzero), "True")
+    o2 = P(2, "b")
+    k2 = id(o2)
+    different = k1 != k2
+    tested = tested + 1
+    total = total + check("id_differs", str(different), "True")
+
+    return test_summary("reflection_test", total, tested)

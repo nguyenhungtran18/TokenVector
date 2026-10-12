@@ -1,0 +1,91 @@
+
+Microsoft (R) .NET Framework IL Assembler.  Version 4.8.9105.0
+Copyright (c) Microsoft Corporation.  All rights reserved.
+Assembling 'tools\vong.il'  to EXE --> 'tools\vong.exe'
+Source file is ANSI
+
+Assembled method TkvInt::FromI64
+Assembled method TkvInt::FromStr
+Assembled method TkvInt::FromBig
+Assembled method TkvInt::ToBig
+Assembled method TkvInt::AddSlow
+Assembled method TkvInt::SubSlow
+Assembled method TkvInt::MulSlow
+Assembled method TkvInt::Cmp
+Assembled method TkvInt::Str
+Assembled method TkvInt::ToI32
+Assembled method TkvInt::ToI64
+Assembled method TkvInt::ToF64
+Assembled method TkvInt::CompareTo
+Assembled method TkvInt::CompareTo
+Assembled method TkvInt::FloorDiv
+Assembled method TkvInt::Mod
+Assembled method TkvInt::Pow
+Assembled method TkvInt::Neg
+Assembled method TkvInt::Add
+Assembled method TkvInt::Abs
+Assembled method TkvInt::FromF64
+Assembled method TkvInt::IsZero
+Assembled method TkvInt::BitAnd
+Assembled method TkvInt::BitOr
+Assembled method TkvInt::BitXor
+Assembled method TkvInt::Shl
+Assembled method TkvInt::Shr
+Assembled method TkvStr::I32
+Assembled method TkvStr::I64
+Assembled method TkvStr::Bool
+Assembled method TkvStr::F64
+Assembled method TkvStr::F32
+Assembled method TkvStr::Post
+Assembled method TkvStr::Expand16
+Assembled method TkvStr::ParseF64
+Assembled method TkvStr::Replace
+Assembled method TkvStr::ReplaceCount
+Assembled method TkvStr::RFind
+Assembled method TkvStr::IsDigit
+Assembled method TkvStr::IsAlpha
+Assembled method TkvStr::IsAlnum
+Assembled method TkvStr::IsSpace
+Assembled method TkvSlice::Norm
+Assembled method TkvSlice::Cnt
+Assembled method TkvSlice::NegNorm
+Assembled method TkvSlice::Lo
+Assembled method TkvSlice::Hi
+Assembled method TkvSlice::StepL
+Assembled method TkvSlice::RepL
+Assembled method TkvSlice::StepS
+Assembled method TkvProc::Chay
+Assembled method TkvProc::ChayRa
+Assembled method TKVApp::gop_nguon
+Assembled method TKVApp::dich
+Assembled method TKVApp::main
+Assembled method TKVApp::Main
+Creating PE file
+
+Emitting classes:
+Class 1:	TkvInt
+Class 2:	TkvStr
+Class 3:	TkvSlice
+Class 4:	TkvProc
+Class 5:	TKVApp
+
+Emitting fields and methods:
+Global 	
+Class 1	Fields: 2;	Methods: 27;	
+Class 2	Methods: 15;	
+Class 3	Methods: 8;	
+Class 4	Methods: 2;	
+Class 5	Methods: 4;	
+Resolving local member refs: 128 -> 128 defs, 0 refs, 0 unresolved
+
+Emitting events and properties:
+Global 	
+Class 1	
+Class 2	
+Class 3	
+Class 4	
+Class 5	
+Method Implementations (total): 2
+Resolving local member refs: 0 -> 0 defs, 0 refs, 0 unresolved
+Writing PE file
+Operation completed successfully

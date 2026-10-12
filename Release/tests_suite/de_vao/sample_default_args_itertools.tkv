@@ -1,0 +1,65 @@
+"""Default/kwarg-style args + enumerate()/zip() (Wave 2, 2026-07-29).
+Default args: CHI literal so/chuoi (khong tham chieu bien), tham so co
+default phai o CUOI danh sach (giong Python). enumerate()/zip(): macro
+text-level (xem il_features/stdlib_itertools.py), desugar ve for-range
++ index co san - enumerate Gemini viet dung ngay, zip Gemini tu choi
+doan min() (khong co built-in), Claude thay bang ternary co san."""
+
+
+def add_with_default(a: "i32", b: "i32" = 10) -> "i32":
+    return a + b
+
+
+def call_add_omit(a: "i32") -> "i32":
+    return add_with_default(a)
+
+
+def call_add_full(a: "i32", b: "i32") -> "i32":
+    return add_with_default(a, b)
+
+
+def greet_default(name: "str", greeting: "str" = "Hello") -> "str":
+    return greeting + ", " + name
+
+
+def call_greet_omit(name: "str") -> "str":
+    return greet_default(name)
+
+
+def sum_enumerate() -> "i32":
+    lst = []
+    lst.append(10)
+    lst.append(20)
+    lst.append(30)
+    total = 0
+    for i, x in enumerate(lst):
+        total = total + x + i
+    return total
+
+
+def sum_zip_shorter_first() -> "i32":
+    a = []
+    a.append(1)
+    a.append(2)
+    b = []
+    b.append(100)
+    b.append(200)
+    b.append(300)
+    total = 0
+    for x, y in zip(a, b):
+        total = total + x + y
+    return total
+
+
+def sum_zip_shorter_second() -> "i32":
+    a = []
+    a.append(1)
+    a.append(2)
+    a.append(3)
+    b = []
+    b.append(100)
+    b.append(200)
+    total = 0
+    for x, y in zip(a, b):
+        total = total + x + y
+    return total

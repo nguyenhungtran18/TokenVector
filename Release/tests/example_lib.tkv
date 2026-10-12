@@ -1,0 +1,14 @@
+# -*- coding: utf-8 -*-
+"""VI DU thu vien/engine .tkv se viet trong tuong lai (thay the bang file
+that cua ban) - chi de minh hoa quy trinh test CHUAN trong
+Testkit/README.md."""
+
+
+def add_numbers(a: "i32", b: "i32") -> "i32":
+    return a + b
+
+
+def is_even(n: "i32") -> "i32":
+    if n % 2 == 0:
+        return 1
+    return 0

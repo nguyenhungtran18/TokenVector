@@ -1,0 +1,30 @@
+def fmt(x: "f64") -> "str":
+    return str(x)
+
+
+def fmt_expr(a: "f64", b: "f64") -> "str":
+    return str(a + b)
+
+
+def fmt_int(n: "i32") -> "str":
+    return str(n * 2)
+
+
+def show(x: "f64") -> "i32":
+    print(x)
+    print("gia tri:", x)
+    print(1, 2.5, "ba")
+    return 0
+
+
+def run(what: "str", v: "str") -> "str":
+    x = float(v)
+    if what == "fmt":
+        return fmt(x)
+    if what == "expr":
+        return fmt_expr(x, x)
+    if what == "negzero":
+        return str(0.0 * x)
+    if what == "int":
+        return fmt_int(int(v))
+    return "?"

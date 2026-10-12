@@ -1,0 +1,9 @@
+def sum2(a: "i32", b: "i32") -> "i32":
+    total = a + b
+    return total
+
+
+def run() -> "i32":
+    r = sum2(3, 4)
+    print("result=" + str(r))
+    return 0

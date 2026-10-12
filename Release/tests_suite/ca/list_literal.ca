@@ -1,0 +1,10 @@
+tests_suite\de_vao\sample_list_literal.tkv	int_list_sum	0	0	6\n
+tests_suite\de_vao\sample_list_literal.tkv	int_list_sum	0	1	7\n
+tests_suite\de_vao\sample_list_literal.tkv	int_list_sum	0	5	11\n
+tests_suite\de_vao\sample_list_literal.tkv	float_list_sum	0	0	7.5\n
+tests_suite\de_vao\sample_list_literal.tkv	float_list_sum	0	1	8.5\n
+tests_suite\de_vao\sample_list_literal.tkv	float_list_sum	0	5	12.5\n
+tests_suite\de_vao\sample_list_literal.tkv	str_list_pick	0	0	alpha\n
+tests_suite\de_vao\sample_list_literal.tkv	str_list_pick	0	1	beta\n
+tests_suite\de_vao\sample_list_literal.tkv	str_list_pick	0	2	gamma\n
+tests_suite\de_vao\sample_list_literal.tkv	str_list_pick	0	5	gamma\n

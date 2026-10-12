@@ -1,0 +1,19 @@
+# -*- coding: utf-8 -*-
+"""Phase C.2 (2026-07-29) - def long BEN TRONG 1 def long khac (2 tang),
+khong phai nhieu def song song."""
+
+
+def make_deep(a_param: "i32") -> "i32":
+    a = a_param
+
+    def mid(b_param: "i32") -> "i32":
+        nonlocal a
+        b = b_param
+
+        def inner(c: "i32") -> "i32":
+            nonlocal a, b
+            return a + b + c
+
+        return inner(10)
+
+    return mid(1)

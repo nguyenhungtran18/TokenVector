@@ -1,0 +1,14 @@
+# -*- coding: utf-8 -*-
+"""Lambda 1 bieu thuc truyen truc tiep lam tham so 'func' (A2, 2026-07-29) -
+xem project-tokenvector-wave2-status memory. CHI ho tro lambda KHONG bat
+bien ngoai (0 free variable) - kieu tham so/tra ve suy HOAN TOAN tu chu ky
+'func' cua tham so dang cho (apply's 'f'), lambda khong can/khong the ghi
+chu thich kieu rieng."""
+
+
+def apply(f: "func(i32) -> i32", x: "i32") -> "i32":
+    return f(x)
+
+
+def demo_lambda_arg() -> "i32":
+    return apply(lambda x: x * 2 + 1, 10)

@@ -1,0 +1,710 @@
+# -*- coding: utf-8 -*-
+"""Lexer + recursive-descent parser cho chu ky ham co kieu/shape, ke thua
+dung phong cach cua recursive_ternary_parser.py (khong dung regex-per-line
+nhu symbol_transpiler.py, vi ngoac vuong long + danh sach so la dung lop
+bai toan ma regex da chung minh yeu).
+
+Ngu phap (Phase 1 cua plan):
+    typed_sig  := IDENT '(' param_list ')' ('->' type_ann)? ('=>' | ':')
+    param_list := (param (',' param)*)?
+    param      := IDENT ':' type_ann
+    type_ann   := DTYPE ('[' dim_list ']')?
+    dim_list   := NUMBER (',' NUMBER)*
+    DTYPE      := 'f32' | 'f64' | 'i32' | 'i64'
+
+Sau '=>' la 1 bieu thuc don (body_mode='expr', phan con lai cua dong).
+Sau ':' la block-body nhieu dong (body_mode='block'), do CALLER (
+typed_dsl_transpile.py) thu thap cac dong thut le tiep theo - parser nay
+chi chiu trach nhiem cho DONG CHU KY, khong doc than ham nhieu dong.
+"""
+import re
+
+from tkv_pragma import __tkv_cpython_only__
+
+# 'int' (2026-08-05, moc 6 buoc 2) = so nguyen VO HAN CHU SO nhu Python,
+# bieu dien bang struct TkvInt (xem il_features/int_type.py). 'i32'/'i64'
+# giu nguyen y nghia cu (do rong co dinh, tran thi nem OverflowException)
+# - ma .tkv cu khong doi hanh vi.
+# 'match' (P6, 2026-09-08): ket qua khop regex - xem il_features/regex_match.py.
+# Dat THANG trong literal (khong dung DTYPES.add) vi moi lenh cap module la
+# mot rao can bien dich cua chinh TokenVector - dung tinh nang moi ma lam
+# tang con so P6 dang ha thi di nguoc huong.
+DTYPES: "set[str]" = {'f32', 'f64', 'i32', 'i64', 'str', 'int', 'datetime', 'date',
+                      'timedelta', 'complex', 'match', 'inferred'}
+# 'inferred' (Task 2/5, duck-typing-inference, 2026-08-17): dtype dac biet
+# gan boi tkv_compile.py's _params_with_defaults(allow_inferred=True) cho
+# tham so ham top-level THIEU annotation - chi di qua NGUYEN VEN o tang
+# parse nay (khong resolve/validate gi them), Task 3/4 se thay the bang
+# kieu cu the tai call-site (xem il_codegen.py::_expr_call).
+
+# Co NOI TUYEN `(?x)` thay tham so `re.VERBOSE` (2026-09-18): dang co
+# CO lam `_re_compile_pattern` tu choi -> chan phep gop self-host.
+# `(?x)` la cu phap CA .NET Regex LAN Python `re` deu hieu (phai nam
+# NGAY DAU pattern), nen hanh vi khong doi va ban .py van chay duoi
+# CPython y het. DA DOI CHIEU: cung ket qua tren toan kho token.
+TOKEN_RE = re.compile(r'''(?x)
+    \s*(?:
+        (?P<FATARROW>=>)
+      | (?P<ARROW>->)
+      | (?P<STRING>"[^"]*")
+      | (?P<NUMBER>0[xX][0-9A-Fa-f]+|0[oO][0-7]+|0[bB][01]+|\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)
+      | (?P<IDENT>[A-Za-z_]\w*)
+      | (?P<OP>\*\*|[():,\[\]=*-])
+    )
+''')
+
+
+_TOKEN_NHOM: "list[str]" = ['FATARROW', 'ARROW', 'STRING', 'NUMBER', 'IDENT', 'OP']
+
+
+def _nhom_khop(m: "match") -> "str":
+    """Ten nhom da khop - thay `m.lastgroup` (.NET khong co). Phai KHOP voi
+    thu tu nhom trong TOKEN_RE."""
+    for ten in _TOKEN_NHOM:
+        if m.group(ten):
+            return ten
+    return None
+
+
+def tokenize(src: "str") -> "list[(str,str,i32)]":
+    """Tra ve list (kind, value, end_pos). end_pos dung de cat phan body_expr
+    con lai sau '=>' (khong bi tokenize, giu nguyen text goc)."""
+    tokens = []
+    pos = 0
+    while pos < len(src):
+        m = TOKEN_RE.match(src, pos)
+        if not m or m.end() == pos:
+            break  # gap ky tu la (vd bat dau body_expr sau '=>') - dung lai
+        pos = m.end()
+        kind = _nhom_khop(m)
+        if kind:
+            tokens.append((kind, m.group(kind), pos))
+    tokens.append(('EOF', None, pos))
+    return tokens
+
+
+# Ba kieu nen (`TypeAnn`/`Param`/`Signature`) DA TACH sang `tkv_types.py`
+# (2026-09-14) - xem docstring o do: `__tkv_import__` keo CA module, nen de
+# mot file khac dung duoc `TypeAnn` lien file thi module chua no phai bien
+# dich duoc, ma file NAY chua (ham `tokenize` tra tuple 3 phan tu).
+# Import lai de moi cho `from typed_dsl_parser import TypeAnn/...` van chay.
+from tkv_types import TypeAnn, Param, Signature
+from expr_row import ekind, mk1, mk2, o_nut, o_str, num_lit_to_dec
+
+__tkv_import__ = "tkv_types"
+
+
+# BANG BI DANH KIEU (`__tkv_type_alias__`, 2026-09-24) - cap module.
+#
+# VI SAO KHONG luong qua tham so: `_transpile_extracted` da co SAN hai lan
+# vap cung mot lo hong "quen luong tham so xuong" (`extern_class_names` roi
+# `record_bases` - xem chu thich cua no). Bang cap module nay chi phai noi
+# MOT day: `extract_program` goi `dat_bi_danh(...)`, moi cho parse kieu
+# doc duoc ngay, khong cho nao phai nho truyen tiep.
+#
+# QUAN TRONG - SUA TAI CHO, KHONG GAN LAI: `from typed_dsl_parser import
+# _BI_DANH` o noi khac se giu tham chieu cu neu bien nay bi gan lai. Cung
+# canh sac da ghi o `il_extern_dtype._EXTERN_CLASS_DEFS`.
+_BI_DANH: "dict[str,str]" = {}
+
+
+def dat_bi_danh(bang: "dict[str,str]"):
+    """Dat bang bi danh cho chuong trinh DANG dich. Goi mot lan o
+    `extract_program`, truoc moi phep parse kieu.
+
+    Phai DAT LAI moi chuong trinh (y nhu `reset_pool_bieu_thuc`): bi danh
+    cua file truoc con sot lai se lam mot ten bia o file sau LOT LUOI."""
+    _BI_DANH.clear()
+    if bang:
+        _BI_DANH.update(bang)
+
+
+def lay_bi_danh() -> "dict[str,str]":
+    return _BI_DANH
+
+
+def them_bi_danh(bang: "dict[str,str]"):
+    """GOP them bi danh (khong xoa cai da co) - duong `extract_program_file`
+    duyet ca cay `__tkv_import__`, moi file gop phan cua no."""
+    if bang:
+        _BI_DANH.update(bang)
+
+
+class Parser:
+    tokens: "list[(str,str,i32)]"
+    src: "str"
+    i: "i32"
+    record_names: "set[str]"
+    extern_class_names: "set[str]"
+    type_aliases: "dict[str,str]"
+
+    def __init__(self, tokens: "list[(str,str,i32)]", src: "str", record_names: "set[str]"=None, extern_class_names: "set[str]"=None, type_aliases: "dict[str,str]"=None):
+        # Mac dinh None chu khong `frozenset()` - xem parse_typed_signature.
+        if not record_names:
+            record_names = set()
+        if not extern_class_names:
+            extern_class_names = set()
+        if type_aliases is None:
+            type_aliases = lay_bi_danh()
+        self.tokens = tokens
+        self.src = src
+        self.i = 0
+        self.record_names = record_names  # ten cac 'class dang record' da khai bao trong file
+        # extern_class_names (Task 2, extern-class, 2026-08-18): ten cac
+        # handle-type khai bao qua __tkv_extern_class__ trong CUNG file -
+        # chap nhan y het record_names (dtype vo huong, shape rieng), xem
+        # nhanh cuoi parse_type_ann.
+        self.extern_class_names = extern_class_names
+        # type_aliases (`__tkv_type_alias__`, 2026-09-24): ten -> CHUOI KIEU
+        # THAT. Xem docstring cua `parse_type_ann_str`.
+        self.type_aliases = type_aliases
+
+    def peek(self) -> "(str,str,i32)":
+        return self.tokens[self.i]
+
+    def advance(self) -> "(str,str,i32)":
+        tok = self.tokens[self.i]
+        self.i += 1
+        return tok
+
+    def expect(self, kind: "str", value: "str"=None) -> "str":
+        k, v, pos = self.advance()
+        if k != kind or (value is not None and v != value):
+            raise SyntaxError(f"Ky vong {kind} {value!r}, gap {k} {v!r} (vi tri ~{pos})")
+        return v
+
+    def parse_type_ann(self) -> "TypeAnn":
+        """type_ann := DTYPE ('[' dim_list ']')? | '(' DTYPE (',' DTYPE)+ ')'
+        Dang tuple ho tro 2-7 phan tu (ValueTuple`2..`7, xem il_codegen.py)
+        va CHI dung cho RETURN TYPE trong thuc te (tham so kieu tuple duoc
+        chap nhan cu phap nhung chua co codegen doc/dung)."""
+        kind0, value0, _ = self.peek()
+        if kind0 == 'OP' and value0 == '(':
+            self.advance()
+            tas = []
+            while True:
+                # Doc DE QUY, khong con doi dtype VO HUONG. Ly do giong het
+                # nhanh 'func' o tren: chinh cac bang/ham cua compiler tra ve
+                # tuple co phan tu la record/handle (vd `(str, TypeAnn)`) hoac
+                # container - khong dien dat duoc bang tuple toan vo huong.
+                # Phan tu kieu 'func' VAN chua ho tro: codegen tra tuple day
+                # tung phan tu qua compile_expr theo `dtype`, ma 'func' khong
+                # co dtype - can duong ldftn rieng (xem _compile_funcref_arg).
+                tas.append(self.parse_type_ann())
+                k2, v2, _ = self.peek()
+                if k2 == 'OP' and v2 == ',':
+                    self.advance()
+                    continue
+                break
+            self.expect('OP', ')')
+            for _ta in tas:
+                if _ta.shape_ten == 'func':
+                    raise SyntaxError(
+                        "il_codegen: phan tu tuple kieu 'func(...)' chua ho tro "
+                        "(can duong ldftn rieng khi dung tuple) - xem "
+                        "codegen_return_tuple trong il_features/tuple_type.py")
+            dtypes = [t.dtype for t in tas]
+            if not (2 <= len(dtypes) <= 7):
+                raise SyntaxError(
+                    f"il_codegen: tuple type ho tro 2-7 phan tu (ValueTuple`2..`7 co san "
+                    f"trong mscorlib, `8 can TRest long nhau - ngoai pham vi), gap {len(dtypes)}")
+            # Chi dat `tuple_tas` khi THUC SU can (co phan tu khong vo
+            # huong): tuple toan vo huong di y het duong cu.
+            _co_phuc = any([not t.la_vo_huong() for t in tas])
+            return TypeAnn(dtypes[0], 'tuple', tuple_dtypes=dtypes,
+                            tuple_tas=(tas if _co_phuc else None))
+        kind, value, pos = self.advance()
+        if kind == 'IDENT' and value == 'list':
+            self.expect('OP', '[')
+            elem_ta = self.parse_type_ann()
+            self.expect('OP', ']')
+            if elem_ta.la_vo_huong() and elem_ta.elem_ta is None:
+                return TypeAnn(elem_ta.dtype, 'list', logic=elem_ta.logic)
+            else:
+                return TypeAnn(elem_ta.dtype, 'list', elem_ta=elem_ta)
+        if kind == 'IDENT' and value == 'set':
+            # 'set[dtype]' (2026-08-03) - shape 'set' DA co day du trong
+            # codegen (il_set_type, len(), 'x in s', s.add/remove, phep
+            # union/intersection...) nhung CU PHAP CHU THICH thi thieu, nen
+            # khong the khai bao 1 THAM SO/GIA TRI TRA VE kieu set - set chi
+            # song duoc ben trong 1 ham. Phan tu CHI vo huong (set long nhau
+            # khong co y nghia trong .NET: HashSet<T> can T so sanh duoc).
+            self.expect('OP', '[')
+            e_kind, e_val, e_pos = self.advance()
+            if e_kind != 'IDENT' or e_val not in DTYPES:
+                raise SyntaxError(
+                    f"il_codegen: ky vong dtype trong 'set[...]', gap {e_val!r} (vi tri ~{e_pos})")
+            self.expect('OP', ']')
+            return TypeAnn(e_val, 'set')
+        if kind == 'IDENT' and value == 'dict':
+            self.expect('OP', '[')
+            k_kind, k_val, k_pos = self.advance()
+            if k_kind != 'IDENT' or k_val not in DTYPES:
+                raise SyntaxError(f"il_codegen: ky vong key_dtype trong 'dict[...]', gap {k_val!r} (vi tri ~{k_pos})")
+            self.expect('OP', ',')
+            val_ta = self.parse_type_ann()
+            self.expect('OP', ']')
+            if val_ta.la_vo_huong() and val_ta.elem_ta is None:
+                return TypeAnn(val_ta.dtype, 'dict', key_dtype=k_val, logic=val_ta.logic)
+            else:
+                return TypeAnn(val_ta.dtype, 'dict', key_dtype=k_val, elem_ta=val_ta)
+        if kind == 'IDENT' and value == 'defaultdict':
+            # 'defaultdict[K,V]' (Phase 3.2, 2026-08-11): giong 'dict[K,V]'
+            # nhung V CHI ho tro vo huong (khong long nhau list/dict khac) -
+            # xem il_features/defaultdict_type.py cho hanh vi doc/ghi.
+            self.expect('OP', '[')
+            k_kind, k_val, k_pos = self.advance()
+            if k_kind != 'IDENT' or k_val not in DTYPES:
+                raise SyntaxError(
+                    f"il_codegen: ky vong key_dtype trong 'defaultdict[...]', gap {k_val!r} "
+                    f"(vi tri ~{k_pos})")
+            self.expect('OP', ',')
+            v_kind, v_val, v_pos = self.advance()
+            if v_kind != 'IDENT' or v_val not in DTYPES:
+                raise SyntaxError(
+                    f"il_codegen: ky vong dtype gia tri vo huong trong 'defaultdict[...]' "
+                    f"(khong ho tro long nhau list/dict), gap {v_val!r} (vi tri ~{v_pos})")
+            self.expect('OP', ']')
+            return TypeAnn(v_val, 'defaultdict', key_dtype=k_val)
+        if kind == 'IDENT' and value == 'Counter':
+            # 'Counter[K]' (Phase 3.2, 2026-08-11): dtype GIA TRI luon CO
+            # DINH 'i32' (dem tan suat) - khong cho khai bao dtype khac,
+            # khac 'dict[K,V]'/'defaultdict[K,V]' co V tuy chon.
+            self.expect('OP', '[')
+            k_kind, k_val, k_pos = self.advance()
+            if k_kind != 'IDENT' or k_val not in DTYPES:
+                raise SyntaxError(
+                    f"il_codegen: ky vong key_dtype trong 'Counter[...]', gap {k_val!r} "
+                    f"(vi tri ~{k_pos})")
+            self.expect('OP', ']')
+            return TypeAnn('i32', 'counter', key_dtype=k_val)
+        if kind == 'IDENT' and value == 'func':
+            # 'func(dtype, dtype, ...) -> dtype' - "function reference" HEP
+            # (Wave 3, 2026-07-29): CHI dung lam kieu THAM SO, bieu dien 1
+            # System.Func`N (xem il_type_str trong il_codegen.py). Tham so
+            # va tra ve deu CHI scalar (khong ho tro list/dict/record).
+            # P6 (2026-09-08): tham so VA kieu tra ve deu doc DE QUY qua
+            # parse_type_ann - truoc day chi nhan dtype VO HUONG. Mo rong vi
+            # chinh cac bang dieu phoi cua compiler (il_dispatch.Registry)
+            # luu callback nhan 'list'/'dict'/record va tra ve container -
+            # khong dien dat duoc bang func(scalar...)->scalar. O tang IL
+            # khong co rao can: System.Func<...> nhan kieu bat ky va
+            # il_type_str da render container tot.
+            self.expect('OP', '(')
+            func_params = []
+            k, v, _ = self.peek()
+            if not (k == 'OP' and v == ')'):
+                while True:
+                    func_params.append(self.parse_type_ann())
+                    k3, v3, _ = self.peek()
+                    if k3 == 'OP' and v3 == ',':
+                        self.advance()
+                        continue
+                    break
+            self.expect('OP', ')')
+            # P6 (2026-09-08): callback VOID - 151/377 dang ky cua compiler la
+            # loai nay (stmt_codegen / first_pass_walk / expr_codegen /
+            # first_pass_prescan deu khong tra gia tri). Viet 'func(i32)'
+            # (bo han mui ten) hoac 'func(i32)->void'. Bieu dien: dtype=None
+            # - TRUNG voi quy uoc da co cho ham void ('callee.return_type is
+            # None' -> callee_ret=None), nen cac phep so sanh chu ky khop
+            # nhau ma khong can nhanh rieng.
+            k_arrow, _v, _p = self.peek()
+            if k_arrow != 'ARROW':
+                return TypeAnn(None, 'func', func_params=func_params, func_ret_ta=None)
+            self.expect('ARROW')
+            k_void, v_void, _pv = self.peek()
+            if k_void == 'IDENT' and v_void == 'void':
+                self.advance()
+                return TypeAnn(None, 'func', func_params=func_params, func_ret_ta=None)
+            ret_ta = self.parse_type_ann()
+            if not ret_ta.la_vo_huong():
+                # B2 (plan func-tra-ve-kieu-tham-chieu, 2026-09-09): MO ranh
+                # gioi P6. Ranh gioi do dong vi nhanh giam nhe o
+                # il_codegen._shaped_return_ta_of_call la MA CHET (doc sai API
+                # scope), khong phai vi van de thiet ke - xem B1.
+                #
+                # Giu `dtype` nhu cu de duong VO HUONG khong doi mot chut nao;
+                # `func_ret_ta` mang TypeAnn DAY DU cho duong co shape.
+                return TypeAnn(ret_ta.dtype, 'func', func_params=func_params,
+                                func_ret_ta=ret_ta)
+            if False:
+                # (giu lai thong bao cu de lich su ro rang - khong con chay): THAM SO cua 'func' da nhan
+                # kieu khong vo huong, nhung KIEU TRA VE thi chua - ket qua
+                # loi goi qua bien 'func' di qua duong hoist va bi khai bao
+                # theo dtype vo huong, lam loi bao ra o cho khac han (vd
+                # len() tren mot 'i32'). Bao ngay tai day de khong ai mat
+                # thoi gian lan nguoc tu mot thong bao khong lien quan.
+                raise SyntaxError(
+                    "il_codegen: kieu 'func(...)' hien chi TRA VE duoc kieu vo huong "
+                    "(i32/i64/f32/f64/str/...); tham so thi da nhan container/record. "
+                    "Gap kieu tra ve shape=" + ret_ta.shape_repr() + ".")
+            return TypeAnn(ret_ta.dtype, 'func', func_params=func_params,
+                            func_ret_ta=None)
+        if kind == 'IDENT' and value == 'bool':
+            # 'bool' (2026-10-01): luu int32 (nhu moi so sanh) nhung danh dau logic de in True/False
+            return TypeAnn('i32', None, logic=1)
+        if kind == 'IDENT' and value == 'None':
+            # 'None' (2026-10-09, record_init_runs_test): `-> "None"` = tra ve
+            # vo huong (Python viet `-> None`). Luu nhu i32 (ham van return 0);
+            # chap nhan de __init__/ham void bien dich duoc.
+            return TypeAnn('i32', None)
+        if kind != 'IDENT' or value not in DTYPES:
+            if kind == 'IDENT' and value in self.type_aliases:
+                # BI DANH KIEU (`__tkv_type_alias__`, 2026-09-24): thay ten
+                # bang CHUOI KIEU THAT roi parse lai. Bi danh chi la mot lop
+                # ten - KHONG sinh kieu moi, KHONG noi long phep kiem: dich
+                # cua no van phai la mot kieu hop le, va mot ten CHUA khai
+                # bao lam bi danh van chet o dong cuoi ham nay.
+                #
+                # VI SAO CAN: 2257 annotation trong cay trinh bien dich dung
+                # `TkvNode`/`TkvSig`/`TkvTable`/`TkvFn`/`TkvTypeAnn` - nhung
+                # ten nay KHONG khai o dau ca. Duoi CPython annotation chi la
+                # chuoi nen khong ai kiem; duoi TokenVector chung la ten bia,
+                # chan 95/117 file tren duong tu-host. Chung deu co kieu THAT
+                # (vd `TkvNode` la chi so arena = i32) - bi danh giu lai gia
+                # tri TAI LIEU cua cai ten ma van khai duoc kieu.
+                return self._giai_bi_danh(value, pos)
+            if kind == 'IDENT' and value in self.record_names:
+                # Ten 1 'class dang record' da khai bao trong file (huong
+                # tiep theo sau tuple, xem il_codegen.py) - dung nhu 1 dtype
+                # vo huong (shape='record'), tham chieu THANG ten class
+                # (khong ho tro mang/list/dict cua record trong pham vi nay).
+                return TypeAnn(value, 'record')
+            if kind == 'IDENT' and value in self.extern_class_names:
+                # Ten 1 handle-type khai bao qua __tkv_extern_class__ (Task 2,
+                # extern-class, 2026-08-18) - dung nhu 1 dtype vo huong
+                # (shape='extern_class'), giong het record o tren nhung
+                # tra ve .NET class NGOAI (assembly-qualified) thay vi class
+                # do compiler TU SINH - xem il_type_str's nhanh moi.
+                return TypeAnn(value, 'extern_class')
+            raise SyntaxError(f"Ky vong dtype (f32/f64/i32/i64/str), gap {value!r} (vi tri ~{pos})")
+        dtype = value
+        dims = []
+        kind2, value2, _ = self.peek()
+        if kind2 == 'OP' and value2 == '[':
+            if dtype == 'str':
+                raise SyntaxError("il_codegen: 'str[...]' (mang chuoi) chua duoc ho tro - "
+                                   "'str' hien CHI ho tro dang vo huong don")
+            self.advance()
+            dims.append(int(self.expect('NUMBER')))
+            while True:
+                k, v, _ = self.peek()
+                if k == 'OP' and v == ',':
+                    self.advance()
+                    dims.append(int(self.expect('NUMBER')))
+                else:
+                    break
+            self.expect('OP', ']')
+        return TypeAnn(dtype, None, dims=dims)
+
+    def parse_default_literal(self, dtype: "str") -> "TkvNode":
+        """default := ['-'] NUMBER | STRING - CHI literal, khong tham
+        chieu bien (xem ghi chu o Param.default_node)."""
+        neg = False
+        kind, value, pos = self.peek()
+        # 'None' (P8 Task 7, 2026-09-09): tham chieu RONG. Nhan TRUOC cac nhanh
+        # theo dtype vi no hop le voi MOI kieu tham chieu - dung nhu ghi chu o
+        # il_codegen._expr_null ("bo qua `dtype`: mot tham chieu rong hop le voi
+        # MOI kieu tham chieu"). Bieu thuc `None` von DA parse thanh ('null',)
+        # trong il_core; cho nay la mat xich con thieu de no dung duoc lam GIA
+        # TRI MAC DINH cua tham so.
+        #
+        # Can cho duong tu-host: `il_dispatch.py` co 9 tham so mac dinh None
+        # (register_expr_builtin 5, register_expr_method 4), va do la rao chan
+        # `il_dispatch.tkv` ngay sau khi Registry khai duoc field.
+        if kind == 'IDENT' and value == 'None':
+            self.advance()
+            return mk1('null')
+        if kind == 'OP' and value == '-':
+            self.advance()
+            neg = True
+            kind, value, pos = self.peek()
+        if dtype == 'str':
+            if neg:
+                raise SyntaxError(f"il_codegen: gia tri mac dinh cho tham so kieu 'str' "
+                                   f"khong the co dau '-' (vi tri ~{pos})")
+            kind, value, pos = self.advance()
+            if kind != 'STRING':
+                raise SyntaxError(f"il_codegen: gia tri mac dinh cho tham so kieu 'str' "
+                                   f"phai la 1 chuoi literal (\"...\"), gap {kind} {value!r} "
+                                   f"(vi tri ~{pos})")
+            return mk2('str_lit', o_str(value))
+        kind, value, pos = self.advance()
+        if kind != 'NUMBER':
+            raise SyntaxError(f"il_codegen: gia tri mac dinh cho tham so kieu '{dtype}' "
+                               f"phai la 1 so literal, gap {kind} {value!r} (vi tri ~{pos})")
+        node = mk2('num', o_str(num_lit_to_dec(value)))
+        return mk2('neg', o_nut(node)) if neg else node
+
+    def parse_param(self) -> "Param":
+        """param := IDENT ':' type_ann ('=' default_literal)?
+                   | '*' IDENT ':' type_ann
+                   | '**' IDENT ':' type_ann
+        '*name: T'/'**name: T' (Phase 5.1, 2026-08-11): dong nhat kieu T
+        cho MOI gia tri du them - type_ann THAT su cua Param la 'list[T]'
+        (vararg) / 'dict[str,T]' (kwarg), khong phai T thuan."""
+        kind0, value0, _ = self.peek()
+        if kind0 == 'OP' and value0 in ('*', '**'):
+            self.advance()
+            is_kwarg = (value0 == '**')
+            name = self.expect('IDENT')
+            self.expect('OP', ':')
+            elem_ta = self.parse_type_ann()
+            if not elem_ta.la_vo_huong():
+                raise SyntaxError(
+                    f"il_codegen: tham so '{'**' if is_kwarg else '*'}{name}' phai khai bao "
+                    f"1 dtype VO HUONG (vd 'i32'/'str'), khong ho tro list/dict long nhau")
+            if is_kwarg:
+                type_ann = TypeAnn(elem_ta.dtype, 'dict', key_dtype='str')
+            else:
+                type_ann = TypeAnn(elem_ta.dtype, 'list')
+            return Param(name, type_ann, -1, is_vararg=not is_kwarg, is_kwarg=is_kwarg)
+        name = self.expect('IDENT')
+        self.expect('OP', ':')
+        type_ann = self.parse_type_ann()
+        default_node = -1
+        kind, value, _ = self.peek()
+        if kind == 'OP' and value == '=':
+            self.advance()
+            default_node = self.parse_default_literal(type_ann.dtype)
+            # Kiem shape SAU khi doc default (P8 Task 7, 2026-09-09): truoc day
+            # kiem TRUOC nen chan ca `= None`, trong khi `ldnull` hop le voi MOI
+            # kieu THAM CHIEU (record/handle-type/list/dict). Gioi han cu -
+            # "Wave 2 chi ho tro default cho scalar" - van giu nguyen cho cac
+            # default KHAC None (mot literal so/chuoi khong the la gia tri khoi
+            # tao cua mot container).
+            if not type_ann.la_vo_huong() and ekind(default_node) != 'null':
+                raise SyntaxError(
+                    f"il_codegen: tham so '{name}' co shape (list/dict/mang) chi co the "
+                    f"nhan gia tri mac dinh 'None' (tham chieu rong) - mot literal so/chuoi "
+                    f"khong the la gia tri khoi tao cua container")
+        return Param(name, type_ann, default_node)
+
+    def parse_param_list(self) -> "list[Param]":
+        params = []
+        kind, value, _ = self.peek()
+        if kind == 'OP' and value == ')':
+            return params
+        params.append(self.parse_param())
+        while True:
+            k, v, _ = self.peek()
+            if k == 'OP' and v == ',':
+                self.advance()
+                params.append(self.parse_param())
+            else:
+                break
+        # Python rule: mot khi 1 tham so co default, TAT CA tham so sau no
+        # cung phai co default (khong the '(a: i32 = 1, b: i32)').
+        seen_default = False
+        for p in params:
+            if p.is_vararg or p.is_kwarg:
+                continue
+            if p.default_node >= 0:
+                seen_default = True
+            elif seen_default:
+                raise SyntaxError(
+                    f"il_codegen: tham so '{p.name}' khong co gia tri mac dinh nhung dung "
+                    f"SAU 1 tham so da co default - tat ca tham so sau tham so co default "
+                    f"dau tien cung phai co default (giong Python)")
+        # '*args' phai truoc '**kwargs', ca 2 phai o CUOI danh sach tham so
+        # (Phase 5.1, 2026-08-11) - khong ho tro tham so thuong SAU vararg
+        # (khac Python cho phep keyword-only sau '*args', DSL nay chua co
+        # khai niem keyword-only rieng).
+        # Vong lap tuong minh thay `next((... for ... in enumerate(...)))`:
+        # hat giong chua chay `enumerate` BEN TRONG mot generator. Dung -1
+        # thay cho None de o nay khong phai mot kieu union.
+        vararg_idx = -1
+        kwarg_idx = -1
+        _i = 0
+        while _i < len(params):
+            _p = params[_i]
+            if _p.is_vararg and vararg_idx < 0:
+                vararg_idx = _i
+            if _p.is_kwarg and kwarg_idx < 0:
+                kwarg_idx = _i
+            _i = _i + 1
+        if vararg_idx >= 0 and kwarg_idx >= 0 and vararg_idx > kwarg_idx:
+            raise SyntaxError("il_codegen: '*args' phai khai bao TRUOC '**kwargs'")
+        tail_start = len(params)
+        if vararg_idx >= 0:
+            tail_start = vararg_idx
+        if kwarg_idx >= 0 and kwarg_idx < tail_start:
+            tail_start = kwarg_idx
+        for p in params[tail_start:]:
+            if not (p.is_vararg or p.is_kwarg):
+                raise SyntaxError(
+                    f"il_codegen: tham so '{p.name}' khong the dung SAU '*args'/'**kwargs' "
+                    f"(khong ho tro keyword-only param rieng)")
+        return params
+
+    def parse_signature(self) -> "Signature":
+        # 'async def foo(...)' (Phase 4, 2026-08-11) - prefix 'async' TRUOC
+        # ten ham, xem docstring Signature.is_async.
+        is_async = False
+        k0, v0, _ = self.peek()
+        if k0 == 'IDENT' and v0 == 'async':
+            self.advance()
+            is_async = True
+        name = self.expect('IDENT')
+        self.expect('OP', '(')
+        params = self.parse_param_list()
+        self.expect('OP', ')')
+
+        return_type = None
+        kind, value, _ = self.peek()
+        if kind == 'ARROW':
+            self.advance()
+            return_type = self.parse_type_ann()
+
+        kind, value, _ = self.peek()
+        if kind == 'FATARROW':
+            _, _, end_pos = self.advance()
+            body_expr = self.src[end_pos:].strip()
+            return Signature(name, params, return_type, 'expr', body_expr, is_async=is_async)
+        if kind == 'OP' and value == ':':
+            self.advance()
+            return Signature(name, params, return_type, 'block', is_async=is_async)
+        raise SyntaxError(f"Ky vong '=>' (ham 1 bieu thuc) hoac ':' (ham nhieu dong) "
+                           f"sau chu ky, gap {kind} {value!r}")
+
+    def _giai_bi_danh(self, ten: "str", pos: "i32") -> "TypeAnn":
+        """Thay mot bi danh bang kieu THAT cua no roi parse lai.
+
+        De QUY co chan: bi danh tro toi bi danh khac van chay, nhung mot
+        VONG (A -> B -> A) se bi bat o day chu khong treo. Vong la loi cau
+        hinh, phai bao ra chu khong duoc im lang.
+        """
+        thay = {}
+        for k in self.type_aliases:
+            if k != ten:
+                thay[k] = self.type_aliases[k]
+        dich = self.type_aliases[ten]
+        try:
+            return parse_type_ann_str(dich, record_names=self.record_names,
+                                       extern_class_names=self.extern_class_names,
+                                       type_aliases=thay)
+        except SyntaxError as e:
+            # Noi chuoi chu KHONG dung '%': hat giong chua ho tro dinh dang
+            # '%' tren chuoi, va file nay nam tren duong tu-host.
+            raise SyntaxError(
+                "bi danh kieu '" + ten + "' -> '" + dich + "' khong hop le "
+                "(vi tri ~" + str(pos) + ") - " + str(e))
+
+
+
+def parse_typed_signature(line: "str", record_names: "set[str]"=None, extern_class_names: "set[str]"=None) -> "Signature":
+    """Ham tien ich chinh: parse 1 DONG chu ky co kieu, tra ve Signature.
+    Nem SyntaxError neu dong khong dung ngu phap typed_sig.
+    record_names: ten cac 'class dang record' da khai bao trong CUNG file
+    (de chap nhan chung nhu 1 dtype tham so/return type, vd 'p: "Point"').
+    extern_class_names: ten cac handle-type khai bao qua
+    __tkv_extern_class__ trong CUNG file (Task 2, extern-class, 2026-08-18)
+    - chap nhan y het record_names."""
+    # Mac dinh None chu khong `frozenset()`: ngon ngu chi nhan gia tri mac
+    # dinh la literal so/chuoi/None, khong nhan loi goi ham. Chuan hoa ngay
+    # tai day de moi cho dung ben duoi khong doi.
+    if not record_names:
+        record_names = set()
+    if not extern_class_names:
+        extern_class_names = set()
+    tokens = tokenize(line)
+    return Parser(tokens, line, record_names=record_names,
+                  extern_class_names=extern_class_names).parse_signature()
+
+
+def parse_type_ann_str(text: "str", record_names: "set[str]"=None, extern_class_names: "set[str]"=None, type_aliases: "dict[str,str]"=None) -> "TypeAnn":
+    """Parse 1 CHUOI kieu don le ('list[str]', 'dict[str,i32]', 'f64')
+    thanh TypeAnn - dung cho FIELD cua class (2026-08-03, field chua
+    container). Tach rieng khoi parse_typed_signature vi o day khong co
+    chu ky ham nao ca, chi 1 kieu. extern_class_names: xem
+    parse_typed_signature."""
+    # Mac dinh None chu khong `frozenset()`: ngon ngu chi nhan gia tri mac
+    # dinh la literal so/chuoi/None, khong nhan loi goi ham. Chuan hoa ngay
+    # tai day de moi cho dung ben duoi khong doi.
+    if not record_names:
+        record_names = set()
+    if not extern_class_names:
+        extern_class_names = set()
+    # None = "dung bang cap module"; {} = "co y KHONG co bi danh nao".
+    if type_aliases is None:
+        type_aliases = lay_bi_danh()
+    tokens = tokenize(text)
+    parser = Parser(tokens, text, record_names=record_names,
+                     extern_class_names=extern_class_names,
+                     type_aliases=type_aliases)
+    ta = parser.parse_type_ann()
+    k, v, pos = parser.peek()
+    if k != 'EOF':
+        raise SyntaxError(f"Kieu {text!r} con thua token {v!r} (vi tri ~{pos})")
+    return ta
+
+
+def looks_like_typed_signature(line: "str") -> "i32":
+    """Kiem tra nhanh (khong parse day du) truoc khi thu parse that - dung
+    de phan biet 1 dong la "chu ky typed function" hay la code Python/DSL
+    thuong khac, tranh nem SyntaxError tran lan khi quet qua file."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith('#'):
+        return False
+    return bool(re.match(r'^[A-Za-z_]\w*\s*\(.*\)\s*(->|:|=>)', stripped) or
+                re.match(r'^[A-Za-z_]\w*\s*\(.*=>', stripped))
+
+
+if __name__ == '__main__':
+    tests = [
+        'dot(a: f32[256], b: f32[256]) -> f32 => sum(a * b)',
+        'matmul(a: f32[64, 64], b: f32[64, 64]) -> f32[64, 64]:',
+        'scale(x: f32[10], factor: f32) -> f32[10] => x * factor',
+        'noop() => 0',
+    ]
+    for t in tests:
+        sig = parse_typed_signature(t)
+        print(f'{t!r}\n  -> {sig}\n')
+
+
+def ten_trong_kieu(vb: "str") -> "list[str]":
+    """Moi cum dinh danh trong mot chuoi kieu ('list[TkvNode]' -> ['list',
+    'TkvNode']). Viet tay: cay nay phai chay duoc ca bang CPython lan
+    TokenVector (khong dung re.findall)."""
+    ra_ds = []
+    dau = -1
+    i = 0
+    while i < len(vb):
+        c = vb[i]
+        la_ten = c == '_' or ('a' <= c and c <= 'z') or ('A' <= c and c <= 'Z')
+        la_so = '0' <= c and c <= '9'
+        if dau < 0:
+            if la_ten:
+                dau = i
+        elif not (la_ten or la_so):
+            ra_ds.append(vb[dau:i])
+            dau = -1
+        i = i + 1
+    if dau >= 0:
+        ra_ds.append(vb[dau:len(vb)])
+    return ra_ds
+
+
+def parse_type_ann_str_mo(text: "str") -> "TypeAnn":
+    """parse_type_ann_str cho annotation TRONG THAN HAM (2026-09-26): o day
+    chua co bang record, nen ten chua biet duoc tam coi la record/handle -
+    ten bia se chet o buoc giai kieu IL (co bang record day du)."""
+    try:
+        return parse_type_ann_str(text)
+    except SyntaxError:
+        ten_tam: "set[str]" = set()
+        for t in ten_trong_kieu(text):
+            ten_tam.add(t)
+        return parse_type_ann_str(text, record_names=ten_tam)
+
+
+def parse_typed_signature_mo(line: "str") -> "Signature":
+    """parse_typed_signature cho ham LONG (2026-09-26) - xem parse_type_ann_str_mo."""
+    try:
+        return parse_typed_signature(line)
+    except SyntaxError:
+        ten_tam: "set[str]" = set()
+        for t in ten_trong_kieu(line):
+            ten_tam.add(t)
+        return parse_typed_signature(line, record_names=ten_tam)

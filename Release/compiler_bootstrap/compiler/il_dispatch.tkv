@@ -1,0 +1,1359 @@
+# -*- coding: utf-8 -*-
+"""Registry dung chung cho refactor dispatch-table hoa 5 ham khong lo trong
+il_codegen.py (_parse_block, _expand_macros_once, _compile_expr,
+_codegen_stmts, _first_pass_collect_locals). Chi chua registry + ham
+dang ky, KHONG chua logic handler that (logic o il_codegen.py roi sau
+nay se chuyen dan sang il_features/*.py). KHONG import il_codegen.py
+(tranh circular import - xem quy uoc trong il_core.py)."""
+
+# co thu tu (name, fn) - _parse_block thu tung cai theo dung thu tu dang ky
+# co thu tu, long trong slot cascade "assign" cua LINE_PARSERS
+# co thu tu, 1 vong fixpoint cua _expand_macros = 1 lan duyet het list nay
+
+# khong can thu tu (da doc lap theo tag/kind) - dict tra cuu = if/elif toan return
+
+# Giai doan 0.2 (2026-08-03, dong Python-parity-gap v2): dang ky builtin
+# THU VIEN (khong phai ham nguoi dung/toan hoc/record) de goi duoc NGAY
+# TRONG bieu thuc ('t = f() + 1', 'return f()'), khong chi o vi tri RHS
+# cua 1 phep gan don le. 1 NGUON SU THAT DUY NHAT cho ca 2 noi truoc day
+# phai sua RIENG RE khi them 1 builtin moi (_expr_call's dispatch VA
+# _infer_dtype's nhanh 'call' trong il_codegen.py) - dung dict nay thay
+# vi them 1 nhanh if/elif thu 3. fn dang ky co CHU KY GIONG HET cac ham
+# _stdlib_*_compile_* da co san (args, scope, out, dtype, ctx) -> None,
+# day gia tri len stack (chua widen) - _expr_call se widen sau khi goi.
+# name -> return dtype ('str'/'i32'/'i64'/...) HOAC None neu khong xac
+# dinh duoc tu chinh no (giong quy uoc cua _infer_dtype, vd 'pow').
+
+# Giai doan 0.2 nhom 4 (2026-08-03): builtin/method tra ve CONTAINER
+# (list/dict/set) thay vi gia tri vo huong - phai luu 'shape' RIENG vi
+# EXPR_*_DTYPE chi mang duoc 1 chuoi dtype, khong bieu dien noi hinh dang;
+# bien nhan ket qua ('parts = s.split(",")') can duoc khai bao voi
+# TypeAnn(dtype, shape) DAY DU, khong the di qua nhanh suy dtype thuong.
+#
+# BUILTIN (khong co doi tuong nhan): luu THANG cap (dtype, shape) - hinh
+# dang tra ve la HANG SO ('os_list_files(p)' luon la list[str]).
+# METHOD (co doi tuong nhan): luu 1 HAM PHAN GIAI fn(obj_ta) -> TypeAnn -
+# nhom 5 (2026-08-03) cho thay cap (dtype, shape) TINH la KHONG DU: kieu
+# tra ve cua nhieu method PHU THUOC chinh doi tuong nhan ('d.keys()' ->
+# list[key_dtype CUA d], 'lst.copy()' -> DUNG kieu cua lst ke ca khi lst
+# la container long nhau, giu nguyen ca elem_ta). Ham phan giai duoc dinh
+# nghia trong il_features/*.py (nhung file do import TypeAnn THANG tu
+# typed_dsl_parser, khong qua il_codegen.py nen khong circular).
+
+# Nhom 6 (2026-08-03) - BUG THAT tim ra khi viet test nhom 6, da lot vao
+# 2 commit truoc do: cac duong ASSIGN_RHS_PARSERS cu (da bo o nhom 3-6)
+# ngoai viec sinh stmt CON ghi 'known_shapes[bien_dich] = "list"/"set"' -
+# 1 kenh phu tang PARSER ma NHIEU parser khac tra cuu (sum/min/max/sorted
+# cua stdlib_aggregates, list.count, slicing, list*n, set.remove...).
+# Bo duong cu ma khong ghi lai kenh nay lam 'ys = xs.copy()' roi
+# 'sum(ys)' KHONG con bien dich duoc (bao "ham 'sum' khong ton tai").
+# Day la HINH DANG THO (chuoi 'list'/'set'/'dict') dung o tang PARSER -
+# KHAC EXPR_*_SHAPE o tren (kieu DAY DU, tang first-pass/codegen, can
+# TypeAnn cua doi tuong nhan von CHUA co luc parse). Hai tang khac nhau,
+# thong tin san co khac nhau -> khai bao rieng, khong suy ra tu nhau.
+
+
+# Nhom 7 (2026-08-03): builtin dang HAM cung can BIEN CUC BO AN - vd
+# 'json_dumps(lst)' phai sinh vong lap noi chuoi. Doi xung voi
+# EXPR_METHOD_TEMPS (nhom 3, danh cho method); cung chu ky fn(node, ctx),
+# cung quy uoc khoa id(node).
+
+
+# dtype tra ve PHU THUOC THAM SO (2026-08-03): sum/min/max(lst) tra ve
+# dtype cua CHINH phan tu list - khong phai 1 chuoi co dinh. Doi xung voi
+# EXPR_METHOD_SHAPE's return_ta_fn cua nhom 5 (method tra container phu
+# thuoc doi tuong nhan): cung 1 van de, o phia builtin dang HAM. fn nhan
+# (args, scope) - scope o day co the la infer_scope (tang first-pass) hoac
+# Scope (tang codegen); ca hai deu tra (kind, idx, TypeAnn) khi tra cuu
+# theo ten, nen dung chung duoc.
+
+# Builtin tra ve 1 container ma cap (dtype, shape) KHONG du de mo ta -
+# vd http_request() tra dict[str,str]: can ca key_dtype. Luu THANG 1
+# TypeAnn day du (2026-08-03). Duoc uu tien hon EXPR_BUILTIN_SHAPE.
+# dtype PHU THUOC tham so thuc te luc goi (khac EXPR_BUILTIN_RETURN_TA
+# co dinh o tren) - vd divmod(a,b) tra (i32,i32)/(i64,i64) tuy dtype cua
+# 'a' (batch 5.5b muc cuoi, 2026-08-13). fn(args, scope) -> TypeAnn|None.
+
+
+# Builtin TU SINH gia tri kieu 'int' (vo han chu so) khi duoc goi trong
+# ngu canh 'int' - vd int("99999999999999999999") (moc 6 lat 3,
+# 2026-08-05). EXPR_BUILTIN_DTYPE cua chung van la kieu MAC DINH ('i32'
+# cho int()) de khong doi hanh vi o moi ngu canh khac; danh sach nay chi
+# noi voi _expr_call: "dung widen ket qua nua, no da dung kieu roi".
+# Thieu no thi _widen_if_needed sinh 'conv.i8 + FromI64' de len mot
+# TkvInt - IL sai kieu ma ilasm van assemble duoc.
+
+
+# Handle-type cho cac kieu chua phai record (P8 Task 7, 2026-09-09).
+#
+# `ctx`/`scope`/`sig`/`TypeAnn`/node bieu thuc deu la object Python, chua khai
+# kieu duoc -> 11 bang cua Registry khong khai duoc (rao R1, ~1264 cho dung
+# `ctx`). Bien chung thanh RECORD la mot plan rieng.
+#
+# Duong ngan: khai chung lam HANDLE TYPE - co che tham chieu DUC san co cua
+# ngon ngu. `Ctx` la `Dictionary<string, object>` - dung la thu `ctx` DANG LA
+# hom nay (dict gia tri hon hop), nen day KHONG phai mo ta sai.
+#
+# GIOI HAN PHAI NOI RO: handle type mo khoa BIEN DICH, khong cho AN TOAN KIEU.
+# Noi dung `ctx` van khong duoc kiem. Dat duoc CHU cua muc tieu P8, chua dat
+# TINH THAN cua no - R1 van con do neu muon registry go kieu chat.
+from tkv_pragma import __tkv_cpython_only__
+
+__tkv_import__ = ["tkv_types", "expr_row", "stmt_row"]
+
+__tkv_extern_class__ = [
+    {"name": "TkvCtx", "assembly": "mscorlib", "class": "System.Object",
+     "ctor": [], "methods": []},
+    {"name": "TkvSig", "assembly": "mscorlib", "class": "System.Object",
+     "ctor": [], "methods": []},
+    {"name": "TkvTypeAnn", "assembly": "mscorlib", "class": "System.Object",
+     "ctor": [], "methods": []},
+    {"name": "TkvNode", "assembly": "mscorlib", "class": "System.Object",
+     "ctor": [], "methods": []},
+    {"name": "TkvFn", "assembly": "mscorlib", "class": "System.Object",
+     "ctor": [], "methods": []},
+    {"name": "TkvTable", "assembly": "mscorlib", "class": "System.Object",
+     "ctor": [], "methods": []},
+]
+
+
+class Registry:
+    """Mot bo 22 bang dieu phoi - TAT CA trang thai dang ky cua compiler.
+
+    P6 chang 1a (2026-09-08): truoc day 22 bang nay la bien CAP MODULE, lam
+    file nay KHONG bien dich duoc bang TokenVector (chi cho def/class/hang
+    so/bien global VO HUONG o cap module). Gom vao mot record co field
+    container - dang da kiem chung chay duoc bang .exe that:
+
+        class Reg:
+            parsers: "dict[str, func(i32)->i32]"
+            def __init__(self):
+                self.parsers = {}
+
+    RANG BUOC da kiem chung, dung bien thanh method: TokenVector KHONG nhan
+    funcref qua tham so cua METHOD ("bien 'f' chua duoc khai bao") nhung
+    NHAN qua tham so cua HAM TOP-LEVEL. Vi vay moi register_* phai giu
+    nguyen dang ham top-level nhan `reg`, tuyet doi khong gom thanh method
+    cua Registry.
+    """
+
+    # ------------------------------------------------------------------
+    # KHAI KIEU FIELD (P8 Task 7, do 2026-09-09)
+    #
+    # Muc tieu that cua P8 la `il_dispatch.tkv` bien dich duoc. No dang hong
+    # o "record khong co field nao": TokenVector doi record khai field co
+    # kieu. Da DO tung bang mot - duoi day la ket qua, khong phai phong doan.
+    #
+    # KHAI DUOC NGAY (3 bang): xem cac annotation ben duoi.
+    #
+    # CHUA KHAI DUOC (20 bang) - BON rao, tat ca deu do duoc bang thu nghiem:
+    #
+    #   R1. `ctx`/`scope`/`Signature`/`TypeAnn` chua phai RECORD.
+    #       Chung la dict gia tri HON HOP / object Python. Da xac nhan record
+    #       DUNG DUOC lam tham so cua `func(...)` ('func(i32, Ctx, list[str])
+    #       ->void' bien dich duoc), nen duong di ro - nhung phai bien ctx &
+    #       co. thanh record truoc. Chan: expr_codegen, stmt_codegen,
+    #       first_pass_walk, first_pass_prescan, expr_builtin_codegen,
+    #       expr_builtin_temps, expr_builtin_dtype_fn, expr_builtin_return_ta,
+    #       expr_builtin_return_ta_fn, expr_method_codegen, expr_method_temps,
+    #       expr_method_shape, line_parsers, assign_rhs_parsers.
+    #
+    #   R2. [DA GO 2026-09-09] Field record KHONG nhan `set[...]`.
+    #       expr_builtin_native_int / expr_builtin_wants_node da doi tu `set`
+    #       sang `dict[str, str]` dung NHU TAP HOP: phep `in` tren dict kiem
+    #       KHOA nen ca ba cho doc (`name in reg.X`) giu nguyen ngu nghia,
+    #       chi hai cho ghi doi `.add(name)` -> `[name] = ''`.
+    #
+    #   R3. [DA GO 2026-09-09] Field record KHONG nhan `list[(tuple)]`.
+    #       Ba bang parser la danh sach CAP (ten, ham) va CO THU TU. Da tach
+    #       thanh HAI DANH SACH SONG SONG - dung cach da kiem chung o P8
+    #       Task 3/4 cho `handlers` cua 'try' (lo 7b): `X` giu HAM, `X_ten`
+    #       giu TEN. Ca ba cho doc von da bo ten (`for _name, fn in ...`) nen
+    #       khong mat gi; ten van duoc giu lai de chan doan.
+    #
+    #       Sau khi tach, `macro_expanders` khai kieu duoc NGAY vi ham cua no
+    #       la `fn(line: str) -> str` (do o Task 5: 25/25 macro deu vay,
+    #       khong cham AST). Hai bang parser con lai VAN bi R1 chan (ham cua
+    #       chung nhan `reg`/`sig`/`known_shapes`).
+    #
+    #   R4. [DA GO 2026-09-09] Khoa dict phai VO HUONG; gia tri tuple cung
+    #       khong khai duoc.
+    #       - 5 bang `expr_method_*` dung khoa TUPLE (shape_key, method_name)
+    #         -> gop thanh MOT chuoi qua `khoa_method()`, dung cach arena row
+    #         da dung. MOT CUA duy nhat: moi noi dung/doc deu qua ham do.
+    #       - `expr_builtin_shape` co gia tri tuple (dtype, shape) -> phan
+    #         `shape` von DA TRUNG y het `expr_builtin_result_shape`, nen chi
+    #         giu phan dtype, doi ten thanh `expr_builtin_shape_dtype`.
+    #
+    # Ghi chu quan trong: `stmt` nay la CHI SO arena (`i32`) sau P8 Task 3/4,
+    # nen o cac chu ky tren no khong con la rao nua - phan viec cua arena da
+    # xong. Bon rao con lai thuoc THIET KE registry/ctx, khong thuoc arena.
+    # ------------------------------------------------------------------
+    expr_builtin_dtype: "dict[str, str]"
+    expr_builtin_native_int: "dict[str, str]"
+    expr_builtin_wants_node: "dict[str, str]"
+    expr_builtin_result_shape: "dict[str, str]"
+    expr_builtin_shape_dtype: "dict[str, str]"
+    expr_builtin_dtype_fn: "dict[str, func(list[TkvNode], Scope, dict[str,TkvSig])->str]"
+    assign_rhs_parsers: "list[func(str, str, dict[str,str])->i32]"
+    expr_method_dtype: "dict[str, str]"
+    expr_method_result_shape: "dict[str, str]"
+    str_method_return_dtype: "dict[str, str]"
+    expr_codegen: "dict[str, func(TkvNode, Scope, list[str], str, Ctx)->void]"
+    stmt_codegen: "dict[str, func(i32, Scope, list[str], str, Ctx, TkvSig, func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void)->void]"
+    # BA truong duoi CO Y giu handle type `TkvCtx`, khong doi sang record
+    # `Ctx` (2026-09-14):
+    #   - first_pass_walk / first_pass_prescan nhan `walk_ctx` (30 khoa) va
+    #     `prescan_ctx` (8 khoa) - HAI kieu KHAC, chua co record.
+    #   - expr_builtin_temps / expr_method_temps duoc goi bang CA HAI loai:
+    #     `walk_ctx` (il_codegen.py ~4178) VA `ctx` codegen (~4482). Mot
+    #     bang, hai kieu - do la mot vet thiet ke, va khai kieu nao cung
+    #     SAI mot nua. Giu mo duc cho den khi tach duoc.
+    first_pass_walk: "dict[str, func(i32, WalkCtx)->void]"
+    first_pass_prescan: "dict[str, func(i32, PrescanCtx)->void]"
+    expr_builtin_temps: "dict[str, func(TkvNode, WalkCtx)->void]"
+    # `TypeAnn` (record THAT) chu khong `TkvTypeAnn` (handle): cho doc
+    # `builtin_ta.tuple_dtypes` can DOC TRUONG, ma handle type chi cho
+    # TRUYEN QUA. Cung ly do cho `expr_builtin_return_ta_fn` ben duoi.
+    expr_builtin_return_ta: "dict[str, TypeAnn]"
+    expr_method_codegen: "dict[str, func(TkvNode, Scope, list[str], str, Ctx)->void]"
+    expr_method_temps: "dict[str, func(TkvNode, WalkCtx)->void]"
+    expr_method_shape: "dict[str, func(TkvTypeAnn)->TkvTypeAnn]"
+    expr_builtin_return_ta_fn: "dict[str, func(list[TkvNode], Scope, dict[str,TkvSig])->TypeAnn]"
+    macro_expanders: "list[func(str)->str]"
+    macro_expanders_ten: "list[str]"
+    # expr_builtin_codegen khai bang HANDLE TYPE TkvFn thay vi chu ky day du:
+    # bang giu HAI ARITY (he qua cua 'wants_node' them o 3b-1). TkvFn nuot
+    # duoc moi chu ky - DANH DOI: mat doi chieu chu ky o bang nay.
+    #
+    # line_parsers TUNG khai TkvFn voi ly do "'list[func->(tuple)]' khong
+    # dung duoc lam kieu field record" - DA HET DUNG tu khi phep kiem field
+    # nhan 'tuple'/'func' (2026-09-14); do lai 2026-09-24 tren ca hai trinh.
+    # Khai chu ky THAT (y het register_line_parser) de hat giong thao duoc
+    # `stmt, pos = matched`.
+    expr_builtin_codegen: "dict[str, TkvFn]"
+    # Hai bang GOI co kieu, dien SONG SONG voi expr_builtin_codegen theo
+    # arity (2026-09-25) - cho goi dung bang nay, khong goi qua TkvFn.
+    expr_builtin_goi: "dict[str, func(list[TkvNode], Scope, list[str], str, Ctx)->void]"
+    expr_builtin_goi_nut: "dict[str, func(list[TkvNode], Scope, list[str], str, Ctx, TkvNode)->void]"
+    line_parsers: "list[func(Registry, str, list[(i32, str)], i32, i32, TkvSig, dict[str,str], func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32))->(i32, i32)]"
+    line_parsers_ten: "list[str]"
+    assign_rhs_parsers_ten: "list[str]"
+
+    def __init__(self):
+        self.line_parsers = []
+        self.line_parsers_ten = []
+        self.assign_rhs_parsers = []
+        self.assign_rhs_parsers_ten = []
+        self.macro_expanders = []
+        self.macro_expanders_ten = []
+        self.expr_codegen = {}
+        self.stmt_codegen = {}
+        self.first_pass_walk = {}
+        self.first_pass_prescan = {}
+        self.expr_builtin_codegen = {}
+        self.expr_builtin_goi = {}
+        self.expr_builtin_goi_nut = {}
+        self.expr_builtin_dtype = {}
+        # R4: truoc day la `expr_builtin_shape` voi GIA TRI TUPLE
+        # (dtype, shape). Tach doi: phan `shape` von DA TRUNG y het
+        # `expr_builtin_result_shape`, nen chi can giu phan `dtype`.
+        self.expr_builtin_shape_dtype = {}
+        self.expr_method_shape = {}
+        self.expr_builtin_result_shape = {}
+        self.expr_method_result_shape = {}
+        self.expr_builtin_temps = {}
+        self.expr_builtin_dtype_fn = {}
+        self.expr_builtin_return_ta = {}
+        self.expr_builtin_return_ta_fn = {}
+        self.expr_builtin_native_int = {}
+        # P8/3b-1 (2026-09-08): builtin muon nhan them NODE loi goi lam tham
+        # so thu 6. Xem `wants_node` trong register_expr_builtin.
+        self.expr_builtin_wants_node = {}
+        self.expr_method_codegen = {}
+        self.expr_method_dtype = {}
+        self.expr_method_temps = {}
+        self.str_method_return_dtype = {}
+
+
+class Ctx:
+    """Ngu canh CODEGEN - truoc day la mot `dict` 45 khoa, dung o
+    `il_codegen.gen_il_function` (hai cho dung, hop 45 khoa).
+
+    VI SAO THANH RECORD (rao R1): `il_features/*.py` nhan `ctx` lam tham so;
+    khong annotation thi dtype la 'inferred' va `ctx['compile_expr'](...)` la
+    cach dung GIAN TIEP nen suy kieu that bai - 32/110 file tu-host chet o
+    day. Handle type KHONG cuu duoc: da do that, `f = ctx['k']` tren handle
+    type roi vao duong mang co dinh va bao "chi ho tro mang rank 1 hoac 2".
+
+    CHU Y - `ctx` KHONG PHAI MOT KIEU. Trong il_codegen.py co NAM dict dang
+    ctx khac nhau:
+        ctx        45 khoa  (file nay)
+        walk_ctx   30 khoa  (first-pass)   <- can record RIENG
+        prescan_ctx 8 khoa                 <- can record RIENG
+        gen_ctx     6 khoa  (generator)    <- can record RIENG
+    Ham nhan `declare_named`/`collect_ternary_temps` la nhan WALK_CTX, khong
+    phai cai nay. Dung khai nham.
+
+    GIOI HAN, noi ro y het `Registry`: nhieu truong khai bang HANDLE TYPE
+    (`TkvTable` cho bang du lieu long nhau). Chung mo khoa BIEN DICH, KHONG
+    cho an toan kieu - noi dung van khong duoc kiem. Dung bang muc bao dam ma
+    `dict` cu von co.
+
+    KHONG KHAI (co y, khong phai bo sot) - chung van dung duoc duoi CPython
+    qua cau `__getitem__`, chi la TokenVector khong doc duoc:
+      - `infer_dtype` (goi voi 3/4/5 doi so tuy cho), `gen_il_function`
+        (2 doi so + keyword), `resolve_compare_operand_dtype` (7 doi so, 1
+        cho goi duy nhat): kieu `func(...)` co arity CO DINH, nen mot chu ky
+        khong phu duoc. Do arity THAT tai moi cho goi roi moi khai.
+
+    Kieu tung truong duoc QUAN SAT luc chay (ghi kieu that cua tung khoa qua
+    4 lan bien dich mau co record/closure) VA doi chieu ARITY THAT tai moi
+    cho goi - khong suy tu doc ma nguon.
+    """
+
+    # --- danh tinh cua ham dang sinh ---
+    reg: "Registry"
+    prefix: "str"
+    class_name: "str"
+    epilogue_lbl: "str"
+    ret_tmp_name: "str"
+    current_record: "str"
+    source_path_il: "str"
+    label_counter: "list[i32]"
+    try_depth: "i32"
+    in_except_handler: "i32"
+
+    # --- bang tra cuu vo huong ---
+    compare_opcode: "dict[str,str]"
+    compare_negated: "dict[str,str]"
+    il_scalar: "dict[str,str]"
+    func_table: "dict[str,TkvSig]"
+    int_dtypes: "set[str]"
+    float_dtypes: "set[str]"
+    emitted_types: "set[str]"
+
+    # --- bang du lieu long nhau: handle type, noi dung KHONG duoc kiem ---
+    records: "dict[str,list[(str,TkvTypeAnn)]]"
+    record_methods: "dict[str,dict[str,Signature]]"
+    record_methods_own: "dict[str,dict[str,Signature]]"
+    record_bases: "dict[str,list[str]]"
+    extern_class_defs: "dict[str,i32]"
+    tern_temp_of_id: "dict[i32,i32]"
+    nested_closures: "dict[str,NestedClosure]"
+    monomorphize_cache: "dict[str,Signature]"
+    monomorphize_body_of: "dict[str,(list[str],i32)]"
+    gen_ctx: "GenCtx"
+    loop_stack: "list[(str,str)]"
+    extra_classes: "list[list[str]]"
+    pending_monomorphize: "list[(TkvSig,list[str],i32)]"
+
+    # --- ham loi duoc TIEM vao (dependency injection - tranh circular
+    #     import, quy uoc tu Phase 1 buoc 1). Arity lay tu SO DOI SO THAT
+    #     dem duoc tai moi cho goi trong ca cay. ---
+    # `infer_dtype` co 4 tham so CUOI mang gia tri mac dinh, nen chu ky
+    # nay khai ARITY DAY DU; cho goi nao khong can thi truyen `None`
+    # tuong minh. Ba bang cuoi dung handle type vi chi TRUYEN QUA.
+    # Ten ham dang duoc phep goi o vi tri LENH (tra void) - xem guard
+    # `void_call_ok` trong il_codegen. Truoc day chi ton tai nhu mot khoa
+    # dict, nen `ctx.get('void_call_ok')` khong doc duoc.
+    void_call_ok: "str"
+    infer_dtype: "func(TkvNode, Scope, dict[str,TkvSig], TkvTable, TkvTable, TkvTable)->str"
+    # Bo boc HEP quanh `gen_il_function` (xem il_codegen) - ton tai CHI de
+    # cho goi ben closures co mot chu ky arity co dinh ma khai duoc.
+    gen_il_closure_method: "func(TkvSig, dict[str,TkvSig], str, dict[str,list[(str,TkvTypeAnn)]], dict[str,dict[str,Signature]], list[(str,TypeAnn,str,str)], list[list[str]], set[str], list[i32])->list[str]"
+    compile_expr: "func(TkvNode, Scope, list[str], str, Ctx)->void"
+    # DA DO ARITY THAT tai cho goi (dung nhu ghi chu o dau lop yeu cau):
+    # ca hai deu co DUNG MOT cho goi qua `ctx[...]`, nen mot chu ky
+    # `func(...)` arity co dinh la du.
+    #   resolve_compare_operand_dtype: il_features/operators.py - 7 doi so
+    #   funcref_invoke:                il_features/record_feature.py - 8 doi so
+    resolve_compare_operand_dtype: "func(TkvNode, TkvNode, Scope, dict[str,TkvSig], str, TkvTable, TkvTable)->str"
+    funcref_invoke: "func(TypeAnn, list[TkvNode], Scope, list[str], str, Ctx, str, func()->void)->void"
+    load_var_ref: "func(str, Scope, list[str])->void"
+    load_var_addr: "func(str, Scope, list[str])->void"
+    store_var: "func(str, Scope, list[str])->void"
+    load_boxed_cell_ref: "func(str, Scope, list[str])->void"
+    il_ident: "func(str)->str"
+    cell_class_name: "func(str)->str"
+    neg_literal_int: "func(TkvNode)->i32"
+    widen_if_needed: "func(str, str, list[str])->void"
+    il_type_str: "func(TkvTypeAnn, dict[str,list[(str,TkvTypeAnn)]])->str"
+    compile_funcref_arg: "func(TkvNode, TkvTypeAnn, Scope, list[str], Ctx)->void"
+    compile_binop_concat: "func(str, TkvNode, TkvNode, Scope, list[str], Ctx)->void"
+    compile_compare_str: "func(str, TkvNode, TkvNode, Scope, list[str], Ctx)->void"
+    # Hai truong duoi TUNG la khoa DONG (`ctx['_assign_target_name'] = ...`)
+    # song nho `__setitem__` chi-CPython - mot "cua thoat" nua (2026-09-24).
+    # assign_target_name: ten bien dang nhan `x = thread_spawn(...)`;
+    # thread_ret_types: ten bien thread -> dtype that cua worker.
+    assign_target_name: "str"
+    thread_ret_types: "dict[str,str]"
+    # boxed_initialized: bien boxed (closure) DA duoc tao cell - tung la khoa
+    # dong `ctx.setdefault('_boxed_initialized', set())` (cua thoat thu ba
+    # cung loai, tim bang kiem ke 2026-09-24: khoa duy nhat con lai).
+    boxed_initialized: "set[str]"
+
+    @__tkv_cpython_only__
+    def __init__(self, reg=None, prefix=None, class_name=None, epilogue_lbl=None, ret_tmp_name=None, current_record=None, source_path_il=None, try_depth=None, in_except_handler=None, gen_ctx=None, void_call_ok=None, infer_dtype=None, gen_il_closure_method=None, compile_expr=None, resolve_compare_operand_dtype=None, funcref_invoke=None, load_var_ref=None, load_var_addr=None, store_var=None, load_boxed_cell_ref=None, il_ident=None, cell_class_name=None, neg_literal_int=None, widen_if_needed=None, il_type_str=None, compile_funcref_arg=None, compile_binop_concat=None, compile_compare_str=None, assign_target_name=None):
+        """KHOP DUNG `.ctor` tu sinh cua transpiler: 28 truong VO HUONG
+        lam tham so theo thu tu khai bao, 20 container khoi tao RONG.
+
+        Truoc 2026-09-23 ham nay nhan MOT dict va `setattr` tung khoa -
+        tien duoi CPython nhung duong tu-host khong co no (pragma), nen
+        `Ctx({...})` chi chay duoc mot ben. Dung `tao_ctx(...)` de dung,
+        dung goi thang ham nay.
+        """
+        self.reg = reg
+        self.prefix = prefix
+        self.class_name = class_name
+        self.epilogue_lbl = epilogue_lbl
+        self.ret_tmp_name = ret_tmp_name
+        self.current_record = current_record
+        self.source_path_il = source_path_il
+        self.try_depth = try_depth
+        self.in_except_handler = in_except_handler
+        self.gen_ctx = gen_ctx
+        self.void_call_ok = void_call_ok
+        self.infer_dtype = infer_dtype
+        self.gen_il_closure_method = gen_il_closure_method
+        self.compile_expr = compile_expr
+        self.resolve_compare_operand_dtype = resolve_compare_operand_dtype
+        self.funcref_invoke = funcref_invoke
+        self.load_var_ref = load_var_ref
+        self.load_var_addr = load_var_addr
+        self.store_var = store_var
+        self.load_boxed_cell_ref = load_boxed_cell_ref
+        self.il_ident = il_ident
+        self.cell_class_name = cell_class_name
+        self.neg_literal_int = neg_literal_int
+        self.widen_if_needed = widen_if_needed
+        self.il_type_str = il_type_str
+        self.compile_funcref_arg = compile_funcref_arg
+        self.compile_binop_concat = compile_binop_concat
+        self.compile_compare_str = compile_compare_str
+        self.assign_target_name = assign_target_name
+        self.label_counter = []
+        self.compare_opcode = {}
+        self.compare_negated = {}
+        self.il_scalar = {}
+        self.func_table = {}
+        self.int_dtypes = set()
+        self.float_dtypes = set()
+        self.emitted_types = set()
+        self.records = {}
+        self.record_methods = {}
+        self.record_methods_own = {}
+        self.record_bases = {}
+        self.extern_class_defs = {}
+        self.tern_temp_of_id = {}
+        self.nested_closures = {}
+        self.monomorphize_cache = {}
+        self.monomorphize_body_of = {}
+        self.loop_stack = []
+        self.extra_classes = []
+        self.pending_monomorphize = []
+        self.thread_ret_types = {}
+        self.boxed_initialized = set()
+
+    @__tkv_cpython_only__
+    def __getitem__(self, k):
+        """CAU DI TRU - xem compiler/tkv_pragma.py. ~1500 cho con doc
+        `ctx['k']`; chung chuyen dan sang `ctx.k`. PHAI XOA khi xong.
+
+        Nem `KeyError` chu KHONG phai `AttributeError`: cho goi van dang la
+        ma viet cho mot `dict`, va co cho bat `KeyError` that. Doi loai
+        ngoai le o day se lam nhung cho do TRUOT qua - mot thay doi hanh vi
+        AM THAM."""
+        try:
+            return getattr(self, k)
+        except AttributeError:
+            raise KeyError(k)
+
+    @__tkv_cpython_only__
+    def __setitem__(self, k, v):
+        """Cau di tru - 15 cho ghi `ctx['k'] = ...`."""
+        setattr(self, k, v)
+
+    @__tkv_cpython_only__
+    def __contains__(self, k):
+        """Cau di tru - `'k' in ctx`."""
+        return hasattr(self, k)
+
+    @__tkv_cpython_only__
+    def get(self, k, mac_dinh=None):
+        """Cau di tru - `ctx.get('k', md)`."""
+        return getattr(self, k, mac_dinh)
+
+    @__tkv_cpython_only__
+    def items(self):
+        """Cau di tru - vai cho duyet ca ctx."""
+        return list(vars(self).items())
+
+    @__tkv_cpython_only__
+    def setdefault(self, k, mac_dinh=None):
+        """Cau di tru - 2 cho dung `ctx.setdefault('_boxed_initialized', set())`
+        lam BO NHO TAM cua ca lan sinh ma (closure/boxed local). Thieu no,
+        hoi quy do sap 7 bai closure/nested - dung loai loi ma cong sinh ra
+        de bat."""
+        if not hasattr(self, k):
+            setattr(self, k, mac_dinh)
+        return getattr(self, k)
+
+    @__tkv_cpython_only__
+    def keys(self):
+        """Cau di tru - CAN cho `dict(ctx)`: giao thuc mapping cua Python
+        tim `keys()` roi `__getitem__`. Hai cho trong string_join.py lam
+        `sub_ctx = dict(ctx)` de thay tam mot ham; thieu `keys()` thi
+        `dict(ctx)` nem TypeError."""
+        return list(vars(self).keys())
+
+
+
+
+def tao_ctx(reg: "Registry"=None,
+            prefix: "str"=None,
+            class_name: "str"=None,
+            epilogue_lbl: "str"=None,
+            ret_tmp_name: "str"=None,
+            current_record: "str"=None,
+            source_path_il: "str"=None,
+            try_depth: "i32"=0,
+            in_except_handler: "i32"=0,
+            gen_ctx: "GenCtx"=None,
+            void_call_ok: "str"=None,
+            infer_dtype: "func(TkvNode, Scope, dict[str,TkvSig], TkvTable, TkvTable, TkvTable)->str"=None,
+            gen_il_closure_method: "func(TkvSig, dict[str,TkvSig], str, dict[str,list[(str,TkvTypeAnn)]], dict[str,dict[str,Signature]], list[(str,TypeAnn,str,str)], list[list[str]], set[str], list[i32])->list[str]"=None,
+            compile_expr: "func(TkvNode, Scope, list[str], str, Ctx)->void"=None,
+            resolve_compare_operand_dtype: "func(TkvNode, TkvNode, Scope, dict[str,TkvSig], str, TkvTable, TkvTable)->str"=None,
+            funcref_invoke: "func(TypeAnn, list[TkvNode], Scope, list[str], str, Ctx, str, func()->void)->void"=None,
+            load_var_ref: "func(str, Scope, list[str])->void"=None,
+            load_var_addr: "func(str, Scope, list[str])->void"=None,
+            store_var: "func(str, Scope, list[str])->void"=None,
+            load_boxed_cell_ref: "func(str, Scope, list[str])->void"=None,
+            il_ident: "func(str)->str"=None,
+            cell_class_name: "func(str)->str"=None,
+            neg_literal_int: "func(TkvNode)->i32"=None,
+            widen_if_needed: "func(str, str, list[str])->void"=None,
+            il_type_str: "func(TkvTypeAnn, dict[str,list[(str,TkvTypeAnn)]])->str"=None,
+            compile_funcref_arg: "func(TkvNode, TkvTypeAnn, Scope, list[str], Ctx)->void"=None,
+            compile_binop_concat: "func(str, TkvNode, TkvNode, Scope, list[str], Ctx)->void"=None,
+            compile_compare_str: "func(str, TkvNode, TkvNode, Scope, list[str], Ctx)->void"=None,
+            assign_target_name: "str"=None,
+            label_counter: "list[i32]"=None,
+            compare_opcode: "dict[str,str]"=None,
+            compare_negated: "dict[str,str]"=None,
+            il_scalar: "dict[str,str]"=None,
+            func_table: "dict[str,TkvSig]"=None,
+            int_dtypes: "set[str]"=None,
+            float_dtypes: "set[str]"=None,
+            emitted_types: "set[str]"=None,
+            records: "dict[str,list[(str,TkvTypeAnn)]]"=None,
+            record_methods: "dict[str,dict[str,Signature]]"=None,
+            record_methods_own: "dict[str,dict[str,Signature]]"=None,
+            record_bases: "dict[str,list[str]]"=None,
+            extern_class_defs: "dict[str,i32]"=None,
+            tern_temp_of_id: "dict[i32,i32]"=None,
+            nested_closures: "dict[str,NestedClosure]"=None,
+            monomorphize_cache: "dict[str,Signature]"=None,
+            monomorphize_body_of: "dict[str,(list[str],i32)]"=None,
+            loop_stack: "list[(str,str)]"=None,
+            extra_classes: "list[list[str]]"=None,
+            pending_monomorphize: "list[(TkvSig,list[str],i32)]"=None,
+            thread_ret_types: "dict[str,str]"=None,
+            boxed_initialized: "set[str]"=None) -> "Ctx":
+    """Dung mot `Ctx` bang THAM SO CO TEN - thay cho `Ctx({...})`.
+
+    VI SAO CAN: `Ctx.__init__` mang pragma `@__tkv_cpython_only__` nen
+    duong TU-HOST khong co no - ca hai trinh bien dich TU SINH `.ctor`
+    tu cac truong (28 vo huong theo thu tu khai bao lam tham so; 20
+    container khoi tao rong). Vi the `Ctx({mot dict})` bao "lop Ctx can
+    28 doi so khoi tao, nhan 1" - 7 loi tren duong tu-host.
+
+    VI SAO KHONG dat keyword THANG vao ctor record: DA DO THAT, trinh
+    bien dich that TU CHOI (`P(b=7, a="x")` -> "AST node khong ro").
+    Nhung keyword + gia tri mac dinh tren HAM THUONG thi CA HAI trinh
+    bien dich deu nhan - da do: 48 tham so, mac dinh `None` cho ca kieu
+    record lan `func(...)` lan container. Nen cho goi giu nguyen do doc
+    duoc ma KHONG them mot tinh nang ngon ngu nao.
+
+    Container chi duoc gan khi khac `None`: `.ctor` tu sinh da khoi tao
+    chung RONG roi. Gan de bang `None` se bien mot bang rong thanh mot
+    tham chieu cut - hong AM THAM luc chay chu khong bao luc dich.
+    """
+    c = Ctx(reg, prefix, class_name, epilogue_lbl, ret_tmp_name, current_record, source_path_il, try_depth, in_except_handler, gen_ctx, void_call_ok, infer_dtype, gen_il_closure_method, compile_expr, resolve_compare_operand_dtype, funcref_invoke, load_var_ref, load_var_addr, store_var, load_boxed_cell_ref, il_ident, cell_class_name, neg_literal_int, widen_if_needed, il_type_str, compile_funcref_arg, compile_binop_concat, compile_compare_str, assign_target_name)
+    if label_counter is not None:
+        c.label_counter = label_counter
+    if compare_opcode is not None:
+        c.compare_opcode = compare_opcode
+    if compare_negated is not None:
+        c.compare_negated = compare_negated
+    if il_scalar is not None:
+        c.il_scalar = il_scalar
+    if func_table is not None:
+        c.func_table = func_table
+    if int_dtypes is not None:
+        c.int_dtypes = int_dtypes
+    if float_dtypes is not None:
+        c.float_dtypes = float_dtypes
+    if emitted_types is not None:
+        c.emitted_types = emitted_types
+    if records is not None:
+        c.records = records
+    if record_methods is not None:
+        c.record_methods = record_methods
+    if record_methods_own is not None:
+        c.record_methods_own = record_methods_own
+    if record_bases is not None:
+        c.record_bases = record_bases
+    if extern_class_defs is not None:
+        c.extern_class_defs = extern_class_defs
+    if tern_temp_of_id is not None:
+        c.tern_temp_of_id = tern_temp_of_id
+    if nested_closures is not None:
+        c.nested_closures = nested_closures
+    if monomorphize_cache is not None:
+        c.monomorphize_cache = monomorphize_cache
+    if monomorphize_body_of is not None:
+        c.monomorphize_body_of = monomorphize_body_of
+    if loop_stack is not None:
+        c.loop_stack = loop_stack
+    if extra_classes is not None:
+        c.extra_classes = extra_classes
+    if pending_monomorphize is not None:
+        c.pending_monomorphize = pending_monomorphize
+    if thread_ret_types is not None:
+        c.thread_ret_types = thread_ret_types
+    if boxed_initialized is not None:
+        c.boxed_initialized = boxed_initialized
+    return c
+
+
+def sao_ctx(g: "Ctx") -> "Ctx":
+    """Ban sao NONG cua mot `Ctx` - thay cho `Ctx(dict(ctx))`.
+
+    Nong dung nhu `dict(ctx)` truoc day: cac bang duoc DUNG CHUNG, chi
+    rieng vo boc la moi. `label_counter` PHAI dung chung - no la bo dem
+    nhan toan cuc, tach ra la sinh nhan trung.
+    """
+    return tao_ctx(
+                    reg=g.reg,
+                    prefix=g.prefix,
+                    class_name=g.class_name,
+                    epilogue_lbl=g.epilogue_lbl,
+                    ret_tmp_name=g.ret_tmp_name,
+                    current_record=g.current_record,
+                    source_path_il=g.source_path_il,
+                    try_depth=g.try_depth,
+                    in_except_handler=g.in_except_handler,
+                    gen_ctx=g.gen_ctx,
+                    void_call_ok=g.void_call_ok,
+                    infer_dtype=g.infer_dtype,
+                    gen_il_closure_method=g.gen_il_closure_method,
+                    compile_expr=g.compile_expr,
+                    resolve_compare_operand_dtype=g.resolve_compare_operand_dtype,
+                    funcref_invoke=g.funcref_invoke,
+                    load_var_ref=g.load_var_ref,
+                    load_var_addr=g.load_var_addr,
+                    store_var=g.store_var,
+                    load_boxed_cell_ref=g.load_boxed_cell_ref,
+                    il_ident=g.il_ident,
+                    cell_class_name=g.cell_class_name,
+                    neg_literal_int=g.neg_literal_int,
+                    widen_if_needed=g.widen_if_needed,
+                    il_type_str=g.il_type_str,
+                    compile_funcref_arg=g.compile_funcref_arg,
+                    compile_binop_concat=g.compile_binop_concat,
+                    compile_compare_str=g.compile_compare_str,
+                    assign_target_name=g.assign_target_name,
+                    label_counter=g.label_counter,
+                    compare_opcode=g.compare_opcode,
+                    compare_negated=g.compare_negated,
+                    il_scalar=g.il_scalar,
+                    func_table=g.func_table,
+                    int_dtypes=g.int_dtypes,
+                    float_dtypes=g.float_dtypes,
+                    emitted_types=g.emitted_types,
+                    records=g.records,
+                    record_methods=g.record_methods,
+                    record_methods_own=g.record_methods_own,
+                    record_bases=g.record_bases,
+                    extern_class_defs=g.extern_class_defs,
+                    tern_temp_of_id=g.tern_temp_of_id,
+                    nested_closures=g.nested_closures,
+                    monomorphize_cache=g.monomorphize_cache,
+                    monomorphize_body_of=g.monomorphize_body_of,
+                    loop_stack=g.loop_stack,
+                    extra_classes=g.extra_classes,
+                    pending_monomorphize=g.pending_monomorphize,
+                    thread_ret_types=g.thread_ret_types,
+                    boxed_initialized=g.boxed_initialized)
+
+
+class GenCtx:
+    """Ngu canh sinh ma HAM SINH (generator) - truoc day la `gen_ctx`, mot
+    `dict` 6 khoa tao trong `il_codegen.gen_il_generator_function`.
+
+    Ghi chu o `Ctx` da ghi san "gen_ctx 6 khoa <- can record RIENG"; day la
+    cai record do. Ly do phai co: cac khoa mang kieu KHAC HAN nhau (chuoi,
+    danh sach cap, danh sach chuoi, o dem), nen dang dict chi khai duoc
+    bang handle type va moi phep doc tu no deu mat kieu - `for name, ta in
+    gen_ctx['field_vars']` bao "can danh sach tuple, gap TkvTable".
+    """
+
+    reg: "Registry"
+    class_name: "str"
+    current_iltype: "str"
+    elem_dtype: "str"
+    field_vars: "list[(str,TkvTypeAnn)]"
+    state_labels: "list[str]"
+    # O DEM mot phan tu: so hieu trang thai ke tiep. Giu dang danh sach
+    # (khong phai i32) vi cho goi tang no qua nhieu khung ham.
+    next_state: "list[i32]"
+
+    @__tkv_cpython_only__
+    def __init__(self, reg=None, class_name=None, current_iltype=None, elem_dtype=None):
+        """KHOP .ctor tu sinh cua transpiler: 4 truong vo huong theo thu
+        tu khai bao, 3 container khoi tao RONG. Dung `tao_gen_ctx(...)`,
+        dung goi thang. Xem `tao_ctx` o tren de biet vi sao."""
+        self.reg = reg
+        self.class_name = class_name
+        self.current_iltype = current_iltype
+        self.elem_dtype = elem_dtype
+        self.field_vars = []
+        self.state_labels = []
+        self.next_state = []
+
+    @__tkv_cpython_only__
+    def __getitem__(self, k):
+        """CAU DI TRU - nem `KeyError` chu KHONG phai `AttributeError`,
+        cung ly do nhu `Ctx.__getitem__`."""
+        try:
+            return getattr(self, k)
+        except AttributeError:
+            raise KeyError(k)
+
+    @__tkv_cpython_only__
+    def __setitem__(self, k, v):
+        setattr(self, k, v)
+
+    @__tkv_cpython_only__
+    def __contains__(self, k):
+        return hasattr(self, k)
+
+    @__tkv_cpython_only__
+    def get(self, k, mac_dinh=None):
+        return getattr(self, k, mac_dinh)
+
+
+class WalkCtx:
+    """Ngu canh FIRST-PASS (duyet khai bao local) - truoc day la `walk_ctx`,
+    mot `dict` 30 khoa o `il_codegen._first_pass_collect_locals`.
+
+    KHAC HAN `Ctx` (ngu canh codegen, 45 khoa). Dau hieu nhan biet: ham nhan
+    `declare_named` / `collect_ternary_temps` / `defer` la nhan WalkCtx.
+    `declare_named` mot minh da 134 loi goi trong cay - day la ngu canh bi
+    dung nhieu thu hai sau `Ctx`.
+
+    Kieu tung truong QUAN SAT luc chay (vet vao cac ham `fpw_*` qua 4 lan
+    bien dich mau), arity cac ham lay tu dinh nghia THAT - luu y
+    `_partial(f, reg)` CAT tham so `reg` dau, nen arity thay doi so voi
+    `def`.
+
+    KHONG KHAI (co y) - van dung duoc duoi CPython qua cau `__getitem__`:
+      - `infer_dtype`: goi voi 3/4/5 doi so tuy cho, `func(...)` co arity
+        CO DINH.
+      - `TypeAnn`: la mot CLASS truyen qua ctx, khong phai gia tri.
+    """
+
+    reg: "Registry"
+    body_dtype: "str"
+    source_path: "str"
+    # Bien module-level (ten -> kieu) - can cho `return <v>` trong generator
+    # biet kieu cua `__gen_ret__` (xem control_flow.fpw_return).
+    bien_mod: "dict[str,str]"
+    final_pass: "i32"
+    # `defer`: hoan mot phep khai bao lai toi khi di het than ham (xem
+    # `gen_il_function`). TRUOC day khong duoc khai, du walk_ctx luon
+    # duoc dung voi no va 4 cho doc `ctx['defer']` - ban tu-host khong
+    # doc duoc. Ham hoan lai la `func()->void` (2026-09-24): truoc day
+    # khai `func()->i32` vi tin `func()->void` khong hop le - SAI, ca hai
+    # trinh bien dich deu nhan; chi lambda void la con thieu (nay da co).
+    defer: "func(func()->void)->i32"
+    sig: "TkvSig"
+    infer_scope: "Scope"
+    func_table: "dict[str,TkvSig]"
+    declared_names: "set[str]"
+    boxed_names: "set[str]"
+    int_dtypes: "set[str]"
+
+    records: "dict[str,list[(str,TkvTypeAnn)]]"
+    record_methods: "dict[str,dict[str,Signature]]"
+    # LUON RONG o duong walk (xem cho tao trong il_codegen) - khai o day
+    # de `record_owner._method_owner_class` doc duoc `.truong`. Rang no
+    # rong la hanh vi SAN CO, chua ro dung hay sai; dung "sua" kem theo.
+    record_methods_own: "dict[str,dict[str,Signature]]"
+    record_bases: "dict[str,list[str]]"
+    nested_closures: "dict[str,NestedClosure]"
+    extern_class_defs: "dict[str,i32]"
+    # Hai bang TACH RIENG (2026-09-21): truoc day chung mot `dict` khoa
+    # lan lon str/tuple, gia tri lan lon TypeAnn/str - khong khai kieu
+    # duoc, nen moi cho doc `hint.shape`/`hint.elem_ta` deu mu kieu.
+    # Ten ham dang duoc phep goi o vi tri LENH (tra void) - xem guard
+    # `void_call_ok` trong il_codegen. Truoc day chi ton tai nhu mot khoa
+    # dict, nen `ctx.get('void_call_ok')` khong doc duoc.
+    void_call_ok: "str"
+    infer_dtype: "func(TkvNode, Scope, dict[str,TkvSig], TkvTable, TkvTable, TkvTable)->str"
+    container_arg_hints: "dict[str,TypeAnn]"
+    container_recv_hints: "dict[str,str]"
+    stmts: "list[i32]"
+    locals_decl: "list[(str,TypeAnn)]"
+    needs_epilogue: "list[i32]"
+    # (2026-09-25) cho cac ham first-pass nang len cap module (_fp_*)
+    tern_temp_of_id: "dict[i32,i32]"
+    thread_ret_types: "dict[str,str]"
+
+    # Ham: arity DA TRU tham so `reg` ma `_partial` gan san.
+    declare_named: "func(str, TkvTypeAnn)->void"
+    declare_array: "func(str, TkvTypeAnn)->void"
+    declare_scalar: "func(str, TkvNode)->void"
+    collect_ternary_temps: "func(TkvNode)->void"
+    walk_fn: "func(list[i32])->void"
+    infer_literal_dtype: "func(TkvNode)->str"
+    contains_float_literal: "func(TkvNode)->i32"
+    cell_class_name: "func(str)->str"
+
+    @__tkv_cpython_only__
+    def __init__(self, reg=None, body_dtype=None, source_path=None, final_pass=0, defer=None, sig=None, infer_scope=None, void_call_ok=None, infer_dtype=None, declare_named=None, declare_array=None, declare_scalar=None, collect_ternary_temps=None, walk_fn=None, infer_literal_dtype=None, contains_float_literal=None, cell_class_name=None):
+        """KHOP .ctor tu sinh cua transpiler: 17 truong vo huong theo thu
+        tu khai bao, 15 container khoi tao RONG. Dung `tao_walk_ctx(...)`,
+        dung goi thang. Xem `tao_ctx` o tren de biet vi sao."""
+        self.reg = reg
+        self.body_dtype = body_dtype
+        self.source_path = source_path
+        self.bien_mod = {}
+        self.final_pass = final_pass
+        self.defer = defer
+        self.sig = sig
+        self.infer_scope = infer_scope
+        self.void_call_ok = void_call_ok
+        self.infer_dtype = infer_dtype
+        self.declare_named = declare_named
+        self.declare_array = declare_array
+        self.declare_scalar = declare_scalar
+        self.collect_ternary_temps = collect_ternary_temps
+        self.walk_fn = walk_fn
+        self.infer_literal_dtype = infer_literal_dtype
+        self.contains_float_literal = contains_float_literal
+        self.cell_class_name = cell_class_name
+        self.func_table = {}
+        self.declared_names = set()
+        self.boxed_names = set()
+        self.int_dtypes = set()
+        self.records = {}
+        self.record_methods = {}
+        self.record_methods_own = {}
+        self.record_bases = {}
+        self.nested_closures = {}
+        self.extern_class_defs = {}
+        self.container_arg_hints = {}
+        self.container_recv_hints = {}
+        self.stmts = []
+        self.locals_decl = []
+        self.needs_epilogue = []
+        self.tern_temp_of_id = {}
+        self.thread_ret_types = {}
+
+    @__tkv_cpython_only__
+    def __getitem__(self, k):
+        """CAU DI TRU - nem `KeyError` chu KHONG phai `AttributeError`: co
+        cho bat `KeyError` that, doi loai ngoai le se lam chung TRUOT qua."""
+        try:
+            return getattr(self, k)
+        except AttributeError:
+            raise KeyError(k)
+
+    @__tkv_cpython_only__
+    def __setitem__(self, k, v):
+        setattr(self, k, v)
+
+    @__tkv_cpython_only__
+    def __contains__(self, k):
+        return hasattr(self, k)
+
+    @__tkv_cpython_only__
+    def get(self, k, mac_dinh=None):
+        return getattr(self, k, mac_dinh)
+
+    @__tkv_cpython_only__
+    def setdefault(self, k, mac_dinh=None):
+        if not hasattr(self, k):
+            setattr(self, k, mac_dinh)
+        return getattr(self, k)
+
+    @__tkv_cpython_only__
+    def items(self):
+        return list(vars(self).items())
+
+    @__tkv_cpython_only__
+    def keys(self):
+        return list(vars(self).keys())
+
+
+class NestedClosure:
+    """Mot ham LONG da duoc nang thanh lop closure.
+
+    Truoc 2026-09-21 la mot `dict` 4 khoa dat o `closures.codegen_nested_def`.
+    Hinh dang co dinh va chi mot cho tao ra no, nen record la dung."""
+
+    closure_class: "str"
+    hidden_local: "str"
+    nested_sig: "TkvSig"
+    captures: "list[(str,TkvTypeAnn,str,str)]"
+
+    def __init__(self, closure_class: "str", hidden_local: "str",
+                 nested_sig: "TkvSig", captures: "list[(str,TkvTypeAnn,str,str)]"):
+        self.closure_class = closure_class
+        self.hidden_local = hidden_local
+        self.nested_sig = nested_sig
+        self.captures = captures
+
+
+class PrescanCtx:
+    """Ngu canh TIEN QUET (luot 0 cua first-pass) - 8 khoa, dung RIENG cho
+    cac handler `fpp_*`.
+
+    KHAC ca `Ctx` (codegen) LAN `WalkCtx` (duyet khai bao). Dau hieu nhan
+    biet: ham nhan `prescan_fn` la nhan cai nay.
+
+    Truoc 2026-09-21 la mot `dict` tran, va 8 ham `fpp_*` khai no la
+    `dict[str,Registry]` - chu thich SAI: no lam `ctx['prescan_fn']` duoc
+    suy thanh `Registry`, nen loi goi `ctx['prescan_fn'](...)` khong dich
+    duoc. Mot chu thich sai o day dat hon la khong co chu thich nao.
+
+    Kieu tung truong lay tu CHO DUNG THAT
+    (`il_codegen._pre_register_infer_scope`), khong suy tu doc ma nguon."""
+
+    reg: "Registry"
+    infer_scope: "Scope"
+    func_table: "dict[str,TkvSig]"
+    records: "dict[str,list[(str,TkvTypeAnn)]]"
+    record_bases: "dict[str,list[str]]"
+    record_methods: "dict[str,dict[str,Signature]]"
+    body_dtype: "str"
+    # BIND SAN `reg` (lambda o cho tao) - noi goi chi biet chu ky 1 doi so.
+    prescan_fn: "func(list[i32])->void"
+
+    @__tkv_cpython_only__
+    def __init__(self, reg=None, infer_scope=None, body_dtype=None, prescan_fn=None):
+        """KHOP .ctor tu sinh cua transpiler: 4 truong vo huong theo thu
+        tu khai bao, 4 container khoi tao RONG. Dung `tao_prescan_ctx(...)`,
+        dung goi thang. Xem `tao_ctx` o tren de biet vi sao."""
+        self.reg = reg
+        self.infer_scope = infer_scope
+        self.body_dtype = body_dtype
+        self.prescan_fn = prescan_fn
+        self.func_table = {}
+        self.records = {}
+        self.record_bases = {}
+        self.record_methods = {}
+
+    @__tkv_cpython_only__
+    def __getitem__(self, k):
+        """CAU DI TRU - cac `fpp_*` con doc `ctx['k']`. Xoa khi xong.
+
+        BON cau di tru cua PrescanCtx tung THIEU pragma nay, khac han
+        Ctx/GenCtx/WalkCtx. Hau qua do CONG CHIEU NGUOC (tools/nen_that.py)
+        do duoc: trinh that co gang dich chung, bao "tham so 'k' thieu
+        annotation kieu DSL", va vi `il_dispatch` duoc gan het cay import
+        nen 100/117 file vuong CUNG MOT loi nay. Nen tu-host KHONG thay gi
+        - hat giong bo qua theo ten method.
+        """
+        try:
+            return getattr(self, k)
+        except AttributeError:
+            raise KeyError(k)
+
+    @__tkv_cpython_only__
+    def __setitem__(self, k, v):
+        setattr(self, k, v)
+
+    @__tkv_cpython_only__
+    def __contains__(self, k):
+        return hasattr(self, k)
+
+    @__tkv_cpython_only__
+    def get(self, k, mac_dinh=None):
+        return getattr(self, k, mac_dinh)
+
+
+def new_registry() -> "Registry":
+    """Mot bo bang dieu phoi MOI, doc lap."""
+    return Registry()
+
+
+
+
+def _dang_ky_builtin_chung(reg: "Registry", name: "str",
+                           codegen_fn: "TkvFn",
+                           return_dtype: "str", return_shape: "str" = None,
+                           temps_fn: "func(TkvNode, WalkCtx)->void" = None,
+                           return_dtype_fn: "func(list[TkvNode], Scope, dict[str,TkvSig])->str" = None,
+                           return_ta: "TkvTypeAnn" = None,
+                           return_ta_dtype: "str" = None,
+                           return_ta_shape: "str" = None,
+                           return_ta_fn: "func(list[TkvNode], Scope, dict[str,TkvSig])->TkvTypeAnn" = None,
+                           native_int: "i32" = False):
+    """Phan CHUNG cua register_expr_builtin / register_expr_builtin_nut."""
+    # Bi danh cuc bo: 'in' hien CHI chay tren BIEN don, chua chay tren
+    # FIELD cua record ('name in reg.X') - xem docs/BUGS_TODO.md. Dict la
+    # tham chieu nen gan bi danh KHONG sao chep, ngu nghia giu nguyen.
+    _bang_builtin = reg.expr_builtin_codegen
+    if name in _bang_builtin:
+        # BUG THAT tim thay o phien truoc (json_get_str bi stdlib_cjson
+        # de am tham, chi phat hien qua doc code ky, khong bao loi luc
+        # build) - gan thang dict truoc day KHONG canh bao trung ten.
+        # Tu 2026-08-12: bung loi RO RANG ngay luc import, tranh lap lai
+        # kieu bug do khi thu tu import doi (vd chuyen sang nap plugin
+        # dong theo thu tu thu muc, xem plugin_loader.py).
+        raise ValueError(
+            f"il_dispatch: register_expr_builtin('{name}') - ten nay DA duoc dang " +
+            f"ky truoc do (co the do 2 module khac nhau vo tinh dung trung ten " +
+            f"builtin) - doi ten 1 trong 2, khong duoc de de am tham")
+    reg.expr_builtin_codegen[name] = codegen_fn
+    if native_int:
+        reg.expr_builtin_native_int[name] = ""
+    reg.expr_builtin_dtype[name] = return_dtype
+    if return_dtype_fn is not None:
+        reg.expr_builtin_dtype_fn[name] = return_dtype_fn
+    if return_ta is not None:
+        # 'shape'/'dtype' den TU CALLER thay vi doc tu return_ta. Ly do:
+        # handle type mo khoa TRUYEN QUA chu khong mo khoa DOC TRUONG, nen
+        # 'return_ta.shape' lam file nay khong bien dich duoc bang TokenVector
+        # (xem docs/BUGS_TODO.md). Caller von DUNG TypeAnn ngay tai cho nen no
+        # da biet san ca hai gia tri - khong bia them thong tin nao.
+        # return_ta van duoc LUU (luu handle la chuyen tiep thuan, hop le);
+        # il_codegen.py va tuple_type.py con doc truong cua no - no do CHUA
+        # tra, thuoc rao R1.
+        if return_ta_shape is None:
+            raise ValueError(
+                f"register_expr_builtin('{name}'): return_ta chi danh cho builtin tra " +
+                f"CONTAINER - phai kem return_ta_shape; gia tri vo huong dung return_dtype")
+        reg.expr_builtin_return_ta[name] = return_ta
+        reg.expr_builtin_shape_dtype[name] = return_ta_dtype
+        reg.expr_builtin_result_shape[name] = return_ta_shape
+    if temps_fn is not None:
+        reg.expr_builtin_temps[name] = temps_fn
+    if return_shape is not None:
+        reg.expr_builtin_shape_dtype[name] = return_dtype
+        reg.expr_builtin_result_shape[name] = return_shape
+    if return_ta_fn is not None:
+        reg.expr_builtin_return_ta_fn[name] = return_ta_fn
+
+
+def register_expr_builtin(reg: "Registry", name: "str",
+                          codegen_fn: "func(list[TkvNode], Scope, list[str], str, Ctx)->void",
+                          return_dtype: "str", return_shape: "str" = None,
+                           temps_fn: "func(TkvNode, WalkCtx)->void" = None,
+                           return_dtype_fn: "func(list[TkvNode], Scope, dict[str,TkvSig])->str" = None,
+                           return_ta: "TkvTypeAnn" = None,
+                           return_ta_dtype: "str" = None,
+                           return_ta_shape: "str" = None,
+                           return_ta_fn: "func(list[TkvNode], Scope, dict[str,TkvSig])->TkvTypeAnn" = None,
+                           native_int: "i32" = False):
+    """Builtin bieu thuc: `codegen_fn(args, scope, out, dtype, ctx)`. Dang can
+    NODE loi goi (tham so thu 6) dung `register_expr_builtin_nut`."""
+    _dang_ky_builtin_chung(reg, name, codegen_fn, return_dtype, return_shape, temps_fn, return_dtype_fn, return_ta, return_ta_dtype, return_ta_shape, return_ta_fn, native_int)
+    reg.expr_builtin_goi[name] = codegen_fn
+
+
+def register_expr_builtin_nut(reg: "Registry", name: "str",
+                              codegen_fn: "func(list[TkvNode], Scope, list[str], str, Ctx, TkvNode)->void",
+                              return_dtype: "str", return_shape: "str" = None,
+                              temps_fn: "func(TkvNode, WalkCtx)->void" = None,
+                              return_dtype_fn: "func(list[TkvNode], Scope, dict[str,TkvSig])->str" = None,
+                              return_ta: "TkvTypeAnn" = None,
+                              return_ta_dtype: "str" = None,
+                              return_ta_shape: "str" = None,
+                              return_ta_fn: "func(list[TkvNode], Scope, dict[str,TkvSig])->TkvTypeAnn" = None,
+                              native_int: "i32" = False):
+    """Nhu register_expr_builtin nhung `codegen_fn(args, scope, out, dtype, ctx,
+    node)` nhan them NODE loi goi (P8/3b-1, 2026-09-08): temps_fn (first-pass)
+    va codegen_fn phai dat/tra CUNG mot ten bien tam, va danh tinh do la
+    `nid(node)`. Tach ham rieng (2026-09-25) thay co `wants_node`: mot tham so
+    khong the mang hai kieu ham."""
+    _dang_ky_builtin_chung(reg, name, codegen_fn, return_dtype, return_shape, temps_fn, return_dtype_fn, return_ta, return_ta_dtype, return_ta_shape, return_ta_fn, native_int)
+    reg.expr_builtin_wants_node[name] = ""
+    reg.expr_builtin_goi_nut[name] = codegen_fn
+
+
+# Giai doan 0.2 nhom 3 (2026-08-03): method THU VIEN can BIEN CUC BO AN
+# (hidden local) + nhan IL - vd 's.count(x)'/'s.title()'/'s.zfill(n)' phai
+# sinh vong lap nen khong the chi day gia tri len stack nhu nhom 1/2.
+# Truoc day cac method nay CHI chay duoc o RHS 1 phep gan don le vi
+# 'method_call' (EXPR_CODEGEN) khong co diem moc first-pass de CAP PHAT
+# hidden local (xem docstring goc cua stdlib_string_count.py/string_title.py/
+# stdlib_string_zfill.py). Registry nay them dung diem moc do:
+#   - temps_fn(node, ctx) chay o FIRST PASS, khai bao hidden local, dat ten
+#     theo id(node) (AST parse DUY NHAT 1 lan va dung lai o pass 2, xem ghi
+#     chu tai _expr_ternary - id() la khoa TIN CAY).
+#   - codegen_fn(node, scope, out, dtype, ctx) chay o pass 2, tra cuu lai
+#     dung hidden local do qua CUNG khoa id(node).
+# Khoa: (shape_key, method_name) - shape_key la ta.shape neu co (list/dict/
+# set...), nguoc lai la ta.dtype ('str' cho string vo huong).
+
+
+# Ten hang/bang CAP MODULE cua chuong trinh (2026-09-28) - ham long doc chung
+# thang, khong bat vao closure. il_codegen.gen_il_function dien vao.
+TEN_CAP_MODULE: "set[str]" = set()
+
+
+def khoa_method(shape_key: "str", method_name: "str") -> "str":
+    """Khoa cua 5 bang `expr_method_*`.
+
+    TRUOC (P8 Task 7): khoa la TUPLE `(shape_key, method_name)`. TokenVector
+    doi khoa dict phai VO HUONG, nen mot tuple lam cac bang nay KHONG khai kieu
+    duoc -> `il_dispatch.tkv` khong bien dich duoc (rao R4).
+
+    Gop bang mot ky tu ngan cach - dung cach arena row (`stmt_row`) da dung.
+    An toan vi ca hai thanh phan deu la dinh danh/ten hinh dang, khong bao gio
+    chua tab.
+
+    MOT CUA duy nhat: moi noi dung/doc 5 bang do PHAI di qua day. Bai hoc
+    P8/3b-2 - `assign_rhs_node()` co duong parse RIENG khong qua nho dem va
+    lap lai y nguyen loi cu; mot khoa chi dung khi MOI duong di qua mot cua.
+    """
+    return shape_key + "	" + method_name
+
+
+def register_expr_method(reg: "Registry", shape_key: "str", method_name: "str",
+                          codegen_fn: "func(TkvNode, Scope, list[str], str, Ctx)->void",
+                          return_dtype: "str" = None,
+                          temps_fn: "func(TkvNode, WalkCtx)->void" = None,
+                          return_ta_fn: "func(TkvTypeAnn)->TkvTypeAnn" = None,
+                          result_shape: "str" = None):
+    """return_dtype: dtype tra ve khi la HANG SO (method tra gia tri vo
+    huong, vd 's.count(x)' luon i32). return_ta_fn: fn(obj_ta) -> TypeAnn
+    khi kieu tra ve PHU THUOC doi tuong nhan (method tra container, vd
+    'd.keys()' -> list[key_dtype cua d]) - dung 1 trong 2, khong dung ca
+    hai (return_ta_fn duoc uu tien khi suy dtype). result_shape: hinh dang
+    THO ('list'/'set'/'dict') cho tang PARSER - BAT BUOC di kem
+    return_ta_fn, xem ghi chu EXPR_METHOD_RESULT_SHAPE o tren."""
+    key = khoa_method(shape_key, method_name)
+    reg.expr_method_codegen[key] = codegen_fn
+    if return_dtype is not None:
+        reg.expr_method_dtype[key] = return_dtype
+    if temps_fn is not None:
+        reg.expr_method_temps[key] = temps_fn
+    if return_ta_fn is not None:
+        reg.expr_method_shape[key] = return_ta_fn
+        if result_shape is None:
+            raise ValueError(
+                f"register_expr_method('{shape_key}', '{method_name}'): co return_ta_fn " +
+                f"thi BAT BUOC co result_shape - thieu se lam parser mat kenh " +
+                f"known_shapes (xem ghi chu reg.expr_method_result_shape)")
+        reg.expr_method_result_shape[key] = result_shape
+
+
+def register_line_parser(reg: "Registry", name: "str",
+                          line_fn: "func(Registry, str, list[(i32, str)], i32, i32, TkvSig, dict[str,str], func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32))->(i32, i32)"):
+    reg.line_parsers.append(line_fn)
+    reg.line_parsers_ten.append(name)
+
+
+def register_assign_rhs_parser(reg: "Registry", name: "str",
+                                rhs_fn: "func(str, str, dict[str,str])->i32"):
+    reg.assign_rhs_parsers.append(rhs_fn)
+    reg.assign_rhs_parsers_ten.append(name)
+
+
+def register_macro_expander(reg: "Registry", name: "str", macro_fn: "func(str)->str"):
+    reg.macro_expanders.append(macro_fn)
+    reg.macro_expanders_ten.append(name)
+
+
+def _bao_trung_khoa(da_co: "i32", key: "str", table_name: "str") -> "i32":
+    """Chan dang ky TRUNG khoa (2026-09-25: tach khoi phep gan). Truoc day
+    ham chung nhan CA bang qua tham so dict[str,TkvFn] - 5 bang KHAC kieu
+    delegate di qua MOT tham so, ban tu-host truyen Dictionary<string,DgX>
+    vao cho Dictionary<string,object>: SAI kieu IL. Nay moi ham register_*
+    tu gan vao BANG CO KIEU cua no."""
+    if da_co:
+        raise ValueError(
+            f"il_dispatch: {table_name}('{key}') - khoa nay DA duoc dang ky truoc " +
+            f"do (co the do 2 module khac nhau vo tinh dung trung ten/kind) - doi " +
+            f"ten 1 trong 2, khong duoc de de am tham")
+    return 0
+
+
+def register_expr_codegen(reg: "Registry", tag: "str",
+                          expr_fn: "func(TkvNode, Scope, list[str], str, Ctx)->void"):
+    _bao_trung_khoa(tag in reg.expr_codegen, tag, "register_expr_codegen")
+    reg.expr_codegen[tag] = expr_fn
+
+
+def register_stmt_codegen(reg: "Registry", kind: "str",
+                          stmt_fn: "func(i32, Scope, list[str], str, Ctx, TkvSig, func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void)->void"):
+    _bao_trung_khoa(kind in reg.stmt_codegen, kind, "register_stmt_codegen")
+    reg.stmt_codegen[kind] = stmt_fn
+
+
+def register_first_pass_walk(reg: "Registry", kind: "str",
+                             fpw_fn: "func(i32, WalkCtx)->void"):
+    _bao_trung_khoa(kind in reg.first_pass_walk, kind, "register_first_pass_walk")
+    reg.first_pass_walk[kind] = fpw_fn
+
+
+def register_first_pass_prescan(reg: "Registry", kind: "str",
+                                fpp_fn: "func(i32, PrescanCtx)->void"):
+    _bao_trung_khoa(kind in reg.first_pass_prescan, kind, "register_first_pass_prescan")
+    reg.first_pass_prescan[kind] = fpp_fn
+
+
+def register_call_stmt_temps(reg: "Registry", name: "str",
+                             temps_fn: "func(TkvNode, WalkCtx)->void"):
+    """Dang ky temps_fn(call_node, ctx) chay o FIRST PASS cho 1 ten ham
+    duoc goi nhu LENH DOC LAP ('call_stmt' - khong tra gia tri, vd
+    'shuffle(lst)' qua RANDOM_STMT_CODEGEN, khac 'sample(lst,k)' la
+    EXPR_BUILTIN thuc su nen dung THANG temps_fn cua register_expr_builtin)
+    nhung VAN can hidden local (2026-08-12, Task 3 random shuffle/sample).
+    Dung LAI EXPR_BUILTIN_TEMPS lam kho chua chung - _fpw_call_stmt trong
+    il_codegen.py tra cuu dict nay theo TEN ham (call_node[1]) cho MOI
+    call_stmt, giong het cach EXPR_BUILTIN_TEMPS da duoc tra cuu cho
+    'call' node nam trong bieu thuc (xem collect_ternary_temps)."""
+    _bao_trung_khoa(name in reg.expr_builtin_temps, name, "register_call_stmt_temps")
+    reg.expr_builtin_temps[name] = temps_fn
+
+
+# STR_METHOD_RETURN_DTYPE (2026-08-12, Phase tach tkvc.exe thanh plugin):
+# TRUOC DAY il_codegen.py import THANG dict 'RETURN_DTYPE' tu
+# string_methods_batch3.py roi doc qua bien _STR_METHOD_RETURN_DTYPE -
+# nay chuyen thanh 1 dict trung tam trong il_dispatch.py (giong
+# EXPR_METHOD_DTYPE), string_methods_batch3.py TU GOI ham dang ky ben
+# duoi de nop mapping cua no vao, il_codegen.py chi con doc dict o day
+# (khong con import truc tiep module string_methods_batch3 nua).
+
+
+def register_str_method_return_dtype(reg: "Registry",
+                                     mapping: "dict[str, str]"):
+    # Vong lap thay `.update()`: hat giong khong co method do, va them no
+    # can mot helper duyet tu dien rieng - khong dang cho MOT cho goi.
+    for _k, _v in mapping.items():
+        reg.str_method_return_dtype[_k] = _v
+
+
+def tao_gen_ctx(reg: "Registry"=None,
+                class_name: "str"=None,
+                current_iltype: "str"=None,
+                elem_dtype: "str"=None,
+                field_vars: "list[(str,TkvTypeAnn)]"=None,
+                state_labels: "list[str]"=None,
+                next_state: "list[i32]"=None) -> "GenCtx":
+    """Dung `GenCtx` bang tham so co ten - thay cho `GenCtx({...})`.
+
+    Cung ly do va cung khuon voi `tao_ctx` (xem docstring cua no).
+    """
+    c = GenCtx(reg, class_name, current_iltype, elem_dtype)
+    if field_vars is not None:
+        c.field_vars = field_vars
+    if state_labels is not None:
+        c.state_labels = state_labels
+    if next_state is not None:
+        c.next_state = next_state
+    return c
+
+
+def tao_walk_ctx(                 reg: "Registry"=None,
+                 body_dtype: "str"=None,
+                 source_path: "str"=None,
+                 final_pass: "i32"=0,
+                 defer: "func(func()->void)->i32"=None,
+                 sig: "TkvSig"=None,
+                 infer_scope: "Scope"=None,
+                 void_call_ok: "str"=None,
+                 infer_dtype: "func(TkvNode, Scope, dict[str,TkvSig], TkvTable, TkvTable, TkvTable)->str"=None,
+                 declare_named: "func(str, TkvTypeAnn)->void"=None,
+                 declare_array: "func(str, TkvTypeAnn)->void"=None,
+                 declare_scalar: "func(str, TkvNode)->void"=None,
+                 collect_ternary_temps: "func(TkvNode)->void"=None,
+                 walk_fn: "func(list[i32])->void"=None,
+                 infer_literal_dtype: "func(TkvNode)->str"=None,
+                 contains_float_literal: "func(TkvNode)->i32"=None,
+                 cell_class_name: "func(str)->str"=None,
+                 func_table: "dict[str,TkvSig]"=None,
+                 declared_names: "set[str]"=None,
+                 boxed_names: "set[str]"=None,
+                 int_dtypes: "set[str]"=None,
+                 records: "dict[str,list[(str,TkvTypeAnn)]]"=None,
+                 record_methods: "dict[str,dict[str,Signature]]"=None,
+                 record_methods_own: "dict[str,dict[str,Signature]]"=None,
+                 record_bases: "dict[str,list[str]]"=None,
+                 nested_closures: "dict[str,NestedClosure]"=None,
+                 extern_class_defs: "dict[str,i32]"=None,
+                 container_arg_hints: "dict[str,TypeAnn]"=None,
+                 container_recv_hints: "dict[str,str]"=None,
+                 stmts: "list[i32]"=None,
+                 locals_decl: "list[(str,TypeAnn)]"=None,
+                 needs_epilogue: "list[i32]"=None,
+                 bien_mod: "dict[str,str]"=None) -> "WalkCtx":
+    """Dung `WalkCtx` bang tham so co ten - thay cho `WalkCtx({...})`.
+
+    Cung ly do va cung khuon voi `tao_ctx` (xem docstring cua no).
+    """
+    c = WalkCtx(reg, body_dtype, source_path, final_pass, defer, sig, infer_scope, void_call_ok, infer_dtype, declare_named, declare_array, declare_scalar, collect_ternary_temps, walk_fn, infer_literal_dtype, contains_float_literal, cell_class_name)
+    if func_table is not None:
+        c.func_table = func_table
+    if declared_names is not None:
+        c.declared_names = declared_names
+    if boxed_names is not None:
+        c.boxed_names = boxed_names
+    if int_dtypes is not None:
+        c.int_dtypes = int_dtypes
+    if records is not None:
+        c.records = records
+    if record_methods is not None:
+        c.record_methods = record_methods
+    if record_methods_own is not None:
+        c.record_methods_own = record_methods_own
+    if record_bases is not None:
+        c.record_bases = record_bases
+    if nested_closures is not None:
+        c.nested_closures = nested_closures
+    if extern_class_defs is not None:
+        c.extern_class_defs = extern_class_defs
+    if container_arg_hints is not None:
+        c.container_arg_hints = container_arg_hints
+    if container_recv_hints is not None:
+        c.container_recv_hints = container_recv_hints
+    if stmts is not None:
+        c.stmts = stmts
+    if locals_decl is not None:
+        c.locals_decl = locals_decl
+    if needs_epilogue is not None:
+        c.needs_epilogue = needs_epilogue
+    if bien_mod is not None:
+        c.bien_mod = bien_mod
+    return c
+
+
+def tao_prescan_ctx(                    reg: "Registry"=None,
+                    infer_scope: "Scope"=None,
+                    body_dtype: "str"=None,
+                    prescan_fn: "func(list[i32])->void"=None,
+                    func_table: "dict[str,TkvSig]"=None,
+                    records: "dict[str,list[(str,TkvTypeAnn)]]"=None,
+                    record_bases: "dict[str,list[str]]"=None,
+                    record_methods: "dict[str,dict[str,Signature]]"=None) -> "PrescanCtx":
+    """Dung `PrescanCtx` bang tham so co ten - thay cho `PrescanCtx({...})`.
+
+    Cung ly do va cung khuon voi `tao_ctx` (xem docstring cua no).
+    """
+    c = PrescanCtx(reg, infer_scope, body_dtype, prescan_fn)
+    if func_table is not None:
+        c.func_table = func_table
+    if records is not None:
+        c.records = records
+    if record_bases is not None:
+        c.record_bases = record_bases
+    if record_methods is not None:
+        c.record_methods = record_methods
+    return c

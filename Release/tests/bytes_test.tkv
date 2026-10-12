@@ -1,0 +1,34 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    data = b"AB"
+
+    tested = tested + 1
+    total = total + check("bytes_len", str(len(data)), "2")
+
+    tested = tested + 1
+    total = total + check("bytes_idx0", str(data[0]), "65")
+
+    tested = tested + 1
+    total = total + check("bytes_idx1", str(data[1]), "66")
+
+    s = 0
+    for b in data:
+        s = s + b
+    tested = tested + 1
+    total = total + check("bytes_for_in_sum", str(s), "131")
+
+    n = 0
+    for b in data:
+        n = n + 1
+    tested = tested + 1
+    total = total + check("bytes_for_in_count", str(n), "2")
+
+    empty = b""
+    tested = tested + 1
+    total = total + check("bytes_empty_len", str(len(empty)), "0")
+
+    return test_summary("bytes_test", total, tested)

@@ -1,0 +1,370 @@
+# -*- coding: utf-8 -*-
+"""File I/O co ban (Phase 1 buoc 7, 2026-07-28) - doc/ghi TOAN BO noi
+dung file thanh/tu 1 string, anh xa thang cac static method cua
+System.IO.File (khong ho tro doc tung dong/stream). Khong co regex rieng
+(read_file/write_file/append_file/file_exists deu dung cu phap call/
+call_stmt chung, phan biet BANG TEN ham) - file nay so huu: 'call_stmt'
+kind TRON VEN (chi gom write_file/append_file, khong con gi khac - xem
+_lp_call_stmt/_CALL_STMT_RE o core), va 2 nhanh read_file/file_exists
+long trong tag 'call' dung chung o core (goi lai qua ham rieng, giong
+str() cua string_feature.py). Quy uoc dependency-injection qua `ctx`
+nhu cac buoc truoc."""
+from il_dispatch import register_stmt_codegen, register_expr_builtin, register_expr_method
+from tkv_types import TypeAnn
+# logging/pickle (Phase 4 backlog, phien 5, 2026-08-11) - nhap KHONG TRE
+# o day (khong phai trong ham) de dam bao register_expr_builtin ben
+# trong pickle_feature.py (cho pickle_load_X) LUON chay du chuong trinh
+# co dung log_X/pickle_dump_X hay khong - file_io.py duoc il_codegen.py
+# nhap KHONG DIEU KIEN nen day la diem chac chan chay 1 lan luc nap module.
+import stmt_row as _row
+import il_features.logging_feature as _logging_feature
+import il_features.pickle_feature as _pickle_feature
+import il_features.stdlib_sys as _stdlib_sys
+import il_features.stdlib_random as _stdlib_random
+from stmt_row import lay_nut
+from il_features.print_feature import compile_print
+import il_extern_dtype
+import il_features.print_feature as _print_feature
+from expr_row import ea_str, eb_ds
+
+
+__tkv_import__ = "il_dispatch"
+
+
+def compile_read_file(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """Nhanh 'read_file(path)' cua _expr_call - doc TOAN BO noi dung
+    file thanh 1 string, anh xa thang System.IO.File.ReadAllText, ROI
+    chuan hoa ket thuc dong giong Python.
+
+    SUA 2026-08-04 (lech AM THAM, khong nam trong danh sach nao truoc do):
+    Python `open(p, 'r')` dung "universal newlines" - moi '\\r\\n' VA moi
+    '\\r' don le tren dia deu ve bo nho thanh '\\n'. ReadAllText KHONG dich
+    gi ca. Cung mot file CRLF, `len(read_file(p))` cho hai so khac nhau:
+    do duoc CPython 6, TokenVector 9 tren file 'a\\r\\nb\\r\\nc\\r\\n'.
+
+    Phat hien khi dung _tkv_arbiter cho ctxpack.tkv: phia CPython bao 600
+    token, phia bien dich bao 698 - dung bang so ky tu '\\r'. Moi phep dem
+    dong/token/bam chuoi tren file CRLF deu lech theo, khong loi, khong
+    exception. Windows sinh file CRLF theo mac dinh nen bay nay rat de gap.
+
+    Thu tu hai phep thay THE KHONG DOI CHO: phai bo '\\r\\n' TRUOC, neu
+    khong thi '\\r\\n' se thanh '\\n\\n'."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: read_file(path) chi nhan dung 1 tham so")
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call string [mscorlib]System.IO.File::ReadAllText(string)')
+    out.append('    ldstr "\\r\\n"')
+    out.append('    ldstr "\\n"')
+    out.append('    callvirt instance string [mscorlib]System.String::'
+               'Replace(string, string)')
+    out.append('    ldstr "\\r"')
+    out.append('    ldstr "\\n"')
+    out.append('    callvirt instance string [mscorlib]System.String::'
+               'Replace(string, string)')
+
+
+def compile_file_exists(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """Nhanh 'file_exists(path)' cua _expr_call."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: file_exists(path) chi nhan dung 1 tham so")
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    out.append('    call bool [mscorlib]System.IO.File::Exists(string)')
+    ctx.widen_if_needed('i32', dtype, out)
+
+
+_BUILTIN_LENH_DOC_LAP: "set[str]" = {'atomic_add', 'atomic_inc', 'lock_acquire', 'lock_release', 'parallel_for', 'thread_sleep', 'simd_add', 'simd_sub', 'simd_mul', 'simd_scale', 'simd_axpy', 'time_sleep', 'os_remove', 'os_mkdir', 'proc_run', 'proc_ra', 'next', 'path_write_text', 'write_f32', 'free_bytes', 'v_fill8', 'v_load8', 'v_mul8', 'v_add8', 'v_sub8', 'v_mul8_add8', 'v_store8', 'v_store4'}
+
+
+def _extern_void_builtin_names() -> "set[str]":
+    """Fix Critical (2026-08-17, review Task 3 __tkv_extern_pinvoke__) - tra
+    ve EXTERN_VOID_BUILTIN_NAMES (tkv_compile.py), tap ten builtin THAT SU
+    void. Import LUC GOI (khong o dau file) vi tkv_compile.py -> il_codegen.py
+    -> file_io.py (module nay) o CAP MODULE, import nguoc tkv_compile ngay
+    dau file_io.py se circular. Khi ham nay duoc goi (codegen_call_stmt chay
+    trong luc compile_tkv_cli dang thuc thi, SAU khi toan bo chuoi import da
+    xong), tkv_compile da co san TRON VEN trong sys.modules nen import lazy
+    o day an toan (giong quy uoc 'import il_features.print_feature' o duoi)."""
+    return il_extern_dtype.EXTERN_VOID_BUILTIN_NAMES
+
+
+def codegen_call_stmt(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN entry TRON VEN cho kind 'call_stmt' - CHI gom
+    write_file/append_file (goi ham nhu 1 LENH DOC LAP, khong gan bien) -
+    goi ham do nguoi dung dinh nghia theo cach nay CHUA duoc ho tro (xem
+    nhanh else, tranh im lang bo qua return value)."""
+    name, call_args = (ea_str(lay_nut(stmt, 'call_node')),
+                       eb_ds(lay_nut(stmt, 'call_node')))
+    compile_expr = ctx.compile_expr
+    if name == 'print':
+        # moc 7 (2026-08-05) - xem il_features/print_feature.py.
+        compile_print(lay_nut(stmt, 'call_node'), scope, body, ctx)
+        return
+    if name == 'write_file':
+        if len(call_args) != 2:
+            raise SyntaxError("il_codegen: write_file(path, content) can dung 2 tham so")
+        compile_expr(call_args[0], scope, body, 'str', ctx)
+        compile_expr(call_args[1], scope, body, 'str', ctx)
+        body.append('    call void [mscorlib]System.IO.File::WriteAllText(string, string)')
+    elif name == 'append_file':
+        if len(call_args) != 2:
+            raise SyntaxError("il_codegen: append_file(path, content) can dung 2 tham so")
+        compile_expr(call_args[0], scope, body, 'str', ctx)
+        compile_expr(call_args[1], scope, body, 'str', ctx)
+        body.append('    call void [mscorlib]System.IO.File::AppendAllText(string, string)')
+    elif name in _logging_feature.LOG_STMT_CODEGEN:
+        # logging (Phase 4 backlog, phien 5, 2026-08-11) - xem
+        # il_features/logging_feature.py. Ham VOID (log_debug/.../
+        # log_set_level) - khong dang qua register_expr_builtin (do
+        # khong tra gia tri) nen dispatch qua day, giong write_file.
+        _logging_feature.LOG_STMT_CODEGEN[name](call_args, scope, body, ctx)
+    elif name in _pickle_feature.DUMP_STMT_CODEGEN:
+        # pickle_dump_X (Phase 4 backlog, phien 5, 2026-08-11) - xem
+        # il_features/pickle_feature.py. Cung la ham VOID, dispatch qua
+        # day giong log_X o tren.
+        _pickle_feature.DUMP_STMT_CODEGEN[name](call_args, scope, body, ctx)
+    elif name in _stdlib_sys.SYS_STMT_CODEGEN:
+        # sys_exit(code) (Phase 5.4, 2026-08-12) - xem il_features/
+        # stdlib_sys.py. Cung la ham VOID, dispatch qua day giong log_X/
+        # pickle_dump_X o tren.
+        _stdlib_sys.SYS_STMT_CODEGEN[name](call_args, scope, body, ctx)
+    elif name in _stdlib_random.RANDOM_STMT_CODEGEN:
+        # seed(n) (batch 5.5, 2026-08-12) - xem il_features/stdlib_random.py.
+        # Ham VOID, dispatch qua day giong log_X/pickle_dump_X/sys_exit.
+        _stdlib_random.RANDOM_STMT_CODEGEN[name](call_args, scope, body, ctx,
+                                                 lay_nut(stmt, 'call_node'))
+    elif name in ctx.reg.expr_builtin_codegen and name in _extern_void_builtin_names():
+        # Task 3 (2026-08-17, __tkv_extern_pinvoke__) - sua tan goc gioi han
+        # cu: builtin dang ky qua register_expr_builtin (Phase 1/2 cac pragma
+        # extern) truoc day CHI goi duoc trong BIEU THUC, khong goi duoc
+        # DANG LENH DOC LAP (vd ham __tkv_extern_pinvoke__ tra ve 'void').
+        # Nhanh nay dat SAU 4 bang builtin void rieng o tren, TRUOC nhanh
+        # else (goi ham nguoi dung) - de builtin dang ky dong duoc uu tien
+        # tra TRUOC khi roi vao loi "khong tim thay ham nay".
+        #
+        # SUA CRITICAL (2026-08-17, review): TRUOC DAY dieu kien nhanh nay
+        # la don thuan 'name in EXPR_BUILTIN_CODEGEN', va dtype None duoc
+        # coi la "void". SAI: ~27 builtin co san (pow/sorted/random/sum/min/
+        # max/...) CUNG dang ky return_dtype=None trong EXPR_BUILTIN_DTYPE
+        # nhung vi ly do "khong suy duoc dtype tinh TU CHINH NO" (dtype phu
+        # thuoc ngu canh/tham so goi), KHONG PHAI vi ham void - chung VAN
+        # day gia tri THAT len stack. Heuristic cu khi gap builtin nay goi
+        # DOC LAP se KHONG pop -> lech ngan xep IL (crash luc chay) hoac
+        # KeyError luc compile (builtin can dtype that de tu suy, vd pow).
+        # Nay dung EXTERN_VOID_BUILTIN_NAMES (tkv_compile.py) - tap RIENG,
+        # TUONG MINH, chi chua ten builtin THAT SU void (hien tai: extern
+        # pinvoke voi returns='void') - xem _extern_void_builtin_names() duoi.
+        return_dtype = ctx.reg.expr_builtin_dtype.get(name)
+        if name in ctx.reg.expr_builtin_wants_node:
+            goi_nut = ctx.reg.expr_builtin_goi_nut[name]
+            goi_nut(call_args, scope, body, return_dtype, ctx,
+                    lay_nut(stmt, 'call_node'))
+        else:
+            goi5 = ctx.reg.expr_builtin_goi[name]
+            goi5(call_args, scope, body, return_dtype, ctx)
+        # Khong pop: nhanh nay CHI chay cho builtin void that (khong tra
+        # gia tri gi), nen khong con logic pop co dieu kien nhu truoc.
+    else:
+        # 2026-08-03: goi 1 ham NGUOI DUNG nhu 1 lenh doc lap ('luu(x)',
+        # 'stack.push(...)') la cach viet BINH THUONG cua Python - truoc
+        # day bao loi. Bien dich nhu 1 bieu thuc roi 'pop' gia tri tra ve
+        # (neu co) de ngan xep can bang; ham void thi khong pop.
+        # P6 (2026-09-08): goi qua MOT BIEN kieu 'func' o dang LENH doc lap
+        # (vd callback void: `fn(x)`). Truoc day nhanh nay chi tra
+        # func_table (ham top-level) nen bao "khong tim thay ham nay" cho
+        # mot loi goi hop le.
+        if name in scope and scope.tra(name).ta is not None                 and scope.tra(name).ta.shape_ten == 'func':
+            f_ta = scope.tra(name).ta
+            ctx.compile_expr(lay_nut(stmt, 'call_node'), scope, body,
+                                 f_ta.dtype, ctx)
+            if f_ta.dtype is not None:
+                body.append('    pop')   # co gia tri tra ve nhung khong dung
+            return
+        func_table = (ctx.func_table if ctx is not None else None) or {}
+        sig = func_table.get(name)
+        _nc = (ctx.nested_closures if ctx is not None else None) or {}
+        if sig is None and name in _nc:
+            # goi HAM LONG o dang lenh (2026-09-28), ke ca ham long void
+            sig = _nc[name].nested_sig
+        if sig is None and name in _BUILTIN_LENH_DOC_LAP and name in ctx.reg.expr_builtin_codegen:
+            # builtin song song/SIMD/khoa/thread_sleep/next goi mot minh tren 1 dong (2026-09-30, 2026-10-06 next): bieu thuc roi pop
+            compile_expr(lay_nut(stmt, 'call_node'), scope, body, 'i32', ctx)
+            body.append('    pop')
+            return
+        if sig is None:
+            raise SyntaxError(
+                f"il_codegen: '{name}(...)' dung o dang lenh doc lap (khong gan bien) - "
+                f"khong tim thay ham nay trong chuong trinh (goi sai ten?)")
+        ret_dtype = sig.return_type.dtype if sig.return_type is not None else None
+        if sig.return_type is None:
+            # Ham void: bao cho _expr_call biet loi goi nay o VI TRI LENH
+            # (hop le) chu khong nam giua 1 bieu thuc. Dat/khoi phuc theo
+            # kieu finally-pop de loi goi long nhau khong lam ro ri co.
+            prev = ctx.void_call_ok
+            ctx.void_call_ok = name
+            try:
+                compile_expr(lay_nut(stmt, 'call_node'), scope, body, ret_dtype, ctx)
+            finally:
+                ctx.void_call_ok = prev
+        else:
+            compile_expr(lay_nut(stmt, 'call_node'), scope, body, ret_dtype, ctx)
+            body.append('    pop')
+
+
+def _ensure_class_filex(ctx: "Ctx"):
+    """TkvFileX::ReadLines(reader) / ReadLine(reader) - f.readlines() / f.readline() GIU ky tu xuong dong nhu Python
+    (2026-10-01). ReadLine tra '' o cuoi tep."""
+    if ctx.emitted_types is None or 'TkvFileX' in ctx.emitted_types:
+        return
+    ctx.emitted_types.add('TkvFileX')
+    L = 'class [mscorlib]System.Collections.Generic.List`1<string>'
+    S = '[mscorlib]System.String'
+    TR = '[mscorlib]System.IO.TextReader'
+    SB = '[mscorlib]System.Text.StringBuilder'
+    c = []
+    c.append('.class public auto ansi beforefieldinit TkvFileX extends [mscorlib]System.Object')
+    c.append('{')
+    c.append('  .method public static ' + L + ' ReadLines(class ' + TR + ' r) cil managed')
+    c.append('  {')
+    c.append('    .maxstack 8')
+    c.append('    .locals init (' + L + ' res, string all, int32 i, int32 st)')
+    c.append('    newobj instance void ' + L + '::.ctor()')
+    c.append('    stloc.0')
+    c.append('    ldarg.0')
+    c.append('    callvirt instance string ' + TR + '::ReadToEnd()')
+    c.append('    stloc.1')
+    c.append('    ldc.i4.0')
+    c.append('    stloc.2')
+    c.append('    ldc.i4.0')
+    c.append('    stloc.3')
+    c.append('  RL_L:')
+    c.append('    ldloc.2')
+    c.append('    ldloc.1')
+    c.append('    callvirt instance int32 ' + S + '::get_Length()')
+    c.append('    bge RL_E')
+    c.append('    ldloc.1')
+    c.append('    ldloc.2')
+    c.append('    callvirt instance char ' + S + '::get_Chars(int32)')
+    c.append('    ldc.i4.s 10')
+    c.append('    bne.un RL_N')
+    c.append('    ldloc.0')
+    c.append('    ldloc.1')
+    c.append('    ldloc.3')
+    c.append('    ldloc.2')
+    c.append('    ldloc.3')
+    c.append('    sub')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append('    callvirt instance string ' + S + '::Substring(int32, int32)')
+    c.append('    callvirt instance void ' + L + '::Add(!0)')
+    c.append('    ldloc.2')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append('    stloc.3')
+    c.append('  RL_N:')
+    c.append('    ldloc.2')
+    c.append('    ldc.i4.1')
+    c.append('    add')
+    c.append('    stloc.2')
+    c.append('    br RL_L')
+    c.append('  RL_E:')
+    c.append('    ldloc.3')
+    c.append('    ldloc.1')
+    c.append('    callvirt instance int32 ' + S + '::get_Length()')
+    c.append('    bge RL_D')
+    c.append('    ldloc.0')
+    c.append('    ldloc.1')
+    c.append('    ldloc.3')
+    c.append('    callvirt instance string ' + S + '::Substring(int32)')
+    c.append('    callvirt instance void ' + L + '::Add(!0)')
+    c.append('  RL_D:')
+    c.append('    ldloc.0')
+    c.append('    ret')
+    c.append('  }')
+    c.append('  .method public static string ReadLine(class ' + TR + ' r) cil managed')
+    c.append('  {')
+    c.append('    .maxstack 8')
+    c.append('    .locals init (class ' + SB + ' sb, int32 ch)')
+    c.append('    newobj instance void ' + SB + '::.ctor()')
+    c.append('    stloc.0')
+    c.append('  RD_L:')
+    c.append('    ldarg.0')
+    c.append('    callvirt instance int32 ' + TR + '::Read()')
+    c.append('    stloc.1')
+    c.append('    ldloc.1')
+    c.append('    ldc.i4.m1')
+    c.append('    beq RD_E')
+    c.append('    ldloc.0')
+    c.append('    ldloc.1')
+    c.append('    conv.u2')
+    c.append('    callvirt instance class ' + SB + ' ' + SB + '::Append(char)')
+    c.append('    pop')
+    c.append('    ldloc.1')
+    c.append('    ldc.i4.s 10')
+    c.append('    bne.un RD_L')
+    c.append('  RD_E:')
+    c.append('    ldloc.0')
+    c.append('    callvirt instance string [mscorlib]System.Object::ToString()')
+    c.append('    ret')
+    c.append('  }')
+    c.append('}')
+    ctx.extra_classes.append(c)
+
+
+def _kiem_file_doc(node: "TkvNode", scope: "Scope", ten_ham: "str") -> "str":
+    obj_name = ea_str(node)
+    obj_ta = scope.tra(obj_name).ta
+    if obj_ta.dtype != 'r':
+        raise SyntaxError("il_codegen: '" + obj_name + "." + ten_ham + "()' - file mo o mode '" + obj_ta.dtype + "' (chi ghi), khong doc duoc")
+    return obj_name
+
+
+def compile_file_readlines(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """f.readlines() -> list[str] (moi dong giu ky tu xuong dong)."""
+    obj_name = _kiem_file_doc(node, scope, 'readlines')
+    _ensure_class_filex(ctx)
+    ctx.load_var_ref(obj_name, scope, out)
+    out.append('    call class [mscorlib]System.Collections.Generic.List`1<string> TkvFileX::ReadLines(class [mscorlib]System.IO.TextReader)')
+
+
+def compile_file_readline(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """f.readline() -> str (cat newline, '' o cuoi tep).
+
+    PHAI dang ky method ('file','readline') o day de suy kieu tra ve la
+    'str' (khong thi `l1 = m.readline()` suy sai kieu, str(l1) in ra dia
+    chi). NHUNG body phai giong control_flow.compile_file_method_call:
+    TextReader::ReadLine (CAT newline) + null -> '', chu KHONG dung
+    TkvFileX::ReadLine (giu newline - sai so voi bootstrap + test)."""
+    obj_name = _kiem_file_doc(node, scope, 'readline')
+    ctx.load_var_ref(obj_name, scope, out)
+    out.append('    callvirt instance string [mscorlib]System.IO.TextReader::ReadLine()')
+    out.append('    dup')
+    ctx.label_counter[0] += 1
+    eof_lbl = f'__rl_notnull_{ctx.label_counter[0]}'
+    out.append(f'    brtrue {eof_lbl}')
+    out.append('    pop')
+    out.append('    ldstr ""')
+    out.append(f'  {eof_lbl}:')
+    ctx.widen_if_needed('str', dtype, out)
+
+
+def _ta_ds_chuoi_tep(_obj_ta: "TypeAnn") -> "TypeAnn":
+    return TypeAnn('str', 'list')
+
+
+def bootstrap_file_io(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    # Dang ky vao il_dispatch NGAY LUC MODULE NAP.
+    register_stmt_codegen(reg, 'call_stmt', codegen_call_stmt)
+    # Migrate tu co che if/elif cu trong il_codegen.py's _expr_call sang
+    # register_expr_builtin (2026-08-12, Phase "tach tkvc.exe thanh plugin")
+    # - gia CHUAN de goi thu vien tu ben ngoai duoc, khong can il_codegen.py
+    # import thang ten ham. Hanh vi IL sinh ra KHONG DOI, chi doi CO CHE
+    # DANG KY.
+    register_expr_method(reg, 'file', 'readlines', compile_file_readlines, return_ta_fn=_ta_ds_chuoi_tep, result_shape='list')
+    register_expr_method(reg, 'file', 'readline', compile_file_readline, return_dtype='str')
+    register_expr_builtin(reg, 'read_file', compile_read_file, 'str')
+    register_expr_builtin(reg, 'file_exists', compile_file_exists, 'i32')

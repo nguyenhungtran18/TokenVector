@@ -1,0 +1,10 @@
+tests_suite\de_vao\sample_datetime_extra.tkv	dinh_dang	0	2026-09-23 14:30:45	2026/09/23 14:30:45\n
+tests_suite\de_vao\sample_datetime_extra.tkv	cong_ngay	0	2026-09-23 14:30:451	2026-09-24\n
+tests_suite\de_vao\sample_datetime_extra.tkv	cong_ngay	0	2026-09-23 14:30:458	2026-10-01\n
+tests_suite\de_vao\sample_datetime_extra.tkv	cong_ngay	0	2026-09-23 14:30:45100	2027-01-01\n
+tests_suite\de_vao\sample_datetime_extra.tkv	cong_ngay	0	2026-09-23 14:30:450	2026-09-23\n
+tests_suite\de_vao\sample_datetime_extra.tkv	tru_gio	0	2026-09-23 14:30:452	2026-09-23 12:30:45\n
+tests_suite\de_vao\sample_datetime_extra.tkv	tru_gio	0	2026-09-23 14:30:4515	2026-09-22 23:30:45\n
+tests_suite\de_vao\sample_datetime_extra.tkv	cong_phut_giay	0	2026-09-23 14:30:451020	14:41:05\n
+tests_suite\de_vao\sample_datetime_extra.tkv	khoang_cach	0	2026-09-23 14:30:452026-09-20 14:30:45	2026-09-23 14:30:45\n
+tests_suite\de_vao\sample_datetime_extra.tkv	gio_hien_tai_hop_ly	0		hop-ly\n

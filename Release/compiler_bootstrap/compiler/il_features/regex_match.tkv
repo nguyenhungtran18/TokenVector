@@ -1,0 +1,365 @@
+# -*- coding: utf-8 -*-
+"""Doi tuong KET QUA KHOP cua regex: `m = PAT.match(s)` roi `m.group(1)`.
+
+Vi sao (do tren cay tu-host): 88 cho `_RE.match(s)`, 61 cho `m.group(1)`,
+74 cho `if m:` - day la API regex ma chinh ma nguon compiler dung. Truoc
+day TokenVector chi co `re_match(pattern, s) -> i32` (0/1): du cho `if m:`
+nhung KHONG du cho `m.group(i)`.
+
+`PAT` la mot CHUOI pattern (xem tkv_compile._re_compile_pattern) nen
+`PAT.match(s)` la mot method-call tren shape 'str'. Ket qua mang dtype
+'match' - mot handle toi System.Text.RegularExpressions.Match.
+
+**`if m:` KHONG duoc dung 'brfalse' tren chinh handle**: Regex.Match tra ve
+`Match.Empty` (mot doi tuong THAT, khong null) khi khong khop, nen phep thu
+null se luon cho TRUE. Phai doc `.Success` - xem emit_success() va nhanh
+rieng trong control_flow._compile_cond.
+
+Pham vi hien tai: match / search / group(i) / start() / end(). `groups()`
+CHUA lam (39 cho, deu la unpack voi so luong biet truoc) - se bao loi ro
+rang thay vi dich sai am tham.
+"""
+from il_dispatch import register_expr_method, register_str_method_return_dtype
+from expr_row import ea_str, eb_str, ec_ds, ekind, la_node, mk2, mk4, o_ds, o_str
+
+from tkv_types import TypeAnn
+
+MATCH_IL = 'class [System]System.Text.RegularExpressions.Match'
+_REGEX = '[System]System.Text.RegularExpressions.Regex'
+_GROUPCOLL = 'class [System]System.Text.RegularExpressions.GroupCollection'
+_GROUP = 'class [System]System.Text.RegularExpressions.Group'
+_CAPTURE = '[System]System.Text.RegularExpressions.Capture'
+
+
+__tkv_import__ = ["il_dispatch", "tkv_types"]
+
+
+def _recv_node(recv: "str") -> "TkvNode":
+    """Node bieu thuc cua receiver trong `method_call`.
+
+    Node 'method_call' giu receiver la TEN (chuoi), khong phai node bieu
+    thuc - boc thanh ('var', ten) de dua qua compile_expr nhu moi bieu thuc
+    khac (scope tu phan biet const/local/global)."""
+    return mk2('var', o_str(recv)) if isinstance(recv, str) else recv
+
+
+def _push_match(node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx", anchored: "i32"):
+    """CIL: day mot Match len stack tu `<pattern>.match(s)` / `.search(s)`.
+
+    node = ('method_call', recv, ten, args) - recv la CHUOI PATTERN, args[0]
+    la chuoi dau vao. .NET Regex.Match(input, pattern) KHONG neo dau, con
+    Python re.match() thi CO - nen `anchored` tu noi '^' vao truoc pattern
+    (cung cach stdlib_re.compile_re_match da dung)."""
+    recv, args = ea_str(node), ec_ds(node)
+    if len(args) == 2:
+        _push_match_tu_vi_tri(recv, args, scope, out, ctx, anchored)
+        return
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: PAT.match(s[, pos])/PAT.search(s[, pos]) nhan 1 hoac 2 tham so")
+    compile_expr = ctx.compile_expr
+    compile_expr(args[0], scope, out, 'str', ctx)          # input
+    if anchored:
+        out.append('    ldstr "^"')
+        compile_expr(_recv_node(recv), scope, out, 'str', ctx)   # pattern
+        out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    else:
+        compile_expr(_recv_node(recv), scope, out, 'str', ctx)
+    out.append(f'    call {MATCH_IL} {_REGEX}::Match(string, string)')
+    _match_rong_thanh_null(out, ctx)
+
+
+def _push_match_tu_vi_tri(recv: "str", args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx: "Ctx", anchored: "i32"):
+    """`PAT.match(s, pos)` / `PAT.search(s, pos)` (2026-09-25). Python match(s,
+    pos) NEO tai pos; .NET Regex.Match(s, pos) chi BAT DAU tim tu pos - neo
+    bang '\\G' (khop dung vi tri bat dau), roi goi Match(string, int32)."""
+    compile_expr = ctx.compile_expr
+    if anchored:
+        out.append('    ldstr "\\\\G(?:"')
+        compile_expr(_recv_node(recv), scope, out, 'str', ctx)
+        out.append('    call string [mscorlib]System.String::Concat(string, string)')
+        out.append('    ldstr ")"')
+        out.append('    call string [mscorlib]System.String::Concat(string, string)')
+    else:
+        compile_expr(_recv_node(recv), scope, out, 'str', ctx)
+    out.append(f'    newobj instance void {_REGEX}::.ctor(string)')
+    compile_expr(args[0], scope, out, 'str', ctx)
+    compile_expr(args[1], scope, out, 'i32', ctx)
+    out.append(f'    callvirt instance {MATCH_IL} {_REGEX}::Match(string, int32)')
+    _match_rong_thanh_null(out, ctx)
+
+
+_DS_MATCH = 'class [mscorlib]System.Collections.Generic.List`1<class [System]System.Text.RegularExpressions.Match>'
+_MCOLL = 'class [System]System.Text.RegularExpressions.MatchCollection'
+
+
+def _ensure_class_finditer(ctx: "Ctx"):
+    """TkvReFind::Tat(s, pat) -> List<Match> theo thu tu (2026-09-28)."""
+    emitted = ctx.emitted_types
+    if emitted is None or 'TkvReFind' in emitted:
+        return
+    emitted.add('TkvReFind')
+    ctx.extra_classes.append([
+        '.class public auto ansi beforefieldinit TkvReFind extends [mscorlib]System.Object',
+        '{',
+        f'  .method public static {_DS_MATCH} Tat(string s, string pat) cil managed',
+        '  {',
+        '    .maxstack 4',
+        f'    .locals init ({_MCOLL} c, {_DS_MATCH} ds, int32 i)',
+        '    ldarg.0',
+        '    ldarg.1',
+        f'    call {_MCOLL} {_REGEX}::Matches(string, string)',
+        '    stloc.0',
+        f'    newobj instance void {_DS_MATCH}::.ctor()',
+        '    stloc.1',
+        '    ldc.i4.0',
+        '    stloc.2',
+        '  TKVREFIND_LAP:',
+        '    ldloc.2',
+        '    ldloc.0',
+        f'    callvirt instance int32 {_MCOLL}::get_Count()',
+        '    bge TKVREFIND_HET',
+        '    ldloc.1',
+        '    ldloc.0',
+        '    ldloc.2',
+        f'    callvirt instance {MATCH_IL} {_MCOLL}::get_Item(int32)',
+        f'    callvirt instance void {_DS_MATCH}::Add(!0)',
+        '    ldloc.2',
+        '    ldc.i4.1',
+        '    add',
+        '    stloc.2',
+        '    br TKVREFIND_LAP',
+        '  TKVREFIND_HET:',
+        '    ldloc.1',
+        '    ret',
+        '  }',
+        '}',
+    ])
+
+
+def compile_pat_finditer(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`PAT.finditer(s)` (2026-09-28): moi lan khop KHONG chong lan, theo thu
+    tu - duoc tra ve dang list[match] (duyet 'for m in ...' nhu Python)."""
+    recv, args = ea_str(node), ec_ds(node)
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: PAT.finditer(s) nhan dung 1 tham so")
+    _ensure_class_finditer(ctx)
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    ctx.compile_expr(_recv_node(recv), scope, out, 'str', ctx)
+    out.append(f'    call {_DS_MATCH} TkvReFind::Tat(string, string)')
+
+
+def _finditer_ta(obj_ta: "TypeAnn") -> "TypeAnn":
+    return TypeAnn('match', 'list')
+
+
+def compile_pat_match(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`PAT.match(s)` - neo dau chuoi, giong Python re.match()."""
+    _push_match(node, scope, out, ctx, anchored=True)
+
+
+def compile_pat_search(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`PAT.search(s)` - khop o bat ky dau, giong Python re.search()."""
+    _push_match(node, scope, out, ctx, anchored=False)
+
+
+def _match_rong_thanh_null(out: "list[str]", ctx: "Ctx"):
+    """Khong khop -> null (2026-09-25): Python tra None, .NET tra Match.Empty
+    (doi tuong that) - 'm is None' tung luon SAI. Sau buoc nay moi Match
+    tren stack hoac khop THAT hoac null."""
+    ctx.label_counter[0] += 1
+    nhan = f'{ctx.prefix}_mkhop{ctx.label_counter[0]}'
+    out.append('    dup')
+    out.append('    callvirt instance bool [System]System.Text.RegularExpressions.Group::get_Success()')
+    out.append(f'    brtrue {nhan}')
+    out.append('    pop')
+    out.append('    ldnull')
+    out.append(f'  {nhan}:')
+
+
+def emit_success(out: "list[str]"):
+    """Doc `.Success` cua Match dang o dinh stack -> i32 (0/1).
+
+    Dung cho `if m:` / `if not m:`. KHONG duoc thay bang phep thu null:
+    Regex.Match tra ve Match.Empty (doi tuong that) khi khong khop."""
+    # Match KHONG khop da thanh null (_match_rong_thanh_null) - thu null la du,
+    # va an toan voi bien 'm' chua tung duoc gan.
+    out.append('    ldnull')
+    out.append('    cgt.un')
+    # bool tren stack CIL da la int32 0/1 - dung thang cho 'brfalse'.
+
+
+def compile_match_group(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`m.group(i)` -> str. i PHAI la hang so nguyen viet thang tai cho."""
+    recv, args = ea_str(node), ec_ds(node)
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: m.group(i) nhan dung 1 tham so")
+    idx_node = args[0]
+    ctx.compile_expr(_recv_node(recv), scope, out, 'match', ctx)
+    out.append(f'    callvirt instance {_GROUPCOLL} '
+               f'[System]System.Text.RegularExpressions.Match::get_Groups()')
+    if la_node(idx_node) and ekind(idx_node) == 'num':
+        out.append(f'    ldc.i4 {ea_str(idx_node)}')
+        out.append(f'    callvirt instance {_GROUP} '
+                   f'[System]System.Text.RegularExpressions.GroupCollection::get_Item(int32)')
+    else:
+        # Chi so/ten TINH LUC CHAY (2026-09-25): 'm.group(ten)' - ten nhom la
+        # chuoi, chi so la i32.
+        kieu_chi_so = ctx.infer_dtype(idx_node, scope, ctx.func_table, ctx.records,
+                                      ctx.record_methods, None)
+        if kieu_chi_so == 'str':
+            ctx.compile_expr(idx_node, scope, out, 'str', ctx)
+            out.append(f'    callvirt instance {_GROUP} '
+                       f'[System]System.Text.RegularExpressions.GroupCollection::get_Item(string)')
+        else:
+            ctx.compile_expr(idx_node, scope, out, 'i32', ctx)
+            out.append(f'    callvirt instance {_GROUP} '
+                       f'[System]System.Text.RegularExpressions.GroupCollection::get_Item(int32)')
+    # Nhom KHONG tham gia khop -> None nhu Python (.NET Value tra "").
+    ctx.label_counter[0] += 1
+    nhan = f'{ctx.prefix}_gkhop{ctx.label_counter[0]}'
+    nhan_het = f'{ctx.prefix}_ghet{ctx.label_counter[0]}'
+    out.append('    dup')
+    out.append('    callvirt instance bool [System]System.Text.RegularExpressions.Group::get_Success()')
+    out.append(f'    brtrue {nhan}')
+    out.append('    pop')
+    out.append('    ldnull')
+    out.append(f'    br {nhan_het}')
+    out.append(f'  {nhan}:')
+    out.append(f'    callvirt instance string {_CAPTURE}::get_Value()')
+    out.append(f'  {nhan_het}:')
+
+
+def compile_match_start(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`m.start()` -> i32 (Capture.Index)."""
+    if ec_ds(node):
+        raise SyntaxError("il_codegen: m.start() khong nhan tham so")
+    ctx.compile_expr(_recv_node(ea_str(node)), scope, out, 'match', ctx)
+    out.append(f'    callvirt instance int32 {_CAPTURE}::get_Index()')
+    # nang kieu theo dich (2026-09-28): 'pos = 0' khai pos la 'int' (TkvInt)
+    # - thieu buoc nay int32 bi cat THANG vao o TkvInt: SAI AM THAM.
+    ctx.widen_if_needed('i32', dtype, out)
+
+
+def compile_match_end(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`m.end()` -> i32 (Index + Length)."""
+    if ec_ds(node):
+        raise SyntaxError("il_codegen: m.end() khong nhan tham so")
+    compile_expr = ctx.compile_expr
+    # Nap receiver HAI LAN (Index roi Length) thay vi dup/swap - receiver o
+    # day luon la mot bien/hang, nap lai khong co tac dung phu.
+    compile_expr(_recv_node(ea_str(node)), scope, out, 'match', ctx)
+    out.append(f'    callvirt instance int32 {_CAPTURE}::get_Index()')
+    compile_expr(_recv_node(ea_str(node)), scope, out, 'match', ctx)
+    out.append(f'    callvirt instance int32 {_CAPTURE}::get_Length()')
+    out.append('    add')
+    ctx.widen_if_needed('i32', dtype, out)
+
+
+def is_groups_call(node: "TkvNode", ta_of: "func(str)->TypeAnn") -> "i32":
+    """`node` co phai `<m>.groups()` voi m mang dtype 'match' khong?
+
+    ta_of(ten) -> TypeAnn hoac None. Tach rieng de tuple_type.py hoi duoc
+    ma khong phai tu suy lai luat."""
+    if not (la_node(node) and ekind(node) == 'method_call'
+            and eb_str(node) == 'groups' and not ec_ds(node)):
+        return False
+    ta = ta_of(ea_str(node))
+    return ta is not None and ta.la_vo_huong() and ta.dtype == 'match'
+
+
+def emit_groups_unpack(node: "TkvNode", targets: "list[str]", scope: "Scope", out: "list[str]", ctx: "Ctx", store_var: "func(str, Scope, list[str])->void"):
+    """`a, b, ... = m.groups()` -> doc group 1..N roi store tung target.
+
+    Python danh so group tu 1 (group 0 la ca chuoi khop) nen target thu i
+    ung voi group i+1. So luong target BIET TRUOC tai cho goi - do la ly do
+    khong can tuple bien-arity: ca 39 cho trong cay tu-host deu unpack voi
+    so luong co dinh."""
+    for i, t in enumerate(targets):
+        compile_match_group(mk4('method_call', o_str(ea_str(node)), o_str('group'), o_ds([mk2('num', o_str(str(i + 1)))])),
+                            scope, out, None, ctx)
+        store_var(t, scope, out)
+
+
+def compile_match_groups(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`m.groups()` DUNG MOT MINH (khong phai ve phai cua unpack) - chua ho
+    tro, vi khong co tuple bien-arity de tra ve. Bao loi RO."""
+    raise SyntaxError(
+        "il_codegen: m.groups() chi dung duoc o ve phai cua mot phep gan "
+        "giai nen ('a, b = m.groups()') - dung mot minh thi chua ho tro")
+
+
+def _doi_repl_python_sang_net(repl: "str") -> "str":
+    """Chuoi thay the cua re.sub (Python) -> Regex.Replace (.NET): tham chieu
+    nhom '\\N' -> '${N}', '$' -> '$$'. Escape khac bi tu choi."""
+    ra = ''
+    i = 0
+    while i < len(repl):
+        c = repl[i]
+        if c == chr(92):
+            j = i + 1
+            while j < len(repl) and repl[j].isdigit() and j < i + 3:
+                j += 1
+            if j == i + 1:
+                raise SyntaxError("il_codegen: PAT.sub(repl, s) - chuoi thay the co ky tu thoat "
+                                  "khong phai tham chieu nhom so (\\N) chua ho tro")
+            ra = ra + '${' + repl[i + 1:j] + '}'
+            i = j
+        elif c == '$':
+            ra = ra + '$$'
+            i += 1
+        else:
+            ra = ra + c
+            i += 1
+    return ra
+
+def compile_pat_sub(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """`PAT.sub(repl, s)` (2026-09-26) - Regex.Replace(s, PAT, repl). Chuoi thay
+    the: '$' cua .NET la ky tu dac biet -> thoat thanh '$$' LUC CHAY; tham chieu
+    nhom kieu Python ('\\1', '\\g<ten>') KHAC cu phap .NET -> literal co gach
+    cheo bi tu choi (khong am tham thay sai). Chua ho tro doi so 'count'."""
+    recv, args = ea_str(node), ec_ds(node)
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: PAT.sub(repl, s) nhan dung 2 tham so (chua ho tro count)")
+    repl_node = args[0]
+    if ekind(repl_node) == 'str_lit':
+        # Literal: doi cu phap Python sang .NET NGAY LUC BIEN DICH (2026-09-29):
+        # '\1' -> '${1}', '$' -> '$$'. Escape khac (\g<ten>, \n...) van bi tu
+        # choi - khong am tham thay sai.
+        # Van ban node giu CA DAU NHAY va gach cheo da thoat (r'\\1' -> "\\\\1"):
+        # boc nhay, giai ma '\\\\' -> '\\', doi cu phap, roi ma hoa lai.
+        tho = ea_str(repl_node)
+        giai_ma = tho[1:len(tho) - 1].replace(chr(92) + chr(92), chr(92))
+        repl_net = _doi_repl_python_sang_net(giai_ma)
+        repl_net = '"' + repl_net.replace(chr(92), chr(92) + chr(92)).replace('"', chr(92) + '"') + '"'
+        compile_expr = ctx.compile_expr
+        compile_expr(args[1], scope, out, 'str', ctx)                 # input
+        compile_expr(_recv_node(recv), scope, out, 'str', ctx)       # pattern
+        compile_expr(mk2('str_lit', o_str(repl_net)), scope, out, 'str', ctx)
+        out.append(f'    call string {_REGEX}::Replace(string, string, string)')
+        return
+    compile_expr = ctx.compile_expr
+    compile_expr(args[1], scope, out, 'str', ctx)                 # input
+    compile_expr(_recv_node(recv), scope, out, 'str', ctx)       # pattern
+    compile_expr(repl_node, scope, out, 'str', ctx)               # repl
+    out.append('    ldstr "$"')
+    out.append('    ldstr "$$"')
+    out.append('    callvirt instance string [mscorlib]System.String::Replace(string, string)')
+    out.append(f'    call string {_REGEX}::Replace(string, string, string)')
+
+
+def bootstrap_regex_match(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import."""
+    register_expr_method(reg, 'str', 'match', compile_pat_match, return_dtype='match')
+    register_expr_method(reg, 'str', 'search', compile_pat_search, return_dtype='match')
+    register_expr_method(reg, 'str', 'sub', compile_pat_sub, return_dtype='str')
+    register_expr_method(reg, 'str', 'finditer', compile_pat_finditer,
+                         return_ta_fn=_finditer_ta, result_shape='list')
+    # Nguoi nhan kieu 'str' di duong tra cuu RIENG (str_method_return_dtype),
+    # KHONG qua expr_method_dtype - xem _infer_dtype nhanh 'method_call'.
+    # Thieu dong nay thi `m = PAT.match(s)` bi suy thanh 'str' va `m.group(1)`
+    # bao "'.group(...)' chi dung duoc tren bien kieu record, string...".
+    register_str_method_return_dtype(reg, {'match': 'match', 'search': 'match'})
+    register_expr_method(reg, 'match', 'group', compile_match_group, return_dtype='str')
+    register_expr_method(reg, 'match', 'start', compile_match_start, return_dtype='i32')
+    register_expr_method(reg, 'match', 'end', compile_match_end, return_dtype='i32')
+    register_expr_method(reg, 'match', 'groups', compile_match_groups, return_dtype='str')

@@ -1,0 +1,330 @@
+# -*- coding: utf-8 -*-
+"""codestat - cong cu THAT viet bang TokenVector.
+
+Doc 1 file ma nguon Python/.tkv, in ra bao cao chat luong:
+  - so dong tong / trong / chu thich / ma
+  - danh sach ham + do dai, canh bao ham > 50 dong (quy tac CLAUDE.md)
+  - danh sach class + so method
+  - do sau long sau nhat
+  - dong TODO/FIXME
+  - ten ham bi trung
+  - dong dai nhat
+
+File nay la Python HOP LE: bo test chay chinh no bang CPython (chi shim
+`read_file`) roi doi chieu voi .exe da bien dich.
+
+Dung:
+    codestat.exe <duong_dan_file>
+"""
+
+TAB_WIDTH = 4
+LONG_FUNC_LIMIT = 50
+LONG_LINE_LIMIT = 100
+
+
+def indent_of(ln: "str") -> "i32":
+    """So khoang trang dau dong (tab tinh bang TAB_WIDTH)."""
+    n = 0
+    i = 0
+    while i < len(ln):
+        ch = ln[i]
+        if ch == " ":
+            n = n + 1
+        elif ch == "\t":
+            n = n + TAB_WIDTH
+        else:
+            return n
+        i = i + 1
+    return n
+
+
+def line_kind(ln: "str") -> "str":
+    """Phan loai 1 dong: blank / comment / code."""
+    body = ln.strip()
+    if len(body) == 0:
+        return "blank"
+    if body.startswith("#"):
+        return "comment"
+    return "code"
+
+
+def word_after(ln: "str", kw: "str") -> "str":
+    """Neu dong (da strip) bat dau bang kw + khoang trang thi tra ve dinh
+    danh ngay sau kw, nguoc lai tra ve chuoi rong."""
+    body = ln.strip()
+    head = kw + " "
+    if not body.startswith(head):
+        return ""
+    rest = body[len(head):].strip()
+    out = ""
+    i = 0
+    while i < len(rest):
+        ch = rest[i]
+        if ch == "(" or ch == ":" or ch == " ":
+            return out
+        out = out + ch
+        i = i + 1
+    return out
+
+
+def has_marker(ln: "str") -> "i32":
+    """1 neu dong chua TODO / FIXME / XXX (chi tinh trong chu thich hoac
+    bat ky dau — de don gian: tim nguyen van)."""
+    up = ln.upper()
+    if up.find("TODO") >= 0:
+        return 1
+    if up.find("FIXME") >= 0:
+        return 1
+    if up.find("XXX") >= 0:
+        return 1
+    return 0
+
+
+def split_lines(txt: "str") -> "list[str]":
+    """Tach van ban thanh danh sach dong, bo ky tu \\r cuoi dong."""
+    raw = txt.split("\n")
+    out = []
+    for ln in raw:
+        if len(ln) > 0 and ln[len(ln) - 1] == "\r":
+            out.append(ln[0:len(ln) - 1])
+        else:
+            out.append(ln)
+    return out
+
+
+def block_end(lines: "list[str]", start: "i32", base: "i32") -> "i32":
+    """Chi so dong CUOI CUNG (da tinh ca `start`) cua khoi bat dau o
+    `start` co thut le `base`. Khoi ket thuc truoc dong ma dau tien co
+    thut le <= base."""
+    last = start
+    i = start + 1
+    while i < len(lines):
+        ln = lines[i]
+        if line_kind(ln) == "code":
+            if indent_of(ln) <= base:
+                return last
+            last = i
+        i = i + 1
+    return last
+
+
+def count_kinds(lines: "list[str]") -> "dict[str,i32]":
+    """Dem so dong theo tung loai."""
+    tally = {}
+    tally["blank"] = 0
+    tally["comment"] = 0
+    tally["code"] = 0
+    for ln in lines:
+        k = line_kind(ln)
+        tally[k] = tally[k] + 1
+    return tally
+
+
+def deepest_indent(lines: "list[str]") -> "i32":
+    """Thut le lon nhat trong cac dong ma."""
+    deep = 0
+    for ln in lines:
+        if line_kind(ln) == "code":
+            d = indent_of(ln)
+            if d > deep:
+                deep = d
+    return deep
+
+
+def longest_line(lines: "list[str]") -> "i32":
+    """Chi so (0-based) cua dong dai nhat; -1 neu khong co dong nao."""
+    best = -1
+    best_len = -1
+    for i in range(len(lines)):
+        n = len(lines[i])
+        if n > best_len:
+            best_len = n
+            best = i
+    return best
+
+
+def marker_lines(lines: "list[str]") -> "list[i32]":
+    """Danh sach so dong (1-based) co TODO/FIXME/XXX."""
+    out = []
+    for i in range(len(lines)):
+        if has_marker(lines[i]) == 1:
+            out.append(i + 1)
+    return out
+
+
+def func_names(lines: "list[str]") -> "list[str]":
+    """Ten cac ham theo thu tu xuat hien (ke ca method trong class)."""
+    out = []
+    for ln in lines:
+        nm = word_after(ln, "def")
+        if len(nm) > 0:
+            out.append(nm)
+    return out
+
+
+def func_spans(lines: "list[str]") -> "list[str]":
+    """Moi phan tu: "ten|dong_bat_dau|so_dong" cho tung ham."""
+    out = []
+    for i in range(len(lines)):
+        nm = word_after(lines[i], "def")
+        if len(nm) > 0:
+            base = indent_of(lines[i])
+            fin = block_end(lines, i, base)
+            span = fin - i + 1
+            out.append(nm + "|" + str(i + 1) + "|" + str(span))
+    return out
+
+
+def field_at(rec: "str", idx: "i32") -> "str":
+    """Lay truong thu idx cua ban ghi ngan cach bang dau |."""
+    parts = rec.split("|")
+    return parts[idx]
+
+
+def long_funcs(spans: "list[str]") -> "list[str]":
+    """Cac ban ghi ham co so dong vuot LONG_FUNC_LIMIT."""
+    out = []
+    for rec in spans:
+        if int(field_at(rec, 2)) > LONG_FUNC_LIMIT:
+            out.append(rec)
+    return out
+
+
+def class_spans(lines: "list[str]") -> "list[str]":
+    """Moi phan tu: "ten|dong_bat_dau|so_method" cho tung class."""
+    out = []
+    for i in range(len(lines)):
+        nm = word_after(lines[i], "class")
+        if len(nm) > 0:
+            base = indent_of(lines[i])
+            fin = block_end(lines, i, base)
+            methods = 0
+            j = i + 1
+            while j <= fin:
+                if len(word_after(lines[j], "def")) > 0:
+                    methods = methods + 1
+                j = j + 1
+            out.append(nm + "|" + str(i + 1) + "|" + str(methods))
+    return out
+
+
+def duplicates(names: "list[str]") -> "list[str]":
+    """Ten xuat hien nhieu hon 1 lan, sap xep tang dan, khong lap."""
+    ordered = sorted(names)
+    dup = []
+    i = 0
+    while i < len(ordered):
+        j = i + 1
+        while j < len(ordered):
+            if ordered[j] != ordered[i]:
+                break
+            j = j + 1
+        if j - i > 1:
+            dup.append(ordered[i] + "x" + str(j - i))
+        i = j
+    return dup
+
+
+def join_ints(nums: "list[i32]") -> "str":
+    """Noi danh sach so thanh chuoi ngan cach bang dau phay."""
+    out = ""
+    for i in range(len(nums)):
+        if i > 0:
+            out = out + ","
+        out = out + str(nums[i])
+    return out
+
+
+def pct(part: "i32", whole: "i32") -> "i32":
+    """Phan tram lam tron xuong; 0 neu mau bang 0."""
+    if whole == 0:
+        return 0
+    return part * 100 // whole
+
+
+def head_section(lines: "list[str]", tally: "dict[str,i32]") -> "list[str]":
+    """Phan dau bao cao: tong quan so dong."""
+    total = len(lines)
+    code = tally["code"]
+    out = []
+    out.append("== codestat ==")
+    out.append("dong tong    : " + str(total))
+    out.append("dong ma      : " + str(code) + " (" + str(pct(code, total)) + "%)")
+    out.append("dong chu thich: " + str(tally["comment"]))
+    out.append("dong trong   : " + str(tally["blank"]))
+    out.append("thut le sau nhat: " + str(deepest_indent(lines) // TAB_WIDTH) + " cap")
+    return out
+
+
+def func_section(spans: "list[str]") -> "list[str]":
+    """Phan bao cao ve ham."""
+    out = []
+    out.append("ham          : " + str(len(spans)))
+    total_span = 0
+    for rec in spans:
+        total_span = total_span + int(field_at(rec, 2))
+    if len(spans) > 0:
+        out.append("do dai TB    : " + str(total_span // len(spans)) + " dong")
+    over = long_funcs(spans)
+    if len(over) == 0:
+        out.append("ham qua dai  : khong")
+    else:
+        for rec in over:
+            out.append("  QUA DAI: " + field_at(rec, 0) + " (dong " + field_at(rec, 1)
+                       + ", " + field_at(rec, 2) + " dong > " + str(LONG_FUNC_LIMIT) + ")")
+    return out
+
+
+def class_section(spans: "list[str]") -> "list[str]":
+    """Phan bao cao ve class."""
+    out = []
+    out.append("class        : " + str(len(spans)))
+    for rec in spans:
+        out.append("  " + field_at(rec, 0) + " (dong " + field_at(rec, 1)
+                   + ", " + field_at(rec, 2) + " method)")
+    return out
+
+
+def warn_section(lines: "list[str]", names: "list[str]") -> "list[str]":
+    """Phan canh bao: TODO, ten trung, dong qua dai."""
+    out = []
+    marks = marker_lines(lines)
+    if len(marks) == 0:
+        out.append("TODO/FIXME   : khong")
+    else:
+        out.append("TODO/FIXME   : " + str(len(marks)) + " (dong " + join_ints(marks) + ")")
+    dup = duplicates(names)
+    if len(dup) == 0:
+        out.append("ten ham trung: khong")
+    else:
+        out.append("ten ham trung: " + ",".join(dup))
+    idx = longest_line(lines)
+    if idx >= 0:
+        n = len(lines[idx])
+        tail = ""
+        if n > LONG_LINE_LIMIT:
+            tail = " QUA DAI"
+        out.append("dong dai nhat: " + str(n) + " ky tu (dong " + str(idx + 1) + ")" + tail)
+    return out
+
+
+def report_text(txt: "str") -> "str":
+    """Sinh toan bo bao cao tu noi dung file."""
+    lines = split_lines(txt)
+    tally = count_kinds(lines)
+    spans = func_spans(lines)
+    out = []
+    for s in head_section(lines, tally):
+        out.append(s)
+    for s in func_section(spans):
+        out.append(s)
+    for s in class_section(class_spans(lines)):
+        out.append(s)
+    for s in warn_section(lines, func_names(lines)):
+        out.append(s)
+    return "\n".join(out)
+
+
+def main(path: "str") -> "str":
+    """Entry: doc file va tra ve bao cao."""
+    return report_text(read_file(path))

@@ -50,6 +50,14 @@ pkl_*_test.bin
 /build/tkv_suite/
 /tests_suite/*.exe
 
-# Ban Release: ban sao thuan TokenVector de phat trien ngon ngu.
-# KHONG track - no la ket qua sao chep, nguon nam o goc repo.
-/Release/
+# --- Ban Release: duoc TRACK (2026-10-12) ---------------------------------
+# Truoc day ignore vi coi la ban sao. Bay no la SAN PHAM BAN GIAO nen phai
+# di kem git - clone repo la co ngay ban phat hanh.
+#
+# `.exe` o tren bo SAI (dung chung, khong dau) nen phai bo lai 2 binary
+# san pham cua chinh ban Release. Quy tac phai NAM SAU `*.exe` moi co hieu luc.
+# `Release/.gitignore` lo phan con lai (build/, .il, .log, vong.exe).
+!Release/dist/
+!Release/dist/bin/
+!Release/dist/tkvc-tv.exe
+!Release/dist/bin/tkv_guide.exe

@@ -1,0 +1,263 @@
+# -*- coding: utf-8 -*-
+"""impact - cong cu THAT viet bang TokenVector.
+
+Tra loi DUNG hai cau hoi truoc khi sua code:
+
+  1. Sua nut nay thi GAY O DAU?  -> ban kinh anh huong, lan nguoc canh
+     `calls` (ai goi no, ai goi ke goi no, ...) va canh `imports` o muc file.
+  2. Phai CHAY TEST NAO?         -> cac file test nam trong ban kinh do.
+
+Cau hoi 2 moi la cau dat tien nhat. Do that: chay ca bo test cua TokenVector
+mat hon 20 phut cho mot thay doi cham 2 file. Danh sach test lien quan lay
+tu graph mat 2 giay.
+
+Nguyen tac giu nguyen nhu ca bo CodeGraph: chi doc graph co san, khong goi
+LLM, khong doan. Nut nao khong co trong graph thi noi la khong co.
+
+QUAN TRONG - doc ky truoc khi tin ket qua rong: graph bat duoc 96,8% loi goi
+NOI BO ma no co luat, nhung con hon 12 nghin loi goi `obj.method()` ngoai
+tam (receiver la gia tri tra ve, phan tu list, tham so khong chu thich kieu)
+va ca ham TRUYEN NHU GIA TRI (`pool.submit(_convert_one, ...)`). Ban kinh
+rong = "graph khong thay ai goi", KHONG PHAI "khong ai goi".
+
+Dung:
+    impact.exe <call_edges.json> <import_edges.json> <layers.json> <muc_tieu> <out.json>
+
+`muc_tieu` la mot id nut ('function:<file>:<Lop>.<ten>' / 'class:...' /
+'file:<path>'). Neu la file thi lay TOAN BO def ben trong lam diem xuat phat.
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def max_levels() -> "i32":
+    """So tang lan nguoc toi da. 3 tang la du de thay vung anh huong that;
+    sau 3 tang gan nhu ca repo deu dinh, danh sach mat y nghia."""
+    return 3
+
+
+def edge_side(line: "str", key: "str") -> "str":
+    """Gia tri o dau 'source'/'target' cua mot dong canh JSON (ca id)."""
+    pat = "\"" + key + "\":\""
+    at = line.find(pat)
+    if at < 0:
+        return ""
+    rest = line[at + len(pat):len(line)]
+    return cut_at(rest, "\"")
+
+
+def edge_type(line: "str") -> "str":
+    """Loai canh cua mot dong."""
+    pat = "\"type\":\""
+    at = line.find(pat)
+    if at < 0:
+        return ""
+    rest = line[at + len(pat):len(line)]
+    return cut_at(rest, "\"")
+
+
+def node_file(nid: "str") -> "str":
+    """File chua mot nut: 'function:a/b.py:X.y' -> 'a/b.py'."""
+    at = nid.find(":")
+    if at < 0:
+        return ""
+    rest = nid[at + 1:len(nid)]
+    # TokenVector khong co `.rfind` - tu quet lay dau ':' cuoi cung.
+    cut = -1
+    i = 0
+    while i < len(rest):
+        if rest[i] == ":":
+            cut = i
+        i = i + 1
+    if cut < 0:
+        return rest
+    return rest[0:cut]
+
+
+def blob_add(blob: "str", val: "str") -> "str":
+    """Them mot phan tu vao blob '|a|b|' neu chua co."""
+    if len(blob) == 0:
+        blob = "|"
+    if blob.find("|" + val + "|") >= 0:
+        return blob
+    return blob + val + "|"
+
+
+def blob_items(blob: "str") -> "list[str]":
+    """Cac phan tu cua blob '|a|b|'."""
+    out = []
+    parts = blob.split("|")
+    i = 0
+    while i < len(parts):
+        p = parts[i]
+        if len(p) > 0:
+            out.append(p)
+        i = i + 1
+    return out
+
+
+def add_rev(tab: "dict[str,str]", key: "str", val: "str") -> "i32":
+    """Ghi canh NGUOC: tab[dich] chua cac nguon goi toi no."""
+    tab[key] = blob_add(tab.get(key, ""), val)
+    return 1
+
+
+def is_seen(seen: "dict[str,str]", k: "str") -> "i32":
+    """1 neu da tham nut/khoa nay. Dung dict chu khong dung set:
+    `x not in <set>` KHONG parse duoc trong TokenVector."""
+    if len(seen.get(k, "")) == 0:
+        return 0
+    return 1
+
+
+def json_list(items: "list[str]") -> "str":
+    """Mang JSON, moi phan tu mot dong."""
+    parts = []
+    i = 0
+    while i < len(items):
+        parts.append("\n   \"" + items[i] + "\"")
+        i = i + 1
+    return ",".join(parts)
+
+
+def seed_nodes(target: "str", contains: "dict[str,str]") -> "list[str]":
+    """Diem xuat phat: chinh nut do, hoac moi def ben trong neu la file."""
+    out = []
+    out.append(target)
+    if target.startswith("file:"):
+        inner = blob_items(contains.get(target, ""))
+        i = 0
+        while i < len(inner):
+            out.append(inner[i])
+            i = i + 1
+    return out
+
+
+def run(calls_path: "str", imports_path: "str", layers_path: "str", target: "str", out_path: "str") -> "str":
+    """Tinh ban kinh anh huong cua `target` va liet ke test can chay."""
+    rev_call = {}
+    contains = {}
+    doc = read_file(calls_path)
+    rows = doc.split("\n")
+    for ln in rows:
+        kind = edge_type(ln)
+        if kind == "calls":
+            src = edge_side(ln, "source")
+            tgt = edge_side(ln, "target")
+            if len(src) > 0:
+                add_rev(rev_call, tgt, src)
+        if kind == "contains":
+            src2 = edge_side(ln, "source")
+            tgt2 = edge_side(ln, "target")
+            if len(src2) > 0:
+                add_rev(contains, src2, tgt2)
+
+    rev_imp = {}
+    idoc = read_file(imports_path)
+    irows = idoc.split("\n")
+    for ln2 in irows:
+        if edge_type(ln2) != "imports":
+            continue
+        s3 = edge_side(ln2, "source")
+        t3 = edge_side(ln2, "target")
+        if len(s3) > 0:
+            add_rev(rev_imp, t3, s3)
+
+    # Tang test: doc tu layers.json, phan sau nhan "test".
+    tests = {}
+    ldoc = read_file(layers_path)
+    lrows = ldoc.split("\n")
+    in_test = 0
+    for ln3 in lrows:
+        if ln3.find("\"name\":\"test\"") >= 0:
+            in_test = 1
+        if in_test == 1:
+            if ln3.find("\"name\":\"") >= 0:
+                if ln3.find("\"name\":\"test\"") < 0:
+                    in_test = 0
+        if in_test == 1:
+            at = ln3.find("\"file:")
+            if at >= 0:
+                rest = ln3[at + 1:len(ln3)]
+                # PARITY: `d[f(a, b)] = v` KHONG parse duoc - bo tach chi so
+                # cat tai dau phay BEN TRONG loi goi ham. Phai gan ra bien.
+                tname = cut_at(rest, "\"")
+                tests[tname] = "1"
+
+    # Lan nguoc canh `calls` theo tung TANG (khong tron lan cac tang lai).
+    seen = {}
+    levels = []
+    every = []
+    frontier = seed_nodes(target, contains)
+    i = 0
+    while i < len(frontier):
+        seen[frontier[i]] = "1"
+        every.append(frontier[i])
+        i = i + 1
+    lv = 0
+    while lv < max_levels():
+        nxt = []
+        j = 0
+        while j < len(frontier):
+            callers = blob_items(rev_call.get(frontier[j], ""))
+            k = 0
+            while k < len(callers):
+                c = callers[k]
+                if is_seen(seen, c) == 0:
+                    seen[c] = "1"
+                    every.append(c)
+                    nxt.append(c)
+                k = k + 1
+            j = j + 1
+        if len(nxt) == 0:
+            lv = max_levels()
+        if len(nxt) > 0:
+            levels.append("  {\"level\":" + str(lv + 1) + ",\"nodes\":[" + json_list(nxt) + "\n  ]}")
+            frontier = nxt
+            lv = lv + 1
+
+    # File bi anh huong = file chua cac nut do.
+    files = {}
+    forder = []
+    u = 0
+    while u < len(every):
+        nid = every[u]
+        f = "file:" + node_file(nid)
+        if nid.startswith("file:"):
+            f = nid
+        if is_seen(files, f) == 0:
+            files[f] = "1"
+            forder.append(f)
+        u = u + 1
+
+    # File test lien quan: chinh no bi anh huong, hoac no import file bi anh huong.
+    hit_tests = []
+    seen_t = {}
+    w = 0
+    while w < len(forder):
+        f2 = forder[w]
+        if len(tests.get(f2, "")) > 0:
+            if is_seen(seen_t, f2) == 0:
+                seen_t[f2] = "1"
+                hit_tests.append(f2)
+        users = blob_items(rev_imp.get(f2, ""))
+        x = 0
+        while x < len(users):
+            uf = users[x]
+            if len(tests.get(uf, "")) > 0:
+                if is_seen(seen_t, uf) == 0:
+                    seen_t[uf] = "1"
+                    hit_tests.append(uf)
+            x = x + 1
+        w = w + 1
+
+    out = "{\n \"target\": \"" + target + "\",\n \"levels\": [\n"
+    out = out + ",\n".join(levels) + "\n ],\n"
+    out = out + " \"files\": [" + json_list(forder) + "\n ],\n"
+    out = out + " \"tests\": [" + json_list(hit_tests) + "\n ],\n"
+    out = out + " \"stats\": {\"nodes\":" + str(len(every))
+    out = out + ",\"files\":" + str(len(forder))
+    out = out + ",\"tests\":" + str(len(hit_tests))
+    out = out + ",\"levels\":" + str(len(levels)) + "}\n}\n"
+    write_file(out_path, out)
+    return "nut=" + str(len(every)) + " file=" + str(len(forder)) + " test=" + str(len(hit_tests)) + " tang=" + str(len(levels))

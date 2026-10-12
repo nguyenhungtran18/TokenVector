@@ -1,0 +1,32 @@
+"""So sanh THU TU chuoi (>, <, >=, <=) - moi them 2026-07-28, dung
+String.CompareOrdinal (da xac minh THAT qua probe_str_compare.il) - dung
+chinh loai cu phap khien 'count_digits' that bai trong batch AI-port
+truoc do ('s[i] >= "0" and s[i] <= "9"')."""
+
+
+def count_digits(s: "str") -> "i32":
+    count = 0
+    n = len(s)
+    for i in range(n):
+        c = s[i]
+        if c >= "0" and c <= "9":
+            count += 1
+    return count
+
+
+def is_lower_alpha(c: "str") -> "i32":
+    if c >= "a" and c <= "z":
+        return 1
+    return 0
+
+
+def str_less_than(a: "str", b: "str") -> "i32":
+    if a < b:
+        return 1
+    return 0
+
+
+def str_ge(a: "str", b: "str") -> "i32":
+    if a >= b:
+        return 1
+    return 0

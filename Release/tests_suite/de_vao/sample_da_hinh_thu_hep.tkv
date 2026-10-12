@@ -1,0 +1,47 @@
+# -*- coding: utf-8 -*-
+"""THU HEP KIEU sau `isinstance` (type narrowing).
+
+Sau `if isinstance(n, Name):`, trong THAN NHANH bien `n` phai mang kieu `Name`
+- neu khong thi doc `n.ten_code` (field RIENG cua Name, khong co tren Node)
+bao loi, va `isinstance` tro nen VO DUNG: hoi duoc kieu nhung khong lam duoc
+gi voi cau tra loi.
+
+Day la thu ma 134 cho trong tkv_compile.py that su can: chung deu la
+`isinstance(node, ast.X)` roi doc field rieng cua X.
+
+CPython that tra 100; exe hien BAO LOI 'record Node khong co field ten_code'."""
+
+
+class Node:
+    kind: "i32"
+
+    def __init__(self, kind):
+        self.kind = kind
+
+
+class Name(Node):
+    ten_code: "i32"
+
+    def __init__(self, kind, ten_code):
+        super().__init__(kind)
+        self.ten_code = ten_code
+
+
+class Num(Node):
+    gia_tri: "i32"
+
+    def __init__(self, kind, gia_tri):
+        super().__init__(kind)
+        self.gia_tri = gia_tri
+
+
+def doc_ten(n: "Node") -> "i32":
+    if isinstance(n, Name):
+        return n.ten_code
+    return -1
+
+
+def demo_thu_hep() -> "i32":
+    a = Name(1, 100)
+    b = Num(2, 7)
+    return doc_ten(a) + doc_ten(b) + 1

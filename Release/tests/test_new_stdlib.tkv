@@ -1,0 +1,69 @@
+def main() -> "i32":
+    # 1. Pathlib tests
+    p = "folder/data/sample_report.csv"
+    stem = path_stem(p)
+    ext = path_suffix(p)
+    name = path_name(p)
+    parent = path_parent(p)
+    print("Path stem: " + stem)
+    print("Path suffix: " + ext)
+    print("Path name: " + name)
+    print("Path parent: " + parent)
+
+    # 2. Pathlib write and read text
+    test_path = "Testkit/temp_test_io.txt"
+    r1 = path_write_text(test_path, "Hello from TokenVector Pathlib!")
+    content = path_read_text(test_path)
+    print("Read back content: " + content)
+
+    # 3. CSV parsing and joining
+    line = "Alice,25,Engineer,Hanoi"
+    fields = csv_parse_line(line, ",")
+    print("CSV Field count: " + str(len(fields)))
+    print("CSV Field 0: " + fields[0])
+    print("CSV Field 1: " + fields[1])
+    print("CSV Field 2: " + fields[2])
+    print("CSV Field 3: " + fields[3])
+
+    rejoined = csv_join_row(fields, ";")
+    print("CSV Rejoined: " + rejoined)
+
+    # 4. CSV File I/O
+    csv_file = "Testkit/temp_test_csv.csv"
+    lines = csv_parse_line("id,name,role\n1,Hung,Dev\n2,AI,Assistant", "\n")
+    r2 = csv_write_lines(csv_file, lines)
+    read_lines = csv_read_lines(csv_file)
+    print("CSV Read Lines count: " + str(len(read_lines)))
+
+    # 5. Multiprocessing & Process Info
+    cpus = multiprocessing_cpu_count()
+    pid = process_get_pid()
+    print("CPU Cores: " + str(cpus))
+    print("Process PID: " + str(pid))
+
+    # 6. Asyncio helpers
+    ticks1 = asyncio_get_ticks()
+    r3 = asyncio_sleep_ms(10)
+    ticks2 = asyncio_get_ticks()
+    print("Asyncio sleep executed. Ticks elapsed: " + str(ticks2 - ticks1))
+
+    # 7. Functools clamp
+    clamped_i = functools_clamp_i32(150, 0, 100)
+    print("Clamped Int (150 in [0, 100]): " + str(clamped_i))
+
+    # 8. Struct Binary pack
+    hex_i32 = struct_i32_to_hex(305419896) # 0x12345678
+    print("Struct Hex Int32: " + hex_i32)
+
+    # 9. Socket DNS Resolve
+    ip = socket_resolve_host("localhost")
+    print("Resolved localhost IP: " + ip)
+
+    # 10. Deque / List Reverse
+    items = csv_parse_line("first,second,third", ",")
+    reversed_items = deque_reverse(items)
+    print("Reversed Deque item 0: " + reversed_items[0])
+    print("Reversed Deque item 1: " + reversed_items[1])
+    print("Reversed Deque item 2: " + reversed_items[2])
+
+    return 0

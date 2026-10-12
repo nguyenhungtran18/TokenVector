@@ -1,0 +1,41 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    ba = bytearray()
+    ba.append(65)
+    ba.append(66)
+
+    tested = tested + 1
+    total = total + check("bytearray_len", str(len(ba)), "2")
+
+    tested = tested + 1
+    total = total + check("bytearray_idx0", str(ba[0]), "65")
+
+    tested = tested + 1
+    total = total + check("bytearray_idx1", str(ba[1]), "66")
+
+    s = 0
+    for b in ba:
+        s = s + b
+    tested = tested + 1
+    total = total + check("bytearray_for_in_sum", str(s), "131")
+
+    n = 0
+    for b in ba:
+        n = n + 1
+    tested = tested + 1
+    total = total + check("bytearray_for_in_count", str(n), "2")
+
+    # Tran: 300 KHONG hop le trong Python that (0-255), nhung du an nay
+    # KHONG validate 0-255 luc chay - .append(300) bi 'conv.u1' CAT AM
+    # THAM con 300 mod 256 = 44 (HANH VI CO Y THUC cua CIL/List<uint8>,
+    # KHONG phai bug can sua - xem bytearray_type.py).
+    ov = bytearray()
+    ov.append(300)
+    tested = tested + 1
+    total = total + check("bytearray_overflow_wrap", str(ov[0]), "44")
+
+    return test_summary("bytearray_test", total, tested)

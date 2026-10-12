@@ -1,0 +1,16 @@
+# EXPECT-SUBSTRING: ValueTuple
+# -*- coding: utf-8 -*-
+# `tuple()` (dang rong) PHAI bi tu choi o BIEN DICH.
+#
+# Do khac biet KIEN TRUC giua TokenVector va Python: `tuple` cua Python la
+# container bien do dai, con TokenVector dung `System.ValueTuple<T1..TN>` -
+# VALUE TYPE co so phan tu co dinh 2..7, biet luc bien dich (`il_tupleN_type`
+# tu choi N < 2). Nen `tuple()` rong (arity 0) khong bieu dien duoc.
+#
+# Neu compiler "cho qua" va tra ve thu gi do, ket qua se sai - nen phai bao
+# loi ro, kem goi y cach viet thay the. File nay khong the chay de kiem tra
+# vi no PHAI bien dich that bai - xem quy tac nay trong Testkit/negative/.
+def run() -> "i32":
+    t = tuple()
+    print(str(t))
+    return 0

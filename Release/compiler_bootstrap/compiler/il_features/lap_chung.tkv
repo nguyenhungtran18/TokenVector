@@ -1,0 +1,324 @@
+# -*- coding: utf-8 -*-
+"""__tkv_lap(X) (2026-09-26) - nguon duyet CHUNG cho 'for x in X:'.
+
+Macro for_in_list chi thay VAN BAN nen khong biet X la list hay dict/set.
+Truoc day no chi nhan ra dict qua quet 'X = {}' (va tham so co kieu), con
+dict lay tu bieu thuc khac ('d = a or {}', 'd = f()') bi duyet THEO CHI SO:
+'x = d[i]' doc GIA TRI thay vi KHOA - sai am tham voi dict khoa so. Nay macro
+gan 'tam = __tkv_lap(X)' va builtin nay quyet dinh luc CODEGEN (da du kieu):
+  dict  -> list cac KHOA (duong d.keys() co san)
+  set   -> list phan tu (duong s.to_list() co san)
+  con lai (list/str/bytes/mang) -> chinh X (khong sao chep)."""
+
+from il_dispatch import khoa_method, register_expr_builtin
+from expr_row import ea_str, eb_str, ekind, mk4, o_ds, o_str
+from il_features.dict_keys_values import _ta_khoa_ds
+from il_features.set_to_list import _to_list_return_ta
+from il_features.set_type import il_set_type
+from tkv_types import TypeAnn
+from il_features.list_type import emit_str_chars
+
+__tkv_import__ = "il_dispatch"
+
+
+def _ta_nguon(args: "list[TkvNode]", scope: "Scope") -> "TypeAnn":
+    if len(args) != 1 or ekind(args[0]) != 'var':
+        return None
+    try:
+        return scope.tra(ea_str(args[0])).ta
+    except (KeyError, SyntaxError):
+        return None
+
+
+def _hinh_chuyen(ta: "TypeAnn") -> "str":
+    """'keys' / 'to_list' neu phai chuyen thanh list, '' neu giu nguyen."""
+    if ta is None:
+        return ''
+    if ta.shape_ten == 'dict':
+        return 'keys'
+    if ta.shape_ten == 'set' or ta.shape_ten == 'frozenset':
+        return 'to_list'
+    if ta.shape_ten == 'file' and ta.dtype == 'r':
+        return 'readlines'
+    return ''
+
+
+def lap_return_ta(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "TypeAnn":
+    ta = _ta_nguon(args, scope)
+    cach = _hinh_chuyen(ta)
+    if cach == 'keys':
+        return _ta_khoa_ds(ta)
+    if cach == 'to_list':
+        return _to_list_return_ta(ta)
+    if cach == 'readlines':
+        return TypeAnn('str', 'list')
+    return ta
+
+
+def lap_dtype(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "str":
+    ta = lap_return_ta(args, scope, func_table)
+    if ta is None:
+        return None
+    return ta.dtype
+
+
+def push_lap(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    ta = _ta_nguon(args, scope)
+    if ta is None:
+        raise SyntaxError("il_codegen: __tkv_lap(X) can X la 1 bien da khai bao")
+    cach = _hinh_chuyen(ta)
+    if cach == '':
+        ctx.load_var_ref(ea_str(args[0]), scope, out)
+        return
+    nut = mk4('method_call', o_str(ea_str(args[0])), o_str(cach), o_ds([]))
+    fn = ctx.reg.expr_method_codegen.get(khoa_method(ta.shape_ten, cach))
+    if fn is None:
+        raise SyntaxError(f"il_codegen: khong duyet duoc '{ea_str(args[0])}' (shape={ta.shape_ten})")
+    fn(nut, scope, out, dtype, ctx)
+
+
+def _ta_goi_ham(args: "list[TkvNode]", func_table: "dict[str,TkvSig]") -> "TypeAnn":
+    """X la loi goi ham nguoi dung 'f(...)' (2026-09-28): kieu tra ve khai bao."""
+    if len(args) != 1 or ekind(args[0]) != 'call' or not func_table:
+        return None
+    sig = func_table.get(ea_str(args[0]))
+    if sig is None:
+        return None
+    return sig.return_type
+
+
+def set_return_ta(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "TypeAnn":
+    """set(X) voi X la BIEN list/set (2026-09-26) hoac loi goi ham tra
+    list/set (2026-09-28) -> set cung dtype phan tu."""
+    ta = _ta_nguon(args, scope)
+    if ta is None:
+        ta = _ta_goi_ham(args, func_table)
+    if ta is None or ta.shape_ten not in ('list', 'set', 'frozenset') or ta.elem_ta is not None:
+        return None
+    return TypeAnn(ta.dtype, 'set')
+
+
+def set_dtype(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "str":
+    ta = set_return_ta(args, scope, func_table)
+    if ta is None:
+        return None
+    return ta.dtype
+
+
+def push_set(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """set(X): HashSet<T> MOI chep tu X (list/set phan tu vo huong)."""
+    if len(args) == 0:
+        # 'set()' RONG trong bieu thuc (2026-09-29), vd doi so
+        # 'f(tap=set())': T la dtype MONG DOI do noi goi truyen xuong.
+        if dtype not in ('i32', 'i64', 'f32', 'f64', 'str'):
+            raise SyntaxError("il_codegen: 'set()' rong trong bieu thuc can kieu phan tu "
+                              f"biet truoc (vo huong), gap {dtype!r}")
+        kieu_rong = il_set_type(dtype, ctx.records)
+        out.append(f'    newobj instance void {kieu_rong}::.ctor()')
+        return
+    ta = set_return_ta(args, scope, ctx.func_table)
+    if ta is None:
+        raise SyntaxError("il_codegen: set(X) trong bieu thuc can X la 1 BIEN hoac loi goi ham "
+                          "list/set phan tu vo huong ('x = set()' rong di duong rieng)")
+    if ekind(args[0]) == 'var':
+        ctx.load_var_ref(ea_str(args[0]), scope, out)
+    else:
+        ctx.compile_expr(args[0], scope, out, ta.dtype, ctx)
+    kieu = il_set_type(ta.dtype, ctx.records)
+    out.append(f'    newobj instance void {kieu}::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+
+
+def reversed_return_ta(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "TypeAnn":
+    """reversed(X) voi X la BIEN list (2026-09-26) -> list cung kieu (ban sao dao)."""
+    ta = _ta_nguon(args, scope)
+    if ta is None or ta.shape_ten != 'list':
+        return None
+    return ta
+
+
+def reversed_dtype(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "str":
+    ta = reversed_return_ta(args, scope, func_table)
+    if ta is None:
+        return None
+    return ta.dtype
+
+
+def push_reversed(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """reversed(X): List<T> MOI chep tu X roi Reverse() - X giu nguyen."""
+    ta = reversed_return_ta(args, scope, None)
+    if ta is None:
+        raise SyntaxError("il_codegen: reversed(X) can X la 1 BIEN list")
+    kieu = ctx.il_type_str(ta, ctx.records)
+    ctx.load_var_ref(ea_str(args[0]), scope, out)
+    out.append(f'    newobj instance void {kieu}::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    out.append('    dup')
+    out.append(f'    callvirt instance void {kieu}::Reverse()')
+
+
+def list_return_ta(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "TypeAnn":
+    """list(X) (2026-09-26): X la BIEN list/set (ban sao) hoac dict (cac khoa)."""
+    ta = _ta_nguon(args, scope)
+    if ta is None:
+        # 'list(f(...))' voi f la ham nguoi dung tra list (2026-09-29): ban sao.
+        ta_h = _ta_goi_ham(args, func_table)
+        if ta_h is not None and ta_h.shape_ten == 'list' and ta_h.elem_ta is None:
+            return ta_h
+        return None
+    if ta.shape_ten == 'list':
+        return ta
+    if ta.shape_ten in ('set', 'frozenset', 'dict'):
+        return lap_return_ta(args, scope, func_table)
+    if (not ta.shape_ten) and ta.dtype == 'str':
+        return TypeAnn('str', 'list')
+    return None
+
+
+def list_dtype(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "str":
+    ta = list_return_ta(args, scope, func_table)
+    if ta is None:
+        return None
+    return ta.dtype
+
+
+def push_list(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """list(X): List MOI (khong bao gio chia se voi X, dung nhu Python)."""
+    ta = _ta_nguon(args, scope)
+    kq = list_return_ta(args, scope, ctx.func_table)
+    if kq is None:
+        raise SyntaxError("il_codegen: list(X) trong bieu thuc can X la 1 BIEN list/set/dict "
+                          "hoac loi goi ham tra list")
+    if ta is None:
+        # X la loi goi ham tra list: tinh ket qua roi chep sang List MOI
+        kieu_h = ctx.il_type_str(kq, ctx.records)
+        ctx.compile_expr(args[0], scope, out, kq.dtype, ctx)
+        out.append(f'    newobj instance void {kieu_h}::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+        return
+    if (not ta.shape_ten) and ta.dtype == 'str':
+        ctx.load_var_ref(ea_str(args[0]), scope, out)
+        emit_str_chars(ctx, out)
+        return
+    if ta.shape_ten == 'list':
+        kieu = ctx.il_type_str(ta, ctx.records)
+        ctx.load_var_ref(ea_str(args[0]), scope, out)
+        out.append(f'    newobj instance void {kieu}::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+        return
+    push_lap(args, scope, out, dtype, ctx)
+
+
+def _ta_ds_cap(args: "list[TkvNode]", scope: "Scope") -> "TypeAnn":
+    """Kieu list cac cap (K, V) cua X trong dict(X): bien, 'bang[k]' hoac
+    'bang.get(k, ...)' voi bang la dict gia tri list-cap (vd records)."""
+    if len(args) != 1:
+        return None
+    x = args[0]
+    ta = None
+    try:
+        if ekind(x) == 'var':
+            ta = scope.tra(ea_str(x)).ta
+        elif ekind(x) == 'index' or (ekind(x) == 'method_call' and eb_str(x) == 'get'):
+            ta = scope.tra(ea_str(x)).ta.elem_ta
+    except (KeyError, SyntaxError):
+        return None
+    if (ta is None or ta.shape_ten != 'list' or ta.elem_ta is None
+            or ta.elem_ta.shape_ten != 'tuple' or len(ta.elem_ta.tuple_dtypes) != 2):
+        return None
+    return ta
+
+
+def dict_return_ta(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "TypeAnn":
+    """dict(<list cap (K, V)>) (2026-09-28) -> dict[K, V]."""
+    ta = _ta_ds_cap(args, scope)
+    if ta is None:
+        return None
+    k, v = ta.elem_ta.tuple_dtypes[0], ta.elem_ta.tuple_dtypes[1]
+    return TypeAnn(v, 'dict', key_dtype=k)
+
+
+def dict_dtype(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]"=None) -> "str":
+    ta = dict_return_ta(args, scope, func_table)
+    if ta is None:
+        return None
+    return ta.dtype
+
+
+_DS = 'class [mscorlib]System.Collections.Generic.List`1<class [mscorlib]System.Tuple`2<!!0,!!1>>'
+_DICT = 'class [mscorlib]System.Collections.Generic.Dictionary`2<!!0,!!1>'
+_TUP = 'class [mscorlib]System.Tuple`2<!!0,!!1>'
+
+
+def _ensure_class_dict_tu(ctx: "Ctx"):
+    """TkvDictTu::TuDs<K,V>(List<Tuple<K,V>>) - dict(cac_cap) nhu Python:
+    cap sau DE cap truoc cung khoa. Sinh 1 lan/chuong trinh."""
+    emitted = ctx.emitted_types
+    if emitted is None or 'TkvDictTu' in emitted:
+        return
+    emitted.add('TkvDictTu')
+    ctx.extra_classes.append([
+        '.class public auto ansi beforefieldinit TkvDictTu extends [mscorlib]System.Object',
+        '{',
+        f'  .method public static {_DICT} TuDs<K, V>({_DS} ds) cil managed',
+        '  {',
+        '    .maxstack 4',
+        f'    .locals init ({_DICT} d, int32 i, {_TUP} t)',
+        f'    newobj instance void {_DICT}::.ctor()',
+        '    stloc.0',
+        '    ldc.i4.0',
+        '    stloc.1',
+        '  TKVDICTTU_LAP:',
+        '    ldloc.1',
+        '    ldarg.0',
+        f'    callvirt instance int32 {_DS}::get_Count()',
+        '    bge TKVDICTTU_HET',
+        '    ldarg.0',
+        '    ldloc.1',
+        f'    callvirt instance !0 {_DS}::get_Item(int32)',
+        '    stloc.2',
+        '    ldloc.0',
+        '    ldloc.2',
+        f'    callvirt instance !0 {_TUP}::get_Item1()',
+        '    ldloc.2',
+        f'    callvirt instance !1 {_TUP}::get_Item2()',
+        f'    callvirt instance void {_DICT}::set_Item(!0, !1)',
+        '    ldloc.1',
+        '    ldc.i4.1',
+        '    add',
+        '    stloc.1',
+        '    br TKVDICTTU_LAP',
+        '  TKVDICTTU_HET:',
+        '    ldloc.0',
+        '    ret',
+        '  }',
+        '}',
+    ])
+
+
+def push_dict(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """dict(X): X la list cac cap (K, V) -> Dictionary<K,V> moi."""
+    ta = _ta_ds_cap(args, scope)
+    if ta is None:
+        raise SyntaxError("il_codegen: dict(X) can X la list cac cap (K, V) da biet kieu "
+                          "(bien, 'bang[k]' hoac 'bang.get(k, ...)')")
+    _ensure_class_dict_tu(ctx)
+    tup = ta.elem_ta
+    if tup.tuple_tas is not None and len(tup.tuple_tas) == 2:
+        k_il = ctx.il_type_str(tup.tuple_tas[0], ctx.records)
+        v_il = ctx.il_type_str(tup.tuple_tas[1], ctx.records)
+    else:
+        k_il = ctx.il_type_str(TypeAnn(tup.tuple_dtypes[0], None), ctx.records)
+        v_il = ctx.il_type_str(TypeAnn(tup.tuple_dtypes[1], None), ctx.records)
+    ctx.compile_expr(args[0], scope, out, ta.dtype, ctx)
+    out.append(f'    call {_DICT} TkvDictTu::TuDs<{k_il}, {v_il}>({_DS})')
+
+
+def bootstrap_lap_chung(reg: "Registry"):
+    """Dang ky - goi tu compiler/bootstrap_all.py."""
+    register_expr_builtin(reg, '__tkv_lap', push_lap, None, return_shape='list',
+                          return_dtype_fn=lap_dtype, return_ta_fn=lap_return_ta)
+    register_expr_builtin(reg, 'set', push_set, None, return_shape='set',
+                          return_dtype_fn=set_dtype, return_ta_fn=set_return_ta)
+    register_expr_builtin(reg, 'reversed', push_reversed, None, return_shape='list',
+                          return_dtype_fn=reversed_dtype, return_ta_fn=reversed_return_ta)
+    register_expr_builtin(reg, 'list', push_list, None, return_shape='list',
+                          return_dtype_fn=list_dtype, return_ta_fn=list_return_ta)
+    register_expr_builtin(reg, 'dict', push_dict, None, return_shape='dict',
+                          return_dtype_fn=dict_dtype, return_ta_fn=dict_return_ta)

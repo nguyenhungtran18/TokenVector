@@ -1,0 +1,21 @@
+# -*- coding: utf-8 -*-
+# ====================================================================================================
+# TOKENVECTOR CROSS-PLATFORM WINFORMS AI MEDIA PLAYER (media_player_winforms.tkv)
+# 100% Native TokenVector Language (.tkv) & Windows Forms (No HTML / Zero Console)
+# ====================================================================================================
+
+__tkv_extern_assembly__ = [
+    "System.Windows.Forms",
+    ("System.Drawing", "B0 3F 5F 7F 11 D5 0A 3A", "4:0:0:0")
+]
+
+class MediaPlayerLauncher:
+    default_track: "str"
+    sample_rate: "i32"
+
+    def launch_player(self) -> "i32":
+        return launch_media_player_gui(self.default_track)
+
+def run() -> "i32":
+    launcher = MediaPlayerLauncher("D:\\TokenVector.Audio\\audio_samples\\Anh_Chi_Biet_Cam_Nin_Nghe_Tieng_Em_Khoc_StudioMaster_HiFi.wav", 48000)
+    return launcher.launch_player()

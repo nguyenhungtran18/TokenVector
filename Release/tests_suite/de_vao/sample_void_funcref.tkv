@@ -1,0 +1,23 @@
+def log_it(x: "i32"):
+    print("log " + str(x))
+
+
+def shout(s: "str"):
+    print(s + "!")
+
+
+def run_twice(fn: "func(i32)", v: "i32") -> "i32":
+    fn(v)
+    fn(v + 1)
+    return v + 2
+
+
+def announce(fn: "func(str)->void", msg: "str") -> "i32":
+    fn(msg)
+    return len(msg)
+
+
+def run_void_funcref() -> "str":
+    a = run_twice(log_it, 7)
+    b = announce(shout, "hi")
+    return str(a) + "," + str(b)

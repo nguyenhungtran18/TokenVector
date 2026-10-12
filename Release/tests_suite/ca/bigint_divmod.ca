@@ -1,0 +1,23 @@
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	div0	3\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	div1	-4\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	div2	-4\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	div3	3\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	mod0	1\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	mod1	2\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	mod2	-2\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	mod3	-1\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	pow0	12157665459056928801\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	pow1	1267650600228229401496703205376\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	pow2	-36472996377170786403\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	pow3	1\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	bigdiv25	25\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	bigdiv30	30\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	bigdivneg25	-25\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	bigdivneg30	-30\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	bigmod0	440732388\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	bigmod1	559267619\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	bigmod2	-559267619\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	bigmod3	-440732388\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	neg0	-5\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	neg1	-265252859812191058636308480000000\n
+tests_suite\de_vao\sample_bigint_divmod.tkv	run	0	neg2	265252859812191058636308480000000\n

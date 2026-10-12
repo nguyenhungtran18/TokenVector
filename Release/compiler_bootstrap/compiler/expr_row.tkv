@@ -1,0 +1,378 @@
+# -*- coding: utf-8 -*-
+"""ARENA BIEU THUC: mot node la CHI SO vao `_POOL`, khong phai tuple.
+
+PHEP LAT (P8/3b, 2026-09-18). Truoc buoc nay node la tuple Python
+(`('var', ten)`, `('binop', op, trai, phai)`...) va `il_core.nid()` danh so
+chung theo `id(obj)`. `id()` KHONG TON TAI trong TokenVector, nen `nid()`
+khong bao gio bien dich duoc - do la RAO SO MOT cua duong gang self-host
+(`_NID_MAP = {}` o `il_core.tkv:30`, phep gop dung o module thu 2).
+
+Loi ra duy nhat: node PHAI LA chi so. Khi do `nid(x)` chi con la `x`, va
+`_NID_MAP` lan `id()` bien mat cung luc.
+
+DONG ARENA dung quy uoc da chay that o `tkv_parser/tkv_ast.tkv` va
+`stmt_row.py`:
+
+    row = "<kind>\\t<o1>\\t<o2>\\t<o3>"
+
+Moi o di qua `esc_o`/`unesc_o` (tab -> '\\t', backslash -> '\\\\'). KHONG co
+ngoai le: mot tab lac trong mot o lam `split("\\t")` lech HET cac o phia
+sau MA KHONG BAO LOI - da xay ra that o P3 voi `const_str` chua tab.
+
+KIEU tung o tra cuu `expr_layout.KHUON` - (kind, o) -> kieu la MOT HAM, do
+tren ca kho mau lan cay tu-host, 54 cap quan sat duoc.
+
+== VI SAO CHI SO BAT DAU TU `MOC` CHU KHONG TU 0 ==
+
+Ba ly do, ca ba deu la loi SAI AM THAM neu bat dau tu 0:
+
+1. `if node and ekind(node) == ...` - 9 cho trong cay viet the. Chi so 0
+   la FALSY nen node dau tien se bi coi nhu khong ton tai.
+2. `nid(stmt)` (30 cho) va `nid(node)` (149 cho) cung sinh TEN BIEN TAM.
+   `stmt` la chi so vao arena CAU LENH, bat dau tu 0. Neu hai arena cung
+   dai so thi `__tmp7` cua mot cau lenh va cua mot bieu thuc la MOT TEN.
+3. O `shape` thu hai la mot SO NGUYEN (chi so chieu: 0, 1, 2). Neu no roi
+   vao dai chi so hop le thi `la_node` nhan nham no la node.
+
+`MOC` lon hon moi chi so chieu va tach han dai cua arena cau lenh nen ca
+ba bien mat.
+"""
+from expr_layout import KHUON
+
+# Chi so node bat dau tu day - xem docstring, muc "VI SAO".
+MOC = 1000000
+
+# Sentinel "o VANG MAT", giong `stmt_row.ABSENT`. Chi `slice` o2/o3 dung
+# (do 15 lan trong kho: `s[:n]` khong co can duoi, `s[n:]` khong co can tren).
+VANG = "-1"
+
+_POOL: "list[str]" = []
+
+
+def reset_pool_bieu_thuc():
+    """Bat dau mot chuong trinh moi.
+
+    Goi CUNG cho voi `il_core.reset_nid()` va `stmt_row.reset_pool()`: ba
+    so danh tinh nay phai cung vong doi, lech nhau la mang ten bien tam cua
+    chuong trinh truoc sang chuong trinh sau.
+
+    An toan vi moi `parse_expr` deu chay SAU diem reset (gen_il_program
+    nhan than ham dang VAN BAN, chua phan tich) - giong het arena cau lenh.
+    """
+    _POOL.clear()
+
+
+def num_lit_to_dec(text: "str") -> "str":
+    """Chuan hoa literal so ve thap phan. '0x'->he 16, '0o'->he 8,
+    '0b'->he 2. Decimal/scientific/dau am -> giu nguyen.
+
+    Muc dich: sdt '0x80000002', '0o17', '0b101' thanh dang thuan thap phan
+    TRUOC khi node 'num' duoc tao ra. KHONG goi int(text, base) - tren duong
+    TokenVector `int()` tra i32 va tran neu nhap vuot 2^31."""
+    t = text.strip()
+    if t == "":
+        return t
+    if len(t) >= 3 and t[0] == '0' and (t[1] == 'x' or t[1] == 'X'):
+        return _digits_to_dec(t[2:], 16)
+    if len(t) >= 3 and t[0] == '0' and (t[1] == 'o' or t[1] == 'O'):
+        return _digits_to_dec(t[2:], 8)
+    if len(t) >= 3 and t[0] == '0' and (t[1] == 'b' or t[1] == 'B'):
+        return _digits_to_dec(t[2:], 2)
+    return t
+
+
+def _digit_val(ch: "str") -> "i32":
+    c = ch.lower()
+    if c >= '0' and c <= '9':
+        return ord(c) - ord('0')
+    return ord(c) - ord('a') + 10
+
+
+def _dec_mul_acc(acc: "str", base: "i32", v: "i32") -> "str":
+    carry = v
+    res: "str" = ""
+    i = len(acc) - 1
+    while i >= 0:
+        d = ord(acc[i]) - ord('0')
+        t = d * base + carry
+        res = chr(t % 10 + ord('0')) + res
+        carry = t // 10
+        i = i - 1
+    while carry > 0:
+        res = chr(carry % 10 + ord('0')) + res
+        carry = carry // 10
+    if res == "":
+        res = "0"
+    return res
+
+
+def _digits_to_dec(digits: "str", base: "i32") -> "str":
+    dec: "str" = "0"
+    for ch in digits:
+        dec = _dec_mul_acc(dec, base, _digit_val(ch))
+    return dec
+
+
+def esc_o(s: "str") -> "str":
+    """Che tab va backslash de `split('\\t')` khong bao gio lech."""
+    return s.replace("\\", "\\\\").replace("\t", "\\t")
+
+
+def unesc_o(s: "str") -> "str":
+    """Nghich cua `esc_o`. Doc TRAI SANG PHAI de '\\\\t' khong thanh tab."""
+    ra = []
+    i = 0
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if c == "\\" and i + 1 < n:
+            k = s[i + 1]
+            if k == "t":
+                ra.append("\t")
+                i += 2
+                continue
+            if k == "\\":
+                ra.append("\\")
+                i += 2
+                continue
+        ra.append(c)
+        i += 1
+    return "".join(ra)
+
+
+def la_node(e: "TkvNode") -> "i32":
+    """`e` co phai mot node bieu thuc khong.
+
+    Sau phep lat, node la mot `int` trong dai `[MOC, MOC + so dong)`.
+    Nut VANG la `None` (quy uoc cua `lay_nut`). Truoc 2026-09-24 ham con
+    nhan ca chuoi va `Scope` - do that: chuoi den tu MOT bien hai kieu o
+    record_feature, `Scope` den tu MOT loi goi lech doi so (da sua ca hai).
+    `bool` khong can loai rieng: `True` = 1 < MOC.
+    """
+    if e is None:
+        return False
+    return MOC <= e < MOC + len(_POOL)
+
+
+def _dong(e: "TkvNode") -> "str":
+    return _POOL[e - MOC]
+
+
+def _o_tho(e: "TkvNode", i: "i32") -> "str":
+    """O thu `i` (1..3) dang VAN BAN da ma hoa; "" neu node khong co o do."""
+    if not la_node(e):
+        return ""
+    p = _dong(e).split("\t")
+    if i >= len(p):
+        return ""
+    return p[i]
+
+
+def ekind(e: "TkvNode") -> "str":
+    """Loai node ('var', 'binop', 'call', ...); "" neu khong phai node."""
+    if not la_node(e):
+        return ""
+    return _dong(e).split("\t")[0]
+
+
+def eso_o(e: "TkvNode") -> "i32":
+    """So o cua node KE CA o loai - thay cho `len(node)` thoi con tuple."""
+    if not la_node(e):
+        return 0
+    return len(_dong(e).split("\t"))
+
+
+# --- GHI O: ban CO KIEU (2026-09-24) -----------------------------------
+#
+# Doi xung voi phia DOC ben duoi (`ea_str`/`ea_nut`/...). Truoc day mot ham
+# `_ma(kind, i, v)` nhan `v` DA KIEU va tra KHUON luc chay de chon cach ma
+# hoa - trinh that khong khai duoc `v`, va do la rao chan 97/117 file.
+#
+# Nay NOI GOI chon bo ma hoa. Cai gia: phep kiem "bo ma hoa khop KHUON"
+# roi khoi luc chay - no chuyen thanh cong TINH
+# `test/verify/expr_row_o_khop_khuon_test.py`, quet MOI loi goi `mkN`.
+# Phep kiem "o co duoc khai khong" van o luc chay (`_kiem_o`).
+
+
+def o_str(v: "str") -> "str":
+    return esc_o(v)
+
+
+def o_nut(v: "TkvNode") -> "str":
+    # Nut vang mat la -1 (2026-09-29). Truoc day 'v is None': tren so nguyen
+    # phep do bien thanh 'v == 0' va lam hong nut chi so 0.
+    return VANG if v < 0 else str(v)
+
+
+def o_i32(v: "i32") -> "str":
+    return str(v)
+
+
+def o_ds(v: "list[TkvNode]") -> "str":
+    return ",".join([str(x) for x in v])
+
+
+def o_ds_str(v: "list[str]") -> "str":
+    return ",".join([esc_o(x) for x in v])
+
+
+def _kiem_o(kind: "str", n: "i32"):
+    """Moi o 1..n cua `kind` PHAI duoc khai trong KHUON."""
+    for i in range(1, n + 1):
+        if KHUON.get("%s:%d" % (kind, i), "") == "":
+            raise SyntaxError(
+                f"expr_row: dung node '{kind}' nhung expr_layout.KHUON khong khai o {i} - moi kind moi PHAI khai truoc, neu khong o se bi doc sai am tham")
+
+
+# --- DOC O: ban CO KIEU -------------------------------------------------
+#
+# TokenVector doi DUNG MOT kieu tra ve cho moi ham, nen ban da kieu o tren
+# KHONG khai duoc - de nguyen la doi rao chu khong go rao (tien le:
+# `stmt_row.get()` den nay van nam trong danh sach ham thieu annotation).
+
+
+def ea_str(e: "TkvNode") -> "str":
+    """O1 khi o do la VAN BAN."""
+    return unesc_o(_o_tho(e, 1))
+
+
+def eb_str(e: "TkvNode") -> "str":
+    """O2 khi o do la VAN BAN."""
+    return unesc_o(_o_tho(e, 2))
+
+
+def ec_str(e: "TkvNode") -> "str":
+    """O3 khi o do la VAN BAN."""
+    return unesc_o(_o_tho(e, 3))
+
+
+def _nut(van: "str") -> "TkvNode":
+    return None if van == "" or van == VANG else int(van)
+
+
+def ea_nut(e: "TkvNode") -> "TkvNode":
+    """O1 khi o do la MOT NODE CON."""
+    return _nut(_o_tho(e, 1))
+
+
+def eb_nut(e: "TkvNode") -> "TkvNode":
+    """O2 khi o do la MOT NODE CON. Co the VANG (`slice` o2)."""
+    return _nut(_o_tho(e, 2))
+
+
+def ec_nut(e: "TkvNode") -> "TkvNode":
+    """O3 khi o do la MOT NODE CON. Co the VANG (`slice` o3)."""
+    return _nut(_o_tho(e, 3))
+
+
+def _ds(van: "str") -> "list[TkvNode]":
+    if van == "":
+        return []
+    return [int(x) for x in van.split(",")]
+
+
+def ea_ds(e: "TkvNode") -> "list[TkvNode]":
+    """O1 khi o do la DANH SACH NODE (co the rong)."""
+    return _ds(_o_tho(e, 1))
+
+
+def eb_ds(e: "TkvNode") -> "list[TkvNode]":
+    """O2 khi o do la DANH SACH NODE (co the rong)."""
+    return _ds(_o_tho(e, 2))
+
+
+def ec_ds(e: "TkvNode") -> "list[TkvNode]":
+    """O3 khi o do la DANH SACH NODE (co the rong)."""
+    return _ds(_o_tho(e, 3))
+
+
+def ea_ds_str(e: "TkvNode") -> "list[str]":
+    """O1 khi o do la DANH SACH CHUOI - chi `lambda` (ten tham so)."""
+    van = _o_tho(e, 1)
+    if van == "":
+        return []
+    return [unesc_o(x) for x in van.split(",")]
+
+
+def eb_i32(e: "TkvNode") -> "i32":
+    """O2 khi o do la SO NGUYEN - chi `shape` (chi so chieu)."""
+    return int(_o_tho(e, 2))
+
+
+# --- DUYET ---------------------------------------------------------------
+
+def con_nut(e: "TkvNode") -> "list[TkvNode]":
+    """MOI NODE CON cua `e` - o node, cong node nam trong o danh sach.
+
+    Thay cho mau `for x in eo_ds(e): if la_node(x): ... elif isinstance(x,
+    list): for y in x: ...` lap lai y het o cac cho duyet cay.
+
+    DA KIEM (2026-09-18): dung `con_nut` o CA TAM cho duyet cay cho cong IL
+    149/26 - dung bang nen. Mot luot do truoc do bao 144/30 va toi da ghi
+    nham rang `con_nut` lam mat nhanh dict; that ra luot do BI NHIEU vi toi
+    chay build va compiler co boc ham trong cung cay luc cong dang so hai
+    cay (ke ca `tkv.py build` trong `p8_cay_truoc`). KHONG chay bat cu thu
+    gi trong cay khi cong IL dang chay.
+    """
+    if not la_node(e):
+        return []
+    p = _dong(e).split("\t")
+    kind = p[0]
+    ra = []
+    for i in range(1, len(p)):
+        kieu = KHUON.get("%s:%d" % (kind, i), "")
+        if kieu == "nut":
+            if p[i] != VANG:
+                ra.append(int(p[i]))
+        elif kieu == "ds":
+            if p[i] != "":
+                for x in p[i].split(","):
+                    ra.append(int(x))
+    return ra
+
+
+# --- DUNG node -----------------------------------------------------------
+#
+# Ba arity rieng chu khong mot ham bien doi: DSL khong co *args, va arity
+# la MOT PHAN CUA NGHIA (`eso_o` phan biet 'binop' 3 o voi 4 o).
+#
+# KHONG gop dong trung nhau (khong "intern"): hai bieu thuc giong het nhau
+# trong cung chuong trinh PHAI co hai chi so khac nhau. Gop lai la dung
+# chung mot ten bien tam cho hai cho khac nhau - dung loi ma `nid()` da
+# duoc sinh ra de tranh (xem ghi chu `_MEMO` o stmt_row: khoa theo VAN BAN
+# gop hai bieu thuc tinh co cung chu, khoa theo LAN XUAT HIEN thi khong).
+
+
+def _them_dong(kind: "str", o: "list[str]") -> "i32":
+    # Node KHONG o (`('null',)`) phai la dong CHI co kind, khong tab thua -
+    # neu khong `eso_o` tra 2 thay vi 1.
+    _POOL.append(kind if not o else kind + "\t" + "\t".join(o))
+    return MOC + len(_POOL) - 1
+
+
+def mk1(kind: "str") -> "TkvNode":
+    """Node 1 o: chi co LOAI, khong o nao - hien chi `('null',)`.
+
+    Bi bo sot o buoc A vi bo quet chi tim tuple 2-4 phan tu; `('null',)`
+    la node MOT phan tu. Phep lat lo ra no bang mot `ValueError` khi mot
+    tuple tho lot vao o danh sach tham so.
+    """
+    return _them_dong(kind, [])
+
+
+def mk2(kind: "str", a: "str") -> "TkvNode":
+    """Node 2 o: (kind, a) -> chi so. O da ma hoa bang `o_*`."""
+    _kiem_o(kind, 1)
+    return _them_dong(kind, [a])
+
+
+def mk3(kind: "str", a: "str", b: "str") -> "TkvNode":
+    """Node 3 o: (kind, a, b) -> chi so. O da ma hoa bang `o_*`."""
+    _kiem_o(kind, 2)
+    return _them_dong(kind, [a, b])
+
+
+def mk4(kind: "str", a: "str", b: "str", c: "str") -> "TkvNode":
+    """Node 4 o: (kind, a, b, c) -> chi so. O da ma hoa bang `o_*`."""
+    _kiem_o(kind, 3)
+    return _them_dong(kind, [a, b, c])

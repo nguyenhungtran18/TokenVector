@@ -1,0 +1,292 @@
+# -*- coding: utf-8 -*-
+"""'for k, v in items_list:' (2026-07-29, phan con lai cua dict.items()-
+as-assign, xem dict_items_list.py) - macro TEXT-LEVEL, giong HET tinh
+than 'for_in_list' cua control_flow.py (khai trien THANH VAN BAN sang
+dang for-range+doc-chi-so+attr da co san, KHONG can codegen rieng).
+
+Regex CHI khop khi container la 1 TEN BIEN TRAN (KHONG co '.items()' o
+cuoi) - phan biet VOI 'for k, v in d.items():' da co san TRUOC do trong
+dict_type.py's try_parse_for_in_dict_items (regex do BAT BUOC co
+'.items()' o cuoi) - 2 regex loai tru lan nhau theo cau truc, KHONG
+trung/danh chan nhau (macro nay chay TRUOC line-parser trong pipeline,
+nhung vi khong khop cu phap co '.items()' nen dict-for-loop van hoat
+dong nguyen ven qua duong cu).
+
+Khai trien:
+    for k, v in items_list:
+        <than khoi>
+thanh:
+    for __iterkv{n}_idx in range(len(items_list)):
+        __iterkv{n}_pair = items_list[__iterkv{n}_idx]
+        k = __iterkv{n}_pair.key
+        v = __iterkv{n}_pair.value
+        <than khoi>
+
+Khong kiem tra 'items_list' co THAT la List<KeyValuePair<K,V>> o day
+(thuan text, chua co known_shapes du lieu shape sau) - neu sai (vd dung
+tren 1 list thuong), loi se lo RO RANG sau o '.key'/'.value' (compile_attr
+bao 'chi dung duoc tren... shape=dict_kvpair', khong am tham)."""
+import re
+
+from il_dispatch import register_macro_expander
+from il_features.string_format import _split_top_level_args
+from il_features.comprehension import _tach_phay_ngoai
+
+__tkv_import__ = "il_dispatch"
+
+_FOR_IN_KVLIST_RE = re.compile(r'^for\s+(\w+)\s*,\s*(\w+)\s+in\s+(\w+)\s*:\s*$')
+
+# 'for k, v in <bieu thuc>:' (2026-09-26): gan bieu thuc ra bien tam truoc.
+_FOR_IN_KVEXPR_RE = re.compile(r'^for\s+(\w+)\s*,\s*(\w+)\s+in\s+(.+?)\s*:\s*$')
+_FOR_TUPLE_BIEN_RE = re.compile(r'^\((\w+)\)$')
+_KHONG_NANG_RE = re.compile(r'^(enumerate|zip|chain)\(|.*\.items\(\)$|^\w+$')
+
+_ZIP_BT_RE = re.compile(r'^zip\((.+)\)$')
+_ENUM_BT_RE = re.compile(r'^enumerate\((.+)\)$')
+
+_me_for_in_kvlist_counter: "i32" = 0
+
+
+# 'for a, b, c, ... in X:' (3+ dich, 2026-09-26) - phan tu la TUPLE, doc theo
+# chi so hang (tuple[k] -> ldfld ItemK+1); dich '_' bo qua.
+_FOR_IN_NTUPLE_RE = re.compile(r'^for\s+(\w+(?:\s*,\s*\w+){2,})\s+in\s+(.+?)\s*:\s*$')
+
+
+def try_expand_for_in_ntuple(line: "str") -> "str":
+    global _me_for_in_kvlist_counter
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _FOR_IN_NTUPLE_RE.match(stripped)
+    if not m:
+        return None
+    dich = [t.strip() for t in m.group(1).split(',')]
+    bt = m.group(2)
+    if _KHONG_NANG_RE.match(bt) and not re.match(r'^\w+$', bt):
+        return None
+    n = _me_for_in_kvlist_counter
+    _me_for_in_kvlist_counter = _me_for_in_kvlist_counter + 1
+    dong = []
+    container = bt
+    if not re.match(r'^\w+$', bt):
+        container = f'__iterkv{n}_src'
+        dong.append(f'{ind}{container} = {bt}')
+    idx = f'__iterkv{n}_idx'
+    pair = f'__iterkv{n}_pair'
+    dong.append(f'{ind}for {idx} in range(len({container})):')
+    dong.append(f'{ind}    {pair} = {container}[{idx}]')
+    for k, t in enumerate(dich):
+        if t != '_':
+            dong.append(f'{ind}    {t} = {pair}[{k}]')
+    return chr(10).join(dong)
+
+
+# 'for i, (a, b, ...) in enumerate(X):' (2026-09-26)
+_FOR_ENUM_TUPLE_RE = re.compile(r'^for\s+(\w+)\s*,\s*\(\s*(\w+(?:\s*,\s*\w+)+)\s*\)\s+in\s+enumerate\((.+)\)\s*:\s*$')
+
+
+def _cac_doi_so_zip(bt: "str") -> "list[str]":
+    """'zip(A, B, ...)' (ngoac ngoai cung bao het) -> [A, B, ...]; khac -> []."""
+    if not bt.startswith('zip(') or not bt.endswith(')'):
+        return []
+    trong = bt[4:len(bt) - 1]
+    sau = 0
+    for c in trong:
+        if c == '(':
+            sau += 1
+        elif c == ')':
+            sau -= 1
+            if sau < 0:
+                return []
+    return _tach_phay_ngoai(trong)
+
+
+def try_expand_for_enum_tuple(line: "str") -> "str":
+    global _me_for_in_kvlist_counter
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _FOR_ENUM_TUPLE_RE.match(stripped)
+    if not m:
+        return None
+    chi_so = m.group(1)
+    dich = [t.strip() for t in m.group(2).split(',')]
+    bt = m.group(3).strip()
+    n = _me_for_in_kvlist_counter
+    _me_for_in_kvlist_counter = _me_for_in_kvlist_counter + 1
+    dong = []
+    zip_ds = _cac_doi_so_zip(bt)
+    if len(zip_ds) >= 2 and len(zip_ds) == len(dich):
+        # 'for i, (a, b) in enumerate(zip(X, Y)):' (2026-09-28): lap CHI SO
+        # tren do dai NGAN NHAT (zip cat nhu Python), a = X[i], b = Y[i].
+        nguon = []
+        for k, e in enumerate(zip_ds):
+            e = e.strip()
+            if re.match(r'^\w+$', e):
+                nguon.append(e)
+            else:
+                ten_z = f'__iterkv{n}_z{k}'
+                dong.append(f'{ind}{ten_z} = {e}')
+                nguon.append(ten_z)
+        can = f'len({nguon[0]})'
+        for e in nguon[1:]:
+            can = f'min({can}, len({e}))'
+        dong.append(f'{ind}for {chi_so} in range({can}):')
+        for k, t in enumerate(dich):
+            if t != '_':
+                dong.append(f'{ind}    {t} = {nguon[k]}[{chi_so}]')
+        return chr(10).join(dong)
+    container = bt
+    if not re.match(r'^\w+$', bt):
+        container = f'__iterkv{n}_src'
+        dong.append(f'{ind}{container} = {bt}')
+    pair = f'__iterkv{n}_pair'
+    dong.append(f'{ind}for {chi_so} in range(len({container})):')
+    dong.append(f'{ind}    {pair} = {container}[{chi_so}]')
+    for k, t in enumerate(dich):
+        if t != '_':
+            dong.append(f'{ind}    {t} = {pair}[{k}]')
+    return chr(10).join(dong)
+
+
+# 'a, b = s.split(...)' (2026-09-26): giai nen 1 LIST (Python nem ValueError
+# neu so phan tu khac so dich). Chi nhan ve phai CHAC CHAN la list.
+_UNPACK_SPLIT_RE = re.compile(r'^(\w+(?:\s*,\s*\w+)+)\s*=\s*(.+\.(?:split|rsplit|splitlines)\(.*\))\s*$')
+
+
+def try_expand_unpack_split(line: "str") -> "str":
+    global _me_for_in_kvlist_counter
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _UNPACK_SPLIT_RE.match(stripped)
+    if not m:
+        return None
+    dich = [t.strip() for t in m.group(1).split(',')]
+    n = _me_for_in_kvlist_counter
+    _me_for_in_kvlist_counter = _me_for_in_kvlist_counter + 1
+    tam = f'__unpack{n}_ds'
+    dong = [f'{ind}{tam} = {m.group(2)}',
+            f'{ind}if len({tam}) != {len(dich)}:',
+            f'{ind}    raise ValueError("so gia tri de giai nen khac {len(dich)}")']
+    for k, t in enumerate(dich):
+        if t != '_':
+            dong.append(f'{ind}{t} = {tam}[{k}]')
+    return chr(10).join(dong)
+
+
+# 'for a, b in ((x1, y1), (x2, y2)):' (2026-09-26): literal cac tuple -> CHUYEN
+# VI thanh 1 list/vi tri ('[x1, x2]', '[y1, y2]') roi duyet song song theo chi so.
+_FOR_TUPLE_LIT_RE = re.compile(r'^for\s+(\w+(?:\s*,\s*\w+)+)\s+in\s+([\[(]\s*\(.*\)\s*,?\s*[\])])\s*:\s*$')
+
+
+def try_expand_for_tuple_literal(line: "str") -> "str":
+    global _me_for_in_kvlist_counter
+    stripped = line.strip()
+    m = _FOR_TUPLE_LIT_RE.match(stripped)
+    if not m:
+        return None
+    dich = [t.strip() for t in m.group(1).split(',')]
+    ngoai = m.group(2).strip()
+    items, _kw = _split_top_level_args(ngoai[1:len(ngoai) - 1])
+    cot: "list[list[str]]" = []
+    for k in range(len(dich)):
+        cot.append([])
+    for it in items:
+        it = it.strip()
+        if it == '':
+            continue
+        if not (it.startswith('(') and it.endswith(')')):
+            return None
+        phan, _kw2 = _split_top_level_args(it[1:len(it) - 1])
+        phan = [x.strip() for x in phan if x.strip() != '']
+        if len(phan) != len(dich):
+            return None
+        for k in range(len(dich)):
+            cot[k].append(phan[k])
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    n = _me_for_in_kvlist_counter
+    _me_for_in_kvlist_counter = _me_for_in_kvlist_counter + 1
+    dong = []
+    for k in range(len(dich)):
+        dong.append(f'{ind}__iterlit{n}_c{k} = [{", ".join(cot[k])}]')
+    idx = f'__iterlit{n}_idx'
+    cot0 = f'__iterlit{n}_c0'
+    dong.append(ind + 'for ' + idx + ' in range(len(' + cot0 + ')):')
+    for k in range(len(dich)):
+        if dich[k] != '_':
+            dong.append(f'{ind}    {dich[k]} = __iterlit{n}_c{k}[{idx}]')
+    return chr(10).join(dong)
+
+
+def try_expand_for_in_kvlist(line: "str") -> "str":
+    global _me_for_in_kvlist_counter
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _FOR_IN_KVLIST_RE.match(stripped)
+    dau = ''
+    if m:
+        key_var, val_var, container = m.groups()
+    else:
+        m = _FOR_IN_KVEXPR_RE.match(stripped)
+        if not m:
+            return None
+        key_var, val_var, bt = m.groups()
+        mz = _ZIP_BT_RE.match(bt)
+        if mz:
+            # 'for a, b in zip(<bt1>, <bt2>)' (2026-09-26): doi so KHONG phai ten
+            # bien -> gan ra bien tam, de macro zip(ten, ten) co san xu ly.
+            doi, _kw = _split_top_level_args(mz.group(1))
+            if any([not re.match(r'^\w+$', d.strip()) for d in doi]):
+                dong = []
+                ten_moi = []
+                for d in doi:
+                    if re.match(r'^\w+$', d.strip()):
+                        ten_moi.append(d.strip())
+                        continue
+                    t = f'__iterkv{_me_for_in_kvlist_counter}_zip'
+                    _me_for_in_kvlist_counter = _me_for_in_kvlist_counter + 1
+                    dong.append(f'{ind}{t} = {d.strip()}')
+                    ten_moi.append(t)
+                dong.append(f'{ind}for {key_var}, {val_var} in zip({", ".join(ten_moi)}):')
+                return chr(10).join(dong)
+        me = _ENUM_BT_RE.match(bt)
+        if me and not re.match(r'^\w+$', me.group(1).strip()):
+            # 'for i, x in enumerate(<bieu thuc>)' (2026-09-26): gan ra bien
+            # tam roi de macro enumerate(ten) co san xu ly.
+            tam_e = f'__iterkv{_me_for_in_kvlist_counter}_enum'
+            _me_for_in_kvlist_counter = _me_for_in_kvlist_counter + 1
+            return (f'{ind}{tam_e} = {me.group(1).strip()}' + chr(10) +
+                    f'{ind}for {key_var}, {val_var} in enumerate({tam_e}):')
+        if _KHONG_NANG_RE.match(bt):
+            return None          # .items()/enumerate/zip co duong rieng
+        # `for a, b in (ten_bien):` khong the bien dich duoc: list-cua-tuple
+        # phai la LIST LITERAL ngay trong cau lenh de macro tach cot duoc.
+        m_bien_ngoac = _FOR_TUPLE_BIEN_RE.match(bt)
+        if m_bien_ngoac:
+            raise SyntaxError(
+                "il_codegen: 'for a, b in ...' chi ho tro list literal chua "
+                "tuple literal ([(0, 1), (1, 2)]) - khong ho tro bien "
+                + m_bien_ngoac.group(1) + " co kieu list-cua-tuple")
+        container = f'__iterkv{_me_for_in_kvlist_counter}_src'
+        dau = f'{ind}{container} = {bt}' + chr(10)
+    n = _me_for_in_kvlist_counter
+    _me_for_in_kvlist_counter = _me_for_in_kvlist_counter + 1
+    idx = f'__iterkv{n}_idx'
+    pair = f'__iterkv{n}_pair'
+    return dau + (
+        f'{ind}for {idx} in range(len({container})):\n'
+        f'{ind}    {pair} = {container}[{idx}]\n'
+        f'{ind}    {key_var} = {pair}.key\n'
+        f'{ind}    {val_var} = {pair}.val'
+    )
+
+
+def bootstrap_for_in_kvlist(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_macro_expander(reg, 'for_tuple_literal', try_expand_for_tuple_literal)
+    register_macro_expander(reg, 'for_in_kvlist', try_expand_for_in_kvlist)
+    register_macro_expander(reg, 'for_in_ntuple', try_expand_for_in_ntuple)
+    register_macro_expander(reg, 'for_enum_tuple', try_expand_for_enum_tuple)
+    register_macro_expander(reg, 'unpack_split', try_expand_unpack_split)

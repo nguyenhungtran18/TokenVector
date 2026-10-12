@@ -1,0 +1,22 @@
+"""File sample trim-RAM dung __tkv_import__ de khai bao Win32 P/Invoke.
+Pragma pinvoke duoc tach sang _win32_ram_trim_pinvoke.tkv (module dung chung)."""
+
+__tkv_import__ = "_win32_ram_trim_pinvoke"
+
+# PROCESS_SET_QUOTA (0x0100) | PROCESS_QUERY_INFORMATION (0x0400) = 0x0500 = 1280
+# khong can Admin de mo tien trinh CUNG quyen user hien tai va trim RAM.
+
+
+def run_trim_self(a: "str") -> "str":
+    pid = win_get_current_pid()
+    h = win_open_process(1280, 0, pid)
+    if h == 0:
+        return "open_failed"
+    ok = win_empty_working_set(h)
+    # Ket qua CloseHandle khong dung toi, nhung ham tra ve non-void nen goi
+    # doc lap nhu statement bi TokenVector tu choi - gan vao bien 'close_ok'
+    # de goi hop le (khong phai dead code, DUNG y roi bo qua ket qua).
+    close_ok = win_close_handle(h)
+    if ok == 0:
+        return "trim_failed"
+    return "trimmed"

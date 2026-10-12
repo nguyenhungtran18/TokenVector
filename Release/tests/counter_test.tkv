@@ -1,0 +1,69 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def counting_from_list() -> "i32":
+    words = ["a", "b", "a", "c", "a", "b"]
+    c: "Counter[str]" = Counter(words)
+    return c["a"] + c["b"] + c["c"]
+
+
+def missing_key_zero() -> "i32":
+    c: "Counter[str]" = Counter()
+    return c["nope"]
+
+
+def increment_manually() -> "i32":
+    c: "Counter[str]" = Counter()
+    c["x"] = c["x"] + 1
+    c["x"] = c["x"] + 1
+    c["y"] = c["y"] + 1
+    return c["x"] + c["y"]
+
+
+def most_common_top1() -> "str":
+    words = ["a", "b", "a", "c", "a", "b"]
+    c: "Counter[str]" = Counter(words)
+    top: "list[(str,i32)]" = most_common(c, 1)
+    k, v = top[0]
+    return str(len(top)) + ":" + k + ":" + str(v)
+
+
+def most_common_top2_order() -> "str":
+    words = ["x", "y", "x", "z", "x", "y"]
+    c: "Counter[str]" = Counter(words)
+    top: "list[(str,i32)]" = most_common(c, 2)
+    k0, v0 = top[0]
+    k1, v1 = top[1]
+    return str(len(top)) + ":" + k0 + str(v0) + ":" + k1 + str(v1)
+
+
+def most_common_n_bigger_than_keys() -> "str":
+    words = ["p", "q", "p"]
+    c: "Counter[str]" = Counter(words)
+    top: "list[(str,i32)]" = most_common(c, 10)
+    return str(len(top))
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("counting_from_list", str(counting_from_list()), "6")
+
+    tested = tested + 1
+    total = total + check("missing_key_zero", str(missing_key_zero()), "0")
+
+    tested = tested + 1
+    total = total + check("increment_manually", str(increment_manually()), "3")
+
+    tested = tested + 1
+    total = total + check("most_common_top1", most_common_top1(), "1:a:3")
+
+    tested = tested + 1
+    total = total + check("most_common_top2_order", most_common_top2_order(), "2:x3:y2")
+
+    tested = tested + 1
+    total = total + check("most_common_n_bigger_than_keys", most_common_n_bigger_than_keys(), "2")
+
+    return test_summary("counter_test", total, tested)

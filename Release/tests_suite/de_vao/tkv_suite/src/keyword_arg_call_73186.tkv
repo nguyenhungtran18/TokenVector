@@ -1,0 +1,9 @@
+
+class Box:
+    x: "i32"
+    def scale(self, factor: "i32", offset: "i32" = 0) -> "i32":
+        return self.x * factor + offset
+
+def main() -> "i32":
+    b = Box(10)
+    return b.scale(factor=3, offset=1)

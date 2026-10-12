@@ -1,0 +1,198 @@
+# -*- coding: utf-8 -*-
+"""Kiem `docs/REFERENCE.md` muc 7: ten da LIEU KE co that su ton tai khong?
+
+CON GATE `tools/gen_builtin_ref.py --check` chi so CHIEU MOT: ten da duoc
+dang ky nhung chua ghi vao tai lieu -> bao. No KHONG soi chieu hai: ten
+tai lieu liet ke nhung chua duoc dang ky -> im lang. Cong do la 76/173 ten.
+
+Cong nay bo sung phan bi con lai, va KHONG can Python: doc bang markdown,
+roi PROBE truc tiep `dist/tkvc-tv.exe`.
+
+Dung
+  kiem_ten.exe                 in bang, exit 0
+  kiem_ten.exe --gate          exit 1 neu co ten liet ke nhung khong ton tai
+
+Ghi chu phuong phap: probe goi `v = X("a")`. Ten la METHOD (`split`, `lower`,
+`join`...) se ra THIEU mot cach DUNG - chung khong phai ham doc lap. Nam
+doan do la dung, va cong nay lay chinh danh sach do.
+"""
+TV2S: "str" = "dist\\tkvc-tv.exe"
+WORK: "str" = "build\\probe_tt"
+LOG: "str" = "build\\probe_tt\\log.txt"
+TAI_LIEU: "str" = "docs\\REFERENCE.md"
+
+TEN: "list[str]" = []
+CO: "list[i32]" = []
+GATE: "i32" = 0
+
+MARKERS: "list[str]" = []
+
+
+def nap_markers() -> "i32":
+    MARKERS.append("khong ton tai")
+    MARKERS.append("khong tim thay ham")
+    MARKERS.append("khong phai ham toan hoc")
+    return len(MARKERS)
+
+
+def co_marker(blob: "str") -> "i32":
+    thap = blob.lower()
+    i = 0
+    while i < len(MARKERS):
+        if thap.find(MARKERS[i]) >= 0:
+            return 1
+        i = i + 1
+    return 0
+
+
+def quet_ten() -> "i32":
+    """Lay ten o muc 7 - CHI nhom `HAM BUILTIN`.
+
+    Muc 7 co 376 ten nhung CHI 185 la ham goi duoc truc tiep. Phan con lai:
+    macro cau lenh (`break`, `call_stmt`), parser ve phai cua phep gan, kieu
+    cau lenh, va METHOD (`split`, `lower`...). Probe bang `v = X("a")` KHONG
+    kiem duoc cac nhom do - `v = break("a")` fail dung, nhung `break` van la
+    ten da dang ky. Neu probe tat ca se bao "232 thieu" trong khi do la sai.
+    """
+    nd = read_file(TAI_LIEU).split("\n")
+    i = 0
+    bat = 0
+    trong = 0
+    while i < len(nd):
+        if nd[i].find("BEGIN GENERATED") >= 0:
+            bat = 1
+        if bat == 1:
+            if nd[i].startswith("**"):
+                trong = 0
+                if nd[i].find("HAM BUILTIN") >= 0:
+                    trong = 1
+            if trong == 1 and nd[i].startswith("`"):
+                p = nd[i].split("`")
+                j = 1
+                while j < len(p):
+                    ten = p[j].strip()
+                    if la_hop_le(ten) == 1:
+                        TEN.append(ten)
+                        CO.append(0)
+                    j = j + 2
+        i = i + 1
+    return len(TEN)
+
+
+def la_hop_le(t: "str") -> "i32":
+    """Ten ham: chi chu thuong, chu so, gach duoi. Khong rong, khong ky tu la."""
+    if t == "":
+        return 0
+    i = 0
+    while i < len(t):
+        c = t[i:i + 1]
+        if la_chu(c) == 0 and la_so(c) == 0 and c != "_":
+            return 0
+        i = i + 1
+    return 1
+
+
+def la_so(c: "str") -> "i32":
+    return 1 if c >= "0" and c <= "9" else 0
+
+
+def la_chu(c: "str") -> "i32":
+    if c >= "a" and c <= "z":
+        return 1
+    if c >= "A" and c <= "Z":
+        return 1
+    return 0
+
+
+def probe(ten: "str") -> "i32":
+    """1 neu ten TON TAI, 0 neu compiler bao 'khong ton tai', -1 neu loi khac."""
+    p = WORK + "\\p.tkv"
+    e = WORK + "\\p.exe"
+    src = "# -*- coding: utf-8 -*-\n"
+    src = src + "def run() -> \"i32\":\n"
+    src = src + "    v = " + ten + "(\"a\")\n"
+    src = src + "    print(str(v))\n"
+    src = src + "    return 0\n"
+    write_file(p, src)
+    if path_exists(e):
+        os_remove(e)
+    cmd = TV2S + " \"" + p + "\" \"" + e + "\" run > \"" + LOG + "\" 2>&1"
+    proc_run("cmd.exe", "/c " + cmd)
+    if path_exists(e):
+        return 1
+    if path_exists(LOG) == 0:
+        return -1
+    if co_marker(read_file(LOG)) == 1:
+        return 0
+    return -1
+
+
+def in_hang(ten: "list[str]", r: "i32") -> "i32":
+    hang = ""
+    i = 0
+    while i < 6:
+        if i < len(ten):
+            hang = hang + ten[i] + "    "
+        i = i + 1
+    nhan = "?"
+    if r == 1:
+        nhan = "CO"
+    if r == 0:
+        nhan = "THIEU"
+    if r == -1:
+        nhan = "loi-khac"
+    print("   " + hang + nhan)
+    return 0
+
+
+def main() -> "i32":
+    tham = sys_argv()
+    i = 0
+    while i < len(tham):
+        if tham[i] == "--gate":
+            GATE = 1
+        i = i + 1
+    nap_markers()
+    proc_run("cmd.exe", "/c mkdir \"" + WORK + "\" 2>nul")
+    n = quet_ten()
+    print("doc \"" + TAI_LIEU + "\": " + str(n) + " ten duoc liet ke")
+    print("dang probe bang " + TV2S + " ...")
+    co = 0
+    thieu = 0
+    khac = 0
+    ds_thieu: "list[str]" = []
+    ds_khac: "list[str]" = []
+    i = 0
+    while i < n:
+        r = probe(TEN[i])
+        CO[i] = r
+        if r == 1:
+            co = co + 1
+        if r == 0:
+            thieu = thieu + 1
+            ds_thieu.append(TEN[i])
+        if r == -1:
+            khac = khac + 1
+            ds_khac.append(TEN[i])
+        i = i + 1
+    print("")
+    print("CO       : " + str(co) + "   bien dich duoc -> TON TAI that")
+    print("THIEU    : " + str(thieu) + "   compiler bao \"khong ton tai\"")
+    print("LOI KHAC : " + str(khac) + "   bien dich loi vi khac - thuong la SAI SO THAM SO")
+    print("")
+    print("THIEU (compiler bao khong ton tai):")
+    in_hang(ds_thieu, 0)
+    print("")
+    print("LOI KHAC (khong ket luan - xem tay):")
+    in_hang(ds_khac, -1)
+    print("")
+    print("DOC KHONG PHAI CONG. Ly do:")
+    print("  probe goi `v = X(\"a\")` - CHI kiem duoc ham nhan DUNG MOT tham so")
+    print("  chuoi. 42/185 la nhom do. 79 ten o tren compiler that su bao 'khong")
+    print("  ton tai' (da kiem truc tiep: format, int64, path_stem, hash). 64 ten")
+    print("  'loi khac' phan lon la SAI SO THAM SO - chung CÓ that, chi khong goi")
+    print("  duoc bang 1 tham so. Muon kiem tung ten thi goi voi so tham so that.")
+    print("  Vì vay dung bat `--gate` khi chua sua het tai lieu.")
+    if GATE == 1 and thieu > 0:
+        return 1
+    return 0

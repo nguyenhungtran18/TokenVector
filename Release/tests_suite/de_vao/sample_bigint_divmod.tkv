@@ -1,0 +1,105 @@
+def fact(n: "i32") -> "int":
+    total = 1
+    i = 1
+    while i <= n:
+        total = total * i
+        i = i + 1
+    return total
+
+
+def neg_of(x: "int") -> "int":
+    return -x
+
+
+def div_case(k: "i32") -> "int":
+    a = 7
+    b = 2
+    if k == 1:
+        a = 0 - 7
+    if k == 2:
+        b = 0 - 2
+    if k == 3:
+        a = 0 - 7
+        b = 0 - 2
+    return a // b
+
+
+def mod_case(k: "i32") -> "int":
+    a = 7
+    b = 3
+    if k == 1:
+        a = 0 - 7
+    if k == 2:
+        b = 0 - 3
+    if k == 3:
+        a = 0 - 7
+        b = 0 - 3
+    return a % b
+
+
+def pow_case(k: "i32") -> "int":
+    a = 3
+    b = 40
+    if k == 1:
+        a = 2
+        b = 100
+    if k == 2:
+        a = 0 - 3
+        b = 41
+    if k == 3:
+        a = 10
+        b = 0
+    return a ** b
+
+
+def big_div(n: "i32") -> "int":
+    a = fact(n)
+    b = fact(n - 1)
+    return a // b
+
+
+def big_div_neg(n: "i32") -> "int":
+    a = neg_of(fact(n))
+    b = fact(n - 1)
+    return a // b
+
+
+def big_mod(k: "i32") -> "int":
+    a = fact(25)
+    b = 1000000007
+    if k == 1:
+        a = neg_of(a)
+    if k == 2:
+        b = neg_of(b)
+    if k == 3:
+        a = neg_of(a)
+        b = neg_of(b)
+    return a % b
+
+
+def neg_case(k: "i32") -> "int":
+    a = 5
+    if k == 1:
+        a = fact(30)
+    if k == 2:
+        a = neg_of(fact(30))
+    return neg_of(a)
+
+
+def run(what: "str", n: "str") -> "str":
+    k = int(n)
+    if what == "div":
+        return str(div_case(k))
+    if what == "mod":
+        return str(mod_case(k))
+    if what == "pow":
+        return str(pow_case(k))
+    if what == "bigdiv":
+        return str(big_div(k))
+    if what == "bigdivneg":
+        return str(big_div_neg(k))
+    if what == "bigmod":
+        return str(big_mod(k))
+    if what == "neg":
+        return str(neg_case(k))
+    return "?"

@@ -1,0 +1,47 @@
+# -*- coding: utf-8 -*-
+"""Spec 2026-08-13 (multibase-field-collision, escalate tu 6.10): chan field
+TRUNG TEN THAT giua nhieu base da ke thua (vd 'class Combo(BaseA, BaseB):'
+voi ca 2 base cung khai field trung ten NHUNG khac dtype) bang TranspileError
+ro rang o compile-time, thay vi crash MissingFieldException luc chay.
+
+File nay CHI chua case HOP LE (field kim cuong: 2 base cung 1 to tien chung,
+field den tu to tien do) - PHAI build+chay PASS binh thuong, KHONG duoc chan
+nham. Case COLLISION THAT (raise TranspileError, chan build) da xac nhan qua
+spike rieng (build that bai dung nhu mong doi), KHONG dua vao day vi se lam
+ca file khong build duoc."""
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class Animal:
+    name: "str"
+
+    def sound(self) -> "str":
+        return "..."
+
+
+class Flyer(Animal):
+    wing_span: "i32"
+
+
+class Swimmer(Animal):
+    fin_count: "i32"
+
+
+class Duck(Flyer, Swimmer):
+    quack_level: "i32"
+
+
+def diamond_field_from_common_ancestor_not_blocked() -> "str":
+    d = Duck("mallard", 30, 2, 5)
+    return d.name
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("diamond_field_from_common_ancestor_not_blocked",
+                           diamond_field_from_common_ancestor_not_blocked(), "mallard")
+
+    return test_summary("multibase_field_collision_test", total, tested)

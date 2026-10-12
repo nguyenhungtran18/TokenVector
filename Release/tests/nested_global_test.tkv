@@ -1,0 +1,87 @@
+"""GATE CHO: ham long + bien module (2026-09-29, muc Giai doan 2 cua PLAN).
+
+PLAN tung ghi "ham long khong bat buoc la lenh dau tien | re" nhu 1 muc CAN
+LAM. Kiem chung lai thi compiler **da ho tro san** - cac vi du duoi day chay
+duoc ngay tu dau, khong can sua gi:
+
+- `def` long sau MOT lenh thuong trong than ham
+- `def` long sau chu thich
+- `def` long sau khoi `while` va duoc goi ben trong vong lap
+- bien module, doc/gai qua `global`
+
+Bai nay KHONG them tinh nang gi - no khoa lai hanh vi da co, de muc PLAN sai
+khong bien thanh viec lam tiep. Mot dac biet: `global` la BAT BUOC. Khong co
+`global` thi ten bien module KHONG nhin thay trong ham (thong bao "bien 'k'
+chua duoc khai bao/tham so") - va day la dung thu tu, xem note cua no.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+k_mod: "i32" = 5
+s_mod: "str" = "module"
+
+
+def nested_after_stmt() -> "i32":
+    """`def` long sau 1 lenh thuong - khong can la lenh dau tien."""
+    x = 1
+    def inner() -> "i32":
+        return 2
+    return x + inner()
+
+
+def nested_after_comment() -> "i32":
+    """`def` long sau chu thich (chu thich khong phai lenh nhung van phai hop le)."""
+    # chu thich truoc def
+    def inner() -> "i32":
+        return 7
+    return inner()
+
+
+def nested_used_in_loop() -> "i32":
+    """`def` long truoc, goi ben trong vong lap - kiem tra closure dung."""
+    total = 0
+    def twice(n: "i32") -> "i32":
+        return n * 2
+    i = 1
+    while i < 4:
+        total = total + twice(i)
+        i = i + 1
+    return total
+
+
+def two_nested() -> "i32":
+    """Nhieu `def` long can nhau."""
+    def a() -> "i32":
+        return 1
+    def b() -> "i32":
+        return 2
+    return a() + b()
+
+
+def module_read() -> "i32":
+    """Doc bien module - BAT BUOC co `global`."""
+    global k_mod
+    global s_mod
+    ok = str(len(s_mod))
+    if ok != "6":
+        return -1
+    return k_mod
+
+
+def module_write() -> "i32":
+    """Gai bien module qua `global` - thay doi phai thay tren ca chuong trinh."""
+    global k_mod
+    k_mod = k_mod + 1
+    return k_mod
+
+
+def run() -> "i32":
+    total = 0
+    total += check("def sau lenh thuong", str(nested_after_stmt()), "3")
+    total += check("def sau chu thich", str(nested_after_comment()), "7")
+    total += check("def dung trong vong lap", str(nested_used_in_loop()), "12")
+    total += check("hai def can nhau", str(two_nested()), "3")
+    total += check("doc bien module", str(module_read()), "5")
+    total += check("gai bien module", str(module_write()), "6")
+    # 6
+    return test_summary("nested_global_test", total, 6)

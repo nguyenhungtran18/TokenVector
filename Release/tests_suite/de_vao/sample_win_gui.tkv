@@ -1,0 +1,14 @@
+# Mau cho win_gui_test - o CUOI CUNG cua ma tran phu.
+#
+# show_native_winforms_gui(tieu_de) mo mot cua so Windows Forms. Loi goi
+# BLOCK VO HAN (Application::Run cho toi khi cua so dong), nen phia
+# Python phai chay no o tien trinh rieng, doc tieu de cua so thay, roi
+# tat. Khong co gia tri tra ve nao quan sat duoc truoc khi dong cua so.
+#
+# Tieu de la THAM SO - truoc 2026-09-23 tham so bi bo roi va tieu de
+# viet cung; xem win32_gui_window.py.
+
+
+def mo_cua_so(tieu_de: "str") -> "str":
+    w = show_native_winforms_gui(tieu_de)
+    return str(w)

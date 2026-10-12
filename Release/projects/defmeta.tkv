@@ -1,0 +1,336 @@
+# -*- coding: utf-8 -*-
+"""defmeta - cong cu THAT viet bang TokenVector.
+
+Sinh phan META cho nut `function` va `class`: `summary`, `complexity`.
+
+Cung nguyen tac nhu nodemeta (nut file): summary LAY TU DOCSTRING co san,
+khong goi LLM. Trong repo nay 38% ham va 46% lop da co docstring - do la
+phan lay duoc mien phi. Phan con lai de trong va noi ro la trong, khong
+bia.
+
+`complexity` tinh tu so dong THUC cua than ham (khong ke dong trong va
+chu thich), cung nguong voi nut file.
+
+Luu y ve id phang: id la `function:<file>:<ten>`, nen hai method trung
+ten trong cung mot file sup vao MOT nut. Cai dau tien gap duoc giu, cac
+lan sau dem vao `collisions`.
+
+Dung:
+    defmeta.exe <manifest.txt> <defs.json>
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def is_doc_open(body: "str") -> "i32":
+    """1 neu dong (da strip) mo mot chuoi ba nhay."""
+    if body.startswith("\"\"\""):
+        return 1
+    if body.startswith("'''"):
+        return 1
+    return 0
+
+
+def strip_comment(line: "str") -> "str":
+    """Bo phan chu thich duoi dong."""
+    part = cut_at(line.strip(), "#")
+    return part.strip()
+
+
+def def_kind(line: "str") -> "str":
+    """'function' / 'class' / '' cho mot dong."""
+    body = line.strip()
+    if body.startswith("async "):
+        body = body[6:len(body)].strip()
+    if body.startswith("def "):
+        return "function"
+    if body.startswith("class "):
+        return "class"
+    return ""
+
+
+def def_ident(line: "str") -> "str":
+    """Ten dinh danh sau `def `/`class `."""
+    body = line.strip()
+    if body.startswith("async "):
+        body = body[6:len(body)].strip()
+    cut = body.find(" ")
+    if cut < 0:
+        return ""
+    rest = body[cut + 1:len(body)].strip()
+    out = ""
+    i = 0
+    while i < len(rest):
+        ch = rest[i]
+        if is_ident_char(ch) == 1:
+            out = out + ch
+        else:
+            return out
+        i = i + 1
+    return out
+
+
+def ident_chars() -> "str":
+    """Bang ky tu hop le cua mot dinh danh."""
+    return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+
+
+def is_ident_char(ch: "str") -> "i32":
+    """1 neu `ch` la ky tu dinh danh."""
+    tbl = ident_chars()
+    pos = tbl.find(ch)
+    if pos >= 0:
+        return 1
+    return 0
+
+
+def first_sentence(doc: "str") -> "str":
+    """Cau dau tien cua docstring, toi da 200 ky tu."""
+    txt = doc.strip()
+    stop = txt.find(". ")
+    if stop > 0:
+        txt = txt[0:stop + 1]
+    if len(txt) > 200:
+        txt = txt[0:200]
+    return txt.strip()
+
+
+def json_escape(s: "str") -> "str":
+    """Thoat chuoi cho JSON."""
+    step = s.replace("\\", "\\\\")
+    return step.replace("\"", "\\\"")
+
+
+def complexity_of(n: "i32") -> "str":
+    """Nguong theo so dong ma, giong nut file."""
+    if n < 15:
+        return "simple"
+    if n < 60:
+        return "moderate"
+    return "complex"
+
+
+def indent_of(line: "str") -> "i32":
+    """So cot thut le cua mot dong (tab tinh 4 cot)."""
+    n = 0
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if ch == " ":
+            n = n + 1
+        elif ch == "	":
+            n = n + 4
+        else:
+            return n
+        i = i + 1
+    return n
+
+
+def stack_pop_to(inds: "list[i32]", depth: "i32", ind: "i32") -> "i32":
+    """Bo moi muc co thut le >= `ind`, tra ve do sau con lai.
+
+    Lop LONG trong than mot method (`class LUID(Structure)` ngay trong ham)
+    tung xoa han lop dang mo thay vi tra ve no, nen moi method dinh nghia
+    sau do bi ghi id KHONG co ten lop. Phai dung ngan xep."""
+    d = depth
+    go = 1
+    while go == 1:
+        go = 0
+        if d > 0:
+            if inds[d - 1] >= ind:
+                d = d - 1
+                go = 1
+    return d
+
+
+def stack_top(names: "list[str]", depth: "i32") -> "str":
+    """Ten o dinh ngan xep, '' neu rong."""
+    if depth == 0:
+        return ""
+    return names[depth - 1]
+
+
+def stack_push(names: "list[str]", inds: "list[i32]", depth: "i32", nm: "str", ind: "i32") -> "i32":
+    """Day mot muc vao ngan xep (tai dung o nho da cap), tra ve do sau moi."""
+    if depth < len(names):
+        names[depth] = nm
+        inds[depth] = ind
+        return depth + 1
+    names.append(nm)
+    inds.append(ind)
+    return depth + 1
+
+
+def qual_name(owner: "str", name: "str") -> "str":
+    """Ten day du trong id: 'Lop.method' neu nam trong lop, 'ten' neu khong.
+
+    Id phang cu ('function:<file>:<ten>') lam hai method trung ten o hai lop
+    khac nhau trong CUNG file sup vao mot nut - do duoc 272 va cham."""
+    if len(owner) == 0:
+        return name
+    return owner + "." + name
+
+
+def node_json(kind: "str", rel: "str", name: "str", owner: "str", summary: "str", cx: "str", src: "str") -> "str":
+    """Mot nut function/class dang JSON. `name` la ten tran, id thi day du."""
+    full = qual_name(owner, name)
+    out = "  {\"id\":\"" + kind + ":" + rel + ":" + full + "\",\"type\":\"" + kind + "\""
+    out = out + ",\"name\":\"" + name + "\""
+    out = out + ",\"owner\":\"" + owner + "\""
+    out = out + ",\"summary\":\"" + json_escape(summary) + "\""
+    out = out + ",\"complexity\":\"" + cx + "\""
+    out = out + ",\"summary_source\":\"" + src + "\"}"
+    return out
+
+
+def run(manifest: "str", out_path: "str") -> "str":
+    """Quet manifest, sinh nut function/class kem summary tu docstring."""
+    paths = []
+    raw = read_file(manifest)
+    rows = raw.split("\n")
+    for r in rows:
+        p = norm_slashes(r.strip())
+        if len(p) > 0:
+            paths.append(p)
+
+    nodes = []
+    seen = set()
+    n_doc = 0
+    n_empty = 0
+    n_coll = 0
+    n_fn = 0
+    n_cls = 0
+
+    for rel in paths:
+        text = read_file(rel)
+        lines = text.split("\n")
+        in_doc = 0
+        in_sig = 0
+        pend_kind = ""
+        pend_name = ""
+        pend_owner = ""
+        cur_cls = ""
+        cls_names = []
+        cls_inds = []
+        cdepth = 0
+        pend_line = 0
+        doc_acc = []
+        collecting = 0
+        body_lines = 0
+        idx = 0
+        while idx < len(lines):
+            ln = lines[idx]
+            idx = idx + 1
+            head = strip_comment(ln)
+
+            if collecting == 1:
+                # dang gom docstring nhieu dong
+                if count_triple(ln) > 0:
+                    piece = cut_at(ln.strip(), "\"'")
+                    doc_acc.append(piece)
+                    collecting = 0
+                    summary = first_sentence(" ".join(doc_acc))
+                    nodes.append(node_json(pend_kind, rel, pend_name, pend_owner, summary,
+                                           complexity_of(body_lines), "docstring"))
+                    n_doc = n_doc + 1
+                    pend_kind = ""
+                else:
+                    doc_acc.append(ln.strip())
+                continue
+
+            if in_sig == 1:
+                if head.endswith(":"):
+                    in_sig = 0
+                continue
+
+            tri = count_triple(ln)
+            if len(pend_kind) > 0:
+                if len(head) == 0:
+                    continue
+                # NOI DUNG docstring khong duoc cat tai '#': docstring nhu
+                # "dich sang C# ..." se bi cut thanh "dich sang C".
+                # Da do that: 16 summary sai.
+                body = ln.strip()
+                if is_doc_open(body) == 1:
+                    rest = body[3:len(body)]
+                    close_at = rest.find("\"\"\"")
+                    if close_at < 0:
+                        close_at = rest.find("'''")
+                    if close_at >= 0:
+                        summary = first_sentence(rest[0:close_at])
+                        nodes.append(node_json(pend_kind, rel, pend_name, pend_owner, summary,
+                                               complexity_of(body_lines), "docstring"))
+                        n_doc = n_doc + 1
+                        pend_kind = ""
+                        continue
+                    doc_acc = []
+                    doc_acc.append(rest)
+                    collecting = 1
+                    continue
+                # khong co docstring
+                nodes.append(node_json(pend_kind, rel, pend_name, pend_owner, "",
+                                       complexity_of(body_lines), "missing"))
+                n_empty = n_empty + 1
+                pend_kind = ""
+
+            if tri > 0:
+                if tri % 2 == 1:
+                    in_doc = 1 - in_doc
+                continue
+            if in_doc == 1:
+                continue
+            if len(head) == 0:
+                continue
+
+            kind = def_kind(ln)
+            if len(kind) == 0:
+                continue
+            name = def_ident(ln)
+            if len(name) == 0:
+                continue
+            ind = indent_of(ln)
+            # Thoat khoi than lop khi gap dinh nghia o muc thut le <= muc
+            # cua chinh lop do - qua NGAN XEP, de lop long trong mot method
+            # tra ve dung lop bao ngoai chu khong xoa trang.
+            cdepth = stack_pop_to(cls_inds, cdepth, ind)
+            cur_cls = stack_top(cls_names, cdepth)
+            owner = ""
+            if kind == "class":
+                cur_cls = name
+                cdepth = stack_push(cls_names, cls_inds, cdepth, name, ind)
+            if kind == "function":
+                owner = cur_cls
+            key = kind + ":" + rel + ":" + qual_name(owner, name)
+            if key in seen:
+                n_coll = n_coll + 1
+                if not head.endswith(":"):
+                    in_sig = 1
+                continue
+            seen.add(key)
+            if kind == "function":
+                n_fn = n_fn + 1
+            else:
+                n_cls = n_cls + 1
+            pend_kind = kind
+            pend_name = name
+            pend_owner = owner
+            pend_line = idx
+            body_lines = 0
+            if not head.endswith(":"):
+                in_sig = 1
+
+        if len(pend_kind) > 0:
+            nodes.append(node_json(pend_kind, rel, pend_name, pend_owner, "",
+                                   complexity_of(body_lines), "missing"))
+            n_empty = n_empty + 1
+
+    doc = "{\n \"nodes\": [\n" + ",\n".join(nodes) + "\n ],\n \"stats\": {"
+    doc = doc + "\"files\":" + str(len(paths))
+    doc = doc + ",\"functions\":" + str(n_fn)
+    doc = doc + ",\"classes\":" + str(n_cls)
+    doc = doc + ",\"summary_tu_docstring\":" + str(n_doc)
+    doc = doc + ",\"khong_co_docstring\":" + str(n_empty)
+    doc = doc + ",\"collisions\":" + str(n_coll)
+    doc = doc + "}\n}\n"
+    write_file(out_path, doc)
+    return "functions=" + str(n_fn) + " classes=" + str(n_cls) + " docstring=" + str(n_doc) + " trong=" + str(n_empty) + " id_trung=" + str(n_coll)

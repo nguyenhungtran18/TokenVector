@@ -1,0 +1,59 @@
+"""Field record NGOAI vo huong/container: kieu HAM tran va HANDLE TYPE tran.
+
+Ca hai deu la field ma phep kiem tung tu choi (2026-09-14). Kiem CHAY THAT
+vi hai loi IL o day assemble TROT LOT roi moi sai luc chay: ky hieu generic
+MO (!0/!1) trong chu ky Invoke, va `ldftn` khi truyen mot TEN HAM vao .ctor.
+"""
+
+__tkv_extern_class__ = [
+    {"name": "TkvObj", "assembly": "mscorlib", "class": "System.Object",
+     "ctor": [], "methods": []},
+]
+
+
+class Ctx:
+    prefix: "str"
+    phep: "func(i32)->i32"
+    o: "TkvObj"
+    da_khai: "set[str]"
+
+    def __init__(self, prefix, phep, o):
+        self.prefix = prefix
+        self.phep = phep
+        self.o = o
+        self.da_khai = set()
+
+
+def nhan_ba(x: "i32") -> "i32":
+    return x * 3
+
+
+def hai_buoc(c: "Ctx", x: "i32") -> "i32":
+    f = c.phep
+    return f(x)
+
+
+def goi_thang(c: "Ctx", x: "i32") -> "i32":
+    return c.phep(x)
+
+
+def truyen_handle(c: "Ctx") -> "TkvObj":
+    return c.o
+
+
+def dem_set(c: "Ctx") -> "i32":
+    # HAI BUOC co y: `x in c.da_khai` / `len(c.da_khai)` chua duoc - `in` va
+    # `len` chi nhan mot BIEN don, khong nhan bieu thuc field.
+    s = c.da_khai
+    s.add("a")
+    s.add("b")
+    s.add("a")
+    return len(s)
+
+
+def main() -> "str":
+    x = TkvObj()
+    c = Ctx("p", nhan_ba, x)
+    y = truyen_handle(c)
+    c2 = Ctx("q", nhan_ba, y)
+    return str(hai_buoc(c, 14)) + "/" + str(goi_thang(c, 5)) + "/" + c2.prefix + "/" + str(dem_set(c))

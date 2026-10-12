@@ -1,0 +1,44 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+# Ghi chu: cu phap that cua Python can 'from collections import namedtuple'
+# de chay duoi CPython that, nhung o day BO QUA dong import (cay .tkv tu-
+# host co co che resolve import THAT rieng, khac cay .py - xem tkv_compile.
+# tkv dong ~657 - import 'collections' se bi coi la 1 module .tkv can tim,
+# gay loi bien dich). Compiler CHI can nhan dien cu phap goi ham 'namedtuple
+# (...)' o RHS cua 1 phep gan top-level, khong phu thuoc import - xem
+# _extract_namedtuple_def trong tkv_compile.py/.tkv.
+
+Point = namedtuple("Point", ["x", "y"])
+Pair = namedtuple("Pair", "a b")
+
+
+def make_and_sum() -> "i32":
+    p = Point(3, 4)
+    return p.x + p.y
+
+
+def two_namedtuple_types() -> "i32":
+    p = Point(1, 2)
+    q = Pair(10, 20)
+    return p.x + p.y + q.a + q.b
+
+
+def field_access_individually() -> "str":
+    p = Point(7, 9)
+    return str(p.x) + "," + str(p.y)
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("make_and_sum", str(make_and_sum()), "7")
+
+    tested = tested + 1
+    total = total + check("two_namedtuple_types", str(two_namedtuple_types()), "33")
+
+    tested = tested + 1
+    total = total + check("field_access_individually", field_access_individually(), "7,9")
+
+    return test_summary("namedtuple_test", total, tested)

@@ -1,0 +1,14 @@
+
+__tkv_extern_class__ = [
+    {
+        "name": "Sb", "assembly": "mscorlib", "class": "System.Text.StringBuilder",
+        "ctor": ["str"], "methods": [],
+        "properties": [{"name": "Length", "dtype": "i32", "readonly": False}],
+    },
+]
+
+def main() -> "i32":
+    s = Sb("hello world")
+    s.Length = 5
+    print(s.Length)
+    return 0

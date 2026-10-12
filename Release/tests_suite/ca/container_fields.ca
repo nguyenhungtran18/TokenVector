@@ -1,0 +1,3 @@
+tests_suite\de_vao\sample_container_fields.tkv	main	0	0	store:x;T:y,z|xy|2/0|a=1.5,b=2.25|3.75|2/2|2:a,b\n
+tests_suite\de_vao\sample_container_fields.tkv	main	0	5	store:x;T:y,z|xy|2/0|a=1.5,b=2.25|3.75|2/7|2:a,b\n
+tests_suite\de_vao\sample_container_fields.tkv	main	0	-3	store:x;T:y,z|xy|2/0|a=1.5,b=2.25|3.75|2/-1|2:a,b\n

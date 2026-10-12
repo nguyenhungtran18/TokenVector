@@ -1,0 +1,10 @@
+
+def total(xs: "list[f64]") -> "f64":
+    s = 0.0
+    for v in xs:
+        s = s + v
+    return s
+
+def main() -> "i32":
+    print(str(total([1.5, 2.5])))
+    return 0

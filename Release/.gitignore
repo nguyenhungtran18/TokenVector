@@ -1,0 +1,12 @@
+# Ban phat hanh TokenVector - CHI giu nguon va san pham, khong giu ket qua build.
+# `.gitignore` o goc repo bo loi cho `*.exe`/`*.il` toan cuc nen phai bo lai
+# 2 binary san pham; phan con lai lo o day.
+
+# Cong duoc bien dich tu vong tu-host (sinh moi lan chay)
+build/
+*.il
+*.log
+tools/vong.exe
+
+# Do MOT test ghi ra canh chinh no (pickle dump) - khong phai nguon
+*.bin

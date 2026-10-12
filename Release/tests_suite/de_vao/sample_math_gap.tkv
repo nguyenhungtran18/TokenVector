@@ -1,0 +1,10 @@
+def compute_atan2(y: "f64", x: "f64") -> "f64":
+    return atan2(y, x)
+
+
+def compute_hypot(x: "f64", y: "f64") -> "f64":
+    return hypot(x, y)
+
+
+def compute_factorial(n: "i64") -> "i64":
+    return factorial(n)

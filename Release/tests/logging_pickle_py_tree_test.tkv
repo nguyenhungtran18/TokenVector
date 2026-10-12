@@ -1,0 +1,51 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def default_level_suppresses_info() -> "i32":
+    log_debug("should not print")
+    log_info("should not print")
+    log_warning("SHOULD print")
+    return 1
+
+
+def set_level_shows_info() -> "i32":
+    log_set_level(10)
+    log_info("now visible")
+    return 1
+
+
+def pickle_roundtrip_i32() -> "i32":
+    pickle_dump_i32(42, "pkl_i32_test.bin")
+    return pickle_load_i32("pkl_i32_test.bin")
+
+
+def pickle_roundtrip_f64() -> "f64":
+    pickle_dump_f64(3.5, "pkl_f64_test.bin")
+    return pickle_load_f64("pkl_f64_test.bin")
+
+
+def pickle_roundtrip_str() -> "str":
+    pickle_dump_str("hello pickle", "pkl_str_test.bin")
+    return pickle_load_str("pkl_str_test.bin")
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("default_level_suppresses_info", str(default_level_suppresses_info()), "1")
+
+    tested = tested + 1
+    total = total + check("set_level_shows_info", str(set_level_shows_info()), "1")
+
+    tested = tested + 1
+    total = total + check("pickle_roundtrip_i32", str(pickle_roundtrip_i32()), "42")
+
+    tested = tested + 1
+    total = total + check("pickle_roundtrip_f64", str(pickle_roundtrip_f64()), "3.5")
+
+    tested = tested + 1
+    total = total + check("pickle_roundtrip_str", pickle_roundtrip_str(), "hello pickle")
+
+    return test_summary("logging_pickle_py_tree_test", total, tested)

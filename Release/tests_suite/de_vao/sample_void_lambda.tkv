@@ -1,0 +1,26 @@
+"""Callback VOID: lambda o vi tri func()->void, list[func()->void], len() tren list ham."""
+
+
+def them(ds: "list[str]", s: "str"):
+    ds.append(s)
+
+
+def goi_hai_lan(nap: "func()->void") -> "i32":
+    nap()
+    nap()
+    return 0
+
+
+def demo_void_lambda() -> "i32":
+    ds = ["a"]
+    goi_hai_lan(lambda: them(ds, "x"))
+    print(len(ds))
+    hoan: "list[func()->void]" = []
+    hoan.append(lambda: them(ds, "y"))
+    hoan.append(lambda: them(ds, ds[0] + "z"))
+    print(len(hoan))
+    for f in hoan:
+        f()
+    print(len(ds))
+    print(ds[len(ds) - 1])
+    return 0

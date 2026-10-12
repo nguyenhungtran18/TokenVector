@@ -1,0 +1,36 @@
+__tkv_extern_pinvoke__ = [
+    {"name": "win_sleep", "dll": "kernel32.dll", "symbol": "Sleep",
+     "convention": "stdcall", "params": ["i32"], "returns": "void"},
+]
+
+__tkv_extern_assembly__ = [("System", None, None)]
+__tkv_extern_class__ = [
+    {
+        "name": "Process", "assembly": "System", "class": "System.Diagnostics.Process",
+        "ctor": [],
+        "methods": [
+            {"name": "ToString", "params": [], "returns": "str"},
+        ],
+        "static_methods": [
+            {"name": "GetProcesses", "params": [], "returns": "array[Process]"},
+        ],
+        "properties": [
+            {"name": "ProcessName", "dtype": "str", "readonly": True},
+            {"name": "WorkingSet64", "dtype": "i64", "readonly": True},
+            {"name": "Id", "dtype": "i32", "readonly": True},
+        ],
+    },
+]
+
+
+def run_find_and_sleep(a: "str") -> "str":
+    procs = Process.GetProcesses()
+    count = len(procs)
+    win_sleep(50)
+    if count > 0:
+        p = procs[0]
+        name = p.ProcessName
+        ws = p.WorkingSet64
+        pid = p.Id
+        return "ok:" + str(count)
+    return "empty"

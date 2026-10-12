@@ -1,0 +1,20 @@
+
+__tkv_extern_class__ = [
+    {
+        "name": "Sb", "assembly": "mscorlib", "class": "System.Text.StringBuilder",
+        "ctor": ["str"],
+        "methods": [{"name": "ToString", "params": [], "returns": "str"}],
+    },
+]
+
+def to_str(s: "Sb") -> "str":
+    return s.ToString()
+
+def main() -> "i32":
+    a = Sb("hello")
+    b = Sb("world")
+    xs = [a, b]
+    ys = map(to_str, xs)
+    for y in ys:
+        print(y)
+    return 0

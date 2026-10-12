@@ -1,0 +1,5 @@
+tests_suite\de_vao\sample_string_count.tkv	compute	0	aaaa	2\n
+tests_suite\de_vao\sample_string_count.tkv	compute	0	aaaaa	2\n
+tests_suite\de_vao\sample_string_count.tkv	compute	0	xyz	0\n
+tests_suite\de_vao\sample_string_count.tkv	compute	0	aa	1\n
+tests_suite\de_vao\sample_string_count.tkv	compute	0	axaa	1\n

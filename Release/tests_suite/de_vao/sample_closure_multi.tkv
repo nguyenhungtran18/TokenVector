@@ -1,0 +1,19 @@
+# -*- coding: utf-8 -*-
+"""Closure that - slice thu hai (2026-07-29): 2 bien bi bat ('total',
+'step') trong 1 ham long, mutation ca 2 bien qua 3 lan goi tach biet."""
+
+
+def make_accumulator_demo() -> "i32":
+    total = 0
+    step = 3
+
+    def bump() -> "i32":
+        nonlocal total, step
+        total = total + step
+        step = step + 1
+        return total
+
+    a = bump()
+    b = bump()
+    c = bump()
+    return a + b + c

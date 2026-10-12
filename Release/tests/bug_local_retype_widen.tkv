@@ -1,0 +1,8 @@
+# Regression BUG-3 - HUONG AN TOAN (phai VAN CHAY): local list phan tu f64
+# gan lai bang list_literal phan tu nguyen -> widen i32 -> f64 dung gia tri
+# (widening 1 chieu, giong fix BUG-1). Khong duoc bi chan nham.
+def main() -> "str":
+    a = [1.0, 2.0, 3.0]
+    a = [4, 5]
+    print(str(a[0]))
+    return "ok"

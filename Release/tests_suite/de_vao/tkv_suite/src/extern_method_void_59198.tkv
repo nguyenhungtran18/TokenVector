@@ -1,0 +1,10 @@
+
+__tkv_extern_method__ = [
+    {"name": "gc_collect", "assembly": "mscorlib", "class": "System.GC",
+     "method": "Collect", "params": [], "returns": "void"},
+]
+
+def main() -> "i32":
+    gc_collect()
+    print("ok")
+    return 0

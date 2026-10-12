@@ -1,0 +1,43 @@
+# -*- coding: utf-8 -*-
+"""Closure that (Buoc 4 - A1, 2026-07-29): truyen closure lam tham so cho
+1 ham khac, xem project-tokenvector-wave2-status memory. 2 truong hop:
+
+(a) `make_adder_demo()` truyen TEN 1 ham long ('add_step') TRUC TIEP lam
+tham so cho `apply()`, KHONG qua bien trung gian, NGAY BEN TRONG chinh ham
+ngoai da tao no - truong hop MOI vua duoc ho tro (_compile_funcref_arg's
+nhanh nested_closures).
+
+(b) `demo_closure_var_as_arg()` nhan closure tra ve tu `make_adder()` (b1,
+da co truoc) vao bien 'adder', roi truyen BIEN do cho `apply()` - da chay
+duoc tu truoc (nen tang b1's _func_return_ta_of_call), test lai o day de
+dam bao khong hoi quy sau khi sua (a)."""
+
+
+def apply(f: "func(i32) -> i32", x: "i32") -> "i32":
+    return f(x)
+
+
+def make_adder_demo() -> "i32":
+    step = 10
+
+    def add_step(x: "i32") -> "i32":
+        nonlocal step
+        return x + step
+
+    direct = apply(add_step, 5)
+    return direct
+
+
+def make_adder() -> "func(i32) -> i32":
+    step = 100
+
+    def add_step(x: "i32") -> "i32":
+        nonlocal step
+        return x + step
+
+    return add_step
+
+
+def demo_closure_var_as_arg() -> "i32":
+    adder = make_adder()
+    return apply(adder, 5)

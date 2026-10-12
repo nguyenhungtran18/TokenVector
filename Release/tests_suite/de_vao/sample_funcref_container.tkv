@@ -1,0 +1,18 @@
+def n_items(xs: "list[str]") -> "i32":
+    return len(xs)
+
+
+def total_len(xs: "list[str]") -> "i32":
+    n = 0
+    for s in xs:
+        n = n + len(s)
+    return n
+
+
+def apply_it(fn: "func(list[str])->i32", v: "list[str]") -> "i32":
+    return fn(v)
+
+
+def run_funcref_container() -> "str":
+    xs = ["abc", "de", "f"]
+    return str(apply_it(n_items, xs)) + "," + str(apply_it(total_len, xs))

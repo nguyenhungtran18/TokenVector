@@ -1,0 +1,80 @@
+# -*- coding: utf-8 -*-
+"""KHUON node bieu thuc: (kind, o) -> KIEU cua o.
+
+DA CHUYEN VAO `compiler/` (2026-09-18, phep lat): bay gio `expr_row` DOC
+bang nay LUC CHAY de ma hoa/giai ma tung o, nen no la mot phan cua compiler
+chu khong con la du lieu cho cong cu nua.
+
+Vi sao can bang nay. Buoc B1 tach `ea/eb/ec` da kieu thanh cac accessor CO
+KIEU (`ea_str`, `ea_nut`, `ea_ds`, ...), vi TokenVector doi DUNG MOT kieu
+tra ve cho moi ham. Tach duoc la nho mot su that do duoc:
+
+    (kind, o) -> kieu la MOT HAM - khong o nao da kieu giua cac kind.
+
+Do ngay 2026-09-18 bang cach boc `mk2/mk3/mk4` roi bien dich ca kho mau
+(test/ + tools/ + ca cay tu-host `release/3.code`): 54 cap (kind, o) quan
+sat duoc, moi cap dung mot kieu. Hai kind khong xuat hien trong kho
+(`await`, `shape`) suy tu chinh cho dung trong `il_core.py` - co ghi chu.
+
+NAM KIEU O:
+    'str'     chuoi (ten bien, toan tu, van ban so, ten method)
+    'nut'     mot node con
+    'ds'      danh sach node (co the RONG)
+    'ds_str'  danh sach chuoi - CHI `lambda` o1
+    'i32'     so nguyen      - CHI `shape` o2
+
+`slice` o2/o3 co the VANG (None, 15 lan trong kho). Khi lat sang pool,
+dung sentinel giong `stmt_row.ABSENT` chu khong phai None.
+"""
+
+# (kind, chi so o) -> kieu. Chi so o tinh SAU o loai: 1, 2, 3.
+KHUON: "dict[str,str]" = {
+    # --- node KHONG o (arity 1) ---
+    # `('null',)` - `None` trong nguon. Khong o nao nen khong co muc ':1'.
+    # --- la: mot o van ban ---
+    'var:1': 'str',
+    'num:1': 'str',
+    'str_lit:1': 'str',
+    'bytes_lit:1': 'str',
+    # --- mot o node ---
+    'neg:1': 'nut',
+    'not:1': 'nut',
+    'await:1': 'nut',        # il_core.py: mk2('await', self.parse_factor())
+    # --- danh sach node ---
+    'list_literal:1': 'ds',
+    'tuple_lit:1': 'ds',        # (2026-09-25) '(a, b)' bieu thuc
+    'dict_lit:1': 'ds',         # (2026-09-26) '{k: v, ...}' - khoa/gia tri xen ke
+    # (2026-10-11) '{a, b, ...}' - TAP literal (noi literal), phan tu XEN KE.
+    # Khong phai macro `try_expand_set_literal` (comprehension.tkv) - macro do
+    # chi nho phep gan `x = {...}`, nen tap long nhau trong literal khac thi
+    # phai co node rieng.
+    'set_lit:1': 'ds',
+    # --- goi / chi so theo TEN ---
+    'call:1': 'str', 'call:2': 'ds',
+    'index:1': 'str', 'index:2': 'ds',
+    'attr:1': 'str', 'attr:2': 'str',
+    'method_call:1': 'str', 'method_call:2': 'str', 'method_call:3': 'ds',
+    # --- goi / chi so tren BIEU THUC ---
+    'index_expr:1': 'nut', 'index_expr:2': 'nut',
+    'attr_expr:1': 'nut', 'attr_expr:2': 'str',
+    'method_call_expr:1': 'nut', 'method_call_expr:2': 'str',
+    'method_call_expr:3': 'ds',
+    'index_call:1': 'nut', 'index_call:2': 'ds',
+    # --- toan tu ---
+    'binop:1': 'str', 'binop:2': 'nut', 'binop:3': 'nut',
+    'compare:1': 'str', 'compare:2': 'nut', 'compare:3': 'nut',
+    'boolop:1': 'str', 'boolop:2': 'nut', 'boolop:3': 'nut',
+    'ternary:1': 'nut', 'ternary:2': 'nut', 'ternary:3': 'nut',
+    'in:1': 'nut', 'in:2': 'nut',
+    # `slice` o2/o3 CO THE VANG - xem docstring.
+    'slice:1': 'str', 'slice:2': 'nut', 'slice:3': 'nut',
+    # --- khac ---
+    'kwarg:1': 'str', 'kwarg:2': 'nut',
+    'star:1': 'nut',
+    'star2:1': 'nut',
+    'walrus:1': 'str', 'walrus:2': 'nut',
+    'lambda:1': 'ds_str',    # il_core.py: params la danh sach TEN
+    'lambda:2': 'nut',
+    'shape:1': 'str',
+    'shape:2': 'i32',        # il_core.py: mk3('shape', v, int(v4))
+}

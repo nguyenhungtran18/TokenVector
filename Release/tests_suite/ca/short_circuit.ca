@@ -1,0 +1,12 @@
+tests_suite\de_vao\sc_probe2.tkv	and_true	0	1	1\n
+tests_suite\de_vao\sc_probe2.tkv	and_true	0	0	0\n
+tests_suite\de_vao\sc_probe2.tkv	and_true	0	2	1\n
+tests_suite\de_vao\sc_probe2.tkv	or_short	0	1	1\n
+tests_suite\de_vao\sc_probe2.tkv	or_short	0	5	1\n
+tests_suite\de_vao\sc_probe2.tkv	and_chain	0	123	1\n
+tests_suite\de_vao\sc_probe2.tkv	and_chain	0	321	0\n
+tests_suite\de_vao\sc_probe2.tkv	and_chain	0	112	0\n
+tests_suite\de_vao\sc_probe2.tkv	mixed	0	11	1\n
+tests_suite\de_vao\sc_probe2.tkv	mixed	0	-50	1\n
+tests_suite\de_vao\sc_probe2.tkv	mixed	0	1-1	0\n
+tests_suite\de_vao\sc_probe2.tkv	mixed	0	00	0\n

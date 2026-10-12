@@ -1,0 +1,182 @@
+# -*- coding: utf-8 -*-
+"""P2 (R7, 2026-09-28): kieu 'f32x4' -> System.Numerics.Vector4.
+
+MOI PHAI BIT-EXACT. P2 moi co phep cong/nhan THEO LANE, KHONG co
+reduction, nen ket qua phai bang y het 4 so float32. Test nay khoa hanh vi
+cho den khi P5 (v_mul4_add4 + v_hsum4) bat dau TAI SAP XEP phep cong - luc
+do moi phep dung sai so va dung chuan so sanh (bench f32mm, dung sai 1e-5
+theo phan tu), khong con la so sanh chuoi tuyet doi nua.
+
+GHI CHU QUAN TRONG - 'X'/'Y'/'Z'/'W' LA FIELD, KHONG PHAI PROPERTY
+----------------------------------------------------------------------
+Do bang reflection tren System.Numerics.dll cua .NET Framework 4.8:
+`GetMethod('get_X')` tra null, `GetFields` tra X/Y/Z/W : Single. Nen
+codegen phai `ldfld`; ban doan `call get_X()` se bien dich duoc roi nem
+MissingMethodException luc CHAY. Test nay dong vai khoa cho quyet dinh do.
+
+Bien dich can assembly System.Numerics - in-box trong .NET Framework, cung
+assembly ma kieu 'complex' dung, nen TokenVector khong them phu thuoc nao va
+PE ket qua van doc lap.
+"""
+
+
+def t(c: "list[i32]", name: "str", got: "f32", expected: "f32") -> "i32":
+    """1 ca kiem tra f32. `c` la bo dem [tested, total]."""
+    c[0] = c[0] + 1
+    if got == expected:
+        print("PASS " + name)
+        return 0
+    print("FAIL " + name + ": got " + str(got) + " expected " + str(expected))
+    c[1] = c[1] + 1
+    return 1
+
+
+def test_summary(suite_name: "str", total: "i32", failed: "i32") -> "i32":
+    if failed == 0:
+        print("ALL PASS " + suite_name + " (" + str(total) + " checks)")
+        return 0
+    print("FAILED " + suite_name + ": " + str(failed) + "/" + str(total))
+    return 1
+
+
+def run() -> "i32":
+    c = [0, 0]
+
+    a = f32x4(1.0, 2.0, 3.0, 4.0)
+    b = f32x4(10.0, 20.0, 30.0, 40.0)
+
+    # ---- constructor + doc 4 lane (X/Y/Z/W la FIELD)
+    t(c, "ctor x", a.x, 1.0)
+    t(c, "ctor y", a.y, 2.0)
+    t(c, "ctor z", a.z, 3.0)
+    t(c, "ctor w", a.w, 4.0)
+
+    # ---- cong theo lane: 1 lenh op_Addition = 4 MAC cung luc
+    s = a + b
+    t(c, "add x", s.x, 11.0)
+    t(c, "add y", s.y, 22.0)
+    t(c, "add z", s.z, 33.0)
+    t(c, "add w", s.w, 44.0)
+
+    # ---- tru
+    d = b - a
+    t(c, "sub x", d.x, 9.0)
+    t(c, "sub y", d.y, 18.0)
+    t(c, "sub z", d.z, 27.0)
+    t(c, "sub w", d.w, 36.0)
+
+    # ---- nhan
+    m = a * b
+    t(c, "mul x", m.x, 10.0)
+    t(c, "mul y", m.y, 40.0)
+    t(c, "mul z", m.z, 90.0)
+    t(c, "mul w", m.w, 160.0)
+
+    # ---- LANE PHAI DOC LAP. Khoang cach 2:3 (doc lap) va 3:2 (giao nhau):
+    # neu codegen lam 2 lane chung mot bien tam, mot truong hop se fail.
+    # (KHONG viet truc tiep `(e + f).z` - parser TokenVector khong chap
+    # nhan ')' o noi thuoc tinh; phai gan bien tam truoc.)
+    e = f32x4(1.0, 2.0, 3.0, 4.0)
+    f = f32x4(100.0, 200.0, 300.0, 400.0)
+    esum = e + f
+    t(c, "indep add z (2:3)", esum.z, 303.0)
+    eprod = e * f
+    t(c, "indep mul y (3:2)", eprod.y, 400.0)
+
+    # ---- gia tri am va 0.0 (bat loi 'x la duong')
+    p = f32x4(-1.5, 0.0, 2.5, -0.25)
+    t(c, "neg lane0", p.x, -1.5)
+    t(c, "zero lane1", p.y, 0.0)
+    t(c, "pos lane2", p.z, 2.5)
+    t(c, "small neg lane3", p.w, -0.25)
+
+    # ---- ep vector <-> scalar: 1 vector * 1 vector la 4 MAC cung luc,
+    # nhung 1 vector * 1 scalar chi 4 MAC serial. Bai nay kiem tra ca hai
+    # deu bien dich duoc va ra dung so.
+    one = f32x4(1.0, 1.0, 1.0, 1.0)
+    q = a * one
+    t(c, "mul by ones x", q.x, 1.0)
+    t(c, "mul by ones w", q.w, 4.0)
+
+    # ---- P3: v_load4 / v_store4 - nap/ghi 16 byte THAT tren con tro tho.
+    # offset tinh theo BYTE, giong read_f32/write_f32. Ket qua PHAI BIT-EXACT
+    # vi day chi la move, khong co phep so hoc nao.
+    #
+    # TEN BIEN: dung `pbuf`, KHONG dung `p` - `p` o tren da la bien f32x4
+    # (test "gia tri am va 0.0"). Dung chung ten se lam compiler suy `p` la
+    # f32x4 roi dung no nhu con tro tho -> NullReferenceException luc chay va
+    # ghi de bo nho. (Da gap: 20 phut treo truoc khi tim ra.)
+    pbuf = alloc_bytes(64)
+    write_f32(pbuf, 0, 1.0)
+    write_f32(pbuf, 4, 2.0)
+    write_f32(pbuf, 8, 3.0)
+    write_f32(pbuf, 12, 4.0)
+    write_f32(pbuf, 16, 10.0)
+    write_f32(pbuf, 20, 20.0)
+    write_f32(pbuf, 24, 30.0)
+    write_f32(pbuf, 28, 40.0)
+    la = v_load4(pbuf, 0)
+    lb = v_load4(pbuf, 16)
+    ls = la + lb
+    v_store4(pbuf, 32, ls)
+    t(c, "v_store4 x", read_f32(pbuf, 32), 11.0)
+    t(c, "v_store4 y", read_f32(pbuf, 36), 22.0)
+    t(c, "v_store4 z", read_f32(pbuf, 40), 33.0)
+    t(c, "v_store4 w", read_f32(pbuf, 44), 44.0)
+    # doc lai ngay tu bo nho (khong qua bien tam) - chung minh v_load4 doc
+    # DUNG 16 byte chua 4 so, khong phai chi so dau
+    lr = v_load4(pbuf, 32)
+    t(c, "v_load4 round-trip x", lr.x, 11.0)
+    t(c, "v_load4 round-trip w", lr.w, 44.0)
+    # offset lech 4 byte = bat dau o PHAN TU thu 2, nen cua so moi la
+    # (p[1],p[2],p[3],p[4]) = (2,3,4,10) - KHONG phai (10,20,30,40).
+    # Kiem tra nay chung minh offset CO THAT duoc ap dung: doc o byte 0 se
+    # cho (1,2,3,4) va bai nay se FAIL.
+    lo = v_load4(pbuf, 4)
+    t(c, "v_load4 offset+4 x", lo.x, 2.0)
+    t(c, "v_load4 offset+4 w", lo.w, 10.0)
+    free_bytes(pbuf)
+
+    # ---- P4: v_hsum4 - gom 4 lane ve 1 f32.
+    # VAN BIT-EXACT o test nay: 1/2/3/4 va 10 deu represent chinh xac o f32,
+    # nen thu tu cong ((X+Y)+Z)+W cho ket qua y het so voi bien dich
+    # scalar. Thay doi nghia float chi xuat hien tren du lieu co lam tron
+    # THAT - do o bench f32mm voi dung sai 1e-5 theo phan tu, khong phai o
+    # day. (Do that: rel-err do o P4 con NHON hon ban scalar, vi 4 tich luy
+    # song song co chuoi phu thuoc ngan hon chuoi tuan tu.)
+    hb = alloc_bytes(64)
+    write_f32(hb, 0, 1.0)
+    write_f32(hb, 4, 2.0)
+    write_f32(hb, 8, 3.0)
+    write_f32(hb, 12, 4.0)
+    hv = v_load4(hb, 0)
+    t(c, "v_hsum4 1+2+3+4", v_hsum4(hv), 10.0)
+    # 0.5 lam tron: 0.25 + 0.25 + 0.25 + 0.25 = 1.0, tat ca cac phep cong
+    # deu chinh xac o f32 nen van bit-exact
+    write_f32(hb, 16, 0.25)
+    write_f32(hb, 20, 0.25)
+    write_f32(hb, 24, 0.25)
+    write_f32(hb, 28, 0.25)
+    hq = v_load4(hb, 16)
+    t(c, "v_hsum4 4 x 0.25", v_hsum4(hq), 1.0)
+    # am + 0 + duong
+    write_f32(hb, 32, -2.5)
+    write_f32(hb, 36, 0.0)
+    write_f32(hb, 40, 1.25)
+    write_f32(hb, 44, 1.25)
+    hr = v_load4(hb, 32)
+    t(c, "v_hsum4 -2.5+0+1.25+1.25", v_hsum4(hr), 0.0)
+    # gom phai dung thu tu: doi lane se doi ket qua
+    write_f32(hb, 48, 1.0)
+    write_f32(hb, 52, 100.0)
+    write_f32(hb, 56, 0.0)
+    write_f32(hb, 60, 0.0)
+    hs2 = v_load4(hb, 48)
+    t(c, "v_hsum4 thu tu lane", v_hsum4(hs2), 101.0)
+    free_bytes(hb)
+
+    return test_summary("vector4_type_test", c[0], c[1])
+
+
+def main() -> "i32":
+    return run()

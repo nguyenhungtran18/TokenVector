@@ -1,0 +1,62 @@
+"""Vi du THAT kiem chung Giai doan 0.2 nhom 5 (2026-08-03): method tra ve
+container voi kieu PHU THUOC DOI TUONG NHAN - 'd.keys()' -> list[kieu
+khoa CUA d], 'd.values()' -> list[kieu gia tri CUA d], 'lst.copy()' ->
+DUNG kieu cua lst. Goi duoc NGAY TRONG bieu thuc (lam doi so 1 loi goi
+ham khac), khong chi o RHS 1 phep gan don le.
+
+Diem mau chot: CUNG 1 dict cho 2 kieu tra ve KHAC NHAU (keys -> list[i32],
+values -> list[str]) - dieu 1 cap (dtype, shape) TINH khong bieu dien
+noi, ly do nhom 5 phai dung ham phan giai theo doi tuong nhan.
+
+LUU Y khi doc test: duyet bang 'for x in xs:' (KHONG dung chi so) va moi
+phep tinh deu KHONG PHU THUOC THU TU - vi Python tra ve 'view' con
+TokenVector vat lieu hoa thanh List, va .NET Dictionary khong dam bao
+thu tu liet ke giong Python."""
+
+
+def sum_i32_list(xs: "list[i32]") -> "i32":
+    total = 0
+    for x in xs:
+        total = total + x
+    return total
+
+
+def total_len_str_list(xs: "list[str]") -> "i32":
+    total = 0
+    for x in xs:
+        total = total + len(x)
+    return total
+
+
+def keys_assign(n: "i32") -> "i32":
+    d = {}
+    d[10] = "a"
+    d[20] = "bb"
+    ks = d.keys()
+    return sum_i32_list(ks) + n
+
+
+def keys_in_call(n: "i32") -> "i32":
+    d = {}
+    d[10] = "a"
+    d[20] = "bb"
+    return sum_i32_list(d.keys()) + n
+
+
+def values_in_call(n: "i32") -> "i32":
+    d = {}
+    d[10] = "a"
+    d[20] = "bb"
+    return total_len_str_list(d.values()) + n
+
+
+def copy_in_call(n: "i32") -> "i32":
+    xs = [3, 1, 2]
+    return sum_i32_list(xs.copy()) + n
+
+
+def copy_is_independent(n: "i32") -> "i32":
+    xs = [3, 1, 2]
+    ys = xs.copy()
+    ys.append(100)
+    return sum_i32_list(xs) + len(ys)

@@ -1,0 +1,109 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO `f(*xs)` - star-args tai DIEM GOI HAM (2026-09-29).
+
+TokenVector goi ham co arity TINH: moi loi goi bien dich thanh lenh `call`
+voi MOT so tham so cu the, kiem so sanh voi chu ky ngay luc bien dich.
+`f(*xs)` pha vo chinh quy tac do, nen khong lam bang gom bien dich - lam
+bang DESUGAR tai diem goi: khi do dai cua nguon BIET DUOC LUC BIEN DICH,
+`f(*xs)` sinh ra dung N doi so co dinh roi moi di tiep vao duong `call` da
+co. Vi vay moi so tham so, kiem tra arity, tham so mac dinh va
+monomorphize deu dien ra y NGUYEN TRANG truoc khi ma hoa.
+
+Nguon duoc chap nhan (ca 2 deu co do dai tinh):
+- `f(*[1, 2, 3])` - list literal ngay tai chinh loi goi;
+- `xs = [1, 2, 3]` roi `f(*xs)` - bien duoc gan DUNG MOT list literal
+  trong ham nay va KHONG duoc dung o cho khac, nen do dai khong the doi
+  duoc giua khi bien dich.
+
+Nguon con lai (do dai DONG: bien do ra tu ham, list rong + `.append()`,
+tham so, ...) bi tu choi RO RANG. Do la hanh vi CO CHU DICH, khong phai
+soi: bien dich AOT khong the dem phan tu 1 list luc chay ma van phai sua
+chu ky `call` luc bien dich.
+
+Gia tri mong doi tinh tay, doi chieu CPython 3.11.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def f3(a: "i32", b: "i32", c: "i32") -> "i32":
+    return a * 100 + b * 10 + c
+
+
+def f4(a: "i32", b: "i32", c: "i32", d: "i32") -> "i32":
+    return a * 1000 + b * 100 + c * 10 + d
+
+
+def cat2(a: "str", b: "str") -> "str":
+    return a + b
+
+
+def j3(a: "i32", b: "i32" = 5, c: "i32" = 7) -> "str":
+    return str(a) + "/" + str(b) + "/" + str(c)
+
+
+def emit_pair(a: "i32", b: "i32") -> "i32":
+    print(str(a) + "," + str(b))
+    return 0
+
+
+class Box:
+    seed: "i32"
+
+    def __init__(self, seed: "i32") -> "i32":
+        self.seed = seed
+        return 0
+
+    def two(self, a: "i32", b: "i32") -> "i32":
+        return self.seed + a * 10 + b
+
+
+def literal_source() -> "i32":
+    total = 0
+    total += check("literal", str(f3(*[1, 2, 3])), "123")
+    total += check("sau tham so vi tri", str(f3(1, *[2, 3])), "123")
+    total += check("truoc tham so vi tri", str(f3(*[1, 2], 3)), "123")
+    return total
+
+
+def var_source() -> "i32":
+    total = 0
+    xs = [4, 5, 6]
+    total += check("bien chua list literal", str(f3(*xs)), "456")
+    ys = [1, 2]
+    zs = [3, 4]
+    total += check("hai nguon", str(f4(*ys, *zs)), "1234")
+    return total
+
+
+def str_source() -> "i32":
+    return check("chuoi", cat2(*["ab", "cd"]), "abcd")
+
+
+def default_params() -> "i32":
+    total = 0
+    total += check("thieu 2 tham so", j3(*[1]), "1/5/7")
+    total += check("thieu 1 tham so", j3(*[1, 2]), "1/2/7")
+    total += check("day du", j3(*[1, 2, 3]), "1/2/3")
+    return total
+
+
+def method_source() -> "i32":
+    return check("method cua record", str(Box(5).two(*[1, 2])), "17")
+
+
+def stmt_source() -> "i32":
+    total = emit_pair(*[7, 8])
+    return check("goi ham nhu lenh doc lap", str(total), "0")
+
+
+def run() -> "i32":
+    total = 0
+    total += literal_source()
+    total += var_source()
+    total += str_source()
+    total += default_params()
+    total += method_source()
+    total += stmt_source()
+    # 3 + 2 + 1 + 3 + 1 + 1
+    return test_summary("star_args_test", total, 11)

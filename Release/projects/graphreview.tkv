@@ -1,0 +1,372 @@
+# -*- coding: utf-8 -*-
+"""graphreview - cong cu THAT viet bang TokenVector.
+
+Kiem tra tinh toan ven cua knowledge graph do impgraph/callgraph sinh ra,
+roi ra phan quyet DUYET / TU CHOI.
+
+Y tuong lay tu agent `graph-reviewer` cua du an Understand-Anything, nhung
+bo phan LLM: moi kiem tra deu la deterministic. LLM khong tu tham dinh
+graph cua chinh no - do la cach sinh ra "test xanh gia".
+
+Phan loai muc do:
+  - CRITICAL -> tu choi. Canh tro toi file khong ton tai, sai loai canh,
+    sai quy uoc id, canh contains bac cau sang file khac, trung canh,
+    trong so ngoai [0,1], graph rong.
+  - WARNING  -> van duyet. File mo coi (khong canh nao), de quy truc tiep.
+
+Dung:
+    graphreview.exe <manifest.txt> <import_edges.json> <call_edges.json> <report.json>
+"""
+
+__tkv_import__ = "impgraph"
+
+
+def max_listed() -> "i32":
+    """So van de toi da liet ke chi tiet (con lai chi dem, co bao ro)."""
+    return 40
+
+
+def valid_edge_types() -> "str":
+    """Enum DONG cac loai canh. Enum mo thi khong the kiem tra tu dong."""
+    return "|imports|contains|calls|inherits|"
+
+
+def valid_prefixes() -> "str":
+    """Enum DONG cac tien to id nut."""
+    return "|file|function|class|"
+
+
+def str_field(line: "str", key: "str") -> "str":
+    """Lay gia tri chuoi cua `key` tren 1 dong JSON 1 canh."""
+    pat = "\"" + key + "\":\""
+    at = line.find(pat)
+    if at < 0:
+        return ""
+    rest = line[at + len(pat):len(line)]
+    return cut_at(rest, "\"")
+
+
+def num_field(line: "str", key: "str") -> "str":
+    """Lay gia tri so (dang chuoi) cua `key` tren 1 dong JSON 1 canh."""
+    pat = "\"" + key + "\":"
+    at = line.find(pat)
+    if at < 0:
+        return ""
+    rest = line[at + len(pat):len(line)]
+    return cut_at(rest, ",}")
+
+
+def id_prefix(node: "str") -> "str":
+    """'function:a/b.py:f' -> 'function'."""
+    return cut_at(node, ":")
+
+
+def id_file(node: "str") -> "str":
+    """'function:a/b.py:f' -> 'a/b.py'."""
+    pre = id_prefix(node)
+    if len(pre) + 1 > len(node):
+        return ""
+    rest = node[len(pre) + 1:len(node)]
+    return cut_at(rest, ":")
+
+
+def in_enum(enum_blob: "str", name: "str") -> "i32":
+    """1 neu `name` nam trong blob enum dang '|a|b|'."""
+    if enum_blob.find("|" + name + "|") >= 0:
+        return 1
+    return 0
+
+
+def check_edge(line: "str", files: "dict[str,str]") -> "str":
+    """Tra ve mo ta van de CRITICAL cua 1 canh, '' neu canh hop le."""
+    src = str_field(line, "source")
+    tgt = str_field(line, "target")
+    etype = str_field(line, "type")
+    wtxt = num_field(line, "weight")
+    if len(src) == 0:
+        return "canh thieu truong 'source': " + line.strip()
+    if len(tgt) == 0:
+        return "canh thieu truong 'target': " + line.strip()
+    if in_enum(valid_edge_types(), etype) == 0:
+        return "loai canh khong hop le '" + etype + "' tai " + src
+    spre = id_prefix(src)
+    tpre = id_prefix(tgt)
+    if in_enum(valid_prefixes(), spre) == 0:
+        return "tien to id nguon khong hop le: " + src
+    if in_enum(valid_prefixes(), tpre) == 0:
+        return "tien to id dich khong hop le: " + tgt
+    if endpoints_ok(etype, spre, tpre) == 0:
+        return "canh '" + etype + "' noi sai loai nut: " + src + " -> " + tgt
+    sfile = id_file(src)
+    tfile = id_file(tgt)
+    if len(files.get(sfile, "")) == 0:
+        return "nguon tro toi file khong co trong manifest: " + src
+    if len(files.get(tfile, "")) == 0:
+        return "dich tro toi file khong co trong manifest: " + tgt
+    if etype == "contains":
+        if sfile != tfile:
+            return "canh contains bac cau sang file khac: " + src + " -> " + tgt
+    if len(wtxt) == 0:
+        return "canh thieu 'weight': " + src + " -> " + tgt
+    w = float(wtxt)
+    if w < 0.0:
+        return "weight ngoai [0,1]: " + wtxt + " tai " + src
+    if w > 1.0:
+        return "weight ngoai [0,1]: " + wtxt + " tai " + src
+    return ""
+
+
+def endpoints_ok(etype: "str", spre: "str", tpre: "str") -> "i32":
+    """1 neu cap tien to (nguon, dich) hop le voi loai canh."""
+    if etype == "imports":
+        if spre == "file":
+            if tpre == "file":
+                return 1
+        return 0
+    if etype == "contains":
+        if spre == "file":
+            return 1
+        return 0
+    if etype == "calls":
+        if spre == "function":
+            if tpre == "function":
+                return 1
+            # Khoi tao doi tuong `Cls(...)` cung la mot loi goi that, nhung
+            # dich la nut CLASS. Truoc day typegraph tro toi
+            # `function:<file>:Cls` - mot nut KHONG TON TAI. Cho phep dich
+            # la class thay vi bia ra nut ham.
+            if tpre == "class":
+                return 1
+        return 0
+    if etype == "inherits":
+        if spre == "class":
+            if tpre == "class":
+                return 1
+        return 0
+    return 0
+
+
+def is_edge_line(line: "str") -> "i32":
+    """1 neu dong nay la mot canh JSON."""
+    body = line.strip()
+    if body.startswith("{\"source\""):
+        return 1
+    return 0
+
+
+def scan_doc(text: "str", files: "dict[str,str]", seen: "dict[str,str]", touched: "dict[str,str]", issues: "list[str]", counts: "dict[str,str]") -> "i32":
+    """Duyet 1 file JSON canh; ghi van de vao `issues`; tra ve so canh."""
+    n = 0
+    lines = text.split("\n")
+    for ln in lines:
+        if is_edge_line(ln) == 0:
+            continue
+        n = n + 1
+        msg = check_edge(ln, files)
+        if len(msg) > 0:
+            issues.append(msg)
+            continue
+        src = str_field(ln, "source")
+        tgt = str_field(ln, "target")
+        etype = str_field(ln, "type")
+        key = src + ">" + tgt + ">" + etype
+        if key in seen:
+            issues.append("canh trung lap: " + key)
+            continue
+        seen[key] = "1"
+        # NE LOI TokenVector: truyen dict[str,i32] lam THAM SO gay
+        # segfault (xem PARITY_GAPS muc 7). Luu so duoi dang chuoi.
+        counts[etype] = str(int(counts.get(etype, "0")) + 1)
+        touched[id_file(src)] = "1"
+        touched[id_file(tgt)] = "1"
+    return n
+
+
+def esc(s: "str") -> "str":
+    """Thoat chuoi cho JSON. Thong diep loi co the chua dau nhay kep
+    (vd: mong doi \"order\":2) - khong thoat thi chinh file bao cao hong."""
+    step = s.replace("\\", "\\\\")
+    return step.replace("\"", "\\\"")
+
+
+def json_list(items: "list[str]", limit: "i32") -> "str":
+    """Mang JSON cac chuoi, cat bot sau `limit` phan tu."""
+    pieces = []
+    i = 0
+    while i < len(items):
+        if i >= limit:
+            pieces.append("  \"... con " + str(len(items) - limit) + " muc nua (da cat, khong giau)\"")
+            return ",\n".join(pieces)
+        pieces.append("  \"" + esc(items[i]) + "\"")
+        i = i + 1
+    return ",\n".join(pieces)
+
+
+def count_json(counts: "dict[str,str]") -> "str":
+    """Doi dict dem thanh doan JSON."""
+    out = ""
+    items_list = counts.items()
+    for k, v in items_list:
+        if len(out) > 0:
+            out = out + ","
+        out = out + "\"" + k + "\":" + v
+    return out
+
+
+def line_node_path(line: "str") -> "str":
+    """Duong dan trong mot dong chi chua mot id 'file:<path>'."""
+    at = line.find("\"file:")
+    if at < 0:
+        return ""
+    tail = line[at + 6:len(line)]
+    return cut_at(tail, "\"")
+
+
+def check_layers(text: "str", files: "dict[str,str]", issues: "list[str]", warnings: "list[str]") -> "i32":
+    """Kiem tra phan tang: moi file phai thuoc DUNG MOT tang.
+    Day la check ma ban dau reviewer con thieu - graph khong co khai niem
+    tang thi khong the kiem tra vung phu."""
+    seen = {}
+    total = 0
+    cur = ""
+    n_cur = 0
+    lines = text.split("\n")
+    for ln in lines:
+        if ln.find("\"nodeIds\"") >= 0:
+            if len(cur) > 0:
+                if n_cur == 0:
+                    warnings.append("tang '" + cur + "' rong")
+            cur = str_field(ln, "name")
+            n_cur = 0
+        path = line_node_path(ln)
+        if len(path) == 0:
+            continue
+        # Dinh dang chuan la MOT id moi dong. Neu mot dong co nhieu id thi
+        # bao loi thay vi lang le chi doc id dau - bo qua am tham la cach
+        # sinh ra bao cao "sach" gia.
+        if count_marker(ln, "\"fi") > 1:
+            issues.append("dinh dang phan tang sai: nhieu id tren mot dong (" + path + " ...)")
+            continue
+        total = total + 1
+        n_cur = n_cur + 1
+        known = files.get(path, "")
+        if len(known) == 0:
+            issues.append("tang '" + cur + "' chua file khong co trong manifest: " + path)
+            continue
+        old = seen.get(path, "")
+        if len(old) > 0:
+            issues.append("file thuoc NHIEU tang: " + path + " (" + old + " va " + cur + ")")
+            continue
+        seen[path] = cur
+    if len(cur) > 0:
+        if n_cur == 0:
+            warnings.append("tang '" + cur + "' rong")
+    # `seen` chi chua file co trong manifest (file la nam ngoai da bi bao
+    # rieng), nen hieu so chinh la so file khong thuoc tang nao.
+    n_miss = len(files) - len(seen)
+    if n_miss > 0:
+        issues.append("co " + str(n_miss) + " file khong thuoc tang nao")
+    return total
+
+
+def check_tour(text: "str", files: "dict[str,str]", issues: "list[str]", warnings: "list[str]") -> "i32":
+    """Kiem tra lo trinh doc: id phai co that, order lien tuc tu 1, moi
+    buoc co it nhat 1 file, tong so buoc trong khoang 5-15."""
+    n_steps = 0
+    n_nodes = 0
+    n_cur = 0
+    lines = text.split("\n")
+    for ln in lines:
+        if ln.find("\"order\":") >= 0:
+            if n_steps > 0:
+                if n_cur == 0:
+                    issues.append("buoc " + str(n_steps) + " khong co file nao")
+            n_steps = n_steps + 1
+            n_cur = 0
+            want = "\"order\":" + str(n_steps)
+            if ln.find(want) < 0:
+                issues.append("order khong lien tuc, mong doi " + want)
+            if ln.find("\"title\":\"\"") >= 0:
+                warnings.append("buoc " + str(n_steps) + " khong co tieu de")
+        path = line_node_path(ln)
+        if len(path) == 0:
+            continue
+        n_nodes = n_nodes + 1
+        n_cur = n_cur + 1
+        known = files.get(path, "")
+        if len(known) == 0:
+            issues.append("lo trinh tro toi file khong co trong manifest: " + path)
+    if n_steps > 0:
+        if n_cur == 0:
+            issues.append("buoc " + str(n_steps) + " khong co file nao")
+    if n_steps < 5:
+        warnings.append("lo trinh chi co " + str(n_steps) + " buoc (nen 5-15)")
+    if n_steps > 15:
+        warnings.append("lo trinh co " + str(n_steps) + " buoc (nen 5-15)")
+    return n_nodes
+
+
+def run(manifest: "str", imports_path: "str", calls_path: "str", report_path: "str", layers_path: "str", tour_path: "str") -> "str":
+    """Chay toan bo kiem tra, ghi bao cao, tra ve dong tom tat."""
+    raw = read_file(manifest)
+    rows = raw.split("\n")
+    files = {}
+    for r in rows:
+        p = norm_slashes(r.strip())
+        if len(p) > 0:
+            files[p] = "1"
+
+    issues = []
+    warnings = []
+    seen = {}
+    touched = {}
+    counts = {}
+    n1 = scan_doc(read_file(imports_path), files, seen, touched, issues, counts)
+    n2 = scan_doc(read_file(calls_path), files, seen, touched, issues, counts)
+    total = n1 + n2
+    if total == 0:
+        issues.append("graph rong: khong co canh nao")
+
+    n_layered = 0
+    if file_exists(layers_path):
+        layer_doc = read_file(layers_path)
+        n_layered = check_layers(layer_doc, files, issues, warnings)
+    else:
+        warnings.append("khong co file phan tang (" + layers_path + ") - bo qua check vung phu tang")
+
+    n_tour = 0
+    if file_exists(tour_path):
+        tour_doc = read_file(tour_path)
+        n_tour = check_tour(tour_doc, files, issues, warnings)
+    else:
+        warnings.append("khong co file lo trinh (" + tour_path + ") - bo qua check lo trinh")
+
+    orphans = 0
+    items_list = files.items()
+    for p, v in items_list:
+        if len(touched.get(p, "")) == 0:
+            orphans = orphans + 1
+    if orphans > 0:
+        warnings.append("co " + str(orphans) + " file khong dinh vao canh nao (mo coi)")
+
+    approved = "true"
+    if len(issues) > 0:
+        approved = "false"
+    doc = "{\n \"approved\": " + approved + ",\n"
+    doc = doc + " \"issues\": [\n" + json_list(issues, max_listed()) + "\n ],\n"
+    doc = doc + " \"warnings\": [\n" + json_list(warnings, max_listed()) + "\n ],\n"
+    doc = doc + " \"stats\": {\"files\":" + str(len(files))
+    doc = doc + ",\"edges_read\":" + str(total)
+    doc = doc + ",\"edges_valid\":" + str(len(seen))
+    doc = doc + ",\"issues\":" + str(len(issues))
+    doc = doc + ",\"warnings\":" + str(len(warnings))
+    doc = doc + ",\"orphan_files\":" + str(orphans)
+    doc = doc + ",\"nodes_in_layers\":" + str(n_layered)
+    doc = doc + ",\"nodes_in_tour\":" + str(n_tour)
+    doc = doc + ",\"by_type\":{" + count_json(counts) + "}}\n}\n"
+    write_file(report_path, doc)
+
+    verdict = "DUYET"
+    if len(issues) > 0:
+        verdict = "TU CHOI"
+    return verdict + " | edges=" + str(total) + " valid=" + str(len(seen)) + " issues=" + str(len(issues)) + " warnings=" + str(len(warnings)) + " orphan_files=" + str(orphans)

@@ -1,0 +1,65 @@
+# -*- coding: utf-8 -*-
+"""float(x) - doi xung voi int(x) (int_builtin.py), THEM 2026-08-03 khi
+viet cong cu THAT tools/tkvcalc.tkv: doc so THUC tu chuoi la viec co
+mat trong moi chuong trinh doc du lieu (tham so dong lenh, 1 truong CSV,
+1 the so cua bo phan tich tu vung) - truoc do CHI co int().
+
+Ho tro:
+- str      -> f64: Double.Parse voi InvariantCulture (BAT BUOC dung
+  culture bat bien - may nay locale vi-VN, da tung co bug THAT y het voi
+  Single.Parse, xem STATUS.md).
+- i32/i64  -> f64: 'conv.r8'.
+- f32      -> f64: 'conv.r8'.
+- f64      -> f64: khong sinh lenh nao.
+
+KHAC Python co y thuc (giong het int()): chuoi KHONG hop le lam
+Double.Parse NEM exception thay vi ValueError bat duoc."""
+from il_dispatch import register_expr_builtin
+from il_features.tkvstr import ensure_class
+from il_features.int_type import ensure_class_int
+import il_features.tkvstr as _tkvstr
+
+
+__tkv_import__ = "il_dispatch"
+
+
+def push_float_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: float() chi nhan dung 1 tham so")
+    src = ctx.infer_dtype(args[0], scope, ctx.func_table, ctx.records,
+                             ctx.record_methods, None)
+    if src == 'str':
+        # moc 7 (2026-08-05): di qua TkvStr::ParseF64 chu khong goi thang
+        # Double::Parse - Python's float() nhan "inf"/"-inf"/"nan"
+        # (float('inf') la cach viet BINH THUONG de lay vo cuc), .NET
+        # Framework thi nem FormatException. Doi xung voi duong ra:
+        # str(float('inf')) phai lai ra 'inf'.
+        ensure_class(ctx)
+        ctx.compile_expr(args[0], scope, out, 'str', ctx)
+        out.append('    call float64 TkvStr::ParseF64(string)')
+        return
+    if src == 'f64':
+        ctx.compile_expr(args[0], scope, out, 'f64', ctx)
+        return
+    if src is None:
+        # Khong suy duoc kieu - bien dich thang sang f64, de _compile_expr
+        # tu bao loi RO RANG neu that su khong hop le.
+        ctx.compile_expr(args[0], scope, out, 'f64', ctx)
+        return
+    if src == 'int':
+        # 'int' vo han la struct TkvInt: conv.r8 tren struct sinh rac/segfault (float(i) voi i = 3)
+        ensure_class_int(ctx)
+        ctx.compile_expr(args[0], scope, out, 'int', ctx)
+        out.append('    call float64 TkvInt::ToF64(valuetype TkvInt)')
+        return
+    ctx.compile_expr(args[0], scope, out, src, ctx)
+    out.append('    conv.r8')
+
+
+def bootstrap_float_builtin(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_expr_builtin(reg, 'float', push_float_builtin, 'f64')

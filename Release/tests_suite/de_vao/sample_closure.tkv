@@ -1,0 +1,22 @@
+# -*- coding: utf-8 -*-
+"""Closure that (Buoc 4, 2026-07-29) - slice dau tien: 1 def long / 1 ham
+ngoai, 1 bien bi bat ('count'), mutation + song sot qua nhieu lan goi
+(make_counter kinh dien, xem probe_closure.il / project-tokenvector-
+wave2-status memory). File nay van la Python HOP LE, chay duoc that duoi
+CPython (runpy) - 'nonlocal count' la cu phap Python THAT (bat buoc de
+'count = count + 1' hop le trong ham long), bi tkv_compile.py's
+_rewrite_nested_defs() xoa truoc khi dua xuong il_codegen.py."""
+
+
+def make_counter_demo() -> "i32":
+    count = 0
+
+    def inc() -> "i32":
+        nonlocal count
+        count = count + 1
+        return count
+
+    a = inc()
+    b = inc()
+    c = inc()
+    return a + b + c

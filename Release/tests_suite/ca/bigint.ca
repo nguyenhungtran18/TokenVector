@@ -1,0 +1,15 @@
+tests_suite\de_vao\sample_bigint.tkv	run	0	fact0	1\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	fact12	479001600\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	fact13	6227020800\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	fact20	2432902008176640000\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	fact30	265252859812191058636308480000000\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	fact50	30414093201713378043612608166064768844377641568960512000000000000\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	pow230	1073741824\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	pow231	2147483648\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	pow263	9223372036854775808\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	pow2100	1267650600228229401496703205376\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	pow2200	1606938044258990275541962092341162602522202993782792835301376\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	sum100	5050\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	sum1000	500500\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	minus30	0\n
+tests_suite\de_vao\sample_bigint.tkv	run	0	cmp30	1\n

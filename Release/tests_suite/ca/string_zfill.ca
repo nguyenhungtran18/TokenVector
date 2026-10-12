@@ -1,0 +1,6 @@
+tests_suite\de_vao\sample_string_zfill.tkv	compute	0	425	00042\n
+tests_suite\de_vao\sample_string_zfill.tkv	compute	0	-426	-00042\n
+tests_suite\de_vao\sample_string_zfill.tkv	compute	0	+426	+00042\n
+tests_suite\de_vao\sample_string_zfill.tkv	compute	0	422	42\n
+tests_suite\de_vao\sample_string_zfill.tkv	compute	0	421	42\n
+tests_suite\de_vao\sample_string_zfill.tkv	compute	0	hello8	000hello\n

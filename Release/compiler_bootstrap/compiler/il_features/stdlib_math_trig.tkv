@@ -1,0 +1,33 @@
+# -*- coding: utf-8 -*-
+"""Nhom ham luong giac/log mo rong (2026-07-29, Huong A - "stdlib mo rong
+qua bang du lieu" tu brainstorm 5-diem-yeu). File nay KHONG dinh nghia
+codegen moi - chi khai bao 1 bang du lieu (ten DSL -> ten static method
+cua System.Math), duoc il_codegen.py's _MATH_FUNCS.update() nhap vao dung
+1 lan luc import. Co che 1-tham-so-float64 (conv.r8 truoc goi, conv nguoc
+lai sau goi neu dtype != f64) da co san va dung chung cho toan bo
+_MATH_FUNCS - nhom nay tai su dung 100%, khong code moi.
+
+Chi them ham co that trong System.Math cua .NET Framework 4.0 (Log2 la
+.NET Core 2.0+ moi co, KHONG dua vao day)."""
+
+EXTRA_FUNCS: "dict[str, str]" = {
+    'tan': 'Tan', 'asin': 'Asin', 'acos': 'Acos', 'atan': 'Atan',
+    'sinh': 'Sinh', 'cosh': 'Cosh', 'log10': 'Log10', 'trunc': 'Truncate',
+}
+
+from il_features.stdlib_math import register_math_extra_funcs
+
+__tkv_import__ = "il_dispatch"
+
+
+def bootstrap_stdlib_math_trig(reg: "Registry"):
+    """P6 (2026-09-07): dang ky nhom trig-extra.
+
+    PHAI goi SAU `bootstrap_stdlib_math()`. Ly do (bug that gap ngay khi
+    chuyen doi): `_register_all_math_funcs()` cua stdlib_math DUYET
+    `_MATH_FUNCS`, con ham nay THEM vao chinh dict do. Truoc P6, thu tu
+    dung nho tinh co - stdlib_math chay het than module TRUOC khi
+    stdlib_math_trig kip import. Neu dao lai, `tan` bi dang ky HAI LAN va
+    `register_expr_builtin` nem ValueError. Thu tu o bootstrap_all.py vi
+    vay la MOT PHAN CUA HANH VI, khong phai tuy y."""
+    register_math_extra_funcs(reg, EXTRA_FUNCS)

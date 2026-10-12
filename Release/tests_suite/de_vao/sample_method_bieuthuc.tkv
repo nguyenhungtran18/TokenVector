@@ -1,0 +1,25 @@
+# -*- coding: utf-8 -*-
+"""Method chuoi goi tren BIEU THUC (khong phai tren mot bien).
+
+`s.split(",")` chay; `s.strip().split(",")` va `xs[0].split(",")` truoc day
+bao "'<bieu thuc>.split(...)' khong phai method chuoi da biet".
+
+Nguyen nhan: `_compile_str_method_on_expr` chi tra `_STR_METHODS` - bang CU,
+la nhanh du phong. CHIN method dang ky kieu MOI khong nam trong do:
+center/count/ljust/match/rjust/search/split/title/zfill.
+
+CANH BAO CHO NGUOI SUA: ban va "hien nhien" (cho duong bieu thuc tra THEM
+registry) BIEN DICH QUA va CHAY nhung tra ve RAC - xem docs/BUGS_TODO.md.
+Phai doi chieu KET QUA voi CPython, khong tin viec compiler het bao loi.
+
+CPython that tra 3122."""
+
+
+def demo(s: "str") -> "i32":
+    # (a) ben nhan la KET QUA MOT LOI GOI
+    a = s.strip().split(",")
+    # (b) ben nhan la mot phan tu CHI SO
+    b = a[0].strip()
+    # (c) method 'dang ky kieu moi' can local an, tren bieu thuc
+    c = s.strip().count(",")
+    return len(a) * 1000 + len(b) * 100 + c * 10 + 2

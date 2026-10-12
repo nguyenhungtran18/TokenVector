@@ -1,0 +1,11 @@
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_center_default	0	ab5	  ab \n
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_center_default	0	ab6	  ab  \n
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_center_default	0	hello3	hello\n
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_center_fill	0	ab5*	**ab*\n
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_center_fill	0	ab6-	--ab--\n
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_rjust_default	0	ab5	   ab\n
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_rjust_default	0	ab1	ab\n
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_rjust_fill	0	ab50	000ab\n
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_ljust_default	0	ab5	ab   \n
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_ljust_default	0	ab1	ab\n
+tests_suite\de_vao\sample_string_center_rjust_ljust.tkv	compute_ljust_fill	0	ab5*	ab***\n

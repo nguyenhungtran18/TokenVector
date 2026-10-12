@@ -1,0 +1,10 @@
+tests_suite\de_vao\sample_math_gap.tkv	compute_atan2	0	1.00.0	1.5707963267949\n
+tests_suite\de_vao\sample_math_gap.tkv	compute_atan2	0	0.01.0	0.0\n
+tests_suite\de_vao\sample_math_gap.tkv	compute_atan2	0	-1.0-1.0	-2.35619449019234\n
+tests_suite\de_vao\sample_math_gap.tkv	compute_hypot	0	3.04.0	5.0\n
+tests_suite\de_vao\sample_math_gap.tkv	compute_hypot	0	0.00.0	0.0\n
+tests_suite\de_vao\sample_math_gap.tkv	compute_hypot	0	5.012.0	13.0\n
+tests_suite\de_vao\sample_math_gap.tkv	compute_factorial	0	5	120\n
+tests_suite\de_vao\sample_math_gap.tkv	compute_factorial	0	0	1\n
+tests_suite\de_vao\sample_math_gap.tkv	compute_factorial	0	1	1\n
+tests_suite\de_vao\sample_math_gap.tkv	compute_factorial	0	10	3628800\n

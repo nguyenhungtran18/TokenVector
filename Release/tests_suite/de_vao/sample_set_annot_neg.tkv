@@ -1,0 +1,7 @@
+def f(n: "i32") -> "i32":
+    s = set()
+    s.add(2)
+    total = 0
+    for x in s:
+        total = total + x
+    return total

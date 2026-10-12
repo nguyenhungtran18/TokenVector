@@ -1,0 +1,22 @@
+def p64(a: "i64", b: "i64") -> "i64":
+    return a ** b
+
+
+def p32(a: "i32", b: "i32") -> "i32":
+    return a ** b
+
+
+def pf(a: "f64", b: "f64") -> "f64":
+    return a ** b
+
+
+def run(what: "str", x: "str", y: "str") -> "str":
+    a = int(x)
+    b = int(y)
+    if what == "i64":
+        return str(p64(a, b))
+    if what == "i32":
+        return str(p32(a, b))
+    if what == "f64":
+        return str(pf(a, b))
+    return "?"

@@ -1,0 +1,38 @@
+# -*- coding: utf-8 -*-
+"""Generator LAZY THAT (Wave 3, 2026-07-29, thay the eager-list B2(c) -
+xem project-tokenvector-wave2-status memory). 'for x in gen(...):' CHI
+ho tro goi TRUC TIEP (khong gan ra bien truoc) - xem generator_lazy.py.
+gen_nested co yield LONG TRONG if/for (khong phai 1 vong lap don) - dung
+case "Ho tro tong quat" nguoi dung da chon."""
+
+
+def gen_three() -> "list[i32]":
+    yield 1
+    yield 2
+    yield 3
+
+
+def gen_squares(n: "i32") -> "list[i32]":
+    i = 0
+    while i < n:
+        yield i * i
+        i = i + 1
+
+
+def gen_nested(n: "i32") -> "list[i32]":
+    for i in range(n):
+        if i % 2 == 0:
+            yield i
+        else:
+            yield 0 - i
+
+
+def demo_generator() -> "i32":
+    total = 0
+    for x in gen_three():
+        total = total + x
+    for y in gen_squares(4):
+        total = total + y
+    for z in gen_nested(7):
+        total = total + z
+    return total

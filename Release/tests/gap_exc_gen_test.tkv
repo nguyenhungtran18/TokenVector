@@ -1,0 +1,92 @@
+# -*- coding: utf-8 -*-
+# Vong do "mien CHUA BIET" (2026-09-30) - PHAN 2: ngoai le, generator, de quy.
+#
+# Tach rieng khoi `gap_lang_test.tkv` vi khi gop TAT CA vao mot ham thi
+# chuong trinh SAP luc chay (NullReferenceException trong `TkvInt.Str`) -
+# trong khi tung phan chay dung khi tach rieng. Do la loi phu thuoc kich thuoc
+# file, CHUA chan doan ra; xem docs/SO_SANH_TOKENVECTOR_VS_PYTHON.md.
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class MyErr(Exception):
+    msg: "str"
+
+    def __init__(self, msg: "str"):
+        self.msg = msg
+
+
+def gen_raise() -> "list[i32]":
+    yield 1
+    raise ValueError("v")
+
+
+def gen_inner() -> "list[i32]":
+    yield 1
+    yield 2
+
+
+def gen_outer() -> "list[i32]":
+    yield 0
+    yield from gen_inner()
+
+
+def gen_pair() -> "list[i32]":
+    yield 7
+    yield 8
+
+
+def take2(xs: "list[i32]") -> "i32":
+    return len(xs)
+
+
+def depth(n: "i32") -> "i32":
+    if n == 0:
+        return 0
+    return 1 + depth(n - 1)
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    # --- lop ngoai le tu dinh nghia ---
+    exc_msg = ""
+    try:
+        raise MyErr("x")
+    except MyErr as e:
+        exc_msg = e.msg
+    tested = tested + 1
+    total = total + check("custom_exception", exc_msg, "x")
+
+    # --- raise trong generator ---
+    gen_out = ""
+    caught = ""
+    try:
+        for v in gen_raise():
+            gen_out = gen_out + str(v)
+    except ValueError as e:
+        caught = "yes"
+    tested = tested + 1
+    total = total + check("raise_in_generator", gen_out + "/" + caught, "1/yes")
+
+    # --- yield from long nhau ---
+    gy = ""
+    for v in gen_outer():
+        gy = gy + str(v)
+    tested = tested + 1
+    total = total + check("yield_from_nested", gy, "012")
+
+    # --- generator truyen lam tham so ham khac ---
+    tested = tested + 1
+    total = total + check("generator_as_arg", str(take2(gen_pair())), "2")
+
+    # --- de quy va vong lap ---
+    tested = tested + 1
+    total = total + check("recursion_900", str(depth(900)), "900")
+    lp = 0
+    for i in range(200000):
+        lp = lp + 1
+    tested = tested + 1
+    total = total + check("loop_200k", str(lp), "200000")
+
+    return test_summary("gap_exc_gen_test", total, tested)

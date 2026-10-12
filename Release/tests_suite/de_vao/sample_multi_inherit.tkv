@@ -1,0 +1,37 @@
+# -*- coding: utf-8 -*-
+"""Phase C.4 (2026-07-29, xem project-tokenvector-wave2-status memory) -
+da ke thua qua CIL interface (huong F da chot): 'class Bird(Animal,
+Flyable):' - Animal la ke thua THAT (record, field+state), Flyable la 1
+'@interface' (mixin THUAN hanh vi, khong field/state - Bird tu viet
+implementation THAT cho 'fly()')."""
+
+interface = lambda cls: cls  # shim de '@interface' van la Python HOP LE
+
+
+@interface
+class Flyable:
+    def fly(self) -> "i32":
+        pass
+
+
+class Animal:
+    sound: "i32"
+
+    def __init__(self, sound):
+        self.sound = sound
+
+    def speak(self) -> "i32":
+        return self.sound
+
+
+class Bird(Animal, Flyable):
+    def __init__(self, sound):
+        super().__init__(sound)
+
+    def fly(self) -> "i32":
+        return self.sound * 10
+
+
+def demo_multi_inherit() -> "i32":
+    b = Bird(3)
+    return b.speak() + b.fly()

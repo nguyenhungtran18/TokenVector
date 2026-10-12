@@ -1,0 +1,51 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def min_three() -> "str":
+    a = 5
+    b = 1
+    c = 3
+    return str(min(a, b, c))
+
+
+def max_three() -> "str":
+    a = 5
+    b = 9
+    c = 3
+    return str(max(a, b, c))
+
+
+def min_four() -> "str":
+    return str(min(4, 2, 8, 1))
+
+
+def sum_no_start(xs: "list[i32]") -> "str":
+    return str(sum(xs))
+
+
+def sum_with_start(xs: "list[i32]") -> "str":
+    return str(sum(xs, 100))
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("min_three", min_three(), "1")
+
+    tested = tested + 1
+    total = total + check("max_three", max_three(), "9")
+
+    tested = tested + 1
+    total = total + check("min_four", min_four(), "1")
+
+    xs = [1, 2, 3]
+
+    tested = tested + 1
+    total = total + check("sum_no_start", sum_no_start(xs), "6")
+
+    tested = tested + 1
+    total = total + check("sum_with_start", sum_with_start(xs), "106")
+
+    return test_summary("aggregates_variadic_py_tree_test", total, tested)

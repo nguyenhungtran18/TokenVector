@@ -1,0 +1,113 @@
+# -*- coding: utf-8 -*-
+"""cJSON P/Invoke Plugin cho TokenVector (Added by Gemini - 2026-08-07)
+Tuong tu nhu stdlib_sqlite.py, plugin nay mo cong FFI toi thu vien cJSON.dll (C)
+giup TokenVector co the xu ly JSON o toc do C-native ma khong can thu vien Python.
+
+Hien tai ho tro 4 ham co ban (doi ten tien to 'cjson_' 2026-08-11 - ten cu
+'json_get_str' trung voi stdlib_json_get.py's json_get_str(chuoi, key)->str,
+import sau trong tkv_compile.py nen am tham DE len ban dang ky truoc, gay
+loi kieu du lieu neu goi json_get_str tuong chuoi-tho ma thuc chat chay theo
+API handle cua cjson):
+- cjson_parse(chuoi) -> i64 (Tra ve handle con tro object)
+- cjson_get_obj(handle, key) -> i64 (Tra ve con tro cua mot thuoc tinh con)
+- cjson_get_str(handle, key) -> str (Tra ve chuoi cua mot thuoc tinh)
+- cjson_delete(handle) -> i32 (Giai phong bo nho)
+"""
+import re
+from il_dispatch import register_expr_builtin
+
+__tkv_import__ = "il_dispatch"
+
+# Regex check xem nguoi dung co dung cJSON khong
+_USES_CJSON_RE = re.compile(r'\bcjson_(parse|get_obj|get_str|delete)\(')
+
+# Khai bao P/Invoke cho CIL
+CJSON_PINVOKE_DECL_LINES: "list[str]" = [
+    '  // --- BEGIN GEMINI ADDED CODE: cJSON P/Invoke Declarations ---',
+    '  .method public hidebysig static pinvokeimpl("cJSON.dll" as "cJSON_Parse" cdecl)',
+    '      int64 __cjson_parse(string s) cil managed preservesig {}',
+    '  .method public hidebysig static pinvokeimpl("cJSON.dll" as "cJSON_GetObjectItem" cdecl)',
+    '      int64 __cjson_get_object_item(int64 obj, string key) cil managed preservesig {}',
+    '  .method public hidebysig static pinvokeimpl("cJSON.dll" as "cJSON_GetStringValue" cdecl)',
+    '      string __cjson_get_string_value(int64 item) cil managed preservesig {}',
+    '  .method public hidebysig static pinvokeimpl("cJSON.dll" as "cJSON_Delete" cdecl)',
+    '      int32 __cjson_delete(int64 item) cil managed preservesig {}',
+    '  // --- END GEMINI ADDED CODE ---'
+]
+
+def uses_cjson(body_lines: "list[str]") -> "i32":
+    """Kiem tra xem than ham co dung cJSON khong."""
+    for raw in body_lines:
+        if _USES_CJSON_RE.search(raw):
+            return True
+    return False
+
+def _class_name(ctx: "Ctx") -> "str":
+    return (ctx.class_name if ctx is not None else None) or 'Program'
+
+def _dtype_cua(arg: "TkvNode", scope: "Scope", ctx: "Ctx") -> "str":
+    """dtype cua MOT doi so - dung y het cac builtin khac (vd float_builtin).
+
+    Truoc day bon ham duoi day viet `args[0]()`, tuc GOI mot chi so arena
+    nhu mot ham: `TypeError: 'int' object is not callable`. Da kiem bang
+    trinh bien dich THAT - `cjson_parse("...")` nem ngay. Va chung con khong
+    he day gia tri doi so len ngan xep truoc khi phat `call`."""
+    return ctx.infer_dtype(arg, scope, ctx.func_table, ctx.records,
+                           ctx.record_methods, None)
+
+
+def push_cjson_parse(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) != 1:
+        raise SyntaxError("cjson_parse can 1 tham so (string)")
+    arg0 = _dtype_cua(args[0], scope, ctx)
+    if arg0 != 'str':
+        raise SyntaxError("cjson_parse can tham so string")
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    out.append(f'    call int64 {_class_name(ctx)}::__cjson_parse(string)')
+
+def push_cjson_get_obj(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) != 2:
+        raise SyntaxError("cjson_get_obj can 2 tham so (handle, key)")
+    arg0 = _dtype_cua(args[0], scope, ctx)
+    arg1 = _dtype_cua(args[1], scope, ctx)
+    if arg0 != 'i64' or arg1 != 'str':
+        raise SyntaxError("cjson_get_obj can (i64, str)")
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[1], scope, out, 'str', ctx)
+    out.append(f'    call int64 {_class_name(ctx)}::__cjson_get_object_item(int64, string)')
+
+def push_cjson_get_str(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) != 2:
+        raise SyntaxError("cjson_get_str can 2 tham so (handle, key)")
+    arg0 = _dtype_cua(args[0], scope, ctx)
+    arg1 = _dtype_cua(args[1], scope, ctx)
+    if arg0 != 'i64' or arg1 != 'str':
+        raise SyntaxError("cjson_get_str can (i64, str)")
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)   # day handle
+    ctx.compile_expr(args[1], scope, out, 'str', ctx)   # day key
+
+    # Lay object truoc, sau do lay string
+    out.append(f'    call int64 {_class_name(ctx)}::__cjson_get_object_item(int64, string)')
+    out.append(f'    call string {_class_name(ctx)}::__cjson_get_string_value(int64)')
+
+def push_cjson_delete(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) != 1:
+        raise SyntaxError("cjson_delete can 1 tham so (handle)")
+    arg0 = _dtype_cua(args[0], scope, ctx)
+    if arg0 != 'i64':
+        raise SyntaxError("cjson_delete can tham so i64")
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+    out.append(f'    call int32 {_class_name(ctx)}::__cjson_delete(int64)')
+
+
+def bootstrap_stdlib_cjson(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    # Dang ky cac ham vao he thong
+    register_expr_builtin(reg, 'cjson_parse', push_cjson_parse, 'i64')
+    register_expr_builtin(reg, 'cjson_get_obj', push_cjson_get_obj, 'i64')
+    register_expr_builtin(reg, 'cjson_get_str', push_cjson_get_str, 'str')
+    register_expr_builtin(reg, 'cjson_delete', push_cjson_delete, 'i32')

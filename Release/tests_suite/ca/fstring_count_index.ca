@@ -1,0 +1,6 @@
+tests_suite\de_vao\sample_fstring_count_index.tkv	greet	0	Hung25	Hello Hung, ban 25 tuoi\n
+tests_suite\de_vao\sample_fstring_count_index.tkv	greet	0	An7	Hello An, ban 7 tuoi\n
+tests_suite\de_vao\sample_fstring_count_index.tkv	greet	0	0	Hello , ban 0 tuoi\n
+tests_suite\de_vao\sample_fstring_count_index.tkv	count_and_find	0	3	301\n
+tests_suite\de_vao\sample_fstring_count_index.tkv	count_and_find	0	9	101\n
+tests_suite\de_vao\sample_fstring_count_index.tkv	count_and_find	0	100	1\n

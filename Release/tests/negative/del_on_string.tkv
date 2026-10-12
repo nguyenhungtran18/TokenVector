@@ -1,0 +1,10 @@
+# EXPECT-SUBSTRING: chi ap dung cho list/dict
+# -*- coding: utf-8 -*-
+# `del` chi ap dung cho container. Xoa ky tu giua mot chuoi se lam lech chi
+# so cua moi ky tu phia sau - va bo dem co dinh (`f32buf`) khong co y nghia
+# "xoa" gi: dung co dinh la thuoc tinh cua kieu, khong phai thuoc tinh cua doi
+# tuong.
+def run() -> "i32":
+    s = "abc"
+    del s[0]
+    return 0

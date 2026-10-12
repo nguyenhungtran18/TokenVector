@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+"""Closure that (Buoc 4 - slice tra closure RA NGOAI ham ngoai, 2026-07-29,
+pham vi (b1) da chon: CHI return-value, xem project-tokenvector-wave2-status
+memory). make_counter() KHONG con goi 'inc()' NOI BO nhu sample_closure.tkv
+nua - thay vao do 'return inc' (tra CHINH closure ra ngoai lam gia tri kieu
+'func() -> i32'), caller (demo_closure_return) nhan ve 1 bien goi duoc
+('counter'), goi 3 lan TU BEN NGOAI ham da tao no - kiem chung mutation +
+song sot cua bien bi bat ('count') SONG SOT ca sau khi make_counter() da
+return (dung diem kho nhat cua closure, giong het tinh than probe_closure.il
+nhung lan nay goi tu NGOAI pham vi ham tao thay vi ben trong)."""
+
+
+def make_counter() -> "func() -> i32":
+    count = 0
+
+    def inc() -> "i32":
+        nonlocal count
+        count = count + 1
+        return count
+
+    return inc
+
+
+def demo_closure_return() -> "i32":
+    counter = make_counter()
+    a = counter()
+    b = counter()
+    c = counter()
+    return a + b + c

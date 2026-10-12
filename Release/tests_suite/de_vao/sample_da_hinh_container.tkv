@@ -1,0 +1,47 @@
+# -*- coding: utf-8 -*-
+"""CONTAINER TRON LOP CON tren record ke thua.
+
+VI SAO CO FILE NAY (2026-09-10): `[a, b]` voi `a: Name` va `b: Num` hien suy
+kieu phan tu TU PHAN TU DAU, ra `List<Name>`, roi `Add(Num)` chet
+`ArrayTypeMismatchException` LUC CHAY. Khong mot mau .tkv nao trong repo tron
+lop con trong mot container, nen khong luoi nao cham toi.
+
+CPython that tra 32; exe hien CHET ngay luc dung list. File nay PHAI DO cho toi khi lo B xong."""
+
+
+class Node:
+    kind: "i32"
+
+    def __init__(self, kind):
+        self.kind = kind
+
+
+class Name(Node):
+    ten_code: "i32"
+
+    def __init__(self, kind, ten_code):
+        super().__init__(kind)
+        self.ten_code = ten_code
+
+
+class Num(Node):
+    gia_tri: "i32"
+
+    def __init__(self, kind, gia_tri):
+        super().__init__(kind)
+        self.gia_tri = gia_tri
+
+
+def demo_container() -> "i32":
+    # KHONG co ham tieu thu khai kieu `list[Node]` - do la cho then chot.
+    # DA DO: neu co mot ham nhan `ds: "list[Node]"` thi kieu phan tu duoc suy
+    # TU CHO DUNG do va list dung duoc; khong co thi no suy tu PHAN TU DAU
+    # (`Name`) va `Add(Num)` chet luc chay. Tuc no chay hay chet phu thuoc vao
+    # co ai dung no ve sau hay khong - mot rang buoc TU XA rat de gay bat ngo.
+    a = Name(1, 100)
+    b = Num(2, 7)
+    ds = [a, b]
+    tong = 0
+    for n in ds:
+        tong = tong + n.kind
+    return tong * 10 + len(ds)

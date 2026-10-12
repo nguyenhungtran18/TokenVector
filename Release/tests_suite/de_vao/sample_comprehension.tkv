@@ -1,0 +1,51 @@
+"""List/dict comprehension (Tang 1, 2026-07-28) - duong tat cu phap cho
+for-loop+append/idx_assign da co san (khong sinh codegen moi). Ho tro:
+[expr for x in range(N)], [expr for x in range(N) if cond],
+[expr for x in lst], {kexpr: vexpr for x in range(N) (if cond)},
+{kexpr: vexpr for k, v in d.items()}."""
+
+
+def sum_of_squares_comp(n: "i32") -> "i32":
+    lst = [i * i for i in range(n)]
+    total = 0
+    for x in lst:
+        total += x
+    return total
+
+
+def filtered_sum_comp(n: "i32") -> "i32":
+    lst = [i for i in range(n) if i % 2 == 0]
+    total = 0
+    for x in lst:
+        total += x
+    return total
+
+
+def doubled_from_list_comp(n: "i32") -> "i32":
+    base = []
+    for i in range(n):
+        base.append(i)
+    doubled = [x * 2 for x in base]
+    total = 0
+    for x in doubled:
+        total += x
+    return total
+
+
+def dict_comp_squares(n: "i32") -> "i32":
+    d = {i: i * i for i in range(n)}
+    total = 0
+    for k, v in d.items():
+        total += v
+    return total
+
+
+def dict_comp_from_items(n: "i32") -> "i32":
+    src = {}
+    for i in range(n):
+        src[i] = i + 1
+    doubled = {k: v * 2 for k, v in src.items()}
+    total = 0
+    for k, v in doubled.items():
+        total += v
+    return total

@@ -1,0 +1,126 @@
+# -*- coding: utf-8 -*-
+"""Khoi vector 8 lane f32 tren bo nho khong quan ly (R5, 2026-09-28).
+
+KHONG dung __tkv_import__ tkv_test_lib: ham `check` cua thu vien do so
+sanh 2 CHUOI, con test nay so sanh f32. Tu viet `t()` (tu tang ca hai
+bo dem nen khong the quen tang `tested` o 1 trong 2 dong) va
+`test_summary` o duoi.
+"""
+
+
+def t(c: "list[i32]", name: "str", got: "f32", expected: "f32") -> "i32":
+    """1 ca kiem tra f32. `c` la bo dem [tested, total] - truyền vao de
+    moi ham run() chi can 1 bien dem thay vi 2."""
+    c[0] = c[0] + 1
+    if got == expected:
+        print("PASS " + name)
+        c[1] = c[1] + 1
+    else:
+        print("FAIL " + name + " got=" + str(got) + " expected=" + str(expected))
+    return 0
+
+
+def test_summary(suite_name: "str", total: "i32", tested: "i32") -> "i32":
+    print("")
+    print("=== " + suite_name + ": " + str(total) + "/" + str(tested) + " PASS ===")
+    if total == tested:
+        return 0
+    return 1
+
+
+def run() -> "i32":
+    c = [0, 0]
+    p = alloc_bytes(64)
+
+    # ---- read_f32 / write_f32: doc-ghi 4 byte float tren dia chi native
+    write_f32(p, 0, 1.5)
+    write_f32(p, 4, -2.25)
+    write_f32(p, 8, 0.0)
+    t(c, "read_f32 round-trip", read_f32(p, 0), 1.5)
+    t(c, "read_f32 am", read_f32(p, 4), -2.25)
+    t(c, "read_f32 zero", read_f32(p, 8), 0.0)
+    # Gia tri phai la GIA TRI float chu khong phai bit-pattern int: 1.5 co
+    # bit-pattern 0x3FC00000 (=1069547520). Doc sai bang read_i32 roi
+    # hieu nham se ra 1069547520 chu khong phai 1.5.
+    t(c, "read_f32 khong phai bit-pattern", read_f32(p, 0), 1.5)
+
+    # ---- v_fill8 + v_hsum: 8 lane cung bang x
+    v_fill8(1.5)
+    t(c, "v_fill8 + v_hsum", v_hsum(), 12.0)
+    t(c, "v_lane(0) sau fill8", v_lane(0), 1.5)
+    t(c, "v_lane(3) sau fill8", v_lane(3), 1.5)
+    t(c, "v_lane(7) sau fill8", v_lane(7), 1.5)
+
+    # ---- v_load8: nap 8 lane (32 byte) tu dia chi native
+    i = 0
+    while i < 8:
+        write_f32(p, i * 4, float(i + 1))
+        i = i + 1
+    v_load8(p, 0)
+    t(c, "v_hsum doc 1..8", v_hsum(), 36.0)
+    t(c, "v_lane(0) = 1", v_lane(0), 1.0)
+    t(c, "v_lane(4) = 5", v_lane(4), 5.0)
+    t(c, "v_lane(7) = 8", v_lane(7), 8.0)
+
+    # ---- OFFSET: khoi bat dau o byte 4 (KHONG can can 32 byte)
+    v_load8(p, 4)
+    t(c, "v_hsum o offset byte 4", v_hsum(), 35.0)
+    t(c, "v_lane(0) o offset byte 4 = 2", v_lane(0), 2.0)
+
+    # ---- v_mul8 / v_add8 / v_sub8: 8 lane moi lenh
+    v_load8(p, 0)
+    v_mul8(2.0)
+    t(c, "v_mul8 x2", v_hsum(), 72.0)
+    t(c, "v_lane(0) x2", v_lane(0), 2.0)
+    v_add8(1.0)
+    t(c, "v_add8 +1", v_hsum(), 80.0)
+    t(c, "v_lane(0) +1", v_lane(0), 3.0)
+    v_sub8(1.0)
+    t(c, "v_sub8 -1", v_hsum(), 72.0)
+    t(c, "v_lane(0) -1", v_lane(0), 2.0)
+
+    # ---- v_mul8_add8: (lane * x) + y, gop 2 phep trong 1 vong ghi
+    v_load8(p, 0)
+    v_mul8_add8(2.0, 1.0)
+    t(c, "v_mul8_add8 tong", v_hsum(), 80.0)
+    t(c, "v_mul8_add8 lane 0", v_lane(0), 3.0)
+    t(c, "v_mul8_add8 lane 7", v_lane(7), 17.0)
+
+    # ---- v_store8: ghi nguoc 32 byte
+    v_fill8(0.25)
+    v_store8(p, 0)
+    t(c, "v_store8 lane 0", read_f32(p, 0), 0.25)
+    t(c, "v_store8 lane 4", read_f32(p, 16), 0.25)
+    t(c, "v_store8 lane 7", read_f32(p, 28), 0.25)
+
+    # ---- v_store8 ra vung khac roi doc lai: chung minh 2 khoi doc lap
+    v_fill8(-0.5)
+    v_store8(p, 32)
+    t(c, "v_store8 o byte 32", read_f32(p, 32), -0.5)
+    t(c, "v_store8 o byte 60", read_f32(p, 60), -0.5)
+    t(c, "vung 0 khong bi dinh touched", read_f32(p, 0), 0.25)
+
+    # ---- round-trip bo nho: doc -> nhan -> ghi -> doc
+    i = 0
+    while i < 8:
+        write_f32(p, i * 4, float(i) * 1.5)
+        i = i + 1
+    v_load8(p, 0)
+    v_mul8(2.0)
+    v_store8(p, 0)
+    t(c, "round-trip lane 0", read_f32(p, 0), 0.0)
+    t(c, "round-trip lane 3", read_f32(p, 12), 9.0)
+    t(c, "round-trip lane 7", read_f32(p, 28), 21.0)
+
+    # ---- so am va 0.0 trong dem xuong
+    write_f32(p, 0, -1.5)
+    write_f32(p, 4, 0.0)
+    write_f32(p, 8, 2.5)
+    v_load8(p, 0)
+    v_mul8(4.0)
+    t(c, "am * 4", v_lane(0), -6.0)
+    t(c, "0.0 * 4", v_lane(1), 0.0)
+    t(c, "2.5 * 4", v_lane(2), 10.0)
+
+    free_bytes(p)
+    return test_summary("vector_block_test", c[1], c[0])

@@ -1,0 +1,1051 @@
+# -*- coding: utf-8 -*-
+"""P8 - `stmt` dang DONG ARENA (chuoi) thay cho dict.
+
+Vi sao: `il_dispatch.Registry` khong khai bao duoc kieu vi `stmt` la dict co
+**kieu gia tri hon hop** (do: 57/61 dict tron `str` voi tuple/list/dict),
+trong khi `dict[K,V]` cua TokenVector can V dong nhat. Khi `stmt` la mot
+CHUOI, chu ky bang dieu phoi thanh `dict[str, func(str, ...)]` - dien dat
+duoc. Day la thu mo khoa P7 (xem spec Muc 8octies).
+
+Dung DUNG quy uoc cua arena da chay that trong `tkv_parser/tkv_ast.tkv`:
+
+    row = "<kind>\\t<src_line>\\t<truong 1>\\t<truong 2>..."
+
+- Moi truong di qua `esc`/`unesc` (tab -> '\\t', backslash -> '\\\\').
+  **Khong co ngoai le**: mot tab lac trong mot truong lam `split("\\t")`
+  lech HET cac truong phia sau MA KHONG bao loi - da xay ra that o P3 voi
+  `const_str` cua literal nguon chua tab.
+- `-1` la sentinel "vang mat", giong arena cua parser.
+
+GIAI DOAN CHUYEN TIEP: dict va row TON TAI SONG SONG. Moi cho dispatch dung
+`kind_of()` thay cho `stmt['kind']`; `kind_of` nhan ca hai dang. Khi moi kind
+da chuyen xong thi nhanh dict bi xoa.
+"""
+from il_core import parse_expr
+from il_core import _split_all_top_level_commas, parse_bytes_literal
+from il_core import parse_expr, parse_expr_list
+from expr_row import VANG, ea_ds, ea_str
+from typed_dsl_parser import parse_type_ann_str, parse_type_ann_str_mo, parse_typed_signature, parse_typed_signature_mo
+
+ABSENT = "-1"
+
+# ---------------------------------------------------------------------------
+# ARENA (P8/3b-2, 2026-09-09)
+#
+# `stmt` la CHI SO trong `_STMT_POOL`, khong phai chinh chuoi row. Day la thiet ke
+# GOC cua plan ("pool: list[str]", producer tra ve `next_pos`); pilot
+# 2026-09-08 di chech - no truyen THANG chuoi row lam `stmt`. Cho lech do
+# khong nho: hai cau lenh giong het nhau sinh hai chuoi BANG NHAU, nen moi
+# danh tinh dua tren chung deu bi gop lam mot. Voi chi so thi moi LAN XUAT
+# HIEN co mot so rieng, du van ban trung nhau.
+#
+# `_MEMO` giu node da parse theo `(chi so, ten truong)` - thu khoi phuc dung
+# bat bien ca compiler dang dua vao: "AST duoc parse DUY NHAT 1 LAN va dung
+# lai o ca 2 pass, nen id() la khoa tin cay" (il_codegen.py:2953). KHAC han
+# loi tat da bi loai o pilot (nho dem theo VAN BAN): khoa theo van ban GOP
+# hai bieu thuc khac nhau tinh co cung chu; khoa theo lan xuat hien thi
+# khong gop gi ca.
+# TEN RIENG `_STMT_POOL` (2026-09-25): ban gop tu-host lam phang moi module vao
+# MOT namespace, `_POOL` trung ten voi expr_row._POOL - hai arena thanh MOT.
+# O 0 DE TRONG (2026-09-25): chi so 0 KHONG bao gio la mot cau lenh that. Ban
+# tu-host bieu dien `None` cua kieu i32 bang 0, nen cau lenh DAU TIEN tung
+# mang chi so 0 va bi doc nham thanh "khong khop" ('d = {}' dau ham roi xuong
+# phep gan chung -> "khong tokenize duoc '{}'").
+_STMT_POOL: "list[str]" = ["__o_trong__"]
+# TACH LAM HAI (2026-09-18) va KHOA LA CHUOI. Truoc day la mot dict tran
+# `_MEMO = {}` voi khoa tuple `(chi_so, ten_truong)` va gia tri HON HOP -
+# khi thi mot node, khi thi mot DANH SACH node. Ca hai deu khong khai kieu
+# duoc, nen no chan phep gop self-host y het `_NID_MAP` truoc do.
+#
+# Node nay la mot CHI SO (i32) sau phep lat, nen nhanh thu nhat khai duoc
+# thang. Nhanh danh sach ma hoa thanh chuoi chi so ngan cach dau phay -
+# cung quy uoc o `ds` cua expr_row.
+_MEMO_NUT: "dict[str,i32]" = {}
+_MEMO_DS: "dict[str,str]" = {}
+
+# Bo giai ma nao cho ra danh sach SO (node hoac byte) - chi nhung bo
+# nay moi ghi nho duoc qua chuoi chi so.
+_MEMO_DS_DUOC: "dict[str,str]" = {
+    "danh_sach_bieu_thuc": "1", "dau_phay_chi_so": "1",
+    "phan_tu_list_literal": "1", "byte_literal": "1"}
+
+
+def _khoa_memo(stmt: "i32", key: "str") -> "str":
+    """Khoa CHUOI thay cho tuple `(stmt, key)` - dict[K,V] can K don gian."""
+    return str(stmt) + "	" + key
+
+# VUNG THAN (P8 Task 3/4). Mot `body` la DANH SACH cau lenh - khong nhet vao
+# mot truong chuoi duoc. Hai cach da can nhac:
+#
+#   (a) ma hoa thang vao chuoi row ("1,2,3");
+#   (b) vung rieng, row chi giu CHI SO vung.
+#
+# Chon (b). Ly do quyet dinh la SUA TAI CHO: `str_accum.plan_str_accum` viet
+# `lst[i] = <cau lenh moi>` vao than cua cha. Voi (a), doi mot cau lenh con
+# bat buoc viet lai chuoi cha VA moi to tien theo day chuyen - dat, va dung
+# loai loi im lang da mat hai phien vua roi. Voi (b) than VAN LA list Python
+# nen ngu nghia sua tai cho giu nguyen y het dict cu.
+#
+# Row van thuan CHUOI (chi giu mot so), nen muc tieu P7 - `Registry` go kieu
+# `dict[str, func(str, ...)]` - khong bi anh huong.
+_BODIES: "list[list[i32]]" = []
+
+
+def intern_body(stmts: "list[i32]") -> "i32":
+    """Ghi mot DANH SACH cau lenh vao vung than, tra ve CHI SO vung."""
+    _BODIES.append(stmts)
+    return len(_BODIES) - 1
+
+
+def body_of(bid: "i32") -> "list[i32]":
+    """Danh sach cau lenh cua mot chi so vung - list THAT, sua tai cho duoc.
+
+    KHAI DUOC KIEU tu 2026-09-18: truoc do phan tu la `i32` HOAC `dict`,
+    vi sau kind con sinh cau lenh dang dict. Ba cai cuoi cung vao duoc than
+    (`if` tong hop khi khu match-case, than lambda, `sb_append`) da thanh
+    row nho o luu THANG chi so node, va hai cai con lai
+    (`assign_typed_decl`, `assign_typed_container_new`) nho o luu VAN BAN
+    cua kieu. Dict con lai duy nhat trong cay (`list_type.py` dung cho
+    `codegen_list_append`) la dict TAM, dung roi bo, KHONG vao than nao.
+
+    `_BODIES` thi van chua khai duoc: no la `list[list[i32]]`, ma container
+    cap module chi nhan phan tu VO HUONG."""
+    return _BODIES[bid]
+
+
+# GHI CHU PHU cho cau lenh, khoa (chi so, ten). Voi dict cu, cac pass ghi
+# thang vao chinh cau lenh (vd stmt['__sb_vars'] = chosen trong str_accum:
+# pass MOT ghi, pass HAI doc). Row la chuoi bat bien nen khong lam vay duoc -
+# nhung dinh danh cau lenh (chi so pool) ON DINH qua ca hai pass, nen mot bang
+# phu khoa theo chi so tai lap CHINH XAC hanh vi cu.
+# KHOA la CHUOI "<chi so>	<ten>", khong phai tuple `(chi so, ten)`: khoa
+# tuple khong khai kieu duoc (cung ly do voi `_khoa_memo`).
+#
+# GIA TRI chi CON LA CHUOI (2026-09-18). Truoc do bang nay nhan ca
+# `Signature`, `TypeAnn` va mot danh sach bo bon - vi the no la lenh cap
+# module DUY NHAT con lai cua `stmt_row`, tuc la thu chan phep gop ngay tai
+# file nay. Bon gia tri do da bo het, moi cai mot duong:
+#   `nested_sig`                -> o `sig_text` trong hang (ham thuan cua
+#                                  dong 'def', giong `type_ann`)
+#   `captures`/`closure_class`/`hidden_local`
+#                               -> `ctx.nested_closures[<ten>]`, von DA
+#                                  chua ba trong bon cai nay tu truoc
+#   `_enter_ta`                 -> SUY LAI luc doc tu `_record_name` +
+#                                  `record_methods`
+#   `_iterobj`/`_nexttmp`/`_hidden`
+#                               -> SUY LAI: chung von la ham thuan cua
+#                                  `nid(stmt)`, luu lai la thua
+# Danh sach chuoi (`__sb_vars`) di qua `dat_ghi_chu_ds`/`lay_ghi_chu_ds`,
+# noi bang dau phay - ten bien la dinh danh nen khong chua dau phay.
+_GHI_CHU: "dict[str,str]" = {}
+
+# DE KIND: generator_lazy doi kind cua cau lenh TAI CHO, va mutation do la
+# TOAN CUC - pass codegen sau phai thay kind MOI.
+#
+# Hai duong da can nhac:
+#   (a) ghi nguoc vao than cha - thuan arena hon, nhung fpw_* chi nhan `stmt`,
+#       khong co cha lan chi so; phai doi chu ky HANG LOAT walker va moi cho
+#       dang ky, rat xam lan cho DUNG MOT truong hop;
+#   (b) bang de, kind_of() tra truoc.
+# Chon (b): nho, va tai lap CHINH XAC ngu nghia hien tai (mutation cu cung
+# toan cuc, thay duoc o ca hai pass). Danh doi: them mot mau trang thai cap
+# module - cung loai voi _BODIES/_MEMO da co.
+_DE_KIND: "dict[i32,str]" = {}
+
+
+def dat_ghi_chu(stmt: "i32", key: "str", value: "str"):
+    """Ghi mot ghi chu phu cho cau lenh (dict cu: ghi thang vao stmt)."""
+    if not isinstance(stmt, int):
+        raise TypeError(
+            "stmt_row: nhan dict - moi cau lenh phai la CHI SO row")
+    _GHI_CHU[_khoa_memo(stmt, key)] = value
+
+
+def lay_ghi_chu(stmt: "i32", key: "str", default: "str"=None) -> "str":
+    if not isinstance(stmt, int):
+        raise TypeError(
+            "stmt_row: nhan dict - moi cau lenh phai la CHI SO row")
+    return _GHI_CHU.get(_khoa_memo(stmt, key), default)
+
+
+def co_ghi_chu(stmt: "i32", key: "str") -> "i32":
+    """Thay cho `'<key>' in stmt` - phep `in` tren mot int nem TypeError.
+    stmt LUON la chi so arena (2026-09-25: nhanh `not isinstance(stmt, int)`
+    la di tich truoc arena - ma chet)."""
+    return _khoa_memo(stmt, key) in _GHI_CHU
+
+
+def dat_ghi_chu_ds(stmt: "i32", key: "str", value: "list[str]"):
+    """Ghi chu la DANH SACH TEN - noi bang dau phay.
+
+    Rieng ra chu khong nhet vao `dat_ghi_chu`: mot bang chi nhan CHUOI thi
+    kieu cua no moi dung, va lan tach `_MEMO` truoc da cho thay ma hoa moi
+    thu qua mot duong chung lam MAT du lieu (hong 14 mau)."""
+    if not isinstance(stmt, int):
+        raise TypeError(
+            "stmt_row: nhan dict - moi cau lenh phai la CHI SO row")
+    _GHI_CHU[_khoa_memo(stmt, key)] = ",".join(value)
+
+
+def lay_ghi_chu_ds(stmt: "i32", key: "str") -> "list[str]":
+    """Nghich cua `dat_ghi_chu_ds`. Khong co ghi chu -> danh sach RONG."""
+    if not isinstance(stmt, int):
+        raise TypeError(
+            "stmt_row: nhan dict - moi cau lenh phai la CHI SO row")
+    van = _GHI_CHU.get(_khoa_memo(stmt, key))
+    if van is None or van == "":
+        return []
+    return van.split(",")
+
+
+def de_kind(stmt: "i32", kind_moi: "str"):
+    """Doi kind cua mot cau lenh (xem chu thich dau _DE_KIND)."""
+    if not isinstance(stmt, int):
+        raise TypeError(
+            "stmt_row: nhan dict - moi cau lenh phai la CHI SO row")
+    _DE_KIND[stmt] = kind_moi
+
+
+def reset_pool():
+    """Bat dau mot chuong trinh moi. Goi CUNG cho voi `il_core.reset_nid()`:
+    hai so danh tinh nay phai cung vong doi, lech nhau la mang ten bien tam
+    cua chuong trinh truoc sang chuong trinh sau."""
+    _STMT_POOL.clear()
+    _STMT_POOL.append("__o_trong__")   # giu o 0 de trong - xem khai bao
+    _BODIES.clear()
+    _MEMO_NUT.clear()
+    _MEMO_DS.clear()
+    _GHI_CHU.clear()
+    _DE_KIND.clear()
+
+
+def intern(row: "str") -> "i32":
+    """Ghi mot dong vao arena, tra ve CHI SO.
+
+    KHONG kiem trung: hai dong giong het nhau van la HAI lan xuat hien khac
+    nhau va phai co hai chi so khac nhau - do dung la thu pilot truoc lam
+    mat."""
+    _STMT_POOL.append(row)
+    return len(_STMT_POOL) - 1
+
+
+def row_of(stmt: "i32") -> "str":
+    """Chuoi row cua mot chi so."""
+    return _STMT_POOL[stmt]
+
+
+def esc(s: "str") -> "str":
+    """Ma hoa mot truong truoc khi ghi vao row (tab -> '\\t', '\\' -> '\\\\')."""
+    if s is None:
+        return ABSENT
+    out = []
+    van = str(s)   # bien trung gian: 'for x in str(...)' trinh that chua nhan
+    for ch in van:
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == "\t":
+            out.append("\\t")
+        elif ch == "\n":
+            out.append("\\n")
+        else:
+            out.append(ch)
+    r = "".join(out)
+    if r == ABSENT:
+        # VA CHAM SENTINEL (tim thay 2026-09-09 qua cong IL, file
+        # sample_break_continue.tkv): mot gia tri THAT bang "-1" khong phan
+        # biet duoc voi sentinel "vang mat". `result = -1` bien thanh "cau
+        # lenh khong co ve phai" -> parse_expr(None) -> TypeError.
+        #
+        # Loi nay co SAN trong thiet ke row tu dau, chi chua lo ra vi chua
+        # kind nao dung row that. Sentinel "-1" muon nhai theo arena cua
+        # tkv_parser - o do truong la SO nen -1 khong the la gia tri that;
+        # o day truong la CHUOI nen no co the.
+        #
+        # Sua bang chinh co che escape da co: "\-1" khong the sinh ra tu
+        # mot gia tri that (mot backslash that thanh "\\\\", nen chuoi hai
+        # ky tu "\-" la khong the cham toi).
+        return "\\-1"
+    return r
+
+
+def unesc_stmt(s: "str") -> "str":
+    """Nguoc cua `esc`. Tra None khi gap sentinel vang mat."""
+    if s == ABSENT:
+        return None
+    out = []
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = s[i + 1]
+            if nxt == "t":
+                out.append("\t")
+                i += 2
+                continue
+            if nxt == "n":
+                out.append("\n")
+                i += 2
+                continue
+            if nxt == "\\":
+                out.append("\\")
+                i += 2
+                continue
+            if nxt == "-":
+                # Nguoc cua cach thoat va cham sentinel trong `esc`.
+                out.append("-")
+                i += 2
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _hang(kind: "str", o: "list[str]") -> "str":
+    """Mot dong arena moi tu cac o DA MA HOA. `src_line` de trong
+    (sentinel) - dat sau bang `with_src_line`, vi parser khong biet so
+    dong."""
+    hang = [kind, ABSENT]   # bien trung gian: trinh that suy 'list + list' ra str
+    hang.extend(o)
+    return "	".join(hang)
+
+
+# SAU arity rieng chu khong mot `make(kind, *fields)`: DSL khong co *args,
+# va - giong het ly le o `expr_row.mk1..mk4` - arity la MOT PHAN CUA NGHIA
+# (`_LAYOUT` cua moi kind co so truong co dinh, goi sai arity la sai so do).
+# Danh so theo TONG SO O KE CA `kind`, cung quy uoc voi `mkN` ben
+# `expr_row`, de khong phai nho hai cach dem.
+#
+# `esc` nhan ca None (tra ve sentinel ABSENT) nen o VANG MAT van truyen
+# thang duoc, khong can nhanh rieng.
+
+
+def make1(kind: "str") -> "str":
+    """Cau lenh khong truong nao ('break', 'continue')."""
+    return _hang(kind, [])
+
+
+def make2(kind: "str", a: "str") -> "str":
+    return _hang(kind, [esc(a)])
+
+
+def make3(kind: "str", a: "str", b: "str") -> "str":
+    return _hang(kind, [esc(a), esc(b)])
+
+
+def make4(kind: "str", a: "str", b: "str", c: "str") -> "str":
+    return _hang(kind, [esc(a), esc(b), esc(c)])
+
+
+def make5(kind: "str", a: "str", b: "str", c: "str", d: "str") -> "str":
+    return _hang(kind, [esc(a), esc(b), esc(c), esc(d)])
+
+
+def make6(kind: "str", a: "str", b: "str", c: "str", d: "str", e: "str") -> "str":
+    return _hang(kind, [esc(a), esc(b), esc(c), esc(d), esc(e)])
+
+
+def make7(kind: "str", a: "str", b: "str", c: "str", d: "str", e: "str", f: "str") -> "str":
+    return _hang(kind, [esc(a), esc(b), esc(c), esc(d), esc(e), esc(f)])
+
+
+def is_row(stmt: "i32") -> "i32":
+    """`stmt` dang la dong arena (CHI SO) hay dict cu?"""
+    return isinstance(stmt, int)
+
+
+def la_khoa_than(key: "str") -> "i32":
+    """`key` co phai ten mot truong chua DANH SACH CAU LENH khong?
+
+    Quyet dinh theo NGU NGHIA (ten truong), KHONG theo hinh dang gia tri.
+    Ban dau toi viet ham `la_danh_sach_cau_lenh(val)` doan theo hinh dang -
+    "phan tu dau la int thi la chi so cau lenh" - va no vo NGAY tren
+    `assign_bytes_literal`, noi `values` la [65, 66, 0, 67], mot danh sach
+    SO BYTE. Tuc la toi lap lai dung sai lam dang di sua: tu khi cau lenh la
+    mot `int` tran thi HINH DANG khong con phan biet duoc gi, chi TEN TRUONG
+    moi noi len y nghia.
+
+    Lich su cung ho trong P8 - phep kiem cau lenh theo kieu du lieu:
+      (1) closures: `isinstance(stmt, dict): continue`
+      (2) _container_arg_hints.visit: thieu nhanh `int`
+      (3) closures: `isinstance(val[0], dict) and 'kind' in val[0]`
+      (4) chinh ham nay o ban dau
+    """
+    return key in _KHOA_THAN
+
+
+def kind_of_stmt(stmt: "i32") -> "str":
+    """`kind` cua mot stmt, bat ke dang dict CU hay dong arena MOI.
+
+    Dung o MOI cho dispatch trong giai doan chuyen tiep."""
+    if isinstance(stmt, int):
+        dat = _DE_KIND.get(stmt)
+        if dat is not None:
+            return dat
+        return _STMT_POOL[stmt].split("\t", 1)[0]
+        raise TypeError(
+            "stmt_row: nhan dict - moi cau lenh phai la CHI SO row")
+
+
+def src_line_of(stmt: "i32") -> "i32":
+    """So dong nguon, hoac None."""
+    if isinstance(stmt, int):
+        parts = _STMT_POOL[stmt].split("\t")
+        return None if len(parts) < 2 or parts[1] == ABSENT else int(parts[1])
+        raise TypeError(
+            "stmt_row: nhan dict - moi cau lenh phai la CHI SO row")
+
+
+def with_src_line(stmt: "i32", n: "i32") -> "i32":
+    """Ban SAO cua stmt mang so dong `n`.
+
+    Row la chuoi (bat bien) nen phai dung ban sao - khac dict cu duoc gan
+    thang `stmt['src_line'] = n`. Caller PHAI dung gia tri tra ve."""
+    if not isinstance(stmt, int):
+        # Nhanh dict CU tra ve chinh cai dict, tuc ham nay tung tra ve HAI
+        # kieu. De nguyen thi `-> "i32"` la lời khai SAI - dung cai bay
+        # `_BODIES` dang mac. Da do 2026-09-18: ca hai diem goi con lai
+        # (`il_codegen:3659`, `str_accum:217`) deu truyen CHI SO, va moi
+        # kind da thanh row. Nem loi thay vi tra kieu khac: neu gia thiet
+        # do sai thi no vo NGAY va to, khong am tham.
+        raise TypeError(
+            "stmt_row.with_src_line: nhan dict - moi cau lenh phai la CHI SO "
+            "row tu 2026-09-18 (xem `body_of`)")
+    parts = _STMT_POOL[stmt].split("\t")
+    while len(parts) < 2:
+        parts.append(ABSENT)
+    parts[1] = str(n)
+    moi = intern("\t".join(parts))
+    # Ban sao PHAI mang theo BANG DE. Row la chuoi nen ham nay tao mot
+    # CHI SO MOI; moi ghi chu (`dat_ghi_chu`) va moi lan doi kind
+    # (`de_kind`) gan voi chi so CU se MO COI - `lay_ghi_chu` tra None
+    # IM LANG, khong loi nao bao. Da xay ra that (2026-09-17):
+    # `try_parse_nested_def` gan `nested_sig` cho sid=3, first-pass nhan
+    # stmt=4 va doc ra None, sap voi "NoneType object has no attribute
+    # params". Vi MOI cau lenh parser sinh ra deu di qua day (il_codegen
+    # goi ngay sau khi parse), KHONG producer nao gan duoc ghi chu neu
+    # thieu doan nay.
+    _tien_to = str(stmt) + "	"
+    for k in [k for k in _GHI_CHU if k.startswith(_tien_to)]:
+        _GHI_CHU[str(moi) + "	" + k.split("	", 1)[1]] = _GHI_CHU[k]
+    if stmt in _DE_KIND:
+        _DE_KIND[moi] = _DE_KIND[stmt]
+    return moi
+
+
+def field(stmt: "i32", i: "i32") -> "str":
+    """Truong thu `i` (0 = truong dau SAU kind va src_line)."""
+    parts = _STMT_POOL[stmt].split("\t")
+    j = i + 2
+    return unesc_stmt(parts[j]) if j < len(parts) else None
+
+
+# ---------------------------------------------------------------------------
+# TRUY CAP CHUNG - moi noi doc/ghi `stmt` di qua day.
+#
+# Vi sao phai lam TRUOC khi chuyen kind dau tien: pilot 2026-09-08 cho thay
+# co nhung ham DUYET CHUNG moi stmt (vd `_container_arg_hints`) doc
+# `st.get('rhs_node')` ma KHONG kiem `kind` - chung vo ngay khi MOT kind
+# thanh chuoi. Do duoc **472 cho** truy cap stmt nhu dict tren 20 file
+# (459 doc / 13 ghi). Nen buoc nay: dua HET qua accessor trong khi MOI stmt
+# VAN LA DICT - khong doi hanh vi, cong IL phai cho 0 khac biet - roi moi
+# chuyen tung kind.
+#
+# LAYOUT: khi mot kind chuyen sang row, dang ky so do truong cua no vao
+# `_LAYOUT`. `get`/`set` tu tra cuu; dict khong can layout.
+# ---------------------------------------------------------------------------
+
+# So do truong cua tung kind DA chuyen sang row. Bang HANG, khong phai dang
+# ky luc chay: so do la SCHEMA TINH, biet truoc khi chay - va mot dict kha
+# bien o cap module lai chinh la thu P6 vua xoa (cong
+# no_module_side_effects bat ngay lan dau viet file nay).
+#
+# Gia tri la danh sach ten truong ngan cach dau phay - `dict[str, str]` thi
+# TokenVector khai bao duoc, `dict[str, list[str]]` thi chua (container long).
+# Ten cac truong mang DANH SACH CAU LENH. Row luu chi so vung; `get` doi
+# nguoc thanh list Python.
+_KHOA_THAN: "dict[str, str]" = {"body": "1", "else_body": "1", "finally_body": "1"}
+
+# Ten cac truong mang SO NGUYEN. Row luu moi thu bang chuoi, nen thieu bang
+# nay thi `get` tra "8" thay vi 8 - va consumer cua zeros1d/zeros2d dua thang
+# gia tri vao `TypeAnn(dtype, [dim])`, tuc HINH DANG mang thanh chuoi, KHONG
+# ai bao loi, IL sai am tham. Dung ho voi loi list[i32] -> list[TkvInt] da
+# mat hai phien (xem commit ac8f4f51).
+_KHOA_SO: "dict[str, str]" = {"dim": "1", "dim0": "1", "dim1": "1", "step": "1"}
+
+# Truong mang mot DANH SACH (node bieu thuc, hoac ten bien). Row luu VAN BAN
+# GOC cua ca cum, `get` giai ma lai thanh danh sach.
+#
+# Vi sao khong ma hoa tung phan tu thanh mot truong rieng: `parse_expr_list`
+# nhan CA CHUOI va tu tach dung dau phay o dung tang ngoac ('foo(a, b), c' ->
+# hai phan tu, khong phai ba). Tu tach roi ghep lai la chep lai logic do va
+# chac chan lech - dung loai loi ma chinh docstring cua parse_expr_list canh
+# bao. Luu van ban goc thi khong the lech.
+#
+# Gia tri la TEN bo giai ma (xem `_giai_ma_ds_*`), khong phai ham: `_KHOA_DS`
+# phai la `dict[str, str]` de TokenVector khai bao duoc.
+_KHOA_DS: "dict[str, str]" = {
+    "rhs_nodes": "danh_sach_bieu_thuc",
+    "expr_nodes": "danh_sach_bieu_thuc",
+    "arg_nodes": "danh_sach_bieu_thuc",
+    "idx_nodes": "dau_phay_chi_so",
+    "elements": "phan_tu_list_literal",
+    "values": "byte_literal",
+    "targets": "ten_ngan_cach_phay",
+    "handler_vars": "ten_ngan_cach_phay_rong_la_None",
+}
+
+
+# BA bo giai ma rieng theo KIEU TRA VE, khong mot `_giai_ma_ds` chung:
+# ham chung tra ve BON loai danh sach (node / byte / chuoi / chuoi-hoac-
+# None) nen KHONG co mot kieu nao dung cho no - do la ly do no chan phep
+# gop tai `stmt_row`.
+#
+# Duong tach trung DUNG ranh gioi da co san trong ma: `_MEMO_DS_DUOC` (chi
+# ghi nho danh sach SO). Nen `get()` khong phai them phep kiem nao moi -
+# no van re nhanh o dung cho cu.
+#
+# CANH BAO tu lich su: lan tach `_MEMO` truoc da hong 14 mau vi ma hoa CA
+# BON loai qua mot duong chuoi-so chung. Tach THAT theo kieu, dung gop
+# lai bang mot phep ma hoa chung.
+
+
+def _giai_ma_ds_nut(ten_bo: "str", van_ban: "str") -> "list[TkvNode]":
+    """Truong danh sach NODE BIEU THUC."""
+    if ten_bo == "danh_sach_bieu_thuc":
+        # 'for x in gen():' - khong doi so. Ban dict cu viet
+        # `parse_expr_list(args_text) if args_text else []`; giu dung ngu nghia
+        # do o day, neu khong `parse_expr_list('')` se vo.
+        if not van_ban.strip():
+            return []
+        return parse_expr_list(van_ban)
+    if ten_bo == "phan_tu_list_literal":
+        return ea_ds(parse_expr(van_ban))
+    if ten_bo == "dau_phay_chi_so":
+        return [parse_expr(x) for x in _split_all_top_level_commas(van_ban)]
+    raise KeyError("stmt_row: khong biet bo giai ma NODE '" + ten_bo + "'")
+
+
+def _giai_ma_ds_byte(van_ban: "str") -> "list[i32]":
+    """Truong danh sach BYTE ('assign_bytes_literal').
+
+    Khong nhan `ten_bo`: chi dung MOT bo giai ma, tham so do se la mot o
+    luon mang cung mot gia tri."""
+    return parse_bytes_literal(ea_str(parse_expr(van_ban)))
+
+
+def _giai_ma_ds_ten(ten_bo: "str", van_ban: "str") -> "list[str]":
+    """Truong danh sach TEN BIEN."""
+    if ten_bo == "ten_ngan_cach_phay":
+        return [t.strip() for t in van_ban.split(",")]
+    if ten_bo == "ten_ngan_cach_phay_rong_la_None":
+        # 'except E:' (khong 'as x') -> o do la None, khong phai chuoi rong.
+        return [(t.strip() or None) for t in van_ban.split(",")]
+    raise KeyError("stmt_row: khong biet bo giai ma TEN '" + ten_bo + "'")
+
+_LAYOUT: "dict[str, str]" = {
+    "assign_scalar": "name,rhs_text",
+    "list_append": "name,value_text,value_node",
+    "list_remove": "name,value_text",
+    "list_insert": "name,index_text,value_text",
+    "list_reverse": "name",
+    "list_sort": "name,key_name,reverse",
+    "list_extend": "name,other_name",
+    "list_extend_expr": "name,expr_text,expr_node",
+    "set_add": "name,value_text",
+    "set_remove": "name,value_text",
+    "set_discard": "name,value_text",
+    "del_index": "name,value_text",
+    "bytearray_append": "name,value_text",
+    "container_clear": "name",
+    "assign_list_new": "name",
+    "assign_dict_new": "name",
+    "assign_set_new": "name",
+    "assign_bytearray_new": "name",
+    "assign_bytes_new": "name,values_text",
+    "assign_frozenset_new": "name,src",
+    "assign_tuple_identity": "name,src",
+    "assign_iter": "name,src_name",
+    "assign_open": "name,path_text,mode",
+    "assign_f32buf_new": "name,count_text",
+    "f32buf_free_stmt": "name",
+    "assign_frozenset_empty": "name",
+    "assign_frozenset_literal": "name,elements_text",
+    "assign_list_repeat": "name,list_name,count_text",
+    "assign_list_slice": "name,slice_text",
+    "assign_os_getenv": "name,arg_text",
+    "assign_os_list_files": "name,arg_text",
+    "assign_os_mkdir": "name,arg_text",
+    "assign_shutil_rmtree": "name,arg_text",
+    "assign_md5_hex": "name,arg_text",
+    "assign_sha256_hex": "name,arg_text",
+    "assign_base64_encode": "name,arg_text",
+    "assign_base64_decode": "name,arg_text",
+    "assign_datetime_now": "name",
+    "assign_repeat_str": "name,str_name,count_text",
+    "assign_win_gui": "name,title_expr",
+    "assign_list_count": "name,list_name,target_text",
+    "assign_zeros1d": "name,dim",
+    "assign_zeros2d": "name,dim0,dim1",
+    "break": "",
+    "continue": "",
+    "assign_typed_decl": "name,type_text,rhs_node",
+    "assign_typed_container_new": "name,type_text",
+    "sb_append": "name,sb_name,value_node",
+    "return": "expr_text,expr_node,gen_ret_dtype",
+    "raise": "exc_type,msg_text,from_name,bare",
+    "yield_stmt": "expr_text",
+    "yield_from_stmt": "expr_text",
+    "attr_assign": "obj_name,field_name,value_text",
+    "call_stmt": "call_text,call_node",
+    "index_call_stmt": "call_text,call_node",
+    "method_call_stmt": "call_text,call_node",
+    "idx_assign": "name,idx_nodes_text,rhs_text",
+    "tuple_assign": "targets_text,rhs_nodes_text",
+    "assign_multi_target": "targets_text,rhs_text",
+    # 'nested_def' giu THAN va VAN BAN chu ky. `nested_sig` khong con di
+    # qua bang de nua: no la `parse_typed_signature(<van ban>)`, mot HAM
+    # THUAN chi can dung dong nguon - cung khuon voi `type_ann`. Ba truong
+    # do first-pass tinh ra (`captures`/`closure_class`/`hidden_local`)
+    # nam trong `ctx.nested_closures[<ten>]`, khong phai o day.
+    "nested_def": "body,sig_text",
+    "return_tuple": "expr_nodes_text",
+    "assign_list_literal": "name,elements_text",
+    "assign_list_from": "name,src",
+    "assign_bytes_literal": "name,values_text",
+    "for": "var,start_text,bound_text,step,body",
+    "while": "cond_text,body",
+    "if": "cond_text,body,else_body,cond_node",
+    "with_open": "var,mode,path_text,body",
+    "with_ctx": "var,expr_text,body",
+    "try": "body,handlers_exc,handlers_body,handler_vars_text,finally_body,else_body",
+    "for_in_iter": "var,record_var,body",
+    "for_in_dict_items": "key_var,val_var,dict_name,body",
+    "for_in_generator": "var,callee_name,arg_nodes_text,body",
+    # `for_in_call_list` KHONG co producer rieng - chi toi duoc qua BANG DE
+    # KIND tu 'for_in_generator' (generator_lazy). Row van la dong
+    # 'for_in_generator', chi `kind_of` doc ra ten khac - nen layout phai
+    # GIONG HET, neu khong thi tra cuu truong se truot im lang.
+    "for_in_call_list": "var,callee_name,arg_nodes_text,body",
+}
+
+
+def _layout_of(kind: "str") -> "list[str]":
+    """Danh sach ten truong cua `kind`; RONG neu kind chua chuyen sang row.
+
+    Truoc 2026-09-18 ham nay tra `tuple(...)` HOAC `None` - mot union, va
+    la mot trong nhung thu chan phep gop tai file nay. Doi `None` thanh
+    DANH SACH RONG thi kieu tro nen don nhat ma khong mat thong tin nao:
+    moi cho dung `lay` chi lam ba viec - `x in lay`, `lay.index(x)`, va
+    phan biet "kind chua co row".
+
+    DANH SACH RONG PHAN BIET DUOC that: `break` va `continue` CO layout
+    nhung spec la chuoi rong, va `"".split(",")` cho `[""]` - mot phan tu,
+    khong phai rong. Nen `[]` van chi co mot nghia duy nhat la "khong co
+    layout". (Da kiem: 61 kind co layout, dung hai kind spec rong.)"""
+    spec = _LAYOUT.get(kind)
+    return [] if spec is None else spec.split(",")
+
+
+# ---------------------------------------------------------------------------
+# DOC TRUONG: ban CO KIEU
+#
+# `get()` tra ve chuoi / so / danh sach / `TypeAnn` / `Signature` tuy KHOA,
+# nen khong mot kieu tra ve nao dung cho no - do la rao CUOI CUNG cua
+# `stmt_row` tren duong gang. Cach go giong het `expr_row` o phep lat dau
+# phien: mot ham noi bo tra VAN BAN O THO (luon la `str`, khai duoc that),
+# roi moi accessor CO KIEU tu giai ma.
+#
+# Da do 2026-09-18 tren 458 diem goi: str 201 | TkvNode 127 | than 72 |
+# list[TkvNode] 19 | handlers 15 | i32 9 | list[str] 6 | TypeAnn 5 |
+# Signature 2 | byte 1. Moi diem goi KHOA DONG deu lap tren mot bo khoa
+# DONG NHAT KIEU nen chon accessor tinh duoc het.
+# ---------------------------------------------------------------------------
+
+
+def _o_hang(stmt: "i32", key: "str") -> "str":
+    """Van ban tho cua o `key`; None neu kind khong co o do.
+
+    Ten co hau to `_hang` chu khong phai `_o_tho` nhu ban song sinh ben
+    `expr_row`: phep gop lam phang MOI module vao MOT chuong trinh, nen
+    hai ham cung ten o hai file la loi trung ten - va no chi lo ra khi
+    phep gop di du xa de cham ca hai file."""
+    lay = _layout_of(kind_of_stmt(stmt))
+    if key not in lay:
+        return None
+    return field(stmt, lay.index(key))
+
+
+def lay_str(stmt: "i32", key: "str") -> "str":
+    """Truong VAN BAN. `kind` di qua day luon cho tien."""
+    if key == "kind":
+        return kind_of_stmt(stmt)
+    return _o_hang(stmt, key)
+
+
+def lay_i32(stmt: "i32", key: "str") -> "i32":
+    """Truong SO ('dim'/'dim0'/'dim1'/'step', va 'src_line')."""
+    if key == "src_line":
+        return src_line_of(stmt)
+    v = _o_hang(stmt, key)
+    if v is None:
+        return None
+    return int(v)
+
+
+def lay_nut(stmt: "i32", key: "str") -> "TkvNode":
+    """Truong NODE BIEU THUC - o luu thang chi so, hoac van ban parse luoi.
+
+    Giu nguyen thu tu uu tien va phep nho dem cua `get()` cu: o THANG
+    thang o VAN BAN, va ban parse luoi phai nho dem theo `(chi so, khoa)`
+    de danh tinh node on dinh qua CA HAI pass."""
+    v = _o_hang(stmt, key)
+    if v is not None:
+        return int(v)
+    v = _o_hang(stmt, key[:-5] + "_text")
+    if v is None:
+        return None
+    khoa = _khoa_memo(stmt, key)
+    # 'in' thay '.get(k) is None' (2026-09-25): gia tri la SO (chi so node),
+    # None khong co dang i32 o ban tu-host.
+    if khoa in _MEMO_NUT:
+        return _MEMO_NUT[khoa]
+    hit = parse_expr(v)
+    _MEMO_NUT[khoa] = hit
+    return hit
+
+
+def lay_than(stmt: "i32", key: "str") -> "list[i32]":
+    """Truong THAN - row giu chi so vung, phoi ra chinh list Python."""
+    v = _o_hang(stmt, key)
+    if v is None:
+        return None
+    return body_of(int(v))
+
+
+def _lay_ds_so(stmt: "i32", key: "str") -> "list[i32]":
+    """Than chung cua hai ban danh sach SO (node / byte) - co nho dem."""
+    v = _o_hang(stmt, key + "_text")
+    if v is None:
+        return None
+    _bo = _KHOA_DS[key]
+    khoa = _khoa_memo(stmt, key)
+    van = _MEMO_DS.get(khoa)
+    if van is None:
+        if _bo == "byte_literal":
+            hit = _giai_ma_ds_byte(v)
+        else:
+            hit = _giai_ma_ds_nut(_bo, v)
+        _MEMO_DS[khoa] = ",".join([str(x) for x in hit])
+        return hit
+    if van == "":
+        return []
+    # bien lap `t` (khong phai `x`): `x` o tren la int, ten chi co MOT local/ham (2026-09-29)
+    return [int(t) for t in van.split(",")]
+
+
+def lay_ds_nut(stmt: "i32", key: "str") -> "list[TkvNode]":
+    """Truong DANH SACH NODE."""
+    return _lay_ds_so(stmt, key)
+
+
+def lay_ds_byte(stmt: "i32", key: "str") -> "list[i32]":
+    """Truong DANH SACH BYTE ('values' cua 'assign_bytes_literal')."""
+    return _lay_ds_so(stmt, key)
+
+
+def lay_ds_str(stmt: "i32", key: "str") -> "list[str]":
+    """Truong DANH SACH TEN. KHONG nho dem: memo ton tai de giu DINH DANH
+    node on dinh giua hai pass, chuoi khong co nhu cau do."""
+    v = _o_hang(stmt, key + "_text")
+    if v is None:
+        return None
+    return _giai_ma_ds_ten(_KHOA_DS[key], v)
+
+
+def lay_type_ann(stmt: "i32") -> "TypeAnn":
+    """Truong KIEU - row luu van ban, parse lai (ham thuan)."""
+    v = _o_hang(stmt, "type_text")
+    if v is None:
+        return None
+    return parse_type_ann_str_mo(v)
+
+
+def lay_chu_ky(stmt: "i32") -> "Signature":
+    """Chu ky cua 'nested_def' - row luu van ban dong 'def'."""
+    v = _o_hang(stmt, "sig_text")
+    if v is None:
+        return None
+    return parse_typed_signature_mo(v)
+
+
+def lay_handlers_vung(stmt: "i32") -> "list[i32]":
+    """CHI SO VUNG than cua tung 'except' trong 'try' - goi `body_of` de
+    lay than that.
+
+    `get(stmt,'handlers')` cu ghep HAI truong song song thanh danh sach
+    CAP `(ten ngoai le, than)` - mot `list[(str, list[i32])]`, kieu KHONG
+    bieu dien duoc (phan tu tuple phai vo huong). Nhung hang VON DA luu
+    hai truong song song; chinh `get` moi la cho zip chung lai mot cach
+    gia tao.
+
+    Tra CHI SO chu khong tra than: mot danh sach CAC THAN la
+    `list[list[i32]]`, cung khong bieu dien duoc (container cap module lan
+    kieu long deu chi nhan vo huong). Day la lan thu hai trong cung mot
+    ham toi suyt khai mot kieu long - lan dau la `_BODIES`."""
+    v = _o_hang(stmt, "handlers_body")
+    if v is None:
+        return []
+    return [int(b) for b in v.split(",")]
+
+
+def lay_handlers_exc(stmt: "i32") -> "list[str]":
+    """Ten lop ngoai le cua tung 'except', SONG SONG voi
+    `lay_handlers_than`. 'except:' tran -> phan tu la chuoi RONG."""
+    v = _o_hang(stmt, "handlers_exc")
+    if v is None:
+        return []
+    return [(t.strip() or None) for t in v.split(",")]
+
+
+# Khoa LOGIC ma moi kind row phoi ra cho cac ham DUYET CHUNG. Khac `_LAYOUT`
+# (so do LUU TRU): 'assign_scalar' luu `rhs_text` nhung phoi ra `rhs_node` -
+# nguoi duyet quan tam cay bieu thuc, khong quan tam no duoc luu bang gi.
+_KHOA_LOGIC: "dict[str, str]" = {
+    "assign_scalar": "kind,name,rhs_node",
+    "list_append": "kind,name,value_node",
+    "list_remove": "kind,name,value_node",
+    "list_insert": "kind,name,index_node,value_node",
+    "list_reverse": "kind,name",
+    "list_sort": "kind,name,key_name,reverse",
+    "list_extend": "kind,name,other_name",
+    "list_extend_expr": "kind,name,expr_node",
+    "set_add": "kind,name,value_node",
+    "set_remove": "kind,name,value_node",
+    "set_discard": "kind,name,value_node",
+    "del_index": "kind,name,value_node",
+    "bytearray_append": "kind,name,value_node",
+    "container_clear": "kind,name",
+    "assign_list_new": "kind,name",
+    "assign_dict_new": "kind,name",
+    "assign_set_new": "kind,name",
+    "assign_bytearray_new": "kind,name",
+    "assign_bytes_new": "kind,name,values",
+    "assign_frozenset_new": "kind,name,src",
+    "assign_tuple_identity": "kind,name,src",
+    "assign_iter": "kind,name,src_name",
+    "assign_open": "kind,name,path_node,mode",
+    "assign_f32buf_new": "kind,name,count_node",
+    "f32buf_free_stmt": "kind,name",
+    "assign_frozenset_empty": "kind,name",
+    "assign_frozenset_literal": "kind,name,elements",
+    "assign_list_repeat": "kind,name,list_name,count_node",
+    "assign_list_slice": "kind,name,slice_node",
+    "assign_os_getenv": "kind,name,arg_node",
+    "assign_os_list_files": "kind,name,arg_node",
+    "assign_os_mkdir": "kind,name,arg_node",
+    "assign_shutil_rmtree": "kind,name,arg_node",
+    "assign_md5_hex": "kind,name,arg_node",
+    "assign_sha256_hex": "kind,name,arg_node",
+    "assign_base64_encode": "kind,name,arg_node",
+    "assign_base64_decode": "kind,name,arg_node",
+    "assign_datetime_now": "kind,name",
+    "assign_repeat_str": "kind,name,str_name,count_node",
+    "assign_win_gui": "kind,name,title_expr",
+    "assign_list_count": "kind,name,list_name,target_node",
+    "assign_zeros1d": "kind,name,dim",
+    "assign_zeros2d": "kind,name,dim0,dim1",
+    "break": "kind",
+    "continue": "kind",
+    "return": "kind,expr_node,gen_ret_dtype",
+    "raise": "kind,exc_type,msg_node,from_name,bare",
+    "yield_stmt": "kind,expr_node",
+    "yield_from_stmt": "kind,expr_node",
+    "attr_assign": "kind,obj_name,field_name,value_node",
+    "call_stmt": "kind,call_node",
+    "index_call_stmt": "kind,call_node",
+    "method_call_stmt": "kind,call_node",
+    "idx_assign": "kind,name,idx_nodes,rhs_node",
+    "tuple_assign": "kind,targets,rhs_nodes",
+    "assign_multi_target": "kind,targets,rhs_node",
+    "nested_def": "kind,body,nested_sig",
+    "return_tuple": "kind,expr_nodes",
+    "assign_list_literal": "kind,name,elements",
+    "assign_list_from": "kind,name,src",
+    "assign_bytes_literal": "kind,name,values",
+    "for": "kind,var,start_node,bound_node,step,body",
+    "while": "kind,cond_node,body",
+    "if": "kind,cond_node,body,else_body",
+    "with_open": "kind,var,mode,path_node,body",
+    "assign_typed_decl": "kind,name,type_ann,rhs_node",
+    "assign_typed_container_new": "kind,name,type_ann",
+    "sb_append": "kind,name,sb_name,value_node",
+    "with_ctx": "kind,var,expr_node,body",
+    "try": "kind,body,handlers,handler_vars,finally_body,else_body",
+    "for_in_iter": "kind,var,record_var,body",
+    "for_in_dict_items": "kind,key_var,val_var,dict_name,body",
+    "for_in_generator": "kind,var,callee_name,arg_nodes,body",
+    "for_in_call_list": "kind,var,callee_name,arg_nodes,body",
+}
+
+
+def items_nut(stmt: "i32") -> "list[(str,TkvNode)]":
+    """CAP (ten truong, node) cho moi truong `*_node` CO gia tri.
+
+    Thay cho `items()` o cac ham DUYET CHUNG khong biet truoc kind. Cap
+    `(str, TkvNode)` BIEU DIEN DUOC vi ca hai phan tu deu vo huong - khac
+    `items()` cu, tra ca chuoi lan so lan danh sach lan `TypeAnn` nen
+    khong mot kieu nao dung."""
+    spec = _KHOA_LOGIC.get(kind_of_stmt(stmt))
+    if spec is None:
+        return []
+    ra = []
+    for k in spec.split(","):
+        if not k.endswith("_node"):
+            continue
+        v = lay_nut(stmt, k)
+        if v is not None:
+            ra.append((k, v))
+    return ra
+
+
+def cac_than_vung(stmt: "i32") -> "list[i32]":
+    """CHI SO VUNG cua moi truong THAN co gia tri - goi `body_of` de lay
+    than. Khong tra thang cac than vi mot danh sach cac than la
+    `list[list[i32]]`, kieu khong bieu dien duoc.
+
+    CHI cac khoa trong `_KHOA_THAN` - KHONG gom than cua `handlers`. Ban
+    `items()` cu cung khong gom (khoa 'handlers' khong qua `la_khoa_than`
+    va gia tri cua no khong lot nhanh nao), nen giu dung hanh vi do."""
+    spec = _KHOA_LOGIC.get(kind_of_stmt(stmt))
+    if spec is None:
+        return []
+    ra = []
+    for k in spec.split(","):
+        if k not in _KHOA_THAN:
+            continue
+        v = _o_hang(stmt, k)
+        if v is not None:
+            ra.append(int(v))
+    return ra
+
+
+def cac_nut_trong_ds(stmt: "i32") -> "list[TkvNode]":
+    """MOI node nam trong cac truong DANH SACH NODE, gop phang.
+
+    Khong tra cap `(ten, danh sach)`: do la `list[(str, list[TkvNode])]`,
+    lai mot kieu long. Cho dung duy nhat (`closures`) khong can ten
+    truong, chi duyet qua tung node."""
+    spec = _KHOA_LOGIC.get(kind_of_stmt(stmt))
+    if spec is None:
+        return []
+    ra = []
+    for k in spec.split(","):
+        if k not in _KHOA_DS:
+            continue
+        if _KHOA_DS[k] not in _MEMO_DS_DUOC or _KHOA_DS[k] == "byte_literal":
+            continue
+        _nguon_lap2 = lay_ds_nut(stmt, k)
+        if not _nguon_lap2:
+            _nguon_lap2 = []
+        for x in _nguon_lap2:
+            ra.append(x)
+    return ra
+
+
+def set_(stmt: "i32", key: "str", value: "str") -> "i32":
+    """Ghi mot truong. Row la CHUOI bat bien -> tra ve BAN SAO (mot CHI SO
+    MOI); caller PHAI dung gia tri tra ve."""
+    if not isinstance(stmt, int):
+        # Xem chu thich cung loai o `with_src_line`.
+        raise TypeError(
+            "stmt_row.set_: nhan dict - moi cau lenh phai la CHI SO row")
+    if key == "src_line":
+        return with_src_line(stmt, int(value))
+    lay = _layout_of(kind_of_stmt(stmt))
+    if key not in lay:
+        raise KeyError("stmt_row.set_: kind '" + kind_of_stmt(stmt) + "' khong co truong '" + key + "'")
+    if key in _KHOA_THAN:
+        # Than la list Python SUA TAI CHO - ghi de ca danh sach la mot thao
+        # tac khac han, va chua kind nao can. Chan som con hon de no am tham
+        # ghi mot chi so vung sai.
+        raise KeyError("stmt_row.set_: truong than '" + key + "' sua TAI CHO qua body_of(), khong ghi de")
+    parts = _STMT_POOL[stmt].split("	")
+    j = lay.index(key) + 2
+    while len(parts) <= j:
+        parts.append(ABSENT)
+    parts[j] = esc(value)
+    return intern("	".join(parts))
+
+
+def dat_nut(stmt: "i32", key: "str", node: "TkvNode") -> "i32":
+    """Ghi mot node vao truong node, SUA TAI CHO row, tra ve chinh chi so cu.
+
+    Neu kind luu truong do bang VAN BAN (`rhs_text`) ma khong co `<key>` trong
+    layout, ghi vao memo cua `lay_nut` - do la noi duy nhat `lay_nut` tim
+    truoc van ban parse luoi, nen caller van nhan node moi o CA HAI pass."""
+    lay = _layout_of(kind_of_stmt(stmt))
+    gia_tri = VANG if node is None else str(node)
+    if key in lay:
+        parts = _STMT_POOL[stmt].split("\t")
+        j = lay.index(key) + 2
+        while len(parts) <= j:
+            parts.append(ABSENT)
+        parts[j] = gia_tri
+        _STMT_POOL[stmt] = "\t".join(parts)
+        return stmt
+    _MEMO_NUT[_khoa_memo(stmt, key)] = int(gia_tri)
+    return stmt
+
+
+def thay_nut(stmt: "i32", key: "str", node: "TkvNode") -> "i32":
+    """Thay mot truong dang VAN BAN thanh node index (tra ve chinh chi so cu).
+
+    Khong tao hang moi: pool sua tai cho duoc, va caller van giu cung mot chi
+    so nen khong can viet nguoc vao cha."""
+    return dat_nut(stmt, key, node)
+
+
+def dat_ds_nut(stmt: "i32", key: "str", nodes: "list[TkvNode]") -> "i32":
+    """Ghi mot DANH SACH node, sua tai cho row, tra ve chinh chi so cu.
+
+    Neu kind luu truong danh sach bang van ban (`<key>_text`) thi ghi vao memo
+    cua `_lay_ds_so`."""
+    lay = _layout_of(kind_of_stmt(stmt))
+    van = ",".join([VANG if x is None else str(x) for x in nodes])
+    if key in lay:
+        parts = _STMT_POOL[stmt].split("\t")
+        j = lay.index(key) + 2
+        while len(parts) <= j:
+            parts.append(ABSENT)
+        parts[j] = van
+        _STMT_POOL[stmt] = "\t".join(parts)
+        return stmt
+    _MEMO_DS[_khoa_memo(stmt, key)] = van
+    return stmt
+
+
+# ---------------------------------------------------------------------------
+# Truy cap theo TEN cho kind 'assign_scalar' (pilot P8 Task 3).
+# ---------------------------------------------------------------------------
+
+def assign_name(stmt: "i32") -> "str":
+    """Ten bien duoc gan."""
+    if not is_row(stmt):
+        raise TypeError(
+            "stmt_row: nhan dict - moi cau lenh phai la CHI SO row")
+    return field(stmt, 0)
+
+
+def assign_rhs_node(stmt: "i32") -> "TkvNode":
+    """Node bieu thuc ve phai.
+
+    Row luu ve phai bang VAN BAN nen phai `parse_expr` lai; danh tinh on
+    dinh do `get()` nho dem theo `(chi so, ten truong)`.
+
+    PHAI di qua `get()`, KHONG duoc tu goi `parse_expr`: mot duong parse thu
+    hai khong qua nho dem se sinh tuple khac cho CUNG mot lan xuat hien, va
+    `nid()` lai lech - dung loi da lam pilot 2026-09-08 vo ("bien
+    '__idiv3_a' chua duoc khai bao"), va no tai dien ngay o lan chay dau cua
+    3b-2 vi ham nay con duong rieng."""
+    return lay_nut(stmt, "rhs_node")

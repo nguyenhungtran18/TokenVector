@@ -1,0 +1,20 @@
+"""Module PHU (khoang trong ngon ngu #3 - import module TokenVector khac,
+2026-07-28) - dinh nghia 1 record + 1 ham thuan, duoc sample_import_main.tkv
+import qua '__tkv_import__'. Van la Python HOP LE that (chay duoc doc lap
+duoi CPython that khi doi chieu, khong can file kia)."""
+
+
+class Rect:
+    w: "f32"
+    h: "f32"
+
+    def __init__(self, w, h):
+        self.w = w
+        self.h = h
+
+    def area(self) -> "f32":
+        return self.w * self.h
+
+
+def double_it(x: "f32") -> "f32":
+    return x * 2.0

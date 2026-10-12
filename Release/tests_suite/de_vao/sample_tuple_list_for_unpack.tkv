@@ -1,0 +1,14 @@
+def compute(n: "i32") -> "i32":
+    a = []
+    b = []
+    for i in range(n):
+        a.append(i)
+        b.append(i * 3)
+    z1: "list[(i32,i32)]" = zip(a, b)
+    total = 0
+    for x, y in z1:
+        total = total + x * y
+    z2: "list[(i32,i32)]" = zip(a, b)
+    for p in z2:
+        total = total + p[0] - p[1]
+    return total

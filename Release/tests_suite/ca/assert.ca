@@ -1,0 +1,8 @@
+tests_suite\de_vao\sample_assert.tkv	check_positive	0	5	10\n
+tests_suite\de_vao\sample_assert.tkv	check_positive	0	1	2\n
+tests_suite\de_vao\sample_assert.tkv	check_positive_msg	0	5	15\n
+tests_suite\de_vao\sample_assert.tkv	check_range	0	5010	5\n
+tests_suite\de_vao\sample_assert.tkv	check_positive	3762504530	-5	
+tests_suite\de_vao\sample_assert.tkv	check_positive	3762504530	0	
+tests_suite\de_vao\sample_assert.tkv	check_positive_msg	3762504530	-1	
+tests_suite\de_vao\sample_assert.tkv	check_range	3762504530	50010	

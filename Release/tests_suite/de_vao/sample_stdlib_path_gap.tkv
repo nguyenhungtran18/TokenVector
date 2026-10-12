@@ -1,0 +1,4 @@
+def compute_abspath(p: "str") -> "str":
+    return path_abspath(p)
+def compute_normpath(p: "str") -> "str":
+    return path_normpath(p)

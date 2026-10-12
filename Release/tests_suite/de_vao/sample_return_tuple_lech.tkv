@@ -1,0 +1,15 @@
+# Ca LECH tach RIENG mot file: bien dich mot entry nao cung dich CA FILE,
+# nen de chung voi cac ca hop le thi phep tu choi (dung) lam hong luon
+# phep kiem "ca hop le van chay". Da vap that khi viet cong nay.
+#
+# REPRO 9 dong cua bug sinh ma sai am tham - xem
+# test/verify/return_tuple_container_test.py.
+
+
+def tra_lech() -> "(list[str],list[i32])":
+    ds = ["a", "b"]
+    so = []
+    so.append(7)
+    return ds, so
+
+

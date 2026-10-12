@@ -1,0 +1,9 @@
+def compute(n: "i32") -> "i32":
+    d = {}
+    for i in range(n):
+        d[i] = i * 2
+    items_list = d.items()
+    total = 0
+    for k, v in items_list:
+        total = total + k * v
+    return total + len(items_list)

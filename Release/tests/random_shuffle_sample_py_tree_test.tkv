@@ -1,0 +1,39 @@
+def check(name: "str", got: "str", want: "str") -> "i32":
+    if got == want:
+        print("PASS " + name)
+        return 1
+    print("FAIL " + name + " got=" + got + " want=" + want)
+    return 0
+
+
+def sum_list(lst: "list[i32]") -> "i32":
+    total = 0
+    for x in lst:
+        total = total + x
+    return total
+
+
+def run() -> "i32":
+    tested = 0
+    total = 0
+
+    seed(7)
+    nums = [1, 2, 3, 4, 5]
+    before_sum = sum_list(nums)
+    shuffle(nums)
+    after_sum = sum_list(nums)
+    tested = tested + 1
+    total = total + check("shuffle_preserves_sum", str(after_sum), str(before_sum))
+    tested = tested + 1
+    total = total + check("shuffle_preserves_len", str(len(nums)), "5")
+
+    seed(7)
+    src = [10, 20, 30, 40, 50]
+    picked = sample(src, 3)
+    tested = tested + 1
+    total = total + check("sample_len", str(len(picked)), "3")
+    tested = tested + 1
+    total = total + check("sample_source_unchanged", str(sum_list(src)), "150")
+
+    print("SUMMARY " + str(total) + "/" + str(tested))
+    return 0

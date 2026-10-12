@@ -1,0 +1,241 @@
+# -*- coding: utf-8 -*-
+"""'"...%s..." % (a, b)' / '"...%s..." % x' (Phase 1.2, 2026-08-11) -
+macro TEXT-LEVEL, CUNG co che voi f-string/.format() (xem fstring.py,
+string_format.py): viet lai THANH bieu thuc noi chuoi truoc khi dong
+duoc parse binh thuong.
+
+GIOI HAN DA BIET (co chu dich, hep hon .format() vi toan tu '%' KHONG co
+dau '(' ro rang danh dau diem KET THUC ve phia PHAI nhu '.format(...)' -
+kho xac dinh bien toan-cuc-cua-bieu-thuc an toan o muc van ban):
+- Ve phai '%' CHI nhan 2 dang: 1 tuple ngoac don '(a, b, ...)' (dung lai
+  _split_top_level_args cua string_format.py), HOAC 1 IDENT DON (1 bien
+  don, khong bieu thuc phuc tap vd 'a+b' hay 'obj.field') - giong dung
+  gioi han '{ident}' don cua fstring.py, tranh doan sai bien phai cua
+  bieu thuc dai hon (vd '"%s" % x + "!"' - chi 'x' duoc coi la toan hang,
+  '+ "!"' o NGOAI, giu nguyen ngu nghia).
+- Conversion code ho tro: '%s' (str(arg)), '%d' (str(arg) - so nguyen da
+  tu dinh dang dung qua str()), '%f'/'%.Nf' (fmt_float(arg, N), N mac
+  dinh 6 giong Python neu khong ghi ro, giong '%f' mac dinh 6 chu so
+  thap phan). KHONG ho tro '%r'/'%x'/'%o'/day du align/padding cua
+  printf-style day du - dong khong khop se BI BO QUA (giu nguyen '%' de
+  parser sau bao loi ro rang, khong am tham sinh sai).
+- '%%' trong chuoi -> ky tu '%' literal (escape chuan cua Python)."""
+import re
+
+from il_dispatch import register_macro_expander
+from il_features.string_format import _split_top_level_args
+
+__tkv_import__ = "il_dispatch"
+
+_PERCENT_RE = re.compile(r'%%|%(\.(\d+))?([sdf])')
+# GIU dang SET, khong doi sang hang CHUOI: cho goi truyen ca chuoi RONG
+# (`prev = line[i-1] if i > 0 else ''`), ma `'' not in "abc"` la False
+# trong khi `'' not in set('abc')` la True - doi se LAT NGUOC hanh vi cho
+# f-string o dau dong.
+_IDENT_CH: "set[str]" = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '_'}
+
+
+def _percent_content_to_concat_expr(content: "str", pct_args: "list[str]") -> "str":
+    """'content' la noi dung ben trong dau nhay (chua '%s'/'%%'/...),
+    'pct_args' la danh sach bieu thuc (dang chuoi) lay tu ve phai '%'.
+    Tra ve bieu thuc noi chuoi tuong duong."""
+    parts = []
+    idx = 0
+    pos = 0
+    for m in _PERCENT_RE.finditer(content):
+        literal = content[pos:m.start()]
+        if literal:
+            parts.append(f'"{literal}"')
+        pos = m.end()
+        if m.group(0) == '%%':
+            parts.append('"%"')
+            continue
+        if idx >= len(pct_args):
+            raise SyntaxError(
+                f"il_codegen: '%' string-formatting thieu tham so cho placeholder thu {idx + 1} "
+                f"(chi truyen {len(pct_args)} tham so)")
+        arg_expr = pct_args[idx]
+        idx += 1
+        conv = m.group(3)
+        if conv == 'f':
+            precision = m.group(2) or '6'
+            parts.append(f'fmt_float({arg_expr}, {precision})')
+        else:
+            parts.append(f'str({arg_expr})')
+    tail = content[pos:]
+    if tail:
+        parts.append(f'"{tail}"')
+    if not parts:
+        return '""'
+    return '(' + ' + '.join(parts) + ')'
+
+
+def _capture_percent_rhs(line: "str", i: "i32") -> "(list[str],i32)":
+    """'i' tro ngay SAU ky tu '%' (da bo qua khoang trang). Tra ve
+    (danh_sach_bieu_thuc, chi_so_ket_thuc) neu nhan dang duoc 1 trong 2
+    dang ho tro (tuple ngoac don hoac 1 ident don), None neu khong (macro
+    bo qua dong, khong dam doan)."""
+    n = len(line)
+    if i < n and line[i] == '(':
+        depth = 0
+        quote = None
+        j = i
+        while j < n:
+            ch = line[j]
+            if quote:
+                if ch == quote:
+                    quote = None
+            elif ch in ('"', "'"):
+                quote = ch
+            elif ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+                if depth == 0:
+                    args_str = line[i + 1:j]
+                    positional, _kwargs = _split_top_level_args(args_str)
+                    return positional, j + 1
+            j += 1
+        return None
+    j = i
+    while j < n and line[j] in _IDENT_CH:
+        j += 1
+    if j == i:
+        return None
+    ident = line[i:j]
+    if not ident[0].isalpha() and ident[0] != '_':
+        return None
+    # 2026-09-26: lay CA chuoi hau to cua ten - loi goi/chi so/thuoc tinh
+    # ('"%d" % nid(stmt)') - truoc chi lay 'nid', de lai '(stmt)' ngoai le.
+    while j < n:
+        if line[j] == '(' or line[j] == '[':
+            k = _cuoi_ngoac(line, j)
+            if k < 0:
+                return None
+            j = k + 1
+        elif line[j] == '.' and j + 1 < n and line[j + 1] in _IDENT_CH:
+            j += 1
+            while j < n and line[j] in _IDENT_CH:
+                j += 1
+        else:
+            break
+    return [line[i:j]], j
+
+
+def _cuoi_ngoac(line: "str", mo: "i32") -> "i32":
+    """Chi so ngoac DONG khop voi ngoac mo tai `mo` (bo qua chuoi); -1 neu khong."""
+    sau = 0
+    nhay = ''
+    j = mo
+    while j < len(line):
+        c = line[j]
+        if nhay != '':
+            if c == chr(92):
+                j += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[':
+            sau += 1
+        elif c == ')' or c == ']':
+            sau -= 1
+            if sau == 0:
+                return j
+        j += 1
+    return -1
+
+
+def _tim_nhay_dong_pct(line: "str", q: "str", tu: "i32") -> "i32":
+    """Vi tri nhay dong chuoi tu `tu`, bo qua ky tu thoat; -1 neu khong co."""
+    i = tu
+    while i < len(line):
+        if line[i] == chr(92):
+            i += 2
+            continue
+        if line[i] == q:
+            return i
+        i += 1
+    return -1
+
+
+def _nhay_don_sang_kep(t: "str") -> "str":
+    """Than chuoi nhay DON -> than dung duoc trong nhay KEP: bo thoat cua
+    nhay don, thoat nhay kep tran."""
+    ra = []
+    i = 0
+    while i < len(t):
+        c = t[i]
+        if c == chr(92) and i + 1 < len(t):
+            if t[i + 1] == "'":
+                ra.append("'")
+            else:
+                ra.append(c)
+                ra.append(t[i + 1])
+            i += 2
+            continue
+        if c == '"':
+            ra.append(chr(92))
+        ra.append(c)
+        i += 1
+    return ''.join(ra)
+
+
+def try_expand_percent_format(line: "str") -> "str":
+    """MACRO_EXPANDERS entry - tim '"literal" % (args_hoac_1_bien)' va
+    thay THE bang bieu thuc noi chuoi. Quet CO TRANG THAI CHUOI (giong
+    fstring.py/string_format.py); tra None neu dong khong co pattern
+    nay (giu nguyen, khong dam doan khi cu phap ve phai qua phuc tap)."""
+    if '%' not in line:
+        return None
+    out = []
+    i = 0
+    n = len(line)
+    changed = False
+    while i < n:
+        ch = line[i]
+        if line.startswith('"""', i) or line.startswith("'''", i):
+            out.append(line[i:i + 3])
+            i += 3
+            continue
+        if ch == '"' or ch == "'":
+            # 2026-09-26: ca chuoi NHAY DON ('__comp%d' % n), va tim nhay dong
+            # BO QUA ky tu thoat (find() tran cat sai tai \" / ').
+            end = _tim_nhay_dong_pct(line, ch, i + 1)
+            if end < 0:
+                out.append(line[i:])
+                break
+            content = line[i + 1:end]
+            if ch == "'":
+                content = _nhay_don_sang_kep(content)
+            j = end + 1
+            while j < n and line[j] == ' ':
+                j += 1
+            if j < n and line[j] == '%' and not line.startswith('%=', j) and not line.startswith('%%', j):
+                k = j + 1
+                while k < n and line[k] == ' ':
+                    k += 1
+                captured = _capture_percent_rhs(line, k)
+                if captured is not None:
+                    pct_args, rhs_end = captured
+                    out.append(_percent_content_to_concat_expr(content, pct_args))
+                    i = rhs_end
+                    changed = True
+                    continue
+            out.append(line[i:end + 1])
+            i = end + 1
+            continue
+        out.append(ch)
+        i += 1
+    if not changed:
+        return None
+    return ''.join(out)
+
+
+def bootstrap_string_percent_format(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_macro_expander(reg, 'string_percent_format', try_expand_percent_format)

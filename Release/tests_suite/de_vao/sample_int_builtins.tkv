@@ -1,0 +1,111 @@
+def fact(n: "int") -> "int":
+    total = 1
+    i = 1
+    while i <= n:
+        total = total * i
+        i = i + 1
+    return total
+
+
+def build(n: "i32") -> "list[int]":
+    xs = []
+    i = 1
+    while i <= n:
+        xs.append(fact(i))
+        i = i + 1
+    return xs
+
+
+def sum_facts(n: "i32") -> "int":
+    xs = build(n)
+    return sum(xs)
+
+
+def max_facts(n: "i32") -> "int":
+    xs = build(n)
+    return max(xs)
+
+
+def min_facts(n: "i32") -> "int":
+    xs = build(n)
+    return min(xs)
+
+
+def abs_neg_fact(n: "int") -> "int":
+    v = fact(n)
+    return abs(0 - v)
+
+
+def abs_pos_fact(n: "int") -> "int":
+    return abs(fact(n))
+
+
+def parse_str(s: "str") -> "int":
+    v = int(s)
+    return v + 1
+
+
+def parse_float(s: "str") -> "int":
+    x = float(s)
+    return int(x)
+
+
+def sum_rep(n: "i32") -> "int":
+    xs = []
+    i = 0
+    while i < 5:
+        xs.append(fact(n))
+        i = i + 1
+    return sum(xs)
+
+
+def anyall(n: "int") -> "int":
+    xs = []
+    xs.append(fact(n))
+    xs.append(fact(n) - fact(n))
+    r = 0
+    if any(xs):
+        r = r + 1
+    if all(xs):
+        r = r + 2
+    return r
+
+
+def minmax2(n: "int") -> "int":
+    a = fact(n)
+    b = fact(n) + 1
+    return max(a, b) - min(a, b)
+
+
+def small_i32(n: "i32") -> "i32":
+    xs = []
+    xs.append(n)
+    xs.append(n + 2)
+    return sum(xs) + max(xs) + min(xs) + abs(0 - n) + int("7")
+
+
+def run(what: "str", n: "str") -> "str":
+    if what == "parse":
+        return str(parse_str(n))
+    if what == "parsefloat":
+        return str(parse_float(n))
+    k = int(n)
+    if what == "sum":
+        return str(sum_facts(k))
+    if what == "max":
+        return str(max_facts(k))
+    if what == "min":
+        return str(min_facts(k))
+    if what == "absneg":
+        return str(abs_neg_fact(k))
+    if what == "abspos":
+        return str(abs_pos_fact(k))
+    if what == "minmax2":
+        return str(minmax2(k))
+    if what == "sumrep":
+        return str(sum_rep(k))
+    if what == "anyall":
+        return str(anyall(k))
+    if what == "i32":
+        return str(small_i32(k))
+    return "?"

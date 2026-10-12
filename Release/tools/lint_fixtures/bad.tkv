@@ -1,0 +1,28 @@
+# -*- coding: utf-8 -*-
+# Fixture CO LOI - dung cho tools\lint_rules_gate.ps1. KHONG bien dich duoc,
+# va KHONG duoc dat trong Testkit/ (gate do build moi file *_test.tkv).
+#
+# Ky vong: 8 canh bao - dong 3 (local annotate), 6+7 (fmt_float), 8+9+10 (slice
+# am), 13 (except RuntimeError), 15 (= xs.pop()).
+# Dong 8 `f3 = fmt_float(a, 2)` va dong 11/12 KHONG duoc bao (bat loi sai).
+
+
+def bad(xs: "list[f64]", n: "i32") -> "i32":
+    k: "i32" = 1
+    a = xs[0]
+    b = xs[1]
+    f1 = fmt_float(7.0, 2)
+    f2 = fmt_float(a + b, 2)
+    f3 = fmt_float(a, 2)
+    y1 = xs[::-1]
+    y2 = xs[1:-1]
+    y3 = xs[2::-1]
+    p1 = xs[0:2]
+    p2 = xs[1:5:2]
+    try:
+        v = 0
+    except RuntimeError:
+        v = 1
+    z = xs.pop()
+    q = str(a + b)
+    return k + f1 + y1

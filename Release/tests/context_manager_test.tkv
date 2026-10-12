@@ -1,0 +1,73 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class Res:
+    log: "str"
+
+    def __enter__(self) -> "Res":
+        self.log = self.log + "enter;"
+        return self
+
+    def __exit__(self) -> "i32":
+        self.log = self.log + "exit;"
+        return 0
+
+
+class Box:
+    n: "i32"
+
+    def __enter__(self) -> "i32":
+        return self.n + 100
+
+    def __exit__(self) -> "i32":
+        return 0
+
+
+def order_test() -> "str":
+    with Res("") as r:
+        r.log = r.log + "body;"
+    return r.log
+
+
+def order_test_var() -> "str":
+    r2 = Res("")
+    with r2 as r3:
+        r3.log = r3.log + "body;"
+    return r2.log
+
+
+def box_return_type_test() -> "i32":
+    result = 0
+    with Box(5) as v:
+        result = v + 1
+    return result
+
+
+def early_return_test(r: "Res") -> "str":
+    with r as v:
+        v.log = v.log + "before_return;"
+        return "early"
+    return "after"
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("with_ctx_order", order_test(), "enter;body;exit;")
+
+    tested = tested + 1
+    total = total + check("with_ctx_existing_var", order_test_var(), "enter;body;exit;")
+
+    tested = tested + 1
+    total = total + check("with_ctx_enter_return_type", str(box_return_type_test()), "106")
+
+    r = Res("")
+    ret_val = early_return_test(r)
+    tested = tested + 1
+    total = total + check("with_ctx_early_return_value", ret_val, "early")
+    tested = tested + 1
+    total = total + check("with_ctx_early_return_exit_ran", r.log, "enter;before_return;exit;")
+
+    return test_summary("context_manager_test", total, tested)

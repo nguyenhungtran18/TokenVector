@@ -1,0 +1,36 @@
+
+__tkv_extern_assembly__ = [("ItemApi", None, None)]
+__tkv_extern_class__ = [
+    {
+        "name": "Item", "assembly": "ItemApi", "class": "Item",
+        "ctor": ["i32"],
+        "methods": [
+            {"name": "getValue", "params": [], "returns": "i32"},
+        ],
+    },
+    {
+        "name": "ItemApi", "assembly": "ItemApi", "class": "ItemApi",
+        "ctor": [],
+        "methods": [],
+        "static_methods": [
+            {"name": "MakeItems", "params": ["i32"], "returns": "array[Item]"},
+        ],
+    },
+]
+
+
+def main() -> "i32":
+    items = ItemApi.MakeItems(3)
+    id0_before = items[0].getValue()
+    id1_before = items[1].getValue()
+    id2_before = items[2].getValue()
+    tmp = items[0]
+    items[0] = items[1]
+    items[1] = tmp
+    print(items[0].getValue())
+    print(items[1].getValue())
+    print(items[2].getValue())
+    ok = (items[0].getValue() == id1_before) and (items[1].getValue() == id0_before) and (items[2].getValue() == id2_before)
+    if ok:
+        return 0
+    return 1

@@ -1,0 +1,271 @@
+# -*- coding: utf-8 -*-
+"""Khoi vector 8 lane f32 (P1, 2026-09-23) - SIMD thu cong bang struct.
+
+PORT tu compiler/il_features/vector_block.tkv (2026-10-06). Doi ten de
+tranh trung sau gop (trung ten ham = loi build): `ensure_class` ->
+`ensure_class_vectorblock` (tkvstr.tkv da co `ensure_class`),
+`scratch_locals` -> `scratch_locals_vectorblock` (int_type.tkv da co),
+`register_vector_dtype` giu nguyen (chua trung) va goi trong
+bootstrap_vector_block nhu complex_type lam.
+
+`_literal_int`: khong dung isinstance (chua dang ky) va int(s, 0) (chi
+ho tro base 2/8/10/16) - dung ekind/ea_str + kiem chu so + int(s).
+`_push_lanewise`: khong dung `for arg, op in zip(...)` (tuple-unpack
+trong for) - dung vong while theo chi so.
+"""
+
+from il_core import IL_SCALAR
+from il_dispatch import register_expr_builtin
+from expr_row import ea_str, ekind
+from tkv_types import TypeAnn
+
+__tkv_import__ = "il_dispatch"
+
+VEC_W = 8
+VEC_DTYPE = 'f32x8'
+VEC_CLASS = 'VBuf8'
+VEC_LOCAL = '__vbuf8'
+
+
+def register_vectorblock_dtype():
+    """Goi luc bootstrap - dang ky 'f32x8' vao bang kieu IL dung chung."""
+    IL_SCALAR[VEC_DTYPE] = f'valuetype {VEC_CLASS}'
+
+
+def scratch_locals_vectorblock() -> "list[(str,str)]":
+    """(ten, dtype) local nhap - GIU LAI de tai lieu nhung KHONG goi vo
+    dieu kien: class VBuf8 chi duoc phat khi co v_* that su (ensure lazily),
+    nen khai bao local vo dieu kien se tao .locals dan toi class chua phat
+    -> ilasm hong. Dung _temps_vbuf ben duoi (declare-on-use qua temps_fn)."""
+    return [(VEC_LOCAL, VEC_DTYPE)]
+
+
+def _declare_vbuf(ctx: "WalkCtx"):
+    if VEC_LOCAL not in ctx.declared_names:
+        ctx.declared_names.add(VEC_LOCAL)
+        ta = TypeAnn('f32x8', None)
+        ctx.locals_decl.append((VEC_LOCAL, ta))
+        ctx.infer_scope.set(VEC_LOCAL, ta)
+
+
+def _temps_vbuf(node: "TkvNode", ctx: "WalkCtx"):
+    """temps_fn cho moi builtin v_*: khai bao __vbuf8 khi ham that su dung
+    khoi vector (declare-on-use, giong cach find_first_append_dtype quet
+    .add cho set/list nhung don gian hon vi khong can suy kieu)."""
+    _declare_vbuf(ctx)
+
+
+def ensure_class_vectorblock(ctx: "Ctx"):
+    """Chen class VBuf8 vao assembly MOT LAN (khuon int_type.ensure_class_int)."""
+    emitted = ctx.emitted_types
+    if emitted is None or VEC_CLASS in emitted:
+        return
+    emitted.add(VEC_CLASS)
+    vbuf_il = [f'.class private auto ansi sequential {VEC_CLASS}', '       extends [mscorlib]System.ValueType', '{', '  .field public float32 f0', '  .field public float32 f1', '  .field public float32 f2', '  .field public float32 f3', '  .field public float32 f4', '  .field public float32 f5', '  .field public float32 f6', '  .field public float32 f7', '}']
+    ctx.extra_classes.append(vbuf_il)
+
+
+def _local_idx_vectorblock(scope: "Scope") -> "i32":
+    """Chi so IL cua dem xuong __vbuf8 trong ham dang bien dich."""
+    if VEC_LOCAL not in scope:
+        raise SyntaxError(
+            f'il_codegen: khoi vector ({VEC_DTYPE}) - local "{VEC_LOCAL}" chua '
+            f'duoc khai bao trong ham nay (co the ham nay duoc sinh truc tiep '
+            f'boi 1 duong khong qua _first_pass_collect_locals).')
+    return scope.tra(VEC_LOCAL).idx
+
+
+def _vb_addr(p_node: "TkvNode", ofs_node: "TkvNode", lane_byte_off: "i32", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Day 'native int' cua p + ofs + lane_byte_off len stack.
+
+    `ofs` tinh theo BYTE - giong het read_f32/write_f32/read_i32/... o
+    nativebuf.tkv."""
+    ctx.compile_expr(p_node, scope, out, 'i64', ctx)
+    _ofs_native(ofs_node, scope, out, ctx)
+    out.append('    add')
+    if lane_byte_off:
+        out.append(f'    ldc.i4.s {lane_byte_off}')
+        out.append('    conv.i8')
+        out.append('    add')
+    out.append('    conv.i')
+
+
+def _ofs_native(ofs_node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Offset byte len dang `native int` (i64) - dung thang, KHONG hep ve i32."""
+    ctx.compile_expr(ofs_node, scope, out, 'i64', ctx)
+
+
+def _ldflda(idx: "i32", lane: "i32", out: "list[str]"):
+    """Day dia chi QUAN LY cua lane -> float32&."""
+    out.append(f'    ldloca.s {idx}')
+    out.append(f'    ldflda float32 {VEC_CLASS}::f{lane}')
+
+
+def push_v_load8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_load8(p, off)' - nap 8 lane (32 byte) tu dia chi native, `off`
+    tinh theo BYTE nhu read_f32/write_f32, tra lane 0."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: v_load8(p, off) can dung 2 tham so")
+    ensure_class_vectorblock(ctx)
+    idx = _local_idx_vectorblock(scope)
+    for lane in range(VEC_W):
+        # [VBuf8&] (cho stfld) + dia chi native -> ldind.r4 -> stfld
+        out.append(f'    ldloca.s {idx}')
+        _vb_addr(args[0], args[1], lane * 4, scope, out, ctx)
+        out.append('    ldind.r4')
+        out.append(f'    stfld float32 {VEC_CLASS}::f{lane}')
+    out.append(f'    ldloc.s {idx}')
+    out.append(f'    ldfld float32 {VEC_CLASS}::f0')
+
+
+def push_v_store8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_store8(p, off)' - ghi 8 lane (32 byte) xuong dia chi native,
+    `off` tinh theo BYTE, tra 0 de goi dang lenh doc lap."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: v_store8(p, off) can dung 2 tham so")
+    ensure_class_vectorblock(ctx)
+    idx = _local_idx_vectorblock(scope)
+    for lane in range(VEC_W):
+        # [dia chi native] roi moi den [dia chi field] de lay gia tri:
+        # stind.r4 pop value truoc, dia chi native o duoi.
+        _vb_addr(args[0], args[1], lane * 4, scope, out, ctx)
+        _ldflda(idx, lane, out)
+        out.append('    ldind.r4')
+        out.append('    stind.r4')
+    out.append('    ldc.i8 0')
+
+
+def _push_lanewise(args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx: "Ctx", ops: "list[str]", name: "str"):
+    """Chung cho v_add8/v_sub8/v_mul8/v_mul8_add8: moi lane = lane (op0 a0) (op1 a1)...
+
+    Toan hang va lenh phai XEN KE nhau (compile a0 roi `op0`, roi a1 roi
+    `op1`), KHONG day het toan hang truoc roi moi ap lenh. `dup` la BAT
+    BUOC: `ldflda` day dia chi QUAN LY len stack roi `ldind.r4` POP no -
+    nhung `stind.r4` o cuoi lai can dia chi do de ghi nguoc.
+    """
+    if len(args) != len(ops):
+        raise SyntaxError(
+            f"il_codegen: {name} - so tham so ({len(args)}) khong khop so phep "
+            f"({len(ops)})")
+    ensure_class_vectorblock(ctx)
+    idx = _local_idx_vectorblock(scope)
+    for lane in range(VEC_W):
+        _ldflda(idx, lane, out)
+        out.append('    dup')
+        out.append('    ldind.r4')
+        _j = 0
+        while _j < len(args):
+            ctx.compile_expr(args[_j], scope, out, 'f32', ctx)
+            out.append('    ' + ops[_j])
+            _j = _j + 1
+        out.append('    stind.r4')
+    out.append(f'    ldloc.s {idx}')
+    out.append(f'    ldfld float32 {VEC_CLASS}::f0')
+
+
+def push_v_add8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_add8(x)' - moi lane = lane + x."""
+    _push_lanewise(args, scope, out, ctx, ['add'], 'v_add8(x)')
+
+
+def push_v_sub8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_sub8(x)' - moi lane = lane - x."""
+    _push_lanewise(args, scope, out, ctx, ['sub'], 'v_sub8(x)')
+
+
+def push_v_mul8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_mul8(x)' - moi lane = lane * x."""
+    _push_lanewise(args, scope, out, ctx, ['mul'], 'v_mul8(x)')
+
+
+def push_v_fill8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_fill8(x)' - nap ca 8 lane = x (broadcast), tra lane 0."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: v_fill8(x) can dung 1 tham so")
+    ensure_class_vectorblock(ctx)
+    idx = _local_idx_vectorblock(scope)
+    for lane in range(VEC_W):
+        _ldflda(idx, lane, out)
+        ctx.compile_expr(args[0], scope, out, 'f32', ctx)
+        out.append('    stind.r4')
+    out.append(f'    ldloc.s {idx}')
+    out.append(f'    ldfld float32 {VEC_CLASS}::f0')
+
+
+def push_v_mul8_add8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_mul8_add8(x, y)' - moi lane = lane * x + y. Gop 2 phep trong
+    1 vong ghi field (v_mul8 roi v_add8 se ghi 2 lan)."""
+    _push_lanewise(args, scope, out, ctx, ['mul', 'add'], 'v_mul8_add8(x, y)')
+
+
+def push_v_hsum(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_hsum()' - tong 8 lane trong dem xuong (dung o duoi khoi).
+
+    `ldfld` POP 1 phan tu (doi tuong) nen phai day `ldloc` LAI truoc
+    MOI `ldfld`."""
+    if len(args) != 0:
+        raise SyntaxError("il_codegen: v_hsum() khong co tham so")
+    ensure_class_vectorblock(ctx)
+    idx = _local_idx_vectorblock(scope)
+    for lane in range(VEC_W):
+        out.append(f'    ldloc.s {idx}')
+        out.append(f'    ldfld float32 {VEC_CLASS}::f{lane}')
+        if lane > 0:
+            out.append('    add')
+
+
+def push_v_lane(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_lane(i)' - rut lane i (CHI HANG SO 0..7)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: v_lane(i) can dung 1 tham so")
+    n = _literal_int(args[0])
+    if n < 0 or n >= VEC_W:
+        hi = VEC_W - 1
+        raise SyntaxError(
+            f"il_codegen: v_lane(i) - chi nhan HANG SO trong 0..{hi}")
+    ensure_class_vectorblock(ctx)
+    out.append('    ldloc ' + str(_local_idx_vectorblock(scope)))
+    out.append(f'    ldfld float32 {VEC_CLASS}::f{n}')
+
+
+def _literal_int(node: "TkvNode") -> "i32":
+    """Gia tri int cua 1 node 'num' thap phan, -1 neu khong phai.
+
+    KHONG dung None lam sentinel: `n is None` voi n kieu so CRASH luc chay
+    (TkvInt.Cmp khong nhan null - probe 2026-10-07). Lane hop le la 0..7
+    nen -1 lam sentinel an toan."""
+    if ekind(node) != 'num':
+        return -1
+    raw = ea_str(node)
+    txt = raw.strip()
+    neg = False
+    if len(txt) > 0 and txt[0] == '-':
+        neg = True
+        txt = txt[1:]
+    if txt == "":
+        return -1
+    for ch in txt:
+        if ch < '0' or ch > '9':
+            return -1
+    v = int(txt)
+    if neg:
+        return 0 - v
+    return v
+
+
+def bootstrap_vector_block(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_vectorblock_dtype()
+    register_expr_builtin(reg, 'v_load8', push_v_load8, 'f32', temps_fn=_temps_vbuf)
+    register_expr_builtin(reg, 'v_store8', push_v_store8, 'i64', temps_fn=_temps_vbuf)
+    register_expr_builtin(reg, 'v_fill8', push_v_fill8, 'f32', temps_fn=_temps_vbuf)
+    register_expr_builtin(reg, 'v_add8', push_v_add8, 'f32', temps_fn=_temps_vbuf)
+    register_expr_builtin(reg, 'v_sub8', push_v_sub8, 'f32', temps_fn=_temps_vbuf)
+    register_expr_builtin(reg, 'v_mul8', push_v_mul8, 'f32', temps_fn=_temps_vbuf)
+    register_expr_builtin(reg, 'v_mul8_add8', push_v_mul8_add8, 'f32', temps_fn=_temps_vbuf)
+    register_expr_builtin(reg, 'v_hsum', push_v_hsum, 'f32', temps_fn=_temps_vbuf)
+    register_expr_builtin(reg, 'v_lane', push_v_lane, 'f32', temps_fn=_temps_vbuf)

@@ -1,0 +1,57 @@
+# -*- coding: utf-8 -*-
+"""lst.pop() (2026-07-29) - soan nhap boi Gemini, dung khop chu ky method_call
+that ngay lan dau, khong bug. Trả về + xoá PHẦN TỬ CUỐI, KHÔNG dùng local ẩn
+hay 'dup' - lấy item TRƯỚC (list chưa đổi), rồi tính lại Count-1 (an toàn vì
+Count chưa đổi) để gọi RemoveAt() sau.
+
+lst.pop(i) (2026-09-26): i la BIEN hoac HANG (nap lai 3 lan, khong tac dung
+phu); chi so am tinh nhu Python (i + (i<0)*Count, khong re nhanh). List rong -> .NET nem ArgumentOutOfRangeException luc
+CHAY (khac IndexError cua Python) - khong tu vay."""
+
+
+__tkv_import__ = "il_dispatch"
+from expr_row import ea_str, ec_ds, ekind
+
+
+def _nap_chi_so(obj_name: "str", args: "list[TkvNode]", list_type: "str", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Chi so cua pop: Count-1 khi khong tham so; i + (i<0)*Count khi co."""
+    load_var_ref = ctx.load_var_ref
+    if len(args) == 0:
+        load_var_ref(obj_name, scope, out)
+        out.append(f'    callvirt instance int32 {list_type}::get_Count()')
+        out.append('    ldc.i4.1')
+        out.append('    sub')
+        return
+    ctx.compile_expr(args[0], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[0], scope, out, 'i32', ctx)
+    out.append('    ldc.i4.0')
+    out.append('    clt')
+    load_var_ref(obj_name, scope, out)
+    out.append(f'    callvirt instance int32 {list_type}::get_Count()')
+    out.append('    mul')
+    out.append('    add')
+
+
+def compile_list_method_pop(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    obj_name, args = ea_str(node), ec_ds(node)
+    if len(args) > 1:
+        raise SyntaxError("il_codegen: lst.pop() nhan toi da 1 tham so (chi so)")
+    if len(args) == 1 and ekind(args[0]) not in ('var', 'num', 'neg'):
+        raise SyntaxError("il_codegen: lst.pop(i) can i la bien hoac hang - gan bieu thuc ra bien truoc")
+    ta = scope.tra(obj_name).ta
+    if ta.shape_ten != 'list':
+        raise SyntaxError(f"il_codegen: '{obj_name}.pop()' can '{obj_name}' la list")
+    list_type = ctx.il_type_str(ta, (ctx.records if ctx is not None else None))
+    load_var_ref = ctx.load_var_ref
+
+    # Buoc 1: lay phan tu cuoi (idx=Count-1), list CHUA thay doi.
+    load_var_ref(obj_name, scope, out)
+    _nap_chi_so(obj_name, args, list_type, scope, out, ctx)
+    out.append(f'    callvirt instance !0 {list_type}::get_Item(int32)')
+
+    # Buoc 2: tinh lai idx (an toan vi list chua doi tu Buoc 1), RemoveAt.
+    load_var_ref(obj_name, scope, out)
+    _nap_chi_so(obj_name, args, list_type, scope, out, ctx)
+    out.append(f'    callvirt instance void {list_type}::RemoveAt(int32)')
+
+    ctx.widen_if_needed(ta.dtype, dtype, out)

@@ -1,0 +1,7 @@
+# Regression BUG-3 ca (b): local int-family gan lai float literal - PHAI
+# bao SyntaxError RO RANG, khong sinh 'ldc.i4 2.0' ilasm-invalid.
+def main() -> "str":
+    a = 1
+    a = 2.0
+    print(str(a))
+    return "ok"

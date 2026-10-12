@@ -1,0 +1,11 @@
+
+def main() -> "i32":
+    a = "a\\b"
+    b = "x\\\\y"
+    c = "end\\"
+    d = "\\start"
+    print(a)
+    print(b)
+    print(c)
+    print(d)
+    return len(a) + len(b) * 100 + len(c) * 10000 + len(d) * 1000000

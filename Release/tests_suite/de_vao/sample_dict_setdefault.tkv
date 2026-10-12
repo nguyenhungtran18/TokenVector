@@ -1,0 +1,7 @@
+def compute(k: "i32") -> "i32":
+    d = {}
+    d[1] = 10
+    d[2] = 20
+    a = d.setdefault(k, 99)
+    b = d.setdefault(k, 99)
+    return a + b + len(d)

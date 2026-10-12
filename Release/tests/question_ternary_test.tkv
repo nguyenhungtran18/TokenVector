@@ -1,0 +1,118 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO `c ? a : b` (2026-09-29) - dang tuong duong `a if c else b`.
+
+LY DO TON TAI: xuong so bien dich la **`ast.parse` cua CPython** (dung de rut
+record/chu ky/hang so module - xem `tkv_compile.tkv`'s `_parse_program_ast`).
+Python khong co toan tu `?:`, nen `c ? a : b` chet O DAY, truoc khi parser cua
+TokenVector kip chay. Cach sua: tien xu ly VAN BAN doi `X ? Y : Z` thanh
+`Y if X else Z` (Python-hop le, cung nghia) - xem
+`compiler/question_ternary.tkv`.
+
+KHONG doi so dong (ke ca noi dung doc o ben trong nhanh) - neu khong,
+`start_line` lech va loi bao sai choang. Cac truong hop kiem o day:
+- chuoi/comment chua `?` -> phai nguyen văn;
+- `:` long ben trong (dict literal, slice) -> phai tim dau `:` dung cap;
+- nhieu ternary tren 1 dong -> phai liet ke tu TRAI sang PHAI;
+- nhanh sai dung tien khoa `return`/`else` -> phai cat DUNG cho.
+
+Gia tri mong doi doi CHIEU viet tay, va doi chieu voi dang Python cung nghia.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def pick(flag: "bool") -> "i32":
+    return 1 if flag else 2
+
+
+def basic() -> "i32":
+    total = 0
+    c = 1
+    a = c ? 10 : 20
+    total += check("gan bien", str(a), "10")
+    c = 0
+    a = c ? 10 : 20
+    total += check("nhanh false", str(a), "20")
+    return total
+
+
+def in_return() -> "i32":
+    c = 1
+    return c ? 7 : 9
+
+
+def in_call_arg() -> "i32":
+    """`?` lam doi so cua ham - ca hai dau deu thu."""
+    c = 1
+    r = pick(c ? 1 : 0)
+    c = 0
+    s = pick(c ? 1 : 0)
+    return r * 10 + s
+
+
+def in_arithmetic() -> "i32":
+    c = 0
+    t = 10
+    r = t + (c ? 1 : 2)
+    return r
+
+
+def chained() -> "i32":
+    c1 = 0
+    c2 = 1
+    r = c1 ? 1 : c2 ? 2 : 3
+    return r
+
+
+def string_and_comment_untouched() -> "i32":
+    """`?` trong chuoi va comment KHONG phai toan tu - neu tien xu ly lam
+    sai, dong nay se bien doi hoac bao loi ngay luc bien dich."""
+    s = "a?b"
+    t = 1
+    r = t ? 4 : 5
+    return len(s) * 100 + r
+
+
+def colon_inside_branch() -> "i32":
+    """`:` trong dict literal/slice ben trong nhanh KHONG phai dau phan tach."""
+    c = 1
+    d = {"k": c ? 1 : 2}
+    xs = [1, 2, 3]
+    e = xs[1:2]
+    return d["k"] + len(e)
+
+
+def with_record() -> "i32":
+    """`?` trong file co record: `ast.parse` phai rut duoc record/chu ky -
+    neu tien xu ly lam hong van ban thi record se bien mat (va loi bao se
+    la 'khong co class ...')."""
+    b = Bag(0)
+    c = 1
+    b.add(c ? 3 : 4)
+    return b.n
+
+
+class Bag:
+    n: "i32"
+
+    def __init__(self, n: "i32") -> "i32":
+        self.n = n
+        return 0
+
+    def add(self, v: "i32") -> "i32":
+        self.n = self.n + v
+        return 0
+
+
+def run() -> "i32":
+    total = 0
+    total += basic()
+    total += check("trong return", str(in_return()), "7")
+    total += check("lam doi so cua ham (ca hai dau)", str(in_call_arg()), "12")
+    total += check("trong bieu thuc so", str(in_arithmetic()), "12")
+    total += check("nhieu ternary 1 dong", str(chained()), "2")
+    total += check("chuoi chua ? nguyen ven", str(string_and_comment_untouched()), "304")
+    total += check("colon long ben trong nhanh", str(colon_inside_branch()), "2")
+    total += check("record trong cung file", str(with_record()), "3")
+    # 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+    return test_summary("question_ternary_test", total, 9)

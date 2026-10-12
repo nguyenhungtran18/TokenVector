@@ -1,0 +1,25 @@
+"""Class dang record (huong tiep theo sau tuple/nhieu gia tri tra ve) -
+field-only, KHONG ke thua/method (gioi han co chu dich, xem STATUS.md).
+Sinh 1 CIL struct that (value type) + .ctor tu dong, doc/ghi field qua
+ldfld/stfld - xem il_codegen.py gen_record_types()."""
+
+
+class Point:
+    x: "f32"
+    y: "f32"
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+
+def make_point(a: "f32", b: "f32") -> "f32":
+    p = Point(a, b)
+    return p.x + p.y
+
+
+def move_point(a: "f32", b: "f32", dx: "f32", dy: "f32") -> "f32":
+    p = Point(a, b)
+    p.x = p.x + dx
+    p.y = p.y + dy
+    return p.x - p.y

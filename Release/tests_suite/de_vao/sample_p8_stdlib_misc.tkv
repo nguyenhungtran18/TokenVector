@@ -1,0 +1,22 @@
+# Bao phu cho lo 4 cua P8 Task 3/4.
+#
+# Dem tren 168 file mau: shutil_rmtree / datetime() / show_native_winforms_gui
+# deu co DUNG 0 mau. Cong IL chi BIEN DICH, khong chay - va khong test nao
+# quet test/*.tkv de thi hanh - nen ba ham duoi day chi ton tai de codegen
+# cua chung duoc di qua. KHONG ham nao trong file nay duoc goi tu dau.
+
+def dung_datetime() -> "str":
+    d = datetime()
+    return str(datetime_ticks(d))
+
+
+def dung_rmtree(duong_dan: "str") -> "str":
+    # THAM SO, khong phai hang so: khong the vo tinh xoa mot duong dan that
+    # neu ai do bien dich va chay file nay.
+    ok = shutil_rmtree(duong_dan)
+    return str(ok)
+
+
+def dung_win_gui(tieu_de: "str") -> "str":
+    w = show_native_winforms_gui(tieu_de)
+    return str(w)

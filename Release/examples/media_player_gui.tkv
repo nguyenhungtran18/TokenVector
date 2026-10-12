@@ -1,0 +1,130 @@
+# -*- coding: utf-8 -*-
+# ====================================================================================================
+# TOKENVECTOR NATIVE CROSS-PLATFORM MEDIA PLAYER GUI (media_player_gui.tkv)
+# Standard: TokenVector Native AOT (.tkv) - Compliant with TKV Compiler Experience Rules
+# ====================================================================================================
+
+__tkv_extern_assembly__ = [
+    "System.Windows.Forms",
+    ("System.Drawing", "B0 3F 5F 7F 11 D5 0A 3A", "4:0:0:0")
+]
+
+class DspStateRecord:
+    is_playing: "i32"
+    super_resolution_on: "i32"
+    virtual_bass_on: "i32"
+    stereo_widener_on: "i32"
+    spatial_3d_on: "i32"
+    vocal_remover_on: "i32"
+    master_volume_pct: "i32"
+    target_lufs_db: "f64"
+
+    def toggle_super_res(self) -> "i32":
+        if self.super_resolution_on == 1:
+            self.super_resolution_on = 0
+        else:
+            self.super_resolution_on = 1
+        return self.super_resolution_on
+
+    def toggle_virtual_bass(self) -> "i32":
+        if self.virtual_bass_on == 1:
+            self.virtual_bass_on = 0
+        else:
+            self.virtual_bass_on = 1
+        return self.virtual_bass_on
+
+    def toggle_spatial_3d(self) -> "i32":
+        if self.spatial_3d_on == 1:
+            self.spatial_3d_on = 0
+        else:
+            self.spatial_3d_on = 1
+        return self.spatial_3d_on
+
+    def toggle_vocal_remover(self) -> "i32":
+        if self.vocal_remover_on == 1:
+            self.vocal_remover_on = 0
+        else:
+            self.vocal_remover_on = 1
+        return self.vocal_remover_on
+
+    def get_status_summary(self) -> "str":
+        s_sr = "ON" if self.super_resolution_on == 1 else "OFF"
+        s_vb = "ON" if self.virtual_bass_on == 1 else "OFF"
+        s_3d = "ON" if self.spatial_3d_on == 1 else "OFF"
+        s_kr = "ON" if self.vocal_remover_on == 1 else "OFF"
+        res = "DSP: SuperRes=" + s_sr + " | VirtualBass=" + s_vb + " | 3DSpatial=" + s_3d + " | Karaoke=" + s_kr
+        return res
+
+
+class MediaTrackMetadata:
+    title: "str"
+    artist: "str"
+    file_path: "str"
+    sample_rate: "i32"
+    duration_seconds: "f64"
+
+    def format_time(self, current_sec: "f64") -> "str":
+        c_min = int(current_sec // 60.0)
+        c_sec = int(current_sec % 60.0)
+        d_min = int(self.duration_seconds // 60.0)
+        d_sec = int(self.duration_seconds % 60.0)
+
+        s_c_sec = str(c_sec) if c_sec >= 10 else "0" + str(c_sec)
+        s_d_sec = str(d_sec) if d_sec >= 10 else "0" + str(d_sec)
+
+        return str(c_min) + ":" + s_c_sec + " / " + str(d_min) + ":" + s_d_sec
+
+
+class VisualizerSpectrumEngine:
+    num_bands: "i32"
+    decay_rate: "f64"
+    peak_vu_left_db: "f64"
+    peak_vu_right_db: "f64"
+
+    def generate_ascii_bars(self, offset: "i32") -> "str":
+        pattern = ""
+        for i in range(self.num_bands):
+            val = (i + offset) % 6
+            if val == 0:
+                pattern = pattern + " "
+            elif val == 1:
+                pattern = pattern + "."
+            elif val == 2:
+                pattern = pattern + "-"
+            elif val == 3:
+                pattern = pattern + "="
+            elif val == 4:
+                pattern = pattern + "#"
+            else:
+                pattern = pattern + "|"
+        return pattern
+
+
+def build_player_window_ui() -> "str":
+    dsp = DspStateRecord(0, 1, 1, 1, 0, 0, 100, -14.0)
+    track = MediaTrackMetadata("Anh Chi Biet Cam Nin Nghe Tieng Em Khoc", "TokenVector Studio", "audio_samples/Anh.mp3", 48000, 281.4)
+    vis = VisualizerSpectrumEngine(32, 0.85, -6.0, -5.5)
+
+    dsp.is_playing = 1
+    current_time_str = track.format_time(65.0)
+    spectrum_str = vis.generate_ascii_bars(2)
+    dsp_status = dsp.get_status_summary()
+
+    header = "========================================================================================\n"
+    header = header + "  [GUI WINDOW] TOKENVECTOR NATIVE CROSS-PLATFORM AI MEDIA PLAYER\n"
+    header = header + "  Track: " + track.title + " | " + track.artist + "\n"
+    header = header + "  Timeline: [" + current_time_str + "] (48000Hz Stereo Studio Master)\n"
+    header = header + "----------------------------------------------------------------------------------------\n"
+    header = header + "  SPECTRUM 60FPS: [" + spectrum_str + "]\n"
+    header = header + "  VU METERS:      [L: ====== -6.0dB]  [R: ====== -5.5dB]\n"
+    header = header + "----------------------------------------------------------------------------------------\n"
+    header = header + "  CONTROLS: [PLAY/PAUSE] [STOP] [PREV] [NEXT] [SEEK] [VOLUME: 100%]\n"
+    header = header + "  " + dsp_status + "\n"
+    header = header + "========================================================================================"
+    return header
+
+
+def run() -> "i32":
+    ui_layout = build_player_window_ui()
+    print(ui_layout)
+    return 0

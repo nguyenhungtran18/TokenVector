@@ -1,0 +1,44 @@
+# -*- coding: utf-8 -*-
+"""Doi tuong ket qua khop regex: PAT.match(s) / m.group(i) / if m:."""
+import re
+
+PAIR_RE = re.compile(r"(\w+)=(\w+)")
+NUM_RE = re.compile(r"[0-9]+")
+DATE_RE = re.compile(r"(\d+)-(\d+)-(\d+)")
+
+
+def parse_pair(s: "str") -> "str":
+    m = PAIR_RE.match(s)
+    if m:
+        return m.group(1) + ":" + m.group(2)
+    return "-"
+
+
+def find_num(s: "str") -> "str":
+    m = NUM_RE.search(s)
+    if not m:
+        return "-"
+    return m.group(0) + "@" + str(m.start())
+
+
+def split_date(s: "str") -> "str":
+    m = DATE_RE.match(s)
+    if not m:
+        return "-"
+    y, mo, d = m.groups()
+    return d + "/" + mo + "/" + y
+
+
+def two_parts(s: "str") -> "str":
+    m = PAIR_RE.match(s)
+    if not m:
+        return "-"
+    a, b = m.groups()
+    return a + "/" + b
+
+
+def run_regex_match() -> "str":
+    return (parse_pair("abc=123") + "|" + parse_pair("!!!")
+            + "|" + find_num("xy 42 z") + "|" + find_num("khong co so")
+            + "|" + split_date("2026-09-08") + "|" + split_date("xx")
+            + "|" + two_parts("k=v"))

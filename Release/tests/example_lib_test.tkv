@@ -1,0 +1,26 @@
+# -*- coding: utf-8 -*-
+"""VI DU file test CHUAN cho 1 thu vien/engine .tkv - xem Testkit/README.md
+muc 'Quy trinh test 1 file .tkv thu vien'. Sao chep file nay lam khuon
+mau cho thu vien that cua ban: doi ten module trong __tkv_import__ va
+noi dung cac case kiem tra."""
+
+__tkv_import__ = ["tkv_test_lib", "example_lib"]
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    tested = tested + 1
+    total = total + check("add_numbers_positive", str(add_numbers(2, 3)), "5")
+
+    tested = tested + 1
+    total = total + check("add_numbers_negative", str(add_numbers(-1, 1)), "0")
+
+    tested = tested + 1
+    total = total + check("is_even_true", str(is_even(4)), "1")
+
+    tested = tested + 1
+    total = total + check("is_even_false", str(is_even(3)), "0")
+
+    return test_summary("example_lib_test", total, tested)

@@ -1,0 +1,245 @@
+# -*- coding: utf-8 -*-
+"""int(x) - doi xung voi str(x) da co san (string_feature.py), THEM
+2026-08-03 (Giai doan 1). Truoc do DSL CHI co mot chieu so->chuoi; chieu
+nguoc lai KHONG CO gi ca, nen moi doan code doc so tu chuoi (tham so dong
+lenh, 1 truong CSV, ket qua json_get_str, giao thuc chuoi trong
+buffer.tkv...) deu ket - do la ly do THAT khien buffer_size() cua
+buffer.tkv phai hardcode 1024 (bug ghi trong ke hoach v2).
+
+Ho tro:
+- str  -> i32: Int32.Parse voi InvariantCulture (BAT BUOC dung culture
+  bat bien - may nay locale vi-VN, da tung co bug THAT y het voi
+  Single.Parse, xem STATUS.md).
+- f32/f64 -> i32: 'conv.i4' - CAT phan thap phan HUONG VE 0, giong het
+  int(3.7)==3 va int(-3.7)==-3 cua Python (KHONG lam tron).
+- i64 -> i32: 'conv.i4' (cat bit cao neu tran - giong hanh vi ep kieu cua
+  .NET unchecked, KHONG giong Python int vo han; ghi ro khong giau).
+- i32 -> i32: khong sinh lenh nao.
+
+KHAC Python co y thuc: chuoi KHONG hop le lam Int32.Parse NEM exception
+(chuong trinh dung ngay) thay vi ValueError bat duoc. Chon NEM thay vi
+tra 0 am tham - sai am tham la thu dat nhat trong 3 bug cua phien truoc."""
+from expr_row import ea_nut, ea_str, ekind, la_node
+from il_dispatch import register_expr_builtin
+from il_features.int_type import compile_to_int
+import il_features.int_type as _int_type
+
+
+__tkv_import__ = "il_dispatch"
+
+
+def _int_co_co_so(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """int(s, co_so) (2026-09-26) qua Convert.ToInt32/64(string, int32): .NET
+    CHI nhan co so 2/8/10/16 (co so hang khac bi chan luc dich; co so bien
+    sai -> ArgumentException luc chay, khong ra so sai)."""
+    src = ctx.infer_dtype(args[0], scope, ctx.func_table, ctx.records,
+                          ctx.record_methods, None)
+    if src != 'str':
+        raise SyntaxError("il_codegen: int(x, co_so) can x la chuoi")
+    if ekind(args[1]) == 'num' and ea_str(args[1]) not in ('2', '8', '10', '16'):
+        raise SyntaxError("il_codegen: int(s, co_so) chi ho tro co so 2/8/10/16")
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    ctx.compile_expr(args[1], scope, out, 'i32', ctx)
+    if dtype == 'i64':
+        out.append('    call int64 [mscorlib]System.Convert::ToInt64(string, int32)')
+    else:
+        out.append('    call int32 [mscorlib]System.Convert::ToInt32(string, int32)')
+
+
+def push_int_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if len(args) == 2 and dtype != 'int':
+        _int_co_co_so(args, scope, out, dtype, ctx)
+        return
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: int() chi nhan dung 1 tham so")
+    src = ctx.infer_dtype(args[0], scope, ctx.func_table, ctx.records,
+                             ctx.record_methods, None)
+    int_dtypes, float_dtypes = ctx.int_dtypes, ctx.float_dtypes
+    lit = args[0]
+    if ekind(lit) == 'neg' and la_node(ea_nut(lit)):
+        lit = ea_nut(lit)
+    if src is None and ekind(lit) == 'num' and ('.' in ea_str(lit) or 'e' in ea_str(lit).lower()):
+        src = 'f64'   # int(3.9): literal thuc (2026-09-29) - truoc day 'ldc.i4 3.9' bi ilasm tu choi
+
+    if dtype == 'int':
+        # Ngu canh 'int' (vo han chu so, moc 6 lat 3 2026-08-05): KHONG
+        # duoc di duong Int32.Parse roi nho _widen_if_needed nang len -
+        # nhu the int("99999999999999999999") NEM trong khi Python tra ve
+        # dung so. Xem int_type.compile_to_int.
+        compile_to_int(args[0], src, scope, out, ctx)
+        return
+
+    if src == 'str':
+        ctx.compile_expr(args[0], scope, out, 'str', ctx)
+        out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+                   '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+        if dtype == 'i64':
+            # BUGS_TODO.md muc T.1 (2026-08-31): truoc day LUON dung
+            # Int32.Parse roi nho _widen_if_needed nang len i64 sau -
+            # nhung Int32.Parse tu no da NEM OverflowException that voi
+            # gia tri > i32.MaxValue (vd datetime_ticks() dang chuoi) TRUOC
+            # KHI kip widen. Khi ngu canh goi (dtype tham so nay) THAT SU
+            # can i64 (vd 'x: "i64" = int(s)'), goi thang Int64.Parse -
+            # khong di qua Int32 nua.
+            out.append('    call int64 [mscorlib]System.Int64::Parse(string, '
+                       'class [mscorlib]System.IFormatProvider)')
+        else:
+            out.append('    call int32 [mscorlib]System.Int32::Parse(string, '
+                       'class [mscorlib]System.IFormatProvider)')
+        return
+    if src in float_dtypes or src == 'i64':
+        ctx.compile_expr(args[0], scope, out, src, ctx)
+        out.append('    conv.i4')
+        return
+    # i32 hoac khong suy duoc kieu (None) - bien dich thang sang i32,
+    # de _compile_expr tu bao loi neu that su khong hop le.
+    ctx.compile_expr(args[0], scope, out, 'i32', ctx)
+
+
+def push_int64_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """R6 (2026-09-22): int64(x) - ban 64-bit RIENG cua int() (thay the
+    cho 'int() parse 64-bit' ma khong doi hanh vi int() -> i32 hien co,
+    tranh blast-radius len divmod/range/locals suy kieu i32 khap repo).
+    - str  -> i64: Int64.Parse voi InvariantCulture (nhan "2147483648",
+    ma int() hien nem OverflowException).
+    - int  -> i64: TkvInt::ToI64 (nem ON AO neu that su vuot int64).
+    - f32/f64/i32 -> i64: conv.i8 (cat phan thap phan huong ve 0 nhu int()).
+    - i64  -> i64: khong sinh lenh nao.
+    Ngu canh 'i32' (vd truyen vao tham so i32): conv.ovf.i4 co kiem tra.
+    Ngu canh 'int': de dispatch chung tu nang i64 -> TkvInt (FromI64).
+
+    PORT tu compiler/il_features/int_builtin.tkv L143. HAI khac biet so voi
+    ban bootstrap:
+    1. `_int_type.ensure_class(ctx)` -> `_int_type.ensure_class_int(ctx)`.
+       Tren duong TokenVector chi co `ensure_class_int` (xem int_type.tkv L97);
+       ten `ensure_class` cua bootstrap khong ton tai o day. operators.tkv L392
+       da dung dun cach nay.
+    2. Loi goi duoc viet lai bang noi chuoi ('+') thay cho f-string trong
+       mot so dong o bootstrap - phong hacker: f-string lo tay sai dau nhay,
+       va chi tiet dong L480 cua int_type.tkv nam chung nho - ney khop
+       ngay. Hai ten dai: TKVINT_CLASS = 'TkvInt' -> gan de doi dau."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: int64() chi nhan dung 1 tham so")
+    src = ctx.infer_dtype(args[0], scope, ctx.func_table, ctx.records,
+                          ctx.record_methods, None)
+    int_dtypes, float_dtypes = ctx.int_dtypes, ctx.float_dtypes
+    if src == 'str':
+        ctx.compile_expr(args[0], scope, out, 'str', ctx)
+        out.append('    call class [mscorlib]System.Globalization.CultureInfo '
+                   '[mscorlib]System.Globalization.CultureInfo::get_InvariantCulture()')
+        out.append('    call int64 [mscorlib]System.Int64::Parse(string, '
+                   'class [mscorlib]System.IFormatProvider)')
+    elif src == 'int':
+        _int_type.ensure_class_int(ctx)
+        ctx.compile_expr(args[0], scope, out, 'int', ctx)
+        out.append('    call int64 ' + _int_type.TKVINT_CLASS + '::ToI64'
+                   '(valuetype ' + _int_type.TKVINT_CLASS + ')')
+    elif src in float_dtypes or src == 'i32':
+        ctx.compile_expr(args[0], scope, out, src, ctx)
+        out.append('    conv.i8')
+    else:
+        # i64 hoac khong suy duoc kieu (None) - bien dich thang sang i64.
+        ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+    if dtype == 'i32':
+        # Ngu canh hep (vd tham so i32): thu hep CO KIEM TRA. Cac ngu canh
+        # khac de dispatch chung lo: 'int' -> widen i64->TkvInt co san,
+        # 'i64'/None -> giu nguyen (khong can lenh nao).
+        out.append('    conv.ovf.i4')
+
+def _int_lit_text(args: "list[TkvNode]") -> "str":
+    """Text cua literal trong int(<chuoi>) neu la str_lit, khong thi None.
+
+    PORT tu _int_literal_fits_i32/_int_literal_value (bootstrap) nhung dau
+    vao da tai hien rat gon: chi can lay ea_str roi bo ngoac. KHONG dung
+    isinstance nhu ban bootstrap - isinstance CHUA co tren duong TokenVector."""
+    if len(args) != 1 or ekind(args[0]) != 'str_lit':
+        return ""
+    text = ea_str(args[0]).strip()
+    if len(text) >= 2 and text[0] == text[-1] and (text[0] == '"' or text[0] == "'"):
+        text = text[1:-1]
+    return text
+
+def _int_neg_and_digits(text: "str") -> "str":
+    """Tra None neu khong phai so nguyen, nguoc thi tra phan con lai
+    (bo dau '-' lan bac va boc cac chu so 0 o dau).
+    Tra "" (chuoi rong) neu khong phai so nguyen."""
+    t = text.strip()
+    if len(t) == 0:
+        return ""
+    if t[0] == '-':
+        t = t[1:]
+    for ch in t:
+        if ch < '0' or ch > '9':
+            return ""
+    i = 0
+    while i + 1 < len(t) and t[i] == '0':
+        i = i + 1
+    return t[i:]
+
+def _int_fits_i32(args: "list[TkvNode]") -> "bool":
+    """True neu int(<chuoi literal>) CHAC CHAN vua int32.
+
+    KHONG dung int(text) nhu ban bootstrap: tren duong TokenVector `int()`
+    tra i32, nen int(\"2147483648\") ném OverflowException NGAY TAI COMPILE
+    TIME. So chu so + so sanh tu dien du la du de biet chac."""
+    t = _int_lit_text(args)
+    if t == "":
+        return True
+    digits = _int_neg_and_digits(t)
+    if digits == "":
+        return True
+    if len(digits) < 10:
+        return True
+    if len(digits) > 10:
+        return False
+    if t[0] == '-':
+        return digits <= "2147483648"
+    return digits <= "2147483647"
+
+def _int_over_i64(args: "list[TkvNode]") -> "bool":
+    """True neu literal CHAC CHAN vuot int64 - khi do phai dung 'int' (TkvInt)."""
+    t = _int_lit_text(args)
+    if t == "":
+        return False
+    digits = _int_neg_and_digits(t)
+    if digits == "":
+        return False
+    if len(digits) > 19:
+        return True
+    if len(digits) < 19:
+        return False
+    if t[0] == '-':
+        return digits > "9223372036854775808"
+    return digits > "9223372036854775807"
+
+def _int_return_dtype(args: "list[TkvNode]", scope: "Scope", func_table: "dict[str,TkvSig]") -> "str":
+    """dtype THAT cua `int(...)` (R6, 2026-09-28).
+
+    Mac dinh 'i32' (giu NGUYEN y nghia int() hien co - tranh blast-radius
+    len divmod/range/locals suy kieu i32).
+    NGOAI LAI 1: literal CHAC CHAN vuot int32 -> 'i64' (sua dung Gap B3:
+    truoc day str(int(\"2147483648\")) emit Int32::Parse nem OverflowException,
+    gio suy i64 nen emit Int64::Parse va chay duoc).
+    NGOAI LAI 2: literal CHAC CHAN vuot int64 -> 'int' (TkvInt, vo han chu
+    so) - khong duoc roi vao Int64::Parse (se nem OverflowException).
+    Khong phai literal (bien chuoi) -> giu 'i32'; muon chuoi bien > 2^31 thi
+    goi int64(s)."""
+    if _int_fits_i32(args):
+        return 'i32'
+    if _int_over_i64(args):
+        return 'int'
+    return 'i64'
+
+def bootstrap_int_builtin(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_expr_builtin(reg, 'int', push_int_builtin, 'i32', native_int=True,
+                        return_dtype_fn=_int_return_dtype)
+    #     ^^^ PORT R6 (2026-10-05): _int_return_dtype chua co o duong TokenVector.
+    #     Khi co, 'int' tu suy i64/int tuy vao literal vuot 32/64 bit.
+    #     Khong co dong nay thi int(\"2147483648\") tra i32 -> Int32::Parse nem.
+
+    register_expr_builtin(reg, 'int64', push_int64_builtin, 'i64')

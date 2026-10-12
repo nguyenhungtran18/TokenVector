@@ -1,0 +1,8 @@
+tests_suite\de_vao\sample_funcref.tkv	apply_double	0	5	10\n
+tests_suite\de_vao\sample_funcref.tkv	apply_double	0	0	0\n
+tests_suite\de_vao\sample_funcref.tkv	apply_double	0	-3	-6\n
+tests_suite\de_vao\sample_funcref.tkv	apply_square	0	5	25\n
+tests_suite\de_vao\sample_funcref.tkv	apply_square	0	0	0\n
+tests_suite\de_vao\sample_funcref.tkv	apply_square	0	-3	9\n
+tests_suite\de_vao\sample_funcref.tkv	apply_twice_double	0	3	12\n
+tests_suite\de_vao\sample_funcref.tkv	apply_twice_double	0	0	0\n

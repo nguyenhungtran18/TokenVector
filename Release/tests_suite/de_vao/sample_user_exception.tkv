@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+"""Exception TU DINH NGHIA (Giai doan 3, 2026-08-03).
+
+'class MyError(Exception):' - base 'Exception' la System.Exception cua
+.NET. Field DAU TIEN kieu str duoc truyen cho .ctor(string) cua base nen
+thuoc tinh .Message that co gia tri. File nay VAN la Python hop le."""
+
+
+class ValidationError(Exception):
+    msg: "str"
+
+
+class NotFoundError(Exception):
+    msg: "str"
+
+
+def check_age(age: "i32") -> "str":
+    try:
+        if age < 0:
+            raise ValidationError("tuoi am")
+        if age > 200:
+            raise NotFoundError("tuoi qua lon")
+        return "ok"
+    except ValidationError:
+        return "bat_validation"
+    except NotFoundError:
+        return "bat_notfound"
+
+
+def uncaught_goes_to_generic(age: "i32") -> "str":
+    try:
+        if age < 0:
+            raise ValidationError("tuoi am")
+        return "ok"
+    except Exception:
+        return "bat_generic"

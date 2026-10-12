@@ -1,0 +1,97 @@
+
+__tkv_extern_assembly__ = [("ObjTypeFixture", None, None)]
+__tkv_extern_class__ = [
+    {
+        "name": "Widget", "assembly": "ObjTypeFixture", "class": "Widget",
+        "ctor": [], "methods": [],
+    },
+    {
+        "name": "ObjTypeFixture", "assembly": "ObjTypeFixture", "class": "ObjTypeFixture",
+        "ctor": [], "methods": [],
+        "static_methods": [
+            {"name": "AcceptObject", "params": ["object"], "returns": "i32"},
+            {"name": "TypeNameLength", "params": ["type"], "returns": "i32"},
+        ],
+    },
+    {
+        "name": "ObjTypeFixture2", "assembly": "ObjTypeFixture", "class": "ObjTypeFixture2",
+        "ctor": [], "methods": [],
+        "static_methods": [
+            {"name": "TypeNameOfObject", "params": ["object"], "returns": "str"},
+            {"name": "MakeBoxedInt", "params": ["i32"], "returns": "object"},
+        ],
+    },
+    {
+        "name": "ObjCtorFixture", "assembly": "ObjTypeFixture", "class": "ObjCtorFixture",
+        "ctor": ["object", "type"],
+        "methods": [
+            {"name": "KindLength", "params": [], "returns": "i32"},
+        ],
+    },
+]
+
+# Critical 1/Minor 1 (final review Phase 9d Part B): 4 ham phu voi THAM SO
+# CO KHAI DTYPE RO RANG (i32/f64/str) - local decl tuong minh cho SCALAR
+# ('n: "i32" = 42' NGAY TRONG THAN ham) KHONG duoc _lp_typed_local_decl ho
+# tro (chi ho tro 'func(...)->...'/'defaultdict[K,V]'/'Counter[K]'/
+# 'list[(K,V)]', xem compiler/il_codegen.py's _lp_typed_local_decl) - dung
+# THAM SO ham (LUON ho tro moi scalar dtype) la cach dung DUY NHAT de co 1
+# bien i32/f64 THAT (khac 'x = 42' KHONG chu thich, mac dinh suy ra dtype
+# 'int' - TkvInt struct tuy y chinh xac, KHONG phai i32 that).
+def take_i32_object(x: "i32") -> "str":
+    return ObjTypeFixture2.TypeNameOfObject(x)
+
+
+def take_f64_object(y: "f64") -> "str":
+    return ObjTypeFixture2.TypeNameOfObject(y)
+
+
+def take_str_object(s: "str") -> "str":
+    return ObjTypeFixture2.TypeNameOfObject(s)
+
+
+def echo_i32_object(x: "i32") -> "str":
+    boxed = ObjTypeFixture2.MakeBoxedInt(x)
+    return ObjTypeFixture2.TypeNameOfObject(boxed)
+
+
+def make_obj_ctor_kind_length(x: "i32") -> "i32":
+    c = ObjCtorFixture(x, typeof(Widget))
+    return c.KindLength()
+
+
+def main() -> "i32":
+    w = Widget()
+    print(ObjTypeFixture.AcceptObject(w))
+    # Vi tri 1: gan bien roi dung lai (typeof(...) -> bien -> truyen tham so).
+    t = typeof(Widget)
+    print(ObjTypeFixture.TypeNameLength(t))
+    # Vi tri 2: goi truc tiep long trong bieu thuc (khong qua bien trung gian).
+    print(ObjTypeFixture.TypeNameLength(typeof(Widget)))
+    # Vi tri 3: trong dieu kien if.
+    if ObjTypeFixture.TypeNameLength(typeof(Widget)) > 0:
+        print(1)
+    else:
+        print(0)
+    # Critical 1(a) (final review Phase 9d Part B): truyen 1 gia tri i32
+    # THAT (value-type) vao tham so khai 'object' - PHAI duoc box truoc khi
+    # nap, neu khong .NET doc gia tri nhu the no la 1 tham chieu -> crash/
+    # rac. Xac nhan qua GetType().FullName phia .NET (KHONG chi "khong
+    # crash" - phai dung LA "System.Int32").
+    print(take_i32_object(42))
+    # Critical 1(b): tuong tu voi f64.
+    print(take_f64_object(3.5))
+    # Critical 1(c) regression: str van truyen THANG (reference type, KHONG
+    # box) - phai van la "System.String", khong bi box nham lan 2.
+    print(take_str_object("hello"))
+    # Critical 1(c) regression: 1 handle-type (bien Widget) van truyen
+    # THANG - phai la "Widget" (KHONG namespace trong fixture).
+    print(ObjTypeFixture2.TypeNameOfObject(w))
+    # Minor 1(a): 'object' lam RETURN dtype - luu vao bien, DUNG LAI ket
+    # qua (truyen tiep vao 1 method khac nhan 'object') - phai van la 1
+    # tham chieu box hop le, khong crash.
+    print(echo_i32_object(99))
+    # Minor 1(b): ctor nhan CA 'object' (bien i32 -> box) LAN 'type'
+    # (typeof(Widget)) - "Int32/Widget" dai 12 ky tu.
+    print(make_obj_ctor_kind_length(42))
+    return 0

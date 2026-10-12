@@ -1,0 +1,14 @@
+def greet(name: "str"):
+    print("xin chao " + name)
+
+
+def bump_twice(n: "i32") -> "i32":
+    greet("lan " + str(n))
+    greet("lan " + str(n + 1))
+    return n + 2
+
+
+def run_void_infer() -> "str":
+    greet("TokenVector")
+    k = bump_twice(1)
+    return str(k)

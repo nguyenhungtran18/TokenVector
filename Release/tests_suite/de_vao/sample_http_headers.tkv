@@ -1,0 +1,38 @@
+# -*- coding: utf-8 -*-
+"""Header TUY Y qua dict[str,str] (Giai doan 3 bo sung, 2026-08-03).
+
+Truoc do CHI set duoc Content-Type -> khong gan noi 'Authorization:
+Bearer <token>', tuc la khong goi duoc gan het API that."""
+
+
+def post_with_auth(url: "str", token: "str") -> "str":
+    h = {}
+    h["Authorization"] = "Bearer " + token
+    h["X-Api-Key"] = "abc123"
+    return http_post_h(url, "{\"a\":1}", h)
+
+
+def get_with_auth(url: "str", token: "str") -> "str":
+    h = {}
+    h["Authorization"] = "Bearer " + token
+    return http_get_h(url, h)
+
+
+def put_override_ctype(url: "str") -> "str":
+    h = {}
+    h["Content-Type"] = "text/xml"
+    h["X-Trace"] = "t-1"
+    return http_put_h(url, "<x>1</x>", h)
+
+
+def delete_with_header(url: "str") -> "str":
+    h = {}
+    h["X-Reason"] = "cleanup"
+    return http_delete_h(url, h)
+
+
+def get_with_user_agent(url: "str") -> "str":
+    h = {}
+    h["User-Agent"] = "TokenVector/1.0"
+    h["Accept"] = "application/json"
+    return http_get_h(url, h)

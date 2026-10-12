@@ -1,0 +1,38 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+
+class Bag:
+    count: "i32"
+
+    def __len__(self) -> "i32":
+        return self.count
+
+
+class Base:
+    n: "i32"
+
+    def __len__(self) -> "i32":
+        return self.n
+
+
+class Sub(Base):
+    extra: "i32"
+
+
+class NoLen:
+    v: "i32"
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    b = Bag(7)
+    tested = tested + 1
+    total = total + check("len_calls_dunder", str(len(b)), "7")
+
+    s = Sub(3, 99)
+    tested = tested + 1
+    total = total + check("inherited_dunder_len", str(len(s)), "3")
+
+    return test_summary("dunder_len_test", total, tested)

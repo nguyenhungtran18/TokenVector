@@ -1,0 +1,2003 @@
+# -*- coding: utf-8 -*-
+"""List/dict/set comprehension - macro TEXT-LEVEL, khong sinh codegen
+moi (chi khai trien thanh for-loop+append/idx_assign/add da co san, xem
+list_type.py/dict_type.py/set_type.py). Tach rieng file theo tinh nang
+(Phase 1 buoc 4, 2026-07-28) - hoan toan tu than (khong phu thuoc
+Scope/CIL/parse_expr), nen KHONG can quy uoc dependency-injection qua
+`ctx` nhu cac buoc truoc."""
+import re
+
+from il_dispatch import register_macro_expander
+
+__tkv_import__ = "il_dispatch"
+
+_LIST_COMP_OUTER_RE = re.compile(r'^(\w+)\s*=\s*\[(.+)\]\s*$')
+_DICT_COMP_OUTER_RE = re.compile(r'^(\w+)\s*=\s*\{(.+)\}\s*$')
+
+
+def _la_ky_tu_ten(c: "str") -> "i32":
+    return ('a' <= c and c <= 'z') or ('A' <= c and c <= 'Z') or ('0' <= c and c <= '9') or c == '_'
+
+
+def _vi_tri_for_ngoai(inner: "str") -> "i32":
+    """Vi tri tu khoa 'for' o MUC NGOAI CUNG (khong trong ngoac long, khong
+    trong chuoi); -1 neu khong co. '[a, f([y for y in b])]' KHONG phai
+    comprehension - 'for' cua no nam trong ngoac long (2026-09-26)."""
+    sau = 0
+    nhay = ''
+    i = 0
+    n = len(inner)
+    while i < n:
+        c = inner[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[' or c == '{':
+            sau += 1
+        elif c == ')' or c == ']' or c == '}':
+            sau -= 1
+        elif sau == 0 and inner.startswith('for', i):
+            truoc_ok = i == 0 or not _la_ky_tu_ten(inner[i - 1])
+            sau_ok = i + 3 >= n or not _la_ky_tu_ten(inner[i + 3])
+            if truoc_ok and sau_ok:
+                return i
+        i += 1
+    return -1
+
+
+def parse_comprehension_inner(inner: "str") -> "dict[str,str]":
+    """Tach 'EXPR for VAR[, VAR2] in ITERABLE [if COND]' (dung chung cho
+    ca list va dict comprehension - dict truyen ca 'KEXPR: VEXPR' lam
+    EXPR, tach rieng o noi goi). Dung tim tu khoa 'for'/'in'/'if' DAU
+    TIEN (khong dung regex 1 khoi vi EXPR/ITERABLE co the chua dau
+    ngoac vuong long nhau, giong bai hoc tu bug 'd[lst[i]]' truoc do) -
+    tra ve None neu khong phai dang comprehension (khong co 'for')."""
+    vt = _vi_tri_for_ngoai(inner)
+    if vt < 0:
+        return None
+    head, rest = inner[:vt].strip(), inner[vt + 3:].strip()
+    m2 = re.search(r'\bin\b', rest)
+    if not m2:
+        return None
+    var_part, tail = rest[:m2.start()].strip(), rest[m2.end():].strip()
+    m3 = re.search(r'\bif\b', tail)
+    if m3:
+        iterable, cond = tail[:m3.start()].strip(), tail[m3.end():].strip()
+    else:
+        iterable, cond = tail, None
+    return {'expr': head, 'var_part': var_part, 'iterable': iterable, 'cond': cond}
+
+
+def _vi_tri_tu_khoa_ngoai(s: "str", tu: "str") -> "i32":
+    """Vi tri tu khoa `tu` o MUC NGOAI (khong trong ngoac long, khong trong
+    chuoi); -1 neu khong co. Ban tong quat cua `_vi_tri_for_ngoai` -
+    can khi tach theo `if` vi `if v == "if"` co chuoi chua tu khoa.
+    """
+    sau = 0
+    nhay = ''
+    i = 0
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[' or c == '{':
+            sau += 1
+        elif c == ')' or c == ']' or c == '}':
+            sau -= 1
+        elif sau == 0 and s.startswith(tu, i):
+            truoc_ok = i == 0 or not _la_ky_tu_ten(s[i - 1])
+            sau_ok = i + len(tu) >= n or not _la_ky_tu_ten(s[i + len(tu)])
+            if truoc_ok and sau_ok:
+                return i
+        i += 1
+    return -1
+
+
+def _cond_nhieu_if(cond: "str") -> "i32":
+    """1 neu `cond` (sau khi da tach `if` dau tien) van chua mot `if`
+    nua - `[x for x in y if p if q]` phai thanh 2 khoi `if` LONG NHAU
+    chu khong phai `if p if q` tren 1 dong (dong do la sai cu phap Python).
+    `cond` rong -> 0.
+
+    QUET NGOAI CHUOI: `if v == "if"` co tu khoa nam TRONG chuoi - dung
+    regex `\bif\b` se dem nham va sinh ra `if v == ":` (sai cu phap).
+    """
+    if cond == "":
+        return 0
+    if _vi_tri_tu_khoa_ngoai(cond, 'if') < 0:
+        return 0
+    return 1
+
+
+def _mo_rong_nhieu_for(name: "str", inner: "str", ind: "str", kexpr: "str", vexpr: "str", loai: "str", force: "i32"=0) -> "str":
+    """'[E for a in A [if C] for b in B [if C2] ...]' -> 'name = []' + cac vong for/if long nhau + append.
+
+    `kexpr` rong -> LIST/SET (`name.append(E)` / `name.add(E)`, chon theo
+    `loai`); `kexpr` khac rong -> DICT (`name[kexpr] = vexpr`).
+    `loai` = 'list' | 'set' | 'dict'. `force` = 1 cho phep CA 1 vong `for`
+    (dung khi chi co N dieu kien `if`, xem `_cond_nhieu_if`).
+    """
+    vt = _vi_tri_for_ngoai(inner)
+    head = inner[:vt].strip()
+    rest = inner[vt + 3:]
+    m_var = ['']
+    m_iter = ['']
+    m_cond = ['']
+    while rest.strip() != '':
+        vt2 = _vi_tri_for_ngoai(rest)
+        seg = rest
+        if vt2 >= 0:
+            seg = rest[:vt2]
+            rest = rest[vt2 + 3:]
+        else:
+            rest = ''
+        seg = seg.strip()
+        mx_in = re.search(r'\bin\b', seg)
+        if not mx_in:
+            return None
+        tail = seg[mx_in.end():].strip()
+        iterable = tail
+        cds = ''
+        rem = tail
+        # Tach `if` o MUC NGOAI (khong phai regex thuan): dieu kien co the
+        # chua chuoi nhieu `if` (`if v == "if"`).
+        vt_if = _vi_tri_tu_khoa_ngoai(rem, 'if')
+        if vt_if >= 0:
+            iterable = rem[:vt_if].strip()
+            rem = rem[vt_if + 2:]
+            vt_if = _vi_tri_tu_khoa_ngoai(rem, 'if')
+            while vt_if >= 0:
+                cds = cds + rem[:vt_if].strip() + '@@'
+                rem = rem[vt_if + 2:]
+                vt_if = _vi_tri_tu_khoa_ngoai(rem, 'if')
+            cds = cds + rem.strip() + '@@'
+        m_var.append(seg[:mx_in.start()].strip())
+        m_iter.append(iterable)
+        m_cond.append(cds)
+    if len(m_var) < 3 and force == 0:
+        return None
+    dich = name
+    if re.search(r'\b' + name + r'\b', inner):
+        dich = _ten_tam_comp()
+    if loai == 'dict':
+        ra = [ind + dich + ' = {}']
+    elif loai == 'set':
+        ra = [ind + dich + ' = set()']
+    else:
+        ra = [ind + dich + ' = []']
+    sau = ind
+    k = 1
+    while k < len(m_var):
+        ra.append(sau + 'for ' + m_var[k] + ' in ' + m_iter[k] + ':')
+        sau = sau + '    '
+        cd_list = m_cond[k].split('@@')
+        for cd in cd_list:
+            if cd != '':
+                ra.append(sau + 'if ' + cd + ':')
+                sau = sau + '    '
+        k += 1
+    if loai == 'dict':
+        ra.append(sau + dich + '[' + kexpr + '] = ' + vexpr)
+    elif loai == 'set':
+        ra.append(sau + dich + '.add(' + head + ')')
+    else:
+        ra.append(sau + dich + '.append(' + head + ')')
+    if dich != name:
+        ra.append(ind + name + ' = ' + dich)
+    return chr(10).join(ra)
+
+
+def try_expand_list_comp(line: "str") -> "str":
+    """MACRO_EXPANDERS entry: list comprehension - CHI la duong tat cu
+    phap cho for-loop+append DA CO SAN (khong sinh codegen moi) - giong
+    tinh than 'for x in lst:'. Ket qua co the con dang 'for x in lst:'
+    (macro CHUA mo rong o VONG NAY) - _expand_macros (ham bao trong
+    il_codegen.py) lap toi diem co dinh nen se duoc mo rong o vong sau."""
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _LIST_COMP_OUTER_RE.match(stripped)
+    if not m:
+        return None
+    name, inner = m.groups()
+    parsed = parse_comprehension_inner(inner)
+    if not parsed:
+        return None
+    # nhieu menh de for: '[E for a in A for b in B if C]' (2026-09-30) -> vong for long nhau
+    # Nhieu dieu kien `if` tren MOT vong for ('[x for x in y if p if q]', 2026-10-10)
+    # cung phai di qua day - nhanh duoi chi sinh `if p if q:` tren 1 dong.
+    _force = 0
+    if _vi_tri_for_ngoai(parsed['iterable']) >= 0 or (parsed['cond'] is not None and _vi_tri_for_ngoai(parsed['cond']) >= 0):
+        _force = 1
+    elif _cond_nhieu_if(parsed['cond'] if parsed['cond'] is not None else ""):
+        _force = 1
+    if _force == 1:
+        nhieu = _mo_rong_nhieu_for(name, inner, ind, "", "", "list", 1)
+        if nhieu is not None:
+            return nhieu
+    # nhieu dich 'for a, b in X' (2026-09-26): de macro for_in_kvlist/ntuple lo
+    expr, var, iterable, cond = (parsed['expr'], parsed['var_part'],
+                                  parsed['iterable'], parsed['cond'])
+    # 'xs = [f(l) for l in xs]' (2026-09-29): ten dich CUNG xuat hien o ve phai -
+    # khoi tao 'xs = []' TRUOC lam vong lap doc chinh list rong do (im lang tra
+    # list rong). Khi do gom vao bien tam roi moi gan.
+    dich = name
+    if re.search(r'\b' + name + r'\b', inner):
+        dich = _ten_tam_comp()
+    lines_out = [f'{ind}{dich} = []', f'{ind}for {var} in {iterable}:']
+    if cond:
+        lines_out.append(f'{ind}    if {cond}:')
+        lines_out.append(f'{ind}        {dich}.append({expr})')
+    else:
+        lines_out.append(f'{ind}    {dich}.append({expr})')
+    if dich != name:
+        lines_out.append(f'{ind}{name} = {dich}')
+    return '\n'.join(lines_out)
+
+
+def try_expand_dict_or_set_comp(line: "str") -> "str":
+    """MACRO_EXPANDERS entry: dict/set comprehension - CUNG 1 cu phap
+    ngoai '{...}', phan biet dict-comp ('{k: v for ...}') vs set-comp
+    ('{expr for ...}') bang su co mat ':'. LUU Y gioi han: bieu thuc
+    ba-ngoi ('cond ? a : b') cung chua ':', nen kiem tra THEM '?' KHONG
+    co mat truoc khi ket luan la dict-comp (set-comp dung ternary se van
+    roi dung nhanh set, vi co '?'). Heuristic van ban nay MONG MANH (co
+    the nham trong truong hop bat thuong) - GIU NGUYEN, khong sua trong
+    pham vi refactor nay."""
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    m = _DICT_COMP_OUTER_RE.match(stripped)
+    if not m:
+        return None
+    name, inner = m.groups()
+    parsed = parse_comprehension_inner(inner)
+    if parsed and ':' in parsed['expr'] and '?' not in parsed['expr']:
+        kexpr, vexpr = parsed['expr'].split(':', 1)
+        kexpr, vexpr = kexpr.strip(), vexpr.strip()
+        # N vong `for` long nhau (2026-10-10): truoc day chi 1 vong - phan
+        # `for` thu 2 bi lan vao ITERABLE nen macro sinh ra
+        # `for x in A for y in B:` (sai cu phap, parser bao loi "ternary
+        # dang Python thieu 'else'"). Giong nhanh list-comp o tren.
+        _force = 0
+        if _vi_tri_for_ngoai(parsed['iterable']) >= 0 or (parsed['cond'] is not None and _vi_tri_for_ngoai(parsed['cond']) >= 0):
+            _force = 1
+        elif _cond_nhieu_if(parsed['cond'] if parsed['cond'] is not None else ""):
+            _force = 1
+        if _force == 1:
+            nhieu = _mo_rong_nhieu_for(name, inner, ind, kexpr, vexpr, "dict", 1)
+            if nhieu is not None:
+                return nhieu
+        var_part, iterable, cond = parsed['var_part'], parsed['iterable'], parsed['cond']
+        lines_out = [f'{ind}{name} = {{}}', f'{ind}for {var_part} in {iterable}:']
+        if cond:
+            lines_out.append(f'{ind}    if {cond}:')
+            lines_out.append(f'{ind}        {name}[{kexpr}] = {vexpr}')
+        else:
+            lines_out.append(f'{ind}    {name}[{kexpr}] = {vexpr}')
+        return '\n'.join(lines_out)
+    if parsed and ',' not in parsed['var_part']:
+        expr, var, iterable, cond = (parsed['expr'], parsed['var_part'],
+                                      parsed['iterable'], parsed['cond'])
+        if _vi_tri_for_ngoai(parsed['iterable']) >= 0 or (parsed['cond'] is not None and _vi_tri_for_ngoai(parsed['cond']) >= 0):
+            nhieu = _mo_rong_nhieu_for(name, inner, ind, "", "", "set", 1)
+            if nhieu is not None:
+                return nhieu
+        elif _cond_nhieu_if(parsed['cond'] if parsed['cond'] is not None else ""):
+            nhieu = _mo_rong_nhieu_for(name, inner, ind, "", "", "set", 1)
+            if nhieu is not None:
+                return nhieu
+        lines_out = [f'{ind}{name} = set()', f'{ind}for {var} in {iterable}:']
+        if cond:
+            lines_out.append(f'{ind}    if {cond}:')
+            lines_out.append(f'{ind}        {name}.add({expr})')
+        else:
+            lines_out.append(f'{ind}    {name}.add({expr})')
+        return '\n'.join(lines_out)
+    return None
+
+
+# --- comprehension o VI TRI BIEU THUC (2026-09-10) --------------------
+# Macro o tren chi khop `ten = [... for ...]` - dang GAN. Nam TRONG mot bieu
+# thuc lon hon (`len([...])`, `return [...]`, `for v in [...]:`) thi parser
+# bao "ky vong ']', gap 'for'".
+#
+# Cach xu ly: NANG len mot bien tam DAT TRUOC dong, roi de macro dang-gan o
+# tren khai trien no o VONG SAU (_expand_macros lap toi diem co dinh). Khong
+# sinh codegen moi, dung tinh than cua ca file nay.
+#
+# LUAT THAN TRONG lay nguyen tu expr_hoist.py: KHONG nang khoi dong mo khoi
+# (`if`/`while`/`elif`/...) vi bien tam se bi tinh MOT LAN trong khi bieu thuc
+# goc phai duoc tinh moi vong. NGOAI LE `for`: ve phai cua `for` trong Python
+# cung chi duoc tinh mot lan.
+# 'if' DUOC nang (2026-09-26): dieu kien if tinh TRUOC tien - nang ra truoc
+# lenh khong doi thu tu. elif/while thi KHONG (elif tinh sau nhanh truoc,
+# while tinh lai moi vong).
+_KHOI_KHONG_NANG = re.compile(r'^(while|elif|with|else|try|except|finally)\b')
+_dem_comp: "i32" = 0
+
+
+def _ten_tam_comp() -> "str":
+    global _dem_comp
+    n = _dem_comp
+    _dem_comp = _dem_comp + 1
+    return '__comp%d' % n
+
+
+def _dong_ngoac(text: "str", mo: "i32") -> "i32":
+    """Chi so cua ']' khop voi '[' tai `mo`; -1 neu khong co."""
+    sau = 0
+    i = mo
+    while i < len(text):
+        if text[i] == '[':
+            sau += 1
+        elif text[i] == ']':
+            sau -= 1
+            if sau == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _lech_ngoac(text: "str") -> "i32":
+    """Ngoac mo/dong (ngoai chuoi) khong can: day la 1 dong VAT cua lenh
+    nhieu dong - nang bien tam o day se chen lenh GIUA bieu thuc."""
+    sau = 0
+    nhay = ''
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[' or c == '{':
+            sau += 1
+        elif c == ')' or c == ']' or c == '}':
+            sau -= 1
+        i += 1
+    return sau != 0
+
+
+def _tach_ba_ngoi(t: "str") -> "list[str]":
+    """'A if C else B' o MUC NGOAI CUNG (ngoai chuoi/ngoac): [A, C, B]; None neu khong co."""
+    sau = 0
+    nhay = ''
+    vi_if = -1
+    vi_else = -1
+    i = 0
+    while i < len(t):
+        c = t[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[' or c == '{':
+            sau += 1
+        elif c == ')' or c == ']' or c == '}':
+            sau -= 1
+        elif sau == 0 and c == ' ':
+            if vi_if < 0 and t[i:i + 4] == ' if ':
+                vi_if = i
+            elif vi_if >= 0 and vi_else < 0 and t[i:i + 6] == ' else ':
+                vi_else = i
+        i += 1
+    if vi_if < 0 or vi_else < 0:
+        return None
+    return [t[:vi_if], t[vi_if + 4:vi_else], t[vi_else + 6:]]
+
+
+def _co_comp(t: "str") -> "i32":
+    for i, ch in enumerate(t):
+        if ch == '[':
+            j = _dong_ngoac(t, i)
+            if j > 0 and parse_comprehension_inner(t[i + 1:j]) is not None:
+                return True
+    return False
+
+
+_DAU_GAN_RE = re.compile(r'^(return\s+|[A-Za-z_][\w.]*\s*=(?!=)\s*)(.+)$')
+
+
+def _tach_lenh_ba_ngoi(stripped: "str") -> "list[str]":
+    """'return A if C else B' / 'x = A if C else B' co comprehension trong A hoac B:
+    [dau, A, C, B] (2026-09-29). Nang comprehension ra truoc lenh se danh gia CA HAI nhanh
+    (Python chi danh gia 1) - vd '[] if v == "" else [int(x) for x in v.split(",")]' nem
+    FormatException khi v rong. Tach thanh if/else de nhanh kia khong chay."""
+    m = _DAU_GAN_RE.match(stripped)
+    if not m:
+        return None
+    phan = _tach_ba_ngoi(m.group(2))
+    if phan is None or phan[0].startswith('lambda'):
+        return None
+    if not (_co_comp(phan[0]) or _co_comp(phan[2])):
+        return None
+    return [m.group(1), phan[0], phan[1], phan[2]]
+
+
+def try_expand_comp_in_expr(line: "str") -> "str":
+    """MACRO_EXPANDERS entry: nang comprehension o vi tri BIEU THUC ra bien tam."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith('#'):
+        return None
+    if '[' not in stripped or ' for ' not in stripped:
+        return None
+    if _LIST_COMP_OUTER_RE.match(stripped):
+        return None                      # dang GAN - macro o tren lo
+    if _KHOI_KHONG_NANG.match(stripped):
+        return None
+    if _lech_ngoac(stripped):
+        return None                      # dong VAT cua lenh nhieu dong
+    ind =' ' * (len(line) - len(line.lstrip(' ')))
+    tach = _tach_lenh_ba_ngoi(stripped)
+    if tach is not None:
+        return (ind + 'if ' + tach[2] + ':' + chr(10) + ind + '    ' + tach[0] + tach[1] + chr(10) +
+                ind + 'else:' + chr(10) + ind + '    ' + tach[0] + tach[3])
+    for i, ch in enumerate(stripped):
+        if ch != '[':
+            continue
+        j = _dong_ngoac(stripped, i)
+        if j < 0:
+            continue
+        inner = stripped[i + 1:j]
+        if parse_comprehension_inner(inner) is None:
+            continue
+        tam = _ten_tam_comp()
+        moi = stripped[:i] + tam + stripped[j + 1:]
+        return ('%s%s = [%s]' % (ind, tam, inner) + chr(10) +
+                '%s%s' % (ind, moi))
+    return None
+
+
+_GAN_TAP_RE = re.compile(r'^(\w+)\s*=\s*\{(.+)\}\s*$')
+
+
+def try_expand_set_literal(line: "str") -> "str":
+    """'x = {a, b}' (2026-09-26) - tap literal -> 'x = set()' + 'x.add(..)'.
+    Chi khi trong ngoac KHONG co ':' / 'for' o muc ngoai (khong phai dict /
+    comprehension)."""
+    stripped = line.strip()
+    m = _GAN_TAP_RE.match(stripped)
+    if not m:
+        return None
+    ten = m.group(1)
+    inner = m.group(2)
+    if _lech_ngoac(inner) or _vi_tri_for_ngoai(inner) >= 0:
+        return None
+    phan = _tach_phay_ngoai(inner)
+    for x in phan:
+        if _co_hai_cham_ngoai(x):
+            return None
+    # (2026-10-11) Khi 1 phan tu bat dau bang `[` hoac `{` thi doi so phan
+    # tu o muc NGOAI moi la 2 tro len (vd `ss = {[1,2],[3,4]}`), va duong gan
+    # `x = set()` + `x.add(<phan tu>)` giong het truong hop binh thuong -
+    # `declare_set` tu suy kieu pheu tu `.add()`.
+    # CHI bo qua (de parser xu ly) khi `_tach_phay_ngoai` tra ve DUNG MOT
+    # phan tu: `ls = [{1,2},{3,4}]` - day la LIST chua SET, macro se sinh
+    # `ls = set()` + `ls.add([...])` sai ca nghia. Node 'set_lit'
+    # (il_core.tkv) + EXPR_CODEGEN `codegen_expr_set_lit` (list_type.tkv) lo
+    # truong hop do.
+    if len(phan) == 1:
+        xs0 = phan[0].strip()
+        if xs0 != '' and (xs0[0] == '[' or xs0[0] == '{'):
+            return None
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    co_thuc = False
+    for x in phan:
+        xs = x.strip()
+        if xs == "":
+            continue
+        if ("." in xs) or ("e" in xs) or ("E" in xs):
+            if xs[0].isdigit() or (xs[0] == "-" and len(xs) > 1 and xs[1].isdigit()):
+                co_thuc = True
+    if co_thuc:
+        # `{1, 2.5}` can widen -> set(list-literal) doi duoc kieu phan tu.
+        # Int NGUYEN giu nguyen 'set()' + '.add()' de container_arg_hints
+        # van chon dung kieu tham so (xem set_iteration_test: set[i64]).
+        return f'{ind}{ten} = set([{inner}])'
+    dong = [f'{ind}{ten} = set()']
+    for x in phan:
+        if x.strip() != '':
+            dong.append(f'{ind}{ten}.add({x.strip()})')
+    return chr(10).join(dong)
+
+
+def _tach_phay_ngoai(t: "str") -> "list[str]":
+    """Tach theo dau phay o MUC NGOAI CUNG (khong trong ngoac/chuoi)."""
+    ra = []
+    sau = 0
+    nhay = ''
+    dau = 0
+    i = 0
+    while i < len(t):
+        c = t[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[' or c == '{':
+            sau += 1
+        elif c == ')' or c == ']' or c == '}':
+            sau -= 1
+        elif c == ',' and sau == 0:
+            ra.append(t[dau:i])
+            dau = i + 1
+        i += 1
+    ra.append(t[dau:])
+    return ra
+
+
+def _co_hai_cham_ngoai(t: "str") -> "i32":
+    """Co ':' o muc ngoai (dict literal / lambda) khong."""
+    sau = 0
+    nhay = ''
+    i = 0
+    while i < len(t):
+        c = t[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[' or c == '{':
+            sau += 1
+        elif c == ')' or c == ']' or c == '}':
+            sau -= 1
+        elif c == ':' and sau == 0:
+            return True
+        i += 1
+    return False
+
+
+_NEXT_GENEXP_RE = re.compile(r'^(\s*)(\w+)\s*=\s*next\(\((.*)\)\s*$')
+
+
+def _dong_ngoac_tron(text: "str", mo: "i32") -> "i32":
+    """Chi so ')' khop '(' tai `mo` (bo qua chuoi); -1 neu khong co."""
+    sau = 0
+    nhay = ''
+    i = mo
+    while i < len(text):
+        c = text[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[' or c == '{':
+            sau += 1
+        elif c == ')' or c == ']' or c == '}':
+            sau -= 1
+            if sau == 0:
+                return i
+        i += 1
+    return -1
+
+
+def try_expand_next_genexp(line: "str") -> "str":
+    """'x = next((E for v in S [if C]), D)' (2026-09-28) -> vong lap co break:
+    trinh that khong co genexp trong ngoac tron. Ngu nghia nhu Python: dung
+    o phan tu DAU TIEN thoa C, khong thay -> D."""
+    m = _NEXT_GENEXP_RE.match(line)
+    if not m:
+        return None
+    ind, ten = m.group(1), m.group(2)
+    mo = line.index('next(') + 4
+    dong = _dong_ngoac_tron(line, mo)
+    if dong < 0 or line[dong + 1:].strip() != '':
+        return None
+    phan = _tach_phay_ngoai(line[mo + 1:dong])
+    if len(phan) != 2:
+        return None
+    gen = phan[0].strip()
+    if not gen.startswith('(') or _dong_ngoac_tron(gen, 0) != len(gen) - 1:
+        return None
+    p = parse_comprehension_inner(gen[1:len(gen) - 1])
+    if p is None or not re.fullmatch(r'\w+', p['var_part']):
+        return None
+    ra = [f"{ind}{ten} = {phan[1].strip()}",
+          f"{ind}for {p['var_part']} in {p['iterable']}:"]
+    than = ind + '    '
+    if p['cond'] is not None:
+        ra.append(f"{than}if {p['cond']}:")
+        than = than + '    '
+    ra.append(f"{than}{ten} = {p['expr']}")
+    ra.append(f"{than}break")
+    return '\n'.join(ra)
+
+
+_AGG_HOIST: "set[str]" = {'sum', 'sorted', 'min', 'max', 'any', 'all', 'list', 'set', 'frozenset'}
+_hoist_agg_counter: "i32" = 0
+_KW_ARG_RE = re.compile(r'^[A-Za-z_]\w*\s*=(?!=)')
+_DONG_KHONG_HOIST: "set[str]" = {'elif', 'else', 'while', 'def', 'class', 'with', 'try', 'except', 'finally', 'lambda', 'import', 'from', 'global', 'nonlocal', 'pass', 'break', 'continue', 'raise', 'assert', 'del'}
+
+
+def _co_for_muc0(t: "str") -> "i32":
+    """True neu t co tu khoa ' for ' o do sau ngoac 0 (ngoai chuoi)."""
+    sau = 0
+    nhay = ''
+    i = 0
+    while i < len(t):
+        c = t[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[' or c == '{':
+            sau += 1
+        elif c == ')' or c == ']' or c == '}':
+            sau -= 1
+        elif sau == 0 and c == ' ' and t[i:i + 5] == ' for ':
+            return 1
+        i += 1
+    return 0
+
+
+def _la_ten_don(t: "str", cho_phep_cham: "i32") -> "i32":
+    """1 neu t la ten dinh danh (chu/so/gach duoi, khong bat dau bang so; cho_phep_cham=1 nhan them dau '.')."""
+    if t == '' or t[0].isdigit():
+        return 0
+    for c in t:
+        if not (c.isalpha() or c.isdigit() or c == '_' or (c == '.' and cho_phep_cham == 1)):
+            return 0
+    return 1
+
+
+def try_expand_genexp_call(line: "str") -> "str":
+    """'f(E for v in S [if C])' (genexp la doi so duy nhat cua loi goi, 2026-09-30) -> 'f([E for v in S [if C]])':
+    trinh that khong co genexp; thanh list comprehension roi macro comp_in_expr lo tiep. Bo qua genexp
+    nam trong ngoac rieng (vd next((E for ...), D) - macro next_genexp lo)."""
+    if ' for ' not in line:
+        return None
+    nhay = ''
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' and i > 0 and ((line[i - 1].isalpha() or line[i - 1].isdigit()) or line[i - 1] == '_' or line[i - 1] == ')' or line[i - 1] == ']'):
+            dong = _dong_ngoac_tron(line, i)
+            if dong > i + 1:
+                trong = line[i + 1:dong]
+                if _co_for_muc0(' ' + trong) == 1 and not trong.strip().startswith('['):
+                    return line[:i + 1] + '[' + trong + ']' + line[dong:]
+        i += 1
+    return None
+
+
+def try_expand_hoist_agg(line: "str") -> "str":
+    """'x = sorted(d.keys())' voi doi so KHONG phai ten bien (2026-09-30): dua doi so vao bien tam
+    ('__aggN = d.keys()') truoc dong do, de sum/sorted/min/max/any/all/list/set nhan duoc BIEN (cac ham
+    nay chi doc bien). Chi khi: loi goi co dung 1 doi so vi tri, khong co ' if '/' and '/' or ' (giu thu tu
+    danh gia), dong khong phai elif/while/def/..., va doi so khong bat dau bang '[' (comprehension tu lo)."""
+    if try_expand_list_goi_ham(line) is not None:
+        return None
+    stripped = line.strip()
+    if stripped == '' or not (stripped[0].isalpha() or stripped[0] == '_'):
+        return None
+    dau_tu = stripped.split(' ')[0].split('(')[0].split('[')[0].split('.')[0].split(':')[0]
+    if dau_tu in _DONG_KHONG_HOIST:
+        return None
+    for tk in (' if ', ' and ', ' or ', ' else ', 'lambda', ' not '):
+        if tk in stripped and dau_tu != 'if' and dau_tu != 'for':
+            return None
+    if dau_tu == 'if' or dau_tu == 'for':
+        for tk in (' and ', ' or ', ' else ', 'lambda', ' not '):
+            if tk in stripped:
+                return None
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    nhay = ''
+    i = 0
+    while i < len(stripped):
+        c = stripped[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' and i > 0:
+            j = i
+            while j > 0 and ((stripped[j - 1].isalpha() or stripped[j - 1].isdigit()) or stripped[j - 1] == '_'):
+                j -= 1
+            ten = stripped[j:i]
+            truoc_ok = (j == 0) or (stripped[j - 1] != '.')
+            if ten in _AGG_HOIST and truoc_ok:
+                dong = _dong_ngoac_tron(stripped, i)
+                if dong > i + 1:
+                    trong = stripped[i + 1:dong]
+                    phan = _tach_phay_ngoai(trong)
+                    vt = []
+                    for ph in phan:
+                        if ph.strip() != '' and not _KW_ARG_RE.match(ph.strip()):
+                            vt.append(ph)
+                    if len(vt) == 1 or (len(vt) == 2 and ten == 'sum'):
+                        dt = vt[0].strip()
+                        don_gian = _la_ten_don(dt, 0) == 1 or dt.isdigit()
+                        if (not don_gian) and not dt[0].isdigit() and ' for ' not in dt:
+                            global _hoist_agg_counter
+                            n = _hoist_agg_counter
+                            _hoist_agg_counter = _hoist_agg_counter + 1
+                            tam = '__agg' + str(n)
+                            moi = stripped[:i + 1] + trong.replace(dt, tam, 1) + stripped[dong:]
+                            return ind + tam + ' = ' + dt + chr(10) + ind + moi
+        i += 1
+    return None
+
+
+_GET_IS_NONE_RE = re.compile(r'^\s+is\s+(not\s+)?None\b')
+
+
+def try_expand_get_is_none(line: "str") -> "str":
+    """'d.get(k) is None' / 'd.get(k) is not None' (2026-10-01) -> '(k not in d)' / '(k in d)'. dict gia tri
+    so khong bieu dien duoc None, nhung dang kiem tra "co khoa khong" thi viet duoc ('d.get(k)' don le van bao loi)."""
+    i = line.find('.get(')
+    while i >= 0:
+        j = i
+        while j > 0 and ((line[j - 1].isalpha() or line[j - 1].isdigit()) or line[j - 1] == '_'):
+            j -= 1
+        dong = _dong_ngoac_tron(line, i + 4)
+        if j < i and dong > 0 and (j == 0 or line[j - 1] != '.'):
+            khoa = line[i + 5:dong].strip()
+            if len(_tach_phay_ngoai(khoa)) == 1 and khoa != '':
+                m = _GET_IS_NONE_RE.match(line[dong + 1:])
+                if m:
+                    ten = line[j:i]
+                    if m.group(1):
+                        moi = '(' + khoa + ' in ' + ten + ')'
+                    else:
+                        moi = '(' + khoa + ' not in ' + ten + ')'
+                    return line[:j] + moi + line[dong + 1 + m.end():]
+        i = line.find('.get(', i + 1)
+    return None
+
+
+_PARTITION_RE = re.compile(r'^(\s*)(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*=\s*(\w+)\.(r?)partition\((.+)\)\s*$')
+
+
+def try_expand_partition(line: "str") -> "str":
+    """'a, b, c = s.partition(sep)' / 'a, b, c = s.rpartition(sep)' (2026-10-01) - sep la ten hoac literal chuoi.
+    Khong thay duoc: tuple 3 phan tu tra ve tu method; viet lai bang find/rfind + cat lat, dung bien tam (a co the
+    trung ten s)."""
+    m = _PARTITION_RE.match(line)
+    if not m:
+        return None
+    ind, a, b, c, s, r, sep = m.groups()
+    sep = sep.strip()
+    if sep.endswith(')'):
+        sep = sep[:len(sep) - 1]
+    ok_sep = _la_ten_don(sep, 0) == 1 or (len(sep) >= 2 and sep[0] == '"' and sep[len(sep) - 1] == '"' and sep.count('"') == 2)
+    if not ok_sep:
+        return None
+    global _hoist_key_counter
+    n = _hoist_key_counter
+    _hoist_key_counter = _hoist_key_counter + 1
+    i = '__pi' + str(n)
+    pa = '__pa' + str(n)
+    pb = '__pb' + str(n)
+    pc = '__pc' + str(n)
+    tim = 'find'
+    if r == 'r':
+        tim = 'rfind'
+    d1 = ind + '    '
+    ra = [ind + i + ' = ' + s + '.' + tim + '(' + sep + ')']
+    if r == 'r':
+        ra.append(ind + pa + ' = ""')
+        ra.append(ind + pc + ' = ' + s)
+    else:
+        ra.append(ind + pa + ' = ' + s)
+        ra.append(ind + pc + ' = ""')
+    ra.append(ind + pb + ' = ""')
+    ra.append(ind + 'if ' + i + ' >= 0:')
+    ra.append(d1 + pa + ' = ' + s + '[0:' + i + ']')
+    ra.append(d1 + pb + ' = ' + sep)
+    ra.append(d1 + pc + ' = ' + s + '[' + i + ' + len(' + sep + '):]')
+    ra.append(ind + a + ' = ' + pa)
+    ra.append(ind + b + ' = ' + pb)
+    ra.append(ind + c + ' = ' + pc)
+    return chr(10).join(ra)
+
+
+_SLICE_GAN_RE = re.compile(r'^(\s*)(\w+)\[([^\[\]:]*):([^\[\]:]*)\]\s*=\s*(.+)$')
+_SLICE_DEL_RE = re.compile(r'^(\s*)del\s+(\w+)\[([^\[\]:]*):([^\[\]:]*)\]\s*$')
+_STAR_UNPACK_RE = re.compile(r'^(\s*)(.+?)\s*=\s*(.+)$')
+_FROMKEYS_RE = re.compile(r'^(\s*)(\w+)\s*=\s*dict\.fromkeys\((.+)\)\s*$')
+
+
+def _lenh_cat_lat(ind: "str", xs: "str", a: "str", b: "str", n: "i32", rhs: "str") -> "str":
+    """Thay doan xs[a:b] bang rhs ('' = chi xoa), TAI CHO (giu nguyen tham chieu list) - chi so am/ngoai bien
+    chuan hoa nhu Python; do vong pop/insert (2026-10-01)."""
+    sa = '__sa' + str(n)
+    sb = '__sb' + str(n)
+    sn = '__sn' + str(n)
+    ss = '__ss' + str(n)
+    sk = '__sk' + str(n)
+    d1 = ind + '    '
+    ra = []
+    if rhs != '':
+        if _la_ten_don(rhs, 0) == 1:
+            ra.append(ind + ss + ' = list(' + rhs + ')')
+        else:
+            ra.append(ind + ss + ' = ' + rhs)
+    if a.strip() == '':
+        ra.append(ind + sa + ' = 0')
+    else:
+        ra.append(ind + sa + ' = ' + a.strip())
+    if b.strip() == '':
+        ra.append(ind + sb + ' = len(' + xs + ')')
+    else:
+        ra.append(ind + sb + ' = ' + b.strip())
+    ra.append(ind + 'if ' + sa + ' < 0:')
+    ra.append(d1 + sa + ' = ' + sa + ' + len(' + xs + ')')
+    ra.append(ind + 'if ' + sa + ' < 0:')
+    ra.append(d1 + sa + ' = 0')
+    ra.append(ind + 'if ' + sa + ' > len(' + xs + '):')
+    ra.append(d1 + sa + ' = len(' + xs + ')')
+    ra.append(ind + 'if ' + sb + ' < 0:')
+    ra.append(d1 + sb + ' = ' + sb + ' + len(' + xs + ')')
+    ra.append(ind + 'if ' + sb + ' > len(' + xs + '):')
+    ra.append(d1 + sb + ' = len(' + xs + ')')
+    ra.append(ind + 'if ' + sb + ' < ' + sa + ':')
+    ra.append(d1 + sb + ' = ' + sa)
+    ra.append(ind + sn + ' = ' + sb + ' - ' + sa)
+    ra.append(ind + 'while ' + sn + ' > 0:')
+    ra.append(d1 + xs + '.pop(' + sa + ')')
+    ra.append(d1 + sn + ' = ' + sn + ' - 1')
+    if rhs != '':
+        ra.append(ind + sk + ' = 0')
+        ra.append(ind + 'while ' + sk + ' < len(' + ss + '):')
+        ra.append(d1 + xs + '.insert(' + sa + ' + ' + sk + ', ' + ss + '[' + sk + '])')
+        ra.append(d1 + sk + ' = ' + sk + ' + 1')
+    return chr(10).join(ra)
+
+
+def try_expand_slice_gan(line: "str") -> "str":
+    """'xs[a:b] = ds' va 'del xs[a:b]' (2026-10-01): gan/xoa doan list tai cho (khong co buoc)."""
+    global _hoist_key_counter
+    m = _SLICE_DEL_RE.match(line)
+    if m:
+        ind, xs, a, b = m.groups()
+        n = _hoist_key_counter
+        _hoist_key_counter = _hoist_key_counter + 1
+        return _lenh_cat_lat(ind, xs, a, b, n, '')
+    m = _SLICE_GAN_RE.match(line)
+    if not m:
+        return None
+    ind, xs, a, b, rhs = m.groups()
+    if '"' in a or "'" in a or '"' in b or "'" in b:
+        return None
+    rhs = rhs.strip()
+    if rhs == '[]':
+        rhs = ''
+    n = _hoist_key_counter
+    _hoist_key_counter = _hoist_key_counter + 1
+    return _lenh_cat_lat(ind, xs, a, b, n, rhs)
+
+
+def try_expand_star_unpack(line: "str") -> "str":
+    """'a, *b = xs' / '*a, b = xs' / 'a, *b, c = xs' (2026-10-01): vi tri sao -> doan list; dung bien tam."""
+    stripped = line.strip()
+    if '*' not in stripped or '=' not in stripped:
+        return None
+    m = _STAR_UNPACK_RE.match(line)
+    if not m:
+        return None
+    ind, lhs, rhs = m.groups()
+    if '(' in lhs or '[' in lhs or '=' in lhs or lhs.count('*') != 1:
+        return None
+    ten = [t.strip() for t in lhs.split(',')]
+    if len(ten) < 2:
+        return None
+    vt = -1
+    k = 0
+    while k < len(ten):
+        if ten[k].startswith('*'):
+            vt = k
+        k += 1
+    if vt < 0:
+        return None
+    k = 0
+    while k < len(ten):
+        t = ten[k]
+        if k == vt:
+            t = t[1:].strip()
+        if _la_ten_don(t, 0) == 0:
+            return None
+        k += 1
+    global _hoist_key_counter
+    n = _hoist_key_counter
+    _hoist_key_counter = _hoist_key_counter + 1
+    su = '__su' + str(n)
+    sl = '__sl' + str(n)
+    dau = vt
+    duoi = len(ten) - vt - 1
+    ra = [ind + su + ' = ' + rhs.strip(), ind + sl + ' = len(' + su + ')']
+    k = 0
+    while k < dau:
+        ra.append(ind + ten[k] + ' = ' + su + '[' + str(k) + ']')
+        k += 1
+    ten_sao = ten[vt]
+    ra.append(ind + ten_sao[1:].strip() + ' = ' + su + '[' + str(dau) + ':' + sl + ' - ' + str(duoi) + ']')
+    k = 0
+    while k < duoi:
+        ra.append(ind + ten[vt + 1 + k] + ' = ' + su + '[' + sl + ' - ' + str(duoi - k) + ']')
+        k += 1
+    return chr(10).join(ra)
+
+
+def try_expand_fromkeys(line: "str") -> "str":
+    """'d = dict.fromkeys(keys, v)' (2026-10-01) -> d = {} + vong gan."""
+    m = _FROMKEYS_RE.match(line)
+    if not m:
+        return None
+    ind, ten, trong = m.groups()
+    phan = _tach_phay_ngoai(trong)
+    if len(phan) != 2:
+        return None
+    global _hoist_key_counter
+    n = _hoist_key_counter
+    _hoist_key_counter = _hoist_key_counter + 1
+    kk = '__fk' + str(n)
+    ra = [ind + ten + ' = {}', ind + 'for ' + kk + ' in ' + phan[0].strip() + ':', ind + '    ' + ten + '[' + kk + '] = ' + phan[1].strip()]
+    return chr(10).join(ra)
+
+
+_WITH_OPEN_MODE_RE = re.compile(r'^(\s*)with\s+open\((.*)\)\s+as\s+(\w+)\s*:\s*$')
+
+
+def try_expand_open_mode(line: "str") -> "str":
+    """'with open(p) as f:' / 'with open(p, "w", encoding="utf-8") as f:' (2026-10-01): mac dinh mode "r", bo
+    tham so encoding/newline/errors (luon UTF-8), 'rt'/'wt'/'at' -> 'r'/'w'/'a', 'mode=' -> vi tri."""
+    m = _WITH_OPEN_MODE_RE.match(line)
+    if not m:
+        return None
+    ind, trong, ten = m.groups()
+    phan = _tach_phay_ngoai(trong)
+    pos = []
+    mode = ''
+    for ph in phan:
+        ph = ph.strip()
+        if ph == '':
+            continue
+        if _KW_ARG_RE.match(ph):
+            tach = ph.split('=', 1)
+            k = tach[0].strip()
+            if k == 'mode':
+                mode = tach[1].strip()
+                continue
+            if k == 'encoding':
+                continue
+            if k == 'newline':
+                continue
+            if k == 'errors':
+                continue
+            return None
+        else:
+            pos.append(ph)
+    if len(pos) == 0 or len(pos) > 2:
+        return None
+    if len(pos) == 2:
+        mode = pos[1]
+    if mode == '':
+        mode = '"r"'
+    if mode == '"rt"':
+        mode = '"r"'
+    if mode == '"wt"':
+        mode = '"w"'
+    if mode == '"at"':
+        mode = '"a"'
+    moi = ind + 'with open(' + pos[0] + ', ' + mode + ') as ' + ten + ':'
+    if moi == line.rstrip():
+        return None
+    return moi
+
+
+def _ten_module_dot(mod: "str", ten: "str") -> "str":
+    """'<mod>.<ten>' -> ten builtin TokenVector, '' neu khong co anh xa (2026-10-01)."""
+    if mod == 'math':
+        if ten == 'pi':
+            return 'math_pi()'
+        if ten == 'e':
+            return 'math_e()'
+        if ten == 'gcd':
+            return 'math_gcd'
+        if ten == 'fabs':
+            return 'abs'
+        if ten == 'degrees' or ten == 'radians' or ten == 'log2' or ten == 'isnan' or ten == 'isinf' or ten == 'isclose' or ten == 'copysign' or ten == 'fsum':
+            return 'math_' + ten
+        return ten
+    if mod == 'str':
+        if ten == 'maketrans':
+            return 'str_maketrans'
+        return ''
+    if mod == 're':
+        if ten == 'findall' or ten == 'split' or ten == 'sub':
+            return 're_' + ten
+        return ''
+    if mod == 'json':
+        if ten == 'loads':
+            return 'json_loads'
+        if ten == 'dumps':
+            return 'json_dumps_py'
+        return ''
+    if mod == 'os.path' or mod == 'path':
+        if ten == 'join' or ten == 'exists' or ten == 'isfile' or ten == 'isdir' or ten == 'basename' or ten == 'dirname' or ten == 'abspath' or ten == 'normpath' or ten == 'splitext':
+            return 'path_' + ten
+        return ''
+    if mod == 'os':
+        if ten == 'getenv':
+            return 'os_getenv'
+        if ten == 'mkdir':
+            return 'os_mkdir'
+        if ten == 'remove' or ten == 'unlink':
+            return 'os_remove'
+        return ''
+    if mod == 'random':
+        if ten == 'random':
+            return 'uniform(0.0, 1.0)'
+        if ten == 'randint' or ten == 'randrange' or ten == 'uniform' or ten == 'choice' or ten == 'sample':
+            return ten
+        return ''
+    if mod == 'itertools':
+        if ten == 'chain' or ten == 'combinations' or ten == 'product':
+            return ten
+        return ''
+    if mod == 'string':
+        if ten == 'ascii_lowercase':
+            return '"abcdefghijklmnopqrstuvwxyz"'
+        if ten == 'ascii_uppercase':
+            return '"ABCDEFGHIJKLMNOPQRSTUVWXYZ"'
+        if ten == 'ascii_letters':
+            return '"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"'
+        if ten == 'digits':
+            return '"0123456789"'
+        return ''
+    if mod == 'time':
+        if ten == 'time':
+            return 'time_time'
+        if ten == 'perf_counter' or ten == 'monotonic':
+            return 'time_perf'
+        if ten == 'sleep':
+            return 'time_sleep'
+        return ''
+    if mod == 'sys':
+        if ten == 'argv':
+            return 'sys_argv()'
+        return ''
+    return ''
+
+
+def _doan_module(line: "str", i: "i32") -> "list[str]":
+    """Tai vi tri i: 'os.path.<ten>' / '<mod>.<ten>' voi mod trong cac module ho tro -> [mod, ten, do_dai]; [] neu khong."""
+    n = len(line)
+    for mod in ('os.path', 'math', 're', 'json', 'os', 'random', 'itertools', 'string', 'sys', 'time', 'str'):
+        if line.startswith(mod + '.', i):
+            j = i + len(mod) + 1
+            k = j
+            while k < n and _la_ky_tu_ten(line[k]):
+                k += 1
+            if k > j:
+                return [mod, line[j:k], str(k - i)]
+    return []
+
+
+_math_ext_counter: "i32" = 0
+
+
+def _tim_goi_ten(line: "str", ten: "str") -> "list[i32]":
+    """Vi tri [bat_dau, dau_ngoac_mo, dau_ngoac_dong] cua loi goi `ten(...)` dau tien ngoai chuoi (ten khong dinh sau ky tu ten/'.'); [] neu khong."""
+    nhay = ''
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif line.startswith(ten + '(', i) and (i == 0 or not (_la_ky_tu_ten(line[i - 1]) or line[i - 1] == '.')):
+            mo = i + len(ten)
+            dong = _dong_ngoac_tron(line, mo)
+            if dong > mo:
+                return [i, mo, dong]
+        i += 1
+    return []
+
+
+def _doi_so_vi_tri(trong: "str") -> "list[str]":
+    """Doi so vi tri (bo keyword) cua phan trong ngoac."""
+    ra = []
+    for ph in _tach_phay_ngoai(trong):
+        p = ph.strip()
+        if p != '' and not _KW_ARG_RE.match(p):
+            ra.append(p)
+    return ra
+
+
+def _doi_so_tu_khoa(trong: "str", khoa: "str", mac_dinh: "str") -> "str":
+    for ph in _tach_phay_ngoai(trong):
+        p = ph.strip()
+        if p.startswith(khoa + '='):
+            return p[len(khoa) + 1:].strip()
+    return mac_dinh
+
+
+def _fsum_hoist(line: "str", g: "list[i32]") -> "str":
+    """math_fsum(xs) -> tong bu sai Neumaier: vong for chen truoc dong, thay loi goi bang (s + c)."""
+    vt = _doi_so_vi_tri(line[g[1] + 1:g[2]])
+    if len(vt) != 1:
+        return None
+    global _math_ext_counter
+    n = _math_ext_counter
+    _math_ext_counter = _math_ext_counter + 1
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    p = '__fs' + str(n)
+    nguon = vt[0]
+    dau = []
+    if _la_ten_don(nguon, 0) == 0:
+        dau.append(ind + p + '_l = ' + nguon)
+        nguon = p + '_l'
+    dau.append(ind + p + '_s = 0.0')
+    dau.append(ind + p + '_c = 0.0')
+    dau.append(ind + 'for ' + p + '_x in ' + nguon + ':')
+    dau.append(ind + '    ' + p + '_t = ' + p + '_s + ' + p + '_x')
+    dau.append(ind + '    if abs(' + p + '_s) >= abs(' + p + '_x):')
+    dau.append(ind + '        ' + p + '_c = ' + p + '_c + ((' + p + '_s - ' + p + '_t) + ' + p + '_x)')
+    dau.append(ind + '    else:')
+    dau.append(ind + '        ' + p + '_c = ' + p + '_c + ((' + p + '_x - ' + p + '_t) + ' + p + '_s)')
+    dau.append(ind + '    ' + p + '_s = ' + p + '_t')
+    dau.append(line[:g[0]] + '(' + p + '_s + ' + p + '_c)' + line[g[2] + 1:])
+    return chr(10).join(dau)
+
+
+def try_expand_math_ext(line: "str") -> "str":
+    """math.isclose / math.copysign / math.fsum (2026-10-01): ten da duoc macro math_dot doi thanh math_isclose/
+    math_copysign/math_fsum. isclose, copysign -> bieu thuc thuan (doi so duoc tinh 2 lan, nen dung voi doi so
+    khong co tac dung phu); fsum -> tong bu sai (Neumaier) bang vong for chen truoc dong (lam TRUOC, vi dong
+    co ' if ' khong hoist duoc)."""
+    st = line.strip()
+    if 'math_' not in line:
+        return None
+    g = _tim_goi_ten(line, 'math_fsum')
+    if len(g) == 3 and _dong_hoist_duoc(st) == 1:
+        return _fsum_hoist(line, g)
+    g = _tim_goi_ten(line, 'math_isclose')
+    if len(g) == 3:
+        trong = line[g[1] + 1:g[2]]
+        vt = _doi_so_vi_tri(trong)
+        if len(vt) != 2:
+            return None
+        a = vt[0]
+        b = vt[1]
+        rel = _doi_so_tu_khoa(trong, 'rel_tol', '1e-09')
+        ab = _doi_so_tu_khoa(trong, 'abs_tol', '0.0')
+        df = 'abs((' + a + ') - (' + b + '))'
+        bt = '(' + df + ' <= float(' + rel + ') * abs(' + a + ') or ' + df + ' <= float(' + rel + ') * abs(' + b + ') or ' + df + ' <= float(' + ab + '))'
+        return line[:g[0]] + bt + line[g[2] + 1:]
+    g = _tim_goi_ten(line, 'math_copysign')
+    if len(g) == 3:
+        vt = _doi_so_vi_tri(line[g[1] + 1:g[2]])
+        if len(vt) != 2:
+            return None
+        bt = '(float(abs(' + vt[0] + ')) if (' + vt[1] + ') >= 0 else -float(abs(' + vt[0] + ')))'
+        return line[:g[0]] + bt + line[g[2] + 1:]
+    return None
+
+
+def try_expand_most_common(line: "str") -> "str":
+    """'c.most_common(n)' (2026-10-01) -> 'most_common(c, n)' (c: Counter co chu thich kieu)."""
+    i = line.find('.most_common(')
+    if i < 0:
+        return None
+    j = i
+    while j > 0 and _la_ky_tu_ten(line[j - 1]):
+        j -= 1
+    if j == i or (j > 0 and line[j - 1] == '.'):
+        return None
+    mo = i + len('.most_common')
+    dong = _dong_ngoac_tron(line, mo)
+    if dong < 0:
+        return None
+    trong = line[mo + 1:dong].strip()
+    if trong == '':
+        return None
+    return line[:j] + 'most_common(' + line[j:i] + ', ' + trong + ')' + line[dong + 1:]
+
+
+def _thay_ngoai_chuoi(line: "str", tim: "str", moi: "str") -> "str":
+    """Thay `tim` bang `moi` o cac vi tri NGOAI chuoi ky tu."""
+    ra = ''
+    nhay = ''
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if nhay != '':
+            ra = ra + c
+            if c == chr(92) and i + 1 < n:
+                ra = ra + line[i + 1]
+                i += 1
+            elif c == nhay:
+                nhay = ''
+            i += 1
+            continue
+        if c == '"' or c == "'":
+            nhay = c
+            ra = ra + c
+            i += 1
+            continue
+        if line.startswith(tim, i):
+            ra = ra + moi
+            i += len(tim)
+            continue
+        ra = ra + c
+        i += 1
+    return ra
+
+
+def try_expand_deque(line: "str") -> "str":
+    """collections.deque (2026-10-01) bieu dien bang list: 'deque(xs)' -> 'list(xs)', 'deque()' -> '[]',
+    'q.popleft()' -> 'q.pop(0)', 'q.appendleft(x)' -> 'q.insert(0, x)'. Khong ho tro maxlen; in ra la list (khong phai 'deque([...])')."""
+    if 'deque(' not in line and '.popleft(' not in line and '.appendleft(' not in line:
+        return None
+    ra = line
+    doi = False
+    moi_pl = _thay_ngoai_chuoi(ra, '.popleft()', '.pop(0)')
+    if moi_pl != ra:
+        ra = moi_pl
+        doi = True
+    moi_al = _thay_ngoai_chuoi(ra, '.appendleft(', '.insert(0, ')
+    if moi_al != ra:
+        ra = moi_al
+        doi = True
+    g = _tim_goi_ten(ra, 'deque')
+    if len(g) == 3:
+        trong = ra[g[1] + 1:g[2]].strip()
+        if 'maxlen' in trong:
+            return None
+        if trong == '':
+            moi = '[]'
+        elif trong.startswith('[') and trong.endswith(']'):
+            moi = trong
+        else:
+            moi = 'list(' + trong + ')'
+        ra = ra[:g[0]] + moi + ra[g[2] + 1:]
+        doi = True
+    if not doi:
+        return None
+    return ra
+
+
+def try_expand_datetime_py(line: "str") -> "str":
+    """datetime kieu Python -> ham TokenVector (2026-10-02): 'datetime.datetime.now()' / 'datetime.now()' -> 'datetime()',
+    'datetime.datetime(y, m, d, ...)' / 'datetime(y, m, d, ...)' -> 'datetime_make(...)', 'datetime.date(y, m, d)' -> 'date_make(...)',
+    '[datetime.]strptime(' -> 'datetime_strptime(', 'timedelta(days=1, hours=2)' -> 'timedelta_make(1, 2, 0, 0)'.
+    Chi doi ngoai chuoi ky tu. `date` duoc bieu dien bang dtype 'date' (int64 ticks, in 'yyyy-mm-dd')."""
+    if 'datetime' not in line and 'timedelta' not in line and 'date.today' not in line and 'date(' not in line:
+        return None
+    if line.strip().startswith('#'):
+        return None
+    # `datetime(2026, 9, 30)` (goi TRAN, khong phai `datetime.datetime(...)`)
+    # PHAI bi tu choi truoc khi macro viet lai thanh `datetime_make` - ham
+    # khong tham so `datetime()` tra thoi diem hien tai.
+    g_bare = _tim_goi_ten(line, 'datetime')
+    if (len(g_bare) == 3
+            and line[g_bare[1] + 1:g_bare[2]].strip() != ''
+            and 'datetime.datetime(' not in line and 'datetime.date(' not in line):
+        raise SyntaxError(
+            "il_codegen: datetime() KHONG tham so - no tra thoi diem hien tai "
+            "(UtcNow). Muon tao ngay cu the hay dung datetime_strptime(...)")
+    cu = ['datetime.datetime.now()', 'datetime.datetime.utcnow()', 'datetime.datetime.today()', 'datetime.now()',
+          'datetime.utcnow()', 'datetime.today()', 'datetime.date.today()', 'date.today()',
+          'datetime.datetime.strptime(', 'datetime.strptime(', 'datetime.datetime.fromisoformat(',
+          'datetime.fromisoformat(', 'datetime.datetime(', 'datetime.date(', 'datetime.timedelta(']
+    moi = ['datetime()', 'datetime()', 'datetime()', 'datetime()', 'datetime()', 'datetime()', 'date_today()',
+           'date_today()', 'datetime_strptime(', 'datetime_strptime(', 'datetime_fromisoformat(',
+           'datetime_fromisoformat(', 'datetime(', 'date_make(', 'timedelta(']
+    ra = line
+    for k in range(len(cu)):
+        ra = _thay_ngoai_chuoi(ra, cu[k], moi[k])
+    g = _tim_goi_ten(ra, 'timedelta')
+    if len(g) == 3:
+        trong = ra[g[1] + 1:g[2]]
+        if 'milliseconds' in trong or 'microseconds' in trong:
+            return None
+        vt = _doi_so_vi_tri(trong)
+        d0 = '0'
+        if len(vt) > 0:
+            d0 = vt[0]
+        ngay = _doi_so_tu_khoa(trong, 'days', d0)
+        tuan = _doi_so_tu_khoa(trong, 'weeks', '0')
+        gio = _doi_so_tu_khoa(trong, 'hours', '0')
+        phut = _doi_so_tu_khoa(trong, 'minutes', '0')
+        giay = _doi_so_tu_khoa(trong, 'seconds', '0')
+        n = '(' + ngay + ')'
+        if tuan != '0':
+            n = n + ' + 7 * (' + tuan + ')'
+        ra = ra[:g[0]] + 'timedelta_make(' + n + ', ' + gio + ', ' + phut + ', ' + giay + ')' + ra[g[2] + 1:]
+    g2 = _tim_goi_ten(ra, 'datetime')
+    if len(g2) == 3 and ra[g2[1] + 1:g2[2]].strip() != '':
+        ra = ra[:g2[0]] + 'datetime_make(' + ra[g2[1] + 1:g2[2]] + ')' + ra[g2[2] + 1:]
+    g3 = _tim_goi_ten(ra, 'date')
+    if len(g3) == 3 and not line.strip().startswith('def ') and len(_tach_phay_ngoai(ra[g3[1] + 1:g3[2]])) == 3:
+        ra = ra[:g3[0]] + 'date_make(' + ra[g3[1] + 1:g3[2]] + ')' + ra[g3[2] + 1:]
+    if ra == line:
+        return None
+    return ra
+
+
+def try_expand_ordereddict(line: "str") -> "str":
+    """collections.OrderedDict (2026-10-02): dict cua Python 3.7+ da giu thu tu chen nen 'OrderedDict()' -> '{}',
+    'OrderedDict(d)' -> 'dict(d)'. Khong ho tro move_to_end/popitem(last=...)."""
+    if 'OrderedDict(' not in line:
+        return None
+    g = _tim_goi_ten(line, 'OrderedDict')
+    if len(g) != 3:
+        return None
+    trong = line[g[1] + 1:g[2]].strip()
+    moi = '{}'
+    if trong != '':
+        moi = 'dict(' + trong + ')'
+    return line[:g[0]] + moi + line[g[2] + 1:]
+
+
+def try_expand_math_dot(line: "str") -> "str":
+    """'math.floor(x)' / 're.sub(..)' / 'json.dumps(d)' / 'os.path.join(..)' / 'random.randint(..)' / 'string.digits'
+    (sau 'import <mod>') -> ten builtin TokenVector (2026-10-01). Quet ngoai chuoi, ten module phai la tu nguyen."""
+    if '.' not in line:
+        return None
+    ra = ''
+    nhay = ''
+    i = 0
+    n = len(line)
+    doi = False
+    while i < n:
+        c = line[i]
+        if nhay != '':
+            ra = ra + c
+            if c == chr(92) and i + 1 < n:
+                ra = ra + line[i + 1]
+                i += 1
+            elif c == nhay:
+                nhay = ''
+            i += 1
+            continue
+        if c == '"' or c == "'":
+            nhay = c
+            ra = ra + c
+            i += 1
+            continue
+        if (c == 'm' or c == 'r' or c == 'j' or c == 'o' or c == 'i' or c == 's' or c == 't') and (i == 0 or not (_la_ky_tu_ten(line[i - 1]) or line[i - 1] == '.')):
+            d = _doan_module(line, i)
+            if len(d) == 3:
+                dich = _ten_module_dot(d[0], d[1])
+                if d[0] == 'random' and d[1] == 'random' and line.startswith('()', i + int(d[2])):
+                    ra = ra + 'uniform(0.0, 1.0)'
+                    i = i + int(d[2]) + 2
+                    doi = True
+                    continue
+                if dich != '':
+                    ra = ra + dich
+                    i = i + int(d[2])
+                    doi = True
+                    continue
+        ra = ra + c
+        i += 1
+    if not doi:
+        return None
+    return ra
+
+
+_LIST_GOI_RE = re.compile(r'^(\s*)(\w+)\s*=\s*list\((.+)\)\s*$')
+_BUILTIN_KHONG_HOIST: "list[str]" = ['range', 'sorted', 'map', 'filter', 'reversed', 'enumerate', 'zip', 'set', 'dict', 'list',
+                                      'tuple', 'str', 'int', 'float', 'len', 'abs', 'sum', 'min', 'max', 'frozenset', 'iter']
+
+
+def try_expand_list_goi_ham(line: "str") -> "str":
+    """'xs = list(f(args))' (2026-10-01): f la ham nguoi dung (generator hoac tra list) - viet thanh vong for + append
+    (generator da duyet duoc bang 'for v in f():'). Bo qua cac builtin (range, sorted, ...) da co duong rieng."""
+    m = _LIST_GOI_RE.match(line)
+    if not m:
+        return None
+    ind, ten, goi = m.groups()
+    goi = goi.strip()
+    if not goi.endswith(')'):
+        return None
+    mo = goi.find('(')
+    if mo < 0 or _dong_ngoac_tron(goi, mo) != len(goi) - 1:
+        return None
+    f = goi[:mo]
+    if _la_ten_don(f, 0) == 0 or f in _BUILTIN_KHONG_HOIST:
+        return None
+    global _hoist_key_counter
+    n = _hoist_key_counter
+    _hoist_key_counter = _hoist_key_counter + 1
+    g = '__lg' + str(n)
+    ra = [ind + ten + ' = []', ind + 'for ' + g + ' in ' + goi + ':', ind + '    ' + ten + '.append(' + g + ')']
+    return chr(10).join(ra)
+
+
+def try_expand_thuoc_tinh_sau_goi(line: "str") -> "str":
+    """'f(x).v' / 'Lop.tao(x).v' (thuoc tinh sau loi goi, KHONG phai goi method) (2026-10-01): dua loi goi ra bien tam
+    '__acN = f(x)' truoc dong roi doc '__acN.v'."""
+    stripped = line.strip()
+    if _dong_hoist_duoc(stripped) == 0 or ').' not in stripped:
+        return None
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    nhay = ''
+    i = 0
+    n = len(stripped)
+    while i < n:
+        c = stripped[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' and i > 0 and (_la_ky_tu_ten(stripped[i - 1]) or stripped[i - 1] == '.'):
+            j = i
+            while j > 0 and (_la_ky_tu_ten(stripped[j - 1]) or stripped[j - 1] == '.'):
+                j -= 1
+            ten = stripped[j:i]
+            dong = _dong_ngoac_tron(stripped, i)
+            if dong > i and dong + 2 < n and stripped[dong + 1] == '.' and _la_ky_tu_ten(stripped[dong + 2]):
+                k = dong + 2
+                while k < n and _la_ky_tu_ten(stripped[k]):
+                    k += 1
+                if (k >= n or stripped[k] != '(') and ten != '' and not ten[0].isdigit() and ten not in _BUILTIN_KHONG_HOIST and (j == 0 or stripped[j - 1] != '.'):
+                    global _hoist_key_counter
+                    nn = _hoist_key_counter
+                    _hoist_key_counter = _hoist_key_counter + 1
+                    tam = '__ac' + str(nn)
+                    return ind + tam + ' = ' + stripped[j:dong + 1] + chr(10) + ind + stripped[:j] + tam + stripped[dong + 1:]
+        i += 1
+    return None
+
+
+_hoist_key_counter: "i32" = 0
+_TEN_THUOC_TINH_DT: "list[str]" = ['days', 'seconds', 'total_seconds', 'year', 'month', 'day', 'hour', 'minute', 'second',
+                                    'weekday', 'isoweekday', 'isoformat', 'date', 'strftime']
+
+
+def try_expand_ngoac_thuoc_tinh_dt(line: "str") -> "str":
+    """'(b - a).days' / '(d + td).strftime(f)' (2026-10-02): thuoc tinh/phuong thuc cua datetime/timedelta tren bieu thuc trong
+    ngoac -> dua nhom ngoac ra bien tam '__pcN = (b - a)' truoc dong roi doc '__pcN.days'."""
+    stripped = line.strip()
+    if _dong_hoist_duoc(stripped) == 0 or ').' not in stripped:
+        return None
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    nhay = ''
+    i = 0
+    n = len(stripped)
+    while i < n:
+        c = stripped[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' and (i == 0 or not (_la_ky_tu_ten(stripped[i - 1]) or stripped[i - 1] == '.' or stripped[i - 1] == ')' or stripped[i - 1] == ']')):
+            dong = _dong_ngoac_tron(stripped, i)
+            if dong > i and dong + 2 < n and stripped[dong + 1] == '.':
+                k = dong + 2
+                while k < n and _la_ky_tu_ten(stripped[k]):
+                    k += 1
+                if stripped[dong + 2:k] in _TEN_THUOC_TINH_DT:
+                    global _hoist_key_counter
+                    nn = _hoist_key_counter
+                    _hoist_key_counter = _hoist_key_counter + 1
+                    tam = '__pc' + str(nn)
+                    return ind + tam + ' = ' + stripped[i:dong + 1] + chr(10) + ind + stripped[:i] + tam + stripped[dong + 1:]
+        i += 1
+    return None
+
+
+_BOOLOP_GAN_RE = re.compile(r'^(\s*)(return|\w+\s*=)\s*(\w+)\s+(or|and)\s+(.+)$')
+
+
+def try_expand_boolop_gia_tri(line: "str") -> "str":
+    """'x = a or b' / 'return a and b' voi a la TEN, b la ten hoac literal [] {} set() (2026-10-01): Python tra ve
+    MOT TRONG HAI toan hang (khong phai 0/1). Viet lai thanh ternary co san ('a if a else b' / 'a if not a else b'):
+    chan ly container/chuoi/so deu da dung duoc o dieu kien ternary."""
+    m = _BOOLOP_GAN_RE.match(line)
+    if not m:
+        return None
+    ind, dau, a, op, b = m.groups()
+    b = b.strip()
+    if _la_ten_don(a, 0) == 0 or a in ('True', 'False', 'None', 'not'):
+        return None
+    for tk in (' or ', ' and ', ' if ', ' else ', 'lambda', ' not ', '?'):
+        if tk in b:
+            return None
+    ok_b = _la_ten_don(b, 0) == 1 and b not in ('True', 'False', 'None')
+    if b == '[]' or b == '{}' or b == 'set()':
+        ok_b = True
+    if b[0] == '[' and b[len(b) - 1] == ']' and _dong_ngoac_tron(b, 0) == len(b) - 1:
+        ok_b = True
+    if not ok_b:
+        return None
+    if op == 'or':
+        return ind + dau + ' ' + a + ' if ' + a + ' else ' + b
+    return ind + dau + ' ' + a + ' if not ' + a + ' else ' + b
+
+
+def _thay_ten_tham_so(than: "str", cu: "str", moi: "str") -> "str":
+    """Thay ten dinh danh `cu` (nguyen tu, ngoai chuoi) trong `than` bang `moi`."""
+    ra = ''
+    nhay = ''
+    i = 0
+    n = len(than)
+    while i < n:
+        c = than[i]
+        if nhay != '':
+            ra = ra + c
+            if c == chr(92) and i + 1 < n:
+                ra = ra + than[i + 1]
+                i += 1
+            elif c == nhay:
+                nhay = ''
+            i += 1
+            continue
+        if c == '"' or c == "'":
+            nhay = c
+            ra = ra + c
+            i += 1
+            continue
+        if than.startswith(cu, i):
+            truoc_ok = i == 0 or not _la_ky_tu_ten(than[i - 1]) or than[i - 1] == '.'
+            sau = i + len(cu)
+            sau_ok = sau >= n or not _la_ky_tu_ten(than[sau])
+            if truoc_ok and sau_ok and (i == 0 or than[i - 1] != '.'):
+                ra = ra + moi
+                i = sau
+                continue
+        ra = ra + c
+        i += 1
+    return ra
+
+
+def try_expand_sort_lambda(line: "str") -> "str":
+    """'xs.sort(key=lambda p: E [, reverse=R])' (2026-10-01): khong can kieu tham so lambda - tinh khoa vao list
+    '__lkN' bang vong for (kieu suy ra tu E), roi sap xep CHEN ON DINH (O(n^2)) song song khoa va phan tu.
+    reverse=True: doi chieu so sanh (van on dinh, phan tu bang nhau giu thu tu goc nhu Python)."""
+    stripped = line.strip()
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    mo = stripped.find('.sort(')
+    if mo <= 0 or 'lambda' not in stripped or not stripped.endswith(')'):
+        return None
+    ten = stripped[:mo]
+    if _la_ten_don(ten, 0) == 0:
+        return None
+    dong = _dong_ngoac_tron(stripped, mo + 5)
+    if dong != len(stripped) - 1:
+        return None
+    phan = _tach_phay_ngoai(stripped[mo + 6:dong])
+    khoa = ''
+    rev = 'False'
+    for ph in phan:
+        ph = ph.strip()
+        if ph.startswith('key'):
+            t = ph[3:].strip()
+            if t.startswith('='):
+                khoa = t[1:].strip()
+        elif ph.startswith('reverse'):
+            t = ph[7:].strip()
+            if t.startswith('='):
+                rev = t[1:].strip()
+    if not khoa.startswith('lambda ') or (rev != 'True' and rev != 'False'):
+        return None
+    cham = khoa.find(':')
+    if cham < 0:
+        return None
+    tham = khoa[7:cham].strip()
+    if _la_ten_don(tham, 0) == 0:
+        return None
+    than = khoa[cham + 1:].strip()
+    global _hoist_key_counter
+    n = _hoist_key_counter
+    _hoist_key_counter = _hoist_key_counter + 1
+    e = '__le' + str(n)
+    ks = '__lk' + str(n)
+    i = '__li' + str(n)
+    j = '__lj' + str(n)
+    tt = '__lt' + str(n)
+    tk = '__lu' + str(n)
+    so_sanh = '>'
+    if rev == 'True':
+        so_sanh = '<'
+    b = _thay_ten_tham_so(than, tham, e)
+    d1 = ind + '    '
+    d2 = d1 + '    '
+    d3 = d2 + '    '
+    ra = [ind + ks + ' = []',
+          ind + 'for ' + e + ' in ' + ten + ':',
+          d1 + ks + '.append(' + b + ')',
+          ind + i + ' = 1',
+          ind + 'while ' + i + ' < len(' + ten + '):',
+          d1 + j + ' = ' + i,
+          d1 + 'while ' + j + ' > 0:',
+          d2 + 'if ' + ks + '[' + j + ' - 1] ' + so_sanh + ' ' + ks + '[' + j + ']:',
+          d3 + tk + ' = ' + ks + '[' + j + ']',
+          d3 + ks + '[' + j + '] = ' + ks + '[' + j + ' - 1]',
+          d3 + ks + '[' + j + ' - 1] = ' + tk,
+          d3 + tt + ' = ' + ten + '[' + j + ']',
+          d3 + ten + '[' + j + '] = ' + ten + '[' + j + ' - 1]',
+          d3 + ten + '[' + j + ' - 1] = ' + tt,
+          d3 + j + ' = ' + j + ' - 1',
+          d2 + 'else:',
+          d3 + 'break',
+          d1 + i + ' = ' + i + ' + 1']
+    return chr(10).join(ra)
+
+
+_KW_KHONG_HOIST_TU: "list[str]" = [' if ', ' and ', ' or ', ' else ', 'lambda', ' not ']
+
+
+def _dong_hoist_duoc(stripped: "str") -> "i32":
+    """1 neu dong nay duoc phep chen dong tam TRUOC no (cung luat voi hoist_agg)."""
+    if stripped == '' or not (stripped[0].isalpha() or stripped[0] == '_'):
+        return 0
+    dau_tu = stripped.split(' ')[0].split('(')[0].split('[')[0].split('.')[0].split(':')[0]
+    if dau_tu in _DONG_KHONG_HOIST:
+        return 0
+    for tk in _KW_KHONG_HOIST_TU:
+        if tk in stripped:
+            return 0
+    return 1
+
+
+def _tim_goi_ham(stripped: "str", ten_can: "str", vt_dau: "i32") -> "list[i32]":
+    """[j, i, dong] cua loi goi `ten_can(` dau tien tu vt_dau (ngoai chuoi, khong sau dau '.'); [] neu khong co."""
+    nhay = ''
+    i = vt_dau
+    while i < len(stripped):
+        c = stripped[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' and i > 0:
+            j = i
+            while j > 0 and ((stripped[j - 1].isalpha() or stripped[j - 1].isdigit()) or stripped[j - 1] == '_'):
+                j -= 1
+            if stripped[j:i] == ten_can and (j == 0 or stripped[j - 1] != '.'):
+                dong = _dong_ngoac_tron(stripped, i)
+                if dong > i:
+                    return [j, i, dong]
+        i += 1
+    return []
+
+
+def _dong_hoist_khoa(stripped: "str") -> "i32":
+    """Nhu _dong_hoist_duoc nhung cho phep 'lambda' (khoa sap xep) - cac tu khoa con lai van chan."""
+    if stripped == '' or not (stripped[0].isalpha() or stripped[0] == '_'):
+        return 0
+    dau_tu = stripped.split(' ')[0].split('(')[0].split('[')[0].split('.')[0].split(':')[0]
+    if dau_tu in _DONG_KHONG_HOIST:
+        return 0
+    for tk in (' if ', ' and ', ' or ', ' else ', ' not '):
+        if tk in stripped:
+            return 0
+    return 1
+
+
+def try_expand_key_agg(line: "str") -> "str":
+    """'sorted(xs, key=f, reverse=R)' / 'min(xs, key=f)' / 'max(xs, key=f)' trong 1 dong (2026-09-30):
+    '__kN = list(xs)' + '__kN.sort(key=f, reverse=R)' roi thay loi goi bang '__kN' (hoac '__kN[0]' cho min/max).
+    max dung reverse=True: sort ON DINH giu thu tu goc khi bang nhau -> phan tu DAU tien lon nhat, nhu Python."""
+    stripped = line.strip()
+    if _dong_hoist_khoa(stripped) == 0:
+        return None
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    for ten in ('sorted', 'min', 'max'):
+        vt = _tim_goi_ham(stripped, ten, 0)
+        if len(vt) == 0:
+            continue
+        mo = vt[1]
+        dong = vt[2]
+        phan = _tach_phay_ngoai(stripped[mo + 1:dong])
+        pos = []
+        key = ''
+        rev = ''
+        hop_le = 1
+        for ph in phan:
+            ph = ph.strip()
+            if ph == '':
+                continue
+            if _KW_ARG_RE.match(ph):
+                tach = ph.split('=', 1)
+                k = tach[0].strip()
+                v = tach[1].strip()
+                if k == 'key':
+                    key = v
+                elif k == 'reverse':
+                    rev = v
+                else:
+                    hop_le = 0
+            else:
+                pos.append(ph)
+        if hop_le == 0 or len(pos) != 1 or (key == '' and rev == '') or _la_ten_don(pos[0], 0) == 0:
+            continue
+        if ten != 'sorted' and (key == '' or rev != ''):
+            continue
+        global _hoist_key_counter
+        n = _hoist_key_counter
+        _hoist_key_counter = _hoist_key_counter + 1
+        tam = '__k' + str(n)
+        args_sort = ''
+        if key != '':
+            args_sort = 'key=' + key
+        r = rev
+        if ten == 'max':
+            r = 'True'
+        if r != '':
+            if args_sort != '':
+                args_sort = args_sort + ', '
+            args_sort = args_sort + 'reverse=' + r
+        thay = tam
+        if ten != 'sorted':
+            thay = tam + '[0]'
+        moi = stripped[:vt[0]] + thay + stripped[dong + 1:]
+        return ind + tam + ' = list(' + pos[0] + ')' + chr(10) + ind + tam + '.sort(' + args_sort + ')' + chr(10) + ind + moi
+    return None
+
+
+def try_expand_hoist_count(line: "str") -> "str":
+    """'... xs.count(v) ...' o vi tri KHONG phai ve phai truc tiep cua phep gan (2026-09-30): dua ra
+    '__cN = xs.count(v)' truoc dong (duong RHS truc tiep cua list.count da co san; chuoi.count cung di duong nay)."""
+    stripped = line.strip()
+    if _dong_hoist_duoc(stripped) == 0:
+        return None
+    i = stripped.find('.count(')
+    while i >= 0:
+        j = i
+        while j > 0 and ((stripped[j - 1].isalpha() or stripped[j - 1].isdigit()) or stripped[j - 1] == '_'):
+            j -= 1
+        dong = _dong_ngoac_tron(stripped, i + 6)
+        if j < i and dong > 0 and (j == 0 or stripped[j - 1] != '.'):
+            goi = stripped[j:dong + 1]
+            truc_tiep = 0
+            if j > 0 and stripped[j - 1] == ' ' and dong == len(stripped) - 1:
+                truoc = stripped[:j].strip()
+                if truoc.endswith('=') and _la_ten_don(truoc[:len(truoc) - 1].strip(), 0) == 1:
+                    truc_tiep = 1
+            if truc_tiep == 0:
+                global _hoist_key_counter
+                n = _hoist_key_counter
+                _hoist_key_counter = _hoist_key_counter + 1
+                tam = '__c' + str(n)
+                ind = ' ' * (len(line) - len(line.lstrip(' ')))
+                return ind + tam + ' = ' + goi + chr(10) + ind + stripped[:j] + tam + stripped[dong + 1:]
+        i = stripped.find('.count(', i + 1)
+    return None
+
+
+_mf_counter: "i32" = 0
+_KW_FOR = ' for '
+_KW_IN = ' in '
+_KW_IF = ' if '
+_RANGE_TRONG: "set[str]" = {'list', 'sum', 'min', 'max', 'sorted', 'any', 'all', 'set', 'tuple', 'frozenset'}
+
+
+def _vi_tri_hai_cham_muc0(t: "str") -> "i32":
+    sau = 0
+    nhay = ''
+    i = 0
+    while i < len(t):
+        c = t[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' or c == '[' or c == '{':
+            sau += 1
+        elif c == ')' or c == ']' or c == '}':
+            sau -= 1
+        elif c == ':' and sau == 0:
+            return i
+        i += 1
+    return -1
+
+
+def _ten_ham_truoc(t: "str", i: "i32") -> "str":
+    """Ten dinh danh ket thuc ngay truoc vi tri i (khong tinh neu truoc no la '.')."""
+    j = i
+    while j > 0 and ((t[j - 1].isalpha() or t[j - 1].isdigit()) or t[j - 1] == '_'):
+        j -= 1
+    if j > 0 and t[j - 1] == '.':
+        return ''
+    return t[j:i]
+
+
+def try_expand_map_filter(line: "str") -> "str":
+    """'map(F, S)' / 'filter(F, S)' / 'list(range(n))' -> list comprehension tuong duong (2026-09-30).
+    F la lambda mot tham so, ten ham, hoac (filter) None. list(map(..)) / list(filter(..)) bo lop 'list('.
+    Doi so cua sum/min/max/sorted/any/all/set/list la 'range(..)' tro thanh '[v for v in range(..)]'."""
+    nhay = ''
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        elif c == '(' and i > 0:
+            ten = _ten_ham_truoc(line, i)
+            dong = _dong_ngoac_tron(line, i)
+            if dong > i and (ten == 'map' or ten == 'filter'):
+                phan = _tach_phay_ngoai(line[i + 1:dong])
+                if len(phan) == 2:
+                    f = phan[0].strip()
+                    src = phan[1].strip()
+                    global _mf_counter
+                    v = '__mf' + str(_mf_counter)
+                    bt = ''
+                    if f.startswith('lambda '):
+                        vt = _vi_tri_hai_cham_muc0(f)
+                        if vt > 0:
+                            tham = f[7:vt].strip()
+                            than = f[vt + 1:].strip()
+                            if _la_ten_don(tham, 0) == 1:
+                                if ten == 'map':
+                                    bt = '[' + than + _KW_FOR + tham + _KW_IN + src + ']'
+                                else:
+                                    bt = '[' + tham + _KW_FOR + tham + _KW_IN + src + _KW_IF + than + ']'
+                    elif _la_ten_don(f, 1) == 1:
+                        if ten == 'map':
+                            bt = '[' + f + '(' + v + ') for ' + v + _KW_IN + src + ']'
+                        elif f == 'None':
+                            bt = '[' + v + _KW_FOR + v + _KW_IN + src + _KW_IF + v + ']'
+                        else:
+                            bt = '[' + v + _KW_FOR + v + _KW_IN + src + _KW_IF + f + '(' + v + ')]'
+                    if bt != '':
+                        _mf_counter = _mf_counter + 1
+                        j0 = i - len(ten)
+                        # list(map(..)) -> chi con comprehension
+                        if line[:j0].endswith('list(') and dong + 1 < len(line) and line[dong + 1] == ')' and _ten_ham_truoc(line, j0 - 1) == 'list':
+                            return line[:j0 - 5] + bt + line[dong + 2:]
+                        return line[:j0] + bt + line[dong + 1:]
+            elif dong > i and ten in _RANGE_TRONG:
+                trong = line[i + 1:dong].strip()
+                if trong.startswith('range(') and _dong_ngoac_tron(trong, 5) == len(trong) - 1:
+                    _mf_counter = _mf_counter + 1
+                    v = '__mf' + str(_mf_counter)
+                    bt = '[' + v + _KW_FOR + v + _KW_IN + trong + ']'
+                    j0 = i - len(ten)
+                    if ten == 'list':
+                        return line[:j0] + bt + line[dong + 1:]
+                    return line[:i + 1] + bt + line[dong:]
+        i += 1
+    return None
+
+
+_enum_counter: "i32" = 0
+
+
+def try_expand_enumerate_start(line: "str") -> "str":
+    """'for i, v in enumerate(xs, start)' / 'enumerate(xs, start=k)' (2026-09-30) -> 'for __enN, v in enumerate(xs):'
+    + dong dau than 'i = __enN + (start)'."""
+    gt = line.strip()
+    if not gt.startswith('for ') or not gt.endswith(':') or 'enumerate(' not in gt:
+        return None
+    vt_in = gt.find(' in enumerate(')
+    if vt_in < 0:
+        return None
+    dau = gt[4:vt_in]
+    ph = _tach_phay_ngoai(dau)
+    if len(ph) != 2:
+        return None
+    mo = vt_in + len(' in enumerate')
+    dong = _dong_ngoac_tron(gt, mo)
+    if dong < 0 or gt[dong + 1:] != ':':
+        return None
+    doi = _tach_phay_ngoai(gt[mo + 1:dong])
+    if len(doi) != 2:
+        return None
+    bat_dau = doi[1].strip()
+    if bat_dau.startswith('start='):
+        bat_dau = bat_dau[6:].strip()
+    global _enum_counter
+    n = _enum_counter
+    _enum_counter = _enum_counter + 1
+    ten = '__en' + str(n)
+    ind = ' ' * (len(line) - len(line.lstrip(' ')))
+    return (ind + 'for ' + ten + ', ' + ph[1].strip() + ' in enumerate(' + doi[0].strip() + '):' + chr(10)
+            + ind + '    ' + ph[0].strip() + ' = ' + ten + ' + (' + bat_dau + ')')
+
+
+def bootstrap_comprehension(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    # Dang ky vao il_dispatch NGAY LUC MODULE NAP.
+    register_macro_expander(reg, 'next_genexp', try_expand_next_genexp)
+    register_macro_expander(reg, 'genexp_call', try_expand_genexp_call)
+    register_macro_expander(reg, 'enumerate_start', try_expand_enumerate_start)
+    register_macro_expander(reg, 'map_filter', try_expand_map_filter)
+    register_macro_expander(reg, 'hoist_agg', try_expand_hoist_agg)
+    # 'key_agg' (2026-10-10): DA BO DANG KY. Tinh nang khoa sap xep cho
+    # sorted/min/max gio do BUILTIN xu ly (stdlib_aggregates:
+    # `_push_sorted_key` va `_push_minmax_key`), dung y het bootstrap Python.
+    #
+    # Ly do bo: macro text-level nay viet lai `sorted(xs, key=f)` thanh
+    # 1 bien tam roi goi `.sort(key=f)` - va `list(xs)` suy ra 'i32' cho
+    # list[int] (dung coi dau hieu khi scan bang vong lap!), nen
+    # `fpw_list_sort` bao "chu ky key ((int) -> int) khong khop dtype phan
+    # tu cua __k0". Hai duong danh tinh cho cung mot tinh nang la mo
+    # duong sua - giu lai thi moi fix phai lam 2 lan.
+    #
+    # GHI CHU khi sua comment o day: dong comment CUOC chay qua
+    # `_expand_macros` TRUOC khi duoc loai bo, nen moi dong phai CAN
+    # BANG ngoac - comment co ngoac lech se lam macro `minmax_2arg` quet
+    # trong text comment va nem loi "'(' khong co ')' dong khop".
+    #register_macro_expander(reg, 'key_agg', try_expand_key_agg)
+    register_macro_expander(reg, 'list_goi_ham', try_expand_list_goi_ham)
+    register_macro_expander(reg, 'attr_sau_goi', try_expand_thuoc_tinh_sau_goi)
+    register_macro_expander(reg, 'ngoac_dt', try_expand_ngoac_thuoc_tinh_dt)
+    register_macro_expander(reg, 'math_dot', try_expand_math_dot)
+    register_macro_expander(reg, 'math_ext', try_expand_math_ext)
+    register_macro_expander(reg, 'deque', try_expand_deque)
+    register_macro_expander(reg, 'ordereddict', try_expand_ordereddict)
+    register_macro_expander(reg, 'datetime_py', try_expand_datetime_py)
+    register_macro_expander(reg, 'most_common', try_expand_most_common)
+    register_macro_expander(reg, 'open_mode', try_expand_open_mode)
+    register_macro_expander(reg, 'slice_gan', try_expand_slice_gan)
+    register_macro_expander(reg, 'star_unpack', try_expand_star_unpack)
+    register_macro_expander(reg, 'fromkeys', try_expand_fromkeys)
+    register_macro_expander(reg, 'partition', try_expand_partition)
+    register_macro_expander(reg, 'boolop_gia_tri', try_expand_boolop_gia_tri)
+    register_macro_expander(reg, 'sort_lambda', try_expand_sort_lambda)
+    register_macro_expander(reg, 'get_is_none', try_expand_get_is_none)
+    register_macro_expander(reg, 'hoist_count', try_expand_hoist_count)
+    register_macro_expander(reg, 'comp_in_expr', try_expand_comp_in_expr)
+    register_macro_expander(reg, 'set_literal', try_expand_set_literal)
+    register_macro_expander(reg, 'list_comp', try_expand_list_comp)
+    register_macro_expander(reg, 'dict_or_set_comp', try_expand_dict_or_set_comp)

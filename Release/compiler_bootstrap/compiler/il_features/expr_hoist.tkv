@@ -1,0 +1,414 @@
+# -*- coding: utf-8 -*-
+"""Hoist bieu thuc ra bien tam (2026-08-03, dot 2).
+
+Rat nhieu duong xu ly cua compiler CHI nhan 1 TEN BIEN o vi tri doi
+tuong nhan / doi so (vi chung tra cuu scope[ten] truc tiep): 'sorted(xs)',
+'sep.join(xs)', 'lst.append(...)', 'lst.pop()', 'd.get(k, v)'... Nguoi
+viet code that thi viet 'sorted(d.keys())' hoac 'b.items.append(x)'.
+
+Thay vi nhan doi tung duong do, o day dat 1 BIEN TAM ngay TRUOC dong
+dang xet roi thay bieu thuc bang ten bien tam:
+
+    b.items.append(x)        ->  __hoist0 = b.items
+                                 __hoist0.append(x)
+    keys = sorted(d.keys())  ->  __hoist1 = d.keys()
+                                 keys = sorted(__hoist1)
+
+Dung duoc vi list/dict/chuoi/record deu la KIEU THAM CHIEU trong .NET:
+bien tam tro toi CUNG doi tuong, mutate qua no la mutate that. Day cung
+la ky thuat da dung cho 'self.<field container>' (xem
+_hoist_container_fields trong il_codegen.py).
+
+Macro nay chay o tang VAN BAN (giong cac macro khac) va PHAI duoc thu
+TRUOC cac macro sinh ra cu phap moi."""
+import re
+
+from il_dispatch import register_macro_expander
+from il_features.record_feature import _STR_METHODS
+
+__tkv_import__ = "il_dispatch"
+
+_counter: "i32" = 0
+# '<ten>.<ten>.<method>(' - doi tuong nhan la 1 THUOC TINH, khong phai
+# ten bien don. Khong bat 'self.x.y(' (self.<field container> da duoc
+# hoist rieng) va khong bat khi truoc do con dau '.' (chuoi dai hon).
+# 2026-09-26: chuoi >= 2 ten ('a.b.m(' va 'a.b.c.m(') - nang CA chuoi.
+_ATTR_RECV_RE = re.compile(r'(?<![\w.])(\w+(?:\.\w+)+)\.(\w+)\(')
+
+# '<ten>.<ten>[' - chi so tren 1 THUOC TINH (doc hoac gan).
+# 2026-09-26: chuoi >= 2 ten ('a.b[' va 'a.b.c[').
+_ATTR_INDEX_RE = re.compile(r'(?<![\w.])(\w+(?:\.\w+)+)\[')
+
+# 'sorted(<bieu thuc>)' - CHI hoist khi doi so KHONG phai 1 ten don.
+_WRAPPER_CALLS: "list[str]" = ['sorted', 'sum', 'max', 'min', 'any', 'all', 'len']
+
+_SIMPLE_NAME_RE = re.compile(r'^\w+$')
+
+# 'a.shape[0]' la CU PHAP RIENG (kich thuoc mang, biet luc bien dich) -
+# hoist no ra bien tam se pha cu phap. Khong dung cho field nguoi dung.
+_NO_HOIST_FIELDS: "set[str]" = {'shape'}
+
+
+def _trong_chuoi(text: "str", vt: "i32") -> "i32":
+    """Vi tri `vt` co nam TRONG 1 chuoi literal khong (2026-09-28)."""
+    nhay = ''
+    i = 0
+    while i < vt:
+        c = text[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+        elif c == '"' or c == "'":
+            nhay = c
+        i += 1
+    return nhay != ''
+
+
+def _tim_ngoai_chuoi(pat: "str", text: "str") -> "match":
+    """Lan khop DAU TIEN cua `pat` NGOAI chuoi literal (2026-09-28): truoc day
+    '.search' khop ca van ban TRONG chuoi, vd '"sep".join(<bieu thuc>)' nam
+    trong mot thong bao loi bi keo ra lam bieu thuc - sai khi dich.
+    Lam mo DUNG ky tu bat dau cua lan khop gia roi tim lai: search tra lan
+    khop trai nhat nen lan khop that ke tiep bat dau SAU cho da lam mo, nhom
+    cua no lay tu van ban nguyen ven."""
+    t = text
+    m = pat.search(t)
+    while m and _trong_chuoi(text, m.start()):
+        t = t[:m.start()] + chr(1) + t[m.start() + 1:]
+        m = pat.search(t)
+    return m
+
+
+def _find_close(text: "str", open_idx: "i32") -> "i32":
+    """Chi so cua ')' khop voi '(' o open_idx (bo qua ngoac trong chuoi)."""
+    depth = 0
+    quote = None
+    i = open_idx
+    while i < len(text):
+        ch = text[i]
+        if quote is not None:
+            if ch == '\\':
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in ('"', "'"):
+            quote = ch
+        elif ch in '([':
+            depth += 1
+        elif ch in ')]':
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _next_name() -> "str":
+    global _counter
+    n = _counter
+    _counter = _counter + 1
+    return f'__hoist{n}'
+
+
+def _hoist_attr_receiver(stripped: "str") -> "(str,str)":
+    """'b.items.append(x)' -> ('__hoistN = b.items', 'b.items' -> ten moi).
+    Tra ve (prologue, dong_moi) hoac None."""
+    m = _tim_ngoai_chuoi(_ATTR_RECV_RE, stripped)
+    if not m:
+        return None
+    target, _method = m.groups()
+    field = target.split('.')[-1]
+    if field in _NO_HOIST_FIELDS:
+        return None
+    # 'self.<field>' KHONG bi loai tru: field CONTAINER cua self da duoc
+    # doi ten thanh '__self_<field>' TRUOC khi macro chay (xem
+    # _hoist_container_fields), nen 'self.x' con lai o day la field vo
+    # huong hoac field kieu record - hoist duoc binh thuong.
+    tmp = _next_name()
+    new_line = stripped.replace(target + '.', tmp + '.', 1)
+    return f'{tmp} = {target}', new_line
+
+
+def _hoist_attr_index(stripped: "str") -> "(str,str)":
+    """'b.scores["x"] = 1.5' / 'v = b.scores[k]' -> dat bi danh cho
+    'b.scores' truoc. Gan CHI SO tren 1 thuoc tinh khong co duong rieng
+    (chi 'ten_bien[i] = v' moi co)."""
+    m = _tim_ngoai_chuoi(_ATTR_INDEX_RE, stripped)
+    if not m:
+        return None
+    target = m.group(1)
+    field = target.split('.')[-1]
+    if field in _NO_HOIST_FIELDS:
+        return None
+    tmp = _next_name()
+    new_line = stripped.replace(target + '[', tmp + '[', 1)
+    return f'{tmp} = {target}', new_line
+
+
+def _hoist_wrapper_arg(stripped: "str") -> "(str,str)":
+    """'sorted(d.keys())' -> ('__hoistN = d.keys()', 'sorted(__hoistN)')."""
+    for fname in _WRAPPER_CALLS:
+        pat = re.compile(r'(?<![\w.])' + fname + r'\(')
+        m = _tim_ngoai_chuoi(pat, stripped)
+        if not m:
+            continue
+        open_idx = m.end() - 1
+        close_idx = _find_close(stripped, open_idx)
+        if close_idx < 0:
+            continue
+        arg = stripped[open_idx + 1:close_idx].strip()
+        if not arg or _SIMPLE_NAME_RE.match(arg) or ',' in arg:
+            continue
+        # Chi hoist khi doi so la 1 LOI GOI / thuoc tinh (co '.' hoac '(')
+        # - bieu thuc so hoc thi cac duong hien co da xu ly duoc.
+        if '.' not in arg and '(' not in arg:
+            continue
+        tmp = _next_name()
+        new_line = stripped[:open_idx + 1] + tmp + stripped[close_idx:]
+        return f'{tmp} = {arg}', new_line
+    return None
+
+
+# Ben nhan la KET QUA MOT LOI GOI hoac mot PHAN TU CHI SO (2026-09-10).
+#
+# `s.strip().split(",")` / `xs[0].split(",")` truoc day bao "'<bieu thuc>.
+# split(...)' khong phai method chuoi da biet" - vi `_compile_str_method_on_expr`
+# chi tra bang method CU. CHIN method dang ky kieu moi (center/count/ljust/
+# match/rjust/search/split/title/zfill) khong nam trong do.
+#
+# NANG len bien tam thi ben nhan tro thanh mot BIEN - va tren bien thi ca chin
+# method DA chay dung tu truoc, di qua first-pass va suy kieu binh thuong. Dua
+# truong hop kho ve truong hop da giai, thay vi mo rong co che "ten ao" (ban va
+# do da BIEN DICH QUA va tra ve RAC - xem docs/BUGS_TODO.md).
+#
+# CO Y THU HEP: doi so cua loi goi ben nhan khong duoc chua ngoac long nhau
+# (`[^()]*`). Ngoai pham vi do thi KHONG nang, va nguoi dung nhan lai thong bao
+# ro rang cu - tu choi ro con hon nang sai.
+_CALL_RECV_RE = re.compile(r'(?<![\w.])(\w+\.\w+\([^()]*\))\.\w+\(')
+_INDEX_RECV_RE = re.compile(r'(?<![\w.])(\w+\[[^\[\]]*\])\.\w+\(')
+
+
+_METHOD_SAU_RE = re.compile(r'\.(\w+)\($')
+_METHOD_NGAY_SAU_RE = re.compile(r'\.\w+\(')
+
+
+def _can_nang(stripped: "str", m: "match") -> "i32":
+    """Chi nang khi method DUNG SAU ben nhan la method ma duong bieu thuc CU
+    KHONG xu ly duoc.
+
+    VI SAO PHAI GIOI HAN: `_compile_str_method_on_expr` DA chay dung cho moi
+    method trong bang CU (`strip`/`lower`/`replace`/...). Nang them o nhung cho
+    do chi tao bien tam thua va DOI IL cua code dang chay - cong IL bat duoc
+    dung dieu nay: 17 file co san (typegraph, pytok, codestat, ctxpack...) doi
+    IL o ban dau, 148 -> 131 giong het.
+
+    Chi CHIN method dang ky kieu MOI moi can nang: center/count/ljust/match/
+    rjust/search/split/title/zfill."""
+    duoi = _METHOD_SAU_RE.search(stripped[:m.end()])
+    if duoi is None:
+        return False
+    return duoi.group(1) not in _STR_METHODS
+
+
+def _hoist_call_receiver(stripped: "str") -> "(str,str)":
+    """'s.strip().split(",")' -> ('__hoistN = s.strip()', '__hoistN.split(...)')."""
+    m = _tim_ngoai_chuoi(_CALL_RECV_RE, stripped)
+    if not m or not _can_nang(stripped, m):
+        return None
+    target = m.group(1)
+    tmp = _next_name()
+    return f'{tmp} = {target}', stripped.replace(target + '.', tmp + '.', 1)
+
+
+def _hoist_index_receiver(stripped: "str") -> "(str,str)":
+    """'xs[0].split(",")' -> ('__hoistN = xs[0]', '__hoistN.split(...)')."""
+    m = _tim_ngoai_chuoi(_INDEX_RECV_RE, stripped)
+    if not m or not _can_nang(stripped, m):
+        return None
+    target = m.group(1)
+    tmp = _next_name()
+    return f'{tmp} = {target}', stripped.replace(target + '.', tmp + '.', 1)
+
+
+# '"sep".join(<khong phai ten bien>)' (2026-09-25): join chi nhan mot BIEN
+# list[str]; nang doi so (rut gon danh sach, thuoc tinh, phep cong...) len bien
+# tam - dong gan '__hoistN = [...]' di qua duong rut gon da co.
+_JOIN_LIT_RE = re.compile(r'("(?:[^"\\]|\\.)*"|' + "'(?:[^'\\\\]|\\\\.)*'" + r')\.join\(')
+
+
+def _hoist_join_arg(stripped: "str") -> "(str,str)":
+    m = _tim_ngoai_chuoi(_JOIN_LIT_RE, stripped)
+    if not m:
+        return None
+    open_idx = m.end() - 1
+    close_idx = _find_close(stripped, open_idx)
+    if close_idx < 0:
+        return None
+    arg = stripped[open_idx + 1:close_idx].strip()
+    if not arg or _SIMPLE_NAME_RE.match(arg):
+        return None
+    tmp = _next_name()
+    new_line = stripped[:open_idx + 1] + tmp + stripped[close_idx:]
+    return f'{tmp} = {arg}', new_line
+
+
+def _hoist_paren_receiver(stripped: "str") -> "(str,str)":
+    """'(a or {}).get(k)' (2026-09-26): ngoac NHOM (khong phai loi goi) ngay
+    truoc '.method(' - nang bieu thuc trong ngoac len bien tam. KHONG nang khi
+    phia truoc co and/or/if/else (doi thu tu danh gia / ngan mach)."""
+    i = 0
+    n = len(stripped)
+    nhay = ''
+    while i < n:
+        c = stripped[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 1
+            elif c == nhay:
+                nhay = ''
+            i += 1
+            continue
+        if c == '"' or c == "'":
+            nhay = c
+            i += 1
+            continue
+        if c == '(':
+            truoc = stripped[i - 1] if i > 0 else ' '
+            la_goi = (('a' <= truoc and truoc <= 'z') or ('A' <= truoc and truoc <= 'Z')
+                      or ('0' <= truoc and truoc <= '9') or truoc == '_' or truoc == ')' or truoc == ']')
+            if not la_goi:
+                dong = _find_close(stripped, i)
+                if dong > 0 and _METHOD_NGAY_SAU_RE.match(stripped, dong + 1):
+                    dau = stripped[:i]
+                    if re.search(r'(and|or|if|else|lambda)', dau):
+                        return None
+                    bt = stripped[i:dong + 1]
+                    tmp = _next_name()
+                    return f'{tmp} = {bt}', stripped[:i] + tmp + stripped[dong + 1:]
+        i += 1
+    return None
+
+
+def try_expand_expr_hoist(line: "str") -> "str":
+    """MACRO_EXPANDERS entry - tra ve van ban da mo rong (2 dong) hoac None."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith('#'):
+        return None
+    if stripped.startswith('def ') or stripped.startswith('class '):
+        return None
+    if (stripped.startswith('"""') or stripped.startswith("'''")):
+        return None
+    # Dong mo khoi ('for'/'if'/'while'/'with'/'elif') KHONG hoist duoc theo
+    # cach nay: bien tam phai dat TRUOC dong, nhung voi 'while' thi no chi
+    # duoc tinh 1 lan - sai ngu nghia. Chi cho 'for ... in ...:' vi ve phai
+    # cua 'for' cung chi duoc tinh 1 lan trong Python.
+    # 'if' DUOC nang (2026-09-26): dieu kien 'if' tinh NGAY sau dong nang -
+    # cung thu tu. elif/while thi khong (tinh sau nhanh truoc / moi vong).
+    is_block = re.match(r'^(while|elif|with|else|try|except|finally)\b', stripped)
+    if is_block:
+        return None
+    indent = ' ' * (len(line) - len(line.lstrip(' ')))
+    # Truoc day: `for hoist_fn in (ham1, ham2, ...)`. Tuple - va ca list -
+    # CHUA tham chieu ham thi khong trinh bien dich nao cua du an dich duoc
+    # ('bien a chua duoc khai bao'). Goi tuan tu, DUNG THU TU cu.
+    got = _hoist_attr_receiver(stripped)
+    if got is None:
+        got = _hoist_attr_index(stripped)
+    if got is None:
+        got = _hoist_wrapper_arg(stripped)
+    if got is None:
+        got = _hoist_join_arg(stripped)
+    if got is None:
+        got = _hoist_paren_receiver(stripped)
+    if got is None:
+        got = _hoist_call_receiver(stripped)
+    if got is None:
+        got = _hoist_index_receiver(stripped)
+    if got:
+        prologue, new_line = got
+        if _sau_ngan_mach(stripped, prologue):
+            return None
+        return f'{indent}{prologue}\n{indent}{new_line}'
+    return None
+
+
+def _sau_ngan_mach(stripped: "str", prologue: "str") -> "i32":
+    """Bieu thuc duoc nang nam SAU 'and'/'or'/'if'/'else' cung dong (2026-09-29)?
+    Nang no ra bien tam TRUOC dong lam bieu thuc luon duoc tinh, mat ngu nghia
+    ngan mach ('kind == "x" and len(f(kind)) == 0' goi f(kind) ca khi ve trai
+    sai). Khi do KHONG nang: duong bieu thuc truc tiep van dich dung hoac bao
+    loi RO (khong am tham sai)."""
+    at = prologue.find(' = ')
+    if at < 0:
+        return False
+    bt = prologue[at + 3:]
+    vt = stripped.find(bt)
+    if vt < 0:
+        return False
+    truoc = stripped[:vt]
+    if truoc.startswith('if '):
+        truoc = truoc[3:]
+    return (' and ' in truoc) or (' or ' in truoc) or (' if ' in truoc) or (' else ' in truoc)
+
+
+
+
+# 'x is None' / 'x is not None' (2026-08-03, dot 1) - so sanh THAM CHIEU
+# voi tham chieu rong. Doi thang sang '==' / '!=' voi None: tren kieu
+# THAM CHIEU, 'ceq' cua CIL chinh la so sanh tham chieu, dung ngu nghia
+# 'is' cua Python cho truong hop None (truong hop duy nhat DSL nay can).
+_IS_NOT_NONE_RE = re.compile(r'\bis\s+not\s+None\b')
+_IS_NONE_RE = re.compile(r'\bis\s+None\b')
+
+
+def try_expand_is_none(line: "str") -> "str":
+    """MACRO_EXPANDERS entry - chay duoc tren MOI dong (ke ca dong mo
+    khoi 'if'/'while'), khac hoist bieu thuc."""
+    if 'is' not in line:
+        return None
+    # CHI thay NGOAI chuoi (2026-09-26): truoc day thay ca van ban trong chuoi
+    # literal ("q is not None" -> "q != None") - sai am tham noi dung chuoi.
+    phan = []
+    i = 0
+    dau = 0
+    nhay = ''
+    while i < len(line):
+        c = line[i]
+        if nhay != '':
+            if c == chr(92):
+                i += 2
+                continue
+            if c == nhay:
+                nhay = ''
+                phan.append(line[dau:i + 1])
+                dau = i + 1
+            i += 1
+            continue
+        if c == '"' or c == "'":
+            ma = line[dau:i]
+            ma = _IS_NOT_NONE_RE.sub('!= None', ma)
+            ma = _IS_NONE_RE.sub('== None', ma)
+            phan.append(ma)
+            dau = i
+            nhay = c
+        i += 1
+    ma = line[dau:]
+    if nhay == '':
+        ma = _IS_NOT_NONE_RE.sub('!= None', ma)
+        ma = _IS_NONE_RE.sub('== None', ma)
+    phan.append(ma)
+    out = ''.join(phan)
+    return out if out != line else None
+
+
+def bootstrap_expr_hoist(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_macro_expander(reg, 'expr_hoist', try_expand_expr_hoist)
+    register_macro_expander(reg, 'is_none', try_expand_is_none)

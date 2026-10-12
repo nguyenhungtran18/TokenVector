@@ -1,0 +1,29 @@
+# -*- coding: utf-8 -*-
+"""Kiem chung '__tkv_extern_method__' (Task 4, 2026-08-17 - xem docs/
+superpowers/plans/2026-08-14-extern-method.md + docs/superpowers/specs/
+2026-08-14-extern-method-design.md). Khai 2 static method .NET NGOAI qua
+pragma (khong sua compiler):
+- net_pow: System.Math::Pow(f64,f64) -> f64 (Step 1, test tich cuc).
+- net_round: System.Math::Round(f64,i32) -> f64 (Step 2, dtype khac nhau
+  THEO VI TRI - vi tri 0 la f64, vi tri 1 la i32; ep dung theo khai bao,
+  khong theo kieu bieu thuc truyen vao).
+
+'mscorlib' luon co san mac dinh (khong can __tkv_extern_assembly__)."""
+__tkv_extern_method__ = [
+    {"name": "net_pow", "assembly": "mscorlib", "class": "System.Math",
+     "method": "Pow", "params": ["f64", "f64"], "returns": "f64"},
+    {"name": "net_round", "assembly": "mscorlib", "class": "System.Math",
+     "method": "Round", "params": ["f64", "i32"], "returns": "f64"},
+]
+
+
+def run_pow(a: "str", b: "str") -> "str":
+    x = float(a)
+    y = float(b)
+    return str(net_pow(x, y))
+
+
+def run_round(a: "str", b: "str") -> "str":
+    x = float(a)
+    n = int(b)
+    return str(net_round(x, n))

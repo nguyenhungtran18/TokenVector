@@ -1,0 +1,20 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    s = "  xxHello Worldxx  "
+    tested = tested + 1
+    total = total + check("lstrip_with_chars", s.lstrip(" x"), "Hello Worldxx  ")
+
+    tested = tested + 1
+    total = total + check("rstrip_with_chars", s.rstrip(" x"), "  xxHello World")
+
+    tested = tested + 1
+    total = total + check("lstrip_no_arg_backward_compat", "  hi  ".lstrip(), "hi  ")
+
+    tested = tested + 1
+    total = total + check("rstrip_no_arg_backward_compat", "  hi  ".rstrip(), "  hi")
+
+    return test_summary("lstrip_rstrip_chars_test", total, tested)

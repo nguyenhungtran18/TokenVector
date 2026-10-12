@@ -1,0 +1,36 @@
+"""Method THAT tren record (khoang trong ngon ngu #1, 2026-07-28) - tham
+so dau tien '(self)' KHONG duoc co annotation (giong Python that), duoc
+il_codegen.py TU dong bind vao scope. Point van la Python HOP LE that
+(chay duoc duoi CPython that khi doi chieu) qua __init__ (bi bo qua luc
+bien dich, xem tkv_compile.py)."""
+
+
+class Point:
+    x: "f32"
+    y: "f32"
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def total(self) -> "f32":
+        return self.x + self.y
+
+    def scale(self, k: "f32"):
+        self.x = self.x * k
+        self.y = self.y * k
+
+    def combined_with(self, other: "Point") -> "f32":
+        return self.total() + other.total()
+
+
+def make_and_scale(a: "f32", b: "f32", k: "f32") -> "f32":
+    p = Point(a, b)
+    p.scale(k)
+    return p.total()
+
+
+def two_points_sum(a: "f32", b: "f32", c: "f32", d: "f32") -> "f32":
+    p1 = Point(a, b)
+    p2 = Point(c, d)
+    return p1.combined_with(p2)

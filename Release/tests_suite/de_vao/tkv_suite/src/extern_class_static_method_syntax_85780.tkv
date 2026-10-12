@@ -1,0 +1,21 @@
+
+__tkv_extern_assembly__ = [("StaticMethodFixture", None, None)]
+__tkv_extern_class__ = [
+    {
+        "name": "W", "assembly": "StaticMethodFixture", "class": "StaticMethodFixture.Widget",
+        "ctor": [], "methods": [],
+        "static_methods": [
+            {"name": "AddOne", "params": ["i32"], "returns": "i32"},
+            {"name": "BoolToFlag", "params": ["bool"], "returns": "i32"},
+        ],
+    },
+]
+
+def main() -> "i32":
+    a = W.AddOne(41)
+    b = W.BoolToFlag(True)
+    c = W.BoolToFlag(False)
+    print(a)
+    print(b)
+    print(c)
+    return 0

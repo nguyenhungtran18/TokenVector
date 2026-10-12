@@ -1,0 +1,59 @@
+# -*- coding: utf-8 -*-
+# `tuple(...)` - bo sung 2026-09-30.
+#
+# LUU Y KIEN TRUC: `tuple` cua TokenVector KHONG phai container bien do dai
+# nhu Python. No la `System.ValueTuple<T1..TN>` - VALUE TYPE co so phan tu CO
+# DINH 2..7 biet luc bien dich. Vi vay chi 2 dang la bieu dien duoc:
+#   - `tuple([a, b, c])` tu LIST LITERAL (do dai biet luc bien dich)
+#   - `tuple(t)` khi `t` da la tuple (Python cung tra ve chinh `t`)
+# Con lai - `tuple()`, `tuple(bien_list)` - phai bao loi BIEN DICH vi khong
+# the tra ve gia tri dung: do dai chua biet. Test nay ghim ca hai phia.
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    # --- tuple([...]) tu list literal ---
+    t = tuple([5, 6, 7])
+    p, q, r = t
+    tested = tested + 1
+    total = total + check("tuple_from_list_a", str(p), "5")
+    tested = tested + 1
+    total = total + check("tuple_from_list_b", str(q), "6")
+    tested = tested + 1
+    total = total + check("tuple_from_list_c", str(r), "7")
+
+    # --- 2 phan tu: bien duoi nhat ---
+    two = tuple([1, 2])
+    m, n = two
+    tested = tested + 1
+    total = total + check("tuple_two_m", str(m), "1")
+    tested = tested + 1
+    total = total + check("tuple_two_n", str(n), "2")
+
+    # --- tuple(t) khi t da la tuple ---
+    u = (9, 8)
+    v = tuple(u)
+    x, y = v
+    tested = tested + 1
+    total = total + check("tuple_identity_x", str(x), "9")
+    tested = tested + 1
+    total = total + check("tuple_identity_y", str(y), "8")
+
+    # --- doc lai qua tuple moi, so sanh ---
+    w = tuple((4, 5))
+    s1, s2 = w
+    tested = tested + 1
+    total = total + check("tuple_nested_s1", str(s1), "4")
+    tested = tested + 1
+    total = total + check("tuple_nested_s2", str(s2), "5")
+
+    # --- ghep chuoi ---
+    parts = tuple([1, 2, 3])
+    k1, k2, k3 = parts
+    total = total + check("tuple_unpack_sum", str(k1 + k2 + k3), "6")
+    tested = tested + 1
+
+    return test_summary("tuple_ctor_test", total, tested)

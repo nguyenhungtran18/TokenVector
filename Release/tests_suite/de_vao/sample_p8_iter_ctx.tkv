@@ -1,0 +1,77 @@
+# Bao phu cho lo 7c cua P8 Task 3/4: 'for x in <record>' (giao thuc iterator)
+# va 'with <ctx> as v'.
+#
+# Vi sao can: hai kind nay GHI CHU PHU vao chinh cau lenh (_iter_type,
+# _elem_dtype, _iterobj, _nexttmp o for_in_iter; _record_name, _enter_ta,
+# _hidden o with_ctx). Khi chuyen sang row, bay cho ghi do vo - NHUNG cong IL
+# 146/146 VAN XANH, vi khong file mau nao trong 171 file dung chung.
+# Regression moi bat duoc (known_record_vars_func_return_test.py). File nay
+# dua chung vao TAP CONG de lan sau cong tu bat duoc.
+
+class Tui:
+    a: "i32"
+    b: "i32"
+    c: "i32"
+
+
+class TuiIter:
+    nguon: "Tui"
+    idx: "i32"
+
+    def __iter__(self) -> "TuiIter":
+        return self
+
+    def __next__(self) -> "(i32, i32)":
+        t = self.nguon
+        if self.idx == 0:
+            self.idx = self.idx + 1
+            return t.a, 1
+        if self.idx == 1:
+            self.idx = self.idx + 1
+            return t.b, 1
+        if self.idx == 2:
+            self.idx = self.idx + 1
+            return t.c, 1
+        return 0, 0
+
+
+class TuiCoIter:
+    a: "i32"
+    b: "i32"
+    c: "i32"
+
+    def __iter__(self) -> "TuiIter":
+        it = TuiIter(self, 0)
+        return it
+
+    def __len__(self) -> "i32":
+        return 3
+
+    def __getitem__(self, i: "i32") -> "i32":
+        return 999
+
+
+class Khoa:
+    ten: "str"
+
+    def __enter__(self) -> "Khoa":
+        return self
+
+    def __exit__(self) -> "i32":
+        return 0
+
+
+def lap_qua_record() -> "i32":
+    t = TuiCoIter(10, 20, 30)
+    tong = 0
+    for x in t:
+        tong = tong + x
+    return tong
+
+
+def dung_with_ctx() -> "str":
+    k = Khoa("k1")
+    out = ""
+    with Khoa("k2") as k2:
+        out = out + k2.ten
+    return out

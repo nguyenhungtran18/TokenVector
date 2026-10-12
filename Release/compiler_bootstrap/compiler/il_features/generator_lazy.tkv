@@ -1,0 +1,482 @@
+# -*- coding: utf-8 -*-
+"""Generator LAZY THAT (Wave 3, 2026-07-29) - thay the hoan toan B2(c)'s
+eager-list desugar (nguoi dung chon huong "Ho tro tong quat": yield o bat
+ky dau, long nhau tuy y). Class-emission chinh (field-hoisting, switch
+tren state, ...) nam trong il_codegen.py's gen_il_generator_function -
+file nay CHI so huu 2 cu phap nguoi dung go THAT:
+
+1. 'yield <expr>' - LINE_PARSER (thay macro text cu) -> stmt 'yield_stmt'.
+   Codegen: luu <expr> vao field '__current', dong bo TOAN BO field-hoisted
+   local->field (xem gen_il_generator_function's docstring), set '__state'
+   = so thu tu (danh theo THU TU codegen gap yield, luu trong ctx['gen_ctx']),
+   tra ve true, roi phat nhan resume NGAY SAU DO - code sau 'yield' tiep
+   tuc binh thuong tu nhan nay khi MoveNext() duoc goi lai.
+
+2. 'for k in gen(...):' (RHS la 1 LOI GOI TRUC TIEP, KHONG phai bien tran)
+   - CHỦ Ý gioi han o dang goi truc tiep (khong ho tro 'x = gen(...); for
+   k in x:') de TRANH va cham quy tac voi macro 'for_in_list' co san cua
+   control_flow.py (regex do khop BAT KY 'for VAR in TEN_BIEN_TRAN:' va
+   se desugar SAI thanh len()+index tren 1 gia tri generator - khong the
+   phan biet o cap macro-text vi khong co known_shapes luc do). Voi cu
+   phap goi TRUC TIEP, regex '(\\w+)\\(...\\)' KHONG khop dang bien-tran-
+   don cua macro cu nen khong va cham - CHI 1 gioi han that (khong phai
+   suy dien), khop y "for x in gen_three():" moi test da viet."""
+import stmt_row as _row
+import re
+
+from il_core import parse_expr, parse_expr_list, nid
+from il_dispatch import register_line_parser, register_first_pass_walk, register_stmt_codegen
+from tkv_types import TypeAnn
+from stmt_row import de_kind, intern, intern_body, lay_ds_nut, lay_i32, lay_nut, lay_str, lay_than, make2, make5, dat_ghi_chu, lay_ghi_chu
+from il_features.list_type import fpw_for_in_call_list
+from il_features.list_type import value_dtype_spec_for_ta, compile_tuple_lit_theo_ta
+from il_features.comprehension import _tach_phay_ngoai
+from expr_row import ekind, ea_str, ea_nut, eb_ds, la_node
+
+_YIELD_RE = re.compile(r'^yield\s+(.+)$')
+_YIELD_FROM_RE = re.compile(r'^yield\s+from\s+(.+)$')
+_FOR_IN_GEN_RE = re.compile(r'^for\s+(\w+)\s+in\s+(\w+)\((.*)\)\s*:\s*$')
+
+
+__tkv_import__ = ["il_dispatch", "tkv_types"]
+
+def try_parse_yield_from(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
+    """'yield from <nguon>' - PHAI khai bao TRUOC 'yield <expr>' vi
+    `_YIELD_RE` khop ca cum 'from <nguon>' va dua `from` vao parse_expr."""
+    m = _YIELD_FROM_RE.match(line)
+    if not m:
+        return None
+    return intern(make2('yield_from_stmt', m.group(1))), pos + 1
+
+
+def try_parse_yield(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
+    m = _YIELD_RE.match(line)
+    if not m:
+        return None
+    gia_tri = m.group(1)
+    if len(_tach_phay_ngoai(gia_tri)) > 1:
+        # 'yield a, b, c' (2026-09-28) = 'yield (a, b, c)' nhu Python
+        gia_tri = '(' + gia_tri + ')'
+    return intern(make2('yield_stmt', gia_tri)), pos + 1
+
+
+def fpw_yield_stmt(stmt: "i32", ctx: "WalkCtx"):
+    ctx.collect_ternary_temps(lay_nut(stmt, 'expr_node'))
+
+
+def codegen_yield_stmt(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    gen_ctx = ctx.gen_ctx
+    if gen_ctx is None:
+        raise SyntaxError("il_codegen: 'yield' chi dung duoc ben trong 1 ham generator "
+                           "(return type '\"list[dtype]\"' + co it nhat 1 'yield')")
+    class_name = gen_ctx.class_name
+    elem_iltype = gen_ctx.current_iltype
+    compile_expr = ctx.compile_expr
+    il_type_str = ctx.il_type_str
+
+    body.append('    ldarg.0')
+    _gt = lay_nut(stmt, 'expr_node')
+    _rt = sig.return_type if sig is not None else None
+    if (ekind(_gt) == 'tuple_lit' and _rt is not None and _rt.elem_ta is not None
+            and _rt.elem_ta.shape_ten == 'tuple'):
+        # 'yield a, b' (2026-09-28): tuple theo kieu phan tu da khai
+        compile_tuple_lit_theo_ta(_gt, _rt.elem_ta, scope, body, ctx)
+    else:
+        compile_expr(_gt, scope, body, body_dtype, ctx)
+    body.append(f'    stfld {elem_iltype} {class_name}::__current')
+
+    # Dong bo local(cache trong 1 lan MoveNext)->field(nguon THAT, song
+    # qua nhieu lan goi MoveNext) cho TOAN BO bien first-pass da hoist -
+    # xem gen_il_generator_function's docstring ve ky thuat nay.
+    for name, ta in gen_ctx.field_vars:
+        idx = scope.tra(name).idx
+        il_t = il_type_str(ta, ctx.records)
+        body.append('    ldarg.0')
+        body.append(f'    ldloc.s {idx}')
+        body.append(f'    stfld {il_t} {class_name}::{ctx.il_ident(name)}')
+
+    gen_ctx.next_state[0] += 1
+    n = gen_ctx.next_state[0]
+    resume_lbl = f"{ctx.prefix}_GENRESUME{n}"
+    gen_ctx.state_labels.append(resume_lbl)
+
+    body.append('    ldarg.0')
+    body.append(f'    ldc.i4.s {n}')
+    body.append(f'    stfld int32 {class_name}::__state')
+    body.append('    ldc.i4.1')
+    body.append('    ret')
+    body.append(f'  {resume_lbl}:')
+
+
+def try_parse_for_in_generator(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "i32", indent_level: "i32", sig: "TkvSig", known_shapes: "dict[str,str]", parse_block_fn: "func(list[(i32,str)], i32, i32, TkvSig, dict[str,str])->(list[i32], i32)") -> "(i32,i32)":
+    m = _FOR_IN_GEN_RE.match(line)
+    if not m:
+        return None
+    var, callee_name, args_text = m.groups()
+    if callee_name == 'range':
+        return None  # 'for i in range(...):' - da co LINE_PARSER rieng (control_flow.py)
+    args_text = args_text.strip()
+    arg_nodes = parse_expr_list(args_text) if args_text else []
+    pos += 1
+    if pos >= len(lines) or lines[pos][0] <= indent_level:
+        raise SyntaxError(f"il_codegen: 'for {var} in {callee_name}(...):' khong co than khoi (block rong)")
+    body, pos = parse_block_fn(lines, pos, lines[pos][0], sig, known_shapes)
+    return intern(make5('for_in_generator', var, callee_name, args_text,
+                                 str(intern_body(body)))), pos
+
+
+def _FPW_FOR_IN_CALL_LIST(stmt: "i32", ctx: "WalkCtx"):
+    fpw_for_in_call_list(stmt, ctx)
+    return
+
+
+def fpw_for_in_generator(stmt: "i32", ctx: "WalkCtx"):
+    func_table = ctx.func_table
+    callee_name = lay_str(stmt, 'callee_name')
+    callee_sig = func_table.get(callee_name)
+    if (callee_sig is not None and callee_sig.is_generator != 1
+            and callee_sig.return_type is not None
+            and callee_sig.return_type.shape_ten in ('list', 'set')):
+        # 'for x in f(...):' voi f tra ve 1 LIST thuong (2026-08-03, dot 2)
+        # - truoc day bao loi, bat nguoi viet gan ra 1 bien truoc. Doi
+        # CHINH cau lenh nay sang dang 'for_in_call_list' (xem
+        # il_features/list_type.py) roi de duong do lo lieu.
+        # P8 Task 3/4: row bat bien - bang de kind tai lap dung ngu nghia
+        # cu (mutation TOAN CUC, thay duoc o ca hai pass). Xem `_DE_KIND`.
+        de_kind(stmt, 'for_in_call_list')
+        _FPW_FOR_IN_CALL_LIST(stmt, ctx)
+        return
+    if callee_name not in func_table or func_table[callee_name].is_generator != 1:
+        raise SyntaxError(
+            f"il_codegen: 'for {lay_str(stmt, 'var')} in {callee_name}(...):' - '{callee_name}' khong phai "
+            f"1 ham generator (khong co 'yield' trong than) - 'for x in f(...):' hien CHI ho tro "
+            f"goi TRUC TIEP 1 ham generator, khong ho tro list/dict thuong o day (gan ra 1 bien "
+            f"roi 'for x in bien:' voi list/dict thuong)")
+    callee = func_table[callee_name]
+    # Important fix (2026-08-18, duck-typing-inference): 'for x in gen(...):'
+    # DI THANG toi codegen_for_in_generator (KHONG qua _expr_call), nen
+    # KHONG co resolve_call_site nao chay cho tham so 'inferred' - neu goi
+    # 1 ham-generator co con tham so 'inferred', il_type_str(p.type_ann, None) ben
+    # duoi (codegen_for_in_generator) se KeyError 'inferred' - crash Python
+    # THO thay vi loi bien dich ro rang. Chan SOM o day (first-pass walk,
+    # truoc khi codegen chay) - GIOI HAN DA BIET, chua ho tro resolve day du
+    # qua duong nay (khac Critical 1/_expr_call).
+    # Truoc day: `any(... for p in callee.params)`. Trinh bien dich THAT
+    # khong co bieu thuc sinh trong ngoac tron, nen viet thanh vong lap.
+    _co_inferred = False
+    for _p in callee.params:
+        if _p.type_ann is not None and _p.type_ann.dtype == 'inferred':
+            _co_inferred = True
+    if _co_inferred:
+        # Muc K item 1 (docs/BUGS_TODO.md, task4-critical-fix-report.md):
+        # dinh so dong nguon vao message NEU co du thong tin (thong ke
+        # 'src_line' chi duoc _parse_block gan cho statement o TOP-LEVEL
+        # than ham - xem docstring _parse_block, il_codegen.py - statement
+        # long trong if/for khac CHUA co, giu nguyen message cu trong
+        # truong hop do, khong bat buoc).
+        loc_suffix = ''
+        src_line = lay_i32(stmt, 'src_line')
+        source_path = ctx.source_path
+        if src_line and source_path:
+            loc_suffix = f" (o dong {src_line} cua file {source_path})"
+        raise SyntaxError(
+            f"il_codegen: goi ham-generator '{callee_name}' co tham so kieu suy tu dong "
+            f"'inferred' qua 'for {lay_str(stmt, 'var')} in {callee_name}(...):' chua duoc ho tro "
+            f"(gioi han da biet - dung tham so kieu cu the cho ham generator goi qua "
+            f"'for...in'){loc_suffix}")
+    ctx.declare_named(lay_str(stmt, 'var'), TypeAnn(callee.generator_elem_dtype, None))
+    ctx.declare_named(f'__geniter{nid(stmt)}', TypeAnn(callee.generator_class_name, 'generator'))
+    for arg_node in lay_ds_nut(stmt, 'arg_nodes'):
+        ctx.collect_ternary_temps(arg_node)
+    ctx.walk_fn(lay_than(stmt, 'body'))
+
+
+def codegen_for_in_generator(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    func_table = ctx.func_table
+    callee = func_table[lay_str(stmt, 'callee_name')]
+    compile_expr = ctx.compile_expr
+    store_var = ctx.store_var
+    il_type_str = ctx.il_type_str
+
+    _rb = scope.tra(f'__geniter{nid(stmt)}')
+    iter_idx = _rb.idx
+    iter_ta = _rb.ta
+    gen_class = il_type_str(iter_ta, ctx.records)
+    elem_iltype = ctx.il_scalar.get(callee.generator_elem_dtype, callee.generator_elem_dtype)
+
+    # Lazy import (cung ky thuat da dung o fpw_for_in_call_list, dong ~99)
+    # de tranh circular import list_type <-> generator_lazy.
+    for arg_node, p in zip(lay_ds_nut(stmt, 'arg_nodes'), callee.params):
+        # Round 3 (2026-08-19): shape-string convention cho list-literal
+        # long nhau lam doi so generator ('for x in gen([[1,2],[3,4]]):').
+        compile_expr(arg_node, scope, body,
+                     value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
+    callee_params_il = ', '.join([il_type_str(p.type_ann, None) for p in callee.params])
+    class_name = ctx.class_name or 'Program'
+    body.append(f'    call {gen_class} {class_name}::{lay_str(stmt, "callee_name")}({callee_params_il})')
+    body.append(f'    stloc.s {iter_idx}')
+
+    ctx.label_counter[0] += 1
+    n = ctx.label_counter[0]
+    start_lbl = f"{ctx.prefix}_forgen{n}_start"
+    end_lbl = f"{ctx.prefix}_forgen{n}_end"
+
+    body.append(f'  {start_lbl}:')
+    body.append(f'    ldloc.s {iter_idx}')
+    body.append(f'    callvirt instance bool {gen_class}::MoveNext()')
+    body.append(f'    brfalse {end_lbl}')
+    body.append(f'    ldloc.s {iter_idx}')
+    body.append(f"    callvirt instance {elem_iltype} {gen_class}::"
+                f"'System.Collections.Generic.IEnumerator<{elem_iltype}>.get_Current'()")
+    store_var(lay_str(stmt, 'var'), scope, body)
+    ctx.loop_stack.append((start_lbl, end_lbl))
+    codegen_stmts_fn(lay_than(stmt, 'body'), scope, body, body_dtype, ctx, sig)
+    ctx.loop_stack.pop()
+    body.append(f'    br {start_lbl}')
+    body.append(f'  {end_lbl}:')
+
+
+def _yf_lookup_ta(ctx: "WalkCtx", name: "str") -> "TypeAnn":
+    """TypeAnn da biet cua `name` tu infer_scope cua first-pass, hoac None."""
+    try:
+        return ctx.infer_scope.tra(name).ta
+    except Exception:
+        return None
+
+
+def _yf_tkvint_to(dtype: "str") -> "str":
+    return 'ToI64' if dtype == 'i64' else 'ToI32'
+
+
+def _yf_expr_src(node: "TkvNode") -> "str":
+    """Dang TEXT cua node (chi dung cho thong bao loi)."""
+    k = ekind(node)
+    if k == 'var':
+        return ea_str(node)
+    if k == 'call':
+        return ea_str(node) + '(...)'
+    if k == 'num':
+        return ea_str(node)
+    if k == 'str_lit':
+        return '<chuoi>'
+    return '<bieu thuc>'
+
+
+def _emit_yield_here(gen_ctx: "GenCtx", scope: "Scope", body: "list[str]", ctx: "Ctx", value_emitter: "func(list[str])->void"):
+    """Phat 1 phan tu: `value_emitter(body)` day lenh gia tri len (sau
+    'ldarg.0' da day), roi lam phan con lai cua may trang thai.
+
+    Dung CHUNG boi 'yield <expr>' va 'yield from <nguon>'."""
+    class_name = gen_ctx.class_name
+    elem_iltype = gen_ctx.current_iltype
+    il_type_str = ctx.il_type_str
+    value_emitter(body)
+    body.append('    stfld ' + elem_iltype + ' ' + class_name + '::__current')
+    for name, ta in gen_ctx.field_vars:
+        idx = scope.tra(name).idx
+        il_t = il_type_str(ta, ctx.records)
+        body.append('    ldarg.0')
+        body.append('    ldloc.s ' + str(idx))
+        body.append('    stfld ' + il_t + ' ' + class_name + '::' + ctx.il_ident(name))
+    gen_ctx.next_state[0] += 1
+    n = gen_ctx.next_state[0]
+    resume_lbl = ctx.prefix + '_GENRESUME' + str(n)
+    gen_ctx.state_labels.append(resume_lbl)
+    body.append('    ldarg.0')
+    body.append('    ldc.i4.s ' + str(n) if n >= -128 and n <= 127 else '    ldc.i4 ' + str(n))
+    body.append('    stfld int32 ' + class_name + '::__state')
+    body.append('    ldc.i4.1')
+    body.append('    ret')
+    body.append('  ' + resume_lbl + ':')
+
+
+def fpw_yield_from_stmt(stmt: "i32", ctx: "WalkCtx"):
+    """Phan loai nguon cua `yield from` o FIRST-PASS va khai bao local an.
+
+    Chi ho tro 2 dang - bien list va goi truc tiep 1 ham generator."""
+    node = lay_nut(stmt, 'expr_node')
+    kind = ekind(node)
+    what = 'yield from ' + _yf_expr_src(node)
+    if kind == 'var':
+        src_name = ea_str(node)
+        ta = _yf_lookup_ta(ctx, src_name)
+        if ta is not None and ta.shape_ten == 'list':
+            dat_ghi_chu(stmt, 'yf_mode', 'list')
+            dat_ghi_chu(stmt, 'yf_src_elem', ta.dtype)
+            ctx.declare_named('__yfsrc' + str(nid(stmt)), ta)
+            ctx.declare_named('__yfidx' + str(nid(stmt)), TypeAnn('i32', None))
+            return
+        if ta is None:
+            raise SyntaxError(
+                "il_codegen: '" + src_name + "' khong phai bien LIST - chi ho tro "
+                "'yield from <bien kieu list>' va 'yield from <ham generator>(...)'")
+        raise SyntaxError(
+            "il_codegen: '" + src_name + "' khong phai bien LIST - chi ho tro "
+            "'yield from <bien kieu list>' va 'yield from <ham generator>(...)'. "
+            "Chi chuyen doi duoc tu '" + ta.dtype + "' sang so nguyen nho hon")
+    if kind == 'call':
+        callee_name = ea_str(node)
+        callee = ctx.func_table.get(callee_name)
+        if callee is not None and callee.is_generator == 1:
+            dat_ghi_chu(stmt, 'yf_mode', 'gen')
+            ctx.declare_named('__yfiter' + str(nid(stmt)),
+                              TypeAnn(callee.generator_class_name, 'generator'))
+            for arg_node in eb_ds(node):
+                ctx.collect_ternary_temps(arg_node)
+            return
+        raise SyntaxError(
+            "il_codegen: " + what + " - '" + callee_name + "' khong phai 1 HAM GENERATOR "
+            "(khong co 'yield' trong than). 'yield from' chi ho tro bien list va goi "
+            "truc tiep 1 ham generator")
+    raise SyntaxError(
+        "il_codegen: " + what + " - chi ho tro 'yield from <bien kieu list>' va "
+        "'yield from <ham generator>(...)', khong ho tro bieu thuc khac")
+
+
+def codegen_yield_from_stmt(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    gen_ctx = ctx.gen_ctx
+    if gen_ctx is None:
+        raise SyntaxError("il_codegen: 'yield from' chi dung duoc ben trong 1 ham generator "
+                          "(return type '\"list[dtype]\"' + co it nhat 1 'yield')")
+    compile_expr = ctx.compile_expr
+    store_var = ctx.store_var
+    il_type_str = ctx.il_type_str
+    records = ctx.records
+    sid = nid(stmt)
+    ctx.label_counter[0] += 1
+    n = ctx.label_counter[0]
+    start_lbl = ctx.prefix + '_YF' + str(n) + '_start'
+    end_lbl = ctx.prefix + '_YF' + str(n) + '_end'
+    if lay_ghi_chu(stmt, 'yf_mode') == 'list':
+        src_name = '__yfsrc' + str(sid)
+        idx_name = '__yfidx' + str(sid)
+        src_idx = scope.tra(src_name).idx
+        src_ta = scope.tra(src_name).ta
+        idx_idx = scope.tra(idx_name).idx
+        list_type = il_type_str(src_ta, records)
+        compile_expr(lay_nut(stmt, 'expr_node'), scope, body, src_ta.dtype, ctx)
+        store_var(src_name, scope, body)
+        body.append('    ldc.i4.0')
+        body.append('    stloc.s ' + str(idx_idx))
+        body.append('  ' + start_lbl + ':')
+        body.append('    ldloc.s ' + str(idx_idx))
+        body.append('    ldloc.s ' + str(src_idx))
+        body.append('    callvirt instance int32 ' + list_type + '::get_Count()')
+        body.append('    bge ' + end_lbl)
+        src_elem = lay_ghi_chu(stmt, 'yf_src_elem')
+        if src_elem is None:
+            src_elem = src_ta.dtype
+
+        def _emit_item_vl(out: "list[str]"):
+            nonlocal src_idx, idx_idx, list_type, src_elem, gen_ctx
+            out.append('    ldarg.0')
+            out.append('    ldloc.s ' + str(src_idx))
+            out.append('    ldloc.s ' + str(idx_idx))
+            out.append('    callvirt instance !0 ' + list_type + '::get_Item(int32)')
+            if src_elem == 'int' and src_elem != gen_ctx.elem_dtype:
+                out.append('    call ' + gen_ctx.current_iltype + ' TkvInt::' +
+                           _yf_tkvint_to(gen_ctx.elem_dtype) + '(valuetype TkvInt)')
+
+        _emit_yield_here(gen_ctx, scope, body, ctx, _emit_item_vl)
+        body.append('    ldloc.s ' + str(idx_idx))
+        body.append('    ldc.i4.1')
+        body.append('    add')
+        body.append('    stloc.s ' + str(idx_idx))
+        body.append('    br ' + start_lbl)
+        body.append('  ' + end_lbl + ':')
+        return
+    iter_name = '__yfiter' + str(sid)
+    iter_idx = scope.tra(iter_name).idx
+    iter_ta = scope.tra(iter_name).ta
+    sub_class = il_type_str(iter_ta, records)
+    node = lay_nut(stmt, 'expr_node')
+    callee = ctx.func_table[ea_str(node)]
+    elem_iltype = ctx.il_scalar.get(callee.generator_elem_dtype, callee.generator_elem_dtype)
+    for arg_node, p in zip(eb_ds(node), callee.params):
+        compile_expr(arg_node, scope, body, value_dtype_spec_for_ta(p.type_ann, arg_node), ctx)
+    callee_params_il = ', '.join([il_type_str(p.type_ann, records) for p in callee.params])
+    program_class = ctx.class_name or 'Program'
+    body.append('    call ' + sub_class + ' ' + program_class + '::' +
+                ctx.il_ident(ea_str(node)) + '(' + callee_params_il + ')')
+    body.append('    stloc.s ' + str(iter_idx))
+    body.append('  ' + start_lbl + ':')
+    body.append('    ldloc.s ' + str(iter_idx))
+    body.append('    callvirt instance bool ' + sub_class + '::MoveNext()')
+    body.append('    brfalse ' + end_lbl)
+
+    def _emit_item_gen(out: "list[str]"):
+        nonlocal iter_idx, sub_class, elem_iltype
+        out.append('    ldarg.0')
+        out.append('    ldloc.s ' + str(iter_idx))
+        out.append("    callvirt instance " + elem_iltype + " " + sub_class + "::"
+                   + "'System.Collections.Generic.IEnumerator<" + elem_iltype + ">.get_Current'()")
+
+    _emit_yield_here(gen_ctx, scope, body, ctx, _emit_item_gen)
+    body.append('    br ' + start_lbl)
+    body.append('  ' + end_lbl + ':')
+
+
+def emit_generator_drain_as_container(arg_node: "TkvNode", gen_class_name: "str", param_ta: "TypeAnn", scope: "Scope", out: "list[str]", ctx: "Ctx") -> "i32":
+    """Truyen GENERATOR vao tham so kieu `list[...]` - rut may trang thai ve
+    list MOI roi tra ve tren stack. Tra 1 neu da lam."""
+    if param_ta is None or param_ta.shape_ten != 'list':
+        return 0
+    compile_expr = ctx.compile_expr
+    il_type_str = ctx.il_type_str
+    gen_class = il_type_str(TypeAnn(gen_class_name, 'generator'), ctx.records)
+    list_il = il_type_str(param_ta, ctx.records)
+    func_table = ctx.func_table or {}
+    callee = func_table.get(ea_str(arg_node))
+    elem_iltype = 'int32'
+    if callee is not None:
+        elem_iltype = ctx.il_scalar.get(callee.generator_elem_dtype,
+                                        callee.generator_elem_dtype)
+    tag = '__genaslst' + str(nid(arg_node))
+    it_idx = scope.tra(tag + '_it').idx
+    acc_idx = scope.tra(tag + '_acc').idx
+    ctx.label_counter[0] += 1
+    n = ctx.label_counter[0]
+    start_lbl = tag + '_L' + str(n) + '_start'
+    end_lbl = tag + '_L' + str(n) + '_end'
+    if ekind(arg_node) == 'call':
+        for a, p in zip(eb_ds(arg_node), callee.params):
+            compile_expr(a, scope, out, value_dtype_spec_for_ta(p.type_ann, a), ctx)
+        callee_params_il = ', '.join([il_type_str(p.type_ann, None) for p in callee.params])
+        class_name = ctx.class_name or 'Program'
+        out.append('    call ' + gen_class + ' ' + class_name + '::' +
+                   ea_str(arg_node) + '(' + callee_params_il + ')')
+    else:
+        compile_expr(arg_node, scope, out, TypeAnn(gen_class_name, 'generator'), ctx)
+    out.append('    stloc.s ' + str(it_idx))
+    out.append('    newobj instance void ' + list_il + '::.ctor()')
+    out.append('    stloc.s ' + str(acc_idx))
+    out.append('  ' + start_lbl + ':')
+    out.append('    ldloc.s ' + str(it_idx))
+    out.append('    callvirt instance bool ' + gen_class + '::MoveNext()')
+    out.append('    brfalse ' + end_lbl)
+    out.append('    ldloc.s ' + str(acc_idx))
+    out.append('    ldloc.s ' + str(it_idx))
+    out.append("    callvirt instance " + elem_iltype + " " + gen_class + "::"
+               + "'System.Collections.Generic.IEnumerator<" + elem_iltype + ">.get_Current'()")
+    out.append('    callvirt instance void ' + list_il + '::Add(!0)')
+    out.append('    br ' + start_lbl)
+    out.append('  ' + end_lbl + ':')
+    out.append('    ldloc.s ' + str(acc_idx))
+    return 1
+
+
+def bootstrap_generator_lazy(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_line_parser(reg, 'yield_from_stmt', try_parse_yield_from)
+    register_first_pass_walk(reg, 'yield_from_stmt', fpw_yield_from_stmt)
+    register_stmt_codegen(reg, 'yield_from_stmt', codegen_yield_from_stmt)
+    register_line_parser(reg, 'yield_stmt', try_parse_yield)
+    register_first_pass_walk(reg, 'yield_stmt', fpw_yield_stmt)
+    register_stmt_codegen(reg, 'yield_stmt', codegen_yield_stmt)
+    register_line_parser(reg, 'for_in_generator', try_parse_for_in_generator)
+    register_first_pass_walk(reg, 'for_in_generator', fpw_for_in_generator)
+    register_stmt_codegen(reg, 'for_in_generator', codegen_for_in_generator)

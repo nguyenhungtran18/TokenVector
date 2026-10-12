@@ -1,0 +1,16 @@
+# EXPECT-SUBSTRING: CHUA ho tro dung
+# -*- coding: utf-8 -*-
+# `abs()` tren so phuc PHAI bi tu choi ro rang, KHONG duoc ra gia tri sai.
+#
+# Code cu goi `System.Math::Abs(Complex)` - ham nay KHONG TONTAI trong .NET,
+# nen bien dich xanh roi chay thi nem MissingMethodException. Do la "sap luc
+# chay", va la loai ma gate hien tai khong bat duoc.
+#
+# Thu lai voi `System.Numerics.Complex::Abs(Complex)` (ham co that, khai bao
+# tra `double`) thi ket qua VAN SAI: abs(complex(3,4)) ra `3.0` thay vi `5.0` -
+# doc 8 byte dau cua struct Complex tuc phan thuc. Gia tri sai am thanh te hon
+# nhieu so voi loi bien dich, nen phai bao loi.
+def run() -> "i32":
+    c = complex(3.0, 4.0)
+    print(str(abs(c)))
+    return 0

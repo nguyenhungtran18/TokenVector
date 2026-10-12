@@ -1,0 +1,12 @@
+# -*- coding: utf-8 -*-
+"""http_get(url) - 1 trong 4 diem yeu lon con lai cua TokenVector (web/DB,
+2026-07-29) - anh xa THANG System.Net.WebClient::DownloadString(string),
+da xac minh THAT qua csc.exe truoc khi viet (xem stdlib_http.py). Test
+nay goi 1 URL THAT (mang that, khong mock) - CHI kiem tra do dai > 0
+(khong so sanh noi dung chinh xac, vi noi dung trang web co the doi theo
+thoi gian - do dai > 0 la bang chung du HTTP GET that su thanh cong)."""
+
+
+def get_len(url: "str") -> "i32":
+    body = http_get(url)
+    return len(body)

@@ -1,0 +1,23 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    u = uniform(5.0, 5.0)
+    tested = tested + 1
+    total = total + check("uniform_degenerate_range", str(u), "5.0")
+
+    u2 = uniform(1.0, 10.0)
+    tested = tested + 1
+    total = total + check("uniform_in_range", str(u2 >= 1.0 and u2 <= 10.0), "True")
+
+    rr = randrange(3, 4)
+    tested = tested + 1
+    total = total + check("randrange_single_value", str(rr), "3")
+
+    rr2 = randrange(0, 100)
+    tested = tested + 1
+    total = total + check("randrange_in_bounds", str(rr2 >= 0 and rr2 < 100), "True")
+
+    return test_summary("random_extend_test", total, tested)

@@ -1,0 +1,1224 @@
+# -*- coding: utf-8 -*-
+"""tkvcalc - may tinh bieu thuc viet HOAN TOAN bang TokenVector.
+
+Day la 1 chuong trinh THAT (khong phai bai test): doc 1 chuoi bieu thuc,
+phan tich tu vung (lexer), chuyen sang ky phap hau to bang thuat toan
+shunting-yard, roi tinh bang may ao ngan xep. Ho tro:
+
+  - so nguyen / so thuc, dau am 1 ngoi
+  - + - * / // % ^ (luy thua, ket hop PHAI)
+  - so sanh  <  <=  >  >=  ==  !=   (tra ve 1 / 0)
+  - ngoac tron long nhau
+  - ham 1 tham so: abs sqrt floor ceil round sign
+  - ham 2 tham so: min max pow hypot
+  - bien va phep gan:  x = 3; y = x * 2; y + 1
+  - chu thich '#' den het dong
+  - bao loi CO VI TRI (cot) va co loai loi rieng
+
+Kien truc theo lop THAT (khong phai ham roi rac):
+    Tok        - 1 the tu vung
+    SrcCursor  - con tro doc chuoi nguon (lop CO SO)
+    Lexer      - ke thua SrcCursor, sinh danh sach Tok
+    TokCursor  - con tro doc danh sach Tok
+    OpInfo     - do uu tien / chieu ket hop cua 1 toan tu
+    Shunter    - shunting-yard: trung to -> hau to
+    NumStack   - ngan xep so cua may ao (TU GIU list[f64] trong field)
+    VarStore   - kho bien (TU GIU 2 list song song trong field)
+    Machine    - may ao tinh hau to
+    Session    - chay nhieu cau lenh ngan cach bang ';'
+    Stats      - dem so the / so phep tinh (dung cho che do --stats)
+    Diagnostic - 1 thong bao loi co vi tri
+    CalcError  - lop loi CO SO; LexError / ParseError / EvalError ke thua
+
+File nay la Python HOP LE: bo test chay CHINH no bang CPython roi doi
+chieu tung ky tu voi .exe da bien dich.
+
+Dung:
+    tkvcalc.exe "2 + 3 * 4"
+    tkvcalc.exe "x = 3; y = x ^ 2; y + 1"
+"""
+
+# ---------------------------------------------------------------------
+# Hang so
+# ---------------------------------------------------------------------
+
+KIND_NUM = "NUM"
+KIND_NAME = "NAME"
+KIND_OP = "OP"
+KIND_LPAREN = "LPAREN"
+KIND_RPAREN = "RPAREN"
+KIND_COMMA = "COMMA"
+KIND_SEMI = "SEMI"
+KIND_ASSIGN = "ASSIGN"
+KIND_EOF = "EOF"
+
+ASSOC_LEFT = 0
+ASSOC_RIGHT = 1
+
+MAX_STACK = 256
+MAX_VARS = 64
+
+
+# ---------------------------------------------------------------------
+# Loi (co phan cap ke thua that)
+# ---------------------------------------------------------------------
+
+
+class CalcError(Exception):
+    """Loi CO SO cua may tinh. Truong dau tien kieu str duoc dung lam
+    thong diep that cua System.Exception (quy uoc cua TokenVector)."""
+
+    msg: "str"
+
+    def __init__(self, msg):
+        self.msg = msg
+
+    def label(self) -> "str":
+        return "loi"
+
+    def render(self) -> "str":
+        return self.label() + ": " + self.msg
+
+
+class LexError(CalcError):
+    """Ky tu khong hop le trong chuoi nguon."""
+
+    def __init__(self, msg):
+        super().__init__(msg)
+
+    def label(self) -> "str":
+        return "loi tu vung"
+
+
+class ParseError(CalcError):
+    """Cau truc bieu thuc sai (thieu ngoac, thieu toan hang...)."""
+
+    def __init__(self, msg):
+        super().__init__(msg)
+
+    def label(self) -> "str":
+        return "loi cu phap"
+
+
+class EvalError(CalcError):
+    """Loi luc tinh (chia 0, bien chua dat, tran ngan xep...)."""
+
+    def __init__(self, msg):
+        super().__init__(msg)
+
+    def label(self) -> "str":
+        return "loi tinh toan"
+
+
+# ---------------------------------------------------------------------
+# Chan doan
+# ---------------------------------------------------------------------
+
+
+class Diagnostic:
+    """1 thong bao loi kem vi tri cot trong chuoi nguon."""
+
+    text: "str"
+    pos: "i32"
+    severity: "i32"
+
+    def __init__(self, text, pos, severity):
+        self.text = text
+        self.pos = pos
+        self.severity = severity
+
+    def is_fatal(self) -> "i32":
+        if self.severity >= 2:
+            return 1
+        return 0
+
+    def marker(self) -> "str":
+        if self.severity >= 2:
+            return "!!"
+        if self.severity == 1:
+            return "!"
+        return "-"
+
+    def render(self) -> "str":
+        return self.marker() + " cot " + str(self.pos + 1) + ": " + self.text
+
+
+# ---------------------------------------------------------------------
+# The (token)
+# ---------------------------------------------------------------------
+
+
+class Tok:
+    """1 the tu vung: loai, van ban nguyen goc, vi tri cot (0-based)."""
+
+    kind: "str"
+    text: "str"
+    pos: "i32"
+
+    def __init__(self, kind, text, pos):
+        self.kind = kind
+        self.text = text
+        self.pos = pos
+
+    def show(self) -> "str":
+        return self.kind + "(" + self.text + ")@" + str(self.pos)
+
+    def is_kind(self, want: "str") -> "i32":
+        if self.kind == want:
+            return 1
+        return 0
+
+    def is_value_start(self) -> "i32":
+        """The nay co the MO DAU 1 toan hang khong?"""
+        if self.kind == KIND_NUM:
+            return 1
+        if self.kind == KIND_NAME:
+            return 1
+        if self.kind == KIND_LPAREN:
+            return 1
+        return 0
+
+    def is_end(self) -> "i32":
+        if self.kind == KIND_EOF:
+            return 1
+        if self.kind == KIND_SEMI:
+            return 1
+        return 0
+
+    def numeric_value(self) -> "f64":
+        if self.kind != KIND_NUM:
+            raise EvalError("the '" + self.text + "' khong phai so")
+        return float(self.text)
+
+
+def make_eof(pos: "i32") -> "Tok":
+    """The ket thuc dung chung o nhieu cho."""
+    return Tok(KIND_EOF, "", pos)
+
+
+# ---------------------------------------------------------------------
+# Con tro nguon + Lexer (ke thua)
+# ---------------------------------------------------------------------
+
+
+class SrcCursor:
+    """Con tro doc 1 chuoi nguon theo ky tu. Lop CO SO cua Lexer - tach
+    rieng de phan doc-ky-tu khong lan voi phan nhan dang the."""
+
+    src: "str"
+    pos: "i32"
+
+    def __init__(self, src, pos):
+        self.src = src
+        self.pos = pos
+
+    def at_end(self) -> "i32":
+        if self.pos >= len(self.src):
+            return 1
+        return 0
+
+    def peek_ch(self) -> "str":
+        if self.at_end() == 1:
+            return ""
+        return self.src[self.pos]
+
+    def peek_ch_at(self, offset: "i32") -> "str":
+        k = self.pos + offset
+        if k >= len(self.src):
+            return ""
+        if k < 0:
+            return ""
+        return self.src[k]
+
+    def advance(self) -> "str":
+        ch = self.peek_ch()
+        self.pos = self.pos + 1
+        return ch
+
+    def remaining(self) -> "i32":
+        return len(self.src) - self.pos
+
+    def describe(self) -> "str":
+        return "cursor@" + str(self.pos) + "/" + str(len(self.src))
+
+
+def is_space(ch: "str") -> "i32":
+    if ch == " ":
+        return 1
+    if ch == "\t":
+        return 1
+    if ch == "\n":
+        return 1
+    if ch == "\r":
+        return 1
+    return 0
+
+
+def is_digit(ch: "str") -> "i32":
+    if len(ch) != 1:
+        return 0
+    if ch >= "0":
+        if ch <= "9":
+            return 1
+    return 0
+
+
+def is_alpha(ch: "str") -> "i32":
+    if len(ch) != 1:
+        return 0
+    if ch == "_":
+        return 1
+    if ch >= "a":
+        if ch <= "z":
+            return 1
+    if ch >= "A":
+        if ch <= "Z":
+            return 1
+    return 0
+
+
+def is_alnum(ch: "str") -> "i32":
+    if is_alpha(ch) == 1:
+        return 1
+    return is_digit(ch)
+
+
+class Lexer(SrcCursor):
+    """Nhan dang the tu chuoi nguon. Ke thua SrcCursor de dung lai toan
+    bo phan di chuyen con tro; chi them phan nhan dang."""
+
+    count: "i32"
+
+    def __init__(self, src, pos, count):
+        super().__init__(src, pos)
+        self.count = count
+
+    def describe(self) -> "str":
+        """Ghi de method cua lop cha - dispatch ao THAT."""
+        return "lexer@" + str(self.pos) + " da doc " + str(self.count) + " the"
+
+    def skip_blanks(self) -> "i32":
+        """Bo qua khoang trang va chu thich '#...'. Tra ve so ky tu da bo."""
+        skipped = 0
+        while self.at_end() == 0:
+            ch = self.peek_ch()
+            if is_space(ch) == 1:
+                self.pos = self.pos + 1
+                skipped = skipped + 1
+            elif ch == "#":
+                while self.at_end() == 0:
+                    if self.peek_ch() == "\n":
+                        break
+                    self.pos = self.pos + 1
+                    skipped = skipped + 1
+            else:
+                return skipped
+        return skipped
+
+    def read_number(self) -> "Tok":
+        """So nguyen hoac so thuc ('12', '3.5', '2.'). Khong ho tro ky
+        hieu khoa hoc - bao loi RO RANG neu gap 'e' ngay sau so."""
+        start = self.pos
+        digits = ""
+        dots = 0
+        while self.at_end() == 0:
+            ch = self.peek_ch()
+            if is_digit(ch) == 1:
+                digits = digits + ch
+                self.pos = self.pos + 1
+            elif ch == ".":
+                if dots == 1:
+                    raise LexError("so co 2 dau cham tai cot " + str(self.pos + 1))
+                dots = 1
+                digits = digits + ch
+                self.pos = self.pos + 1
+            else:
+                break
+        nxt = self.peek_ch()
+        if nxt == "e":
+            raise LexError("chua ho tro ky hieu khoa hoc tai cot " + str(self.pos + 1))
+        if nxt == "E":
+            raise LexError("chua ho tro ky hieu khoa hoc tai cot " + str(self.pos + 1))
+        if digits == ".":
+            raise LexError("so khong hop le tai cot " + str(start + 1))
+        return Tok(KIND_NUM, digits, start)
+
+    def read_name(self) -> "Tok":
+        """Ten bien hoac ten ham."""
+        start = self.pos
+        name = ""
+        while self.at_end() == 0:
+            ch = self.peek_ch()
+            if is_alnum(ch) == 0:
+                break
+            name = name + ch
+            self.pos = self.pos + 1
+        return Tok(KIND_NAME, name, start)
+
+    def read_operator(self) -> "Tok":
+        """Toan tu 1 hoac 2 ky tu. '=' don la phep GAN, '==' la so sanh."""
+        start = self.pos
+        ch = self.advance()
+        nxt = self.peek_ch()
+        if ch == "/":
+            if nxt == "/":
+                self.pos = self.pos + 1
+                return Tok(KIND_OP, "//", start)
+            return Tok(KIND_OP, "/", start)
+        if ch == "<":
+            if nxt == "=":
+                self.pos = self.pos + 1
+                return Tok(KIND_OP, "<=", start)
+            return Tok(KIND_OP, "<", start)
+        if ch == ">":
+            if nxt == "=":
+                self.pos = self.pos + 1
+                return Tok(KIND_OP, ">=", start)
+            return Tok(KIND_OP, ">", start)
+        if ch == "=":
+            if nxt == "=":
+                self.pos = self.pos + 1
+                return Tok(KIND_OP, "==", start)
+            return Tok(KIND_ASSIGN, "=", start)
+        if ch == "!":
+            if nxt == "=":
+                self.pos = self.pos + 1
+                return Tok(KIND_OP, "!=", start)
+            raise LexError("ky tu '!' don le tai cot " + str(start + 1))
+        if ch == "+":
+            return Tok(KIND_OP, "+", start)
+        if ch == "-":
+            return Tok(KIND_OP, "-", start)
+        if ch == "*":
+            return Tok(KIND_OP, "*", start)
+        if ch == "%":
+            return Tok(KIND_OP, "%", start)
+        if ch == "^":
+            return Tok(KIND_OP, "^", start)
+        raise LexError("ky tu la '" + ch + "' tai cot " + str(start + 1))
+
+    def next_tok(self) -> "Tok":
+        """The ke tiep (bo qua khoang trang / chu thich truoc)."""
+        skipped = self.skip_blanks()
+        if self.at_end() == 1:
+            return make_eof(self.pos)
+        self.count = self.count + 1
+        ch = self.peek_ch()
+        if is_digit(ch) == 1:
+            return self.read_number()
+        if ch == ".":
+            if is_digit(self.peek_ch_at(1)) == 1:
+                return self.read_number()
+            raise LexError("dau cham don le tai cot " + str(self.pos + 1))
+        if is_alpha(ch) == 1:
+            return self.read_name()
+        if ch == "(":
+            self.pos = self.pos + 1
+            return Tok(KIND_LPAREN, "(", self.pos - 1)
+        if ch == ")":
+            self.pos = self.pos + 1
+            return Tok(KIND_RPAREN, ")", self.pos - 1)
+        if ch == ",":
+            self.pos = self.pos + 1
+            return Tok(KIND_COMMA, ",", self.pos - 1)
+        if ch == ";":
+            self.pos = self.pos + 1
+            return Tok(KIND_SEMI, ";", self.pos - 1)
+        return self.read_operator()
+
+
+def tokenize(src: "str") -> "list[Tok]":
+    """Chuoi nguon -> danh sach the (khong gom the EOF)."""
+    lx = Lexer(src, 0, 0)
+    toks = []
+    guard = 0
+    while lx.at_end() == 0:
+        t = lx.next_tok()
+        if t.kind == KIND_EOF:
+            break
+        toks.append(t)
+        guard = guard + 1
+        if guard > 4096:
+            raise LexError("bieu thuc qua dai")
+    return toks
+
+
+# ---------------------------------------------------------------------
+# Bang toan tu
+# ---------------------------------------------------------------------
+
+
+class OpInfo:
+    """Do uu tien + chieu ket hop + so ngoi cua 1 toan tu."""
+
+    sym: "str"
+    prec: "i32"
+    assoc: "i32"
+    arity: "i32"
+
+    def __init__(self, sym, prec, assoc, arity):
+        self.sym = sym
+        self.prec = prec
+        self.assoc = assoc
+        self.arity = arity
+
+    def is_right(self) -> "i32":
+        if self.assoc == ASSOC_RIGHT:
+            return 1
+        return 0
+
+    def show(self) -> "str":
+        return self.sym + "/p" + str(self.prec) + "/a" + str(self.arity)
+
+
+def op_info(sym: "str") -> "OpInfo":
+    """Tra ve mo ta cua 1 toan tu 2 ngoi (unary xu ly rieng)."""
+    if sym == "==":
+        return OpInfo(sym, 1, ASSOC_LEFT, 2)
+    if sym == "!=":
+        return OpInfo(sym, 1, ASSOC_LEFT, 2)
+    if sym == "<":
+        return OpInfo(sym, 2, ASSOC_LEFT, 2)
+    if sym == "<=":
+        return OpInfo(sym, 2, ASSOC_LEFT, 2)
+    if sym == ">":
+        return OpInfo(sym, 2, ASSOC_LEFT, 2)
+    if sym == ">=":
+        return OpInfo(sym, 2, ASSOC_LEFT, 2)
+    if sym == "+":
+        return OpInfo(sym, 3, ASSOC_LEFT, 2)
+    if sym == "-":
+        return OpInfo(sym, 3, ASSOC_LEFT, 2)
+    if sym == "*":
+        return OpInfo(sym, 4, ASSOC_LEFT, 2)
+    if sym == "/":
+        return OpInfo(sym, 4, ASSOC_LEFT, 2)
+    if sym == "//":
+        return OpInfo(sym, 4, ASSOC_LEFT, 2)
+    if sym == "%":
+        return OpInfo(sym, 4, ASSOC_LEFT, 2)
+    if sym == "u-":
+        return OpInfo(sym, 6, ASSOC_RIGHT, 1)
+    if sym == "^":
+        return OpInfo(sym, 7, ASSOC_RIGHT, 2)
+    raise ParseError("toan tu la '" + sym + "'")
+
+
+def func_arity(name: "str") -> "i32":
+    """So tham so cua 1 ham dung san; 0 = khong phai ten ham."""
+    if name == "abs":
+        return 1
+    if name == "sqrt":
+        return 1
+    if name == "floor":
+        return 1
+    if name == "ceil":
+        return 1
+    if name == "round":
+        return 1
+    if name == "sign":
+        return 1
+    if name == "min":
+        return 2
+    if name == "max":
+        return 2
+    if name == "pow":
+        return 2
+    if name == "hypot":
+        return 2
+    return 0
+
+
+# ---------------------------------------------------------------------
+# Shunting-yard: trung to -> hau to
+# ---------------------------------------------------------------------
+
+
+class TokCursor:
+    """Con tro doc 1 danh sach the. Danh sach duoc TRUYEN VAO tung loi
+    goi (record cua TokenVector chi chua field vo huong)."""
+
+    pos: "i32"
+
+    def __init__(self, pos):
+        self.pos = pos
+
+    def at_end(self, toks: "list[Tok]") -> "i32":
+        if self.pos >= len(toks):
+            return 1
+        return 0
+
+    def peek(self, toks: "list[Tok]") -> "Tok":
+        if self.at_end(toks) == 1:
+            return make_eof(self.pos)
+        return toks[self.pos]
+
+    def take(self, toks: "list[Tok]") -> "Tok":
+        t = self.peek(toks)
+        self.pos = self.pos + 1
+        return t
+
+    def skip(self) -> "i32":
+        self.pos = self.pos + 1
+        return self.pos
+
+
+class Shunter:
+    """Thuat toan shunting-yard cua Dijkstra. Ngan xep toan tu duoc giu
+    trong 1 list[str] cuc bo cua tung loi goi; doi tuong nay giu trang
+    thai dem duoc (so the da xu ly, do sau ngoac lon nhat)."""
+
+    consumed: "i32"
+    max_depth: "i32"
+
+    def __init__(self, consumed, max_depth):
+        self.consumed = consumed
+        self.max_depth = max_depth
+
+    def note_depth(self, depth: "i32") -> "i32":
+        if depth > self.max_depth:
+            self.max_depth = depth
+        return self.max_depth
+
+    def show(self) -> "str":
+        return "shunter: " + str(self.consumed) + " the, sau nhat " + str(self.max_depth)
+
+
+def prec_of(sym: "str") -> "i32":
+    info = op_info(sym)
+    return info.prec
+
+
+def should_pop(top: "str", cur: "str") -> "i32":
+    """Co phai lay toan tu 'top' ra khoi ngan xep truoc khi day 'cur'?"""
+    if top == "(":
+        return 0
+    top_info = op_info(top)
+    cur_info = op_info(cur)
+    if top_info.prec > cur_info.prec:
+        return 1
+    if top_info.prec < cur_info.prec:
+        return 0
+    if cur_info.is_right() == 1:
+        return 0
+    return 1
+
+
+def to_postfix(toks: "list[Tok]", cur: "TokCursor", sh: "Shunter") -> "list[str]":
+    """Doc tu 'cur' den het 1 cau lenh (';' hoac het the), tra ve danh
+    sach ky hieu hau to. Moi phan tu la 1 chuoi:
+        "n<so>"   - hang so
+        "v<ten>"  - doc bien
+        "o<sym>"  - toan tu
+        "f<ten>"  - goi ham
+    """
+    output = []
+    ops = []
+    depth = 0
+    prev_kind = "start"
+    guard = 0
+    while cur.at_end(toks) == 0:
+        t = cur.peek(toks)
+        if t.kind == KIND_SEMI:
+            break
+        guard = guard + 1
+        if guard > 8192:
+            raise ParseError("bieu thuc qua phuc tap")
+        cur.skip()
+        sh.consumed = sh.consumed + 1
+        if t.kind == KIND_NUM:
+            output.append("n" + t.text)
+            prev_kind = "value"
+        elif t.kind == KIND_NAME:
+            arity = func_arity(t.text)
+            if arity > 0:
+                ops.append("f" + t.text)
+            else:
+                output.append("v" + t.text)
+            prev_kind = "value"
+        elif t.kind == KIND_COMMA:
+            popped = pop_until_lparen(ops, output)
+            if popped == 0:
+                raise ParseError("dau phay ngoai loi goi ham tai cot " + str(t.pos + 1))
+            prev_kind = "comma"
+        elif t.kind == KIND_LPAREN:
+            ops.append("(")
+            depth = depth + 1
+            sh.note_depth(depth)
+            prev_kind = "open"
+        elif t.kind == KIND_RPAREN:
+            closed = close_paren(ops, output)
+            if closed == 0:
+                raise ParseError("thua dau ')' tai cot " + str(t.pos + 1))
+            depth = depth - 1
+            prev_kind = "value"
+        elif t.kind == KIND_OP:
+            sym = t.text
+            if sym == "-":
+                if prev_kind != "value":
+                    sym = "u-"
+            if sym == "+":
+                if prev_kind != "value":
+                    sym = "u+"
+            if sym == "u+":
+                prev_kind = "op"
+            else:
+                push_operator(ops, output, sym)
+                prev_kind = "op"
+        elif t.kind == KIND_ASSIGN:
+            raise ParseError("phep gan chi dat o dau cau lenh (cot "
+                             + str(t.pos + 1) + ")")
+        else:
+            raise ParseError("the la '" + t.text + "' tai cot " + str(t.pos + 1))
+    flush_operators(ops, output)
+    if len(output) == 0:
+        raise ParseError("bieu thuc rong")
+    return output
+
+
+def push_operator(ops: "list[str]", output: "list[str]", sym: "str") -> "i32":
+    """Day 1 toan tu vao ngan xep sau khi lay het cac toan tu uu tien
+    cao hon (hoac bang, neu ket hop trai).
+
+    Toan tu 1 NGOI (tien to) KHONG lay gi ra ca: toan hang cua no con
+    CHUA doc. Truoc day khong tach ca nay nen '2 ^ -1' lay '^' ra khoi
+    ngan xep TRUOC khi doc toan hang phai -> 'thieu toan hang' (bug that,
+    lo ra khi doi chieu voi ban AST 2026-08-03)."""
+    if sym[0:1] == "u":
+        ops.append(sym)
+        return len(ops)
+    while len(ops) > 0:
+        top = ops[len(ops) - 1]
+        if top == "(":
+            break
+        if top[0:1] == "f":
+            break
+        if should_pop(top, sym) == 0:
+            break
+        ops.pop()
+        output.append("o" + top)
+    ops.append(sym)
+    return len(ops)
+
+
+def pop_until_lparen(ops: "list[str]", output: "list[str]") -> "i32":
+    """Do toan tu ra output cho toi khi gap '(' (KHONG lay '(' ra).
+    Tra ve 0 neu khong tim thay '(' nao."""
+    while len(ops) > 0:
+        top = ops[len(ops) - 1]
+        if top == "(":
+            return 1
+        ops.pop()
+        output.append("o" + top)
+    return 0
+
+
+def close_paren(ops: "list[str]", output: "list[str]") -> "i32":
+    """Xu ly dau ')': do toan tu ra, bo '(', va neu ngay duoi la 1 ten
+    ham thi phat sinh loi goi ham."""
+    found = pop_until_lparen(ops, output)
+    if found == 0:
+        return 0
+    ops.pop()
+    if len(ops) > 0:
+        top = ops[len(ops) - 1]
+        if top[0:1] == "f":
+            ops.pop()
+            output.append("f" + top[1:])
+    return 1
+
+
+def flush_operators(ops: "list[str]", output: "list[str]") -> "i32":
+    """Do sach ngan xep toan tu khi het cau lenh."""
+    while len(ops) > 0:
+        top = ops[len(ops) - 1]
+        if top == "(":
+            raise ParseError("thieu dau ')'")
+        ops.pop()
+        if top[0:1] == "f":
+            output.append("f" + top[1:])
+        else:
+            output.append("o" + top)
+    return len(output)
+
+
+# ---------------------------------------------------------------------
+# Ngan xep so + kho bien
+# ---------------------------------------------------------------------
+
+
+class NumStack:
+    """Ngan xep so cua may ao - TU SO HUU du lieu trong 1 field
+    'list[f64]' (khong con phai nhan tu ben ngoai)."""
+
+    data: "list[f64]"
+    peak: "i32"
+
+    def __init__(self, peak):
+        self.data = []
+        self.peak = peak
+
+    def push(self, v: "f64") -> "i32":
+        self.data.append(v)
+        if len(self.data) > self.peak:
+            self.peak = len(self.data)
+        if len(self.data) > MAX_STACK:
+            raise EvalError("tran ngan xep")
+        return len(self.data)
+
+    def pop(self) -> "f64":
+        if len(self.data) == 0:
+            raise EvalError("thieu toan hang")
+        return self.data.pop()
+
+    def depth(self) -> "i32":
+        return len(self.data)
+
+    def top(self) -> "f64":
+        if len(self.data) == 0:
+            raise EvalError("ngan xep rong")
+        return self.data[len(self.data) - 1]
+
+
+class VarStore:
+    """Kho bien - TU SO HUU 2 list SONG SONG (ten / gia tri) trong field,
+    kem so lan doc/ghi de bao cao."""
+
+    names: "list[str]"
+    vals: "list[f64]"
+    reads: "i32"
+    writes: "i32"
+
+    def __init__(self, reads, writes):
+        self.names = []
+        self.vals = []
+        self.reads = reads
+        self.writes = writes
+
+    def index_of(self, name: "str") -> "i32":
+        for i in range(len(self.names)):
+            if self.names[i] == name:
+                return i
+        return -1
+
+    def lookup(self, name: "str") -> "f64":
+        i = self.index_of(name)
+        if i < 0:
+            raise EvalError("bien '" + name + "' chua duoc dat")
+        self.reads = self.reads + 1
+        return self.vals[i]
+
+    def assign(self, name: "str", v: "f64") -> "i32":
+        i = self.index_of(name)
+        self.writes = self.writes + 1
+        if i >= 0:
+            self.vals[i] = v
+            return i
+        if len(self.names) >= MAX_VARS:
+            raise EvalError("qua nhieu bien")
+        self.names.append(name)
+        self.vals.append(v)
+        return len(self.names) - 1
+
+    def count(self) -> "i32":
+        return len(self.names)
+
+    def render(self) -> "str":
+        """Liet ke bien theo thu tu dat."""
+        parts = []
+        for i in range(len(self.names)):
+            parts.append(fmt_pair(self.names[i], self.vals[i]))
+        return ",".join(parts)
+
+
+# ---------------------------------------------------------------------
+# Phep tinh
+# ---------------------------------------------------------------------
+
+
+def is_int_value(v: "f64") -> "i32":
+    """Gia tri co phai so nguyen dung nghia khong?"""
+    r = round(v)
+    if v == r:
+        return 1
+    return 0
+
+
+def floor_div(a: "f64", b: "f64") -> "f64":
+    """'//' theo dung ngu nghia Python (lam tron XUONG, ke ca so am)."""
+    if b == 0.0:
+        raise EvalError("chia cho 0")
+    q = a / b
+    return floor(q)
+
+
+def float_mod(a: "f64", b: "f64") -> "f64":
+    """'%' theo dung ngu nghia Python: dau ket qua theo SO CHIA."""
+    if b == 0.0:
+        raise EvalError("chia cho 0")
+    return a - floor_div(a, b) * b
+
+
+def apply_binary(sym: "str", a: "f64", b: "f64") -> "f64":
+    """Ap dung 1 toan tu 2 ngoi. So sanh tra ve 1.0 / 0.0."""
+    if sym == "+":
+        return a + b
+    if sym == "-":
+        return a - b
+    if sym == "*":
+        return a * b
+    if sym == "/":
+        if b == 0.0:
+            raise EvalError("chia cho 0")
+        return a / b
+    if sym == "//":
+        return floor_div(a, b)
+    if sym == "%":
+        return float_mod(a, b)
+    if sym == "^":
+        return a ** b
+    if sym == "<":
+        if a < b:
+            return 1.0
+        return 0.0
+    if sym == "<=":
+        if a <= b:
+            return 1.0
+        return 0.0
+    if sym == ">":
+        if a > b:
+            return 1.0
+        return 0.0
+    if sym == ">=":
+        if a >= b:
+            return 1.0
+        return 0.0
+    if sym == "==":
+        if a == b:
+            return 1.0
+        return 0.0
+    if sym == "!=":
+        if a != b:
+            return 1.0
+        return 0.0
+    raise EvalError("toan tu 2 ngoi la '" + sym + "'")
+
+
+def apply_unary(sym: "str", a: "f64") -> "f64":
+    if sym == "u-":
+        return 0.0 - a
+    if sym == "u+":
+        return a
+    raise EvalError("toan tu 1 ngoi la '" + sym + "'")
+
+
+def apply_func1(name: "str", a: "f64") -> "f64":
+    if name == "abs":
+        if a < 0.0:
+            return 0.0 - a
+        return a
+    if name == "sqrt":
+        if a < 0.0:
+            raise EvalError("sqrt cua so am")
+        return sqrt(a)
+    if name == "floor":
+        return floor(a)
+    if name == "ceil":
+        return ceil(a)
+    if name == "round":
+        return round(a)
+    if name == "sign":
+        if a > 0.0:
+            return 1.0
+        if a < 0.0:
+            return 0.0 - 1.0
+        return 0.0
+    raise EvalError("ham 1 tham so la '" + name + "'")
+
+
+def apply_func2(name: "str", a: "f64", b: "f64") -> "f64":
+    if name == "min":
+        if a < b:
+            return a
+        return b
+    if name == "max":
+        if a > b:
+            return a
+        return b
+    if name == "pow":
+        return a ** b
+    if name == "hypot":
+        return sqrt(a * a + b * b)
+    raise EvalError("ham 2 tham so la '" + name + "'")
+
+
+# ---------------------------------------------------------------------
+# May ao
+# ---------------------------------------------------------------------
+
+
+class Machine:
+    """May ao tinh 1 danh sach ky hieu hau to. Giu so phep tinh da thuc
+    hien de bao cao (--stats)."""
+
+    ops_done: "i32"
+    calls_done: "i32"
+
+    def __init__(self, ops_done, calls_done):
+        self.ops_done = ops_done
+        self.calls_done = calls_done
+
+    def note_op(self) -> "i32":
+        self.ops_done = self.ops_done + 1
+        return self.ops_done
+
+    def note_call(self) -> "i32":
+        self.calls_done = self.calls_done + 1
+        return self.calls_done
+
+    def total_work(self) -> "i32":
+        return self.ops_done + self.calls_done
+
+    def run(self, code: "list[str]", store: "VarStore", stack: "NumStack") -> "f64":
+        """Chay 1 chuong trinh hau to, tra ve gia tri tren dinh. Ngan xep
+        VA kho bien deu TU GIU du lieu cua chung (field container)."""
+        for item in code:
+            tag = item[0:1]
+            body = item[1:]
+            if tag == "n":
+                stack.push(float(body))
+            elif tag == "v":
+                stack.push(store.lookup(body))
+            elif tag == "o":
+                self.note_op()
+                if body == "u-":
+                    a = stack.pop()
+                    stack.push(apply_unary(body, a))
+                else:
+                    b = stack.pop()
+                    a = stack.pop()
+                    stack.push(apply_binary(body, a, b))
+            elif tag == "f":
+                self.note_call()
+                arity = func_arity(body)
+                if arity == 1:
+                    a = stack.pop()
+                    stack.push(apply_func1(body, a))
+                elif arity == 2:
+                    b = stack.pop()
+                    a = stack.pop()
+                    stack.push(apply_func2(body, a, b))
+                else:
+                    raise EvalError("ham la '" + body + "'")
+            else:
+                raise EvalError("ky hieu hau to la '" + item + "'")
+        if stack.depth() != 1:
+            raise EvalError("bieu thuc khong can bang (con " + str(stack.depth()) + " gia tri)")
+        return stack.top()
+
+
+# ---------------------------------------------------------------------
+# Thong ke
+# ---------------------------------------------------------------------
+
+
+class Stats:
+    """Dem cac con so cua 1 phien chay."""
+
+    stmts: "i32"
+    toks: "i32"
+    ops: "i32"
+    calls: "i32"
+    peak_stack: "i32"
+    max_depth: "i32"
+
+    def __init__(self, stmts, toks, ops, calls, peak_stack, max_depth):
+        self.stmts = stmts
+        self.toks = toks
+        self.ops = ops
+        self.calls = calls
+        self.peak_stack = peak_stack
+        self.max_depth = max_depth
+
+    def absorb_shunter(self, sh: "Shunter") -> "i32":
+        self.toks = self.toks + sh.consumed
+        if sh.max_depth > self.max_depth:
+            self.max_depth = sh.max_depth
+        return self.toks
+
+    def absorb_machine(self, m: "Machine") -> "i32":
+        self.ops = self.ops + m.ops_done
+        self.calls = self.calls + m.calls_done
+        return self.ops
+
+    def absorb_stack(self, st: "NumStack") -> "i32":
+        if st.peak > self.peak_stack:
+            self.peak_stack = st.peak
+        return self.peak_stack
+
+    def render(self) -> "str":
+        return ("cau lenh=" + str(self.stmts)
+                + " the=" + str(self.toks)
+                + " phep=" + str(self.ops)
+                + " goi ham=" + str(self.calls)
+                + " dinh ngan xep=" + str(self.peak_stack)
+                + " ngoac sau nhat=" + str(self.max_depth))
+
+
+# ---------------------------------------------------------------------
+# Dinh dang so
+# ---------------------------------------------------------------------
+
+
+def fmt_value(v: "f64") -> "str":
+    """In so theo kieu de doc: so nguyen thi khong co '.0'."""
+    if is_int_value(v) == 1:
+        r = round(v)
+        return str(int(r))
+    return str(v)
+
+
+def fmt_pair(name: "str", v: "f64") -> "str":
+    return name + "=" + fmt_value(v)
+
+
+# ---------------------------------------------------------------------
+# Phien chay
+# ---------------------------------------------------------------------
+
+
+class Session:
+    """Chay nhieu cau lenh ngan cach bang ';', giu bien qua cac cau."""
+
+    last_ok: "i32"
+    stmt_count: "i32"
+
+    def __init__(self, last_ok, stmt_count):
+        self.last_ok = last_ok
+        self.stmt_count = stmt_count
+
+    def note_stmt(self) -> "i32":
+        self.stmt_count = self.stmt_count + 1
+        return self.stmt_count
+
+    def describe(self) -> "str":
+        return "phien: " + str(self.stmt_count) + " cau lenh"
+
+
+def read_assign_name(toks: "list[Tok]", cur: "TokCursor") -> "str":
+    """Neu cau lenh bat dau bang 'ten =' thi tieu thu 2 the do va tra ve
+    ten; nguoc lai KHONG di chuyen con tro va tra ve chuoi rong."""
+    if cur.at_end(toks) == 1:
+        return ""
+    first = cur.peek(toks)
+    if first.kind != KIND_NAME:
+        return ""
+    if func_arity(first.text) > 0:
+        return ""
+    nxt_pos = cur.pos + 1
+    if nxt_pos >= len(toks):
+        return ""
+    second = toks[nxt_pos]
+    if second.kind != KIND_ASSIGN:
+        return ""
+    cur.skip()
+    cur.skip()
+    return first.text
+
+
+def run_source(src: "str", want_stats: "i32") -> "str":
+    """Chay toan bo chuoi nguon, tra ve dong ket qua."""
+    toks = tokenize(src)
+    cur = TokCursor(0)
+    store = VarStore(0, 0)
+    session = Session(0, 0)
+    stats = Stats(0, 0, 0, 0, 0, 0)
+    result = 0.0
+    produced = 0
+    guard = 0
+    while cur.at_end(toks) == 0:
+        guard = guard + 1
+        if guard > 1024:
+            raise ParseError("qua nhieu cau lenh")
+        head = cur.peek(toks)
+        if head.kind == KIND_SEMI:
+            cur.skip()
+            continue
+        target = read_assign_name(toks, cur)
+        sh = Shunter(0, 0)
+        code = to_postfix(toks, cur, sh)
+        stack = NumStack(0)
+        machine = Machine(0, 0)
+        value = machine.run(code, store, stack)
+        if len(target) > 0:
+            store.assign(target, value)
+        result = value
+        produced = 1
+        session.note_stmt()
+        stats.stmts = stats.stmts + 1
+        stats.absorb_shunter(sh)
+        stats.absorb_machine(machine)
+        stats.absorb_stack(stack)
+    if produced == 0:
+        raise ParseError("khong co cau lenh nao")
+    line = fmt_value(result)
+    if want_stats == 1:
+        line = line + " | " + stats.render() + " | bien=" + str(store.count())
+    return line
+
+
+def render_vars(store: "VarStore") -> "str":
+    """Liet ke bien cua 1 kho bien (che do --vars) - uy quyen cho chinh
+    doi tuong do vi no TU GIU du lieu."""
+    return store.render()
+
+
+def describe_tokens(src: "str") -> "str":
+    """Che do --tokens: in danh sach the (dung de soi loi)."""
+    toks = tokenize(src)
+    parts = []
+    for t in toks:
+        parts.append(t.show())
+    return " ".join(parts)
+
+
+def describe_postfix(src: "str") -> "str":
+    """Che do --postfix: in dang hau to cua cau lenh dau tien."""
+    toks = tokenize(src)
+    cur = TokCursor(0)
+    target = read_assign_name(toks, cur)
+    sh = Shunter(0, 0)
+    code = to_postfix(toks, cur, sh)
+    body = " ".join(code)
+    if len(target) > 0:
+        return target + " := " + body
+    return body
+
+
+def classify_error(e: "CalcError") -> "str":
+    """Dung dispatch ao THAT: moi lop loi tu in nhan cua no."""
+    return e.render()
+
+
+def evaluate(src: "str", mode: "str") -> "str":
+    """Diem vao chinh, da bat loi. mode: "" | "stats" | "tokens" |
+    "postfix". Loi tra ve dong bat dau bang 'loi'."""
+    try:
+        if mode == "tokens":
+            return describe_tokens(src)
+        if mode == "postfix":
+            return describe_postfix(src)
+        if mode == "stats":
+            return run_source(src, 1)
+        return run_source(src, 0)
+    except LexError as e:
+        return classify_error(e)
+    except ParseError as e:
+        return classify_error(e)
+    except EvalError as e:
+        return classify_error(e)
+
+
+def main(src: "str", mode: "str") -> "str":
+    """Entry CLI: tkvcalc.exe "<bieu thuc>" [che_do]."""
+    return evaluate(src, mode)

@@ -1,0 +1,6 @@
+tests_suite\de_vao\sample_most_common.tkv	dem_top	0	1	a=3;\n
+tests_suite\de_vao\sample_most_common.tkv	dem_top	0	2	a=3;b=2;\n
+tests_suite\de_vao\sample_most_common.tkv	dem_top	0	3	a=3;b=2;c=1;\n
+tests_suite\de_vao\sample_most_common.tkv	dem_top_i32	0	2	7=3;8=2;\n
+tests_suite\de_vao\sample_most_common.tkv	do_dai	0	99	2\n
+tests_suite\de_vao\sample_most_common.tkv	lay_cap_dau	0		z=3\n

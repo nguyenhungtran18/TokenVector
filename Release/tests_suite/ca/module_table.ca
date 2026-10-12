@@ -1,0 +1,7 @@
+tests_suite\de_vao\sample_module_table.tkv	run_module_table	0		beta-30-3-10-60\n
+tests_suite\de_vao\sample_module_dict.tkv	run_module_dict	0		-?,9,3,beta,2\n
+tests_suite\de_vao\verify\_out_module_table\tbl_global_kha_bien.tkv	main	0		12\n2\n7\n0\n
+tests_suite\de_vao\verify\_out_module_table\tbl_funcref.tkv	main	0		11110\n
+tests_suite\de_vao\verify\_out_module_table\tbl_list_tuple.tkv	main	0		b\nyy\n3\n
+tests_suite\de_vao\verify\_out_module_table\tbl_dict_tuple.tkv	main	0		x2\ny2\n2\n
+tests_suite\de_vao\verify\_out_module_table\tbl_dict_set.tkv	main	0		co x\n21\n

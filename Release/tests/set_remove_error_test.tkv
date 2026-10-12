@@ -1,0 +1,35 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    s1 = set()
+    s1.add(1)
+    s1.add(2)
+    s1.add(3)
+    s1.remove(2)
+    tested = tested + 1
+    total = total + check("remove_existing_ok", str(len(s1)), "2")
+
+    s2 = set()
+    s2.add(1)
+    s2.add(2)
+    s2.add(3)
+    caught = 0
+    try:
+        s2.remove(99)
+    except KeyError:
+        caught = 1
+    tested = tested + 1
+    total = total + check("remove_missing_raises", str(caught), "1")
+
+    s3 = set()
+    s3.add(1)
+    s3.add(2)
+    s3.add(3)
+    s3.discard(99)
+    tested = tested + 1
+    total = total + check("discard_missing_no_raise", str(len(s3)), "3")
+
+    return test_summary("set_remove_error_test", total, tested)

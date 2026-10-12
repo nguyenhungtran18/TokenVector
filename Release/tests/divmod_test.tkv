@@ -1,0 +1,39 @@
+__tkv_import__ = ["tkv_test_lib"]
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    a1 = int(17)
+    b1 = int(5)
+    q1, r1 = divmod(a1, b1)
+    tested = tested + 1
+    total = total + check("divmod_pos_q", str(q1), "3")
+    tested = tested + 1
+    total = total + check("divmod_pos_r", str(r1), "2")
+
+    a2 = int(-7)
+    b2 = int(2)
+    q2, r2 = divmod(a2, b2)
+    tested = tested + 1
+    total = total + check("divmod_neg_a_q", str(q2), "-4")
+    tested = tested + 1
+    total = total + check("divmod_neg_a_r", str(r2), "1")
+
+    a3 = int(7)
+    b3 = int(-2)
+    q3, r3 = divmod(a3, b3)
+    tested = tested + 1
+    total = total + check("divmod_neg_b_q", str(q3), "-4")
+    tested = tested + 1
+    total = total + check("divmod_neg_b_r", str(r3), "-1")
+
+    a4 = int(-7)
+    b4 = int(-2)
+    q4, r4 = divmod(a4, b4)
+    tested = tested + 1
+    total = total + check("divmod_both_neg_q", str(q4), "3")
+    tested = tested + 1
+    total = total + check("divmod_both_neg_r", str(r4), "-1")
+
+    return test_summary("divmod_test", total, tested)

@@ -1,0 +1,133 @@
+# -*- coding: utf-8 -*-
+"""Bo dieu phoi hoi quy viet bang TokenVector - chay test SONG SONG.
+
+Vi sao co file nay: `test/run_tests.py` chay 265 test TUAN TU, moi test la
+mot tien trinh `python <test>.py` rieng (~4,6 s). Gan het 1220 s nam trong
+cac tien trinh con chu khong trong vong lap dieu phoi - nen viet lai bo
+dieu phoi ma van chay tuan tu thi KHONG nhanh hon mot giay nao. Cai an tien
+la chay nhieu tien trinh con CUNG LUC.
+
+KHONG CAN THEM TINH NANG NGON NGU NAO. `thread_spawn(fn)` chi nhan ham
+KHONG THAM SO, nhung rao do di duoc vong: moi luong co mot ham bao rieng
+(`lo0`..`lo7`) tu biet chi so lo cua no, va moi luong TU goi
+`os_list_files()` de dung lai danh sach test roi lay moi phan tu thu 8.
+Khong co trang thai dung chung -> khong can khoa, khong can hang doi.
+
+Cach dung: `chay_test.exe` - chay het, SO_LO luong.
+"""
+
+SO_LO = 8
+THU_MUC = "test\\verify"
+THU_MUC_TAM = "_scratch\\ket_qua_test"
+
+
+def la_test(ten: "str") -> "i32":
+    """Ten file co phai mot bai test khong: '*_test.py' va khong bat dau '_'.
+
+    Loai file tro giup ('_manifest.py') y het `discover()` cua ban Python."""
+    if not ten.endswith("_test.py"):
+        return 0
+    chi_ten = ten
+    vi = ten.rfind("\\")
+    if vi >= 0:
+        chi_ten = ten[vi + 1:]
+    if chi_ten.startswith("_"):
+        return 0
+    return 1
+
+
+def ten_ngan(duong: "str") -> "str":
+    """Ten file, bo duong dan - de in cho gon."""
+    vi = duong.rfind("\\")
+    if vi >= 0:
+        return duong[vi + 1:]
+    return duong
+
+
+def chay_lo(lo: "i32", so_lo: "i32") -> "i64":
+    """Chay moi bai test thu `lo`, `lo+so_lo`, `lo+2*so_lo`... Tra so bai TRUOT.
+
+    Moi luong TU liet ke thu muc: `os_list_files` tra cung mot thu tu cho
+    moi lan goi (Directory::GetFiles), nen cac lo khong chong nhau ma van
+    khong phai chia se danh sach.
+
+    `proc_run` chi tra MA THOAT, khong bat duoc stdout - nen goi qua
+    `cmd /c ... > <file> 2>&1` roi doc file. Duong nay dung tinh nang da co
+    (`proc_run` + `read_file`), khong can builtin moi."""
+    ds = os_list_files(THU_MUC)
+    truot = 0
+    i = lo
+    n = len(ds)
+    while i < n:
+        duong = ds[i]
+        if la_test(duong) == 1:
+            ten = ten_ngan(duong)
+            ra = THU_MUC_TAM + "\\" + ten + ".out"
+            lenh = "/c python \"" + duong + "\" > \"" + ra + "\" 2>&1"
+            ma = proc_run("cmd.exe", lenh)
+            if ma == 0:
+                print("  DAT   " + ten)
+            else:
+                print("  TRUOT " + ten)
+                truot = truot + 1
+        i = i + so_lo
+    return truot
+
+
+def lo0() -> "i64":
+    return chay_lo(0, SO_LO)
+
+
+def lo1() -> "i64":
+    return chay_lo(1, SO_LO)
+
+
+def lo2() -> "i64":
+    return chay_lo(2, SO_LO)
+
+
+def lo3() -> "i64":
+    return chay_lo(3, SO_LO)
+
+
+def lo4() -> "i64":
+    return chay_lo(4, SO_LO)
+
+
+def lo5() -> "i64":
+    return chay_lo(5, SO_LO)
+
+
+def lo6() -> "i64":
+    return chay_lo(6, SO_LO)
+
+
+def lo7() -> "i64":
+    return chay_lo(7, SO_LO)
+
+
+def main() -> "i32":
+    # `os_mkdir` la BUILTIN DANG BIEU THUC: goi tran nhu mot lenh se bi
+    # hieu la loi goi ham nguoi dung chua khai bao. Phai gan ket qua.
+    _bo = os_mkdir(THU_MUC_TAM)
+    t0 = thread_spawn(lo0)
+    t1 = thread_spawn(lo1)
+    t2 = thread_spawn(lo2)
+    t3 = thread_spawn(lo3)
+    t4 = thread_spawn(lo4)
+    t5 = thread_spawn(lo5)
+    t6 = thread_spawn(lo6)
+    t7 = thread_spawn(lo7)
+    truot = thread_join(t0)
+    truot = truot + thread_join(t1)
+    truot = truot + thread_join(t2)
+    truot = truot + thread_join(t3)
+    truot = truot + thread_join(t4)
+    truot = truot + thread_join(t5)
+    truot = truot + thread_join(t6)
+    truot = truot + thread_join(t7)
+    print("")
+    print("=== TRUOT: " + str(truot) + " ===")
+    if truot > 0:
+        return 1
+    return 0

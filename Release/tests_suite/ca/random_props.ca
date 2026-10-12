@@ -1,0 +1,6 @@
+tests_suite\de_vao\sample_random.tkv	lap_lai_duoc	0		GIONG\n
+tests_suite\de_vao\sample_random.tkv	khac_seed	0		KHAC\n
+tests_suite\de_vao\sample_random.tkv	bien_do_randint	0		3..5\n
+tests_suite\de_vao\sample_random.tkv	bien_do_randrange	0		3..4\n
+tests_suite\de_vao\sample_random.tkv	bien_do_random	0		ngoai=0\n
+tests_suite\de_vao\sample_random.tkv	bien_do_uniform	0		ngoai=0\n

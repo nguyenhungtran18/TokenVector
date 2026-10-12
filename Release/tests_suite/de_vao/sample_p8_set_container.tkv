@@ -1,0 +1,53 @@
+# Bao phu cho lo 2 cua P8 Task 3/4 (set_* / container_clear /
+# bytearray_append sang arena).
+#
+# Dem tren 167 file mau: '.clear(' 0 mau, 'bytearray' 0 mau, va set.remove()
+# khong tach duoc khoi list.remove() bang grep. Khong co file nay thi cong
+# IL bao "giong het" ma khong chay qua bon producer vua doi.
+
+def dung_set_va_clear(n: "i32") -> "str":
+    s = set()
+    s.add(n)
+    s.add(n + 1)
+    s.add(n + 2)
+
+    # set.remove() va set.discard() - hai kind RIENG, khac list.remove()
+    s.remove(n)
+    s.discard(n + 1)
+    s.discard(n + 99)
+
+    out = str(len(s))
+
+    # container_clear: CHI ho tro list/dict (set khong duoc - da thu, compiler
+    # bao loi ro rang).
+    d = {}
+    d["a"] = n
+    d["b"] = n + 1
+    out = out + "," + str(len(d))
+    d.clear()
+    out = out + "," + str(len(d))
+
+    xs = []
+    xs.append(n)
+    xs.clear()
+    out = out + "," + str(len(xs))
+    return out
+
+
+def dung_bytearray(n: "i32") -> "str":
+    ba = bytearray()
+    ba.append(n)
+    ba.append(n + 1)
+    ba.append(65)
+    return str(len(ba))
+
+
+def dung_frozenset(n: "i32") -> "str":
+    # assign_frozenset_new: 0 mau tren toan bo tap cong truoc lo 3.
+    # frozenset() CHI nhan mot BIEN list da khai bao truoc (gioi han co san).
+    src = []
+    src.append(n)
+    src.append(n + 1)
+    src.append(n)
+    fs = frozenset(src)
+    return str(len(fs))

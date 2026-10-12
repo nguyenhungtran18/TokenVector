@@ -1,0 +1,10 @@
+tests_suite\de_vao\sample_re_extra.tkv	tim_het	0	[0-9]+a12b345c	2|12-345\n
+tests_suite\de_vao\sample_re_extra.tkv	tim_het	0	[0-9]+khong-co-so	0|\n
+tests_suite\de_vao\sample_re_extra.tkv	tim_het	0	aaaa	3|a-a-a\n
+tests_suite\de_vao\sample_re_extra.tkv	khop_tron	0	[a-z]+abc	1\n
+tests_suite\de_vao\sample_re_extra.tkv	khop_tron	0	[a-z]+ab1	0\n
+tests_suite\de_vao\sample_re_extra.tkv	khop_tron	0	[a-z]+	0\n
+tests_suite\de_vao\sample_re_extra.tkv	cat	0	,a,b,c	3|a-b-c\n
+tests_suite\de_vao\sample_re_extra.tkv	cat	0	[0-9]+a1b22c	3|a-b-c\n
+tests_suite\de_vao\sample_re_extra.tkv	cat	0	zkhong-co	1|khong-co\n
+tests_suite\de_vao\sample_re_extra.tkv	cat	0	([0-9])|([A-Z])a1b	3|a-1-b\n

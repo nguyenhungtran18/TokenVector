@@ -1,0 +1,2011 @@
+"""bool() va repr() / f-string !r (2026-09-26). Doi chieu voi CPython."""
+
+
+def main(n: "i32") -> "str":
+    xs = [0]
+    xs.pop()
+    for i in range(n if n > 0 else 0):
+        xs.append(i)
+    s = "a'b" if n > 1 else ""
+    b1 = 1 if bool(n) else 0
+    b2 = 1 if bool(xs) else 0
+    b3 = 1 if bool(s) else 0
+    t = "x\\y\n\t" + s + '"'
+    u = None if n < 100 else "z"
+    if n > 3:
+        u = "q"
+    return f"{b1}|{b2}|{b3}|{repr(s)}|{repr(n)}|{s!r}|{repr(t)}|{repr(u)}|" + chu(n) + "|" + nhay(n) + "|" + thuoc(n, "ab" if n > 0 else "q") + "|" + coso(n) + "|" + lay(n) + "|" + lay_rong(n) + "|" + goi_ham(chia_hai, n) + "|" + phan_tu(n) + "|" + goi_rong(dem_khoa, n) + "|" + trong_bt(n) + "|" + lap_cap(n) + "|" + tap_kieu(n) + "|" + bon(n) + "|" + lap_tap(n) + "|" + hieu_tap(n) + "|" + truong_bt(n) + "|" + comp_nhieu(n) + "|" + enum_bo(n) + "|" + tern_trong(n) + "|" + goi_truong(n) + "|" + tra_ds_tuple(n) + "|" + bat_dau(n) + "|" + chu_viet(n) + "|" + dict_tra(n) + "|" + gan_ngoac(n) + "|" + tach_hai(n) + "|" + trong_bt2(n) + "|" + phan_tram(n) + "|" + hoac_rong(n) + "|" + khoa_so(n) + "|" + duyet_bt(n) + "|" + if_comp(n) + "|" + lap_tuple_bt(n) + "|" + enum_bt(n) + "|" + sao_tap(n) + "|" + dao(n) + "|" + tuple_chuoi(n) + "|" + sao_ds(n) + "|" + gan_tuple_cs(n) + "|" + hoac_chuoi(n) + "|" + dk_chuoi(n) + "|" + dk_don(n) + "|" + nhieu_loi(n) + "|" + noi_gach(n) + "|" + zip_bt(n) + "|" + chua_rec(n) + "|" + song_song_func(n) + "|" + ba_gia_tri(n) + "|" + pt_goi(n) + "|" + chuoi_truong(n) + "|" + none_truoc(n) + "|" + giai_ds(n) + "|" + la_loai(n) + "|" + bat_tham_so(n) + "|" + closure_void(n) + "|" + goi_truong_str(n) + "|" + kw_func(n) + "|" + factory_arg(n) + "|" + tra_ngoac(n) + "|" + tuple_none(n) + "|" + giai_bien_tuple(n) + "|" + goi_bien_func(n) + "|" + lambda_truong(n) + "|" + lenh_pass(n) + "|" + lap_goi_hau_to(n) + "|" + chu_thich_cuoi(n) + "|" + tra_rong(n) + "|" + tap_literal(n) + "|" + get_ngoac(n) + "|" + if_get_ngoac(n) + "|" + rx_sub(n) + "|" + bang_goi(n) + "|" + func_record(n) + "|" + in_chuoi_tt(n) + "|" + get_chuoi_tt(n) + "|" + am_bt(n) + "|" + goi_bang_tt(n) + "|" + chi_so_chuoi(n) + "|" + lap_bo_literal(n) + "|" + mo_rong_bt(n) + "|" + repr_ds(n) + "|" + lambda_tra_rec(n) + "|" + method_tra_ds(n) + "|" + set_goi(n) + "|" + hang_trong_long(n) + "|" + in_phan_tu_ct(n) + "|" + cat_goi(n) + "|" + bang_lit(n) + "|" + dict_cap(n) + "|" + def_trong_if(n) + "|" + str_ds_bt(n) + "|" + update_dict(n) + "|" + dict_lam_doi_so(n) + "|" + goi_long_kw(n) + "|" + gan_tuple_lit(n) + "|" + tuple_co_list(n) + "|" + hoist_trong_chuoi(n) + "|" + finditer_vt(n) + "|" + enum_zip(n) + "|" + comp_tuple(n) + "|" + str_ds_i32(n) + "|" + tap_xoa(n) + "|" + tap_rong_doi_so(n) + "|" + phay_du(n) + "|" + lap_dict_rec(n) + "|" + gan_truong_func(n) + "|" + if_hang_str(n) + "|" + str_bien_ds(n) + "|" + chan_ly_container(n) + "|" + in_ds_tuple(n) + "|" + sub_nhom(n) + "|" + tach_trang(n) + "|" + loi_gian_tiep(n) + "|" + xoa_chi_so(n) + "|" + nem_lai_bien(n) + "|" + Bang_P(n).hop_le("i32") + Bang_P(n).tra("a") + "|" + gen_tu_khoa_il(n) + "|" + hang_nhieu_dong(n) + "|" + tern_dieu_kien_so(n) + "|" + noi_list(n) + "|" + Co_Ct(n).ct().tot + "|" + truong_ds_dieu_kien(n) + "|" + gan_bang_global(n) + "|" + comp_tu_nguon(n) + "|" + khoa_none(n) + "|" + ctor_long_sau(n) + "|" + defer_bo_qua(n) + "|" + nhay_trong_try(n) + "|" + lap_goi_set(n) + "|" + ngan_mach_len(n) + "|" + rong_theo_tham_so(n) + "|" + chan_ly_goi_ds(n) + "|" + tuple_gan_bien_bat(n) + "|" + so_sanh_ds(n) + "|" + len_truong_goi(n) + "|" + ds_tu_extend(n) + "|" + len_phan_tu_ds(n) + "|" + chuoi_hoac_none(n) + "|" + co_bool_int(n) + "|" + so_sanh_method_ds(n) + "|" + chi_so_tuple_long(n) + "|" + tern_comp_lazy(n) + "|" + so_sanh_ds_literal(n) + "|" + append_tuple_ds(n) + "|" + isinstance_container(n) + "|" + tuple_ds_lit(n) + "|" + str_ds_am(n) + "|" + isinst_str(n) + "|" + slice_nhieu(n)
+
+
+def chu(n: "i32") -> "str":
+    return chr(65 + n % 26) + chr(48 + n % 10) + str(ord("A") + ord(chr(90 - n % 5)))
+
+
+def nhay(n: "i32") -> "str":
+    return (f"n={n} KEP (\"...\"), "
+            "DON ('...') {x} "
+            f"het \"{n}\"")
+
+
+def thuoc(n: "i32", s: "str") -> "str":
+    a = 1 if s in ('x', 'ab', "k") else 0
+    b = 1 if n in (5, -3) else 0
+    c = 1 if s not in ('q',) else 0
+    c = c + (10 if s in 'xab' else 0) + (100 if 'z' not in s else 0)
+    return str(a) + str(b) + str(c)
+
+
+def coso(n: "i32") -> "str":
+    h = "ff" if n > 0 else "1a"
+    b = "101"
+    return str(int(h, 16)) + "," + str(int(b, 2)) + "," + str(int("17", 8))
+
+
+def lay(n: "i32") -> "str":
+    q = [10, 20, 30, 40]
+    a = q.pop(0)
+    k = -1
+    b = q.pop(k)
+    c = q.pop()
+    return str(a) + "," + str(b) + "," + str(c) + "," + str(len(q)) + str(q[0] + n)
+
+
+def lay_rong(n: "i32") -> "str":
+    m0 = {}
+    m0["x"] = 1
+    d = {}
+    d["a"] = m0
+    l0 = [1, 2]
+    e = {}
+    e["a"] = l0
+    m = d.get("a" if n > 0 else "b", {})
+    l = e.get("b" if n > 0 else "a", [])
+    return str(len(m)) + str(len(l))
+
+
+def chia_hai(a: "i32", s: "str") -> "(i32,str)":
+    return a // 2, s + "!"
+
+
+def goi_ham(f: "func(i32, str)->(i32,str)", n: "i32") -> "str":
+    q, t = f(n, "h")
+    return str(q) + t
+
+
+def phan_tu(n: "i32") -> "str":
+    ds: "list[(i32,str)]" = []
+    ds.append((1, "a"))
+    ds.append((n, "b"))
+    return str(ds[1][0] + ds[0][0]) + ds[1][1]
+
+
+def dem_khoa(d: "dict[str,i32]", l: "list[str]") -> "i32":
+    return len(d) + len(l)
+
+
+def goi_rong(f: "func(dict[str,i32], list[str])->i32", n: "i32") -> "str":
+    return str(f({}, []) + n)
+
+
+def trong_bt(n: "i32") -> "str":
+    a = 1 if str(n) in ("5", "7") else 0
+    b = 1 if n * 2 in (10, -6, 0) else 0
+    c = 1 if chr(65 + n % 3) not in ("A",) else 0
+    return str(a) + str(b) + str(c)
+
+
+def cap_ds(n: "i32") -> "list[(str,i32)]":
+    r: "list[(str,i32)]" = []
+    r.append(("a", n))
+    r.append(("b", n * 2))
+    return r
+
+
+def lap_cap(n: "i32") -> "str":
+    s = ""
+    t = 0
+    for k, v in cap_ds(n):
+        s = s + k
+        t += v
+    p = cap_ds(1)[1]
+    return s + str(t) + str(p[1] + 1)
+
+
+def tap_kieu(n: "i32") -> "str":
+    ten: "set[str]" = set()
+    ten.add("x")
+    d: "dict[str,i32]" = {}
+    d["k"] = n
+    l: "list[str]" = []
+    l.append("y")
+    return str(len(ten)) + str(d["k"]) + l[0]
+
+
+def bon(n: "i32") -> "str":
+    ds: "list[(str,i32,str,i32)]" = []
+    ds.append(("a", n, "x", 2))
+    ds.append(("b", 3, "y", n))
+    s = ""
+    for t, _, u, v in ds:
+        s = s + t + u + str(v)
+    return s
+
+
+def lap_tap(n: "i32") -> "str":
+    s = set()
+    s.add(n)
+    s.add(n + 1)
+    t: "set[str]" = set()
+    t.add("q")
+    tong = 0
+    for x in s:
+        tong += x
+    for y in t:
+        tong += len(y)
+    return str(tong)
+
+
+def hieu_tap(n: "i32") -> "str":
+    a = set()
+    a.add("x")
+    a.add("y")
+    b = set()
+    b.add("y")
+    c = a - b
+    d: "set[str]" = a | b
+    e = a & b
+    return str(len(c)) + str(len(d)) + str(len(e)) + str(n)
+
+
+class Hop:
+    ten: "str"
+    so: "i32"
+
+    def __init__(self, ten: "str", so: "i32"):
+        self.ten = ten
+        self.so = so
+
+
+class Kho:
+    ds: "list[Hop]"
+
+    def __init__(self):
+        self.ds = []
+
+    def lay(self, i: "i32") -> "Hop":
+        return self.ds[i]
+
+
+def truong_bt(n: "i32") -> "str":
+    k = Kho()
+    k.ds.append(Hop("a", n))
+    k.ds.append(Hop("b", 7))
+    return k.lay(1).ten + str(k.lay(0).so + 1)
+
+
+def comp_nhieu(n: "i32") -> "str":
+    ds: "list[(str,i32,str)]" = []
+    ds.append(("a", n, "x"))
+    ds.append(("b", 2, "y"))
+    r = [t + u + str(v) for t, v, u in ds]
+    q = [t for t, _, _ in ds if t != "a"]
+    return ",".join(r) + str(len(q))
+
+
+def enum_bo(n: "i32") -> "str":
+    ds: "list[(str,i32)]" = []
+    ds.append(("a", n))
+    ds.append(("b", 4))
+    s = ""
+    for i, (t, v) in enumerate(ds):
+        s = s + str(i) + t + str(v)
+    return s
+
+
+def tern_trong(n: "i32") -> "str":
+    ds: "list[(str,i32)]" = []
+    ds.append(("p" if n > 0 else "m", n if n > 0 else -n))
+    xs = ["a" if n > 2 else "b", "c"]
+    return ds[0][0] + str(ds[0][1]) + xs[0] + ",".join(["x" if n > 0 else "y"])
+
+
+def tach_chu(s: "str") -> "list[str]":
+    return s.split(",")
+
+
+class BoGoi:
+    fn: "func(str)->list[str]"
+
+    def __init__(self, fn: "func(str)->list[str]"):
+        self.fn = fn
+
+
+def goi_truong(n: "i32") -> "str":
+    b = BoGoi(tach_chu)
+    ds = b.fn("a,b,c")
+    kq: "list[str]" = []
+    kq.extend(ds)
+    return str(len(kq) + n) + kq[2]
+
+
+def ds_cap(n: "i32") -> "list[(str,i32)]":
+    return [("u", n), ("v", 2)]
+
+
+def tra_ds_tuple(n: "i32") -> "str":
+    d = ds_cap(n)
+    return d[1][0] + str(d[0][1] + d[1][1])
+
+
+def bat_dau(n: "i32") -> "str":
+    s = "abcab"
+    k = n % 7
+    r = ""
+    for p in [0, 3, 5, 6, -2, -9, k]:
+        r = r + ("1" if s.startswith("ab", p) else "0")
+    r = r + ("1" if s.startswith("", 5) else "0") + ("1" if s.startswith("", 6) else "0")
+    t = "a­b"
+    r = r + str(t.find("b")) + ("1" if t.startswith("a") else "0") + ("1" if t.endswith("­b") else "0")
+    return r
+
+
+VIET = "Tiếng Việt"
+
+
+def chu_viet(n: "i32") -> "str":
+    s = "Việt Nam đẹp"
+    return str(len(s)) + str(ord(s[1])) + str(s.find("Nam")) + str(len(VIET)) + str(ord(VIET[3]) + n)
+
+
+def mk_d(a: "str", n: "i32") -> "dict[str,str]":
+    return {'x': a, "y": str(n), }
+
+
+def dict_tra(n: "i32") -> "str":
+    d = mk_d("q", n)
+    return d["x"] + d["y"] + str(len(d))
+
+
+def gan_ngoac(n: "i32") -> "str":
+    a, b, c = ("x", n, "z")
+    b, a2 = (b + 1, a + c)
+    return a2 + str(b)
+
+
+def tach_hai(n: "i32") -> "str":
+    s = "k:v:w"
+    a, b = s.split(":", 1)
+    x, y, z = "p q r".split(" ")
+    try:
+        c, d = s.split(":")
+        kq = "sai" + c + d
+    except ValueError:
+        kq = "loi"
+    return a + b + x + y + z + kq + str(n)
+
+
+def trong_bt2(n: "i32") -> "str":
+    d = {}
+    d["e"] = "a:b"
+    ds = ["x", "y"]
+    r = ""
+    r = r + ("1" if ":" in d["e"] else "0")
+    r = r + ("1" if "y" in "p,y".split(",") else "0")
+    r = r + ("1" if "x" in ds[0] else "0")
+    r = r + ("1" if "Q" in "abc".upper() else "0")
+    r = r + ("1" if "b" not in d["e"] else "0")
+    return r + str(n)
+
+
+def phan_tram(n: "i32") -> "str":
+    a = '__c%d' % n
+    b = 'x"%s\'y' % a
+    c = "%s-%d%%" % (a, n + 1)
+    return a + b + c
+
+
+class HopD:
+    d: "dict[str,i32]"
+
+    def __init__(self):
+        self.d = {}
+
+
+def hoac_rong(n: "i32") -> "str":
+    h = HopD()
+    x = (h.d if n > 0 else None) or {}
+    x["k"] = 1
+    h2 = HopD()
+    h2.d["z"] = n
+    y = h2.d or {}
+    l0 = "".split(",") if n > 100 else None
+    z = l0 or []
+    return str(len(x)) + str(len(h.d)) + str(y["z"]) + str(len(z))
+
+
+def duyet_khoa(d: "dict[i32,str]") -> "str":
+    r = ""
+    for k in d:
+        r = r + str(k) + d[k]
+    return r
+
+
+def khoa_so(n: "i32") -> "str":
+    d = {}
+    d[5] = "a"
+    d[0] = "b"
+    d[1] = "c"
+    return duyet_khoa(d) + str(n)
+
+
+def lay_d(n: "i32") -> "dict[i32,str]":
+    d = {}
+    d[7] = "x"
+    d[n] = "y"
+    return d
+
+
+def duyet_bt(n: "i32") -> "str":
+    d = lay_d(n) or {}
+    r = ""
+    for k in d:
+        r = r + str(k)
+    ds = [3, 1]
+    for v in ds:
+        r = r + str(v)
+    for c in "ab":
+        r = r + c
+    return r
+
+
+def if_comp(n: "i32") -> "str":
+    ds = [1, 2, n]
+    r = ""
+    if any([x > 1 for x in ds]):
+        r = r + "a"
+    if n > 0:
+        r = r + "p"
+    elif n < -100:
+        r = r + "m"
+    return r
+
+
+def lap_tuple_bt(n: "i32") -> "str":
+    r = ""
+    for k in ("body", "else_body", "x"):
+        r = r + k[0]
+    for w in (n + 1, 2):
+        r = r + str(w)
+    return r
+
+
+def enum_bt(n: "i32") -> "str":
+    k = Kho()
+    k.ds.append(Hop("a", n))
+    k.ds.append(Hop("b", 2))
+    r = ""
+    for i, h in enumerate(k.ds):
+        r = r + str(i) + h.ten
+    return r
+
+
+def sao_tap(n: "i32") -> "str":
+    a = set()
+    a.add("x")
+    b = set(a)
+    b.add("y")
+    ds = ["p", "p", "q"]
+    c = set(ds)
+    return str(len(a)) + str(len(b)) + str(len(c)) + str(n)
+
+
+def dao(n: "i32") -> "str":
+    ds: "list[(str,i32)]" = []
+    ds.append(("a", 1))
+    ds.append(("b", n))
+    r = ""
+    for t, v in reversed(ds):
+        r = r + t + str(v)
+    xs = [1, 2, 3]
+    for x in reversed(xs):
+        r = r + str(x)
+    return r + str(xs[0])
+
+
+def tuple_chuoi(n: "i32") -> "str":
+    ds: "list[(i32,str)]" = []
+    ds.append((n, "elif x"))
+    return ds[0][1].replace("elif", "if", 1) + str(ds[0][0] + 1)
+
+
+def sao_ds(n: "i32") -> "str":
+    a = [1, 2]
+    b = list(a)
+    b.append(n)
+    d = {}
+    d["k"] = 1
+    d["j"] = 2
+    ks = list(d)
+    return str(len(a)) + str(len(b)) + ks[0] + ks[1]
+
+
+def gan_tuple_cs(n: "i32") -> "str":
+    ds: "list[(i32,str)]" = []
+    ds.append((1, "a"))
+    ds.append((2, "b"))
+    ds[1] = (ds[0][0] + n, "z")
+    return str(ds[1][0]) + ds[1][1]
+
+
+def hoac_chuoi(n: "i32") -> "str":
+    a = ""
+    b = "x" if n > 0 else ""
+    c = a or "mac"
+    d = b or "mac"
+    e = b and "co"
+    ds = [t or "-" for t in ["p", "", "q"]]
+    return c + d + e + ",".join(ds)
+
+
+def dk_chuoi(n: "i32") -> "str":
+    a = ""
+    b = "x" if n > 0 else ""
+    r = ""
+    if a or b:
+        r = r + "1"
+    if a and b:
+        r = r + "2"
+    if not (a or b):
+        r = r + "3"
+    return r + "."
+
+
+def dk_don(n: "i32") -> "str":
+    s = ""
+    t = "a" if n > 0 else ""
+    r = ""
+    if s:
+        r = r + "1"
+    if t:
+        r = r + "2"
+    while s:
+        s = ""
+    ds = ["", "b"]
+    if ds[0]:
+        r = r + "3"
+    if ds[1]:
+        r = r + "4"
+    return r + "."
+
+
+def nhieu_loi(n: "i32") -> "str":
+    r = ""
+    for k in [0, 1, 2]:
+        try:
+            if k == 0:
+                raise KeyError("a")
+            if k == 1:
+                raise ValueError("b")
+            r = r + "ok"
+        except (KeyError, ValueError):
+            r = r + "L" + str(k)
+    return r + str(n)
+
+
+def noi_gach(n: "i32") -> "str":
+    ds = [1, 2, n]
+    r = "x"
+    if n > 100 or \
+            any([v < 0 for v in ds]):
+        r = r + "am"
+    t = 1 + \
+        2
+    return r + str(t)
+
+
+def hai_so(n: "i32") -> "list[i32]":
+    return [1, 2]
+
+
+def zip_bt(n: "i32") -> "str":
+    a = ["x", "y"]
+    r = ""
+    for s, v in zip(list(a), hai_so(n) or []):
+        r = r + s + str(v + n)
+    return r
+
+
+class Tui:
+    ten: "list[str]"
+
+    def __init__(self):
+        self.ten = []
+
+    def __contains__(self, x: "str") -> "i32":
+        return x in self.ten
+
+
+def chua_rec(n: "i32") -> "str":
+    t = Tui()
+    t.ten.append("a")
+    r = ""
+    if "a" in t:
+        r = r + "1"
+    if "b" not in t:
+        r = r + "2"
+    return r + str(n)
+
+
+def song_song_func(n: "i32") -> "str":
+    b = BoGoi(tach_chu)
+    k = Kho()
+    f, ds = b.fn, k.ds
+    ds.append(Hop("q", n))
+    return str(len(f("a,b"))) + str(len(k.ds))
+
+
+def ba_gia_tri(n: "i32") -> "str":
+    a, b, c = str(n), hai_so(n), "z"
+    b.append(9)
+    return a + str(len(b)) + c
+
+
+def pt_goi(n: "i32") -> "str":
+    ds = [4, 5]
+    return "a%d" % abs(n) + "|%s" % ds[1] + "|%s!" % str(n).upper()
+
+
+class Vo:
+    hop: "Hop"
+    ds: "list[str]"
+
+    def __init__(self, hop: "Hop"):
+        self.hop = hop
+        self.ds = []
+
+
+def chuoi_truong(n: "i32") -> "str":
+    v = Vo(Hop("ab", n))
+    v.ds.append("q")
+    r = v.hop.ten + str(v.hop.so + 1) + v.hop.ten.upper()
+    if v.hop.so < 0 or v.hop.ten == "":
+        r = r + "!"
+    return r + str(len(v.ds))
+
+
+def none_truoc(n: "i32") -> "str":
+    h = None
+    if n != 0:
+        h = Hop("k", n)
+    s = None
+    s = "v"
+    return (h.ten if h is not None else "-") + s
+
+
+def giai_ds(n: "i32") -> "str":
+    ds = ["a", "b"]
+    x, y = ds
+    ba = [1, 2, 3]
+    try:
+        p, q = ba
+        kq = "sai" + str(p + q)
+    except ValueError:
+        kq = "loi"
+    return y + x + kq + str(n)
+
+
+def la_loai(n: "i32") -> "str":
+    r = ""
+    for s in ["ab", "a1", "", " \t", "Việt", "x y"]:
+        r = r + ("1" if s.isalpha() else "0") + ("1" if s.isalnum() else "0") + ("1" if s.isspace() else "0") + ","
+    return r + str(n)
+
+
+def lam_cong(k: "i32") -> "func(i32)->i32":
+    def cong(x: "i32") -> "i32":
+        nonlocal k
+        return x + k
+    return cong
+
+
+def bat_tham_so(n: "i32") -> "str":
+    f = lam_cong(n)
+    g = lam_cong(10)
+    return str(f(1)) + "," + str(g(1))
+
+
+def lam_ghi(tien_to: "str") -> "func(list[str], i32)->void":
+    def ghi(out: "list[str]", k: "i32"):
+        nonlocal tien_to
+        out.append(tien_to + str(k))
+    return ghi
+
+
+def closure_void(n: "i32") -> "str":
+    out: "list[str]" = []
+    g = lam_ghi("p")
+    g(out, n)
+    g(out, 2)
+    return ",".join(out)
+
+
+class BoTen:
+    doi: "func(str)->str"
+
+    def __init__(self, doi: "func(str)->str"):
+        self.doi = doi
+
+
+def hoa(s: "str") -> "str":
+    return s.upper()
+
+
+def goi_truong_str(n: "i32") -> "str":
+    b = BoTen(hoa)
+    return "<" + str(b.doi("ab")) + f"{b.doi('c')}>" + str(n)
+
+
+def dang_ky(ten: "str", fa: "func(str)->str" = None, fb: "func(str)->str" = None, duoi: "str" = "") -> "str":
+    r = ten
+    if fa is not None:
+        r = r + fa(ten)
+    if fb is not None:
+        r = r + fb(ten)
+    return r + duoi
+
+
+def kw_func(n: "i32") -> "str":
+    return dang_ky("a", fb=hoa, duoi="!") + dang_ky("b") + str(n)
+
+
+def lam_them(duoi: "str") -> "func(str)->str":
+    def them(s: "str") -> "str":
+        nonlocal duoi
+        return s + duoi
+    return them
+
+
+def factory_arg(n: "i32") -> "str":
+    return dang_ky("c", fa=lam_them("?"), fb=lam_them("#")) + str(n)
+
+
+def cap_ngoac(n: "i32") -> "(str,i32)":
+    if n > 100:
+        return None
+    return ("k", n + 1)
+
+
+def tra_ngoac(n: "i32") -> "str":
+    a, b = cap_ngoac(n)
+    return a + str(b)
+
+
+def tim_cap(ds: "list[str]", x: "str") -> "(i32,str)":
+    for i in range(len(ds)):
+        if ds[i] == x:
+            return i, ds[i]
+    return None
+
+
+def tuple_none(n: "i32") -> "str":
+    ds = ["a", "b"]
+    r = ""
+    for x in ["b", "z"]:
+        kq = tim_cap(ds, x)
+        if kq is None:
+            r = r + "N"
+        else:
+            r = r + str(kq[0]) + kq[1]
+    return r + str(n)
+
+
+def giai_bien_tuple(n: "i32") -> "str":
+    t = cap_ngoac(n)
+    a, b = t
+    k = -1
+    v = ""
+    kq = tim_cap(["x"], "x")
+    if kq is not None:
+        k, v = kq
+    w = 0
+    w, s2 = tim_cap(["q", "r"], "r")
+    return a + str(b) + str(k) + str(v) + str(w + 1) + s2
+
+
+def goi_bien_func2(f: "func(str)->str", g: "func(str)->list[str]", n: "i32") -> "str":
+    a = f("x") or "rong"
+    b = f("") or "rong"
+    ds = g("p,q")
+    return a + b + str(len(ds)) + str(n)
+
+
+def goi_bien_func(n: "i32") -> "str":
+    return goi_bien_func2(hoa, tach_chu, n)
+
+
+class Hoan:
+    viec: "list[func()->void]"
+    dat: "func(func()->void)->i32"
+
+    def __init__(self, dat: "func(func()->void)->i32"):
+        self.viec = []
+        self.dat = dat
+
+
+def ghi_hoan(f: "func()->void") -> "i32":
+    f()
+    return 1
+
+
+def them_hoan(ds: "list[str]", s: "str"):
+    ds.append(s)
+
+
+def lambda_truong(n: "i32") -> "str":
+    h = Hoan(ghi_hoan)
+    ds: "list[str]" = []
+    k = h.dat(lambda: them_hoan(ds, "x" + str(n)))
+    return str(k) + ",".join(ds)
+
+
+def lenh_pass(n: "i32") -> "str":
+    r = "p"
+    if n > 0:
+        pass
+    else:
+        r = r + "q"
+    for i in range(2):
+        pass
+    return r
+
+
+def lay_o(ds: "list[str]", i: "i32") -> "str":
+    return ds[i]
+
+
+def lap_goi_hau_to(n: "i32") -> "str":
+    ops = [o for o in lay_o(["a,,b", "x"], 0).split(",") if o]
+    r = ""
+    for c in lay_o(["pq"], 0).upper():
+        r = r + c
+    return "|".join(ops) + r + str(n)
+
+
+def chu_thich_cuoi(n: "i32") -> "str":
+    ds = [1, 2]   # danh sach
+    r = ""  # ket qua
+    for c in ds:                       # lap
+        r = r + str(c)   # noi "#" vao
+    s = "a#b"  # chuoi co dau #
+    return r + s + str(n)
+
+
+def rong_d(n: "i32") -> "dict[str,i32]":
+    if n > 100:
+        return {"a": 1}
+    return {}
+
+
+def rong_s(n: "i32") -> "set[str]":
+    return set()
+
+
+def tra_rong(n: "i32") -> "str":
+    d = rong_d(n)
+    d["k"] = n
+    s = rong_s(n)
+    s.add("x")
+    return str(len(d)) + str(len(s))
+
+
+def tap_literal(n: "i32") -> "str":
+    a = {"x", "y", "x"}
+    b = {n, n + 1}
+    return str(len(a)) + str(len(b)) + ("1" if "y" in a else "0")
+
+
+def lay_ds_d(n: "i32") -> "dict[str,dict[str,i32]]":
+    d: "dict[str,dict[str,i32]]" = {}
+    t: "dict[str,i32]" = {}
+    t["k"] = n
+    d["a"] = t
+    return d
+
+
+def get_ngoac(n: "i32") -> "str":
+    d = lay_ds_d(n)
+    x = (d.get("a") or {}).get("k", 0)
+    y = (d.get("b") or {}).get("k", 7)
+    return str(x) + "," + str(y) + ("a" + "b").upper()
+
+
+def if_get_ngoac(n: "i32") -> "str":
+    d = lay_ds_d(n)
+    r = ""
+    if (d.get("a") or {}).get("k", 0) == n:
+        r = r + "y"
+    if (d.get("b") or {}).get("k", 5) == 5:
+        r = r + "z"
+    return r
+
+
+import re
+
+_PCT_MAU = re.compile(r'%(\d*)([sd%])')
+_KHONG_RE = re.compile(r'\bis\s+not\s+None\b')
+
+
+def rx_sub(n: "i32") -> "str":
+    s = "a is not None and b is not None"
+    t = _KHONG_RE.sub('!= None', s)
+    u = _KHONG_RE.sub('$x', "q is not None")
+    return t + "|" + u + str(n)
+
+
+def ghi_a(out: "list[str]", s: "str"):
+    out.append("a" + s)
+
+
+def ghi_b(out: "list[str]", s: "str"):
+    out.append("b" + s)
+
+
+def bang_goi(n: "i32") -> "str":
+    bang: "dict[str, func(list[str], str)->void]" = {}
+    bang["a"] = ghi_a
+    bang["b"] = ghi_b
+    out: "list[str]" = []
+    for k in ["b", "a"]:
+        bang[k](out, str(n))
+    return ",".join(out)
+
+
+def ten_hop(h: "Hop") -> "str":
+    return h.ten + str(h.so)
+
+
+def ap_hop(f: "func(Hop)->str", n: "i32") -> "str":
+    return f(Hop("z", n))
+
+
+def func_record(n: "i32") -> "str":
+    return ap_hop(ten_hop, n)
+
+
+class Trong:
+    tap: "dict[str,i32]"
+
+    def __init__(self):
+        self.tap = {}
+
+
+class Ngoai:
+    trong: "Trong"
+
+    def __init__(self):
+        self.trong = Trong()
+
+
+def in_chuoi_tt(n: "i32") -> "str":
+    o = Ngoai()
+    t = o.trong.tap
+    t["k"] = n
+    return ("1" if "k" in o.trong.tap else "0") + ("1" if "z" in o.trong.tap else "0")
+
+
+def get_chuoi_tt(n: "i32") -> "str":
+    o = Ngoai()
+    t = o.trong.tap
+    t["k"] = n
+    return str(o.trong.tap.get("k", 0)) + str(o.trong.tap.get("q", 9)) + str(len(o.trong.tap.keys()))
+
+
+def am_bt(n: "i32") -> "str":
+    s = "a.b.cd"
+    return s.split(".")[-1] + s.split(".")[-2] + s.upper()[-1] + str(hai_so(n)[-1] + n)
+
+
+class BangHam:
+    ham: "dict[str, func(str)->str]"
+
+    def __init__(self):
+        self.ham = {}
+
+
+class CtxGia:
+    bang: "BangHam"
+
+    def __init__(self):
+        self.bang = BangHam()
+
+
+def goi_bang_tt(n: "i32") -> "str":
+    c = CtxGia()
+    t = c.bang.ham
+    t["h"] = hoa
+    f = c.bang.ham["h"]
+    return f("ab") + str(n)
+
+
+def chi_so_chuoi(n: "i32") -> "str":
+    s = "a:b:c"
+    r = str(s.index(":")) + str(s.index(":", 2))
+    try:
+        s.index("z")
+        r = r + "sai"
+    except ValueError:
+        r = r + "V"
+    return r + str(n)
+
+
+def lap_bo_literal(n: "i32") -> "str":
+    r = ""
+    for ten, so in (("a", 1), ("b", n)):
+        r = r + ten + str(so)
+    for x, y, z in [("p", "q", 3)]:
+        r = r + x + y + str(z)
+    return r
+
+
+def hai_chu() -> "list[str]":
+    return ["x", "y"]
+
+
+def mo_rong_bt(n: "i32") -> "str":
+    ds: "list[str]" = []
+    ds.extend(["a"])
+    ds.extend(hai_chu())
+    ds.extend([f'b{n}', "c"])
+    return ",".join(ds)
+
+
+def repr_ds(n: "i32") -> "str":
+    ds: "list[str]" = ["a", "it's", str(n)]
+    rong: "list[str]" = []
+    return repr(ds) + repr(rong) + f"{[x + '!' for x in ds]!r}"
+
+
+class HopL:
+    x: "i32"
+
+    def __init__(self, x: "i32"):
+        self.x = x
+
+
+def goi_hop(ten: "str", fn: "func(HopL)->HopL" = None) -> "str":
+    if fn is None:
+        return ten + "-"
+    return ten + str(fn(HopL(7)).x)
+
+
+def goi_ds_l(fn: "func(i32)->list[str]") -> "str":
+    return ",".join(fn(2))
+
+
+def lambda_tra_rec(n: "i32") -> "str":
+    return goi_hop("a", fn=lambda h: h) + goi_hop("b") + goi_ds_l(lambda k: [str(k + n), "z"])
+
+
+class HopDs:
+    x: "i32"
+
+    def __init__(self, x: "i32"):
+        self.x = x
+
+    def ds(self) -> "list[str]":
+        return [str(self.x), "b"]
+
+
+def method_tra_ds(n: "i32") -> "str":
+    h = HopDs(n)
+    a = h.ds()
+    return ",".join(a) + f"({', '.join(h.ds())})" + str(len(h.ds()))
+
+
+def ds_lap(n: "i32") -> "list[str]":
+    return ["a", str(n), "a"]
+
+
+def set_goi(n: "i32") -> "str":
+    t = set(ds_lap(n))
+    return str(len(t)) + str("a" in t) + str(str(n) in set(ds_lap(n)))
+
+
+_HANG_LONG = "LOP"
+
+
+def _tao_ham_long(muc: "str") -> "func(i32)->str":
+    def _fn(k: "i32") -> "str":
+        nonlocal muc
+        return f"{_HANG_LONG}:{muc}{k}"
+    return _fn
+
+
+def hang_trong_long(n: "i32") -> "str":
+    f = _tao_ham_long("a")
+    return f(n)
+
+
+def in_phan_tu_ct(n: "i32") -> "str":
+    d: "dict[str,dict[str,i32]]" = {}
+    trong: "dict[str,i32]" = {}
+    trong["x"] = n
+    d["a"] = trong
+    ds: "list[list[str]]" = [["p", "q"]]
+    r = ""
+    if "x" in d["a"]:
+        r = r + "1"
+    if "y" in d["a"]:
+        r = r + "2"
+    if "q" in ds[0]:
+        r = r + "3"
+    return r + str(n)
+
+
+def cat_goi(n: "i32") -> "str":
+    ds = ds_lap(n)
+    t = ds[:-1]
+    r = str(len(t))
+    for x in ds[1:]:
+        r = r + x
+    for y in t[0:1]:
+        r = r + y
+    return r
+
+
+def bang_lit(n: "i32") -> "str":
+    op = "-" if n < 0 else "+"
+    ds: "list[str]" = []
+    ds.append({'+': 'cong', '-': 'tru'}[op])
+    try:
+        x = {'a': 1}[op]
+        ds.append(str(x))
+    except KeyError:
+        ds.append("K")
+    return ",".join(ds) + str({"p": n, "q": 2}["q"])
+
+
+class TDict:
+    d: "str"
+
+    def __init__(self, d: "str"):
+        self.d = d
+
+
+def dict_cap(n: "i32") -> "str":
+    recs: "dict[str,list[(str,TDict)]]" = {}
+    ds: "list[(str,TDict)]" = []
+    ds.append(("a", TDict("x")))
+    ds.append(("b", TDict(str(n))))
+    ds.append(("a", TDict("z")))
+    recs["R"] = ds
+    f = dict(recs.get("R", []))
+    g = dict(recs["R"]).get("b")
+    h: "list[(str,i32)]" = []
+    h.append(("p", n))
+    return str(len(f)) + f["a"].d + g.d + str(dict(h)["p"])
+
+
+def _goi_void(f: "func()->void"):
+    f()
+
+
+def def_trong_if(n: "i32") -> "str":
+    out: "list[str]" = []
+    if n > -100:
+        ten = "t" + str(n)
+
+        def _nap():
+            nonlocal out, ten
+            out.append(ten)
+        _goi_void(_nap)
+        _goi_void(_nap)
+    return ",".join(out)
+
+
+def str_ds_bt(n: "i32") -> "str":
+    d: "dict[str,i32]" = {}
+    d["b"] = n
+    d["a"] = 1
+    return f"{sorted(d)}" + str(sorted(d))
+
+
+def _cong_mot(x: "i32") -> "i32":
+    return x + 1
+
+
+def update_dict(n: "i32") -> "str":
+    d: "dict[str,i32]" = {}
+    d["a"] = 1
+    o: "dict[str,i32]" = {}
+    o["a"] = n
+    o["b"] = 2
+    d.update(o)
+    f: "dict[str,func(i32)->i32]" = {}
+    g: "dict[str,func(i32)->i32]" = {}
+    g["x"] = _cong_mot
+    f.update(g)
+    r = f["x"](n)
+    return str(d["a"] + d["b"]) + str(r)
+
+
+def _noi_dict(d: "dict[str,str]") -> "str":
+    r = ""
+    for k in sorted(d):
+        r = r + k + d[k]
+    return r
+
+
+def dict_lam_doi_so(n: "i32") -> "str":
+    return _noi_dict({'b': 'x', 'a': str(n)}) + _noi_dict({})
+
+
+def goi_long_kw(n: "i32") -> "str":
+    out: "list[str]" = []
+
+    def _ghi(x: "i32", dau: "str"):
+        nonlocal out
+        out.append(str(x) + dau)
+
+    def _hai(x: "i32") -> "i32":
+        return x * 2
+    _ghi(n, dau="p")
+    _ghi(_hai(n), "q")
+    return ",".join(out)
+
+
+def gan_tuple_lit(n: "i32") -> "str":
+    nhan = (f"s{n}", "k", "e")
+    a, b, c = nhan
+    p = (n, 1.5)
+    return nhan[0] + c + b + str(p[0]) + str(p[1])
+
+
+def _o_ds(a: "list[i32]", n: "i32") -> "list[(list[i32],i32,i32)]":
+    ra: "list[(list[i32],i32,i32)]" = []
+    ra.append((a, 0, n))
+    ra.append((a, 1, n + 1))
+    return ra
+
+
+def tuple_co_list(n: "i32") -> "str":
+    a: "list[i32]" = [7, 8, 9]
+    for lst, i, sub in _o_ds(a, n):
+        lst[i] = sub
+    return str(a[0]) + str(a[1]) + str(a[2])
+
+
+def hoist_trong_chuoi(n: "i32") -> "str":
+    msg = '"sep".join(<bieu thuc>) va a.b.c(d) ' + str(n)
+    return msg
+
+
+def finditer_vt(n: "i32") -> "str":
+    s = "a%sb%dc%%d" + str(n)
+    pos = 0
+    out: "list[str]" = []
+    for m in _PCT_MAU.finditer(s):
+        out.append(s[pos:m.start()] + "[" + m.group(2) + "]")
+        pos = m.end()
+    return ",".join(out) + s[pos:]
+
+
+def enum_zip(n: "i32") -> "str":
+    a: "list[str]" = ["x", "y", "z"]
+    b: "list[i32]" = [n, 2]
+    r = ""
+    for i, (s, k) in enumerate(zip(a, b)):
+        r = r + str(i) + s + str(k)
+    return r
+
+
+def comp_tuple(n: "i32") -> "str":
+    recs: "dict[str,list[(str,i32)]]" = {}
+    ds: "list[(str,i32)]" = []
+    ds.append(("a", n))
+    ds.append(("b", 2))
+    recs["R"] = ds
+    fields = [fd for fd in recs["R"] if fd[1] > 1]
+    r = ""
+    for t, v in fields:
+        r = r + t + str(v)
+    return r
+
+
+def _ds_so(n: "i32") -> "list[i32]":
+    ra: "list[i32]" = []
+    i = 0
+    while i < n:
+        ra.append(i - 1)
+        i += 1
+    return ra
+
+
+def str_ds_i32(n: "i32") -> "str":
+    # str(<bieu thuc list[i32]>) (2026-09-29): "[-1, 0]" nhu Python
+    return str(_ds_so(n)) + str(_ds_so(2))
+
+
+def tap_xoa(n: "i32") -> "str":
+    # set.clear() (2026-09-29)
+    s: "set[i32]" = set()
+    s.add(n)
+    s.add(1)
+    s.clear()
+    s.add(n + 1)
+    return str(len(s)) + str((n + 1) in s) + str(n in s)
+
+
+def _them_tap(tap: "set[i32]", k: "i32") -> "i32":
+    tap.add(k)
+    tap.add(0)
+    return len(tap)
+
+
+def tap_rong_doi_so(n: "i32") -> "str":
+    # 'set()' rong lam doi so (2026-09-29)
+    return str(_them_tap(set(), n)) + str(_them_tap(set(), 0))
+
+
+def _cong_kw(a: "i32", b: "i32"=5) -> "i32":
+    return a + b
+
+
+def phay_du(n: "i32") -> "str":
+    # dau phay du truoc ')' trong loi goi nhieu dong (2026-09-29)
+    x = _cong_kw(
+        n,
+        2,
+    )
+    y = _cong_kw(
+        n,
+        b=4,
+    )
+    return str(x) + "," + str(y)
+
+
+def lap_dict_rec(n: "i32") -> "str":
+    # 'for k, v in d.items()' voi gia tri RECORD (2026-09-29)
+    d: "dict[str,Hop]" = {}
+    d["a"] = Hop("x", n)
+    d["b"] = Hop("y", 2)
+    r = ""
+    for k, v in d.items():
+        r = r + k + v.ten + str(v.so)
+    return r
+
+
+class HopGoi:
+    goi: "func(str, i32)->str"
+    n: "i32"
+
+    def __init__(self, n: "i32"):
+        self.n = n
+
+
+def _ghep_hop(h: "HopGoi", s: "str", k: "i32") -> "str":
+    return s + str(k + h.n)
+
+
+def gan_truong_func(n: "i32") -> "str":
+    # gan lambda vao TRUONG func sau khi tao doi tuong (2026-09-29)
+    h = HopGoi(n)
+    h.goi = (lambda a0, a1: _ghep_hop(h, a0, a1))
+    return h.goi("q", 2)
+
+
+def if_hang_str(n: "i32") -> "str":
+    # 'if True:' / 'if 1:' / 'while 0:' trong ham tra str (2026-09-29)
+    r = ""
+    if True:
+        r = r + "a"
+    if 1:
+        r = r + "b"
+    while 0:
+        r = r + "c"
+    return r + str(n)
+
+
+def str_bien_ds(n: "i32") -> "str":
+    # str(<bien list[str]>) / str(<bien list[i32]>) (2026-09-29)
+    a: "list[str]" = []
+    a.append("x")
+    a.append("it's")
+    b: "list[i32]" = []
+    b.append(n)
+    b.append(-1)
+    return str(a) + str(b) + "{}".format(1) + f"{a}|{b}"
+
+
+def chan_ly_container(n: "i32") -> "str":
+    # chan ly container: 'if st:' / 'while st:' / 'not d' / 'a and b' (2026-09-29)
+    st: "list[i32]" = []
+    d: "dict[str,i32]" = {}
+    s: "set[i32]" = set()
+    r = ""
+    if st:
+        r = r + "L"
+    if d:
+        r = r + "D"
+    if not st:
+        r = r + "l"
+    if not d:
+        r = r + "d"
+    st.append(n)
+    d["a"] = n
+    s.add(n)
+    if st and d:
+        r = r + "A"
+    if st or s:
+        r = r + "O"
+    if not s:
+        r = r + "x"
+    tot = 0
+    while st:
+        tot = tot + st.pop()
+    return r + str(tot)
+
+
+def in_ds_tuple(n: "i32") -> "str":
+    # 'x in list[(str,str)]': Tuple so sanh theo GIA TRI (2026-09-29)
+    fs: "list[(str,str)]" = []
+    fs.append(("a", "i32"))
+    fs.append(("b", "str" + str(n)))
+    t1 = ("a", "i32")
+    t2 = ("a", "f64")
+    t3 = ("b", "str" + str(n))
+    out = ""
+    if t1 in fs:
+        out = out + "1"
+    if t2 in fs:
+        out = out + "X"
+    if t2 not in fs:
+        out = out + "2"
+    if t3 in fs:
+        out = out + "3"
+    return out
+
+
+_RX_NHOM = re.compile(r'\b(\w+)\.(x|y)\b(?!\s*\()')
+
+
+def sub_nhom(n: "i32") -> "str":
+    # PAT.sub voi tham chieu nhom '\1.\2()' va '$' trong chuoi thay (2026-09-29)
+    return _RX_NHOM.sub(r'\1.\2() $', "a.x + b.y + c.z + d.x(" + str(n) + ")")
+
+
+def tach_trang(n: "i32") -> "str":
+    # s.split() khong doi so: tach theo moi khoang trang, bo phan rong (2026-09-29)
+    a = ("  from  m\timport x" + str(n) + "  ").split()
+    return str(len(a)) + ":" + ",".join(a) + str(len("".split()))
+
+
+class LoiA(Exception):
+    msg: "str"
+
+
+class LoiB(LoiA):
+    def dem(self) -> "i32":
+        return 1
+
+
+def loi_gian_tiep(n: "i32") -> "str":
+    # str(e) tren ngoai le ke thua GIAN TIEP: thong diep phai qua duoc (2026-09-29)
+    try:
+        if n > 0:
+            raise LoiB("boom" + str(n))
+        return "ok"
+    except LoiA as e:
+        return "bat:" + str(e)
+
+
+def xoa_chi_so(n: "i32") -> "str":
+    # 'del d[k]' / 'del lst[i]' (2026-09-29); khoa thieu -> loi nhu KeyError
+    d: "dict[str,i32]" = {}
+    d["a"] = n
+    d["b"] = 2
+    del d["a"]
+    l: "list[i32]" = []
+    l.append(5)
+    l.append(6)
+    l.append(n)
+    del l[1]
+    r = str(len(d)) + str("a" in d) + str(len(l)) + str(l[1])
+    try:
+        del d["zz"]
+        r = r + "?"
+    except Exception:
+        r = r + "!"
+    return r
+
+
+class LoiX(Exception):
+    msg: "str"
+
+
+def nem_lai_bien(n: "i32") -> "str":
+    # 'raise loi' - nem lai doi tuong ngoai le da tao (2026-09-29)
+    try:
+        loi = LoiX("that bai" + str(n))
+        if n > 0:
+            raise loi
+        return "ok"
+    except LoiX as e:
+        return "bat:" + str(e)
+
+
+_BANG_DTYPES: "set[str]" = {'f32', 'i32', 'str'}
+_BANG_TRA: "dict[str,str]" = {'a': 'x', 'b': 'y'}
+
+
+class Bang_P:
+    n: "i32"
+
+    def __init__(self, n: "i32"):
+        self.n = n
+
+    def hop_le(self, k: "str") -> "str":
+        # bang cap module doc tu trong METHOD cua record (2026-09-29)
+        if k not in _BANG_DTYPES:
+            return "0"
+        return "1"
+
+    def tra(self, k: "str") -> "str":
+        if k in _BANG_TRA:
+            return _BANG_TRA[k]
+        return "-"
+
+
+def _gen_tu_khoa(n: "i32") -> "list[i32]":
+    # bien cuc bo trung TU KHOA cua IL (sub, init...) trong generator (2026-09-29)
+    sub = 0
+    init = n
+    while sub < 3:
+        yield sub + init
+        sub += 1
+
+
+def gen_tu_khoa_il(n: "i32") -> "str":
+    r = ""
+    for v in _gen_tu_khoa(n):
+        r = r + str(v) + ","
+    return r
+
+
+_MAU_NHIEU_DONG = re.compile(r"""(?x)
+    (\d+)   # so
+    \s*
+    (\w+)   # chu
+""")
+
+_HANG_XUONG_DONG = "dong1\ndong2\tcot"
+
+
+def hang_nhieu_dong(n: "i32") -> "str":
+    # hang chuoi cap module co xuong dong that / tab / mau regex (?x) nhieu dong (2026-09-29)
+    m = _MAU_NHIEU_DONG.match(str(n * n) + " ab")
+    return m.group(1) + "|" + m.group(2) + "|" + _HANG_XUONG_DONG
+
+
+def _tern_so(h: "i32") -> "i32":
+    a = 3 if h else 2
+    return a
+
+
+def _tern_khac(h: "i32", w: "f64") -> "str":
+    b = 7 if h else 8
+    c = 1.5 if w else 2.5
+    d = "y" if h and b else "n"
+    return str(b) + str(c) + d
+
+
+def tern_dieu_kien_so(n: "i32") -> "str":
+    # '3 if h else 2' (dieu kien i32 trong ngu canh int): TkvInt struct + brfalse
+    # tung gay AccessViolation (2026-09-29)
+    return str(_tern_so(n)) + str(_tern_so(0)) + _tern_khac(n, 0.0) + _tern_khac(0, 2.0)
+
+
+def _ds_ba(n: "i32") -> "list[i32]":
+    ra: "list[i32]" = []
+    ra.append(n)
+    ra.append(n + 1)
+    return ra
+
+
+def _tong_ds(x: "list[i32]") -> "str":
+    t = 0
+    for v in x:
+        t = t + v
+    return str(len(x)) + ":" + str(t)
+
+
+def noi_list(n: "i32") -> "str":
+    # 'list + list': bien, literal, loi goi ham, long nhau, lam doi so (2026-09-29)
+    a: "list[i32]" = []
+    a.append(1)
+    b: "list[i32]" = []
+    b.append(2)
+    b.append(3)
+    c = a + b
+    e: "list[i32]" = []
+    r = _tong_ds(c) + "|" + _tong_ds([n, 7] + e) + "|" + _tong_ds(a + b + _ds_ba(n))
+    r = r + "|" + _tong_ds(_ds_ba(n) + [9]) + "|" + str(len(a)) + str(len(b))
+    return r
+
+
+class Co_Ct:
+    tot: "str"
+    n: "i32"
+
+    def __init__(self, n: "i32"):
+        self.n = n
+        self.tot = ""
+
+    def ct(self) -> "Co_Ct":
+        # co 'flag = False' roi dung lam dieu kien trong ham tra RECORD:
+        # 'brfalse' tren TkvInt struct tung gay AccessViolation (2026-09-29)
+        sau = False
+        r = ""
+        i = 0
+        while i < 3:
+            if i == 1:
+                sau = True
+                i += 1
+                continue
+            elif sau:
+                r = r + "S" + str(i)
+            else:
+                r = r + "N" + str(i)
+            i += 1
+        self.tot = r + str(self.n)
+        return self
+
+
+class Co_Ts:
+    ten: "list[str]"
+    kw: "list[str]"
+    d: "dict[str,i32]"
+    n: "i32"
+
+    def __init__(self):
+        self.n = 0
+        self.ten = []
+        self.kw = []
+        self.d = {}
+
+
+def _ts_xet(x: "Co_Ts") -> "str":
+    r = ""
+    if x.ten:
+        r = r + "T"
+    if x.kw:
+        r = r + "K"
+    if x.d:
+        r = r + "D"
+    if not x.kw:
+        r = r + "k"
+    x.kw.append("a")
+    x.d["z"] = 1
+    if x.kw and x.d:
+        r = r + "A"
+    return r
+
+
+def truong_ds_dieu_kien(n: "i32") -> "str":
+    # chan ly truong list/dict cua record: 'if obj.ds:' (2026-09-29)
+    t = Co_Ts()
+    t.ten.append("x" + str(n))
+    return _ts_xet(t)
+
+
+_BANG_GLOBAL: "dict[str,i32]" = {}
+
+
+def _dat_bang_global(b: "dict[str,i32]") -> "i32":
+    global _BANG_GLOBAL
+    _BANG_GLOBAL = b
+    return 0
+
+
+def gan_bang_global(n: "i32") -> "str":
+    # 'global BANG; BANG = <dict>' phai ghi dung kieu truong (2026-09-29)
+    x: "dict[str,i32]" = {}
+    x["a"] = n
+    x["b"] = 2
+    _dat_bang_global(x)
+    return str(len(_BANG_GLOBAL)) + str(_BANG_GLOBAL["b"])
+
+
+def comp_tu_nguon(n: "i32") -> "str":
+    # 'xs = [f(l) for l in xs]': dich cung la nguon (2026-09-29) - truoc day
+    # khoi tao xs = [] roi lap tren list rong -> im lang tra rong
+    xs: "list[str]" = ["a", "b", str(n)]
+    xs = [x + "!" for x in xs if x != "b"]
+    return ",".join(xs)
+
+
+def _kn(d: "dict[str,i32]", k: "str"=None) -> "str":
+    r = ""
+    if k in d:
+        r = r + "Y"
+    else:
+        r = r + "N"
+    if isinstance(k, str):
+        r = r + "S"
+    else:
+        r = r + "-"
+    r = r + str(d.get(k, 5))
+    return r
+
+
+def khoa_none(n: "i32") -> "str":
+    # 'None in dict' la False, isinstance(None, str) la False (2026-09-29)
+    d: "dict[str,i32]" = {}
+    d["a"] = n
+    return _kn(d) + _kn(d, "a") + _kn(d, "b")
+
+
+class Ta_Sau:
+    dtype: "str"
+    shape: "str"
+    key: "str"
+    dts: "list[str]"
+    elem: "Ta_Sau"
+    dims: "list[i32]"
+
+    def __init__(self, dtype: "str", shape: "str", key: "str"=None, dts: "list[str]"=None, elem: "Ta_Sau"=None, dims: "list[i32]"=None):
+        self.dtype = dtype
+        self.shape = shape
+        self.key = key
+        self.dts = dts
+        self.elem = elem
+        self.dims = dims
+
+
+def _nhan_sau(name: "str", t: "Ta_Sau") -> "str":
+    return name + t.dtype + t.shape + t.elem.dtype + t.elem.shape + str(len(t.elem.dts))
+
+
+def ctor_long_sau(n: "i32") -> "str":
+    # ctor long nhau lam doi so: .maxstack phai tinh theo do sau that (2026-09-29)
+    a = "p" + str(n)
+    return _nhan_sau("n", Ta_Sau(a, "list", elem=Ta_Sau("q", "tuple", dts=[a, "z"])))
+
+
+class Wd_R:
+    n: "i32"
+    defer: "func(func()->void)->i32"
+
+    def __init__(self, n: "i32", defer: "func(func()->void)->i32"=None):
+        self.n = n
+        self.defer = defer
+
+
+def _dk_reg(f: "func()->void") -> "i32":
+    f()
+    return 7
+
+
+def _dk_nop(name: "str"):
+    return
+
+
+def _dk_goi(w: "Wd_R", name: "str") -> "str":
+    if w.n > 0:
+        w.defer(lambda: _dk_nop(name))
+        return "a"
+    return "b"
+
+
+def defer_bo_qua(n: "i32") -> "str":
+    # lenh doc lap goi truong func CO gia tri tra ve: phai bo gia tri (2026-09-29)
+    return _dk_goi(Wd_R(n, _dk_reg), "v")
+
+
+def nhay_trong_try(n: "i32") -> "str":
+    # break/continue nam TRONG try/except phai la 'leave' (2026-09-29)
+    xs: "list[i32]" = [1, 2, 3, 9, 4]
+    tb: "list[i32]" = [1, 2]
+    r = 0
+    for x in xs:
+        try:
+            if x == 2:
+                continue
+            if x == 9:
+                break
+            r = r + x + n
+        except KeyError:
+            continue
+    for x in xs:
+        try:
+            y = tb[x]
+        except IndexError:
+            break
+        r = r + y
+    return str(r)
+
+
+def _anc_set(t: "str") -> "set[str]":
+    r = {t}
+    r.add(t + "1")
+    return r
+
+
+def lap_goi_set(n: "i32") -> "str":
+    # 'for x in f()' voi f tra SET (2026-09-29)
+    k = 0
+    for y in _anc_set("bb"):
+        k = k + len(y)
+    return str(k + n)
+
+
+def _nm_g(k: "str", log: "list[str]") -> "list[i32]":
+    log.append(k)
+    return []
+
+
+def _nm_f(shape: "str", kind: "str", log: "list[str]") -> "i32":
+    if shape in ('list', 'dict') and (kind == 'a' or (kind == 'b' and len(_nm_g(kind, log)) == 0)):
+        return 1
+    return 0
+
+
+def ngan_mach_len(n: "i32") -> "str":
+    # bieu thuc sau and/or KHONG duoc nang ra truoc dong: chi goi khi ve trai dung (2026-09-29)
+    log: "list[str]" = []
+    r = str(_nm_f("", "b", log)) + str(_nm_f("list", "c", log)) + str(_nm_f("list", "b", log))
+    return r + ",".join(log) + str(n)
+
+
+class Rt_Cx:
+    ls: "list[(str,str)]"
+    n: "i32"
+
+    def __init__(self, n: "i32"):
+        self.n = n
+        self.ls = []
+
+
+def _rt_mk(n: "i32", ls: "list[(str,str)]"=None) -> "Rt_Cx":
+    c = Rt_Cx(n)
+    if ls is not None:
+        c.ls = ls
+    return c
+
+
+def rong_theo_tham_so(n: "i32") -> "str":
+    # '[]' RONG lam doi so ten cho tham so list[(str,str)]: dung kieu tham so (2026-09-29)
+    c = _rt_mk(n, ls=[])
+    c.ls.append(("a", "b"))
+    return str(len(c.ls)) + c.ls[0][1]
+
+
+def _cl_ds(k: "i32") -> "list[i32]":
+    r: "list[i32]" = []
+    if k > 0:
+        r.append(k)
+    return r
+
+
+def chan_ly_goi_ds(n: "i32") -> "str":
+    # 'if f(x)' / 'not f(x)' voi f tra list: chan ly la KHONG RONG (2026-09-29)
+    r = ""
+    if not _cl_ds(0):
+        r = r + "A"
+    if _cl_ds(1):
+        r = r + "B"
+    if _cl_ds(0):
+        r = r + "C"
+    return r + str(n)
+
+
+def tuple_gan_bien_bat(n: "i32") -> "str":
+    # 'a, b = x, y' vao bien BI CLOSURE BAT: phai ghi qua cell (2026-09-29)
+    m, k = "q" + str(n), "r!"
+    if m == "x":
+        return "X"
+
+    def _nap() -> "str":
+        nonlocal m
+        return m + "-"
+
+    return _nap() + k
+
+
+def _tf(b: "i32") -> "str":
+    if b:
+        return "T"
+    return "F"
+
+
+def so_sanh_ds(n: "i32") -> "str":
+    # 'a == b' / 'a != b' tren list: so sanh NOI DUNG nhu Python (2026-09-29)
+    a: "list[str]" = ["x", str(n)]
+    b: "list[str]" = ["x", str(n)]
+    c: "list[str]" = ["x", "z"]
+    e: "list[str]" = []
+    return _tf(a == b) + _tf(a != b) + _tf(a != c) + _tf(a == c) + _tf(e == []) + _tf(a == []) + _tf(a != [])
+
+
+class Lt_Ts:
+    ten: "list[str]"
+
+    def __init__(self):
+        self.ten = []
+
+
+def _lt_mk(k: "i32") -> "Lt_Ts":
+    t = Lt_Ts()
+    for i in range(k):
+        t.ten.append("a" + str(i))
+    return t
+
+
+def len_truong_goi(n: "i32") -> "str":
+    # len(f(x).truong) voi truong list: dem phan tu, khong phai do dai chuoi (2026-09-29)
+    return str(len(_lt_mk(1).ten)) + str(len(_lt_mk(3).ten)) + str(n)
+
+
+def _de_base(t: "str") -> "list[str]":
+    return [t + "1", t + "2"]
+
+
+def ds_tu_extend(n: "i32") -> "str":
+    # 'q = []' chi co q.extend(f(..)): kieu phan tu suy tu nguon extend (2026-09-29)
+    q = []
+    q.extend(_de_base("a"))
+    k = 0
+    while q:
+        c = q.pop(0)
+        k = k + len(c)
+        if len(c) < 3:
+            q.extend(_de_base(c))
+    return str(k + n)
+
+
+def len_phan_tu_ds(n: "i32") -> "str":
+    # len(d[k]) voi gia tri dict la list: dem phan tu (2026-09-29)
+    d: "dict[str,list[str]]" = {}
+    d["a"] = []
+    d["a"].append("x")
+    d["a"].append("y")
+    d["b"] = []
+    k = "a"
+    r = ""
+    if len(d[k]) > 1:
+        r = r + "G"
+    if len(d["b"]) > 1:
+        r = r + "B"
+    return r + str(len(d[k])) + str(n)
+
+
+def _hn(a: "str", k: "i32") -> "str":
+    b = a or None
+    c = a and None
+    if b is None:
+        return "N" + str(k)
+    return b + str(c is None)
+
+
+def chuoi_hoac_none(n: "i32") -> "str":
+    # 'chuoi or None' / 'chuoi and None' la CHUOI (None hoac chuoi), khong phai 0/1 (2026-09-29)
+    return _hn("", n) + _hn("x", n)
+
+
+def _cb(a: "str", i: "i32") -> "i32":
+    flag = False
+    k = 0
+    while k < 3:
+        flag = i > 0 and a == "x"
+        k = k + 1
+    if flag and k == 3:
+        return 1
+    return 0
+
+
+def co_bool_int(n: "i32") -> "str":
+    # 'flag = False' roi 'flag = a > 0 and ...': bien kieu int nhan ket qua 0/1 (2026-09-29)
+    return str(_cb("x", 1)) + str(_cb("y", 1)) + str(n)
+
+
+class Sm_R:
+    k: "i32"
+
+    def __init__(self, k: "i32"):
+        self.k = k
+
+    def dts(self) -> "list[str]":
+        r: "list[str]" = []
+        for i in range(self.k):
+            r.append("a")
+        return r
+
+
+def so_sanh_method_ds(n: "i32") -> "str":
+    # 'a.m() == b.m()' hai list tra ve tu method: so sanh NOI DUNG (2026-09-29)
+    a = Sm_R(2)
+    b = Sm_R(2)
+    c = Sm_R(3)
+    return _tf(a.dts() == b.dts()) + _tf(a.dts() != c.dts()) + _tf(a.dts() != b.dts()) + str(n)
+
+
+def _cap_tc(t: "str", gv: "list[list[str]]") -> "(str,list[list[str]])":
+    return t, gv
+
+
+def chi_so_tuple_long(n: "i32") -> "str":
+    # 'g[1][0][0]' voi g la tuple co phan tu list[list[str]]: chi so long qua tuple (2026-09-29)
+    g = _cap_tc("i32", [[str(n + 40)]])
+    return g[1][0][0] + g[0]
+
+
+def _ds_tach(v: "str") -> "list[i32]":
+    return [] if v == "" else [int(x) for x in v.split(",")]
+
+
+def tern_comp_lazy(n: "i32") -> "str":
+    # nhanh else co comprehension KHONG duoc chay khi dieu kien dung (2026-09-29)
+    return str(len(_ds_tach(""))) + str(len(_ds_tach("5,6,7"))) + str(n)
+
+
+def so_sanh_ds_literal(n: "i32") -> "str":
+    # list == literal list: so sanh NOI DUNG (2026-09-29)
+    x = "a"
+    ds: "list[str]" = []
+    ds.append("a")
+    return _tf(ds == [x]) + _tf(ds != [x]) + _tf([1, 2] == [1, 2]) + _tf(ds == ["b"]) + str(n)
+
+
+def append_tuple_ds(n: "i32") -> "str":
+    # bodies.append((a, ds)) voi ds la list: kieu phan tu phai la Tuple<str, List<str>> (2026-09-29)
+    bodies = []
+    for i in range(2):
+        dong: "list[str]" = []
+        dong.append("l" + str(i))
+        bodies.append((str(i), dong))
+    return bodies[1][0] + bodies[1][1][0] + str(n)
+
+
+def isinstance_container(n: "i32") -> "str":
+    # isinstance(bien_container, list/dict): theo hinh dang that, khong luon False (2026-09-29)
+    ds: "list[str]" = []
+    d: "dict[str,str]" = {}
+    r = ""
+    if isinstance(ds, list):
+        r = r + "a"
+    if isinstance(ds, dict):
+        r = r + "b"
+    if isinstance(d, dict):
+        r = r + "c"
+    if not isinstance(ds, list) or len(r) != 2:
+        r = r + "d"
+    return r + str(n)
+
+
+def _mk_tl(n: "i32") -> "(str,list[list[str]])":
+    return str(n), [[str(n + 1), str(n + 2)], [str(n + 3)]]
+
+
+def tuple_ds_lit(n: "i32") -> "str":
+    # literal list long nhau trong return tuple, len(tuple[k]), int(literal thuc) (2026-09-29)
+    g = _mk_tl(4)
+    return g[0] + g[1][0][1] + str(len(g[1])) + str(len(g[1][0])) + str(int(3.9)) + str(int(-3.9)) + str(n)
+
+
+def str_ds_am(n: "i32") -> "str":
+    # list co phan tu am (kieu int khong gioi han): str/repr cua bien va bieu thuc (2026-09-29)
+    lst = []
+    lst.append(-27)
+    lst.append(n)
+    return str(lst) + str(sorted(lst)) + repr(lst) + str(lst[0:1])
+
+
+def isinst_str(n: "i32") -> "str":
+    xs = [n]
+    return str(isinstance(xs, list)) + str(isinstance(n, str)) + str(isinstance(n, int))
+
+
+def slice_nhieu(n: "i32") -> "str":
+    xs = [1, 2, 3, 4]
+    ys = xs[n:] + xs[:n] + xs[-n:]
+    return str(ys) + str(len(xs[1:3]))

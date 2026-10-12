@@ -1,0 +1,26 @@
+# -*- coding: utf-8 -*-
+"""Ham tra ve List<T> qua cu phap moi 'list[dtype]' (B2(a)+(b), 2026-07-29) -
+xem project-tokenvector-wave2-status memory. il_type_str da ho tro san
+shape='list' tu truoc (chi thieu buoc PARSE annotation nay); caller gan
+ket qua vao 1 bien PHAI giu dung shape='list' (khong rot ve scalar thuong)
+qua _shaped_return_ta_of_call moi tong quat hoa tu b1's _func_return_ta_of_call.
+Dung vong lap thuong (khong dung sum()) de test CO LAP dung tinh nang nay -
+sum()/min()/max() la 1 gioi han KHAC da biet (gate qua known_shapes luc
+PARSE TIME, chi nhan dien list tao TRUC TIEP trong cung ham, khong nhan
+dien list den tu loi goi ham khac - ngoai pham vi B2(a)+(b))."""
+
+
+def make_list() -> "list[i32]":
+    result = []
+    result.append(1)
+    result.append(2)
+    result.append(3)
+    return result
+
+
+def demo_list_return() -> "i32":
+    lst = make_list()
+    total = 0
+    for x in lst:
+        total = total + x
+    return total

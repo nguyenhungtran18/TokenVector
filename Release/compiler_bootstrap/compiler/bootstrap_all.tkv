@@ -1,0 +1,229 @@
+# -*- coding: utf-8 -*-
+"""bootstrap_all - goi TUONG MINH moi `bootstrap_<module>()` theo thu tu co dinh.
+
+P6, phuong an **B2** (spec Muc 4 da chot). Muc dich: import mot module cua
+compiler KHONG duoc chay bat ky tac dung phu nao. Moi dang ky
+(`register_line_parser`, `register_expr_builtin`, ...) gom vao mot ham
+`bootstrap_<module>()`, va file NAY goi chung.
+
+**Vi sao liet ke tuong minh, khong dung auto-registry:** mot
+`register_bootstrap_fn(...)` chay luc import lai CHINH LA tac dung phu luc
+import - tuc la chua giai quyet gi. Danh sach o day phai doc duoc bang mat
+va so sanh duoc voi thuc te bang test (xem
+test/verify/no_module_side_effects_test.py).
+
+**THU TU LA MOT PHAN CUA HANH VI.** `il_codegen.py` ghi ro: thu tu
+`LINE_PARSERS` mang y nghia cascade (`list_sort`/`list_extend` phai dang ky
+TRUOC `method_call_stmt`). Dao thu tu = bien dich sai AM THAM.
+
+**Thu tu duoi day KHONG phai doan:** no duoc do bang cach boc cac ham
+`register_*` cua il_dispatch va chay tkv_compile that, ghi lai nhat ky dang
+ky (377 loi goi, 74 khoi module - moi module lien tuc, khong xen ke). Xem
+docs/superpowers/plans/2026-09-07-selfhost-P6-bootstrap-all.md Task 3.
+Ly do phai DO chu khong doc code: `plugin_loader.load_plugins()` nap DONG
+theo thu muc + co vong retry khi mot plugin phu thuoc plugin khac, nen thu
+tu that KHONG suy ra duoc tu cac dong `import` tinh.
+"""
+
+from il_features.async_await import bootstrap_async_await
+from il_features.bytearray_type import bootstrap_bytearray_type
+from il_features.bytes_type import bootstrap_bytes_type
+from il_features.closures import bootstrap_closures
+from il_features.complex_type import bootstrap_complex_type
+from il_features.comprehension import bootstrap_comprehension
+from il_features.list_type import bootstrap_list_type
+from il_features.tuple_type import bootstrap_tuple_type
+from il_features.multi_assign import bootstrap_multi_assign
+from il_features.metaprogramming import bootstrap_metaprogramming
+from il_features.str_accum import bootstrap_str_accum
+from il_features.control_flow import bootstrap_control_flow
+from il_features.dict_type import bootstrap_dict_type
+from il_features.counter_type import bootstrap_counter_type
+from il_features.datetime_type import bootstrap_datetime_type
+from il_features.stdlib_functional import bootstrap_stdlib_functional
+from il_features.dict_items_list import bootstrap_dict_items_list
+from il_features.dict_keys_values import bootstrap_dict_keys_values
+from il_features.divmod_builtin import bootstrap_divmod_builtin
+from il_features.expr_hoist import bootstrap_expr_hoist
+from il_features.pickle_feature import bootstrap_pickle_feature
+from il_features.logging_feature import bootstrap_logging_feature
+from il_features.process_feature import bootstrap_process_feature
+from il_features.stdlib_sys import bootstrap_stdlib_sys
+from il_features.stdlib_random import bootstrap_stdlib_random
+from il_features.file_io import bootstrap_file_io
+from il_features.float_builtin import bootstrap_float_builtin
+from il_features.f32buf_type import bootstrap_f32buf
+from il_features.for_in_kvlist import bootstrap_for_in_kvlist
+from il_features.fstring import bootstrap_fstring
+from il_features.generator_lazy import bootstrap_generator_lazy
+from il_features.int_builtin import bootstrap_int_builtin
+from il_features.int_type import bootstrap_int_type
+from il_features.iter_next import bootstrap_iter_next
+from il_features.list_copy import bootstrap_list_copy
+from il_features.list_count_index import bootstrap_list_count_index
+from il_features.list_methods_batch2 import bootstrap_list_methods_batch2
+from il_features.list_methods_batch3 import bootstrap_list_methods_batch3
+from il_features.operators import bootstrap_operators
+from il_features.string_builtin import bootstrap_string_builtin
+from il_features.string_methods_batch3 import bootstrap_string_methods_batch3
+from il_features.string_methods_batch5 import bootstrap_string_methods_batch5
+from il_features.record_feature import bootstrap_record_feature
+from il_features.set_type import bootstrap_set_type
+from il_features.set_methods_batch2 import bootstrap_set_methods_batch2
+from il_features.set_to_list import bootstrap_set_to_list
+from il_features.lap_chung import bootstrap_lap_chung
+from il_features.slicing import bootstrap_slicing
+from il_features.stdlib_aggregates import bootstrap_stdlib_aggregates
+from il_features.stdlib_base64 import bootstrap_stdlib_base64
+from il_features.stdlib_cjson import bootstrap_stdlib_cjson
+from il_features.stdlib_eval import bootstrap_stdlib_eval
+from il_features.stdlib_hashlib import bootstrap_stdlib_hashlib
+from il_features.tuple_methods import bootstrap_tuple_methods
+from il_features.stdlib_str_translate import bootstrap_stdlib_str_translate
+from il_features.datetime_py import bootstrap_datetime_py
+from il_features.stdlib_http import bootstrap_stdlib_http
+from il_features.stdlib_http_full import bootstrap_stdlib_http_full
+from il_features.stdlib_input import bootstrap_stdlib_input
+from il_features.stdlib_itertools import bootstrap_stdlib_itertools
+from il_features.stdlib_itertools_expr import bootstrap_stdlib_itertools_expr
+from il_features.stdlib_itertools_real import bootstrap_stdlib_itertools_real
+from il_features.stdlib_json import bootstrap_stdlib_json
+from il_features.stdlib_json_get import bootstrap_stdlib_json_get
+from il_features.stdlib_os import bootstrap_stdlib_os
+from il_features.stdlib_path import bootstrap_stdlib_path
+from il_features.stdlib_pathlib import bootstrap_stdlib_pathlib
+from il_features.vector_block import bootstrap_vector_block
+from il_features.vector4_type import bootstrap_vector4
+from il_features.nativebuf import bootstrap_nativebuf
+from il_features.stdlib_re import bootstrap_stdlib_re
+from il_features.stdlib_repeat import bootstrap_stdlib_repeat
+from il_features.stdlib_shutil import bootstrap_stdlib_shutil
+from il_features.stdlib_sqlite import bootstrap_stdlib_sqlite
+from il_features.stdlib_string_count import bootstrap_stdlib_string_count
+from il_features.stdlib_string_zfill import bootstrap_stdlib_string_zfill
+from il_features.stdlib_xml import bootstrap_stdlib_xml
+from il_features.stdlib_zipfile import bootstrap_stdlib_zipfile
+from il_features.string_feature import bootstrap_string_feature
+from il_features.string_format import bootstrap_string_format
+from il_features.string_join import bootstrap_string_join
+from il_features.string_percent_format import bootstrap_string_percent_format
+from il_features.string_split import bootstrap_string_split
+from il_features.string_title import bootstrap_string_title
+from il_features.threading_feature import bootstrap_threading_feature
+from il_features.simd_feature import bootstrap_simd_feature
+from il_features.typecheck import bootstrap_typecheck
+from il_features.win32_gui_window import bootstrap_win32_gui_window
+from il_features.stdlib_math import bootstrap_stdlib_math
+from il_features.stdlib_math_trig import bootstrap_stdlib_math_trig
+from il_codegen import bootstrap_il_codegen
+from il_features.regex_match import bootstrap_regex_match
+
+__tkv_import__ = "il_dispatch"
+
+
+def bootstrap_all(reg: "Registry"):
+    """Goi moi `bootstrap_<module>()` da chuyen doi, theo thu tu DO DUOC."""
+    bootstrap_async_await(reg)
+    bootstrap_bytearray_type(reg)
+    bootstrap_bytes_type(reg)
+    bootstrap_closures(reg)
+    bootstrap_complex_type(reg)
+    bootstrap_comprehension(reg)
+    bootstrap_list_type(reg)
+    bootstrap_tuple_type(reg)
+    # PHAI truoc bootstrap_il_codegen: LINE_PARSERS thu THEO THU TU dang ky,
+    # ma bootstrap_il_codegen dang ky parser gan tong quat 'assign' - dong
+    # 'a = b = c = 10' khop ca hai, ai dang ky truoc thi thang. Da do that:
+    # dat sau thi try_parse_multi_assign KHONG BAO GIO duoc goi. Dat canh
+    # tuple_type vi cung ho (nhieu dich mot lenh gan).
+    bootstrap_multi_assign(reg)
+    # Khong rang buoc thu tu: hai builtin nay vao BANG expr_builtin_codegen
+    # (tra cuu theo ten), khong vao danh sach thu tuan tu.
+    bootstrap_metaprogramming(reg)
+    bootstrap_str_accum(reg)
+    bootstrap_control_flow(reg)
+    bootstrap_dict_type(reg)
+    bootstrap_counter_type(reg)
+    bootstrap_datetime_type(reg)
+    bootstrap_stdlib_functional(reg)
+    bootstrap_dict_items_list(reg)
+    bootstrap_dict_keys_values(reg)
+    bootstrap_divmod_builtin(reg)
+    bootstrap_expr_hoist(reg)
+    bootstrap_pickle_feature(reg)
+    # Khong rang buoc thu tu: LOG_STMT_CODEGEN chi duoc DOC trong
+    # file_io.py luc codegen, tuc sau toan bo bootstrap.
+    bootstrap_logging_feature(reg)
+    # Khong rang buoc thu tu: `proc_run` vao BANG expr_builtin_codegen
+    # (tra cuu theo ten), khong vao danh sach thu tuan tu.
+    bootstrap_process_feature(reg)
+    bootstrap_stdlib_sys(reg)
+    bootstrap_stdlib_random(reg)
+    bootstrap_file_io(reg)
+    bootstrap_float_builtin(reg)
+    bootstrap_f32buf(reg)
+    bootstrap_for_in_kvlist(reg)
+    bootstrap_fstring(reg)
+    bootstrap_generator_lazy(reg)
+    bootstrap_int_builtin(reg)
+    bootstrap_int_type(reg)
+    bootstrap_iter_next(reg)
+    bootstrap_list_copy(reg)
+    bootstrap_list_count_index(reg)
+    bootstrap_list_methods_batch2(reg)
+    bootstrap_list_methods_batch3(reg)
+    bootstrap_operators(reg)
+    bootstrap_string_builtin(reg)
+    bootstrap_string_methods_batch3(reg)
+    bootstrap_string_methods_batch5(reg)
+    bootstrap_record_feature(reg)
+    bootstrap_set_type(reg)
+    bootstrap_set_methods_batch2(reg)
+    bootstrap_set_to_list(reg)
+    bootstrap_lap_chung(reg)
+    bootstrap_slicing(reg)
+    bootstrap_stdlib_aggregates(reg)
+    bootstrap_stdlib_base64(reg)
+    bootstrap_stdlib_cjson(reg)
+    bootstrap_stdlib_eval(reg)
+    bootstrap_stdlib_hashlib(reg)
+    bootstrap_tuple_methods(reg)
+    bootstrap_stdlib_str_translate(reg)
+    bootstrap_datetime_py(reg)
+    bootstrap_stdlib_http(reg)
+    bootstrap_stdlib_http_full(reg)
+    bootstrap_stdlib_input(reg)
+    bootstrap_stdlib_itertools(reg)
+    bootstrap_stdlib_itertools_expr(reg)
+    bootstrap_stdlib_itertools_real(reg)
+    bootstrap_stdlib_json(reg)
+    bootstrap_stdlib_json_get(reg)
+    bootstrap_stdlib_os(reg)
+    bootstrap_stdlib_path(reg)
+    bootstrap_stdlib_pathlib(reg)
+    bootstrap_vector_block(reg)
+    bootstrap_vector4(reg)
+    bootstrap_nativebuf(reg)
+    bootstrap_stdlib_re(reg)
+    bootstrap_stdlib_repeat(reg)
+    bootstrap_stdlib_shutil(reg)
+    bootstrap_stdlib_sqlite(reg)
+    bootstrap_stdlib_string_count(reg)
+    bootstrap_stdlib_string_zfill(reg)
+    bootstrap_stdlib_xml(reg)
+    bootstrap_stdlib_zipfile(reg)
+    bootstrap_string_feature(reg)
+    bootstrap_string_format(reg)
+    bootstrap_string_join(reg)
+    bootstrap_string_percent_format(reg)
+    bootstrap_string_split(reg)
+    bootstrap_string_title(reg)
+    bootstrap_threading_feature(reg)
+    bootstrap_simd_feature(reg)
+    bootstrap_typecheck(reg)
+    bootstrap_win32_gui_window(reg)
+    bootstrap_stdlib_math(reg)
+    # PHAI sau bootstrap_stdlib_math: xem docstring cua ham do.
+    bootstrap_stdlib_math_trig(reg)
+    bootstrap_il_codegen(reg)
+    bootstrap_regex_match(reg)

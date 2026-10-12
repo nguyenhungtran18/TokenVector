@@ -1,0 +1,18 @@
+
+__tkv_extern_class__ = [
+    {
+        "name": "Rx", "assembly": "System",
+        "class": "System.Text.RegularExpressions.Regex",
+        "ctor": ["str"],
+        "methods": [{"name": "IsMatch", "params": ["str"], "returns": "bool"}],
+        "properties": [],
+    },
+]
+
+def main() -> "i32":
+    r = Rx("^abc")
+    m1 = r.IsMatch("abcdef")
+    m2 = r.IsMatch("xyz")
+    print(m1)
+    print(m2)
+    return 0

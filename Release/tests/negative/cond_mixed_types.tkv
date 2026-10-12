@@ -1,0 +1,18 @@
+# EXPECT-SUBSTRING: KHAC KIEU
+# -*- coding: utf-8 -*-
+# Conditional expression hai nhanh LECH KIEU phai bi tu choi luc bien dich.
+#
+# Khong co file test thuong nao the loai nay: noi dung ben duoi se bien dich
+# THANH CONG nen khong the chay de kiem tra. Day la ly do Testkit/negative/
+# ton tai.
+#
+# `c` la int, `"a"` la chuoi. Truoc khi co kiem tra (2026-09-29), local tam
+# cua conditional duoc khai kieu int64 (do `_infer_dtype` lay kieu cua nhanh
+# DUNG) roi `_expr_ternary` luu mot object reference vao slot do bang
+# `stloc.s`. Ket qua: `AccessViolationException` luc chay - lam hong bo nho.
+# Cac nhanh cung kieu chay dung vi kich thuoc trung, nen loi chi lo ra o
+# nhanh chuoi va lai khong co test nao bat.
+def run() -> "i32":
+    c = 0
+    s = "x" + (c if c else "a")
+    return 0

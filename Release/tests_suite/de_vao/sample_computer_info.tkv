@@ -1,0 +1,22 @@
+__tkv_extern_assembly__ = ("Microsoft.VisualBasic", "B0 3F 5F 7F 11 D5 0A 3A", "10:0:0:0")
+
+__tkv_extern_class__ = [
+    {
+        "name": "SysInfo", "assembly": "Microsoft.VisualBasic",
+        "class": "Microsoft.VisualBasic.Devices.ComputerInfo",
+        "ctor": [], "methods": [],
+        "properties": [
+            {"name": "AvailablePhysicalMemory", "dtype": "u64", "readonly": True},
+            {"name": "TotalPhysicalMemory", "dtype": "u64", "readonly": True},
+        ],
+    },
+]
+
+
+def run_ram_info(a: "str") -> "str":
+    info = SysInfo()
+    free = info.AvailablePhysicalMemory
+    total = info.TotalPhysicalMemory
+    if free > 0 and total > 0 and total > free:
+        return "ok"
+    return "bad:" + str(free) + "/" + str(total)

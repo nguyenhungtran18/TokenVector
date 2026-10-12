@@ -1,0 +1,132 @@
+# -*- coding: utf-8 -*-
+"""Do thi doi tuong: field cua class la 1 CLASS KHAC (2026-08-03, dot 1).
+
+Truoc day field chi duoc la vo huong hoac container cua vo huong, nen
+KHONG dung duoc cay/danh sach lien ket/AST. Nay:
+  - field kieu record ('left: "Node"'), ke ca TU THAM CHIEU
+  - 'list[Node]' / 'dict[str,Node]' lam field
+  - 'None' va 'is None' / 'is not None'
+"""
+
+
+class Node:
+    """1 nut cay nhi phan - TU THAM CHIEU qua 2 field kieu chinh no."""
+
+    val: "i32"
+    left: "Node"
+    right: "Node"
+
+    def __init__(self, val, left, right):
+        self.val = val
+        self.left = left
+        self.right = right
+
+    def total(self) -> "i32":
+        """Tong ca cay - de quy qua field kieu record."""
+        s = self.val
+        if self.left is not None:
+            s = s + self.left.total()
+        if self.right is not None:
+            s = s + self.right.total()
+        return s
+
+    def depth(self) -> "i32":
+        dl = 0
+        dr = 0
+        if self.left is not None:
+            dl = self.left.depth()
+        if self.right is not None:
+            dr = self.right.depth()
+        if dl > dr:
+            return dl + 1
+        return dr + 1
+
+    def render(self) -> "str":
+        """Duyet trung thu tu (in-order)."""
+        out = ""
+        if self.left is not None:
+            out = out + self.left.render() + " "
+        out = out + str(self.val)
+        if self.right is not None:
+            out = out + " " + self.right.render()
+        return out
+
+
+class Item:
+    name: "str"
+    qty: "i32"
+
+    def __init__(self, name, qty):
+        self.name = name
+        self.qty = qty
+
+    def show(self) -> "str":
+        return self.name + "x" + str(self.qty)
+
+
+class Cart:
+    """Container CUA record lam field: list[Item] va dict[str,Item]."""
+
+    items: "list[Item]"
+    by_name: "dict[str,Item]"
+    owner: "str"
+
+    def __init__(self, owner):
+        self.items = []
+        self.by_name = {}
+        self.owner = owner
+
+    def put(self, it: "Item") -> "i32":
+        self.items.append(it)
+        self.by_name[it.name] = it
+        return len(self.items)
+
+    def qty_of(self, name: "str") -> "i32":
+        if name in self.by_name:
+            found = self.by_name[name]
+            return found.qty
+        return 0
+
+    def render(self) -> "str":
+        parts = []
+        for it in self.items:
+            parts.append(it.show())
+        return self.owner + ":" + ",".join(parts)
+
+
+def build_tree(n: "i32") -> "Node":
+    """Cay 3 nut, tra ve 1 record tu 1 ham top-level."""
+    left = Node(n, None, None)
+    right = Node(n + 1, None, None)
+    return Node(n * 10, left, right)
+
+
+def linked_sum(head: "Node") -> "i32":
+    """Duyet nhu 1 danh sach lien ket (chi di theo 'left')."""
+    total = 0
+    cur = head
+    guard = 0
+    while cur is not None:
+        total = total + cur.val
+        cur = cur.left
+        guard = guard + 1
+        if guard > 100:
+            return 0 - 1
+    return total
+
+
+def main(n: "i32") -> "str":
+    root = build_tree(n)
+    chain = Node(1, Node(2, Node(3, None, None), None), None)
+    cart = Cart("me")
+    k = cart.put(Item("apple", 2))
+    k = cart.put(Item("pear", 5))
+    parts = []
+    parts.append(str(root.total()))
+    parts.append(str(root.depth()))
+    parts.append(root.render())
+    parts.append(str(linked_sum(chain)))
+    parts.append(cart.render())
+    parts.append(str(cart.qty_of("pear")) + "/" + str(cart.qty_of("nope")))
+    parts.append(str(k))
+    return "|".join(parts)

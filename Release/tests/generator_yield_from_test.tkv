@@ -1,0 +1,197 @@
+# -*- coding: utf-8 -*-
+"""`yield from` va `return <gia tri>` trong generator - Giai doan 2, muc cuoi (2026-09-29).
+
+TRUOC khi sua: ca hai deu hong.
+- `yield from xs` - `_YIELD_RE` khop ca cum `from xs`, dua `from` vao
+  `parse_expr` lam bien roi bao "con thua token".
+- `return v` trong generator - `codegen_return` ra `ret` co gia tri trong
+  method `bool MoveNext()`, nen bien dich bao "literal 'v' khong dung voi
+  dtype <TenHam>__GenIter".
+
+Gia tri mong doi tinh tay, doi chieu CPython 3.11:
+  list(yield from [10,20,30])            == [10,20,30]
+  list(yield from) noi vao cac yield     == 1,10,20,30,4
+  return 99 -> chi 1,2; 3 KHONG bao ra   va __gen_ret__ == 99
+"""
+__tkv_import__ = ["tkv_test_lib"]
+
+
+# Kenh doc gia tri cua `return`. Da kiem chung bang probe: khong the goi
+# method tren doi tuong generator (compiler chi cho phep record/string), va
+# khong co co che StopIteration. Nen `return v` trong generator ghi v vao
+# bien module nay. Xem docs/PLAN.md muc 5.
+__gen_ret__: "i32" = 0
+
+
+# ---------------- yield from LIST ----------------
+
+def from_list() -> "list[i32]":
+    src = [10, 20, 30]
+    yield from src
+
+
+def from_mixed() -> "list[i32]":
+    src = [10, 20, 30]
+    yield 1
+    yield from src
+    yield 4
+
+
+# ---------------- yield from GENERATOR ----------------
+
+def inner() -> "list[i32]":
+    yield 7
+    yield 8
+
+
+def from_gen() -> "list[i32]":
+    yield from inner()
+
+
+def from_gen_nested() -> "list[i32]":
+    yield 0
+    yield from from_gen()
+    yield 9
+
+
+# ---------------- return <gia tri> ----------------
+
+def early_stop() -> "list[i32]":
+    yield 1
+    yield 2
+    return 99
+    yield 3
+
+
+def early_stop_immediate() -> "list[i32]":
+    return 5
+    yield 1
+
+
+def no_return() -> "list[i32]":
+    yield 1
+    yield 2
+
+
+# ---------------- bien dem chay thu ----------------
+
+def join_list() -> "str":
+    out = ""
+    for v in from_list():
+        out = out + str(v) + ","
+    return out
+
+
+def join_mixed() -> "str":
+    out = ""
+    for v in from_mixed():
+        out = out + str(v) + ","
+    return out
+
+
+def join_gen() -> "str":
+    out = ""
+    for v in from_gen():
+        out = out + str(v) + ","
+    return out
+
+
+def join_gen_nested() -> "str":
+    out = ""
+    for v in from_gen_nested():
+        out = out + str(v) + ","
+    return out
+
+
+def join_early() -> "str":
+    out = ""
+    for v in early_stop():
+        out = out + str(v) + ","
+    return out
+
+
+def join_early_immediate() -> "str":
+    out = ""
+    for v in early_stop_immediate():
+        out = out + str(v) + ","
+    return out
+
+
+# Phai ITERATE generator moi co chay than no: `early_stop()` CHI tao doi tuong
+# may trang thai, MoveNext chua duoc goi nen 'return' chua chay - do lao mot
+# test bi do sai truoc day.
+def drain_early() -> "str":
+    out = ""
+    for v in early_stop():
+        out = out + str(v) + ","
+    return out
+
+
+def drain_early_immediate() -> "str":
+    out = ""
+    for v in early_stop_immediate():
+        out = out + str(v) + ","
+    return out
+
+
+def drain_no_return() -> "str":
+    out = ""
+    for v in no_return():
+        out = out + str(v) + ","
+    return out
+
+
+def run() -> "i32":
+    # `global` bat buoc: doc/ghi bien module-level tu trong ham thi phai noi
+    # `global` - khong thi ten do la LOCAL va luon = 0 (da gap that).
+    global __gen_ret__
+    total = 0
+    tested = 0
+
+    # --- yield from list ---
+    tested = tested + 1
+    total = total + check("yield_from_list", join_list(), "10,20,30,")
+
+    tested = tested + 1
+    total = total + check("yield_from_list_mixed_with_yield", join_mixed(), "1,10,20,30,4,")
+
+    # --- yield from generator ---
+    tested = tested + 1
+    total = total + check("yield_from_generator", join_gen(), "7,8,")
+
+    tested = tested + 1
+    total = total + check("yield_from_generator_nested", join_gen_nested(), "0,7,8,9,")
+
+    # --- return <gia tri>: dung som ---
+    tested = tested + 1
+    total = total + check("return_stops_early", join_early(), "1,2,")
+
+    tested = tested + 1
+    total = total + check("return_before_first_yield", join_early_immediate(), "")
+
+    # --- return <gia tri>: kenh doc __gen_ret__ ---
+    # Luu y: phai 'drain' (iterate) generator truoc - xem drain_early.
+    __gen_ret__ = 0
+    drain_early()
+    tested = tested + 1
+    total = total + check("return_value_in_gen_ret", str(__gen_ret__), "99")
+
+    __gen_ret__ = 0
+    drain_early_immediate()
+    tested = tested + 1
+    total = total + check("return_value_immediate", str(__gen_ret__), "5")
+
+    # --- generator khong co return: __gen_ret__ giu nguyen gia tri cu ---
+    __gen_ret__ = 0
+    drain_no_return()
+    tested = tested + 1
+    total = total + check("no_return_keeps_gen_ret", str(__gen_ret__), "0")
+
+    # --- hai generator lan luoi ghi gia tri khac nhau ---
+    drain_early()
+    first = str(__gen_ret__)
+    drain_early_immediate()
+    tested = tested + 1
+    total = total + check("return_value_two_gens", first + "/" + str(__gen_ret__), "99/5")
+
+    return test_summary("generator_yield_from_test", total, tested)

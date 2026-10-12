@@ -1,0 +1,152 @@
+# TokenVector (.tkv, .tv)
+
+> TokenVector is a statically-typed language that compiles to **.NET CIL** and
+> links into a **standalone PE executable**. No interpreter, no CPython at run
+> time, no GIL. ~6 KB hello-world.
+>
+> Every rule below is checked by a gate in the repository. If a claim here
+> disagrees with the gates, the gates win.
+
+---
+
+## 1. Compilation pipeline
+
+- **Source (`.tkv`, `.tv`)** — statically typed, unboxed scalar annotations in
+  quoted strings. A `# -*- coding: utf-8 -*-` first line is the convention.
+- **Parser** — deterministic AST with static type enforcement.
+- **CIL emitter** — plain text CIL/MSIL, mapped to .NET CTS types.
+- **`ilasm.exe`** — assembles the `.il` into a standalone `.exe`.
+- **Compiler source IS TokenVector.** `compiler_bootstrap/` holds the 132
+  files listed in `compiler_src/ds_gop.txt`, and **all 132 are TokenVector** —
+  no Python, no exceptions. `tools/vong.tkv` merges them into one source,
+  compiles it, then compiles the result again; when the two IL outputs are
+  identical (`IL_IDENTICAL`) the compiler is a fixed point of its own
+  generation. It is therefore genuinely self-hosted, and this is checked by a
+  gate rather than asserted.
+  (`IL KHAC NHAU` is **not** a failure — it means the generation advanced;
+  re-run. Note `dist/tkvc.exe`, the older Python-frozen bootstrap, is a
+  *different* compiler and is NOT part of this release.)
+- **Known platform limits** (do not guess around them): no `subprocess` — a
+  TokenVector program cannot spawn another process; no directory-recursion
+  builtin (`os_list_files` lists files in ONE directory, never subdirectories);
+  no `re` module, but `re_search` / `re_findall` / `re_replace` are available.
+  `re_findall` returns **whole matches**, not capture groups.
+
+## 2. Strict rules — do not violate
+
+- **Never treat TokenVector as Python.** No `import os` / `re` / `json` /
+  `math`; use the global builtins (`os_mkdir`, `re_search`, `json_dumps`, ...).
+- **Type every signature and class field** with a quoted string:
+  `"i32"`, `"i64"`, `"f32"`, `"f64"`, `"str"`, `"bool"`, `"void"`, `"int"`,
+  `"TkvInt"`. `"bool"` is an alias of `"i32"`.
+- **Locals are inferred** — inside a function body write `x = 1`, **never**
+  `x: "i32" = 1`.
+- **Module level has no variables** — only `def`, `class`, constants and typed
+  unidirectional globals (`counter: "i32" = 0`). `xs = [1, 2, 3]` at module
+  level is a compile error.
+- **Entry point** — `--entry run` needs `def run()` returning `i32`/`i64`/`f32`/
+  `f64`/`str`/`void`. The return value is printed; use it as the exit code.
+- **Class fields** must be declared with a type at the class body level before
+  `__init__`.
+- **f-strings and `.format()` ARE supported** (`f"{n:05d}"`, `f"{v:.2f}"`,
+  `"{}".format(x)`, `"{0}+{1}".format(a, b)`), as are triple-quoted strings.
+  `+ str(v)` also works everywhere.
+- **Methods only on named variables** (`t = ","; t.join(xs)`), and **container
+  methods are standalone statements** (`xs.append(v)`; `y = xs.pop()` is an
+  error).
+- **`str(x)` accepts any expression** — `str(a + b)`, `str(len(xs) + 1)`. Only
+  `fmt_float(v, n)` requires a plain variable.
+- **Regex takes the input first**: `re_search(pattern, s)`. Names:
+  `re_match`, `re_search`, `re_fullmatch`, `re_sub`, `re_split`, `re_findall`.
+- **A UTF-8 BOM in the source is rejected** (`U+FEFF`).
+
+## 3. Canonical patterns
+
+### Scalars, control flow, entry point
+```python
+# -*- coding: utf-8 -*-
+def calculate_sum(a: "i32", b: "i32") -> "i32":
+    return a + b
+
+def run() -> "i32":
+    total = calculate_sum(15, 25)
+    x = total
+    print("Computed: " + str(x))
+    return 0
+```
+
+### Class with typed fields
+```python
+# -*- coding: utf-8 -*-
+class Vector2D:
+    x: "f64"
+    y: "f64"
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def magnitude_squared(self) -> "f64":
+        return self.x * self.x + self.y * self.y
+```
+
+### Loops over a list
+```python
+# -*- coding: utf-8 -*-
+def run() -> "i32":
+    xs = [3, 1, 2]
+    i = 0
+    n = len(xs)
+    while i < n:
+        print("v=" + str(xs[i]))
+        i = i + 1
+    return 0
+```
+
+## 4. Toolchain
+
+```powershell
+# Build an executable - CLI is POSITIONAL, there is no `build` subcommand
+.\dist\tkvc-tv.exe <source.tkv> <output.exe> run
+
+# Run the acceptance gate (119 tests + 31 negative cases)
+powershell -File .\tools\testkit_gate.ps1
+
+# Self-host loop: compiler compiles its own 132-file source, then itself
+powershell -File .\tools\build_tkv_guide.ps1
+.\dist\bin\tkv_guide.exe rules
+.\dist\bin\tkv_guide.exe find sorted
+.\dist\bin\tkv_guide.exe lint my_file.tkv
+.\dist\bin\tkv_guide.exe verify my_file.tkv   # prints build+run commands
+```
+
+**`run()`'s return value IS the process exit code** (for `"i32"`/`"i64"`), like
+`sys.exit(1)`. A `"str"` or tuple return is printed instead.
+
+**A green build is not a correct program** — bugs exist that compile cleanly and
+then return a wrong value. Always run the output.
+
+## 5. Project structure (this release)
+
+* **Compiler source:** `compiler_bootstrap/` — 132 TokenVector files, listed in
+  `compiler_src/ds_gop.txt`.
+* **CLI:** `dist/tkvc-tv.exe` (positional: `<src> <out> <entry>`). No
+  `build` subcommand, no `--out`.
+* **Acceptance suite:** `tests/` — 119 tests + 31 negative cases; `tests_suite/`
+  — 154 `.ca` cases.
+* **Gates:** `tools/` — `testkit_gate.ps1`, `vong.exe`, `lint_rules_gate.ps1`,
+  and the analysis tools `dang_ky_gate.tkv`, `gen_builtin_ref.tkv`,
+  `scan_container.tkv`.
+* **Reference (the one doc that matters):** `docs/REFERENCE.md`.
+
+## 6. Known gaps (verified by probe)
+
+- **No `subprocess`** — a program cannot start another process.
+- **No directory recursion** — `os_list_files(p)` lists files in ONE directory
+  and never descends; there is no `os.walk`.
+- **Negative slice step rejected** — `a[::-1]`, `a[1:-1]`; positive steps work.
+- No `slice()` callable; no keyword-only or positional-only parameters.
+- A conditional expression with mismatched branch types
+  (`i32 if c else f64`) compiles and returns a **garbage pointer**.
+- `format()` and `"%02x" % v` are not usable — use f-strings
+  (`f"{v:.2f}"`, `f"{n:05d}"`, `f"{a:02x}"`).
