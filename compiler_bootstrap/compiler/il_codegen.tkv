@@ -8418,7 +8418,12 @@ def gen_il_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", wit
     params_il = ', '.join([f'{il_type_str(p.type_ann, None)} {_il_ident(p.name)}' for p in sig.params])
     ret_type = il_type_str(sig.return_type) if sig.return_type else 'void'
 
-    locals_sig = ', '.join([f'{_local_il_type(name, ta, boxed_names, records)} {_il_ident(name)}' for name, ta in locals_decl])
+    # `locals_sig` KHONG tinh o day: cac buoc CODEGEN (vd LICM - xem `_licm_*`
+    # o control_flow.tkv) co the khai THEM local vao `locals_decl` - danh sach
+    # CHUNG voi `ctx.locals_decl` (xem `tao_ctx` duoi). Chuoi nay phai dung SAU
+    # `_codegen_stmts` thi moi thay het; truoc do ghi o day thi moi khai bao
+    # deu khong bao gio ra file .il (trieu chung: bien co ten nhung 0 dong
+    # `ldloc`/`stloc` - dung la "0 dong __lib" cua LICM).
 
     body = []
     label_counter = [_zero_i32()]
@@ -8435,6 +8440,12 @@ def gen_il_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", wit
            # 'gen_ctx' PHAI co mat (None) ke ca o ham THUONG: cho doc no
            # gio la `ctx.gen_ctx` chu khong con `ctx.get('gen_ctx')`.
            gen_ctx=None,
+           # CHIA SE MOT object voi danh sach ma `locals_sig` duoi lay.
+           # Truoc day Ctx.locals_decl la 1 list RONG rieng, khong ai doc ->
+           # buoc codegen khai local moi bien thanh "khong ton tai" trong
+           # .locals. `sao_ctx` da truyen `g.locals_decl` nen moi Ctx con
+           # cua no cung thay.
+           locals_decl=locals_decl,
            func_table=_ft, class_name=class_name or 'Program', loop_stack=[],
            try_depth=0, epilogue_lbl=epilogue_lbl, ret_tmp_name='__ret_tmp',
            records=_rc, record_methods=_rm,
@@ -8532,6 +8543,9 @@ def gen_il_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", wit
         body.append('    ret')
 
     lines_out = []
+    # Xem ghi chu o noi `body = []`: tinh SAU `_codegen_stmts` de bat duoc moi
+    # local ma CODEGEN khai them vao `locals_decl`.
+    locals_sig = ', '.join([f'{_local_il_type(name, ta, boxed_names, records)} {_il_ident(name)}' for name, ta in locals_decl])
     if self_type_ann is not None or is_closure_method:
         virt = f'{virtual_kw} ' if virtual_kw else ''
         lines_out.append(f'  .method public hidebysig {virt}instance {ret_type} {_il_ident(sig.name)}({params_il}) cil managed')
