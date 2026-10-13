@@ -1081,6 +1081,435 @@ def fpp_try(stmt: "i32", ctx: "PrescanCtx"):
         ctx.prescan_fn(lay_than(stmt, 'finally_body'))
 
 
+# ---------------------------------------------------------------------------
+# LICM - nho bieu thuc BAT BIEN ra khoi vong lap (2026-10-13)
+# ---------------------------------------------------------------------------
+#
+# VI SAO PHAI LAM: .NET Framework JIT KHONG tu LICM (no loop-invariant code
+# motion), nen compiler phai lam. Mot bieu thuc thuan tinh `A + B` / `A - B`
+# / `A * B` (A, B la bien) duoc TINH MOT LAN truoc vong, roi moi lan lap chi
+# con `ldloc` 1 lenh.
+#
+# PHAM VI (co chut, dung y het):
+#   - CHI phep `+ - *` tren BIEN VOHUONG. `//`, `%`, `/` bi loai: `//` voi
+#     so am nem loi chia 0, `%` thi nua thuong - chay 1 lan truoc vong thi
+#     thay doi ca bien dau tien cua chuoi. Hen gian, dung.
+#   - CHI bien co binding 'local'/'arg'/'const'. KHONG 'global' (mot ham goi
+#     trong vong co the doi no), KHONG 'boxed'/'closure_field', KHONG 'selfarg'.
+#   - KHONG bien nao trong than vong duoc GAN (quet ca vong long, if/else,
+#     for...in; co 'try'/'nested_def' thi BO LUON).
+#   - KHONG co `walrus` trong bieu thuc.
+#   - Vong co `else` thi bo luon.
+#   - `gen_ctx is not None` (generator) thi bo: local trong generator la FIELD
+#     cua class, khai them o luc CODEGEN thi khong kip.
+#
+# MOI THAY DOI NGHIA (xem het, dung bo qua):
+#   Phep `+ - *` tren so nguyen dung `.ovf` (nem OverflowError). Sau khi nho,
+#   phep do chay o MOI LAN thay vi moi vong lap - nen mot vong KHONG chay lan
+#   nao co the nem loi ma truoc day khong nem. Day la doi doi lap chuan cua moi
+#   bo toi uu "speculative" (LLVM/Roslyn cung vay).
+
+# Kind -> TRUONG chua ten duoc GAN (',' tach; "" = khong gan gi bien nao).
+# Kind KHONG co trong bang -> TU DONG BO LUON (xem `_licm_quet`).
+_LICM_MUC: "dict[str,str]" = {
+    "assign_scalar": "name",
+    "assign_typed_decl": "name",
+    "assign_typed_container_new": "name",
+    "idx_assign": "name",
+    "tuple_assign": "targets_text",
+    "assign_multi_target": "targets_text",
+    "for": "var",
+    "for_in_iter": "var,record_var",
+    "for_in_dict_items": "key_var,val_var",
+    "for_in_generator": "var",
+    "for_in_call_list": "var",
+    "with_open": "var",
+    "with_ctx": "var",
+    "assign_iter": "name",
+    "assign_open": "name",
+    "assign_list_new": "name",
+    "assign_list_literal": "name",
+    "assign_list_from": "name",
+    "assign_list_slice": "name",
+    "assign_list_repeat": "name",
+    "assign_list_count": "name",
+    "assign_dict_new": "name",
+    "assign_set_new": "name",
+    "assign_bytearray_new": "name",
+    "assign_bytes_new": "name",
+    "assign_bytes_literal": "name",
+    "assign_f32buf_new": "name",
+    "assign_frozenset_new": "name",
+    "assign_frozenset_empty": "name",
+    "assign_frozenset_literal": "name",
+    "assign_tuple_identity": "name",
+    "assign_repeat_str": "name",
+    "assign_os_getenv": "name",
+    "assign_os_list_files": "name",
+    "assign_os_mkdir": "name",
+    "assign_shutil_rmtree": "name",
+    "assign_md5_hex": "name",
+    "assign_sha256_hex": "name",
+    "assign_base64_encode": "name",
+    "assign_base64_decode": "name",
+    "assign_datetime_now": "name",
+    "assign_win_gui": "name",
+    "assign_zeros1d": "name",
+    "assign_zeros2d": "name",
+    "list_append": "",
+    "list_remove": "",
+    "list_insert": "",
+    "list_reverse": "",
+    "list_sort": "",
+    "list_extend": "",
+    "list_extend_expr": "",
+    "set_add": "",
+    "set_remove": "",
+    "set_discard": "",
+    "del_index": "",
+    "bytearray_append": "",
+    "container_clear": "",
+    "f32buf_free_stmt": "",
+    "sb_append": "",
+    "attr_assign": "",
+    "call_stmt": "",
+    "index_call_stmt": "",
+    "method_call_stmt": "",
+    "return": "",
+    "return_tuple": "",
+    "raise": "",
+    "break": "",
+    "continue": "",
+    "pass": "",
+    "yield_stmt": "",
+    "yield_from_stmt": "",
+    "if": "",
+    "while": "",
+}
+
+_LICM_BO: "list[str]" = ['try', 'nested_def']
+
+# Bien dem CUA CHINH VONG - phai gom vao `biend` tren, KHONG THE so ra tu than.
+#
+# DO: `codegen_for` (va cac `codegen_for_in_*`) KHONG cat lenh `x = x + 1` vao
+# than vong trong AST - no tu sinh o nhan `cont_lbl` luc codegen. nen quet
+# than vong KHONG thay bien dem, va `x * n` bi kiem "bat bien" SAI.
+#
+# HAY NGHEM: compiler tu bien dich chinh no. `gen_il_function` co
+#     for idx, p in enumerate(sig.params):
+#         scope.add_arg(p.name, idx + param_idx_base, p.type_ann)
+# `idx` bi nho sai => MOI tham so deu nhan idx 0 => sanh ra `ldarg.s 0` cho
+# TAT CA tham so khac 0. Do la mau truong hinh dung: bo nho mot bien MAU
+# (counter) ma thuc te bien doi moi vong la bug sai KET QUA, khong phai la
+# toan hoc sai.
+#
+# `while` khong can: nguoi dung viet `i = i + 1` trong than, `que` da thay.
+_LICM_DEM_VONG: "dict[str,str]" = {
+    "for": "var",
+    "for_in_iter": "var,record_var",
+    "for_in_dict_items": "key_var,val_var",
+    "for_in_generator": "var",
+    "for_in_call_list": "var",
+}
+
+
+def _licm_khoa(node: "TkvNode") -> "str":
+    """Khoa VAN BAN cua bieu thuc `A + B` / `A - B` / `A * B` voi A, B la
+    bien - `''` neu node khong dung dang do. Tinh thuan TU CAU TRUC (khong
+    can scope) vi ca bo thu thap lan bo viet lai deu goi no."""
+    if not la_node(node):
+        return ''
+    if ekind(node) != 'binop':
+        return ''
+    op = ea_str(node)
+    if op != '+' and op != '-' and op != '*':
+        return ''
+    l = eb_nut(node)
+    r = ec_nut(node)
+    if not la_node(l) or ekind(l) != 'var':
+        return ''
+    if not la_node(r) or ekind(r) != 'var':
+        return ''
+    return op + '|' + ea_str(l) + '|' + ea_str(r)
+
+
+def _licm_doc_duoc(scope: "Scope", ten: "str") -> "i32":
+    """1 neu `ten` la bien VOHUONG ma phep nho duoc - xem ghi chu pham vi."""
+    if ten not in scope.vars:
+        return 0
+    b = scope.tra(ten)
+    if b.kind != 'local' and b.kind != 'arg' and b.kind != 'const':
+        return 0
+    if b.ta is None or not b.ta.la_vo_huong():
+        return 0
+    return 1
+
+
+def _licm_la_bat_bien(scope: "Scope", biend: "set[str]", khoa: "str") -> "i32":
+    if khoa == '':
+        return 0
+    ds = khoa.split('|')
+    for ten in ds[1:]:
+        if ten in biend:
+            return 0
+        if _licm_doc_duoc(scope, ten) == 0:
+            return 0
+    return 1
+
+
+def _licm_con(node: "TkvNode") -> "list[TkvNode]":
+    """CAC NODE CON cua 1 node bieu thuc, theo `KHUON` (expr_layout.tkv).
+    RONG cho kind la - nghia la 'bo qua o duoi'.
+
+    TUONG XUNG voi `_licm_viet_node`: hai ham phai doc CUNG khuong. `KHUON`
+    hoa `str` / `nut` / `ds` la 3 kieu KHAC NHAU - goi `eb_nut` tren o 'ds'
+    se goi int("12,34") va nem "Input string was not in a correct format".
+    """
+    k = ekind(node)
+    if k == '':
+        return []
+    ra: "list[TkvNode]" = []
+    if k == 'binop' or k == 'compare' or k == 'boolop':
+        ra.append(eb_nut(node))
+        ra.append(ec_nut(node))
+        return ra
+    if k == 'in':
+        ra.append(ea_nut(node))
+        ra.append(eb_nut(node))
+        return ra
+    if k == 'ternary':
+        ra.append(ea_nut(node))
+        ra.append(eb_nut(node))
+        ra.append(ec_nut(node))
+        return ra
+    if k == 'index_expr':
+        ra.append(ea_nut(node))
+        ra.append(eb_nut(node))
+        return ra
+    if k == 'kwarg':
+        ra.append(eb_nut(node))
+        return ra
+    if k == 'index_call':
+        ra.append(ea_nut(node))
+        for x in eb_ds(node):
+            ra.append(x)
+        return ra
+    if k == 'star' or k == 'star2' or k == 'neg' or k == 'not' or k == 'await':
+        ra.append(ea_nut(node))
+        return ra
+    if k == 'slice':
+        if la_node(eb_nut(node)):
+            ra.append(eb_nut(node))
+        if la_node(ec_nut(node)):
+            ra.append(ec_nut(node))
+        return ra
+    if k == 'call' or k == 'index':
+        # 'call:1': 'str' (TEN HAM), 'call:2': 'ds' - danh sach node o O2.
+        for x in eb_ds(node):
+            ra.append(x)
+        return ra
+    if k == 'method_call':
+        for x in ec_ds(node):
+            ra.append(x)
+        return ra
+    if k == 'list_literal' or k == 'tuple_lit' or k == 'set_lit' or k == 'dict_lit':
+        for x in ea_ds(node):
+            ra.append(x)
+        return ra
+    return []
+
+
+def _licm_tim_node(node: "TkvNode", scope: "Scope", biend: "set[str]", ra: "dict[str,TkvNode]", keys: "list[str]") -> "i32":
+    """Ghi moi bieu thuc BAT BIEN tim duoc trong `node` vao `ra` (khoa ->
+    node) va `keys` (thu tu). Tra 0 khi gap `walrus` (gan bien giua vong)."""
+    if not la_node(node):
+        return 1
+    k = ekind(node)
+    if k == 'walrus':
+        return 0
+    khoa = _licm_khoa(node)
+    if khoa != '' and _licm_la_bat_bien(scope, biend, khoa) == 1 and khoa not in ra:
+        ra[khoa] = node
+        keys.append(khoa)
+    for con in _licm_con(node):
+        if _licm_tim_node(con, scope, biend, ra, keys) == 0:
+            return 0
+    return 1
+
+
+def _licm_quet(stmts: "list[i32]", biend: "set[str]") -> "i32":
+    """Gom vao `biend` TEN MOI BIEN duoc GAN o trong `stmts` (ke ca trong
+    vong long, if/else, for...in, khuuc `with`). Tra 0 (bo LICM cho ca vong)
+    neu gap cau lenh ma la khong doc."""
+    for st in stmts:
+        k = kind_of_stmt(st)
+        for bo in _LICM_BO:
+            if k == bo:
+                return 0
+        spec = _LICM_MUC.get(k)
+        if spec is None:
+            return 0
+        if spec != '':
+            for f in spec.split(','):
+                v = lay_str(st, f)
+                if v is None or v == '':
+                    continue
+                for t in v.split(','):
+                    if t.strip() != '':
+                        biend.add(t.strip())
+        for vt in cac_than_vung(st):
+            if _licm_quet(body_of(vt), biend) == 0:
+                return 0
+    return 1
+
+
+def _licm_tim(stmts: "list[i32]", scope: "Scope", biend: "set[str]", ra: "dict[str,TkvNode]", keys: "list[str]") -> "i32":
+    """Tim moi bieu thuc bat bien trong `stmts` (xem `_licm_tim_node`)."""
+    for st in stmts:
+        for khoa_trg, nut_trg in items_nut(st):
+            if _licm_tim_node(nut_trg, scope, biend, ra, keys) == 0:
+                return 0
+        if kind_of_stmt(st) == 'idx_assign':
+            for x in lay_ds_nut(st, 'idx_nodes'):
+                if _licm_tim_node(x, scope, biend, ra, keys) == 0:
+                    return 0
+        for vt in cac_than_vung(st):
+            if _licm_tim(body_of(vt), scope, biend, ra, keys) == 0:
+                return 0
+    return 1
+
+
+def _licm_o_nut(node: "TkvNode", bang: "dict[str,str]") -> "str":
+    """`o_nut` sau khi viet lai, giu nguyen o VANG khi node rong (`slice`)."""
+    if not la_node(node):
+        return o_nut(-1)
+    return o_nut(_licm_viet_node(node, bang))
+
+
+def _licm_viet_node(node: "TkvNode", bang: "dict[str,str]") -> "TkvNode":
+    """Node MOI cho `node`: moi bieu thuc trong `bang` da duoc thay bang
+    bien tam. Tra ve `node` luon neu khong co gi doi."""
+    k = ekind(node)
+    if k == '':
+        return node
+    khoa = _licm_khoa(node)
+    if khoa != '' and khoa in bang:
+        return mk2('var', o_str(bang[khoa]))
+    if k == 'binop' or k == 'compare' or k == 'boolop':
+        return mk4(k, o_str(ea_str(node)), o_nut(_licm_viet_node(eb_nut(node), bang)),
+                   o_nut(_licm_viet_node(ec_nut(node), bang)))
+    if k == 'in':
+        return mk3(k, o_nut(_licm_viet_node(ea_nut(node), bang)),
+                   o_nut(_licm_viet_node(eb_nut(node), bang)))
+    if k == 'ternary':
+        return mk4(k, o_nut(_licm_viet_node(ea_nut(node), bang)),
+                   o_nut(_licm_viet_node(eb_nut(node), bang)),
+                   o_nut(_licm_viet_node(ec_nut(node), bang)))
+    if k == 'index_expr':
+        return mk3(k, o_nut(_licm_viet_node(ea_nut(node), bang)),
+                   o_nut(_licm_viet_node(eb_nut(node), bang)))
+    if k == 'kwarg':
+        return mk3(k, o_str(ea_str(node)), o_nut(_licm_viet_node(eb_nut(node), bang)))
+    if k == 'index_call':
+        return mk3(k, o_nut(_licm_viet_node(ea_nut(node), bang)),
+                   o_ds(_licm_viet_ds(eb_ds(node), bang)))
+    if k == 'star' or k == 'star2' or k == 'neg' or k == 'not' or k == 'await':
+        return mk2(k, o_nut(_licm_viet_node(ea_nut(node), bang)))
+    if k == 'slice':
+        return mk4(k, o_str(ea_str(node)), _licm_o_nut(eb_nut(node), bang),
+                   _licm_o_nut(ec_nut(node), bang))
+    if k == 'call' or k == 'index':
+        return mk3(k, o_str(ea_str(node)), o_ds(_licm_viet_ds(eb_ds(node), bang)))
+    if k == 'method_call':
+        return mk4(k, o_str(ea_str(node)), o_str(eb_str(node)), o_ds(_licm_viet_ds(ec_ds(node), bang)))
+    if k == 'list_literal' or k == 'tuple_lit' or k == 'set_lit' or k == 'dict_lit':
+        return mk2(k, o_ds(_licm_viet_ds(ea_ds(node), bang)))
+    return node
+
+
+def _licm_viet_ds(ds: "list[TkvNode]", bang: "dict[str,str]") -> "list[TkvNode]":
+    ra: "list[TkvNode]" = []
+    for x in ds:
+        ra.append(_licm_viet_node(x, bang))
+    return ra
+
+
+def _licm_viet_stmts(stmts: "list[i32]", bang: "dict[str,str]") -> "i32":
+    """Viet lai moi node bieu thuc trong `stmts` (ke ca trong vong long).
+
+    GHI TAI CHO row (`dat_nut`) chu KHONG tao row moi: `intern` KHONG kiem
+    trung (stmt_row.tkv) nen moi lan xuat hien la mot chi so rieng - sua cho
+    1 khong lan sang khac. Ve phai thi dung node MOI (`_licm_viet_node`) vi node
+    bieu thuc co ghi nho nen node cu dang dung o noi khac se doi theo."""
+    for st in stmts:
+        for khoa_trg, nut_trg in items_nut(st):
+            dat_nut(st, khoa_trg, _licm_viet_node(nut_trg, bang))
+        if kind_of_stmt(st) == 'idx_assign':
+            dat_ds_nut(st, 'idx_nodes', _licm_viet_ds(lay_ds_nut(st, 'idx_nodes'), bang))
+        for vt in cac_than_vung(st):
+            if _licm_viet_stmts(body_of(vt), bang) == 0:
+                return 0
+    return 1
+
+
+def _licm(stmt: "i32", scope: "Scope", body: "list[str]", ctx: "Ctx") -> "i32":
+    """Dien LICM cho vong lap `stmt` ('while'/'for'). Tra 1 neu co nhu ho.
+
+    Ghi phan tinh vao `body` (preheader, TRUOC nhan `start_lbl` cua vong) va
+    khai local tam vao `ctx.locals_decl` - danh sach CHUNG voi chuoi
+    `.locals init` (xem `tao_ctx` trong il_codegen.tkv) nen bien moi se co
+    that trong file .il."""
+    if ctx.gen_ctx is not None:
+        return 0
+    if lay_than(stmt, 'else_body') is not None:
+        return 0
+    stmts = lay_than(stmt, 'body')
+    if stmts is None or len(stmts) == 0:
+        return 0
+    biend: "set[str]" = set()
+    if _licm_quet(stmts, biend) == 0:
+        return 0
+    for f in _LICM_DEM_VONG.get(kind_of_stmt(stmt), '').split(','):
+        v = lay_str(stmt, f)
+        if v is not None and v != '':
+            biend.add(v)
+    ra: "dict[str,TkvNode]" = {}
+    keys: "list[str]" = []
+    if _licm_tim(stmts, scope, biend, ra, keys) == 0:
+        return 0
+    if len(keys) == 0:
+        return 0
+    # Chi phep phep SO - `+` tren chuoi la noi xau, 'f32x4' la lenh goi
+    # Vector4 nen khong phai phep thuan tinh de nho.
+    so: "list[str]" = []
+    dt: "list[str]" = []
+    for khoa in keys:
+        d = ctx.infer_dtype(ra[khoa], scope, ctx.func_table, ctx.records,
+                            ctx.record_methods, None)
+        if d is None:
+            continue
+        if d not in ctx.int_dtypes and d not in ctx.float_dtypes:
+            continue
+        so.append(khoa)
+        dt.append(d)
+    if len(so) == 0:
+        return 0
+    # Khai local tam. Chi so o nho = VI TRI trong `ctx.locals_decl` (dung thu
+    # tu hieu chuoi `.locals init` sinh o gen_il_function).
+    bang: "dict[str,str]" = {}
+    for i in range(len(so)):
+        bang[so[i]] = '__licm' + str(len(ctx.locals_decl))
+        ta = TypeAnn(dt[i], None)
+        ctx.locals_decl.append((bang[so[i]], ta))
+        scope.add_local(bang[so[i]], len(ctx.locals_decl) - 1, ta)
+    # Preheader: tinh TAT CA truoc khi vao vong.
+    for i in range(len(so)):
+        ctx.compile_expr(ra[so[i]], scope, body, dt[i], ctx)
+        ctx.store_var(bang[so[i]], scope, body)
+    _licm_viet_stmts(stmts, bang)
+    return 1
+
+
 def codegen_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
     var, bound_node = lay_str(stmt, 'var'), lay_nut(stmt, 'bound_node')
     start_node = lay_nut(stmt, 'start_node')
@@ -1102,6 +1531,9 @@ def codegen_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str
         compile_expr(start_node, scope, body, 'i32', ctx)
     store_var(var, scope, body)
     emit_sb_setup(stmt, scope, body, ctx)
+    # LICM: trich phan tinh DUOC nho ra truoc nhan start_lbl (sau buoc khoi
+    # tao bien dem, vi 'var' cua vong for la bien bat bien).
+    _licm(stmt, scope, body, ctx)
     body.append(f'  {start_lbl}:')
     load_var_ref(var, scope, body)
     compile_expr(bound_node, scope, body, 'i32', ctx)
@@ -1363,6 +1795,8 @@ def codegen_while(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "s
     # 'continue' trong while nhay THANG ve start_lbl (kiem tra dieu kien
     # lai) - khac 'for' vi while khong co buoc tang rieng.
     emit_sb_setup(stmt, scope, body, ctx)
+    # LICM: trich phan tinh DUOC nho ra truoc nhan start_lbl.
+    _licm(stmt, scope, body, ctx)
     body.append(f'  {start_lbl}:')
     _compile_cond(lay_nut(stmt, 'cond_node'), scope, body, body_dtype, ctx)
     body.append(f'    brfalse {end_lbl}')

@@ -1,0 +1,111 @@
+# -*- coding: utf-8 -*-
+"""LICM (2026-10-13) - nho bieu thuc bat bien ra khoi vong lap: KIEM TRA
+NGHIA, khong kiem tra toi uu.
+
+LICM la toi uu nen test nay KHONG du de chung minh no co hieu luc - chi de
+chung minh no KHONG lam sai. Ca hai truong hop duoi deu xuat phat tu cung
+mot lo loi: bien dem cua vong lap KHONG xuat hien trong AST than vong.
+
+`codegen_for` KHONG cat `i = i + 1` vao than vong trong AST - no tu sinh o
+nhan `cont_lbl` luc codegen. neu LICM quet than vong ma khong them bien dem
+vao tap "bi gan", no se ket luan `i * m` bat bien va nho ra preheader =>
+MOI LAN LAP cung mot gia tri.
+
+Day KHONG phai lo hinh hoc ma la mau truong hinh: chinh compiler (bien dich
+chinh no) co
+    for idx, p in enumerate(sig.params):
+        scope.add_arg(p.name, idx + param_idx_base, p.type_ann)
+`idx` bi nho sai => moi tham so nhan idx 0 => `ldarg.s 0` cho TAT CA tham so.
+Trieu chung luc do: 122 test con 109 PASS, va 1 file 15 dong - chi co
+`if a == b` - cung sinh `ldarg.s 0` va AccessViolation.
+"""
+__tkv_import__ = "tkv_test_lib"
+
+
+def for_induction(m: "i32", n: "i32") -> "list[i32]":
+    """`i` la bien dem cua `for` - DUNG i thay doi moi vong. Khong co ham
+    nao gan `i` trong than (codegen_for lam viec do), nen day la ca cua
+    bien dem ma LICM phai tu biet."""
+    out: "list[i32]" = []
+    for i in range(n):
+        out.append(i * m)
+    return out
+
+
+def for_induction_nested(m: "i32", n: "i32", k: "i32") -> "list[i32]":
+    """Bien dem cua vong long + bien dem cua vong ngoai cung xuat hien."""
+    out: "list[i32]" = []
+    for i in range(n):
+        j = 0
+        while j < k:
+            out.append(i * m + j * 2)
+            j = j + 1
+    return out
+
+
+def while_invariant(a: "list[i64]", b: "list[i64]", m: "i32", n: "i32") -> "list[i64]":
+    """Vong long trong vong ngoai, `i * m` bat bien o CA HAI - dung noi LICM
+    phai nho (va noi vong long phai thay ban ghi de cua vong ngoai)."""
+    out: "list[i64]" = []
+    i = 0
+    while i < n:
+        j = 0
+        while j < m:
+            out.append(a[i * m + j] + b[i * m + j])
+            j = j + 1
+        i = i + 1
+    return out
+
+
+def assigned_inside(m: "i32", n: "i32") -> "list[i32]":
+    """`i` bi gan laI trong than vong - `i * m` KHONG bat bien, du bien dem
+    cung ten `i`. Day la truong hop nguoc: qua bai nay thi khong con
+    chuyen 'gat bien dem' nua ma chay dung."""
+    out: "list[i32]" = []
+    i = 0
+    while i < n:
+        i = i + 1
+        out.append(i * m)
+    return out
+
+
+def fstring_in_loop(m: "i32", n: "i32") -> "str":
+    """Bien dem nam trong F-STRING - van phai dung gia tri TAI MOT LAN LAP do,
+    khong phai gia tri o preheader. `s = s + str(i * m)` nem text ra ngoai
+    nen loai bug nay lo ra ngay."""
+    s = ""
+    i = 0
+    while i < n:
+        s = s + str(i * m) + ","
+        i = i + 1
+    return s
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    total += check("for_induction", str(for_induction(3, 4)), "[0, 3, 6, 9]")
+    tested += 1
+    total += check("for_induction.r2", str(for_induction(7, 3)), "[0, 7, 14]")
+    tested += 1
+
+    # i*m + j*2 cho i=0..1, j=0..2, m=5: 0,2,4,5,7,9
+    total += check("for_induction_nested", str(for_induction_nested(5, 2, 3)), "[0, 2, 4, 5, 7, 9]")
+    tested += 1
+
+    # a = [10,20,30,40,50,60], b = [1,2,3,4,5,6], n=2 (i), m=3 (j)
+    # i*m+j: i=0 -> 0,1,2 ; i=1 -> 3,4,5
+    total += check("while_invariant", str(while_invariant([10, 20, 30, 40, 50, 60], [1, 2, 3, 4, 5, 6], 3, 2)),
+                   "[11, 22, 33, 44, 55, 66]")
+    tested += 1
+
+    # i=1..3 sau khi tang, m=10 -> 10, 20, 30
+    total += check("assigned_inside", str(assigned_inside(10, 3)), "[10, 20, 30]")
+    tested += 1
+
+    # i=0..2, m=7 -> "0,7,14,"
+    total += check("fstring_in_loop", fstring_in_loop(7, 3), "0,7,14,")
+    tested += 1
+
+    return test_summary("LICM (nghia)", total, tested)
