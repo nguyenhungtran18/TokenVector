@@ -51,6 +51,7 @@ from il_features.bytearray_type import il_bytearray_type as _il_bytearray_type  
 import il_features.bytes_type as _bytes_type  # noqa: F401 - muc 6.8 (4/4, 2026-08-13): dang ky parser/codegen luc import, xem module do
 from il_features.set_type import il_set_type, compile_in_set as _set_compile_in_set
 from il_features.f32buf_type import il_f32buf_type as _il_f32buf_type, f32buf_len_name as _f32buf_len_name, next_f32buf_label as _next_f32buf_label, emit_f32buf_index_check as _emit_f32buf_index_check
+from il_features.int_narrow import narrowable_locals as _narrowable_locals  # 2026-10-12: giu bien dem/chi so native i64 thay vi TkvInt
 from il_features.dict_type import (
     il_dict_type, il_dict_enumerator_type, il_kvpair_type,
     compile_index_dict as _dict_compile_index_dict, compile_in_dict as _dict_compile_in_dict,
@@ -2150,6 +2151,22 @@ def _widen_if_needed(actual_dtype: "str", requested_dtype: "str", out: "list[str
         if actual_dtype == 'i32':
             out.append('    conv.i8')
         out.append('    call valuetype TkvInt TkvInt::FromI64(int64)')
+        return
+    if actual_dtype == 'i64' and requested_dtype == 'i32':
+        # 2026-10-13: thu hep i64 -> i32 CO KIEM TRA. Truoc day nhanh nay
+        # THIEU, nen `r[k * 2] = v` voi `k` la bien kieu i64 bien dich ra
+        #     ldc.i4 2 / mul.ovf / ldc.r8 v / set_Item(int32, ...)
+        # tuc day int64 thang vao tham so int32 - IL SAI kich thuoc stack,
+        # va chi so lon bi CAT im lang thay v nem loi. `conv.ovf.i4` nem
+        # OverflowException dung y nghia ("chi so qua khoang int32").
+        # Doc (`r[i]`) da co phep nay qua `emit_index_scalar`; chi ghi thieu.
+        out.append('    conv.ovf.i4')
+        return
+    if actual_dtype == 'i32' and requested_dtype == 'i64':
+        # 2026-10-13: nang i32 -> i64. Thieu nhanh nay thi "khuon tu nhien"
+        # cua phep so nguyen (xem operators.tkv) khong chay duoc: toan hang
+        # i32 se bi ep o kieu i32 ben duong i64.
+        out.append('    conv.i8')
         return
     if actual_dtype == 'int' and (requested_dtype in _INT_DTYPES or requested_dtype in _FLOAT_DTYPES):
         # Chieu NGUOC lai la THU HEP. Truoc 2026-08-05 (lat 4) cho nay BAO
@@ -6188,6 +6205,13 @@ def _fp_declare_scalar(wc: "WalkCtx", reg: "Registry", name: "str", rhs_node: "T
                 wc.defer(lambda: _hoan_khai_scalar(wc, name, rhs_node))
                 return
         wc.declared_names.add(name)
+        # 2026-10-12: narrow check - neu ten bien trong tap narrow_names,
+        # khai bao native i64 thay vi TkvInt de toi uu hoa vong lap tinh toan.
+        if name in wc.narrow_names:
+            ta = TypeAnn('i64', None)
+            wc.locals_decl.append((name, ta))
+            wc.infer_scope.set(name, ta)
+            return
         if _record_is_record_ctor_rhs(rhs_node, wc.records):
             # 'p = Point(1.0, 2.0)' - khai bao bien kieu record (KHONG
             # phai vo huong f32/i32/... thong thuong), xem 'call' trong
@@ -6813,6 +6837,21 @@ def _first_pass_collect_locals(reg: "Registry", stmts: "list[i32]", sig: "TkvSig
     needs_epilogue[0] = False
     boxed_names.clear()
     nested_closures.clear()
+
+    # 2026-10-12: chay narrowable_locals de tim bien cuc bo chung minh duoc
+    # nam trong int64. Ket qua luu vao walk_ctx.narrow_names de _fp_declare_scalar
+    # khai bao native i64 thay vi TkvInt.
+    #
+    # PHAI CHAY TRUOC `_fp_walk` o duoi: do la noi cac `declare_*` gan bien
+    # vao `locals_decl`. Dat o cuoi ham (sau `_fp_walk`) thi khop bien
+    # KHONG BAO GIOT nua - compiler chay xong ma khong bien nao hep.
+    # `nested_closures`/`boxed_names` luc do da rong (vua `clear` o tren) -
+    # ham nay KHONG can chung: closure va bien boxed duoc loai khoi tap
+    # `narrow` ngay trong no, ma chung de rong thi cung dung.
+    try:
+        walk_ctx.narrow_names = _narrowable_locals(stmts, sig, nested_closures, boxed_names)
+    except Exception:
+        walk_ctx.narrow_names = set()
 
     _fp_walk(walk_ctx, reg, stmts)
     while len(deferred) > 0:

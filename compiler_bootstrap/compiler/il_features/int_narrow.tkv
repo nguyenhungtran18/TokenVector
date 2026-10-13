@@ -1,0 +1,307 @@
+# -*- coding: utf-8 -*-
+"""Narrowing: giu bien dem/chi so cuc bo o dang NATIVE int thay vi TkvInt (R7).
+
+VAY DOI
+-------
+Hang so nguyen mac dinh la kieu `int` (TkvInt - so nguyen VO HAN, 16 byte,
+`lo:int64` + `big:object` BigInteger). Do do moi bieu thuc chi so trong
+vong lap deu truc qua:
+
+    ldloc <so>                       ; TkvInt (16 byte)
+    ldfld object TkvInt::big         ; kiem tra BigInteger
+    brtrue  _slow
+    ldfld int64  TkvInt::lo
+    ldc.i8  -2147483648 ; blt _slow  ; range check
+    ldc.i8   2147483647 ; bgt _slow
+    mul                              ; nhan trong int64
+    ... lap lai cho phep cong, kiem tra tran ...
+    call int32 TkvInt::ToI32         ; thu hep ve int32
+
+Do la ~50 lenh IL cho MOT phep `i * n + kk`. Do lai cong toan hoc THAT
+chi 3 lenh (`mul`, `add`, `stloc`). Xem docs/SPECTATOR-PERF.md.
+
+KHONG phai gioi han phan cung ma chi la thue codegen: cung mot CLR, cung
+mot may, cung mot thuat toan, C# lam xong matmul 32x32 trong 48.8 us.
+
+CACH SUA
+--------
+Mot bien duoc khai bao `i64` (native int) THAY VI `int` (TkvInt) khi CHI
+su phai chay duoc ngan int64. Khi do moi `+ - *` va so sanh sinh lenh
+machine thuan (`add`/`mul`/`clt`).
+
+Tinh nhat: phai CHUNG minh duoc, khong doan. Phan tich fixpoint tren
+cay lenh cua 1 ham:
+
+  - khoi tao: moi ten bien cuc bo deu duoc xem la "narrow" (UA doi)
+  - loai bo: bat ky bien nao co MOT lan gan gia tri khong chung minh
+    duoc int64 -> bien do KHONG narrow; lap lai toi khi on dinh
+  - ngoai ra them: bien bi closure bat (`nested_closures`), bien la
+    tham so kieu `int`/`inferred` (khong chung minh duoc)
+
+BAO TOAN NGHIA: ham van nhan ve `int` (TkvInt) nen nguoi goi khong doi
+gi. Chi bien CUC BO trong ham do doi kieu luu tru.
+
+RANH GIOI (co chu dich, khong phai so)
+-------------------------------------
+  - CHI `+` va `-` (ke ca unary `-`). KHONG cho `*`: `x = x * 2` trong
+    mot vong lap lam `x` doi gia tri 2 lan moi vong, tran int64 sau ~63
+    vong - Python van tra ve BigInteger chinh xac, con ban thu hep se ra
+    RONG. `*` la toan tu SINH TRUONG; bo no khoi danh sach.
+  - KHONG `/ % // **`: chung co ngoa rieng (chia 0, lam tron, BigInteger).
+  - Hang so chi chap nhan chu so thap phan |v| <= 2^31-1. Hex/oct/bin
+    co tien to -> KHONG narrow (bao toan), va cung KHONG dung
+    `int(text, 0)` de lai vi co so 0 bi chan luc bien dich.
+  - Bien dem `for i in range(...)` la **SU kiEM** cho phép chung minh
+    (nó do compiler sinh ra, kieu i32) nhung KHONG dua vao tap ket qua:
+    no da i32 sẵn, khong phai TkvInt, nen doi kieu khong doi gi.
+  - Bien doc tu `int(s)` / `int64(s)` / ham lai o ngoai danh sach
+    KHONG narrow: gia tri co the bat ky gi.
+"""
+
+from expr_row import ekind, ea_str, ea_nut, eb_str, eb_nut, ec_nut, eb_ds
+from stmt_row import (
+    lay_str, lay_nut, lay_than, body_of, lay_handlers_vung, cac_than_vung,
+)
+
+# Gioi han hang so nguyen duoc chap nhan: |v| <= 2147483647 (2^31 - 1).
+# So sanh TU DIEN tren CHUOI (khong dung int(text)) - tien le
+# int_builtin._int_fits_i32: `int()` tra i32 nen so lon nem
+# OverflowException, va co so 0 bi chan luc bien dich.
+# HANG SO cap module phai VIET HOA khong co dau gach duoi va KHONG co
+# annotation kieu - hang so co kieu la `bien global`, phai `global` de doc
+# (xem `TKVINT_CLASS` cua int_type.tkv la mau doc duoc trong ham).
+LIM_NARROW_POS = "2147483647"
+LIM_NARROW_NEG = "2147483648"
+
+
+def _so_nguyen_nho(node: "TkvNode") -> "i32":
+    """True neu `node` la literal so nguyen thap phan |v| <= 2^31-1.
+
+    KHONG dung `int(text, 0)`: `int(s, co_so)` chi nhan co so 2/8/10/16
+    (co so 0 bi chan luc bien dich) va `int()` tra i32 nen literal lon
+    nem OverflowException. So chu so + so sanh tu dien la du de biet
+    chac - cung tien le voi `int_builtin._int_fits_i32`.
+    """
+    if ekind(node) != 'num':
+        return False
+    text = ea_str(node)
+    if len(text) == 0:
+        return False
+    am = 0
+    if text[0] == '-':
+        am = 1
+        text = text[1:]
+    if len(text) == 0:
+        return False
+    # Tien to hex/oct/bin: KHONG chan (bao toan hanh vi cu).
+    if text[0] == '0' and len(text) >= 2:
+        c = text[1]
+        if c == 'x' or c == 'X' or c == 'o' or c == 'O' or c == 'b' or c == 'B':
+            return False
+    for ch in text:
+        if ch < '0' or ch > '9':
+            return False
+    n = len(text)
+    if n < 10:
+        return True
+    if n > 10:
+        return False
+    lim = LIM_NARROW_POS
+    if am == 1:
+        lim = LIM_NARROW_NEG
+    if text <= lim:
+        return True
+    return False
+
+
+def _expr_int64(node: "TkvNode", narrow: "set[str]", an_toan: "set[str]") -> "i32":
+    """True neu `node` CHUNG MINH duoc la mot gia tri int64.
+
+    `narrow` va `an_toan` la tap ten bien da duoc chung minh. KHONG bao
+    gio tra True cho thu khong chung minh duoc - chung minh sai thi bien
+    bi khai `i64` va gia tri ra SAI (bien nguy hiem hon khoi dong).
+    """
+    k = ekind(node)
+    if k == 'num':
+        return _so_nguyen_nho(node)
+    if k == 'var':
+        ten = ea_str(node)
+        if ten in narrow or ten in an_toan:
+            return True
+        return False
+    if k == 'neg':
+        return _expr_int64(ea_nut(node), narrow, an_toan)
+    if k == 'binop':
+        # ('binop', op, trai, phai) - o1 la TOAN TU, o2/o3 la hai toan hang.
+        # CHI '+' va '-'.
+        op = ea_str(node)
+        if op != '+' and op != '-':
+            return False
+        trai = _expr_int64(eb_nut(node), narrow, an_toan)
+        if not trai:
+            return False
+        phai = _expr_int64(ec_nut(node), narrow, an_toan)
+        if not phai:
+            return False
+        return True
+    if k == 'ternary':
+        # ('ternary', cond, a, b) - ket qua la a hoac b.
+        a = _expr_int64(eb_nut(node), narrow, an_toan)
+        if not a:
+            return False
+        return _expr_int64(ec_nut(node), narrow, an_toan)
+    if k == 'call':
+        # ('call', ten, [args]) - chi phep ham tra so nguyen chat chan.
+        ten = ea_str(node)
+        if ten != 'len' and ten != 'int64' and ten != 'ord':
+            return False
+        for a in eb_ds(node):
+            if not _expr_int64(a, narrow, an_toan):
+                return False
+        return True
+    return False
+
+
+def _gom_gan(stmts: "list[i32]", ten: "list[str]", rhs: "list[TkvNode]") -> "i32":
+    """Duyet cay lenh, gom ten bien + node RHS cua moi phep gan cuc bo.
+
+    CHI `assign_scalar` (gan khong khai báo kieu). `assign_typed_decl` da
+    co kieu ro rang nen doi kieu luu tru khong doi gi; `idx_assign` gan
+    vao phan tu container, khong phai bien cuc bo.
+    """
+    for st in stmts:
+        k = lay_str(st, 'kind')
+        if k == 'assign_scalar':
+            ten.append(lay_str(st, 'name'))
+            rhs.append(lay_nut(st, 'rhs_node'))
+        elif k == 'if':
+            _gom_gan(lay_than(st, 'body'), ten, rhs)
+            _gom_gan(lay_than(st, 'else_body'), ten, rhs)
+        elif k == 'for' or k == 'while':
+            _gom_gan(lay_than(st, 'body'), ten, rhs)
+        elif k == 'try':
+            _gom_gan(lay_than(st, 'body'), ten, rhs)
+            for vung in lay_handlers_vung(st):
+                _gom_gan(body_of(vung), ten, rhs)
+            _gom_gan(lay_than(st, 'finally_body'), ten, rhs)
+        elif k == 'with_open' or k == 'with_ctx':
+            _gom_gan(lay_than(st, 'body'), ten, rhs)
+        elif k == 'for_in_iter':
+            _gom_gan(lay_than(st, 'body'), ten, rhs)
+        elif k == 'for_in_dict_items':
+            _gom_gan(lay_than(st, 'body'), ten, rhs)
+    return 0
+
+
+def _gom_bien_dem(stmts: "list[i32]", ra: "set[str]") -> "i32":
+    """Gom bien dem `for <var> in range(...)` - compiler SINH bien nay bang
+    kieu i32, nen no luon an toan ep len int64.
+
+    Day KHONG phai tap ket qua, chi la tap SU KIEM cho `_expr_int64` xem
+    no la bien int64 chat chan (accumulator `total = total + i` moi narrow
+    duoc). Bien dem da i32 san nen doi kieu sang i64 khong doi gi.
+    """
+    for st in stmts:
+        k = lay_str(st, 'kind')
+        if k == 'for':
+            v = lay_str(st, 'var')
+            if v:
+                ra.add(v)
+            _gom_bien_dem(lay_than(st, 'body'), ra)
+        elif k == 'if':
+            _gom_bien_dem(lay_than(st, 'body'), ra)
+            _gom_bien_dem(lay_than(st, 'else_body'), ra)
+        elif k == 'while':
+            _gom_bien_dem(lay_than(st, 'body'), ra)
+        elif k == 'try':
+            _gom_bien_dem(lay_than(st, 'body'), ra)
+            for vung in lay_handlers_vung(st):
+                _gom_bien_dem(body_of(vung), ra)
+            _gom_bien_dem(lay_than(st, 'finally_body'), ra)
+        elif k == 'with_open' or k == 'with_ctx':
+            _gom_bien_dem(lay_than(st, 'body'), ra)
+        elif k == 'for_in_iter':
+            _gom_bien_dem(lay_than(st, 'body'), ra)
+        elif k == 'for_in_dict_items':
+            _gom_bien_dem(lay_than(st, 'body'), ra)
+    return 0
+
+
+def narrowable_locals(stmts: "list[i32]", sig: "TkvSig",
+                      nested_closures: "dict[str,NestedClosure]",
+                      boxed_names: "set[str]") -> "set[str]":
+    """Tap ten bien cuc bo cua ham DUOC khai bao native `i64` thay vi `int`.
+
+    >>> DA BAT LAI 2026-10-13 sau khi sua ca hai loi duoi day <<<
+
+    Phan tich fixpoint nay da chay dung tu dau (bien dem vong lap
+    `i = 0; ... i = i + 1` ra `i64` that). No chi bi TAT TAM thoi vi
+    compiler thieu hai kha nang ma kieu `i64` (native) khuac voi `int`
+    (TkvInt struct) thi phai co:
+
+      1. `int64 * float64` -> ket qua RONG. Bien dem `i64` nhan voi float
+         cho 0 thay vi ket qua dung. Do la nhanh `//` va `%` cua
+         `compile_binop` (operators.tkv) `return` ma KHONG noi ket qua
+         ve `dtype` NGU CANH; khi toan hang la BINOP LONG thi bien dich
+         lai noi nen khong co `conv.r8`. `tests/bug_int_float_mul_test.tkv`
+         FAIL 2/4, va `benchmark/` in `sum=0.0` cho 4/4 kernel.
+         DA SUA 2026-10-13: them `ctx.widen_if_needed(...)` truoc `return`.
+
+      2. Ghi bang chi so `r[k * 2] = v` khi `k` la `i64`: compiler day
+         int64 thang vao tham so `set_Item(int32, ...)` MA KHONG co
+         `conv.ovf.i4` -> IL SAI kich thuoc stack. Doc (`a[i]`) co san
+         conv, chi ghi thieu. `tests/index_store_narrow_test.tkv` bat
+         dung loi nay qua kiem IL (runtime van "PASS" vi gia tri vua
+         khop int32 va CLR JIT khong verify IL - do la ly do test do
+         ton tai).
+         DA SUA 2026-10-13: them nhanh i64->i32 (co kiem tra) vao
+         `_widen_if_needed` + noi ve ngu canh o nhanh `+ - *` cua
+         `compile_binop`.
+
+    Ca hai la loi compiler co san, KHONG phai loi cua phan tich nay -
+    chung chi ngam vi KHONG co bien cuc bo nao tung la native int64.
+    nen bat dau rong truoc khi bat dau.
+
+    Tra ve tap RONG van la phai an toan mac dinh: `_fp_declare_scalar`
+    roi ve nhanh hien tai (TkvInt), dung nghinh luon.
+    """
+    if not stmts:
+        return set()
+    ten = []
+    rhs = []
+    _gom_gan(stmts, ten, rhs)
+    if len(ten) == 0:
+        return set()
+    bien_dem = set()
+    _gom_bien_dem(stmts, bien_dem)
+    # Tham so kieu i32/i64 la bien int64 chat chan. `int` (TkvInt) va
+    # `inferred` KHONG - gia tri co the bat ky gi.
+    an_toan = set()
+    if sig is not None:
+        for p in sig.params:
+            ta = p.type_ann
+            if ta is not None and (ta.dtype == 'i32' or ta.dtype == 'i64'):
+                an_toan.add(p.name)
+    # Bien bi closure bat hoac bien trong `boxed_names` KHONG doi kieu luu
+    # tru - no duoc chia se qua o bien khac nen phai mot kieu duy nhat.
+    for k in nested_closures:
+        an_toan.discard(k)
+    for k in boxed_names:
+        an_toan.discard(k)
+    # Khoi tao "tat ca ten duoc gan deu narrow", loai bo dan. Tap CHI
+    # THU NHO nen `len()` la dong dung cho dieu kien dung fixpoint.
+    narrow = set()
+    for t in ten:
+        if t:
+            narrow.add(t)
+    for _ in range(16):
+        truoc = len(narrow)
+        i = 0
+        while i < len(ten):
+            t = ten[i]
+            if t in narrow and not _expr_int64(rhs[i], narrow, an_toan):
+                narrow.discard(t)
+            i = i + 1
+        if len(narrow) == truoc:
+            break
+    return narrow

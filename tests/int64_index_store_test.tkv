@@ -1,0 +1,114 @@
+# -*- coding: utf-8 -*-
+"""Hoi quy: chi so TINH TOAN khi ghi vao list phai duoc thu hep i64 -> i32
+CO KIEM TRA.
+
+SUA 2026-10-13. `_widen_if_needed` (il_codegen.tkv) THIEU nhanh
+`i64 -> i32`, va nhanh `+ - *` cua `compile_binop` (operators.tkv) cung
+khong noi ket qua ve `dtype` NGU CANH. Hai thu do doc lap tao ra:
+
+    ldloc.s <chi so i64>
+    ldc.i4 2
+    mul.ovf
+    ldc.r8 <gia tri>
+    callvirt ...List`1<float64>::set_Item(int32, !0)
+
+Tuc day mot `int64` vao tham so `int32` - IL SAI kich thuoc stack, va
+chi so lon bi CAT im lang thay v nem loi.
+
+`tests/index_store_narrow_test.tkv` (2026-10-12) da bat loi nay, NHUNG
+chi qua duong `int_narrow` - tinh phu thuoc feature con bat. File nay
+dung THAM SO kieu `"i64"` nen bat doc lap voi bat ky trang thai cua
+feature. (KHONG dung khai bao local `k: "i64" = ...`: phep do CHI
+compiler TokenVector chap nhan, `tkvc.exe` bao loi.)
+
+CA BAT DUOC LUC CHAY. Cac check gia tri thuong KHONG phan bi duoc loi:
+chi so nho vua khop int32 nen ca ban co loi va ban da sua deu ra CUNG
+ket qua, va CLR JIT khong verify IL kich thuoc stack. Do la ly do can
+ca cuoi: 2^32 cat xuong int32 ra 0, nen
+
+    r[big] = 8.0
+
+- BAN CO LOI: ghi vao r[0] (= 8.0), im lang, KHONG nem gi.
+- BAN DA SUA: `conv.ovf.i4` nem OverflowError, r[0] giu nguyen 0.0.
+
+Kiem `r2[0]` moi phan bi duoc hai ben.
+"""
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def ghi_mul(p: "list[f64]", k: "i64", v: "f64") -> "i32":
+    p[k * 2] = v
+    return 0
+
+
+def ghi_add(p: "list[f64]", k: "i64", v: "f64") -> "i32":
+    p[k + 1] = v
+    return 0
+
+
+def ghi_sub(p: "list[f64]", k: "i64", v: "f64") -> "i32":
+    p[k - 1] = v
+    return 0
+
+
+def ghi_var(p: "list[f64]", k: "i64", v: "f64") -> "i32":
+    p[k] = v
+    return 0
+
+
+def ghi_vao_list_int(xs: "list[i32]", k: "i64", v: "i32") -> "i32":
+    xs[k * 2] = v
+    return 0
+
+
+def doc_mul(xs: "list[i32]", k: "i64") -> "i32":
+    return xs[k * 2]
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    r = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # --- Chi so TINH TOAN (khong phai bien don)
+    ghi_mul(r, 1, 9.0)
+    tested = tested + 1
+    total = total + check("idx_mul", str(r[2]), "9.0")
+    ghi_add(r, 1, 5.0)
+    tested = tested + 1
+    total = total + check("idx_add", str(r[2]), "5.0")
+    ghi_sub(r, 1, 6.0)
+    tested = tested + 1
+    total = total + check("idx_sub", str(r[0]), "6.0")
+
+    # --- Chi so bien don: phai ra dung ke tu truoc (khong lam MANG lao)
+    ghi_var(r, 1, 7.0)
+    tested = tested + 1
+    total = total + check("idx_var", str(r[1]), "7.0")
+
+    # --- Chi so am tinh toan
+    ghi_sub(r, 1, 3.0)
+    tested = tested + 1
+    total = total + check("idx_am_tinh_toan", str(r[0]), "3.0")
+
+    # --- List phan tu la int32 (khong phai f64) - cung phai ghi/doc dung
+    xs = [0, 0, 0, 0, 0, 0]
+    ghi_vao_list_int(xs, 2, 42)
+    tested = tested + 1
+    total = total + check("idx_list_int", str(xs[4]), "42")
+    # Doc da co `conv.ovf.i4` tu truoc, kiem khong MONG manh
+    tested = tested + 1
+    total = total + check("doc_chi_so_tinh_toan", str(doc_mul(xs, 2)), "42")
+
+    # --- CA BAT DUOC LUC CHAY (xem ghi chu dau file)
+    r2 = [0.0, 0.0, 0.0]
+    try:
+        ghi_var(r2, 4294967296, 8.0)
+    except OverflowError:
+        pass
+    tested = tested + 1
+    total = total + check("chi_so_qua_int32_khong_bi_cat_am_tham",
+                          str(r2[0]), "0.0")
+
+    return test_summary("int64_index_store_test", total, tested)

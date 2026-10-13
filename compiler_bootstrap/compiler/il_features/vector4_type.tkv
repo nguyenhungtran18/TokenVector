@@ -32,6 +32,19 @@ VEC4 = f'valuetype {VEC4_CLASS}'
 # Vector4 dinh nghia day du 4 toan tu hai tham so. KHONG phai goi
 # `Add`/`Multiply` nhu Complex - Complex co method tinh, Vector4 dung
 # operator (op_*) vi no la kieu vector.
+#
+# 2026-10-13: THU lenh tho raw CIL (`add`/`sub`/`mul`/`div`) tren
+# Vector4 - KHONG dung, giu `call`. Ly do mong doi la `call op_X` la
+# method call THAT (day struct 16 byte vao, tra struct 16 byte qua con
+# tro buffer an) nen moi phep vector ton mot CALL chu khong phai lenh
+# SIMD, con lenh tho raw thi JIT dua thang thanh `addps`/`mulps`.
+# THUC TE: binary raw khong chay. Do lai cung nguon, cung khai bao
+# `.locals` (chi khac `call op_*` -> `mul`/`add` tho) thi nem
+# SEHException ngay luc chay. Runtime cua build AOT nay KHONG chap nhan
+# phep so hoc tho tren System.Numerics.Vector4.
+# Do do `f32x4` VAN TON MOT METHOD CALL moi phep - gioi han cua RUNTIME,
+# khong phai loi sua duoc o file nay. Muon SIMD that can kieu vector khac
+# (xem docs/PLAN.md muc SIMD) - het.
 _VEC4_BINOPS: "dict[str,str]" = {'+': 'op_Addition', '-': 'op_Subtraction', '*': 'op_Multiply', '/': 'op_Division'}
 
 # 4 LANE. KHONG PHAI property!
@@ -51,8 +64,11 @@ def register_vector4_dtype():
 
 
 def compile_binop_vector4(op: "str", left: "TkvNode", right: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
-    """'+'/'-'/'*'/'/' giua 2 gia tri 'f32x4' - goi THANG operator cua
-    BCL. Mot lenh `call` = 4 (hoac 8 voi AVX2) MAC cung luc."""
+    """'+'/'-'/'*'/'/' giua 2 gia tri 'f32x4' - goi operator cua BCL.
+
+    KHONG dung lenh tho raw CIL: do 2026-13 xem ghi chu `_VEC4_BINOPS`.
+    `call` la MOT method call that, va day la dieu runtime nay cho phep.
+    """
     if op not in _VEC4_BINOPS:
         raise SyntaxError(
             "il_codegen: '" + op + "' khong ho tro tren 'f32x4' (chi +,-,*,/ - "

@@ -134,6 +134,16 @@ exit code in Toolchain).
     Hop dong cua `tests/tkv_test_lib.tkv` la het: ket thuc `run()` bang
     `return test_summary(<ten>, total, tested)` — ham do tra 0 khi het PASS,
     1 khi co FAIL. **Dung cach nay cho moi test moi.**
+- **Performance Gate** (2026-10-13, `.\tools\perf_gate.ps1`): **kiểm tra
+  HIỆU NĂNG** chứ không chỉ tính đúng. Ra đời vì một lần sửa
+  `compile_binop` làm `f32mm` tụt 10% mà KHÔNG gate nào bắt — testkit,
+  dang_ky, ext_smoke đều chỉ so kết quả, không ai đo thời gian.
+  - Chạy `tools\perf\*.tkv` bằng compiler tự-host, lấy _best-of-5_ ms.
+  - So với `tools\perf\baseline.txt`; chậm quá **7%** ⇒ `exit 1`.
+  - **Đối chiếu với chính nó qua thời gian** — KHÔNG so CPython/NumPy
+    (cái đã nằm ở repo `TokenVector.TestOracle`).
+  - Lần đầu hoặc sau thay đổi có chủ đích: `.\tools\perf_gate.ps1 -Update`.
+  - Ngưỡng sửa bằng `-ThreshPct`.
 - **Acceptance Gate (the only gate that matters for compiler changes)**:
   `.\\tools\testkit_gate.ps1` — builds and runs all 119 `tests\*_test.tkv`
   plus 31 negative cases (currently `PASS=119 BUILDFAIL=0 TESTFAIL=0

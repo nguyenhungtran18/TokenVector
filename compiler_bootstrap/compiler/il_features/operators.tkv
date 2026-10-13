@@ -422,6 +422,20 @@ def compile_binop(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str
         # ngu nghia floor cua Python.
         _emit_int_floor_div_or_mod(node, op, left, right, scope, out,
                                            operand_dtype, ctx)
+        # 2026-10-13: PHAI noi ket qua ve `dtype` NGU CANH. Truoc day
+        # nhanh nay `return` luon. Khi nhanh lai chay ben trong mot bieu
+        # thuc lon, `compile_expr` noi tai dong 440 bien dich TOAN HANG
+        # theo `dtype` - nhung khi toan hang la BINOP LONG (vd `(i % 7)`
+        # trong `(i % 7) * 0.5`) thi no chay lai `compile_binop` noi,
+        # tinh ra i64 roi tra ve, va KHONG co `conv.r8`. Ket qua: day
+        # int64 vao tham so float64 cua `mul` - chay xong ra RONG
+        # (do lai 2026-10-13: `(i % 7) * 0.5` voi i:i64 ra 2.5e-316 thay
+        # vi 1.5, va `1.0 + (i // 2)` ra 1.0 thay vi 2.0).
+        # Toan hang `var` phai `compile_expr` -> KHONG can dong nay; chi
+        # can khi ket qua la phep so nguyen TINH O NOI - `+ - *` da co
+        # `_narrow_int_result`/duong nhong tuong duong, con `//` `%` thi
+        # thieu (xem dong 384-390 cho nhanh 'int').
+        ctx.widen_if_needed(operand_dtype, dtype, out)
         return
     if op == '//':
         # Con lai: dtype THUC (f32/f64) - Math.Floor(a/b), khong co van de
@@ -437,8 +451,22 @@ def compile_binop(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str
             if dtype != 'f64':
                 out.append(f'    {IL_LDC_OP[dtype].replace("ldc.", "conv.")}')
         return
-    compile_expr(left, scope, out, dtype, ctx)
-    compile_expr(right, scope, out, dtype, ctx)
+    # 2026-10-13: KHUON TU NHIEN cua phep so nguyen. Khi ca hai toan hang la
+    # so nguyen CO DO RONG CO DINH (khong phai 'int' = TkvInt) va ca ba
+    # kieu deu la so nguyen, hay tinh o khuon RONG NHAT cua toan hang va
+    # thu hep ve `dtype` DUNG MOT LAN o cuoi.
+    #
+    # Truoc day truyen thang `dtype` xuong TUNG TOAN HANG, nen `i * n + kk`
+    # (i, n, kk deu i64, ngu canh i32) bi thu hep BA LAN cho mot phep -
+    # do 2026-10-13: 10 lan `conv.ovf.i4` cho MOT chi so trong vong nong
+    # cua matmul32, chiem 27/36 lenh. Phep toan khong can biet ngu canh;
+    # chi NGUOI DUNG (get_Item(nhan int32)) moi can thang hep.
+    khuon_dt = dtype
+    if (operand_dtype in ctx.int_dtypes and 'int' not in (left_dtype, right_dtype)
+            and dtype in ctx.int_dtypes and 'int' not in (dtype, operand_dtype)):
+        khuon_dt = operand_dtype
+    compile_expr(left, scope, out, khuon_dt, ctx)
+    compile_expr(right, scope, out, khuon_dt, ctx)
     if operand_dtype in ctx.int_dtypes and op in ('+', '-', '*'):
         # TRAN SO PHAI BAO, KHONG DUOC IM LANG (2026-08-04).
         #
@@ -460,6 +488,11 @@ def compile_binop(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str
         # MIN_VALUE / -1 - truong hop do CIL da tu nem roi.
         out.append({'+': '    add.ovf', '-': '    sub.ovf',
                     '*': '    mul.ovf'}[op])
+        # 2026-10-13: cung nguyen ly dong 418-425 - ket qua so nguyen
+        # phai noi ve `dtype` NGU CANH. `r[k * 2] = v` (k la i64) bien
+        # dich `i32` lam ngu canh nhung nhanh nay tra ve i64 tho, day
+        # thang vao `set_Item(int32, ...)` -> IL SAI kich thuoc stack.
+        ctx.widen_if_needed(operand_dtype, dtype, out)
         return
     out.append({'+': '    add', '-': '    sub', '*': '    mul', '/': '    div', '%': '    rem'}[op])
 

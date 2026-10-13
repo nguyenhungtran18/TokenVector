@@ -50,6 +50,7 @@ compiler_bootstrap\compiler\il_features\generator_feature.tkv
 compiler_bootstrap\compiler\il_features\generator_lazy.tkv
 compiler_bootstrap\compiler\il_features\int_builtin.tkv
 compiler_bootstrap\compiler\il_features\int_type.tkv
+compiler_bootstrap\compiler\il_features\int_narrow.tkv
 compiler_bootstrap\compiler\il_features\iter_next.tkv
 compiler_bootstrap\compiler\il_features\kwarg_resolve.tkv
 compiler_bootstrap\compiler\il_features\list_copy.tkv

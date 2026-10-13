@@ -25,6 +25,7 @@ VEC_W = 8
 VEC_DTYPE = 'f32x8'
 VEC_CLASS = 'VBuf8'
 VEC_LOCAL = '__vbuf8'
+VEC_IL = f'valuetype {VEC_CLASS}'
 
 
 def register_vectorblock_dtype():
@@ -55,14 +56,101 @@ def _temps_vbuf(node: "TkvNode", ctx: "WalkCtx"):
     _declare_vbuf(ctx)
 
 
+def _vb_op1_method(d: "list[str]", method: "str", ilop: "str"):
+    """Chen 1 method `v.fN = v.fN <ilop> x` vao dong class `d`.
+
+    `cil managed aggressiveinlining` (2026-10-13) - BAT BUOC. Than method
+    nay ~60 byte IL, VUOT ha nguong inline mac dinh cua JIT (~32 byte) nen
+    KHONG duoc inline -> moi phep vector la MOT CALL THAT. Do la ly do do
+    2026-10-13: ban goi 1 method nay CHAM HON ban 8 vong lap phep scalar
+    inline (223 ms -> 278 ms) du IL mat 9x. `aggressiveinlining` noi
+    bien nguong, cho phep SLP vector hoa than method.
+
+    `ldfld` POP con tro khoi stack nen day `ldarg.1` HAI LAN: mot cho
+    `ldfld` doc, mot con lai cho `stfld` ghi (2026-10-13).
+    """
+    d.append('  .method assembly static void ' + method + '(float32 x, '
+             + VEC_IL + '& v)')
+    d.append('    cil managed aggressiveinlining')
+    d.append('  {')
+    lane = 0
+    while lane < VEC_W:
+        d.append('    ldarg.1')
+        d.append('    ldarg.1')
+        d.append('    ldfld float32 ' + VEC_CLASS + '::f' + str(lane))
+        d.append('    ldarg.0')
+        d.append('    ' + ilop)
+        d.append('    stfld float32 ' + VEC_CLASS + '::f' + str(lane))
+        lane = lane + 1
+    d.append('    ret')
+    d.append('  }')
+    d.append('')
+
+
+def _vb_muladd_method(d: "list[str]"):
+    """`v_mul8_add8(x, y)`: v.fN = v.fN * x + y - 8 lane, MOT lenh goi."""
+    d.append('  .method assembly static void MulAddS(float32 x, float32 y, '
+             + VEC_IL + '& v)')
+    d.append('    cil managed aggressiveinlining')
+    d.append('  {')
+    lane = 0
+    while lane < VEC_W:
+        d.append('    ldarg.2')
+        d.append('    ldarg.2')
+        d.append('    ldfld float32 ' + VEC_CLASS + '::f' + str(lane))
+        d.append('    ldarg.0')
+        d.append('    mul')
+        d.append('    ldarg.1')
+        d.append('    add')
+        d.append('    stfld float32 ' + VEC_CLASS + '::f' + str(lane))
+        lane = lane + 1
+    d.append('    ret')
+    d.append('  }')
+    d.append('')
+
+
+def _vb_fill_method(d: "list[str]"):
+    """`v_fill8(x)`: v.fN = x - 8 lane, MOT lenh goi."""
+    d.append('  .method assembly static void FillS(float32 x, ' + VEC_IL + '& v)')
+    d.append('    cil managed aggressiveinlining')
+    d.append('  {')
+    lane = 0
+    while lane < VEC_W:
+        d.append('    ldarg.1')
+        d.append('    ldarg.0')
+        d.append('    stfld float32 ' + VEC_CLASS + '::f' + str(lane))
+        lane = lane + 1
+    d.append('    ret')
+    d.append('  }')
+    d.append('')
+
+
 def ensure_class_vectorblock(ctx: "Ctx"):
-    """Chen class VBuf8 vao assembly MOT LAN (khuon int_type.ensure_class_int)."""
+    """Chen class VBuf8 vao assembly MOT LAN (khuon int_type.ensure_class_int).
+
+    2026-10-13: them 5 method tinh ca 8 lane (AddS/SubS/MulS/MulAddS/FillS).
+    Xem `_vb_op1_method` ly do `aggressiveinlining`.
+    """
     emitted = ctx.emitted_types
     if emitted is None or VEC_CLASS in emitted:
         return
     emitted.add(VEC_CLASS)
-    vbuf_il = [f'.class private auto ansi sequential {VEC_CLASS}', '       extends [mscorlib]System.ValueType', '{', '  .field public float32 f0', '  .field public float32 f1', '  .field public float32 f2', '  .field public float32 f3', '  .field public float32 f4', '  .field public float32 f5', '  .field public float32 f6', '  .field public float32 f7', '}']
-    ctx.extra_classes.append(vbuf_il)
+    d = []
+    d.append('.class private auto ansi sequential ' + VEC_CLASS)
+    d.append('       extends [mscorlib]System.ValueType')
+    d.append('{')
+    lane = 0
+    while lane < VEC_W:
+        d.append('  .field public float32 f' + str(lane))
+        lane = lane + 1
+    d.append('')
+    _vb_op1_method(d, 'AddS', 'add')
+    _vb_op1_method(d, 'SubS', 'sub')
+    _vb_op1_method(d, 'MulS', 'mul')
+    _vb_muladd_method(d)
+    _vb_fill_method(d)
+    d.append('}')
+    ctx.extra_classes.append([chr(10).join(d)])
 
 
 def _local_idx_vectorblock(scope: "Scope") -> "i32":
@@ -135,67 +223,72 @@ def push_v_store8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype
     out.append('    ldc.i8 0')
 
 
-def _push_lanewise(args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx: "Ctx", ops: "list[str]", name: "str"):
-    """Chung cho v_add8/v_sub8/v_mul8/v_mul8_add8: moi lane = lane (op0 a0) (op1 a1)...
-
-    Toan hang va lenh phai XEN KE nhau (compile a0 roi `op0`, roi a1 roi
-    `op1`), KHONG day het toan hang truoc roi moi ap lenh. `dup` la BAT
-    BUOC: `ldflda` day dia chi QUAN LY len stack roi `ldind.r4` POP no -
-    nhung `stind.r4` o cuoi lai can dia chi do de ghi nguoc.
-    """
-    if len(args) != len(ops):
-        raise SyntaxError(
-            f"il_codegen: {name} - so tham so ({len(args)}) khong khop so phep "
-            f"({len(ops)})")
+def _vb_call(idx: "i32", method: "str", args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx: "Ctx", name: "str"):
+    """Day `args` (f32) roi dia chi `__vbuf8`, goi MOT method tinh 8 lane
+    (co `aggressiveinlining`), roi rut lane 0 - hop dong cua moi `v_*`."""
     ensure_class_vectorblock(ctx)
-    idx = _local_idx_vectorblock(scope)
-    for lane in range(VEC_W):
-        _ldflda(idx, lane, out)
-        out.append('    dup')
-        out.append('    ldind.r4')
-        _j = 0
-        while _j < len(args):
-            ctx.compile_expr(args[_j], scope, out, 'f32', ctx)
-            out.append('    ' + ops[_j])
-            _j = _j + 1
-        out.append('    stind.r4')
+    tsig = 'float32'
+    j = 1
+    while j < len(args):
+        tsig = tsig + ', float32'
+        j = j + 1
+    j = 0
+    while j < len(args):
+        ctx.compile_expr(args[j], scope, out, 'f32', ctx)
+        j = j + 1
+    out.append(f'    ldloca.s {idx}')
+    out.append(f'    call void {VEC_CLASS}::{method}({tsig}, {VEC_IL}&)')
     out.append(f'    ldloc.s {idx}')
     out.append(f'    ldfld float32 {VEC_CLASS}::f0')
 
 
+def _push_lanewise(args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx: "Ctx", method: "str", nsig: "i32", name: "str"):
+    """Chung cho v_add8/v_sub8/v_mul8/v_mul8_add8.
+
+    2026-10-13: GOI MOT method tinh ca 8 lane thay vi 8 vong lap phep
+    SCALAR. Ban vong lap nay phai 8 x (`ldflda`+`dup`+`ldind.r4`+
+    `stind.r4`) va DICH TOAN HANG 8 LAN (moi lane mot lan).
+
+    LAN 1 (2026-10-13, KHONG co `aggressiveinlining`): CHAM HON ban vong
+    lap - 223 ms -> 278 ms du IL mat 9x, vi than method vuot ha inline
+    mac dinh nen moi phep la mot CALL THAT.
+    LAN 2 (cung ngay): them `cil managed aggressiveinlining` vao method ->
+    han nguong, SLP co hoi hop. Do la thu nghiem dang chay.
+    """
+    if len(args) != nsig:
+        raise SyntaxError(
+            f"il_codegen: {name} - so tham so ({len(args)}) khong khop so phep "
+            f"({nsig})")
+    _vb_call(_local_idx_vectorblock(scope), method, args, scope, out, ctx, name)
+
+
 def push_v_add8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """'v_add8(x)' - moi lane = lane + x."""
-    _push_lanewise(args, scope, out, ctx, ['add'], 'v_add8(x)')
+    _push_lanewise(args, scope, out, ctx, 'AddS', 1, 'v_add8(x)')
 
 
 def push_v_sub8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """'v_sub8(x)' - moi lane = lane - x."""
-    _push_lanewise(args, scope, out, ctx, ['sub'], 'v_sub8(x)')
+    _push_lanewise(args, scope, out, ctx, 'SubS', 1, '_sub8(x)')
 
 
 def push_v_mul8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """'v_mul8(x)' - moi lane = lane * x."""
-    _push_lanewise(args, scope, out, ctx, ['mul'], 'v_mul8(x)')
+    _push_lanewise(args, scope, out, ctx, 'MulS', 1, 'v_mul8(x)')
 
 
 def push_v_fill8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """'v_fill8(x)' - nap ca 8 lane = x (broadcast), tra lane 0."""
     if len(args) != 1:
         raise SyntaxError("il_codegen: v_fill8(x) can dung 1 tham so")
-    ensure_class_vectorblock(ctx)
-    idx = _local_idx_vectorblock(scope)
-    for lane in range(VEC_W):
-        _ldflda(idx, lane, out)
-        ctx.compile_expr(args[0], scope, out, 'f32', ctx)
-        out.append('    stind.r4')
-    out.append(f'    ldloc.s {idx}')
-    out.append(f'    ldfld float32 {VEC_CLASS}::f0')
+    _vb_call(_local_idx_vectorblock(scope), 'FillS', args, scope, out, ctx,
+             'v_fill8(x)')
 
 
 def push_v_mul8_add8(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """'v_mul8_add8(x, y)' - moi lane = lane * x + y. Gop 2 phep trong
     1 vong ghi field (v_mul8 roi v_add8 se ghi 2 lan)."""
-    _push_lanewise(args, scope, out, ctx, ['mul', 'add'], 'v_mul8_add8(x, y)')
+    _push_lanewise(args, scope, out, ctx, 'MulAddS', 2, 'v_mul8_add8(x, y)')
 
 
 def push_v_hsum(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
