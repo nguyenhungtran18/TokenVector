@@ -1,4 +1,0 @@
-﻿inference = BUILD_OK
-data_lib = BUILD_OK
-data_core = BUILD_OK
-data_arr = BUILD_OK

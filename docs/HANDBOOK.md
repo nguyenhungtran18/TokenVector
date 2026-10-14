@@ -30,15 +30,11 @@ Bản thân compiler **viết bằng TokenVector**: `compiler_bootstrap/` là 13
 132 file đó rồi biên dịch **hai lần**, và hai bản IL phải giống hệt nhau
 byte-for-byte (`IL_IDENTICAL`). Không có CPython ở bất kỳ bước nào.
 
-> Cột trái của bảng dưới mô tả compiler Python cũ ở submodule `compiler_py/`:
-> **đã nằm ngoài phạm vi từ 2026-10-14**, đừng sửa hay build lại nó.
-
 ## 2. Layout / Bố cục repo
 
 | Path | EN | VI |
 |---|---|---|
 | `compiler_bootstrap/` | **The compiler.** 132 `.tkv` files of real TokenVector | **Compiler:** lexer, parser, emitter, 132 file TokenVector thật |
-| `compiler_py/` | Old Python bootstrap — **out of scope since 2026-10-14** | Bootstrap Python cũ — **ngoài phạm vi** |
 | `tests/` | 123 acceptance tests + 31 negative cases | 123 test nghiệm thu + 31 case phải bị từ chối |
 | `tools/` | Gates, plus `tkv_guide.tkv` | Các cổng kiểm + tool hỏi đáp |
 | `projects/` | 19 real tools written in `.tkv` | 19 công cụ thật viết bằng `.tkv` |

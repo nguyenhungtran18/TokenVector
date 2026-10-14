@@ -622,22 +622,17 @@ vì thông điệp đã `raise`) — cần kiểm lại ánh xạ lỗi.
 | `*` / `**` unpacking tại call site | **Đã có** (`('star'|'star2', ...)`) |
 | `divmod(a, b)` | Tham số phải là **biến**, không nhận literal |
 
-### 5.6 Sai khác giữa `tkvc-tv.exe` và compiler Python cũ (2026-10-05)
+### 5.6 Những thứ **không dùng được** trên `tkvc-tv.exe`
 
-Đo bằng probe trực tiếp lên `dist\tkvc-tv.exe`, **không** tin compiler Python cũ.
-`tkvc.exe` (bootstrap Python, submodule `compiler_py/`) chạy được những thứ sản
-phẩm không có:
+Đo bằng probe trực tiếp lên `dist\tkvc-tv.exe`.
 
-> Cột `tkvc.exe` chỉ để **phân biệt**. Phía đó đã **ngừng phát triển từ
-> 2026-10-14** và không còn compiler nào trong repo dùng tới nó. Nếu một tính
-> năng chỉ có ở cột đó thì tính năng đó **không tồn tại** với người dùng.
-
-| Mức độ | Mục | `tkvc.exe` | `tkvc-tv.exe` |
-|---|---|---|---|
-| **Sai âm thầm** | `"%02x" % v` (có spec độ rộng/zero-pad) | `41` | in ra nguyên chuỗi `"%02x"` |
-| Không đăng ký | `format(v, spec)` | có | `ham 'format' khong ton tai` |
-| Không đăng ký | `isinstance(x, T)` | có | `ham 'isinstance' khong ton tai` |
-| Không đăng ký | `callable`, `dir`, `hash`, `ascii`, `delattr` | có | thiếu (port dần 2026-10-05) |
+| Mức độ | Mục | Triệu chứng |
+|---|---|---|
+| **Sai âm thầm** | `"%02x" % v` (có spec độ rộng/zero-pad) | in ra nguyên chuỗi `"%02x"` |
+| Không đăng ký | `format(v, spec)` | `ham 'format' khong ton tai` |
+| Không đăng ký | `isinstance(x, T)` | `ham 'isinstance' khong ton tai` |
+| Không đăng ký | `callable`, `dir`, `ascii`, `delattr` | `ham ... khong ton tai` |
+| Khác | `hash(v)` | **có**, nhưng là FNV-1a — dùng làm khoá thì được, **không tương thích giá trị** với Python |
 
 **Dòng đầu tiên nguy hiểm nhất.** `%` với `%d`/`%s` thì **đúng**; chỉ hỏng
 khi có spec độ rộng. Hỏng kiểu này **biên dịch vẫn xanh và exit 0** — chỉ sai
@@ -649,10 +644,10 @@ s = "%02x" % a     # CPython: "41"   -> tkvc-tv in ra: "%02x"
 ```
 
 Bởi vậy **không dùng `%` khi port code Python sang đường TokenVector.**
-Thay bằng f-string — đã probe đúng cả hai bên:
+Thay bằng f-string — đã probe đúng:
 
 ```tokenvector
-f"{a:02x}"         # -> "41"      DUNG tren ca hai compiler
+f"{a:02x}"         # -> "41"      DUNG
 f"{a:05d}"         # -> "00065"   DUNG tren ca hai compiler
 ```
 

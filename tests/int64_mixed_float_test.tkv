@@ -8,9 +8,8 @@ BINOP LONG, bien dich chay lai `compile_binop` noi nen khong co `conv.r8`:
 ket qua `int64` bi day thang vao tham so `float64` cua `mul`/`add`.
 
 Dung THAM SO kieu `"i64"` de tao bien i64. KHONG dung khai bao local
-`i: "i64" = 3`: phep do CHI compiler TokenVector chap nhan, `tkvc.exe`
-(phia Python) bao loi - nen test se chi chay duoc tren mot compiler va
-khong con la hoi quy dung cho ca hai. Tham so co kieu chay duoc ca hai.
+`i: "i64" = 3`: phep do CHI compiler TokenVector chap nhan - nen test se
+chi chay duoc tren mot compiler. Tham so co kieu chay duoc moi noi.
 
 Ket qua DO SAI truoc khi sua (i = 3):
 

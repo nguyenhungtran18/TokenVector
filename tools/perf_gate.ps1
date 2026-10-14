@@ -1,9 +1,9 @@
 # Gate HIEU NANG (2026-10-13).
 #
 # Ly do ton tai: lan sua `compile_binop` (chon khuon toi uu cho phep so
-# nguyen) lam `f32mm` TUOT 10% MA GATE KHONG BAT - vi ca testkit_gate,
-# dang_ky_gate, ext_smoke deu chi kiem tra TINH DUNG, khong ai do THOI
-# GIAN. Day la "lai khong co dong ho".
+# nguyen) lam `f32mm` TUOT 10% MA GATE KHONG BAT - vi ca testkit_gate va
+# dang_ky_gate deu chi kiem tra TINH DUNG, khong ai do THOI GIAN. Day la
+# "lai khong co dong ho".
 #
 # NGUYEN TAC:
 #   1. KHONG so voi CPython/NumPy. Do da doi chieu roi va o repo khac.

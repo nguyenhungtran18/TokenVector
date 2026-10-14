@@ -53,10 +53,6 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 > 132 file **thật sự là TokenVector**. `dist\tkvc-tv.exe` do `tools\vong.exe`
 > sinh ra: nó gộp các file đó rồi biên dịch **hai lần**, và hai bản IL phải
 > giống hệt nhau byte-for-byte (`IL_IDENTICAL`). Đó mới là "self-hosted".
->
-> Submodule `compiler_py/` chứa một compiler bootstrap **Python** cũ. **Nó đã
-> nằm ngoài phạm vi từ 2026-10-14** — đừng sửa, đừng build lại, đừng viết gate
-> nào phụ thuộc nó. Không cổng nào trong repo này cần tới nó.
 
 > **Đừng tin claim nào không có cổng kiểm.** Số benchmark trong
 > `docs/ROADMAP.md` là số đo có ngày; đối chiếu với CPython/NumPy nằm ở repo
@@ -190,9 +186,6 @@ tools\vong.exe     # gộp compiler_bootstrap\ rồi biên dịch hai lần
 Sau khi sửa bất cứ thứ gì dưới `compiler_bootstrap/`, chạy `tools\vong.exe`
 cho tới khi in `IL_IDENTICAL` (`IL KHAC NHAU` nghĩa là compiler đã tự nâng cấp
 — chạy lại là đúng), rồi `tools\testkit_gate.ps1`.
-
-Compiler bootstrap Python cũ (`compiler_py/`, `tkvc.exe`) **nằm ngoài phạm vi** —
-xem mục 1.
 
 ---
 

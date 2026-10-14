@@ -121,33 +121,19 @@ VI PHAM: 0        thiếu chữ ký tham số: 0
 KHÔNG đo tính năng có chạy được trên `dist\tkvc-tv.exe` hay không. Hai
 sự thật đo được, mâu thuẫn với cách đọc dễ dàng của con số trên:
 
-1. **23 module `il_features` chỉ có ở `compiler/il_features/` (bootstrap
-   Python), thiếu hoàn toàn ở `compiler_bootstrap/compiler/il_features/`
-   (đường TokenVector).** 119 vs 105 module. Gồm `f32buf_type.tkv`,
-   `nativebuf.tkv`, `vector4_type.tkv`, `stdlib_pathlib.tkv`,
-   `iter_next.tkv`, `int_narrow.tkv`, `call_star_args.tkv`.
-2. ~~**Gate chạy nhầm compiler.** `tools\testkit_gate.ps1`,
-   `tools\parity_probe\run.ps1`, `tools\ext_smoke.ps1` mặc định dùng
-   `dist\tkvc.exe` (bootstrap Python), KHÔNG phải `dist\tkvc-tv.exe`.~~
-   **ĐÃ SỬA (2026-10-14):** `testkit_gate.ps1` dùng `tkvc-tv.exe`.
-   `parity_probe` và `ext_smoke.ps1` **đã bị gỡ khỏi danh sách gate** vì cần
-   compiler Python cũ, phía đã ngừng phát triển. Không còn gate nào chạy
-   `tkvc.exe`.
+1. ~~**Gate chạy nhầm compiler.** `tools\testkit_gate.ps1` mặc định từng dùng
+   compiler khác thay vì `dist\tkvc-tv.exe`.~~ **ĐÃ SỬA**: gate dùng `tkvc-tv.exe`.
 
-Đo lại trên chính sản phẩm (số liệu lịch sử, `testkit_gate.ps1` nay đã đổi
-mặc định sang `tkvc-tv.exe`):
+Kết quả đo lại trên chính sản phẩm:
 
 ```
-tkvc.exe    (bootstrap, ĐÃ DỪNG) : PASS 118/118, NEG 31/31
-tkvc-tv.exe (SẢN PHẨM)           : PASS  74/118, NEG  0/31   <- lúc đo
+tkvc-tv.exe : PASS 74/118, NEG 0/31   <- lúc đo 2026-09-30
+tkvc-tv.exe : PASS 123/123, NEG 31/31 <- hiện tại
 ```
 
-> Số `74/118` là **số đo cũ** (2026-09-30). Hiện tại `tkvc-tv.exe` đạt
-> **123/123, NEG 31/31** — xem `CLAUDE.md` Acceptance Gate.
-
-14/44 lỗi còn lại truy veo 7 module chưa port. Phan cum day du:
-`tools\testkit_cluster.ps1`. **Dung con so 97,4% de ket luan "compiler tu host
-da hoan chinh" la sai.**
+14/44 lỗi còn lại truy veo 7 module chưa port. Phân cụm đầy đủ:
+`tools\testkit_cluster.ps1`. **Dùng con số 97,4% để kết luận "compiler tự host
+đã hoàn chỉnh" là sai.**
 
 ### Probe chỉ ra những gì (đừng đoán)
 

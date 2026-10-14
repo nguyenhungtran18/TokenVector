@@ -1,98 +1,117 @@
-> **COMPILER THẬT LÀ GÌ (đã cập nhật 2026-10-14).**
-> Nguồn compiler là **`compiler_bootstrap/`** — **132 file TokenVector thật**.
-> `dist/tkvc-tv.exe` do `tools\vong.exe` sinh ra: nó gộp 132 file đó thành một
-> nguồn rồi biên dịch **hai lần**; hai bản `.il` phải giống hệt nhau byte-for-byte
-> (`IL_IDENTICAL`) — đó là ý nghĩa chính xác của "self-hosted". Không CPython nào
-> tham gia.
->
-> Submodule `compiler_py/` (compiler bootstrap **Python**, 126 file `.tkv` *có nội dung
-> là Python*, đóng băng bằng PyInstaller thành `dist/tkvc.exe`) đã **ngừng phát
-> triển từ 2026-10-14**. Không sửa, không build lại, không gate nào phụ thuộc nó.
-> Phần còn lại của tài liệu này mô tả **nơi lưu trữ file** và vẫn đúng, nhưng các
-> tên `tkvc.exe` / `compiler/` bên dưới là **tên của phía Python đã ngừng** —
-> hãy đọc tương ứng với `compiler_bootstrap/` + `tkvc-tv.exe`.
+# TOKENVECTOR ARCHITECTURE
+### (Kiến trúc hệ thống TokenVector)
 
-# TOKENVECTOR SYSTEM FILE & LIBRARY REGISTRY
-### (Danh Sách Toàn Bộ Tệp Hệ Thống & Thư Viện Native TokenVector Trong Bản Phát Hành Release)
+> **Có đúng MỘT compiler, và nó viết bằng TokenVector.** Nguồn là
+> `compiler_bootstrap/` — **133 file `.tkv` thật**, liệt kê đúng trong
+> `compiler_src/ds_gop.txt`. Không có CPython ở bất kỳ bước nào.
 
-Tài liệu liệt kê và phân loại chính thức toàn bộ **364 tệp** (đếm trực tiếp, gồm cả `.exe`/`.il` build sẵn) nằm trong bộ phát hành thương mại ``. Riêng phần **thư viện chức năng thật của `tkvc.exe`** (mã nguồn compiler, không tính chương trình mẫu/test) chỉ gồm **82 file `.tkv`** — xem mục 2-3 bên dưới, đã xác minh bằng phân tích reachability từ `tkv.tkv` (2026-08-10).
+Tài liệu này mô tả **nơi lưu trữ file** và **vai trò từng nhóm**. Số liệu đếm
+trực tiếp từ cây nguồn, không suy đoán.
 
 ---
 
-## 1. THÀNH PHẦN THỰC THI NÒNG NỐT (CORE SYSTEM EXECUTABLE)
+## 0. VÒNG LẶP TỰ BIÊN DỊCH (đây là "self-hosted")
 
-- `dist/tkvc.exe`: File thực thi độc lập chính thức của Trình biên dịch & Bộ biên dịch AOT Native TokenVector.
+`tools/vong.tkv` (đóng gói thành `tools/vong.exe`) làm đúng 4 việc:
 
----
+1. Gộp **133 file** theo `compiler_src/ds_gop.txt` thành một nguồn ≈ 2,9 MB.
+2. `dist/tkvc-tv.exe` biên dịch nguồn đó → `g1.il` ≈ 13 MB.
+3. **`g1.exe`** biên dịch lại **chính nó** → `g2.il`.
+4. In `IL_IDENTICAL` nếu hai bản `.il` giống hệt nhau byte-for-byte.
 
-## 2. NHÂN TRÌNH BIÊN DỊCH NATIVE (COMPILER CORE SYSTEM - `.tkv`)
+Nếu in `IL KHAC NHAU` thì compiler **đã tự nâng cấp chính nó** — đó là tiến hoá
+bình thường, chạy lại một vòng nữa là đúng. Một vòng mất 5–7 phút.
 
-- `tkv_compile.tkv`: Trình biên dịch dòng lệnh chính phân tích AST, quản lý module cây phụ thuộc và phát sinh CIL PE Binary.
-- `tkv.tkv`: Điểm vào dòng lệnh CLI (`tkv` / `tkvc`).
-- `tokenvector_compile.tkv`: Module gọi Assembler ILASM dịch file `.il` thành file `.exe` / `.dll`.
-- `build_tkvc.ps1`: Tập lệnh đóng gói trình biên dịch TokenVector.
-
----
-
-## 3. BỘ MÁY TÍNH NĂNG NỘI HÀM CIL (`compiler/`)
-
-- `compiler/il_codegen.tkv`: Trình sinh mã CIL chính quản lý hàm, record/class, closure, scope và main method.
-- `compiler/il_core.tkv`: Nhân phân tích biểu thức (Expr Parser) và phát sinh mã lệnh CIL cơ bản.
-- `compiler/il_dispatch.tkv`: Hệ thống Dispatch Table (`register_expr_builtin`, `register_stmt_codegen`).
-- `compiler/typed_dsl_parser.tkv`: Trình phân tích kiểu DSL (`i32`, `i64`, `f32`, `f64`, `str`, `TypeAnn`).
-- `compiler/il_features/control_flow.tkv`: Xử lý `if/elif/else`, `for range`, `while`, `break`, `continue`, `try/except/finally`.
-- `compiler/il_features/int_type.tkv`: Struct `TkvInt` xử lý số nguyên vô hạn (BigInteger).
-- `compiler/il_features/string_feature.tkv`: Xử lý chuỗi ký tự UTF-8, phép nối, cắt chuỗi và `TkvStr`.
-- `compiler/il_features/list_type.tkv`: Danh sách động `List<T>` và `List<object>`.
-- `compiler/il_features/dict_type.tkv`: Bảng băm `Dictionary<K,V>`.
-- `compiler/il_features/set_type.tkv`: Tập hợp `HashSet<T>`.
-- `compiler/il_features/tuple_type.tkv`: Bộ dữ liệu bất biến Tuple.
-- `compiler/il_features/record_feature.tkv`: Lớp/Record OOP, đơn kế thừa và đa kế thừa lớp.
-- `compiler/il_features/generator_lazy.tkv`: Sinh mã State Machine CIL cho Generator `yield` và `yield from`.
-- `compiler/il_features/async_await.tkv`: Ánh xạ `async def` / `await` sang `.NET Task<T>`.
-- `compiler/il_features/threading_feature.tkv`: Hỗ trợ đa luồng thật `thread_spawn` / `thread_join` không GIL.
-- `compiler/il_features/ffi_feature.tkv`: Hỗ trợ `ctypes` & P/Invoke binding C native functions.
-- `compiler/il_features/dynamic_exec.tkv`: Hỗ trợ `eval_code()` và `exec_code()` thực thi mã động tại runtime.
-- `compiler/il_features/stdlib_bcl.tkv`: Mở rộng PyStdlib sang .NET BCL (`re`, `datetime`, `random`).
-- `compiler/il_features/pycapi_shim.tkv`: Shim tương thích CPython C-API (`PyTuple`, `PyDict`).
-- `compiler/il_features/closures.tkv`: Xử lý biến tự do (Closure & Nonlocal capture).
+Mỗi thay đổi `compiler_bootstrap/` cần **một thay đổi compiler**, tức khoảng
+12–20 phút tính cả các vòng tiến hoá.
 
 ---
 
-## 4. VÍ DỤ THƯ VIỆN TIỆN ÍCH (`examples/stdlib/`)
+## 1. SẢN PHẨM
 
-Đúng **2 file** (đã xác minh trực tiếp — KHÔNG có `sys.tkv`/`datetime.tkv`/`re.tkv`/`os.tkv` như phiên bản tài liệu trước đây ghi nhầm; các hàm `re`/`datetime`/`os` khác đã có sẵn dạng builtin toàn cục trong compiler, không cần file riêng):
-
-- `examples/stdlib/math.tkv`: Ví dụ thư viện toán học Native (`sqrt`, `pow`, `abs`).
-- `examples/stdlib/pystdlib.tkv`: Ví dụ thư viện cầu nối BCL (`tkv_re_replace`, `tkv_now`, `tkv_randint`).
-
----
-
-## 5. CHƯƠNG TRÌNH MẪU & CÔNG CỤ (`projects/`)
-
-**15 công cụ thật** dùng làm case-study (đã build sẵn `.exe`, biên dịch lại thành công từ nguồn `.tkv` — xác minh 2026-08-10): `codestat.tkv`, `ctxpack.tkv`, `defmeta.tkv`, `domain.tkv`, `graphreview.tkv`, `graphstale.tkv`, `impact.tkv`, `impgraph.tkv`, `layers.tkv`, `mergedefs.tkv`, `mergemeta.tkv`, `nodemeta.tkv`, `pytok.tkv`, `tkvcalc.tkv`, `tkvcalc_ast.tkv`, `tour.tkv`, `typegraph.tkv`, `whylink.tkv`, và `tkv_transpiler.tkv` (trình chuyển đổi mã hai chiều `.py`↔`.tkv`).
-
-Lưu ý: đây là **chương trình mẫu do `tkvc.exe` biên dịch**, KHÔNG phải mã nguồn của chính `tkvc.exe` — xem mục 2-3 để biết đâu là thư viện chức năng thật.
+- `dist/tkvc-tv.exe`: compiler TokenVector tự biên dịch. CLI **positional**, không
+  subcommand, không flag:
+  ```
+  tkvc-tv.exe <nguon.tkv> <ra.exe> <ham_diem_vao>
+  ```
 
 ---
 
-## 6. TÀI LIỆU & BÁO CÁO GIAO DIỆN (`assets/` & `docs/`)
+## 2. LÕI BIÊN DỊCH (`compiler_bootstrap/compiler/`, 13 file)
 
-- `assets/benchmark_results.html`: Báo cáo so sánh hiệu năng giao diện HTML interactive.
-- `docs/TUTORIAL.md`: Sách hướng dẫn lập trình TokenVector (Unit I - Unit V, một số bài trong mục lục chưa có nội dung — xem ghi chú đầu file đó).
-- `README.md`: Hướng dẫn vận hành nhanh bản phát hành.
+| File | Vai trò |
+|---|---|
+| `il_codegen.tkv` | Trình sinh CIL chính: hàm, record/class, closure, scope, `.locals`, `main` |
+| `il_core.tkv` | Hạt nhân biểu thức + phát lệnh CIL cơ bản |
+| `il_dispatch.tkv` | Bảng đăng ký (`register_expr_builtin`, `register_stmt_codegen`, `Ctx`) |
+| `il_extern_dtype.tkv` | Kiểu extern / khai báo assembly ngoài |
+| `typed_dsl_parser.tkv` | Parser kiểu DSL (`i32`, `f64`, `str`, `TypeAnn`) |
+| `expr_row.tkv` | Arena **node biểu thức** (`mk2`/`mk3`/`mk4`, `KHUON`) |
+| `expr_layout.tkv` | Bảng bố cục trường của từng kind node |
+| `stmt_row.tkv` | Arena **row câu lệnh** (`intern`, `dat_nut`, `items_nut`) |
+| `ast_row.tkv`, `ast_walk.tkv` | Dựng & duyệt cây AST |
+| `tkv_types.tkv` | `TypeAnn`, `Scope`, `Binding` — mô hình phân giải tên |
+| `record_owner.tkv` | Quan hệ sở hữu record/method |
+| `bootstrap_all.tkv` | Thứ tự đăng ký — **một phần của hành vi** |
+
+### Parser (`compiler_bootstrap/compiler/tkv_parser/`, 4 file)
+
+`tkv_lexer.tkv` → `tkv_ast.tkv` → `tkv_expr.tkv` → `tkv_parser.tkv`.
 
 ---
 
-## 7. BỘ KIỂM THỬ NGIỆM THU NATIVE (`test/verify/`)
+## 3. MÁY TÍNH NĂNG (`compiler_bootstrap/compiler/il_features/`, 113 file)
 
-Gồm **174 tệp `.tkv`** (đếm trực tiếp 2026-08-10, không phải 160 như phiên bản trước) — nhưng **KHÔNG tự chạy được nếu chỉ tải riêng `` về**: bộ test này cần ~115 file mẫu `sample_*.tkv` và `test/parity/arbiter.py` nằm ở gốc repo (`test/`), hiện chưa được đóng gói kèm theo. Xem `docs/BUGS_TODO.md` mục F để biết chi tiết. Bộ test tiêu biểu:
-- `ledger_test.tkv`: Bộ kiểm thử nghiệm thu tổng (0 open entries, PASS 100%).
-- `async_await_test.tkv`: Kiểm thử bất đồng bộ native.
-- `generator_test.tkv` & `yield_from_test.tkv`: Kiểm thử Generator state machine.
-- `site_packages_import_test.tkv` & `pkg_installer_test.tkv`: Kiểm thử import package.
-- `multiple_inheritance_test.tkv`: Kiểm thử đa kế thừa lớp.
-- `ctypes_ffi_bridge_test.tkv`: Kiểm thử C-Extension P/Invoke FFI.
-- `dotnet_assembly_import_test.tkv`: Kiểm thử liên kết Assembly .NET.
-- `reflection_emit_repl_test.tkv`: Kiểm thử thực thi mã động `eval_code`/`exec_code`.
-- `_file_io_helpers.tkv`, `_json_helpers.tkv`, `_repeat_helpers.tkv`, `_re_helpers.tkv`: Thư viện helper nghiệm thu.
+Đăng ký qua `il_dispatch`; thứ tự trong `bootstrap_all.tkv` **là một phần của hành
+vi**. Các nhóm chính:
+
+| File | Vai trò |
+|---|---|
+| `control_flow.tkv` | `if/while/for/break/continue/try`, LICM, auto-vectorizer P6 |
+| `list_type.tkv`, `dict_type.tkv`, `set_type.tkv` | `List<T>` / `Dictionary<K,V>` / `HashSet<T>` |
+| `tuple_type.tkv`, `record_feature.tkv` | Tuple bất biến; lớp/record, kế thừa |
+| `string_feature.tkv`, `string_builtin.tkv`, `string_methods_batch*.tkv` | Chuỗi UTF-8, `TkvStr`, `.split/.join/.replace/...` |
+| `int_type.tkv`, `int_narrow.tkv`, `int_builtin.tkv` | `TkvInt`, thu hẹp i64→i32, hàm `int()` |
+| `comprehension.tkv` | `[...]`, `{...}`, `{k: v ...}` |
+| `generator_lazy.tkv`, `generator_feature.tkv` | State machine CIL cho `yield` |
+| `closures.tkv`, `multi_assign.tkv`, `metaprogramming.tkv` | Biến tự do, `nonlocal`, `eval/exec` |
+| `simd_feature.tkv`, `vector_block.tkv`, `vector4_type.tkv` | SIMD thủ công: `f32x4`, `VBuf8` |
+| `f32buf_type.tkv`, `nativebuf.tkv` | Bộ đệm native, `read_f32`/`write_f32` |
+| `stdlib_*.tkv` | `re`, `datetime`, `json`, `math`, `os`, `pathlib`, `sqlite`, `http`, `zip` |
+| `threading_feature.tkv`, `ffi_feature.tkv` | `thread_spawn`/`join`; P/Invoke, FFI C |
+| `iter_next.tkv` | `iter()` / `next()` |
+
+> Trước khi tạo file mới trong `il_features/`, kiểm tra file đó **chưa tồn tại** —
+> đã từng vô tình ghi đè một module đang sống và làm hỏng toàn bộ compiler.
+
+---
+
+## 4. THƯ VIỆN & CÔNG CỤ
+
+- `examples/stdlib/` — đúng **2 file**: `math.tkv`, `pystdlib.tkv` (các hàm `re`
+  / `datetime` / `os` còn lại đã là builtin toàn cục trong compiler).
+- `projects/` — **19 công cụ** viết bằng `.tkv` (codestat, graphreview,
+  tkv_transpiler, ...).
+- `tools/` — các cổng kiểm + `tkv_guide.tkv` (tool hỏi đáp ngôn ngữ, viết
+  bằng TokenVector) + `vong.tkv` (vòng tự biên dịch) + `perf/` (4 kernel).
+
+---
+
+## 5. BỘ KIỂM THỬ (`tests/`)
+
+**123 test nghiệm thu** (`*_test.tkv`) + **31 negative case** + `tkv_test_lib.tkv`.
+Chạy bằng `tools\testkit_gate.ps1`. Bổ sung: `tests_suite/` — 154 case `.ca` +
+203 mẫu vào, chạy bằng `chay.tkv`.
+
+---
+
+## 6. TÀI LIỆU
+
+- `docs/REFERENCE.md` — **nguồn tham chiếu duy nhất**: cú pháp + hành vi + sai
+  khác so với Python cho từng builtin.
+- `docs/HANDBOOK.md` / `.vi.md` — định hướng + các ràng buộc hay cắn người viết.
+- `docs/TUTORIAL.md` — sách hướng dẫn lập trình.
+- `docs/PLAN.md` — danh sách thiếu sót, xếp hạng theo độ khó.
+- `docs/TOKENVECTOR-PURITY.md` — mức độ thuần TokenVector của compiler.
+- `docs/e_handoff/` — bàn giao từng phiên.
+- `docs/llms.txt` — tóm tắt máy-đọc được.

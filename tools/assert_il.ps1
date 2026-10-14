@@ -45,17 +45,16 @@ param(
     [string[]]$Forbid = @(),
     [string[]]$ExpectCount = @(),
     [string]$WorkDir = $env:TEMP,
-    # 2026-10-12: trước đây hardcode 'D:\TokenVector\dist\tkvc.exe' - đường
-      # dẫn tuyệt đối chết ngay khi copy repo đi chỗ khác, VÀ trỏ vào compiler
-      # Python bootstrap. Mặc định giờ là compiler TỰ-HOST, đường dẫn tương
-      # đối so với thư mục script (nên `..\..\dist\tkvc-tv.exe`).
+    # 2026-10-12: trước đây hardcode một đường dẫn tuyệt đối - đường dẫn chết
+      # ngay khi copy repo đi chỗ khác. Mặc định giờ là compiler TỰ-HOST,
+      # đường dẫn tương đối so với thư mục script (`..\dist\tkvc-tv.exe`).
       [string]$Compiler = ''
 )
 
 $ErrorActionPreference = 'Stop'
 
 if (-not $Compiler) {
-    # tu phai len 2 cap: tools\ -> <repo>\  (script nam o <repo>\tools\)
+    # tu phai len 1 cap: tools\ -> <repo>\  (script nam o <repo>\tools\)
     $Compiler = Join-Path (Split-Path -Parent $PSScriptRoot) 'dist\tkvc-tv.exe'
 }
 if (-not (Test-Path -LiteralPath $Compiler)) {
@@ -67,35 +66,17 @@ if (-not (Test-Path -LiteralPath $Source)) {
 
 $base = [System.IO.Path]::GetFileNameWithoutExtension($Source)
 $outExe = Join-Path $WorkDir "$base.assertil.exe"
-# Hai compiler viet file .il theo HAI quy uoc KHAC NHAU:
-#   tkvc.exe    (Python) : <out>.il   - noi them, vd `x.assertil.exe.il`
-#   tkvc-tv.exe (tu-host): <out het .exe>.il - THAY duoi, vd `x.assertil.il`
-# Doc sai cho biet `khong co file .il` tren compiler tu-host.
-if ($Compiler -like '*tkvc-tv.exe') {
-    $ilFile = [System.IO.Path]::ChangeExtension($outExe, '.il')
-} else {
-    $ilFile = "$outExe.il"
-}
+# `tkvc-tv.exe` LUON ghi them `<out het .exe>.il` canh ben exe, khong can flag.
+$ilFile = [System.IO.Path]::ChangeExtension($outExe, '.il')
 
 foreach ($f in @($outExe, $ilFile)) {
     if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force }
 }
 
-# --- 1. bien dich voi --emit-il -------------------------------------------
-# Hai CLI khac nhau:
-#   tkvc.exe   (Python bootstrap): build <src> --out <exe> --emit-il [--entry e]
-#   tkvc-tv.exe (TU-HOST)        : <src> <exe> <entry>  - KHONG co subcommand
-#     `build`, KHONG co `--out`, va LUON ghi them `<out>.il` canh ben exe
-#     (khong can --emit-il).
+# --- 1. bien dich (CLI POSITIONAL: <src> <exe> <entry>) ---------------------
 $entry = $Entry
 if (-not $entry) { $entry = 'run' }
-if ($Compiler -like '*tkvc-tv.exe') {
-    & $Compiler $Source $outExe $entry | Out-Null
-} else {
-    $argList = @('build', $Source, '--out', $outExe, '--emit-il')
-    if ($Entry) { $argList += @('--entry', $Entry) }
-    & $Compiler @argList | Out-Null
-}
+& $Compiler $Source $outExe $entry | Out-Null
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $outExe)) {
     throw "tkvc build that bai: $Source"
 }

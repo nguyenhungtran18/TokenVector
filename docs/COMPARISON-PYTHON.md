@@ -1,13 +1,9 @@
 # BẢNG SO SÁNH ĐO ĐẠC: TOKENVECTOR VS CPYTHON 3.12
 
 > **Ngày đo**: 2026-09-30 (đo lần 3) · **Cổng lúc đo**: 103/103 + negative 20/20
-> **Cách đo**: `tools/parity_probe/` — 119 phép thử chạy song song trên cả hai
-> bên, in ra cùng một danh sách nhãn, máy so từng dòng.
->
-> ⚠ **`parity_probe` đã bị gỡ khỏi danh sách gate (2026-10-14)** — nó cần
-> compiler Python cũ (`tkvc.exe`), phía đã ngừng phát triển. Bảng dưới đây là
-> **số đo lịch sử**, không tự chạy lại được từ repo này. Muốn đối chiếu với
-> CPython/NumPy thì làm ở repo `TokenVector.TestOracle`.
+> **Cách đo**: 119 phép thử chạy song song trên cả hai bên, in ra cùng một danh
+> sách nhãn, máy so từng dòng. **Đây là số đo lịch sử** — đối chiếu với
+> CPython/NumPy nay thuộc repo `TokenVector.TestOracle`.
 
 Bản trước của tài liệu này tự ghi "95%+ Parity" và khẳng định hỗ trợ `iter()`,
 `next()`. Cả hai điều đó **không có cơ sở**: `iter`/`next` không hề tồn tại trong
@@ -104,7 +100,7 @@ luôn dùng dạng khoa học. Sửa: chỉ nối `.0` khi **không** có `.` v�
 và hạ chữ `E` cho khớp Python.
 
 Ba lỗi này ghim bằng `tests/parity_div_float_test.tkv` (12 phép) và
-`parity_probe` nhóm 14 (15 phép).
+14 phép thử nữa.
 
 ### 3.3 Vòng ra soát thứ 3 — đo lại toàn bộ, tìm 4 lỗi nữa
 
@@ -397,7 +393,7 @@ Những cái này **từ chối build kèm thông điệp chỉ đường**, nê
    pair. Hẹp hơn nhiều so với cảnh báo sai đã ghi trước đây: **ký tự BMP thì
    hoàn toàn đúng**, kể cả tiếng Việt có dấu.
 2. `str(-0.0)` nội tuyến mất dấu (mục 3.4) — lỗi thật còn sót.
-3. **Mở rộng `parity_probe`**, vì nó mới là thứ đáng tin: 6 lỗi âm thầm đầu tiên
+3. **Mở rộng bộ probe so sánh**, vì nó mới là thứ đáng tin: 6 lỗi âm thầm đầu tiên
    lọt qua Testkit, và bản thân probe cũng từng nuốt 2 phép do nhãn trùng (mục
    3.4). Miền chưa có phép thử nào: `with`, `try` lồng nhau, `datetime`, `Decimal`,
    thứ tự khóa `dict`, `sorted` ổn định, `round` nhiều tham số, số nguyên vượt

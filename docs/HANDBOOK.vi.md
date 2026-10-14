@@ -62,9 +62,6 @@ dist\tkvc-tv.exe demo.tkv demo.exe run
 .\demo.exe
 ```
 
-> `tkvc.exe build <src> --out <exe> --entry <e>` là CLI của compiler **Python cũ**
-> ở submodule `compiler_py/` — **đã nằm ngoài phạm vi từ 2026-10-14**. Đừng dùng.
-
 ---
 
 ## CHƯƠNG 3: CÚ PHÁP LẬP TRÌNH & HỆ THỐNG KIỂU UNBOXED NATIVE

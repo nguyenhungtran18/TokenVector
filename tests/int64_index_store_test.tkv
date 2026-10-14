@@ -19,7 +19,7 @@ chi so lon bi CAT im lang thay v nem loi.
 chi qua duong `int_narrow` - tinh phu thuoc feature con bat. File nay
 dung THAM SO kieu `"i64"` nen bat doc lap voi bat ky trang thai cua
 feature. (KHONG dung khai bao local `k: "i64" = ...`: phep do CHI
-compiler TokenVector chap nhan, `tkvc.exe` bao loi.)
+compiler TokenVector chap nhan.)
 
 CA BAT DUOC LUC CHAY. Cac check gia tri thuong KHONG phan bi duoc loi:
 chi so nho vua khop int32 nen ca ban co loi va ban da sua deu ra CUNG

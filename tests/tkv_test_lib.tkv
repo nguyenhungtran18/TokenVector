@@ -3,7 +3,7 @@
 = "tkv_test_lib"' vao bat ky file test nao (khong copy-paste check()/
 summary moi lan). Muc tieu: cu phap CHUAN, LAP LAI DUOC cho viec test cac
 file .tkv thu vien/engine se viet trong tuong lai - KHONG lien quan viec
-kiem tra ban than compiler tkvc.exe."""
+kiem tra ban than compiler tkvc-tv.exe."""
 
 
 def check(name: "str", got: "str", expected: "str") -> "i32":

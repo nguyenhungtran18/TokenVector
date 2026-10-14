@@ -1,15 +1,12 @@
 ﻿# PLAN: TokenVector Tu-Host Day Du (118/118 + NEG 31/31)
 
-> ⚠ **TÀI LIỆU LỊCH SỬ (2026-10-14).** File này ghi lại kế hoạch đã **xong**.
-> Hai dòng bên dưới đã lỗi thời: (1) số test nay là **123/123**, (2) `parity_probe`
-> và `ext_smoke` **đã bị gỡ khỏi danh sách gate** vì cần compiler Python cũ
-> (`compiler_py/`) — phía đã ngừng phát triển. Nguồn sự thật hiện tại là
-> `CLAUDE.md` và `docs/e_handoff/BAN_GIAO_2026-10-14-PERF-CHECKSUM-V8.md`.
+> ⚠ **TÀI LIỆU LỊCH SỬ.** File này ghi lại kế hoạch đã **xong**. Số test hiện
+> tại là **123/123** (xem `CLAUDE.md` Acceptance Gate).
 
 **Ngay bat dau**: 08/10/2026
 **Cap nhat cuoi**: 11/10/2026 (phien 8, luc 23h)
-**Trang thai**: **GATE PASS (118/118)**, BUILDFAIL=0, TESTFAIL=0, OTHER=0, TIMEOUT=0, ILFAIL=0, **NEG 31/31**, `vong` **IL_IDENTICAL** (132 file).
-Gate khac (luc do): parity **119/119**, dang_ky **PASS** (0 violation), lint **8/8**, ext_smoke **4/4**.
+**Trang thai**: **GATE PASS (118/118)**, BUILDFAIL=0, TESTFAIL=0, OTHER=0, TIMEOUT=0, ILFAIL=0, **NEG 31/31**, `vong` **IL_IDENTICAL**.
+Gate khac (luc do): dang_ky **PASS** (0 violation), lint **8/8**.
 
 > **File nay da duoc VIET LAI ngay 11/10/2026.** Ban cu bi double-encode
 > (UTF-8 -> CP1252 -> UTF-8) tu mot lan `Set-Content -Encoding UTF8` o phien
@@ -109,8 +106,7 @@ phai ep - .NET generic bat bien, truyen thang bien dich xong roi hong luc chay.
 - [x] **Bootstrap bang STUB khi compiler hien tai khong compile duoc module
   moi**: ghi module that thanh stub tra ve nguyen tham so, chay `vong` (g1/g2
   ra IL_IDENTICAL, `dist` = compiler goc), khoi phuc module that, chay `vong`
-  lai. Khong dung `dist\tkvc.exe` (Python bootstrap) - no khong ho tro
-  module-level container (`global` chi cho scalar).
+  lai.
 - [x] `vong.exe` bao LOI o `g1` vs `g2` la 2 trang thai khac nhau: loi o `g1`
   = `dist` hong; loi o `g2` = compiler vua sua co bug. Doc dung `.log`.
 - [x] Doc `expr_layout.tkv` truoc khi dung `ea_*` tren 1 node - layout quyet
@@ -148,10 +144,8 @@ phai ep - .NET generic bat bien, truyen thang bien dich xong roi hong luc chay.
 - **Phase 5**:
   - [x] `testkit_gate.ps1`: **GATE: PASS (118/118, NEG 31/31)**
   - [x] `vong.exe`: IL_IDENTICAL on dinh
-  - [x] `parity_probe/run.ps1`: 119/119 khop CPython
   - [x] `dang_ky_gate.tkv`: 0 violation
   - [x] `lint_rules_gate.ps1`: 8/8
-  - [x] `ext_smoke.ps1`: 4/4
   - [x] `docs/REPOSITORY-NOTES.md` + handoff cuoi
   - [ ] Commit
 

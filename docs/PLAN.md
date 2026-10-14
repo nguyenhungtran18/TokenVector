@@ -149,18 +149,10 @@ mất; **đã sửa** (commit `b1ba163`).
 
 ### Việc nên làm thêm
 
-**XONG (2026-09-29)** — `tools/ext_smoke.ps1` + `tools/ext_smoke_baseline.txt`: build
-4 mục (Inference `inference_tests.tkv`, Data `_libbuild.tkv` + 2 fragment), **không
-chạy**, và so với **ký vọng đã ghi**. Exit khác 0 khi một mục từng `BUILD_OK` rồi
-giờ fail (regression). Mục đang fail vẫn xanh nếu thông điệp khớp baseline — nên
-lần này nó **thành công** chứ không đỏ, vì lý do ở trên là quy tắc **(b) cố ý**, và
-giờ đã biết chính xác mục nào fail vì field nào.
-
 **ĐÃ XỬA (2026-09-30)** — cả 50 field đã gán: Data 31 (`fcdd972`) + Inference 19
-(`609ea31`). Không cần đoán giá trị domain vì mọi field đều là container **rỗng**, và
-`ext_smoke.ps1 -UpdateBaseline` đã cập nhật cả 4 mục sang `BUILD_OK`. Kết quả:
-Data gate **2/2 + 18/18**, Inference **26/26 PASS** — trước đó cả hai repo đều
-**không build được**. Chi tiết cơ chế `__init__` chạy thật xem `SESSION_HANDOFF.md` mục 0.
+(`609ea31`). Mọi field đều là container **rỗng** nên không cần đoán giá trị domain.
+Kết quả: Data gate **2/2 + 18/18**, Inference **26/26 PASS** — trước đó cả hai repo
+đều **không build được**.
 
 ---
 
@@ -377,11 +369,6 @@ powershell -File .\tools\lint_rules_gate.ps1
 
 Bước 1 **không được bỏ** — binary cũ từng che một test suite không build được.
 `IL KHAC NHAU` là bình thường (compiler tự nâng cấp) — chạy lại là đúng.
-
-> **Đã bỏ 2026-10-14** (vì cần compiler Python cũ ở `compiler_py/`, phía đã
-> ngừng): `.\build_tkvc.ps1`, `ext_smoke.ps1`, `bench\run.py`.
-> Đối chiếu CPython/NumPy và build cho repo con nay nằm ở
-> `TokenVector.TestOracle`.
 
 **Quy tắc commit:** mỗi thay đổi commit vào **cả hai** repo (`` và parent),
 ghi rõ `(mirrors  <hash>)` trong message của parent.

@@ -54,10 +54,6 @@ Everything below is checked by a gate in this repository. Numbers are from
 > `tools\vong.exe`, which concatenates those files and compiles them **twice**;
 > the two IL dumps must match byte-for-byte (`IL_IDENTICAL`). That is what
 > "self-hosted" means here.
->
-> The `compiler_py/` submodule holds an older **Python** bootstrap. **It is out
-> of scope since 2026-10-14** — do not modify, rebuild, or depend on it. Nothing
-> in this repository's gate list needs it.
 
 > **Do not trust a claim in this repo that no gate checks.** Benchmarks in
 > `docs/ROADMAP.md` are dated measurements; cross-checks against CPython/NumPy
@@ -188,9 +184,6 @@ tools\vong.exe     # concatenates compiler_bootstrap\ + compiles twice
 After editing anything under `compiler_bootstrap/`, run `tools\vong.exe` until
 it prints `IL_IDENTICAL` (`IL KHAC NHAU` means the compiler upgraded itself —
 just run it again), then `tools\testkit_gate.ps1`.
-
-The old Python bootstrap (`compiler_py/`, `tkvc.exe`) is **out of scope** — see
-§1.
 
 ---
 

@@ -1,6 +1,3 @@
 [submodule "tokenvector-grammar"]
 	path = tokenvector-grammar
 	url = https://github.com/nguyenhungtran18/tokenvector-grammar.git
-[submodule "compiler_py"]
-	path = compiler_py
-	url = ../TokenVector.CompilerPy
