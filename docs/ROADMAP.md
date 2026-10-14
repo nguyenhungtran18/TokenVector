@@ -82,6 +82,16 @@ TokenVector được xây dựng để trở thành hệ sinh thái thống nh�
 1. **Unified Zero-Copy Memory Model:** Toàn bộ 24 thư viện chia sẻ chung con trỏ unmanaged (`NativeMemoryPool`) và cấu trúc cột Apache Arrow. Không có hiện tượng sao chép bộ nhớ khi chuyển giao dữ liệu giữa Data $\to$ CV $\to$ Tensor $\to$ Model $\to$ Robotics $\to$ Astro $\to$ Micro $\to$ UI $\to$ Hardware.
 2. **Native Multi-Threading & No GIL (Hard Real-Time & 120 FPS UI):** Loại bỏ hoàn toàn Global Interpreter Lock. Khai thác 100% tài nguyên CPU đa nhân; đảm bảo vòng lặp điều khiển thời gian thực (1000Hz - 10,000Hz), âm thanh chuyên nghiệp ASIO độ trễ $< 3\text{ms}$ và giao diện người dùng mượt 120 FPS không bị khựng (Zero GC Pause).
 3. **Tập lệnh SIMD Tối đa (AVX2 / AVX-512 / ARM NEON):** Tự động phát hiện và kích hoạt vector hóa trên từng kernel nội suy, biến đổi Fourier, lọc không gian, ma trận động học $SE(3)$, dựng hình vector 2D và tính khoảng cách vector.
+   > **GIỚI HẠN NỀN TẢNG — đo 2026-10-14.** Trên .NET Framework 4.8 (target
+   > hiện tại) **AVX2 / AVX-512 / ARM NEON là bất khả thi**: `System.Numerics.dll`
+   > của runtime chỉ xuất `Vector2/Vector3/Vector4`, **đều là `float`** — không
+   > có `Vector<T>` nên không có `Vector<double>` cũng không có SIMD nguyên; và lệnh
+   > vector thô trong CIL (`add`/`mul` trên struct `Vector4`) bị JIT từ chối
+   > (`InvalidProgramException`). Đo thực tế: NumPy (AVX2+FMA, 4 `double`/lệnh)
+   > nhanh hơn TokenVector **26×** ở matmul32 và `OMP_NUM_THREADS=1` chỉ làm chậm
+   > thêm 5% ⇒ chênh lệch **không** do đa luồng, mà do bề rộng vector.
+   > Mục này chỉ khả thi sau khi **đổi nền tảng đích** sang .NET Core
+   > (`System.Runtime.Intrinsics`). Xem `README.md` §1b và `docs/PLAN.md` §8.
 4. **Compiler-Assisted Operator Fusion:** Trình biên dịch `TokenVector Compiler` tự động phát hiện và gộp các toán tử liên tiếp thành 1 Fused JIT Kernel duy nhất để triệt tiêu việc ghi dữ liệu trung gian ra RAM.
 5. **Single-Binary Native AOT Deployment:** Đóng gói toàn bộ ứng dụng (kèm giao diện đồ họa và driver điều khiển phần cứng) thành 1 tệp nhị phân thực thi độc lập duy nhất (dung lượng < 50MB, cold-start < 10ms, chạy trực tiếp trên Windows, macOS, Linux, iOS, Android, Raspberry Pi, Nvidia Jetson, ESP32, ARM/RISC-V).
 

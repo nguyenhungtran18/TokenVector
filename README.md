@@ -37,17 +37,17 @@ The output is a **~6 KB** `.exe` (hello-world) that runs on any machine with the
 ## 1. Status — verified, not aspirational
 
 Everything below is checked by a gate in this repository. Numbers are from
-2026-10-02.
+2026-10-14.
 
 | Gate | Command | Result |
 |---|---|---|
-| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **123/123** pass, **31/31** negative cases correctly rejected |
+| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **125/125** pass, **31/31** negative cases correctly rejected |
 | Self-host fixpoint | `tools\vong.exe` | **IL_IDENTICAL** (132 files) |
 | Performance | `powershell -File tools\perf_gate.ps1` | 4 kernels, best-of-5, **checksum is compared** |
 | Lint-rule self-test | `powershell -File tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
 | Registration | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 violations |
 
-**Builtins registered: 376.**
+**Builtins registered: 420.**
 
 > **What the compiler actually is.** The compiler source is **`compiler_bootstrap/`**
 > — 132 files that really are TokenVector. `dist\tkvc-tv.exe` is built by
@@ -60,6 +60,57 @@ Everything below is checked by a gate in this repository. Numbers are from
 > live in the `TokenVector.TestOracle` repository, and performance is checked
 > against the compiler's own baseline (`tools/perf/baseline.txt`), never against
 > a pre-built binary.
+
+## 1b. Where TokenVector competes — and where it does not
+
+Measured 2026-10-14 against **CPython 3.14.7** and **NumPy 2.5.2** (OpenBLAS
+0.3.34, Haswell kernel) on an Intel Xeon E5-2695 v3. Reproduce with
+`python D:\TokenVector.TestOracle\benchmark\run.py --self-host`.
+
+**Against CPython, TokenVector wins everywhere:**
+
+| kernel | TokenVector | CPython | TokenVector faster by |
+|---|---|---|---|
+| fib | 11.4 ms | 933 ms | **82×** |
+| sort | 15.7 ms | 1012 ms | **64×** |
+| matmul32 | 147 µs | 8.87 ms | **60×** |
+| add | 1.43 ms | 67.1 ms | **47×** |
+| f32mm_vec | 33 µs | 1.48 ms | **45×** |
+| f32mm | 141 µs | 1.49 ms | **11×** |
+| string | 22.9 ms | 49.7 ms | **2.2×** |
+
+An empty TokenVector `.exe` also starts in **24.8 ms** versus **35.2 ms** for
+`CPython -c pass`.
+
+**Against NumPy, it does not — and it should not pretend otherwise.** NumPy is
+CPython calling **native machine code**, not a managed runtime:
+
+| kernel | TokenVector | NumPy | NumPy faster by |
+|---|---|---|---|
+| add | 1427 µs | 911 µs | **1.6×** |
+| matmul32 | 147 µs | 5.7 µs | **26×** |
+
+That gap is **not** a missing optimization and **not** a threading deficit. An
+`OMP_NUM_THREADS=1` measurement moves `np.dot` on a 32×32 matmul from 5.73 µs to
+only 6.05 µs — OpenBLAS does not split a matrix that small. What remains is
+vector width: AVX2 with FMA processes **4 `double`s per instruction**, while
+this runtime exposes only `Vector4` (128-bit) and raw vector CIL is rejected by
+the JIT (see §2 and `docs/PLAN.md` §8).
+
+Two "cheap" compiler levers were measured and **both died**, so they are not the
+answer either:
+
+- **Strength reduction** of the inner-loop index (`kk*n + j` → induction
+  variable): **1.00×**. The `mul.ovf`/`add.ovf`/`conv.ovf.i4` sequence is
+  essentially free on the JIT.
+- **Native contiguous storage** instead of `List<double>`: **0.63×** — *slower*,
+  because `f32buf` pays a `×4` byte offset plus a bounds check per access.
+
+**So the honest position is: TokenVector is a CPython replacement, not a BLAS
+replacement.** It wins 2–82× over the interpreter it replaces, it has working
+f32 SIMD (4.25× over its own scalar path on `f32mm_vec`), and it cannot reach
+`f64` SIMD on .NET Framework 4.8 at all. Closing that last gap means changing the
+target runtime, not optimizing this one.
 
 ## 2. What TokenVector is *not*
 
