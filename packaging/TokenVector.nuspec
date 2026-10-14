@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
   <metadata>
     <id>TokenVector</id>
-    <version>2026.1.0</version>
+    <version>1.0.10</version>
     <title>TokenVector Compiler Platform</title>
     <authors>Nguyen Hung Tran, TokenVector Compiler Engineering Team</authors>
     <owners>nguyenhungtran18</owners>
@@ -13,7 +13,7 @@
     <readme>README.md</readme>
     <description>TokenVector Compiler Platform - High-performance ahead-of-time (AOT) compiler with Pythonic syntax and native .NET/CIL backend, zero Python runtime dependency, and no-GIL multithreading.</description>
     <summary>TokenVector AOT compiler tool for Pythonic syntax to native PE/CIL executables with full .NET interop.</summary>
-    <releaseNotes>Release 2026.1 - Standalone compiler tkvc.exe with full self-hosted TokenVector libraries and .NET interop support.</releaseNotes>
+    <releaseNotes>Release 1.0.10 - Self-hosted TokenVector AOT compiler (tkvc-tv.exe) with f32x4 Vector4 SIMD, P6 auto-vectorization over f32buf, no CPython dependency.</releaseNotes>
     <copyright>Copyright (c) 2026 Nguyen Hung Tran</copyright>
     <tags>tokenvector compiler python dotnet cil aot no-gil high-performance native roslyn msbuild cli</tags>
     <repository type="git" url="https://github.com/nguyenhungtran18/TokenVector" />
@@ -25,7 +25,10 @@
          copy trung byte cua preview.png; da bo ban copy do (chi giu 1 file)
          va tro nuspec ve day. -->
     <file src="..\assets\preview.png" target="icon.png" />
-    <file src="..\dist\tkvc.exe" target="tools\tkvc.exe" />
+    <file src="..\dist\tkvc-tv.exe" target="tools\tkvc-tv.exe" />
+    <!-- Ban DLL cua chinh compiler (bien dich tu nguon tự-host). Cho .NET project
+         tham chieu nhu thu vien; nguoi dung cu van dung tkvc-tv.exe. -->
+    <file src="..\build\tkvc-tv.dll" target="tools\tkvc-tv.dll" />
     <file src="..\dist\il_features\*.tkv" target="tools\il_features\" />
     <file src="build\**\*" target="build\" />
   </files>
