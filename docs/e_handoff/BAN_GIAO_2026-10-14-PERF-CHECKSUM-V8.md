@@ -168,7 +168,7 @@ Cụ thể:
 
 | việc | ghi chú |
 |---|---|
-| **SIMD thật** (cả `f32x4` lẫn `v_*8`) | `f32x4` phát **method call** `Vector4::op_Addition`; `v_*8` phát **lệnh scalar** từng lane. Cả hai **không phải lệnh vector**. Đường thật sự còn dư: phát `ldind`/`stind` 32 byte liên tục. Việc lớn, chưa bắt đầu |
+| **SIMD thật** (cả `f32x4` lẫn `v_*8`) | **KHÔNG THỰC HIỆN ĐƯỢC trên target này.** `add`/`mul` thô trên struct `Vector4` → JIT từ chối, `InvalidProgramException` (ECMA-335 đòi `add` trên kiểu số). Máy không có .NET Core ⇒ không có `System.Runtime.Intrinsics`. Còn `v_*8` thì **đã** tệ hơn (213 lệnh IL/8 phần tử, 1.08×). Xem `vector4_type.tkv` |
 | **Bỏ bounds check** | Vẫn là phần lớn thời gian `perf_e2e`/`perf_mm`. Chưa động tới |
 | **LICM: mở rộng phạm vi** | `//` cần phân tích chống chia 0; `%` tương tự |
 | **Perf gate nhạy hơn** | Đo được nhiễu máy **10-13%** ngay trong phiên này (3 kernel FAIL đồng loạt rồi 3 lần sau PASS 1-4%). Cân nhắc tăng `-Runs` hoặc lấy trung vị thay vì best-of |
@@ -190,7 +190,16 @@ Tức đường vector hoá đóng góp đúng **một nửa** thời gian kerne
 đo thời gian mà không so checksum thì lần này đã lọt.
 
 **P6 đo lại còn 1.57× so với scalar `list[f32]`** — khớp con số 1.6–2.1× trong
-plan. Nhưng **không phải SIMD thật**: IL là method call `Vector4::op_Addition`.
+plan. Một **sửa sai ở chính handoff này** đã bị đính chính: `call`
+`Vector4::op_Addition` **không phải** method call thật — JIT intrinsify nó. Đo:
+nap+add+ghi mất **8.2 ns ≈ 24 chu kỳ**; managed call thật phải ~40+ chu kỳ. Và P6
+thắng bản scalar 4-lane thủ công **12×**. Cách duy nhất để *không* dùng
+`call` là lệnh IL thô trên struct — mà runtime này **từ chối** (mục 8).
+
+**Mở rộng P6 — broadcast hằng số (2.53×).** P6 trước đây **từ chối** mọi
+hằng số trong vế phải. Nay `newobj Vector4::.ctor(f32 ×4)` broadcast được ⇒
+`r[i] = a[i] * k + b[i]` chạy vector: **3.04 ms → 1.20 ms**. Sửa 2 chỗ:
+`_day_vec4_operand` (vector4_type.tkv) và `_p6_leaf_vec_ok` (control_flow.tkv).
 
 **Hai kết quả phụ đáng ghi:**
 

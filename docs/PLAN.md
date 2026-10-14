@@ -223,14 +223,31 @@ trên. Bằng chứng mạnh nhất: khi đổi thành `r[i] = a[i] * 2.0 + b[i]
 vì có hằng số ⇒ chạy scalar) thì kernel chậm **+103%** (232 → 472 ms), tức
 đường vector hoá đóng góp đúng **một nửa** thời gian.
 
-> **Không phải SIMD thật.** IL là `call System.Numerics.Vector4::op_Addition` —
-> một **method call**, không phải lệnh vector. 1.57× đến từ ít lệnh hơn
-> (6 lệnh / 4 phần tử), không từ SIMD. Cùng lý do `v_*8` chỉ nhanh 1.08×
-> (213 lệnh IL / 8 phần tử so với 39 của scalar — xem handoff 2026-10-14).
+> **Cơ chế thật sự.** IL phát `call System.Numerics.Vector4::op_Addition` —
+> nghe như method call thường, nhưng **JIT intrinsify nó**. Đo: một vòng
+> `nap + op_Addition + ghi` mất **8.2 ns ≈ 24 chu kỳ**; nếu là managed call
+> thật (4 field load + 4 add + 4 store qua con trỏ) thì phải ~40+ chu kỳ. Và
+> P6 thắng bản scalar 4-lane thủ công **12×** (1.14 ms vs 13.7 ms trên cùng
+> `f32buf`).
+>
+> Cách duy nhất để *không* dùng `call` là lệnh IL thô trên struct — điều mà
+> runtime này **từ chối** (mục 8). Nên đây là cách viết SIMD đúng và khả dụng
+> duy nhất trên target hiện tại, không phải là chưa tối ưu.
 
 **Giới hạn chưa ghi ở đâu:** `f32buf` **chỉ là local** — không truyền được qua
 tham số hàm (probe trực tiếp: *"Ky vong dtype, gap 'f32buf'"*). Muốn dùng P6 thì
 vòng phải nằm trong hàm, không tách ra hàm con được.
+
+**Mở rộng 2026-10-14 — broadcast hằng số.** Trước đó P6 **từ chối** mọi hằng số
+trong vế phải (`a[i] * 1.5`), vì `_expr_num` từ chối mọi dtype trừ `f32x4` và
+chưa có intrinsic broadcast. Nay dùng `newobj Vector4::.ctor(f32 ×4)` để
+broadcast ⇒ `r[i] = a[i] * k + b[i]` chạy vector (k là hằng **hoặc** biến `f32`).
+
+| | |
+|---|---|
+| scalar (đường cũ) | 3.04 ms |
+| **vector (có broadcast)** | **1.20 ms** |
+| | **2.53×** |
 
 Chốt phạm vi vẫn là: **chỉ elementwise**. Không đụng giảm tổng (`sum += a[i]`) —
 cái đó đòi hỏi dung sai 1e-5.
@@ -403,4 +420,4 @@ ghi rõ `(mirrors  <hash>)` trong message của parent.
 | `f32x8`/`VBuf8` retire | **Đã đo lại 2026-10-14, xác nhận không phải SIMD**: `v_load8`/`v_store8` vẫn phát `ldind.r4`/`stind.r4` từng lane, **213 lệnh IL / 8 phần tử** so với **39** của native scalar, và nhanh hơn scalar chỉ **1.08x**. Muốn SIMD thật thì phải sửa `vector_block.tkv`. Chi tiết: `docs/e_handoff/BAN_GIAO_2026-10-14-PERF-CHECKSUM-V8.md` |
 | Nâng `i*4` ra khỏi vòng vector | **KHÔNG ĐÁNG LÀM (đo lại 2026-10-14).** `i*4` vẫn bị tính 3 lần trong IL, nhưng thời gian hai kiểu chỉ khác ~4% (1.23 vs 1.18 ms) vì JIT chịu được `TkvInt`. Đóng lại. |
 | Tích hợp SIMD vào `TokenVector.Data` | Handoff ở `Data\SESSION_HANDOFF_SIMD.md`. Chưa làm. |
-| **SIMD thật** (thay `Vector4::op_*`) | `f32x4` phát **method call** `Vector4::op_Addition`, `v_*8` phát **lệnh scalar** từng lane — cả hai đều **không phải lệnh vector**. Muốn SIMD thật thì phát `ldind`/`stind` 32 byte liên tục (hoặc `System.Numerics.Vector<float>` với toán tử thô). Việc lớn, chưa bắt đầu |
+| **SIMD thật** (thay `Vector4::op_*`) | **ĐÃ XÁC NHẬN KHÔNG THỰC HIỆN ĐƯỢC trên target này.** `add`/`mul` thô trên struct `Vector4` bị JIT từ chối: `InvalidProgramException` (ECMA-335 yêu cầu `add` trên kiểu số). Máy không có .NET Core ⇒ không có `System.Runtime.Intrinsics`. Đã thử và ghi kết quả vào `vector4_type.tkv`. |

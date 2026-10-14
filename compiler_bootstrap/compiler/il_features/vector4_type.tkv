@@ -63,6 +63,30 @@ def register_vector4_dtype():
     IL_SCALAR['f32x4'] = VEC4
 
 
+def _day_vec4_operand(node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Day 1 toan hang len stack theo kieu `f32x4` (2026-10-14).
+
+    TOAN HANG VOHUONG (`f32`) duoc BROADCAST thanh `Vector4(x, x, x, x)` bang
+    constructor 4 tham so. Khong co intrinsic `v_set4` nao, nhung
+    `newobj Vector4::.ctor(f32, f32, f32, f32)` thi CO va chay dung (da probe
+    truc tiep bang IL thuan). Day la mo khoa cho P6: xem `_p6_vec_rhs_ok`.
+
+    `compile_expr` luon DAY DUNG MOT gia tri len stack (ke ca khi lenh do la
+    `ldloc` hay `ldc.r4`), nen goi 4 lan de du 4 tham so cho `newobj`.
+    """
+    d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records, ctx.record_methods, None)
+    if d == 'f32x4':
+        ctx.compile_expr(node, scope, out, 'f32x4', ctx)
+        return
+    ctx.compile_expr(node, scope, out, 'f32', ctx)
+    j = 1
+    while j < 4:
+        ctx.compile_expr(node, scope, out, 'f32', ctx)
+        j = j + 1
+    out.append('    newobj instance void ' + VEC4_CLASS
+               + '::.ctor(float32, float32, float32, float32)')
+
+
 def compile_binop_vector4(op: "str", left: "TkvNode", right: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
     """'+'/'-'/'*'/'/' giua 2 gia tri 'f32x4' - goi operator cua BCL.
 
@@ -74,8 +98,8 @@ def compile_binop_vector4(op: "str", left: "TkvNode", right: "TkvNode", scope: "
             "il_codegen: '" + op + "' khong ho tro tren 'f32x4' (chi +,-,*,/ - "
             "khong co % va khong co so sanh kieu vector)")
     method = _VEC4_BINOPS[op]
-    ctx.compile_expr(left, scope, out, 'f32x4', ctx)
-    ctx.compile_expr(right, scope, out, 'f32x4', ctx)
+    _day_vec4_operand(left, scope, out, ctx)
+    _day_vec4_operand(right, scope, out, ctx)
     out.append(f'    call {VEC4} {VEC4_CLASS}::{method}({VEC4}, {VEC4})')
 
 

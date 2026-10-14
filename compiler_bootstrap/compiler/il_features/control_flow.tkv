@@ -1628,12 +1628,43 @@ def _p6_var_is(node: "TkvNode", ten: "str") -> "i32":
     return 1 if ea_str(node) == ten else 0
 
 
-def _p6_vec_rhs_ok(node: "TkvNode") -> "i32":
+def _p6_leaf_vec_ok(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
+    """1 neu la TOAN HANG DON hop le lam ve phai vector.
+
+    Cho phep:
+    - hang so (`1.5`) - se duoc BROADCAST (xem `_day_vec4_operand` ben
+      vector4_type.tkv);
+    - bien kieu `f32` (cung broadcast) hoac `f32x4` (nap truc tiep).
+
+    Tu choi BAT KY lai - ke ca bien kieu khac (`str`, `i32`, record...). Do
+    phep nay sua SO HOC cua code ma khong he nhac toi vector: phep `a[i] > b[i]`
+    tra i32 chu khong phai Vector4 nen se sinh IL sai ma bien dich VAN khong
+    bao loi (xem `_p6_vec_rhs_ok`)."""
+    if not la_node(node):
+        return 0
+    k = ekind(node)
+    if k == 'num':
+        return 1
+    if k == 'var':
+        d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records,
+                            ctx.record_methods, None)
+        if d == 'f32' or d == 'f32x4':
+            return 1
+    return 0
+
+
+def _p6_vec_rhs_ok(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
     """Ve phai (sau khi viet lai) co THE bien dich thanh phep so hoc vector.
 
-    Moi toan tu phai la `+`/`-`/`*`/`/`, va la phai la `v_load4` hoac hang so.
-    Tu choi con lai - `a[i] > b[i]` tra i32 chu khong phai Vector4, nen se sinh
-    IL sai ma bien dich VAN khong bao loi."""
+    Moi toan tu phai la `+`/`-`/`*`/`/`, va la phai la `v_load4` hoac toan
+    hang don hop le (xem `_p6_leaf_vec_ok`). Tu choi con lai -
+    `a[i] > b[i]` tra i32 chu khong phai Vector4, nen se sinh IL sai ma bien
+    dich VAN khong bao loi.
+
+    2026-10-14: truoc day CHI nhan `v_load4`, nen `a[i] * 1.5` bi tu choi
+    (khong co intrinsic de broadcast). Bay co `newobj Vector4::.ctor(f32 x4)`
+    nen hang so va bien `f32` deu hop le - dong hoa `r[i] = a[i] * k + b[i]`.
+    """
     if not la_node(node):
         return 0
     if ekind(node) == 'call' and ea_str(node) == 'v_load4':
@@ -1641,8 +1672,9 @@ def _p6_vec_rhs_ok(node: "TkvNode") -> "i32":
     if ekind(node) == 'binop':
         op = ea_str(node)
         if op == '+' or op == '-' or op == '*' or op == '/':
-            return _p6_vec_rhs_ok(eb_nut(node)) * _p6_vec_rhs_ok(ec_nut(node))
-    return 0
+            return (_p6_vec_rhs_ok(eb_nut(node), scope, ctx)
+                    * _p6_vec_rhs_ok(ec_nut(node), scope, ctx))
+    return _p6_leaf_vec_ok(node, scope, ctx)
 
 
 def _p6_is_f32buf(scope: "Scope", ten: "str") -> "i32":
@@ -1721,12 +1753,13 @@ def _p6_vectorize_while(stmt: "i32", scope: "Scope", body: "list[str]", body_dty
     - than phai DUNG HAI cau lenh: 1 `idx_assign` va 1 phep tang `iv = iv + 1`
     - `r` phai la bien `f32buf`; moi `r[i]` trong ve phai dung CHUNG `iv`
     - ve phai chi gom phep so hoc ma vector ho tro, va MOI LA phai la
-      `v_load4` (xem `_p6_vec_rhs_ok`)
+      `v_load4` hoac toan hang don hop le (xem `_p6_vec_rhs_ok`)
 
-    Vi sao KHONG chap nhan hang so trong ve phai (`a[i] * 1.5`): `_expr_num` tu
-    choi moi dtype tru 'f32x4' (khong co lenh `ldc` nao sinh duoc mot vector), va
-    khai bao intrinsic `v_set4` de broadcast thi CHUA ton tai. Thay vao do,
-    vong lap do chay duong scalar binh thuong - dung, chi la cham hon."""
+    Ve phai co the chua HANG SO va bien `f32` - `a[i] * 1.5 + b[i]` se duoc
+    vector hoa, so 1.5 duoc broadcast thanh `Vector4(1.5, 1.5, 1.5, 1.5)`.
+    (2026-10-14: truoc day phai nay tu choi hang so, ly do la `_expr_num` tu
+    choi moi dtype tru 'f32x4' va CHUA co intrinsic de broadcast. Bay co
+    `newobj Vector4::.ctor(f32 x4)`, xem `_day_vec4_operand`.)"""
 
     if lay_than(stmt, 'else_body'):
         return 0
@@ -1775,7 +1808,7 @@ def _p6_vectorize_while(stmt: "i32", scope: "Scope", body: "list[str]", body_dty
     rewritten = _p6_viet_lai_rhs(lay_nut(idx_st, 'rhs_node'), scope, iv, loads)
     if rewritten is None or len(loads) == 0:
         return 0
-    if _p6_vec_rhs_ok(rewritten) == 0:
+    if _p6_vec_rhs_ok(rewritten, scope, ctx) == 0:
         return 0
     vec_start = sig.name + '_W' + str(n) + '_vstart'
     vec_done = sig.name + '_W' + str(n) + '_vdone'

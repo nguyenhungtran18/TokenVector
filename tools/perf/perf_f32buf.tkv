@@ -6,9 +6,14 @@
 # cua perf_gate cham vao. Tinh hiong giong het truoc khi co perf_gate: mot lan
 # sua `compile_binop` lam `f32mm` tuot 10% ma khong gate nao bat.
 #
-# HINH DANG: `r[i] = a[i] + b[i]` tren 3 f32buf, `while i < n` - DUNG MOT DANG
-# duy nhat ma `_p6_vectorize_while` nhan. Hinh dang khac => compiler chay
+# HINH DANG: `r[i] = a[i] * 1.5 + b[i]` tren 3 f32buf, `while i < n` - DUNG MOT
+# DANG duy nhat ma `_p6_vectorize_while` nhan. Hinh dang khac => compiler chay
 # scalar va kernel nay do nham duong khac (xem `p6_vectorize_test.tkv`).
+#
+# Ve phai CO HANG SO `1.5` (2026-10-14): truoc do P6 tu choi hang so, vong lap
+# chay scalar. Nay hang so duoc broadcast bang `newobj Vector4::.ctor(f32 x4)`.
+# Dung dang `a[i] * 1.5 + b[i]` thay vi `a[i] + b[i]` de vong do phu them ca
+# phep nhan - gate phai can ca duong broadcast, khong chi duong co.
 #
 # `f32buf` CHI LA LOCAL - khong truyen duoc qua tham so ham (probe truc tiep
 # bao "Ky vong dtype, gap 'f32buf'"). Vong lap P6 nam trong ham, khong tach
@@ -30,6 +35,9 @@
 # bi kieu TkvInt (boxed) va `i*4` phai qua `TkvInt::MulSlow`/`ToI64`. Thoi gian
 # hai kieu NHAU (1.23 vs 1.18 ms) - JIT chiu duoc - nhung tham so cho IL sach
 # hon (6 lenh/4 phan tu, khong TkvInt).
+#
+# Do lai 2026-10-14: 1 vong do 1.20 ms. Cung phep tinh chay SCALAR (dung bien
+# `f64` lam P6 tu choi) mat 3.04 ms => vector hoa 2.53x.
 
 def core(n: "i32", reps: "i32") -> "f64":
     a = f32buf(n)
@@ -50,7 +58,7 @@ def core(n: "i32", reps: "i32") -> "f64":
         t0 = time_perf()
         i = 0
         while i < n:
-            r[i] = a[i] + b[i]
+            r[i] = a[i] * 1.5 + b[i]
             i = i + 1
         t1 = time_perf()
         d = (t1 - t0) * 1000.0
