@@ -14,11 +14,15 @@ trỏ tới mục không tồn tại. Bản này viết lại từ đầu theo t
 
 | Cổng | Kết quả |
 |---|---|
-| `tools\testkit_gate.ps1` | **105/105** + **negative 20/20** (timeout 0, ILFAIL 0) — đo 2026-09-30 |
+| `tools\testkit_gate.ps1` | **123/123** + **negative 31/31** (timeout 0, ILFAIL 0) — nguồn sự thật hiện tại |
 | Inference | **26/26** PASS (`tv/tests/inference_tests.tkv`) |
 | Data gate | **PASS (18/18)** |
-| Parity probe CPython | **119/119** khớp, 0 khác — `tools/parity_probe/` |
-| Benchmark | 7 kernel, checksum 7/7 OK (đo lại 2026-09-29) |
+| Parity probe CPython | ~~**119/119**~~ — **đã gỡ khỏi danh sách gate 2026-10-14** (cần compiler Python cũ). Đối chiếu CPython nay ở repo `TokenVector.TestOracle` |
+| Hiệu năng | `tools\perf_gate.ps1` — so với baseline của chính compiler, **có so checksum** |
+
+> Bảng benchmark bên dưới là **số đo lịch sử (2026-09-29)** so với CPython/NumPy.
+> Việc đó đã tách sang repo `TokenVector.TestOracle`; trong repo này chỉ còn
+> `perf_gate` so với chính nó qua thời gian.
 
 Benchmark đo trên máy này (đo lại 2026-09-29, đã trừ startup). **Số cũ trước
 đây đã lỗi thời** — bảng dưới là lần đo mới nhất:
@@ -356,30 +360,28 @@ rồi gỡ bỏ, vì mọi đường tiêu thụ đều bị chặn bởi hạn 
 Chạy trước khi coi bất cứ thay đổi nào là xong:
 
 ```powershell
-# 1. Build lại compiler TỪ CÂY NGUỒN (binary cũ che hồi quy)
-.\\build_tkvc.ps1
+# 1. Fixpoint tu bien dich (binary cu che hoi quy)
+.\tools\vong.exe              # cho toi khi in IL_IDENTICAL
 
-# 2. Testkit — 88 file + 9 negative, timeout 120s/test
-.\\tools\testkit_gate.ps1
+# 2. Testkit — 123 file + 31 negative, timeout 120s/test
+.\tools\testkit_gate.ps1
 
-# 3. Inference
-.\\dist\tkvc.exe build D:\TokenVector.Inference\tv\tests\inference_tests.tkv `
-    --entry main --out $env:TEMP\inf.exe --no-lint
-.\%TEMP%\inf.exe
+# 3. Hieu nang — so voi baseline cua chinh compiler, CO so checksum
+.\tools\perf_gate.ps1
 
-# 4. Data — mất khoảng 5 PHÚT, không tre
-powershell -File D:\TokenVector.Data\tools\datagate.ps1
-
-# 4b. Smoke Inference + Data — CHỈ build, không chạy (mất vài chục giây)
-#     Cổng Testkit chỉ phủ , nên 2 repo kia có thể hỏng mà không ai biết.
-powershell -File .\\tools\ext_smoke.ps1
-
-# 5. Benchmark — tự build kernel từ dist\tkvc.exe
-python .\\bench\run.py
+# 4. Dang ky + lint
+.\dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run
+.\build\dk.exe
+powershell -File .\tools\lint_rules_gate.ps1
 ```
 
 Bước 1 **không được bỏ** — binary cũ từng che một test suite không build được.
-Bước 4 mất ~296 s vì nó build rồi **thực thi** 18 check, không chỉ biên dịch.
+`IL KHAC NHAU` là bình thường (compiler tự nâng cấp) — chạy lại là đúng.
+
+> **Đã bỏ 2026-10-14** (vì cần compiler Python cũ ở `compiler_py/`, phía đã
+> ngừng): `.\build_tkvc.ps1`, `ext_smoke.ps1`, `bench\run.py`.
+> Đối chiếu CPython/NumPy và build cho repo con nay nằm ở
+> `TokenVector.TestOracle`.
 
 **Quy tắc commit:** mỗi thay đổi commit vào **cả hai** repo (`` và parent),
 ghi rõ `(mirrors  <hash>)` trong message của parent.
@@ -393,6 +395,6 @@ ghi rõ `(mirrors  <hash>)` trong message của parent.
 | `tokenvector-grammar` | Working tree bẩn: **xoá** `tokenvector-syntax-1.0.0.vsix` (file đã track) + ~15 file scratch. Cần chọn khôi phục hay chấp nhận xoá. Con trỏ gitlink **không đổi**. |
 | 4 fragment Data | `tokenvector_compute`/`datetime`/`io`/`stats` cần hằng số module. Đã ghi ở `Data\SESSION_HANDOFF.md`. |
 | Xoá repo con `` | Không hoàn tác được. Mọi commit đã có trong parent qua tag `nested-3code-snapshot`. Chờ quyết định. |
-| `f32x8`/`VBuf8` retire | Đã ghi chú là không phải SIMD nhưng chưa gỡ. 8 số rời, không lợi. |
+| `f32x8`/`VBuf8` retire | **Đã đo lại 2026-10-14, xác nhận không phải SIMD**: `v_load8`/`v_store8` vẫn phát `ldind.r4`/`stind.r4` từng lane, **213 lệnh IL / 8 phần tử** so với **39** của native scalar, và nhanh hơn scalar chỉ **1.08x**. Muốn SIMD thật thì phải sửa `vector_block.tkv`. Chi tiết: `docs/e_handoff/BAN_GIAO_2026-10-14-PERF-CHECKSUM-V8.md` |
 | Nâng `i*4` ra khỏi vòng vector | Còn 6/36 lệnh IL do `i*4` bị tính 3 lần. Cần `first_pass_walk` cho `while` chạy cùng logic khớp mẫu ở cả 2 pass — lệch một chút là `InvalidProgramException` **lúc chạy**, không phải lúc build. Đổi lại ~17% trên đường đã nhanh hơn scalar ~4×. Tỷ lệ giá trị/chi phí không tốt; để thành việc riêng. |
 | Tích hợp SIMD vào `TokenVector.Data` | Handoff ở `Data\SESSION_HANDOFF_SIMD.md`. Chưa làm. |

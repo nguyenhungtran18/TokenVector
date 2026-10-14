@@ -622,10 +622,15 @@ vì thông điệp đã `raise`) — cần kiểm lại ánh xạ lỗi.
 | `*` / `**` unpacking tại call site | **Đã có** (`('star'|'star2', ...)`) |
 | `divmod(a, b)` | Tham số phải là **biến**, không nhận literal |
 
-### 5.6 Sai khác giữa bootstrap và `dist/tkvc-tv.exe` (2026-10-05)
+### 5.6 Sai khác giữa `tkvc-tv.exe` và compiler Python cũ (2026-10-05)
 
-Đo bằng probe trực tiếp lên `dist\tkvc-tv.exe`, **không** tin bootstrap.
-`tkvc.exe` (bootstrap Python) chạy được những thứ sản phẩm không có:
+Đo bằng probe trực tiếp lên `dist\tkvc-tv.exe`, **không** tin compiler Python cũ.
+`tkvc.exe` (bootstrap Python, submodule `compiler_py/`) chạy được những thứ sản
+phẩm không có:
+
+> Cột `tkvc.exe` chỉ để **phân biệt**. Phía đó đã **ngừng phát triển từ
+> 2026-10-14** và không còn compiler nào trong repo dùng tới nó. Nếu một tính
+> năng chỉ có ở cột đó thì tính năng đó **không tồn tại** với người dùng.
 
 | Mức độ | Mục | `tkvc.exe` | `tkvc-tv.exe` |
 |---|---|---|---|

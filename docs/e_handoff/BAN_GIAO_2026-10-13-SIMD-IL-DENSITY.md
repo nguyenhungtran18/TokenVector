@@ -251,8 +251,8 @@ và ilasm hiện chỉ của .NET Framework, máy có CoreCLR 8/9 nhưng **khôn
 | việc | ghi chú |
 |---|---|
 | Chẩn đoán/hoàn thành LICM | Bước 1 là việc 5 ở mục 3.4 |
-| `compiler_py` đồng bộ | chưa có thay đổi `compile_binop` mới nhất (`khuon_dt`) và `aggressiveinlining`. Sửa ở repo riêng **rồi chạy `compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build`** |
-| Kernel AXPY vào benchmark | `v_*8` nhanh 2.11x nhưng **không kernel nào đo đường này** nên con số chưa hiện ra bảng |
+| `compiler_py` đồng bộ | ~~chưa có thay đổi `compile_binop` mới nhất~~ **ĐÃ ĐÓNG 2026-10-14: chủ repo dừng phía `compiler_py`.** Đừng làm việc này nữa |
+| Kernel AXPY vào benchmark | ~~`v_*8` nhanh 2.11x~~ **XONG 2026-10-14**: thêm `tools/perf/perf_axpy.tkv`. Nhưng con số 2.11x đã bị đo lại thành **1.08x** — xem mục 1.5 sửa ngay trên |
 | Perf gateway nhạy hơn | dao động ~3-4%; ngưỡng 7% chỉ đủ bắt ≥10%, không bắt được 3-5%. Tăng `-Runs` hoặc khóa CPU nếu cần |
 | Bỏ bounds check (`f32buf`) | theo đo đạc là **96%** thời gian matmul32 — tiềm năng lớn nhất |
 
@@ -263,8 +263,10 @@ và ilasm hiện chỉ của .NET Framework, máy có CoreCLR 8/9 nhưng **khôn
 - **Luôn chạy `tools\vong.exe` sau khi sửa compiler_bootstrap**, và chạy **lại cho tới
   khi `IL_IDENTICAL`**. Gặp `IL KHAC NHAU` là bình thường (đó là **tiến hoá** — vong tự
   nâng cấp `tv2s`); chạy lại một vòng nữa.
-- Cần **`dist\tkvc.exe`** để chạy các gate cần Python; sửa `compiler_py/` thì **phải
-  build lại** bằng `compiler_py\build_tkvc.ps1` — không build thì gate đang đo compiler cũ.
+- ~~Cần **`dist\tkvc.exe`** để chạy các gate cần Python; sửa `compiler_py/` thì **phải
+  build lại** bằng `compiler_py\build_tkvc.ps1` — không build thì gate đang đo compiler cũ.~~
+  **KHÔNG CÒN ĐÚNG (2026-10-14):** `parity_probe` và `ext_smoke` đã bỏ khỏi
+  danh sách gate; `tkvc-tv.exe` là compiler duy nhất.
 - Đổi `compiler_bootstrap/compiler/bootstrap_all.tkv` thì kiểm tra **có thể tạo `__tkv_import__`
   trùng tên** — dùng tên biệt danh (ví dụ `compile_binop_vector4`).
 - Trước khi ghi một file `compiler/il_features/`, kiểm tra **đừng ghi đè module đang sống** —

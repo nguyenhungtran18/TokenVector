@@ -168,12 +168,16 @@ Cụ thể:
 
 | việc | ghi chú |
 |---|---|
-| **`compiler_py` đồng bộ** | Vẫn chưa có `khuon_dt`, `int_narrow`, `aggressiveinlining`, **LICM**, và guard hôm nay. Sửa ở repo riêng **rồi** `compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build`, không build thì gate đo compiler cũ. *Lưu ý: `compiler_py` đang có 1 sửa đổi **chưa commit** (`operators.tkv`, nhánh `%`/`//` nối `widen_if_needed`)* |
 | **SIMD thật cho `v_*8`** | `vector_block.tkv` phát `ldind`/`stind` từng lane. Đổi sang đọc/ghi 32 byte liên tục hoặc `System.Numerics.Vector<float>` — đây mới là đường thật sự còn dư, không phải thêm `aggressiveinlining` |
 | **Bỏ bounds check** | Vẫn là phần lớn thời gian `perf_e2e`/`perf_mm`. Chưa động tới |
 | **LICM: mở rộng phạm vi** | `//` cần phân tích chống chia 0; `%` tương tự |
 | **Perf gate nhạy hơn** | Đo được nhiễu máy **10-13%** ngay trong phiên này (3 kernel FAIL đồng loạt rồi 3 lần sau PASS 1-4%). Cân nhắc tăng `-Runs` hoặc lấy trung vị thay vì best-of |
-| **`vector_block_test` flaky 1 lần** | Xem muc 8 - chua ro nguyen nhan chinh xac |
+| **`vector_block_test` flaky 1 lần** | Xem mục 8 - chưa rõ nguyên nhân chính xác |
+
+> **`compiler_py` KHÔNG còn là việc dở** (2026-10-14, chủ repo đã dừng phía đó).
+> Xem mục "Hai compiler" trong `CLAUDE.md`. Sửa đổi chưa commit trong
+> `compiler_py/compiler/il_features/operators.tkv` được **giữ nguyên**, không
+> đụng tới.
 
 ---
 

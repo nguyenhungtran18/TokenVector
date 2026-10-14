@@ -25,7 +25,7 @@ def run() -> "i32":
 
 ```powershell
 cd D:\TokenVector
-dist\tkvc.exe build demo.tkv --out demo.exe --entry run
+dist\tkvc-tv.exe demo.tkv demo.exe run
 .\demo.exe
 ```
 
@@ -41,35 +41,36 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 
 | Cổng | Lệnh | Kết quả |
 |---|---|---|
-| Nghiệm thu compiler | `powershell -File tools\testkit_gate.ps1` | **117/117** PASS, **31/31** negative bị từ chối đúng |
-| Đối chiếu CPython | `powershell -File tools\parity_probe\run.ps1` | **119/119** khớp output với CPython 3.12 |
-| Extern .NET | `powershell -File tools\ext_smoke.ps1` | **4/4** |
+| Nghiệm thu compiler | `powershell -File tools\testkit_gate.ps1` | **123/123** PASS, **31/31** negative bị từ chối đúng |
+| Fixpoint tự biên dịch | `tools\vong.exe` | **IL_IDENTICAL** (132 file) |
+| Hiệu năng | `powershell -File tools\perf_gate.ps1` | 4 kernel, best-of-5, **có so checksum** |
 | Tự kiểm bộ luật lint | `powershell -File tools\lint_rules_gate.ps1` | Bắt đủ 8 bẫy, 0 báo nhầm |
-| Độ phủ tài liệu | `python tools\gen_builtin_ref.py --check` | **234/234** tên đã đăng ký có mô tả |
-| Hệ sinh thái Data | `D:\TokenVector.Data\tools\datagate.ps1` | **18/18** |
-| Inference | `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` | **26/26** |
+| Đăng ký | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 vi phạm |
 
 **Đã đăng ký 376 builtin.**
 
-> **Compiler thật sự là gì.** `compiler/` và `tkv*.tkv` là 126 file mang
-> tên `.tkv` nhưng **nội dung là Python**, không phải TokenVector - chính
-> `tkv_compile.tkv` nói rõ điệu này trong docstring của nó. `build_tkvc.ps1`
-> chuyển chúng thành Python rồi đóng gói bằng PyInstaller, nên **`tkvc.exe` là
-> công cụ đóng băng CPython**. Mã TokenVector thật trong repo này năm ố
-> `tests/`, `projects/`, `examples/` và `tools/`. Xem `docs/ARCHITECTURE.md`.
+> **Compiler thật sự là gì.** Mã nguồn compiler là **`compiler_bootstrap/`** —
+> 132 file **thật sự là TokenVector**. `dist\tkvc-tv.exe` do `tools\vong.exe`
+> sinh ra: nó gộp các file đó rồi biên dịch **hai lần**, và hai bản IL phải
+> giống hệt nhau byte-for-byte (`IL_IDENTICAL`). Đó mới là "self-hosted".
+>
+> Submodule `compiler_py/` chứa một compiler bootstrap **Python** cũ. **Nó đã
+> nằm ngoài phạm vi từ 2026-10-14** — đừng sửa, đừng build lại, đừng viết gate
+> nào phụ thuộc nó. Không cổng nào trong repo này cần tới nó.
 
 > **Đừng tin claim nào không có cổng kiểm.** Số benchmark trong
-> `docs/ROADMAP.md` là số đo có ngày; hãy tự chạy lại bằng
-> `python bench\run.py`, đừng lấy số từ binary dựng sẵn.
+> `docs/ROADMAP.md` là số đo có ngày; đối chiếu với CPython/NumPy nằm ở repo
+> `TokenVector.TestOracle`, còn hiệu năng thì so với baseline của chính compiler
+> (`tools/perf/baseline.txt`), không bao giờ so với binary dựng sẵn.
 
 ## 2. TokenVector KHÔNG phải là gì
 
 Nó **không** phải CPython có interpreter nhanh hơn. Nó là **transpiler sang
 CIL**:
 
-- **Mã nguồn compiler là `.tkv`**, nhưng `build_tkvc.ps1` chuyển các file đó
-  thành Python rồi đóng gói bằng PyInstaller. Nên *lúc build* `tkvc.exe` có
-  dùng CPython; *lúc chạy* một chương trình `.tkv` thì không.
+- **Mã nguồn compiler là TokenVector**, không phải Python. Dựng
+  `tkvc-tv.exe` không cần CPython; chỉ cần `dist\tkvc-tv.exe` và
+  `tools\vong.exe`.
 - Cú pháp lấy cảm hứng từ Python, **không tương thích** Python. Các giới hạn
   đã biết nằm ở mục 6 và đều được kiểm, không phải giả định.
 
@@ -78,17 +79,18 @@ CIL**:
 | Đường dẫn | Nội dung |
 |---|---|
 ```
-compiler/      compiler — il_codegen.tkv + 119 file il_features/*.tkv
-tkv*.tkv       driver CLI (được chuyển thành Python lúc build)
-tests/         117 test nghiệm thu + 31 negative
-tools/         các cổng kiểm + tkv_guide.tkv (tool hỏi đáp ngôn ngữ)
-projects/      19 công cụ thật viết bằng .tkv
-examples/      chương trình mẫu + stdlib/
-benchmark/     kernel so với CPython/NumPy
-docs/          toàn bộ tài liệu (xem bảng dưới)
-packaging/     nuspec NuGet, MSBuild props/targets, pack.ps1
-assets/        sơ đồ, demo HTML, ảnh xem trước
-dist/, build/  thư mục sinh ra — không commit
+compiler_bootstrap/  compiler — 132 file .tkv (đây là nguồn TokenVector thật)
+compiler_src/        manifest file (ds_gop.txt) dùng để gộp chúng lại
+dist/                tkvc-tv.exe — compiler tự biên dịch
+tests/               123 test nghiệm thu + 31 negative
+tests_suite/         154 case .ca + 203 mẫu vào
+tools/               các cổng kiểm + tkv_guide.tkv (tool hỏi đáp ngôn ngữ)
+projects/            19 công cụ thật viết bằng .tkv
+examples/            chương trình mẫu + stdlib/
+docs/                toàn bộ tài liệu (xem bảng dưới)
+packaging/           nuspec NuGet, MSBuild props/targets, pack.ps1
+assets/              sơ đồ, demo HTML, ảnh xem trước
+build/               thư mục sinh ra — không commit
 ```
 
 | Tài liệu | Nội dung |
@@ -113,11 +115,11 @@ TokenVector** và là nguồn duy nhất cho các quy tắc ngôn ngữ:
 cd D:\TokenVector
 powershell -File tools\build_tkv_guide.ps1
 
-dist\tkv_guide.exe rules              # những ràng buộc thật sự cắn người viết
-dist\tkv_guide.exe find sorted        # cú pháp + khác biệt với Python
-dist\tkv_guide.exe names iter         # builtin đã đăng ký, theo module
-dist\tkv_guide.exe lint my_file.tkv   # bẫy mà compiler bỏ qua khi biên dịch
-dist\tkv_guide.exe verify my_file.tkv # in đúng 2 lệnh build + chạy
+dist\bin\tkv_guide.exe rules              # những ràng buộc thật sự cắn người viết
+dist\bin\tkv_guide.exe find sorted        # cú pháp + khác biệt với Python
+dist\bin\tkv_guide.exe names iter         # builtin đã đăng ký, theo module
+dist\bin\tkv_guide.exe lint my_file.tkv   # bẫy mà compiler bỏ qua khi biên dịch
+dist\bin\tkv_guide.exe verify my_file.tkv # in đúng 2 lệnh build + chạy
 ```
 
 `verify` chỉ **in** hai lệnh đó — TokenVector chưa khuởng được tiến trình khác
@@ -173,21 +175,24 @@ nên tool không tự build được. Hãy chạy cả hai rồi đọc kết qu
   `LoadLibraryA`/`GetProcAddress`.
 - **Đồng thời**: `thread_spawn` / `thread_join` dùng thread pool của .NET, không
   khoá toàn cục.
-- **Import xuyên assembly** được hỗ trợ và được kiểm bởi extern smoke test.
+- **Import xuyên assembly** được hỗ trợ qua `__tkv_extern_class__`.
 
 ## 8. Build lại compiler
 
+Không có gì để build. `dist\tkvc-tv.exe` **được sinh từ nguồn trong chính repo
+này** và được tạo lại bởi vòng tự biên dịch:
+
 ```powershell
-powershell -NoProfile -File .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build
+tools\vong.exe     # gộp compiler_bootstrap\ rồi biên dịch hai lần
+                   # in IL_IDENTICAL khi fixpoint đóng
 ```
 
-Compiler bootstrap Python nằm ở **repo riêng**, được nối vào dưới dạng submodule
-`compiler_py/`. Chạy lệnh trên từ gốc repo để đường dẫn output tương đối rơi
-đúng vào `dist/` và `build/` của repo này.
+Sau khi sửa bất cứ thứ gì dưới `compiler_bootstrap/`, chạy `tools\vong.exe`
+cho tới khi in `IL_IDENTICAL` (`IL KHAC NHAU` nghĩa là compiler đã tự nâng cấp
+— chạy lại là đúng), rồi `tools\testkit_gate.ps1`.
 
-Bên trong submodule đó chỉ cần `compiler/**` cộng `build_tkvc.ps1`. Script sinh
-lại bootstrap để mọi module tính năng thật sự được nạp, và xoá cache PyInstaller —
-thiếu bước đó thì một lần "build thành công" có thể lặng lẽ đóng gói exe cũ.
+Compiler bootstrap Python cũ (`compiler_py/`, `tkvc.exe`) **nằm ngoài phạm vi** —
+xem mục 1.
 
 ---
 

@@ -126,18 +126,24 @@ sự thật đo được, mâu thuẫn với cách đọc dễ dàng của con s
    (đường TokenVector).** 119 vs 105 module. Gồm `f32buf_type.tkv`,
    `nativebuf.tkv`, `vector4_type.tkv`, `stdlib_pathlib.tkv`,
    `iter_next.tkv`, `int_narrow.tkv`, `call_star_args.tkv`.
-2. **Gate chạy nhầm compiler.** `tools\testkit_gate.ps1`,
+2. ~~**Gate chạy nhầm compiler.** `tools\testkit_gate.ps1`,
    `tools\parity_probe\run.ps1`, `tools\ext_smoke.ps1` mặc định dùng
-   `dist\tkvc.exe` (bootstrap Python), KHÔNG phải `dist\tkvc-tv.exe`.
-   Nên 118/118 và 119/119 **không chứng minh điều gì về sản phẩm**.
+   `dist\tkvc.exe` (bootstrap Python), KHÔNG phải `dist\tkvc-tv.exe`.~~
+   **ĐÃ SỬA (2026-10-14):** `testkit_gate.ps1` dùng `tkvc-tv.exe`.
+   `parity_probe` và `ext_smoke.ps1` **đã bị gỡ khỏi danh sách gate** vì cần
+   compiler Python cũ, phía đã ngừng phát triển. Không còn gate nào chạy
+   `tkvc.exe`.
 
-Đo lại trên chính sản phẩm (`testkit_gate.ps1` nay đã đổi mặc định sang
-`tkvc-tv.exe`):
+Đo lại trên chính sản phẩm (số liệu lịch sử, `testkit_gate.ps1` nay đã đổi
+mặc định sang `tkvc-tv.exe`):
 
 ```
-tkvc.exe    (bootstrap) : PASS 118/118, NEG 31/31
-tkvc-tv.exe (SẢN PHẨM)  : PASS  74/118, NEG  0/31
+tkvc.exe    (bootstrap, ĐÃ DỪNG) : PASS 118/118, NEG 31/31
+tkvc-tv.exe (SẢN PHẨM)           : PASS  74/118, NEG  0/31   <- lúc đo
 ```
+
+> Số `74/118` là **số đo cũ** (2026-09-30). Hiện tại `tkvc-tv.exe` đạt
+> **123/123, NEG 31/31** — xem `CLAUDE.md` Acceptance Gate.
 
 14/44 lỗi còn lại truy veo 7 module chưa port. Phan cum day du:
 `tools\testkit_cluster.ps1`. **Dung con so 97,4% de ket luan "compiler tu host

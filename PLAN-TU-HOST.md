@@ -1,9 +1,15 @@
 ﻿# PLAN: TokenVector Tu-Host Day Du (118/118 + NEG 31/31)
 
+> ⚠ **TÀI LIỆU LỊCH SỬ (2026-10-14).** File này ghi lại kế hoạch đã **xong**.
+> Hai dòng bên dưới đã lỗi thời: (1) số test nay là **123/123**, (2) `parity_probe`
+> và `ext_smoke` **đã bị gỡ khỏi danh sách gate** vì cần compiler Python cũ
+> (`compiler_py/`) — phía đã ngừng phát triển. Nguồn sự thật hiện tại là
+> `CLAUDE.md` và `docs/e_handoff/BAN_GIAO_2026-10-14-PERF-CHECKSUM-V8.md`.
+
 **Ngay bat dau**: 08/10/2026
 **Cap nhat cuoi**: 11/10/2026 (phien 8, luc 23h)
 **Trang thai**: **GATE PASS (118/118)**, BUILDFAIL=0, TESTFAIL=0, OTHER=0, TIMEOUT=0, ILFAIL=0, **NEG 31/31**, `vong` **IL_IDENTICAL** (132 file).
-Gate khac: parity **119/119**, dang_ky **PASS** (0 violation), lint **8/8**, ext_smoke **4/4**.
+Gate khac (luc do): parity **119/119**, dang_ky **PASS** (0 violation), lint **8/8**, ext_smoke **4/4**.
 
 > **File nay da duoc VIET LAI ngay 11/10/2026.** Ban cu bi double-encode
 > (UTF-8 -> CP1252 -> UTF-8) tu mot lan `Set-Content -Encoding UTF8` o phien

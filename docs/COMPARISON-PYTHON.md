@@ -3,7 +3,11 @@
 > **Ngày đo**: 2026-09-30 (đo lần 3) · **Cổng lúc đo**: 103/103 + negative 20/20
 > **Cách đo**: `tools/parity_probe/` — 119 phép thử chạy song song trên cả hai
 > bên, in ra cùng một danh sách nhãn, máy so từng dòng.
-> Chạy lại: `powershell -File tools\parity_probe\run.ps1`
+>
+> ⚠ **`parity_probe` đã bị gỡ khỏi danh sách gate (2026-10-14)** — nó cần
+> compiler Python cũ (`tkvc.exe`), phía đã ngừng phát triển. Bảng dưới đây là
+> **số đo lịch sử**, không tự chạy lại được từ repo này. Muốn đối chiếu với
+> CPython/NumPy thì làm ở repo `TokenVector.TestOracle`.
 
 Bản trước của tài liệu này tự ghi "95%+ Parity" và khẳng định hỗ trợ `iter()`,
 `next()`. Cả hai điều đó **không có cơ sở**: `iter`/`next` không hề tồn tại trong

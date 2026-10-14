@@ -17,29 +17,32 @@ nothing else.
 **EN** — TokenVector compiles `.tkv` to .NET CIL and links a standalone PE
 executable.
 
-The compiler itself is **not** written in TokenVector: `compiler/` and
-`tkv*.tkv` are 126 files named `.tkv` whose **content is Python**. It is frozen
-with PyInstaller, so *building* `tkvc.exe` needs CPython while *running* a
-compiled program does not.
+The compiler **is** written in TokenVector: `compiler_bootstrap/` is 132 `.tkv`
+files of real TokenVector source. `dist\tkvc-tv.exe` is built by `tools\vong.exe`,
+which concatenates them and compiles the result **twice**; the two IL dumps must
+match byte-for-byte (`IL_IDENTICAL`). No CPython is involved at any point.
 
 **VI** — TokenVector biên dịch `.tkv` ra .NET CIL rồi liên kết thành tệp `.exe`
 độc lập.
 
-Bản thân compiler **không** viết bằng TokenVector: `compiler/` và `tkv*.tkv` là
-126 file mang tên `.tkv` nhưng **nội dung là Python**. Nó được đóng gói bằng
-PyInstaller, nên *lúc build* `tkvc.exe` cần CPython, còn *lúc chạy* chương trình
-đã biên dịch thì không.
+Bản thân compiler **viết bằng TokenVector**: `compiler_bootstrap/` là 132 file
+`.tkv` TokenVector thật. `dist\tkvc-tv.exe` do `tools\vong.exe` sinh ra — nó gộp
+132 file đó rồi biên dịch **hai lần**, và hai bản IL phải giống hệt nhau
+byte-for-byte (`IL_IDENTICAL`). Không có CPython ở bất kỳ bước nào.
+
+> Cột trái của bảng dưới mô tả compiler Python cũ ở submodule `compiler_py/`:
+> **đã nằm ngoài phạm vi từ 2026-10-14**, đừng sửa hay build lại nó.
 
 ## 2. Layout / Bố cục repo
 
 | Path | EN | VI |
 |---|---|---|
-| `compiler/` | The compiler. `il_codegen.tkv` + 119 `il_features/*.tkv` | Compiler: lexer, parser, emitter, 119 module tính năng |
-| `tests/` | 117 acceptance tests + 31 negative cases | 117 test nghiệm thu + 31 case phải bị từ chối |
+| `compiler_bootstrap/` | **The compiler.** 132 `.tkv` files of real TokenVector | **Compiler:** lexer, parser, emitter, 132 file TokenVector thật |
+| `compiler_py/` | Old Python bootstrap — **out of scope since 2026-10-14** | Bootstrap Python cũ — **ngoài phạm vi** |
+| `tests/` | 123 acceptance tests + 31 negative cases | 123 test nghiệm thu + 31 case phải bị từ chối |
 | `tools/` | Gates, plus `tkv_guide.tkv` | Các cổng kiểm + tool hỏi đáp |
 | `projects/` | 19 real tools written in `.tkv` | 19 công cụ thật viết bằng `.tkv` |
 | `examples/` | Sample programs + `stdlib/` | Chương trình mẫu + thư viện stdlib mẫu |
-| `benchmark/` | Kernels vs CPython/NumPy | Benchmark so với CPython/NumPy |
 | `docs/` | All documentation | Toàn bộ tài liệu |
 | `packaging/` | NuGet nuspec, props/targets, `pack.ps1` | Thông tin đóng gói NuGet |
 | `assets/` | Diagrams, HTML demos, preview image | Sơ đồ, demo HTML, ảnh xem trước |

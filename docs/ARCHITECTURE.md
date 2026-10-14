@@ -1,11 +1,16 @@
-> **Doc truoc khi tin tu "native TokenVector compiler".**
-> `compiler/` va `tkv*.tkv` la **126 file mang ten `.tkv` nhung NOI DUNG la
-> PYTHON**, khong phai TokenVector. `tkv_compile.tkv` noi ro trong docstring
-> cua no. `build_tkvc.ps1` chuyen cac file do thanh Python roi freeze bang
-> PyInstaller, nen **`dist/tkvc.exe` la cong cu dong bang CPython** - no khong
-> bao gio co the la native, vi can mot compiler dang hoat dong de bien dich
-> chinh compiler do. TokenVector THAT trong repo nam o `tests/`, `projects/`,
-> `examples/`, `tools/`.
+> **COMPILER THẬT LÀ GÌ (đã cập nhật 2026-10-14).**
+> Nguồn compiler là **`compiler_bootstrap/`** — **132 file TokenVector thật**.
+> `dist/tkvc-tv.exe` do `tools\vong.exe` sinh ra: nó gộp 132 file đó thành một
+> nguồn rồi biên dịch **hai lần**; hai bản `.il` phải giống hệt nhau byte-for-byte
+> (`IL_IDENTICAL`) — đó là ý nghĩa chính xác của "self-hosted". Không CPython nào
+> tham gia.
+>
+> Submodule `compiler_py/` (compiler bootstrap **Python**, 126 file `.tkv` *có nội dung
+> là Python*, đóng băng bằng PyInstaller thành `dist/tkvc.exe`) đã **ngừng phát
+> triển từ 2026-10-14**. Không sửa, không build lại, không gate nào phụ thuộc nó.
+> Phần còn lại của tài liệu này mô tả **nơi lưu trữ file** và vẫn đúng, nhưng các
+> tên `tkvc.exe` / `compiler/` bên dưới là **tên của phía Python đã ngừng** —
+> hãy đọc tương ứng với `compiler_bootstrap/` + `tkvc-tv.exe`.
 
 # TOKENVECTOR SYSTEM FILE & LIBRARY REGISTRY
 ### (Danh Sách Toàn Bộ Tệp Hệ Thống & Thư Viện Native TokenVector Trong Bản Phát Hành Release)

@@ -25,7 +25,7 @@ def run() -> "i32":
 
 ```powershell
 cd D:\TokenVector
-dist\tkvc.exe build demo.tkv --out demo.exe --entry run
+dist\tkvc-tv.exe demo.tkv demo.exe run
 .\demo.exe
 ```
 
@@ -41,54 +41,54 @@ Everything below is checked by a gate in this repository. Numbers are from
 
 | Gate | Command | Result |
 |---|---|---|
-| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **117/117** pass, **31/31** negative cases correctly rejected |
-| CPython parity probe | `powershell -File tools\parity_probe\run.ps1` | **119/119** identical output vs CPython 3.12 |
-| .NET extern smoke | `powershell -File tools\ext_smoke.ps1` | **4/4** |
+| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **123/123** pass, **31/31** negative cases correctly rejected |
+| Self-host fixpoint | `tools\vong.exe` | **IL_IDENTICAL** (132 files) |
+| Performance | `powershell -File tools\perf_gate.ps1` | 4 kernels, best-of-5, **checksum is compared** |
 | Lint-rule self-test | `powershell -File tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
-| Doc coverage | `dist\tkvc-tv.exe build\gen_ref.exe --check` | registered names documented |
-| Data ecosystem | `D:\TokenVector.Data\tools\datagate.ps1` | **18/18** |
-| Inference | `D:\TokenVector.Inference\tv\tests\inference_tests.tkv` | **26/26** |
+| Registration | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 violations |
 
 **Builtins registered: 376.**
 
-> **What the compiler actually is.** `compiler/` and `tkv*.tkv` are 126 files
-> named `.tkv` whose **content is Python**, not TokenVector - `tkv_compile.tkv`
-> states this in its own docstring. `build_tkvc.ps1` stages them as Python and
-> freezes them with PyInstaller, so **`tkvc.exe` is a CPython-frozen tool**. The
-> genuinely TokenVector code in this repo is `tests/`, `projects/`, `examples/`
-> and `tools/`. See `docs/ARCHITECTURE.md`.
+> **What the compiler actually is.** The compiler source is **`compiler_bootstrap/`**
+> — 132 files that really are TokenVector. `dist\tkvc-tv.exe` is built by
+> `tools\vong.exe`, which concatenates those files and compiles them **twice**;
+> the two IL dumps must match byte-for-byte (`IL_IDENTICAL`). That is what
+> "self-hosted" means here.
+>
+> The `compiler_py/` submodule holds an older **Python** bootstrap. **It is out
+> of scope since 2026-10-14** — do not modify, rebuild, or depend on it. Nothing
+> in this repository's gate list needs it.
 
 > **Do not trust a claim in this repo that no gate checks.** Benchmarks in
-> `docs/ROADMAP.md` are dated measurements; reproduce with
-> `python benchmark\run.py`, never from a pre-built binary.
+> `docs/ROADMAP.md` are dated measurements; cross-checks against CPython/NumPy
+> live in the `TokenVector.TestOracle` repository, and performance is checked
+> against the compiler's own baseline (`tools/perf/baseline.txt`), never against
+> a pre-built binary.
 
 ## 2. What TokenVector is *not*
 
 It is **not** CPython with a faster interpreter. It is a **transpiler to CIL**:
 
-- **The compiler source is `.tkv`**, but `build_tkvc.ps1` stages those files as
-  Python and freezes them with PyInstaller. So *building* `tkvc.exe` uses
-  CPython; *running* a compiled `.tkv` does not.
+- **The compiler source is TokenVector**, not Python. Building `tkvc-tv.exe`
+  needs no CPython at all; only `dist\tkvc-tv.exe` and `tools\vong.exe`.
 - Syntax is Python-*inspired*, not Python-*compatible*. Known gaps are listed in
   §6 and are checked, not assumed.
 
 ## 3. Where things live
 
 ```
-compiler/      the compiler — il_codegen.tkv + 119 il_features/*.tkv
-tkv*.tkv       CLI driver (staged as Python at build time)
-compiler_src/  the self-hosted TokenVector compiler (23,971 lines)
-dist/         tkvc-tv.exe (TokenVector) + tkvc.exe (Python bootstrap)
-tests/         118 acceptance tests + 31 negative cases
-tests_suite/   154 .ca data-driven cases + 203 input samples
-tools/         gates + tkv_guide.tkv (the language guide, written in TokenVector)
-projects/      19 real tools written in .tkv
-examples/      sample programs + stdlib/
-benchmark/     kernels vs CPython/NumPy
-docs/          all documentation (see below)
-packaging/     NuGet nuspec, MSBuild props/targets, pack.ps1
-assets/        diagrams, HTML demos, preview image
-dist/, build/  generated — never committed
+compiler_bootstrap/  the compiler — 132 .tkv files (the real TokenVector source)
+compiler_src/        file manifest (ds_gop.txt) used to concatenate them
+dist/                tkvc-tv.exe — the self-hosted compiler
+tests/               123 acceptance tests + 31 negative cases
+tests_suite/         154 .ca data-driven cases + 203 input samples
+tools/               gates + tkv_guide.tkv (the language guide, written in TokenVector)
+projects/            19 real tools written in .tkv
+examples/            sample programs + stdlib/
+docs/                all documentation (see below)
+packaging/           NuGet nuspec, MSBuild props/targets, pack.ps1
+assets/              diagrams, HTML demos, preview image
+build/               generated — never committed
 ```
 
 | Doc | What |
@@ -114,11 +114,11 @@ source of truth for language rules:
 cd D:\TokenVector
 powershell -File tools\build_tkv_guide.ps1
 
-dist\tkv_guide.exe rules              # the pitfalls that actually bite
-dist\tkv_guide.exe find sorted        # exact syntax + how it differs from Python
-dist\tkv_guide.exe names iter         # registered builtins, per module
-dist\tkv_guide.exe lint my_file.tkv   # traps the compiler silently ignores
-dist\tkv_guide.exe verify my_file.tkv # prints the exact build+run commands
+dist\bin\tkv_guide.exe rules              # the pitfalls that actually bite
+dist\bin\tkv_guide.exe find sorted        # exact syntax + how it differs from Python
+dist\bin\tkv_guide.exe names iter         # registered builtins, per module
+dist\bin\tkv_guide.exe lint my_file.tkv   # traps the compiler silently ignores
+dist\bin\tkv_guide.exe verify my_file.tkv # prints the exact build+run commands
 ```
 
 `verify` only **prints** the two commands — TokenVector cannot spawn a process
@@ -173,23 +173,24 @@ Verified by probe; the ranked list with difficulty is `docs/PLAN.md`.
   via `LoadLibraryA`/`GetProcAddress`.
 - **Concurrency**: `thread_spawn` / `thread_join` use the .NET thread pool with
   no global lock.
-- **Cross-assembly imports** are supported and exercised by the extern smoke
-  test.
+- **Cross-assembly imports** are supported via `__tkv_extern_class__`.
 
 ## 8. Rebuilding the compiler
 
+There is nothing to rebuild. `dist\tkvc-tv.exe` is **derived from source in this
+repository** and is regenerated by the self-host loop:
+
 ```powershell
-powershell -NoProfile -File .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build
+tools\vong.exe     # concatenates compiler_bootstrap\ + compiles twice
+                   # prints IL_IDENTICAL when the fixpoint holds
 ```
 
-The Python bootstrap compiler lives in its **own repository**, wired in as the
-`compiler_py/` submodule. Run the above from the repository root so the relative
-output paths land in this repo's `dist/` and `build/`.
+After editing anything under `compiler_bootstrap/`, run `tools\vong.exe` until
+it prints `IL_IDENTICAL` (`IL KHAC NHAU` means the compiler upgraded itself —
+just run it again), then `tools\testkit_gate.ps1`.
 
-Inside that submodule only `compiler/**` plus `build_tkvc.ps1` are needed. The
-script regenerates the plugin bootstrap so every feature module is really loaded,
-and clears the PyInstaller cache — without that, a "successful" build can
-silently ship the previous `exe`.
+The old Python bootstrap (`compiler_py/`, `tkvc.exe`) is **out of scope** — see
+§1.
 
 ---
 

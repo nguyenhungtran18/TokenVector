@@ -48,17 +48,22 @@ set PATH=%PATH%;<duong-dan>\\Release\\dist
 $env:Path += ";<duong-dan>\\Release\\dist"
 ```
 
-### 2.2 Chi tiết Danh mục Lệnh CLI (`tkvc`)
+### 2.2 Lệnh biên dịch (`tkvc-tv`)
 
-`tkvc.exe` hiện **chỉ có đúng 1 subcommand**: `build` (đã xác minh trực tiếp trong `tkv.tkv`/`tkv.py` — không có `transpile`/`install`, các lệnh này KHÔNG tồn tại, đừng gõ thử).
+`tkvc-tv.exe` là compiler tự biên dịch. CLI của nó **positional, không có subcommand**:
 
-#### Lệnh Biên dịch AOT (`tkvc build`)
-Biên dịch một file Native `.tkv` ra file thực thi `.exe` độc lập:
 ```bash
-tkvc build <path/to/file.tkv> --out <path/to/output.exe> --entry <ten_ham_diem_vao>
+tkvc-tv <path/to/file.tkv> <path/to/output.exe> <ten_ham_diem_vao>
 ```
-- `--out`: Đường dẫn file `.exe` đầu ra (mặc định: cùng tên, đổi đuôi `.exe`).
-- `--entry`: Hàm điểm vào chính của chương trình (mặc định: hàm duy nhất, hoặc hàm tên `main`/`run` nếu file có nhiều hàm — nếu vẫn mơ hồ, `tkvc` sẽ báo lỗi yêu cầu chỉ rõ).
+
+Ví dụ:
+```bash
+dist\tkvc-tv.exe demo.tkv demo.exe run
+.\demo.exe
+```
+
+> `tkvc.exe build <src> --out <exe> --entry <e>` là CLI của compiler **Python cũ**
+> ở submodule `compiler_py/` — **đã nằm ngoài phạm vi từ 2026-10-14**. Đừng dùng.
 
 ---
 

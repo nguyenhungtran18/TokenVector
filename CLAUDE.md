@@ -8,27 +8,19 @@ silently swallowed every `git` command run from inside it).
 | Path | What |
 |---|---|
 | **`compiler_bootstrap/`** | **NGUON COMPILER TU-HOST — 132 file TokenVector thuần.** `compiler_src\ds_gop.txt` liệt kê đúng 132 đường dẫn này; `tools\vong.tkv` gộp chúng thành một nguồn rồi tự-biên-dịch (`g1.il == g2.il` → `IL_IDENTICAL`). Sản phẩm: `dist/tkvc-tv.exe`. **Không còn CPython nào** — 6 khối `if __tkv_chi_cpython__:` và cả cơ chế nhận diện đã bị xoá 2026-10-12 |
-| **`compiler_py/`** | **SUBMODULE** → repo riêng [`nguyenhungtran18/TokenVector.CompilerPy`](https://github.com/nguyenhungtran18/TokenVector.CompilerPy) (local: `D:\TokenVector.CompilerPy`). Chứa toàn bộ compiler bootstrap **Python**: 126 file `.tkv` *có nội dung là Python*, `tkv.tkv`, `tkv_compile.tkv`, `tokenvector_compile.tkv`, `build_tkvc.ps1`, `tools/_split_il_features.py`. Sản phẩm: `dist/tkvc.exe` |
+| **`compiler_py/`** | **KHÔNG CONG TÂM NỮA (2026-10-14 — chủ động dừng theo quyết định của chủ repo).** Submodule → repo riêng [`nguyenhungtran18/TokenVector.CompilerPy`](https://github.com/nguyenhungtran18/TokenVector.CompilerPy). Chứa compiler bootstrap **Python** (126 file `.tkv` *có nội dung là Python*), sản phẩm `dist/tkvc.exe`. **Đừng sửa, đừng build lại, đừng viết gate nào phụ thuộc nó.** Mọi việc diễn ra ở `compiler_bootstrap/`. Xem mục "Hai compiler" bên dưới |
 | **`compiler_src/`** | 8 `.tkv` seed lịch sử (799 KB) + `ds_gop.txt` (manifest 132 dòng, **đang dùng**) + `feature_can.txt` (CORE). Chỉ 2 file manifest là cần; 8 file seed không ai biên dịch. See `docs/TOKENVECTOR-PURITY.md` |
 | `dist/tkvc-tv.exe` | **The self-hosted TokenVector compiler.** CLI là positional: `tkvc-tv.exe <src> <out> <entry>`. Đây là hướng đi |
-| `dist/tkvc.exe` | Compiler Python bootstrap (PyInstaller) — dùng để build `tkvc-tv` và chạy các gate bên dưới. **Sinh ra từ `compiler_py/`**, không nằm trong source của repo này |
 | `tests/` | 119 acceptance tests + 31 negative cases + `tkv_test_lib.tkv` |
 | `tests_suite/` | 154 `.ca` data-driven cases + 203 input samples; runner `chay.tkv`. See its README |
 | `tools/` | Gates, `tkv_guide.tkv`, `vong.tkv` (self-host loop), `diff_il.tkv` (IL diff) |
 | `projects/` | 19 real tools written in `.tkv` |
 | `examples/` | Sample programs + `stdlib/` |
-| `benchmark/` | Kernels vs CPython/NumPy (`python benchmark\run.py`) |
 | `docs/` | All documentation — `REFERENCE.md` is the single reference; `docs/e_handoff/` holds prior session handoffs |
 | `packaging/` | NuGet nuspec, MSBuild props/targets, `pack.ps1` |
 | `assets/` | Diagrams, HTML demos, preview image |
-| `dist/`, `build/` | Generated. `dist/tkvc.exe` must exist to run the Python-side gates |
+| `dist/`, `build/` | Generated. Chỉ cần `dist/tkvc-tv.exe` cho mọi gate |
 | `tokenvector-grammar/` | Submodule (VS Code extension) — do not edit casually |
-
-### Build compiler Python (sau khi tách repo)
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build
-```
-Đường dẫn tương đối được phân giải theo **thư mục gọi lệnh**, nên phải chạy từ gốc repo.
 
 ## What the Compiler Actually Is (read before calling it "self-hosted")
 Hai compiler, hai repo, hai ngôn ngữ — đừng lẫn:
@@ -44,21 +36,23 @@ Trong `compiler_py/`, 126 file tên `.tkv` **có nội dung là Python**.
 `tkv_compile.tkv` tự nói trong docstring của nó: "a valid Python program, named
 `.tkv` instead of `.py` to break the link with Python".
 
-**Nên `dist/tkvc.exe` là công cụ đóng băng CPython, KHÔNG phải chương trình
-TokenVector.** Nó không bao giờ thành binary native độc lập — việc đó cần một
-compiler TokenVector đã biên dịch được chính nó. **Đừng bao giờ viết "compiler
-được viết bằng TokenVector" hay "self-hosted" về `tkvc.exe`.**
+**Số ở cột trái là để PHÂN BIỆT, không phải để làm việc.** `dist/tkvc.exe` là
+công cụ đóng băng CPython, KHÔNG phải chương trình TokenVector. Đừng bao giờ
+viết "compiler được viết bằng TokenVector" hay "self-hosted" về `tkvc.exe`.
+
+**Chủ repo đã dừng phía này (2026-10-14).** Mọi thay đổi, mọi gate, mọi
+benchmark đều ở cột phải. Nếu thấy đề bài yêu cầu sửa `compiler_py/` hay
+build lại `tkvc.exe` thì **dừng lại và hỏi lại** — đó là câu trả lời mặc định
+là "không".
 
 Nguồn TokenVector thật là `compiler_bootstrap/` (132 file sau lưng `compiler_src\ds_gop.txt`),
 `tests/`, `tests_suite/`, `projects/`, `examples/` và `tools/`.
 **Không sửa/di chuyển bất cứ thứ gì dưới `compiler_bootstrap/`, `build/`, `dist/`
-mà không chạy full gate.** Riêng phía Python (`compiler_py/`) sửa ở repo riêng,
-và mỗi đổi thay đổi đều cần `compiler_py\build_tkvc.ps1` chạy lại rồi chạy lại
-gate — vì đổi mà không build lại thì gate đang đo compiler cũ.
+mà không chạy full gate.**
 
 ## Environment & Identity
 - **Language**: TokenVector (`.tkv`, `.tv`).
-- **Target**: .NET Common Intermediate Language (CIL) via AOT compiler (`tkvc.exe`).
+- **Target**: .NET Common Intermediate Language (CIL) via AOT compiler (`tkvc-tv.exe`).
 - **Runtime Model**: Standalone native PE binaries (**~6 KB** hello-world,
   measured; ~13.5 KB for a test binary with stdlib), unboxed scalar types,
   true No-GIL multicore execution.
@@ -109,19 +103,9 @@ exit code in Toolchain).
     — it broke the entire compiler (104/104 BUILDFAIL, `ModuleNotFoundError`).
     §7 of the reference lists every existing file with its size, plus all
     registered builtins, methods, line/assign/statement parsers.
-- **Build `tkvc.exe`**: `powershell -NoProfile -ExecutionPolicy Bypass -File .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build`
-  Phân nhóm module `compiler/il_features/` do **`tools/il_features_manifest.txt`**
-  đăng ký (CORE đã khai báo tường minh — tin nó, đừng đoán). Script
-  `tools/_split_il_features.py` **FAIL build sớm** nếu có module import một tên
-  không tồn tại, nên không bao giờ có chuyện "sót file âm thầm". Build sinh
-  `_il_features_bootstrap.py` trong staging để **mọi** module CORE đều được
-  nạp thật (nếu không, lệnh `register_*` trong đó không bao giờ chạy) và tự xoá
-  cache `--workpath` của PyInstaller (cache này che thay đổi, từng làm build
-  "thành công" nhưng exe cũ). Xem `tools/_split_il_features.py` phần docstring.
 - **Compile Standalone Binary** (compiler tự-host):
   `dist\tkvc-tv.exe <source.tkv> <out.exe> <entry>` — CLI **positional**, không
-  có subcommand. (Compiler Python bootstrap dùng CLI khác:
-  `tkvc.exe build <src> --out <exe> --entry run`.)
+  có subcommand. Đây là **cách duy nhất** còn dùng.
 - **Run Built Binary**: `.\<output.exe>`
 - **`run()` TRẢ VỀ = EXIT CODE (đúng chuẩn, sửa 2026-10-12).** Ham entry
   tra `"i32"`/`"i64"` thi gia tri do **thanh exit code cua process** qua
@@ -162,16 +146,17 @@ exit code in Toolchain).
   `docs/TOKENVECTOR-PURITY.md` for what "registered" is measured against),
   `vong.exe` (**IL_IDENTICAL**, 132 file),
   `.\\tools\lint_rules_gate.ps1` (8/8 traps caught, 0 false positives).
-  Gate **cần Python** (đã tách sang repo khác — xem bảng layout):
-  parity probe `tools\parity_probe\run.ps1` (119/119) và
-  `ext_smoke.ps1` (4/4) — cả hai dùng compiler bootstrap `dist\tkvc.exe`.
   `tests\native_test_suite.tkv` and its `check_file` entry were **deleted
   2026-10-02**: it compiled but crashed at run time (`c_puts` →
   `MissingMethodException`) and no gate ran it. Its static-check role is now
   `tkv_guide.exe lint`.
+- **Không còn gate nào cần Python.** Parity probe (`parity_probe`, 119/119) và
+  `ext_smoke.ps1` (4/4) trước đây chạy bằng `dist\tkvc.exe` — **đã bỏ khỏi danh
+  sách gate** theo quyết định dừng `compiler_py` (2026-10-14). Đừng chạy lại
+  chúng, và đừng thêm gate mới phụ thuộc `tkvc.exe`. Nếu cần đối chiếu
+  CPython/NumPy thì ở repo `TokenVector.TestOracle`.
 - **Benchmark**: đã tách sang repo `TokenVector.TestOracle` (cần baseline
   CPython/NumPy nên không thể chuyển sang TokenVector).
-  pre-built binary.
 
 ## Syntax & Coding Standards
 - **File Header**: Always start with `# -*- coding: utf-8 -*-`.
@@ -323,9 +308,10 @@ exit code in Toolchain).
   "unknown cause" of `format(3.14159, ".2f") == "32f"` was
   `_py_spec_to_net` returning `.2f` verbatim; .NET reads that as a *custom*
   format and needs `F2`. **BUT (2026-10-05): `format()` is NOT registered on
-  `dist\tkvc-tv.exe`** — direct probe gives `ham 'format' khong ton tai`. The
-  claim above is only true of bootstrap `dist\tkvc.exe`. Use f-strings
-  (`f"{v:.2f}"`, `f"{n:05d}"`, `f"{a:02x}"`) — probed CORRECT on both.
+  `dist\tkvc-tv.exe`** — direct probe gives `ham 'format' khong ton tai`. Use
+  f-strings (`f"{v:.2f}"`, `f"{n:05d}"`, `f"{a:02x}"`) — probed CORRECT.
+  (Câu trên đây từng viết "chỉ đúng ở bootstrap `tkvc.exe`" — đã lỗi thời
+  sau khi dừng `compiler_py`; giờ `tkvc-tv.exe` là compiler duy nhất.)
   Also `"%02x" % v` is **silently wrong** on `tkvc-tv` (prints the format
   string itself; build stays green, exit 0), and `isinstance` is not
   registered either. Evidence: `docs/REFERENCE.md` §5.6. Full list with difficulty
