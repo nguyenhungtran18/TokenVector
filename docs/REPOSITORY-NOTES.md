@@ -5,6 +5,14 @@ on **2026-09-27**. Until then the compiler existed only as files on disk, with
 no version control at all, so any machine loss would have taken the compiler
 and every fix made to it with it.
 
+> **TÀI LIỆU LỊCH SỬ — đọc để hiểu đã xảy ra gì, KHÔNG dùng làm bản đồ.** Bảng
+> "Layout" bên dưới và đa số ghi chú mô tả thời compiler còn là **CPython**
+> (`compiler/`, `build_tkvc.ps1`, `dist\tkvc.exe`, `tkvc_patched.exe`) — những
+> thứ đó **đã bị xoá** 2026-10-12/13. Nguồn hiện tại là `compiler_bootstrap/`
+> (132 file `.tkv`), compiler là `dist\tkvc-tv.exe`, dựng bằng
+> `tools\vong.exe` (tự biên dịch, `IL_IDENTICAL`). Bản đồ hiện tại ở
+> `CLAUDE.md`; trạng thái cổng ở `README.md` §1.
+
 ## Layout
 
 | Path | Contents |

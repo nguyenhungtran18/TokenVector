@@ -41,13 +41,13 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 
 | Cổng | Lệnh | Kết quả |
 |---|---|---|
-| Nghiệm thu compiler | `powershell -File tools\testkit_gate.ps1` | **123/123** PASS, **31/31** negative bị từ chối đúng |
+| Nghiệm thu compiler | `powershell -File tools\testkit_gate.ps1` | **125/125** PASS, **31/31** negative bị từ chối đúng |
 | Fixpoint tự biên dịch | `tools\vong.exe` | **IL_IDENTICAL** (132 file) |
 | Hiệu năng | `powershell -File tools\perf_gate.ps1` | 4 kernel, best-of-5, **có so checksum** |
 | Tự kiểm bộ luật lint | `powershell -File tools\lint_rules_gate.ps1` | Bắt đủ 8 bẫy, 0 báo nhầm |
 | Đăng ký | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 vi phạm |
 
-**Đã đăng ký 376 builtin.**
+**Đã đăng ký 420 builtin.**
 
 > **Compiler thật sự là gì.** Mã nguồn compiler là **`compiler_bootstrap/`** —
 > 132 file **thật sự là TokenVector**. `dist\tkvc-tv.exe` do `tools\vong.exe`
@@ -58,6 +58,56 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 > `docs/ROADMAP.md` là số đo có ngày; đối chiếu với CPython/NumPy nằm ở repo
 > `TokenVector.TestOracle`, còn hiệu năng thì so với baseline của chính compiler
 > (`tools/perf/baseline.txt`), không bao giờ so với binary dựng sẵn.
+
+## 1b. TokenVector đấu ở đâu — và KHÔNG đấu ở đâu
+
+Đo 2026-10-14 với **CPython 3.14.7** và **NumPy 2.5.2** (OpenBLAS 0.3.34,
+kernel "Haswell") trên Intel Xeon E5-2695 v3. Tái lập:
+`python D:\TokenVector.TestOracle\benchmark\run.py --self-host`.
+
+**Với CPython, TokenVector thắng ở mọi kernel:**
+
+| kernel | TokenVector | CPython | TokenVector nhanh hơn |
+|---|---|---|---|
+| fib | 11,4 ms | 933 ms | **82×** |
+| sort | 15,7 ms | 1012 ms | **64×** |
+| matmul32 | 147 µs | 8,87 ms | **60×** |
+| add | 1,43 ms | 67,1 ms | **47×** |
+| f32mm_vec | 33 µs | 1,48 ms | **45×** |
+| f32mm | 141 µs | 1,49 ms | **11×** |
+| string | 22,9 ms | 49,7 ms | **2,2×** |
+
+Một `.exe` rỗng của TokenVector cũng khởi động trong **24,8 ms**, so với
+**35,2 ms** của `CPython -c pass`.
+
+**Với NumPy thì không — và cũng không nên giả vờ.** NumPy là CPython gọi **mã
+máy native**, không phải runtime managed:
+
+| kernel | TokenVector | NumPy | NumPy nhanh hơn |
+|---|---|---|---|
+| add | 1427 µs | 911 µs | **1,6×** |
+| matmul32 | 147 µs | 5,7 µs | **26×** |
+
+Khoảng cách đó **không** phải do thiếu một tối ưu, cũng **không** do thiếu đa
+luồng. Đo với `OMP_NUM_THREADS=1` thì `np.dot` trên ma trận 32×32 chỉ chậm từ
+5,73 µs lên 6,05 µs — OpenBLAS không chia nhỏ ma trận nhỏ thế. Còn lại là độ
+rộng vector: AVX2 với FMA xử lý **4 `double`/lệnh**, trong khi runtime này chỉ
+cho `Vector4` (128-bit) và lệnh vector thô bị JIT từ chối (xem §2 và
+`docs/PLAN.md` mục 8).
+
+Hai "đòn bẩy rẻ" đã đo và **cả hai đều chết**, nên chúng không phải câu trả
+lời:
+
+- **Strength reduction** của chỉ số vòng trong (`kk*n + j` → biến chuyển vị):
+  **1,00×**. Chuỗi `mul.ovf`/`add.ovf`/`conv.ovf.i4` gần như miễn phí trên JIT.
+- **Bộ nhớ native liền mạch** thay cho `List<double>`: **0,63×** — *chậm hơn*,
+  vì `f32buf` phải trả `×4` byte offset cộng bounds check mỗi lần truy cập.
+
+**Vậy vị trí trung thực là: TokenVector là thay thế CPython, không phải thay thế
+BLAS.** Nó thắng interpreter nó thay thế 2–82×, có SIMD f32 thật (4,25× so với
+chính nó trên `f32mm_vec`), và không thể đuổi tới SIMD `f64` trên .NET Framework
+4.8. Muốn đóng khoảng cuối đó phải đổi runtime, không phải tối ưu runtime hiện
+tại.
 
 ## 2. TokenVector KHÔNG phải là gì
 
@@ -78,7 +128,7 @@ CIL**:
 compiler_bootstrap/  compiler — 132 file .tkv (đây là nguồn TokenVector thật)
 compiler_src/        manifest file (ds_gop.txt) dùng để gộp chúng lại
 dist/                tkvc-tv.exe — compiler tự biên dịch
-tests/               123 test nghiệm thu + 31 negative
+tests/               125 test nghi?m thu + 31 negative
 tests_suite/         154 case .ca + 203 mẫu vào
 tools/               các cổng kiểm + tkv_guide.tkv (tool hỏi đáp ngôn ngữ)
 projects/            19 công cụ thật viết bằng .tkv

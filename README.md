@@ -127,7 +127,7 @@ It is **not** CPython with a faster interpreter. It is a **transpiler to CIL**:
 compiler_bootstrap/  the compiler — 132 .tkv files (the real TokenVector source)
 compiler_src/        file manifest (ds_gop.txt) used to concatenate them
 dist/                tkvc-tv.exe — the self-hosted compiler
-tests/               123 acceptance tests + 31 negative cases
+tests/               125 acceptance tests + 31 negative cases
 tests_suite/         154 .ca data-driven cases + 203 input samples
 tools/               gates + tkv_guide.tkv (the language guide, written in TokenVector)
 projects/            19 real tools written in .tkv

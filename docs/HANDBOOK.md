@@ -35,7 +35,7 @@ byte-for-byte (`IL_IDENTICAL`). Không có CPython ở bất kỳ bước nào.
 | Path | EN | VI |
 |---|---|---|
 | `compiler_bootstrap/` | **The compiler.** 132 `.tkv` files of real TokenVector | **Compiler:** lexer, parser, emitter, 132 file TokenVector thật |
-| `tests/` | 123 acceptance tests + 31 negative cases | 123 test nghiệm thu + 31 case phải bị từ chối |
+| `tests/` | 125 acceptance tests + 31 negative cases | 125 test nghiệm thu + 31 case phải bị từ chối |
 | `tools/` | Gates, plus `tkv_guide.tkv` | Các cổng kiểm + tool hỏi đáp |
 | `projects/` | 19 real tools written in `.tkv` | 19 công cụ thật viết bằng `.tkv` |
 | `examples/` | Sample programs + `stdlib/` | Chương trình mẫu + thư viện stdlib mẫu |

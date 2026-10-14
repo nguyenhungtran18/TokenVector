@@ -2,7 +2,7 @@
 ### (Kiến trúc hệ thống TokenVector)
 
 > **Có đúng MỘT compiler, và nó viết bằng TokenVector.** Nguồn là
-> `compiler_bootstrap/` — **133 file `.tkv` thật**, liệt kê đúng trong
+> `compiler_bootstrap/` — **132 file `.tkv` thật**, liệt kê đúng trong
 > `compiler_src/ds_gop.txt`. Không có CPython ở bất kỳ bước nào.
 
 Tài liệu này mô tả **nơi lưu trữ file** và **vai trò từng nhóm**. Số liệu đếm
@@ -14,7 +14,7 @@ trực tiếp từ cây nguồn, không suy đoán.
 
 `tools/vong.tkv` (đóng gói thành `tools/vong.exe`) làm đúng 4 việc:
 
-1. Gộp **133 file** theo `compiler_src/ds_gop.txt` thành một nguồn ≈ 2,9 MB.
+1. Gộp **132 file** theo `compiler_src/ds_gop.txt` thành một nguồn ≈ 2,9 MB.
 2. `dist/tkvc-tv.exe` biên dịch nguồn đó → `g1.il` ≈ 13 MB.
 3. **`g1.exe`** biên dịch lại **chính nó** → `g2.il`.
 4. In `IL_IDENTICAL` nếu hai bản `.il` giống hệt nhau byte-for-byte.
@@ -75,7 +75,7 @@ vi**. Các nhóm chính:
 | `comprehension.tkv` | `[...]`, `{...}`, `{k: v ...}` |
 | `generator_lazy.tkv`, `generator_feature.tkv` | State machine CIL cho `yield` |
 | `closures.tkv`, `multi_assign.tkv`, `metaprogramming.tkv` | Biến tự do, `nonlocal`, `eval/exec` |
-| `simd_feature.tkv`, `vector_block.tkv`, `vector4_type.tkv` | SIMD thủ công: `f32x4`, `VBuf8` |
+| `simd_feature.tkv`, `vector4_type.tkv` | SIMD th?t: ki?u `f32x4` (`System.Numerics.Vector4`) + `v_load4`/`v_store4`/`v_hsum4`. `VBuf8` va `v_*8` da g? 2026-10-14 (ch?m h?n scalar 4.4x). |
 | `f32buf_type.tkv`, `nativebuf.tkv` | Bộ đệm native, `read_f32`/`write_f32` |
 | `stdlib_*.tkv` | `re`, `datetime`, `json`, `math`, `os`, `pathlib`, `sqlite`, `http`, `zip` |
 | `threading_feature.tkv`, `ffi_feature.tkv` | `thread_spawn`/`join`; P/Invoke, FFI C |
@@ -99,7 +99,7 @@ vi**. Các nhóm chính:
 
 ## 5. BỘ KIỂM THỬ (`tests/`)
 
-**123 test nghiệm thu** (`*_test.tkv`) + **31 negative case** + `tkv_test_lib.tkv`.
+**125 test nghi?m thu** (*_test.tkv) + **31 negative case** + 	kv_test_lib.tkv.
 Chạy bằng `tools\testkit_gate.ps1`. Bổ sung: `tests_suite/` — 154 case `.ca` +
 203 mẫu vào, chạy bằng `chay.tkv`.
 

@@ -14,7 +14,7 @@ trỏ tới mục không tồn tại. Bản này viết lại từ đầu theo t
 
 | Cổng | Kết quả |
 |---|---|
-| `tools\testkit_gate.ps1` | **123/123** + **negative 31/31** (timeout 0, ILFAIL 0) — nguồn sự thật hiện tại |
+| `tools\testkit_gate.ps1` | **125/125** + **negative 31/31** (timeout 0, ILFAIL 0) — nguồn sự thật hiện tại |
 | Inference | **26/26** PASS (`tv/tests/inference_tests.tkv`) |
 | Data gate | **PASS (18/18)** |
 | Parity probe CPython | ~~**119/119**~~ — **đã gỡ khỏi danh sách gate 2026-10-14** (cần compiler Python cũ). Đối chiếu CPython nay ở repo `TokenVector.TestOracle` |

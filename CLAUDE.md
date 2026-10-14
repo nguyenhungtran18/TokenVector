@@ -10,7 +10,7 @@ silently swallowed every `git` command run from inside it).
 | **`compiler_bootstrap/`** | **NGUON COMPILER — 132 file TokenVector thuần.** `compiler_src\ds_gop.txt` liệt kê đúng 132 đường dẫn này; `tools\vong.tkv` gộp chúng thành một nguồn rồi tự-biên-dịch (`g1.il == g2.il` → `IL_IDENTICAL`). Sản phẩm: `dist/tkvc-tv.exe`. **Không còn CPython nào** — 6 khối `if __tkv_chi_cpython__:` và cả cơ chế nhận diện đã bị xoá 2026-10-12 |
 | **`compiler_src/`** | 8 `.tkv` seed lịch sử (799 KB) + `ds_gop.txt` (manifest 132 dòng, **đang dùng**) + `feature_can.txt` (CORE). Chỉ 2 file manifest là cần; 8 file seed không ai biên dịch. See `docs/TOKENVECTOR-PURITY.md` |
 | `dist/tkvc-tv.exe` | **The self-hosted TokenVector compiler.** CLI là positional: `tkvc-tv.exe <src> <out> <entry>`. Đây là hướng đi |
-| `tests/` | 123 acceptance tests + 31 negative cases + `tkv_test_lib.tkv` |
+| `tests/` | 125 acceptance tests + 31 negative cases + `tkv_test_lib.tkv` |
 | `tests_suite/` | 154 `.ca` data-driven cases + 203 input samples; runner `chay.tkv`. See its README |
 | `tools/` | Gates, `tkv_guide.tkv`, `vong.tkv` (self-host loop), `diff_il.tkv` (IL diff) |
 | `projects/` | 19 real tools written in `.tkv` |
@@ -75,7 +75,7 @@ exit code in Toolchain).
 - **CHECK BEFORE ADDING ANYTHING** — the reference is now **ONE file**:
   `docs/REFERENCE.md`. §2 lists every builtin with **syntax + what it
   does + where it differs from Python**; §7 is the auto-generated name catalog.
-    - **429 names already registered** — run
+    - **420 names already registered** — run
       `dist\tkvc-tv.exe tools\gen_builtin_ref.tkv build\gen_ref.exe run` to
       rewrite §7 in place (it writes **only between `<!-- BEGIN GENERATED -->`
       markers** and refuses to run if they are missing — the file can no longer
@@ -121,12 +121,12 @@ exit code in Toolchain).
   - **Nhiễu máy ~10-13%**: chạy lại 2-3 lần trước khi kết luận hồi quy
     (đã gặp 1 lần cả 3 kernel FAIL rồi 3 lần sau PASS 1-4%).
 - **Acceptance Gate (the only gate that matters for compiler changes)**:
-  `.\\tools\testkit_gate.ps1` — builds and runs all 119 `tests\*_test.tkv`
-  plus 31 negative cases (currently `PASS=119 BUILDFAIL=0 TESTFAIL=0
+  `.\\tools\testkit_gate.ps1` — builds and runs all 125 `tests\*_test.tkv`
+  plus 31 negative cases (currently `PASS=125 BUILDFAIL=0 TESTFAIL=0
   ILFAIL=0 NEG=31/31`), writes output to TEMP so a run never litters the repo,
   exits non-zero on any failure. **Không cần Python** — gate dùng compiler
   tự-host.
-  Other gates, green as of 2026-10-12:
+  Other gates, green as of 2026-10-14:
   registration gate `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run`
     (**0 violations** — of 2,090 functions on the TokenVector path; see
   `docs/TOKENVECTOR-PURITY.md` for what "registered" is measured against),

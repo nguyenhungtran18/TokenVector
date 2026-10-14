@@ -34,7 +34,7 @@
 | [4](#4-dạng-dựng-giá-trị-vế-phải-của-phép-gán) | Dạng gán | 31 dạng vế phải được đăng ký riêng |
 | [5](#5-còn-thiếu--đã-probe-không-phải-suy-đoán) | Còn thiếu | Giới hạn đã đo, không giới hạn do đoán |
 | [6](#6-hướng-dẫn-dùng--cho-chỗ-khác-python) | Hướng dẫn dùng | 14 mục "ở đây khác Python, và vì sao" |
-| [7](#7-danh-mục-đầy-đủ-sinh-tự-động) | Danh mục đầy đủ | 376 tên + danh sách file (sinh tự động) |
+| [7](#7-danh-mục-đầy-đủ-sinh-tự-động) | Danh mục đầy đủ | 420 tên + danh sách file (sinh tự động) |
 
 | [8](#8-ba-sự-cố-đã-ghi--đừng-tin-mù) | Ba sự cố | Những chỗ đã sai vì tin tài liệu |
 
@@ -378,15 +378,6 @@ số/trả về của nó chỉ suy được từ một `TypeAnn` "mục tiêu" 
 | `v_load4` | `v_load4(p, off)` | Nạp 16 byte (4 lane) → `f32x4`. `off` tính theo **byte**. |
 | `v_store4` | `v_store4(p, off, v)` | Ghi 4 lane. |
 | `v_hsum4` | `v_hsum4(v)` | Gom 4 lane về 1 `f32`. **Thứ tự cộng là `((X+Y)+Z)+W`** — phải khớp đúng thứ tự của vòng scalar, nếu ghep cặp `(X+Y)+(Z+W)` thì sai số float. |
-| `v_hsum` | `v_hsum()` | Tổng 8 lane, dùng ở dưới khối. Lưu ý IL: `ldfld` **pop** 1 phần tử (đối tượng) nên phải đẩy lại `ldloc` trước *mỗi* `ldfld` — đẩy 1 lần rồi `ldfld` 8 lần sẽ làm phần tử thứ 2 trở thành đối tượng và sinh `InvalidProgramException` lúc chạy. |
-| `v_lane` | `v_lane(i)` | Rút lane `i`. **Chỉ hằng số 0..7** (đọc lane theo biến có nhánh động, mà đơn vị ở đây giống hệt "chỉ số hằng số" của `lst[-1]`, nên để hằng số). |
-| `v_load8` | `v_load8(p, off)` | Nạp 8 lane (32 byte), trả lane 0. |
-| `v_store8` | `v_store8(p, off)` | Ghi 8 lane, trả 0 (dùng như lệnh độc lập). |
-| `v_fill8` | `v_fill8(x)` | Nạp cả 8 lane = `x` (broadcast). |
-| `v_add8` | `v_add8(x)` | Mỗi lane `+= x`. |
-| `v_sub8` | `v_sub8(x)` | Mỗi lane `-= x`. |
-| `v_mul8` | `v_mul8(x)` | Mỗi lane `*= x`. |
-| `v_mul8_add8` | `v_mul8_add8(x, y)` | Mỗi lane `= lane*x + y` — gộp 2 phép trong 1 lần ghi field. |
 
 ---
 
@@ -785,8 +776,8 @@ last = xs[len(xs) - 1]   # thay cho xs.pop()
 
 ```tokenvector
 v = f32x4(1.0, 2.0, 3.0, 4.0)
-w = v_add8(v, v)        # cộng từng phần tử
-s = v_hsum(v)           # tổng ngang
+w = v + v                   # cong tung phan tu, 4 lane
+s = v_hsum4(v)              # gom 4 lane ve 1 so
 ```
 Đây là phần mở rộng so với Python, không thay thế gì.
 

@@ -128,7 +128,7 @@ Kết quả đo lại trên chính sản phẩm:
 
 ```
 tkvc-tv.exe : PASS 74/118, NEG 0/31   <- lúc đo 2026-09-30
-tkvc-tv.exe : PASS 123/123, NEG 31/31 <- hiện tại
+tkvc-tv.exe : PASS 125/125, NEG 31/31 <- hiện tại
 ```
 
 14/44 lỗi còn lại truy veo 7 module chưa port. Phân cụm đầy đủ:
