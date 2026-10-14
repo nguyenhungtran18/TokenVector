@@ -1562,6 +1562,11 @@ def codegen_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str
     compile_expr, load_var_ref, store_var = ctx.compile_expr, ctx.load_var_ref, ctx.store_var
     ctx.label_counter[0] += 1
     n = ctx.label_counter[0]
+    # P6: thu vector hoa TRUOC khi phat vong for vohua. Neu khop mau, ham nay
+    # tu phat ca vong vector + duoi scalar, gom ca khoi tao bien dem.
+    if _p6_vectorize_for(stmt, scope, body, body_dtype, ctx, sig,
+                         codegen_stmts_fn, n) == 1:
+        return
     start_lbl, end_lbl = f'{sig.name}_L{n}_start', f'{sig.name}_L{n}_end'
     # 'continue' phai nhay toi PHAN TANG bien vong lap (khong phai
     # start_lbl - dieu kien kiem tra ban dau), giu dung ngu nghia Python:
@@ -1746,6 +1751,9 @@ def _p6_vectorize_while(stmt: "i32", scope: "Scope", body: "list[str]", body_dty
     Bien dem `i` ket thuc o `n` y het ban goc, nen code sau vong lap khong
     nhin thay khac biet gi.
 
+    Dung cho vong `while`; dang `for i in range(n)` do ham khoe
+    `_p6_vectorize_for` nam xu ly (cung ma phat IL, xem `_p6_vec_phat`).
+
     **Tu choi ve 0 khi co BAT KY nghi nho nao.** Bien doi nay sua SO HOC cua code
     ma khong he nhac toi vector, mot loi se khong co trieu chung gi:
 
@@ -1810,10 +1818,35 @@ def _p6_vectorize_while(stmt: "i32", scope: "Scope", body: "list[str]", body_dty
         return 0
     if _p6_vec_rhs_ok(rewritten, scope, ctx) == 0:
         return 0
-    vec_start = sig.name + '_W' + str(n) + '_vstart'
-    vec_done = sig.name + '_W' + str(n) + '_vdone'
-    tail_start = sig.name + '_W' + str(n) + '_tstart'
-    end_lbl = sig.name + '_W' + str(n) + '_end'
+    _p6_vec_phat(scope, body, body_dtype, ctx, sig, codegen_stmts_fn,
+                 iv, n_node, lay_nut(stmt, 'cond_node'), stmts, n, '_W',
+                 0, dest, rewritten)
+    return 1
+
+
+def _p6_vec_phat(scope: "Scope", body: "list[str]", body_dtype: "str",
+                 ctx: "Ctx", sig: "TkvSig",
+                 codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void",
+                 iv: "str", n_node: "TkvNode", cond_node: "TkvNode",
+                 tail_stmts: "list[i32]", n: "i32", pre: "str",
+                 tang_iv: "i32", dest: "str", rewritten: "TkvNode") -> "i32":
+    """Phat IL cho P6: vong vector buoc 4 + duoi scalar. KHONG kiem tra mau.
+
+    Moi viec nhan dien mau da do `_p6_vectorize_while` / `_p6_vectorize_for`
+    lam xong; ham nay CHI phat IL, nen hai duong `while` va `for` bat buoc
+    ra cung ma - khac nhau chi o `tang_iv`:
+
+    - `tang_iv == 0` (`while`): phep tang bien dem da nam san trong
+      `tail_stmts` (vi `while` yeu cau than DUNG HAI cau lenh).
+    - `tang_iv == 1` (`for`): than vong `for` chi co MOT cau lenh, phep tang
+      do `codegen_for` phat o sau khoi than - nen phai phat them o day,
+      y het lenh cua `codegen_for` (i32, `ldc.i4 1` + `add`).
+
+    `pre` la tien to nhan ('_W' / '_F') de doc IL va tranh trung nhan."""
+    vec_start = sig.name + pre + str(n) + '_vstart'
+    vec_done = sig.name + pre + str(n) + '_vdone'
+    tail_start = sig.name + pre + str(n) + '_tstart'
+    end_lbl = sig.name + pre + str(n) + '_end'
     # Offset byte: `i * 4`. `_vb_addr` tu ep ve 'i64' nen dtype o day KHONG
     # quan trong - nhung van phai dung node that, khong hard-code.
     _o1 = mk2('var', o_str(iv))
@@ -1849,13 +1882,79 @@ def _p6_vectorize_while(stmt: "i32", scope: "Scope", body: "list[str]", body_dty
     body.append('  ' + vec_done + ':')
     # DUOI SCALAR: phan con lai (n % 4) chay bang lenh goc
     body.append('  ' + tail_start + ':')
-    _compile_cond(lay_nut(stmt, 'cond_node'), scope, body, body_dtype, ctx)
+    _compile_cond(cond_node, scope, body, body_dtype, ctx)
     body.append('    brfalse ' + end_lbl)
     ctx.loop_stack.append((tail_start, end_lbl))
-    codegen_stmts_fn(lay_than(stmt, 'body'), scope, body, body_dtype, ctx, sig)
+    codegen_stmts_fn(tail_stmts, scope, body, body_dtype, ctx, sig)
     ctx.loop_stack.pop()
+    if tang_iv == 1:
+        ctx.load_var_ref(iv, scope, body)
+        body.append('    ldc.i4 1')
+        body.append('    add')
+        ctx.store_var(iv, scope, body)
     body.append('    br ' + tail_start)
     body.append('  ' + end_lbl + ':')
+    return 1
+
+
+def _p6_vectorize_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void", n: "i32") -> "i32":
+    """P6 (2026-10-14): vector hoa vong `for i in range(n)`, KHONG phai `while`.
+
+    Do chi `while` thi vao duong nay truoc do, `for i in range(n): r[i] = a[i]+b[i]`
+    - dang vong lap Python-idiomatic nhat - chay SCALAR: do lai 2026-10-14,
+    cung khoi viec tren `f32buf`, `while` 0.136 ms con `for` 0.44-0.53 ms
+    (cham hon 3.1-3.9x).
+
+    Than vong `for` KHONG co phep tang bien dem ben trong - `codegen_for` phat
+    no o sau khoi than - nen than chi DUNG MOT cau lenh, khac `while` la hai.
+    Do do mau kiem tra cung lai, va phep tang duoc phat trong
+    `_p6_vec_phat` khi `tang_iv == 1`.
+
+    CHI nhan `range(n)`: `range(a, b)` va `range(a, b, k)` giu nguyen duong
+    scalar. Buoc phai dung 1 (buoc 0 la hang so doc, khong dung o day).
+
+    `tang_iv` cua duong nay LUON an toan: than chi co mot `idx_assign` nen
+    khong the co `break`/`continue` de phai nhay nhan tang - ma P6 bo qua
+    `emit_sb_setup`/`emit_sb_flush` va `loop_stack` tro (tail_start, end)."""
+    if lay_than(stmt, 'else_body'):
+        return 0
+    if lay_nut(stmt, 'start_node') is not None:
+        return 0
+    _stp = lay_i32(stmt, 'step')
+    if _stp is None:
+        _stp = 1
+    if _stp != 1:
+        return 0
+    stmts = lay_than(stmt, 'body')
+    if len(stmts) != 1:
+        return 0
+    idx_st = stmts[0]
+    if lay_str(idx_st, 'kind') != 'idx_assign':
+        return 0
+    n_node = lay_nut(stmt, 'bound_node')
+    if not la_node(n_node):
+        return 0
+    iv = lay_str(stmt, 'var')
+    dest = lay_str(idx_st, 'name')
+    idx_nodes = lay_ds_nut(idx_st, 'idx_nodes')
+    if len(idx_nodes) != 1 or _p6_var_is(idx_nodes[0], iv) == 0:
+        return 0
+    if _p6_is_f32buf(scope, dest) == 0:
+        return 0
+    loads: "list[str]" = []
+    rewritten = _p6_viet_lai_rhs(lay_nut(idx_st, 'rhs_node'), scope, iv, loads)
+    if rewritten is None or len(loads) == 0:
+        return 0
+    if _p6_vec_rhs_ok(rewritten, scope, ctx) == 0:
+        return 0
+    # Khoi tao bien dem TRUOC vong vector (gia tri bat dau cua `range(n)`).
+    body.append('    ldc.i4.0')
+    ctx.store_var(iv, scope, body)
+    # Dieu kien duoi scalar: `iv < n`, dung lai node bound cua vong for.
+    _c1 = mk2('var', o_str(iv))
+    _cond = mk4('compare', o_str('<'), o_nut(_c1), o_nut(n_node))
+    _p6_vec_phat(scope, body, body_dtype, ctx, sig, codegen_stmts_fn,
+                 iv, n_node, _cond, stmts, n, '_F', 1, dest, rewritten)
     return 1
 
 

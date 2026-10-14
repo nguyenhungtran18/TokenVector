@@ -252,6 +252,24 @@ broadcast ⇒ `r[i] = a[i] * k + b[i]` chạy vector (k là hằng **hoặc** bi
 Chốt phạm vi vẫn là: **chỉ elementwise**. Không đụng giảm tổng (`sum += a[i]`) —
 cái đó đòi hỏi dung sai 1e-5.
 
+**Mở rộng 2026-10-14 — vòng `for i in range(n)`.** `_p6_vectorize_while` chỉ bám
+đúng `while`, nên `for i in range(n): r[i] = a[i] + b[i]` — dạng vòng lặp
+Python-idiomatic nhất — chạy scalar. Đo cùng khối việc trên `f32buf`:
+
+| | |
+|---|---|
+| `while i < n` (P6 chạy) | 0.136 ms |
+| `for i in range(n)` (trước đây scalar) | 0.44 – 0.53 ms |
+| | **chậm hơn 3.1 – 3.9×** |
+
+`_p6_vectorize_for` bổ sung đường này, chỉ nhận `range(n)` với bước 1. Hai đường
+**không** có mã riêng: cùng phát IL qua `_p6_vec_phat`, khác nhau đúng một tham số
+`tang_iv` — `while` giữ phép tăng trong thân, `for` thì `codegen_for` vốn phát
+phép tăng đó *sau* khoải thân nên P6 phát thêm. Sau khi bổ sung, `for` và `while`
+còn cách nhau **1.00 – 1.05×** (trong nhiễu đo). Test: `p6_for_vectorize_test`,
+28/28, gồm cả các dạng phải **từ chối** (`range(1,n)`, `range(0,n,2)`, `break`,
+`continue`, thân hai lệnh).
+
 Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector. **Đo lại 2026-10-14:
 không đáng làm** — biến `i*4` vẫn bị tính 3 lần trong IL, nhưng thời gian hai
 kiểu chỉ khác ~4% (1.23 vs 1.18 ms), vì JIT chịu được `TkvInt`. Tỷ lệ
@@ -421,3 +439,4 @@ ghi rõ `(mirrors  <hash>)` trong message của parent.
 | Nâng `i*4` ra khỏi vòng vector | **KHÔNG ĐÁNG LÀM (đo lại 2026-10-14).** `i*4` vẫn bị tính 3 lần trong IL, nhưng thời gian hai kiểu chỉ khác ~4% (1.23 vs 1.18 ms) vì JIT chịu được `TkvInt`. Đóng lại. |
 | Tích hợp SIMD vào `TokenVector.Data` | Handoff ở `Data\SESSION_HANDOFF_SIMD.md`. Chưa làm. |
 | **SIMD thật** (thay `Vector4::op_*`) | **ĐÃ XÁC NHẬN KHÔNG THỰC HIỆN ĐƯỢC trên target này.** `add`/`mul` thô trên struct `Vector4` bị JIT từ chối: `InvalidProgramException` (ECMA-335 yêu cầu `add` trên kiểu số). Máy không có .NET Core ⇒ không có `System.Runtime.Intrinsics`. Đã thử và ghi kết quả vào `vector4_type.tkv`. |
+| **BUG: IL hỏng, chạy được tới JIT rồi chết** | Tìm ra 2026-10-14, **có sẵn từ trước** (tái hiện trên `00f0986`), KHÔNG phải hồi quy P6. Cần cả ba điều kiện mới lộ: `for i in range(n)` trên `f32buf` **bên trong** một `while`, một `if` f64 trong vòng `while` đó, và `r[i] = a[i] + b[i]`. → `System.BadImageFormatException` (0x8007000B), tất định 3/3. `ilasm` nhận IL nhưng **JIT từ chối lúc chạy**. Bỏ `if` → qua; đổi `for` thành `while` → qua; còn 1 `f32buf` → qua. Repro gốc: `tests/bug_for_f32buf_il_repro.tkv` (cố tình **không** đặt tên `*_test.tkv` để gate không tự FAIL). **Chưa tìm ra dòng IL hỏng** — đoán bừa không giá trị. Không nằm trong SIMD nhưng nghiêm trọng hơn mọi việc SIMD còn treo. |
