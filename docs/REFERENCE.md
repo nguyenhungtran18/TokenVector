@@ -496,6 +496,10 @@ Các dạng này được **đăng ký riêng cho vế phải phép gán** (31 d
 | `shutil_rmtree(p)` | Xoá cây thư mục |
 | `datetime()` | UtcNow |
 | `f32buf_new(...)` | Bộ đệm f32 |
+| `f32buf(n)` | Cấp `n` phần tử f32 trong heap native. **Chỉ local** — xem 2.7 |
+| `f32buf_wrap` | `a = f32buf_wrap(p, n)` — mượn bộ đệm từ con trỏ `p` + độ dài `n`. **Không cấp phát**; `f32buf_free` **không** giải phóng nó. Cho phép vòng elementwise trong hàm có tham số được P6 vector hoá. Xem 2.7 |
+| `f32buf_ptr` | `f32buf_ptr(a)` — con trỏ native của bộ đệm → `i64` |
+| `f32buf_len` | `f32buf_len(a)` — số phần tử của bộ đệm → `i32` |
 | `win_gui` | (cửa sổ Windows) |
 
 ---

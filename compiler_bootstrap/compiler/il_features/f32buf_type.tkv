@@ -15,11 +15,11 @@ import re
 
 from il_dispatch import (
     register_assign_rhs_parser, register_stmt_codegen, register_first_pass_walk,
-    register_line_parser,
+    register_line_parser, register_expr_builtin,
 )
 from il_features.nativebuf import _compile_n_i32
 from tkv_types import TypeAnn
-from stmt_row import intern, lay_nut, lay_str, make3, make2
+from stmt_row import intern, lay_nut, lay_str, make3, make4, make2
 
 __tkv_import__ = "il_dispatch"
 
@@ -39,6 +39,14 @@ _F32BUF_NEW_RE = re.compile(r'^f32buf\(\s*(\w+)\s*\)\s*$')
 # duoc dat 0 sau khi giai phong nen phai la bien that, khong phai ket qua bieu
 # thuc tam thoi.
 _F32BUF_FREE_RE = re.compile(r'^f32buf_free\(\s*(\w+)\s*\)\s*$')
+# `f32buf_wrap(p, n)` (2026-10-14) - TAO BO DEM MUON tu con tro + do dai.
+# `f32buf(n)` cap phat bo dem nen local con tro + local do dai (theo ten bien)
+# chi song trong mot ham - xem f32buf_len_name. Do do moi ham thu vien nhan
+# duoc mang f32 deu chay SCALAR: do duoc 2.69x (do 2026-10-14, cung phep
+# cong tren `list[f32]` 3.07 ms so voi `f32buf` 1.14 ms). `f32buf_wrap` la
+# rach: ben trong ham, tao lai cap (con tro, do dai) tu hai tham so nen P6
+# nhan dien duoc. Xem f32buf_own_name ve quyen so huu.
+_F32BUF_WRAP_RE = re.compile(r'^f32buf_wrap\(\s*(\w+)\s*,\s*(\w+)\s*\)\s*$')
 
 
 def il_f32buf_type() -> "str":
@@ -55,11 +63,86 @@ def f32buf_len_name(name: "str") -> "str":
     return f'__f32buf_{name}_len'
 
 
+def f32buf_own_name(name: "str") -> "str":
+    """Ten local AN giu QUYEN SO HUU cua buffer `name`: 1 = tu cap phat
+    (`f32buf(n)`, `f32buf_free` duoc giai phong), 0 = muon
+    (`f32buf_wrap(p, n)`, thuoc ve ben goi).
+
+    Quyet dinh 2026-10-14 (sau khi hoi nguoi dung): `f32buf_free` KHONG giai
+    phong bo dem muon. Chon thiet le - roi ram hon mot lan giai phong NHAAM,
+    lan do doc vung da giai phong la CORRUPT MEMORY. Bo dem muon co chu
+    nghiep lo - moi trong mot ham, ngay sau khi dung xong nen do de lai.
+    """
+    return f'__f32buf_{name}_own'
+
+
 def next_f32buf_label(ctx: "Ctx", name: "str") -> "str":
     """Nhan ten nhanh de toi uu cho phan kiem tra gioi han."""
     ctx.label_counter[0] += 1
     n = ctx.label_counter[0]
     return f'_f32b{n}_{name}_ok'
+
+
+def try_rhs_f32buf_wrap(rhs: "str", name: "str", known_shapes: "dict[str,str]") -> "i32":
+    """ASSIGN_RHS_PARSERS entry: 'a = f32buf_wrap(p, n)'.
+
+    KHONG cap phat gi - `p` la con tro do BEN GOI cap. Chi nhan `p`, `n` la
+    bien/chu so (giong `f32buf(n)`) de moi gia tri duoc tinh dung mot lan.
+    """
+    rhs_s = rhs.strip()
+    m = _F32BUF_WRAP_RE.match(rhs_s)
+    if not m:
+        return None
+    known_shapes[name] = 'f32buf'
+    return intern(make4('assign_f32buf_wrap', name, m.group(1), m.group(2)))
+
+
+def fpw_assign_f32buf_wrap(stmt: "i32", ctx: "WalkCtx"):
+    """FIRST_PASS_WALK: khai con tro (f32/f32buf) + do dai + co so huu = 0."""
+    name = lay_str(stmt, 'name')
+    ctx.declare_named(name, TypeAnn('f32', 'f32buf'))
+    ctx.declare_named(f32buf_len_name(name), TypeAnn('i32', None))
+    ctx.declare_named(f32buf_own_name(name), TypeAnn('i32', None))
+    ctx.collect_ternary_temps(lay_nut(stmt, 'ptr_node'))
+    ctx.collect_ternary_temps(lay_nut(stmt, 'len_node'))
+
+
+def codegen_assign_f32buf_wrap(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
+    """STMT_CODEGEN: 'a = f32buf_wrap(p, n)' - noi con tro `p` va do dai `n`
+    vao cap local ma P6 nhan dien. KHONG cap phat, KHONG giai phong."""
+    name = lay_str(stmt, 'name')
+    ctx.compile_expr(lay_nut(stmt, 'ptr_node'), scope, body, 'i64', ctx)
+    ctx.store_var(name, scope, body)
+    _compile_n_i32(lay_nut(stmt, 'len_node'), scope, body, ctx)
+    ctx.store_var(f32buf_len_name(name), scope, body)
+    body.append('    ldc.i4.0')
+    ctx.store_var(f32buf_own_name(name), scope, body)
+
+
+def _ten_f32buf_ten(args: "list[TkvNode]", ten_ham: "str") -> "str":
+    """Ten bien f32buf tu 1 doi so bien - dung chung cho `f32buf_ptr`/
+    `f32buf_len`. Tra None (kem bao loi) neu khong phai bien f32buf."""
+    if len(args) != 1:
+        raise SyntaxError(f'il_codegen: {ten_ham}(b) chi nhan 1 tham so')
+    if ekind(args[0]) != 'var':
+        raise SyntaxError(f'il_codegen: {ten_ham}(b) chi nhan BIEN, khong nhan bieu thuc')
+    nm = ea_str(args[0])
+    return nm
+
+
+def push_f32buf_ptr(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'f32buf_ptr(b)' - dia chi native cua bo dem, de truyen sang ham khac.
+
+    KHONG `return` gi - giong het `push_v_hsum4`: builtin bieu thuc chi PHAT
+    IL, gia tri tra ve do `register_expr_builtin` quy dinh ('i64')."""
+    _ten_f32buf_ten(args, 'f32buf_ptr')
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+
+
+def push_f32buf_len(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'f32buf_len(b)' - so phan tu cua bo dem (khong phai so byte)."""
+    nm = _ten_f32buf_ten(args, 'f32buf_len')
+    out.append(f'    ldloc {f32buf_len_name(nm)}')
 
 
 def emit_f32buf_index_check(out: "list[str]", len_local: "str", label: "str", var_name: "str"):
@@ -103,6 +186,7 @@ def fpw_assign_f32buf_new(stmt: "i32", ctx: "WalkCtx"):
     AN giu chieu dai."""
     ctx.declare_named(lay_str(stmt, 'name'), TypeAnn('f32', 'f32buf'))
     ctx.declare_named(f32buf_len_name(lay_str(stmt, 'name')), TypeAnn('i32', None))
+    ctx.declare_named(f32buf_own_name(lay_str(stmt, 'name')), TypeAnn('i32', None))
     ctx.collect_ternary_temps(lay_nut(stmt, 'count_node'))
 
 
@@ -138,6 +222,10 @@ def codegen_assign_f32buf_new(stmt: "i32", scope: "Scope", body: "list[str]", bo
     else:
         _compile_n_i32(count_node, scope, body, ctx)
     ctx.store_var(f32buf_len_name(lay_str(stmt, 'name')), scope, body)
+    # Quyen so huu: `f32buf(n)` TU CAP PHAT nen `f32buf_free` duoc phep giai
+    # phong. Xem f32buf_own_name.
+    body.append('    ldc.i4.1')
+    ctx.store_var(f32buf_own_name(lay_str(stmt, 'name')), scope, body)
 
 
 def emit_f32buf_free(out: "list[str]", var_name: "str", scope: "Scope", ctx: "Ctx", dtype: "str") -> "i32":
@@ -152,12 +240,24 @@ def emit_f32buf_free(out: "list[str]", var_name: "str", scope: "Scope", ctx: "Ct
 
     Tra ve 0 (va KHONG phat gi) neu `var_name` khong phai bien f32buf de
     nguoi goi tu quyet dinh bao loi nao cho hieu hon.
+
+    Bo dem MUON (`f32buf_wrap`) KHONG duoc giai phong - nhanh ve qua co
+    `__f32buf_<ten>_own`. Ca tai day (khong reset) chu y MOT: bo dem muon van
+    tro toi bo dem cua ben goi nen reset con tro/chi so o day se lam mat
+    quyen doc du lieu trong khi vua thoat - thay vi bao "dung bo dem da
+    giai phong", `f32buf_free` tren bo dem muon la lenh RONG.
     """
     if var_name not in scope:
         return 0
     ta = scope.tra(var_name).ta
     if ta is None or ta.shape_ten != 'f32buf':
         return 0
+    _own = f32buf_own_name(var_name)
+    if _own not in scope:
+        return 0
+    skip = next_f32buf_label(ctx, var_name) + '_noown'
+    out.append(f'    ldloc {_own}')
+    out.append(f'    brfalse {skip}')
     ctx.load_var_ref(var_name, scope, out)
     # KHONG co 'pop' sau loi goi: `FreeHGlobal` tra `void`, khong day gi len
     # stack. Pop o day se lam IL mat can bang -> InvalidProgramException.
@@ -167,6 +267,12 @@ def emit_f32buf_free(out: "list[str]", var_name: "str", scope: "Scope", ctx: "Ct
     ctx.store_var(var_name, scope, out)
     out.append('    ldc.i4.0')
     ctx.store_var(f32buf_len_name(var_name), scope, out)
+    # Nhan `skip` DAT TRUOC lenh day gia tri tra ve (1). Ben goi LUON pop
+    # sau lenh nay, nen ca hai duong (co so huu / bo qua) phai hoi tu day
+    # con gia tri tren stack. Dat nhan sau `ldc.i4.0` thi duong bo qua
+    # nhay qua het lenh day gia tri -> `pop` khong co gi de pop ->
+    # InvalidProgramException (da gap 2026-10-14, PEVerify chi ra).
+    out.append(f'  {skip}:')
     out.append('    ldc.i4.0')
     return 1
 
@@ -198,5 +304,11 @@ def bootstrap_f32buf(reg: "Registry"):
     register_assign_rhs_parser(reg, 'f32buf_new', try_rhs_f32buf_new)
     register_stmt_codegen(reg, 'assign_f32buf_new', codegen_assign_f32buf_new)
     register_first_pass_walk(reg, 'assign_f32buf_new', fpw_assign_f32buf_new)
+    # Bo dem MUON: noi con tro + do dai co san vao cap local ma P6 nhan.
+    register_assign_rhs_parser(reg, 'f32buf_wrap', try_rhs_f32buf_wrap)
+    register_stmt_codegen(reg, 'assign_f32buf_wrap', codegen_assign_f32buf_wrap)
+    register_first_pass_walk(reg, 'assign_f32buf_wrap', fpw_assign_f32buf_wrap)
+    register_expr_builtin(reg, 'f32buf_ptr', push_f32buf_ptr, 'i64')
+    register_expr_builtin(reg, 'f32buf_len', push_f32buf_len, 'i32')
     register_line_parser(reg, 'f32buf_free_stmt', _try_lp_f32buf_free)
     register_stmt_codegen(reg, 'f32buf_free_stmt', _codegen_f32buf_free_stmt)

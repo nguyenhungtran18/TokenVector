@@ -285,6 +285,31 @@ không đáng làm** — biến `i*4` vẫn bị tính 3 lần trong IL, nhưng 
 kiểu chỉ khác ~4% (1.23 vs 1.18 ms), vì JIT chịu được `TkvInt`. Tỷ lệ
 giá trị/chi phí không tốt.
 
+**Mở rộng 2026-10-14 — `f32buf` vượt biên hàm.** Trước đó `f32buf(n)` cấp phát
+bộ đệm nên cặp local (con trỏ + `__f32buf_<tên>_len`) chỉ sống trong một hàm.
+Hệ quả: **mọi hàm thư viện nhận một mảng f32 đều chạy scalar**. Đo: phép cộng
+trên `list[f32]` **3.07 ms** so với cùng phép trên `f32buf` **1.14 ms** — chênh
+**2.69×** hoàn toàn vì vòng lặp nằm sai chỗ.
+
+Ba tên mới: `f32buf_wrap(p, n)` nối con trỏ + độ dài có sẵn vào cặp local mà P6
+nhận diện; `f32buf_ptr(a)`, `f32buf_len(a)` lấy ra hai thành phần đó. Bám đúng
+idiom sẵn có (`alloc_bytes` trả con trỏ, người gọi giữ độ dài). P6 **không sửa
+gì** — nó chỉ kiểm `shape_ten == 'f32buf'`.
+
+Đo lại trên cùng con trỏ, cùng khối việc, một bên scalar một bên P6 trong *cùng
+một hàm có tham số*: **2.22×**, ổn định 3/3.
+
+**Quyền sở hữu (đã hỏi, chọn: chủ gọi giữ):** bộ đệm tạo bởi `f32buf_wrap` là
+bộ đệm **mượn** — `f32buf_free` **không** giải phóng nó. Chọn thiên lệ: rò rỉ
+bộ nhớ còn hơn giải phóng nhầm thành CORRUPT MEMORY. `f32buf_free` trên bộ đệm
+mượn là lệnh rỗng, và **không** đặt con trỏ/chiều dài về 0 (làm vậy sẽ mất quyền
+đọc ngay khi thoát hàm).
+
+*Đính chính một đề xuất trước đó của tôi:* "mở `f32` thành hạng nhất" là **dựa
+trên giả định sai** — `f32` đã làm được tham số, giá trị trả về, trường record
+và `list[f32]` từ trước, cả năm đều chạy. Thiếu sót là `f32buf`, không phải
+`f32`.
+
 
 ### Giai đoạn 2 — Phần còn lại của ngôn ngữ
 

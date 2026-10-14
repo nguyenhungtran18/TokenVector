@@ -1,0 +1,164 @@
+"""GATE CHO `f32buf_wrap` / `f32buf_ptr` / `f32buf_len` (2026-10-14).
+
+`f32buf(n)` cap phat bo dem nen cap local (con tro + do dai `__f32buf_<ten>_len`)
+chi song trong MOT HAM. Do do moi ham thu vien nhan mot mang f32 deu chay
+SCALAR: do 2026-10-14, phep cong tren `list[f32]` 3.07 ms con cung phep tren
+`f32buf` 1.14 ms - **2.69x** chi do vong lap nam o sai cho.
+
+`f32buf_wrap(p, n)` noi con tro + do dai co san vao cap local ma P6 nhan dien,
+nen P6 chay CA khi vong lap nam trong ham co tham so. Do lai cung khoi viec,
+cung con tro, mot ben SCALAR mot ben P6: **2.22x**, on dinh 3/3.
+
+**QUYEN SO HUU (da hoi nguoi dung):** bo dem tao boi `f32buf_wrap` la BO DEM
+MUON - `f32buf_free` KHONG giai phong no. Chon thiet le: roi ram hon mot lan
+giai phong NHAAM (doc vung da giai phong la CORRUPT MEMORY). `f32buf_free` tren
+bo dem muon la lenh RONG - khong giai phong, KHONG dat con tro/chi so ve 0 (dat
+ve 0 se lam mat quyen doc cua bo dem trong khi thoat khoi ham).
+
+MOI ham deu tien gia tri -999.0 vao `r` truoc khi chay vong can vector hoa -
+xac nhan trong `p6_vectorize_test.tkv` va ly do cua no.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def _tong(p: "i64", n: "i32") -> "f64":
+    """Dem qua BIEN: day la mau ma truoc day khong co gi vector hoa duoc."""
+    a = f32buf_wrap(p, n)
+    cs = 0.0
+    for i in range(n):
+        cs = cs + a[i]
+    return cs
+
+
+def _scaled(p: "i64", n: "i32", q: "i64", m: "i32", rp: "i64", rn: "i32", k: "f32") -> "i32":
+    a = f32buf_wrap(p, n)
+    b = f32buf_wrap(q, m)
+    r = f32buf_wrap(rp, rn)
+    for i in range(n):
+        r[i] = a[i] * k + b[i]
+    return 0
+
+
+def _free_ben_muon(p: "i64", n: "i32") -> "i32":
+    """`f32buf_free` tren bo dem muon phai la LENH RONG va khong lam hong."""
+    a = f32buf_wrap(p, n)
+    s = 0.0
+    for i in range(n):
+        s = s + a[i]
+    f32buf_free(a)
+    return int(s)
+
+
+def wrap_read_case(n: "i32", gia_tri: "f32") -> "i32":
+    """Wrap roi DOC - ket qua phai bit-exact voi `gia_tri`."""
+    p = alloc_bytes(n * 4)
+    i = 0
+    while i < n:
+        write_f32(p, i * 4, gia_tri)
+        i = i + 1
+    got = _tong(p, n)
+    free_bytes(p)
+    return check("wrap_read n=" + str(n), str(got), str(float(n) * gia_tri))
+
+
+def wrap_write_case(n: "i32") -> "i32":
+    """Wrap roi GHI qua 3 bo dem - phu thu `n % 4` (duoi scalar)."""
+    m = n * 4
+    x = alloc_bytes(m)
+    y = alloc_bytes(m)
+    z = alloc_bytes(m)
+    i = 0
+    while i < n:
+        write_f32(x, i * 4, 1.5)
+        write_f32(y, i * 4, 2.5)
+        write_f32(z, i * 4, -999.0)
+        i = i + 1
+    _scaled(x, n, y, n, z, n, 2.0)
+    s = ""
+    j = 0
+    while j < n:
+        s = s + str(read_f32(z, j * 4)) + ";"
+        j = j + 1
+    w = ""
+    t = 0
+    while t < n:
+        w = w + str(5.5) + ";"
+        t = t + 1
+    free_bytes(z)
+    free_bytes(y)
+    free_bytes(x)
+    return check("wrap_write n=" + str(n), s, w)
+
+
+def free_ben_muon_case(n: "i32") -> "i32":
+    """Goi `f32buf_free` tren bo dem muon: phai khong crash, va con doc duoc."""
+    p = alloc_bytes(n * 4)
+    i = 0
+    while i < n:
+        write_f32(p, i * 4, 2.0)
+        i = i + 1
+    a = f32buf_wrap(p, n)
+    s = 0.0
+    for i in range(n):
+        s = s + a[i]
+    f32buf_free(a)
+    # Sau `f32buf_free`, local `a` VAN phai tro toi bo dem cua ben goi - neu
+    # lenh no dat con tri/chi so ve 0 thi moi doc o day ra loi.
+    s2 = 0.0
+    for i in range(n):
+        s2 = s2 + a[i]
+    free_bytes(p)
+    return check("free_ben_muon n=" + str(n), str(s2), str(float(n) * 2.0))
+
+
+def free_bo_dung_case(n: "i32") -> "i32":
+    """Bo dem TU CAP PHAT van phai doc/ghi/giai phong binh thuong.
+
+    KHONG kiem tra 'doc sau khi free phai nem loi': loi do la
+    `System.IndexOutOfRangeException` va viec bat `IndexError` o day la
+    chuyen khac (xem `neg_*`). O day chi can chung minh free khong lam
+    hong va khong lam mat gia tri da ghi."""
+    a = f32buf(n)
+    i = 0
+    while i < n:
+        a[i] = 1.0
+        i = i + 1
+    s = a[0]
+    f32buf_free(a)
+    return check("free_bo_dung n=" + str(n), str(s), "1.0")
+
+
+def ptr_len_case(n: "i32") -> "i32":
+    """`f32buf_len` / `f32buf_ptr`."""
+    a = f32buf(n)
+    ln = f32buf_len(a)
+    pt = f32buf_ptr(a)
+    r = str(ln) + "/" + str(pt != 0)
+    f32buf_free(a)
+    return check("ptr_len n=" + str(n), r, str(n) + "/True")
+
+
+def run() -> "i32":
+    total = 0
+    # Doc: rong, le, vua 4, vuot 4.
+    total += wrap_read_case(0, 1.5)
+    total += wrap_read_case(1, 2.0)
+    total += wrap_read_case(4, 3.0)
+    total += wrap_read_case(9, -1.5)
+    total += wrap_read_case(17, 0.5)
+    # Ghi: phu het duoi scalar.
+    total += wrap_write_case(0)
+    total += wrap_write_case(1)
+    total += wrap_write_case(3)
+    total += wrap_write_case(4)
+    total += wrap_write_case(9)
+    total += wrap_write_case(17)
+    # Quyen so huu.
+    total += free_ben_muon_case(4)
+    total += free_ben_muon_case(9)
+    total += free_bo_dung_case(4)
+    total += free_bo_dung_case(9)
+    total += ptr_len_case(1)
+    total += ptr_len_case(7)
+    return test_summary("f32buf_wrap_test", total, 17)
