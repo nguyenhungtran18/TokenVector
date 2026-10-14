@@ -104,7 +104,7 @@ bàn giao ở cây E:.
 ## Đo bằng probe trực tiếp: compiler ĐÃ đăng ký đầy đủ
 
 Đo đúng theo tiêu chí *"TokenVector chấp nhận và biên dịch được"* — **gọi thẳng
-`dist\tkvc-tv.exe`**, không tin tài liệu. Kết quả: `tools\dang_ky_gate.py`.
+`dist\tkvc-tv.exe`**, không tin tài liệu. Kết quả: `tools\dang_ky_gate.tkv`.
 
 ```
 132 file / 2090 hàm   (đo 2026-10-12, sau khi xoá khối `__tkv_chi_cpython__`)
@@ -180,7 +180,7 @@ số hàm không nằm trên đường TokenVector giảm từ 49 xuống còn 2
    construct một file.
 3. `ast.walk` **vẫn đi xuống cây của hàm lồng** dù đã `continue` trên nút
    `FunctionDef` — quy `return` của hàm lồng cho hàm ngoài, báo động 2 vi phạm
-   giả. Phải tự đệ quy, bỏ cả cây. `tools\dang_ky_gate.py` có tự kiểm 4 ca
+   giả. Phải tự đệ quy, bỏ cả cây. `tools\dang_ky_gate.tkv` có tự kiểm 4 ca
    để chặt lỗi này.
 
 ## Sai ở đâu khi đo bằng văn bản thay vì probe

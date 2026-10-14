@@ -8,7 +8,7 @@
 > thật** hoặc đọc thẳng từ mã nguồn compiler — không suy đoán. Khi một mục ghi
 > *khác Python*, §5 nói rõ khác ở đâu.
 >
-> **Không đầy đủ thì gate sẽ báo.** Chạy `python tools\gen_builtin_ref.py --check`
+> **Không đầy đủ thì gate sẽ báo.** Chạy `gen_builtin_ref.tkv --check`
 > — FAIL nếu có tên đã đăng ký mà tài liệu này chưa đề cập.
 >
 > **Harness (agent) đừng đoán — hỏi tool.** `tools\tkv_guide.tkv` viết bằng
@@ -1143,7 +1143,7 @@ dùng stable sort. Đã ghi ở phần `emit_sort_by_key`.
 
 ## 7. DANH MỤC ĐẦY ĐỦ (sinh tự động)
 
-> Khối dưới do `python tools\gen_builtin_ref.py` ghi vào — **đừng sửa tay**.
+> Khối dưới do `gen_builtin_ref.tkv` ghi vào — **đừng sửa tay**.
 > Dùng nó để kiểm tra "tên này đã có thật chưa" và để **không ghi đè file**
 > khi tạo module mới trong `compiler/il_features/`.
 

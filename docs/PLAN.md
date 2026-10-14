@@ -40,7 +40,7 @@ Benchmark đo trên máy này (đo lại 2026-09-29, đã trừ startup). **Số
 SIMD 4-lane đạt **4.08×** so với scalar — ngay tại trần lý thuyết 4 lane.
 Startup 24.6 ms so với CPython 35.8 ms.
 
-**P6 (vector hoá TỰ ĐỘNG) — đo riêng bằng `\bench\p6_bench.py`.**
+**P6 (vector hoá TỰ ĐỘNG) — đo riêng bằng `TokenVector.TestOracle\benchmark\p6_bench.py`.**
 Bảng trên dùng SIMD viết tay, nên không phản ánh P6. P6 đo bằng cách so
 **chính compiler với chính nó**: hai kernel giống hệt nhau, chỉ khác ở điều
 kiện vòng lặp (`while i < nb` — biến, vector hoá; `while i < 262144` — hằng

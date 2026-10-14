@@ -59,7 +59,7 @@ worth recording, because the arrangement was actively dangerous:
   failed a test the current compiler passes: building
   `tests/iterator_protocol_test.tkv` died with
   `UnboundLocalError: cannot access local variable 'ta'` in
-  `il_codegen.py::declare_scalar`.
+  `il_codegen.tkv::declare_scalar`.
 
 All 17 references to the old path (2 `.ps1` defaults, 15 documentation
 lines) in `D:\TokenVector.Inference` were repointed to `dist\tkvc.exe`. If
