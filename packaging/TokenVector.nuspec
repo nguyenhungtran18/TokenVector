@@ -21,10 +21,9 @@
   <files>
     <file src="..\README.md" target="README.md" />
     <file src="..\LICENSE" target="LICENSE" />
-    <!-- Icon = images\preview.png. TRUOC day la images\icon.png, mot ban
-         copy trung byte cua preview.png; da bo ban copy do (chi giu 1 file)
-         va tro nuspec ve day. -->
-    <file src="..\assets\preview.png" target="icon.png" />
+    <!-- Icon = logo TokenVector, ban 128x128 (khuyen nghi cua NuGet). Ban goc
+         512x512 nam o assets\preview.png - giu nguyen, khong doi. -->
+    <file src="..\assets\icon.png" target="icon.png" />
     <file src="..\dist\tkvc-tv.exe" target="tools\tkvc-tv.exe" />
     <!-- Ban DLL cua chinh compiler (bien dich tu nguon tự-host). Cho .NET project
          tham chieu nhu thu vien; nguoi dung cu van dung tkvc-tv.exe. -->

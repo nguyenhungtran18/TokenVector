@@ -50,6 +50,23 @@ def _chay_ilasm(cac_doi_so: "list[str]", tep_ra: "str") -> "i32":
     return proc_ra(_find_ilasm(), chuoi, tep_ra)
 
 
+def _la_dll_ra(p: "str") -> "i32":
+    """1 neu duong dan xuất ra ket thuc bang `.dll` (khong phan biet chu HOA).
+
+    Đây là noi quyết định đầu ra là THƯ VIỆN (library) hay CHUONG TRÌNH (exe).
+    ILAsm can `/dll` de xuất PE có cờ `IMAGE_FILE_DLL`; truoc day luon hardcode
+    `/exe` nen MỌI đầu ra deu la exe du nguoi dung goi tên `.dll` - co gang doi
+    ten khong thannh dll, chi la exe mang tên dll. Do 2026-10-14:
+    `tkvc-tv.dll` dung cung PE characteristics 0x0102 voi `.exe` (khong co bit
+    `0x2000` = IMAGE_FILE_DLL) va vẫn con `.entrypoint` trong IL."""
+    if p is None:
+        return 0
+    nho = p.lower()
+    if nho.endswith('.dll'):
+        return 1
+    return 0
+
+
 def _doi_duoi(p: "str", duoi: "str") -> "str":
     """Doi phan mo rong (nhu Path.with_suffix): cat tu dau '.' cuoi cung
     NAM SAU dau phan cach thu muc cuoi cung."""
@@ -158,10 +175,12 @@ def assemble_il_to_exe(il_text: "str", out_exe: "str", debug: "i32" = False) -> 
     il_path = _doi_duoi(out_exe, '.il')
     write_file(il_path, il_text)
     tep_ra = _doi_duoi(out_exe, '.ilasm.txt')
+    # `/dll` khi đầu ra la thư viện - xem `_la_dll_ra`.
+    loai_ra = '/dll' if _la_dll_ra(out_exe) == 1 else '/exe'
     last_err = ''
     for attempt in range(2):
         _xoa_neu_co(out_exe)
-        ilasm_args = [il_path, '/exe', '/output:' + out_exe]
+        ilasm_args = [il_path, loai_ra, '/output:' + out_exe]
         if debug:
             ilasm_args.append('/debug')
         code = _chay_ilasm(ilasm_args, tep_ra)
