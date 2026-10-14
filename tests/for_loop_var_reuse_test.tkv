@@ -1,0 +1,174 @@
+"""GATE CHO `for` dung lai bien da khai kieu `int` (2026-10-14).
+
+Vong `for i in range(n)` phai bien dich theo kieu THAT cua bien dem `i`, chu
+KHONG phai mac dinh 'i32'. `i` co the da duoc khai o tren trong cung ham:
+`i = 0` tao bien kieu `int` (TkvInt, 16 byte), roi `for i in range(n)` lay
+chinh bien do.
+
+`codegen_for` truoc day PHA gi ep i32 o ca BA noi:
+
+    ldc.i4.0 ; stloc <local TkvInt>     -> [found Int32][expected value
+                                             'TkvInt'] theo PEVerify
+    load_var_ref ; ldc.i4 <stop> ; bge   -> ByRef so voi Int32
+    load_var_ref ; ldc.i4 1 ; add ; stloc
+
+Ca deu la IL khong hop le. `ilasm` van NHAN ( nen build xanh, exit 0), chi JIT
+mo tu choi luc chay: `System.BadImageFormatException` (0x8007000B).
+
+**Khong dung f-string hay gi de canh loi.** Loi xuat hien o IL, khong o
+nguong nguon. Cach bat duy nhat la CHAY. Repro goc (can ca `for` + `if` +
+`a[i]+b[i]` moi lo, bo ky mot yeu to nao thi lai qua) nam o
+`bug_for_f32buf_il_repro.tkv` truoc khi xoa.
+
+P6 (`p6_for_vectorize_test`) cung di qua `codegen_for` va `_p6_vec_phat`, nen
+hai noi khoi tao bien dem va phep tang duoi duoi scalar cung phai dung kieu
+that - test `p6_var_int` ben duoi can ca hai.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def for_reuse_int(n: "i32") -> "i32":
+    """`i` da la bien `int` truoc, roi `for i in range(n)` dung lai no."""
+    xs: "list[i32]" = []
+    i = 0
+    while i < n:
+        i = i + 1
+    for i in range(n):
+        xs.append(i)
+    return check("for_reuse_int n=" + str(n), str(len(xs)), str(n))
+
+
+def for_reuse_int_if(n: "i32", reps: "i32") -> "i32":
+    """Dung hinh dang goc cua bug: `for` ben trong `while`, sau do co `if`.
+
+    Khong co `if` thi loi KHONG lo - nen phai giu nguyen `if` o day, khong
+    duoc 'don gian hoa' ban test."""
+    a = f32buf(n)
+    b = f32buf(n)
+    r = f32buf(n)
+    i = 0
+    while i < n:
+        a[i] = 1.0
+        b[i] = 2.0
+        i = i + 1
+    best = 1.0e9
+    d = 0.0
+    k = 0
+    while k < reps:
+        d = time_perf()
+        for i in range(n):
+            r[i] = a[i] + b[i]
+        if d < best:
+            best = d
+        k = k + 1
+    cs = 0.0
+    i = 0
+    while i < n:
+        cs = cs + r[i]
+        i = i + 1
+    f32buf_free(a)
+    f32buf_free(b)
+    f32buf_free(r)
+    return check("for_reuse_int_if n=" + str(n), str(cs), str(float(n) * 3.0))
+
+
+def for_reuse_int_ab(n: "i32") -> "i32":
+    """`range(1, n)` - `start_node` khong rong, bien dich theo kieu `i`."""
+    xs: "list[i32]" = []
+    i = 0
+    while i < n:
+        i = i + 1
+    for i in range(1, n):
+        xs.append(i)
+    return check("for_reuse_int_ab n=" + str(n), str(len(xs)), str(n - 1))
+
+
+def for_reuse_int_step(n: "i32") -> "i32":
+    """`range(0, n, 2)` - buoc 2."""
+    xs: "list[i32]" = []
+    i = 0
+    while i < n:
+        i = i + 1
+    for i in range(0, n, 2):
+        xs.append(i)
+    return check("for_reuse_int_step n=" + str(n), str(len(xs)), str((n + 1) // 2))
+
+
+def for_reuse_int_neg(n: "i32") -> "i32":
+    """`range(n, 0, -1)` - buoc am, bien dich `>` thay `<`."""
+    xs: "list[i32]" = []
+    i = 0
+    while i < n:
+        i = i + 1
+    for i in range(n, 0, -1):
+        xs.append(i)
+    return check("for_reuse_int_neg n=" + str(n), str(len(xs)), str(n))
+
+
+def for_after(n: "i32") -> "i32":
+    """Gia tri cua bien dem SAU vong `for` phai dung (buoc am dung nguoc)."""
+    i = 0
+    while i < n:
+        i = i + 1
+    for i in range(n, 0, -1):
+        pass_do = 0
+    return check("for_after n=" + str(n), str(i), "0")
+
+
+def p6_var_int(n: "i32") -> "i32":
+    """P6 tren `for` voi bien dem kieu `int` - can ca khoi tao (trong
+    `_p6_vectorize_for`) va phep tang duoi scalar (trong `_p6_vec_phat`)."""
+    a = f32buf(n)
+    b = f32buf(n)
+    r = f32buf(n)
+    i = 0
+    while i < n:
+        a[i] = 1.5
+        r[i] = -999.0
+        i = i + 1
+    i = 0
+    while i < n:
+        b[i] = 2.25
+        i = i + 1
+    for i in range(n):
+        r[i] = a[i] + b[i]
+    s = ""
+    j = 0
+    while j < n:
+        s = s + str(r[j]) + ";"
+        j = j + 1
+    w = ""
+    t = 0
+    while t < n:
+        w = w + str(3.75) + ";"
+        t = t + 1
+    f32buf_free(a)
+    f32buf_free(b)
+    f32buf_free(r)
+    return check("p6_var_int n=" + str(n), s, w)
+
+
+def run() -> "i32":
+    total = 0
+    total += for_reuse_int(0)
+    total += for_reuse_int(1)
+    total += for_reuse_int(5)
+    total += for_reuse_int(9)
+    total += for_reuse_int(17)
+    # Hinh dang goc cua bug.
+    total += for_reuse_int_if(16, 3)
+    total += for_reuse_int_if(17, 2)
+    # Cac dang `for` khac tren cung bien `int`.
+    total += for_reuse_int_ab(1)
+    total += for_reuse_int_ab(9)
+    total += for_reuse_int_step(8)
+    total += for_reuse_int_step(9)
+    total += for_reuse_int_neg(5)
+    total += for_after(5)
+    # P6 + bien dem kieu `int`.
+    total += p6_var_int(0)
+    total += p6_var_int(4)
+    total += p6_var_int(9)
+    total += p6_var_int(17)
+    return test_summary("for_loop_var_reuse_test", total, 17)

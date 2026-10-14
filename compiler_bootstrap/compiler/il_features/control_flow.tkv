@@ -1559,7 +1559,7 @@ def codegen_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str
     step = lay_i32(stmt, 'step')
     if step is None:
         step = 1
-    compile_expr, load_var_ref, store_var = ctx.compile_expr, ctx.load_var_ref, ctx.store_var
+    compile_expr, store_var = ctx.compile_expr, ctx.store_var
     ctx.label_counter[0] += 1
     n = ctx.label_counter[0]
     # P6: thu vector hoa TRUOC khi phat vong for vohua. Neu khop mau, ham nay
@@ -1573,34 +1573,54 @@ def codegen_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str
     # continue van tang bien roi kiem tra dieu kien lai, khong bo qua buoc
     # tang.
     cont_lbl = f'{sig.name}_L{n}_cont'
+    # Kieu THAT cua bien dem, KHONG phai mac dinh 'i32'. Vong `for` co the dung
+    # lai mot ten da khai truoc do: `i = 0` tao bien kieu `int` (TkvInt, 16
+    # byte), roi `for i in range(n)` lay chinh `i` do. Truoc day ma duoi day
+    # PHA gi ep i32 o ca ba noi:
+    #   - `ldc.i4.0` roi `stloc` vao local TkvInt  -> PEVerify bao
+    #     `[found Int32][expected value 'TkvInt']`;
+    #   - `bge` giua ByRef (do `load_var_ref` day len) va Int32;
+    #   - `ldc.i4 1; add` tren ByRef.
+    # ket qua la IL khong hop le va JIT nem BadImageFormatException (0x8007000B)
+    # luc chay - do 2026-10-14, xem `tests/for_loop_var_reuse_test.tkv`. Nay
+    # bien dich theo kieu that, dung mau ma P6 da dung cho phep tang.
+    _dt_var = 'i32'
+    try:
+        _ta_v = scope.tra(var).ta
+        if _ta_v is not None:
+            _dt_var = _ta_v.dtype
+    except (KeyError, SyntaxError):
+        pass
+    _v1 = mk2('var', o_str(var))
     if start_node is None:
-        body.append('    ldc.i4.0')
+        _v0 = mk2('num', o_str('0'))
+        compile_expr(_v0, scope, body, _dt_var, ctx)
     else:
-        compile_expr(start_node, scope, body, 'i32', ctx)
+        compile_expr(start_node, scope, body, _dt_var, ctx)
     store_var(var, scope, body)
     emit_sb_setup(stmt, scope, body, ctx)
     # LICM: trich phan tinh DUOC nho ra truoc nhan start_lbl (sau buoc khoi
     # tao bien dem, vi 'var' cua vong for la bien bat bien).
     _licm(stmt, scope, body, ctx)
     body.append(f'  {start_lbl}:')
-    load_var_ref(var, scope, body)
-    compile_expr(bound_node, scope, body, 'i32', ctx)
     # step > 0 (mac dinh, hoac 'range(a,b)'): dung 'while var < stop'
-    # (bge nhay toi end khi var>=stop). step < 0 ('range(a,b,-k)', Wave 3
-    # 2026-07-29): dao nguoc thanh 'while var > stop' (ble nhay toi end
+    # (nhay toi end khi var>=stop). step < 0 ('range(a,b,-k)', Wave 3
+    # 2026-07-29): dao nguoc thanh 'while var > stop' (nhay toi end
     # khi var<=stop) - giong het ngu nghia range() nghich cua Python that.
-    body.append(f'    {"bge" if step > 0 else "ble"} {end_lbl}')
+    # Dung `_compile_cond` chu KHONG `bge`/`ble` thu: khi `var` la TkvInt thi
+    # `load_var_ref` day len ByRef, `bge` giua ByRef va Int32 la IL hong.
+    _cnd = mk4('compare', o_str('<' if step > 0 else '>'),
+               o_nut(_v1), o_nut(bound_node))
+    _compile_cond(_cnd, scope, body, body_dtype, ctx)
+    body.append(f'    brfalse {end_lbl}')
     ctx.loop_stack.append((cont_lbl, end_lbl))
     codegen_stmts_fn(lay_than(stmt, 'body'), scope, body, body_dtype, ctx, sig)
     ctx.loop_stack.pop()
     body.append(f'  {cont_lbl}:')
-    load_var_ref(var, scope, body)
-    if step >= 0:
-        body.append(f'    ldc.i4 {step}')
-        body.append('    add')
-    else:
-        body.append(f'    ldc.i4 {-step}')
-        body.append('    sub')
+    _i2 = mk2('num', o_str(str(abs(step))))
+    _inc = mk4('binop', o_str('+' if step >= 0 else '-'),
+               o_nut(_v1), o_nut(_i2))
+    ctx.compile_expr(_inc, scope, body, _dt_var, ctx)
     store_var(var, scope, body)
     body.append(f'    br {start_lbl}')
     body.append(f'  {end_lbl}:')
@@ -1888,9 +1908,14 @@ def _p6_vec_phat(scope: "Scope", body: "list[str]", body_dtype: "str",
     codegen_stmts_fn(tail_stmts, scope, body, body_dtype, ctx, sig)
     ctx.loop_stack.pop()
     if tang_iv == 1:
-        ctx.load_var_ref(iv, scope, body)
-        body.append('    ldc.i4 1')
-        body.append('    add')
+        # `iv = iv + 1` o kieu THAT cua `iv`. Do cung nguyen nhan voi
+        # `codegen_for`: bien dem cua vong `for` co the la bien `int` (TkvInt)
+        # da khai truoc do, va `load_var_ref` day len ByRef nen `ldc.i4 1;
+        # add` tao ra IL khong hop le.
+        _t1 = mk2('var', o_str(iv))
+        _t2 = mk2('num', o_str('1'))
+        _tc = mk4('binop', o_str('+'), o_nut(_t1), o_nut(_t2))
+        ctx.compile_expr(_tc, scope, body, _ta_iv.dtype, ctx)
         ctx.store_var(iv, scope, body)
     body.append('    br ' + tail_start)
     body.append('  ' + end_lbl + ':')
@@ -1948,7 +1973,18 @@ def _p6_vectorize_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype
     if _p6_vec_rhs_ok(rewritten, scope, ctx) == 0:
         return 0
     # Khoi tao bien dem TRUOC vong vector (gia tri bat dau cua `range(n)`).
-    body.append('    ldc.i4.0')
+    # Bien dich theo kieu THAT cua bien dem: `for` co the dung lai mot ten da
+    # khai truoc (`i = 0` -> TkvInt), va `ldc.i4.0` cho local do la IL hong
+    # - xem ghi chuc trong `codegen_for`.
+    _dv = 'i32'
+    try:
+        _tav = scope.tra(iv).ta
+        if _tav is not None:
+            _dv = _tav.dtype
+    except (KeyError, SyntaxError):
+        pass
+    _z = mk2('num', o_str('0'))
+    ctx.compile_expr(_z, scope, body, _dv, ctx)
     ctx.store_var(iv, scope, body)
     # Dieu kien duoi scalar: `iv < n`, dung lai node bound cua vong for.
     _c1 = mk2('var', o_str(iv))
