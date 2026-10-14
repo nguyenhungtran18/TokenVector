@@ -1174,7 +1174,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 **DUNDER CUA RECORD (0)**
 
 
-**HAM BUILTIN (GOI DUOC TRUC TIEP) (172)**
+**HAM BUILTIN (GOI DUOC TRUC TIEP) (163)**
 
 `__tkv_lap` `alloc_bytes` `ascii` `atan2` `atomic_add` `atomic_inc` `base64_decode` `base64_encode`
 `bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `c_puts` `callable` `choice`
@@ -1195,9 +1195,8 @@ compiler - ghi de lam hong ca buoc bien dich.
 `simd_dot` `simd_hw` `simd_isa` `simd_lanes_f32` `simd_lanes_f64` `simd_max` `simd_min` `simd_mul`
 `simd_scale` `simd_sub` `simd_sum` `slice_step` `str` `str_maketrans` `sys_argv` `thread_id`
 `thread_join` `thread_sleep` `thread_spawn` `time_perf` `time_sleep` `time_time` `timedelta_make` `type`
-`uniform` `v_add8` `v_fill8` `v_hsum` `v_hsum4` `v_lane` `v_load4` `v_load8`
-`v_mul8` `v_mul8_add8` `v_store4` `v_store8` `v_sub8` `vtable_cell` `write_f32` `write_i32`
-`write_i64` `write_u8` `xml_encode_name` `zip_extract`
+`uniform` `v_hsum4` `v_load4` `v_store4` `vtable_cell` `write_f32` `write_i32` `write_i64`
+`write_u8` `xml_encode_name` `zip_extract`
 
 **KIEU CAU LENH (SINH IL) (68)**
 
@@ -1240,7 +1239,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 `str.join` `str.ljust` `str.match` `str.rjust` `str.rsplit` `str.search` `str.split` `str.splitlines`
 `str.sub` `str.title` `str.translate` `str.zfill` `timedelta.total_seconds` `tuple.count` `tuple.index`
 
-**Tong so ten da dang ky: 429**
+**Tong so ten da dang ky: 420**
 
 ### File trong `compiler_bootstrap/compiler/il_features/`
 
@@ -1255,7 +1254,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `closures.tkv` | 19011 |
 | `complex_type.tkv` | 8603 |
 | `comprehension.tkv` | 76839 |
-| `control_flow.tkv` | 118816 |
+| `control_flow.tkv` | 145072 |
 | `counter_type.tkv` | 19951 |
 | `datetime_py.tkv` | 16213 |
 | `datetime_type.tkv` | 11863 |
@@ -1280,6 +1279,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `generator_feature.tkv` | 1428 |
 | `generator_lazy.tkv` | 23903 |
 | `int_builtin.tkv` | 11538 |
+| `int_narrow.tkv` | 12146 |
 | `int_type.tkv` | 38748 |
 | `iter_next.tkv` | 19100 |
 | `kwarg_resolve.tkv` | 4052 |
@@ -1295,7 +1295,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `multi_assign.tkv` | 4710 |
 | `nativebuf.tkv` | 12877 |
 | `nested_array_extern.tkv` | 6442 |
-| `operators.tkv` | 49597 |
+| `operators.tkv` | 51740 |
 | `pickle_feature.tkv` | 4680 |
 | `print_feature.tkv` | 5703 |
 | `process_feature.tkv` | 8202 |
@@ -1356,8 +1356,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `tuple_methods.tkv` | 3844 |
 | `tuple_type.tkv` | 44283 |
 | `typecheck.tkv` | 7081 |
-| `vector4_type.tkv` | 7370 |
-| `vector_block.tkv` | 11329 |
+| `vector4_type.tkv` | 10308 |
 | `win32_gui_window.tkv` | 2596 |
 
 <!-- END GENERATED -->

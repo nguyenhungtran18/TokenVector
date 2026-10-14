@@ -249,6 +249,16 @@ broadcast ⇒ `r[i] = a[i] * k + b[i]` chạy vector (k là hằng **hoặc** bi
 | **vector (có broadcast)** | **1.20 ms** |
 | | **2.53×** |
 
+> **ĐÍNH CHÍNH 2026-10-14: số thật là 2.23×, không phải 2.53×.** Baseline
+> "scalar" ở trên ép P6 từ chối bằng cách đổi sang `f64` — nhưng đó là **một
+> đường mã khác** (số học `f64`), không phải cùng phép tính. Đo lại với
+> baseline **công bằng**: cùng `r[i] = a[i] * 1.5 + b[i]`, chỉ thân vòng lặp
+> dài 3 lệnh để P6 không khớp mẫu, nên compiler phát code scalar thuần trên
+> cùng kiểu `f32`. Kết quả vector 1.18 ms vs scalar 2.63 ms ⇒ **2.23×**,
+> ổn định 4/4 lần. Vẫn thắng thật và đáng kể — nhưng 2.53× là do so với
+> đường mã không tương đương, không phải do sai số đo. Số 2.23× mới là số
+> đem dùy.
+
 Chốt phạm vi vẫn là: **chỉ elementwise**. Không đụng giảm tổng (`sum += a[i]`) —
 cái đó đòi hỏi dung sai 1e-5.
 
@@ -435,7 +445,7 @@ ghi rõ `(mirrors  <hash>)` trong message của parent.
 | `tokenvector-grammar` | Working tree bẩn: **xoá** `tokenvector-syntax-1.0.0.vsix` (file đã track) + ~15 file scratch. Cần chọn khôi phục hay chấp nhận xoá. Con trỏ gitlink **không đổi**. |
 | 4 fragment Data | `tokenvector_compute`/`datetime`/`io`/`stats` cần hằng số module. Đã ghi ở `Data\SESSION_HANDOFF.md`. |
 | Xoá repo con `` | Không hoàn tác được. Mọi commit đã có trong parent qua tag `nested-3code-snapshot`. Chờ quyết định. |
-| `f32x8`/`VBuf8` retire | **Đã đo lại 2026-10-14, xác nhận không phải SIMD**: `v_load8`/`v_store8` vẫn phát `ldind.r4`/`stind.r4` từng lane, **213 lệnh IL / 8 phần tử** so với **39** của native scalar, và nhanh hơn scalar chỉ **1.08x**. Muốn SIMD thật thì phải sửa `vector_block.tkv`. Chi tiết: `docs/e_handoff/BAN_GIAO_2026-10-14-PERF-CHECKSUM-V8.md` |
+| `f32x8`/`VBuf8` retire | **ĐÃ GỠ XONG 2026-10-14.** Lý do quyết định, đo trên **cùng byte-buffer** (`alloc_bytes` + `read_f32`/`write_f32`), cùng phép tính `y = 2.5*x + 1.25`, n=1048576, best-of-24, đo bên trong vòng lặp: `v_*8` **44.6 ns/phần tử**, scalar thuần **10.0 ns/phần tử** ⇒ `v_*8` **chậm hơn scalar 4.4×**, ổn định 3/3 lần. Nó không chỉ "không phải SIMD" mà là **bẫy hiệu năng**: tên gọi gợi ý vector, thực tế tệ hơn không dùng gì. P6 trên `f32buf` nhanh hơn scalar 2.23× và tự động hoá, đã phủ đúng việc này. Đã xoá `vector_block.tkv` (133 → **132** file), `tests/vector_block_test.tkv`, `tools/perf/perf_axpy.tkv` + dòng baseline. `_vb_addr`/`_ofs_native` chuyển vào `vector4_type.tkv` vì `Vector4` là SIMD thật và vẫn dùng. `v_hsum4`/`f32x4` **giữ nguyên** — chúng thuộc `Vector4`, không phải `VBuf8`. **Khoảng trống còn lại:** `f32buf` chỉ là local nên P6 không với tới byte-buffer bên ngoài; muốn phủ thì phải làm `f32buf` từ bộ nhớ ngoài — việc riêng, không phải hồi sinh `v_*8`. |
 | Nâng `i*4` ra khỏi vòng vector | **KHÔNG ĐÁNG LÀM (đo lại 2026-10-14).** `i*4` vẫn bị tính 3 lần trong IL, nhưng thời gian hai kiểu chỉ khác ~4% (1.23 vs 1.18 ms) vì JIT chịu được `TkvInt`. Đóng lại. |
 | Tích hợp SIMD vào `TokenVector.Data` | Handoff ở `Data\SESSION_HANDOFF_SIMD.md`. Chưa làm. |
 | **SIMD thật** (thay `Vector4::op_*`) | **ĐÃ XÁC NHẬN KHÔNG THỰC HIỆN ĐƯỢC trên target này.** `add`/`mul` thô trên struct `Vector4` bị JIT từ chối: `InvalidProgramException` (ECMA-335 yêu cầu `add` trên kiểu số). Máy không có .NET Core ⇒ không có `System.Runtime.Intrinsics`. Đã thử và ghi kết quả vào `vector4_type.tkv`. |

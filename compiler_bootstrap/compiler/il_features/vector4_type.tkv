@@ -11,15 +11,18 @@ giu nguyen (chua trung) va goi trong bootstrap_vector4.
 
 Vong `for i, field in enumerate(...)` trong push_v_hsum4 viet lai vong
 index tren list module `_VEC4_LANES` (tuple-unpack trong for khong chac).
-`import il_features.vector_block as _vb` KHONG dung duoc - dang nay lam
-vo build voi loi 'append(...)' dang lenh doc lap (2026-10-07, chua ro
-nguyen nhan sau, co the import bi bo qua am tham); dung
-`from il_features.vector_block import _vb_addr` truc tiep thay the.
+
+2026-10-14: `vector_block.tkv` DA BI XOA. `_vb_addr` + `_ofs_native` duoc
+chuyen sang day (xem `def _vb_addr` ben duoi). Ly do: toan bo API `v_*8`
+va class `VBuf8` da nghi (do lai: `v_*8` CHAM HON scalar thuan **4.4x** tren
+cung byte-buffer - 44.6 so voi 10.0 ns/phan tu, best-of-24, do ben trong
+vong lap), nhung `Vector4` thi la SIMD THAT va van can `v_hsum4` + `_vb_addr`.
+Giu file rieng chi de mot ham trong gi se la thua va gay nham - nay con dung
+mot file doc lap voi ten lich su.
 """
 
 from il_core import IL_SCALAR
 from il_dispatch import register_expr_builtin
-from il_features.vector_block import _vb_addr
 
 __tkv_import__ = "il_dispatch"
 
@@ -28,6 +31,26 @@ __tkv_import__ = "il_dispatch"
 VEC4_CLASS = '[System.Numerics]System.Numerics.Vector4'
 # Mo ta VALUETYPE day du - dung lam kieu tra ve/tham so va khai bao local.
 VEC4 = f'valuetype {VEC4_CLASS}'
+
+
+def _ofs_native(ofs_node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Offset byte len dang `native int` (i64) - dung thang, KHONG hep ve i32."""
+    ctx.compile_expr(ofs_node, scope, out, 'i64', ctx)
+
+
+def _vb_addr(p_node: "TkvNode", ofs_node: "TkvNode", lane_byte_off: "i32", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Day 'native int' cua p + ofs + lane_byte_off len stack.
+
+    `ofs` tinh theo BYTE - giong het read_f32/write_f32/read_i32/... o
+    nativebuf.tkv. Chuyen tu `vector_block.tkv` (da xoa) ngay 2026-10-14."""
+    ctx.compile_expr(p_node, scope, out, 'i64', ctx)
+    _ofs_native(ofs_node, scope, out, ctx)
+    out.append('    add')
+    if lane_byte_off:
+        out.append(f'    ldc.i4.s {lane_byte_off}')
+        out.append('    conv.i8')
+        out.append('    add')
+    out.append('    conv.i')
 
 # Vector4 dinh nghia day du 4 toan tu hai tham so. KHONG phai goi
 # `Add`/`Multiply` nhu Complex - Complex co method tinh, Vector4 dung

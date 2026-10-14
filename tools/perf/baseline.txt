@@ -1,5 +1,4 @@
-﻿perf_axpy	59.33	sum=34.45
-perf_e2e	50.33	sum=956798.0999999787
+﻿perf_e2e	50.33	sum=956798.0999999787
 perf_f32buf	241.46	sum=917504.0
 perf_f32mm	38.80	sum=460039.240524292
 perf_mm	27.66	sum=1.0
