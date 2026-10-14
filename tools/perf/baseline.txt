@@ -1,3 +1,4 @@
-﻿perf_e2e	50.59
-perf_f32mm	38.96
-perf_mm	27.74
+﻿perf_axpy	60.14	sum=34.45
+perf_e2e	50.57	sum=956798.0999999787
+perf_f32mm	38.78	sum=460039.240524292
+perf_mm	27.36	sum=1.0

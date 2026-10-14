@@ -89,6 +89,9 @@ from il_features.control_flow import (
     set_known_set_vars as _set_known_set_vars,
     set_known_record_vars as _set_known_record_vars,
     _compile_cond as _compile_cond_tern,
+    # 2026-10-14: `_licm_reset` phai chay CUNG `reset_pool` o `gen_il_program`
+    # (no doi so danh tinh cua cac row LICM nho) - xem comment tai cho do.
+    _licm_reset,
 )
 import il_extern_dtype
 from tkv_types import BienChuaKhaiBao, Binding, EXC_CLR, Scope, TranspileError, base_that
@@ -8981,6 +8984,11 @@ def gen_il_program(reg: "Registry", sig_body_pairs: "list[(TkvSig,list[str],i32)
     # P8/3b-2: arena cau lenh phai cung vong doi voi so danh tinh -
     # lech nhau la mang ten bien tam cua chuong trinh truoc sang sau.
     reset_pool()
+    # ... va `_LICM_DA_LAM` cung vay: no luu CHI SO ROW, ma `reset_pool` vua
+    # lam cho cac chi so do tro toi row cu cua chuong trinh truoc. Neu quen
+    # xoa, 1 vong lap hoan toan khac o chuong trinh sau bi coi nhu "da LICM"
+    # va mat toi uu - im lặng, khong bao loi. Xem control_flow.tkv.
+    _licm_reset()
     func_table = {sig.name: sig for sig, _, _start in sig_body_pairs}
     dup = [name for name in func_table if
            sum([1 for s, _, _start in sig_body_pairs if s.name == name]) > 1]

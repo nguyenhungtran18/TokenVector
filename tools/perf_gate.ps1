@@ -10,7 +10,10 @@
 #      Day doi chieu voi CHINH NO qua thoi gian: 39x nhanh hon hay 39x
 #      cham di cung chua noi gi.
 #   2. Neu exit code KHAC 0 -> dung ngay. Lai nhanh ma tinh RA SAI thi
-#      te hon la cham - do la ky nguyen ban.
+#      te hon la cham - do la ky nguyen ban. => checksum (dong `print` dau
+#      tien cua moi kernel) LUON duoc SO voi baseline. Baseline cu (truoc
+#      2026-10-14) chi luu ms - THIEU checksum nen khi gap duong 2 cot
+#      (khong co checksum) gate chi can canh bao, khong fail.
 #   3. So sanh voi BASELINE. Chua co baseline -> ghi va cho qua (buoc
 #      khoi tao mot lan). `-Update` de nap lai baseline sau khi da XEM
 #      con so va DUNG Y doi thay doi la co chu dich.
@@ -78,7 +81,12 @@ foreach ($kv in $KERN) {
 
 if ($Update -or -not (Test-Path -LiteralPath $baseline)) {
     $lines = @()
-    foreach ($kv in $KERN) { $lines += ($kv + "`t" + $res[$kv].ms.ToString("F2")) }
+    foreach ($kv in $KERN) {
+        # 3 COT: ten, ms, checksum. Checksum de o CUOI va thay TAB bang
+        # ' ' de no khong lam vo duong phan tich (va de doc duoc bang notepad).
+        $cs = ($res[$kv].out -replace "`t", " ")
+        $lines += ($kv + "`t" + $res[$kv].ms.ToString("F2") + "`t" + $cs)
+    }
     Set-Content -Path $baseline -Value $lines -Encoding UTF8
     Write-Output ""
     Write-Output "Da nap baseline: $baseline"
@@ -87,8 +95,15 @@ if ($Update -or -not (Test-Path -LiteralPath $baseline)) {
 }
 
 $base = @{}
+$base_cs = @{}
 Get-Content -LiteralPath $baseline | ForEach-Object {
-    if ($_ -match "^(\S+)\s+([0-9.]+)") { $base[$Matches[1]] = [double]$Matches[2] }
+    # 3 COT: ten / ms / checksum. Baseline 2 COT (truoc 2026-10-14) van
+    # doc duoc - chi khong co checksum de so.
+    if ($_ -match "^(\S+)\s+([0-9.]+)\s*(.*)$") {
+        $base[$Matches[1]] = [double]$Matches[2]
+        $cs = $Matches[3].Trim()
+        if ($cs -ne '') { $base_cs[$Matches[1]] = $cs }
+    }
 }
 
 $fail = 0
@@ -100,20 +115,35 @@ foreach ($kv in $KERN) {
     $old = $base[$kv]
     if ($null -eq $old) { Write-Output ("{0,-14} {1,9:N1} {2,9} {3,9}  CO BASELINE, bo qua" -f $kv, $cur, "-", "-"); continue }
     $pct = ($cur - $old) / $old * 100.0
-    if ($pct -gt $ThreshPct) {
-        $st = "TUOT {0:N1}%" -f $pct
+    # CHECKSUM TRUOC, THOI GIAN SAU. Mot kernel tinh ra SAI ma nhanh hon
+    # thi phai FAIL - nhanh sai thi te hon cham sai (nguyen lan muc 2).
+    $cs_now = ($res[$kv].out -replace "`t", " ").Trim()
+    $cs_old = $base_cs[$kv]
+    if ($null -eq $cs_old) {
+        $st = "ok (baseline chua co checksum)"
+    } elseif ($cs_now -ne $cs_old) {
+        Write-Output ("{0,-14} {1,9:N1} {2,9:N1} {3,8:N1}%  CHECKSUM LECH" -f $kv, $cur, $old, $pct)
+        Write-Output ("    hien tai : " + $cs_now)
+        Write-Output ("    baseline : " + $cs_old)
         $fail = 1
-    } elseif ($pct -lt -$ThreshPct) {
-        $st = "nhanh hon {0:N1}%" -f (-$pct)
-    } else {
-        $st = "ok"
+        continue
+    }
+    if ($null -ne $cs_old) {
+        if ($pct -gt $ThreshPct) {
+            $st = "TUOT {0:N1}%" -f $pct
+            $fail = 1
+        } elseif ($pct -lt -$ThreshPct) {
+            $st = "nhanh hon {0:N1}%" -f (-$pct)
+        } else {
+            $st = "ok"
+        }
     }
     Write-Output ("{0,-14} {1,9:N1} {2,9:N1} {3,8:N1}%  {4}" -f $kv, $cur, $old, $pct, $st)
 }
 
 Write-Output ""
 if ($fail) {
-    Write-Output "GATE: FAIL - co kernel tuot qua $ThreshPct% so voi baseline."
+    Write-Output "GATE: FAIL - xem bang o tren: 'TUOT' la cham lai, 'CHECKSUM LECH' la tinh sai."
     Write-Output "  Neu thay doi la CO CHU DICH (vd doi nguon, dat y) thi chay:"
     Write-Output "     .\tools\perf_gate.ps1 -Update"
     exit 1

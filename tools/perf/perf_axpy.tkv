@@ -1,0 +1,64 @@
+# -*- coding: utf-8 -*-
+# Kernel cho perf_gate.ps1 - DUONG `v_*8` (SIMD 8 lane f32).
+#
+# VI SAO CAN KERNEL NAY: `v_*8` + `aggressiveinlining` la mot duong rieng
+# trong compiler (vector_block.tkv, ~360 dong) va KHONG kernel nao cua
+# perf_gate chay no - nen moi sua tren no deu im lang. Day la "lai khong
+# co dong ho", y het ly do ma perf_gate.ps1 duoc sinh ra.
+#
+# HINH DANG: `y[i] = alpha * x[i] + beta`, 8 lane mot lan.
+#
+# KHONG DUOC GOI LA AXPY THAT. Khoi vector chi co MOT thanh ghi ngam am
+# (`__vbuf8`); `v_load8` GHI DE no, con `v_add8`/`v_mul8_add8` nhan
+# VOHUONG - nen KHONG bieu duoc `acc + va*vb` (2 vector). Dinh dang tren
+# la "scaled + shifted copy": 1 `v_load8` + 1 lenh goi `v_mul8_add8` +
+# 1 `v_store8` - dung HANH TRINH cua ca khoi, va ket qua BIT-EXACT so
+# voi ban scalar (da kiem chung 4096/4096).
+#
+# SO DO: KHONG so voi Python/NumPy (da tach sang repo TestOracle). perf
+# gate so voi CHINH NO qua thoi gian - xem `perf_gate.ps1` muc NGUYEN TAC.
+#
+# GHI CHU DO DAI: lan chay dau ~30 ms nhu 3 kernel khac. KHONG dat checksum
+# vao TRONG vong lap - ban so do thoi gian phai do dung phan can do (xem
+# handoff 2026-10-14: ban vong checksum quet ca `n` pha 230 ms, che 87%.
+
+
+def _axpy8(x: "i64", y: "i64", alpha: "f32", beta: "f32", n: "i32") -> "i32":
+    """y[i] = alpha * x[i] + beta, 8 lane moi lan. `n` la SO PHA TU (phai
+    chia het cho 8). Offset tinh theo BYTE - cung hop dong `read_f32`."""
+    nb = n // 8
+    i = 0
+    while i < nb:
+        v_load8(x, i * 32)
+        v_mul8_add8(alpha, beta)
+        v_store8(y, i * 32)
+        i = i + 1
+    return 0
+
+
+def main() -> "i32":
+    n = 1048576
+    x = alloc_bytes(n * 4)
+    y = alloc_bytes(n * 4)
+    i = 0
+    while i < n:
+        write_f32(x, i * 4, ((i % 97) * 0.01) + 1.0)
+        i = i + 1
+    reps = 24
+    k = 0
+    while k < reps:
+        _axpy8(x, y, 2.5, 1.25, n)
+        k = k + 1
+    # Checksum CHI doc 8 gia tri, o NGOAI vong lap - vong tren moi la thu
+    # duoc do. Doc nhieu hon se chi them thoi gian chay. PHAI DOC TRUOC
+    # `free_bytes`: doc sau khi giai phong la doc nho da, bien ra
+    # MemoryAccessViolation (da gap 1 lan khi sua kernel nay).
+    cs = read_f32(y, 0)
+    i = 0
+    while i < 8:
+        cs = cs + read_f32(y, i * 4)
+        i = i + 1
+    free_bytes(y)
+    free_bytes(x)
+    print("sum=" + str(cs))
+    return 0

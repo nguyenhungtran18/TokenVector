@@ -140,10 +140,16 @@ exit code in Toolchain).
   dang_ky, ext_smoke đều chỉ so kết quả, không ai đo thời gian.
   - Chạy `tools\perf\*.tkv` bằng compiler tự-host, lấy _best-of-5_ ms.
   - So với `tools\perf\baseline.txt`; chậm quá **7%** ⇒ `exit 1`.
+  - **SO CHECKSUM** (2026-10-14, trước đó thiếu): baseline lưu 3 cột
+    `ten / ms / checksum`; lệch ⇒ `CHECKSUM LECH` + `exit 1`, **kể cả khi
+    nhanh hơn**. Nguyên lý: "nhanh mà tính sai thì tệ hơn chậm". Baseline 2
+    cột (cũ) vẫn đọc được nhưng bỏ qua bước này.
   - **Đối chiếu với chính nó qua thời gian** — KHÔNG so CPython/NumPy
     (cái đã nằm ở repo `TokenVector.TestOracle`).
   - Lần đầu hoặc sau thay đổi có chủ đích: `.\tools\perf_gate.ps1 -Update`.
   - Ngưỡng sửa bằng `-ThreshPct`.
+  - **Nhiễu máy ~10-13%**: chạy lại 2-3 lần trước khi kết luận hồi quy
+    (đã gặp 1 lần cả 3 kernel FAIL rồi 3 lần sau PASS 1-4%).
 - **Acceptance Gate (the only gate that matters for compiler changes)**:
   `.\\tools\testkit_gate.ps1` — builds and runs all 119 `tests\*_test.tkv`
   plus 31 negative cases (currently `PASS=119 BUILDFAIL=0 TESTFAIL=0

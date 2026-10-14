@@ -81,7 +81,7 @@ trước đây nó i32 sẵn không cần ép. Gate cũ **không bắt** → ra 
 
 Đã khai báo trong `CLAUDE.md` (mục Performance Gate, ngay trước Acceptance Gate).
 
-### 1.5 `aggressiveinlining` — đường `v_*8` nhanh hơn 2.11x
+### 1.5 `aggressiveinlining` — đường `v_*8` (con số 2.11x ĐÃ BỊ ĐO LẠI)
 Cùng một phép AXPY, checksum khớp tuyệt đối (`2778491.4497380257`):
 
 | | |
@@ -93,8 +93,29 @@ Cùng một phép AXPY, checksum khớp tuyệt đối (`2778491.4497380257`):
 Lý do: thân method ~60 byte IL vượt hạn inline mặc định của JIT (~32 byte) → mỗi phép
 là một CALL. `cil managed aggressiveinlining` nới hạn ngưỡng. Đúng một dòng.
 
+> ⚠ **ĐO LẠI 2026-10-14 — con số 2.11x SO VỚI `list[f32]`, KHÔNG phải so với
+> native scalar.** Cả hai cùng đọc/ghi bộ đệm native, cùng 1 M phần tử f32:
+>
+> | | ms (best-of-5) |
+> |---|---|
+> | `v_*8` (8 lane) | 2.35 |
+> | **native scalar** (`read_f32`/`write_f32`) | **2.55** |
+> | `list[f32]` | 4.47 |
+>
+> ⇒ `v_*8` nhanh hơn native scalar **1.08x**, không phải 2.11x. Phần lớn
+> "2.11x" là do đổi **substrate** (`list[f32]` → native), không phải do 8 lane.
+> Nguyên nhân đo được trong IL: `v_load8`/`v_store8` **không hề có lệnh SIMD
+> nào** — vẫn là 16 × `ldind.r4` + 8 × `stind.r4` (đọc/ghi từng lane như
+> scalar), **213 lệnh IL cho 8 phần tử so với 39** của bản native scalar.
+> Cải thiện 1.08x đến từ `aggressiveinlining` cho phep, không từ SIMD.
+>
+> **Hệ quả cho kế hoạch:** đừng ghi "đường `v_*8` nhanh 2.11x" vào tài liệu
+> nữa. Muốn SIMD thật thì phải sửa `vector_block.tkv` phát `ldind`/`stind`
+> 32-byte liên tục (`v_load8` hiện ghi 8 field struct), hoặc dùng
+> `System.Numerics.Vector<float>` — xem handoff 2026-10-14.
+
 > Lưu ý: kết quả benchmark hầu như **không đổi** sau thay đổi này vì **không kernel
-> benchmark nào dùng `v_*8`**.
+> benchmark nào dùng `v_*8`**. (Đã sửa 2026-10-14: nay có `tools/perf/perf_axpy.tkv`.)
 
 ---
 

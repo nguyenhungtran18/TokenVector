@@ -1189,6 +1189,41 @@ _LICM_MUC: "dict[str,str]" = {
 
 _LICM_BO: "list[str]" = ['try', 'nested_def']
 
+# CHONG CHAY LAI - bien dem cac vong da duoc LICM tren do.
+#
+# LY DO: `_licm_viet_stmts` sua AST TAI CHO row (`dat_nut`, stmt_row.tkv) va
+# node bieu thuc co ghi nho (`_MEMO_NUT`). `gen_il_function` KHONG parse lai
+# khi co `pre_parsed_stmts` (closures/lambda - xem il_codegen.tkv), va vong lap
+# fixpoint monomorphize goi `gen_il_program` LAI tren TOAN BO `sig_body_pairs`
+# (tkv_compile.tkv). Neu mot AST duoc codegen 2 lan, lan 2 se thay `__licmN`
+# da bi thay the, khong con thay bien goc:
+#   - `_licm_khoa` tren `var __licm3` tra '' (khong con la `A op B`) nen
+#     KHONG nho them - an toan;
+#   - NHUNG `__licm3` da co trong `biend`? KHONG. `biend` chi gom ten bien
+#     bi GAN trong than, `__licm3` chi doc. nen mot bieu thuc GOC khac
+#     (`i * m`) van bi nho tiep thanh `__licm14`, va preheader chen them mot
+#     lenh - sai vi tri nhung CHUA LAM HONG ket qua.
+#   - loi that khi `scope.add_local('__licm3', ...)` chay lai: chi so moi
+#     khac chi so cu, va `locals_decl` la danh sach CHUNG voi `.locals init`
+#     nen may moi van co that trong file .il. Vong trong se CO 2 preheader.
+#
+# TAI SAO BIET CHAC LA NGUY HIEM: day la moi truong hop `gen_il_function` chay
+# 2 lan tren cung 1 AST, va do la dung thuoc monomorphize dang LAM. Hiện
+# testkit xanh nen chua xay ra - nhung "chua xay ra" khong phai "khong the
+# xay ra", va loi se ra KHONG bao loi nao (build xanh, ket qua dung).
+#
+# CHI KHUYEN 1 LAN, va MOT LAN - phai dung chinh xac vi `_STMT_POOL` bi
+# `reset_pool()` xoa moi chuong trinh (stmt_row.tkv), nen set nay cung phai
+# reset cung luc. Xem `_licm_reset`.
+_LICM_DA_LAM: "set[i32]" = set()
+
+
+def _licm_reset():
+    """Xoa danh sach vong-da-LICM. **Phai goi cung luc voi `stmt_row.reset_pool()`**
+    - `reset_pool` xoa chi so row nen so cu trong set se tro toi row cu cua
+    chuong trinh truoc, va ro "da lam" cho 1 vong hoàn toàn khac."""
+    _LICM_DA_LAM.clear()
+
 # Bien dem CUA CHINH VONG - phai gom vao `biend` tren, KHONG THE so ra tu than.
 #
 # DO: `codegen_for` (va cac `codegen_for_in_*`) KHONG cat lenh `x = x + 1` vao
@@ -1461,6 +1496,10 @@ def _licm(stmt: "i32", scope: "Scope", body: "list[str]", ctx: "Ctx") -> "i32":
     that trong file .il."""
     if ctx.gen_ctx is not None:
         return 0
+    if stmt in _LICM_DA_LAM:
+        # AST da bi LICM sua TAI CHO (xem `_LICM_DA_LAM`). Bo qua - nen
+        # KHONG chen them preheader thu hai.
+        return 0
     if lay_than(stmt, 'else_body') is not None:
         return 0
     stmts = lay_than(stmt, 'body')
@@ -1507,6 +1546,10 @@ def _licm(stmt: "i32", scope: "Scope", body: "list[str]", ctx: "Ctx") -> "i32":
         ctx.compile_expr(ra[so[i]], scope, body, dt[i], ctx)
         ctx.store_var(bang[so[i]], scope, body)
     _licm_viet_stmts(stmts, bang)
+    # Danh dau CUOI CUNG, sau `_licm_viet_stmts` - neu bat ky thao tac nao
+    # giua duong len day nem loi, vong van chua bi danh dau nen lan codegen
+    # sau se thu lai (dung: chua sua gi thi thu lai cung an toan).
+    _LICM_DA_LAM.add(stmt)
     return 1
 
 
