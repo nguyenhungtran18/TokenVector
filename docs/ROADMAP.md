@@ -87,11 +87,18 @@ TokenVector được xây dựng để trở thành hệ sinh thái thống nh�
    > của runtime chỉ xuất `Vector2/Vector3/Vector4`, **đều là `float`** — không
    > có `Vector<T>` nên không có `Vector<double>` cũng không có SIMD nguyên; và lệnh
    > vector thô trong CIL (`add`/`mul` trên struct `Vector4`) bị JIT từ chối
-   > (`InvalidProgramException`). Đo thực tế: NumPy (AVX2+FMA, 4 `double`/lệnh)
-   > nhanh hơn TokenVector **26×** ở matmul32 và `OMP_NUM_THREADS=1` chỉ làm chậm
-   > thêm 5% ⇒ chênh lệch **không** do đa luồng, mà do bề rộng vector.
-   > Mục này chỉ khả thi sau khi **đổi nền tảng đích** sang .NET Core
-   > (`System.Runtime.Intrinsics`). Xem `README.md` §1b và `docs/PLAN.md` §8.
+   > (`InvalidProgramException`).
+   >
+   > **Khảo sát đổi sang .NET 9 (cùng ngày):** SDK 9.0.318 có sẵn và
+   > `Vector256<double>` chạy thật (`Count = 4`, `IsHardwareAccelerated = True`,
+   > checksum khớp) — tức chặn trên là giới hạn *runtime*, không phải phần cứng.
+   > **Nhưng đo cho thấy chưa đáng làm:** vòng elementwise `r = a*k + b` f64 chỉ
+   > được **0.97 – 1.04×** (5 lần chạy), vì nó bị giới hạn **băng thông bộ nhớ**
+   > chứ không phải số học. Lệnh 26× ở `matmul32` đến từ cache blocking + register
+   > tiling + FMA + đa luồng của BLAS, **không** chỉ từ bề rộng vector.
+   > **Đổi nền tảng là điều kiện cần, không phải điều kiện đủ.**
+   > Repro: `TokenVector.TestOracle/benchmark/nc_probe_vec256/`. Xem `README.md`
+   > §1b và `docs/PLAN.md` §8.
 4. **Compiler-Assisted Operator Fusion:** Trình biên dịch `TokenVector Compiler` tự động phát hiện và gộp các toán tử liên tiếp thành 1 Fused JIT Kernel duy nhất để triệt tiêu việc ghi dữ liệu trung gian ra RAM.
 5. **Single-Binary Native AOT Deployment:** Đóng gói toàn bộ ứng dụng (kèm giao diện đồ họa và driver điều khiển phần cứng) thành 1 tệp nhị phân thực thi độc lập duy nhất (dung lượng < 50MB, cold-start < 10ms, chạy trực tiếp trên Windows, macOS, Linux, iOS, Android, Raspberry Pi, Nvidia Jetson, ESP32, ARM/RISC-V).
 
