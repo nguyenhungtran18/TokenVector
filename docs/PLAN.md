@@ -217,10 +217,28 @@ xanh 83/83. Chi tiết ở `REPOSITORY-NOTES.md`; tóm tắt:
 - **P6-5** kiểm tra giới hạn + `f32buf_free`.
 - **P6-6** tối ưu địa chỉ: 42 → 36 lệnh IL, đồng thời sửa lỗi cắt offset 2 GB.
 
+**Đo lại 2026-10-14** (`tools/perf/perf_f32buf.tkv`, nay đã vào `perf_gate`):
+P6 **nhanh hơn scalar `list[f32]` 1.57×** — khớp con số 1.6–2.1× ghi ở
+trên. Bằng chứng mạnh nhất: khi đổi thành `r[i] = a[i] * 2.0 + b[i]` (P6 **từ chối**
+vì có hằng số ⇒ chạy scalar) thì kernel chậm **+103%** (232 → 472 ms), tức
+đường vector hoá đóng góp đúng **một nửa** thời gian.
+
+> **Không phải SIMD thật.** IL là `call System.Numerics.Vector4::op_Addition` —
+> một **method call**, không phải lệnh vector. 1.57× đến từ ít lệnh hơn
+> (6 lệnh / 4 phần tử), không từ SIMD. Cùng lý do `v_*8` chỉ nhanh 1.08×
+> (213 lệnh IL / 8 phần tử so với 39 của scalar — xem handoff 2026-10-14).
+
+**Giới hạn chưa ghi ở đâu:** `f32buf` **chỉ là local** — không truyền được qua
+tham số hàm (probe trực tiếp: *"Ky vong dtype, gap 'f32buf'"*). Muốn dùng P6 thì
+vòng phải nằm trong hàm, không tách ra hàm con được.
+
 Chốt phạm vi vẫn là: **chỉ elementwise**. Không đụng giảm tổng (`sum += a[i]`) —
 cái đó đòi hỏi dung sai 1e-5.
 
-Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector.
+Còn lại của P6 (xem mục 8): nâng `i*4` ra khỏi vòng vector. **Đo lại 2026-10-14:
+không đáng làm** — biến `i*4` vẫn bị tính 3 lần trong IL, nhưng thời gian hai
+kiểu chỉ khác ~4% (1.23 vs 1.18 ms), vì JIT chịu được `TkvInt`. Tỷ lệ
+giá trị/chi phí không tốt.
 
 
 ### Giai đoạn 2 — Phần còn lại của ngôn ngữ
@@ -383,5 +401,6 @@ ghi rõ `(mirrors  <hash>)` trong message của parent.
 | 4 fragment Data | `tokenvector_compute`/`datetime`/`io`/`stats` cần hằng số module. Đã ghi ở `Data\SESSION_HANDOFF.md`. |
 | Xoá repo con `` | Không hoàn tác được. Mọi commit đã có trong parent qua tag `nested-3code-snapshot`. Chờ quyết định. |
 | `f32x8`/`VBuf8` retire | **Đã đo lại 2026-10-14, xác nhận không phải SIMD**: `v_load8`/`v_store8` vẫn phát `ldind.r4`/`stind.r4` từng lane, **213 lệnh IL / 8 phần tử** so với **39** của native scalar, và nhanh hơn scalar chỉ **1.08x**. Muốn SIMD thật thì phải sửa `vector_block.tkv`. Chi tiết: `docs/e_handoff/BAN_GIAO_2026-10-14-PERF-CHECKSUM-V8.md` |
-| Nâng `i*4` ra khỏi vòng vector | Còn 6/36 lệnh IL do `i*4` bị tính 3 lần. Cần `first_pass_walk` cho `while` chạy cùng logic khớp mẫu ở cả 2 pass — lệch một chút là `InvalidProgramException` **lúc chạy**, không phải lúc build. Đổi lại ~17% trên đường đã nhanh hơn scalar ~4×. Tỷ lệ giá trị/chi phí không tốt; để thành việc riêng. |
+| Nâng `i*4` ra khỏi vòng vector | **KHÔNG ĐÁNG LÀM (đo lại 2026-10-14).** `i*4` vẫn bị tính 3 lần trong IL, nhưng thời gian hai kiểu chỉ khác ~4% (1.23 vs 1.18 ms) vì JIT chịu được `TkvInt`. Đóng lại. |
 | Tích hợp SIMD vào `TokenVector.Data` | Handoff ở `Data\SESSION_HANDOFF_SIMD.md`. Chưa làm. |
+| **SIMD thật** (thay `Vector4::op_*`) | `f32x4` phát **method call** `Vector4::op_Addition`, `v_*8` phát **lệnh scalar** từng lane — cả hai đều **không phải lệnh vector**. Muốn SIMD thật thì phát `ldind`/`stind` 32 byte liên tục (hoặc `System.Numerics.Vector<float>` với toán tử thô). Việc lớn, chưa bắt đầu |

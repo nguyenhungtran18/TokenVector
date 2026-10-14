@@ -168,11 +168,53 @@ Cụ thể:
 
 | việc | ghi chú |
 |---|---|
-| **SIMD thật cho `v_*8`** | `vector_block.tkv` phát `ldind`/`stind` từng lane. Đổi sang đọc/ghi 32 byte liên tục hoặc `System.Numerics.Vector<float>` — đây mới là đường thật sự còn dư, không phải thêm `aggressiveinlining` |
+| **SIMD thật** (cả `f32x4` lẫn `v_*8`) | `f32x4` phát **method call** `Vector4::op_Addition`; `v_*8` phát **lệnh scalar** từng lane. Cả hai **không phải lệnh vector**. Đường thật sự còn dư: phát `ldind`/`stind` 32 byte liên tục. Việc lớn, chưa bắt đầu |
 | **Bỏ bounds check** | Vẫn là phần lớn thời gian `perf_e2e`/`perf_mm`. Chưa động tới |
 | **LICM: mở rộng phạm vi** | `//` cần phân tích chống chia 0; `%` tương tự |
 | **Perf gate nhạy hơn** | Đo được nhiễu máy **10-13%** ngay trong phiên này (3 kernel FAIL đồng loạt rồi 3 lần sau PASS 1-4%). Cân nhắc tăng `-Runs` hoặc lấy trung vị thay vì best-of |
 | **`vector_block_test` flaky 1 lần** | Xem mục 8 - chưa rõ nguyên nhân chính xác |
+
+## 6b. BỔ SUNG SAU ĐÓ — `perf_f32buf`: P6 nay có gate
+
+`tools/perf/perf_f32buf.tkv` — kernel thứ 5, đo đường `f32buf` + P6. Trước đó
+**không kernel nào** chạm vào cả hai (~600 dòng trong `control_flow.tkv`).
+
+**Bằng chứng gate có tác dụng** (không phải xanh vờ): đổi thành
+`r[i] = a[i] * 2.0 + b[i]` — P6 **từ chối** vì có hằng số nên chạy scalar:
+
+```
+perf_f32buf   471.7   232.2   103.2%   CHECKSUM LECH
+```
+
+Tức đường vector hoá đóng góp đúng **một nửa** thời gian kernel. Nếu gate chỉ
+đo thời gian mà không so checksum thì lần này đã lọt.
+
+**P6 đo lại còn 1.57× so với scalar `list[f32]`** — khớp con số 1.6–2.1× trong
+plan. Nhưng **không phải SIMD thật**: IL là method call `Vector4::op_Addition`.
+
+**Hai kết quả phụ đáng ghi:**
+
+- `f32buf` **chỉ là local** — không truyền được qua tham số hàm. Muốn dùng P6 thì
+  vòng phải nằm trong hàm. (Giới hạn này chưa được ghi ở tài liệu nào.)
+- `n` là **local** ⇒ biến đếm `i` thành `TkvInt` và `i*4` phải qua
+  `TkvInt::MulSlow`/`ToI64`. **Nhưng thời gian y hệt** (1.23 vs 1.18 ms) — JIT
+  chịu được. Nên P6-6 ("nâng `i*4` ra khỏi vòng vector") **không đáng làm**;
+  đóng lại.
+
+**Bẫy đo đã gặp ở kernel này** (lần thứ 3 về chuyện này):
+
+1. Không đọc kết quả ⇒ JIT xoá cả vòng lặp.
+2. Dữ liệu không đổi giữa các vòng ⇒ JIT nâng vòng lặp ra khỏi vòng đo. Trên
+   `list[f32]` điều này ra số **vô lý** (0.11 ns/phần tử) và "P6 chậm hơn
+   scalar **10.8×**". Trên `f32buf` thì **không** xảy ra — bộ đệm không do
+   GC quản lý nên JIT không nâng được (đo: 1.2249 vs 1.2247 ms khi đổi/không
+   đổi). Cùng một phép tính, hai kết luận hoàn toàn khác — nên phải đo từng
+   substrate.
+
+3. **Mỗi kernel có ~50 ms startup** không thuộc phần đo. Ban đầu `reps=30` chỉ
+   làm P6 chiếm 40% thời gian process ⇒ hồi quy 17% chỉ tách được 6.7%, ngay
+   ngưỡng 7%. Tăng lên `reps=150` thì P6 chiếm 77%. **Chọn `reps` phải tính
+   tới tỷ lệ phần đo / tổng**, không chỉ nhìn thời lượng process.
 
 > **`compiler_py` KHÔNG còn là việc dở** (2026-10-14, chủ repo đã dừng phía đó).
 > Xem mục "Hai compiler" trong `CLAUDE.md`. Sửa đổi chưa commit trong

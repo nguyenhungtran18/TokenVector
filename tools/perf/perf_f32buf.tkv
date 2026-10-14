@@ -1,0 +1,83 @@
+# -*- coding: utf-8 -*-
+# Kernel cho perf_gate.ps1 - DUONG `f32buf` + P6 (tu dong vector hoa).
+#
+# VI SAO CAN KERNEL NAY: P6 la mot toan bo optimize (~600 dong trong
+# control_flow.tkv) va `f32buf` la substrate cua no - nhung KHONG kernel nao
+# cua perf_gate cham vao. Tinh hiong giong het truoc khi co perf_gate: mot lan
+# sua `compile_binop` lam `f32mm` tuot 10% ma khong gate nao bat.
+#
+# HINH DANG: `r[i] = a[i] + b[i]` tren 3 f32buf, `while i < n` - DUNG MOT DANG
+# duy nhat ma `_p6_vectorize_while` nhan. Hinh dang khac => compiler chay
+# scalar va kernel nay do nham duong khac (xem `p6_vectorize_test.tkv`).
+#
+# `f32buf` CHI LA LOCAL - khong truyen duoc qua tham so ham (probe truc tiep
+# bao "Ky vong dtype, gap 'f32buf'"). Vong lap P6 nam trong ham, khong tach
+# ra `main` duoc - nhưng `n` VA `reps` thi truyen tham so duoc, va khong
+# can: no chi la bien dem cua vong.
+#
+# BA Y DO DA GAP (lam so do sai 2 lan, xem handoff 2026-10-14-PERF-CHECKSUM-V8):
+#   1. KHONG DOC KET QA -> JIT dead-code elimination, xoa ca vong lap.
+#   2. DU LIEU KHONG DOI giua cac vong -> JIT hoisting. Proo day tren
+#      `list[f32]` (chi 0.11 ns/phan tu - vo ly) va "P6 cham hon scalar 10.8
+#      lan" - ca hai deu sai.
+# => o day chi can DOC KET QUA o cuoi. KHONG can doi du lieu moi vong: do
+#    la hang so, va do bang chung rang vong P6 tren bo dem KHONG QUAN LY thi
+#    JIT khong the nang no ra (do 1.2249 vs 1.2247 ms khi doi/khong doi).
+#    Ban co them vong `b[i] = base` chi danh 122 ms trong khi vong do chi 1.2
+#    ms - tuc 99% thoi gian process la viec khong duoc do.
+#
+# `n` la THAM SO `i32` (khong phai local): khi `n` la local thi bien dem `i`
+# bi kieu TkvInt (boxed) va `i*4` phai qua `TkvInt::MulSlow`/`ToI64`. Thoi gian
+# hai kieu NHAU (1.23 vs 1.18 ms) - JIT chiu duoc - nhung tham so cho IL sach
+# hon (6 lenh/4 phan tu, khong TkvInt).
+
+def core(n: "i32", reps: "i32") -> "f64":
+    a = f32buf(n)
+    b = f32buf(n)
+    r = f32buf(n)
+    i = 0
+    while i < n:
+        a[i] = 1.0
+        b[i] = 2.0
+        i = i + 1
+    best = 1.0e9
+    k = 0
+    t0 = 0.0
+    t1 = 0.0
+    d = 0.0
+    while k < reps:
+        # Dong nay CHINH la phan can do (buoc 4 cua P6).
+        t0 = time_perf()
+        i = 0
+        while i < n:
+            r[i] = a[i] + b[i]
+            i = i + 1
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        k = k + 1
+    # Checksum DOC TRUOC KHI GIAI PHONG - doc sau `free` la doc nho da
+    # (MemoryAccessViolation). O day, NGOAI vong lap, nen khong lam thoi gian
+    # can do tang. `cs` phai DUOC DUNG o `print` duoi - neu bo print thi vong
+    # doc nay bi JIT xoa va ta quay lai bay "dead-code elimination".
+    cs = 0.0
+    i = 0
+    while i < n:
+        cs = cs + r[i]
+        i = i + 1
+    f32buf_free(a)
+    f32buf_free(b)
+    f32buf_free(r)
+    # perf_gate lay dong `print` DAU TIEN lam checksum - in ra day.
+    print("sum=" + str(cs))
+    return best
+
+
+def main() -> "i32":
+    # 1 vong do ~1.14 ms (262144 phan tu). 30 vong chi ~36 ms con lai ~50 ms
+    # startup cua moi binary -> P6 moi chiem 40% thoi gian process, nen hoi quy
+    # 17% chi tach duoc 6.7% - ngay nganh ngung 7%. 150 vong: 171 ms do tren
+    # 222 ms => 77%, hoi quy 10% tach duoc 7.8% - vuot nguong.
+    core(262144, 150)
+    return 0
