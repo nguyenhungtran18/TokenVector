@@ -1,12 +1,0 @@
-tests_suite\de_vao\sample_int_container.tkv	run	0	list25	16158688114800553828940313\n
-tests_suite\de_vao\sample_int_container.tkv	run	0	list30	274410818470142134209703780940313\n
-tests_suite\de_vao\sample_int_container.tkv	run	0	list1	1\n
-tests_suite\de_vao\sample_int_container.tkv	run	0	listset30	530505719624382117272616960000000\n
-tests_suite\de_vao\sample_int_container.tkv	run	0	listset12	958003200\n
-tests_suite\de_vao\sample_int_container.tkv	run	0	dict30	1\n
-tests_suite\de_vao\sample_int_container.tkv	run	0	dict50	1\n
-tests_suite\de_vao\sample_int_container.tkv	run	0	dictarg30	530505719624382117272616960000000\n
-tests_suite\de_vao\sample_int_container.tkv	run	0	dictarg50	60828186403426756087225216332129537688755283137921024000000000000\n
-tests_suite\de_vao\sample_int_container.tkv	run	3762504530	badindex20	
-tests_suite\de_vao\sample_int_container.tkv	run	3762504530	badindex25	
-tests_suite\de_vao\sample_int_container.tkv	run	3762504530	badindexlow032	

@@ -2,7 +2,7 @@
 ### (Comprehensive Official Technical Handbook for TokenVector Native AOT Compiler Platform)
 
 **Mã tài liệu: TKV-USERGUIDE-2026-FULL**  
-**Phiên bản: 2026.1 (Bản Phát hành Thương mại)**  
+**Phiên bản: 1.0.10 (Bản Phát hành Thương mại)**  
 **Bản quyền & Bảo chứng: Đội ngũ Trình biên dịch TokenVector & Antigravity AI Team**
 
 ---
@@ -38,8 +38,7 @@ $$\text{Tệp } \texttt{.tkv} \quad \xrightarrow{\text{1. AST Parse}} \quad \tex
 ### 2.1 Cấu hình Môi trường Đường dẫn (`PATH`)
 Để có thể gọi lệnh `tkvc` từ bất kỳ thư mục nào trên hệ thống:
 
-**Trên Windows Command Prompt (cmd)** — thay `<duong-dan>\\Release` bằng nơi bạn
-đặt thư mục Release:
+**Trên Windows Command Prompt (cmd)**:
 ```cmd
 set PATH=%PATH%;<duong-dan>\\Release\\dist
 ```
@@ -49,27 +48,19 @@ set PATH=%PATH%;<duong-dan>\\Release\\dist
 $env:Path += ";<duong-dan>\\Release\\dist"
 ```
 
-Sau khi thêm, lệnh `tkvc-tv` sẽ gọi được từ mọi thư mục.
+### 2.2 Lệnh biên dịch (`tkvc-tv`)
 
-### 2.2 Chi tiết Danh mục Lệnh CLI
+`tkvc-tv.exe` là compiler tự biên dịch. CLI của nó **positional, không có subcommand**:
 
-Bản phát hành này dùng compiler **tự-host** `dist\tkvc-tv.exe`. CLI của nó
-**positional, KHÔNG có subcommand** — khác hẳn compiler Python cũ
-(`tkvc.exe build <src> --out <exe> --entry <e>`), và bản phát hành này **không
-chứa** `tkvc.exe`.
-
-#### Lệnh Biên dịch AOT (`tkvc-tv`)
-Biên dịch một file Native `.tkv` ra file thực thi `.exe` độc lập:
 ```bash
-tkvc-tv <path/to/file.tkv> <path/to/output.exe> run
+tkvc-tv <path/to/file.tkv> <path/to/output.exe> <ten_ham_diem_vao>
 ```
-Đối số thứ ba là **tên hàm điểm vào** (thường là `run`), viết ngắn gọn,
-không có `--entry`.
 
-> `run()` trả `"i32"`/`"i64"` ⇒ giá trị đó là **exit code** của tiến trình
-> (như `sys.exit(1)`). Trả `"str"` hoặc tuple ⇒ được in ra.
-- `--out`: Đường dẫn file `.exe` đầu ra (mặc định: cùng tên, đổi đuôi `.exe`).
-- `--entry`: Hàm điểm vào chính của chương trình (mặc định: hàm duy nhất, hoặc hàm tên `main`/`run` nếu file có nhiều hàm — nếu vẫn mơ hồ, `tkvc` sẽ báo lỗi yêu cầu chỉ rõ).
+Ví dụ:
+```bash
+dist\tkvc-tv.exe demo.tkv demo.exe run
+.\demo.exe
+```
 
 ---
 
@@ -298,7 +289,8 @@ Ba dạng khai báo `__tkv_extern_assembly__` (top-level, trước/sau `def` đ�
 > (không phải lúc build): `FileLoadException: 'X, Version=4.0.0.0, ..., b77a...'`
 > dù file DLL nằm cạnh exe — fusion tìm thấy file nhưng từ chối vì identity lệch.
 > Gặp lỗi này thì đổi sang dạng 2 hoặc 3. Xem `tests/` và chạy
-> `.\tools\testkit_gate.ps1` để khóa cả 3 dạng.
+> `.\tools\testkit_gate.ps1` để khóa cả 3 dạng (bare → FileLoadException
+> đúng thiết kế; tuple/full → `Add42(8) = 50`).
 
 ---
 
@@ -310,21 +302,21 @@ Toàn bộ bộ nghiệm thu chạy bằng **một lệnh gate** — không ph�
 .\tools\testkit_gate.ps1
 ```
 
-Gate tự build rồi chạy **119 test chấp nhận** trong `tests/*_test.tkv` cộng
+Gate tự build rồi chạy **125 test chấp nhận** trong `tests/*_test.tkv` cộng
 **31 test âm** (`tests/negative/`), và in bảng tổng kết:
 
 ```text
-=== SUMMARY (out of 119 tests) ===
-PASS=119  BUILDFAIL=0  TESTFAIL=0  OTHER=0 TIMEOUT=0 ILFAIL=0 NEG=31/31
+=== SUMMARY (out of 125 tests) ===
+PASS=125  BUILDFAIL=0  TESTFAIL=0  OTHER=0 TIMEOUT=0 ILFAIL=0 NEG=31/31
 
-GATE: PASS (119/119, negative 31/31)
+GATE: PASS (125/125, negative 31/31)
 ```
 
 Cổng kèm theo:
 
 | Lệnh | Đo gì |
 |---|---|
-| `.\tools\testkit_gate.ps1` | 119 test + 31 test âm |
+| `.\tools\testkit_gate.ps1` | 125 test + 31 test âm |
 | `.\tools\vong.exe` | Vòng tự-host — phải ra `IL_IDENTICAL` |
 | `.\tools\lint_rules_gate.ps1` | Bẫy cú pháp (8/8, 0 báo nhầm) |
 

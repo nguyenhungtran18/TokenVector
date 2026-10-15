@@ -15,7 +15,7 @@
 #
 # ## VERIFY - TAI SAO KHONG LAM DUOC O DAY
 # `verify` phai BIEN DICH roi CHAY .tkv, ma TokenVector chua co khoi dong
-# tien trinh khac (subprocess) -> khong goi duoc tkvc.exe, cung khong chup
+# tien trinh khac (subprocess) -> khong goi duoc compiler, cung khong chup
 # duoc stdout. Nen `verify` CHI IN DUNG 2 LENH can chay. Bat buoc chay ca
 # hai va doc exit code + output.
 #
@@ -70,6 +70,33 @@ def _emit(buf: "str", out_file: "str") -> "i32":
 
 # ------------------------------------------------------------------ duong dan
 
+def _repo_root() -> "str":
+    """GOC REPO - thu muc chua `tools/` va `dist/tkvc-tv.exe`.
+
+    2026-10-14: `verify` in ra 2 lenh cho nguoi dung chay, nen duong dan
+    PHAI DUNG. Ban do hardcode `D:\\TokenVector\\3.code` - ca thu muc do da
+    bi XOA (2026-10-02) nen `verify` in ra `cd` toi noi khong ton tai.
+
+    Suy ra tu `argv[0]` (duong dan cua chinh tien trinh dang chay) de copy
+    `tkv_guide.exe` ra cho cung chay duoc; fallback "." khi argv rong."""
+    argv = sys_argv()
+    if len(argv) > 0:
+        # EXE co the nam o <repo>/tools/ HOAC <repo>/dist/bin/ (ban Release) -
+        # do len thu muc cha cua `argv[0]` cho den khi gap thu muc co
+        # `dist/tkvc-tv.exe`, toi da toi 4 cap (du cho ca 2 vi tri).
+        cur = path_dirname(argv[0])
+        depth = 0
+        while depth < 4:
+            if file_exists(path_join(cur, "dist/tkvc-tv.exe")):
+                return cur
+            nxt = path_dirname(cur)
+            if nxt == cur:
+                break
+            cur = nxt
+            depth = depth + 1
+    return "."
+
+
 def ref_path() -> "str":
     """Tim `docs/REFERENCE.md`. Thu tu EXE dang chay, roi thu muc hien hanh -
     de chay duoc ca khi copy exe ra cho."""
@@ -82,8 +109,6 @@ def ref_path() -> "str":
         c2 = path_join(here, "docs/REFERENCE.md")
         if file_exists(c2):
             return c2
-    if file_exists("3.code/docs/REFERENCE.md"):
-        return "3.code/docs/REFERENCE.md"
     if file_exists("docs/REFERENCE.md"):
         return "docs/REFERENCE.md"
     return ""
@@ -92,14 +117,9 @@ def ref_path() -> "str":
 def feat_dir() -> "str":
     """Tim thu muc module cua compiler TOKENVECTOR.
 
-    2026-10-12 (tach repo): `compiler/` da sang submodule `compiler_py/`. Ban
-    do dat sai o day nen tu dong dat vao 1 CA BA thu muc khong ton tai - `names`
-    in "KHONG tim thay compiler/il_features/ - hay chay tu trong repo 3.code".
     Thu muc dung la `compiler_bootstrap/compiler/il_features` (cung nguon voi
-    `tools/dang_ky_gate.py` qua `compiler_src/ds_gop.txt`).
-
-    `3.code/` va `compiler/` giu lai chi de doc loi cu o ban build cao hon -
-    CA BA thu muc deu khong ton tai o repo hien tai."""
+    `tools/dang_ky_gate.tkv` qua `compiler_src/ds_gop.txt`).
+    """
     argv = sys_argv()
     if len(argv) > 0:
         here = path_dirname(argv[0])
@@ -108,8 +128,6 @@ def feat_dir() -> "str":
             return d1
     if path_isdir("compiler_bootstrap/compiler/il_features"):
         return "compiler_bootstrap/compiler/il_features"
-    if path_isdir("3.code/compiler/il_features"):
-        return "3.code/compiler/il_features"
     return ""
 
 
@@ -396,18 +414,20 @@ def build_verify(path: "str") -> "str":
     b = b + "# VERIFY " + path + nl
     b = b + "# TokenVector chua co subprocess -> phai chay 2 lenh nay ROI DOC KET QUA." + nl
     b = b + "# (Bien dich xanh CHI chan loi compile; loi luc CHAY va ket qua SAI van con.)" + nl + nl
-    b = b + "cd D:\\TokenVector\\3.code" + nl
+    # CLI cua `tkvc-tv.exe` la POSITIONAL (`<src> <out> <entry>`) va no LUON
+    # tra exit code 0 ke ca khi build that bai - nen phai doc stdout.
+    repo = _repo_root()
     ex = path_join(tmp_dir(), "tkvg_check.exe")
-    b = b + "dist\\tkvc.exe build " + path + " --out " + ex + " --entry run" + nl
+    b = b + "cd " + repo + nl
+    b = b + "dist\\tkvc-tv.exe " + path + " " + ex + " run" + nl
     b = b + "& " + ex + nl + nl
-    b = b + "#exit code khac 0 = BUILD FAIL.  Ket qua in ra SAI so voi mong doi =" + nl
-    b = b + "#TEST FAIL (dung gi het, sua lai).  Moi noi 'xong' khi ca 2 deu sach." + nl
+    b = b + "#THOI GIAN = build + chay.  Ket qua in ra SAI so voi mong doi =" + nl
+    b = b + "#TEST FAIL ( dung gi het, sua lai ).  Moi noi 'xong' khi ca 2 deu sach." + nl
     b = b + nl
-    b = b + "# Muon chay nguyen bo Testkit (117 file + 31 negative):" + nl
+    b = b + "# Muon chay nguyen bo Testkit (123 file + 31 negative):" + nl
     b = b + "powershell -NoProfile -File tools\\testkit_gate.ps1" + nl
     b = b + nl
-    b = b + "# Cross-check voi CPython (119 mau):" + nl
-    b = b + "powershell -NoProfile -File tools\\parity_probe\\run.ps1" + nl
+    b = b + "# Cross-check voi CPython/NumPy: o repo TokenVector.TestOracle." + nl
     return b
 
 

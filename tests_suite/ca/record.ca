@@ -1,7 +1,0 @@
-tests_suite\de_vao\sample_record.tkv	make_point	0	1.02.0	3.0\n
-tests_suite\de_vao\sample_record.tkv	make_point	0	0.00.0	0.0\n
-tests_suite\de_vao\sample_record.tkv	make_point	0	-3.54.5	1.0\n
-tests_suite\de_vao\sample_record.tkv	make_point	0	10.0-2.0	8.0\n
-tests_suite\de_vao\sample_record.tkv	move_point	0	1.02.00.50.5	-1.0\n
-tests_suite\de_vao\sample_record.tkv	move_point	0	0.00.01.01.0	0.0\n
-tests_suite\de_vao\sample_record.tkv	move_point	0	5.0-5.0-1.02.0	7.0\n

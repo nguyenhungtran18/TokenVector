@@ -1,5 +1,0 @@
-def main() -> "str":
-    a = 'hello'
-    b = "world"
-    c = 'co "kep" ben trong'
-    return a + " " + b + " | " + c

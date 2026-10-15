@@ -9,18 +9,19 @@ vao nen, du khong ham nao cua compiler goi toi no. Nay (1) o day - nam tren
 duong tu-host; (2) o lai tokenvector_compile.py, ngoai tap tu-host.
 
 Duong dan CHUOI (2026-09-24): thao tac he dieu hanh chua co builtin nam
-trong cac ham nho (_xoa_neu_co/_cho_on_dinh/_mo_doc_thu/_chay_ilasm) ma khoi
-`__tkv_chi_cpython__` dinh nghia lai y het hanh vi cu; ban CPython van tra Path. tokenvector_compile.py tai
-xuat cac ten nay nen moi `from tokenvector_compile import ...` cu van chay.
+trong cac ham nho (_xoa_neu_co/_cho_on_dinh/_mo_doc_thu/_chay_ilasm). Bai
+`if __tkv_chi_cpython__:` dinh nghia lai y het hanh vi cu CHO PYTHON da bi
+XOA (2026-10-12) - xem ghi chu ben duoi ham `_xoa_neu_co`. TokenVector co
+duong dien danh rieng cho tung ham nen khong can shim.
 """
-# Danh dau khoi chi-CPython (xem tkv_compile.py): hai trinh TokenVector bo qua
-# khoi `if` cap module, CPython chay no luc import.
-__tkv_chi_cpython__ = True
-
-
-# Cac thao tac he dieu hanh ma ban tu-host CHUA co builtin (2026-09-24). Ban
-# tu-host: dinh nghia toi thieu o day. Ban CPython: dinh nghia lai y het hanh
-# vi cu trong khoi `__tkv_chi_cpython__` ben duoi (cung mau _goc_du_an).
+# Cac thao tac he dieu hanh ma ban tu-host CHUA co builtin (2026-09-24).
+# 2026-10-12: XOA khoi `if __tkv_chi_cpython__:` o cuoi file - thu la ban
+# CPython dinh nghia lai cac ham nay bang `os`/`subprocess`/`pathlib` that.
+# TokenVector KHONG dung nhung ban do (cac ham o tren moi la ban TokenVector
+# that, va `_chay_ilasm` goi thang `proc_ra(_find_ilasm(), ...)` chu khong
+# qua bien `ILASM` cua ben CPython), nen xoa khong lam gi.
+# Ben CPython can hanh vi Path cua `assemble_il_to_exe` thi tu chuyen sang
+# goi bang chuoi - xem `tools/build_tkvc.ps1`.
 def _xoa_neu_co(p: "str") -> "i32":
     """Xoa file neu ton tai. Ban tu-host: bo qua - ilasm ghi de /output."""
     return 0
@@ -47,6 +48,23 @@ def _chay_ilasm(cac_doi_so: "list[str]", tep_ra: "str") -> "i32":
             chuoi = chuoi + ' '
         chuoi = chuoi + '"' + d + '"'
     return proc_ra(_find_ilasm(), chuoi, tep_ra)
+
+
+def _la_dll_ra(p: "str") -> "i32":
+    """1 neu duong dan xuất ra ket thuc bang `.dll` (khong phan biet chu HOA).
+
+    Đây là noi quyết định đầu ra là THƯ VIỆN (library) hay CHUONG TRÌNH (exe).
+    ILAsm can `/dll` de xuất PE có cờ `IMAGE_FILE_DLL`; truoc day luon hardcode
+    `/exe` nen MỌI đầu ra deu la exe du nguoi dung goi tên `.dll` - co gang doi
+    ten khong thannh dll, chi la exe mang tên dll. Do 2026-10-14:
+    `tkvc-tv.dll` dung cung PE characteristics 0x0102 voi `.exe` (khong co bit
+    `0x2000` = IMAGE_FILE_DLL) va vẫn con `.entrypoint` trong IL."""
+    if p is None:
+        return 0
+    nho = p.lower()
+    if nho.endswith('.dll'):
+        return 1
+    return 0
 
 
 def _doi_duoi(p: "str", duoi: "str") -> "str":
@@ -157,10 +175,12 @@ def assemble_il_to_exe(il_text: "str", out_exe: "str", debug: "i32" = False) -> 
     il_path = _doi_duoi(out_exe, '.il')
     write_file(il_path, il_text)
     tep_ra = _doi_duoi(out_exe, '.ilasm.txt')
+    # `/dll` khi đầu ra la thư viện - xem `_la_dll_ra`.
+    loai_ra = '/dll' if _la_dll_ra(out_exe) == 1 else '/exe'
     last_err = ''
     for attempt in range(2):
         _xoa_neu_co(out_exe)
-        ilasm_args = [il_path, '/exe', '/output:' + out_exe]
+        ilasm_args = [il_path, loai_ra, '/output:' + out_exe]
         if debug:
             ilasm_args.append('/debug')
         code = _chay_ilasm(ilasm_args, tep_ra)
@@ -182,72 +202,3 @@ def assemble_il_to_exe(il_text: "str", out_exe: "str", debug: "i32" = False) -> 
         f"Windows Defender chan .exe vua dung ({path_basename(out_exe)}) sau 2 lan thu "
         f"- duong tinh gia '!ml' (xem docstring assemble_il_to_exe). "
         f"Nguyen nhan goc: {last_err}")
-
-
-if __tkv_chi_cpython__:
-    import io
-    import sys
-    import os
-    import subprocess
-    import time
-    from pathlib import Path
-
-    def path_isfile(p):
-        return os.path.isfile(p)
-
-    def path_join(a, b):
-        return os.path.join(a, b)
-
-    def _la_windows():
-        return sys.platform == 'win32'
-
-    def path_basename(p):
-        return os.path.basename(p)
-
-    def read_file(p):
-        with open(p, encoding='utf-8') as _f:
-            return _f.read()
-
-    def write_file(p, s):
-        Path(p).write_text(s, encoding='utf-8')
-
-    def _xoa_neu_co(p):
-        if os.path.exists(p):
-            os.unlink(p)
-        return 0
-
-    def _cho_on_dinh():
-        settle_ms = int(os.environ.get('TKV_EXE_SETTLE_MS', '150'))
-        if settle_ms > 0:
-            time.sleep(settle_ms / 1000.0)
-        return 0
-
-    def _mo_doc_thu(p):
-        try:
-            with io.open(p, 'rb') as fh:
-                fh.read(64)
-            return ''
-        except OSError as e:
-            return str(e)
-
-    def _chay_ilasm(cac_doi_so, tep_ra):
-        # Giu hanh vi cu: danh sach doi so (khong qua chuoi), stdout+stderr.
-        r = subprocess.run([ILASM] + list(cac_doi_so), capture_output=True, text=True)
-        if r.returncode != 0:
-            with open(tep_ra, 'w', encoding='utf-8') as _f:
-                _f.write(f"{r.stdout}\n{r.stderr}")
-        return r.returncode
-
-    _assemble_chuoi = assemble_il_to_exe
-
-    def assemble_il_to_exe(il_text, out_exe, debug=False):
-        # Giu hop dong cu cho caller CPython: nhan Path/str, tra Path.
-        return Path(_assemble_chuoi(il_text, str(out_exe), debug))
-
-
-# Sau khoi shim: ban CPython can path_join/path_isfile da dinh nghia.
-# CHI CPython (2026-09-25): bien cap module tinh bang loi goi ham - trinh that
-# chi nhan hang literal; ban tu-host goi thang _find_ilasm() (xem _chay_ilasm).
-__tkv_chi_cpython__ = True
-if __tkv_chi_cpython__:
-    ILASM = _find_ilasm()

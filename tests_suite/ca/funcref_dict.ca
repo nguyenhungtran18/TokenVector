@@ -1,3 +1,0 @@
-tests_suite\de_vao\sample_funcref_dict.tkv	run_dict_call	0		6,10\n
-tests_suite\de_vao\sample_funcref_list.tkv	run_list_call	0		11,21\n
-tests_suite\de_vao\sample_funcref_dict_missing_key.tkv	run_missing_key	3762504530		

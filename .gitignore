@@ -61,3 +61,10 @@ pkl_*_test.bin
 !Release/dist/bin/
 !Release/dist/tkvc-tv.exe
 !Release/dist/bin/tkv_guide.exe
+
+# --- Release/ gio la SAN PHAM chinh cua repo (2026-10-15) ---------------------
+# Root chi con README + LICENSE + Release/. Moi binary trong Release phai nam
+# trong git, nen phai bo lai tung file duoi quy tac *.exe o tren.
+!Release/tools/vong.exe
+!Release/tools/diff_il.exe
+!Release/tests_suite/chay.exe

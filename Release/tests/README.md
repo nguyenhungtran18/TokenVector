@@ -1,6 +1,6 @@
 # tests/ — bộ kiểm thử CHUẨN cho TokenVector
 
-**Mục đích**: chứng minh `tkvc.exe` biên dịch và **chạy đúng** các tính năng
+**Mục đích**: chứng minh `tkvc-tv.exe` biên dịch và **chạy đúng** các tính năng
 ngôn ngữ. Đây là **cổng nghiệm thu** của dự án — mọi thay đổi compiler phải
 làm nó xanh trước khi báo "xong".
 
@@ -54,10 +54,10 @@ chưa viết.
 ## Bước bắt buộc: build **rồi chạy**
 
 ```powershell
-dist\tkvc.exe build my_test.tkv --out %TEMP%\my_test.exe --entry run
+dist\tkvc-tv.exe my_test.tkv %TEMP%\my_test.exe run
 & %TEMP%\my_test.exe        # exit 0 = PASS
 ```
 
 Build xanh **không** có nghĩa là chạy đúng: đã có bug biên dịch thành công rồi
-trả về **giá trị sai** mà không báo lỗi nào. `dist\tkv_guide.exe verify <file>`
+trả về **giá trị sai** mà không báo lỗi nào. `dist\bin\tkv_guide.exe verify <file>`
 in sẵn đúng 2 lệnh này.

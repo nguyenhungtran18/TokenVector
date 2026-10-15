@@ -1,9 +1,0 @@
-tests_suite\de_vao\sample_general_array.tkv	elementwise_add_runtime	0	5	30.0\n
-tests_suite\de_vao\sample_general_array.tkv	elementwise_add_runtime	0	1	0.0\n
-tests_suite\de_vao\sample_general_array.tkv	elementwise_add_runtime	0	10	135.0\n
-tests_suite\de_vao\sample_general_array.tkv	elementwise_mul_runtime	0	5	70.0\n
-tests_suite\de_vao\sample_general_array.tkv	elementwise_mul_runtime	0	1	2.0\n
-tests_suite\de_vao\sample_general_array.tkv	elementwise_mul_runtime	0	8	240.0\n
-tests_suite\de_vao\sample_general_array.tkv	dot_product_runtime	0	5	70.0\n
-tests_suite\de_vao\sample_general_array.tkv	dot_product_runtime	0	1	2.0\n
-tests_suite\de_vao\sample_general_array.tkv	dot_product_runtime	0	8	240.0\n

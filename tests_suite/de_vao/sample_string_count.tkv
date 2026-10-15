@@ -1,3 +1,0 @@
-def compute(s: "str") -> "i32":
-    n = s.count("aa")
-    return n

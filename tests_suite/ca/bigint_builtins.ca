@@ -1,23 +1,0 @@
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	sum25	16158688114800553828940313\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	sum12	522956313\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	sum1	1\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	sumrep20	12164510040883200000\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	sumrep10	18144000\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	max25	15511210043330985984000000\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	min25	1\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	max12	479001600\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	absneg25	15511210043330985984000000\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	absneg20	2432902008176640000\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	abspos25	15511210043330985984000000\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	abspos1	1\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	parse99999999999999999999	100000000000000000000\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	parse-99999999999999999999	-99999999999999999998\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	parse42	43\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	parse 42 	43\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	parsefloat3.7	3\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	parsefloat-3.7	-3\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	parsefloat1e30	1000000000000000019884624838656\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	minmax225	1\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	anyall25	1\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	anyall3	1\n
-tests_suite\de_vao\sample_int_builtins.tkv	run	0	i325	36\n

@@ -1,8 +1,0 @@
-
-def main() -> "i32":
-    s = "a,b,c,d"
-    p2 = s.split(",", 2)
-    p0 = s.split(",", 0)
-    p10 = s.split(",", 10)
-    p1 = s.split(",")
-    return len(p2) * 1000 + len(p0) * 100 + len(p10) * 10 + len(p1)

@@ -1,10 +1,0 @@
-tests_suite\de_vao\sample_default_args_itertools.tkv	call_add_omit	0	5	15\n
-tests_suite\de_vao\sample_default_args_itertools.tkv	call_add_omit	0	0	10\n
-tests_suite\de_vao\sample_default_args_itertools.tkv	call_add_omit	0	-3	7\n
-tests_suite\de_vao\sample_default_args_itertools.tkv	call_add_full	0	52	7\n
-tests_suite\de_vao\sample_default_args_itertools.tkv	call_add_full	0	00	0\n
-tests_suite\de_vao\sample_default_args_itertools.tkv	call_greet_omit	0	Hung	Hello, Hung\n
-tests_suite\de_vao\sample_default_args_itertools.tkv	call_greet_omit	0	An	Hello, An\n
-tests_suite\de_vao\sample_default_args_itertools.tkv	sum_enumerate	0		63\n
-tests_suite\de_vao\sample_default_args_itertools.tkv	sum_zip_shorter_first	0		303\n
-tests_suite\de_vao\sample_default_args_itertools.tkv	sum_zip_shorter_second	0		303\n

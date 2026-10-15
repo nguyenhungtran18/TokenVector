@@ -1,0 +1,360 @@
+# -*- coding: utf-8 -*-
+"""itertools.chain/product/combinations O VI TRI BIEU THUC, dang HAM
+THAT (Phase 10, Task 2, 2026-08-28) - khac ban macro CHI dung duoc trong
+'for i, x in enumerate(lst):' cua stdlib_itertools.py, VA khac
+stdlib_itertools_expr.py (enumerate/zip - da co san, dung lam MAU KIEN
+TRUC cho file nay, doc ky truoc khi viet: register_expr_builtin(name,
+compile_fn, want_dtype, return_shape='list', temps_fn=...) - temps_fn
+cap phat hidden local TRUOC (first-pass) cho vong lap 'for' cap thap sinh
+list ket qua, dung nhan/label thu cong qua ctx['label_counter']/
+ctx['prefix'] (giong nested_array_extern.py), List<T> rong + Add() tung
+phan tu.
+
+GIOI HAN CO Y THUC (theo dung plan, KHONG phai thieu sot can va lai sau):
+- chain(a, b): CHI 2 tham so (khong *args tong quat, giong path_join chi
+  2 tham so).
+- product(a, b): CHI 2 danh sach (khong N chieu).
+- combinations(a, r): CHI ho tro r=2 (hang so tai compile-time) - r!=2
+  raise SyntaxError RO RANG luc bien dich, KHONG am tham sai.
+
+Cach dung khac nhau giua chain vs product/combinations (quan trong,
+BAT BUOC hieu truoc khi doc code): chain(a,b) tra ve list[T] PHAN TU VO
+HUONG (khong phai tuple) nen dtype PHU THUOC THAM SO - dang ky qua
+return_dtype_fn (giong sorted()/sum() trong stdlib_aggregates.py), dung
+DUOC O DANG KHONG annotation ('c = chain(a, b)') - _lp_typed_local_decl
+trong il_codegen.py CHI cho phep khai bao tuong minh voi shape
+'func'/'defaultdict'/'counter'/'list[(K,V)]' (list-cua-TUPLE), KHONG cho
+phep 'c: "list[i32]" = chain(a,b)' (da xac nhan THAT bang test that bai
+truoc khi sua huong tiep can - xem lich su sua trong file test). Nguoc
+lai product(a,b)/combinations(a,r) tra list[(T1,T2)] (list-cua-tuple) -
+GIONG HET enumerate/zip, PHAI khai bao tuong minh
+'p: "list[(i32,i32)]" = product(a,b)'."""
+from il_features.list_type import il_list_type
+from il_features.tuple_type import il_tupleN_type
+from il_dispatch import register_expr_builtin
+
+
+_SAFE_ELEM_DTYPES = frozenset({'i32', 'i64', 'f32', 'f64', 'str'})
+
+
+def _elem_ta_of(name, infer_scope, fname):
+    """Doi y het _elem_ta_of cua stdlib_itertools_expr.py (enumerate/
+    zip) - list nguon PHAI la 1 list PHAN TU VO HUONG voi dtype 'an
+    toan' (i32/i64/f32/f64/str). 'int' (TkvInt struct, list mac dinh
+    khong annotation suy ra) BI CHAN CO Y THUC vi 2 ly do: (1) voi
+    product/combinations, field ValueTuple phai khop CHINH XAC layout IL
+    voi kieu bien dich khai bao tuong minh o ben goi; (2) voi chain, dtype
+    ket qua suy qua return_dtype_fn se lay THANG 'int' - list[int] hien
+    CHUA co IL_SCALAR entry an toan cho truong hop nay trong luong builtin
+    generic (khac nhanh rieng cua cac phep toan so hoc TkvInt), nen chan
+    som cho AN TOAN thay vi de loi kho hieu ve sau."""
+    _, _, ta = infer_scope[name]
+    if ta.shape != 'list' or ta.elem_ta is not None:
+        raise SyntaxError(
+            f"il_codegen: {fname}(...) - '{name}' phai la 1 list PHAN TU VO HUONG "
+            f"(list[dtype]) - khong ho tro list long nhau")
+    if ta.dtype not in _SAFE_ELEM_DTYPES:
+        raise SyntaxError(
+            f"il_codegen: {fname}(...) chi ho tro list nguon kieu co dinh "
+            f"{sorted(_SAFE_ELEM_DTYPES)} - '{name}' co dtype '{ta.dtype}' (vd list literal "
+            f"khong annotation mac dinh suy 'int' vo han chu so) - khai bao '{name}' qua "
+            f"1 tham so ham kieu 'list[i32]'/... hoac vong lap .append() gia tri co dtype "
+            f"co dinh thay vao do")
+    return ta.dtype
+
+
+# ---------------------------------------------------------------------
+# chain(a, b) -> list[T] (T = dtype phan tu, KHONG phai tuple).
+# ---------------------------------------------------------------------
+
+def _chain_arg_names(args):
+    if len(args) != 2 or args[0][0] != 'var' or args[1][0] != 'var':
+        return None
+    return args[0][1], args[1][1]
+
+
+def _chain_elem_dtype(args, scope, func_table=None):
+    """EXPR_BUILTIN_DTYPE_FN cho chain() - dtype phan tu KET QUA chinh la
+    dtype phan tu cua 'a' (da validate a/b CUNG dtype trong temps_fn/
+    codegen_fn, khong lap lai o day - fn nay chi CAN tra ve 1 gia tri hop
+    ly de _shaped_return_ta_of_call() dung, khong phai noi validate
+    chinh)."""
+    names = _chain_arg_names(args)
+    if names is None:
+        return None
+    try:
+        return scope[names[0]][2].dtype
+    except KeyError:
+        return None
+
+
+def _temps_chain(node, ctx):
+    args = node[2]
+    names = _chain_arg_names(args)
+    if names is None:
+        return
+    infer_scope = ctx['infer_scope']
+    try:
+        a_dtype = _elem_ta_of(names[0], infer_scope, 'chain')
+        b_dtype = _elem_ta_of(names[1], infer_scope, 'chain')
+    except KeyError:
+        return
+    if a_dtype != b_dtype:
+        raise SyntaxError(
+            f"il_codegen: chain({names[0]}, {names[1]}) - ca 2 list PHAI CUNG dtype phan tu "
+            f"('{names[0]}' la '{a_dtype}', '{names[1]}' la '{b_dtype}')")
+    TypeAnn = ctx['TypeAnn']
+    key = id(args)
+    ctx['declare_named'](f'__chain{key}_res', TypeAnn(a_dtype, 'list'))
+
+
+def push_chain(args, scope, out, dtype, ctx):
+    names = _chain_arg_names(args)
+    if names is None:
+        raise SyntaxError("il_codegen: chain(a, b) o vi tri bieu thuc chi nhan DUNG 2 BIEN list")
+    a_name, b_name = names
+    _, _, a_ta = scope[a_name]
+    _, _, b_ta = scope[b_name]
+    if a_ta.shape != 'list' or a_ta.elem_ta is not None or \
+            b_ta.shape != 'list' or b_ta.elem_ta is not None:
+        raise SyntaxError(f"il_codegen: chain({a_name}, {b_name}) - ca 2 phai la list phan tu vo huong")
+    _elem_ta_of(a_name, scope, 'chain')
+    _elem_ta_of(b_name, scope, 'chain')
+    if a_ta.dtype != b_ta.dtype:
+        raise SyntaxError(
+            f"il_codegen: chain({a_name}, {b_name}) - ca 2 list PHAI CUNG dtype phan tu "
+            f"('{a_name}' la '{a_ta.dtype}', '{b_name}' la '{b_ta.dtype}')")
+    key = id(args)
+    _, res_idx, _ = scope[f'__chain{key}_res']
+
+    res_list_type = il_list_type(a_ta.dtype, ctx.get('records'))
+
+    # res = new List<T>(a) - ket qua BAT DAU bang toan bo 'a' (List<T> co
+    # constructor IEnumerable<T>, giong ky thuat push_sorted/list_copy.py),
+    # roi AddRange(b) noi tiep 'b' - don gian hon tu viet vong lap thu
+    # cong qua tung phan tu, van la 1 mapping THANG sang API .NET co san
+    # (List<T>.AddRange(IEnumerable<T>) - CO THAT, dung chuan .NET
+    # Framework, khong bia).
+    ctx['load_var_ref'](a_name, scope, out)
+    out.append(
+        f'    newobj instance void {res_list_type}::.ctor(class '
+        f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    out.append(f'    stloc.s {res_idx}')
+    out.append(f'    ldloc.s {res_idx}')
+    ctx['load_var_ref'](b_name, scope, out)
+    out.append(
+        f'    callvirt instance void {res_list_type}::AddRange(class '
+        f'[mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    out.append(f'    ldloc.s {res_idx}')
+
+
+# ---------------------------------------------------------------------
+# product(a, b) -> list[(T1, T2)] - tich Descartes 2 chieu.
+# ---------------------------------------------------------------------
+
+def _temps_product(node, ctx):
+    args = node[2]
+    if len(args) != 2 or args[0][0] != 'var' or args[1][0] != 'var':
+        return
+    infer_scope = ctx['infer_scope']
+    try:
+        a_dtype = _elem_ta_of(args[0][1], infer_scope, 'product')
+        b_dtype = _elem_ta_of(args[1][1], infer_scope, 'product')
+    except KeyError:
+        return
+    TypeAnn = ctx['TypeAnn']
+    key = id(args)
+    ctx['declare_named'](f'__prod{key}_i', TypeAnn('i32', None))
+    ctx['declare_named'](f'__prod{key}_j', TypeAnn('i32', None))
+    ctx['declare_named'](f'__prod{key}_res', TypeAnn(a_dtype, 'list',
+                          elem_ta=TypeAnn(b_dtype, 'tuple', tuple_dtypes=[a_dtype, b_dtype])))
+
+
+def push_product(args, scope, out, dtype, ctx):
+    if len(args) != 2 or args[0][0] != 'var' or args[1][0] != 'var':
+        raise SyntaxError("il_codegen: product(a, b) o vi tri bieu thuc chi nhan DUNG 2 BIEN list")
+    a_name, b_name = args[0][1], args[1][1]
+    _, _, a_ta = scope[a_name]
+    _, _, b_ta = scope[b_name]
+    if a_ta.shape != 'list' or a_ta.elem_ta is not None or \
+            b_ta.shape != 'list' or b_ta.elem_ta is not None:
+        raise SyntaxError(f"il_codegen: product({a_name}, {b_name}) - ca 2 phai la list phan tu vo huong")
+    _elem_ta_of(a_name, scope, 'product')
+    _elem_ta_of(b_name, scope, 'product')
+    key = id(args)
+    _, i_idx, _ = scope[f'__prod{key}_i']
+    _, j_idx, _ = scope[f'__prod{key}_j']
+    _, res_idx, _ = scope[f'__prod{key}_res']
+
+    a_list_type = il_list_type(a_ta.dtype, ctx.get('records'))
+    b_list_type = il_list_type(b_ta.dtype, ctx.get('records'))
+    tuple_type = il_tupleN_type([a_ta.dtype, b_ta.dtype])
+    res_list_type = f'class [mscorlib]System.Collections.Generic.List`1<{tuple_type}>'
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    outer_start = f"{ctx['prefix']}_prod{n}_ostart"
+    outer_end = f"{ctx['prefix']}_prod{n}_oend"
+    inner_start = f"{ctx['prefix']}_prod{n}_istart"
+    inner_end = f"{ctx['prefix']}_prod{n}_iend"
+
+    out.append(f'    newobj instance void {res_list_type}::.ctor()')
+    out.append(f'    stloc.s {res_idx}')
+    out.append('    ldc.i4.0')
+    out.append(f'    stloc.s {i_idx}')
+    out.append(f'  {outer_start}:')
+    out.append(f'    ldloc.s {i_idx}')
+    ctx['load_var_ref'](a_name, scope, out)
+    out.append(f'    callvirt instance int32 {a_list_type}::get_Count()')
+    out.append(f'    bge {outer_end}')
+
+    out.append('    ldc.i4.0')
+    out.append(f'    stloc.s {j_idx}')
+    out.append(f'  {inner_start}:')
+    out.append(f'    ldloc.s {j_idx}')
+    ctx['load_var_ref'](b_name, scope, out)
+    out.append(f'    callvirt instance int32 {b_list_type}::get_Count()')
+    out.append(f'    bge {inner_end}')
+
+    out.append(f'    ldloc.s {res_idx}')
+    ctx['load_var_ref'](a_name, scope, out)
+    out.append(f'    ldloc.s {i_idx}')
+    out.append(f'    callvirt instance !0 {a_list_type}::get_Item(int32)')
+    ctx['load_var_ref'](b_name, scope, out)
+    out.append(f'    ldloc.s {j_idx}')
+    out.append(f'    callvirt instance !0 {b_list_type}::get_Item(int32)')
+    out.append(f'    newobj instance void {tuple_type}::.ctor(!0, !1)')
+    out.append(f'    callvirt instance void {res_list_type}::Add(!0)')
+
+    out.append(f'    ldloc.s {j_idx}')
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append(f'    stloc.s {j_idx}')
+    out.append(f'    br {inner_start}')
+    out.append(f'  {inner_end}:')
+
+    out.append(f'    ldloc.s {i_idx}')
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append(f'    stloc.s {i_idx}')
+    out.append(f'    br {outer_start}')
+    out.append(f'  {outer_end}:')
+    out.append(f'    ldloc.s {res_idx}')
+
+
+# ---------------------------------------------------------------------
+# combinations(a, r) -> list[(T, T)] - CHI ho tro r=2 (hang so compile-time).
+# ---------------------------------------------------------------------
+
+def _combinations_check_r(args, fname='combinations'):
+    """r PHAI la hang so nguyen '2' tai VI TRI VAN BAN (compile-time) -
+    GIOI HAN CO Y THUC cua plan (r!=2 raise SyntaxError RO RANG, khong am
+    tham sai). args[1] la 1 node bieu thuc da parse - hang so duoc bieu
+    dien qua tag ('num', gia_tri) (xem parse_expr/_tokenize_expr trong
+    il_core.py, cung dang node dung boi cac builtin hang-so khac trong
+    repo)."""
+    if len(args) != 2:
+        raise SyntaxError(f"il_codegen: {fname}(a, r) chi nhan dung 2 tham so")
+    r_node = args[1]
+    if r_node[0] != 'num' or str(r_node[1]) != '2':
+        raise SyntaxError(
+            f"il_codegen: {fname}(a, r) hien CHI ho tro r=2 (hang so nguyen tai vi tri "
+            f"van ban, vd combinations(a, 2)) - gap r={r_node!r}, GIOI HAN CO Y THUC cua "
+            f"Phase 10 (pham vi hep nhung dung ngay, khong tong quat hoa voi r bat ky)")
+
+
+def _temps_combinations(node, ctx):
+    args = node[2]
+    if args[0][0] != 'var':
+        return
+    _combinations_check_r(args)
+    infer_scope = ctx['infer_scope']
+    try:
+        a_dtype = _elem_ta_of(args[0][1], infer_scope, 'combinations')
+    except KeyError:
+        return
+    TypeAnn = ctx['TypeAnn']
+    key = id(args)
+    ctx['declare_named'](f'__comb{key}_i', TypeAnn('i32', None))
+    ctx['declare_named'](f'__comb{key}_j', TypeAnn('i32', None))
+    ctx['declare_named'](f'__comb{key}_res', TypeAnn(a_dtype, 'list',
+                          elem_ta=TypeAnn(a_dtype, 'tuple', tuple_dtypes=[a_dtype, a_dtype])))
+
+
+def push_combinations(args, scope, out, dtype, ctx):
+    if args[0][0] != 'var':
+        raise SyntaxError("il_codegen: combinations(a, r) o vi tri bieu thuc can 'a' la 1 BIEN list")
+    _combinations_check_r(args)
+    a_name = args[0][1]
+    _, _, a_ta = scope[a_name]
+    if a_ta.shape != 'list' or a_ta.elem_ta is not None:
+        raise SyntaxError(f"il_codegen: combinations({a_name}, 2) - '{a_name}' phai la list phan tu vo huong")
+    _elem_ta_of(a_name, scope, 'combinations')
+    key = id(args)
+    _, i_idx, _ = scope[f'__comb{key}_i']
+    _, j_idx, _ = scope[f'__comb{key}_j']
+    _, res_idx, _ = scope[f'__comb{key}_res']
+
+    a_list_type = il_list_type(a_ta.dtype, ctx.get('records'))
+    tuple_type = il_tupleN_type([a_ta.dtype, a_ta.dtype])
+    res_list_type = f'class [mscorlib]System.Collections.Generic.List`1<{tuple_type}>'
+
+    ctx['label_counter'][0] += 1
+    n = ctx['label_counter'][0]
+    outer_start = f"{ctx['prefix']}_comb{n}_ostart"
+    outer_end = f"{ctx['prefix']}_comb{n}_oend"
+    inner_start = f"{ctx['prefix']}_comb{n}_istart"
+    inner_end = f"{ctx['prefix']}_comb{n}_iend"
+
+    out.append(f'    newobj instance void {res_list_type}::.ctor()')
+    out.append(f'    stloc.s {res_idx}')
+    out.append('    ldc.i4.0')
+    out.append(f'    stloc.s {i_idx}')
+    out.append(f'  {outer_start}:')
+    out.append(f'    ldloc.s {i_idx}')
+    ctx['load_var_ref'](a_name, scope, out)
+    out.append(f'    callvirt instance int32 {a_list_type}::get_Count()')
+    out.append(f'    bge {outer_end}')
+
+    # j = i + 1 (chi lay cap i<j, khong lap lai/khong tu ket hop voi chinh no).
+    out.append(f'    ldloc.s {i_idx}')
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append(f'    stloc.s {j_idx}')
+    out.append(f'  {inner_start}:')
+    out.append(f'    ldloc.s {j_idx}')
+    ctx['load_var_ref'](a_name, scope, out)
+    out.append(f'    callvirt instance int32 {a_list_type}::get_Count()')
+    out.append(f'    bge {inner_end}')
+
+    out.append(f'    ldloc.s {res_idx}')
+    ctx['load_var_ref'](a_name, scope, out)
+    out.append(f'    ldloc.s {i_idx}')
+    out.append(f'    callvirt instance !0 {a_list_type}::get_Item(int32)')
+    ctx['load_var_ref'](a_name, scope, out)
+    out.append(f'    ldloc.s {j_idx}')
+    out.append(f'    callvirt instance !0 {a_list_type}::get_Item(int32)')
+    out.append(f'    newobj instance void {tuple_type}::.ctor(!0, !1)')
+    out.append(f'    callvirt instance void {res_list_type}::Add(!0)')
+
+    out.append(f'    ldloc.s {j_idx}')
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append(f'    stloc.s {j_idx}')
+    out.append(f'    br {inner_start}')
+    out.append(f'  {inner_end}:')
+
+    out.append(f'    ldloc.s {i_idx}')
+    out.append('    ldc.i4.1')
+    out.append('    add')
+    out.append(f'    stloc.s {i_idx}')
+    out.append(f'    br {outer_start}')
+    out.append(f'  {outer_end}:')
+    out.append(f'    ldloc.s {res_idx}')
+
+
+register_expr_builtin('chain', push_chain, None, return_shape='list',
+                       temps_fn=_temps_chain, return_dtype_fn=_chain_elem_dtype)
+register_expr_builtin('product', push_product, None, return_shape='list', temps_fn=_temps_product)
+register_expr_builtin('combinations', push_combinations, None, return_shape='list',
+                       temps_fn=_temps_combinations)

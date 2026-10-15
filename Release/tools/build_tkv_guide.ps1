@@ -3,11 +3,9 @@
 # Chay: powershell -NoProfile -File tools\build_tkv_guide.ps1
 #
 # Tool nay viet bang TokenVector nen can chinh compiler bien dich no.
-# Mac dinh dung COMPILER TU-HOST (`dist\tkvc-tv.exe`) nen script chay duoc
-# ma khong can Python. Doi sang compiler Python bootstrap (`tkvc.exe`) thi
-# CLI khac nhau: `tkvc.exe build <src> --out <exe> --entry run` co subcommand
-# `build` va co `--out`, con tkvc-tv.exe chi nhan positional
-# `<src> <out> <entry>`. Script tu do dap - xem nhanh ben duoi.
+# Dung COMPILER TU-HOST (`dist\tkvc-tv.exe`) - CLI POSITIONAL:
+#   tkvc-tv.exe <src> <out> <entry>
+# Khong co subcommand, khong co `--out`.
 #
 # `dist/` trong .gitignore nen file `.tkv` o tools/ la ban nguon duy nhat
 # can commit.
@@ -19,20 +17,14 @@ $outDir = Join-Path $root 'dist\bin'
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
 $out = Join-Path $outDir 'tkv_guide.exe'
 $comp = Join-Path $root 'dist\tkvc-tv.exe'
-if (-not (Test-Path $comp)) { $comp = Join-Path $root 'dist\tkvc.exe' }
 
 if (-not (Test-Path $comp)) {
-    Write-Error "THIEU compiler: $comp`nBuild truoc: dist\tkvc-tv.exe (compiler tu-host)"
+    Write-Error "THIEU compiler tu-host: $comp`nDung `tools\vong.exe` de sinh lai."
     exit 2
 }
 if (Test-Path $out) { Remove-Item $out -Force }
 
-$tuHost = ($comp -like '*tkvc-tv.exe')
-if ($tuHost) {
-    & $comp $src $out run
-} else {
-    & $comp build $src --out $out --entry run
-}
+& $comp $src $out run
 if ($LASTEXITCODE -ne 0) {
     Write-Error "tkv_guide build THAT BAI (exit $LASTEXITCODE)"
     exit 1

@@ -1,5 +1,0 @@
-tests_suite\de_vao\sample_read_file_crlf.tkv	char_count	0	C:\Users\NGUYEN~1\AppData\Local\Temp\tkv_crlf_lsw7wf59\CRLF.txt	6\n
-tests_suite\de_vao\sample_read_file_crlf.tkv	char_count	0	C:\Users\NGUYEN~1\AppData\Local\Temp\tkv_crlf_lsw7wf59\LF.txt	6\n
-tests_suite\de_vao\sample_read_file_crlf.tkv	char_count	0	C:\Users\NGUYEN~1\AppData\Local\Temp\tkv_crlf_lsw7wf59\CR-don-le.txt	6\n
-tests_suite\de_vao\sample_read_file_crlf.tkv	char_count	0	C:\Users\NGUYEN~1\AppData\Local\Temp\tkv_crlf_lsw7wf59\tron-lan.txt	7\n
-tests_suite\de_vao\sample_read_file_crlf.tkv	char_count	0	C:\Users\NGUYEN~1\AppData\Local\Temp\tkv_crlf_lsw7wf59\khong-co-dong-cuoi.txt	3\n

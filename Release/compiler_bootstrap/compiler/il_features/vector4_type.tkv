@@ -11,15 +11,18 @@ giu nguyen (chua trung) va goi trong bootstrap_vector4.
 
 Vong `for i, field in enumerate(...)` trong push_v_hsum4 viet lai vong
 index tren list module `_VEC4_LANES` (tuple-unpack trong for khong chac).
-`import il_features.vector_block as _vb` KHONG dung duoc - dang nay lam
-vo build voi loi 'append(...)' dang lenh doc lap (2026-10-07, chua ro
-nguyen nhan sau, co the import bi bo qua am tham); dung
-`from il_features.vector_block import _vb_addr` truc tiep thay the.
+
+2026-10-14: `vector_block.tkv` DA BI XOA. `_vb_addr` + `_ofs_native` duoc
+chuyen sang day (xem `def _vb_addr` ben duoi). Ly do: toan bo API `v_*8`
+va class `VBuf8` da nghi (do lai: `v_*8` CHAM HON scalar thuan **4.4x** tren
+cung byte-buffer - 44.6 so voi 10.0 ns/phan tu, best-of-24, do ben trong
+vong lap), nhung `Vector4` thi la SIMD THAT va van can `v_hsum4` + `_vb_addr`.
+Giu file rieng chi de mot ham trong gi se la thua va gay nham - nay con dung
+mot file doc lap voi ten lich su.
 """
 
 from il_core import IL_SCALAR
 from il_dispatch import register_expr_builtin
-from il_features.vector_block import _vb_addr
 
 __tkv_import__ = "il_dispatch"
 
@@ -29,9 +32,42 @@ VEC4_CLASS = '[System.Numerics]System.Numerics.Vector4'
 # Mo ta VALUETYPE day du - dung lam kieu tra ve/tham so va khai bao local.
 VEC4 = f'valuetype {VEC4_CLASS}'
 
+
+def _ofs_native(ofs_node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Offset byte len dang `native int` (i64) - dung thang, KHONG hep ve i32."""
+    ctx.compile_expr(ofs_node, scope, out, 'i64', ctx)
+
+
+def _vb_addr(p_node: "TkvNode", ofs_node: "TkvNode", lane_byte_off: "i32", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Day 'native int' cua p + ofs + lane_byte_off len stack.
+
+    `ofs` tinh theo BYTE - giong het read_f32/write_f32/read_i32/... o
+    nativebuf.tkv. Chuyen tu `vector_block.tkv` (da xoa) ngay 2026-10-14."""
+    ctx.compile_expr(p_node, scope, out, 'i64', ctx)
+    _ofs_native(ofs_node, scope, out, ctx)
+    out.append('    add')
+    if lane_byte_off:
+        out.append(f'    ldc.i4.s {lane_byte_off}')
+        out.append('    conv.i8')
+        out.append('    add')
+    out.append('    conv.i')
+
 # Vector4 dinh nghia day du 4 toan tu hai tham so. KHONG phai goi
 # `Add`/`Multiply` nhu Complex - Complex co method tinh, Vector4 dung
 # operator (op_*) vi no la kieu vector.
+#
+# 2026-10-13: THU lenh tho raw CIL (`add`/`sub`/`mul`/`div`) tren
+# Vector4 - KHONG dung, giu `call`. Ly do mong doi la `call op_X` la
+# method call THAT (day struct 16 byte vao, tra struct 16 byte qua con
+# tro buffer an) nen moi phep vector ton mot CALL chu khong phai lenh
+# SIMD, con lenh tho raw thi JIT dua thang thanh `addps`/`mulps`.
+# THUC TE: binary raw khong chay. Do lai cung nguon, cung khai bao
+# `.locals` (chi khac `call op_*` -> `mul`/`add` tho) thi nem
+# SEHException ngay luc chay. Runtime cua build AOT nay KHONG chap nhan
+# phep so hoc tho tren System.Numerics.Vector4.
+# Do do `f32x4` VAN TON MOT METHOD CALL moi phep - gioi han cua RUNTIME,
+# khong phai loi sua duoc o file nay. Muon SIMD that can kieu vector khac
+# (xem docs/PLAN.md muc SIMD) - het.
 _VEC4_BINOPS: "dict[str,str]" = {'+': 'op_Addition', '-': 'op_Subtraction', '*': 'op_Multiply', '/': 'op_Division'}
 
 # 4 LANE. KHONG PHAI property!
@@ -50,16 +86,43 @@ def register_vector4_dtype():
     IL_SCALAR['f32x4'] = VEC4
 
 
+def _day_vec4_operand(node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Day 1 toan hang len stack theo kieu `f32x4` (2026-10-14).
+
+    TOAN HANG VOHUONG (`f32`) duoc BROADCAST thanh `Vector4(x, x, x, x)` bang
+    constructor 4 tham so. Khong co intrinsic `v_set4` nao, nhung
+    `newobj Vector4::.ctor(f32, f32, f32, f32)` thi CO va chay dung (da probe
+    truc tiep bang IL thuan). Day la mo khoa cho P6: xem `_p6_vec_rhs_ok`.
+
+    `compile_expr` luon DAY DUNG MOT gia tri len stack (ke ca khi lenh do la
+    `ldloc` hay `ldc.r4`), nen goi 4 lan de du 4 tham so cho `newobj`.
+    """
+    d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records, ctx.record_methods, None)
+    if d == 'f32x4':
+        ctx.compile_expr(node, scope, out, 'f32x4', ctx)
+        return
+    ctx.compile_expr(node, scope, out, 'f32', ctx)
+    j = 1
+    while j < 4:
+        ctx.compile_expr(node, scope, out, 'f32', ctx)
+        j = j + 1
+    out.append('    newobj instance void ' + VEC4_CLASS
+               + '::.ctor(float32, float32, float32, float32)')
+
+
 def compile_binop_vector4(op: "str", left: "TkvNode", right: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
-    """'+'/'-'/'*'/'/' giua 2 gia tri 'f32x4' - goi THANG operator cua
-    BCL. Mot lenh `call` = 4 (hoac 8 voi AVX2) MAC cung luc."""
+    """'+'/'-'/'*'/'/' giua 2 gia tri 'f32x4' - goi operator cua BCL.
+
+    KHONG dung lenh tho raw CIL: do 2026-13 xem ghi chu `_VEC4_BINOPS`.
+    `call` la MOT method call that, va day la dieu runtime nay cho phep.
+    """
     if op not in _VEC4_BINOPS:
         raise SyntaxError(
             "il_codegen: '" + op + "' khong ho tro tren 'f32x4' (chi +,-,*,/ - "
             "khong co % va khong co so sanh kieu vector)")
     method = _VEC4_BINOPS[op]
-    ctx.compile_expr(left, scope, out, 'f32x4', ctx)
-    ctx.compile_expr(right, scope, out, 'f32x4', ctx)
+    _day_vec4_operand(left, scope, out, ctx)
+    _day_vec4_operand(right, scope, out, ctx)
     out.append(f'    call {VEC4} {VEC4_CLASS}::{method}({VEC4}, {VEC4})')
 
 

@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+"""stdlib_functools.tkv - Module tien ich Functional Programming & Math Clamping.
+
+Cung cap cac ham:
+- functools_clamp_i32(val, min_val, max_val) -> i32 : Kep gia tri so nguyen trong khoang [min, max]
+- functools_clamp_f64(val, min_val, max_val) -> f64 : Kep gia tri so thuc trong khoang [min, max]
+"""
+
+from il_dispatch import register_expr_builtin
+
+
+def _push_clamp_i32(args, scope, out, dtype, ctx):
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: functools_clamp_i32(val, min, max) can dung 3 tham so")
+    compile_expr = ctx['compile_expr']
+    # Math.Max(min_val, Math.Min(val, max_val))
+    compile_expr(args[1], scope, out, 'i32', ctx) # min_val
+    compile_expr(args[0], scope, out, 'i32', ctx) # val
+    compile_expr(args[2], scope, out, 'i32', ctx) # max_val
+    out.append('    call int32 [mscorlib]System.Math::Min(int32, int32)')
+    out.append('    call int32 [mscorlib]System.Math::Max(int32, int32)')
+
+
+def _push_clamp_f64(args, scope, out, dtype, ctx):
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: functools_clamp_f64(val, min, max) can dung 3 tham so")
+    compile_expr = ctx['compile_expr']
+    compile_expr(args[1], scope, out, 'f64', ctx)
+    compile_expr(args[0], scope, out, 'f64', ctx)
+    compile_expr(args[2], scope, out, 'f64', ctx)
+    out.append('    call float64 [mscorlib]System.Math::Min(float64, float64)')
+    out.append('    call float64 [mscorlib]System.Math::Max(float64, float64)')
+
+
+register_expr_builtin('functools_clamp_i32', _push_clamp_i32, return_dtype='i32')
+register_expr_builtin('functools_clamp_f64', _push_clamp_f64, return_dtype='f64')

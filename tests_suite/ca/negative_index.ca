@@ -1,7 +1,0 @@
-tests_suite\de_vao\sample_negative_index.tkv	last_of_list	0		30\n
-tests_suite\de_vao\sample_negative_index.tkv	second_last_of_list	0		30\n
-tests_suite\de_vao\sample_negative_index.tkv	last_char	0	hello	o\n
-tests_suite\de_vao\sample_negative_index.tkv	last_char	0	ab	b\n
-tests_suite\de_vao\sample_negative_index.tkv	second_last_char	0	hello	l\n
-tests_suite\de_vao\sample_negative_index.tkv	second_last_char	0	ab	a\n
-tests_suite\de_vao\sample_negative_index.tkv	mix_pos_neg	0		103\n

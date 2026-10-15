@@ -1,3 +1,0 @@
-def main() -> "str":
-    y = 1
-    return f'x={y}'

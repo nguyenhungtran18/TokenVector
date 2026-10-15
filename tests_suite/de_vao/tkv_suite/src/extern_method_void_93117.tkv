@@ -1,8 +1,0 @@
-
-def gc_collect() -> "i32":
-    return 42
-
-def main() -> "i32":
-    x = gc_collect()
-    print(x)
-    return 0

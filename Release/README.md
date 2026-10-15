@@ -1,96 +1,243 @@
-# TokenVector — Release (100% TokenVector)
+<p align="left">
+  <strong>English</strong> | <a href="README.vi.md">Tiếng Việt</a>
+</p>
 
-Ban phat trien **ngon ngu TokenVector**: compiler tu-host, nguon cua no, bo test,
-va cac cong cu viet bang TokenVector. Khong co Python nao o day.
+# TokenVector (`.tkv`, `.tv`)
 
-## Cay thu muc
+A statically-typed language that compiles to **.NET CIL** and links into a
+**standalone PE executable**. No interpreter, no CPython at run time, no GIL.
 
-| Thu muc | So file | Vai tro |
-|---|---:|---|
-| `compiler_bootstrap/` | 132 | **NGUON COMPILER TU-HOST.** Day la 132 file ma `compiler_src/ds_gop.txt` tro toi. Gop lai roi tu bien dich chinh no (`tools/vong.exe` -> `IL_IDENTICAL`) |
-| `compiler_src/` | 10 | `ds_gop.txt` (manifest 132 dong) + `feature_can.txt` + 8 file seed lich su |
-| `dist/` | 2 | `tkvc-tv.exe` (compiler) + `bin/tkv_guide.exe` |
-| `tests/` | 162 | 119 test chap nhan + 31 test am + `tkv_test_lib.tkv` |
-| `tests_suite/` | 445 | 154 case `.ca` + 203 mau vao |
-| `tools/` | 19 | Cong + gate (xem bang duoi) |
-| `examples/`, `projects/` | 27 | Chuong trinh TokenVector vi du / thuc te |
-| `docs/` | 6 | `REFERENCE.md` la tai lieu tham chieu duy nhat |
+```python
+# -*- coding: utf-8 -*-
+def mean(xs: "list[f64]") -> "f64":
+    if len(xs) == 0:
+        return 0.0
+    total = 0.0
+    for x in xs:
+        total = total + x
+    return total / len(xs)
 
-## Bien dich mot file
+def run() -> "i32":
+    data = [1.0, 2.5, 4.0]
+    print("mean = " + str(mean(data)))
+    return 0
+```
 
 ```powershell
-cd <duong-dan>\Release
-dist\tkvc-tv.exe demo.tkv demo.exe run     # CLI positional: <nguon> <ra> <entry>
+cd D:\TokenVector
+dist\tkvc-tv.exe demo.tkv demo.exe run
 .\demo.exe
 ```
 
-> `run()` tra `"i32"` ⇒ gia tri do la **exit code** cua tien trinh (nhu
-> `sys.exit(1)` cua Python). Tra `"str"` hoac tuple thi duoc in ra.
+The output is a **~6 KB** `.exe` (hello-world) that runs on any machine with the
+.NET Framework — **no Python, no runtime bundle, no venv**.
 
-## Cong go
+---
 
-Tu goc ban nay (khong can Python, khong can repo khac):
+## 1. Status — verified, not aspirational
 
-```powershell
-# 1. Gate chinh - 119 test + 31 test am
-.\tools\testkit_gate.ps1
+Everything below is checked by a gate in this repository. Numbers are from
+2026-10-14.
 
-# 2. Vong tu-host: bien dich compiler roi bien dich lai chinh no
-#    TU DICH TRUOC: dist\tkvc-tv.exe tools\vong.tkv tools\vong.exe main
-.\tools\vong.exe
+| Gate | Command | Result |
+|---|---|---|
+| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **125/125** pass, **31/31** negative cases correctly rejected |
+| Self-host fixpoint | `tools\vong.exe` | **IL_IDENTICAL** (132 files) |
+| Performance | `powershell -File tools\perf_gate.ps1` | 4 kernels, best-of-5, **checksum is compared** |
+| Lint-rule self-test | `powershell -File tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
+| Registration | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 violations |
 
-# 3. Quy tac con
-.\tools\lint_rules_gate.ps1
+**Builtins registered: 420.**
 
-# 4. Phan tich nguon (da chuyen sang TokenVector)
-.\dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run   ; .\build\dk.exe
-.\dist\tkvc-tv.exe tools\gen_builtin_ref.tkv build\gr.exe run; .\build\gr.exe --check
-.\dist\tkvc-tv.exe tools\scan_container.tkv build\sc.exe run <thu-muc>
+> **What the compiler actually is.** The compiler source is **`compiler_bootstrap/`**
+> — 132 files that really are TokenVector. `dist\tkvc-tv.exe` is built by
+> `tools\vong.exe`, which concatenates those files and compiles them **twice**;
+> the two IL dumps must match byte-for-byte (`IL_IDENTICAL`). That is what
+> "self-hosted" means here.
+
+> **Do not trust a claim in this repo that no gate checks.** Benchmarks in
+> `docs/ROADMAP.md` are dated measurements; cross-checks against CPython/NumPy
+> live in the `TokenVector.TestOracle` repository, and performance is checked
+> against the compiler's own baseline (`tools/perf/baseline.txt`), never against
+> a pre-built binary.
+
+## 1b. Where TokenVector competes — and where it does not
+
+Measured 2026-10-14 against **CPython 3.14.7** and **NumPy 2.5.2** (OpenBLAS
+0.3.34, Haswell kernel) on an Intel Xeon E5-2695 v3. Reproduce with
+`python D:\TokenVector.TestOracle\benchmark\run.py --self-host`.
+
+**Against CPython, TokenVector wins everywhere:**
+
+| kernel | TokenVector | CPython | TokenVector faster by |
+|---|---|---|---|
+| fib | 11.4 ms | 933 ms | **82×** |
+| sort | 15.7 ms | 1012 ms | **64×** |
+| matmul32 | 147 µs | 8.87 ms | **60×** |
+| add | 1.43 ms | 67.1 ms | **47×** |
+| f32mm_vec | 33 µs | 1.48 ms | **45×** |
+| f32mm | 141 µs | 1.49 ms | **11×** |
+| string | 22.9 ms | 49.7 ms | **2.2×** |
+
+An empty TokenVector `.exe` also starts in **24.8 ms** versus **35.2 ms** for
+`CPython -c pass`.
+
+**Against NumPy, it does not — and it should not pretend otherwise.** NumPy is
+CPython calling **native machine code**, not a managed runtime:
+
+| kernel | TokenVector | NumPy | NumPy faster by |
+|---|---|---|---|
+| add | 1427 µs | 911 µs | **1.6×** |
+| matmul32 | 147 µs | 5.7 µs | **26×** |
+
+That gap is **not** a missing optimization and **not** a threading deficit. An
+`OMP_NUM_THREADS=1` measurement moves `np.dot` on a 32×32 matmul from 5.73 µs to
+only 6.05 µs — OpenBLAS does not split a matrix that small. What remains is
+vector width: AVX2 with FMA processes **4 `double`s per instruction**, while
+this runtime exposes only `Vector4` (128-bit) and raw vector CIL is rejected by
+the JIT (see §2 and `docs/PLAN.md` §8).
+
+Two "cheap" compiler levers were measured and **both died**, so they are not the
+answer either:
+
+- **Strength reduction** of the inner-loop index (`kk*n + j` → induction
+  variable): **1.00×**. The `mul.ovf`/`add.ovf`/`conv.ovf.i4` sequence is
+  essentially free on the JIT.
+- **Native contiguous storage** instead of `List<double>`: **0.63×** — *slower*,
+  because `f32buf` pays a `×4` byte offset plus a bounds check per access.
+
+**So the honest position is: TokenVector is a CPython replacement, not a BLAS
+replacement.** It wins 2–82× over the interpreter it replaces, it has working
+f32 SIMD (4.25× over its own scalar path on `f32mm_vec`), and it cannot reach
+`f64` SIMD on .NET Framework 4.8 at all. Closing that last gap means changing the
+target runtime, not optimizing this one.
+
+## 2. What TokenVector is *not*
+
+It is **not** CPython with a faster interpreter. It is a **transpiler to CIL**:
+
+- **The compiler source is TokenVector**, not Python. Building `tkvc-tv.exe`
+  needs no CPython at all; only `dist\tkvc-tv.exe` and `tools\vong.exe`.
+- Syntax is Python-*inspired*, not Python-*compatible*. Known gaps are listed in
+  §6 and are checked, not assumed.
+
+## 3. Where things live
+
+```
+compiler_bootstrap/  the compiler — 132 .tkv files (the real TokenVector source)
+compiler_src/        file manifest (ds_gop.txt) used to concatenate them
+dist/                tkvc-tv.exe — the self-hosted compiler
+tests/               125 acceptance tests + 31 negative cases
+tests_suite/         154 .ca data-driven cases + 203 input samples
+tools/               gates + tkv_guide.tkv (the language guide, written in TokenVector)
+projects/            19 real tools written in .tkv
+examples/            sample programs + stdlib/
+docs/                all documentation (see below)
+packaging/           NuGet nuspec, MSBuild props/targets, pack.ps1
+assets/              diagrams, HTML demos, preview image
+build/               generated — never committed
 ```
 
-### Cong KHONG co trong ban nay (va ly do)
-
-| Cong | Ly do - can thu ben ngoai |
+| Doc | What |
 |---|---|
-| `ext_smoke.ps1` | Bien dich `D:\TokenVector.Inference` + `D:\TokenVector.Data` bang **compiler Python bootstrap** (`dist\tkvc.exe`). Ban nay khong co compiler do |
-| `py2tkv_gate.ps1` | Fixture `.py` nam o repo `TokenVector.TestOracle` |
-| `py2tkv_corpus.ps1` | Cong do CHINH file Python |
+| `docs/REFERENCE.md` | **The one reference.** Syntax + behaviour + Python differences for every builtin |
+| `docs/HANDBOOK.md` | Bilingual orientation + the rules that bite most |
+| `docs/HANDBOOK.vi.md` | Full 10-chapter handbook (Vietnamese) |
+| `docs/TUTORIAL.md` | Programming guide, chapter by chapter |
+| `docs/ARCHITECTURE.md` | Compiler pipeline, file registry |
+| `docs/COMPARISON-PYTHON.md` | Where TokenVector differs from CPython |
+| `docs/PLAN.md` | Gap list, ranked by difficulty |
+| `docs/REPOSITORY-NOTES.md` | Engineering journal: every bug found, and how it was proven |
+| `docs/ROADMAP.md`, `docs/STRATEGY.md` | Product roadmap and positioning |
+| `docs/llms.txt` | Compact machine-readable summary |
 
-## Tai lieu (trong `docs/`)
+## 4. For agents and new contributors: ask the tool
 
-| File | Noi dung |
-|---|---|
-| `docs/REFERENCE.md` | **Tham chieu duy nhat.** §2 moi builtin kem cu phap + khac biet Python; §7 danh muc ten sinh tu dong |
-| `docs/ARCHITECTURE.md` | Cay thu muc + cach compiler tu dung lai chinh no |
-| `docs/HANDBOOK.vi.md` | Cam nang lap trinh (tieng Viet) |
-| `docs/CLAUDE.md` | Quy tac lam viec trong thu muc nay |
-| `docs/llms.txt` | Ban rut gon danh cho LLM |
+Never work from memory — the details are large and some past "documentation"
+was simply wrong. The tool is written **in TokenVector** and is the single
+source of truth for language rules:
 
-## Mot diem can biet khi dung
+```powershell
+cd D:\TokenVector
+powershell -File tools\build_tkv_guide.ps1
 
-**1. Nguon compiler la TokenVector THUAN — da loai CPython het (2026-10-12).**
+dist\bin\tkv_guide.exe rules              # the pitfalls that actually bite
+dist\bin\tkv_guide.exe find sorted        # exact syntax + how it differs from Python
+dist\bin\tkv_guide.exe names iter         # registered builtins, per module
+dist\bin\tkv_guide.exe lint my_file.tkv   # traps the compiler silently ignores
+dist\bin\tkv_guide.exe verify my_file.tkv # prints the exact build+run commands
+```
 
-132 file trong manifest deu la TokenVector that. Truoc do co 6 khoi
-`if __tkv_chi_cpython__:` trong `tkv_compile.tkv` va `tkv_ilasm.tkv` (shim
-`os`/`pathlib`/`subprocess`, ham `extract_program`/`transpile_file`/...). Chúng
-chi ton tai de mot file `.tkv` chay duoc tren **hai** the gioi: TokenVector
-bien dich, CPython chay truc tiep de doi chieu. Nay phia CPython da tach sang
-repo `TokenVector.CompilerPy` — noi co **ban `tkv_compile.tkv` rieng** va khong
-can co che bo qua (duoi CPython co chi la bien `True`). Nen da xoa ca 320 dong
-do, kem ca co che nhan dien `_la_khoi_chi_cpython`.
+`verify` only **prints** the two commands — TokenVector cannot spawn a process
+yet, so the tool cannot build for you. Run both and read the output.
 
-Con lai `@__tkv_cpython_only__` (27 ham) - van con, vi no danh dau ham CPython
-rieng bi giu nguyen de chay khi kiem chung bang CPython.
+> **A green build is not a correct program.** Bugs exist that compile cleanly
+> and then return a *wrong value*. Always build **and run**.
 
-**2. Compiler tu-host co loi khong on dinh ve duong dan.** `AccessViolationException`
-(khong phai loi bao loi sach) khi bien dich nguon gop o mot so duong dan. Da
-tai lap, **khong don dep theo do dai** — `...Relea` len 20 crash, `...Releas`
-len 21 lai chay. Do do:
-- Gate (`testkit_gate.ps1`) chay xanh o day.
-- `vong.exe` co the bao loi `LOI dich bang ... (ma -1073741819)`. Neu vay, **doi
-  ten thu muc cho ngan hon roi chay lai** — `C:\R` da tao `IL_IDENTICAL` o diem
-  do. Day la loi con nghi trong compiler, chua xac dinh nguyen nhan goc.
+## 5. Notable behaviours (all probed, not assumed)
 
-## De biet them
+- `f"{n}"`, `f"{n:05d}"`, `f"{v:.2f}"`, `"{}".format(x)` and `"""triple
+  quoted"""` strings **all work**.
+- `str(x)` accepts **any expression**: `str(a + b)`, `str(len(xs) + 1)`.
+  Only `fmt_float(v, n)` insists on `v` being a plain variable.
+- Local variables inside functions must **not** be annotated (`x = 1`, not
+  `x: "i32" = 1`); the type is inferred from the right-hand side.
+- Regex builtins take the **input first**: `re_search(pattern, s)`. Names are
+  `re_match` / `re_search` / `re_fullmatch` / `re_sub` / `re_split` /
+  `re_findall`. `re_findall` returns whole matches, not groups.
+- `next(it, default)` requires `default` to have the element's dtype.
+- **`except RuntimeError:` also catches `StopIteration`** — both map to
+  `System.InvalidOperationException`. Use `next(it, default)` to test for
+  exhaustion.
+- `hash()` is FNV-1a, not Python's. Fine as a key, **not** value-compatible.
+- Container coercions happen at the call site, so passing a list literal to a
+  `list[i32]` parameter works.
+- `print` goes through `Console::WriteLine`; redirected stdout defaults to
+  **UTF-16LE**, which PowerShell 5.1 renders as `?`. Use `--file out.txt` with
+  `tkv_guide`, or `path_write_text` in your own tools.
+- **A UTF-8 BOM in the source file is rejected** (`U+FEFF`). PowerShell 5.1's
+  `Set-Content -Encoding UTF8` writes one — use `-Encoding utf8NoBOM` or
+  `[System.IO.File]::WriteAllText`.
 
-`docs/REFERENCE.md` — tai lieu tham chieu duy nhat cua ngon ngu.
+## 6. Known gaps
+
+Verified by probe; the ranked list with difficulty is `docs/PLAN.md`.
+
+- **No `subprocess`** — a program cannot start another process. (This is why
+  `tkv_guide verify` can only print commands.)
+- **Negative slice step** — `a[::-1]` and `a[1:-1]` are rejected; positive steps
+  work (`a[::2]`, `a[1:5:2]`).
+- No `slice()` as a callable, no keyword-only or positional-only parameters.
+- **Conditional expression with mismatched branch types** (`i32 if c else f64`)
+  compiles and returns a garbage pointer. Both branches must share a dtype.
+- Record container fields should be declared `list[int]`, not `list[i32]`, when
+  fed from a list literal.
+
+## 7. Interop
+
+- **Any .NET / NuGet assembly**: `__tkv_extern_class__` for constructors,
+  methods and properties; `__tkv_extern_pinvoke__` for P/Invoke; dynamic C FFI
+  via `LoadLibraryA`/`GetProcAddress`.
+- **Concurrency**: `thread_spawn` / `thread_join` use the .NET thread pool with
+  no global lock.
+- **Cross-assembly imports** are supported via `__tkv_extern_class__`.
+
+## 8. Rebuilding the compiler
+
+There is nothing to rebuild. `dist\tkvc-tv.exe` is **derived from source in this
+repository** and is regenerated by the self-host loop:
+
+```powershell
+tools\vong.exe     # concatenates compiler_bootstrap\ + compiles twice
+                   # prints IL_IDENTICAL when the fixpoint holds
+```
+
+After editing anything under `compiler_bootstrap/`, run `tools\vong.exe` until
+it prints `IL_IDENTICAL` (`IL KHAC NHAU` means the compiler upgraded itself —
+just run it again), then `tools\testkit_gate.ps1`.
+
+---
+
+*Licence: see `LICENSE`. Roadmap and strategy documents live in
+`docs/ROADMAP.md` and `docs/STRATEGY.md`; engineering
+history lives in `docs/REPOSITORY-NOTES.md`.*

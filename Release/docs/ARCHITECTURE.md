@@ -1,110 +1,117 @@
-# Kiến trúc TokenVector — bản Release
+# TOKENVECTOR ARCHITECTURE
+### (Kiến trúc hệ thống TokenVector)
 
-Tài liệu này mô tả **đúng** cấu trúc thư mục `Release/` này.
+> **Có đúng MỘT compiler, và nó viết bằng TokenVector.** Nguồn là
+> `compiler_bootstrap/` — **132 file `.tkv` thật**, liệt kê đúng trong
+> `compiler_src/ds_gop.txt`. Không có CPython ở bất kỳ bước nào.
 
-> **Lịch sử:** bản trước của file này mô tả một gói phát hành cũ (tháng 8/2026)
-> và gọi `dist/tkvc.exe` là "native TokenVector compiler". Câu đó **sai** —
-> `tkvc.exe` là compiler **Python** đóng băng bằng PyInstaller, không phải
-> TokenVector. Bản phát hành này không chứa `tkvc.exe`.
+Tài liệu này mô tả **nơi lưu trữ file** và **vai trò từng nhóm**. Số liệu đếm
+trực tiếp từ cây nguồn, không suy đoán.
 
-## 0. Một câu tóm tắt
+---
 
-`Release/` là **bộ công cụ phát triển ngôn ngữ TokenVector**, thuần TokenVector:
-compiler tự-host, nguồn của nó, bộ test và công cụ. Không có file `.py` nào.
+## 0. VÒNG LẶP TỰ BIÊN DỊCH (đây là "self-hosted")
 
-## 1. Cây thư mục
+`tools/vong.tkv` (đóng gói thành `tools/vong.exe`) làm đúng 4 việc:
 
-| Thư mục | Số file | Vai trò |
-|---|---:|---|
-| `compiler_bootstrap/` | 132 | **Nguồn compiler tự-host.** 132 file TokenVector thuần |
-| `compiler_src/` | 10 | `ds_gop.txt` (manifest 132 dòng) + `feature_can.txt` + 8 file seed lịch sử (**không ai biên dịch**) |
-| `dist/` | 2 | `tkvc-tv.exe` (compiler) + `bin/tkv_guide.exe` |
-| `tests/` | 162 | 119 test chấp nhận + 31 test âm + `tkv_test_lib.tkv` |
-| `tests_suite/` | 445 | 154 case `.ca` + 203 mẫu vào |
-| `tools/` | 19 | Cổng + gate (mục 4) |
-| `examples/`, `projects/` | 27 | Chương trình TokenVector ví dụ / thực tế |
-| `docs/` | 6 | Tài liệu (mục 5) |
+1. Gộp **132 file** theo `compiler_src/ds_gop.txt` thành một nguồn ≈ 2,9 MB.
+2. `dist/tkvc-tv.exe` biên dịch nguồn đó → `g1.il` ≈ 13 MB.
+3. **`g1.exe`** biên dịch lại **chính nó** → `g2.il`.
+4. In `IL_IDENTICAL` nếu hai bản `.il` giống hệt nhau byte-for-byte.
 
-## 2. Compiler tự-host
+Nếu in `IL KHAC NHAU` thì compiler **đã tự nâng cấp chính nó** — đó là tiến hoá
+bình thường, chạy lại một vòng nữa là đúng. Một vòng mất 5–7 phút.
 
-### Cách nó tự dựng lại
+Mỗi thay đổi `compiler_bootstrap/` cần **một thay đổi compiler**, tức khoảng
+12–20 phút tính cả các vòng tiến hoá.
 
-```
-compiler_src/ds_gop.txt      manifest: 132 đường dẫn
-        │
-        ▼
-tools/vong.tkv   gộp 132 file thành MỘT nguồn
-        │
-        ├─ g1 = dist/tkvc-tv.exe biên dịch nguồn đó
-        └─ g2 = g1 biên dịch LẠI chính nó
-                │
-                └── g1.il == g2.il  →  IL_IDENTICAL
-```
+---
 
-`IL_IDENTICAL` nghĩa là compiler sinh ra một bản giống hệt nó: đây là **điểm
-cố định của thế hệ biên dịch**, không phải so sánh "bản cũ" với "bản mới".
+## 1. SẢN PHẨM
 
-> `IL KHAC NHAU` **không phải lỗi** — đó là *tiến hóa*. Thế hệ mới biên dịch
-> khác thế hệ cũ, `vong` tự nâng cấp và yêu cầu chạy lại cho tới khi đồng.
+- `dist/tkvc-tv.exe`: compiler TokenVector tự biên dịch. CLI **positional**, không
+  subcommand, không flag:
+  ```
+  tkvc-tv.exe <nguon.tkv> <ra.exe> <ham_diem_vao>
+  ```
 
-### CLI
+---
 
-```
-dist\tkvc-tv.exe <nguon.tkv> <ra.exe> <ten_entry>
-```
+## 2. LÕI BIÊN DỊCH (`compiler_bootstrap/compiler/`, 13 file)
 
-Positional, không subcommand. `run()` trả `"i32"`/`"i64"` thì **giá trị đó là exit
-code của process** (qua `Environment::Exit`); entry trả `"str"` hoặc tuple thì in ra.
-
-## 3. Nguồn TokenVector là thật
-
-- **132/132** file trong manifest là TokenVector, không có ngoại lệ.
-- 2026-10-12 đã **xoá sạch** 320 dòng code CPython cùng cơ chế
-  `if __tkv_chi_cpython__:` (shim `os`/`pathlib`/`subprocess`, hàm
-  `extract_program`/`transpile_file`/...). Cơ chế đó chỉ tồn tại để một file
-  `.tkv` chạy được trên hai thế giới; nay phía CPython đã ở repo khác.
-- Còn `@__tkv_cpython_only__` (27 hàm) — đánh dấu hàm chỉ chạy dưới CPython.
-- `dist/tkvc-tv.exe` là PE độc lập ~1,5 MB. Grep binary: **0** lần
-  `python3` / `CPython` / `PyObject` / `site-packages`.
-
-## 4. Cổng và gate
-
-Chạy từ gốc `Release/`, **không cần Python, không cần repo khác**:
-
-| Cổng | Lệnh | Kết quả |
-|---|---|---|
-| Gate chính | `.\tools\testkit_gate.ps1` | 119 test + 31 test âm |
-| Vòng tự-host | `.\tools\vong.exe` | `IL_IDENTICAL` (132 file) |
-| Quy tắc con | `.\tools\lint_rules_gate.ps1` | 8/8, 0 báo nhầm |
-| Đăng ký hàm | `.\dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 vi phạm |
-| Danh mục tên | `.\dist\tkvc-tv.exe tools\gen_builtin_ref.tkv build\gr.exe run` | sinh §7 của `REFERENCE.md` |
-| Quét container | `.\dist\tkvc-tv.exe tools\scan_container.tkv build\sc.exe run <thư mục>` | field container chưa gán |
-| Phân cụm lỗi | `.\tools\testkit_cluster.ps1` | phân cụm lỗi của compiler |
-
-Hướng dẫn cú pháp: `.\tools\build_tkv_guide.ps1` → `.\dist\bin\tkv_guide.exe`
-
-### Không có trong bản này
-
-| Cổng | Vì sao |
+| File | Vai trò |
 |---|---|
-| `ext_smoke.ps1` | Biên dịch `D:\TokenVector.Inference` + `D:\TokenVector.Data` bằng compiler **Python** |
-| `py2tkv_gate.ps1` | Fixture `.py` nằm ở repo `TokenVector.TestOracle` |
-| `py2tkv_corpus.ps1` | Công đo chính file Python |
+| `il_codegen.tkv` | Trình sinh CIL chính: hàm, record/class, closure, scope, `.locals`, `main` |
+| `il_core.tkv` | Hạt nhân biểu thức + phát lệnh CIL cơ bản |
+| `il_dispatch.tkv` | Bảng đăng ký (`register_expr_builtin`, `register_stmt_codegen`, `Ctx`) |
+| `il_extern_dtype.tkv` | Kiểu extern / khai báo assembly ngoài |
+| `typed_dsl_parser.tkv` | Parser kiểu DSL (`i32`, `f64`, `str`, `TypeAnn`) |
+| `expr_row.tkv` | Arena **node biểu thức** (`mk2`/`mk3`/`mk4`, `KHUON`) |
+| `expr_layout.tkv` | Bảng bố cục trường của từng kind node |
+| `stmt_row.tkv` | Arena **row câu lệnh** (`intern`, `dat_nut`, `items_nut`) |
+| `ast_row.tkv`, `ast_walk.tkv` | Dựng & duyệt cây AST |
+| `tkv_types.tkv` | `TypeAnn`, `Scope`, `Binding` — mô hình phân giải tên |
+| `record_owner.tkv` | Quan hệ sở hữu record/method |
+| `bootstrap_all.tkv` | Thứ tự đăng ký — **một phần của hành vi** |
 
-## 5. Tài liệu
+### Parser (`compiler_bootstrap/compiler/tkv_parser/`, 4 file)
 
-| File | Nội dung |
+`tkv_lexer.tkv` → `tkv_ast.tkv` → `tkv_expr.tkv` → `tkv_parser.tkv`.
+
+---
+
+## 3. MÁY TÍNH NĂNG (`compiler_bootstrap/compiler/il_features/`, 113 file)
+
+Đăng ký qua `il_dispatch`; thứ tự trong `bootstrap_all.tkv` **là một phần của hành
+vi**. Các nhóm chính:
+
+| File | Vai trò |
 |---|---|
-| `REFERENCE.md` | **Tài liệu tham chiếu duy nhất.** §2 mọi builtin kèm cú pháp + khác biệt Python; §7 danh mục tên sinh tự động |
-| `HANDBOOK.vi.md` | Cẩm nang lập trình (tiếng Việt) |
-| `CLAUDE.md` | Quy tắc cho trợ giúp AI khi làm việc trong repo này |
-| `llms.txt` | Cùng nội dung, dạng dành cho LLM |
-| `ARCHITECTURE.md` | File này |
+| `control_flow.tkv` | `if/while/for/break/continue/try`, LICM, auto-vectorizer P6 |
+| `list_type.tkv`, `dict_type.tkv`, `set_type.tkv` | `List<T>` / `Dictionary<K,V>` / `HashSet<T>` |
+| `tuple_type.tkv`, `record_feature.tkv` | Tuple bất biến; lớp/record, kế thừa |
+| `string_feature.tkv`, `string_builtin.tkv`, `string_methods_batch*.tkv` | Chuỗi UTF-8, `TkvStr`, `.split/.join/.replace/...` |
+| `int_type.tkv`, `int_narrow.tkv`, `int_builtin.tkv` | `TkvInt`, thu hẹp i64→i32, hàm `int()` |
+| `comprehension.tkv` | `[...]`, `{...}`, `{k: v ...}` |
+| `generator_lazy.tkv`, `generator_feature.tkv` | State machine CIL cho `yield` |
+| `closures.tkv`, `multi_assign.tkv`, `metaprogramming.tkv` | Biến tự do, `nonlocal`, `eval/exec` |
+| `simd_feature.tkv`, `vector4_type.tkv` | SIMD th?t: ki?u `f32x4` (`System.Numerics.Vector4`) + `v_load4`/`v_store4`/`v_hsum4`. `VBuf8` va `v_*8` da g? 2026-10-14 (ch?m h?n scalar 4.4x). |
+| `f32buf_type.tkv`, `nativebuf.tkv` | Bộ đệm native, `read_f32`/`write_f32` |
+| `stdlib_*.tkv` | `re`, `datetime`, `json`, `math`, `os`, `pathlib`, `sqlite`, `http`, `zip` |
+| `threading_feature.tkv`, `ffi_feature.tkv` | `thread_spawn`/`join`; P/Invoke, FFI C |
+| `iter_next.tkv` | `iter()` / `next()` |
 
-## 6. Điểm cần biết
+> Trước khi tạo file mới trong `il_features/`, kiểm tra file đó **chưa tồn tại** —
+> đã từng vô tình ghi đè một module đang sống và làm hỏng toàn bộ compiler.
 
-**Compiler không ổn định theo đường dẫn.** `AccessViolationException` (không phải
-lỗi báo lỗi sạch) khi biên dịch nguồn gộp ở một số đường dẫn. Đã tái lập,
-**không đơn điệu theo độ dài** — `...Relea` (20) crash còn `...Releas` (21) chạy.
-Nếu `vong.exe` báo `LOI dich bang ... (ma -1073741819)`, **đổi tên thư mục cho
-ngắn hơn rồi chạy lại**. Lỗi chưa xác định nguyên nhân gốc.
+---
+
+## 4. THƯ VIỆN & CÔNG CỤ
+
+- `examples/stdlib/` — đúng **2 file**: `math.tkv`, `pystdlib.tkv` (các hàm `re`
+  / `datetime` / `os` còn lại đã là builtin toàn cục trong compiler).
+- `projects/` — **19 công cụ** viết bằng `.tkv` (codestat, graphreview,
+  tkv_transpiler, ...).
+- `tools/` — các cổng kiểm + `tkv_guide.tkv` (tool hỏi đáp ngôn ngữ, viết
+  bằng TokenVector) + `vong.tkv` (vòng tự biên dịch) + `perf/` (4 kernel).
+
+---
+
+## 5. BỘ KIỂM THỬ (`tests/`)
+
+**125 test nghi?m thu** (*_test.tkv) + **31 negative case** + 	kv_test_lib.tkv.
+Chạy bằng `tools\testkit_gate.ps1`. Bổ sung: `tests_suite/` — 154 case `.ca` +
+203 mẫu vào, chạy bằng `chay.tkv`.
+
+---
+
+## 6. TÀI LIỆU
+
+- `docs/REFERENCE.md` — **nguồn tham chiếu duy nhất**: cú pháp + hành vi + sai
+  khác so với Python cho từng builtin.
+- `docs/HANDBOOK.md` / `.vi.md` — định hướng + các ràng buộc hay cắn người viết.
+- `docs/TUTORIAL.md` — sách hướng dẫn lập trình.
+- `docs/PLAN.md` — danh sách thiếu sót, xếp hạng theo độ khó.
+- `docs/TOKENVECTOR-PURITY.md` — mức độ thuần TokenVector của compiler.
+- `docs/e_handoff/` — bàn giao từng phiên.
+- `docs/llms.txt` — tóm tắt máy-đọc được.

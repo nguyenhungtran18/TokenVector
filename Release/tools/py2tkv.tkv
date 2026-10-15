@@ -3199,9 +3199,10 @@ def co_yield(k: "i32") -> "i32":
 
     TokenVector KHONG co generator. `yield` va `yield from` deu khong doi
     duoc - nen ham generator phai HA CAP va bao cao, khong phai phat ra code
-    ma compiler se tu choi. Tham du that: `tools/parity_probe/cmp_py.py`
-    (`gen_upto`, `gen_chain`) - file do dung de SO SANH Python voi
-    TokenVector, nen phan khong the dich la MOT PHAN cua muc tieu.
+ma compiler se tu choi. Tham du that: `cmp_py.py` trong repo
+     `TokenVector.TestOracle` (`gen_upto`, `gen_chain`) - file do dung de SO
+     SANH Python voi TokenVector, nen phan khong the dich la MOT PHAN cua muc
+     tieu.
     """
     i = FN_DAU[k] + 1
     while i < FN_CUOI[k]:
@@ -3270,8 +3271,8 @@ def them_field_cho_record() -> "i32":
     """TokenVector BAT BUOC khai bao field o than class TRUOC `__init__`.
 
     Python thi `self.msg = m` trong `__init__` duoc. Giong nguyen thi compiler
-    bao `record khong co field nao` - tham du that: `class MyErr(Exception)`
-    trong `tools/parity_probe/cmp_py.py`.
+bao `record khong co field nao` - tham du that: `class MyErr(Exception)`
+     trong `cmp_py.py` (repo `TokenVector.TestOracle`).
 
     O day suu moi `self.<ten> = ...` trong than `__init__`, them dong khai bao
     field, va doi chu ky `__init__` thanh DUNG bang danh sach field - TokenVector
@@ -4029,7 +4030,7 @@ def main() -> "i32":
     if len(tham) < 2:
         print("dung: py2tkv.exe <vao.py> <ra.tkv> | --biet | --do")
         print("     them: --khai <file>  (khai kieu thu cong)")
-        print("           --kiem <tkvc.exe>  (TRIZ P24: tu goi compiler kiem)")
+        print("           --kiem <tkvc-tv.exe>  (TRIZ P24: tu goi compiler kiem)")
         print("     py2tkv.exe --flat <ra.tkv> <a.py> <b.py> ...   gop nhieu file")
         return 2
     nap_map()

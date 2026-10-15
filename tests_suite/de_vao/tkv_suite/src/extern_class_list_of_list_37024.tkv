@@ -1,6 +1,0 @@
-
-def main() -> "i32":
-    xs = ["abc", "def"]
-    c = xs[1][2]
-    print(c)
-    return 0

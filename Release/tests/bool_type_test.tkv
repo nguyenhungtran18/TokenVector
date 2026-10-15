@@ -108,16 +108,10 @@ def bool_is_alias_of_i32() -> "i32":
     # uoc voi cac check so sanh ben duoi cua chinh file nay (`bool_compare`,
     # `dunder_eq_bool` deu mong "True"/"False").
     #
-    # TRUOC DAY 4 check duoi day mong "1"/"0". Doi chieu ca hai compiler tren
-    # cung mot file:
-    #   bieu thuc        tkvc-tv (san pham)  tkvc.exe (bootstrap)  CPython
-    #   str(1 > 0)      True                 True                 True
-    #   str(ret_bool(5))  True               1                    True
-    #   str(invert(1))  False                0                    False
-    # Bootstrap pha hai quy uoc: bool tra VE/ NHAN LAM THAM SO in "1"/"0", con
-    # bool tu BIEU THUC SO SANH in "True"/"False". Ca hai deu khac CPython, va
-    # ca hai deu khac NHAU - tuc quy uoc tu khong nhat quan. `tkvc-tv` dung
-    # o ca hai chon, khop CPython. nen day laSua TEST, khong sua compiler.
+    # TRUOC DAY 4 check duoi day mong "1"/"0", va chi compiler nao cung ra
+    # mot quy uoc nen THAT SOM - compiler khac in "1" cho phep so sanh, "0"
+    # cho phep nhan tham so, con compiler nay in "True"/"False" cho ca hai.
+    # CPython in "True"/"False" cho ca hai nen day sua TEST, khong sua compiler.
     total = total + check("bool_pos_true", str(ret_bool(5)), "True")
     tested = tested + 1
     total = total + check("bool_pos_false", str(ret_bool(-5)), "False")

@@ -41,17 +41,17 @@ Everything below is checked by a gate in this repository. Numbers are from
 
 | Gate | Command | Result |
 |---|---|---|
-| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **125/125** pass, **31/31** negative cases correctly rejected |
-| Self-host fixpoint | `tools\vong.exe` | **IL_IDENTICAL** (132 files) |
-| Performance | `powershell -File tools\perf_gate.ps1` | 4 kernels, best-of-5, **checksum is compared** |
-| Lint-rule self-test | `powershell -File tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
-| Registration | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 violations |
+| Compiler acceptance | `powershell -File Release\tools\testkit_gate.ps1` | **125/125** pass, **31/31** negative cases correctly rejected |
+| Self-host fixpoint | `Release\tools\vong.exe` | **IL_IDENTICAL** (132 files) |
+| Performance | `powershell -File Release\tools\perf_gate.ps1` | 4 kernels, best-of-5, **checksum is compared** |
+| Lint-rule self-test | `powershell -File Release\tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
+| Registration | `Release\dist\tkvc-tv.exe Release\tools\dang_ky_gate.tkv Release\build\dk.exe run` | 0 violations |
 
 **Builtins registered: 420.**
 
 > **What the compiler actually is.** The compiler source is **`compiler_bootstrap/`**
-> — 132 files that really are TokenVector. `dist\tkvc-tv.exe` is built by
-> `tools\vong.exe`, which concatenates those files and compiles them **twice**;
+> — 132 files that really are TokenVector. `Release\dist\tkvc-tv.exe` is built by
+> `Release\tools\vong.exe`, which concatenates those files and compiles them **twice**;
 > the two IL dumps must match byte-for-byte (`IL_IDENTICAL`). That is what
 > "self-hosted" means here.
 
@@ -117,25 +117,36 @@ target runtime, not optimizing this one.
 It is **not** CPython with a faster interpreter. It is a **transpiler to CIL**:
 
 - **The compiler source is TokenVector**, not Python. Building `tkvc-tv.exe`
-  needs no CPython at all; only `dist\tkvc-tv.exe` and `tools\vong.exe`.
+  needs no CPython at all; only `Release\dist\tkvc-tv.exe` and `Release\tools\vong.exe`.
 - Syntax is Python-*inspired*, not Python-*compatible*. Known gaps are listed in
   §6 and are checked, not assumed.
 
 ## 3. Where things live
 
+This repository root carries the **release** and the **README** only. Everything
+else — compiler source, docs, tests, gates, examples — lives inside `Release/`.
+
 ```
-compiler_bootstrap/  the compiler — 132 .tkv files (the real TokenVector source)
-compiler_src/        file manifest (ds_gop.txt) used to concatenate them
-dist/                tkvc-tv.exe — the self-hosted compiler
-tests/               125 acceptance tests + 31 negative cases
-tests_suite/         154 .ca data-driven cases + 203 input samples
-tools/               gates + tkv_guide.tkv (the language guide, written in TokenVector)
-projects/            19 real tools written in .tkv
-examples/            sample programs + stdlib/
-docs/                all documentation (see below)
-packaging/           NuGet nuspec, MSBuild props/targets, pack.ps1
-assets/              diagrams, HTML demos, preview image
-build/               generated — never committed
+Release/                  the full release snapshot
+  compiler_bootstrap/     the compiler — 132 .tkv files (the real TokenVector source)
+  compiler_src/           file manifest (ds_gop.txt) used to concatenate them
+  dist/                   tkvc-tv.exe — the self-hosted compiler, plus il_features/
+  tests/                  125 acceptance tests + 31 negative cases
+  tests_suite/            154 .ca data-driven cases + 203 input samples
+  tools/                  gates + tkv_guide.tkv (the language guide, written in TokenVector)
+  projects/               19 real tools written in .tkv
+  examples/               sample programs + stdlib/
+  docs/                   all documentation (see below)
+  packaging/              NuGet nuspec, MSBuild props/targets, pack.ps1
+  assets/                 diagrams, HTML demos, preview image
+```
+
+Rebuild the compiler from inside `Release/`:
+
+```powershell
+cd Release
+Release\tools\vong.exe            # concatenates compiler_bootstrap\ + compiles twice
+                          # prints IL_IDENTICAL when the fixpoint holds
 ```
 
 | Doc | What |
@@ -159,13 +170,13 @@ source of truth for language rules:
 
 ```powershell
 cd D:\TokenVector
-powershell -File tools\build_tkv_guide.ps1
+powershell -File Release\tools\build_tkv_guide.ps1
 
-dist\bin\tkv_guide.exe rules              # the pitfalls that actually bite
-dist\bin\tkv_guide.exe find sorted        # exact syntax + how it differs from Python
-dist\bin\tkv_guide.exe names iter         # registered builtins, per module
-dist\bin\tkv_guide.exe lint my_file.tkv   # traps the compiler silently ignores
-dist\bin\tkv_guide.exe verify my_file.tkv # prints the exact build+run commands
+Release\dist\bin\tkv_guide.exe rules              # the pitfalls that actually bite
+Release\dist\bin\tkv_guide.exe find sorted        # exact syntax + how it differs from Python
+Release\dist\bin\tkv_guide.exe names iter         # registered builtins, per module
+Release\dist\bin\tkv_guide.exe lint my_file.tkv   # traps the compiler silently ignores
+Release\dist\bin\tkv_guide.exe verify my_file.tkv # prints the exact build+run commands
 ```
 
 `verify` only **prints** the two commands — TokenVector cannot spawn a process
@@ -224,17 +235,17 @@ Verified by probe; the ranked list with difficulty is `docs/PLAN.md`.
 
 ## 8. Rebuilding the compiler
 
-There is nothing to rebuild. `dist\tkvc-tv.exe` is **derived from source in this
+There is nothing to rebuild at root. `Release\dist\tkvc-tv.exe` is **derived from source in this
 repository** and is regenerated by the self-host loop:
 
 ```powershell
-tools\vong.exe     # concatenates compiler_bootstrap\ + compiles twice
+Release\tools\vong.exe     # concatenates compiler_bootstrap\ + compiles twice
                    # prints IL_IDENTICAL when the fixpoint holds
 ```
 
-After editing anything under `compiler_bootstrap/`, run `tools\vong.exe` until
+After editing anything under `Release\compiler_bootstrap\`, run `Release\tools\vong.exe` until
 it prints `IL_IDENTICAL` (`IL KHAC NHAU` means the compiler upgraded itself —
-just run it again), then `tools\testkit_gate.ps1`.
+just run it again), then `Release\tools\testkit_gate.ps1`.
 
 ---
 

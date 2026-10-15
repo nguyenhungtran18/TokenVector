@@ -37,13 +37,6 @@ from pathlib import Path
 # truoc day van bi trinh bien dich tu-host doc va bao "goi ham chua khai:
 # Path". Lenh nam trong mot khoi `if` cap module thi no bo qua - bien cap
 # module chi duoc thu thap o muc thut 0.
-__tkv_chi_cpython__ = True
-
-if __tkv_chi_cpython__:
-    COMPILER_DIR = Path(__file__).parent / "compiler"
-    sys.path.insert(0, str(COMPILER_DIR))
-    sys.path.insert(0, str(Path(__file__).parent))
-# P3 Task 2: KHONG con `import ast`. `_ast_compat` phoi ra dung ten
 # lop/API ma file nay dung, nen 118 cho `ast.X` va moi isinstance()
 # chay nguyen. Phai dat SAU sys.path.insert (module nam trong
 # compiler/). Xem compiler/_ast_compat.py.
@@ -737,14 +730,6 @@ _STDLIB_SHIM_MODULES: "set[str]" = {
 }
 
 
-def _la_khoi_chi_cpython(pool: "list[str]", nid: "i32") -> "i32":
-    """`if __tkv_chi_cpython__:` (khong co else) - khoi lenh chi chay duoi CPython."""
-    con = ar_kids(pool, nid)
-    if len(con) < 3 or con[2] >= 0 or con[0] < 0:
-        return False
-    return ar_kind(pool, con[0]) == "name" and ar_col_a(pool, con[0]) == "__tkv_chi_cpython__"
-
-
 def _la_khoi_main(pool: "list[str]", nid: "i32") -> "i32":
     """`if __name__ == '__main__':` (khong co `elif`/`else`).
 
@@ -1146,7 +1131,6 @@ def _reads_outer_names(pool: "list[str]", inner_nid: "i32", outer_nid: "i32") ->
         if ten not in own and ten in outer_names:
             return True
     return False
-
 
 
 def _hoist_nested_def(pool: "list[str]", inner_nid: "i32", outer_nid: "i32", lines: "list[str]", body_start_lineno: "i32", hoisted: "list[(str,list[str],i32)]"):
@@ -2409,8 +2393,6 @@ def _is_valid_extern_dtype(dtype: "str") -> "i32":
     map_enum). Xem comment tai dinh nghia _EXTERN_ENUM_DTYPE_RE ve rui ro
     khi 1 file .tkv viet tay dung dtype nay cho enum khong backed Int32."""
     return dtype in _EXTERN_DTYPE_TO_IL or bool(_EXTERN_ENUM_DTYPE_RE.match(dtype))
-
-
 
 
 # Phase 9g (2026-08-27): grammar CHUOI GON cho dtype 'array[T]' - CHI 5
@@ -3725,14 +3707,6 @@ def _parse_program_ast(source_text: "str", la_import: "i32"=False, hoan_giai_fie
             #   ABSENT = -1                      (unaryop: -<so>)
             #   CPLX = f'valuetype {COMPLEX_CLASS}'   (f-string toan hang da biet)
             module_consts[_ten_gan] = _module_const_extra(_pool, nid, module_consts)
-        elif _ten_gan == '__tkv_chi_cpython__':
-            # Bien CANH danh dau khoi chi-CPython (2026-09-25) - khong mang
-            # gia tri gi cho chuong trinh; hat giong cung bo qua no.
-            continue
-        elif kind == "if" and _la_khoi_chi_cpython(_pool, nid):
-            # `if __tkv_chi_cpython__:` - lenh CHI chay duoi CPython (sys.path,
-            # Path...). Bo qua ca khoi, giong hat giong.
-            continue
         elif kind == "if" and _la_khoi_main(_pool, nid):
             # `if __name__ == '__main__':` - khoi tu-kiem, KHONG BAO GIO chay
             # khi file duoc import/bien dich. Bo qua han thay vi bat nguoi
@@ -3978,47 +3952,11 @@ def _resolve_record_field_types(record_defs: "dict[str,list[(str,str)]]", extern
     return da_giai
 
 
-# DIEM VAO THAY THE (2026-09-24): chi test/cong do CPython goi; duong tu-host
-# di qua compile_tkv_cli. Trong khoi `if` nay nen hai trinh TokenVector bo qua,
-# con CPython van dinh nghia y het luc import.
-if __tkv_chi_cpython__:
-    def extract_program(source_text: "str"):
-        """Parse mot file nguon TokenVector (`.tkv`) THAT tu VAN BAN THO
-        (khong co duong dan file that), tra ve (record_defs, record_methods_raw,
-        record_bases, record_interfaces, interface_defs, pairs) - xem
-        _parse_program_ast. KHONG ho tro '__tkv_import__' (can duong dan thu
-        muc de tim file import - dung extract_program_file() / compile_tkv_cli()
-        / transpile_file() cho truong hop do)."""
-        _ct = _parse_program_ast(source_text)
-        record_defs = _ct.record_defs
-        record_methods_raw = _ct.record_methods_raw
-        record_bases = _ct.record_bases
-        record_interfaces = _ct.record_interfaces
-        interface_defs = _ct.interface_defs
-        pairs = _ct.pairs
-        import_names = _ct.import_names
-        extern_assemblies = _ct.extern_assemblies
-        extern_methods = _ct.extern_methods
-        extern_pinvokes = _ct.extern_pinvokes
-        extern_classes = _ct.extern_classes
-        module_consts = _ct.module_consts
-        module_globals = _ct.module_globals
-        inferred_ast_nodes_by_func = _ct.inferred_ast_nodes_by_func
-        if import_names:
-            raise TranspileError(
-                f"file co '__tkv_import__'/'import X'/'from X import ...' = {[t for t, _bb in import_names]!r} nhung "
-                f"duoc goi qua extract_program(source_text) (khong co duong dan file that) - dung "
-                f"extract_program_file(tkv_path) hoac compile_tkv_cli()/transpile_file() (co duong "
-                f"dan) de import cheo file hoat dong")
-        return (record_defs, record_methods_raw, record_bases, record_interfaces, interface_defs, pairs,
-                extern_assemblies, extern_methods, extern_pinvokes, extern_classes, module_consts,
-                module_globals, inferred_ast_nodes_by_func)
-
-
 def _duong_tim_them() -> "list[str]":
-    """Thu muc tim module THEM cua NOI CHAY (2026-09-24). Ban tu-host:
-    khong co - noi chay .NET khong co khai niem `sys.path`. Ban CPython
-    dinh nghia lai ben duoi (khoi `__tkv_chi_cpython__`) tra `sys.path`."""
+    """Thu muc tim module THEM cua NOI CHAY. TokenVector chay tren .NET khong
+    co khai niem `sys.path`, nen tra rong. Ban CPython - dinh nghia lai o
+    file `tkv_compile.py` cua compiler bootstrap (repo CompilerPy) - tra
+    `sys.path`."""
     return []
 
 
@@ -4037,49 +3975,6 @@ def _goc_du_an() -> "str":
 # Duong dan la CHUOI (2026-09-24), khong `pathlib.Path`: ban tu-host khong co
 # Path, con cac builtin path_* thi CA HAI trinh bien dich deu co. Ben CPython,
 # cac ten path_*/read_file la shim os.path dinh nghia trong khoi duoi.
-if __tkv_chi_cpython__:
-    import os
-
-    def _duong_tim_them():
-        # '' trong sys.path = thu muc HIEN TAI; `Path('').exists()` cu la True
-        # con `os.path.isdir('')` la False - doi sang '.' de giu dung hanh vi.
-        return [str(_p) or '.' for _p in sys.path]
-
-    def _goc_du_an():
-        return os.path.dirname(os.path.abspath(__file__))
-
-    def path_join(a, b):
-        return os.path.join(a, b)
-
-    def _sao_dll_simd(out_exe):
-        # Framework 4.8: System.Numerics.Vectors.dll trong GAC la facade RONG (khong co Vector<T>);
-        # ban that goi kem o runtime/ - sao canh file .exe vua dung.
-        import shutil
-        nguon = os.path.join(_goc_du_an(), 'runtime', 'System.Numerics.Vectors.dll')
-        if os.path.isfile(nguon):
-            shutil.copyfile(nguon, os.path.join(os.path.dirname(str(out_exe)), 'System.Numerics.Vectors.dll'))
-        return 0
-
-    def path_isfile(p):
-        return os.path.isfile(p)
-
-    def path_isdir(p):
-        return os.path.isdir(p)
-
-    def path_abspath(p):
-        return os.path.abspath(p)
-
-    def path_dirname(p):
-        return os.path.dirname(p)
-
-    def path_basename(p):
-        return os.path.basename(p)
-
-    def read_file(p):
-        with open(p, encoding='utf-8') as _f:
-            return _f.read()
-
-
 def _ung_vien_module(thu_muc: "str", ten: "str", ra: "list[str]"):
     """Bon ung vien trong MOT thu muc: <ten>.tkv, <ten>/__init__.tkv, roi ban
     .py tuong ung - dung thu tu cu cua nhanh sys.path."""
@@ -4676,126 +4571,12 @@ def _khung_bien(module_globals: "dict[str,(str,list[list[str]])]") -> "dict[str,
 # DIEM VAO THAY THE (2026-09-24): chi test/cong do CPython goi; duong tu-host
 # di qua compile_tkv_cli. Trong khoi `if` nay nen hai trinh TokenVector bo qua,
 # con CPython van dinh nghia y het luc import.
-if __tkv_chi_cpython__:
-    def _transpile_extracted(reg: "Registry", record_defs: "dict[str,list[(str,TypeAnn)]]", record_methods_raw, pairs, class_name: "str", with_guards: "i32",
-                              module_consts=None, extra_classes: "list[list[str]]"=None, module_globals=None,
-                              inferred_ast_nodes_by_func: "dict[str,(list[str],i32)]"=None, extern_class_names: "set[str]"=None,
-                              record_bases: "dict[str,list[str]]"=None) -> "list[str]":
-        """Phan CHUNG cua transpile_program/transpile_file - nhan ket qua da
-        extract (tu 1 file don le HOAC da gop nhieu file qua
-        extract_program_file/__tkv_import__), sinh CIL method that."""
-        # extern_class_names (P8 Task 7, 2026-09-09): PHAI luong xuong, neu khong
-        # thi ten handle-type dung trong ANNOTATION THAM SO cua ham ('codegen_fn:
-        # "func(TkvNode, ...)"') khong duoc nhan -> "Ky vong dtype ..., gap
-        # 'TkvNode'". Hai cho parse chu ky (_build_sig_body_pairs va
-        # _build_record_methods) von DA nhan tham so nay - chi duong
-        # transpile_file/_transpile_extracted la chua truyen.
-        # record_bases (2026-09-10): LAN THU HAI cung mot lo hong o CUNG ham nay.
-        # Chu thich ngay tren mo ta lan thu nhat - `extern_class_names` bi duong
-        # transpile_file/_transpile_extracted vut bo. `record_bases` cung vay: no
-        # bi giai nen vao `_rb` roi bo di, nen MOI thu lien quan KE THUA (to tien
-        # chung cua list tron lop con, phan giai field/method ke thua) deu chay
-        # voi bang RONG tren duong nay.
-        #
-        # Hau qua rong hon: cong doi chieu IL dung chinh `transpile_file`, nen
-        # hanh vi ke thua xua nay nam NGOAI tam kiem cua cong - y het chuyen
-        # extern_classes truoc do.
-        # ARENA BIEU THUC phai dat lai o DAY, truoc MOI phep phan tich bieu
-        # thuc cua chuong trinh nay - `default_node` cua tham so duoc sinh ngay
-        # trong `_build_record_methods`/`_build_sig_body_pairs` ben duoi, nen
-        # dat lai muon hon (vd trong `gen_il_program`) lam chung treo.
-        reset_pool_bieu_thuc()
-        record_methods, _, _ = _build_record_methods(record_defs, record_methods_raw,
-                                                      record_bases=record_bases,
-                                                      extern_class_names=extern_class_names)
-        sig_body_pairs = _build_sig_body_pairs(pairs, record_defs, record_methods,
-                                                inferred_ast_nodes_by_func,
-                                                extern_class_names=extern_class_names)
-        return gen_il_program(reg, sig_body_pairs, class_name=class_name, with_guards=with_guards,
-                               records=record_defs, record_methods=record_methods,
-                               record_bases=record_bases,
-                               hang_mod=_khung_hang(module_consts), extra_classes=extra_classes,
-                               bien_mod=_khung_bien(module_globals))
-
-
 # DIEM VAO THAY THE (2026-09-24): chi test/cong do CPython goi; duong tu-host
 # di qua compile_tkv_cli. Trong khoi `if` nay nen hai trinh TokenVector bo qua,
 # con CPython van dinh nghia y het luc import.
-if __tkv_chi_cpython__:
-    def transpile_program(source_text: "str", class_name: "str"='Program', with_guards: "i32"=True,
-                           extra_classes: "list[list[str]]"=None) -> "list[str]":
-        """Pipeline day du: source TokenVector (`.tkv`) THAT -> list CIL
-        method (dung gen_il_program - da co func_table cho goi ham cheo nhau).
-        LUU Y: neu source co 'class dang record', KHONG dung ham nay truc tiep
-        de ra 1 file .il hoan chinh - method_lines tra ve CHUA co cac '.class
-        value' cua record (xem compile_tkv_cli, noi ghep gen_record_types()
-        RIENG ben ngoai class chuong trinh chinh). KHONG ho tro '__tkv_import__'
-        (xem extract_program) - dung transpile_file() cho file co import cheo."""
-        # Bang bi danh phai DAT LAI moi chuong trinh, y nhu arena bieu thuc:
-        # bi danh cua file truoc con sot lai se lam mot ten bia o file sau
-        # LOT LUOI - phep kiem tu nhien yeu di ma khong ai bao.
-        dat_bi_danh({})
-        (record_defs, record_methods_raw, _rb, _ri, _idefs, pairs, _ea, _em, _ep, _ec,
-         module_consts, module_globals, inferred_ast_nodes_by_func) = extract_program(source_text)
-        reg = _fresh_registry()
-        return _transpile_extracted(reg, record_defs, record_methods_raw, pairs, class_name, with_guards,
-                                     module_consts=module_consts, extra_classes=extra_classes,
-                                     module_globals=module_globals,
-                                     inferred_ast_nodes_by_func=inferred_ast_nodes_by_func,
-                                     record_bases=_rb)
-
-
 # DIEM VAO THAY THE (2026-09-24): chi test/cong do CPython goi; duong tu-host
 # di qua compile_tkv_cli. Trong khoi `if` nay nen hai trinh TokenVector bo qua,
 # con CPython van dinh nghia y het luc import.
-if __tkv_chi_cpython__:
-    def transpile_file(tkv_path: "str", class_name: "str"='Program', with_guards: "i32"=True,
-                        extra_classes: "list[list[str]]"=None, reg: "Registry"=None) -> "list[str]":
-        """Nhu transpile_program, nhung doc THANG tu file (co duong dan) nen
-        ho tro '__tkv_import__' (khoang trong ngon ngu #3 - import module
-        TokenVector khac) qua extract_program_file()."""
-        # Bang bi danh phai DAT LAI moi chuong trinh, y nhu arena bieu thuc:
-        # bi danh cua file truoc con sot lai se lam mot ten bia o file sau
-        # LOT LUOI - phep kiem tu nhien yeu di ma khong ai bao.
-        dat_bi_danh({})
-        _ct = extract_program_file(tkv_path)
-        record_defs = _ct.record_defs
-        record_methods_raw = _ct.record_methods_raw
-        _rb = _ct.record_bases
-        pairs = _ct.pairs
-        extern_classes = _ct.extern_classes
-        module_consts = _ct.module_consts
-        module_globals = _ct.module_globals
-        inferred_ast_nodes_by_func = _ct.inferred_ast_nodes_by_func
-        # API cong khai: caller khong bat buoc biet den bo bang dieu phoi.
-        if reg is None:
-            reg = _fresh_registry()
-        # Task 7 (P8, 2026-09-09): TRUOC DAY duong nay VUT BO `extern_classes` (bien
-        # ten `_ec`), trong khi `compile_tkv_cli` thi day chung vao
-        # `il_extern_dtype._EXTERN_CLASS_DEFS`. Hau qua: moi file dung
-        # `__tkv_extern_class__` deu nem `KeyError` o `il_type_str` khi di qua
-        # `transpile_file` - va CONG DOI CHIEU IL (p8_il_gate.py) dung chinh
-        # `transpile_file`, nen cac mau extern-class nam trong nhom "khong bien dich
-        # duoc ca hai" suot ca P8, tuc NGOAI tam kiem chung cua cong.
-        #
-        # Lo ra khi do rao R1: thong bao loi cua compiler quang cao handle type dung
-        # duoc lam tham so `func(...)`, thu that thi vo - hoa ra khong phai gioi han
-        # ngon ngu ma la duong nay thieu buoc day.
-        truoc = il_extern_dtype._EXTERN_CLASS_DEFS
-        il_extern_dtype.dat_bang_extern_class(_nap_extern_classes(extern_classes))
-        try:
-            return _transpile_extracted(reg, record_defs, record_methods_raw, pairs, class_name,
-                                         with_guards, module_consts=module_consts,
-                                         extra_classes=extra_classes, module_globals=module_globals,
-                                         inferred_ast_nodes_by_func=inferred_ast_nodes_by_func,
-                                         extern_class_names=_ten_extern_class(extern_classes),
-                                         record_bases=_rb)
-        finally:
-            # Khoi phuc gia tri TRUOC do (khong xoa trang): `compile_tkv_cli` co the
-            # dang giu bo cua no va goi xuong day.
-            il_extern_dtype.dat_bang_extern_class(truoc)
-
-
 # ============================================================
 # CLI tu dong (huong tiep theo sau ROADMAP.md 9 buoc): tu truoc gio moi
 # vi du/test trong session deu phai TU TAY viet 1 method Main() bang IL
@@ -5088,7 +4869,6 @@ def _build_main_tuple(sig: "TkvSig", class_name: "str", body: "list[str]", modul
     return method
 
 
-
 def _cli_default_literal(param: "Param", sig: "TkvSig") -> "str":
     """1 lenh IL day GIA TRI MAC DINH cua 1 tham so len stack (2026-08-03).
     CHI nhan hang so/chuoi - bieu thuc mac dinh phuc tap thi bao loi RO
@@ -5185,7 +4965,18 @@ def build_generic_main(sig: "TkvSig", class_name: "str", module_globals: "dict[s
                                  func_table=func_table, records=records)
 
     ret_dtype = sig.return_type.dtype
-    if ret_dtype == 'str':
+    if ret_dtype in ('i32', 'i64'):
+        # 2026-10-12: ham entry tra SO NGUYEN thi gia tri do la EXIT CODE,
+        # khong phai con in ra (nhu moi ngon ngu khac: C/Go/Rust, Python
+        # `sys.exit(1)`). Truoc day chi `Console::WriteLine`, nen
+        # `return 1` in ra dong cuoi nhung process van exit 0 - moi gate
+        # tin `$LASTEXITCODE` deu bao PASS cho mot binary vua bao loi.
+        # `Environment::Exit` nhan int32, nen i64 can `conv.i4`.
+        if ret_dtype == 'i64':
+            body.append('    conv.i4')
+        body.append('    call void [mscorlib]System.Environment::Exit(int32)')
+        locals_decl = ''
+    elif ret_dtype == 'str':
         body.append('    call void [mscorlib]System.Console::WriteLine(string)')
         locals_decl = ''
     else:

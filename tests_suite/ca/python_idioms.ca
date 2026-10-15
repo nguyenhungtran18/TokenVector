@@ -1,42 +1,0 @@
-tests_suite\de_vao\sample_python_idioms.tkv	floor_div	0	72	3\n
-tests_suite\de_vao\sample_python_idioms.tkv	modulo	0	72	1\n
-tests_suite\de_vao\sample_python_idioms.tkv	div_and_mod	0	72	3001\n
-tests_suite\de_vao\sample_python_idioms.tkv	floor_div	0	-72	-4\n
-tests_suite\de_vao\sample_python_idioms.tkv	modulo	0	-72	1\n
-tests_suite\de_vao\sample_python_idioms.tkv	div_and_mod	0	-72	-3999\n
-tests_suite\de_vao\sample_python_idioms.tkv	floor_div	0	7-2	-4\n
-tests_suite\de_vao\sample_python_idioms.tkv	modulo	0	7-2	-1\n
-tests_suite\de_vao\sample_python_idioms.tkv	div_and_mod	0	7-2	-4001\n
-tests_suite\de_vao\sample_python_idioms.tkv	floor_div	0	-7-2	3\n
-tests_suite\de_vao\sample_python_idioms.tkv	modulo	0	-7-2	-1\n
-tests_suite\de_vao\sample_python_idioms.tkv	div_and_mod	0	-7-2	2999\n
-tests_suite\de_vao\sample_python_idioms.tkv	floor_div	0	-93	-3\n
-tests_suite\de_vao\sample_python_idioms.tkv	modulo	0	-93	0\n
-tests_suite\de_vao\sample_python_idioms.tkv	div_and_mod	0	-93	-3000\n
-tests_suite\de_vao\sample_python_idioms.tkv	floor_div	0	05	0\n
-tests_suite\de_vao\sample_python_idioms.tkv	modulo	0	05	0\n
-tests_suite\de_vao\sample_python_idioms.tkv	div_and_mod	0	05	0\n
-tests_suite\de_vao\sample_python_idioms.tkv	floor_div	0	17	0\n
-tests_suite\de_vao\sample_python_idioms.tkv	modulo	0	17	1\n
-tests_suite\de_vao\sample_python_idioms.tkv	div_and_mod	0	17	1\n
-tests_suite\de_vao\sample_python_idioms.tkv	floor_div	0	-17	-1\n
-tests_suite\de_vao\sample_python_idioms.tkv	modulo	0	-17	6\n
-tests_suite\de_vao\sample_python_idioms.tkv	div_and_mod	0	-17	-994\n
-tests_suite\de_vao\sample_python_idioms.tkv	grade	0	20	3\n
-tests_suite\de_vao\sample_python_idioms.tkv	grade	0	7	2\n
-tests_suite\de_vao\sample_python_idioms.tkv	grade	0	3	1\n
-tests_suite\de_vao\sample_python_idioms.tkv	grade	0	-1	0\n
-tests_suite\de_vao\sample_python_idioms.tkv	flags	0	42	42\n
-tests_suite\de_vao\sample_python_idioms.tkv	has_sub	0	abxyc	1\n
-tests_suite\de_vao\sample_python_idioms.tkv	has_sub	0	abc	0\n
-tests_suite\de_vao\sample_python_idioms.tkv	has_field	0	a,b,c	1\n
-tests_suite\de_vao\sample_python_idioms.tkv	has_field	0	a,c	0\n
-tests_suite\de_vao\sample_python_idioms.tkv	bar	0	5	-----\n
-tests_suite\de_vao\sample_python_idioms.tkv	bar	0	0	\n
-tests_suite\de_vao\sample_python_idioms.tkv	joined	0	a,b,c	a, b, c\n
-tests_suite\de_vao\sample_python_idioms.tkv	joined	0	solo	solo\n
-tests_suite\de_vao\sample_python_idioms.tkv	with_consts	0	5	tkv:15\n
-tests_suite\de_vao\sample_python_idioms.tkv	uses_helper	0	4	9\n
-tests_suite\de_vao\sample_python_idioms.tkv	pair_of	0	3	(3, 6)\n
-tests_suite\de_vao\sample_python_idioms.tkv	with_default	0	4	7\n
-tests_suite\de_vao\sample_python_idioms.tkv	with_default	0	410	14\n

@@ -1,8 +1,0 @@
-def tao() -> "(list[str],i32)":
-    xs = ["a", "bb", "ccc"]
-    return xs, 7
-
-
-def main() -> "i32":
-    a, b = tao()
-    return len(a) + len(a[1]) + b

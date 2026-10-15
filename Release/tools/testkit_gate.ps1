@@ -9,19 +9,15 @@
 # Committing the harness makes the number checkable by anyone.
 #
 # Usage (from the repo root):
-#   .\tools\testkit_gate.ps1                              # SAN PHAM (tkvc-tv)
-#   .\tools\testkit_gate.ps1 -Compiler ..\dist\tkvc.exe   # bootstrap Python
+#   .\tools\testkit_gate.ps1
 #
 # MAC DINH LA `dist\tkvc-tv.exe` - COMPILER TU HOST, TURN SAN PHAM.
-# Truoc day mac dinh la `dist\tkvc.exe` (bootstrap Python), nen gate bao
-# 118/118 trong khi san pham that chi 72/118. `vong.exe` chi chung minh
-# g1 == g2 (compiler bien dich lai chinh no ra chinh no) - NO khong chung
-# minh bytecode do CHAY DUNG. Do do, gate mac dinh do san pham, va
-# `dist\tkvc.exe` chi de doi khi can so sanh hai compiler.
+# `vong.exe` chi chung minh g1 == g2 (compiler bien dich lai chinh no ra
+# chinh no) - NO khong chung minh bytecode do CHAY DUNG. Do do, gate mac
+# dinh do san pham.
 #
-# HANH DONG KHAC BIET giua hai compiler:
-#   tkvc.exe    build <src> --entry <e> --out <exe> --no-lint [--emit-il]
-#   tkvc-tv.exe <src> <exe> <entry>        va LUON tra exit code 0
+# CLI cua `tkvc-tv.exe` la POSITIONAL va LUON tra exit code 0:
+#   tkvc-tv.exe <src> <exe> <entry>
 #
 # Exit code 0 only when every test passes AND every IL assertion holds.
 
@@ -41,8 +37,8 @@ if (-not $Compiler) { $Compiler = Join-Path $code "dist\tkvc-tv.exe" }
 if (-not $OutDir)  { $OutDir = Join-Path $env:TEMP "opencode\testkit_gate" }
 
 if (-not (Test-Path $Compiler)) {
-  Write-Output "MISSING compiler: $Compiler"
-  Write-Output "Build it first: .\compiler_py\build_tkvc.ps1 -DistDir .\dist -BuildDir .\build"
+  Write-Output "MISSING compiler tu-host: $Compiler"
+  Write-Output "Sinh lai bang: .\tools\vong.exe"
   exit 2
 }
 # Gate output must never land in the repo, or a run leaves hundreds of
@@ -80,6 +76,18 @@ $ilChecks = @(
     Test    = "p6_vectorize_test.tkv"
     Must    = @("stobj", "_vstart", "_tstart")
     MustNot = @()
+    MustRegex = @()
+  }
+  @{
+    # Loi 2026-10-12: 'r[k * 2] = v' day ket qua int64 (conv.i8/mul.ovf) vao
+    # tham so int32 cua set_Item - thieu conv.ovf.i4. Doc 'a[i]' thi co, ghi
+    # thi khong. JIT khong verify nen loi im lang, chi doc .il moi bat.
+    Test    = "index_store_narrow_test.tkv"
+    Must    = @()
+    MustNot = @()
+    # Chap nhan ca hai dang ep: `conv.ovf.i4`, hoac `call int32 TkvInt::ToI32(...)`
+    # Do la dieu kiem co y nghia - phai co ep truoc khi day vao `set_Item(int32)`.
+    MustRegex = @('(?:conv\.ovf\.i4|call int32 TkvInt::ToI32\([^)]*\))\s+\S[^\r\n]*\s+callvirt[^\r\n]*set_Item\(int32')
   }
 )
 
@@ -104,34 +112,24 @@ $workDir = Join-Path $code "tests"
 $pass = 0; $buildFail = 0; $testFail = 0; $other = 0; $timeouts = 0
 $failures = @()
 
-# --- ADAPTER CHO COMPILER TU HOST -------------------------------------------
-# Hai compiler KHAC NHAU ve CLI, va truoc day chi co mot trong hai duoc gate:
-#   dist\tkvc.exe   (bootstrap Python) : tkvc build <src> --entry <e> --out <exe> --no-lint [--emit-il]
-#   dist\tkvc-tv.exe (TU HOST, san pham) : tkvc <src> <exe> <entry>   - KHONG co flag
+# --- CACH GOI COMPILER -------------------------------------------------------
+# `dist\tkvc-tv.exe` la compiler duy nhat. CLI POSITIONAL, KHONG co flag:
+#   tkvc-tv.exe <src> <exe> <entry>
 #
 # `tkvc-tv` LUON tra process exit code 0, ke ca khi bien dich that bai, nen
 # phai doc stdout tim `[tkvc] loi` - khong the tin vao exit code.
 #
-# VI SAO PHAI CO: `vong.exe` chi chung minh g1 == g2 (compiler bien dich lai
-# chinh no ra chinh no). NO khong chung minh bytecode do CHAY DUNG tren chuong
-# trinh that. Truoc khi co adapter nay, KHONG gate nao chay mot dong lenh nao
-# qua `tkvc-tv` - nen moi bug chi xuat hien o compiler san pham deu nhin sau
-# duoi qua 118/119 PASS cua gate.
-$posCli = ($Compiler -like "*tkvc-tv*")
+# VI SAO PHAI DOC STDOUT: `vong.exe` chi chung minh g1 == g2 (compiler bien
+# dich lai chinh no ra chinh no). NO khong chung minh bytecode do CHAY DUNG tren
+# chuong trinh that. Truoc khi gate mac dinh do san pham, moi bug chi xuat hien
+# o compiler san pham deu nhin sau duoi qua 118/119 PASS cua gate.
 Write-Output "compiler : $Compiler"
-if ($posCli) {
-  Write-Output "CLI      : TU HOST (vi tri) - doc loi qua stdout, exit code khong dung duoc"
-}
+Write-Output "CLI      : TU HOST (vi tri) - doc loi qua stdout, exit code khong dung duoc"
 
 function Invoke-TkvBuild([string]$src, [string]$exe, [string]$entry, [string[]]$extra) {
   Remove-Item $exe -Force -ErrorAction SilentlyContinue
-  if ($posCli) {
-    $b = & $Compiler $src $exe $entry 2>&1 | Out-String
-    if ($b -match '\[tkvc\] loi') { return @($false, $b) }
-    return @((Test-Path $exe), $b)
-  }
-  $argv2 = @('build', $src, '--entry', $entry, '--out', $exe, '--no-lint') + $extra
-  $b = & $Compiler @argv2 2>&1 | Out-String
+  $b = & $Compiler $src $exe $entry 2>&1 | Out-String
+  if ($b -match '\[tkvc\] loi') { return @($false, $b) }
   return @((Test-Path $exe), $b)
 }
 
@@ -244,6 +242,13 @@ foreach ($c in $ilChecks) {
   }
   foreach ($p in $c.MustNot) {
     if ($text -match [regex]::Escape($p)) { $missing += "KHONG duoc co: $p" }
+  }
+  # `MustRegex` - khi `Must`/`MustNot` khong phan biet duoc: chung mot chuoi
+  # co the nam o nhieu cho trong file (vi du `conv.ovf.i4` vua xuat hien trong
+  # code test vua trong helper runtime TkvInt::ToI32). Regex dinh nghia ca
+  # "chuoi A ngay TRUOC lenh B" - dung cho kiem loi thu tu lenh.
+  foreach ($p in $c.MustRegex) {
+    if ($text -notmatch $p) { $missing += "regex khong khop: $p" }
   }
   if ($missing.Count) {
     $ilFail++

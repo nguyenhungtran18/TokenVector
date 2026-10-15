@@ -1,6 +1,0 @@
-tests_suite\de_vao\sample_user_exception.tkv	check_age	0	-1	bat_validation\n
-tests_suite\de_vao\sample_user_exception.tkv	check_age	0	30	ok\n
-tests_suite\de_vao\sample_user_exception.tkv	check_age	0	500	bat_notfound\n
-tests_suite\de_vao\sample_user_exception.tkv	uncaught_goes_to_generic	0	-1	bat_generic\n
-tests_suite\de_vao\sample_user_exception.tkv	uncaught_goes_to_generic	0	30	ok\n
-tests_suite\de_vao\sample_user_exception.tkv	uncaught_goes_to_generic	0	500	ok\n

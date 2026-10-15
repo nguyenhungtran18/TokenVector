@@ -346,6 +346,12 @@ class Ctx:
     gen_ctx: "GenCtx"
     loop_stack: "list[(str,str)]"
     extra_classes: "list[list[str]]"
+    # 2026-10-13: danh sach (.locals init) cua ham dang bien dich. TRUOC
+    # DAY chi WalkCtx co - Ctx (codegen) khong co, nen LICM (nhay bieu
+    # thuc loop-invariant ra truoc vong) khong cap duoc bien tam. Them
+    # vao day de `codegen_while`/`codegen_for` co the phat sinh local moi
+    # ma khong can di qua first-pass.
+    locals_decl: "list[(str,TypeAnn)]"
     pending_monomorphize: "list[(TkvSig,list[str],i32)]"
 
     # --- ham loi duoc TIEM vao (dependency injection - tranh circular
@@ -451,6 +457,7 @@ class Ctx:
         self.monomorphize_body_of = {}
         self.loop_stack = []
         self.extra_classes = []
+        self.locals_decl = []
         self.pending_monomorphize = []
         self.thread_ret_types = {}
         self.boxed_initialized = set()
@@ -558,6 +565,7 @@ def tao_ctx(reg: "Registry"=None,
             monomorphize_body_of: "dict[str,(list[str],i32)]"=None,
             loop_stack: "list[(str,str)]"=None,
             extra_classes: "list[list[str]]"=None,
+    locals_decl: "list[(str,TypeAnn)]"=None,
             pending_monomorphize: "list[(TkvSig,list[str],i32)]"=None,
             thread_ret_types: "dict[str,str]"=None,
             boxed_initialized: "set[str]"=None) -> "Ctx":
@@ -619,6 +627,8 @@ def tao_ctx(reg: "Registry"=None,
         c.loop_stack = loop_stack
     if extra_classes is not None:
         c.extra_classes = extra_classes
+    if locals_decl is not None:
+        c.locals_decl = locals_decl
     if pending_monomorphize is not None:
         c.pending_monomorphize = pending_monomorphize
     if thread_ret_types is not None:
@@ -684,6 +694,7 @@ def sao_ctx(g: "Ctx") -> "Ctx":
                     monomorphize_body_of=g.monomorphize_body_of,
                     loop_stack=g.loop_stack,
                     extra_classes=g.extra_classes,
+                    locals_decl=g.locals_decl,
                     pending_monomorphize=g.pending_monomorphize,
                     thread_ret_types=g.thread_ret_types,
                     boxed_initialized=g.boxed_initialized)
@@ -811,6 +822,9 @@ class WalkCtx:
     # (2026-09-25) cho cac ham first-pass nang len cap module (_fp_*)
     tern_temp_of_id: "dict[i32,i32]"
     thread_ret_types: "dict[str,str]"
+    # (2026-10-12) tap ten bien cuc bo duoc chung minh nam trong int64,
+    # khai bao native i64 thay vi TkvInt (xem int_narrow.tkv).
+    narrow_names: "set[str]"
 
     # Ham: arity DA TRU tham so `reg` ma `_partial` gan san.
     declare_named: "func(str, TkvTypeAnn)->void"
@@ -823,7 +837,7 @@ class WalkCtx:
     cell_class_name: "func(str)->str"
 
     @__tkv_cpython_only__
-    def __init__(self, reg=None, body_dtype=None, source_path=None, final_pass=0, defer=None, sig=None, infer_scope=None, void_call_ok=None, infer_dtype=None, declare_named=None, declare_array=None, declare_scalar=None, collect_ternary_temps=None, walk_fn=None, infer_literal_dtype=None, contains_float_literal=None, cell_class_name=None):
+    def __init__(self, reg=None, body_dtype=None, source_path=None, final_pass=0, defer=None, sig=None, infer_scope=None, void_call_ok=None, infer_dtype=None, declare_named=None, declare_array=None, declare_scalar=None, collect_ternary_temps=None, walk_fn=None, infer_literal_dtype=None, contains_float_literal=None, cell_class_name=None, narrow_names=None):
         """KHOP .ctor tu sinh cua transpiler: 17 truong vo huong theo thu
         tu khai bao, 15 container khoi tao RONG. Dung `tao_walk_ctx(...)`,
         dung goi thang. Xem `tao_ctx` o tren de biet vi sao."""
@@ -845,6 +859,7 @@ class WalkCtx:
         self.infer_literal_dtype = infer_literal_dtype
         self.contains_float_literal = contains_float_literal
         self.cell_class_name = cell_class_name
+        self.narrow_names = narrow_names or set()
         self.func_table = {}
         self.declared_names = set()
         self.boxed_names = set()
@@ -1294,7 +1309,8 @@ def tao_walk_ctx(                 reg: "Registry"=None,
                  stmts: "list[i32]"=None,
                  locals_decl: "list[(str,TypeAnn)]"=None,
                  needs_epilogue: "list[i32]"=None,
-                 bien_mod: "dict[str,str]"=None) -> "WalkCtx":
+                 bien_mod: "dict[str,str]"=None,
+                 narrow_names: "set[str]"=None) -> "WalkCtx":
     """Dung `WalkCtx` bang tham so co ten - thay cho `WalkCtx({...})`.
 
     Cung ly do va cung khuon voi `tao_ctx` (xem docstring cua no).
@@ -1332,6 +1348,8 @@ def tao_walk_ctx(                 reg: "Registry"=None,
         c.needs_epilogue = needs_epilogue
     if bien_mod is not None:
         c.bien_mod = bien_mod
+    if narrow_names is not None:
+        c.narrow_names = narrow_names
     return c
 
 

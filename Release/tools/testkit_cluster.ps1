@@ -10,7 +10,6 @@
 #
 # Cach dung (tu goc du an):
 #   .\tools\testkit_cluster.ps1
-#   .\tools\testkit_cluster.ps1 -Compiler dist\tkvc.exe    # so sanh bootstrap
 param(
   [string]$Compiler = ""
 )

@@ -8,7 +8,7 @@
 > thật** hoặc đọc thẳng từ mã nguồn compiler — không suy đoán. Khi một mục ghi
 > *khác Python*, §5 nói rõ khác ở đâu.
 >
-> **Không đầy đủ thì gate sẽ báo.** Chạy `python tools\gen_builtin_ref.py --check`
+> **Không đầy đủ thì gate sẽ báo.** Chạy `gen_builtin_ref.tkv --check`
 > — FAIL nếu có tên đã đăng ký mà tài liệu này chưa đề cập.
 >
 > **Harness (agent) đừng đoán — hỏi tool.** `tools\tkv_guide.tkv` viết bằng
@@ -34,7 +34,7 @@
 | [4](#4-dạng-dựng-giá-trị-vế-phải-của-phép-gán) | Dạng gán | 31 dạng vế phải được đăng ký riêng |
 | [5](#5-còn-thiếu--đã-probe-không-phải-suy-đoán) | Còn thiếu | Giới hạn đã đo, không giới hạn do đoán |
 | [6](#6-hướng-dẫn-dùng--cho-chỗ-khác-python) | Hướng dẫn dùng | 14 mục "ở đây khác Python, và vì sao" |
-| [7](#7-danh-mục-đầy-đủ-sinh-tự-động) | Danh mục đầy đủ | 376 tên + danh sách file (sinh tự động) |
+| [7](#7-danh-mục-đầy-đủ-sinh-tự-động) | Danh mục đầy đủ | 420 tên + danh sách file (sinh tự động) |
 
 | [8](#8-ba-sự-cố-đã-ghi--đừng-tin-mù) | Ba sự cố | Những chỗ đã sai vì tin tài liệu |
 
@@ -378,15 +378,6 @@ số/trả về của nó chỉ suy được từ một `TypeAnn` "mục tiêu" 
 | `v_load4` | `v_load4(p, off)` | Nạp 16 byte (4 lane) → `f32x4`. `off` tính theo **byte**. |
 | `v_store4` | `v_store4(p, off, v)` | Ghi 4 lane. |
 | `v_hsum4` | `v_hsum4(v)` | Gom 4 lane về 1 `f32`. **Thứ tự cộng là `((X+Y)+Z)+W`** — phải khớp đúng thứ tự của vòng scalar, nếu ghep cặp `(X+Y)+(Z+W)` thì sai số float. |
-| `v_hsum` | `v_hsum()` | Tổng 8 lane, dùng ở dưới khối. Lưu ý IL: `ldfld` **pop** 1 phần tử (đối tượng) nên phải đẩy lại `ldloc` trước *mỗi* `ldfld` — đẩy 1 lần rồi `ldfld` 8 lần sẽ làm phần tử thứ 2 trở thành đối tượng và sinh `InvalidProgramException` lúc chạy. |
-| `v_lane` | `v_lane(i)` | Rút lane `i`. **Chỉ hằng số 0..7** (đọc lane theo biến có nhánh động, mà đơn vị ở đây giống hệt "chỉ số hằng số" của `lst[-1]`, nên để hằng số). |
-| `v_load8` | `v_load8(p, off)` | Nạp 8 lane (32 byte), trả lane 0. |
-| `v_store8` | `v_store8(p, off)` | Ghi 8 lane, trả 0 (dùng như lệnh độc lập). |
-| `v_fill8` | `v_fill8(x)` | Nạp cả 8 lane = `x` (broadcast). |
-| `v_add8` | `v_add8(x)` | Mỗi lane `+= x`. |
-| `v_sub8` | `v_sub8(x)` | Mỗi lane `-= x`. |
-| `v_mul8` | `v_mul8(x)` | Mỗi lane `*= x`. |
-| `v_mul8_add8` | `v_mul8_add8(x, y)` | Mỗi lane `= lane*x + y` — gộp 2 phép trong 1 lần ghi field. |
 
 ---
 
@@ -496,6 +487,10 @@ Các dạng này được **đăng ký riêng cho vế phải phép gán** (31 d
 | `shutil_rmtree(p)` | Xoá cây thư mục |
 | `datetime()` | UtcNow |
 | `f32buf_new(...)` | Bộ đệm f32 |
+| `f32buf(n)` | Cấp `n` phần tử f32 trong heap native. **Chỉ local** — xem 2.7 |
+| `f32buf_wrap` | `a = f32buf_wrap(p, n)` — mượn bộ đệm từ con trỏ `p` + độ dài `n`. **Không cấp phát**; `f32buf_free` **không** giải phóng nó. Cho phép vòng elementwise trong hàm có tham số được P6 vector hoá. Xem 2.7 |
+| `f32buf_ptr` | `f32buf_ptr(a)` — con trỏ native của bộ đệm → `i64` |
+| `f32buf_len` | `f32buf_len(a)` — số phần tử của bộ đệm → `i32` |
 | `win_gui` | (cửa sổ Windows) |
 
 ---
@@ -622,17 +617,17 @@ vì thông điệp đã `raise`) — cần kiểm lại ánh xạ lỗi.
 | `*` / `**` unpacking tại call site | **Đã có** (`('star'|'star2', ...)`) |
 | `divmod(a, b)` | Tham số phải là **biến**, không nhận literal |
 
-### 5.6 Sai khác giữa bootstrap và `dist/tkvc-tv.exe` (2026-10-05)
+### 5.6 Những thứ **không dùng được** trên `tkvc-tv.exe`
 
-Đo bằng probe trực tiếp lên `dist\tkvc-tv.exe`, **không** tin bootstrap.
-`tkvc.exe` (bootstrap Python) chạy được những thứ sản phẩm không có:
+Đo bằng probe trực tiếp lên `dist\tkvc-tv.exe`.
 
-| Mức độ | Mục | `tkvc.exe` | `tkvc-tv.exe` |
-|---|---|---|---|
-| **Sai âm thầm** | `"%02x" % v` (có spec độ rộng/zero-pad) | `41` | in ra nguyên chuỗi `"%02x"` |
-| Không đăng ký | `format(v, spec)` | có | `ham 'format' khong ton tai` |
-| Không đăng ký | `isinstance(x, T)` | có | `ham 'isinstance' khong ton tai` |
-| Không đăng ký | `callable`, `dir`, `hash`, `ascii`, `delattr` | có | thiếu (port dần 2026-10-05) |
+| Mức độ | Mục | Triệu chứng |
+|---|---|---|
+| **Sai âm thầm** | `"%02x" % v` (có spec độ rộng/zero-pad) | in ra nguyên chuỗi `"%02x"` |
+| Không đăng ký | `format(v, spec)` | `ham 'format' khong ton tai` |
+| Không đăng ký | `isinstance(x, T)` | `ham 'isinstance' khong ton tai` |
+| Không đăng ký | `callable`, `dir`, `ascii`, `delattr` | `ham ... khong ton tai` |
+| Khác | `hash(v)` | **có**, nhưng là FNV-1a — dùng làm khoá thì được, **không tương thích giá trị** với Python |
 
 **Dòng đầu tiên nguy hiểm nhất.** `%` với `%d`/`%s` thì **đúng**; chỉ hỏng
 khi có spec độ rộng. Hỏng kiểu này **biên dịch vẫn xanh và exit 0** — chỉ sai
@@ -644,10 +639,10 @@ s = "%02x" % a     # CPython: "41"   -> tkvc-tv in ra: "%02x"
 ```
 
 Bởi vậy **không dùng `%` khi port code Python sang đường TokenVector.**
-Thay bằng f-string — đã probe đúng cả hai bên:
+Thay bằng f-string — đã probe đúng:
 
 ```tokenvector
-f"{a:02x}"         # -> "41"      DUNG tren ca hai compiler
+f"{a:02x}"         # -> "41"      DUNG
 f"{a:05d}"         # -> "00065"   DUNG tren ca hai compiler
 ```
 
@@ -781,8 +776,8 @@ last = xs[len(xs) - 1]   # thay cho xs.pop()
 
 ```tokenvector
 v = f32x4(1.0, 2.0, 3.0, 4.0)
-w = v_add8(v, v)        # cộng từng phần tử
-s = v_hsum(v)           # tổng ngang
+w = v + v                   # cong tung phan tu, 4 lane
+s = v_hsum4(v)              # gom 4 lane ve 1 so
 ```
 Đây là phần mở rộng so với Python, không thay thế gì.
 
@@ -1139,7 +1134,7 @@ dùng stable sort. Đã ghi ở phần `emit_sort_by_key`.
 
 ## 7. DANH MỤC ĐẦY ĐỦ (sinh tự động)
 
-> Khối dưới do `python tools\gen_builtin_ref.py` ghi vào — **đừng sửa tay**.
+> Khối dưới do `gen_builtin_ref.tkv` ghi vào — **đừng sửa tay**.
 > Dùng nó để kiểm tra "tên này đã có thật chưa" và để **không ghi đè file**
 > khi tạo module mới trong `compiler/il_features/`.
 
@@ -1174,7 +1169,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 **DUNDER CUA RECORD (0)**
 
 
-**HAM BUILTIN (GOI DUOC TRUC TIEP) (172)**
+**HAM BUILTIN (GOI DUOC TRUC TIEP) (163)**
 
 `__tkv_lap` `alloc_bytes` `ascii` `atan2` `atomic_add` `atomic_inc` `base64_decode` `base64_encode`
 `bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `c_puts` `callable` `choice`
@@ -1195,9 +1190,8 @@ compiler - ghi de lam hong ca buoc bien dich.
 `simd_dot` `simd_hw` `simd_isa` `simd_lanes_f32` `simd_lanes_f64` `simd_max` `simd_min` `simd_mul`
 `simd_scale` `simd_sub` `simd_sum` `slice_step` `str` `str_maketrans` `sys_argv` `thread_id`
 `thread_join` `thread_sleep` `thread_spawn` `time_perf` `time_sleep` `time_time` `timedelta_make` `type`
-`uniform` `v_add8` `v_fill8` `v_hsum` `v_hsum4` `v_lane` `v_load4` `v_load8`
-`v_mul8` `v_mul8_add8` `v_store4` `v_store8` `v_sub8` `vtable_cell` `write_f32` `write_i32`
-`write_i64` `write_u8` `xml_encode_name` `zip_extract`
+`uniform` `v_hsum4` `v_load4` `v_store4` `vtable_cell` `write_f32` `write_i32` `write_i64`
+`write_u8` `xml_encode_name` `zip_extract`
 
 **KIEU CAU LENH (SINH IL) (68)**
 
@@ -1240,7 +1234,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 `str.join` `str.ljust` `str.match` `str.rjust` `str.rsplit` `str.search` `str.split` `str.splitlines`
 `str.sub` `str.title` `str.translate` `str.zfill` `timedelta.total_seconds` `tuple.count` `tuple.index`
 
-**Tong so ten da dang ky: 429**
+**Tong so ten da dang ky: 420**
 
 ### File trong `compiler_bootstrap/compiler/il_features/`
 
@@ -1255,7 +1249,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `closures.tkv` | 19011 |
 | `complex_type.tkv` | 8603 |
 | `comprehension.tkv` | 76839 |
-| `control_flow.tkv` | 118816 |
+| `control_flow.tkv` | 145072 |
 | `counter_type.tkv` | 19951 |
 | `datetime_py.tkv` | 16213 |
 | `datetime_type.tkv` | 11863 |
@@ -1280,6 +1274,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `generator_feature.tkv` | 1428 |
 | `generator_lazy.tkv` | 23903 |
 | `int_builtin.tkv` | 11538 |
+| `int_narrow.tkv` | 12146 |
 | `int_type.tkv` | 38748 |
 | `iter_next.tkv` | 19100 |
 | `kwarg_resolve.tkv` | 4052 |
@@ -1295,7 +1290,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `multi_assign.tkv` | 4710 |
 | `nativebuf.tkv` | 12877 |
 | `nested_array_extern.tkv` | 6442 |
-| `operators.tkv` | 49597 |
+| `operators.tkv` | 51740 |
 | `pickle_feature.tkv` | 4680 |
 | `print_feature.tkv` | 5703 |
 | `process_feature.tkv` | 8202 |
@@ -1356,8 +1351,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `tuple_methods.tkv` | 3844 |
 | `tuple_type.tkv` | 44283 |
 | `typecheck.tkv` | 7081 |
-| `vector4_type.tkv` | 7370 |
-| `vector_block.tkv` | 11329 |
+| `vector4_type.tkv` | 10308 |
 | `win32_gui_window.tkv` | 2596 |
 
 <!-- END GENERATED -->

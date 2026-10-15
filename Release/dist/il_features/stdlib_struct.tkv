@@ -1,0 +1,35 @@
+# -*- coding: utf-8 -*-
+"""stdlib_struct.tkv - Module ho tro pack/unpack du lieu nhi phan (BitConverter & IEEE 754).
+
+Cung cap cac ham:
+- struct_i32_to_hex(val) -> str : Chuyen i32 thanh chuoi Hex nhi phan (Little-Endian)
+- struct_f64_to_hex(val) -> str : Chuyen f64 thanh chuoi Hex nhi phan (IEEE 754)
+"""
+
+from il_dispatch import register_expr_builtin
+
+
+def _push_struct_i32_to_hex(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: struct_i32_to_hex(val) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'i32', ctx)
+    out.append('    call uint8[] [mscorlib]System.BitConverter::GetBytes(int32)')
+    out.append('    call string [mscorlib]System.BitConverter::ToString(uint8[])')
+    out.append('    ldstr "-"')
+    out.append('    ldstr ""')
+    out.append('    callvirt instance string [mscorlib]System.String::Replace(string, string)')
+
+
+def _push_struct_f64_to_hex(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: struct_f64_to_hex(val) can dung 1 tham so")
+    ctx['compile_expr'](args[0], scope, out, 'f64', ctx)
+    out.append('    call uint8[] [mscorlib]System.BitConverter::GetBytes(float64)')
+    out.append('    call string [mscorlib]System.BitConverter::ToString(uint8[])')
+    out.append('    ldstr "-"')
+    out.append('    ldstr ""')
+    out.append('    callvirt instance string [mscorlib]System.String::Replace(string, string)')
+
+
+register_expr_builtin('struct_i32_to_hex', _push_struct_i32_to_hex, return_dtype='str')
+register_expr_builtin('struct_f64_to_hex', _push_struct_f64_to_hex, return_dtype='str')

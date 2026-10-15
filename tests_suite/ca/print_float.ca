@@ -1,60 +1,0 @@
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt0.1	0.1\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr0.1	0.2\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt0.5	0.5\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr0.5	1.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1.0	1.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1.0	2.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt2.675	2.675\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr2.675	5.35\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt3.14159265358979	3.14159265358979\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr3.14159265358979	6.28318530717958\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt0.30000000000000004	0.30000000000000004\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr0.30000000000000004	0.6000000000000001\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt123456789012345.6	123456789012345.6\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr123456789012345.6	246913578024691.2\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1e15	1000000000000000.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1e15	2000000000000000.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1.5e15	1500000000000000.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1.5e15	3000000000000000.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt9.99e15	9990000000000000.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr9.99e15	1.998e+16\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1e16	1e+16\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1e16	2e+16\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1e17	1e+17\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1e17	2e+17\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1e22	1e+22\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1e22	2e+22\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1e100	1e+100\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1e100	2e+100\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1e-4	0.0001\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1e-4	0.0002\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1e-5	1e-05\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1e-5	2e-05\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1e-10	1e-10\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1e-10	2e-10\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt0.0	0.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr0.0	0.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt-1.5	-1.5\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr-1.5	-3.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt1e308	1e+308\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1e308	inf\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt2.2250738585072014e-308	2.2250738585072014e-308\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr2.2250738585072014e-308	4.450147717014403e-308\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmtinf	inf\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	exprinf	inf\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmt-inf	-inf\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr-inf	-inf\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	fmtnan	nan\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	exprnan	nan\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	negzero-1.0	-0.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	negzero-2.5	-0.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	negzero1.0	0.0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	expr1000000000000000.1	2000000000000000.3\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	int0	0\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	int7	14\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	int-3	-6\n
-tests_suite\de_vao\sample_print_float.tkv	run	0	int1000000	2000000\n
-tests_suite\de_vao\sample_print_float.tkv	show	0	0.1	0.1\ngia tri: 0.1\n1 2.5 ba\n0\n
-tests_suite\de_vao\sample_print_float.tkv	show	0	1e16	1e+16\ngia tri: 1e+16\n1 2.5 ba\n0\n
-tests_suite\de_vao\sample_print_float.tkv	show	0	1e-5	1e-05\ngia tri: 1e-05\n1 2.5 ba\n0\n
-tests_suite\de_vao\sample_print_float.tkv	show	0	-1.5	-1.5\ngia tri: -1.5\n1 2.5 ba\n0\n

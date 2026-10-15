@@ -21,10 +21,9 @@ QUY TAC AN TOAN: khi co BAT KY nghi ngo nao thi KHONG vector hoa, chay scalar
 binh thuong. Bien doi nay sua SO HOC cua code ma khong he nhac toi vector - mot
 loi se khong co trieu chung gi.
 
-Phan `a[i] + b[i]` la phan co THE vector hoa. `mul`/`div` co hang so (`* 1.5`)
-thi BI TU CHOI va chay scalar: `_expr_num` khong sinh duoc lenh cho dtype
-`f32x4`, va chua co intrinsic `v_set4` de broadcast hang so. Hai truong hop do
-van phai ra DUNG ket qua - day la bai kiem tra "tu choi => khong lam sai".
+Phan `a[i] + b[i]` la phan co THE vector hoa. `mul`/`div` co hang so
+(`* 1.5`) **cung duoc vector hoa** (2026-10-14) — hang so duoc broadcast bang
+`newobj Vector4::.ctor(f32 x4)`.
 
 **MOI ham deu tien VAO `r` bang -999.0 truoc khi chay vong lap can vector hoa.**
 Ly do: bo dem sinh bang `Marshal.AllocHGlobal` nen vung nho CHUA KHOI TAO, va
@@ -80,7 +79,12 @@ def add_case(n: "i32") -> "i32":
 
 
 def mul_case(n: "i32") -> "i32":
-    """`r[i] = a[i] * 1.5 - 0.25` - hang so, BI TU CHOI, phai dung."""
+    """`r[i] = a[i] * 1.5 - 0.25` - MOI duoc vector hoa (2026-10-14).
+
+    Truoc day case nay la bang chung cho "hang so bi tu choi, van ra dung ket
+    qua". Bay hang so duoc broadcast (xem `scale_case`) nen no CHAY VECTOR.
+    Bai nay giu lai de canh: ket qua phai BIT-EXACT nhu tinh tay (2.5*1.5-0.25
+    = 3.5), va 3.5 khong phai -999.0 nen duoi scalar bi bo sot cung lo ra."""
     a = f32buf(n)
     r = f32buf(n)
     i = 0
@@ -200,6 +204,76 @@ def copy_case(n: "i32") -> "i32":
     return check("copy n=" + str(n), s, w)
 
 
+def scale_case(n: "i32") -> "i32":
+    """`r[i] = a[i] * 1.5 + b[i]` - HANG SO trong ve phai (2026-10-14).
+
+    Truoc day P6 TU CHOI dang nay: `_expr_num` tu choi moi dtype tru 'f32x4'
+    va CHUA co intrinsic de broadcast. Nay co `newobj Vector4::.ctor(f32 x4)`
+    nen so 1.5 duoc broadcast thanh `Vector4(1.5, 1.5, 1.5, 1.5)`.
+
+    Gia tri mong doi 2.0 * 1.5 + 1.0 = 4.0, BIT-EXACT nhu ban scalar."""
+    a = f32buf(n)
+    b = f32buf(n)
+    r = f32buf(n)
+    i = 0
+    while i < n:
+        a[i] = 2.0
+        b[i] = 1.0
+        i = i + 1
+    i = 0
+    while i < n:
+        r[i] = -999.0
+        i = i + 1
+    i = 0
+    while i < n:
+        r[i] = a[i] * 1.5 + b[i]
+        i = i + 1
+    s = ""
+    j = 0
+    while j < n:
+        s = s + str(r[j]) + ";"
+        j = j + 1
+    w = ""
+    k = 0
+    while k < n:
+        w = w + "4.0;"
+        k = k + 1
+    return check("scale_add n=" + str(n), s, w)
+
+
+def scale_var_case(n: "i32", k: "f32") -> "i32":
+    """`r[i] = a[i] * k` - bien `f32` (khong phai hang so) cung duoc broadcast.
+
+    Chung co che voi `scale_case`, nhung toan hang la BIEN nen `_p6_leaf_vec_ok`
+    phai SUY KIEU bang `infer_dtype` chu khong chi kiem `ekind == 'num'`.
+    """
+    a = f32buf(n)
+    r = f32buf(n)
+    i = 0
+    while i < n:
+        a[i] = 3.0
+        i = i + 1
+    i = 0
+    while i < n:
+        r[i] = -999.0
+        i = i + 1
+    i = 0
+    while i < n:
+        r[i] = a[i] * k
+        i = i + 1
+    s = ""
+    j = 0
+    while j < n:
+        s = s + str(r[j]) + ";"
+        j = j + 1
+    w = ""
+    t = 0
+    while t < n:
+        w = w + str(3.0 * k) + ";"
+        t = t + 1
+    return check("scale_var n=" + str(n) + " k=" + str(k), s, w)
+
+
 def run() -> "i32":
     total = 0
     # Chia het 4: vong vector chay het, khong con duoi scalar.
@@ -217,10 +291,21 @@ def run() -> "i32":
     total += add_case(15)
     total += add_case(17)
     total += add_case(33)
-    # Cac dang bi tu choi van phai ra dung ket qua.
+    # Cac dang van bi tu choi phai ra dung ket qua.
     total += mul_case(9)
     total += div_case(9)
     # Ve phai nhieu toan tu, va ve phai don.
     total += chain_case(9)
     total += copy_case(9)
-    return test_summary("p6_vectorize_test", total, 17)
+    # 2026-10-14: hang so / bien `f32` trong ve phai - broadcast bang
+    # `newobj Vector4::.ctor(f32 x4)`. Truoc day 2 dang nay chay scalar.
+    total += scale_case(0)
+    total += scale_case(1)
+    total += scale_case(4)
+    total += scale_case(9)
+    total += scale_case(16)
+    total += scale_case(17)
+    total += scale_var_case(9, 2.0)
+    total += scale_var_case(16, 2.5)
+    total += scale_var_case(5, -1.5)
+    return test_summary("p6_vectorize_test", total, 26)

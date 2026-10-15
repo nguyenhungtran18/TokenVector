@@ -1,8 +1,0 @@
-tests_suite\de_vao\sample_misc_extra.tkv	co_truong	0		x\n
-tests_suite\de_vao\sample_misc_extra.tkv	doc_truong	0		B\n
-tests_suite\de_vao\sample_misc_extra.tkv	la_lop_con	0		dung\n
-tests_suite\de_vao\sample_misc_extra.tkv	so_phuc	0	1.52.5	(1.5+2.5j)\n
-tests_suite\de_vao\sample_misc_extra.tkv	so_phuc	0	0.00.0	0j\n
-tests_suite\de_vao\sample_misc_extra.tkv	tinh_bieu_thuc	0	2 + 3 * 4	14.00\n
-tests_suite\de_vao\sample_misc_extra.tkv	tinh_bieu_thuc	0	(1 + 2) * 3	9.00\n
-tests_suite\de_vao\sample_misc_extra.tkv	so_tham_so	0		1\n

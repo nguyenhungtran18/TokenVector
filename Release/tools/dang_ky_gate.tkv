@@ -12,10 +12,12 @@ Tieu chi - do bang PROBE TRUC TIEP vao `dist/tkvc-tv.exe`, khong tin tai lieu:
   B. def thieu chu ky nhung CHI `return`     -> hop le (ham void)
   C. def thieu chu ky MA co `return <giatri>`-> VI PHAM
 
-Compiler BO QUA hoan toan hai co che CPython (gia tri True hay False deu bi
-bo qua - da kiem chung bang probe):
-  * `if __tkv_chi_cpython__:` ... - bo qua ca khoi
-  * `@__tkv_cpython_only__`       - bo qua ham co decorator nay
+Compiler BO QUA co che CPython (gia tri True hay False deu bi bo qua - da
+kiem chung bang probe):
+  * `@__tkv_cpython_only__` - bo qua ham co decorator nay
+
+2026-10-12: khoi `if __tkv_chi_cpython__:` da bi XOA khoi nguon compiler
+(xem `compiler_bootstrap/tkv_compile.tkv`), nen khong con gi de dem o day.
 
 Cach dung (tu goc repo):
     dist\\tkvc-tv.exe tools\\dang_ky_gate.tkv <out.exe> run
@@ -113,27 +115,6 @@ def _ten_ham(s: "str") -> "str":
     if k < 0:
         return ""
     return r[0:k].strip()
-
-
-def _sau_khoi_if_cp(lines: "list[str]", i: "i32") -> "i32":
-    """So dong cua khoi `if __tkv_chi_cpython__:` bat dau tai dong `i`.
-
-    Tra -1 neu dong `i` khong phai dong mo khoi do. Do dai xac dinh bang
-    THUT LEN: moi dong tiep theo thuoc khoi neu indent > indent dong `i`;
-    dong nao co indent <= thi khoi ket thuc."""
-    s = lines[i].strip()
-    if not s.startswith("if "):
-        return -1
-    if s.find("__tkv_chi_cpython__") < 0:
-        return -1
-    ind = _indent(lines[i])
-    n = i + 1
-    while n < len(lines):
-        ln = lines[n]
-        if ln.strip() != "" and _indent(ln) <= ind:
-            break
-        n = n + 1
-    return n
 
 
 def _chu_ky(lines: "list[str]", i: "i32") -> "str":
@@ -244,29 +225,15 @@ def _thieu_tham_so(chu_ky: "str") -> "list[str]":
 
 
 def quet_file(rel: "str", p: "str") -> "list[str]":
-    """Dong ket qua 'R|n_ok|n_void|n_dec|n_blk|rel|dong|ten|thieu' cho 1 file."""
+    """Dong ket qua 'R|n_ok|n_void|n_dec|rel|dong|ten|thieu' cho 1 file."""
     ra: "list[str]" = []
     src = path_read_text(p)
     lines = src.split(chr(10))
     n = len(lines)
     trong_doc = _danh_dau_docstring(lines)
-    # 1) danh dau khoi `if __tkv_chi_cpython__:`
-    trong_khoi: "list[str]" = []
-    i = 0
-    while i < n:
-        x = _sau_khoi_if_cp(lines, i)
-        if x < 0:
-            i = i + 1
-            continue
-        j = i + 1
-        while j < x:
-            trong_khoi.append(str(j + 1))
-            j = j + 1
-        i = x
     n_ok = 0
     n_void = 0
     n_dec = 0
-    n_blk = 0
     n_def = 0
     i = 0
     while i < n:
@@ -290,10 +257,6 @@ def quet_file(rel: "str", p: "str") -> "list[str]":
                 n_dec = n_dec + 1
                 i = i + 1
                 continue
-            if _trong(dong, trong_khoi) == 1:
-                n_blk = n_blk + 1
-                i = i + 1
-                continue
             if _tra_ve_gia_tri(lines, i, ind) == 1:
                 ra.append("C|" + rel + "|" + dong + "|" + _ten_ham(lines[i].strip()))
             else:
@@ -310,7 +273,7 @@ def quet_file(rel: "str", p: "str") -> "list[str]":
                 ra.append("A|" + rel + "|" + dong + "|" + _ten_ham(lines[i].strip()) + "|" + ss)
         i = i + 1
     # dong tong hop de run() cong di - ham con lai day la bien cuc bo
-    ra.append("S|" + rel + "|" + str(n_def) + "|" + str(n_ok) + "|" + str(n_void) + "|" + str(n_dec) + "|" + str(n_blk))
+    ra.append("S|" + rel + "|" + str(n_def) + "|" + str(n_ok) + "|" + str(n_void) + "|" + str(n_dec))
     return ra
 
 
@@ -337,7 +300,6 @@ def run() -> "i32":
     n_ok = 0
     n_void = 0
     n_dec = 0
-    n_blk = 0
     n_ds = 0
     vi_pham: "list[str]" = []
     thieu: "list[str]" = []
@@ -361,12 +323,11 @@ def run() -> "i32":
                 n_ok = n_ok + int(a[3])
                 n_void = n_void + int(a[4])
                 n_dec = n_dec + int(a[5])
-                n_blk = n_blk + int(a[6])
     if quiet == 0:
         print("=== " + str(n_ds) + " file / " + str(n_def) + " ham tren duong TokenVector ===")
         print("  A. co `-> \"kieu\"`                   : " + str(n_ok))
         print("  B. void (thieu chu ky, chi return)  : " + str(n_void) + "  HOP LE")
-        print("     bo qua " + str(n_dec) + " ham @__tkv_cpython_only__ + " + str(n_blk) + " ham trong khoi `if`")
+        print("     bo qua " + str(n_dec) + " ham @__tkv_cpython_only__")
         gach = ""
         gi = 0
         while gi < 56:

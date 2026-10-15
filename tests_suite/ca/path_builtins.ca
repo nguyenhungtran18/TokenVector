@@ -1,12 +1,0 @@
-tests_suite\de_vao\sample_path.tkv	noi	0	ab	a\\b\n
-tests_suite\de_vao\sample_path.tkv	ten_tep	0	a/b.txt	b.txt\n
-tests_suite\de_vao\sample_path.tkv	ten_tep	0	b.txt	b.txt\n
-tests_suite\de_vao\sample_path.tkv	thu_muc	0	a/b.txt	a\n
-tests_suite\de_vao\sample_path.tkv	tach_duoi	0	a/b.txt	a/b|.txt\n
-tests_suite\de_vao\sample_path.tkv	tach_duoi	0	khong_duoi	khong_duoi|\n
-tests_suite\de_vao\sample_path.tkv	chuan_hoa	0	a/./b/../c	a\\c\n
-tests_suite\de_vao\sample_path.tkv	chuan_hoa	0	a//b	a\\b\n
-tests_suite\de_vao\sample_path.tkv	tuyet_doi	0	x	dai-hon\n
-tests_suite\de_vao\sample_path.tkv	kiem_ton_tai	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pathbltu8cnu6yv\co_that.txt	EF\n
-tests_suite\de_vao\sample_path.tkv	kiem_ton_tai	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pathbltu8cnu6yv\thu_muc_co	ED\n
-tests_suite\de_vao\sample_path.tkv	kiem_ton_tai	0	C:\Users\NGUYEN~1\AppData\Local\Temp\pathbltu8cnu6yv\khong_he_co.txt	khong\n

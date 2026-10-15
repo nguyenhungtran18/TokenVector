@@ -1,3 +1,0 @@
-def compute(s: "str", width: "i32") -> "str":
-    result = s.zfill(width)
-    return result

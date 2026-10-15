@@ -16,21 +16,17 @@
 - **Parser** — deterministic AST with static type enforcement.
 - **CIL emitter** — plain text CIL/MSIL, mapped to .NET CTS types.
 - **`ilasm.exe`** — assembles the `.il` into a standalone `.exe`.
-- **Compiler source IS TokenVector.** `compiler_bootstrap/` holds the 132
-  files listed in `compiler_src/ds_gop.txt`, and **all 132 are TokenVector** —
-  no Python, no exceptions. `tools/vong.tkv` merges them into one source,
-  compiles it, then compiles the result again; when the two IL outputs are
-  identical (`IL_IDENTICAL`) the compiler is a fixed point of its own
-  generation. It is therefore genuinely self-hosted, and this is checked by a
-  gate rather than asserted.
-  (`IL KHAC NHAU` is **not** a failure — it means the generation advanced;
-  re-run. Note `dist/tkvc.exe`, the older Python-frozen bootstrap, is a
-  *different* compiler and is NOT part of this release.)
-- **Known platform limits** (do not guess around them): no `subprocess` — a
-  TokenVector program cannot spawn another process; no directory-recursion
-  builtin (`os_list_files` lists files in ONE directory, never subdirectories);
-  no `re` module, but `re_search` / `re_findall` / `re_replace` are available.
-  `re_findall` returns **whole matches**, not capture groups.
+- **Compiler source is NOT TokenVector.** `compiler/` and `tkv*.tkv` are 126
+  files whose extension is `.tkv` but whose **content is Python**.
+  `tkv_compile.tkv` states this in its own docstring: it is "a valid Python
+  program, named `.tkv` instead of `.py` to break the link with Python".
+  `build_tkvc.ps1` stages them as Python and freezes the result with
+  PyInstaller, so **`tkvc.exe` is a CPython-frozen tool, not a TokenVector
+  program** — it can never become a native standalone binary, because you would
+  need a working compiler to compile the compiler.
+  The genuinely TokenVector sources in this repo are `tests/` (148 files),
+  `projects/` (19), `examples/` (8) and `tools/` (3).
+  Do not describe the compiler as "self-hosted" or "written in TokenVector".
 
 ## 2. Strict rules — do not violate
 
@@ -106,47 +102,40 @@ def run() -> "i32":
 ## 4. Toolchain
 
 ```powershell
-# Build an executable - CLI is POSITIONAL, there is no `build` subcommand
-.\dist\tkvc-tv.exe <source.tkv> <output.exe> run
+# Build an executable
+.\\dist\tkvc.exe build <source.tkv> --out <output.exe> --entry run
 
-# Run the acceptance gate (119 tests + 31 negative cases)
-powershell -File .\tools\testkit_gate.ps1
+# Run the acceptance gate (117 tests + 31 negative cases)
+powershell -File .\\tools\testkit_gate.ps1
 
-# Self-host loop: compiler compiles its own 132-file source, then itself
-powershell -File .\tools\build_tkv_guide.ps1
-.\dist\bin\tkv_guide.exe rules
-.\dist\bin\tkv_guide.exe find sorted
-.\dist\bin\tkv_guide.exe lint my_file.tkv
-.\dist\bin\tkv_guide.exe verify my_file.tkv   # prints build+run commands
+# Ask the guide tool instead of guessing (written in TokenVector itself)
+powershell -File .\\tools\build_tkv_guide.ps1
+.\\dist\tkv_guide.exe rules
+.\\dist\tkv_guide.exe find sorted
+.\\dist\tkv_guide.exe lint my_file.tkv
+.\\dist\tkv_guide.exe verify my_file.tkv   # prints build+run commands
 ```
-
-**`run()`'s return value IS the process exit code** (for `"i32"`/`"i64"`), like
-`sys.exit(1)`. A `"str"` or tuple return is printed instead.
 
 **A green build is not a correct program** — bugs exist that compile cleanly and
 then return a wrong value. Always run the output.
 
-## 5. Project structure (this release)
+## 5. Project structure
 
-* **Compiler source:** `compiler_bootstrap/` — 132 TokenVector files, listed in
-  `compiler_src/ds_gop.txt`.
-* **CLI:** `dist/tkvc-tv.exe` (positional: `<src> <out> <entry>`). No
-  `build` subcommand, no `--out`.
-* **Acceptance suite:** `tests/` — 119 tests + 31 negative cases; `tests_suite/`
-  — 154 `.ca` cases.
-* **Gates:** `tools/` — `testkit_gate.ps1`, `vong.exe`, `lint_rules_gate.ps1`,
-  and the analysis tools `dang_ky_gate.tkv`, `gen_builtin_ref.tkv`,
-  `scan_container.tkv`.
+* **Compiler core:** `compiler/` — 126 `.tkv` files (119 in
+  `il_features/`).
+* **CLI driver:** `dist/tkvc.exe`, rebuilt by `build_tkvc.ps1`.
+* **Acceptance suite:** `tests/` — 117 tests + 31 negative cases.
 * **Reference (the one doc that matters):** `docs/REFERENCE.md`.
+* **Engineering journal:** `docs/REPOSITORY-NOTES.md` — every bug and how
+  it was proven.
+* **Gap list:** `docs/PLAN.md`.
+* **VS Code extension:** `nguyenhungtran18.tokenvector-syntax` (separate repo,
+  vendored as the `tokenvector-grammar` submodule).
 
 ## 6. Known gaps (verified by probe)
 
 - **No `subprocess`** — a program cannot start another process.
-- **No directory recursion** — `os_list_files(p)` lists files in ONE directory
-  and never descends; there is no `os.walk`.
 - **Negative slice step rejected** — `a[::-1]`, `a[1:-1]`; positive steps work.
 - No `slice()` callable; no keyword-only or positional-only parameters.
 - A conditional expression with mismatched branch types
   (`i32 if c else f64`) compiles and returns a **garbage pointer**.
-- `format()` and `"%02x" % v` are not usable — use f-strings
-  (`f"{v:.2f}"`, `f"{n:05d}"`, `f"{a:02x}"`).

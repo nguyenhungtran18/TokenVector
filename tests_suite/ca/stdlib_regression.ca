@@ -1,21 +1,0 @@
-TokenVector - Only\examples\stdlib\sample_stdlib_ground_truth.tkv	gt_sha256	0	TokenVector 2026	2ae116d4bac7441f12aa6aac9fd3887610177191c8d972a80937cb2b91c0f4c9\n
-TokenVector - Only\examples\stdlib\sample_stdlib_ground_truth.tkv	gt_md5	0	TokenVector 2026	840912d6a0c543006678269d608f7782\n
-TokenVector - Only\examples\stdlib\sample_stdlib_ground_truth.tkv	gt_b64	0	TokenVector 2026	VG9rZW5WZWN0b3IgMjAyNg==\n
-TokenVector - Only\examples\stdlib\sample_stdlib_ground_truth.tkv	gt_b64_roundtrip	0	TokenVector 2026	TokenVector 2026\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	csv_field_count	0	a,,b	3\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	csv_nth_field	0	a,,b0	a\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	csv_roundtrip	0	a,,b	a,,b\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	csv_field_count	0	plain	1\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	csv_nth_field	0	plain0	plain\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	csv_roundtrip	0	plain	plain\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	reduce_sum	0	410	20\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	reduce_sum	0	10	1\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	reduce_sum	0	6-3	18\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	reduce_product	0	5	120\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	reduce_product	0	1	1\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	reduce_product	0	3	6\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	eval_value	0	7/2	3.5\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	eval_value	0	(10 + 20) * 3	90.0\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	eval_value	0	100 - 25 * 2 + 10	60.0\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	eval_value	0	-3 + 1.5	-1.5\n
-TokenVector - Only\examples\stdlib\sample_phase2_ground_truth.tkv	eval_value	0	10 % 3	1.0\n

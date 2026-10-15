@@ -1,5 +1,0 @@
-tests_suite\de_vao\sample_bool_containers.tkv	dict_vals	0		TrueFalse2\n
-tests_suite\de_vao\sample_bool_containers.tkv	list_repr	0		[True, False, True]\n
-tests_suite\de_vao\sample_bool_containers.tkv	typed_local_in_tuple	0		71\n
-tests_suite\de_vao\sample_bool_containers.tkv	flag_tuple	0	5	True5True5\n
-tests_suite\de_vao\sample_bool_containers.tkv	flag_tuple	0	1	False1False1\n

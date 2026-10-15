@@ -1,0 +1,31 @@
+# -*- coding: utf-8 -*-
+"""stdlib_io.tkv - Module ho tro Memory Buffer va Stream I/O (StringIO & BytesIO).
+
+Cung cap cac ham:
+- bytes_from_string(s) -> list[u8] : Chuyen chuoi UTF-8 thanh bytes (List<uint8>)
+- string_from_bytes(b) -> str      : Chuyen bytes (List<uint8>) thanh chuoi UTF-8
+"""
+
+from il_dispatch import register_expr_builtin
+
+
+def _push_bytes_from_string(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: bytes_from_string(s) can dung 1 tham so")
+    out.append('    call class [mscorlib]System.Text.Encoding [mscorlib]System.Text.Encoding::get_UTF8()')
+    ctx['compile_expr'](args[0], scope, out, 'str', ctx)
+    out.append('    callvirt instance uint8[] [mscorlib]System.Text.Encoding::GetBytes(string)')
+    out.append('    newobj instance void class [mscorlib]System.Collections.Generic.List`1<uint8>::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+
+
+def _push_string_from_bytes(args, scope, out, dtype, ctx):
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: string_from_bytes(b) can dung 1 tham so")
+    out.append('    call class [mscorlib]System.Text.Encoding [mscorlib]System.Text.Encoding::get_UTF8()')
+    ctx['compile_expr'](args[0], scope, out, 'u8', ctx)
+    out.append('    callvirt instance !0[] class [mscorlib]System.Collections.Generic.List`1<uint8>::ToArray()')
+    out.append('    callvirt instance string [mscorlib]System.Text.Encoding::GetString(uint8[])')
+
+
+register_expr_builtin('bytes_from_string', _push_bytes_from_string, return_dtype='u8', return_shape='list')
+register_expr_builtin('string_from_bytes', _push_string_from_bytes, return_dtype='str')

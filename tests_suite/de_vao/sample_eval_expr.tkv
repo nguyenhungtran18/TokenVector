@@ -1,4 +1,0 @@
-__tkv_extern_assembly__ = "System.Data"
-
-def compute(expr: "str", x: "f64", y: "f64") -> "f64":
-    return eval_expr(expr, x=x, y=y)

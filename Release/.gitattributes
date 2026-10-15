@@ -1,0 +1,23 @@
+# 1. "Ngôn ngữ mới" TokenVector và mã IL khối lượng lớn làm GitHub đếm sai
+# ngôn ngữ (chúng thật ra là nguồn sinh, không phải thứ viết tay).
+*.tkv linguist-generated=true
+*.il linguist-generated=true
+
+# 2. "Nội dung bất biến" build, thư mục release, UI cũng cũng phải được
+# loại trừ khỏi thanh ngôn ngữ của GitHub.
+assets/** linguist-generated=true
+build/** linguist-generated=true
+dist/** linguist-generated=true
+
+# 3. Đánh dấu tài liệu.
+docs/** linguist-documentation=true
+outreach/** linguist-documentation=true
+
+# 4. Loại bỏ các script build/thử lệnh khỏi thống kê Languages của GitHub.
+*.bat linguist-vendored=true
+*.sh linguist-vendored=true
+build.bat linguist-vendored=true
+build.sh linguist-vendored=true
+
+# 5. File sinh tự động khác.
+*.nupkg linguist-generated=true
