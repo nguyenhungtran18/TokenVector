@@ -68,3 +68,8 @@ pkl_*_test.bin
 !Release/tools/vong.exe
 !Release/tools/diff_il.exe
 !Release/tests_suite/chay.exe
+
+Release/benchmark/run_benchmark.exe
+Release/tools/vong.exe
+Release/tools/diff_il.exe
+Release/tests_suite/chay.exe

@@ -1,0 +1,366 @@
+﻿# -*- coding: utf-8 -*-
+# TokenVector BENCHMARK - viet bang TokenVector, KHONG can Python, khong can
+# subprocess. Thay the run.py cua TokenVector.TestOracle ve phia TokenVector.
+#
+# VI SAO: ban cu (TestOracle/benchmark/run.py) chay CPython/NumPy goi ra ngoai
+# va do bang subprocess. Benchmark NAY do nguoc lai: chay NOI BON trong mot exe
+# TokenVector duy nhat va tu do bang time_perf().
+#
+# 3 QUY TAC DO (hoc tu nhung lan do sai cua chinh du an nay):
+#   1. GIA TRI KET QUA PHAI DUOC DUNG. Neu khong, JIT xoa ca vong lap va do ra
+#      so dep (da gap o perf_f32buf.tkv).
+#   2. DO BEN TRONG VONG LAP. Cap phat / khoi tao chi tinh mot lan o ngoai -
+#      neu do ca loi cap phat thi so do bi nhiễu hang chuc lan (da gap khi tich
+#      hop vao TokenVector.Data: P6 + copy = 18.74 ms trong khi scalar 6.49 ms).
+#   3. BEST-OF-N, khong lay trung binh va khong lay mot lan dau.
+#
+# CHAY:  run_benchmark.exe main
+# HOAC:  Release\dist\tkvc-tv.exe tools\benchmark\run_benchmark.tkv run_benchmark.exe main
+
+
+def _fib(n: "i32") -> "i32":
+    if n < 2:
+        return n
+    return _fib(n - 1) + _fib(n - 2)
+
+
+def b_fib(runs: "i32") -> "f64":
+    best = 1.0e9
+    i = 0
+    v = 0
+    t0 = 0.0
+    t1 = 0.0
+    while i < runs:
+        t0 = time_perf()
+        v = _fib(32)
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        i = i + 1
+    print("fib(32)=" + str(v) + "  best=" + str(best))
+    return best
+
+
+def b_string(runs: "i32", n: "i32") -> "f64":
+    best = 1.0e9
+    cs = 0
+    i = 0
+    t0 = 0.0
+    t1 = 0.0
+    while i < runs:
+        t0 = time_perf()
+        buf = []
+        j = 0
+        while j < n:
+            buf.append("abcdefgh")
+            j = j + 1
+        s = "".join(buf)
+        cnt = 0
+        j = 0
+        while j < n:
+            ch = s[j:j + 1]
+            if ch == "e":
+                cnt = cnt + 1
+            j = j + 1
+        cs = len(s) + cnt
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        i = i + 1
+    print("string(200000)=" + str(cs) + "  best=" + str(best))
+    return best
+
+
+def _sort(xs: "list[i64]", lo: "i32", hi: "i32") -> "i32":
+    if hi - lo < 2:
+        return 0
+    mid = (lo + hi) // 2
+    _sort(xs, lo, mid)
+    _sort(xs, mid, hi)
+    i = lo
+    j = mid
+    k = lo
+    while i < mid and j < hi:
+        if xs[i] <= xs[j]:
+            xs[k] = xs[i]
+            i = i + 1
+        else:
+            xs[k] = xs[j]
+            j = j + 1
+        k = k + 1
+    while i < mid:
+        xs[k] = xs[i]
+        i = i + 1
+        k = k + 1
+    while j < hi:
+        xs[k] = xs[j]
+        j = j + 1
+        k = k + 1
+    return 0
+
+
+def b_sort(runs: "i32", n: "i32") -> "f64":
+    src = []
+    i = 0
+    while i < n:
+        src.append((i * 1103515245 + 12345) % 65536)
+        i = i + 1
+    best = 1.0e9
+    cs = 0
+    work = []
+    r = 0
+    t0 = 0.0
+    t1 = 0.0
+    while r < runs:
+        i = 0
+        while i < n:
+            work.append(src[i])
+            i = i + 1
+        t0 = time_perf()
+        _sort(work, 0, n)
+        t1 = time_perf()
+        cs = work[0] + work[n - 1] + work[n // 2]
+        i = 0
+        while i < n:
+            work.pop()
+            i = i + 1
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        r = r + 1
+    print("sort(200000)=" + str(cs) + "  best=" + str(best))
+    return best
+
+
+def b_add(runs: "i32", n: "i32") -> "f64":
+    half = n // 2
+    a = []
+    b = []
+    r = []
+    i = 0
+    while i < n:
+        a.append(0.0)
+        i = i + 1
+    i = 0
+    while i < half:
+        b.append(0.0)
+        r.append(0.0)
+        i = i + 1
+    i = 0
+    while i < n:
+        a[i] = (i % 97) * 0.1
+        i = i + 1
+    i = 0
+    while i < half:
+        b[i] = (i % 4) + 1.0
+        i = i + 1
+    best = 1.0e9
+    cs = 0.0
+    csq = 0.0
+    k = 0
+    t0 = 0.0
+    t1 = 0.0
+    while k < runs:
+        t0 = time_perf()
+        i = 0
+        while i < half:
+            r[i] = a[i] + b[i]
+            i = i + 1
+        i = 0
+        while i < half:
+            r[i] = a[half + i] + b[i]
+            i = i + 1
+        t1 = time_perf()
+        # checksum o NGOAI: tinh rieng de JIT khong xoa vong tren
+        cs = 0.0
+        csq = 0.0
+        i = 0
+        while i < half:
+            cs = cs + r[i]
+            csq = csq + r[i] * r[i]
+            i = i + 1
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        k = k + 1
+    print("add(262144)=" + str(cs) + "  best=" + str(best))
+    return best
+
+
+def _mm32(a: "list[f32]", b: "list[f32]", r: "list[f32]", n: "i32") -> "i32":
+    i = 0
+    while i < n:
+        j = 0
+        while j < n:
+            s = a[i * n] * b[j]
+            kk = 1
+            while kk < n:
+                s = s + a[i * n + kk] * b[kk * n + j]
+                kk = kk + 1
+            r[i * n + j] = s
+            j = j + 1
+        i = i + 1
+    return 0
+
+
+def b_matmul32(runs: "i32", n: "i32") -> "f64":
+    m = n * n
+    a = []
+    b = []
+    r = []
+    i = 0
+    while i < m:
+        a.append(float((i % 7)) - 3.0)
+        b.append(float((i % 5)) - 2.0)
+        r.append(0.0)
+        i = i + 1
+    best = 1.0e9
+    cs = 0.0
+    k = 0
+    t0 = 0.0
+    t1 = 0.0
+    while k < runs:
+        t0 = time_perf()
+        _mm32(a, b, r, n)
+        t1 = time_perf()
+        cs = 0.0
+        i = 0
+        while i < m:
+            cs = cs + r[i]
+            i = i + 1
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        k = k + 1
+    print("matmul32=" + str(cs) + "  best=" + str(best))
+    return best
+
+
+def b_f32mm(runs: "i32", n: "i32") -> "f64":
+    m = n * n
+    a = []
+    b = []
+    i = 0
+    while i < m:
+        a.append((i % 97) * 0.1)
+        b.append((i % 89) * 0.07)
+        i = i + 1
+    r = []
+    i = 0
+    while i < m:
+        r.append(0.0)
+        i = i + 1
+    best = 1.0e9
+    p0 = 0.0
+    cs = 0.0
+    k = 0
+    t0 = 0.0
+    t1 = 0.0
+    while k < runs:
+        t0 = time_perf()
+        _mm32(a, b, r, n)
+        t1 = time_perf()
+        cs = 0.0
+        i = 0
+        while i < m:
+            cs = cs + r[i]
+            i = i + 1
+        p0 = r[0] + r[7] + r[500] + r[1023]
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        k = k + 1
+    print("f32mm_scalar=" + str(p0) + "  best=" + str(best))
+    return best
+
+
+def b_f32mm_vec(runs: "i32", n: "i32") -> "f64":
+    m = n * n
+    a = []
+    b = []
+    i = 0
+    while i < m:
+        a.append((i % 97) * 0.1)
+        b.append((i % 89) * 0.07)
+        i = i + 1
+    r = []
+    i = 0
+    while i < m:
+        r.append(0.0)
+        i = i + 1
+    # B phai dong goi theo COT de v_load4 nap duoc 16 byte lien tiep
+    pa = alloc_bytes(m * 4)
+    pb = alloc_bytes(m * 4)
+    pt = alloc_bytes(m * 4)
+    i = 0
+    while i < m:
+        write_f32(pa, i * 4, a[i])
+        write_f32(pb, i * 4, b[i])
+        i = i + 1
+    i = 0
+    while i < n:
+        j = 0
+        while j < n:
+            write_f32(pt, (j * n + i) * 4, b[i * n + j])
+            j = j + 1
+        i = i + 1
+    best = 1.0e9
+    p0 = 0.0
+    rp = 0
+    t0 = 0.0
+    t1 = 0.0
+    while rp < runs:
+        t0 = time_perf()
+        i = 0
+        while i < n:
+            j = 0
+            while j < n:
+                acc = f32x4(0.0, 0.0, 0.0, 0.0)
+                k = 0
+                while k + 3 < n:
+                    va = v_load4(pa, (i * n + k) * 4)
+                    vb = v_load4(pt, (j * n + k) * 4)
+                    acc = acc + va * vb
+                    k = k + 4
+                r[i * n + j] = v_hsum4(acc)
+                j = j + 1
+            i = i + 1
+        t1 = time_perf()
+        p0 = r[0] + r[7] + r[500] + r[1023]
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        rp = rp + 1
+    free_bytes(pt)
+    free_bytes(pb)
+    free_bytes(pa)
+    print("f32mm_vec=" + str(p0) + "  best=" + str(best))
+    return best
+
+
+def main() -> "i32":
+    print("=== TokenVector benchmark (tu do, khong can Python) ===")
+    print("cung khoi viec voi TokenVector.TestOracle/benchmark/run.py")
+    print()
+    tf = b_fib(60)
+    ts = b_string(3, 200000)
+    to = b_sort(20, 200000)
+    ta = b_add(20, 262144)
+    tm = b_matmul32(20, 32)
+    t32 = b_f32mm(100, 32)
+    t32v = b_f32mm_vec(100, 32)
+    print()
+    print("=== TONG KET (ms, best-of-N) ===")
+    print("fib            " + str(tf))
+    print("string         " + str(ts))
+    print("sort           " + str(to))
+    print("add            " + str(ta))
+    print("matmul32       " + str(tm))
+    print("f32mm scalar   " + str(t32))
+    print("f32mm vec      " + str(t32v) + "   (nhanh hon scalar " + str(t32 / t32v) + "x)")
+    # Phai DUNG moi bien, neu khong JIT coi ket qua la chet
+    if tf < 0.0 or ts < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or t32 < 0.0 or t32v < 0.0:
+        return 1
+    return 0
