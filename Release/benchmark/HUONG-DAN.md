@@ -1,15 +1,15 @@
-# Huong dan chay benchmark TokenVector
+# TokenVector Benchmark Guide
 
-## Yeu cau
+## Requirements
 
-- Python 3 (chi can cho baseline Python, TokenVector khong can)
+- Python 3 (only needed for the Python baseline; TokenVector does not require it)
 
-## Cac buoc
+## Steps
 
 ```powershell
 cd Release\benchmark
 
-# 1. Baseline Python
+# 1. Python baseline
 python py_kernels.py fib
 python py_kernels.py string
 python py_kernels.py sort
@@ -20,21 +20,11 @@ python py_kernels.py matmul32
 .\run_benchmark.exe
 ```
 
-## So sanh ket qua
+## Files
 
-| Kernel | Python (ms) | TokenVector (ms) | TV/Py |
-|--------|------------|------------------|-------|
-| fib(32) | 1122 | 14.1 | 79x |
-| string(200000) | 289 | 19.5 | 15x |
-| sort(200000) | 20862 | 11.7 | 1780x |
-| add(262144) | 1495 | 3.3 | 449x |
-| matmul32 | 317 | 0.122 | 2590x |
-
-## File
-
-| File | Chuc nang |
-|------|-----------|
-| `run_benchmark.exe` | Benchmark TokenVector tu do (khong can Python) |
-| `run_benchmark.tkv` | Ma nguon TokenVector |
-| `py_kernels.py` | Kernel Python de lay so sanh |
-| `KETQUA.md` | Ket qua benchmark lan cuoi |
+| File | Purpose |
+|------|---------|
+| `run_benchmark.exe` | Self-contained TokenVector benchmark (no Python needed) |
+| `run_benchmark.tkv` | TokenVector source for the benchmark |
+| `py_kernels.py` | Python kernels for baseline comparison |
+| `KETQUA.md` | Latest benchmark results |

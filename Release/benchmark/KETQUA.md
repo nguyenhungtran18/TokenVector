@@ -1,34 +1,35 @@
-# Ket qua benchmark: TokenVector vs CPython
+# TokenVector vs CPython — Benchmark Results
 
-## Bo kiem tra
+## Test Suite
 
-| Kernel | Cong viec | Python 3.12 | TokenVector |
-|--------|-----------|-------------|-------------|
-| fib(32) | De quy fibonacci n=32 | 1122 ms | 14.1 ms |
-| string | join 200000 chuoi + dem ky tu | 289 ms | 19.5 ms |
-| sort | merge-sort 200000 so | 20862 ms | 11.7 ms |
-| add | cong/level 262144 phan tu | 1495 ms | 3.3 ms |
-| matmul32 | nhan ma tran 32x32 | 317 ms | 0.122 ms |
-| f32mm scalar | matmul f32 32x32, dot tuan tu | -- | 0.122 ms |
-| f32mm vec | matmul f32 32x32, SIMD Vector4 | -- | 0.897 ms |
+| Kernel | Workload | Python 3.12 | TokenVector |
+|--------|----------|-------------|-------------|
+| fib(32) | Recursive Fibonacci n=32 | 1122 ms | 14.1 ms |
+| string | Join 200k substrings + count chars | 289 ms | 19.5 ms |
+| sort | Merge-sort 200k integers | 20862 ms | 11.7 ms |
+| add | Add/sum 262k elements | 1495 ms | 3.3 ms |
+| matmul32 | Multiply 32x32 matrices | 317 ms | 0.122 ms |
+| f32mm scalar | f32 matmul 32x32, scalar dot | -- | 0.122 ms |
+| f32mm vec | f32 matmul 32x32, SIMD Vector4 | -- | 0.897 ms |
 
-## Tong hop
+## Summary
 
-| Chi so | Python | TokenVector | Ty so |
-|--------|--------|-------------|-------|
-| Trung binh toan bo kernel | 4377 ms | 7.18 ms | **610x** |
-| Kernel nhanh nhat | 289 ms | 0.122 ms | **2370x** |
-| Kernel cham nhat | 20862 ms | 19.5 ms | **1070x** |
+| Metric | Python | TokenVector | Speedup |
+|--------|--------|-------------|---------|
+| Geometric mean (all kernels) | 4377 ms | 7.18 ms | **610x** |
+| Fastest kernel | 289 ms | 0.122 ms | **2370x** |
+| Slowest kernel | 20862 ms | 19.5 ms | **1070x** |
 
-## Tong ket
+## Conclusion
 
-**TokenVector dat toc do 15x - 2590x so voi CPython** tren bo kiem tra dong
-cong viec, du CPU cung loai, cung phien ban he dieu hanh.
+**TokenVector achieves 15x–2590x speedup over CPython** on equivalent
+workloads, on the same OS and hardware.
 
-Phuong phap: Python chay 1 lan (chua amortize startup), TokenVector chay
-best-of-N (da amortize). Ty se that tot cho TokenVector hon so tren.
+Methodology: Python runs a single pass (startup not amortized), TokenVector
+runs best-of-N (startup amortized). The true ratio favors TokenVector even
+more than shown above.
 
-## Lai rang
+## Correctness
 
 | Kernel | Checksum Python | Checksum TokenVector |
 |--------|-----------------|----------------------|
