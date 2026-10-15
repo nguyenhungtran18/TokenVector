@@ -238,6 +238,24 @@ just run it again), then `tools\testkit_gate.ps1`.
 
 ---
 
+## Benchmark
+
+```powershell
+cd Release\benchmark
+
+# Baseline Python (can Python 3)
+python py_kernels.py fib
+python py_kernels.py string
+python py_kernels.py sort
+python py_kernels.py add
+python py_kernels.py matmul32
+
+# TokenVector (khong can Python)
+.\run_benchmark.exe
+```
+
+Ket qua: `Release\benchmark\KETQUA.md`
+
 *Licence: see `LICENSE`. Roadmap and strategy documents live in
 `docs/ROADMAP.md` and `docs/STRATEGY.md`; engineering
 history lives in `docs/REPOSITORY-NOTES.md`.*
