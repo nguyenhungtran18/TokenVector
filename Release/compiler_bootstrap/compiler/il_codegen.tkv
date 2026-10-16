@@ -4266,10 +4266,15 @@ def _expr_call(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", 
         return
     func_table = (ctx.func_table if ctx is not None else None) or {}
     if name not in func_table:
+        _goi_y = ""
+        if name == 'spawn':
+            _goi_y = " Goi y: dung 'thread_spawn(worker_fn)' thay the (xem threading_feature); 'spawn' khong con ton tai."
+        elif name == 'parallel_for':
+            _goi_y = " Goi y: 'parallel_for' la builtin co san - doi ten ham cua ban de tranh bi che."
         raise SyntaxError(
             f"il_codegen: ham '{name}' khong ton tai (khong phai ham toan hoc, "
             f"cung khong phai builtin thu vien nao (str/pow/re_*/path_*/...), "
-            f"cung khong co trong chuong trinh dang bien dich)")
+            f"cung khong co trong chuong trinh dang bien dich)." + _goi_y)
     callee = func_table[name]
     # Phase 11a (2026-08-28): keyword argument ('f(a=1, b=2)') - resolve
     # NGAY o day (truoc logic duck-typing/monomorphize/n_required ben

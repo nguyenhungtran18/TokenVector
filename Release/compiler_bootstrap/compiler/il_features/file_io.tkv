@@ -191,9 +191,12 @@ def codegen_call_stmt(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype
             body.append('    pop')
             return
         if sig is None:
+            _goi_y2 = ""
+            if name == 'spawn':
+                _goi_y2 = " Goi y: dung 'thread_spawn(worker_fn)' thay the - 'spawn' khong con ton tai."
             raise SyntaxError(
                 f"il_codegen: '{name}(...)' dung o dang lenh doc lap (khong gan bien) - "
-                f"khong tim thay ham nay trong chuong trinh (goi sai ten?)")
+                f"khong tim thay ham nay trong chuong trinh (goi sai ten?)." + _goi_y2)
         ret_dtype = sig.return_type.dtype if sig.return_type is not None else None
         if sig.return_type is None:
             # Ham void: bao cho _expr_call biet loi goi nay o VI TRI LENH
