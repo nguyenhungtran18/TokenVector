@@ -3911,6 +3911,18 @@ def _resolve_record_field_types(record_defs: "dict[str,list[(str,str)]]", extern
         fields = record_defs[rname]
         resolved = []
         for fname, dtype in fields:
+            if dtype == 'inferred':
+                # (2026-10-16) 'inferred' chi ho tro cho THAM SO ham
+                # (duck-typing/monomorphize), KHONG ho tro cho FIELD cua
+                # record - kieu field phai khai bao CU THE de sinh IL.
+                # Truoc day de lot xuong codegen gay KeyError tho
+                # ('The given key was not present in the dictionary', vd
+                # GenConfig.params trong tv.text.generate) hoac loi kho
+                # hieu o xa. Bao ro ngay tai day.
+                raise TranspileError(
+                    f"class '{rname}' field '{fname}': kieu 'inferred' chi dung cho tham so ham, "
+                    f"khong dung cho field cua record - hay khai bao kieu cu the (vd 'SampleParams', "
+                    f"'list[i64]', 'f64') phu hop voi gia tri gan trong __init__")
             if dtype in DTYPES:
                 # CHUAN HOA (2026-09-15): truoc day field VO HUONG giu nguyen
                 # dang CHUOI con field container/record thanh TypeAnn, nen mot

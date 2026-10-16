@@ -2290,7 +2290,7 @@ def _compile_expr(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str
         return
     expr_fn = ctx.reg.expr_codegen.get(ekind(node))
     if expr_fn is None:
-        raise SyntaxError(f'il_codegen: AST node khong ro: {node!r}')
+        raise SyntaxError(f'il_codegen: AST node khong ro: {node!r} (loai: {ekind(node)}) - cu phap/bieu thuc nay chua duoc ho tro')
     expr_fn(node, scope, out, dtype, ctx)
     return
 
@@ -3441,9 +3441,21 @@ def _expr_index_expr(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "
             out.append('    newobj instance void [mscorlib]System.String::.ctor(char, int32)')
             return
     if ta is None:
+        _mo_ta_co_so = ekind(base_node)
+        if _mo_ta_co_so == 'var':
+            _ten_b = ea_str(base_node)
+            try:
+                _ta_b = scope.tra(_ten_b).ta
+                _mo_ta_co_so = 'var ' + _ten_b + ' (dtype=' + str(_ta_b.dtype) + ', shape=' + str(_ta_b.shape_ten) + ')'
+            except Exception:
+                _mo_ta_co_so = 'var ' + _ten_b + ' (khong co trong scope)'
+        elif _mo_ta_co_so == 'call':
+            _mo_ta_co_so = 'call ' + ea_str(base_node) + '(...)'
+        elif _mo_ta_co_so == 'method_call':
+            _mo_ta_co_so = 'method_call'
         raise SyntaxError(
             "il_codegen: '<bieu thuc>[i]' - khong suy duoc hinh dang cua bieu thuc "
-            "ben trai. Ho tro loi goi ham/method tra ve list/dict/chuoi "
+            "ben trai (loai: " + _mo_ta_co_so + "). Ho tro loi goi ham/method tra ve list/dict/chuoi "
             "(vd s.split(\",\")[0], self.src[i]) - truong hop khac thi gan ra 1 bien truoc.")
     col_type = il_type_str(ta, records)
     if _neg_literal_int(idx_node) is not None and ta.shape_ten == 'list':
@@ -6238,6 +6250,17 @@ def _fp_declare_scalar(wc: "WalkCtx", reg: "Registry", name: "str", rhs_node: "T
                 wc.defer(lambda: _hoan_khai_scalar(wc, name, rhs_node))
                 return
         wc.declared_names.add(name)
+        # `_t = xs`: giu nguyen TypeAnn DAY DU cua bien nguon (2026-10-16).
+        if ekind(rhs_node) == 'var':
+            _ta_src = None
+            try:
+                _ta_src = wc.infer_scope.tra(ea_str(rhs_node)).ta
+            except Exception:
+                pass
+            if _ta_src is not None:
+                wc.locals_decl.append((name, _ta_src))
+                wc.infer_scope.set(name, _ta_src)
+                return
         # 2026-10-12: narrow check - neu ten bien trong tap narrow_names,
         # khai bao native i64 thay vi TkvInt de toi uu hoa vong lap tinh toan.
         if name in wc.narrow_names:
@@ -7138,6 +7161,11 @@ def _fpp_assign_scalar(stmt: "i32", ctx: "PrescanCtx"):
                                         ctx.records, ctx.record_methods) is not None:
             infer_scope.set(name, _shaped_return_ta_of_call(reg, rhs_node, ctx.func_table,
                                                             infer_scope, ctx.records, ctx.record_methods))
+        elif ekind(rhs_node) == 'var':
+            try:
+                infer_scope.set(name, infer_scope.tra(ea_str(rhs_node)).ta)
+            except Exception:
+                pass
         else:
             try:
                 inferred = (_infer_dtype(reg, rhs_node, infer_scope, ctx.func_table, records, ctx.record_methods)
