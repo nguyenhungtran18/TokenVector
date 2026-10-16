@@ -2308,6 +2308,17 @@ def _expr_num(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", c
         # il_features/int_type.py.
         compile_literal(text, out, ctx)
         return
+    if dtype not in IL_LDC_OP:
+        # (2026-10-15) Truoc day tra THANG IL_LDC_OP[dtype] -> voi dtype la
+        # 'str'/'bool'/ten-record (vd `def name(self) -> "str": return 0`)
+        # .NET nem KeyNotFoundException ("The given key was not present in
+        # the dictionary") - khong ro rang, khong co so dong, nguoi dung
+        # khong biet phai sua gi. Bao loi TYP CHU de biet lech kieu o dau.
+        raise SyntaxError(
+            f"il_codegen: khong the dung hang so so '{text}' cho kieu '{dtype}' - "
+            f"chi ho tro so (f32/f64/i32/i64) hoac 'int'. "
+            f"Neu cho la chuoi hay boc trong dau nhay; neu that su can thieu sang "
+            f"'{dtype}' hay goi ro rang ham chuyen (vd int(...), str(...)).")
     out.append(f'    {IL_LDC_OP[dtype]} {text}')
 
 
@@ -4463,7 +4474,26 @@ def _expr_ternary(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str
     # id(node): AST duoc parse DUY NHAT 1 LAN (xem _parse_block) va
     # dung lai o ca 2 pass, nen id() la khoa TIN CAY (khac ban truoc
     # dung "thu tu duyet" vi tung phai parse lai bieu thuc 2 lan).
-    tmp_idx = ctx.tern_temp_of_id[nid(node)]
+    # (2026-10-15) NGOAI LE: LICM viet lai AST tai cho (_licm_viet_node
+    # tao node MOI qua mk4/mk2 cho moi 'binop'/'compare'/'boolop'/
+    # 'ternary'..., vd `mask[qi*mskv + min(kj, mskv-1)]` trong vong long)
+    # nen ternary nay first-pass CHUA TUNG thay -> chua co temp. Cap phat
+    # temp ngay tai day (AN TOAN: chuoi `.locals init` duoc sinh SAU
+    # codegen tu ctx.locals_decl, giong cach LICM tu cap __licmN).
+    # Khong raise KeyError tho nhu truoc ('.NET: The given key was not
+    # present in the dictionary').
+    _nid_tern = nid(node)
+    if _nid_tern in ctx.tern_temp_of_id:
+        tmp_idx = ctx.tern_temp_of_id[_nid_tern]
+    else:
+        _nat0 = _infer_dtype(ctx.reg, node, scope, ctx.func_table, ctx.records, ctx.record_methods, ctx.nested_closures)
+        if not _nat0:
+            _nat0 = _infer_literal_dtype(node)
+        if not _nat0:
+            _nat0 = dtype
+        tmp_idx = len(ctx.locals_decl)
+        ctx.tern_temp_of_id[_nid_tern] = tmp_idx
+        ctx.locals_decl.append((f'__tern{tmp_idx}', TypeAnn(_nat0, None)))
     # QUAN TRONG: 'dtype' o day la dtype cua CAC TOAN HANG duoc so
     # sanh (vd f32), KHONG PHAI dtype cua KET QUA so sanh (luon la
     # int32 0/1 do ceq/cgt/clt sinh ra, bat ke toan hang la kieu gi).

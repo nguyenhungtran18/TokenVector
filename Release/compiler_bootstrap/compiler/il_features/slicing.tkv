@@ -243,7 +243,18 @@ def compile_slice(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str
             f"il_codegen: '{src_name}[i:j]' chi ho tro tren list hoac string, "
             f"'{src_name}' co shape={src_ta.shape_repr()} dtype={src_ta.dtype!r}")
 
-    start_idx = scope.tra(f'__slice{nid(node)}_start').idx
+    _ten_slice = f'__slice{nid(node)}_start'
+    try:
+        start_idx = scope.tra(_ten_slice).idx
+    except KeyError:
+        # (2026-10-15) giong ternary (xem _expr_ternary trong il_codegen):
+        # LICM viet lai AST (_licm_viet_node tao node 'slice' MOI qua mk4)
+        # nen slice nay first-pass CHUA TUNG thay -> chua khai bao temp.
+        # Cap temp ngay tai day (AN TOAN: `.locals init` sinh SAU codegen
+        # tu ctx.locals_decl, giong cach LICM tu cap __licmN).
+        ctx.locals_decl.append((_ten_slice, TypeAnn('i32', None)))
+        start_idx = len(ctx.locals_decl) - 1
+        scope.add_local(_ten_slice, start_idx, TypeAnn('i32', None))
 
     def _emit_bound(bnode: "TkvNode", default_is_count: "i32"):
         # Chi so am HANG SO tai compile-time (vd -2) -> Count/Length - N,
