@@ -13,8 +13,8 @@ static double now_ms(void) {
 }
 
 int main(void) {
-    int sizes[] = {32, 64, 128, 192, 256, 384, 512};
-    for (int s = 0; s < 7; s++) {
+    int sizes[] = {32, 64, 128, 192, 256, 384, 512, 768, 1024};
+    for (int s = 0; s < 9; s++) {
         int n = sizes[s];
         long long m = (long long)n * n;
         float*  a  = (float*)malloc((size_t)m * 4);

@@ -22,27 +22,58 @@ static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i
 static void gemm_rows_f64(const double* a, const double* b, double* o, int n, int i0, int i1);
 
 /* So luong thread cho kernel GEMM: 1 neu n nho (tranh overhead), nguoc lai
- * theo so logical processor (toi da 16, khong qua n). */
-#define TKV_MAXT 16
+ * theo so CORE VAT LY (khong dung hyperthread - 2 luong/core tranh nhau bang
+ * thong L3 lam GEMM cham di ro ret). Co the ep bang TKV_GEMM_THREADS. */
+#define TKV_MAXT 32
 static int tkv_min_n = -1;
-static int tkv_cap = -1;
+static int tkv_cap = -1;   /* >0: ep buoc; -1: chua doc env; 0: auto */
+
+/* Dem so core VAT LY (RelationProcessorCore) - tren Windows >= Vista. */
+static int tkv_ncores(void) {
+    DWORD len = 0;
+    if (!GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len) || len == 0)
+        return 0;
+    char* buf = (char*)malloc(len);
+    if (!buf) return 0;
+    int nc = 0;
+    if (GetLogicalProcessorInformationEx(RelationProcessorCore,
+            (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
+        DWORD off = 0;
+        while (off < len) {
+            SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX* p =
+                (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)(buf + off);
+            if (p->Relationship == RelationProcessorCore) nc++;
+            if (p->Size == 0) break;
+            off += p->Size;
+        }
+    }
+    free(buf);
+    return nc;
+}
 
 static int tkv_nthreads(int n) {
     if (tkv_min_n < 0) {
         char buf[32];
         DWORD k = GetEnvironmentVariableA("TKV_GEMM_MIN_N", buf, 32);
-        tkv_min_n = (k > 0 && k < 32) ? atoi(buf) : 96;
+        tkv_min_n = (k > 0 && k < 64) ? atoi(buf) : 96;
         k = GetEnvironmentVariableA("TKV_GEMM_THREADS", buf, 32);
-        tkv_cap = (k > 0 && k < 32) ? atoi(buf) : TKV_MAXT;
-        if (tkv_cap < 1) tkv_cap = 1;
-        if (tkv_cap > TKV_MAXT) tkv_cap = TKV_MAXT;
+        tkv_cap = (k > 0 && k < 64) ? atoi(buf) : 0;   /* 0 = auto (core vat ly) */
     }
     if (n < tkv_min_n) return 1;
-    DWORD c = GetActiveProcessorCount(0xFFFF /* ALL_PROCESSOR_GROUPS */);
+    int c;
+    if (tkv_cap > 0) {
+        c = tkv_cap;
+    } else {
+        c = tkv_ncores();
+        if (c < 1) {
+            DWORD lc = GetActiveProcessorCount(0xFFFF);
+            c = (lc >= 2) ? (int)(lc / 2) : (int)lc;   /* uoc luong HT */
+        }
+    }
     if (c < 1) c = 1;
-    if (c > (DWORD)tkv_cap) c = (DWORD)tkv_cap;
-    if ((int)c > n) c = (DWORD)n;
-    return (int)c;
+    if (c > TKV_MAXT) c = TKV_MAXT;
+    if (c > n) c = n;
+    return c;
 }
 
 /* --- thread pool co dinh (tranh ~0.6ms tao thread moi lan goi) --- */
@@ -69,7 +100,7 @@ static DWORD WINAPI tkv_worker(LPVOID p) {
 
 static BOOL CALLBACK tkv_pool_init(PINIT_ONCE o, PVOID p, PVOID* c) {
     (void)o; (void)p; (void)c;
-    int cap = tkv_cap;
+    int cap = (tkv_cap > 0) ? tkv_cap : tkv_ncores();
     if (cap < 1) cap = TKV_MAXT;
     if (cap > TKV_MAXT) cap = TKV_MAXT;
     for (int t = 0; t < cap; t++) {
@@ -232,48 +263,70 @@ static void pack_b_f32(const float* b, float* bp, int n, int pc, int kc, int jc,
     }
 }
 
+/* Micro-kernel 4x16: 4 hang x 16 cot = 8 ymm accumulator + 2 ymm B.
+ * Moi vong p: 2 load B + 4 broadcast A + 8 FMA -> FMA-bound (4 chu ky FMA
+ * so voi 3 chu ky load) => dat dinh 32 FLOP/cycle/core tren Haswell. */
 static void micro_f32(const float* a, int lda, const float* bp, float* c, int n, int mc, int nc, int kc) {
-    for (int i = 0; i < mc; i += 8) {
-        int mi = mc - i; if (mi > 8) mi = 8;
+    int i = 0;
+    for (; i + 4 <= mc; i += 4) {
         const float* ai = a + (long long)i * lda;
         float* ci = c + (long long)i * n;
-        for (int j = 0; j < nc; j += 8) {
-            int nj = nc - j; if (nj > 8) nj = 8;
-            if (mi == 8 && nj == 8) {
-                __m256 c0 = _mm256_setzero_ps(), c1 = _mm256_setzero_ps();
-                __m256 c2 = _mm256_setzero_ps(), c3 = _mm256_setzero_ps();
-                __m256 c4 = _mm256_setzero_ps(), c5 = _mm256_setzero_ps();
-                __m256 c6 = _mm256_setzero_ps(), c7 = _mm256_setzero_ps();
-                for (int p = 0; p < kc; p++) {
-                    __m256 vb = _mm256_loadu_ps(bp + (long long)p * nc + j);
-                    c0 = _mm256_fmadd_ps(_mm256_set1_ps(ai[p]), vb, c0);
-                    c1 = _mm256_fmadd_ps(_mm256_set1_ps(ai[lda + p]), vb, c1);
-                    c2 = _mm256_fmadd_ps(_mm256_set1_ps(ai[2 * lda + p]), vb, c2);
-                    c3 = _mm256_fmadd_ps(_mm256_set1_ps(ai[3 * lda + p]), vb, c3);
-                    c4 = _mm256_fmadd_ps(_mm256_set1_ps(ai[4 * lda + p]), vb, c4);
-                    c5 = _mm256_fmadd_ps(_mm256_set1_ps(ai[5 * lda + p]), vb, c5);
-                    c6 = _mm256_fmadd_ps(_mm256_set1_ps(ai[6 * lda + p]), vb, c6);
-                    c7 = _mm256_fmadd_ps(_mm256_set1_ps(ai[7 * lda + p]), vb, c7);
-                }
-                float* cj = ci + j;
-                _mm256_storeu_ps(cj, _mm256_add_ps(_mm256_loadu_ps(cj), c0));
-                _mm256_storeu_ps(cj + n, _mm256_add_ps(_mm256_loadu_ps(cj + n), c1));
-                _mm256_storeu_ps(cj + 2 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 2 * n), c2));
-                _mm256_storeu_ps(cj + 3 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 3 * n), c3));
-                _mm256_storeu_ps(cj + 4 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 4 * n), c4));
-                _mm256_storeu_ps(cj + 5 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 5 * n), c5));
-                _mm256_storeu_ps(cj + 6 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 6 * n), c6));
-                _mm256_storeu_ps(cj + 7 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 7 * n), c7));
-            } else {
-                for (int ii = 0; ii < mi; ii++) {
-                    for (int jj = 0; jj < nj; jj++) {
-                        float s = 0.0f;
-                        for (int p = 0; p < kc; p++)
-                            s += ai[(long long)ii * lda + p] * bp[(long long)p * nc + j + jj];
-                        ci[(long long)ii * n + j + jj] += s;
-                    }
-                }
+        int j = 0;
+        for (; j + 16 <= nc; j += 16) {
+            __m256 c0a = _mm256_setzero_ps(), c0b = _mm256_setzero_ps();
+            __m256 c1a = _mm256_setzero_ps(), c1b = _mm256_setzero_ps();
+            __m256 c2a = _mm256_setzero_ps(), c2b = _mm256_setzero_ps();
+            __m256 c3a = _mm256_setzero_ps(), c3b = _mm256_setzero_ps();
+            for (int p = 0; p < kc; p++) {
+                const float* brow = bp + (long long)p * nc + j;
+                __m256 vb0 = _mm256_loadu_ps(brow);
+                __m256 vb1 = _mm256_loadu_ps(brow + 8);
+                __m256 va0 = _mm256_set1_ps(ai[p]);
+                __m256 va1 = _mm256_set1_ps(ai[lda + p]);
+                __m256 va2 = _mm256_set1_ps(ai[2 * lda + p]);
+                __m256 va3 = _mm256_set1_ps(ai[3 * lda + p]);
+                c0a = _mm256_fmadd_ps(va0, vb0, c0a);
+                c0b = _mm256_fmadd_ps(va0, vb1, c0b);
+                c1a = _mm256_fmadd_ps(va1, vb0, c1a);
+                c1b = _mm256_fmadd_ps(va1, vb1, c1b);
+                c2a = _mm256_fmadd_ps(va2, vb0, c2a);
+                c2b = _mm256_fmadd_ps(va2, vb1, c2b);
+                c3a = _mm256_fmadd_ps(va3, vb0, c3a);
+                c3b = _mm256_fmadd_ps(va3, vb1, c3b);
             }
+            float* cj = ci + j;
+            _mm256_storeu_ps(cj, _mm256_add_ps(_mm256_loadu_ps(cj), c0a));
+            _mm256_storeu_ps(cj + 8, _mm256_add_ps(_mm256_loadu_ps(cj + 8), c0b));
+            _mm256_storeu_ps(cj + n, _mm256_add_ps(_mm256_loadu_ps(cj + n), c1a));
+            _mm256_storeu_ps(cj + n + 8, _mm256_add_ps(_mm256_loadu_ps(cj + n + 8), c1b));
+            _mm256_storeu_ps(cj + 2 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 2 * n), c2a));
+            _mm256_storeu_ps(cj + 2 * n + 8, _mm256_add_ps(_mm256_loadu_ps(cj + 2 * n + 8), c2b));
+            _mm256_storeu_ps(cj + 3 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 3 * n), c3a));
+            _mm256_storeu_ps(cj + 3 * n + 8, _mm256_add_ps(_mm256_loadu_ps(cj + 3 * n + 8), c3b));
+        }
+        for (; j < nc; j++) {
+            float s0 = 0.0f, s1 = 0.0f, s2 = 0.0f, s3 = 0.0f;
+            for (int p = 0; p < kc; p++) {
+                float bv = bp[(long long)p * nc + j];
+                s0 += ai[p] * bv;
+                s1 += ai[lda + p] * bv;
+                s2 += ai[2 * lda + p] * bv;
+                s3 += ai[3 * lda + p] * bv;
+            }
+            ci[j] += s0;
+            ci[n + j] += s1;
+            ci[2 * n + j] += s2;
+            ci[3 * n + j] += s3;
+        }
+    }
+    for (; i < mc; i++) {
+        const float* ai = a + (long long)i * lda;
+        float* ci = c + (long long)i * n;
+        for (int j = 0; j < nc; j++) {
+            float s = 0.0f;
+            for (int p = 0; p < kc; p++)
+                s += ai[p] * bp[(long long)p * nc + j];
+            ci[j] += s;
         }
     }
 }
@@ -399,48 +452,70 @@ static void pack_b_f64(const double* b, double* bp, int n, int pc, int kc, int j
     }
 }
 
+/* Micro-kernel 4x8: 4 hang x 8 cot = 8 ymm accumulator + 2 ymm B.
+ * Moi vong p: 2 load B + 4 broadcast A + 8 FMA -> FMA-bound (4 vs 3 chu ky)
+ * => dat dinh 16 FLOP/cycle/core cho f64 tren Haswell. */
 static void micro_f64(const double* a, int lda, const double* bp, double* c, int n, int mc, int nc, int kc) {
-    for (int i = 0; i < mc; i += 8) {
-        int mi = mc - i; if (mi > 8) mi = 8;
+    int i = 0;
+    for (; i + 4 <= mc; i += 4) {
         const double* ai = a + (long long)i * lda;
         double* ci = c + (long long)i * n;
-        for (int j = 0; j < nc; j += 4) {
-            int nj = nc - j; if (nj > 4) nj = 4;
-            if (mi == 8 && nj == 4) {
-                __m256d c0 = _mm256_setzero_pd(), c1 = _mm256_setzero_pd();
-                __m256d c2 = _mm256_setzero_pd(), c3 = _mm256_setzero_pd();
-                __m256d c4 = _mm256_setzero_pd(), c5 = _mm256_setzero_pd();
-                __m256d c6 = _mm256_setzero_pd(), c7 = _mm256_setzero_pd();
-                for (int p = 0; p < kc; p++) {
-                    __m256d vb = _mm256_loadu_pd(bp + (long long)p * nc + j);
-                    c0 = _mm256_fmadd_pd(_mm256_set1_pd(ai[p]), vb, c0);
-                    c1 = _mm256_fmadd_pd(_mm256_set1_pd(ai[lda + p]), vb, c1);
-                    c2 = _mm256_fmadd_pd(_mm256_set1_pd(ai[2 * lda + p]), vb, c2);
-                    c3 = _mm256_fmadd_pd(_mm256_set1_pd(ai[3 * lda + p]), vb, c3);
-                    c4 = _mm256_fmadd_pd(_mm256_set1_pd(ai[4 * lda + p]), vb, c4);
-                    c5 = _mm256_fmadd_pd(_mm256_set1_pd(ai[5 * lda + p]), vb, c5);
-                    c6 = _mm256_fmadd_pd(_mm256_set1_pd(ai[6 * lda + p]), vb, c6);
-                    c7 = _mm256_fmadd_pd(_mm256_set1_pd(ai[7 * lda + p]), vb, c7);
-                }
-                double* cj = ci + j;
-                _mm256_storeu_pd(cj, _mm256_add_pd(_mm256_loadu_pd(cj), c0));
-                _mm256_storeu_pd(cj + n, _mm256_add_pd(_mm256_loadu_pd(cj + n), c1));
-                _mm256_storeu_pd(cj + 2 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 2 * n), c2));
-                _mm256_storeu_pd(cj + 3 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 3 * n), c3));
-                _mm256_storeu_pd(cj + 4 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 4 * n), c4));
-                _mm256_storeu_pd(cj + 5 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 5 * n), c5));
-                _mm256_storeu_pd(cj + 6 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 6 * n), c6));
-                _mm256_storeu_pd(cj + 7 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 7 * n), c7));
-            } else {
-                for (int ii = 0; ii < mi; ii++) {
-                    for (int jj = 0; jj < nj; jj++) {
-                        double s = 0.0;
-                        for (int p = 0; p < kc; p++)
-                            s += ai[(long long)ii * lda + p] * bp[(long long)p * nc + j + jj];
-                        ci[(long long)ii * n + j + jj] += s;
-                    }
-                }
+        int j = 0;
+        for (; j + 8 <= nc; j += 8) {
+            __m256d c0a = _mm256_setzero_pd(), c0b = _mm256_setzero_pd();
+            __m256d c1a = _mm256_setzero_pd(), c1b = _mm256_setzero_pd();
+            __m256d c2a = _mm256_setzero_pd(), c2b = _mm256_setzero_pd();
+            __m256d c3a = _mm256_setzero_pd(), c3b = _mm256_setzero_pd();
+            for (int p = 0; p < kc; p++) {
+                const double* brow = bp + (long long)p * nc + j;
+                __m256d vb0 = _mm256_loadu_pd(brow);
+                __m256d vb1 = _mm256_loadu_pd(brow + 4);
+                __m256d va0 = _mm256_set1_pd(ai[p]);
+                __m256d va1 = _mm256_set1_pd(ai[lda + p]);
+                __m256d va2 = _mm256_set1_pd(ai[2 * lda + p]);
+                __m256d va3 = _mm256_set1_pd(ai[3 * lda + p]);
+                c0a = _mm256_fmadd_pd(va0, vb0, c0a);
+                c0b = _mm256_fmadd_pd(va0, vb1, c0b);
+                c1a = _mm256_fmadd_pd(va1, vb0, c1a);
+                c1b = _mm256_fmadd_pd(va1, vb1, c1b);
+                c2a = _mm256_fmadd_pd(va2, vb0, c2a);
+                c2b = _mm256_fmadd_pd(va2, vb1, c2b);
+                c3a = _mm256_fmadd_pd(va3, vb0, c3a);
+                c3b = _mm256_fmadd_pd(va3, vb1, c3b);
             }
+            double* cj = ci + j;
+            _mm256_storeu_pd(cj, _mm256_add_pd(_mm256_loadu_pd(cj), c0a));
+            _mm256_storeu_pd(cj + 4, _mm256_add_pd(_mm256_loadu_pd(cj + 4), c0b));
+            _mm256_storeu_pd(cj + n, _mm256_add_pd(_mm256_loadu_pd(cj + n), c1a));
+            _mm256_storeu_pd(cj + n + 4, _mm256_add_pd(_mm256_loadu_pd(cj + n + 4), c1b));
+            _mm256_storeu_pd(cj + 2 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 2 * n), c2a));
+            _mm256_storeu_pd(cj + 2 * n + 4, _mm256_add_pd(_mm256_loadu_pd(cj + 2 * n + 4), c2b));
+            _mm256_storeu_pd(cj + 3 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 3 * n), c3a));
+            _mm256_storeu_pd(cj + 3 * n + 4, _mm256_add_pd(_mm256_loadu_pd(cj + 3 * n + 4), c3b));
+        }
+        for (; j < nc; j++) {
+            double s0 = 0.0, s1 = 0.0, s2 = 0.0, s3 = 0.0;
+            for (int p = 0; p < kc; p++) {
+                double bv = bp[(long long)p * nc + j];
+                s0 += ai[p] * bv;
+                s1 += ai[lda + p] * bv;
+                s2 += ai[2 * lda + p] * bv;
+                s3 += ai[3 * lda + p] * bv;
+            }
+            ci[j] += s0;
+            ci[n + j] += s1;
+            ci[2 * n + j] += s2;
+            ci[3 * n + j] += s3;
+        }
+    }
+    for (; i < mc; i++) {
+        const double* ai = a + (long long)i * lda;
+        double* ci = c + (long long)i * n;
+        for (int j = 0; j < nc; j++) {
+            double s = 0.0;
+            for (int p = 0; p < kc; p++)
+                s += ai[p] * bp[(long long)p * nc + j];
+            ci[j] += s;
         }
     }
 }
