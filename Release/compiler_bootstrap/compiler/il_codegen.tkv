@@ -3148,6 +3148,11 @@ def _compile_arg_theo_ta(arg_node: "TkvNode", pta: "TypeAnn", scope: "Scope", ou
         # (vd 'ctx.defer(lambda: f(x))' goi qua truong func cua record).
         _compile_funcref_arg(arg_node, pta, scope, out, ctx)
         return
+    if pta is not None and k in ('dict_lit', 'list_literal', 'tuple_lit'):
+        # literal theo kieu tham so (2026-09-28), vd f({'a': 'b'}) voi tham so
+        # dict[str,str] - cung duong voi 'return {...}' co kieu.
+        _compile_theo_ta(arg_node, pta, pta.dtype, scope, out, ctx)
+        return
     if pta is not None and pta.shape_ten == 'list' and pta.elem_ta is not None and ekind(arg_node) == 'var':
         try:
             _ta_arg = scope.tra(ea_str(arg_node)).ta
