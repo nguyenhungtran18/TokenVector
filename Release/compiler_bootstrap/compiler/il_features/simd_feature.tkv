@@ -608,7 +608,13 @@ def _pt_gemm_mang(d: "str") -> "list[str]":
 
 
 def _pt_gemm_list(d: "str") -> "list[str]":
-    """Gemm<H>L(List<T> a, List<T> b, List<T> o, int32 n): wrapper cho list[f32]."""
+    """Gemm<H>L(List<T> a, List<T> b, List<T> o, int32 n): ghi THANG vao mang nen
+    (_items) cua list qua reflection -> KHONG copy vao/ra (ToArray+Clear+AddRange
+    ton ~0.27ms o n=128, lon hon ca kernel). GetValue tra tham chieu mang nen
+    (capacity >= Count = n*n) nen ghi n*n phan tu la an toan.
+    LUU Y: phai tu pin + goi pinvoke NGAY trong method nay, KHONG duoc goi qua
+    Gemm<H> (khi bi inline voi mang lay tu reflection, JIT sinh con tro sai ->
+    AV hoac ghi sai cho). Da kiem chung bang IL toi gian."""
     t = _ten_il(d)
     h = _hau_to(d)
     lt = 'class [mscorlib]System.Collections.Generic.List`1<' + t + '>'
@@ -616,14 +622,40 @@ def _pt_gemm_list(d: "str") -> "list[str]":
         '  .method public static void Gemm' + h + 'L(' + lt + ' a, ' + lt + ' b, ' + lt + ' o, int32 n) cil managed',
         '  {',
         '    .maxstack 8',
-        '    .locals init (' + t + '[] p0, ' + t + '[] p1, ' + t + '[] p2)',
-        '    ldarg.0', '    callvirt instance !0[] ' + lt + '::ToArray()', '    stloc.0',
-        '    ldarg.1', '    callvirt instance !0[] ' + lt + '::ToArray()', '    stloc.1',
-        '    ldarg.2', '    callvirt instance !0[] ' + lt + '::ToArray()', '    stloc.2',
-        '    ldloc.0', '    ldloc.1', '    ldloc.2', '    ldarg.3',
-        '    call void ' + _SIMD_CLASS + '::Gemm' + h + '(' + t + '[], ' + t + '[], ' + t + '[], int32)',
-        '    ldarg.2', '    callvirt instance void ' + lt + '::Clear()',
-        '    ldarg.2', '    ldloc.2', '    callvirt instance void ' + lt + '::AddRange(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)',
+        '    .locals init (' + t + '[] p0, ' + t + '[] p1, ' + t + '[] p2, int32 need, class [mscorlib]System.Reflection.FieldInfo fi, ' + t + '& pinned q0, ' + t + '& pinned q1, ' + t + '& pinned q2)',
+        '    ldarg.3',
+        '    ldc.i4.0',
+        '    ble V_GEMLEND',
+        '    ldarg.3',
+        '    ldarg.3',
+        '    mul',
+        '    stloc.3',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 4',
+        '    ldloc.s 4', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass ' + t + '[]', '    stloc.0',
+        '    ldloc.s 4', '    ldarg.1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass ' + t + '[]', '    stloc.1',
+        '    ldloc.s 4', '    ldarg.2', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass ' + t + '[]', '    stloc.2',
+        '    ldloc.0', '    ldlen', '    conv.i4', '    ldloc.3', '    blt V_GEMLBAD',
+        '    ldloc.1', '    ldlen', '    conv.i4', '    ldloc.3', '    blt V_GEMLBAD',
+        '    ldloc.2', '    ldlen', '    conv.i4', '    ldloc.3', '    blt V_GEMLBAD',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema ' + t, '    stloc.s 5',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema ' + t, '    stloc.s 6',
+        '    ldloc.2', '    ldc.i4.0', '    ldelema ' + t, '    stloc.s 7',
+        '    ldloc.s 5', '    conv.i',
+        '    ldloc.s 6', '    conv.i',
+        '    ldloc.s 7', '    conv.i',
+        '    ldarg.3',
+        '    call void ' + _SIMD_CLASS + '::Gemm' + h + 'Native(native int, native int, native int, int32)',
+        '    ret',
+        '  V_GEMLBAD:',
+        '    ldstr "simd_gemm: moi list phai co it nhat n*n phan tu"',
+        '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)',
+        '    throw',
+        '  V_GEMLEND:',
         '    ret',
         '  }',
     ]
