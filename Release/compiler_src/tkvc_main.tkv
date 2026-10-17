@@ -3,10 +3,10 @@
 # nam trong cay .py vi CPython da co tkv.py (argparse/pathlib) lam CLI.
 
 
-def dich_mot(nguon: "str", ra: "str", vao: "str") -> "i32":
+def dich_mot(nguon: "str", ra: "str", vao: "str", verify_all: "i32" = 0) -> "i32":
     """Dich mot nguon; in ket qua. Tra 0 neu dich duoc, 1 neu loi (khong nem ngoai le ra ngoai)."""
     try:
-        ra_exe = compile_tkv_cli(nguon, ra, vao)
+        ra_exe = compile_tkv_cli(nguon, ra, vao, verify_all=verify_all)
         print("[tkvc] da dich: " + ra_exe)
         return 0
     except CliError as e:
@@ -41,16 +41,32 @@ def dich_lo(duong_ds: "str") -> "i32":
 
 def main() -> "i32":
     ds = sys_argv()
-    if len(ds) == 2 and ds[1].startswith("@"):
-        arg1 = ds[1]
-        so_loi = dich_lo(arg1[1:])
-        if so_loi > 0:
-            return 1
-        return 0
+    verify_all = 0
+    i = 1
+    while i < len(ds):
+        if ds[i] == "--verify-all":
+            verify_all = 1
+        elif ds[i].startswith("@"):
+            arg1 = ds[i]
+            so_loi = dich_lo(arg1[1:])
+            if so_loi > 0:
+                return 1
+            return 0
+        i = i + 1
     if len(ds) < 3:
-        print("dung: tkvc <nguon.tkv> <ra.exe> [ten_ham_vao]  |  tkvc @ds.txt")
+        print("dung: tkvc <nguon.tkv> <ra.exe> [ten_ham_vao]  [--verify-all]  |  tkvc @ds.txt")
         return 2
     vao = None
-    if len(ds) >= 4:
-        vao = ds[3]
-    return dich_mot(ds[1], ds[2], vao)
+    for a in ds:
+        if not a.startswith("--") and not a.startswith("@"):
+            if vao is None:
+                vao = a
+            elif isinstance(vao, str) and vao != a:
+                pass
+    # Lay 2 tham so dau tien khong co dau --
+    pos = [a for a in ds[1:] if not a.startswith("--")]
+    if len(pos) < 2:
+        print("dung: tkvc <nguon.tkv> <ra.exe> [ten_ham_vao]  [--verify-all]  |  tkvc @ds.txt")
+        return 2
+    ten_vao = pos[2] if len(pos) >= 3 else None
+    return dich_mot(pos[0], pos[1], ten_vao, verify_all=verify_all)

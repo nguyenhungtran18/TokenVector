@@ -5063,7 +5063,7 @@ def _compute_record_overrides(record_bases: "dict[str,list[str]]", record_method
 
 
 def compile_tkv_cli(tkv_path: "str", out_exe: "str", entry_name: "str"=None, class_name: "str"='TKVApp', debug: "i32"=False,
-                     reg: "Registry"=None) -> "str":
+                     reg: "Registry"=None, verify_all: "i32"=False) -> "str":
     """Bien dich 1 file `.tkv` THAT thanh `.exe` GOI DUOC TU DONG LENH
     TRUC TIEP (tu dong sinh Main(), khong can tu tay viet IL nhu moi vi
     du truoc day trong session) - argv[0..] anh xa THEO THU TU tham so
@@ -5073,7 +5073,11 @@ def compile_tkv_cli(tkv_path: "str", out_exe: "str", entry_name: "str"=None, cla
     can co 1 ham ten 'main' hoac phai truyen entry_name ro rang. Ho tro
     '__tkv_import__' (khoang trong ngon ngu #3) qua extract_program_file -
     entry_name co the la ham dinh nghia trong file IMPORT, khong chi file
-    goc (func_table gop CA HAI)."""
+    goc (func_table gop CA HAI).
+
+    verify_all: neu 1, bien dich TAT CA ham trong file (khong chi ham vao
+    va cac ham duoc goi thuan tu) - phat minh loi o cac ham khong duoc goi
+    (lazy compile bo qua)."""
     # P6 chang 1c: MOI luot bien dich co bo bang dieu phoi RIENG. Caller
     # co the truyen `reg` de TU KIEM TRA nhung gi luot do dang ky
     # (cac test extern lam vay) - mac dinh la mot bo moi tinh.
