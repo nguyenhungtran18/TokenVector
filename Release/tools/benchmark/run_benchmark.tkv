@@ -330,7 +330,7 @@ def b_f32mm_simd(runs: "i32", n: "i32") -> "f64":
         if d < best:
             best = d
         rp = rp + 1
-    print("f32mm_simd=" + str(p0) + "  best=" + str(best))
+    print("f32mm_simd(n=" + str(n) + ")=" + str(p0) + "  best=" + str(best))
     return best
 
 
@@ -346,6 +346,7 @@ def main() -> "i32":
     t32 = b_f32mm(100, 32)
     t32v = b_f32mm_vec(100, 32)
     t32s = b_f32mm_simd(100, 32)
+    t128s = b_f32mm_simd(30, 128)
     print()
     print("=== TONG KET (ms, best-of-N) ===")
     print("fib            " + str(tf))
@@ -355,8 +356,9 @@ def main() -> "i32":
     print("matmul32       " + str(tm))
     print("f32mm scalar   " + str(t32))
     print("f32mm vec      " + str(t32v) + "   (nhanh hon scalar " + str(t32 / t32v) + "x)")
-    print("f32mm simd     " + str(t32s) + "   (nhanh hon scalar " + str(t32 / t32s) + "x)")
+    print("f32mm simd n32 " + str(t32s) + "   (nhanh hon scalar " + str(t32 / t32s) + "x)")
+    print("f32mm simd n128 " + str(t128s))
     # Phai DUNG moi bien, neu khong JIT coi ket qua la chet
-    if tf < 0.0 or ts < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or t32 < 0.0 or t32v < 0.0 or t32s < 0.0:
+    if tf < 0.0 or ts < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or t32 < 0.0 or t32v < 0.0 or t32s < 0.0 or t128s < 0.0:
         return 1
     return 0
