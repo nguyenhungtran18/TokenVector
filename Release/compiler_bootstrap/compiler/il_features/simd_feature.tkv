@@ -504,6 +504,68 @@ def _pt_native_ho_tro() -> "list[str]":
     return ra
 
 
+def _mang_khoi_list(ten_ham: "str", n_mang_vao: "int", co_mang_ra: "i32",
+                    ret: "str", d: "str") -> "list[str]":
+    """Wrapper nhan `List<T>` thay vi `T[]` (2026-10-17).
+
+    Kieu tensor chuan cua repo inference la `list[f32]` (shape=list) chu khong
+    phai mang array - `_dtype_mang` truoc day CHI nhan `ta.dims` nen `simd_*`
+    tu choi `list[f32]`, khoa SIMD cho ca repo do. Ham nay giao tiep sang ban
+    mang (`T[]`) da co, va (neu co mang ra) ghi ket qua nguoc lai vao list.
+
+    Bien co thu tu san cho viec xep ngan xe: moi `List<T>` -> `ToArray()` bo
+    vao local, nen khong can temp o ben goi (noi do khong cap duoc local).
+    """
+    t = _ten_il(d)
+    h = _hau_to(d)
+    lt = 'class [mscorlib]System.Collections.Generic.List`1<' + t + '>'
+    ien = 'class [mscorlib]System.Collections.Generic.IEnumerable`1<' + t + '>'
+    thanh_so: "list[str]" = []
+    for i in range(n_mang_vao):
+        thanh_so.append(lt + ' a' + str(i))
+    if co_mang_ra:
+        thanh_so.append(lt + ' o')
+    L: "list[str]" = []
+    L.append('  .method public static ' + ret + ' ' + ten_ham + 'L' + h + '(' + ', '.join(thanh_so) + ') cil managed')
+    L.append('  {')
+    n_local = n_mang_vao + (1 if co_mang_ra else 0)
+    L.append('    .maxstack 8')
+    loc = ''
+    for j in range(n_local):
+        loc = (loc + ', ' if loc != '' else '') + t + '[] p' + str(j)
+    L.append('    .locals init (' + loc + ')')
+    for i in range(n_mang_vao):
+        L.append('    ldarg.' + str(i))
+        # `!0` (VAR) cho moi vi tri tham so/gia tri tra ve co T - KHONG duoc
+        # viet kieu cu the. Day la convention san co cua compiler (xem
+        # list_type.tkv::Add(!0), nested_array_extern.tkv::ToArray()).
+        # Viet kieu cu the -> runtime "Method not found" vi ilasm tao MemberRef
+        # tren generic type MO, bo qua instantiation (da kiem chung bang IL
+        # viet tay + Framework ilasm).
+        L.append('    callvirt instance !0[] ' + lt + '::ToArray()')
+        L.append('    stloc.' + str(i))
+    if co_mang_ra:
+        L.append('    ldarg.' + str(n_mang_vao - 1))
+        L.append('    callvirt instance !0[] ' + lt + '::ToArray()')
+        L.append('    stloc.' + str(n_mang_vao))
+    for j in range(n_local):
+        L.append('    ldloc.' + str(j))
+    sig_il = _join_lap(t + '[]', n_local)
+    L.append('    call ' + ret + ' ' + _SIMD_CLASS + '::' + ten_ham + h + '(' + sig_il + ')')
+    if co_mang_ra:
+        L.append('    ldarg.' + str(n_mang_vao))
+        L.append('    callvirt instance void ' + lt + '::Clear()')
+        L.append('    ldarg.' + str(n_mang_vao))
+        L.append('    ldloc.' + str(n_mang_vao))
+        L.append('    callvirt instance void ' + lt + '::AddRange(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    # KHONG day `ldc.i4.0` truoc `ret`: ham tra void thi `ret` phai co ngan
+    # xe RONG; day gia tri -> InvalidProgramException. Voi ham giam (Sum/Max/
+    # Min/Dot) gia tri ket qua cua ham mang da con tren ngan xe.
+    L.append('    ret')
+    L.append('  }')
+    return L
+
+
 def _lop_simd() -> "list[str]":
     ra = ['.class public auto ansi beforefieldinit ' + _SIMD_CLASS + ' extends [mscorlib]System.Object', '{']
     ra = ra + _pt_native_ho_tro()
@@ -536,6 +598,16 @@ def _lop_simd() -> "list[str]":
     for d in ('f32', 'f64', 'i32', 'i64'):
         ra = ra + _pt_cuc_tri(d, 'Max', 'ble')
         ra = ra + _pt_cuc_tri(d, 'Min', 'bge')
+    # Wrapper `List<T>` (2026-10-17) - cho phep simd_* nhan kieu tensor
+    # `list[f32]/list[f64]/...` cua repo inference, thay vi chi nhan mang array.
+    for d in ('f32', 'f64', 'i32', 'i64'):
+        ra = ra + _mang_khoi_list('Add', 2, 1, 'void', d)
+        ra = ra + _mang_khoi_list('Sub', 2, 1, 'void', d)
+        ra = ra + _mang_khoi_list('Mul', 2, 1, 'void', d)
+        ra = ra + _mang_khoi_list('Dot', 2, 0, _ten_il(d), d)
+        ra = ra + _mang_khoi_list('Sum', 1, 0, _ten_il(d), d)
+        ra = ra + _mang_khoi_list('Max', 1, 0, _ten_il(d), d)
+        ra = ra + _mang_khoi_list('Min', 1, 0, _ten_il(d), d)
     ra.append('}')
     return ra
 
@@ -557,14 +629,47 @@ def _ensure_class_simd(ctx: "Ctx"):
     ctx.extra_classes.append(_lop_simd())
 
 
+def _join_lap(x: "str", n: "int") -> "str":
+    """`', '.join([x] * n)` nhung viet bang loop co kieu tuong minh - `[x] * n`
+    bi compiler suy ra `int` nen `.join` bao loi (2026-10-17)."""
+    ds: "list[str]" = []
+    for i in range(n):
+        ds.append(x)
+    return ', '.join(ds)
+
+
+def _la_list(node: "TkvNode", scope: "Scope") -> "i32":
+    """True neu node la bien kieu `list[dtype]` (tensor cua repo inference)."""
+    if ekind(node) != 'var':
+        return 0
+    try:
+        ta = scope.tra(ea_str(node)).ta
+    except Exception:
+        return 0
+    if ta.shape_ten == 'list' and ta.dtype in ('f32', 'f64', 'i32', 'i64'):
+        return 1
+    return 0
+
+
 def _dtype_mang(node: "TkvNode", scope: "Scope", ten_ham: "str") -> "str":
-    """dtype phan tu cua bien MANG rank 1 (f32/f64/i32/i64); loi ro neu khong dung."""
+    """dtype phan tu cua bien MANG rank 1 (f32/f64/i32/i64); loi ro neu khong dung.
+
+    2026-10-17: chap nhan ca MANG (`ta.dims`) va `list[dtype]` - kieu tensor
+    chuan cua repo inference la `list[f32]`, truoc day bi tu choi o day nen
+    SIMD khong dung duoc repo do du B-04 da ship DLL.
+    """
     if ekind(node) != 'var':
         raise SyntaxError("il_codegen: " + ten_ham + "() nhan BIEN mang rank 1 (vd np.zeros(n, dtype=np.float32)), gap bieu thuc")
     ta = scope.tra(ea_str(node)).ta
-    if not ta.dims or len(ta.dims) != 1 or ta.dtype not in ('f32', 'f64', 'i32', 'i64'):
+    la_mang = False
+    if ta.dims and len(ta.dims) == 1:
+        la_mang = True
+    elif ta.shape_ten == 'list':
+        la_mang = True
+    if not la_mang or ta.dtype not in ('f32', 'f64', 'i32', 'i64'):
         raise SyntaxError(
-            "il_codegen: " + ten_ham + "(" + ea_str(node) + ") can mang rank 1 kieu f32/f64/i32/i64, "
+            "il_codegen: " + ten_ham + "(" + ea_str(node) + ") can mang rank 1 kieu f32/f64/i32/i64 "
+            "(hoac list[f32]/list[f64]/list[i32]/list[i64]), "
             "'" + ea_str(node) + "' co dtype=" + str(ta.dtype) + " shape=" + ta.shape_str())
     return ta.dtype
 
@@ -593,7 +698,13 @@ def compile_simd_dot(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dt
     _ensure_class_simd(ctx)
     _nap_mang(args[0], scope, out, ctx)
     _nap_mang(args[1], scope, out, ctx)
-    out.append('    call ' + _ten_il(d) + ' ' + _SIMD_CLASS + '::Dot' + _hau_to(d) + '(' + _ten_il(d) + '[], ' + _ten_il(d) + '[])')
+    if _la_list(args[0], scope) or _la_list(args[1], scope):
+        if not (_la_list(args[0], scope) and _la_list(args[1], scope)):
+            raise SyntaxError("il_codegen: simd_dot: hoac ca 2 tham so deu la list[" + d + "], hoac ca 2 deu la mang - khong tron hai loai")
+        out.append('    call ' + _ten_il(d) + ' ' + _SIMD_CLASS + '::DotL' + _hau_to(d) +
+                   '(' + _join_lap('class [mscorlib]System.Collections.Generic.List`1<' + _ten_il(d) + '>', 2) + ')')
+    else:
+        out.append('    call ' + _ten_il(d) + ' ' + _SIMD_CLASS + '::Dot' + _hau_to(d) + '(' + _ten_il(d) + '[], ' + _ten_il(d) + '[])')
     ctx.widen_if_needed(d, dtype, out)
 
 
@@ -603,7 +714,11 @@ def _compile_thu_gon(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dt
     d = _dtype_mang(args[0], scope, 'simd_' + ten.lower())
     _ensure_class_simd(ctx)
     _nap_mang(args[0], scope, out, ctx)
-    out.append('    call ' + _ten_il(d) + ' ' + _SIMD_CLASS + '::' + hop + _hau_to(d) + '(' + _ten_il(d) + '[])')
+    if _la_list(args[0], scope):
+        out.append('    call ' + _ten_il(d) + ' ' + _SIMD_CLASS + '::' + hop + 'L' + _hau_to(d) +
+                   '(class [mscorlib]System.Collections.Generic.List`1<' + _ten_il(d) + '>)')
+    else:
+        out.append('    call ' + _ten_il(d) + ' ' + _SIMD_CLASS + '::' + hop + _hau_to(d) + '(' + _ten_il(d) + '[])')
     ctx.widen_if_needed(d, dtype, out)
 
 
@@ -626,6 +741,20 @@ def _compile_vong_2(args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx
     if _dtype_mang(args[1], scope, ten_ham) != d or _dtype_mang(args[2], scope, ten_ham) != d:
         raise SyntaxError("il_codegen: " + ten_ham + ": ba mang phai CUNG kieu phan tu")
     _ensure_class_simd(ctx)
+    # 2026-10-17: ca 3 deu la `list[dtype]` -> goi wrapper `HopL<T>` (tu
+    # ToArray() ben trong ham wrapper). Neu chi mot phia la list thi van phai
+    # truyen mang - nen yeu cau ca 3 cung loai, bao loi ro.
+    if _la_list(args[0], scope) or _la_list(args[1], scope) or _la_list(args[2], scope):
+        if not (_la_list(args[0], scope) and _la_list(args[1], scope) and _la_list(args[2], scope)):
+            raise SyntaxError(
+                "il_codegen: " + ten_ham + ": hoac ca 3 tham so deu la list["
+                + d + "], hoac ca 3 deu la mang - khong tron hai loai")
+        for a in args:
+            _nap_mang(a, scope, out, ctx)
+        out.append('    call void ' + _SIMD_CLASS + '::' + hop + 'L' + _hau_to(d) +
+                   '(' + _join_lap('class [mscorlib]System.Collections.Generic.List`1<' + _ten_il(d) + '>', 3) + ')')
+        out.append('    ldc.i4.0')
+        return
     _nap_mang(args[0], scope, out, ctx)
     _nap_mang(args[1], scope, out, ctx)
     _nap_mang(args[2], scope, out, ctx)
