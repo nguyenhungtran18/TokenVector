@@ -3148,11 +3148,19 @@ def _compile_arg_theo_ta(arg_node: "TkvNode", pta: "TypeAnn", scope: "Scope", ou
         # (vd 'ctx.defer(lambda: f(x))' goi qua truong func cua record).
         _compile_funcref_arg(arg_node, pta, scope, out, ctx)
         return
-    if pta is not None and k in ('dict_lit', 'list_literal', 'tuple_lit'):
-        # literal theo kieu tham so (2026-09-28), vd f({'a': 'b'}) voi tham so
-        # dict[str,str] - cung duong voi 'return {...}' co kieu.
-        _compile_theo_ta(arg_node, pta, pta.dtype, scope, out, ctx)
-        return
+    if pta is not None and pta.shape_ten == 'list' and pta.elem_ta is not None and ekind(arg_node) == 'var':
+        try:
+            _ta_arg = scope.tra(ea_str(arg_node)).ta
+        except Exception:
+            _ta_arg = None
+        if _ta_arg is not None and _ta_arg.shape_ten == 'list' and _ta_arg.elem_ta is not None:
+            _dt_arg = _ta_arg.elem_ta.dtype
+            _dt_pta = pta.elem_ta.dtype
+            if _dt_arg != _dt_pta and _dt_arg in _SCALAR_FOR_COERCE and _dt_pta in _SCALAR_FOR_COERCE:
+                raise SyntaxError(
+                    f"il_codegen: bien '{ea_str(arg_node)}' ({_ta_arg.shape_ten}[{_dt_arg}]) vao tham so "
+                    f"kieu {pta.shape_ten}[{_dt_pta}] - kieu phan tu/container KHONG khop. "
+                    f"Khai bao bien dung kieu hoac copy chuyen doi tuong minh truoc khi goi.")
     _compile_expr(arg_node, scope, out, pta.dtype, ctx)
 
 
