@@ -14,6 +14,7 @@
 #include <immintrin.h>
 #include <windows.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define EXPORT __declspec(dllexport)
 
@@ -84,7 +85,9 @@ static BOOL CALLBACK tkv_pool_init(PINIT_ONCE o, PVOID p, PVOID* c) {
 static void tkv_run_mt(int nt, const void* a, const void* b, void* o, int n, int f64) {
     InitOnceExecuteOnce(&g_once, tkv_pool_init, NULL, NULL);
     if (nt > g_nw) nt = g_nw;
+    int align = 8;
     int per = (n + nt - 1) / nt;
+    per = ((per + align - 1) / align) * align;   /* canh boi so micro-kernel */
     int used = 0;
     for (int t = 0; t < nt; t++) {
         int i0 = t * per, i1 = i0 + per;
@@ -207,62 +210,87 @@ EXPORT float MinF32(float* a, int n) {
     return r;
 }
 
-/* SGEMM C = A*B, A/B/C deu n x n, row-major, C ghi de. */
-/* Micro-kernel 8 hang x 8 cot: tai b[k][j..j+7] MOT lan, dung cho 8 hang A.
- * Tang cuong so hoc ~8x so voi row-broadcast (diem nghen cua ban dau). */
-static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i0, int i1) {
-    int i = i0;
-    for (; i + 8 <= i1; i += 8) {
-        const float* a0 = a + (long long)i * n;
-        float* o0 = o + (long long)i * n;
-        int j = 0;
-        for (; j + 8 <= n; j += 8) {
-            __m256 c0 = _mm256_setzero_ps(), c1 = _mm256_setzero_ps();
-            __m256 c2 = _mm256_setzero_ps(), c3 = _mm256_setzero_ps();
-            __m256 c4 = _mm256_setzero_ps(), c5 = _mm256_setzero_ps();
-            __m256 c6 = _mm256_setzero_ps(), c7 = _mm256_setzero_ps();
-            for (int k = 0; k < n; k++) {
-                __m256 vb = _mm256_loadu_ps(b + (long long)k * n + j);
-                c0 = _mm256_fmadd_ps(_mm256_set1_ps(a0[k]), vb, c0);
-                c1 = _mm256_fmadd_ps(_mm256_set1_ps(a0[n + k]), vb, c1);
-                c2 = _mm256_fmadd_ps(_mm256_set1_ps(a0[2 * n + k]), vb, c2);
-                c3 = _mm256_fmadd_ps(_mm256_set1_ps(a0[3 * n + k]), vb, c3);
-                c4 = _mm256_fmadd_ps(_mm256_set1_ps(a0[4 * n + k]), vb, c4);
-                c5 = _mm256_fmadd_ps(_mm256_set1_ps(a0[5 * n + k]), vb, c5);
-                c6 = _mm256_fmadd_ps(_mm256_set1_ps(a0[6 * n + k]), vb, c6);
-                c7 = _mm256_fmadd_ps(_mm256_set1_ps(a0[7 * n + k]), vb, c7);
-            }
-            _mm256_storeu_ps(o0 + j, c0);
-            _mm256_storeu_ps(o0 + n + j, c1);
-            _mm256_storeu_ps(o0 + 2 * n + j, c2);
-            _mm256_storeu_ps(o0 + 3 * n + j, c3);
-            _mm256_storeu_ps(o0 + 4 * n + j, c4);
-            _mm256_storeu_ps(o0 + 5 * n + j, c5);
-            _mm256_storeu_ps(o0 + 6 * n + j, c6);
-            _mm256_storeu_ps(o0 + 7 * n + j, c7);
-        }
-        for (; j < n; j++) {
-            for (int r = 0; r < 8; r++) {
-                float s = 0.0f;
-                for (int k = 0; k < n; k++) s += a0[r * n + k] * b[(long long)k * n + j];
-                o0[r * n + j] = s;
+/* SGEMM C = A*B, A/B/C deu n x n, row-major, C ghi de (duoc goi 1 lan). */
+/* Cache blocking: micro-kernel 8x8 + j-block (NC) + k-block (KC), PACK B
+ * panel (KC x NC) de no nam trong L1/L2 va duoc tai lai re cho moi i-block.
+ * A doc truc tiep theo hang (a[ii*lda+p], lien tuc theo p) -> khong can pack. */
+#ifndef GEMM_KC
+#define GEMM_KC 64
+#endif
+#ifndef GEMM_MC
+#define GEMM_MC 64
+#endif
+#ifndef GEMM_NC
+#define GEMM_NC 64
+#endif
+
+static void pack_b_f32(const float* b, float* bp, int n, int pc, int kc, int jc, int nc) {
+    for (int p = 0; p < kc; p++) {
+        const float* src = b + (long long)(pc + p) * n + jc;
+        float* dst = bp + (long long)p * nc;
+        for (int j = 0; j < nc; j++) dst[j] = src[j];
+    }
+}
+
+static void micro_f32(const float* a, int lda, const float* bp, float* c, int n, int mc, int nc, int kc) {
+    for (int i = 0; i < mc; i += 8) {
+        int mi = mc - i; if (mi > 8) mi = 8;
+        const float* ai = a + (long long)i * lda;
+        float* ci = c + (long long)i * n;
+        for (int j = 0; j < nc; j += 8) {
+            int nj = nc - j; if (nj > 8) nj = 8;
+            if (mi == 8 && nj == 8) {
+                __m256 c0 = _mm256_setzero_ps(), c1 = _mm256_setzero_ps();
+                __m256 c2 = _mm256_setzero_ps(), c3 = _mm256_setzero_ps();
+                __m256 c4 = _mm256_setzero_ps(), c5 = _mm256_setzero_ps();
+                __m256 c6 = _mm256_setzero_ps(), c7 = _mm256_setzero_ps();
+                for (int p = 0; p < kc; p++) {
+                    __m256 vb = _mm256_loadu_ps(bp + (long long)p * nc + j);
+                    c0 = _mm256_fmadd_ps(_mm256_set1_ps(ai[p]), vb, c0);
+                    c1 = _mm256_fmadd_ps(_mm256_set1_ps(ai[lda + p]), vb, c1);
+                    c2 = _mm256_fmadd_ps(_mm256_set1_ps(ai[2 * lda + p]), vb, c2);
+                    c3 = _mm256_fmadd_ps(_mm256_set1_ps(ai[3 * lda + p]), vb, c3);
+                    c4 = _mm256_fmadd_ps(_mm256_set1_ps(ai[4 * lda + p]), vb, c4);
+                    c5 = _mm256_fmadd_ps(_mm256_set1_ps(ai[5 * lda + p]), vb, c5);
+                    c6 = _mm256_fmadd_ps(_mm256_set1_ps(ai[6 * lda + p]), vb, c6);
+                    c7 = _mm256_fmadd_ps(_mm256_set1_ps(ai[7 * lda + p]), vb, c7);
+                }
+                float* cj = ci + j;
+                _mm256_storeu_ps(cj, _mm256_add_ps(_mm256_loadu_ps(cj), c0));
+                _mm256_storeu_ps(cj + n, _mm256_add_ps(_mm256_loadu_ps(cj + n), c1));
+                _mm256_storeu_ps(cj + 2 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 2 * n), c2));
+                _mm256_storeu_ps(cj + 3 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 3 * n), c3));
+                _mm256_storeu_ps(cj + 4 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 4 * n), c4));
+                _mm256_storeu_ps(cj + 5 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 5 * n), c5));
+                _mm256_storeu_ps(cj + 6 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 6 * n), c6));
+                _mm256_storeu_ps(cj + 7 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 7 * n), c7));
+            } else {
+                for (int ii = 0; ii < mi; ii++) {
+                    for (int jj = 0; jj < nj; jj++) {
+                        float s = 0.0f;
+                        for (int p = 0; p < kc; p++)
+                            s += ai[(long long)ii * lda + p] * bp[(long long)p * nc + j + jj];
+                        ci[(long long)ii * n + j + jj] += s;
+                    }
+                }
             }
         }
     }
-    for (; i < i1; i++) {
-        const float* ai = a + (long long)i * n;
-        float* oi = o + (long long)i * n;
-        int j = 0;
-        for (; j + 8 <= n; j += 8) {
-            __m256 acc = _mm256_setzero_ps();
-            for (int k = 0; k < n; k++)
-                acc = _mm256_fmadd_ps(_mm256_set1_ps(ai[k]), _mm256_loadu_ps(b + (long long)k * n + j), acc);
-            _mm256_storeu_ps(oi + j, acc);
-        }
-        for (; j < n; j++) {
-            float acc = 0.0f;
-            for (int k = 0; k < n; k++) acc += ai[k] * b[(long long)k * n + j];
-            oi[j] = acc;
+}
+
+static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i0, int i1) {
+    if (i1 <= i0) return;
+    memset(o + (long long)i0 * n, 0, (size_t)(i1 - i0) * n * sizeof(float));
+    static __declspec(thread) float bp[GEMM_KC * GEMM_NC];
+    for (int jc = 0; jc < n; jc += GEMM_NC) {
+        int nc = n - jc; if (nc > GEMM_NC) nc = GEMM_NC;
+        for (int pc = 0; pc < n; pc += GEMM_KC) {
+            int kc = n - pc; if (kc > GEMM_KC) kc = GEMM_KC;
+            pack_b_f32(b, bp, n, pc, kc, jc, nc);
+            for (int ic = i0; ic < i1; ic += GEMM_MC) {
+                int mc = i1 - ic; if (mc > GEMM_MC) mc = GEMM_MC;
+                micro_f32(a + (long long)ic * n + pc, n, bp, o + (long long)ic * n + jc, n, mc, nc, kc);
+            }
         }
     }
 }
@@ -352,51 +380,84 @@ EXPORT double MaxF64(double* a, int n) {
     return r;
 }
 
-/* SGEMM f64: C = A*B, n x n row-major. */
-/* Micro-kernel 4 hang x 4 cot (f64). */
-static void gemm_rows_f64(const double* a, const double* b, double* o, int n, int i0, int i1) {
-    int i = i0;
-    for (; i + 4 <= i1; i += 4) {
-        const double* a0 = a + (long long)i * n;
-        double* o0 = o + (long long)i * n;
-        int j = 0;
-        for (; j + 4 <= n; j += 4) {
-            __m256d c0 = _mm256_setzero_pd(), c1 = _mm256_setzero_pd();
-            __m256d c2 = _mm256_setzero_pd(), c3 = _mm256_setzero_pd();
-            for (int k = 0; k < n; k++) {
-                __m256d vb = _mm256_loadu_pd(b + (long long)k * n + j);
-                c0 = _mm256_fmadd_pd(_mm256_set1_pd(a0[k]), vb, c0);
-                c1 = _mm256_fmadd_pd(_mm256_set1_pd(a0[n + k]), vb, c1);
-                c2 = _mm256_fmadd_pd(_mm256_set1_pd(a0[2 * n + k]), vb, c2);
-                c3 = _mm256_fmadd_pd(_mm256_set1_pd(a0[3 * n + k]), vb, c3);
-            }
-            _mm256_storeu_pd(o0 + j, c0);
-            _mm256_storeu_pd(o0 + n + j, c1);
-            _mm256_storeu_pd(o0 + 2 * n + j, c2);
-            _mm256_storeu_pd(o0 + 3 * n + j, c3);
-        }
-        for (; j < n; j++) {
-            for (int r = 0; r < 4; r++) {
-                double s = 0.0;
-                for (int k = 0; k < n; k++) s += a0[r * n + k] * b[(long long)k * n + j];
-                o0[r * n + j] = s;
+/* SGEMM f64: C = A*B, n x n row-major, C ghi de. Cache blocking kieu Goto. */
+#ifndef GEMM_KC64
+#define GEMM_KC64 64
+#endif
+#ifndef GEMM_MC64
+#define GEMM_MC64 32
+#endif
+#ifndef GEMM_NC64
+#define GEMM_NC64 64
+#endif
+
+static void pack_b_f64(const double* b, double* bp, int n, int pc, int kc, int jc, int nc) {
+    for (int p = 0; p < kc; p++) {
+        const double* src = b + (long long)(pc + p) * n + jc;
+        double* dst = bp + (long long)p * nc;
+        for (int j = 0; j < nc; j++) dst[j] = src[j];
+    }
+}
+
+static void micro_f64(const double* a, int lda, const double* bp, double* c, int n, int mc, int nc, int kc) {
+    for (int i = 0; i < mc; i += 8) {
+        int mi = mc - i; if (mi > 8) mi = 8;
+        const double* ai = a + (long long)i * lda;
+        double* ci = c + (long long)i * n;
+        for (int j = 0; j < nc; j += 4) {
+            int nj = nc - j; if (nj > 4) nj = 4;
+            if (mi == 8 && nj == 4) {
+                __m256d c0 = _mm256_setzero_pd(), c1 = _mm256_setzero_pd();
+                __m256d c2 = _mm256_setzero_pd(), c3 = _mm256_setzero_pd();
+                __m256d c4 = _mm256_setzero_pd(), c5 = _mm256_setzero_pd();
+                __m256d c6 = _mm256_setzero_pd(), c7 = _mm256_setzero_pd();
+                for (int p = 0; p < kc; p++) {
+                    __m256d vb = _mm256_loadu_pd(bp + (long long)p * nc + j);
+                    c0 = _mm256_fmadd_pd(_mm256_set1_pd(ai[p]), vb, c0);
+                    c1 = _mm256_fmadd_pd(_mm256_set1_pd(ai[lda + p]), vb, c1);
+                    c2 = _mm256_fmadd_pd(_mm256_set1_pd(ai[2 * lda + p]), vb, c2);
+                    c3 = _mm256_fmadd_pd(_mm256_set1_pd(ai[3 * lda + p]), vb, c3);
+                    c4 = _mm256_fmadd_pd(_mm256_set1_pd(ai[4 * lda + p]), vb, c4);
+                    c5 = _mm256_fmadd_pd(_mm256_set1_pd(ai[5 * lda + p]), vb, c5);
+                    c6 = _mm256_fmadd_pd(_mm256_set1_pd(ai[6 * lda + p]), vb, c6);
+                    c7 = _mm256_fmadd_pd(_mm256_set1_pd(ai[7 * lda + p]), vb, c7);
+                }
+                double* cj = ci + j;
+                _mm256_storeu_pd(cj, _mm256_add_pd(_mm256_loadu_pd(cj), c0));
+                _mm256_storeu_pd(cj + n, _mm256_add_pd(_mm256_loadu_pd(cj + n), c1));
+                _mm256_storeu_pd(cj + 2 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 2 * n), c2));
+                _mm256_storeu_pd(cj + 3 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 3 * n), c3));
+                _mm256_storeu_pd(cj + 4 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 4 * n), c4));
+                _mm256_storeu_pd(cj + 5 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 5 * n), c5));
+                _mm256_storeu_pd(cj + 6 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 6 * n), c6));
+                _mm256_storeu_pd(cj + 7 * n, _mm256_add_pd(_mm256_loadu_pd(cj + 7 * n), c7));
+            } else {
+                for (int ii = 0; ii < mi; ii++) {
+                    for (int jj = 0; jj < nj; jj++) {
+                        double s = 0.0;
+                        for (int p = 0; p < kc; p++)
+                            s += ai[(long long)ii * lda + p] * bp[(long long)p * nc + j + jj];
+                        ci[(long long)ii * n + j + jj] += s;
+                    }
+                }
             }
         }
     }
-    for (; i < i1; i++) {
-        const double* ai = a + (long long)i * n;
-        double* oi = o + (long long)i * n;
-        int j = 0;
-        for (; j + 4 <= n; j += 4) {
-            __m256d acc = _mm256_setzero_pd();
-            for (int k = 0; k < n; k++)
-                acc = _mm256_fmadd_pd(_mm256_set1_pd(ai[k]), _mm256_loadu_pd(b + (long long)k * n + j), acc);
-            _mm256_storeu_pd(oi + j, acc);
-        }
-        for (; j < n; j++) {
-            double acc = 0.0;
-            for (int k = 0; k < n; k++) acc += ai[k] * b[(long long)k * n + j];
-            oi[j] = acc;
+}
+
+static void gemm_rows_f64(const double* a, const double* b, double* o, int n, int i0, int i1) {
+    if (i1 <= i0) return;
+    memset(o + (long long)i0 * n, 0, (size_t)(i1 - i0) * n * sizeof(double));
+    static __declspec(thread) double bp[GEMM_KC64 * GEMM_NC64];
+    for (int jc = 0; jc < n; jc += GEMM_NC64) {
+        int nc = n - jc; if (nc > GEMM_NC64) nc = GEMM_NC64;
+        for (int pc = 0; pc < n; pc += GEMM_KC64) {
+            int kc = n - pc; if (kc > GEMM_KC64) kc = GEMM_KC64;
+            pack_b_f64(b, bp, n, pc, kc, jc, nc);
+            for (int ic = i0; ic < i1; ic += GEMM_MC64) {
+                int mc = i1 - ic; if (mc > GEMM_MC64) mc = GEMM_MC64;
+                micro_f64(a + (long long)ic * n + pc, n, bp, o + (long long)ic * n + jc, n, mc, nc, kc);
+            }
         }
     }
 }
