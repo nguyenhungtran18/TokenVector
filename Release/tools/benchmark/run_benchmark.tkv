@@ -305,6 +305,35 @@ def b_f32mm_vec(runs: "i32", n: "i32") -> "f64":
     return best
 
 
+def b_f32mm_simd(runs: "i32", n: "i32") -> "f64":
+    m = n * n
+    a = []
+    b = []
+    r = []
+    i = 0
+    while i < m:
+        a.append((i % 97) * 0.1)
+        b.append((i % 89) * 0.07)
+        r.append(0.0)
+        i = i + 1
+    best = 1.0e9
+    p0 = 0.0
+    rp = 0
+    t0 = 0.0
+    t1 = 0.0
+    while rp < runs:
+        t0 = time_perf()
+        simd_gemm(a, b, r, n)
+        t1 = time_perf()
+        p0 = r[0] + r[7] + r[500] + r[1023]
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        rp = rp + 1
+    print("f32mm_simd=" + str(p0) + "  best=" + str(best))
+    return best
+
+
 def main() -> "i32":
     print("=== TokenVector benchmark (tu do, khong can Python) ===")
     print("cung khoi viec voi TokenVector.TestOracle/benchmark/run.py")
@@ -316,6 +345,7 @@ def main() -> "i32":
     tm = b_matmul32(20, 32)
     t32 = b_f32mm(100, 32)
     t32v = b_f32mm_vec(100, 32)
+    t32s = b_f32mm_simd(100, 32)
     print()
     print("=== TONG KET (ms, best-of-N) ===")
     print("fib            " + str(tf))
@@ -325,7 +355,8 @@ def main() -> "i32":
     print("matmul32       " + str(tm))
     print("f32mm scalar   " + str(t32))
     print("f32mm vec      " + str(t32v) + "   (nhanh hon scalar " + str(t32 / t32v) + "x)")
+    print("f32mm simd     " + str(t32s) + "   (nhanh hon scalar " + str(t32 / t32s) + "x)")
     # Phai DUNG moi bien, neu khong JIT coi ket qua la chet
-    if tf < 0.0 or ts < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or t32 < 0.0 or t32v < 0.0:
+    if tf < 0.0 or ts < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or t32 < 0.0 or t32v < 0.0 or t32s < 0.0:
         return 1
     return 0

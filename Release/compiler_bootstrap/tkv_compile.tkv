@@ -3972,14 +3972,9 @@ def _duong_tim_them() -> "list[str]":
     return []
 
 
-def _sao_dll_simd(out_exe: "str") -> "i32":
-    """Sao runtime/System.Numerics.Vectors.dll canh .exe (chuong trinh dung SIMD).
-
-    Ban .NET Framework khong co Vector<T> (chi type forwarder) - phai ship ban
-    NuGet lib/net46 trong `Release/runtime/`. Thu tu: canh exe, roi len 1 cap,
-    roi ban .NET Framework (fallback - se fail runtime nhung giu cho may khong
-    co checkout duoc)."""
-    ten = 'System.Numerics.Vectors.dll'
+def _sao_mot_dll(ten: "str", out_exe: "str") -> "i32":
+    """Sao `runtime/<ten>` canh .exe (thu: canh exe, roi len 1 cap, roi ban
+    .NET Framework). Dung chung cho Vectors.dll va tkv_simd_native.dll."""
     thu_muc = _goc_du_an()
     nguon = path_join(path_join(thu_muc, 'runtime'), ten)
     if not path_exists(nguon):
@@ -3996,6 +3991,14 @@ def _sao_dll_simd(out_exe: "str") -> "i32":
         return _ma
     except Exception:
         return 1
+
+
+def _sao_dll_simd(out_exe: "str") -> "i32":
+    """Sao runtime/System.Numerics.Vectors.dll canh .exe (chuong trinh dung SIMD).
+
+    Ban .NET Framework khong co Vector<T> (chi type forwarder) - phai ship ban
+    NuGet lib/net46 trong `Release/runtime/`."""
+    return _sao_mot_dll('System.Numerics.Vectors.dll', out_exe)
 
 
 def _goc_du_an() -> "str":
@@ -5707,6 +5710,8 @@ def compile_tkv_cli(tkv_path: "str", out_exe: "str", entry_name: "str"=None, cla
             ket_qua_exe = assemble_il_to_exe(il_text, out_exe, debug=debug)
             if 'System.Numerics.Vectors' in il_text:
                 _sao_dll_simd(str(out_exe))
+            if 'tkv_simd_native' in il_text:
+                _sao_mot_dll('tkv_simd_native.dll', str(out_exe))
             return ket_qua_exe
         except TokenVectorError as e:
             raise CliError(str(e))

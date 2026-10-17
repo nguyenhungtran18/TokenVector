@@ -567,9 +567,75 @@ def _mang_khoi_list(ten_ham: "str", n_mang_vao: "int", co_mang_ra: "i32",
     return L
 
 
+# --- GEMM native qua P/Invoke (2026-10-17) -------------------------------
+# SGEMM C/AVX2 (tkv_simd_native.dll, xem tools/simd_native/tkv_simd_native.c).
+# Mang `list[f32]` -> ToArray -> pin -> goi kernel -> ghi nguoc bang Clear +
+# AddRange. Nhanh hon `_mm32` scalar ~18x va nhanh hon NumPy o n=32.
+_GEMM_DLL = 'tkv_simd_native.dll'
+
+
+def _pt_gemm_pinvoke() -> "list[str]":
+    return [
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmF32" winapi) void GemmF32Native(native int a, native int b, native int o, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmF64" winapi) void GemmF64Native(native int a, native int b, native int o, int32 n) cil managed preservesig { }',
+    ]
+
+
+def _pt_gemm_mang(d: "str") -> "list[str]":
+    """Gemm<H>(T[] a, T[] b, T[] o, int32 n): pin 3 mang + goi kernel native."""
+    t = _ten_il(d)
+    h = _hau_to(d)
+    return [
+        '  .method public static void Gemm' + h + '(' + t + '[] a, ' + t + '[] b, ' + t + '[] o, int32 n) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (' + t + '& pinned p0, ' + t + '& pinned p1, ' + t + '& pinned p2)',
+        '    ldarg.3',
+        '    ldc.i4.0',
+        '    ble V_GEND',
+        '    ldarg.0', '    ldc.i4.0', '    ldelema ' + t, '    stloc.0',
+        '    ldarg.1', '    ldc.i4.0', '    ldelema ' + t, '    stloc.1',
+        '    ldarg.2', '    ldc.i4.0', '    ldelema ' + t, '    stloc.2',
+        '    ldloc.0', '    conv.i',
+        '    ldloc.1', '    conv.i',
+        '    ldloc.2', '    conv.i',
+        '    ldarg.3',
+        '    call void ' + _SIMD_CLASS + '::Gemm' + h + 'Native(native int, native int, native int, int32)',
+        '  V_GEND:',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_gemm_list(d: "str") -> "list[str]":
+    """Gemm<H>L(List<T> a, List<T> b, List<T> o, int32 n): wrapper cho list[f32]."""
+    t = _ten_il(d)
+    h = _hau_to(d)
+    lt = 'class [mscorlib]System.Collections.Generic.List`1<' + t + '>'
+    return [
+        '  .method public static void Gemm' + h + 'L(' + lt + ' a, ' + lt + ' b, ' + lt + ' o, int32 n) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (' + t + '[] p0, ' + t + '[] p1, ' + t + '[] p2)',
+        '    ldarg.0', '    callvirt instance !0[] ' + lt + '::ToArray()', '    stloc.0',
+        '    ldarg.1', '    callvirt instance !0[] ' + lt + '::ToArray()', '    stloc.1',
+        '    ldarg.2', '    callvirt instance !0[] ' + lt + '::ToArray()', '    stloc.2',
+        '    ldloc.0', '    ldloc.1', '    ldloc.2', '    ldarg.3',
+        '    call void ' + _SIMD_CLASS + '::Gemm' + h + '(' + t + '[], ' + t + '[], ' + t + '[], int32)',
+        '    ldarg.2', '    callvirt instance void ' + lt + '::Clear()',
+        '    ldarg.2', '    ldloc.2', '    callvirt instance void ' + lt + '::AddRange(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)',
+        '    ret',
+        '  }',
+    ]
+
+
 def _lop_simd() -> "list[str]":
     ra = ['.class public auto ansi beforefieldinit ' + _SIMD_CLASS + ' extends [mscorlib]System.Object', '{']
     ra = ra + _pt_native_ho_tro()
+    ra = ra + _pt_gemm_pinvoke()
+    for d in ('f32', 'f64'):
+        ra = ra + _pt_gemm_mang(d)
+        ra = ra + _pt_gemm_list(d)
     ii = 0
     for d in ('f32', 'f64'):
         t = _ten_il(d)
@@ -806,6 +872,39 @@ def compile_simd_axpy(args: "list[TkvNode]", scope: "Scope", out: "list[str]", d
     out.append('    ldc.i4.0')
 
 
+def compile_simd_gemm(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """simd_gemm(a, b, ra, n): ra = a * b voi a/b/ra la list[n*n] (hoac mang n*n), row-major."""
+    if len(args) != 4:
+        raise SyntaxError("il_codegen: simd_gemm(a, b, ra, n) can 3 mang n*n va so chieu n")
+    d = _dtype_mang(args[0], scope, 'simd_gemm')
+    if _dtype_mang(args[1], scope, 'simd_gemm') != d or _dtype_mang(args[2], scope, 'simd_gemm') != d:
+        raise SyntaxError("il_codegen: simd_gemm: ba mang phai CUNG kieu phan tu")
+    if d not in ('f32', 'f64'):
+        raise SyntaxError("il_codegen: simd_gemm chi ho tro f32/f64 (gap " + d + ")")
+    _ensure_class_simd(ctx)
+    h = _hau_to(d)
+    la_l = _la_list(args[0], scope) or _la_list(args[1], scope) or _la_list(args[2], scope)
+    if la_l:
+        if not (_la_list(args[0], scope) and _la_list(args[1], scope) and _la_list(args[2], scope)):
+            raise SyntaxError(
+                "il_codegen: simd_gemm: hoac ca 3 tham so deu la list["
+                + d + "], hoac ca 3 deu la mang - khong tron hai loai")
+        _nap_mang(args[0], scope, out, ctx)
+        _nap_mang(args[1], scope, out, ctx)
+        _nap_mang(args[2], scope, out, ctx)
+        ctx.compile_expr(args[3], scope, out, 'i32', ctx)
+        out.append('    call void ' + _SIMD_CLASS + '::Gemm' + h + 'L' +
+                   '(' + _join_lap('class [mscorlib]System.Collections.Generic.List`1<' + _ten_il(d) + '>', 3) + ', int32)')
+    else:
+        _nap_mang(args[0], scope, out, ctx)
+        _nap_mang(args[1], scope, out, ctx)
+        _nap_mang(args[2], scope, out, ctx)
+        ctx.compile_expr(args[3], scope, out, 'i32', ctx)
+        t = _ten_il(d)
+        out.append('    call void ' + _SIMD_CLASS + '::Gemm' + h + '(' + t + '[], ' + t + '[], ' + t + '[], int32)')
+    out.append('    ldc.i4.0')
+
+
 def compile_simd_lanes_f32(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     _ensure_extern(ctx)
     out.append('    call int32 ' + _vec('f32') + '::get_Count()')
@@ -838,6 +937,7 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'simd_mul', compile_simd_mul, 'i32')
     register_expr_builtin(reg, 'simd_scale', compile_simd_scale, 'i32')
     register_expr_builtin(reg, 'simd_axpy', compile_simd_axpy, 'i32')
+    register_expr_builtin(reg, 'simd_gemm', compile_simd_gemm, 'i32')
     register_expr_builtin(reg, 'simd_lanes_f32', compile_simd_lanes_f32, 'i32')
     register_expr_builtin(reg, 'simd_lanes_f64', compile_simd_lanes_f64, 'i32')
     register_expr_builtin(reg, 'simd_hw', compile_simd_hw, 'bool')

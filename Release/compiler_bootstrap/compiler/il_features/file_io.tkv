@@ -72,7 +72,7 @@ def compile_file_exists(args: "list[TkvNode]", scope: "Scope", out: "list[str]",
     ctx.widen_if_needed('i32', dtype, out)
 
 
-_BUILTIN_LENH_DOC_LAP: "set[str]" = {'atomic_add', 'atomic_inc', 'lock_acquire', 'lock_release', 'parallel_for', 'thread_sleep', 'simd_add', 'simd_sub', 'simd_mul', 'simd_scale', 'simd_axpy', 'time_sleep', 'os_remove', 'os_mkdir', 'proc_run', 'proc_ra', 'next', 'path_write_text', 'write_f32', 'free_bytes', 'v_fill8', 'v_load8', 'v_mul8', 'v_add8', 'v_sub8', 'v_mul8_add8', 'v_store8', 'v_store4', 'gc_collect'}
+_BUILTIN_LENH_DOC_LAP: "set[str]" = {'atomic_add', 'atomic_inc', 'lock_acquire', 'lock_release', 'parallel_for', 'thread_sleep', 'simd_add', 'simd_sub', 'simd_mul', 'simd_scale', 'simd_axpy', 'time_sleep', 'os_remove', 'os_mkdir', 'proc_run', 'proc_ra', 'next', 'path_write_text', 'write_f32', 'free_bytes', 'v_fill8', 'v_load8', 'v_mul8', 'v_add8', 'v_sub8', 'v_mul8_add8', 'v_store8', 'v_store4', 'gc_collect', 'simd_gemm'}
 
 
 def _extern_void_builtin_names() -> "set[str]":
