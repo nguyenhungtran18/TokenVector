@@ -52,6 +52,42 @@ def codegen_sys_exit(call_args: "list[TkvNode]", scope: "Scope", body: "list[str
 SYS_STMT_CODEGEN: "dict[str,func(list[TkvNode],Scope,list[str],Ctx)->void]" = {'sys_exit': codegen_sys_exit}
 
 
+def push_now_ms(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if args:
+        raise SyntaxError("il_codegen: now_ms() khong nhan tham so nao")
+    out.append('    call int32 [mscorlib]System.Environment::get_TickCount()')
+    out.append('    conv.r8')
+
+
+def push_now_us(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if args:
+        raise SyntaxError("il_codegen: now_us() khong nhan tham so nao")
+    out.append('    call int32 [mscorlib]System.Environment::get_TickCount()')
+    out.append('    conv.i8')
+    out.append('    ldc.i8 1000')
+    out.append('    mul')
+
+
+def push_gc_collect(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if args:
+        raise SyntaxError("il_codegen: gc_collect() khong nhan tham so nao")
+    out.append('    call void [mscorlib]System.GC::Collect()')
+    out.append('    ldc.i4 0')
+
+
+def push_gc_allocated_bytes(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if args:
+        raise SyntaxError("il_codegen: gc_allocated_bytes() khong nhan tham so nao")
+    out.append('    ldc.i4 0')
+    out.append('    call int64 [mscorlib]System.GC::GetTotalMemory(bool)')
+
+
+def push_gc_counts(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    if args:
+        raise SyntaxError("il_codegen: gc_counts() khong nhan tham so nao")
+    out.append('    ldstr ""')
+
+
 def bootstrap_stdlib_sys(reg: "Registry"):
     """Dang ky cua module nay - P6: KHONG chay luc import.
 
@@ -59,3 +95,8 @@ def bootstrap_stdlib_sys(reg: "Registry"):
     (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
     """
     register_expr_builtin(reg, 'sys_argv', push_sys_argv, 'str', return_shape='list')
+    register_expr_builtin(reg, 'now_ms', push_now_ms, 'f64')
+    register_expr_builtin(reg, 'now_us', push_now_us, 'i64')
+    register_expr_builtin(reg, 'gc_collect', push_gc_collect, 'i32')
+    register_expr_builtin(reg, 'gc_allocated_bytes', push_gc_allocated_bytes, 'i64')
+    register_expr_builtin(reg, 'gc_counts', push_gc_counts, 'str')
