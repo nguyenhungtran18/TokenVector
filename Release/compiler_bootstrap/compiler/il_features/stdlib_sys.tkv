@@ -83,9 +83,26 @@ def push_gc_allocated_bytes(args: "list[TkvNode]", scope: "Scope", out: "list[st
 
 
 def push_gc_counts(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """gc_counts() -> 'gen0/gen1/gen2' - so lan GC da chay moi the he do (that,
+    qua GC.CollectionCount(int)). Ban truoc hard-code `ldstr ""` nen downstream
+    in ra 'GC ' rong va gate 0/0/0 khong bao gio xanh - cai bay am thanh."""
     if args:
         raise SyntaxError("il_codegen: gc_counts() khong nhan tham so nao")
-    out.append('    ldstr ""')
+    # Ghep bang Concat(string,string) long nhau, KHONG dung mang 5 phan tu:
+    # moi Concat2 an dung 2 phan tu vua day nhat, nen phai xen ke push/concat.
+    for gen in (0, 1, 2):
+        if gen > 0:
+            out.append('    ldstr "/"')
+            out.append('    call string [mscorlib]System.String::Concat(string, string)')
+        out.append(f'    ldc.i4 {gen}')
+        out.append('    call int32 [mscorlib]System.GC::CollectionCount(int32)')
+        # KHONG dung `call instance Int32::ToString()`: voi value type, `call
+        # instance` can MANAGED POINTER (ldloca) chu khong phai gia tri tho -
+        # day gia tri -> NullReferenceException. Convert::ToString(int32) la
+        # static, nhan int32 truc tiep nen an toan.
+        out.append('    call string [mscorlib]System.Convert::ToString(int32)')
+        if gen > 0:
+            out.append('    call string [mscorlib]System.String::Concat(string, string)')
 
 
 def bootstrap_stdlib_sys(reg: "Registry"):
