@@ -5170,18 +5170,34 @@ def compile_tkv_cli(tkv_path: "str", out_exe: "str", entry_name: "str"=None, cla
                                             extern_class_names=extern_class_names)
     func_table = {sig.name: sig for sig, _, _start in sig_body_pairs}
 
+    if verify_all and 'main' not in func_table:
+        # --verify-all tren MODULE THU VIEN (khong co `main`, hoac entry chi ro
+        # co tham so phuc tap nhu `translate(model: 'OnnxModel')` ma CLI tu
+        # dong sinh Main() khong lam duoc) -> bo qua entry chi ro va sinh
+        # entry GIA `main() -> i32 { return 0 }`. Nho vay 1 lenh verify duoc
+        # 100% than ham cua thu vien thay vi phai tu sinh probe
+        # (2026-10-17, handoff inference-repo).
+        entry_name = None
     if entry_name is None:
         if len(sig_body_pairs) == 1:
             entry_name = sig_body_pairs[0][0].name
         elif 'main' in func_table:
             entry_name = 'main'
+        elif verify_all:
+            _sig_gia = parse_typed_signature('main() -> i32:',
+                                             record_names=_ten_record_ta(record_defs),
+                                             extern_class_names=extern_class_names)
+            sig_body_pairs.append((_sig_gia, ['return 0'], 0))
+            func_table[_sig_gia.name] = _sig_gia
+            entry_name = _sig_gia.name
         else:
             ten_ham_ds: "list[str]" = []
             for ten_ham in func_table:
                 ten_ham_ds.append(ten_ham)
             raise CliError(
                 f"tkv build: file co {len(sig_body_pairs)} ham ({', '.join(ten_ham_ds)}), "
-                f"khong ro entry point nao - dat ten 1 ham la 'main' hoac chi ro entry_name.")
+                f"khong ro entry point nao - dat ten 1 ham la 'main' hoac chi ro entry_name, "
+                f"hay them --verify-all de bien dich kiem tra toan bo thu vien khong can entry.")
     if entry_name not in func_table:
         raise CliError(f"tkv build: khong tim thay ham entry '{entry_name}' trong {tkv_path}")
 
