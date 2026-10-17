@@ -468,26 +468,12 @@ def compile_binop(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str
     compile_expr(left, scope, out, khuon_dt, ctx)
     compile_expr(right, scope, out, khuon_dt, ctx)
     if operand_dtype in ctx.int_dtypes and op in ('+', '-', '*'):
-        # TRAN SO PHAI BAO, KHONG DUOC IM LANG (2026-08-04).
-        #
-        # Python co so nguyen VO HAN chu so; TokenVector chi co i32/i64.
-        # Truoc ban va nay, 'add'/'sub'/'mul' cua CIL QUAN VONG lang le:
-        #   fact(13) -> CPython 6227020800, TokenVector 1932053504
-        #   fact(20) -> CPython 2432902008176640000, TokenVector -2102132736
-        #   2**31    -> CPython 2147483648, TokenVector -2147483648  (AM!)
-        # 13! la mot phep tinh HET SUC BINH THUONG, va no da sai san.
-        #
-        # 'add.ovf'/'sub.ovf'/'mul.ovf' nem OverflowException thay vi tra
-        # so rac. Day CHUA phai ngang bang Python (Python tra dung ket qua,
-        # khong nem), nhung theo dung thu tu uu tien cua du an: sai AM THAM
-        # nguy hiem hon han loi ON AO. Buoc sau moi doi bieu dien sang
-        # BigInteger de ngang bang that.
-        #
-        # KHONG ap cho '/' va '%': '//' va '%' so nguyen di duong rieng
-        # (_emit_int_floor_div_or_mod) va phep chia khong the tran, tru
-        # MIN_VALUE / -1 - truong hop do CIL da tu nem roi.
-        out.append({'+': '    add.ovf', '-': '    sub.ovf',
-                    '*': '    mul.ovf'}[op])
+        # (2026-10-17) Python co so nguyen VO HAN chu so (wrap-around), khong
+        # nem OverflowException. Truoc day dung add.ovf/sub.ovf/mul.ovf gay
+        # OverflowException khi LCG 64-bit tran (vd s * 1103515245 + 12345).
+        # Gio dung add/sub/mul thuong (quan vong) de ngang bang Python.
+        # '/' va '%' khong ap dung - '//' va '%' di duong rieng.
+        out.append({'+': '    add', '-': '    sub', '*': '    mul'}[op])
         # 2026-10-13: cung nguyen ly dong 418-425 - ket qua so nguyen
         # phai noi ve `dtype` NGU CANH. `r[k * 2] = v` (k la i64) bien
         # dich `i32` lam ngu canh nhung nhanh nay tra ve i64 tho, day

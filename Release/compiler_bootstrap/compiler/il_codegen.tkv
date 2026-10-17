@@ -4021,9 +4021,26 @@ def _expr_call(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "str", 
         if len(args) != len(fields):
             # Gom comprehension ra bien truoc (2026-10-11) - xem _sao_join_str.
             _ten_fd = [f for f, _ in fields]
+            # (2026-10-17) B-06: in CA HAI kha nghi thuc te, vi quy tach
+            # positional phu thuoc vao __init__ co tham so bat buoc hay khong:
+            #   - __init__ co tham so BAT BUOC -> map theo thu tu tham so
+            #     __init__, KHONG co _ok
+            #   - __init__ chi co tham so MAC DINH (hoac khong co __init__)
+            #     -> map TAT CA field khong container, KEM _ok
+            _init_sig = (record_methods or {}).get(name, {}).get('__init__')
+            _goi_y = ""
+            if _init_sig is not None:
+                _n_req = 0
+                for _p in _init_sig.params:
+                    if _p.default_node is None:
+                        _n_req += 1
+                if _n_req > 0:
+                    _alt = [f for f, _ in records[name] if not _is_container_field(f[1])]
+                    _goi_y = (f" Hoac (neu __init__ chi co tham so mac dinh): "
+                              f"{len(_alt)} tham so ({', '.join(_alt)}).")
             raise SyntaxError(
                 f"il_codegen: record '{name}' can {len(fields)} tham so "
-                f"({', '.join(_ten_fd)}), gap {len(args)}")
+                f"({', '.join(_ten_fd)}), gap {len(args)}.{_goi_y}")
         # Duyet theo CHI SO (2026-09-24): `for a, (_, b) in zip(...)` - tach
         # tuple LONG - hat giong khong khai duoc bien. Moi field la TypeAnn tu
         # 2026-09-15 (xem _resolve_record_field_types) nen nhanh `isinstance(
