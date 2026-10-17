@@ -3973,15 +3973,29 @@ def _duong_tim_them() -> "list[str]":
 
 
 def _sao_dll_simd(out_exe: "str") -> "i32":
-    """Sao runtime/System.Numerics.Vectors.dll canh .exe (chuong trinh dung SIMD)."""
-    src = r'C:\Windows\Microsoft.NET\Framework\v4.0.30319\System.Numerics.Vectors.dll'
-    dst = path_join(path_dirname(out_exe), 'System.Numerics.Vectors.dll')
+    """Sao runtime/System.Numerics.Vectors.dll canh .exe (chuong trinh dung SIMD).
+
+    Ban .NET Framework khong co Vector<T> (chi type forwarder) - phai ship ban
+    NuGet lib/net46 trong `Release/runtime/`. Thu tu: canh exe, roi len 1 cap,
+    roi ban .NET Framework (fallback - se fail runtime nhung giu cho may khong
+    co checkout duoc)."""
+    ten = 'System.Numerics.Vectors.dll'
+    thu_muc = _goc_du_an()
+    nguon = path_join(path_join(thu_muc, 'runtime'), ten)
+    if not path_exists(nguon):
+        nguon = path_join(path_join(path_dirname(thu_muc), 'runtime'), ten)
+    if not path_exists(nguon):
+        nguon = 'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\' + ten
+    if not path_exists(nguon):
+        return 1
+    dich = path_join(path_dirname(out_exe), ten)
+    if path_exists(dich):
+        return 0
     try:
-        cmd = 'copy /Y "' + src + '" "' + dst + '"'
-        ma = proc_run("cmd.exe", "/c " + cmd)
+        _ma = proc_run("cmd.exe", '/c copy /Y "' + nguon + '" "' + dich + '" > nul')
+        return _ma
     except Exception:
-        pass
-    return 0
+        return 1
 
 
 def _goc_du_an() -> "str":

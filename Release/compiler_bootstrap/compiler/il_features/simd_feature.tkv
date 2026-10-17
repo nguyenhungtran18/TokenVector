@@ -19,7 +19,14 @@ _KERN_SSE_B64 = 'D1fAMcBFicFBg+H8RDnIfRMPEAyBDxAUgg9Zyg9YwYPABOvo8g98wPIPfMBEOcB
 _KERN_SSE_OFFS = '0,80,144,208,272,336,400,480,560,624,704,784,864,944'
 # END KERNEL DATA
 _VEC_ASM = '[System.Numerics.Vectors]System.Numerics.Vector'
-_VEC_EXTERN = '.assembly extern System.Numerics.Vectors { .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A ) .ver 4:1:4:0 }'
+# Ban .NET Framework (C:\Windows\Microsoft.NET\Framework\v4.0.30319\
+# System.Numerics.Vectors.dll) CHI co type forwarder (Vector2/3/4, Matrix...),
+# KHONG co Vector<T> - nen phai ship ban NuGet lib/net46 trong
+# `Release/runtime/System.Numerics.Vectors.dll` (do _sao_dll_simd trong
+# tkv_compile.tkv copy sang canh .exe). Version khai bao phai KHOP DUNG file
+# do: AssemblyVersion 4.1.2.0. Sai version => FileLoadException 0x80131040
+# "manifest definition does not match the assembly reference" luc CHAY.
+_VEC_EXTERN = '.assembly extern System.Numerics.Vectors { .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A ) .ver 4:1:2:0 }'
 
 
 def _ten_il(d: "str") -> "str":
