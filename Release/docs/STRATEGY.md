@@ -46,7 +46,7 @@
 
 ### 🔹 Về Tốc độ Thực thi & Tối ưu Hóa Phần cứng (SIMD & Performance)
 * **Rust:** Biên dịch trực tiếp qua LLVM ra mã máy Native, tận dụng tối đa tập lệnh CPU/GPU. Hiệu năng của Rust là chuẩn mực cùng với C/C++.
-* **TokenVector:** Đạt hiệu năng **tương đương Rust** nhờ cơ chế Native AOT và khai thác trực tiếp `AVX2 / AVX-512 / ARM NEON`. Ngoài ra, TokenVector vượt trội hơn ở các tác vụ AI nhờ:
+* **TokenVector:** Đạt hiệu năng **tương đương Rust** nhờ cơ chế Native AOT và khai thác trực tiếp **AVX2** (kernel C qua P/Invoke, vd `simd_gemm`); **AVX-512 / ARM NEON** là mục tiêu, chưa triển khai. Ngoài ra, TokenVector vượt trội hơn ở các tác vụ AI nhờ:
   * **Compiler-Assisted Operator Fusion:** Trình biên dịch tự động gộp các kernel số học, loại bỏ việc đọc/ghi dữ liệu tạm ra RAM.
   * **Unified Arrow Memory:** Dữ liệu bảng và tensor có cùng layout bộ nhớ, không tốn chi phí chuyển đổi giữa các thư viện.
 

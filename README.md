@@ -112,14 +112,16 @@ python D:\TokenVector.TestOracle\benchmark\run.py --self-host
 An empty TokenVector `.exe` also starts in **24.8 ms** versus **35.2 ms** for
 `CPython -c pass`.
 
-**Against NumPy, it does not — and it should not pretend otherwise:**
+**Against NumPy, it is mixed — element-wise stays memory-bound, matmul now wins
+with `simd_gemm`:**
 
-| kernel | TokenVector | NumPy | NumPy faster by |
+| kernel | TokenVector | NumPy | faster by |
 |---|---|---|---|
-| add | 1427 µs | 911 µs | **1.6×** |
-| matmul32 | 147 µs | 5.7 µs | **26×** |
+| matmul32 (`simd_gemm`, f32) | 1.7 µs | 5.5 µs | **TokenVector 3.2×** |
+| matmul32 (IL `Vector4` path) | 147 µs | 5.7 µs | NumPy 26× |
+| add (IL list path) | 1427 µs | 911 µs | NumPy 1.6× |
 
-That gap is **not** a missing optimisation and **not** a threading deficit. With
+The IL-path gap is **not** a missing optimisation and **not** a threading deficit. With
 `OMP_NUM_THREADS=1`, `np.dot` on a 32×32 matmul only moves from 5.73 µs to
 6.05 µs — OpenBLAS does not split a matrix that small. What remains is vector
 width: AVX2 with FMA processes **4 `double`s per instruction**, while this

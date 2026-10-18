@@ -75,7 +75,7 @@ vi**. Các nhóm chính:
 | `comprehension.tkv` | `[...]`, `{...}`, `{k: v ...}` |
 | `generator_lazy.tkv`, `generator_feature.tkv` | State machine CIL cho `yield` |
 | `closures.tkv`, `multi_assign.tkv`, `metaprogramming.tkv` | Biến tự do, `nonlocal`, `eval/exec` |
-| `simd_feature.tkv`, `vector4_type.tkv` | SIMD th?t: ki?u `f32x4` (`System.Numerics.Vector4`) + `v_load4`/`v_store4`/`v_hsum4`. `VBuf8` va `v_*8` da g? 2026-10-14 (ch?m h?n scalar 4.4x). |
+| `simd_feature.tkv`, `vector4_type.tkv` | SIMD thật: kiểu `f32x4` (`System.Numerics.Vector4`) + `v_load4`/`v_store4`/`v_hsum4`. `VBuf8` và `v_*8` đã gỡ 2026-10-14 (chậm hơn scalar 4.4x). Thêm `simd_gemm`: kernel C AVX2+FMA (`tkv_simd_native.dll`) cho `list[f32]`/`list[f64]`, không copy vào/ra. |
 | `f32buf_type.tkv`, `nativebuf.tkv` | Bộ đệm native, `read_f32`/`write_f32` |
 | `stdlib_*.tkv` | `re`, `datetime`, `json`, `math`, `os`, `pathlib`, `sqlite`, `http`, `zip` |
 | `threading_feature.tkv`, `ffi_feature.tkv` | `thread_spawn`/`join`; P/Invoke, FFI C |

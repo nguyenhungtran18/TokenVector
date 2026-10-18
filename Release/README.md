@@ -82,15 +82,17 @@ Measured 2026-10-14 against **CPython 3.14.7** and **NumPy 2.5.2** (OpenBLAS
 An empty TokenVector `.exe` also starts in **24.8 ms** versus **35.2 ms** for
 `CPython -c pass`.
 
-**Against NumPy, it does not — and it should not pretend otherwise.** NumPy is
-CPython calling **native machine code**, not a managed runtime:
+**Against NumPy, it is mixed — element-wise stays memory-bound, matmul now wins
+with `simd_gemm`.** NumPy is CPython calling **native machine code**, not a
+managed runtime:
 
-| kernel | TokenVector | NumPy | NumPy faster by |
+| kernel | TokenVector | NumPy | faster by |
 |---|---|---|---|
-| add | 1427 µs | 911 µs | **1.6×** |
-| matmul32 | 147 µs | 5.7 µs | **26×** |
+| matmul32 (`simd_gemm`, f32) | 1.7 µs | 5.5 µs | **TokenVector 3.2×** |
+| matmul32 (IL `Vector4` path) | 147 µs | 5.7 µs | NumPy 26× |
+| add (IL list path) | 1427 µs | 911 µs | NumPy 1.6× |
 
-That gap is **not** a missing optimization and **not** a threading deficit. An
+The IL-path gap is **not** a missing optimization and **not** a threading deficit. An
 `OMP_NUM_THREADS=1` measurement moves `np.dot` on a 32×32 matmul from 5.73 µs to
 only 6.05 µs — OpenBLAS does not split a matrix that small. What remains is
 vector width: AVX2 with FMA processes **4 `double`s per instruction**, while

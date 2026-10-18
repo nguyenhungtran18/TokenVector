@@ -80,15 +80,17 @@ kernel "Haswell") trên Intel Xeon E5-2695 v3. Tái lập:
 Một `.exe` rỗng của TokenVector cũng khởi động trong **24,8 ms**, so với
 **35,2 ms** của `CPython -c pass`.
 
-**Với NumPy thì không — và cũng không nên giả vờ.** NumPy là CPython gọi **mã
-máy native**, không phải runtime managed:
+**Với NumPy thì có thắng có thua — element-wise vẫn bị chặn băng thông, matmul
+giờ thắng nhờ `simd_gemm`.** NumPy là CPython gọi **mã máy native**, không phải
+runtime managed:
 
-| kernel | TokenVector | NumPy | NumPy nhanh hơn |
+| kernel | TokenVector | NumPy | nhanh hơn |
 |---|---|---|---|
-| add | 1427 µs | 911 µs | **1,6×** |
-| matmul32 | 147 µs | 5,7 µs | **26×** |
+| matmul32 (`simd_gemm`, f32) | 1,7 µs | 5,5 µs | **TokenVector 3,2×** |
+| matmul32 (đường IL `Vector4`) | 147 µs | 5,7 µs | NumPy 26× |
+| add (đường IL list) | 1427 µs | 911 µs | NumPy 1,6× |
 
-Khoảng cách đó **không** phải do thiếu một tối ưu, cũng **không** do thiếu đa
+Khoảng cách của đường IL **không** phải do thiếu một tối ưu, cũng **không** do thiếu đa
 luồng. Đo với `OMP_NUM_THREADS=1` thì `np.dot` trên ma trận 32×32 chỉ chậm từ
 5,73 µs lên 6,05 µs — OpenBLAS không chia nhỏ ma trận nhỏ thế. Còn lại là độ
 rộng vector: AVX2 với FMA xử lý **4 `double`/lệnh**, trong khi runtime này chỉ
