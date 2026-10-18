@@ -106,11 +106,17 @@ answer either:
 - **Native contiguous storage** instead of `List<double>`: **0.63×** — *slower*,
   because `f32buf` pays a `×4` byte offset plus a bounds check per access.
 
-**So the honest position is: TokenVector is a CPython replacement, not a BLAS
-replacement.** It wins 2–82× over the interpreter it replaces, it has working
-f32 SIMD (4.25× over its own scalar path on `f32mm_vec`), and it cannot reach
-`f64` SIMD on .NET Framework 4.8 at all. Closing that last gap means changing the
-target runtime, not optimizing this one.
+**Update 2026-10-18 — `simd_gemm` (native AVX2+FMA kernel).** The gap above is
+for the IL/`Vector4` path. `simd_gemm(a, b, r, n)` now calls a shipped C kernel
+(`tkv_simd_native.dll`) for f32/f64 matmul and is faster than NumPy 2.5.2 at
+every size tested (128–1024): e.g. n=1024, 3.68 ms (f32) / 7.59 ms (f64) vs
+3.867 ms / 9.921 ms.
+
+**So the honest position is: TokenVector is a CPython replacement.** It wins
+2–82× over the interpreter it replaces and has working f32 SIMD (4.25× over its
+own scalar path on `f32mm_vec`). The pure-IL path cannot reach `f64` BLAS
+performance on .NET Framework 4.8; `simd_gemm` does, through a native kernel,
+without changing the runtime.
 
 ## 2. What TokenVector is *not*
 

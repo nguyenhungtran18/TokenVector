@@ -4,7 +4,7 @@
 
 <p align="left">
   <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
-  <img src="https://img.shields.io/badge/version-1.0.10-blue.svg?style=flat-square" alt="version 1.0.10">
+  <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="version 1.0.11">
   <img src="https://img.shields.io/badge/tests-125%2F125-brightgreen.svg?style=flat-square" alt="tests 125/125">
   <img src="https://img.shields.io/badge/builtins-420-orange.svg?style=flat-square" alt="builtins 420">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License: MIT">
@@ -82,7 +82,7 @@ The resulting `hello.exe` is **9.5 KB** (a bare `print("hi")` is **6 KB**) and r
 | Types | unboxed `i32` / `i64` / `f32` / `f64` / `str`, plus `int` and `bool` |
 | Runtime | .NET Framework 4.x — no interpreter, no GIL |
 | Threads | `thread_spawn` / `thread_join`, true multicore with no global lock |
-| SIMD | `f32x4` → `System.Numerics.Vector4`; elementwise loops are auto-vectorised (P6) |
+| SIMD | `f32x4` → `System.Numerics.Vector4`; elementwise loops are auto-vectorised (P6); `simd_gemm` runs a native AVX2+FMA kernel for f32/f64 matmul |
 | Interop | any .NET/NuGet assembly, P/Invoke, and raw C FFI |
 
 ---
@@ -134,10 +134,30 @@ Two "cheap" fixes were measured, and **both died**, so they are not the answer:
 - **Native contiguous storage** instead of `List<double>`: **0.63×** — *slower*,
   because `f32buf` pays a `×4` byte offset plus a bounds check per access.
 
-**So: TokenVector is a CPython replacement, not a BLAS replacement.** It beats
-the interpreter it replaces 2–82×, it has working f32 SIMD, and it cannot reach
-f64 SIMD on .NET Framework 4.8 at all. Closing that last gap means changing the
-target runtime, not optimising this one.
+**Update 2026-10-18 — `simd_gemm` (native AVX2+FMA kernel).** The gap above is
+for the IL/`Vector4` path. `simd_gemm(a, b, r, n)` now calls a shipped C kernel
+(`tkv_simd_native.dll`; 4×16 f32 / 4×8 f64 micro-kernels, L1/L2 cache
+blocking, physical-core threading, 2-D row×column split) and takes
+`list[f32]` / `list[f64]` with zero copy in and out. Measured on the same Xeon
+E5-2695 v3 against NumPy 2.5.2 (OpenBLAS 0.3.34), best of several runs:
+
+| n | f32 `simd_gemm` | f32 NumPy | f64 `simd_gemm` | f64 NumPy |
+|---|---|---|---|---|
+| 128 | 0.039 ms | 0.122 ms | 0.055 ms | 0.098 ms |
+| 256 | 0.109 ms | 0.180 ms | 0.196 ms | 0.231 ms |
+| 512 | 0.496 ms | 0.811 ms | 1.03 ms | 1.569 ms |
+| 1024 | 3.68 ms | 3.867 ms | 7.59 ms | 9.921 ms |
+
+It is faster at every size tested (128–1024) in both precisions. The pure-IL
+path is unchanged and still cannot close the gap; `simd_gemm` closes it by
+moving the inner kernel to native code, not by changing the runtime. Full
+method and intermediate sizes:
+`Release/docs/e_handoff/BAN_GIAO_2026-10-18-SIMD-GEMM.md`.
+
+**So: TokenVector is a CPython replacement.** It beats the interpreter it
+replaces 2–82×, and it has real f32 SIMD. The pure-IL path cannot reach f64
+BLAS performance on .NET Framework 4.8 — but `simd_gemm` does, through a
+native AVX2+FMA kernel, without changing the target runtime.
 
 ### Is every number above checked?
 

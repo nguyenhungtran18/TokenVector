@@ -103,11 +103,17 @@ lời:
 - **Bộ nhớ native liền mạch** thay cho `List<double>`: **0,63×** — *chậm hơn*,
   vì `f32buf` phải trả `×4` byte offset cộng bounds check mỗi lần truy cập.
 
-**Vậy vị trí trung thực là: TokenVector là thay thế CPython, không phải thay thế
-BLAS.** Nó thắng interpreter nó thay thế 2–82×, có SIMD f32 thật (4,25× so với
-chính nó trên `f32mm_vec`), và không thể đuổi tới SIMD `f64` trên .NET Framework
-4.8. Muốn đóng khoảng cuối đó phải đổi runtime, không phải tối ưu runtime hiện
-tại.
+**Cập nhật 2026-10-18 — `simd_gemm` (kernel native AVX2+FMA).** Khoảng cách
+trên là của đường IL/`Vector4`. `simd_gemm(a, b, r, n)` giờ gọi kernel C đi kèm
+(`tkv_simd_native.dll`) cho matmul f32/f64 và nhanh hơn NumPy 2.5.2 ở mọi kích
+thước đã thử (128–1024): ví dụ n=1024, 3,68 ms (f32) / 7,59 ms (f64) so với
+3,867 ms / 9,921 ms.
+
+**Vậy vị trí trung thực là: TokenVector là thay thế CPython.** Nó thắng
+interpreter nó thay thế 2–82× và có SIMD f32 thật (4,25× so với chính nó trên
+`f32mm_vec`). Đường IL thuần không thể đuổi tới hiệu năng BLAS `f64` trên .NET
+Framework 4.8; `simd_gemm` thì có, qua một kernel native, mà không cần đổi
+runtime.
 
 ## 2. TokenVector KHÔNG phải là gì
 

@@ -378,6 +378,7 @@ số/trả về của nó chỉ suy được từ một `TypeAnn` "mục tiêu" 
 | `v_load4` | `v_load4(p, off)` | Nạp 16 byte (4 lane) → `f32x4`. `off` tính theo **byte**. |
 | `v_store4` | `v_store4(p, off, v)` | Ghi 4 lane. |
 | `v_hsum4` | `v_hsum4(v)` | Gom 4 lane về 1 `f32`. **Thứ tự cộng là `((X+Y)+Z)+W`** — phải khớp đúng thứ tự của vòng scalar, nếu ghep cặp `(X+Y)+(Z+W)` thì sai số float. |
+| `simd_gemm` | `simd_gemm(a, b, r, n)` | Nhân ma trận vuông `n×n`: `r = a × b`. `a`, `b`, `r` là `list[f32]` hoặc `list[f64]` (cùng kiểu), lưu theo hàng. Gọi kernel native AVX2+FMA trong `tkv_simd_native.dll` (nạp cạnh `.exe`), đa luồng; không copy vào/ra. Không kiểm tra kích thước — `n×n` phải khớp độ dài list. |
 
 ---
 

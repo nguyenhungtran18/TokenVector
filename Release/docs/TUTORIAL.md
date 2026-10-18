@@ -2,7 +2,7 @@
 ### (TokenVector Native AOT Programming Language Master Guidebook)
 
 **Mã giáo trình: TKV-BOOK-2026-EXHAUSTIVE**  
-**Phiên bản: 1.0.10 (Bản Phát hành Thương mại Độc lập)**  
+**Phiên bản: 1.0.11 (Bản Phát hành Thương mại Độc lập)**  
 **Bản quyền & Bảo chứng: Đội ngũ Trình biên dịch TokenVector**
 
 > **Ghi chú tính đầy đủ (2026-08-10)**: Mục lục bên dưới liệt kê 20 bài (Bài 1-20), nhưng hiện **chỉ 12 bài có nội dung thật** (Bài 1, 2, 3, 5, 6, 8, 9, 10, 12, 13, 15, 17). **8 bài sau CHƯA VIẾT** (chỉ có tên trong mục lục): Bài 4 (Khai báo Hàm), Bài 7 (break/continue/Recursion), Bài 11 (Dict/Set/Tuple), Bài 14 (Hệ thống Module/`import`), Bài 16 (Async/Await), Bài 18 (FFI Bridge), Bài 19 (Extern Assembly .NET), Bài 20 (Dynamic Execution `eval_code`/`exec_code`). Xem `docs/HANDBOOK.vi.md` Chương 7-9 để có ví dụ tương ứng cho một số chủ đề này trong lúc chờ viết đầy đủ.

@@ -2,7 +2,7 @@
 ### (Comprehensive Official Technical Handbook for TokenVector Native AOT Compiler Platform)
 
 **Mã tài liệu: TKV-USERGUIDE-2026-FULL**  
-**Phiên bản: 1.0.10 (Bản Phát hành Thương mại)**  
+**Phiên bản: 1.0.11 (Bản Phát hành Thương mại)**  
 **Bản quyền & Bảo chứng: Đội ngũ Trình biên dịch TokenVector & Antigravity AI Team**
 
 ---

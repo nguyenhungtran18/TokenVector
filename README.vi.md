@@ -4,7 +4,7 @@
 
 <p align="left">
   <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
-  <img src="https://img.shields.io/badge/version-1.0.10-blue.svg?style=flat-square" alt="phiên bản 1.0.10">
+  <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="phiên bản 1.0.11">
   <img src="https://img.shields.io/badge/tests-125%2F125-brightgreen.svg?style=flat-square" alt="tests 125/125">
   <img src="https://img.shields.io/badge/builtins-420-orange.svg?style=flat-square" alt="builtins 420">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="Giấy phép: MIT">
@@ -83,7 +83,7 @@ thêm.
 | Kiểu dữ liệu | `i32` / `i64` / `f32` / `f64` / `str` không hộp, cùng `int` và `bool` |
 | Runtime | .NET Framework 4.x — không interpreter, không GIL |
 | Luồng | `thread_spawn` / `thread_join`, đa lõi thật, không có global lock |
-| SIMD | `f32x4` → `System.Numerics.Vector4`; vòng lặp elementwise được tự động vector hóa (P6) |
+| SIMD | `f32x4` → `System.Numerics.Vector4`; vòng lặp elementwise được tự động vector hóa (P6); `simd_gemm` chạy kernel native AVX2+FMA cho matmul f32/f64 |
 | Interop | mọi assembly .NET/NuGet, P/Invoke, và C FFI trực tiếp |
 
 ---
@@ -134,10 +134,30 @@ lời:
 - **Bộ nhớ native liền mạch** thay cho `List<double>`: **0,63×** — *chậm hơn*,
   vì `f32buf` phải trả `×4` byte offset cộng bounds check mỗi lần truy cập.
 
-**Vậy: TokenVector là thay thế CPython, không phải thay thế BLAS.** Nó thắng
-interpreter nó thay thế 2–82×, có SIMD f32 chạy thật, và không thể đuổi tới
-SIMD `f64` trên .NET Framework 4.8. Đóng khoảng cuối đó nghĩa là đổi runtime,
-không phải tối ưu cái hiện có.
+**Cập nhật 2026-10-18 — `simd_gemm` (kernel native AVX2+FMA).** Khoảng cách
+trên là của đường IL/`Vector4`. `simd_gemm(a, b, r, n)` giờ gọi kernel C đi
+kèm (`tkv_simd_native.dll`; micro-kernel 4×16 f32 / 4×8 f64, chặn cache L1/L2,
+đa luồng theo lõi vật lý, chia việc 2 chiều hàng×cột) và nhận `list[f32]` /
+`list[f64]` không copy vào/ra. Đo trên cùng Xeon E5-2695 v3 với NumPy 2.5.2
+(OpenBLAS 0.3.34), tốt nhất qua nhiều lần chạy:
+
+| n | f32 `simd_gemm` | f32 NumPy | f64 `simd_gemm` | f64 NumPy |
+|---|---|---|---|---|
+| 128 | 0,039 ms | 0,122 ms | 0,055 ms | 0,098 ms |
+| 256 | 0,109 ms | 0,180 ms | 0,196 ms | 0,231 ms |
+| 512 | 0,496 ms | 0,811 ms | 1,03 ms | 1,569 ms |
+| 1024 | 3,68 ms | 3,867 ms | 7,59 ms | 9,921 ms |
+
+Nó nhanh hơn ở mọi kích thước đã thử (128–1024) ở cả hai độ chính xác. Đường
+IL thuần không đổi và vẫn không đóng được khoảng cách; `simd_gemm` đóng nó
+bằng cách đưa kernel trong xuống mã native, không phải bằng cách đổi runtime.
+Phương pháp đầy đủ và các kích thước trung gian:
+`Release/docs/e_handoff/BAN_GIAO_2026-10-18-SIMD-GEMM.md`.
+
+**Vậy: TokenVector là thay thế CPython.** Nó thắng interpreter nó thay thế
+2–82×, và có SIMD f32 chạy thật. Đường IL thuần không thể đuổi tới hiệu năng
+BLAS `f64` trên .NET Framework 4.8 — nhưng `simd_gemm` thì có, qua một kernel
+native AVX2+FMA, mà không cần đổi runtime.
 
 ### Các con số trên có được kiểm không?
 

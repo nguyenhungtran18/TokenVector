@@ -99,6 +99,13 @@ TokenVector được xây dựng để trở thành hệ sinh thái thống nh�
    > **Đổi nền tảng là điều kiện cần, không phải điều kiện đủ.**
    > Repro: `TokenVector.TestOracle/benchmark/nc_probe_vec256/`. Xem `README.md`
    > §1b và `docs/PLAN.md` §8.
+   >
+   > **CẬP NHẬT 2026-10-18 — AVX2 đã có, không cần đổi runtime.** Giới hạn trên
+   > đúng cho **đường IL** (`Vector4`/CIL thô). Nhưng `simd_gemm` đưa kernel
+   > **C** biên dịch sẵn AVX2+FMA (`tkv_simd_native.dll`) vào qua P/Invoke, và
+   > nhân ma trận f32/f64 **nhanh hơn NumPy/OpenBLAS** ở mọi kích thước đã thử
+   > (128–1024). AVX-512/ARM NEON **vẫn chưa** có (máy tham chiếu không có
+   > AVX-512). Chi tiết: `docs/e_handoff/BAN_GIAO_2026-10-18-SIMD-GEMM.md`.
 4. **Compiler-Assisted Operator Fusion:** Trình biên dịch `TokenVector Compiler` tự động phát hiện và gộp các toán tử liên tiếp thành 1 Fused JIT Kernel duy nhất để triệt tiêu việc ghi dữ liệu trung gian ra RAM.
 5. **Single-Binary Native AOT Deployment:** Đóng gói toàn bộ ứng dụng (kèm giao diện đồ họa và driver điều khiển phần cứng) thành 1 tệp nhị phân thực thi độc lập duy nhất (dung lượng < 50MB, cold-start < 10ms, chạy trực tiếp trên Windows, macOS, Linux, iOS, Android, Raspberry Pi, Nvidia Jetson, ESP32, ARM/RISC-V).
 
