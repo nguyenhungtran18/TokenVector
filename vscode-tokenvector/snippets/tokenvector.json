@@ -1,0 +1,142 @@
+{
+  "Function": {
+    "prefix": "def",
+    "body": [
+      "def ${1:name}(${2:args}) -> \"${3:i32}\":",
+      "    ${4:pass}",
+      "$0"
+    ],
+    "description": "Define a function with a return type annotation"
+  },
+  "Main function": {
+    "prefix": "main",
+    "body": [
+      "def main() -> \"i32\":",
+      "    ${1:print(\"hello\")}",
+      "    return 0",
+      "$0"
+    ],
+    "description": "TokenVector entry point"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name}:",
+      "    ${2:field}: \"${3:str}\"",
+      "",
+      "    def ${4:method}(self) -> \"${5:i32}\":",
+      "        ${6:pass}",
+      "$0"
+    ],
+    "description": "Define a class with typed fields"
+  },
+  "Record": {
+    "prefix": "record",
+    "body": [
+      "record ${1:Name}:",
+      "    ${2:field}: \"${3:str}\"",
+      "$0"
+    ],
+    "description": "Define a record"
+  },
+  "If": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition}:",
+      "    ${2:pass}",
+      "$0"
+    ],
+    "description": "If statement"
+  },
+  "If / else": {
+    "prefix": "ife",
+    "body": [
+      "if ${1:condition}:",
+      "    ${2:pass}",
+      "else:",
+      "    ${3:pass}",
+      "$0"
+    ],
+    "description": "If / else"
+  },
+  "For": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:items}:",
+      "    ${3:pass}",
+      "$0"
+    ],
+    "description": "For loop"
+  },
+  "While": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition}:",
+      "    ${2:pass}",
+      "$0"
+    ],
+    "description": "While loop"
+  },
+  "Try / except": {
+    "prefix": "try",
+    "body": [
+      "try:",
+      "    ${1:pass}",
+      "except ${2:Exception}:",
+      "    ${3:pass}",
+      "$0"
+    ],
+    "description": "Try / except"
+  },
+  "With": {
+    "prefix": "with",
+    "body": [
+      "with ${1:expr} as ${2:name}:",
+      "    ${3:pass}",
+      "$0"
+    ],
+    "description": "With statement"
+  },
+  "Print": {
+    "prefix": "print",
+    "body": [
+      "print(${1:value})",
+      "$0"
+    ],
+    "description": "Print a value"
+  },
+  "List comprehension": {
+    "prefix": "lc",
+    "body": [
+      "[${1:x} for ${2:x} in ${3:items}]",
+      "$0"
+    ],
+    "description": "List comprehension"
+  },
+  "Typed variable": {
+    "prefix": "var",
+    "body": [
+      "${1:name}: \"${2:i32}\" = ${3:0}",
+      "$0"
+    ],
+    "description": "Typed variable declaration"
+  },
+  "Extern assembly": {
+    "prefix": "extern",
+    "body": [
+      "__tkv_extern_assembly__ = [",
+      "    \"${1:System.Windows.Forms}\"",
+      "]",
+      "$0"
+    ],
+    "description": "Reference a .NET assembly"
+  },
+  "SIMD GEMM": {
+    "prefix": "simdgemm",
+    "body": [
+      "simd_gemm(${1:a}, ${2:b}, ${3:r}, ${4:n})",
+      "$0"
+    ],
+    "description": "Native AVX2+FMA matrix multiply: r = a * b"
+  }
+}

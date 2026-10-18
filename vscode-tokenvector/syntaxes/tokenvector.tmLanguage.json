@@ -1,0 +1,286 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TokenVector",
+  "scopeName": "source.tokenvector",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#decorators" },
+    { "include": "#definitions" },
+    { "include": "#type-annotations" },
+    { "include": "#fstrings" },
+    { "include": "#strings" },
+    { "include": "#constants" },
+    { "include": "#keywords" },
+    { "include": "#builtins" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#punctuation" },
+    { "include": "#dunder" },
+    { "include": "#function-calls" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.tokenvector",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "decorators": {
+      "patterns": [
+        {
+          "name": "meta.decorator.tokenvector",
+          "match": "^\\s*(@)([A-Za-z_][A-Za-z0-9_.]*)",
+          "captures": {
+            "1": { "name": "punctuation.decorator.tokenvector" },
+            "2": { "name": "entity.name.function.decorator.tokenvector" }
+          }
+        }
+      ]
+    },
+    "definitions": {
+      "patterns": [
+        {
+          "name": "meta.function.definition.tokenvector",
+          "match": "\\b(def)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.tokenvector" },
+            "2": { "name": "entity.name.function.tokenvector" }
+          }
+        },
+        {
+          "name": "meta.class.definition.tokenvector",
+          "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.class.tokenvector" },
+            "2": { "name": "entity.name.type.class.tokenvector" }
+          }
+        },
+        {
+          "name": "meta.record.definition.tokenvector",
+          "match": "\\b(record)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.record.tokenvector" },
+            "2": { "name": "entity.name.type.record.tokenvector" }
+          }
+        }
+      ]
+    },
+    "type-annotations": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.tokenvector",
+          "match": "\"(?:i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|str|bool|int|void|any|object|TkvInt|TkvStr)\""
+        },
+        {
+          "name": "storage.type.container.tokenvector",
+          "match": "\"(?:list|dict|set|frozenset|tuple|array)\\s*\\[[^\"\\n]*\\]\""
+        }
+      ]
+    },
+    "fstrings": {
+      "patterns": [
+        {
+          "name": "string.quoted.fstring.tokenvector",
+          "begin": "\\b([fF][rR]?|[rR][fF])(\"|')",
+          "beginCaptures": {
+            "1": { "name": "storage.modifier.string.tokenvector" },
+            "2": { "name": "punctuation.definition.string.begin.tokenvector" }
+          },
+          "end": "\\2",
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.tokenvector" }
+          },
+          "patterns": [
+            { "include": "#string-escapes" },
+            {
+              "name": "meta.interpolation.tokenvector",
+              "begin": "\\{",
+              "beginCaptures": {
+                "0": { "name": "punctuation.section.interpolation.begin.tokenvector" }
+              },
+              "end": "\\}",
+              "endCaptures": {
+                "0": { "name": "punctuation.section.interpolation.end.tokenvector" }
+              },
+              "patterns": [
+                { "include": "$self" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.tokenvector",
+          "begin": "(\"\"\"|''')",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.tokenvector" }
+          },
+          "end": "\\1",
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.tokenvector" }
+          },
+          "patterns": [
+            { "include": "#string-escapes" }
+          ]
+        },
+        {
+          "name": "string.quoted.double.tokenvector",
+          "begin": "\"",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.tokenvector" }
+          },
+          "end": "\"",
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.tokenvector" }
+          },
+          "patterns": [
+            { "include": "#string-escapes" }
+          ]
+        },
+        {
+          "name": "string.quoted.single.tokenvector",
+          "begin": "'",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.tokenvector" }
+          },
+          "end": "'",
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.tokenvector" }
+          },
+          "patterns": [
+            { "include": "#string-escapes" }
+          ]
+        }
+      ]
+    },
+    "string-escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.tokenvector",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.tokenvector",
+          "match": "\\b(True|False|None)\\b"
+        },
+        {
+          "name": "variable.language.tokenvector",
+          "match": "\\b(self|cls)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.flow.tokenvector",
+          "match": "\\b(if|elif|else|while|for|break|continue|return|pass|yield|with|as|try|except|finally|raise|import|from|global|nonlocal|del|assert|async|await|lambda)\\b"
+        },
+        {
+          "name": "keyword.control.soft.tokenvector",
+          "match": "\\b(match|case)\\b(?!\\s*[=.])"
+        },
+        {
+          "name": "keyword.operator.word.tokenvector",
+          "match": "\\b(and|or|not|is|in)\\b"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.tokenvector",
+          "match": "\\b(print|len|range|str|int|float|bool|list|dict|set|frozenset|tuple|abs|min|max|sum|sorted|reversed|enumerate|zip|map|filter|isinstance|issubclass|type|id|hash|repr|open|input|format|ord|chr|hex|bin|oct|round|divmod|pow|any|all|callable|iter|next|getattr|setattr|hasattr|delattr|vars|dir|globals|locals|eval|exec|compile|memoryview|bytearray|bytes|complex|object|super|property|staticmethod|classmethod|slice|exit|quit)\\b(?=\\s*\\()"
+        },
+        {
+          "name": "support.function.native.tokenvector",
+          "match": "\\b(simd_gemm|simd_add|simd_sub|simd_mul|simd_scale|simd_axpy|thread_spawn|thread_join|thread_sleep|time_perf|time_sleep|atomic_add|atomic_inc|lock_acquire|lock_release|parallel_for|alloc_bytes|free_bytes|read_u8|write_u8|read_i32|write_i32|read_i64|write_i64|read_f32|write_f32|bstr_alloc|bstr_free|bstr_read|ctypes_cdll|ctypes_call|c_puts|proc_run|proc_ra|reserve|gc_collect|eval_arith|eval_expr|eval_code|exec_code|launch_tms_gui)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.tokenvector",
+          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.tokenvector",
+          "match": "\\b0[bB][01_]+\\b"
+        },
+        {
+          "name": "constant.numeric.octal.tokenvector",
+          "match": "\\b0[oO][0-7_]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.tokenvector",
+          "match": "\\b\\d[\\d_]*\\.[\\d_]*(?:[eE][+-]?\\d+)?\\b"
+        },
+        {
+          "name": "constant.numeric.float.tokenvector",
+          "match": "\\b\\d[\\d_]*[eE][+-]?\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.tokenvector",
+          "match": "\\b\\d[\\d_]*\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.tokenvector",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.walrus.tokenvector",
+          "match": ":="
+        },
+        {
+          "name": "keyword.operator.assignment.compound.tokenvector",
+          "match": "\\+=|-=|\\*=|/=|//=|%=|&=|\\|=|\\^=|<<=|>>=|@="
+        },
+        {
+          "name": "keyword.operator.tokenvector",
+          "match": "\\*\\*|//|==|!=|<=|>=|<<|>>|[-+*/%&|^~<>=@]"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.tokenvector",
+          "match": "[\\[\\]{}]"
+        },
+        {
+          "name": "punctuation.separator.tokenvector",
+          "match": "[(),;:]"
+        }
+      ]
+    },
+    "dunder": {
+      "patterns": [
+        {
+          "name": "variable.other.constant.tokenvector",
+          "match": "\\b__[A-Za-z0-9_]+__\\b"
+        }
+      ]
+    },
+    "function-calls": {
+      "patterns": [
+        {
+          "name": "entity.name.function.call.tokenvector",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()"
+        }
+      ]
+    }
+  }
+}

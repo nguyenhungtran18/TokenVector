@@ -1,0 +1,125 @@
+{
+  "name": "tokenvector-syntax",
+  "displayName": "TokenVector Language Support",
+  "description": "Syntax highlighting, snippets and build/run commands for TokenVector (.tkv) - the Python-like AOT compiler for .NET.",
+  "version": "1.0.11",
+  "publisher": "nguyenhungtran18",
+  "license": "MIT",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Other"
+  ],
+  "keywords": [
+    "tokenvector",
+    "tkv",
+    "aot",
+    "compiler",
+    "dotnet",
+    "cil",
+    "python"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nguyenhungtran18/TokenVector.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nguyenhungtran18/TokenVector/issues"
+  },
+  "homepage": "https://nguyenhungtran18.github.io/TokenVector/",
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:tokenvector"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "tokenvector",
+        "aliases": [
+          "TokenVector",
+          "tokenvector",
+          "tkv"
+        ],
+        "extensions": [
+          ".tkv",
+          ".tv"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tokenvector",
+        "scopeName": "source.tokenvector",
+        "path": "./syntaxes/tokenvector.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "tokenvector",
+        "path": "./snippets/tokenvector.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "tokenvector.build",
+        "title": "TokenVector: Build Current File"
+      },
+      {
+        "command": "tokenvector.run",
+        "title": "TokenVector: Build and Run Current File"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "tokenvector.build",
+          "when": "editorLangId == tokenvector",
+          "group": "navigation@10"
+        },
+        {
+          "command": "tokenvector.run",
+          "when": "editorLangId == tokenvector",
+          "group": "navigation@11"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "tokenvector.build",
+          "when": "editorLangId == tokenvector"
+        },
+        {
+          "command": "tokenvector.run",
+          "when": "editorLangId == tokenvector"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "TokenVector",
+      "properties": {
+        "tokenvector.compilerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to tkvc-tv.exe. Leave empty to auto-detect: <workspace>/Release/dist/tkvc-tv.exe, <workspace>/dist/tkvc-tv.exe, then PATH."
+        },
+        "tokenvector.extraArgs": {
+          "type": "string",
+          "default": "",
+          "description": "Extra arguments appended to the compiler command (space separated)."
+        },
+        "tokenvector.saveBeforeBuild": {
+          "type": "boolean",
+          "default": true,
+          "description": "Save the current file before building."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^4.0.0"
+  }
+}
