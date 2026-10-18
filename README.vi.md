@@ -119,6 +119,7 @@ giờ thắng nhờ `simd_gemm`:**
 | kernel | TokenVector | NumPy | nhanh hơn |
 |---|---|---|---|
 | matmul32 (`simd_gemm`, f32) | 1,7 µs | 5,5 µs | **TokenVector 3,2×** |
+| matmul32 (duong IL f32x4 vector) | 14,1 µs | 5,5 µs | NumPy 2,4× |
 | matmul32 (duong IL typed, i32) | 85,6 µs | 5,7 µs | NumPy 15× |
 | add (duong IL typed, i32) | 0,639 ms | 0,911 ms | **TokenVector 1,4× |
 
