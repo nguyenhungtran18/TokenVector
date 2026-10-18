@@ -118,25 +118,12 @@ with `simd_gemm`:**
 | kernel | TokenVector | NumPy | faster by |
 |---|---|---|---|
 | matmul32 (`simd_gemm`, f32) | 1.7 µs | 5.5 µs | **TokenVector 3.2×** |
-| matmul32 (IL `Vector4` path) | 147 µs | 5.7 µs | NumPy 26× |
-| add (IL list path) | 1427 µs | 911 µs | NumPy 1.6× |
+| matmul32 (IL typed path, i32 counters) | 85.6 µs | 5.7 µs | NumPy 15× |
+| add (IL typed path, i32 counters) | 0.639 ms | 0.911 ms | **TokenVector 1.4×** |
 
-The IL-path gap is **not** a missing optimisation and **not** a threading deficit. With
-`OMP_NUM_THREADS=1`, `np.dot` on a 32×32 matmul only moves from 5.73 µs to
-6.05 µs — OpenBLAS does not split a matrix that small. What remains is vector
-width: AVX2 with FMA processes **4 `double`s per instruction**, while this
-runtime exposes only `Vector4` (128-bit) and raw vector CIL is rejected by the
-JIT.
+The older claim that this IL gap came from vector width was wrong: `i`/`half` were left untyped, so they defaulted to `TkvInt` (boxed arbitrary-precision) and every iteration paid `TkvInt::Cmp` / `FromI64` / `Add` / `ToI32`. Typing the counters `i32` alone takes `list[f64]` add from 3.18 ms to 0.64 ms -- no change to the data structures (`Release/tools/benchmark/run_benchmark.il`, `b_add`; see `Release/benchmark/KETQUA.md`).
 
-Two "cheap" fixes were measured, and **both died**, so they are not the answer:
-
-- **Strength reduction** of the inner-loop index (`kk*n + j` → induction
-  variable): **1.00×**. The `mul.ovf`/`add.ovf`/`conv.ovf.i4` sequence is
-  essentially free on the JIT.
-- **Native contiguous storage** instead of `List<double>`: **0.63×** — *slower*,
-  because `f32buf` pays a `×4` byte offset plus a bounds check per access.
-
-**Update 2026-10-18 — `simd_gemm` (native AVX2+FMA kernel).** The gap above is
+The plain-IL nested-`List` matmul and the manual `f32x4` path are still slow next to BLAS, so matmul is covered by `simd_gemm`.**Update 2026-10-18 — `simd_gemm` (native AVX2+FMA kernel).** The gap above is
 for the IL/`Vector4` path. `simd_gemm(a, b, r, n)` now calls a shipped C kernel
 (`tkv_simd_native.dll`; 4×16 f32 / 4×8 f64 micro-kernels, L1/L2 cache
 blocking, physical-core threading, 2-D row×column split) and takes

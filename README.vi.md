@@ -119,23 +119,12 @@ giờ thắng nhờ `simd_gemm`:**
 | kernel | TokenVector | NumPy | nhanh hơn |
 |---|---|---|---|
 | matmul32 (`simd_gemm`, f32) | 1,7 µs | 5,5 µs | **TokenVector 3,2×** |
-| matmul32 (đường IL `Vector4`) | 147 µs | 5,7 µs | NumPy 26× |
-| add (đường IL list) | 1427 µs | 911 µs | NumPy 1,6× |
+| matmul32 (duong IL typed, i32) | 85,6 µs | 5,7 µs | NumPy 15× |
+| add (duong IL typed, i32) | 0,639 ms | 0,911 ms | **TokenVector 1,4× |
 
-Khoảng cách của đường IL **không** phải do thiếu một tối ưu, cũng **không** do thiếu đa
-luồng. Với `OMP_NUM_THREADS=1`, `np.dot` trên ma trận 32×32 chỉ chạy từ 5,73 µs
-lên 6,05 µs — OpenBLAS không chia nhỏ ma trận nhỏ thế. Còn lại là bề rộng
-vector: AVX2 với FMA xử lý **4 `double`/lệnh**, trong khi runtime này chỉ cho
-`Vector4` (128-bit) và lệnh vector thô bị JIT từ chối.
+Tuyên bố cũ rằng khoảng cách đường IL đến từ bề rộng vector là sai: `i`/`half` để nguyên kiểu, nên mặc định là `TkvInt` (boxed, độ chính xác tuỳ ý) và mỗi lần lặp đều trả `TkvInt::Cmp`/`FromI64`/`Add`/`ToI32`. Gán biến đếm `i32` riêng lẻ đưa `list[f64]` add từ 3,18 ms xuống 0,64 ms -- không đổi cấu trúc dữ liệu (`Release/tools/benchmark/run_benchmark.il`, `b_add`; xem `Release/benchmark/KETQUA.md`).
 
-Hai "cách sửa rẻ" đã đo và **cả hai đều chết**, nên chúng không phải câu trả
-lời:
-
-- **Strength reduction** chỉ số vòng trong (`kk*n + j` → biến chuyển vị):
-  **1,00×**. Chuỗi `mul.ovf`/`add.ovf`/`conv.ovf.i4` gần như miễn phí trên JIT.
-- **Bộ nhớ native liền mạch** thay cho `List<double>`: **0,63×** — *chậm hơn*,
-  vì `f32buf` phải trả `×4` byte offset cộng bounds check mỗi lần truy cập.
-
+Đường IL lồng `List` thuần và đường `f32x4` thủ công vẫn chậm so với BLAS, nên matmul được gom vào `simd_gemm`.
 **Cập nhật 2026-10-18 — `simd_gemm` (kernel native AVX2+FMA).** Khoảng cách
 trên là của đường IL/`Vector4`. `simd_gemm(a, b, r, n)` giờ gọi kernel C đi
 kèm (`tkv_simd_native.dll`; micro-kernel 4×16 f32 / 4×8 f64, chặn cache L1/L2,

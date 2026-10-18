@@ -43,20 +43,20 @@ def b_fib(runs: "i32") -> "f64":
 
 
 def b_string(runs: "i32", n: "i32") -> "f64":
-    best = 1.0e9
-    cs = 0
-    i = 0
-    t0 = 0.0
-    t1 = 0.0
+    best: "f64" = 1.0e9
+    cs: "i32" = 0
+    i: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while i < runs:
         t0 = time_perf()
         buf = []
-        j = 0
+        j: "i32" = 0
         while j < n:
             buf.append("abcdefgh")
             j = j + 1
         s = "".join(buf)
-        cnt = 0
+        cnt: "i32" = 0
         j = 0
         while j < n:
             ch = s[j:j + 1]
@@ -65,7 +65,7 @@ def b_string(runs: "i32", n: "i32") -> "f64":
             j = j + 1
         cs = len(s) + cnt
         t1 = time_perf()
-        d = (t1 - t0) * 1000.0
+        d: "f64" = (t1 - t0) * 1000.0
         if d < best:
             best = d
         i = i + 1
@@ -76,12 +76,12 @@ def b_string(runs: "i32", n: "i32") -> "f64":
 def _sort(xs: "list[i64]", lo: "i32", hi: "i32") -> "i32":
     if hi - lo < 2:
         return 0
-    mid = (lo + hi) // 2
+    mid: "i32" = (lo + hi) // 2
     _sort(xs, lo, mid)
     _sort(xs, mid, hi)
-    i = lo
-    j = mid
-    k = lo
+    i: "i32" = lo
+    j: "i32" = mid
+    k: "i32" = lo
     while i < mid and j < hi:
         if xs[i] <= xs[j]:
             xs[k] = xs[i]
@@ -107,12 +107,12 @@ def b_sort(runs: "i32", n: "i32") -> "f64":
     while i < n:
         src.append((i * 1103515245 + 12345) % 65536)
         i = i + 1
-    best = 1.0e9
+    best: "f64" = 1.0e9
     cs = 0
     work = []
-    r = 0
-    t0 = 0.0
-    t1 = 0.0
+    r: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while r < runs:
         i = 0
         while i < n:
@@ -126,7 +126,7 @@ def b_sort(runs: "i32", n: "i32") -> "f64":
         while i < n:
             work.pop()
             i = i + 1
-        d = (t1 - t0) * 1000.0
+        d: "f64" = (t1 - t0) * 1000.0
         if d < best:
             best = d
         r = r + 1
@@ -135,11 +135,13 @@ def b_sort(runs: "i32", n: "i32") -> "f64":
 
 
 def b_add(runs: "i32", n: "i32") -> "f64":
-    half = n // 2
-    a = []
-    b = []
-    r = []
-    i = 0
+    # Bien vong KIEU i32: neu de mac dinh, `i`/`half` la TkvInt (boxed) va moi
+    # vong phai qua TkvInt::Cmp/FromI64/Add/ToI32 - cham hon ca doc/ghi mang.
+    half: "i32" = n // 2
+    a: "list[f64]" = []
+    b: "list[f64]" = []
+    r: "list[f64]" = []
+    i: "i32" = 0
     while i < n:
         a.append(0.0)
         i = i + 1
@@ -156,12 +158,12 @@ def b_add(runs: "i32", n: "i32") -> "f64":
     while i < half:
         b[i] = (i % 4) + 1.0
         i = i + 1
-    best = 1.0e9
-    cs = 0.0
-    csq = 0.0
-    k = 0
-    t0 = 0.0
-    t1 = 0.0
+    best: "f64" = 1.0e9
+    cs: "f64" = 0.0
+    csq: "f64" = 0.0
+    k: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while k < runs:
         t0 = time_perf()
         i = 0
@@ -190,12 +192,12 @@ def b_add(runs: "i32", n: "i32") -> "f64":
 
 
 def _mm32(a: "list[f32]", b: "list[f32]", r: "list[f32]", n: "i32") -> "i32":
-    i = 0
+    i: "i32" = 0
     while i < n:
-        j = 0
+        j: "i32" = 0
         while j < n:
-            s = a[i * n] * b[j]
-            kk = 1
+            s: "f32" = a[i * n] * b[j]
+            kk: "i32" = 1
             while kk < n:
                 s = s + a[i * n + kk] * b[kk * n + j]
                 kk = kk + 1
@@ -206,21 +208,21 @@ def _mm32(a: "list[f32]", b: "list[f32]", r: "list[f32]", n: "i32") -> "i32":
 
 
 def b_matmul32(runs: "i32", n: "i32") -> "f64":
-    m = n * n
-    a = []
-    b = []
-    r = []
-    i = 0
+    m: "i32" = n * n
+    a: "list[f32]" = []
+    b: "list[f32]" = []
+    r: "list[f32]" = []
+    i: "i32" = 0
     while i < m:
         a.append(float((i % 7)) - 3.0)
         b.append(float((i % 5)) - 2.0)
         r.append(0.0)
         i = i + 1
-    best = 1.0e9
-    cs = 0.0
-    k = 0
-    t0 = 0.0
-    t1 = 0.0
+    best: "f64" = 1.0e9
+    cs: "f64" = 0.0
+    k: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while k < runs:
         t0 = time_perf()
         _mm32(a, b, r, n)
@@ -239,10 +241,10 @@ def b_matmul32(runs: "i32", n: "i32") -> "f64":
 
 
 def b_f32mm(runs: "i32", n: "i32") -> "f64":
-    m = n * n
+    m: "i32" = n * n
     a = []
     b = []
-    i = 0
+    i: "i32" = 0
     while i < m:
         a.append((i % 97) * 0.1)
         b.append((i % 89) * 0.07)
@@ -252,12 +254,12 @@ def b_f32mm(runs: "i32", n: "i32") -> "f64":
     while i < m:
         r.append(0.0)
         i = i + 1
-    best = 1.0e9
-    p0 = 0.0
-    cs = 0.0
-    k = 0
-    t0 = 0.0
-    t1 = 0.0
+    best: "f64" = 1.0e9
+    p0: "f64" = 0.0
+    cs: "f64" = 0.0
+    k: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while k < runs:
         t0 = time_perf()
         _mm32(a, b, r, n)
@@ -277,50 +279,85 @@ def b_f32mm(runs: "i32", n: "i32") -> "f64":
 
 
 def b_f32mm_vec(runs: "i32", n: "i32") -> "f64":
-    m = n * n
+    m: "i32" = n * n
     a = []
     b = []
-    r = []
-    i = 0
+    i: "i32" = 0
     while i < m:
         a.append((i % 97) * 0.1)
         b.append((i % 89) * 0.07)
+        i = i + 1
+    r = []
+    i = 0
+    while i < m:
         r.append(0.0)
         i = i + 1
-    best = 1.0e9
-    p0 = 0.0
-    rp = 0
-    t0 = 0.0
-    t1 = 0.0
+    # B phai dong goi theo COT de v_load4 nap duoc 16 byte lien tiep
+    pa = alloc_bytes(m * 4)
+    pb = alloc_bytes(m * 4)
+    pt = alloc_bytes(m * 4)
+    i = 0
+    while i < m:
+        write_f32(pa, i * 4, a[i])
+        write_f32(pb, i * 4, b[i])
+        i = i + 1
+    i = 0
+    while i < n:
+        j: "i32" = 0
+        while j < n:
+            write_f32(pt, (j * n + i) * 4, b[i * n + j])
+            j = j + 1
+        i = i + 1
+    best: "f64" = 1.0e9
+    p0: "f64" = 0.0
+    rp: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while rp < runs:
         t0 = time_perf()
-        _mm32(a, b, r, n)
+        i = 0
+        while i < n:
+            j = 0
+            while j < n:
+                acc = f32x4(0.0, 0.0, 0.0, 0.0)
+                k: "i32" = 0
+                while k + 3 < n:
+                    va = v_load4(pa, (i * n + k) * 4)
+                    vb = v_load4(pt, (j * n + k) * 4)
+                    acc = acc + va * vb
+                    k = k + 4
+                r[i * n + j] = v_hsum4(acc)
+                j = j + 1
+            i = i + 1
         t1 = time_perf()
         p0 = r[0] + r[7] + r[500] + r[1023]
         d = (t1 - t0) * 1000.0
         if d < best:
             best = d
         rp = rp + 1
+    free_bytes(pt)
+    free_bytes(pb)
+    free_bytes(pa)
     print("f32mm_vec=" + str(p0) + "  best=" + str(best))
     return best
 
 
 def b_f32mm_simd(runs: "i32", n: "i32") -> "f64":
-    m = n * n
+    m: "i32" = n * n
     a = []
     b = []
     r = []
-    i = 0
+    i: "i32" = 0
     while i < m:
         a.append((i % 97) * 0.1)
         b.append((i % 89) * 0.07)
         r.append(0.0)
         i = i + 1
-    best = 1.0e9
-    p0 = 0.0
-    rp = 0
-    t0 = 0.0
-    t1 = 0.0
+    best: "f64" = 1.0e9
+    p0: "f64" = 0.0
+    rp: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while rp < runs:
         t0 = time_perf()
         simd_gemm(a, b, r, n)
@@ -345,8 +382,6 @@ def main() -> "i32":
     tm = b_matmul32(20, 32)
     t32 = b_f32mm(100, 32)
     t32v = b_f32mm_vec(100, 32)
-    t32s = b_f32mm_simd(100, 32)
-    t128s = b_f32mm_simd(30, 128)
     print()
     print("=== TONG KET (ms, best-of-N) ===")
     print("fib            " + str(tf))
@@ -356,9 +391,7 @@ def main() -> "i32":
     print("matmul32       " + str(tm))
     print("f32mm scalar   " + str(t32))
     print("f32mm vec      " + str(t32v) + "   (nhanh hon scalar " + str(t32 / t32v) + "x)")
-    print("f32mm simd n32 " + str(t32s) + "   (nhanh hon scalar " + str(t32 / t32s) + "x)")
-    print("f32mm simd n128 " + str(t128s))
     # Phai DUNG moi bien, neu khong JIT coi ket qua la chet
-    if tf < 0.0 or ts < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or t32 < 0.0 or t32v < 0.0 or t32s < 0.0 or t128s < 0.0:
+    if tf < 0.0 or ts < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or t32 < 0.0 or t32v < 0.0:
         return 1
     return 0

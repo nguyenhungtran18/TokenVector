@@ -43,20 +43,20 @@ def b_fib(runs: "i32") -> "f64":
 
 
 def b_string(runs: "i32", n: "i32") -> "f64":
-    best = 1.0e9
-    cs = 0
-    i = 0
-    t0 = 0.0
-    t1 = 0.0
+    best: "f64" = 1.0e9
+    cs: "i32" = 0
+    i: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while i < runs:
         t0 = time_perf()
         buf = []
-        j = 0
+        j: "i32" = 0
         while j < n:
             buf.append("abcdefgh")
             j = j + 1
         s = "".join(buf)
-        cnt = 0
+        cnt: "i32" = 0
         j = 0
         while j < n:
             ch = s[j:j + 1]
@@ -65,7 +65,7 @@ def b_string(runs: "i32", n: "i32") -> "f64":
             j = j + 1
         cs = len(s) + cnt
         t1 = time_perf()
-        d = (t1 - t0) * 1000.0
+        d: "f64" = (t1 - t0) * 1000.0
         if d < best:
             best = d
         i = i + 1
@@ -76,12 +76,12 @@ def b_string(runs: "i32", n: "i32") -> "f64":
 def _sort(xs: "list[i64]", lo: "i32", hi: "i32") -> "i32":
     if hi - lo < 2:
         return 0
-    mid = (lo + hi) // 2
+    mid: "i32" = (lo + hi) // 2
     _sort(xs, lo, mid)
     _sort(xs, mid, hi)
-    i = lo
-    j = mid
-    k = lo
+    i: "i32" = lo
+    j: "i32" = mid
+    k: "i32" = lo
     while i < mid and j < hi:
         if xs[i] <= xs[j]:
             xs[k] = xs[i]
@@ -135,11 +135,13 @@ def b_sort(runs: "i32", n: "i32") -> "f64":
 
 
 def b_add(runs: "i32", n: "i32") -> "f64":
-    half = n // 2
-    a = []
-    b = []
-    r = []
-    i = 0
+    # Bien vong KIEU i32: neu de mac dinh, `i`/`half` la TkvInt (boxed) va moi
+    # vong phai qua TkvInt::Cmp/FromI64/Add/ToI32 - cham hon ca doc/ghi mang.
+    half: "i32" = n // 2
+    a: "list[f64]" = []
+    b: "list[f64]" = []
+    r: "list[f64]" = []
+    i: "i32" = 0
     while i < n:
         a.append(0.0)
         i = i + 1
@@ -156,12 +158,12 @@ def b_add(runs: "i32", n: "i32") -> "f64":
     while i < half:
         b[i] = (i % 4) + 1.0
         i = i + 1
-    best = 1.0e9
-    cs = 0.0
-    csq = 0.0
-    k = 0
-    t0 = 0.0
-    t1 = 0.0
+    best: "f64" = 1.0e9
+    cs: "f64" = 0.0
+    csq: "f64" = 0.0
+    k: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while k < runs:
         t0 = time_perf()
         i = 0
@@ -190,12 +192,12 @@ def b_add(runs: "i32", n: "i32") -> "f64":
 
 
 def _mm32(a: "list[f32]", b: "list[f32]", r: "list[f32]", n: "i32") -> "i32":
-    i = 0
+    i: "i32" = 0
     while i < n:
-        j = 0
+        j: "i32" = 0
         while j < n:
-            s = a[i * n] * b[j]
-            kk = 1
+            s: "f32" = a[i * n] * b[j]
+            kk: "i32" = 1
             while kk < n:
                 s = s + a[i * n + kk] * b[kk * n + j]
                 kk = kk + 1
@@ -206,21 +208,21 @@ def _mm32(a: "list[f32]", b: "list[f32]", r: "list[f32]", n: "i32") -> "i32":
 
 
 def b_matmul32(runs: "i32", n: "i32") -> "f64":
-    m = n * n
-    a = []
-    b = []
-    r = []
-    i = 0
+    m: "i32" = n * n
+    a: "list[f32]" = []
+    b: "list[f32]" = []
+    r: "list[f32]" = []
+    i: "i32" = 0
     while i < m:
         a.append(float((i % 7)) - 3.0)
         b.append(float((i % 5)) - 2.0)
         r.append(0.0)
         i = i + 1
-    best = 1.0e9
-    cs = 0.0
-    k = 0
-    t0 = 0.0
-    t1 = 0.0
+    best: "f64" = 1.0e9
+    cs: "f64" = 0.0
+    k: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while k < runs:
         t0 = time_perf()
         _mm32(a, b, r, n)
@@ -239,10 +241,10 @@ def b_matmul32(runs: "i32", n: "i32") -> "f64":
 
 
 def b_f32mm(runs: "i32", n: "i32") -> "f64":
-    m = n * n
+    m: "i32" = n * n
     a = []
     b = []
-    i = 0
+    i: "i32" = 0
     while i < m:
         a.append((i % 97) * 0.1)
         b.append((i % 89) * 0.07)
@@ -252,12 +254,12 @@ def b_f32mm(runs: "i32", n: "i32") -> "f64":
     while i < m:
         r.append(0.0)
         i = i + 1
-    best = 1.0e9
-    p0 = 0.0
-    cs = 0.0
-    k = 0
-    t0 = 0.0
-    t1 = 0.0
+    best: "f64" = 1.0e9
+    p0: "f64" = 0.0
+    cs: "f64" = 0.0
+    k: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while k < runs:
         t0 = time_perf()
         _mm32(a, b, r, n)
@@ -277,10 +279,10 @@ def b_f32mm(runs: "i32", n: "i32") -> "f64":
 
 
 def b_f32mm_vec(runs: "i32", n: "i32") -> "f64":
-    m = n * n
+    m: "i32" = n * n
     a = []
     b = []
-    i = 0
+    i: "i32" = 0
     while i < m:
         a.append((i % 97) * 0.1)
         b.append((i % 89) * 0.07)
@@ -301,16 +303,16 @@ def b_f32mm_vec(runs: "i32", n: "i32") -> "f64":
         i = i + 1
     i = 0
     while i < n:
-        j = 0
+        j: "i32" = 0
         while j < n:
             write_f32(pt, (j * n + i) * 4, b[i * n + j])
             j = j + 1
         i = i + 1
-    best = 1.0e9
-    p0 = 0.0
-    rp = 0
-    t0 = 0.0
-    t1 = 0.0
+    best: "f64" = 1.0e9
+    p0: "f64" = 0.0
+    rp: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
     while rp < runs:
         t0 = time_perf()
         i = 0
@@ -318,7 +320,7 @@ def b_f32mm_vec(runs: "i32", n: "i32") -> "f64":
             j = 0
             while j < n:
                 acc = f32x4(0.0, 0.0, 0.0, 0.0)
-                k = 0
+                k: "i32" = 0
                 while k + 3 < n:
                     va = v_load4(pa, (i * n + k) * 4)
                     vb = v_load4(pt, (j * n + k) * 4)
