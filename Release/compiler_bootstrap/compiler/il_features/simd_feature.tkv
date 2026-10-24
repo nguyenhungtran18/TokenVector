@@ -784,6 +784,130 @@ def _pt_packed_free() -> "list[str]":
     ]
 
 
+# --- M5: buffer f32 native + fused AdamW/elementwise (SPEC M4-M7 §M5) ------
+# Bo dem = vung nho native da co (alloc_bytes + f32buf_wrap) - khong container
+# moi, khong boxing. P/Invoke tren cung DLL (tkv_simd_native.dll). Wrapper chuyen
+# i64 -> native int bang conv.i; copy_to/from lay mang nen `_items` qua
+# reflection + pin (giong packed) de memcpy TRUC TIEP, khong ToArray/Clear/AddRange.
+def _pt_m5_pinvoke() -> "list[str]":
+    return [
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "F32Zero" winapi) int64 F32ZeroNative(native int p, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "F32CopyTo" winapi) int64 F32CopyToNative(native int src, int32 src_len, native int p, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "F32CopyFrom" winapi) int64 F32CopyFromNative(native int p, int32 n, native int dst, int32 dst_len) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "F32Addcmul" winapi) int32 F32AddcmulNative(native int dst, native int x, native int y, float32 scale, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "AdamwStepF32" winapi) int32 AdamwNative(native int p, native int m, native int v, native int g, int32 n, float32 lr, float32 b1, float32 b2, float32 eps, float32 wd, float32 bc1s, float32 bc2s) cil managed preservesig { }',
+    ]
+
+
+def _pt_m5_wrappers() -> "list[str]":
+    la = [
+        '  .method public static int64 F32ZeroM(int64 p, int32 n) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ldarg.0',
+        '    conv.i',
+        '    ldarg.1',
+        '    call int64 ' + _SIMD_CLASS + '::F32ZeroNative(native int, int32)',
+        '    ret',
+        '  }',
+        '  .method public static int64 F32CopyToM(' + _LT_F32 + ' src, int64 p, int32 n) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (float32[] p0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, int32 len0)',
+    ]
+    la = la + _pk_get_items(0) + [
+        '    ldarg.2',
+        '    ldc.i4.0',
+        '    ble V_M5CTZ',
+        '    ldloc.3',
+        '    ldarg.2',
+        '    blt V_M5CTB',
+        '    ldloc.0',
+        '    ldc.i4.0',
+        '    ldelema float32',
+        '    stloc.2',
+        '    ldloc.2',
+        '    conv.i',
+        '    ldloc.3',
+        '    ldarg.1',
+        '    conv.i',
+        '    ldarg.2',
+        '    call int64 ' + _SIMD_CLASS + '::F32CopyToNative(native int, int32, native int, int32)',
+        '    ret',
+        '  V_M5CTZ:',
+        '    ldc.i4.0',
+        '    conv.i8',
+        '    ret',
+        '  V_M5CTB:',
+        '    ldstr "f32_copy_to_buf: src phai co it nhat n phan tu"',
+        '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)',
+        '    throw',
+        '  }',
+        '  .method public static int64 F32CopyFromM(int64 p, ' + _LT_F32 + ' dst, int32 n) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (float32[] p0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, int32 len0)',
+    ]
+    la = la + _pk_get_items(1) + [
+        '    ldarg.2',
+        '    ldc.i4.0',
+        '    ble V_M5CFZ',
+        '    ldloc.3',
+        '    ldarg.2',
+        '    blt V_M5CFB',
+        '    ldloc.0',
+        '    ldc.i4.0',
+        '    ldelema float32',
+        '    stloc.2',
+        '    ldarg.0',
+        '    conv.i',
+        '    ldarg.2',
+        '    ldloc.2',
+        '    conv.i',
+        '    ldloc.3',
+        '    call int64 ' + _SIMD_CLASS + '::F32CopyFromNative(native int, int32, native int, int32)',
+        '    ret',
+        '  V_M5CFZ:',
+        '    ldc.i4.0',
+        '    conv.i8',
+        '    ret',
+        '  V_M5CFB:',
+        '    ldstr "f32_copy_from_buf: dst phai co it nhat n phan tu"',
+        '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)',
+        '    throw',
+        '  }',
+        '  .method public static int32 F32AddcmulM(int64 dst, int64 x, int64 y, float32 scale, int32 n) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ldarg.0', '    conv.i',
+        '    ldarg.1', '    conv.i',
+        '    ldarg.2', '    conv.i',
+        '    ldarg.3',
+        '    ldarg.s 4',
+        '    call int32 ' + _SIMD_CLASS + '::F32AddcmulNative(native int, native int, native int, float32, int32)',
+        '    ret',
+        '  }',        '  .method public static int32 AdamwM(int64 p, int64 m, int64 v, int64 g, int32 n, float32 lr, float32 b1, float32 b2, float32 eps, float32 wd, float32 bc1s, float32 bc2s) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    ldarg.0', '    conv.i',
+        '    ldarg.1', '    conv.i',
+        '    ldarg.2', '    conv.i',
+        '    ldarg.3', '    conv.i',
+        '    ldarg.s 4',
+        '    ldarg.s 5',
+        '    ldarg.s 6',
+        '    ldarg.s 7',
+        '    ldarg.s 8',
+        '    ldarg.s 9',
+        '    ldarg.s 10',
+        '    ldarg.s 11',
+        '    call int32 ' + _SIMD_CLASS + '::AdamwNative(native int, native int, native int, native int, int32, float32, float32, float32, float32, float32, float32, float32)',
+        '    ret',
+        '  }',
+    ]
+    return la
+
+
 def _lop_simd() -> "list[str]":
     ra = ['.class public auto ansi beforefieldinit ' + _SIMD_CLASS + ' extends [mscorlib]System.Object', '{']
     ra = ra + _pt_native_ho_tro()
@@ -792,6 +916,8 @@ def _lop_simd() -> "list[str]":
     ra = ra + _pt_packed_create()
     ra = ra + _pt_packed_run()
     ra = ra + _pt_packed_free()
+    ra = ra + _pt_m5_pinvoke()
+    ra = ra + _pt_m5_wrappers()
     for d in ('f32', 'f64'):
         ra = ra + _pt_gemm_mang(d)
         ra = ra + _pt_gemm_list(d)
@@ -1107,6 +1233,90 @@ def compile_simd_gemm_packed_free(args: "list[TkvNode]", scope: "Scope", out: "l
     out.append('    call int64 ' + _SIMD_CLASS + '::PackedFree(int64)')
 
 
+# --- M5 compile funcs (SPEC M4-M7 §M5): buffer + fused AdamW/elementwise ---
+def _kn_buffer(node: "TkvNode", scope: "Scope", ten_ham: "str", ten_arg: "str"):
+    """Buffer native (i64 tu alloc_bytes/f32buf_wrap) PHAI khong phai list[f32]:
+    list la container managed, khong phai con tro - truyen vao native se ra con
+    tro sai -> corrupt/segfault. NEM ro o luc bien dich (khong de im lang loi runtime)."""
+    if _la_list(node, scope):
+        raise SyntaxError("il_codegen: " + ten_ham + ": '" + ten_arg + "' phai la buffer native i64 (alloc_bytes/f32buf_wrap), khong phai list")
+
+
+def compile_f32_zero(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """f32_zero(p, n) -> i64: memset 0 buffer native (zero_grad)."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: f32_zero(p, n) can dung 2 tham so")
+    _kn_buffer(args[0], scope, 'f32_zero', 'p')
+    _ensure_class_simd(ctx)
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[1], scope, out, 'i32', ctx)
+    out.append('    call int64 ' + _SIMD_CLASS + '::F32ZeroM(int64, int32)')
+
+
+def compile_f32_copy_to_buf(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """f32_copy_to_buf(src: list[f32], p, n) -> i64: memcpy list -> buffer native."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: f32_copy_to_buf(src, p, n) can dung 3 tham so")
+    if not _la_list(args[0], scope):
+        raise SyntaxError("il_codegen: f32_copy_to_buf src phai la list[f32]")
+    _kn_buffer(args[1], scope, 'f32_copy_to_buf', 'p')
+    _ensure_class_simd(ctx)
+    _nap_mang(args[0], scope, out, ctx)
+    ctx.compile_expr(args[1], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[2], scope, out, 'i32', ctx)
+    out.append('    call int64 ' + _SIMD_CLASS + '::F32CopyToM(' + _LT_F32 + ', int64, int32)')
+
+
+def compile_f32_copy_from_buf(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """f32_copy_from_buf(p, dst: list[f32], n) -> i64: memcpy buffer native -> list."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: f32_copy_from_buf(p, dst, n) can dung 3 tham so")
+    if not _la_list(args[1], scope):
+        raise SyntaxError("il_codegen: f32_copy_from_buf dst phai la list[f32]")
+    _kn_buffer(args[0], scope, 'f32_copy_from_buf', 'p')
+    _ensure_class_simd(ctx)
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+    _nap_mang(args[1], scope, out, ctx)
+    ctx.compile_expr(args[2], scope, out, 'i32', ctx)
+    out.append('    call int64 ' + _SIMD_CLASS + '::F32CopyFromM(int64, ' + _LT_F32 + ', int32)')
+
+
+def compile_f32_addcmul(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """f32_addcmul(dst, x, y, scale, n) -> i32: dst += scale*x*y (fused, 1 pass)."""
+    if len(args) != 5:
+        raise SyntaxError("il_codegen: f32_addcmul(dst, x, y, scale, n) can dung 5 tham so")
+    _kn_buffer(args[0], scope, 'f32_addcmul', 'dst')
+    _kn_buffer(args[1], scope, 'f32_addcmul', 'x')
+    _kn_buffer(args[2], scope, 'f32_addcmul', 'y')
+    _ensure_class_simd(ctx)
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[1], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[2], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[3], scope, out, 'f32', ctx)
+    ctx.compile_expr(args[4], scope, out, 'i32', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::F32AddcmulM(int64, int64, int64, float32, int32)')
+
+
+def compile_adamw_step(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """adamw_step(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s) -> i32.
+    Fused AdamW DUNG cong thuc GĐ10 (§M5): m<-b1*m+(1-b1)*g; v<-b2*v+(1-b2)*g^2;
+    p<-p - lr*(m*bc2s)/(sqrt(v)+eps*bc2s) - lr*wd*p. bc1s/bc2s truyen vao cho
+    team Inference giu nguyen dinh nghia bias-correction (cua so confirm Phase 2)."""
+    if len(args) != 12:
+        raise SyntaxError("il_codegen: adamw_step(p,m,v,g,n,lr,b1,b2,eps,wd,bc1s,bc2s) can dung 12 tham so")
+    _kn_buffer(args[0], scope, 'adamw_step', 'p')
+    _kn_buffer(args[1], scope, 'adamw_step', 'm')
+    _kn_buffer(args[2], scope, 'adamw_step', 'v')
+    _kn_buffer(args[3], scope, 'adamw_step', 'g')
+    _ensure_class_simd(ctx)
+    for i in range(4):
+        ctx.compile_expr(args[i], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[4], scope, out, 'i32', ctx)
+    for i in range(5, 12):
+        ctx.compile_expr(args[i], scope, out, 'f32', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::AdamwM(int64, int64, int64, int64, int32, float32, float32, float32, float32, float32, float32, float32)')
+
+
 def compile_simd_lanes_f32(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     _ensure_extern(ctx)
     out.append('    call int32 ' + _vec('f32') + '::get_Count()')
@@ -1143,6 +1353,11 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'simd_gemm_packed_create', compile_simd_gemm_packed_create, 'i64')
     register_expr_builtin(reg, 'simd_gemm_packed', compile_simd_gemm_packed, 'i32')
     register_expr_builtin(reg, 'simd_gemm_packed_free', compile_simd_gemm_packed_free, 'i64')
+    register_expr_builtin(reg, 'f32_zero', compile_f32_zero, 'i64')
+    register_expr_builtin(reg, 'f32_copy_to_buf', compile_f32_copy_to_buf, 'i64')
+    register_expr_builtin(reg, 'f32_copy_from_buf', compile_f32_copy_from_buf, 'i64')
+    register_expr_builtin(reg, 'f32_addcmul', compile_f32_addcmul, 'i32')
+    register_expr_builtin(reg, 'adamw_step', compile_adamw_step, 'i32')
     register_expr_builtin(reg, 'simd_lanes_f32', compile_simd_lanes_f32, 'i32')
     register_expr_builtin(reg, 'simd_lanes_f64', compile_simd_lanes_f64, 'i32')
     register_expr_builtin(reg, 'simd_hw', compile_simd_hw, 'bool')

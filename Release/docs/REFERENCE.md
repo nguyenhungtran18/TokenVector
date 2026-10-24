@@ -382,6 +382,11 @@ số/trả về của nó chỉ suy được từ một `TypeAnn` "mục tiêu" 
 | `simd_gemm_packed_create` | `simd_gemm_packed_create(src, rows, cols, stride, T, trans)` | **M4** — prepack ma trận **một lần** / step, trả `i64` handle. `src` là `list[f32]` (chỉ `f32`), `rows×cols` với `stride` là bề rộng hàng của nguồn; `T` là cỡ tile, `trans=1` để pack bản **transpose** (layout `W[n][k]`). Native copy + pad về `T`, zero-fill phần thiếu, do DLL quản lý. handle 0/thông số sai → ném lỗi rõ. |
 | `simd_gemm_packed` | `simd_gemm_packed(hA, hB, C, T)` | **M4** — chạy tile từ 2 handle đã pack: `C = A × B`. `C` là `list[f32]` (ghi trực tiếp `_items`, không copy), `T` phải khớp cả 2 handle, `A.cols == B.rows`, `len(C) ≥ m×n`. Trả `0` = OK; sai → **ném `ArgumentException` rõ ràng** (handle sai/đã free, `T` không khớp, sai inner dim, `C` quá ngắn). |
 | `simd_gemm_packed_free` | `simd_gemm_packed_free(h)` | **M4** — giải phóng handle pack, trả `0` (gọi được dạng câu lệnh). Mẫu C: không GC, `free` một lần; handle `i64` gán ở top-level hàm (GĐ8). |
+| `f32_zero` | `f32_zero(p, n)` | **M5** — memset 0 buffer native (`zero_grad`): `p` là `i64` (từ `alloc_bytes(n*4)`/`f32buf_wrap`), `n` là số phần tử `f32`. Trả `i64` `0` (gọi được dạng câu lệnh). |
+| `f32_copy_to_buf` | `f32_copy_to_buf(src, p, n)` | **M5** — memcpy `src` (`list[f32]`) → buffer native `p` (đọc thẳng `_items`, không ToArray trung gian). Trả `i64` = số phần tử đã chép; `src` ngắn hơn `n` → ném `ArgumentException`. |
+| `f32_copy_from_buf` | `f32_copy_from_buf(p, dst, n)` | **M5** — memcpy buffer native `p` → `dst` (`list[f32]`, ghi thẳng `_items`). Trả `i64` = số phần tử; `dst` ngắn hơn `n` → ném `ArgumentException`. |
+| `f32_addcmul` | `f32_addcmul(dst, x, y, scale, n)` | **M5** — `dst += scale*x*y` fused (1 pass, AVX2+FMA); cả 4 là buffer native `i64` (`dst`/`x`/`y`) + `scale` `f32`. Trả `i32` `0`=OK, `-1` tham số sai. |
+| `adamw_step` | `adamw_step(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s)` | **M5** — fused AdamW per-element đúng công thức GĐ10: `m←b1*m+(1-b1)*g`; `v←b2*v+(1-b2)*g^2`; `p←p - lr*(m*bc2s)/(sqrt(v)+eps*bc2s) - lr*wd*p`. fp32, 1 chia/ptần tử, `sqrt` chính xác (không rsqrt), thứ tự cố định. Trả `i32` `0`=OK. `bc1s/bc2s` truyền vào để team Inference giữ nguyên định nghĩa bias-correction. |
 
 ---
 

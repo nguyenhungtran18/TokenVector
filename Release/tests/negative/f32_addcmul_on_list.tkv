@@ -1,0 +1,14 @@
+# EXPECT-SUBSTRING: phai la buffer native i64
+# Negative test (M5): `f32_addcmul` chi nhan buffer native i64 (alloc_bytes/
+# f32buf_wrap), khong nhan list[f32] cho dst/x/y - phai bi TU CHOI o luc bien
+# dich (khong suy ra con tro sai roi loi runtime/segfault). Entry = run (gate
+# build voi entry 'run').
+def run() -> "i32":
+    x: "list[f32]" = []
+    x.append(1.0)
+    y: "list[f32]" = []
+    y.append(2.0)
+    z: "list[f32]" = []
+    z.append(0.0)
+    f32_addcmul(z, x, y, 0.5, 1)
+    return 0

@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <math.h>
 
 #define EXPORT __declspec(dllexport)
 
@@ -782,6 +783,113 @@ EXPORT long long SgemmPackedFree(long long h) {
         free(p->buf);
         p->buf = NULL;
         free(p);
+    }
+    return 0;
+}
+
+/* ---------------- M5: buffer f32 native + fused AdamW/elementwise ------------
+ * SPEC M4-M7 §M5. Bo dem = vung nho native da co (alloc_bytes + f32buf_wrap) -
+ * KHONG container moi, KHONG boxing. Day chi them kernel tren con tro i64.
+ * Moi entry MOT diem (§3.1); cac kernel nay 1 luong (no memory-bound/ptu) va
+ * .tkv khong duoc goi 2 cung luc. Numerics: fp32, thu tu co dinh, 1 chia/ptu,
+ * sqrt PSD chinh xac (KHONG rsqrt) de khop trainer_tests 15/15 + loss exact.
+ */
+
+/* f32_zero(p, n) -> i64: memset 0 = zero_grad, xu ly vung AllocHGlobal chua
+ * khoi tao. Tra ve 0 (mau free_bytes/alloc_bytes). */
+EXPORT long long F32Zero(float* p, int n) {
+    if (!p || n <= 0) return 0;
+    memset(p, 0, (size_t)n * sizeof(float));
+    return 0;
+}
+
+/* f32_copy_to_buf(src, src_len, p, n) -> i64: memcpy mang/list -> buffer native.
+ * Tra ve n da copy, -1 neu tham so sai (src qua ngan). */
+EXPORT long long F32CopyTo(const float* src, int src_len, float* p, int n) {
+    if (!src || !p || n <= 0 || src_len < n) return -1;
+    memcpy(p, src, (size_t)n * sizeof(float));
+    return n;
+}
+
+/* f32_copy_from_buf(p, n, dst, dst_len) -> i64: memcpy native -> mang/list
+ * (ghi thang vao `_items`). Tra ve n da copy, -1 neu tham so sai. */
+EXPORT long long F32CopyFrom(const float* p, int n, float* dst, int dst_len) {
+    if (!p || !dst || n <= 0 || dst_len < n) return -1;
+    memcpy(dst, p, (size_t)n * sizeof(float));
+    return n;
+}
+
+/* f32_addcmul(dst, x, y, scale, n) -> i32: dst += scale * x * y (fused, 1 pass).
+ * Tra ve 0 = OK, -1 tham so sai. */
+EXPORT int F32Addcmul(float* dst, const float* x, const float* y, float scale, int n) {
+    if (!dst || !x || !y || n <= 0) return -1;
+    __m256 vs = _mm256_set1_ps(scale);
+    int i = 0;
+    for (; i + 8 <= n; i += 8) {
+        __m256 vx = _mm256_loadu_ps(x + i);
+        __m256 vy = _mm256_loadu_ps(y + i);
+        __m256 vd = _mm256_loadu_ps(dst + i);
+        vd = _mm256_fmadd_ps(_mm256_mul_ps(vx, vy), vs, vd);
+        _mm256_storeu_ps(dst + i, vd);
+    }
+    for (; i < n; i++) dst[i] += scale * x[i] * y[i];
+    return 0;
+}
+
+/* adamw_step(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s) -> i32
+ * Fused AdamW per-element DUNG cong thuc GĐ10 (spec §M5):
+ *   m <- b1*m + (1-b1)*g
+ *   v <- b2*v + (1-b2)*g^2
+ *   p <- p - lr*(m*bc2s)/(sqrt(v)+eps*bc2s) - lr*wd*p
+ * fp32, 1 chia/ptu, thu tu co dinh, sqrt PSD (khong rsqrt). bc1s truyen vao
+ * theo ABI nhung cong thuc spec p-update dung bc2s - giu cho team Inference
+ * giu nguyen dinh nghia bias-correction (cua so confirm het Phase 2).
+ * Tra ve 0 = OK, -1 tham so sai. */
+EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
+                        float lr, float b1, float b2, float eps, float wd,
+                        float bc1s, float bc2s) {
+    (void)bc1s;
+    if (!p || !m || !v || !g || n <= 0) return -1;
+    float one_mb1 = 1.0f - b1;
+    float one_mb2 = 1.0f - b2;
+    float lr_wd = lr * wd;
+    float eps_bc2s = eps * bc2s;
+    __m256 vb1 = _mm256_set1_ps(b1);
+    __m256 vomb1 = _mm256_set1_ps(one_mb1);
+    __m256 vb2 = _mm256_set1_ps(b2);
+    __m256 vomb2 = _mm256_set1_ps(one_mb2);
+    __m256 vlr = _mm256_set1_ps(lr);
+    __m256 vbc2s = _mm256_set1_ps(bc2s);
+    __m256 vepsbc = _mm256_set1_ps(eps_bc2s);
+    __m256 vlrwd = _mm256_set1_ps(lr_wd);
+    int i = 0;
+    for (; i + 8 <= n; i += 8) {
+        __m256 vg = _mm256_loadu_ps(g + i);
+        __m256 vm = _mm256_loadu_ps(m + i);
+        __m256 vv = _mm256_loadu_ps(v + i);
+        __m256 vp = _mm256_loadu_ps(p + i);
+        /* m <- b1*m + (1-b1)*g */
+        vm = _mm256_fmadd_ps(vomb1, vg, _mm256_mul_ps(vb1, vm));
+        /* v <- b2*v + (1-b2)*g*g */
+        vv = _mm256_fmadd_ps(vomb2, _mm256_mul_ps(vg, vg), _mm256_mul_ps(vb2, vv));
+        _mm256_storeu_ps(m + i, vm);
+        _mm256_storeu_ps(v + i, vv);
+        /* p <- p - lr*(m*bc2s)/(sqrt(v)+eps*bc2s) - lr*wd*p */
+        __m256 num = _mm256_mul_ps(vlr, _mm256_mul_ps(vm, vbc2s));
+        __m256 den = _mm256_add_ps(_mm256_sqrt_ps(vv), vepsbc);
+        __m256 upd = _mm256_div_ps(num, den);
+        __m256 decay = _mm256_mul_ps(vlrwd, vp);   /* dung p CU */
+        vp = _mm256_sub_ps(vp, _mm256_add_ps(upd, decay));
+        _mm256_storeu_ps(p + i, vp);
+    }
+    for (; i < n; i++) {
+        float gi = g[i];
+        float mi = b1 * m[i] + one_mb1 * gi;
+        float vi = b2 * v[i] + one_mb2 * gi * gi;
+        m[i] = mi;
+        v[i] = vi;
+        /* ca 2 lan `p[i]` o RHS deu la p CU (gan sau khi tinh xong RHS) */
+        p[i] = p[i] - lr * (mi * bc2s) / (sqrtf(vi) + eps_bc2s) - lr_wd * p[i];
     }
     return 0;
 }

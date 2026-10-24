@@ -1,0 +1,242 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO M5: buffer f32 native + fused AdamW/elementwise (SPEC M4-M7 §M5).
+
+  f32_zero(p, n)                                -> i64  memset 0 (zero_grad)
+  f32_copy_to_buf(src, p, n)                    -> i64  memcpy list -> buffer
+  f32_copy_from_buf(p, dst, n)                  -> i64  memcpy buffer -> list
+  f32_addcmul(dst, x, y, scale, n)              -> i32  dst += scale*x*y
+  adamw_step(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s) -> i32
+
+Bo dem = alloc_bytes(n*4) + f32buf_wrap (da co san) - KHONG container moi.
+
+Bai nay kiem (reference tinh toan SCALAR trong test, TOL 1e-6):
+  1. f32_zero xoa toan bo buffer.
+  2. copy to/from roundtrip BIT-EXACT + loi ro (qua ngan) PHAI nem.
+  3. f32_addcmul = dst + scale*x*y (scalar doi chieu).
+  4. adamw_step: dung cong thuc GĐ10 (sqrt) - m/v/p khop reference TOL 1e-6.
+
+TOL 1e-6 (chat hon 1e-5 cua spec) de cham may sai cong thuc (vd doi bc1s/bc2s
+-> lech ~4e-6) van du chot so f32 (~2e-8). Dung/sai cong thuc VS torch la cua
+so confirm (team Inference doi chieu GĐ10) - o day chung minh native == cong
+thuc spec + wiring dung.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def test_zero() -> "i32":
+    """f32_zero xoa toan bo buffer va tra 0."""
+    total = 0
+    n: "i32" = 37
+    p = alloc_bytes(n * 4)
+    bp = f32buf_wrap(p, n)
+    i = 0
+    while i < n:
+        bp[i] = 123.0
+        i = i + 1
+    r = f32_zero(p, n)
+    total += check("f32_zero_tra_0", str(r), "0")
+    bad = 0
+    i = 0
+    while i < n:
+        if bp[i] != 0.0:
+            bad = bad + 1
+        i = i + 1
+    total += check("f32_zero_toan_0", str(bad), "0")
+    return total
+
+
+def test_copy() -> "i32":
+    """copy to/from roundtrip BIT-EXACT + loi ro qua ngan."""
+    total = 0
+    n: "i32" = 20
+    src: "list[f32]" = []
+    i = 0
+    while i < n:
+        src.append(float((i % 7) - 3) * 0.5)
+        i = i + 1
+    p = alloc_bytes(n * 4)
+    bp = f32buf_wrap(p, n)
+    i = 0
+    while i < n:
+        bp[i] = -999.0
+        i = i + 1
+
+    r1 = f32_copy_to_buf(src, p, n)
+    total += check("copy_to_tra_n", str(r1), str(n))
+    bad = 0
+    i = 0
+    while i < n:
+        if bp[i] != src[i]:
+            bad = bad + 1
+        i = i + 1
+    total += check("copy_to_bit_exact", str(bad), "0")
+
+    dst: "list[f32]" = []
+    i = 0
+    while i < n:
+        dst.append(0.0)
+        i = i + 1
+    r2 = f32_copy_from_buf(p, dst, n)
+    total += check("copy_from_tra_n", str(r2), str(n))
+    bad = 0
+    i = 0
+    while i < n:
+        if dst[i] != src[i]:
+            bad = bad + 1
+        i = i + 1
+    total += check("copy_from_bit_exact", str(bad), "0")
+
+    # src qua ngan (3 ptu, can 20) -> wrapper PHAI nem
+    short: "list[f32]" = []
+    short.append(1.0)
+    short.append(2.0)
+    short.append(3.0)
+    ok = 0
+    try:
+        f32_copy_to_buf(short, p, n)
+        ok = 0
+    except Exception as e:
+        ok = 1
+    total += check("copy_to_qua_ngan_nem", str(ok), "1")
+
+    # dst qua ngan (1 ptu, can 20) -> wrapper PHAI nem
+    dst2: "list[f32]" = []
+    dst2.append(0.0)
+    ok2 = 0
+    try:
+        f32_copy_from_buf(p, dst2, n)
+        ok2 = 0
+    except Exception as e:
+        ok2 = 1
+    total += check("copy_from_qua_ngan_nem", str(ok2), "1")
+    return total
+
+
+def test_addcmul() -> "i32":
+    """f32_addcmul = dst + scale*x*y, doi chieu scalar; null dst -> -1."""
+    total = 0
+    n: "i32" = 41
+    scale: "f32" = 0.37
+    pd = alloc_bytes(n * 4)
+    px = alloc_bytes(n * 4)
+    py = alloc_bytes(n * 4)
+    bd = f32buf_wrap(pd, n)
+    bx = f32buf_wrap(px, n)
+    by = f32buf_wrap(py, n)
+    i = 0
+    while i < n:
+        bd[i] = float((i % 5) - 2) * 0.1
+        bx[i] = float((i % 3) - 1) * 0.5
+        by[i] = float((i % 7) - 3) * 0.05
+        i = i + 1
+    st = f32_addcmul(pd, px, py, scale, n)
+    total += check("addcmul_status_0", str(st), "0")
+
+    w: "f64" = 0.0
+    i = 0
+    while i < n:
+        de = float((i % 5) - 2) * 0.1 + scale * (float((i % 3) - 1) * 0.5) * (float((i % 7) - 3) * 0.05)
+        d = bd[i] - de
+        if d < 0.0:
+            d = -d
+        if d > w:
+            w = d
+        i = i + 1
+    total += check("addcmul_vs_scalar(wp=" + str(w) + ")", str(int(w <= 1.0e-6)), "1")
+
+    st2 = f32_addcmul(0, px, py, scale, n)
+    total += check("addcmul_null_tra_-1", str(st2), "-1")
+    return total
+
+
+def _adamw_case(n: "i32", seed: "i32") -> "i32":
+    """1 buoc AdamW tren buffer native, doi chieu cong thuc GĐ10 scalar."""
+    total = 0
+    p = alloc_bytes(n * 4)
+    m = alloc_bytes(n * 4)
+    v = alloc_bytes(n * 4)
+    g = alloc_bytes(n * 4)
+    bp = f32buf_wrap(p, n)
+    bm = f32buf_wrap(m, n)
+    bv = f32buf_wrap(v, n)
+    bg = f32buf_wrap(g, n)
+    # init deterministic (luu f32)
+    i = 0
+    while i < n:
+        bp[i] = float(((i + seed) % 7) - 3) * 0.1
+        bm[i] = float(((i + seed) % 5) - 2) * 0.05
+        bv[i] = float(((i + seed) % 3) + 1) * 0.25
+        bg[i] = float(((i + seed) % 11) - 5) * 0.02
+        i = i + 1
+
+    lr: "f32" = 3.0e-4
+    b1: "f32" = 0.9
+    b2: "f32" = 0.999
+    eps: "f32" = 1.0e-8
+    wd: "f32" = 0.01
+    bc1s: "f32" = 0.1
+    bc2s: "f32" = 0.031
+    st = adamw_step(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s)
+    total += check("adamw_status_n" + str(n), str(st), "0")
+
+    # reference cong thuc GĐ10 (tinh toan thuan, tu init deterministic)
+    wp: "f64" = 0.0
+    wm: "f64" = 0.0
+    wv: "f64" = 0.0
+    i = 0
+    while i < n:
+        pi = float(((i + seed) % 7) - 3) * 0.1
+        mi = float(((i + seed) % 5) - 2) * 0.05
+        vi = float(((i + seed) % 3) + 1) * 0.25
+        gi = float(((i + seed) % 11) - 5) * 0.02
+        m2 = b1 * mi + (1.0 - b1) * gi
+        v2 = b2 * vi + (1.0 - b2) * gi * gi
+        p2 = pi - lr * (m2 * bc2s) / (sqrt(v2) + eps * bc2s) - lr * wd * pi
+        d = bp[i] - p2
+        if d < 0.0:
+            d = -d
+        if d > wp:
+            wp = d
+        d = bm[i] - m2
+        if d < 0.0:
+            d = -d
+        if d > wm:
+            wm = d
+        d = bv[i] - v2
+        if d < 0.0:
+            d = -d
+        if d > wv:
+            wv = d
+        i = i + 1
+    total += check("adamw_p_n" + str(n) + "(wp=" + str(wp) + ")", str(int(wp <= 1.0e-6)), "1")
+    total += check("adamw_m_n" + str(n) + "(wm=" + str(wm) + ")", str(int(wm <= 1.0e-6)), "1")
+    total += check("adamw_v_n" + str(n) + "(wv=" + str(wv) + ")", str(int(wv <= 1.0e-6)), "1")
+    return total
+
+
+def test_adamw() -> "i32":
+    """2 kich thuoc (chia het 8 + du 8) + null buffer -> -1."""
+    total = 0
+    total += _adamw_case(64, 0)
+    total += _adamw_case(37, 3)
+    lr: "f32" = 3.0e-4
+    b1: "f32" = 0.9
+    b2: "f32" = 0.999
+    eps: "f32" = 1.0e-8
+    wd: "f32" = 0.01
+    bc1s: "f32" = 0.1
+    bc2s: "f32" = 0.031
+    st = adamw_step(0, 0, 0, 0, 4, lr, b1, b2, eps, wd, bc1s, bc2s)
+    total += check("adamw_null_tra_-1", str(st), "-1")
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += test_zero()
+    total += test_copy()
+    total += test_addcmul()
+    total += test_adamw()
+    # 2 + 6 + 3 + 9 = 20
+    return test_summary("adamw_step_test", total, 20)
