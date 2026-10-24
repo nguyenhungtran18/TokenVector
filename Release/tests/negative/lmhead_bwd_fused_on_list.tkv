@@ -1,0 +1,19 @@
+# EXPECT-SUBSTRING: phai la buffer native i64
+# Negative test (M6): `lmhead_bwd_fused` chi nhan buffer native i64 cho 6 tham
+# so buffer (logits/ids/wte/xf/dxf/dwte), khong nhan list - phai bi TU CHOI o luc
+# bien dich (khong suy ra con tro sai roi loi runtime/segfault). Entry = run.
+def run() -> "i32":
+    lg: "list[f32]" = []
+    lg.append(1.0)
+    ids: "list[i32]" = []
+    ids.append(0)
+    wte: "list[f32]" = []
+    wte.append(1.0)
+    xf: "list[f32]" = []
+    xf.append(1.0)
+    dxf: "list[f32]" = []
+    dxf.append(0.0)
+    dwte: "list[f32]" = []
+    dwte.append(0.0)
+    lmhead_bwd_fused(lg, ids, wte, xf, dxf, dwte, 1, 1, 1, 1)
+    return 0

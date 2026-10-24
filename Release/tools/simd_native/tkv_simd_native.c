@@ -893,3 +893,53 @@ EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
     }
     return 0;
 }
+
+/* ---------------- M6: fused lm-head backward (SPEC M4-M7 §M6) --------------
+ * lmhead_bwd_fused: doc logits + ids -> softmax-grad (fp32, max-sub, giam tu
+ * tu v=0..V-1) -> dxf = dlogits @ wte -> tich luy dwte += dlogits^T @ xf.
+ * Goi mong loai bo merge serial 1.33s (probe AV).
+ *
+ * shapes (T = B*S, row-major f32):
+ *   logits: (T x V)  [input, KHONG doi]
+ *   ids:    (T) i32  [input, id dich moi vi tri]
+ *   wte:    (V x E)  [input, trong so lm-head (linked)]
+ *   xf:     (T x E)  [input, dac trung]
+ *   dxf:    (T x E)  [OUTPUT, ghi de]
+ *   dwte:   (V x E)  [OUTPUT, TICH LUY += - goi phai zero truoc]
+ *
+ * v1 (M6 so CHUA DO - chi phan tich §M7): single-thread (§3.1 khong race), doc
+ * logits ~3 lan/hang (khong "doc 1 lan"), GEMM naive khong blocked/threaded.
+ * Inference toi uu (reuse gemm_rect + dwte tile + AVX2/softmax) va do A/B; cong
+ * thuc + numerics da dung (test native == scalar spec, maxdiff nho).
+ * Tra ve 0 = OK, -1 tham so sai. */
+EXPORT int lmhead_bwd_fused(const float* logits, const int* ids, const float* wte,
+                            const float* xf, float* dxf, float* dwte,
+                            int B, int S, int E, int V) {
+    if (!logits || !ids || !wte || !xf || !dxf || !dwte) return -1;
+    if (B <= 0 || S <= 0 || E <= 0 || V <= 0) return -1;
+    long long T = (long long)B * (long long)S;
+    for (long long t = 0; t < T; t++) {
+        const float* lg = logits + t * (long long)V;
+        int id = ids[t];
+        int v, e;
+        float m = lg[0];
+        for (v = 1; v < V; v++) if (lg[v] > m) m = lg[v];
+        float sumexp = 0.0f;
+        for (v = 0; v < V; v++) sumexp += expf(lg[v] - m);
+        float* dxf_t = dxf + t * (long long)E;
+        for (e = 0; e < E; e++) dxf_t[e] = 0.0f;
+        const float* xf_t = xf + t * (long long)E;
+        for (v = 0; v < V; v++) {
+            float p = expf(lg[v] - m) / sumexp;   /* softmax (max-sub -> sumexp >= 1) */
+            float dl = p;
+            if (v == id) dl -= 1.0f;              /* softmax-grad: p - onehot */
+            const float* wte_v = wte + (long long)v * E;
+            float* dwte_v = dwte + (long long)v * E;
+            for (e = 0; e < E; e++) {
+                dxf_t[e] += dl * wte_v[e];         /* dxf[t] = sum_v dl * wte[v] */
+                dwte_v[e] += dl * xf_t[e];         /* dwte[v] += dl * xf[t] */
+            }
+        }
+    }
+    return 0;
+}

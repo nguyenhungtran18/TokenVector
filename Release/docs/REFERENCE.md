@@ -387,6 +387,7 @@ số/trả về của nó chỉ suy được từ một `TypeAnn` "mục tiêu" 
 | `f32_copy_from_buf` | `f32_copy_from_buf(p, dst, n)` | **M5** — memcpy buffer native `p` → `dst` (`list[f32]`, ghi thẳng `_items`). Trả `i64` = số phần tử; `dst` ngắn hơn `n` → ném `ArgumentException`. |
 | `f32_addcmul` | `f32_addcmul(dst, x, y, scale, n)` | **M5** — `dst += scale*x*y` fused (1 pass, AVX2+FMA); cả 4 là buffer native `i64` (`dst`/`x`/`y`) + `scale` `f32`. Trả `i32` `0`=OK, `-1` tham số sai. |
 | `adamw_step` | `adamw_step(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s)` | **M5** — fused AdamW per-element đúng công thức GĐ10: `m←b1*m+(1-b1)*g`; `v←b2*v+(1-b2)*g^2`; `p←p - lr*(m*bc2s)/(sqrt(v)+eps*bc2s) - lr*wd*p`. fp32, 1 chia/ptần tử, `sqrt` chính xác (không rsqrt), thứ tự cố định. Trả `i32` `0`=OK. `bc1s/bc2s` truyền vào để team Inference giữ nguyên định nghĩa bias-correction. |
+| `lmhead_bwd_fused` | `lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V)` | **M6** — fused cross-entropy backward + lm-head grad: softmax-grad (fp32, max-sub) → `dxf = dlogits @ wte` → tích lũy `dwte += dlogits^T @ xf`. 6 buffer native `i64` (không list), `ids` buffer `i32`, 4 shape `i32` (`B,S,E,V`; `T=B*S`, row-major). `dxf` ghi đè, `dwte` tích lũy (gọi zero trước). Trả `i32` `0`=OK, `-1` tham số sai. v1 single-thread/naive (M6 chưa đo) — Inference tối ưu + A/B. |
 
 ---
 

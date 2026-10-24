@@ -908,6 +908,37 @@ def _pt_m5_wrappers() -> "list[str]":
     return la
 
 
+# --- M6: fused lm-head backward (SPEC M4-M7 §M6) ------------------------------
+# lmhead_bwd_fused: softmax-grad -> dxf = dlogits @ wte -> tich lu dwte +=
+# dlogits^T @ xf. Moi tham so buffer la i64 (khong list). ids la buffer i32.
+# v1 single-thread/naive (M6 CHUA DO) - Inference toi uu + do A/B sau.
+def _pt_m6_pinvoke() -> "list[str]":
+    return [
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "lmhead_bwd_fused" winapi) int32 LmheadBwdNative(native int logits, native int ids, native int wte, native int xf, native int dxf, native int dwte, int32 B, int32 S, int32 E, int32 V) cil managed preservesig { }',
+    ]
+
+
+def _pt_m6_wrappers() -> "list[str]":
+    return [
+        '  .method public static int32 LmheadBwdM(int64 logits, int64 ids, int64 wte, int64 xf, int64 dxf, int64 dwte, int32 B, int32 S, int32 E, int32 V) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    ldarg.0', '    conv.i',
+        '    ldarg.1', '    conv.i',
+        '    ldarg.2', '    conv.i',
+        '    ldarg.3', '    conv.i',
+        '    ldarg.s 4', '    conv.i',
+        '    ldarg.s 5', '    conv.i',
+        '    ldarg.s 6',
+        '    ldarg.s 7',
+        '    ldarg.s 8',
+        '    ldarg.s 9',
+        '    call int32 ' + _SIMD_CLASS + '::LmheadBwdNative(native int, native int, native int, native int, native int, native int, int32, int32, int32, int32)',
+        '    ret',
+        '  }',
+    ]
+
+
 def _lop_simd() -> "list[str]":
     ra = ['.class public auto ansi beforefieldinit ' + _SIMD_CLASS + ' extends [mscorlib]System.Object', '{']
     ra = ra + _pt_native_ho_tro()
@@ -918,6 +949,8 @@ def _lop_simd() -> "list[str]":
     ra = ra + _pt_packed_free()
     ra = ra + _pt_m5_pinvoke()
     ra = ra + _pt_m5_wrappers()
+    ra = ra + _pt_m6_pinvoke()
+    ra = ra + _pt_m6_wrappers()
     for d in ('f32', 'f64'):
         ra = ra + _pt_gemm_mang(d)
         ra = ra + _pt_gemm_list(d)
@@ -1317,6 +1350,28 @@ def compile_adamw_step(args: "list[TkvNode]", scope: "Scope", out: "list[str]", 
     out.append('    call int32 ' + _SIMD_CLASS + '::AdamwM(int64, int64, int64, int64, int32, float32, float32, float32, float32, float32, float32, float32)')
 
 
+def compile_lmhead_bwd_fused(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V) -> i32.
+    Fused cross-entropy backward + lm-head grad (§M6): softmax-grad -> dxf =
+    dlogits @ wte -> tich lu dwte += dlogits^T @ xf. 6 buffer la i64 (khong
+    list); ids buffer i32; 4 shape i32. dwte tich lu (goi zero truoc). v1
+    single-thread/naive (M6 CHUA DO) - Inference toi uu + do A/B sau."""
+    if len(args) != 10:
+        raise SyntaxError("il_codegen: lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V) can dung 10 tham so")
+    _kn_buffer(args[0], scope, 'lmhead_bwd_fused', 'logits')
+    _kn_buffer(args[1], scope, 'lmhead_bwd_fused', 'ids')
+    _kn_buffer(args[2], scope, 'lmhead_bwd_fused', 'wte')
+    _kn_buffer(args[3], scope, 'lmhead_bwd_fused', 'xf')
+    _kn_buffer(args[4], scope, 'lmhead_bwd_fused', 'dxf')
+    _kn_buffer(args[5], scope, 'lmhead_bwd_fused', 'dwte')
+    _ensure_class_simd(ctx)
+    for i in range(6):
+        ctx.compile_expr(args[i], scope, out, 'i64', ctx)
+    for i in range(6, 10):
+        ctx.compile_expr(args[i], scope, out, 'i32', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::LmheadBwdM(' + _join_lap('int64', 6) + ', ' + _join_lap('int32', 4) + ')')
+
+
 def compile_simd_lanes_f32(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     _ensure_extern(ctx)
     out.append('    call int32 ' + _vec('f32') + '::get_Count()')
@@ -1358,6 +1413,7 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'f32_copy_from_buf', compile_f32_copy_from_buf, 'i64')
     register_expr_builtin(reg, 'f32_addcmul', compile_f32_addcmul, 'i32')
     register_expr_builtin(reg, 'adamw_step', compile_adamw_step, 'i32')
+    register_expr_builtin(reg, 'lmhead_bwd_fused', compile_lmhead_bwd_fused, 'i32')
     register_expr_builtin(reg, 'simd_lanes_f32', compile_simd_lanes_f32, 'i32')
     register_expr_builtin(reg, 'simd_lanes_f64', compile_simd_lanes_f64, 'i32')
     register_expr_builtin(reg, 'simd_hw', compile_simd_hw, 'bool')

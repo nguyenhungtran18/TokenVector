@@ -1,0 +1,158 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO M6 `lmhead_bwd_fused` (SPEC M4-M7 §M6).
+
+  lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V) -> i32
+
+Fused cross-entropy backward + lm-head grad, T = B*S, row-major f32:
+  - logits (T x V) [input, khong doi] · ids (T) i32 [input]
+  - wte (V x E) [input] · xf (T x E) [input]
+  - dxf (T x E) [OUTPUT, ghi de] · dwte (V x E) [OUTPUT, TICH LUY +=]
+
+Moi hang t: softmax-grad (max-sub, giam tu tu v=0..V-1)
+  -> dxf[t] = sum_v dl * wte[v]   ;   dwte[v] += dl * xf[t]
+
+Bai nay doi chieu native vs cong thuc SCALAR trong test (TOL 1e-5):
+  1. status 0.
+  2. dxf khop reference.
+  3. dwte khop reference (co tich lu nhieu hang).
+  4. null buffer -> -1.
+
+dwte tich lu nen TEST zero truoc khi goi (kernel khong zero dwte).
+Reference tinh f64, native f32 -> lech nho (~1e-7) duoi TOL 1e-5; loi cong
+thuc (sai target, sai tich lu) lech >> 1e-5 -> bi bat.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def test_lmhead() -> "i32":
+    total = 0
+    B: "i32" = 2
+    S: "i32" = 3
+    E: "i32" = 4
+    V: "i32" = 5
+    T = B * S
+
+    n_lg = T * V
+    n_we = V * E
+    n_xe = T * E
+
+    p_logits = alloc_bytes(n_lg * 4)
+    p_ids = alloc_bytes(T * 4)
+    p_wte = alloc_bytes(n_we * 4)
+    p_xf = alloc_bytes(n_xe * 4)
+    p_dxf = alloc_bytes(n_xe * 4)
+    p_dwte = alloc_bytes(n_we * 4)
+
+    lg = f32buf_wrap(p_logits, n_lg)
+    wte = f32buf_wrap(p_wte, n_we)
+    xf = f32buf_wrap(p_xf, n_xe)
+    dxf = f32buf_wrap(p_dxf, n_xe)
+    dwte = f32buf_wrap(p_dwte, n_we)
+
+    i = 0
+    while i < T * V:
+        lg[i] = float((i % 7) - 3) * 0.5
+        i = i + 1
+    i = 0
+    w: "i64" = 0
+    while i < T:
+        w = write_i32(p_ids, i * 4, (i * 3) % V)
+        i = i + 1
+    i = 0
+    while i < V * E:
+        wte[i] = float((i % 5) - 2) * 0.25
+        i = i + 1
+    i = 0
+    while i < T * E:
+        xf[i] = float((i % 7) - 3) * 0.1
+        i = i + 1
+    # dwte TICH LU -> test phai zero truoc; dxf kernel ghi de nhung zero cho don
+    i = 0
+    while i < T * E:
+        dxf[i] = 0.0
+        i = i + 1
+    i = 0
+    while i < V * E:
+        dwte[i] = 0.0
+        i = i + 1
+
+    st = lmhead_bwd_fused(p_logits, p_ids, p_wte, p_xf, p_dxf, p_dwte, B, S, E, V)
+    total += check("lmhead_status_0", str(st), "0")
+
+    # --- reference scalar (f64) ---
+    dxf_ref: "list[f64]" = []
+    dwte_ref: "list[f64]" = []
+    i = 0
+    while i < T * E:
+        dxf_ref.append(0.0)
+        i = i + 1
+    i = 0
+    while i < V * E:
+        dwte_ref.append(0.0)
+        i = i + 1
+    t = 0
+    while t < T:
+        m = lg[t * V]
+        v = 1
+        while v < V:
+            if lg[t * V + v] > m:
+                m = lg[t * V + v]
+            v = v + 1
+        sumexp = 0.0
+        v = 0
+        while v < V:
+            sumexp = sumexp + exp(lg[t * V + v] - m)
+            v = v + 1
+        tid = read_i32(p_ids, t * 4)
+        v = 0
+        while v < V:
+            pr = exp(lg[t * V + v] - m) / sumexp
+            dl = pr
+            if v == tid:
+                dl = dl - 1.0
+            e = 0
+            while e < E:
+                dxf_ref[t * E + e] = dxf_ref[t * E + e] + dl * wte[v * E + e]
+                dwte_ref[v * E + e] = dwte_ref[v * E + e] + dl * xf[t * E + e]
+                e = e + 1
+            v = v + 1
+        t = t + 1
+
+    wd: "f64" = 0.0
+    i = 0
+    while i < T * E:
+        d = dxf[i] - dxf_ref[i]
+        if d < 0.0:
+            d = -d
+        if d > wd:
+            wd = d
+        i = i + 1
+    total += check("lmhead_dxf(wp=" + str(wd) + ")", str(int(wd <= 1.0e-5)), "1")
+
+    ww: "f64" = 0.0
+    i = 0
+    while i < V * E:
+        d = dwte[i] - dwte_ref[i]
+        if d < 0.0:
+            d = -d
+        if d > ww:
+            ww = d
+        i = i + 1
+    total += check("lmhead_dwte(ww=" + str(ww) + ")", str(int(ww <= 1.0e-5)), "1")
+    return total
+
+
+def test_null() -> "i32":
+    total = 0
+    st = lmhead_bwd_fused(0, 0, 0, 0, 0, 0, 1, 1, 1, 1)
+    total += check("lmhead_null_tra_-1", str(st), "-1")
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += test_lmhead()
+    total += test_null()
+    # 3 + 1 = 4
+    return test_summary("lmhead_bwd_fused_test", total, 4)
