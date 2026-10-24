@@ -1,0 +1,198 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO M7 shape-class dispatch (SPEC M4-M7 §M7).
+
+Env `TKV_GEMM_DISPATCH` = `shape` (mac dinh) | `legacy` chon cach phan lop
+(m, n, k) trong native:
+  nho (m nhoac n nhoac k < 96) -> 1 luong
+  square lon                  -> pattern hien tai (tkv_nthreads + tkv_ncols)
+  vocab 50257 (lm-head/embed) -> chia cot manh + NC 128
+  rect (max(C) >= 4*min(C))   -> MC/NC rieng 128/128
+
+Dispatch CHI doi thread/tiling; KC giu nguyen 64 -> thu tu tich luy k khong
+doi -> ket qua bit-giong che do legacy. Bai nay chay duoi che do MAC DINH
+(shape); khi commit chay lai voi `TKV_GEMM_DISPATCH=legacy` va diff stdout
+phai = 0 (A/B), cong them gate toan phan.
+
+4 ca, moi ca kiem run ok + maxdiff == 0.0 (gia tri so nguyen nho -> chinh xac
+bit, giong simd_gemm_packed_test):
+  1. SMALL  : m=64 (<96) -> 1 luong; C prefill -999 de bat vung bi bo qua.
+  2. RECT   : C 384x96 (ty le 4) -> MC/NC 128/128.
+  3. SQUARE : 192x192x192 -> pattern hien tai (row-split da luong).
+  4. VOCAB  : m=50257, B = identity -> C phai bang A; cot manh 14/2.
+
+Gia tri reference tinh tay. Handle i64 gan o top-level (quy tac GĐ8).
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def _fill(a: "list[f32]", n: "i32", mo: "i32", buoc: "i32", tru: "i32") -> "i32":
+    """i -> gia tri nguyen duong nho (mo + i%buoc - tru) de tranh tran f32."""
+    i = 0
+    while i < n:
+        a.append(float((i % buoc) + mo - tru))
+        i = i + 1
+    return 0
+
+
+def _ref_gemm(a: "list[f32]", b: "list[f32]", c: "list[f32]", m: "i32", n: "i32", k: "i32") -> "i32":
+    """reference scalar: C(m x n) = A(m x k) * B(k x n), row-major, f32."""
+    i = 0
+    while i < m:
+        j = 0
+        while j < n:
+            s: "f32" = 0.0
+            p = 0
+            while p < k:
+                s = s + a[i * k + p] * b[p * n + j]
+                p = p + 1
+            c.append(s)
+            j = j + 1
+        i = i + 1
+    return 0
+
+
+def _maxdiff(x: "list[f32]", y: "list[f32]", n: "i32") -> "f64":
+    md: "f64" = 0.0
+    i = 0
+    while i < n:
+        d = float(x[i]) - float(y[i])
+        if d < 0.0:
+            d = -d
+        if d > md:
+            md = d
+        i = i + 1
+    return md
+
+
+def _zero_c(c: "list[f32]", n: "i32") -> "i32":
+    """C prefill -999.0: vung kernel BO QUA se bi maxdiff bat ngay."""
+    i = 0
+    while i < n:
+        c.append(-999.0)
+        i = i + 1
+    return 0
+
+
+def case_small() -> "i32":
+    """1) m=64 < 96 -> SMALL (1 luong) - van phai danh het C."""
+    total = 0
+    m: "i32" = 64
+    k: "i32" = 128
+    n: "i32" = 96
+    T: "i32" = 32
+    a: "list[f32]" = []
+    b: "list[f32]" = []
+    c: "list[f32]" = []
+    ref: "list[f32]" = []
+    _fill(a, m * k, 3, 7, 3)
+    _fill(b, k * n, 2, 5, 2)
+    _ref_gemm(a, b, ref, m, n, k)
+    _zero_c(c, m * n)
+    hA: "i64" = simd_gemm_packed_create(a, m, k, k, T, 0)
+    hB: "i64" = simd_gemm_packed_create(b, k, n, n, T, 0)
+    rc = simd_gemm_packed(hA, hB, c, T)
+    total += check("small_run_ok", str(rc), "0")
+    total += check("small_vs_ref", str(_maxdiff(c, ref, m * n)), "0.0")
+    simd_gemm_packed_free(hA)
+    simd_gemm_packed_free(hB)
+    return total
+
+
+def case_rect() -> "i32":
+    """2) C 384x96 (ty le 4) -> RECT: MC/NC rieng 128/128 van dung reference."""
+    total = 0
+    m: "i32" = 384
+    k: "i32" = 96
+    n: "i32" = 96
+    T: "i32" = 32
+    a: "list[f32]" = []
+    b: "list[f32]" = []
+    c: "list[f32]" = []
+    ref: "list[f32]" = []
+    _fill(a, m * k, 2, 6, 2)
+    _fill(b, k * n, 1, 5, 1)
+    _ref_gemm(a, b, ref, m, n, k)
+    _zero_c(c, m * n)
+    hA: "i64" = simd_gemm_packed_create(a, m, k, k, T, 0)
+    hB: "i64" = simd_gemm_packed_create(b, k, n, n, T, 0)
+    rc = simd_gemm_packed(hA, hB, c, T)
+    total += check("rect_run_ok", str(rc), "0")
+    total += check("rect_vs_ref", str(_maxdiff(c, ref, m * n)), "0.0")
+    simd_gemm_packed_free(hA)
+    simd_gemm_packed_free(hB)
+    return total
+
+
+def case_square() -> "i32":
+    """3) 192x192x192 -> SQUARE: pattern hien tai (row-split nhieu luong)."""
+    total = 0
+    m: "i32" = 192
+    k: "i32" = 192
+    n: "i32" = 192
+    T: "i32" = 32
+    a: "list[f32]" = []
+    b: "list[f32]" = []
+    c: "list[f32]" = []
+    ref: "list[f32]" = []
+    _fill(a, m * k, 4, 8, 3)
+    _fill(b, k * n, 1, 7, 2)
+    _ref_gemm(a, b, ref, m, n, k)
+    _zero_c(c, m * n)
+    hA: "i64" = simd_gemm_packed_create(a, m, k, k, T, 0)
+    hB: "i64" = simd_gemm_packed_create(b, k, n, n, T, 0)
+    rc = simd_gemm_packed(hA, hB, c, T)
+    total += check("square_run_ok", str(rc), "0")
+    total += check("square_vs_ref", str(_maxdiff(c, ref, m * n)), "0.0")
+    simd_gemm_packed_free(hA)
+    simd_gemm_packed_free(hB)
+    return total
+
+
+def case_vocab() -> "i32":
+    """4) m=50257 (VOCAB): B = identity -> C phai bang A (bit-exact).
+    Cot manh (cols 14/2) + NC 128 van phai dung TOAN BO C: prefill -999 bat
+    vung bi bo qua, C != A bat sai index/strip khi chia cot."""
+    total = 0
+    m: "i32" = 50257
+    k: "i32" = 128
+    n: "i32" = 128
+    T: "i32" = 32
+    a: "list[f32]" = []
+    b: "list[f32]" = []
+    c: "list[f32]" = []
+    ref: "list[f32]" = []
+    _fill(a, m * k, 3, 7, 3)
+    # B = identity k x n (k == n) -> C = A * I = A, ref chi la copy O(m*n)
+    i = 0
+    while i < k * n:
+        b.append(0.0)
+        i = i + 1
+    i = 0
+    while i < k:
+        b[i * n + i] = 1.0
+        i = i + 1
+    i = 0
+    while i < m * n:
+        ref.append(a[i])
+        i = i + 1
+    _zero_c(c, m * n)
+    hA: "i64" = simd_gemm_packed_create(a, m, k, k, T, 0)
+    hB: "i64" = simd_gemm_packed_create(b, k, n, n, T, 0)
+    total += check("vocab_handle_tao", str(int(hA > 0 and hB > 0)), "1")
+    rc = simd_gemm_packed(hA, hB, c, T)
+    total += check("vocab_run_ok", str(rc), "0")
+    total += check("vocab_C_bang_A", str(_maxdiff(c, ref, m * n)), "0.0")
+    simd_gemm_packed_free(hA)
+    simd_gemm_packed_free(hB)
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += case_small()
+    total += case_rect()
+    total += case_square()
+    total += case_vocab()
+    # 2 + 2 + 2 + 3 = 9
+    return test_summary("gemm_dispatch_test", total, 9)

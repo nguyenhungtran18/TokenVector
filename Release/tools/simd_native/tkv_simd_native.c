@@ -20,10 +20,12 @@
 
 #define EXPORT __declspec(dllexport)
 
-static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i0, int i1, int j0, int j1);
+static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i0, int i1, int j0, int j1,
+                          int mc_b, int nc_b, int bpl);
 static void gemm_rows_f64(const double* a, const double* b, double* o, int n, int i0, int i1, int j0, int j1);
 static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, float* o, int ldc,
-                          int m, int n, int k, int i0, int i1, int j0, int j1);
+                          int m, int n, int k, int i0, int i1, int j0, int j1,
+                          int mc_b, int nc_b, int bpl);
 
 /* Tile cache-blocking (co the ghi de bang /DGEMM_* khi build). */
 #ifndef GEMM_KC
@@ -50,6 +52,18 @@ static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, floa
 #ifndef GEMM_BPL64
 #define GEMM_BPL64 (GEMM_NC64 + 2) /* leading dim panel B f64: +2 tranh stride luy thua 2 */
 #endif
+
+/* M7 (SPEC M4-M7 §M7): NC toi da khi phan lop shape chon NC lon (bpl = NC + 4).
+ * Buffer thread-local duoc cap theo BPL_MAX nhung duong DEFAULT (NC=64, bpl=68)
+ * van dan hang bang GEMM_BPL cu -> khong doi cache behavior cua duong cu. */
+#ifndef GEMM_NC_MAX
+#define GEMM_NC_MAX 128
+#endif
+#ifndef GEMM_BPL_MAX
+#define GEMM_BPL_MAX (GEMM_NC_MAX + 4)
+#endif
+#define GEMM_MC_RG 128   /* rect grad: MC/NC rieng (M7) */
+#define GEMM_NC_RG 128
 
 /* So luong thread cho kernel GEMM: 1 neu n nho (tranh overhead), nguoc lai
  * theo so CORE VAT LY (khong dung hyperthread - 2 luong/core tranh nhau bang
@@ -87,7 +101,7 @@ static int tkv_nlogical(void) {
     return lc >= 1 ? (int)lc : 1;
 }
 
-static int tkv_nthreads(int n) {
+static void tkv_env_init(void) {
     if (tkv_min_n < 0) {
         char buf[32];
         DWORD k = GetEnvironmentVariableA("TKV_GEMM_MIN_N", buf, 32);
@@ -95,6 +109,10 @@ static int tkv_nthreads(int n) {
         k = GetEnvironmentVariableA("TKV_GEMM_THREADS", buf, 32);
         tkv_cap = (k > 0 && k < 64) ? atoi(buf) : 0;   /* 0 = auto */
     }
+}
+
+static int tkv_nthreads(int n) {
+    tkv_env_init();
     if (n < tkv_min_n) return 1;
     int c;
     if (tkv_cap > 0) {
@@ -137,8 +155,57 @@ static int tkv_ncols(int nt, int n) {
     return 1;
 }
 
+/* ---------------- M7: shape-class dispatch (SPEC M4-M7 §M7) ----------------
+ * Phan lop theo (m,n,k) de chon (1 luong / cot manh / MC-NC rieng). Chi doi
+ * thread + tiling; KC GIU NGUYEN 64 -> thu tu tich luy k moi phan tu khong doi
+ * -> numerics bit-giong legacy (gate + A/B stdout chung minh).
+ * Env `TKV_GEMM_DISPATCH`: mac dinh/`shape` = phan lop; `legacy` = thu tu cu
+ * y hieu (A/B so sanh). Gia tri MC/NC/cols la KHOI TAO - team Inference do lai
+ * T-grid sau khi BUILD/ACC ra native (§M7) roi ghi vao bang ban giao.
+ *   nho (m nhoac n nhoac k < MIN_N, mac dinh 96) -> 1 luong
+ *   square lon      -> pattern hien tai (tkv_nthreads + tkv_ncols)
+ *   vocab 50257     -> chia cot manh + NC 128 (giam traffic doc A/B)
+ *   rect (max(C) >= 4*min(C)) -> MC/NC rieng 128/128 */
+#define TKV_VOCAB 50257
+#define TKV_CLS_SMALL 0
+#define TKV_CLS_SQUARE 1
+#define TKV_CLS_VOCAB 2
+#define TKV_CLS_RECT 3
+static int tkv_dispatch = -1;   /* -1 chua doc env; 1 = shape (mac dinh); 0 = legacy */
+
+static int tkv_shape_on(void) {
+    if (tkv_dispatch < 0) {
+        char buf[32];
+        DWORD k = GetEnvironmentVariableA("TKV_GEMM_DISPATCH", buf, 32);
+        tkv_dispatch = (k > 0 && (buf[0] == 'l' || buf[0] == 'L')) ? 0 : 1;
+    }
+    return tkv_dispatch;
+}
+
+static int tkv_shape_class(int m, int n, int k) {
+    tkv_env_init();
+    if (m < tkv_min_n || n < tkv_min_n || k < tkv_min_n) return TKV_CLS_SMALL;
+    if (m == TKV_VOCAB || n == TKV_VOCAB || k == TKV_VOCAB) return TKV_CLS_VOCAB;
+    {
+        int mx = m > n ? m : n;
+        int mn = m < n ? m : n;
+        if (mx >= 4 * mn) return TKV_CLS_RECT;
+    }
+    return TKV_CLS_SQUARE;
+}
+
+/* Cot manh cho VOCAB: uoc so LON nhat cua nt (toi da 16) de moi strip van du
+ * rong (n/d >= 8); run_mt_rect dung rows = nt/cols nen chia het la tot nhat. */
+static int tkv_ncols_vocab(int nt, int n) {
+    int d;
+    for (d = 16; d > 1; d--) {
+        if ((nt % d) == 0 && d <= n && (n / d) >= 8) return d;
+    }
+    return 1;
+}
+
 /* --- thread pool co dinh (tranh ~0.6ms tao thread moi lan goi) --- */
-typedef struct { const void* a; const void* b; void* o; int n; int i0; int i1; int j0; int j1; int mode; int lda; int ldb; int m; int k; } GemmJob;
+typedef struct { const void* a; const void* b; void* o; int n; int i0; int i1; int j0; int j1; int mode; int lda; int ldb; int m; int k; int mc; int nc; int bpl; } GemmJob;
 static GemmJob  g_job[TKV_MAXT];
 static HANDLE   g_start[TKV_MAXT];
 static HANDLE   g_done[TKV_MAXT];
@@ -156,11 +223,13 @@ static DWORD WINAPI tkv_worker(LPVOID p) {
         GemmJob* j = &g_job[t];
         if (j->mode == 2)
             gemm_rect_f32((const float*)j->a, j->lda, (const float*)j->b, j->ldb,
-                          (float*)j->o, j->n, j->m, j->n, j->k, j->i0, j->i1, j->j0, j->j1);
+                          (float*)j->o, j->n, j->m, j->n, j->k, j->i0, j->i1, j->j0, j->j1,
+                          j->mc, j->nc, j->bpl);
         else if (j->mode == 1)
             gemm_rows_f64((const double*)j->a, (const double*)j->b, (double*)j->o, j->n, j->i0, j->i1, j->j0, j->j1);
         else
-            gemm_rows_f32((const float*)j->a, (const float*)j->b, (float*)j->o, j->n, j->i0, j->i1, j->j0, j->j1);
+            gemm_rows_f32((const float*)j->a, (const float*)j->b, (float*)j->o, j->n, j->i0, j->i1, j->j0, j->j1,
+                          j->mc, j->nc, j->bpl);
         SetEvent(g_done[t]);
     }
     return 0;
@@ -181,7 +250,8 @@ static BOOL CALLBACK tkv_pool_init(PINIT_ONCE o, PVOID p, PVOID* c) {
     return TRUE;
 }
 
-static void tkv_run_mt(int nt, const void* a, const void* b, void* o, int n, int f64) {
+static void tkv_run_mt(int nt, const void* a, const void* b, void* o, int n, int f64,
+                       int cols_req, int mc, int nc, int bpl) {
     AcquireSRWLockExclusive(&g_gemm_lock);
     InitOnceExecuteOnce(&g_once, tkv_pool_init, NULL, NULL);
     if (nt > g_nw) nt = g_nw;
@@ -189,8 +259,9 @@ static void tkv_run_mt(int nt, const void* a, const void* b, void* o, int n, int
     int ncstep = f64 ? GEMM_NC64 : GEMM_NC;
 
     /* Luoi 2 chieu rows x cols (cols>=1). Chia cot de moi thread chi doc/pack
-     * mot dai cot cua B -> giam working-set va bang thong khi chay hyperthread. */
-    int cols = tkv_ncols(nt, n);
+     * mot dai cot cua B -> giam working-set va bang thong khi chay hyperthread.
+     * cols_req > 0 (M7 lop VOCAB) thay quy tac tu dong tkv_ncols. */
+    int cols = (cols_req > 0) ? cols_req : tkv_ncols(nt, n);
     if (cols < 1) cols = 1;
     if (cols > nt) cols = nt;
     while (cols > 1 && (nt % cols) != 0) cols--;
@@ -214,6 +285,7 @@ static void tkv_run_mt(int nt, const void* a, const void* b, void* o, int n, int
             g_job[used].a = a; g_job[used].b = b; g_job[used].o = o;
             g_job[used].n = n; g_job[used].i0 = i0; g_job[used].i1 = i1;
             g_job[used].j0 = j0; g_job[used].j1 = j1; g_job[used].mode = f64;
+            g_job[used].mc = mc; g_job[used].nc = nc; g_job[used].bpl = bpl;
             used++;
         }
     }
@@ -222,28 +294,44 @@ static void tkv_run_mt(int nt, const void* a, const void* b, void* o, int n, int
     ReleaseSRWLockExclusive(&g_gemm_lock);
 }
 
-/* Rectangular submit - chia 1D theo hang, dung cung pool + cung lock.
- * moi thread tinh day du cac cot cua bang hang [i0,i1) -> C ghi de mot lan. */
+/* Rect submit - luoi 2D rows x cols (M7; cols=1 = pattern cu chi chia theo
+ * hang), dung cung pool + cung lock. Moi job tinh vung [i0,i1)x[j0,j1) rieng
+ * -> memset + ghi C khong trung; thu tu tich luy k giu nguyen -> bit-giong. */
 static void tkv_run_mt_rect(int nt, const float* a, int lda, const float* b, int ldb,
-                            float* c, int ldc, int m, int n, int k) {
+                            float* c, int ldc, int m, int n, int k,
+                            int cols_req, int mc, int nc, int bpl) {
     AcquireSRWLockExclusive(&g_gemm_lock);
     InitOnceExecuteOnce(&g_once, tkv_pool_init, NULL, NULL);
     if (nt > g_nw) nt = g_nw;
     if (nt < 1) nt = 1;
-    int per = (m + nt - 1) / nt;
-    if (per < 1) per = 1;
+    int cols = cols_req;
+    if (cols < 1) cols = 1;
+    if (cols > nt) cols = nt;
+    if (cols > n) cols = n;
+    int rows = nt / cols;
+    if (rows < 1) { rows = 1; cols = 1; }
+    int per_i = (m + rows - 1) / rows;
+    int per_j = (n + cols - 1) / cols;
+    if (per_i < 1) per_i = 1;
+    if (per_j < 1) per_j = 1;
     int used = 0;
-    for (int t = 0; t < nt; t++) {
-        int i0 = t * per, i1 = i0 + per;
+    for (int r = 0; r < rows && used < nt; r++) {
+        int i0 = r * per_i, i1 = i0 + per_i;
         if (i1 > m) i1 = m;
-        if (i0 >= i1) break;
-        g_job[used].a = a; g_job[used].b = b; g_job[used].o = c;
-        g_job[used].mode = 2;
-        g_job[used].lda = lda; g_job[used].ldb = ldb;
-        g_job[used].n = ldc; g_job[used].m = m; g_job[used].k = k;
-        g_job[used].i0 = i0; g_job[used].i1 = i1;
-        g_job[used].j0 = 0; g_job[used].j1 = n;
-        used++;
+        if (i0 >= i1) continue;
+        for (int cc = 0; cc < cols && used < nt; cc++) {
+            int j0 = cc * per_j, j1 = j0 + per_j;
+            if (j1 > n) j1 = n;
+            if (j0 >= j1) continue;
+            g_job[used].a = a; g_job[used].b = b; g_job[used].o = c;
+            g_job[used].mode = 2;
+            g_job[used].lda = lda; g_job[used].ldb = ldb;
+            g_job[used].n = ldc; g_job[used].m = m; g_job[used].k = k;
+            g_job[used].i0 = i0; g_job[used].i1 = i1;
+            g_job[used].j0 = j0; g_job[used].j1 = j1;
+            g_job[used].mc = mc; g_job[used].nc = nc; g_job[used].bpl = bpl;
+            used++;
+        }
     }
     for (int t = 0; t < used; t++) SetEvent(g_start[t]);
     if (used > 0) WaitForMultipleObjects((DWORD)used, g_done, TRUE, INFINITE);
@@ -373,10 +461,10 @@ EXPORT float MinF32(float* a, int n) {
 #define GEMM_NC 64
 #endif
 
-static void pack_b_f32(const float* b, float* bp, int n, int pc, int kc, int jc, int nc) {
+static void pack_b_f32(const float* b, float* bp, int n, int pc, int kc, int jc, int nc, int bpl) {
     for (int p = 0; p < kc; p++) {
         const float* src = b + (long long)(pc + p) * n + jc;
-        float* dst = bp + (long long)p * GEMM_BPL;
+        float* dst = bp + (long long)p * bpl;
         for (int j = 0; j < nc; j++) dst[j] = src[j];
     }
 }
@@ -384,7 +472,7 @@ static void pack_b_f32(const float* b, float* bp, int n, int pc, int kc, int jc,
 /* Micro-kernel 4x16: 4 hang x 16 cot = 8 ymm accumulator + 2 ymm B.
  * Moi vong p: 2 load B + 4 broadcast A + 8 FMA -> FMA-bound (4 chu ky FMA
  * so voi 3 chu ky load) => dat dinh 32 FLOP/cycle/core tren Haswell. */
-static void micro_f32(const float* a, int lda, const float* bp, float* c, int n, int mc, int nc, int kc) {
+static void micro_f32(const float* a, int lda, const float* bp, float* c, int n, int mc, int nc, int kc, int bpl) {
     int i = 0;
     for (; i + 4 <= mc; i += 4) {
         const float* ai = a + (long long)i * lda;
@@ -396,7 +484,7 @@ static void micro_f32(const float* a, int lda, const float* bp, float* c, int n,
             __m256 c2a = _mm256_setzero_ps(), c2b = _mm256_setzero_ps();
             __m256 c3a = _mm256_setzero_ps(), c3b = _mm256_setzero_ps();
             for (int p = 0; p < kc; p++) {
-                const float* brow = bp + (long long)p * GEMM_BPL + j;
+                const float* brow = bp + (long long)p * bpl + j;
                 __m256 vb0 = _mm256_loadu_ps(brow);
                 __m256 vb1 = _mm256_loadu_ps(brow + 8);
                 __m256 va0 = _mm256_set1_ps(ai[p]);
@@ -425,7 +513,7 @@ static void micro_f32(const float* a, int lda, const float* bp, float* c, int n,
         for (; j < nc; j++) {
             float s0 = 0.0f, s1 = 0.0f, s2 = 0.0f, s3 = 0.0f;
             for (int p = 0; p < kc; p++) {
-                float bv = bp[(long long)p * GEMM_BPL + j];
+                float bv = bp[(long long)p * bpl + j];
                 s0 += ai[p] * bv;
                 s1 += ai[lda + p] * bv;
                 s2 += ai[2 * lda + p] * bv;
@@ -449,22 +537,29 @@ static void micro_f32(const float* a, int lda, const float* bp, float* c, int n,
     }
 }
 
-static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i0, int i1, int j0, int j1) {
+static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i0, int i1, int j0, int j1,
+                          int mc_b, int nc_b, int bpl) {
     if (i1 <= i0 || j1 <= j0) return;
     if (j0 == 0 && j1 == n)
         memset(o + (long long)i0 * n, 0, (size_t)(i1 - i0) * n * sizeof(float));
     else
         for (int ii = i0; ii < i1; ii++)
             memset(o + (long long)ii * n + j0, 0, (size_t)(j1 - j0) * sizeof(float));
-    static __declspec(thread) float bp[GEMM_KC * GEMM_BPL];
-    for (int jc = j0; jc < j1; jc += GEMM_NC) {
-        int nc = j1 - jc; if (nc > GEMM_NC) nc = GEMM_NC;
+    static __declspec(thread) float bp[GEMM_KC * GEMM_BPL_MAX];
+    /* bao ve buffer (M7): bpl trong [GEMM_BPL, GEMM_BPL_MAX], nc <= bpl - 4 */
+    if (bpl < GEMM_BPL) bpl = GEMM_BPL;
+    if (bpl > GEMM_BPL_MAX) bpl = GEMM_BPL_MAX;
+    if (nc_b > bpl - 4) nc_b = bpl - 4;
+    if (nc_b < 1) nc_b = 1;
+    if (mc_b < 1) mc_b = 1;
+    for (int jc = j0; jc < j1; jc += nc_b) {
+        int nc = j1 - jc; if (nc > nc_b) nc = nc_b;
         for (int pc = 0; pc < n; pc += GEMM_KC) {
             int kc = n - pc; if (kc > GEMM_KC) kc = GEMM_KC;
-            pack_b_f32(b, bp, n, pc, kc, jc, nc);
-            for (int ic = i0; ic < i1; ic += GEMM_MC) {
-                int mc = i1 - ic; if (mc > GEMM_MC) mc = GEMM_MC;
-                micro_f32(a + (long long)ic * n + pc, n, bp, o + (long long)ic * n + jc, n, mc, nc, kc);
+            pack_b_f32(b, bp, n, pc, kc, jc, nc, bpl);
+            for (int ic = i0; ic < i1; ic += mc_b) {
+                int mc = i1 - ic; if (mc > mc_b) mc = mc_b;
+                micro_f32(a + (long long)ic * n + pc, n, bp, o + (long long)ic * n + jc, n, mc, nc, kc, bpl);
             }
         }
     }
@@ -474,20 +569,27 @@ static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i
  * C m x n (ldc). dung lai micro_f32 + pack_b_f32 da co (chi doi leading dim).
  * C duoc ghi de (zero + accumulate) trong vung [i0:i1)x[j0:j1). */
 static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, float* o, int ldc,
-                          int m, int n, int k, int i0, int i1, int j0, int j1) {
+                          int m, int n, int k, int i0, int i1, int j0, int j1,
+                          int mc_b, int nc_b, int bpl) {
     if (i1 <= i0 || j1 <= j0) return;
     for (int ii = i0; ii < i1; ii++)
         memset(o + (long long)ii * ldc + j0, 0, (size_t)(j1 - j0) * sizeof(float));
-    static __declspec(thread) float bp[GEMM_KC * GEMM_BPL];
-    for (int jc = j0; jc < j1; jc += GEMM_NC) {
-        int nc = j1 - jc; if (nc > GEMM_NC) nc = GEMM_NC;
+    static __declspec(thread) float bp[GEMM_KC * GEMM_BPL_MAX];
+    /* bao ve buffer (M7): bpl trong [GEMM_BPL, GEMM_BPL_MAX], nc <= bpl - 4 */
+    if (bpl < GEMM_BPL) bpl = GEMM_BPL;
+    if (bpl > GEMM_BPL_MAX) bpl = GEMM_BPL_MAX;
+    if (nc_b > bpl - 4) nc_b = bpl - 4;
+    if (nc_b < 1) nc_b = 1;
+    if (mc_b < 1) mc_b = 1;
+    for (int jc = j0; jc < j1; jc += nc_b) {
+        int nc = j1 - jc; if (nc > nc_b) nc = nc_b;
         for (int pc = 0; pc < k; pc += GEMM_KC) {
             int kc = k - pc; if (kc > GEMM_KC) kc = GEMM_KC;
-            pack_b_f32(b, bp, ldb, pc, kc, jc, nc);
-            for (int ic = i0; ic < i1; ic += GEMM_MC) {
-                int mc = i1 - ic; if (mc > GEMM_MC) mc = GEMM_MC;
+            pack_b_f32(b, bp, ldb, pc, kc, jc, nc, bpl);
+            for (int ic = i0; ic < i1; ic += mc_b) {
+                int mc = i1 - ic; if (mc > mc_b) mc = mc_b;
                 micro_f32(a + (long long)ic * lda + pc, lda, bp,
-                          o + (long long)ic * ldc + jc, ldc, mc, nc, kc);
+                          o + (long long)ic * ldc + jc, ldc, mc, nc, kc, bpl);
             }
         }
     }
@@ -495,9 +597,17 @@ static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, floa
 }
 
 EXPORT void SgemmF32(float* a, float* b, float* o, int n) {
+    /* M7: lop VOCAB (n == 50257) chia cot manh + NC lon; con lai pattern cu.
+     * nho (< MIN_N mac dinh 96) da tro thanh nt = 1 trong tkv_nthreads. */
     int nt = tkv_nthreads(n);
-    if (nt <= 1) { gemm_rows_f32(a, b, o, n, 0, n, 0, n); return; }
-    tkv_run_mt(nt, a, b, o, n, 0);
+    int nc = GEMM_NC, bpl = GEMM_BPL, cols_req = -1;
+    if (tkv_shape_on() && n == TKV_VOCAB) {
+        nc = GEMM_NC_RG;
+        bpl = GEMM_BPL_MAX;
+        if (nt > 1) cols_req = tkv_ncols_vocab(nt, n);
+    }
+    if (nt <= 1) { gemm_rows_f32(a, b, o, n, 0, n, 0, n, GEMM_MC, nc, bpl); return; }
+    tkv_run_mt(nt, a, b, o, n, 0, cols_req, GEMM_MC, nc, bpl);
 }
 
 /* ---------------- f64 ---------------- */
@@ -690,7 +800,7 @@ static void gemm_rows_f64(const double* a, const double* b, double* o, int n, in
 EXPORT void SgemmF64(double* a, double* b, double* o, int n) {
     int nt = tkv_nthreads(n);
     if (nt <= 1) { gemm_rows_f64(a, b, o, n, 0, n, 0, n); return; }
-    tkv_run_mt(nt, a, b, o, n, 1);
+    tkv_run_mt(nt, a, b, o, n, 1, -1, GEMM_MC, GEMM_NC, GEMM_BPL);
 }
 
 EXPORT double MinF64(double* a, int n) {
@@ -768,11 +878,34 @@ EXPORT int SgemmPacked(long long hA, long long hB, float* c, int c_len, int T) {
     int m = A->m, n = B->n, k = A->n;
     if (m <= 0 || n <= 0 || k <= 0) return -4;
     if (!c || c_len < (int)((long long)m * n)) return -5;
-    int nt = tkv_nthreads(m > n ? m : n);
+    /* M7 shape dispatch (env TKV_GEMM_DISPATCH; legacy = thu tu cu y hieu):
+     * SMALL -> 1 luong; VOCAB -> cot manh + NC 128; RECT -> MC/NC 128/128;
+     * SQUARE -> pattern hien tai. KC khong doi -> numerics bit-giong. */
+    int mc = GEMM_MC, nc = GEMM_NC, cols_req = 1, bpl = GEMM_BPL;
+    int nt;
+    if (tkv_shape_on()) {
+        int cls = tkv_shape_class(m, n, k);
+        if (cls == TKV_CLS_SMALL) {
+            nt = 1;
+        } else {
+            nt = tkv_nthreads(m > n ? m : n);
+            if (cls == TKV_CLS_VOCAB) {
+                if (nt > 1) cols_req = tkv_ncols_vocab(nt, n);
+                nc = GEMM_NC_RG;
+                bpl = GEMM_BPL_MAX;
+            } else if (cls == TKV_CLS_RECT) {
+                mc = GEMM_MC_RG;
+                nc = GEMM_NC_RG;
+                bpl = GEMM_BPL_MAX;
+            }
+        }
+    } else {
+        nt = tkv_nthreads(m > n ? m : n);
+    }
     if (nt <= 1)
-        gemm_rect_f32(A->buf, A->ld, B->buf, B->ld, c, n, m, n, k, 0, m, 0, n);
+        gemm_rect_f32(A->buf, A->ld, B->buf, B->ld, c, n, m, n, k, 0, m, 0, n, mc, nc, bpl);
     else
-        tkv_run_mt_rect(nt, A->buf, A->ld, B->buf, B->ld, c, n, m, n, k);
+        tkv_run_mt_rect(nt, A->buf, A->ld, B->buf, B->ld, c, n, m, n, k, cols_req, mc, nc, bpl);
     return 0;
 }
 
