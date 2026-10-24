@@ -531,7 +531,7 @@ static void micro_f32(const float* a, int lda, const float* bp, float* c, int n,
         for (int j = 0; j < nc; j++) {
             float s = 0.0f;
             for (int p = 0; p < kc; p++)
-                s += ai[p] * bp[(long long)p * GEMM_BPL + j];
+                s += ai[p] * bp[(long long)p * bpl + j];  /* M7 fix: i-tail phai dung bpl nhu duong chinh - dung GEMM_BPL khi bpl=132 (VOCAB/RECT) la doc nham panel -> C sai (vocab_C_bang_A 883.0) */
             ci[j] += s;
         }
     }
