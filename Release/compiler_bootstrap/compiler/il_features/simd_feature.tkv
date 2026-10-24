@@ -661,10 +661,137 @@ def _pt_gemm_list(d: "str") -> "list[str]":
     ]
 
 
+# --- M4: packed GEMM (SPEC M4-M7 §2) -----------------------------------
+# Prepack weight 1 lan / step: create() copy + pad ve T (zero-fill), run()
+# chay tile tu pack, free() giai phong. Handle la int64 (opaque), lifetime
+# do .tkv giu - giong alloc_bytes/free_bytes (khong GC). Chi ho tro f32
+# (gate spec la fp32), src/C la list[f32].
+_LT_F32 = 'class [mscorlib]System.Collections.Generic.List`1<float32>'
+
+
+def _pk_get_items(arg_idx: "int") -> "list[str]":
+    """Lay mang nen `_items` cua List<float32> (o arg_idx) vao local 0,
+    do dai vao local 3. Khong pin o day - moi wrapper pin rieng sau khi
+    da co duong dan (tranh pin mang rong -> IndexOutOfRange)."""
+    return [
+        '    ldtoken ' + _LT_F32,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.1',
+        '    ldloc.1',
+        '    ldarg.' + str(arg_idx),
+        '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)',
+        '    castclass float32[]',
+        '    stloc.0',
+        '    ldloc.0',
+        '    ldlen',
+        '    conv.i4',
+        '    stloc.3',
+    ]
+
+
+def _pt_packed_pinvoke() -> "list[str]":
+    return [
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmPackedCreate" winapi) int64 PackedCreateNative(native int src, int32 src_len, int32 rows, int32 cols, int32 stride, int32 T, int32 trans) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmPacked" winapi) int32 PackedRunNative(int64 hA, int64 hB, native int c, int32 c_len, int32 T) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmPackedFree" winapi) int64 PackedFreeNative(int64 h) cil managed preservesig { }',
+    ]
+
+
+def _pt_packed_create() -> "list[str]":
+    return [
+        '  .method public static int64 PackedCreate(' + _LT_F32 + ' src, int32 rows, int32 cols, int32 stride, int32 T, int32 trans) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (float32[] p0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, int32 len0)',
+    ] + _pk_get_items(0) + [
+        '    ldloc.3',
+        '    brtrue V_PKC_HAS',
+        '    ldc.i8 0',
+        '    ret',
+        '  V_PKC_HAS:',
+        '    ldloc.0',
+        '    ldc.i4.0',
+        '    ldelema float32',
+        '    stloc.2',
+        '    ldloc.2',
+        '    conv.i',
+        '    ldloc.3',
+        '    ldarg.1',
+        '    ldarg.2',
+        '    ldarg.3',
+        '    ldarg.s 4',
+        '    ldarg.s 5',
+        '    call int64 ' + _SIMD_CLASS + '::PackedCreateNative(native int, int32, int32, int32, int32, int32, int32)',
+        '    dup',
+        '    brtrue V_PKC_OK',
+        '    pop',
+        '    ldstr "simd_gemm_packed_create that bai: kiem tra src/rows/cols/stride/T hop le"',
+        '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)',
+        '    throw',
+        '  V_PKC_OK:',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_packed_run() -> "list[str]":
+    return [
+        '  .method public static int32 PackedRun(int64 hA, int64 hB, ' + _LT_F32 + ' c, int32 T) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (float32[] p0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, int32 len0)',
+    ] + _pk_get_items(2) + [
+        '    ldloc.3',
+        '    brtrue V_PKR_HAS',
+        '    ldstr "simd_gemm_packed: C rong (khong du phan tu de ghi)"',
+        '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)',
+        '    throw',
+        '  V_PKR_HAS:',
+        '    ldloc.0',
+        '    ldc.i4.0',
+        '    ldelema float32',
+        '    stloc.2',
+        '    ldarg.0',
+        '    ldarg.1',
+        '    ldloc.2',
+        '    conv.i',
+        '    ldloc.3',
+        '    ldarg.3',
+        '    call int32 ' + _SIMD_CLASS + '::PackedRunNative(int64, int64, native int, int32, int32)',
+        '    brfalse V_PKR_OK',
+        '    ldstr "simd_gemm_packed that bai: kiem tra 2 handle (khong free som), T khop handle, A.cols==B.rows, len(C)>=m*n"',
+        '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)',
+        '    throw',
+        '  V_PKR_OK:',
+        '    ldc.i4.0',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_packed_free() -> "list[str]":
+    return [
+        '  .method public static int64 PackedFree(int64 h) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ldarg.0',
+        '    call int64 ' + _SIMD_CLASS + '::PackedFreeNative(int64)',
+        '    ret',
+        '  }',
+    ]
+
+
 def _lop_simd() -> "list[str]":
     ra = ['.class public auto ansi beforefieldinit ' + _SIMD_CLASS + ' extends [mscorlib]System.Object', '{']
     ra = ra + _pt_native_ho_tro()
     ra = ra + _pt_gemm_pinvoke()
+    ra = ra + _pt_packed_pinvoke()
+    ra = ra + _pt_packed_create()
+    ra = ra + _pt_packed_run()
+    ra = ra + _pt_packed_free()
     for d in ('f32', 'f64'):
         ra = ra + _pt_gemm_mang(d)
         ra = ra + _pt_gemm_list(d)
@@ -937,6 +1064,49 @@ def compile_simd_gemm(args: "list[TkvNode]", scope: "Scope", out: "list[str]", d
     out.append('    ldc.i4.0')
 
 
+def compile_simd_gemm_packed_create(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """simd_gemm_packed_create(src, rows, cols, stride, T, trans) -> i64 handle.
+    src la list[f32]; chi ho tro f32 (gate spec fp32)."""
+    if len(args) != 6:
+        raise SyntaxError("il_codegen: simd_gemm_packed_create(src, rows, cols, stride, T, trans) can dung 6 tham so")
+    d = _dtype_mang(args[0], scope, 'simd_gemm_packed_create')
+    if d != 'f32':
+        raise SyntaxError("il_codegen: simd_gemm_packed_create chi ho tro f32 (gap " + d + ")")
+    if not _la_list(args[0], scope):
+        raise SyntaxError("il_codegen: simd_gemm_packed_create chi nhan list[f32]")
+    _ensure_class_simd(ctx)
+    _nap_mang(args[0], scope, out, ctx)
+    for i in range(1, 6):
+        ctx.compile_expr(args[i], scope, out, 'i32', ctx)
+    out.append('    call int64 ' + _SIMD_CLASS + '::PackedCreate(' + _LT_F32 + ', int32, int32, int32, int32, int32)')
+
+
+def compile_simd_gemm_packed(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """simd_gemm_packed(hA, hB, C, T) -> i32 (0 = OK; loi thi throw ro)."""
+    if len(args) != 4:
+        raise SyntaxError("il_codegen: simd_gemm_packed(hA, hB, C, T) can dung 4 tham so")
+    d = _dtype_mang(args[2], scope, 'simd_gemm_packed')
+    if d != 'f32':
+        raise SyntaxError("il_codegen: simd_gemm_packed chi ho tro f32 (gap " + d + ")")
+    if not _la_list(args[2], scope):
+        raise SyntaxError("il_codegen: simd_gemm_packed C phai la list[f32]")
+    _ensure_class_simd(ctx)
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[1], scope, out, 'i64', ctx)
+    _nap_mang(args[2], scope, out, ctx)
+    ctx.compile_expr(args[3], scope, out, 'i32', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::PackedRun(int64, int64, ' + _LT_F32 + ', int32)')
+
+
+def compile_simd_gemm_packed_free(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """simd_gemm_packed_free(h) -> i64 (tra 0, goi duoc dang cau lenh)."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: simd_gemm_packed_free(h) can dung 1 tham so")
+    _ensure_class_simd(ctx)
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+    out.append('    call int64 ' + _SIMD_CLASS + '::PackedFree(int64)')
+
+
 def compile_simd_lanes_f32(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     _ensure_extern(ctx)
     out.append('    call int32 ' + _vec('f32') + '::get_Count()')
@@ -970,6 +1140,9 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'simd_scale', compile_simd_scale, 'i32')
     register_expr_builtin(reg, 'simd_axpy', compile_simd_axpy, 'i32')
     register_expr_builtin(reg, 'simd_gemm', compile_simd_gemm, 'i32')
+    register_expr_builtin(reg, 'simd_gemm_packed_create', compile_simd_gemm_packed_create, 'i64')
+    register_expr_builtin(reg, 'simd_gemm_packed', compile_simd_gemm_packed, 'i32')
+    register_expr_builtin(reg, 'simd_gemm_packed_free', compile_simd_gemm_packed_free, 'i64')
     register_expr_builtin(reg, 'simd_lanes_f32', compile_simd_lanes_f32, 'i32')
     register_expr_builtin(reg, 'simd_lanes_f64', compile_simd_lanes_f64, 'i32')
     register_expr_builtin(reg, 'simd_hw', compile_simd_hw, 'bool')

@@ -379,6 +379,9 @@ số/trả về của nó chỉ suy được từ một `TypeAnn` "mục tiêu" 
 | `v_store4` | `v_store4(p, off, v)` | Ghi 4 lane. |
 | `v_hsum4` | `v_hsum4(v)` | Gom 4 lane về 1 `f32`. **Thứ tự cộng là `((X+Y)+Z)+W`** — phải khớp đúng thứ tự của vòng scalar, nếu ghep cặp `(X+Y)+(Z+W)` thì sai số float. |
 | `simd_gemm` | `simd_gemm(a, b, r, n)` | Nhân ma trận vuông `n×n`: `r = a × b`. `a`, `b`, `r` là `list[f32]` hoặc `list[f64]` (cùng kiểu), lưu theo hàng. Gọi kernel native AVX2+FMA trong `tkv_simd_native.dll` (nạp cạnh `.exe`), đa luồng; không copy vào/ra. Không kiểm tra kích thước — `n×n` phải khớp độ dài list. |
+| `simd_gemm_packed_create` | `simd_gemm_packed_create(src, rows, cols, stride, T, trans)` | **M4** — prepack ma trận **một lần** / step, trả `i64` handle. `src` là `list[f32]` (chỉ `f32`), `rows×cols` với `stride` là bề rộng hàng của nguồn; `T` là cỡ tile, `trans=1` để pack bản **transpose** (layout `W[n][k]`). Native copy + pad về `T`, zero-fill phần thiếu, do DLL quản lý. handle 0/thông số sai → ném lỗi rõ. |
+| `simd_gemm_packed` | `simd_gemm_packed(hA, hB, C, T)` | **M4** — chạy tile từ 2 handle đã pack: `C = A × B`. `C` là `list[f32]` (ghi trực tiếp `_items`, không copy), `T` phải khớp cả 2 handle, `A.cols == B.rows`, `len(C) ≥ m×n`. Trả `0` = OK; sai → **ném `ArgumentException` rõ ràng** (handle sai/đã free, `T` không khớp, sai inner dim, `C` quá ngắn). |
+| `simd_gemm_packed_free` | `simd_gemm_packed_free(h)` | **M4** — giải phóng handle pack, trả `0` (gọi được dạng câu lệnh). Mẫu C: không GC, `free` một lần; handle `i64` gán ở top-level hàm (GĐ8). |
 
 ---
 

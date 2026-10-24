@@ -15,11 +15,14 @@
 #include <windows.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #define EXPORT __declspec(dllexport)
 
 static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i0, int i1, int j0, int j1);
 static void gemm_rows_f64(const double* a, const double* b, double* o, int n, int i0, int i1, int j0, int j1);
+static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, float* o, int ldc,
+                          int m, int n, int k, int i0, int i1, int j0, int j1);
 
 /* Tile cache-blocking (co the ghi de bang /DGEMM_* khi build). */
 #ifndef GEMM_KC
@@ -134,19 +137,26 @@ static int tkv_ncols(int nt, int n) {
 }
 
 /* --- thread pool co dinh (tranh ~0.6ms tao thread moi lan goi) --- */
-typedef struct { const void* a; const void* b; void* o; int n; int i0; int i1; int j0; int j1; int f64; } GemmJob;
+typedef struct { const void* a; const void* b; void* o; int n; int i0; int i1; int j0; int j1; int mode; int lda; int ldb; int m; int k; } GemmJob;
 static GemmJob  g_job[TKV_MAXT];
 static HANDLE   g_start[TKV_MAXT];
 static HANDLE   g_done[TKV_MAXT];
 static int      g_nw = 0;
 static INIT_ONCE g_once = INIT_ONCE_STATIC_INIT;
+/* SRWLOCK serialize entry point cua pool (spec M4-M7 §3.1): truoc day g_job
+ * toan cuc KHONG khoa -> 2 thread goi simd_gemm dong thoi = race dispatcher,
+ * bieu hien deadlock/hang > 90s. Mot lock quanh submit+wait la du. */
+static SRWLOCK g_gemm_lock = SRWLOCK_INIT;
 
 static DWORD WINAPI tkv_worker(LPVOID p) {
     int t = (int)(INT_PTR)p;
     for (;;) {
         WaitForSingleObject(g_start[t], INFINITE);
         GemmJob* j = &g_job[t];
-        if (j->f64)
+        if (j->mode == 2)
+            gemm_rect_f32((const float*)j->a, j->lda, (const float*)j->b, j->ldb,
+                          (float*)j->o, j->n, j->m, j->n, j->k, j->i0, j->i1, j->j0, j->j1);
+        else if (j->mode == 1)
             gemm_rows_f64((const double*)j->a, (const double*)j->b, (double*)j->o, j->n, j->i0, j->i1, j->j0, j->j1);
         else
             gemm_rows_f32((const float*)j->a, (const float*)j->b, (float*)j->o, j->n, j->i0, j->i1, j->j0, j->j1);
@@ -171,6 +181,7 @@ static BOOL CALLBACK tkv_pool_init(PINIT_ONCE o, PVOID p, PVOID* c) {
 }
 
 static void tkv_run_mt(int nt, const void* a, const void* b, void* o, int n, int f64) {
+    AcquireSRWLockExclusive(&g_gemm_lock);
     InitOnceExecuteOnce(&g_once, tkv_pool_init, NULL, NULL);
     if (nt > g_nw) nt = g_nw;
     int align = 8;
@@ -201,12 +212,41 @@ static void tkv_run_mt(int nt, const void* a, const void* b, void* o, int n, int
             if (j0 >= j1) continue;
             g_job[used].a = a; g_job[used].b = b; g_job[used].o = o;
             g_job[used].n = n; g_job[used].i0 = i0; g_job[used].i1 = i1;
-            g_job[used].j0 = j0; g_job[used].j1 = j1; g_job[used].f64 = f64;
+            g_job[used].j0 = j0; g_job[used].j1 = j1; g_job[used].mode = f64;
             used++;
         }
     }
     for (int t = 0; t < used; t++) SetEvent(g_start[t]);
-    WaitForMultipleObjects((DWORD)used, g_done, TRUE, INFINITE);
+    if (used > 0) WaitForMultipleObjects((DWORD)used, g_done, TRUE, INFINITE);
+    ReleaseSRWLockExclusive(&g_gemm_lock);
+}
+
+/* Rectangular submit - chia 1D theo hang, dung cung pool + cung lock.
+ * moi thread tinh day du cac cot cua bang hang [i0,i1) -> C ghi de mot lan. */
+static void tkv_run_mt_rect(int nt, const float* a, int lda, const float* b, int ldb,
+                            float* c, int ldc, int m, int n, int k) {
+    AcquireSRWLockExclusive(&g_gemm_lock);
+    InitOnceExecuteOnce(&g_once, tkv_pool_init, NULL, NULL);
+    if (nt > g_nw) nt = g_nw;
+    if (nt < 1) nt = 1;
+    int per = (m + nt - 1) / nt;
+    if (per < 1) per = 1;
+    int used = 0;
+    for (int t = 0; t < nt; t++) {
+        int i0 = t * per, i1 = i0 + per;
+        if (i1 > m) i1 = m;
+        if (i0 >= i1) break;
+        g_job[used].a = a; g_job[used].b = b; g_job[used].o = c;
+        g_job[used].mode = 2;
+        g_job[used].lda = lda; g_job[used].ldb = ldb;
+        g_job[used].n = ldc; g_job[used].m = m; g_job[used].k = k;
+        g_job[used].i0 = i0; g_job[used].i1 = i1;
+        g_job[used].j0 = 0; g_job[used].j1 = n;
+        used++;
+    }
+    for (int t = 0; t < used; t++) SetEvent(g_start[t]);
+    if (used > 0) WaitForMultipleObjects((DWORD)used, g_done, TRUE, INFINITE);
+    ReleaseSRWLockExclusive(&g_gemm_lock);
 }
 
 /* ---------------- f32 ---------------- */
@@ -429,6 +469,30 @@ static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i
     }
 }
 
+/* Rectangular SGEMM: C[i0:i1][j0:j1] = A * B, A m x k (lda), B k x n (ldb),
+ * C m x n (ldc). dung lai micro_f32 + pack_b_f32 da co (chi doi leading dim).
+ * C duoc ghi de (zero + accumulate) trong vung [i0:i1)x[j0:j1). */
+static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, float* o, int ldc,
+                          int m, int n, int k, int i0, int i1, int j0, int j1) {
+    if (i1 <= i0 || j1 <= j0) return;
+    for (int ii = i0; ii < i1; ii++)
+        memset(o + (long long)ii * ldc + j0, 0, (size_t)(j1 - j0) * sizeof(float));
+    static __declspec(thread) float bp[GEMM_KC * GEMM_BPL];
+    for (int jc = j0; jc < j1; jc += GEMM_NC) {
+        int nc = j1 - jc; if (nc > GEMM_NC) nc = GEMM_NC;
+        for (int pc = 0; pc < k; pc += GEMM_KC) {
+            int kc = k - pc; if (kc > GEMM_KC) kc = GEMM_KC;
+            pack_b_f32(b, bp, ldb, pc, kc, jc, nc);
+            for (int ic = i0; ic < i1; ic += GEMM_MC) {
+                int mc = i1 - ic; if (mc > GEMM_MC) mc = GEMM_MC;
+                micro_f32(a + (long long)ic * lda + pc, lda, bp,
+                          o + (long long)ic * ldc + jc, ldc, mc, nc, kc);
+            }
+        }
+    }
+    (void)m;
+}
+
 EXPORT void SgemmF32(float* a, float* b, float* o, int n) {
     int nt = tkv_nthreads(n);
     if (nt <= 1) { gemm_rows_f32(a, b, o, n, 0, n, 0, n); return; }
@@ -640,4 +704,84 @@ EXPORT double MinF64(double* a, int n) {
     double r = _mm_cvtsd_f64(s);
     for (; i < n; i++) if (a[i] < r) r = a[i];
     return r;
+}
+
+/* ---------------- M4: packed GEMM (prepack 1 lan / step) ----------------
+ * Handle do DLL quan ly, lifetime do .tkv giu (free tra 0, khong GC - giong
+ * free_bytes). create() copy + pad ve T, zero-fill; run() nhan tile tu pack;
+ * free() giai phong. Moi handle luu shape logics (sau trans) + leading dim. */
+#define TKV_PACKED_MAGIC 0x504D3031u
+
+typedef struct {
+    unsigned int magic;
+    int m;      /* so hang logics (sau trans) */
+    int n;      /* so cot logics (sau trans) */
+    int ld;     /* leading dim cua buffer = roundup(n, T) */
+    int T;
+    float* buf; /* padded mpad x ld, zero-filled */
+} PackedMat;
+
+/* src goc la rows x cols, row stride `stride`. trans=1 -> luu ban transpose
+ * (logical shape cols x rows). Tra ve handle > 0, hoac 0 neu tham so sai. */
+EXPORT long long SgemmPackedCreate(const float* src, int src_len, int rows, int cols,
+                                   int stride, int T, int trans) {
+    if (!src || rows <= 0 || cols <= 0 || T <= 0 || stride < cols) return 0;
+    if (trans != 0 && trans != 1) return 0;
+    if (src_len < (int)((long long)(rows - 1) * stride + cols)) return 0;
+    int m = trans ? cols : rows;
+    int n = trans ? rows : cols;
+    int ld = ((n + T - 1) / T) * T;
+    int mpad = ((m + T - 1) / T) * T;
+    float* buf = (float*)calloc((size_t)mpad * (size_t)ld, sizeof(float));
+    if (!buf) return 0;
+    if (!trans) {
+        for (int i = 0; i < rows; i++) {
+            const float* s = src + (long long)i * stride;
+            float* d = buf + (long long)i * ld;
+            for (int j = 0; j < cols; j++) d[j] = s[j];
+        }
+    } else {
+        /* M[i][j] = src[j*stride + i], i in [0,cols), j in [0,rows) */
+        for (int j = 0; j < rows; j++) {
+            const float* s = src + (long long)j * stride;
+            for (int i = 0; i < cols; i++)
+                buf[(long long)i * ld + j] = s[i];
+        }
+    }
+    PackedMat* h = (PackedMat*)malloc(sizeof(PackedMat));
+    if (!h) { free(buf); return 0; }
+    h->magic = TKV_PACKED_MAGIC;
+    h->m = m; h->n = n; h->ld = ld; h->T = T; h->buf = buf;
+    return (long long)(intptr_t)h;
+}
+
+/* C = A * B tu 2 handle. Tra ve 0 = OK, am = loi ro (khong im lang):
+ * -1 handle sai/sai magic, -2 T khong khop handle, -3 inner dim khong khop,
+ * -4 shape am, -5 C qua ngai. */
+EXPORT int SgemmPacked(long long hA, long long hB, float* c, int c_len, int T) {
+    PackedMat* A = (PackedMat*)(intptr_t)hA;
+    PackedMat* B = (PackedMat*)(intptr_t)hB;
+    if (!A || !B || A->magic != TKV_PACKED_MAGIC || B->magic != TKV_PACKED_MAGIC) return -1;
+    if (T <= 0 || A->T != T || B->T != T) return -2;
+    if (A->n != B->m) return -3;
+    int m = A->m, n = B->n, k = A->n;
+    if (m <= 0 || n <= 0 || k <= 0) return -4;
+    if (!c || c_len < (int)((long long)m * n)) return -5;
+    int nt = tkv_nthreads(m > n ? m : n);
+    if (nt <= 1)
+        gemm_rect_f32(A->buf, A->ld, B->buf, B->ld, c, n, m, n, k, 0, m, 0, n);
+    else
+        tkv_run_mt_rect(nt, A->buf, A->ld, B->buf, B->ld, c, n, m, n, k);
+    return 0;
+}
+
+EXPORT long long SgemmPackedFree(long long h) {
+    PackedMat* p = (PackedMat*)(intptr_t)h;
+    if (p && p->magic == TKV_PACKED_MAGIC) {
+        p->magic = 0;
+        free(p->buf);
+        p->buf = NULL;
+        free(p);
+    }
+    return 0;
 }
