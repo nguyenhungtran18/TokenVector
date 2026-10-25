@@ -6,13 +6,15 @@ Prepack weight 1 lan / step thay vi dung lai moi call:
   simd_gemm_packed(hA, hB, C, T) -> i32 (0 = OK; loi thi throw ro)
   simd_gemm_packed_free(h) -> i64 (tra 0)
 
-Bai nay kiem 6 dieu:
+Bai nay kiem 7 dieu:
   1. packed square vs `simd_gemm` -> BIT-EXACT (cung kernel, cung thu tu tich lury).
   2. hinh chu nhat (m x k * k x n) vs reference scalar tinh tay.
   3. trans=1 (pack ban transpose) vs reference scalar.
   4. pad khi rows/cols KHONG boi T (zero-fill khong lam lech ket qua).
   5. loi RO (khong im lang): T khop handle, inner dim, C qua ngan, handle sai.
   6. 2 thread goi dong thoi PHAI thoat (khong hang) - fix re-entrancy §3.1.
+  7. ABI f64 (SPEC §6 ask 1): src/C list[f64] - C f64 = duong f32 bit-exact
+     (cung kernel) va khop reference scalar (gia tri nguyen duong -> chinh xac tuyet doi).
 
 Gia tri reference tinh tay; doi chieu CPython/song song. Handle i64 gan o
 top-level function (quy tac GĐ8).
@@ -52,6 +54,20 @@ def _maxdiff(x: "list[f32]", y: "list[f32]", n: "i32") -> "f64":
     i = 0
     while i < n:
         d = float(x[i]) - float(y[i])
+        if d < 0.0:
+            d = -d
+        if d > md:
+            md = d
+        i = i + 1
+    return md
+
+
+def _maxdiff_f64(x: "list[f64]", y: "list[f32]", n: "i32") -> "f64":
+    """max |x - y| voi x list[f64], y list[f32] (so sanh C f64 vs duong f32)."""
+    md: "f64" = 0.0
+    i = 0
+    while i < n:
+        d = x[i] - float(y[i])
         if d < 0.0:
             d = -d
         if d > md:
@@ -231,6 +247,45 @@ def packed_free_idempotent() -> "i32":
     return total
 
 
+def packed_f64() -> "i32":
+    """7) ABI f64 (SPEC §6 ask 1): src/C list[f64] - pack convert double->float
+    1 lan trong native; C f64 = ket qua f32 bit-exact (cung handle, cung kernel)."""
+    total = 0
+    n: "i32" = 32
+    m = n * n
+    a64: "list[f64]" = []
+    b64: "list[f64]" = []
+    a32: "list[f32]" = []
+    b32: "list[f32]" = []
+    c64: "list[f64]" = []
+    c32: "list[f32]" = []
+    c_ref: "list[f32]" = []
+    i = 0
+    while i < m:
+        va = float((i % 7) + 3 - 3)
+        vb = float((i % 5) + 2 - 2)
+        a64.append(va)
+        b64.append(vb)
+        a32.append(va)
+        b32.append(vb)
+        c64.append(0.0)
+        c32.append(0.0)
+        i = i + 1
+    _ref_gemm(a32, b32, c_ref, n, n, n)
+    hA: "i64" = simd_gemm_packed_create(a64, n, n, n, n, 0)
+    hB: "i64" = simd_gemm_packed_create(b64, n, n, n, n, 0)
+    total += check("f64_handle_tao", str(int(hA > 0 and hB > 0)), "1")
+    rc = simd_gemm_packed(hA, hB, c64, n)
+    total += check("f64_run_ok", str(rc), "0")
+    rc32 = simd_gemm_packed(hA, hB, c32, n)
+    total += check("f64_run_f32_cung_handle", str(rc32), "0")
+    total += check("f64_vs_f32_bitexact", str(_maxdiff_f64(c64, c32, m)), "0.0")
+    total += check("f64_vs_ref", str(_maxdiff_f64(c64, c_ref, m)), "0.0")
+    simd_gemm_packed_free(hA)
+    simd_gemm_packed_free(hB)
+    return total
+
+
 def _worker_square() -> "i64":
     """Thread worker: chay nhieu lan simd_gemm de test re-entrancy."""
     n: "i32" = 128
@@ -272,5 +327,6 @@ def run() -> "i32":
     total += packed_error_cases()
     total += packed_free_idempotent()
     total += packed_reentrancy()
-    # 3 + 2 + 2 + 4 + 2 + 1 = 14
-    return test_summary("simd_gemm_packed_test", total, 14)
+    total += packed_f64()
+    # 3 + 2 + 2 + 4 + 2 + 1 + 5 = 19
+    return test_summary("simd_gemm_packed_test", total, 19)

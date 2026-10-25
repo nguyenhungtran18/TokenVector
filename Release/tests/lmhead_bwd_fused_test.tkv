@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 """GATE CHO M6 `lmhead_bwd_fused` (SPEC M4-M7 §M6).
 
-  lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V) -> i32
+  lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V, scale) -> i32
 
 Fused cross-entropy backward + lm-head grad, T = B*S, row-major f32:
   - logits (T x V) [input, khong doi] · ids (T) i32 [input]
   - wte (V x E) [input] · xf (T x E) [input]
   - dxf (T x E) [OUTPUT, ghi de] · dwte (V x E) [OUTPUT, TICH LUY +=]
+  - scale f32 = 1/n theo hop dong (p − onehot)/n cua GĐ10 (SPEC §6 ask 2);
+    n = so token = T = B*S (test truyen 1/T, reference chia /T).
 
-Moi hang t: softmax-grad (max-sub, giam tu tu v=0..V-1)
+Moi hang t: softmax-grad (max-sub, giam tu tu v=0..V-1) ROI nhan scale
   -> dxf[t] = sum_v dl * wte[v]   ;   dwte[v] += dl * xf[t]
 
 Bai nay doi chieu native vs cong thuc SCALAR trong test (TOL 1e-5):
@@ -77,7 +79,9 @@ def test_lmhead() -> "i32":
         dwte[i] = 0.0
         i = i + 1
 
-    st = lmhead_bwd_fused(p_logits, p_ids, p_wte, p_xf, p_dxf, p_dwte, B, S, E, V)
+    # hop dong (p - onehot)/n: scale = 1/T (SPEC §6 ask 2)
+    sc: "f32" = 1.0 / 6.0
+    st = lmhead_bwd_fused(p_logits, p_ids, p_wte, p_xf, p_dxf, p_dwte, B, S, E, V, sc)
     total += check("lmhead_status_0", str(st), "0")
 
     # --- reference scalar (f64) ---
@@ -111,6 +115,7 @@ def test_lmhead() -> "i32":
             dl = pr
             if v == tid:
                 dl = dl - 1.0
+            dl = dl / float(T)
             e = 0
             while e < E:
                 dxf_ref[t * E + e] = dxf_ref[t * E + e] + dl * wte[v * E + e]
@@ -145,7 +150,8 @@ def test_lmhead() -> "i32":
 
 def test_null() -> "i32":
     total = 0
-    st = lmhead_bwd_fused(0, 0, 0, 0, 0, 0, 1, 1, 1, 1)
+    sc: "f32" = 1.0
+    st = lmhead_bwd_fused(0, 0, 0, 0, 0, 0, 1, 1, 1, 1, sc)
     total += check("lmhead_null_tra_-1", str(st), "-1")
     return total
 

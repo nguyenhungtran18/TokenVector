@@ -1,0 +1,14 @@
+# EXPECT-SUBSTRING: chi ho tro f32
+# -*- coding: utf-8 -*-
+# `simd_gemm_packed_*` ho tro f32 VA f64 (M4 ABI f64 - SPEC §6 ask 1, Tensor
+# production la List[Double]). Kieu so NGUYEN khong co y nghia ma tran -> phai
+# bi TU CHOI ngay luc bien dich voi ly do ro - khong duoc dich xong roi moi no
+# (native chi pack float/double; doc i32 nhu float se sai so hoac AV).
+def run() -> "i32":
+    a: "list[i32]" = []
+    a.append(1)
+    a.append(2)
+    a.append(3)
+    a.append(4)
+    h = simd_gemm_packed_create(a, 2, 2, 2, 2, 0)
+    return int(h)

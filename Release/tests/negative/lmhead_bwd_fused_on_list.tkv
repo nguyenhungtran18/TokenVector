@@ -15,5 +15,5 @@ def run() -> "i32":
     dxf.append(0.0)
     dwte: "list[f32]" = []
     dwte.append(0.0)
-    lmhead_bwd_fused(lg, ids, wte, xf, dxf, dwte, 1, 1, 1, 1)
+    lmhead_bwd_fused(lg, ids, wte, xf, dxf, dwte, 1, 1, 1, 1, 1.0)
     return 0

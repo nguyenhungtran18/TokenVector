@@ -664,17 +664,33 @@ def _pt_gemm_list(d: "str") -> "list[str]":
 # --- M4: packed GEMM (SPEC M4-M7 §2) -----------------------------------
 # Prepack weight 1 lan / step: create() copy + pad ve T (zero-fill), run()
 # chay tile tu pack, free() giai phong. Handle la int64 (opaque), lifetime
-# do .tkv giu - giong alloc_bytes/free_bytes (khong GC). Chi ho tro f32
-# (gate spec la fp32), src/C la list[f32].
+# do .tkv giu - giong alloc_bytes/free_bytes (khong GC). 2026-10-25: ho tro ca
+# list[f32] VA list[f64] (SPEC M4-M7 §6 ask 1 - Tensor production la List[Double];
+# native pack convert f64->f32 ngay trong pack, khong qua interpreted convert).
 _LT_F32 = 'class [mscorlib]System.Collections.Generic.List`1<float32>'
+_LT_F64 = 'class [mscorlib]System.Collections.Generic.List`1<float64>'
 
 
-def _pk_get_items(arg_idx: "int") -> "list[str]":
-    """Lay mang nen `_items` cua List<float32> (o arg_idx) vao local 0,
+def _lt(d: "str") -> "str":
+    """List<T> cua kieu phan tu f32/f64 - dung cho wrapper packed M4."""
+    if d == 'f32':
+        return _LT_F32
+    return _LT_F64
+
+
+def _hau_pk(d: "str") -> "str":
+    """Hau to ten wrapper/pinvoke packed: f32 = ban cu (giu ten), f64 = '64'."""
+    if d == 'f32':
+        return ''
+    return '64'
+
+
+def _pk_get_items(arg_idx: "int", d: "str") -> "list[str]":
+    """Lay mang nen `_items` cua List<T> (d = f32/f64, o arg_idx) vao local 0,
     do dai vao local 3. Khong pin o day - moi wrapper pin rieng sau khi
     da co duong dan (tranh pin mang rong -> IndexOutOfRange)."""
     return [
-        '    ldtoken ' + _LT_F32,
+        '    ldtoken ' + _lt(d),
         '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
         '    ldstr "_items"',
         '    ldc.i4 36',
@@ -683,7 +699,7 @@ def _pk_get_items(arg_idx: "int") -> "list[str]":
         '    ldloc.1',
         '    ldarg.' + str(arg_idx),
         '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)',
-        '    castclass float32[]',
+        '    castclass ' + _ten_il(d) + '[]',
         '    stloc.0',
         '    ldloc.0',
         '    ldlen',
@@ -696,17 +712,21 @@ def _pt_packed_pinvoke() -> "list[str]":
     return [
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmPackedCreate" winapi) int64 PackedCreateNative(native int src, int32 src_len, int32 rows, int32 cols, int32 stride, int32 T, int32 trans) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmPacked" winapi) int32 PackedRunNative(int64 hA, int64 hB, native int c, int32 c_len, int32 T) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmPackedCreate64" winapi) int64 PackedCreateNative64(native int src, int32 src_len, int32 rows, int32 cols, int32 stride, int32 T, int32 trans) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmPacked64" winapi) int32 PackedRunNative64(int64 hA, int64 hB, native int c, int32 c_len, int32 T) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmPackedFree" winapi) int64 PackedFreeNative(int64 h) cil managed preservesig { }',
     ]
 
 
-def _pt_packed_create() -> "list[str]":
+def _pt_packed_create(d: "str") -> "list[str]":
+    t = _ten_il(d)
+    s = _hau_pk(d)
     return [
-        '  .method public static int64 PackedCreate(' + _LT_F32 + ' src, int32 rows, int32 cols, int32 stride, int32 T, int32 trans) cil managed',
+        '  .method public static int64 PackedCreate' + s + '(' + _lt(d) + ' src, int32 rows, int32 cols, int32 stride, int32 T, int32 trans) cil managed',
         '  {',
         '    .maxstack 8',
-        '    .locals init (float32[] p0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, int32 len0)',
-    ] + _pk_get_items(0) + [
+        '    .locals init (' + t + '[] p0, class [mscorlib]System.Reflection.FieldInfo fi, ' + t + '& pinned q0, int32 len0)',
+    ] + _pk_get_items(0, d) + [
         '    ldloc.3',
         '    brtrue V_PKC_HAS',
         '    ldc.i8 0',
@@ -714,7 +734,7 @@ def _pt_packed_create() -> "list[str]":
         '  V_PKC_HAS:',
         '    ldloc.0',
         '    ldc.i4.0',
-        '    ldelema float32',
+        '    ldelema ' + t,
         '    stloc.2',
         '    ldloc.2',
         '    conv.i',
@@ -724,7 +744,7 @@ def _pt_packed_create() -> "list[str]":
         '    ldarg.3',
         '    ldarg.s 4',
         '    ldarg.s 5',
-        '    call int64 ' + _SIMD_CLASS + '::PackedCreateNative(native int, int32, int32, int32, int32, int32, int32)',
+        '    call int64 ' + _SIMD_CLASS + '::PackedCreateNative' + s + '(native int, int32, int32, int32, int32, int32, int32)',
         '    dup',
         '    brtrue V_PKC_OK',
         '    pop',
@@ -737,13 +757,15 @@ def _pt_packed_create() -> "list[str]":
     ]
 
 
-def _pt_packed_run() -> "list[str]":
+def _pt_packed_run(d: "str") -> "list[str]":
+    t = _ten_il(d)
+    s = _hau_pk(d)
     return [
-        '  .method public static int32 PackedRun(int64 hA, int64 hB, ' + _LT_F32 + ' c, int32 T) cil managed',
+        '  .method public static int32 PackedRun' + s + '(int64 hA, int64 hB, ' + _lt(d) + ' c, int32 T) cil managed',
         '  {',
         '    .maxstack 8',
-        '    .locals init (float32[] p0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, int32 len0)',
-    ] + _pk_get_items(2) + [
+        '    .locals init (' + t + '[] p0, class [mscorlib]System.Reflection.FieldInfo fi, ' + t + '& pinned q0, int32 len0)',
+    ] + _pk_get_items(2, d) + [
         '    ldloc.3',
         '    brtrue V_PKR_HAS',
         '    ldstr "simd_gemm_packed: C rong (khong du phan tu de ghi)"',
@@ -752,7 +774,7 @@ def _pt_packed_run() -> "list[str]":
         '  V_PKR_HAS:',
         '    ldloc.0',
         '    ldc.i4.0',
-        '    ldelema float32',
+        '    ldelema ' + t,
         '    stloc.2',
         '    ldarg.0',
         '    ldarg.1',
@@ -760,7 +782,7 @@ def _pt_packed_run() -> "list[str]":
         '    conv.i',
         '    ldloc.3',
         '    ldarg.3',
-        '    call int32 ' + _SIMD_CLASS + '::PackedRunNative(int64, int64, native int, int32, int32)',
+        '    call int32 ' + _SIMD_CLASS + '::PackedRunNative' + s + '(int64, int64, native int, int32, int32)',
         '    brfalse V_PKR_OK',
         '    ldstr "simd_gemm_packed that bai: kiem tra 2 handle (khong free som), T khop handle, A.cols==B.rows, len(C)>=m*n"',
         '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)',
@@ -815,7 +837,7 @@ def _pt_m5_wrappers() -> "list[str]":
         '    .maxstack 8',
         '    .locals init (float32[] p0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, int32 len0)',
     ]
-    la = la + _pk_get_items(0) + [
+    la = la + _pk_get_items(0, 'f32') + [
         '    ldarg.2',
         '    ldc.i4.0',
         '    ble V_M5CTZ',
@@ -848,7 +870,7 @@ def _pt_m5_wrappers() -> "list[str]":
         '    .maxstack 8',
         '    .locals init (float32[] p0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, int32 len0)',
     ]
-    la = la + _pk_get_items(1) + [
+    la = la + _pk_get_items(1, 'f32') + [
         '    ldarg.2',
         '    ldc.i4.0',
         '    ble V_M5CFZ',
@@ -914,13 +936,12 @@ def _pt_m5_wrappers() -> "list[str]":
 # v1 single-thread/naive (M6 CHUA DO) - Inference toi uu + do A/B sau.
 def _pt_m6_pinvoke() -> "list[str]":
     return [
-        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "lmhead_bwd_fused" winapi) int32 LmheadBwdNative(native int logits, native int ids, native int wte, native int xf, native int dxf, native int dwte, int32 B, int32 S, int32 E, int32 V) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "lmhead_bwd_fused" winapi) int32 LmheadBwdNative(native int logits, native int ids, native int wte, native int xf, native int dxf, native int dwte, int32 B, int32 S, int32 E, int32 V, float32 scale) cil managed preservesig { }',
     ]
 
 
 def _pt_m6_wrappers() -> "list[str]":
-    return [
-        '  .method public static int32 LmheadBwdM(int64 logits, int64 ids, int64 wte, int64 xf, int64 dxf, int64 dwte, int32 B, int32 S, int32 E, int32 V) cil managed',
+    return [        '  .method public static int32 LmheadBwdM(int64 logits, int64 ids, int64 wte, int64 xf, int64 dxf, int64 dwte, int32 B, int32 S, int32 E, int32 V, float32 scale) cil managed',
         '  {',
         '    .maxstack 16',
         '    ldarg.0', '    conv.i',
@@ -929,11 +950,9 @@ def _pt_m6_wrappers() -> "list[str]":
         '    ldarg.3', '    conv.i',
         '    ldarg.s 4', '    conv.i',
         '    ldarg.s 5', '    conv.i',
-        '    ldarg.s 6',
-        '    ldarg.s 7',
-        '    ldarg.s 8',
-        '    ldarg.s 9',
-        '    call int32 ' + _SIMD_CLASS + '::LmheadBwdNative(native int, native int, native int, native int, native int, native int, int32, int32, int32, int32)',
+        '    ldarg.s 6', '    ldarg.s 7', '    ldarg.s 8', '    ldarg.s 9',
+        '    ldarg.s 10',
+        '    call int32 ' + _SIMD_CLASS + '::LmheadBwdNative(native int, native int, native int, native int, native int, native int, int32, int32, int32, int32, float32)',
         '    ret',
         '  }',
     ]
@@ -944,8 +963,9 @@ def _lop_simd() -> "list[str]":
     ra = ra + _pt_native_ho_tro()
     ra = ra + _pt_gemm_pinvoke()
     ra = ra + _pt_packed_pinvoke()
-    ra = ra + _pt_packed_create()
-    ra = ra + _pt_packed_run()
+    for d in ('f32', 'f64'):
+        ra = ra + _pt_packed_create(d)
+        ra = ra + _pt_packed_run(d)
     ra = ra + _pt_packed_free()
     ra = ra + _pt_m5_pinvoke()
     ra = ra + _pt_m5_wrappers()
@@ -1225,36 +1245,38 @@ def compile_simd_gemm(args: "list[TkvNode]", scope: "Scope", out: "list[str]", d
 
 def compile_simd_gemm_packed_create(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """simd_gemm_packed_create(src, rows, cols, stride, T, trans) -> i64 handle.
-    src la list[f32]; chi ho tro f32 (gate spec fp32)."""
+    src la list[f32] hoac list[f64] (M4 ABI f64 - SPEC §6 ask 1; native pack
+    convert double->float 1 lan trong pack)."""
     if len(args) != 6:
         raise SyntaxError("il_codegen: simd_gemm_packed_create(src, rows, cols, stride, T, trans) can dung 6 tham so")
     d = _dtype_mang(args[0], scope, 'simd_gemm_packed_create')
-    if d != 'f32':
-        raise SyntaxError("il_codegen: simd_gemm_packed_create chi ho tro f32 (gap " + d + ")")
+    if d != 'f32' and d != 'f64':
+        raise SyntaxError("il_codegen: simd_gemm_packed_create chi ho tro f32 hoac f64 (gap " + d + ")")
     if not _la_list(args[0], scope):
-        raise SyntaxError("il_codegen: simd_gemm_packed_create chi nhan list[f32]")
+        raise SyntaxError("il_codegen: simd_gemm_packed_create chi nhan list[f32]/list[f64]")
     _ensure_class_simd(ctx)
     _nap_mang(args[0], scope, out, ctx)
     for i in range(1, 6):
         ctx.compile_expr(args[i], scope, out, 'i32', ctx)
-    out.append('    call int64 ' + _SIMD_CLASS + '::PackedCreate(' + _LT_F32 + ', int32, int32, int32, int32, int32)')
+    out.append('    call int64 ' + _SIMD_CLASS + '::PackedCreate' + _hau_pk(d) + '(' + _lt(d) + ', int32, int32, int32, int32, int32)')
 
 
 def compile_simd_gemm_packed(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
-    """simd_gemm_packed(hA, hB, C, T) -> i32 (0 = OK; loi thi throw ro)."""
+    """simd_gemm_packed(hA, hB, C, T) -> i32 (0 = OK; loi thi throw ro).
+    C la list[f32] hoac list[f64] (M4 ABI f64 - SPEC §6 ask 1)."""
     if len(args) != 4:
         raise SyntaxError("il_codegen: simd_gemm_packed(hA, hB, C, T) can dung 4 tham so")
     d = _dtype_mang(args[2], scope, 'simd_gemm_packed')
-    if d != 'f32':
-        raise SyntaxError("il_codegen: simd_gemm_packed chi ho tro f32 (gap " + d + ")")
+    if d != 'f32' and d != 'f64':
+        raise SyntaxError("il_codegen: simd_gemm_packed chi ho tro f32 hoac f64 (gap " + d + ")")
     if not _la_list(args[2], scope):
-        raise SyntaxError("il_codegen: simd_gemm_packed C phai la list[f32]")
+        raise SyntaxError("il_codegen: simd_gemm_packed C phai la list[f32]/list[f64]")
     _ensure_class_simd(ctx)
     ctx.compile_expr(args[0], scope, out, 'i64', ctx)
     ctx.compile_expr(args[1], scope, out, 'i64', ctx)
     _nap_mang(args[2], scope, out, ctx)
     ctx.compile_expr(args[3], scope, out, 'i32', ctx)
-    out.append('    call int32 ' + _SIMD_CLASS + '::PackedRun(int64, int64, ' + _LT_F32 + ', int32)')
+    out.append('    call int32 ' + _SIMD_CLASS + '::PackedRun' + _hau_pk(d) + '(int64, int64, ' + _lt(d) + ', int32)')
 
 
 def compile_simd_gemm_packed_free(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
@@ -1351,13 +1373,14 @@ def compile_adamw_step(args: "list[TkvNode]", scope: "Scope", out: "list[str]", 
 
 
 def compile_lmhead_bwd_fused(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
-    """lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V) -> i32.
+    """lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V, scale) -> i32.
     Fused cross-entropy backward + lm-head grad (§M6): softmax-grad -> dxf =
     dlogits @ wte -> tich lu dwte += dlogits^T @ xf. 6 buffer la i64 (khong
-    list); ids buffer i32; 4 shape i32. dwte tich lu (goi zero truoc). v1
-    single-thread/naive (M6 CHUA DO) - Inference toi uu + do A/B sau."""
-    if len(args) != 10:
-        raise SyntaxError("il_codegen: lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V) can dung 10 tham so")
+    list); ids buffer i32; 4 shape i32; scale f32 = 1/n theo hop dong
+    (p - onehot)/n cua GĐ10 (SPEC §6 ask 2). dwte tich lu (goi truoc). v1
+    single-thread/naive (M6 do perf v1) - Inference toi uu + do A/B sau."""
+    if len(args) != 11:
+        raise SyntaxError("il_codegen: lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V, scale) can dung 11 tham so")
     _kn_buffer(args[0], scope, 'lmhead_bwd_fused', 'logits')
     _kn_buffer(args[1], scope, 'lmhead_bwd_fused', 'ids')
     _kn_buffer(args[2], scope, 'lmhead_bwd_fused', 'wte')
@@ -1369,7 +1392,8 @@ def compile_lmhead_bwd_fused(args: "list[TkvNode]", scope: "Scope", out: "list[s
         ctx.compile_expr(args[i], scope, out, 'i64', ctx)
     for i in range(6, 10):
         ctx.compile_expr(args[i], scope, out, 'i32', ctx)
-    out.append('    call int32 ' + _SIMD_CLASS + '::LmheadBwdM(' + _join_lap('int64', 6) + ', ' + _join_lap('int32', 4) + ')')
+    ctx.compile_expr(args[10], scope, out, 'f32', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::LmheadBwdM(' + _join_lap('int64', 6) + ', ' + _join_lap('int32', 4) + ', float32)')
 
 
 def compile_simd_lanes_f32(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):

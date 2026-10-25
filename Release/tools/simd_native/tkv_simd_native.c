@@ -834,9 +834,9 @@ typedef struct {
 
 /* src goc la rows x cols, row stride `stride`. trans=1 -> luu ban transpose
  * (logical shape cols x rows). Tra ve handle > 0, hoac 0 neu tham so sai. */
-EXPORT long long SgemmPackedCreate(const float* src, int src_len, int rows, int cols,
-                                   int stride, int T, int trans) {
-    if (!src || rows <= 0 || cols <= 0 || T <= 0 || stride < cols) return 0;
+static long long packed_create(const float* srcf, const double* srcd, int src_len, int rows, int cols,
+                               int stride, int T, int trans) {
+    if ((!srcf && !srcd) || rows <= 0 || cols <= 0 || T <= 0 || stride < cols) return 0;
     if (trans != 0 && trans != 1) return 0;
     if (src_len < (int)((long long)(rows - 1) * stride + cols)) return 0;
     int m = trans ? cols : rows;
@@ -847,16 +847,27 @@ EXPORT long long SgemmPackedCreate(const float* src, int src_len, int rows, int 
     if (!buf) return 0;
     if (!trans) {
         for (int i = 0; i < rows; i++) {
-            const float* s = src + (long long)i * stride;
             float* d = buf + (long long)i * ld;
-            for (int j = 0; j < cols; j++) d[j] = s[j];
+            if (srcd) {
+                const double* s = srcd + (long long)i * stride;
+                for (int j = 0; j < cols; j++) d[j] = (float)s[j];   /* convert f64->f32 TRONG pack */
+            } else {
+                const float* s = srcf + (long long)i * stride;
+                for (int j = 0; j < cols; j++) d[j] = s[j];
+            }
         }
     } else {
         /* M[i][j] = src[j*stride + i], i in [0,cols), j in [0,rows) */
         for (int j = 0; j < rows; j++) {
-            const float* s = src + (long long)j * stride;
-            for (int i = 0; i < cols; i++)
-                buf[(long long)i * ld + j] = s[i];
+            if (srcd) {
+                const double* s = srcd + (long long)j * stride;
+                for (int i = 0; i < cols; i++)
+                    buf[(long long)i * ld + j] = (float)s[i];
+            } else {
+                const float* s = srcf + (long long)j * stride;
+                for (int i = 0; i < cols; i++)
+                    buf[(long long)i * ld + j] = s[i];
+            }
         }
     }
     PackedMat* h = (PackedMat*)malloc(sizeof(PackedMat));
@@ -866,18 +877,34 @@ EXPORT long long SgemmPackedCreate(const float* src, int src_len, int rows, int 
     return (long long)(intptr_t)h;
 }
 
-/* C = A * B tu 2 handle. Tra ve 0 = OK, am = loi ro (khong im lang):
- * -1 handle sai/sai magic, -2 T khong khop handle, -3 inner dim khong khop,
- * -4 shape am, -5 C qua ngai. */
-EXPORT int SgemmPacked(long long hA, long long hB, float* c, int c_len, int T) {
+EXPORT long long SgemmPackedCreate(const float* src, int src_len, int rows, int cols,
+                                   int stride, int T, int trans) {
+    return packed_create(src, NULL, src_len, rows, cols, stride, T, trans);
+}
+
+/* M4 ABI f64 (SPEC §6 ask 1): Tensor production la List[Double] - pack truc tiep
+ * tu double, khong qua convert interpreted (CJ do: 343ms/38M an het gain CY). */
+EXPORT long long SgemmPackedCreate64(const double* src, int src_len, int rows, int cols,
+                                     int stride, int T, int trans) {
+    return packed_create(NULL, src, src_len, rows, cols, stride, T, trans);
+}
+
+/* Kiem tra 2 handle + T: -1 magic, -2 T khong khop, -3 inner dim, -4 shape am. */
+static int packed_check(long long hA, long long hB, int T, PackedMat** pa, PackedMat** pb) {
     PackedMat* A = (PackedMat*)(intptr_t)hA;
     PackedMat* B = (PackedMat*)(intptr_t)hB;
     if (!A || !B || A->magic != TKV_PACKED_MAGIC || B->magic != TKV_PACKED_MAGIC) return -1;
     if (T <= 0 || A->T != T || B->T != T) return -2;
     if (A->n != B->m) return -3;
+    if (A->m <= 0 || B->n <= 0 || A->n <= 0) return -4;
+    *pa = A;
+    *pb = B;
+    return 0;
+}
+
+/* Nhanh chinh: A/B + c (m*n f32) da valid - dispatch M7 roi goi kernel. */
+static void packed_core(PackedMat* A, PackedMat* B, float* c) {
     int m = A->m, n = B->n, k = A->n;
-    if (m <= 0 || n <= 0 || k <= 0) return -4;
-    if (!c || c_len < (int)((long long)m * n)) return -5;
     /* M7 shape dispatch (env TKV_GEMM_DISPATCH; legacy = thu tu cu y hieu):
      * SMALL -> 1 luong; VOCAB -> cot manh + NC 128; RECT -> MC/NC 128/128;
      * SQUARE -> pattern hien tai. KC khong doi -> numerics bit-giong. */
@@ -906,6 +933,35 @@ EXPORT int SgemmPacked(long long hA, long long hB, float* c, int c_len, int T) {
         gemm_rect_f32(A->buf, A->ld, B->buf, B->ld, c, n, m, n, k, 0, m, 0, n, mc, nc, bpl);
     else
         tkv_run_mt_rect(nt, A->buf, A->ld, B->buf, B->ld, c, n, m, n, k, cols_req, mc, nc, bpl);
+}
+
+/* C = A * B tu 2 handle. Tra ve 0 = OK, am = loi ro (khong im lang):
+ * -1 handle sai/sai magic, -2 T khong khop handle, -3 inner dim khong khop,
+ * -4 shape am, -5 C qua ngai, -6 khong du bo nho tam (ban f64). */
+EXPORT int SgemmPacked(long long hA, long long hB, float* c, int c_len, int T) {
+    PackedMat* A = NULL;
+    PackedMat* B = NULL;
+    int rc = packed_check(hA, hB, T, &A, &B);
+    if (rc != 0) return rc;
+    if (!c || c_len < (int)((long long)A->m * B->n)) return -5;
+    packed_core(A, B, c);
+    return 0;
+}
+
+/* M4 ABI f64 (SPEC §6 ask 1): C = A*B ghi ra double. Kernel van tinh f32 (buf
+ * pack la float) -> chuyen 1 lan cuoi: bit-giong duong f32, thu tu tich luy khong doi. */
+EXPORT int SgemmPacked64(long long hA, long long hB, double* c, int c_len, int T) {
+    PackedMat* A = NULL;
+    PackedMat* B = NULL;
+    int rc = packed_check(hA, hB, T, &A, &B);
+    if (rc != 0) return rc;
+    long long nn = (long long)A->m * (long long)B->n;
+    if (!c || c_len < (int)nn) return -5;
+    float* tmp = (float*)malloc((size_t)nn * sizeof(float));
+    if (!tmp) return -6;
+    packed_core(A, B, tmp);
+    for (long long i = 0; i < nn; i++) c[i] = tmp[i];
+    free(tmp);
     return 0;
 }
 
@@ -1047,7 +1103,7 @@ EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
  * Tra ve 0 = OK, -1 tham so sai. */
 EXPORT int lmhead_bwd_fused(const float* logits, const int* ids, const float* wte,
                             const float* xf, float* dxf, float* dwte,
-                            int B, int S, int E, int V) {
+                            int B, int S, int E, int V, float scale) {
     if (!logits || !ids || !wte || !xf || !dxf || !dwte) return -1;
     if (B <= 0 || S <= 0 || E <= 0 || V <= 0) return -1;
     long long T = (long long)B * (long long)S;
@@ -1066,6 +1122,7 @@ EXPORT int lmhead_bwd_fused(const float* logits, const int* ids, const float* wt
             float p = expf(lg[v] - m) / sumexp;   /* softmax (max-sub -> sumexp >= 1) */
             float dl = p;
             if (v == id) dl -= 1.0f;              /* softmax-grad: p - onehot */
+            dl *= scale;                           /* hop dong (p - onehot)/n, n = 1/scale (GĐ10) */
             const float* wte_v = wte + (long long)v * E;
             float* dwte_v = dwte + (long long)v * E;
             for (e = 0; e < E; e++) {

@@ -1,0 +1,64 @@
+# -*- coding: utf-8 -*-
+"""Do perf v1 `lmhead_bwd_fused` (SPEC M4-M7 §6 ask 2) - KHONG phai gate.
+
+Shape GPT-2 124M that (lm-head backward @ seq1024):
+    B=4, S=256 -> T=1024; V=50257; E=768
+    logits T*V = 51.5M f32 (206 MB), wte V*E = 38.6M f32 (154 MB)
+
+Kernel v1 single-thread (§3.1) - do TRUC TIEN native, khong wrapper .tkv.
+Data = toan 0 (f32_zero) + ids ngau nhu theo mau - TOAN BO phep toan van chay
+day du (expf/sum/GEMM accumulate), khong co denormal, khong tinh gia tri fill.
+
+Chay:  dist\tkvc-tv.exe tests\lmhead_bwd_fused_perf.tkv <out.exe> run
+"""
+
+def run() -> "i32":
+    B: "i32" = 4
+    S: "i32" = 256
+    E: "i32" = 768
+    V: "i32" = 50257
+    T: "i32" = 1024
+    n_lg = T * V
+    n_we = V * E
+    n_xe = T * E
+    print("shape B=" + str(B) + " S=" + str(S) + " T=" + str(T) + " V=" + str(V) + " E=" + str(E))
+    print("logits " + str(n_lg) + " f32 (" + str(n_lg * 4 / 1048576) + " MB), wte " + str(n_we) + " f32")
+
+    p_logits = alloc_bytes(n_lg * 4)
+    p_ids = alloc_bytes(T * 4)
+    p_wte = alloc_bytes(n_we * 4)
+    p_xf = alloc_bytes(n_xe * 4)
+    p_dxf = alloc_bytes(n_xe * 4)
+    p_dwte = alloc_bytes(n_we * 4)
+
+    z: "i64" = 0
+    z = f32_zero(p_logits, n_lg)
+    z = f32_zero(p_wte, n_we)
+    z = f32_zero(p_xf, n_xe)
+    z = f32_zero(p_dxf, n_xe)
+    z = f32_zero(p_dwte, n_we)
+    i = 0
+    while i < T:
+        w = write_i32(p_ids, i * 4, (i * 3) % V)
+        i = i + 1
+
+    # hop dong (p - onehot)/n: n = T (SPEC §6 ask 2)
+    sc: "f32" = 0.0009765625
+
+    # warmup (lan 1 - JIT/page khong re nhanh)
+    st = lmhead_bwd_fused(p_logits, p_ids, p_wte, p_xf, p_dxf, p_dwte, B, S, E, V, sc)
+    t0 = time_perf()
+    st = lmhead_bwd_fused(p_logits, p_ids, p_wte, p_xf, p_dxf, p_dwte, B, S, E, V, sc)
+    t1 = time_perf()
+    print("run2 status=" + str(st) + " ms=" + str((t1 - t0) * 1000.0))
+
+    t2 = time_perf()
+    st = lmhead_bwd_fused(p_logits, p_ids, p_wte, p_xf, p_dxf, p_dwte, B, S, E, V, sc)
+    t3 = time_perf()
+    print("run3 status=" + str(st) + " ms=" + str((t3 - t2) * 1000.0))
+
+    # MAC: 2 * T * V * E (dxf + dwte) -> GFLOP/s huu ich
+    mac = 2.0 * float(T) * float(V) * float(E)
+    ms = (t3 - t2) * 1000.0
+    print("MAC=" + str(mac / 1000000000.0) + " G, GFLOP/s=" + str(2.0 * mac / 1000000.0 / ms))
+    return 0
