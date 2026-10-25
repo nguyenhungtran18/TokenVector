@@ -18,6 +18,8 @@ Bai nay doi chieu native vs cong thuc SCALAR trong test (TOL 1e-5):
   2. dxf khop reference.
   3. dwte khop reference (co tich lu nhieu hang).
   4. null buffer -> -1.
+  5. mid-size 128^3 (v2: vuot nguong min_n=96 -> thread pool mode 3/4/5 +
+     GEMM blocked/threaded) - dxf + dwte van khop reference scalar.
 
 dwte tich lu nen TEST zero truoc khi goi (kernel khong zero dwte).
 Reference tinh f64, native f32 -> lech nho (~1e-7) duoi TOL 1e-5; loi cong
@@ -148,6 +150,127 @@ def test_lmhead() -> "i32":
     return total
 
 
+def test_mid() -> "i32":
+    """Mid-size 128^3: vuot nguong min_n=96 -> thread pool (mode 3/4/5) +
+    GEMM blocked/threaded (v2) - doi chieu reference scalar, TOL 1e-5."""
+    total = 0
+    B: "i32" = 2
+    S: "i32" = 64
+    E: "i32" = 128
+    V: "i32" = 128
+    T = B * S
+    n_lg = T * V
+    n_we = V * E
+    n_xe = T * E
+
+    p_logits = alloc_bytes(n_lg * 4)
+    p_ids = alloc_bytes(T * 4)
+    p_wte = alloc_bytes(n_we * 4)
+    p_xf = alloc_bytes(n_xe * 4)
+    p_dxf = alloc_bytes(n_xe * 4)
+    p_dwte = alloc_bytes(n_we * 4)
+
+    lg = f32buf_wrap(p_logits, n_lg)
+    wte = f32buf_wrap(p_wte, n_we)
+    xf = f32buf_wrap(p_xf, n_xe)
+    dxf = f32buf_wrap(p_dxf, n_xe)
+    dwte = f32buf_wrap(p_dwte, n_we)
+
+    i = 0
+    while i < n_lg:
+        lg[i] = float((i % 7) - 3) * 0.5
+        i = i + 1
+    i = 0
+    w: "i64" = 0
+    while i < T:
+        w = write_i32(p_ids, i * 4, (i * 5) % V)
+        i = i + 1
+    i = 0
+    while i < n_we:
+        wte[i] = float((i % 5) - 2) * 0.25
+        i = i + 1
+    i = 0
+    while i < n_xe:
+        xf[i] = float((i % 7) - 3) * 0.1
+        i = i + 1
+    i = 0
+    while i < n_xe:
+        dxf[i] = 0.0
+        i = i + 1
+    i = 0
+    while i < n_we:
+        dwte[i] = 0.0
+        i = i + 1
+
+    # hop dong (p - onehot)/n: n = T = 128 (chia het 2 -> f32 chinh xac)
+    sc: "f32" = 1.0 / 128.0
+    st = lmhead_bwd_fused(p_logits, p_ids, p_wte, p_xf, p_dxf, p_dwte, B, S, E, V, sc)
+    total += check("mid_status_0", str(st), "0")
+
+    # --- reference scalar (f64, cung cong thuc) ---
+    dxf_ref: "list[f64]" = []
+    dwte_ref: "list[f64]" = []
+    i = 0
+    while i < n_xe:
+        dxf_ref.append(0.0)
+        i = i + 1
+    i = 0
+    while i < n_we:
+        dwte_ref.append(0.0)
+        i = i + 1
+    t = 0
+    while t < T:
+        m = lg[t * V]
+        v = 1
+        while v < V:
+            if lg[t * V + v] > m:
+                m = lg[t * V + v]
+            v = v + 1
+        sumexp = 0.0
+        v = 0
+        while v < V:
+            sumexp = sumexp + exp(lg[t * V + v] - m)
+            v = v + 1
+        tid = read_i32(p_ids, t * 4)
+        v = 0
+        while v < V:
+            pr = exp(lg[t * V + v] - m) / sumexp
+            dl = pr
+            if v == tid:
+                dl = dl - 1.0
+            dl = dl / 128.0
+            e = 0
+            while e < E:
+                dxf_ref[t * E + e] = dxf_ref[t * E + e] + dl * wte[v * E + e]
+                dwte_ref[v * E + e] = dwte_ref[v * E + e] + dl * xf[t * E + e]
+                e = e + 1
+            v = v + 1
+        t = t + 1
+
+    wd: "f64" = 0.0
+    i = 0
+    while i < n_xe:
+        d = dxf[i] - dxf_ref[i]
+        if d < 0.0:
+            d = -d
+        if d > wd:
+            wd = d
+        i = i + 1
+    total += check("mid_dxf(wp=" + str(wd) + ")", str(int(wd <= 1.0e-5)), "1")
+
+    ww: "f64" = 0.0
+    i = 0
+    while i < n_we:
+        d = dwte[i] - dwte_ref[i]
+        if d < 0.0:
+            d = -d
+        if d > ww:
+            ww = d
+        i = i + 1
+    total += check("mid_dwte(ww=" + str(ww) + ")", str(int(ww <= 1.0e-5)), "1")
+    return total
+
+
 def test_null() -> "i32":
     total = 0
     sc: "f32" = 1.0
@@ -159,6 +282,7 @@ def test_null() -> "i32":
 def run() -> "i32":
     total = 0
     total += test_lmhead()
+    total += test_mid()
     total += test_null()
-    # 3 + 1 = 4
-    return test_summary("lmhead_bwd_fused_test", total, 4)
+    # 3 + 3 + 1 = 7
+    return test_summary("lmhead_bwd_fused_test", total, 7)

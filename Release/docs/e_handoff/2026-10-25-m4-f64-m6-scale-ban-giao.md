@@ -64,10 +64,36 @@ Data toan 0 + ids theo mẫu → toàn bộ phep toan chay day du, khong denorma
 (`LHEAD_BWD 7281 ms` trong phân rã AQ, gồm softmax serial 1.33 s + GEMM đa
 luồng). Nguyên nhân đo được = memory-bound: mỗi `t` re-read toàn `wte` (154 MB)
 + re-read `xf` V lần + read-modify-write toàn `dwte` (154 MB) → ~630 GB traffic
-/ 1024 t ≈ 39 s đúng bằng số đo. V1 là **reference đúng numerics** để Inference
-A/B; wire M6 vẫn bị treo (đúng quyết định §6: KHÔNG WIRE) cho tới khi có **v2
-blocked/threaded** (chia `V` theo thread hoặc materialize dlogits rồi đi
-`gemm_rect`) — việc tối ưu này nằm ngoài ask của vòng này.
+/ 1024 t ≈ 39 s đúng bằng số đo.
+
+### 3.1 v2 blocked/threaded (cùng ngày — **ĐÁNH BẠI 7.28 s**)
+
+Viết lại `lmhead_bwd_fused` trong native (giữ nguyên ABI 11 args) thành 5 pha
+trên thread pool + GEMM blocked đã có:
+
+1. softmax-grad song song theo `t` → scratch `dl` (T×V) — pool **mode 3**;
+2. `dxf = dl @ wte` — `run_rect_shaped` (GEMM blocked/threaded, ghi đè) —
+   **tách từ `packed_core` nên M4/M6 dùng chung 1 đường dispatch M7**;
+3. `dlT = transpose(dl)` theo ô 64 cột (2 chiều đều cache-friendly) —
+   pool **mode 4**;
+4. `tmp = dlT @ xf` — `run_rect_shaped`;
+5. `dwte += tmp` (AVX2) — pool **mode 5**.
+
+Scratch tạm `dl + dlT + tmp`, free ngay trong lời gọi (peak ~412 MB với shape
+thật, seq1024); hết RAM → trả `-6`. Không sửa compiler (ABI/IL giữ nguyên).
+
+**Số đo (cùng probe, cùng shape):**
+
+| Bản | Thời gian | Ghi chú |
+|---|---|---|
+| v1 naive single-thread | 38 632 / 38 838 ms | 4.07 GFLOP/s, memory-bound |
+| **v2 blocked/threaded** | **1 509 / 1 399 ms** | **~113 GFLOP/s** |
+| path cũ (Inference, phân rã AQ) | 7 281 ms | target phải đánh bại |
+
+→ **v2 nhanh ~27× so v1 và ~5× so 7.28 s.** Numerics: test nhỏ 4/4 + case
+**mid 128³ mới** (vuot ngưỡng min_n=96 → kích hoạt pool mode 3/4/5 + GEMM
+threaded) 3/3 PASS, sai số ~2e-9 « TOL 1e-5; A/B `shape` vs `legacy` vẫn
+IDENTICAL. Quyết định wire chờ A/B wrapper thật bên Inference.
 
 ## 4. Bằng chứng nghiệm thu (chạy thật 2026-10-25, exit 0)
 
@@ -95,15 +121,19 @@ blocked/threaded** (chia `V` theo thread hoặc materialize dlogits rồi đi
   `tests/negative/simd_gemm_packed_i32.tkv` (thay `simd_gemm_packed_f64`),
   `tests/negative/lmhead_bwd_fused_on_list.tkv` (11 args),
   `tests/lmhead_bwd_fused_perf.tkv` (probe perf, không gate).
-- `docs/REFERENCE.md` — 2 row M4 (f64), row M6 (scale + số đo perf v1), ghi chú
-  **M7** (ask 3).
+- `docs/REFERENCE.md` — 2 row M4 (f64), row M6 (scale + số đo perf v1/v2), ghi
+  chú **M7** (ask 3).
+- **v2 (cùng ngày)** `tools/simd_native/tkv_simd_native.c` — `run_rect_shaped`
+  dùng chung packed/lmhead, pool mode 3/4/5 (`tkv_run_aux`), 5 pha lmhead;
+  `tests/lmhead_bwd_fused_test.tkv` + case mid 128³ (7 check).
 
 ## 6. Việc còn lại phía Inference (giữ nguyên ask chưa đo của §4/§6)
 
 1. A/B wrapper thật best-of-3 bằng `List[Double]` thật với ABI f64 — kiểm chứng
    lại kỳ vọng CY 1.6-2× ở S1/S3/S5 (probe CY/CJ cũ dùng convert interpreted →
    số cũ không còn đúng).
-2. Gọi `lmhead_bwd_fused` với **11 args** (`scale = 1.0/T`); đối chiếu với
-   reference GĐ10 — nếu chấp nhận v1 (38.6 s) thì KHÔNG nên wire; cần v2.
+2. Gọi `lmhead_bwd_fused` với **11 args** (`scale = 1.0/T`); đối chiếu reference
+   GĐ10 rồi chạy A/B wrapper thật — **v2 đo 1.40-1.51 s vs 7.28 s cũ** nên đã
+   vượt ngưỡng net-win, chờ số A/B thật để chốt wire.
 3. Copy `Release/runtime/tkv_simd_native.dll` (bản 2026-10-25) — thêm export
    `SgemmPackedCreate64`/`SgemmPacked64`, chữ ký `lmhead_bwd_fused` đổi (11 args).

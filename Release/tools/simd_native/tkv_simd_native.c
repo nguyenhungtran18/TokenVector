@@ -27,6 +27,13 @@ static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, floa
                           int m, int n, int k, int i0, int i1, int j0, int j1,
                           int mc_b, int nc_b, int bpl);
 
+/* M6 v2 (lmhead) - khai truoc truoc khi dung trong tkv_worker. */
+static void lmhead_softmax_rows(const float* logits, const int* ids, float* dl,
+                                int V, int t0, int t1, float scale);
+static void lmhead_transpose_rows(const float* dl, float* dlT, int V, int T,
+                                  int t0, int t1);
+static void lmhead_add_rows(float* dst, const float* src, int E, int v0, int v1);
+
 /* Tile cache-blocking (co the ghi de bang /DGEMM_* khi build). */
 #ifndef GEMM_KC
 #define GEMM_KC 64
@@ -205,7 +212,7 @@ static int tkv_ncols_vocab(int nt, int n) {
 }
 
 /* --- thread pool co dinh (tranh ~0.6ms tao thread moi lan goi) --- */
-typedef struct { const void* a; const void* b; void* o; int n; int i0; int i1; int j0; int j1; int mode; int lda; int ldb; int m; int k; int mc; int nc; int bpl; } GemmJob;
+typedef struct { const void* a; const void* b; void* o; int n; int i0; int i1; int j0; int j1; int mode; int lda; int ldb; int m; int k; int mc; int nc; int bpl; float alpha; } GemmJob;
 static GemmJob  g_job[TKV_MAXT];
 static HANDLE   g_start[TKV_MAXT];
 static HANDLE   g_done[TKV_MAXT];
@@ -227,6 +234,14 @@ static DWORD WINAPI tkv_worker(LPVOID p) {
                           j->mc, j->nc, j->bpl);
         else if (j->mode == 1)
             gemm_rows_f64((const double*)j->a, (const double*)j->b, (double*)j->o, j->n, j->i0, j->i1, j->j0, j->j1);
+        else if (j->mode == 3)
+            lmhead_softmax_rows((const float*)j->a, (const int*)j->b, (float*)j->o,
+                                j->n, j->i0, j->i1, j->alpha);
+        else if (j->mode == 4)
+            lmhead_transpose_rows((const float*)j->a, (float*)j->o, j->n, j->m,
+                                  j->i0, j->i1);
+        else if (j->mode == 5)
+            lmhead_add_rows((float*)j->o, (const float*)j->a, j->n, j->i0, j->i1);
         else
             gemm_rows_f32((const float*)j->a, (const float*)j->b, (float*)j->o, j->n, j->i0, j->i1, j->j0, j->j1,
                           j->mc, j->nc, j->bpl);
@@ -332,6 +347,34 @@ static void tkv_run_mt_rect(int nt, const float* a, int lda, const float* b, int
             g_job[used].mc = mc; g_job[used].nc = nc; g_job[used].bpl = bpl;
             used++;
         }
+    }
+    for (int t = 0; t < used; t++) SetEvent(g_start[t]);
+    if (used > 0) WaitForMultipleObjects((DWORD)used, g_done, TRUE, INFINITE);
+    ReleaseSRWLockExclusive(&g_gemm_lock);
+}
+
+/* Aux submit (M6 v2): chia `count` phan tu thanh nt job bien doc rieng (khong
+ * trung) - dung cung pool + cung lock giong run_mt. mode 3 = softmax->dl,
+ * 4 = transpose dl->dlT, 5 = dwte += tmp. n = V (mode 3/4) hoac E (mode 5),
+ * m = T (mode 4), alpha = scale (mode 3). */
+static void tkv_run_aux(int nt, int mode, const void* a, const void* b, void* o,
+                        int n, int m, float alpha, long long count) {
+    AcquireSRWLockExclusive(&g_gemm_lock);
+    InitOnceExecuteOnce(&g_once, tkv_pool_init, NULL, NULL);
+    if (nt > g_nw) nt = g_nw;
+    if (nt < 1) nt = 1;
+    long long per = (count + nt - 1) / nt;
+    int used = 0;
+    for (int t = 0; t < nt; t++) {
+        long long i0 = (long long)t * per;
+        if (i0 >= count) break;
+        long long i1 = i0 + per;
+        if (i1 > count) i1 = count;
+        g_job[used].a = a; g_job[used].b = b; g_job[used].o = o;
+        g_job[used].mode = mode; g_job[used].n = n; g_job[used].m = m;
+        g_job[used].alpha = alpha;
+        g_job[used].i0 = (int)i0; g_job[used].i1 = (int)i1;
+        used++;
     }
     for (int t = 0; t < used; t++) SetEvent(g_start[t]);
     if (used > 0) WaitForMultipleObjects((DWORD)used, g_done, TRUE, INFINITE);
@@ -902,12 +945,12 @@ static int packed_check(long long hA, long long hB, int T, PackedMat** pa, Packe
     return 0;
 }
 
-/* Nhanh chinh: A/B + c (m*n f32) da valid - dispatch M7 roi goi kernel. */
-static void packed_core(PackedMat* A, PackedMat* B, float* c) {
-    int m = A->m, n = B->n, k = A->n;
-    /* M7 shape dispatch (env TKV_GEMM_DISPATCH; legacy = thu tu cu y hieu):
-     * SMALL -> 1 luong; VOCAB -> cot manh + NC 128; RECT -> MC/NC 128/128;
-     * SQUARE -> pattern hien tai. KC khong doi -> numerics bit-giong. */
+/* GEMM chu nhat co shape-dispatch M7 (env TKV_GEMM_DISPATCH; legacy = thu tu cu
+ * y hieu): SMALL -> 1 luong; VOCAB -> cot manh + NC 128; RECT -> MC/NC 128/128;
+ * SQUARE -> pattern hien tai. KC khong doi -> thu tu tich luy k giu nguyen ->
+ * bit-giong. Dung CHUNG cho packed (M4) va lmhead v2 (M6). */
+static void run_rect_shaped(const float* a, int lda, const float* b, int ldb,
+                            float* c, int ldc, int m, int n, int k) {
     int mc = GEMM_MC, nc = GEMM_NC, cols_req = 1, bpl = GEMM_BPL;
     int nt;
     if (tkv_shape_on()) {
@@ -930,9 +973,14 @@ static void packed_core(PackedMat* A, PackedMat* B, float* c) {
         nt = tkv_nthreads(m > n ? m : n);
     }
     if (nt <= 1)
-        gemm_rect_f32(A->buf, A->ld, B->buf, B->ld, c, n, m, n, k, 0, m, 0, n, mc, nc, bpl);
+        gemm_rect_f32(a, lda, b, ldb, c, ldc, m, n, k, 0, m, 0, n, mc, nc, bpl);
     else
-        tkv_run_mt_rect(nt, A->buf, A->ld, B->buf, B->ld, c, n, m, n, k, cols_req, mc, nc, bpl);
+        tkv_run_mt_rect(nt, a, lda, b, ldb, c, ldc, m, n, k, cols_req, mc, nc, bpl);
+}
+
+/* Nhanh chinh packed: A/B + c (m*n f32) da valid. */
+static void packed_core(PackedMat* A, PackedMat* B, float* c) {
+    run_rect_shaped(A->buf, A->ld, B->buf, B->ld, c, B->n, A->m, B->n, A->n);
 }
 
 /* C = A * B tu 2 handle. Tra ve 0 = OK, am = loi ro (khong im lang):
@@ -1096,40 +1144,112 @@ EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
  *   dxf:    (T x E)  [OUTPUT, ghi de]
  *   dwte:   (V x E)  [OUTPUT, TICH LUY += - goi phai zero truoc]
  *
- * v1 (M6 so CHUA DO - chi phan tich §M7): single-thread (§3.1 khong race), doc
- * logits ~3 lan/hang (khong "doc 1 lan"), GEMM naive khong blocked/threaded.
- * Inference toi uu (reuse gemm_rect + dwte tile + AVX2/softmax) va do A/B; cong
- * thuc + numerics da dung (test native == scalar spec, maxdiff nho).
- * Tra ve 0 = OK, -1 tham so sai. */
+ * v2 (2026-10-25, doi chieu so do v1 = 38.6s): 5 pha, dung thread pool +
+ * GEMM blocked da co (run_rect_shaped):
+ *   1. softmax-grad song song theo t -> scratch dl (T x V)   [pool mode 3]
+ *   2. dxf = dl @ wte        -> run_rect_shaped (blocked/threaded, ghi de)
+ *   3. dlT = transpose(dl)   -> theo o tile 64 cot           [pool mode 4]
+ *   4. tmp = dlT @ xf        -> run_rect_shaped
+ *   5. dwte += tmp           -> AVX2                          [pool mode 5]
+ * v1 single-thread bi memory-bound: moi t re-read toan wte + RMW toan dwte
+ * (~630 GB) -> 38.6s. v2 moi buffer chi doc/ghi 1 lan + GEMM blocked.
+ * Scratch tam: dl + dlT (2 x T*V*4) + tmp (V*E*4), free ngay trong loi
+ * (peak dl+dlT ≈ 412 MB voi T=1024 V=50257).
+ * Numerics: cong thuc dl (p-onehot)*scale va thu tu tich luy k tang dan (KC=64)
+ * giu nguyen -> test scalar ref tol 1e-5 van ghim; A/B shape vs legacy bit-giong.
+ * Tra ve 0 = OK, -1 tham so sai, -6 khong du bo nho tam. */
+static void lmhead_softmax_rows(const float* logits, const int* ids, float* dl,
+                                int V, int t0, int t1, float scale) {
+    for (int t = t0; t < t1; t++) {
+        const float* lg = logits + (long long)t * V;
+        int id = ids[t];
+        int v;
+        float m = lg[0];
+        for (v = 1; v < V; v++) if (lg[v] > m) m = lg[v];
+        float sumexp = 0.0f;
+        for (v = 0; v < V; v++) sumexp += expf(lg[v] - m);
+        float* d = dl + (long long)t * V;
+        for (v = 0; v < V; v++) {
+            float p = expf(lg[v] - m) / sumexp;   /* softmax (max-sub -> sumexp >= 1) */
+            float g = p;
+            if (v == id) g -= 1.0f;               /* p - onehot */
+            d[v] = g * scale;                     /* hop dong (p - onehot)/n, n = 1/scale */
+        }
+    }
+}
+
+static void lmhead_transpose_rows(const float* dl, float* dlT, int V, int T,
+                                  int t0, int t1) {
+    /* Tile theo 64 cot ngoai, t cua job noi: doc dl[t][vv:ve] lien tuc va
+     * ghi dlT[v][t0:t1] lien tuc -> ca hai huong deu cache-friendly. */
+    for (int vv = 0; vv < V; vv += 64) {
+        int ve = vv + 64;
+        if (ve > V) ve = V;
+        for (int t = t0; t < t1; t++) {
+            const float* s = dl + (long long)t * V + vv;
+            for (int v = vv; v < ve; v++)
+                dlT[(long long)v * T + t] = s[v - vv];
+        }
+    }
+}
+
+static void lmhead_add_rows(float* dst, const float* src, int E, int v0, int v1) {
+    for (int v = v0; v < v1; v++) {
+        float* d = dst + (long long)v * E;
+        const float* s = src + (long long)v * E;
+        int e = 0;
+        for (; e + 8 <= E; e += 8) {
+            _mm256_storeu_ps(d + e, _mm256_add_ps(_mm256_loadu_ps(d + e),
+                                                  _mm256_loadu_ps(s + e)));
+        }
+        for (; e < E; e++) d[e] += s[e];
+    }
+}
+
 EXPORT int lmhead_bwd_fused(const float* logits, const int* ids, const float* wte,
                             const float* xf, float* dxf, float* dwte,
                             int B, int S, int E, int V, float scale) {
     if (!logits || !ids || !wte || !xf || !dxf || !dwte) return -1;
     if (B <= 0 || S <= 0 || E <= 0 || V <= 0) return -1;
-    long long T = (long long)B * (long long)S;
-    for (long long t = 0; t < T; t++) {
-        const float* lg = logits + t * (long long)V;
-        int id = ids[t];
-        int v, e;
-        float m = lg[0];
-        for (v = 1; v < V; v++) if (lg[v] > m) m = lg[v];
-        float sumexp = 0.0f;
-        for (v = 0; v < V; v++) sumexp += expf(lg[v] - m);
-        float* dxf_t = dxf + t * (long long)E;
-        for (e = 0; e < E; e++) dxf_t[e] = 0.0f;
-        const float* xf_t = xf + t * (long long)E;
-        for (v = 0; v < V; v++) {
-            float p = expf(lg[v] - m) / sumexp;   /* softmax (max-sub -> sumexp >= 1) */
-            float dl = p;
-            if (v == id) dl -= 1.0f;              /* softmax-grad: p - onehot */
-            dl *= scale;                           /* hop dong (p - onehot)/n, n = 1/scale (GĐ10) */
-            const float* wte_v = wte + (long long)v * E;
-            float* dwte_v = dwte + (long long)v * E;
-            for (e = 0; e < E; e++) {
-                dxf_t[e] += dl * wte_v[e];         /* dxf[t] = sum_v dl * wte[v] */
-                dwte_v[e] += dl * xf_t[e];         /* dwte[v] += dl * xf[t] */
-            }
-        }
-    }
+    long long Tll = (long long)B * (long long)S;
+    if (Tll <= 0 || Tll > 2000000000LL) return -1;
+    int T = (int)Tll;
+    long long nlg = (long long)T * V;
+
+    /* pha 1: softmax-grad song song theo t -> dl (T x V) */
+    float* dl = (float*)malloc((size_t)nlg * sizeof(float));
+    if (!dl) return -6;
+    int nt = tkv_nthreads(T);
+    if (nt <= 1)
+        lmhead_softmax_rows(logits, ids, dl, V, 0, T, scale);
+    else
+        tkv_run_aux(nt, 3, logits, ids, dl, V, 0, scale, T);
+
+    /* pha 2: dxf = dl @ wte - GEMM blocked/threaded, ghi de (dxf la OUTPUT) */
+    run_rect_shaped(dl, V, wte, E, dxf, E, T, E, V);
+
+    /* pha 3: dlT = transpose(dl); doc dl xong -> free truoc khi cap tmp */
+    float* dlT = (float*)malloc((size_t)nlg * sizeof(float));
+    if (!dlT) { free(dl); return -6; }
+    if (nt <= 1)
+        lmhead_transpose_rows(dl, dlT, V, T, 0, T);
+    else
+        tkv_run_aux(nt, 4, dl, NULL, dlT, V, T, 0.0f, T);
+    free(dl);
+
+    /* pha 4: tmp = dlT @ xf */
+    long long nwe = (long long)V * E;
+    float* tmp = (float*)malloc((size_t)nwe * sizeof(float));
+    if (!tmp) { free(dlT); return -6; }
+    run_rect_shaped(dlT, T, xf, E, tmp, E, V, E, T);
+    free(dlT);
+
+    /* pha 5: dwte += tmp (dwte TICH LUY +=) */
+    int nta = tkv_nthreads(V);
+    if (nta <= 1)
+        lmhead_add_rows(dwte, tmp, E, 0, V);
+    else
+        tkv_run_aux(nta, 5, tmp, NULL, dwte, E, 0, 0.0f, V);
+    free(tmp);
     return 0;
 }
