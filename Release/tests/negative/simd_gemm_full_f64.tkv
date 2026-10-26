@@ -1,0 +1,23 @@
+# EXPECT-SUBSTRING: chi ho tro f32
+# -*- coding: utf-8 -*-
+# Native `SgemmFull` chi doc float (kernel AVX2 f32). Truyen list[f64] phai bi
+# TU CHOI ro ngay luc bien dich (cung triet ly `simd_gemm_packed_i32.tkv`):
+# doc double nhu float se ra so sai hoac AV - khong duoc dich im lang.
+def run() -> "i32":
+    a: "list[f64]" = []
+    a.append(1.0)
+    a.append(2.0)
+    a.append(3.0)
+    a.append(4.0)
+    b: "list[f64]" = []
+    b.append(1.0)
+    b.append(2.0)
+    b.append(3.0)
+    b.append(4.0)
+    c: "list[f64]" = []
+    c.append(0.0)
+    c.append(0.0)
+    c.append(0.0)
+    c.append(0.0)
+    h = simd_gemm_full(a, b, c, 2, 2, 2, 2, 0, 8, 0)
+    return int(h)

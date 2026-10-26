@@ -2092,6 +2092,19 @@ def _store_var(name: "str", scope: "Scope", out: "list[str]"):
     _rb = scope.tra(name)
     kind = _rb.kind
     idx = _rb.idx
+    if kind == 'const':
+        # BUG C1/C2 (2026-10-26, COMPILER_TEAM_REQUEST3 §4) - LAT PHONG CUOI.
+        # Day la hang so cap module (khong co o nho, idx = -1): truoc day van
+        # rot xuong dong `stloc.s {idx}` cuoi cung -> IL assemble duoc ma CLR
+        # nem System.InvalidProgramException khi JIT, compile KHONG bao loi
+        # (2 bug trong don #3 deu la truong hop nay). Duong dung da sua o
+        # first-pass (_fp_declare_scalar/_khai_local - khai local MOI khi ham
+        # gan lai ten hang so); neu den duoc day nghia la co hinh thuc gan ma
+        # first-pass chua thay (vd gan inline) - BAO LOI RO thay vi sinh exe hong.
+        raise SyntaxError(
+            f"il_codegen: '{name}' la hang so cap module - khong the gan lai "
+            f"trong pham vi nay. Hay doi ten local khac (khong trung ten hang so "
+            f"cap module cua chuong trinh/ma import vao)")
     if kind == 'arg':
         out.append(f'    starg.s {idx}')
         return
@@ -6267,8 +6280,19 @@ def _kiem_tai_dung_ten(wc: "WalkCtx", reg: "Registry", name: "str", rhs_node: "T
 
 def _fp_declare_scalar(wc: "WalkCtx", reg: "Registry", name: "str", rhs_node: "TkvNode"):
     if name in wc.declared_names:
-        _kiem_tai_dung_ten(wc, reg, name, rhs_node)
-        return
+        if name in wc.shadow_ok:
+            # BUG C1/C2 (2026-10-26, COMPILER_TEAM_REQUEST3 §4): ten nay la HANG
+            # SO CAP MODULE ma chinh ham nay dang gan lai -> Python tao local MOI
+            # (shadow hang so). Bo rang buoc const (idx = -1) khoi declared_names
+            # de duong khai local phia duoi chay binh thuong: neu khong,
+            # _store_var doc binding const roi sinh `stloc.s -1` - IL van assemble
+            # duoc nhung CLR nem System.InvalidProgramException khi JIT, compile
+            # KHONG bao loi (2 bug C1/C2 trong don yeu cau #3).
+            wc.declared_names.discard(name)
+            wc.shadow_ok.discard(name)
+        else:
+            _kiem_tai_dung_ten(wc, reg, name, rhs_node)
+            return
     if name not in wc.declared_names:
         if not wc.final_pass and la_node(rhs_node) and ekind(rhs_node) == 'null':
             # 'x = None' roi moi 'x = <gia tri co kieu>' (2026-09-26): None
@@ -6730,12 +6754,20 @@ def _fp_pre_register_infer_scope(pc: "PrescanCtx", reg: "Registry", stmt_list: "
 
 
 
-def _khai_local(declared_names: "set[str]", locals_decl: "list[(str,TypeAnn)]", infer_scope: "Scope", name: "str", ta: "TypeAnn"):
+def _khai_local(declared_names: "set[str]", locals_decl: "list[(str,TypeAnn)]", infer_scope: "Scope", name: "str", ta: "TypeAnn", shadow_ok: "set[str]"=None):
     """Khai bao 1 local voi TypeAnn DA BIET SAN (khong can suy dtype tu bieu
     thuc) - dung cho key_var/val_var cua 'for k, v in d.items():' (dtype lay
     THANG tu dict_ta.key_dtype/dtype) va cac local AN (hidden) enumerator/
     KeyValuePair. Truoc 2026-09-29 la 2 ham long declare_array/declare_named
     than giong het nhau."""
+    if shadow_ok is not None and name in shadow_ok:
+        # BUG C1/C2 (2026-10-26, COMPILER_TEAM_REQUEST3 §4): gan lai ten HANG
+        # SO CAP MODULE trong chinh ham nay -> Python tao local MOI (shadow).
+        # Bo rang buoc const (idx=-1) khoi declared_names de duong khai local
+        # binh thuong duoc chay - neu khong, _store_var sinh `stloc.s -1` ->
+        # CLR nem InvalidProgramException ma compile KHONG bao loi.
+        declared_names.discard(name)
+        shadow_ok.discard(name)
     if name not in declared_names:
         declared_names.add(name)
         locals_decl.append((name, ta))
@@ -6752,7 +6784,8 @@ def _first_pass_collect_locals(reg: "Registry", stmts: "list[i32]", sig: "TkvSig
                                records: "dict[str,list[(str,TkvTypeAnn)]]" = None, record_methods: "dict[str,dict[str,Signature]]" = None,
                                extra_declared: "dict[str,TypeAnn]" = None, source_path: "str" = None,
                                record_bases: "dict[str,list[str]]" = None,
-                               bien_mod: "dict[str,str]" = None
+                               bien_mod: "dict[str,str]" = None,
+                               shadow_ok: "set[str]" = None
                                ) -> "(list[(str,TypeAnn)],dict[i32,i32],i32,set[str],dict[str,NestedClosure])":
     """Duyet cay Stmt (KHONG parse lai bieu thuc - da parse 1 lan trong
     _parse_block), khai bao local (.locals init) + temp cho ternary long
@@ -6801,6 +6834,10 @@ def _first_pass_collect_locals(reg: "Registry", stmts: "list[i32]", sig: "TkvSig
         for ex_name, ex_ta in extra_declared.items():
             declared_names.add(ex_name)
             infer_scope.set(ex_name, ex_ta)
+    # BUG C1/C2 (2026-10-26): tap ten hang so cap module ma ham nay GAN LAI -
+    # giu duong khai local (shadow) o cac ham declare_*. None = khong co ten nao.
+    if shadow_ok is None:
+        shadow_ok = set()
     # thread_ret_types (2026-08-31, BUGS_TODO.md muc thread_join): 'h1 =
     # thread_spawn(worker)' roi 'r1 = thread_join(h1)' - EXPR_BUILTIN_DTYPE
     # cua 'thread_join' la HANG SO TINH 'i64' (khong biet worker THAT su tra
@@ -6848,8 +6885,8 @@ def _first_pass_collect_locals(reg: "Registry", stmts: "list[i32]", sig: "TkvSig
         # Ham TOP-LEVEL (2026-09-29): lambda chi goi duoc ham top-level, va
         # bat bien THEO GIA TRI - ca 4 bang deu giu NGUYEN doi tuong (chi
         # clear/append, khong gan lai) nen gia tri bat duoc luon la bang dang dung.
-        declare_array=(lambda a0, a1: _khai_local(declared_names, locals_decl, infer_scope, a0, a1)),
-        declare_named=(lambda a0, a1: _khai_local(declared_names, locals_decl, infer_scope, a0, a1)),
+        declare_array=(lambda a0, a1: _khai_local(declared_names, locals_decl, infer_scope, a0, a1, shadow_ok)),
+        declare_named=(lambda a0, a1: _khai_local(declared_names, locals_decl, infer_scope, a0, a1, shadow_ok)),
         defer=(lambda a0: _them_hoan(deferred, a0)), final_pass=False,
         needs_epilogue=needs_epilogue,
         # Tiem them cho list_type.declare_list/set_type.declare_set (Phase
@@ -6879,6 +6916,7 @@ def _first_pass_collect_locals(reg: "Registry", stmts: "list[i32]", sig: "TkvSig
         # docstring dau list_type.py).
         extern_class_defs=il_extern_dtype._EXTERN_CLASS_DEFS,
         bien_mod=bien_mod,
+        shadow_ok=shadow_ok,
     )
     # Ba callback GOI HAM LONG gan SAU khi walk_ctx da ton tai (2026-09-24):
     # cac ham long do doc `walk_ctx`, ma lambda TokenVector bat bien THEO GIA
@@ -6911,6 +6949,7 @@ def _first_pass_collect_locals(reg: "Registry", stmts: "list[i32]", sig: "TkvSig
     # qua: no chi la phong doan, luot THAT ben duoi moi la noi bao loi.
     _probe_declared = set(declared_names)
     _probe_locals = list(locals_decl)
+    _probe_shadow = set(shadow_ok)
     try:
         _fp_walk(walk_ctx, reg, stmts)
     except Exception:
@@ -6924,6 +6963,9 @@ def _first_pass_collect_locals(reg: "Registry", stmts: "list[i32]", sig: "TkvSig
     locals_decl.clear()
     for _mon in _probe_locals:
         locals_decl.append(_mon)
+    shadow_ok.clear()
+    for _sh in _probe_shadow:
+        shadow_ok.add(_sh)
     tern_temp_of_id.clear()
     needs_epilogue[0] = False
     boxed_names.clear()
@@ -8500,11 +8542,30 @@ def gen_il_function(reg: "Registry", sig: "TkvSig", body_lines: "list[str]", wit
                                + f'(indent={bad_indent}, ky vong {base_indent} - co the thieu '
                                + "'if'/'for' truoc do, hoac 'else' khong khop 'if')")
 
+    # BUG C1/C2 (2026-10-26, COMPILER_TEAM_REQUEST3 §4): tinh tap ten HANG SO
+    # CAP MODULE ma chinh ham nay gan lai -> phai khai local MOI (Python shadow)
+    # chu khong dung rang buoc const idx=-1 (mau `stloc.s -1` -> CLR nem
+    # InvalidProgramException ma compile KHONG bao loi). Loai tham so (van
+    # starg) va ten bi closure bat (van ghi cell) - chi hang so thuong bi at
+    # ten moi tao local. `global X` khong nam trong _const_tas (do la bien
+    # container va _extract_global_decls da xu ly rieng).
+    _shadow_ok: "set[str]" = set()
+    for _cn in _const_tas:
+        _la_tham_so = False
+        for _p in sig.params:
+            if _p.name == _cn:
+                _la_tham_so = True
+        if not _la_tham_so and closure_captures is not None:
+            for _cc in closure_captures:
+                if _cc[0] == _cn:
+                    _la_tham_so = True
+        if not _la_tham_so:
+            _shadow_ok.add(_cn)
     locals_decl, tern_temp_of_id, needs_epilogue, boxed_names, nested_closures = \
         _first_pass_collect_locals(reg, stmts, sig, body_dtype, func_table, records, record_methods,
                                    record_bases=record_bases,
                                     extra_declared=extra_declared, source_path=source_path,
-                                    bien_mod=bien_mod)
+                                    bien_mod=bien_mod, shadow_ok=_shadow_ok)
     for i, (name, ta) in enumerate(locals_decl):
         if name in boxed_names:
             scope.add_boxed(name, i, ta)

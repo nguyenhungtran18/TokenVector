@@ -1,0 +1,20 @@
+# EXPECT-SUBSTRING: adamw_step_glm: g phai la list[f32]
+# -*- coding: utf-8 -*-
+# `adamw_step_glm` sinh ra de nhan g la list[f32] (doc truc tiep `_items`,
+# bo vong r1 f32_copy_to_buf - spec §2.4). Truyen buffer native i64 cho g phai
+# bi TU CHOI ro: dung `adamw_step` cho duong buffer cu (khong doi API cu).
+def run() -> "i32":
+    n: "i32" = 8
+    p = alloc_bytes(n * 4)
+    m = alloc_bytes(n * 4)
+    v = alloc_bytes(n * 4)
+    g = alloc_bytes(n * 4)
+    lr: "f32" = 3.0e-4
+    b1: "f32" = 0.9
+    b2: "f32" = 0.999
+    eps: "f32" = 1.0e-8
+    wd: "f32" = 0.01
+    bc1s: "f32" = 0.1
+    bc2s: "f32" = 0.031
+    st = adamw_step_glm(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s)
+    return st

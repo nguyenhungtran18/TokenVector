@@ -1253,3 +1253,184 @@ EXPORT int lmhead_bwd_fused(const float* logits, const int* ids, const float* wt
     free(tmp);
     return 0;
 }
+
+/* ---------------- YEU CAU #2 UU TIEN A (2026-10-26): simd_gemm_full --------
+ * MOT lan goi tron BUILD tile + GEMM + ACC trong DLL (spec M4-M7 request #2
+ * Uu tien A): .tkv khong con vong while quanh GEMM. Truoc day wrapper
+ * `_smm_core` mat 76-89% FULL cho BUILD+ACC+ALLOC vi ghi list interpreted
+ * (spec §2.1) - GEMM kernel da parity nen root cause la dieu phoi .tkv.
+ *
+ * Layout (giong wrapper hien tai - simd_matmul.tkv::_smm_core/_tile_*_w):
+ *   a [m][k] row-major (stride k)
+ *   b [k][ndim] neu trans_b = 0 (ndim = n); [n][ndim] neu trans_b = 1
+ *     (ndim = k) - stride row LUON la `ndim` (doc giong _tile_b_w)
+ *   c [m][n] row-major
+ *   mode 0: ghi de c (C = A x B); mode 1: tich lu (c += A x B)
+ *
+ * Numerics (contract §3.3 - dat BIT=0.0 voi wrapper):
+ *   - thu tu vong i0 -> p0 -> j0 (P0.1 cua wrapper), tile A/B build day du
+ *     T^2 (copy + zero-pad) giong _tile_a_w/_tile_b_w;
+ *   - GEMM moi tile qua DUNG `SgemmF32` (cung pool + cung shape dispatch)
+ *     nhu `simd_gemm` wrapper goi -> Ct cung bit;
+ *   - acc `cd[bc] = cd[bc] + Ct[bt]` tang dan p0 giong _acc_f; mode 0 memset
+ *     region +0.0f tai p0==0 (bit) truoc khi cong -> giong _smm_cd zero-fill.
+ *
+ * Re-entrancy (§3.1): buffer At/Bt/Ct la LOCAL moi call (khong global), GEMM
+ * tile van di qua g_gemm_lock cua pool -> 2 thread cung goi khong hang (khac
+ * g_job global truoc day khi 2 thread goi simd_gemm -> HANG > 90s). */
+static void full_tile_a(float* out, const float* d, int k, int i0, int ib,
+                        int p0, int pw, int T) {
+    /* Giong _tile_a_w: row-major T^2, A[i0+i, p0+j] khi i<ib, j<pw, con lai 0 */
+    int dst = 0;
+    for (int i = 0; i < ib; i++) {
+        const float* row = d + (long long)(i0 + i) * k + p0;
+        for (int j = 0; j < pw; j++) out[dst++] = row[j];
+        for (int j = pw; j < T; j++) out[dst++] = 0.0f;
+    }
+    for (int i = ib; i < T; i++)
+        for (int j = 0; j < T; j++) out[dst++] = 0.0f;
+}
+
+static void full_tile_b(float* out, const float* d, int ndim, int p0, int pw,
+                        int r0, int br, int T, int trans_b) {
+    /* Giong _tile_b_w: hang = chi so giam (p), cot = chi so dau ra (r);
+     * trans_b=0 doc HANG [p0+i][r0+j], trans_b=1 doc DOC [r0+j][p0+i]. */
+    int dst = 0;
+    for (int i = 0; i < pw; i++) {
+        if (trans_b) {
+            for (int j = 0; j < br; j++)
+                out[dst++] = d[(long long)(r0 + j) * ndim + (p0 + i)];
+        } else {
+            const float* row = d + (long long)(p0 + i) * ndim + r0;
+            for (int j = 0; j < br; j++) out[dst++] = row[j];
+        }
+        for (int j = br; j < T; j++) out[dst++] = 0.0f;
+    }
+    for (int i = pw; i < T; i++)
+        for (int j = 0; j < T; j++) out[dst++] = 0.0f;
+}
+
+/* Tra ve 0 = OK; am = loi ro (khong im lang):
+ * -1 tham so NULL, -2 shape am, -3 trans_b khong 0/1, -4 mode khong 0/1,
+ * -5 list qua ngan (a_len < m*k, b_len < k*ndim hoac n*ndim, c_len < m*n),
+ * -6 khong du bo nho tam, -7 T ngoai [4, 4096], -8 ndim khong khop layout. */
+EXPORT int SgemmFull(const float* a, const float* b, float* c,
+                     int a_len, int b_len, int c_len,
+                     int m, int n, int k, int ndim, int trans_b, int T, int mode) {
+    if (!a || !b || !c) return -1;
+    if (m <= 0 || n <= 0 || k <= 0 || ndim <= 0) return -2;
+    if (trans_b != 0 && trans_b != 1) return -3;
+    if (mode != 0 && mode != 1) return -4;
+    if (T < 4 || T > 4096) return -7;
+    long long need_a = (long long)m * k;
+    long long need_c = (long long)m * n;
+    long long need_b;
+    if (trans_b == 0) {
+        if (ndim < n) return -8;
+        need_b = (long long)k * ndim;      /* max idx (k-1)*ndim + (n-1) */
+    } else {
+        if (ndim < k) return -8;
+        need_b = (long long)n * ndim;      /* max idx (n-1)*ndim + (k-1) */
+    }
+    if ((long long)a_len < need_a || (long long)b_len < need_b || (long long)c_len < need_c)
+        return -5;
+
+    long long tsq = (long long)T * (long long)T;
+    float* At = (float*)malloc((size_t)tsq * sizeof(float));
+    float* Bt = (float*)malloc((size_t)tsq * sizeof(float));
+    float* Ct = (float*)malloc((size_t)tsq * sizeof(float));
+    if (!At || !Bt || !Ct) { free(At); free(Bt); free(Ct); return -6; }
+
+    for (int i0 = 0; i0 < m; i0 += T) {
+        int ib = m - i0; if (ib > T) ib = T;
+        for (int p0 = 0; p0 < k; p0 += T) {
+            int pw = k - p0; if (pw > T) pw = T;
+            full_tile_a(At, a, k, i0, ib, p0, pw, T);
+            for (int j0 = 0; j0 < n; j0 += T) {
+                int jb = n - j0; if (jb > T) jb = T;
+                full_tile_b(Bt, b, ndim, p0, pw, j0, jb, T, trans_b);
+                /* Ct = At x Bt, GHI DE - dung dung SgemmF32 nhu `simd_gemm`
+                 * wrapper (pool + shape dispatch cung -> Ct cung bit) */
+                SgemmF32(At, Bt, Ct, T);
+                if (mode == 0 && p0 == 0) {
+                    /* Ghi de: region = +0.0f (memset bit) truoc khi cong -
+                     * tuong duong _smm_cd zero-fill truoc khi _acc_f, de
+                     * `cd = cd + Ct` bit-giong wrapper (khong dung `= Ct`
+                     * vi do doi -0.0f thanh +0.0f/khac corner case). */
+                    for (int r = 0; r < ib; r++)
+                        memset(c + (long long)(i0 + r) * n + j0, 0,
+                               (size_t)jb * sizeof(float));
+                }
+                /* _acc_f: cd[(i0+r)*n + (j0+c)] += Ct[r*T+c], tang dan p0 */
+                for (int r = 0; r < ib; r++) {
+                    float* cd = c + (long long)(i0 + r) * n + j0;
+                    const float* ct = Ct + (long long)r * T;
+                    for (int cc = 0; cc < jb; cc++)
+                        cd[cc] = cd[cc] + ct[cc];
+                }
+            }
+        }
+    }
+    free(At); free(Bt); free(Ct);
+    return 0;
+}
+
+/* ---------------- YEU CAU #3 UU TIEN A (2026-10-26): native data plane -----
+ * 3 kernel doc/ghi TRUC TIEP mang nen `_items` cua `list[f32]` (Tensor.data)
+ * - khong ToArray, khong boxing, khong container moi (spec M4-M7 request #3).
+ * Moi entry MOT diem (§3.1), cac kernel nay 1 luong (memory-bound/ptu).
+ * Dien tu copy-back interpreted 844 ms/step + 2 vong dense BWD 1202 ms (§2.1-
+ * §2.2 cua don). Buffer/i64 (p, m, van dung cac entry M5 cu: f32_copy_to_buf,
+ * adamw_step...).
+ */
+
+/* f32_list_copy(dst, dst_len, src, src_len, n) -> i32
+ * dst[i] = src[i] voi i = 0..n-1 (memcpy - BIT-EXACT, ghi de het phan con lai
+ * cua dst). Tra ve 0 = OK; -1 tham so sai (con tro NULL, n < 0, dst hoac src
+ * NGAN hon n). n == 0 la nop (0). Wrapper .tkv kiem len truoc va nem
+ * ArgumentException de nguoi dung thay loi ro - day chi la lat phong cuoi. */
+EXPORT int F32ListCopy(float* dst, int dst_len, const float* src, int src_len, int n) {
+    if (!dst || !src || n < 0 || dst_len < n || src_len < n) return -1;
+    if (n == 0) return 0;
+    memcpy(dst, src, (size_t)n * sizeof(float));
+    return 0;
+}
+
+/* f32_list_add(dst, dst_len, src, src_len, n) -> i32
+ * dst[i] += src[i] voi i = 0..n-1 - tich lu 1 pass, thay 2 vong dense
+ * interpreted `a[k] = a[k] + b[k]` (38.6M ptu, 1202 ms/step - spec §2.1).
+ * Elementwise fp32 KHONG co giam tong -> khong phai thu tu cong: AVX2 cung
+ * bit voi interpreted (moi ptu 1 phep cong f32). Tra ve 0 = OK; -1 loi. */
+EXPORT int F32ListAdd(float* dst, int dst_len, const float* src, int src_len, int n) {
+    if (!dst || !src || n < 0 || dst_len < n || src_len < n) return -1;
+    if (n == 0) return 0;
+    int i = 0;
+    for (; i + 8 <= n; i += 8) {
+        __m256 vd = _mm256_loadu_ps(dst + i);
+        __m256 vs = _mm256_loadu_ps(src + i);
+        _mm256_storeu_ps(dst + i, _mm256_add_ps(vd, vs));
+    }
+    for (; i < n; i++) dst[i] = dst[i] + src[i];
+    return 0;
+}
+
+/* f32_grad_norm(g, g_len, n) -> f64: sqrt(sum g[i]^2), 1 pass (spec §2.3 -
+ * thay cho vong interpreted doc 124M phan tu ~390 ms/step).
+ *
+ * HOP DONG SO LIEU (de doc khi doi chieu voi phien interpreted):
+ *   - binh phuong TREN FLOAT32: `float p = g[i]*g[i]` - giong phep toan
+ *     `s = s + g[i]*g[i]` (f32*f32 -> f32, roi mo rong len f64) cua .tkv;
+ *   - tich luy f64 TUAN TU i = 0..n-1 (KHONG gom lai, KHONG song song) -
+ *     cung thu tu voi phien interpreted (parity §2.3 yeu cau chinh xac);
+ *   - sqrt tren f64, tra f64.
+ * Vong for thuan so (khong AVX2): giam tong khong duoc phep reassociate -
+ * chinh thu tu tinh la han che parity. Doc 4B/ptu nen van memory-bound. */
+EXPORT double F32GradNorm(const float* g, int g_len, int n) {
+    if (!g || n < 0 || g_len < n) return -1.0;
+    double acc = 0.0;
+    for (int i = 0; i < n; i++) {
+        float p = g[i] * g[i];   /* binh phuong fp32 - khop `g[i]*g[i]` .tkv */
+        acc += (double)p;        /* tich luy f64 tuan tu */
+    }
+    return sqrt(acc);
+}

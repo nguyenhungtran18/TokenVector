@@ -1,0 +1,11 @@
+# EXPECT-SUBSTRING: f32_grad_norm chi ho tro f32
+# -*- coding: utf-8 -*-
+# `f32_grad_norm` doc list[f32] (Tensor.data) - phan tu f64 khong co y nghia
+# voi kernel AVX2/f32 va hop dong so lieu (binh phuong f32 + tich luy f64)
+# la rieng cho f32 -> phai TU CHOI ro luc bien dich.
+def run() -> "i32":
+    g: "list[f64]" = []
+    g.append(1.0)
+    g.append(2.0)
+    n = f32_grad_norm(g, 2)
+    return int(n)

@@ -1,0 +1,11 @@
+# EXPECT-SUBSTRING: f32_list_copy(dst, src, n) can dung 3 tham so
+# -*- coding: utf-8 -*-
+# `f32_list_copy` nhan dung 3 tham so (dst, src, n) - thieu/du phai TU CHOI
+# ngay luc bien dich (khong dich xong roi moi lech stack IL).
+def run() -> "i32":
+    a: "list[f32]" = []
+    a.append(1.0)
+    b: "list[f32]" = []
+    b.append(2.0)
+    r = f32_list_copy(a, b)
+    return int(r)

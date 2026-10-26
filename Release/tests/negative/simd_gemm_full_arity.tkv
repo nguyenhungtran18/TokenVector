@@ -1,0 +1,23 @@
+# EXPECT-SUBSTRING: can dung 10 tham so
+# -*- coding: utf-8 -*-
+# `simd_gemm_full` nhan dung 10 tham so (a, b, c, m, n, k, ndim, trans_b, T,
+# mode) - thieu/du 1 tham so phai TU CHOI ngay luc bien dich, khong dich xong
+# roi moi lech stack IL.
+def run() -> "i32":
+    a: "list[f32]" = []
+    a.append(1.0)
+    a.append(2.0)
+    a.append(3.0)
+    a.append(4.0)
+    b: "list[f32]" = []
+    b.append(1.0)
+    b.append(2.0)
+    b.append(3.0)
+    b.append(4.0)
+    c: "list[f32]" = []
+    c.append(0.0)
+    c.append(0.0)
+    c.append(0.0)
+    c.append(0.0)
+    h = simd_gemm_full(a, b, c, 2, 2, 2, 2, 0, 8)
+    return int(h)

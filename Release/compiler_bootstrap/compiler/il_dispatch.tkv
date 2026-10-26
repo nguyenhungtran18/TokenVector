@@ -825,6 +825,10 @@ class WalkCtx:
     # (2026-10-12) tap ten bien cuc bo duoc chung minh nam trong int64,
     # khai bao native i64 thay vi TkvInt (xem int_narrow.tkv).
     narrow_names: "set[str]"
+    # (2026-10-26, BUG C1/C2) tap ten HANG SO CAP MODULE ma chinh ham nay
+    # gan lai -> phai khai local MOI (shadow) chu khong dung rang buoc const
+    # idx=-1 (xem il_codegen._fp_declare_scalar/_khai_local).
+    shadow_ok: "set[str]"
 
     # Ham: arity DA TRU tham so `reg` ma `_partial` gan san.
     declare_named: "func(str, TkvTypeAnn)->void"
@@ -837,7 +841,7 @@ class WalkCtx:
     cell_class_name: "func(str)->str"
 
     @__tkv_cpython_only__
-    def __init__(self, reg=None, body_dtype=None, source_path=None, final_pass=0, defer=None, sig=None, infer_scope=None, void_call_ok=None, infer_dtype=None, declare_named=None, declare_array=None, declare_scalar=None, collect_ternary_temps=None, walk_fn=None, infer_literal_dtype=None, contains_float_literal=None, cell_class_name=None, narrow_names=None):
+    def __init__(self, reg=None, body_dtype=None, source_path=None, final_pass=0, defer=None, sig=None, infer_scope=None, void_call_ok=None, infer_dtype=None, declare_named=None, declare_array=None, declare_scalar=None, collect_ternary_temps=None, walk_fn=None, infer_literal_dtype=None, contains_float_literal=None, cell_class_name=None, narrow_names=None, shadow_ok=None):
         """KHOP .ctor tu sinh cua transpiler: 17 truong vo huong theo thu
         tu khai bao, 15 container khoi tao RONG. Dung `tao_walk_ctx(...)`,
         dung goi thang. Xem `tao_ctx` o tren de biet vi sao."""
@@ -860,6 +864,7 @@ class WalkCtx:
         self.contains_float_literal = contains_float_literal
         self.cell_class_name = cell_class_name
         self.narrow_names = narrow_names or set()
+        self.shadow_ok = shadow_ok or set()
         self.func_table = {}
         self.declared_names = set()
         self.boxed_names = set()
@@ -1310,7 +1315,8 @@ def tao_walk_ctx(                 reg: "Registry"=None,
                  locals_decl: "list[(str,TypeAnn)]"=None,
                  needs_epilogue: "list[i32]"=None,
                  bien_mod: "dict[str,str]"=None,
-                 narrow_names: "set[str]"=None) -> "WalkCtx":
+                 narrow_names: "set[str]"=None,
+                 shadow_ok: "set[str]"=None) -> "WalkCtx":
     """Dung `WalkCtx` bang tham so co ten - thay cho `WalkCtx({...})`.
 
     Cung ly do va cung khuon voi `tao_ctx` (xem docstring cua no).
@@ -1350,6 +1356,8 @@ def tao_walk_ctx(                 reg: "Registry"=None,
         c.bien_mod = bien_mod
     if narrow_names is not None:
         c.narrow_names = narrow_names
+    if shadow_ok is not None:
+        c.shadow_ok = shadow_ok
     return c
 
 

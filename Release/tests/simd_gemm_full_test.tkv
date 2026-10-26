@@ -1,0 +1,311 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO `simd_gemm_full` (YEU CAU #2 UU TIEN A, 2026-10-26).
+
+Mot lan goi tron BUILD tile + GEMM + ACC trong DLL (native `SgemmFull`) -
+`.tkv` khong con vong while quanh GEMM. Wrapper reference trong test nay la
+ban sao thu smaller cua `_smm_core` tiled (simd_matmul.tkv cua repo Inference):
+vong i0 -> p0 -> j0, tile A/B build day du T^2 (copy + zero-pad), `simd_gemm`
+ghi de Ct, `_acc` tich lu cd += Ct tang dan p0.
+
+Acceptance (spec M4-M7 request #2 §5): A/B voi wrapper - BIT = 0.0 (moi
+phan tu khac 0.0 = loi) cho ca mode 0 (ghi de) va mode 1 (tich lu), ca
+trans_b = 0 va trans_b = 1, co tail (ib/pw/jb < T).
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def _zeros(n: "i64") -> "list[f32]":
+    out: "list[f32]" = []
+    i = 0
+    while i < n:
+        out.append(0.0)
+        i = i + 1
+    return out
+
+
+def _imin(a: "i64", b: "i64") -> "i64":
+    if a < b:
+        return a
+    return b
+
+
+def _fill(a: "list[f32]", seed: "i32") -> "i32":
+    """Gia tri deterministic - bội của 1/16 (f32 chinh xac) trong [-1.5625, 1.5625]."""
+    i = 0
+    n = len(a)
+    while i < n:
+        a[i] = f32(((i * 7 + seed) % 51) * 0.0625 - 1.5625)
+        i = i + 1
+    return 0
+
+
+# ---- wrapper reference (copy 1-1 logic _tile_a_w/_tile_b_w/_acc_f) ---------
+def _tile_a(out: "list[f32]", d: "list[f32]", kdim: "i64", i0: "i64",
+            ib: "i64", p0: "i64", pw: "i64", T: "i64") -> "i64":
+    z = 0.0
+    i = 0
+    dst = 0
+    j = 0
+    src = i0 * kdim + p0
+    while i < ib:
+        j = 0
+        while j < pw:
+            out[dst] = d[src + j]
+            dst = dst + 1
+            j = j + 1
+        while j < T:
+            out[dst] = z
+            dst = dst + 1
+            j = j + 1
+        src = src + kdim
+        i = i + 1
+    while i < T:
+        j = 0
+        while j < T:
+            out[dst] = z
+            dst = dst + 1
+            j = j + 1
+        i = i + 1
+    return 0
+
+
+def _tile_b(out: "list[f32]", d: "list[f32]", ndim: "i64", p0: "i64",
+            pw: "i64", r0: "i64", br: "i64", T: "i64", trans_b: "i32") -> "i64":
+    z = 0.0
+    i = 0
+    dst = 0
+    j = 0
+    while i < pw:
+        if trans_b == 1:
+            j = 0
+            while j < br:
+                out[dst] = d[(r0 + j) * ndim + (p0 + i)]
+                dst = dst + 1
+                j = j + 1
+        else:
+            row = (p0 + i) * ndim + r0
+            j = 0
+            while j < br:
+                out[dst] = d[row + j]
+                dst = dst + 1
+                j = j + 1
+        while j < T:
+            out[dst] = z
+            dst = dst + 1
+            j = j + 1
+        i = i + 1
+    while i < T:
+        j = 0
+        while j < T:
+            out[dst] = z
+            dst = dst + 1
+            j = j + 1
+        i = i + 1
+    return 0
+
+
+def _acc(cd: "list[f32]", Ct: "list[f32]", n: "i64", i0: "i64",
+         ib: "i64", j0: "i64", jb: "i64", T: "i64") -> "i64":
+    r = 0
+    c = 0
+    while r < ib:
+        bc = i0 * n + j0 + r * n
+        bt = r * T
+        c = 0
+        while c < jb:
+            cd[bc] = cd[bc] + Ct[bt]
+            bc = bc + 1
+            bt = bt + 1
+            c = c + 1
+        r = r + 1
+    return 0
+
+
+def _ref_smm(a: "list[f32]", b: "list[f32]", c: "list[f32]", m: "i64", n: "i64",
+             k: "i64", ndim: "i64", trans_b: "i32", T: "i64", mode: "i32") -> "i64":
+    At = _zeros(T * T)
+    Bt = _zeros(T * T)
+    Ct = _zeros(T * T)
+    if mode == 0:
+        i = 0
+        while i < m * n:
+            c[i] = 0.0
+            i = i + 1
+    i0 = 0
+    while i0 < m:
+        ib = _imin(T, m - i0)
+        p0 = 0
+        while p0 < k:
+            pw = _imin(T, k - p0)
+            rva = _tile_a(At, a, k, i0, ib, p0, pw, T)
+            j0 = 0
+            while j0 < n:
+                jb = _imin(T, n - j0)
+                rvb = _tile_b(Bt, b, ndim, p0, pw, j0, jb, T, trans_b)
+                rv1 = simd_gemm(At, Bt, Ct, T)
+                rvc = _acc(c, Ct, n, i0, ib, j0, jb, T)
+                j0 = j0 + jb
+            p0 = p0 + pw
+        i0 = i0 + ib
+    return 0
+
+
+def _mdiff(x: "list[f32]", y: "list[f32]", tot: "i64") -> "f32":
+    worst: "f32" = 0.0
+    i = 0
+    while i < tot:
+        d = x[i] - y[i]
+        if d < 0.0:
+            d = -d
+        if d > worst:
+            worst = d
+        i = i + 1
+    return worst
+
+
+def _bang(a: "list[f32]", seed: "i32", n: "i64") -> "list[f32]":
+    out = _zeros(n)
+    r = _fill(out, seed)
+    return out
+
+
+# ---- cac case --------------------------------------------------------------
+def case_mode0_tb0() -> "i32":
+    """Ghi de, B luu [k][n] - 20x20x20 T=8 (day du tail 4/4/4)."""
+    total = 0
+    tested = 0
+    m = 20
+    n = 20
+    k = 20
+    T = 8
+    a = _bang(0, 3, m * k)
+    b = _bang(0, 11, k * n)
+    c_ref = _zeros(m * n)
+    c_new = _zeros(m * n)
+    # day 999 truoc: mode 0 phai ghi de THAT (khong phai van giu gia tri cu)
+    i = 0
+    while i < m * n:
+        c_new[i] = 999.0
+        i = i + 1
+    r1 = _ref_smm(a, b, c_ref, m, n, k, n, 0, T, 0)
+    r2 = simd_gemm_full(a, b, c_new, m, n, k, n, 0, T, 0)
+    md = _mdiff(c_ref, c_new, m * n)
+    total += check("mode0_tb0_bit", str(md), "0.0")
+    tested += 1
+    total += check("mode0_overwrite", str(c_new[0] == 999.0), "False")
+    tested += 1
+    return total
+
+
+def case_mode0_tb1() -> "i32":
+    """trans_b=1: B luu [n][k] (ndim=k), doc doc theo _tile_b."""
+    total = 0
+    tested = 0
+    m = 12
+    n = 20
+    k = 16
+    T = 8
+    a = _bang(0, 5, m * k)
+    b = _bang(0, 13, n * k)
+    c_ref = _zeros(m * n)
+    c_new = _zeros(m * n)
+    r1 = _ref_smm(a, b, c_ref, m, n, k, k, 1, T, 0)
+    r2 = simd_gemm_full(a, b, c_new, m, n, k, k, 1, T, 0)
+    md = _mdiff(c_ref, c_new, m * n)
+    total += check("mode0_tb1_bit", str(md), "0.0")
+    tested += 1
+    return total
+
+
+def case_mode1_tb0() -> "i32":
+    """Tich lu: c += A*B tren c co san (khong zero truoc)."""
+    total = 0
+    tested = 0
+    m = 17
+    n = 13
+    k = 9
+    T = 4
+    a = _bang(0, 7, m * k)
+    b = _bang(0, 17, k * n)
+    c_ref = _bang(0, 23, m * n)
+    c_new = _bang(0, 23, m * n)
+    r1 = _ref_smm(a, b, c_ref, m, n, k, n, 0, T, 1)
+    r2 = simd_gemm_full(a, b, c_new, m, n, k, n, 0, T, 1)
+    md = _mdiff(c_ref, c_new, m * n)
+    total += check("mode1_tb0_bit", str(md), "0.0")
+    tested += 1
+    return total
+
+
+def case_mode1_tb1_rect() -> "i32":
+    """Mode 1 + trans_b=1 + rect (m=12 n=33 k=17 T=16 - tail moi chieu)."""
+    total = 0
+    tested = 0
+    m = 12
+    n = 33
+    k = 17
+    T = 16
+    a = _bang(0, 19, m * k)
+    b = _bang(0, 29, n * k)
+    c_ref = _bang(0, 31, m * n)
+    c_new = _bang(0, 31, m * n)
+    r1 = _ref_smm(a, b, c_ref, m, n, k, k, 1, T, 1)
+    r2 = simd_gemm_full(a, b, c_new, m, n, k, k, 1, T, 1)
+    md = _mdiff(c_ref, c_new, m * n)
+    total += check("mode1_tb1_rect_bit", str(md), "0.0")
+    tested += 1
+    return total
+
+
+def case_rect_wide() -> "i32":
+    """Rect lon hon 40x12x9 T=16 (T > min(m,n) - i-tail/p-tail)."""
+    total = 0
+    tested = 0
+    m = 40
+    n = 12
+    k = 9
+    T = 16
+    a = _bang(0, 41, m * k)
+    b = _bang(0, 43, k * n)
+    c_ref = _zeros(m * n)
+    c_new = _zeros(m * n)
+    r1 = _ref_smm(a, b, c_ref, m, n, k, n, 0, T, 0)
+    r2 = simd_gemm_full(a, b, c_new, m, n, k, n, 0, T, 0)
+    md = _mdiff(c_ref, c_new, m * n)
+    total += check("rect_wide_bit", str(md), "0.0")
+    tested += 1
+    return total
+
+
+def case_edge_small() -> "i32":
+    """Edge: m=n=1, k=7 < T=4*2 - toi thieu 1 ptu moi chieu."""
+    total = 0
+    tested = 0
+    m = 1
+    n = 1
+    k = 7
+    T = 4
+    a = _bang(0, 3, m * k)
+    b = _bang(0, 4, k * n)
+    c_ref = _zeros(m * n)
+    c_new = _zeros(m * n)
+    r1 = _ref_smm(a, b, c_ref, m, n, k, n, 0, T, 0)
+    r2 = simd_gemm_full(a, b, c_new, m, n, k, n, 0, T, 0)
+    md = _mdiff(c_ref, c_new, m * n)
+    total += check("edge_1x1_bit", str(md), "0.0")
+    tested += 1
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+    total += case_mode0_tb0()
+    total += case_mode0_tb1()
+    total += case_mode1_tb0()
+    total += case_mode1_tb1_rect()
+    total += case_rect_wide()
+    total += case_edge_small()
+    # 2 + 1 + 1 + 1 + 1 + 1 = 7
+    return test_summary("simd_gemm_full_test", total, 7)

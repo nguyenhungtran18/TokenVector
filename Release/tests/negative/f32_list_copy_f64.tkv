@@ -1,0 +1,12 @@
+# EXPECT-SUBSTRING: f32_list_copy chi ho tro f32
+# -*- coding: utf-8 -*-
+# Kernel native F32ListCopy chi doc float (memcpy float) - list[f64] phai bi
+# TU CHOI ro ngay luc bien dich (cung triet ly simd_gemm_packed_i32.tkv): doc
+# double nhu float se ra so sai hoac AV, khong duoc dich im lang.
+def run() -> "i32":
+    a: "list[f64]" = []
+    a.append(1.0)
+    b: "list[f64]" = []
+    b.append(2.0)
+    r = f32_list_copy(a, b, 1)
+    return int(r)

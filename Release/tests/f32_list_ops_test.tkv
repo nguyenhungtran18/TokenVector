@@ -1,0 +1,270 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO YEU CAU #3 UU TIEN A (2026-10-26 - native data plane):
+
+  f32_list_copy(dst, src, n)                 -> i32  dst[i] = src[i]
+  f32_list_add(dst, src, n)                  -> i32  dst[i] += src[i]
+  f32_grad_norm(g, n)                        -> f64  sqrt(sum g^2)
+  adamw_step_glm(p, m, v, g, n, lr, ...)     -> i32  g la list[f32] (bo vong r1)
+
+Bai nay kiem (reference tinh toan SCALAR trong test):
+  1. copy: BIT-EXACT + chi ghi vung [0, n) + n=0 la nop + n vuot do dai PHAI nem.
+  2. add : dst += src dung vung, bit voi `dst[i] + src[i]` interpreted + nem.
+  3. grad_norm: binh phuong f32 + tich luy f64 tuan tu (giong `s + g[i]*g[i]`
+     cua tv/training/trainer.tkv) -> PHAI BIT-EXACT, cong truc 3-4-5 dung.
+  4. adamw_step_glm: cung cong thuc GĐ10 nhu adamw_step -> 2 duong PHAI giong
+     het tung bit (chi khac cach lay g: list _items vs buffer).
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def _mk(n: "i32", seed: "i32") -> "list[f32]":
+    """list[f32] deterministic (khong qua append default -> khong loi dtype)."""
+    out: "list[f32]" = []
+    i = 0
+    while i < n:
+        out.append(float(((i + seed) % 11) - 5) * 0.017)
+        i = i + 1
+    return out
+
+
+def test_copy() -> "i32":
+    """f32_list_copy: bit-exact, vung [0, n), n=0 nop, vuot do dai -> nem."""
+    total = 0
+    n: "i32" = 33
+    src = _mk(n, 1)
+    dst: "list[f32]" = []
+    i = 0
+    while i < n:
+        dst.append(-999.0)
+        i = i + 1
+    r = f32_list_copy(dst, src, n)
+    total += check("copy_status_0", str(r), "0")
+    bad = 0
+    i = 0
+    while i < n:
+        if dst[i] != src[i]:
+            bad = bad + 1
+        i = i + 1
+    total += check("copy_bit_exact", str(bad), "0")
+
+    # copy THAN: n < len(dst) -> chi ghi n dau, con lai giu nguyen
+    src2 = _mk(10, 2)
+    dst2: "list[f32]" = []
+    i = 0
+    while i < 10:
+        dst2.append(7.0)
+        i = i + 1
+    r2 = f32_list_copy(dst2, src2, 4)
+    total += check("copy_nho_status", str(r2), "0")
+    ok = 1
+    i = 0
+    while i < 10:
+        if i < 4:
+            if dst2[i] != src2[i]:
+                ok = 0
+        else:
+            if dst2[i] != 7.0:
+                ok = 0
+        i = i + 1
+    total += check("copy_nho_dung_vung", str(ok), "1")
+
+    # n = 0 -> nop, khong doi gi
+    r3 = f32_list_copy(dst2, src2, 0)
+    total += check("copy_n0_tra_0", str(r3), "0")
+
+    # n vuot qua do dai dst -> PHAI nem (hop dong loi ro, spec §5)
+    ok4 = 0
+    try:
+        f32_list_copy(dst2, src2, 99)
+        ok4 = 0
+    except Exception as e:
+        ok4 = 1
+    total += check("copy_dst_qua_dai_nem", str(ok4), "1")
+
+    # src qua ngan hon n -> PHAI nem
+    short = _mk(2, 3)
+    ok5 = 0
+    try:
+        f32_list_copy(dst2, short, 10)
+        ok5 = 0
+    except Exception as e:
+        ok5 = 1
+    total += check("copy_src_qua_ngan_nem", str(ok5), "1")
+    return total
+
+
+def test_add() -> "i32":
+    """f32_list_add: dst[i] += src[i] dung vung [0, n), vuot do dai -> nem."""
+    total = 0
+    n: "i32" = 40
+    dst = _mk(n, 4)
+    src = _mk(n, 5)
+    ref: "list[f32]" = []
+    i = 0
+    while i < n:
+        ref.append(dst[i])
+        i = i + 1
+    r = f32_list_add(dst, src, n)
+    total += check("add_status_0", str(r), "0")
+    bad = 0
+    i = 0
+    while i < n:
+        if dst[i] != ref[i] + src[i]:
+            bad = bad + 1
+        i = i + 1
+    total += check("add_bit_exact", str(bad), "0")
+
+    # tich lu THAN: chi [0, 3), con lai giu nguyen
+    a0 = _mk(8, 1)
+    b0 = _mk(8, 2)
+    orig0: "list[f32]" = []
+    exp0: "list[f32]" = []
+    i = 0
+    while i < 8:
+        orig0.append(a0[i])
+        exp0.append(a0[i] + b0[i])
+        i = i + 1
+    rr = f32_list_add(a0, b0, 3)
+    total += check("add_nho_status", str(rr), "0")
+    ok = 1
+    i = 0
+    while i < 8:
+        if i < 3:
+            if a0[i] != exp0[i]:
+                ok = 0
+        else:
+            if a0[i] != orig0[i]:
+                ok = 0
+        i = i + 1
+    total += check("add_nho_dung_vung", str(ok), "1")
+
+    # n vuot qua do dai -> PHAI nem
+    ok2 = 0
+    try:
+        f32_list_add(a0, b0, 1000)
+        ok2 = 0
+    except Exception as e:
+        ok2 = 1
+    total += check("add_qua_dai_nem", str(ok2), "1")
+    return total
+
+
+def test_grad_norm() -> "i32":
+    """f32_grad_norm: cong truc 3-4-5 + BIT voi reference `s + g[i]*g[i]`."""
+    total = 0
+    k: "list[f32]" = []
+    k.append(3.0)
+    k.append(4.0)
+    gotk = f32_grad_norm(k, 2)
+    total += check("grad_norm_345", str(gotk), "5.0")
+
+    n: "i32" = 65
+    g = _mk(n, 7)
+    s: "f64" = 0.0
+    i = 0
+    while i < n:
+        s = s + g[i] * g[i]
+        i = i + 1
+    ref = sqrt(s)
+    got = f32_grad_norm(g, n)
+    d = got - ref
+    if d < 0.0:
+        d = -d
+    total += check("grad_norm_bit_exact(d=" + str(d) + ")", str(int(d == 0.0)), "1")
+
+    got0 = f32_grad_norm(g, 0)
+    total += check("grad_norm_n0_tra_0", str(got0), "0.0")
+
+    # n vuot qua do dai -> PHAI nem
+    ok = 0
+    try:
+        f32_grad_norm(g, n + 10)
+        ok = 0
+    except Exception as e:
+        ok = 1
+    total += check("grad_norm_qua_dai_nem", str(ok), "1")
+    return total
+
+
+def _glm_case(n: "i32", seed: "i32") -> "i32":
+    """2 duong AdamW cung init: adamw_step_glm (g list) vs adamw_step (g buf)."""
+    total = 0
+    pG = alloc_bytes(n * 4)
+    mG = alloc_bytes(n * 4)
+    vG = alloc_bytes(n * 4)
+    pB = alloc_bytes(n * 4)
+    mB = alloc_bytes(n * 4)
+    vB = alloc_bytes(n * 4)
+    gbuf = alloc_bytes(n * 4)
+    wGp = f32buf_wrap(pG, n)
+    wGm = f32buf_wrap(mG, n)
+    wGv = f32buf_wrap(vG, n)
+    wBp = f32buf_wrap(pB, n)
+    wBm = f32buf_wrap(mB, n)
+    wBv = f32buf_wrap(vB, n)
+    wgb = f32buf_wrap(gbuf, n)
+    gl: "list[f32]" = []
+    i = 0
+    while i < n:
+        vp = float(((i + seed) % 7) - 3) * 0.1
+        vm = float(((i + seed) % 5) - 2) * 0.05
+        vv = float(((i + seed) % 3) + 1) * 0.25
+        vg = float(((i + seed) % 11) - 5) * 0.02
+        wGp[i] = vp
+        wBp[i] = vp
+        wGm[i] = vm
+        wBm[i] = vm
+        wGv[i] = vv
+        wBv[i] = vv
+        wgb[i] = vg
+        gl.append(vg)
+        i = i + 1
+
+    lr: "f32" = 3.0e-4
+    b1: "f32" = 0.9
+    b2: "f32" = 0.999
+    eps: "f32" = 1.0e-8
+    wd: "f32" = 0.01
+    bc1s: "f32" = 0.1
+    bc2s: "f32" = 0.031
+    st1 = adamw_step_glm(pG, mG, vG, gl, n, lr, b1, b2, eps, wd, bc1s, bc2s)
+    st2 = adamw_step(pB, mB, vB, gbuf, n, lr, b1, b2, eps, wd, bc1s, bc2s)
+    total += check("glm_status_n" + str(n), str(st1), "0")
+    total += check("buf_status_n" + str(n), str(st2), "0")
+    badp = 0
+    badm = 0
+    badv = 0
+    i = 0
+    while i < n:
+        if wGp[i] != wBp[i]:
+            badp = badp + 1
+        if wGm[i] != wBm[i]:
+            badm = badm + 1
+        if wGv[i] != wBv[i]:
+            badv = badv + 1
+        i = i + 1
+    total += check("glm_p_bit_n" + str(n), str(badp), "0")
+    total += check("glm_m_bit_n" + str(n), str(badm), "0")
+    total += check("glm_v_bit_n" + str(n), str(badv), "0")
+
+    # g qua ngan hon n -> PHAI nem
+    ok = 0
+    try:
+        adamw_step_glm(pG, mG, vG, gl, n + 5, lr, b1, b2, eps, wd, bc1s, bc2s)
+        ok = 0
+    except Exception as e:
+        ok = 1
+    total += check("glm_g_qua_ngan_nem_n" + str(n), str(ok), "1")
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += test_copy()
+    total += test_add()
+    total += test_grad_norm()
+    total += _glm_case(64, 0)
+    total += _glm_case(37, 3)
+    # 7 + 5 + 4 + 6 + 6 = 28
+    return test_summary("f32_list_ops_test", total, 28)

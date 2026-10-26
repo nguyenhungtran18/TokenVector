@@ -1,0 +1,67 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO 2 BUG COMPILER (COMPILER_TEAM_REQUEST3 §4 - C1 va C2).
+
+CAI GOC GIONG NHAU: local gan lai mot TEN HANG SO CAP MODULE (hang so cua chuong
+trinh HOAC cua module `import` vao). Truoc 2026-10-26 binding van la
+kind='const' co idx = -1 -> `_store_var` sinh `stloc.s -1`: ilasm van assemble
+duoc, nhung CLR nem
+
+    System.InvalidProgramException: Common Language Runtime detected an invalid
+    program. at TKVApp.main()
+
+ma tkvc van in `[tkvc] da dich` (KHONG bao loi tai luc bien dich).
+
+  C1: `import tv.training.gpt2_ref` roi khai local `MaxPos = 1024` (ten global
+      cua module import) -> chay lai doi ten local (`MaxPosN`) thi dung.
+  C2: `f32_zero(p, 1024)` gan vao local trung ten hang so, trong `while` ->
+      xoa dong do la chay (khong con store nao).
+
+SUA (2026-10-26): first-pass khai local MOI (Python shadow) cho ten hang so bi
+gan lai trong ham; neu con duoc gap const o luc store thi BAO LOI compile ro
+thay vi sinh exe hong.
+"""
+
+MaxPos = 1024
+z = 0
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def read_const() -> "i32":
+    """Ham KHONG gan lai -> van doc duoc hang so cap module (khong bi shadow)."""
+    return MaxPos
+
+
+def run() -> "i32":
+    total = 0
+    tested = 0
+
+    # C1: local AT ten hang so cap module (mau bao cao: MaxPos = 1024)
+    MaxPos = 7
+    tested += 1
+    total += check("shadow_local", str(MaxPos), "7")
+
+    # hang so van thay duoc o ham KHAC (khong bi anh huong boi shadow)
+    tested += 1
+    total += check("const_ngoai_ham", str(read_const()), "1024")
+
+    # C2: gan lai ten hang so ngay trong while, gan ket qua f32_zero
+    # (mau bao cao: `z = f32_zero(p, 1024)` trong loop -> InvalidProgramException)
+    p = alloc_bytes(64)
+    q = 0
+    while q < 3:
+        z = f32_zero(p, 16)
+        q = q + 1
+    tested += 1
+    total += check("shadow_in_loop", str(q), "3")
+    tested += 1
+    total += check("shadow_in_loop_gia_tri", str(z), "0")
+
+    # gan lai TRONG if (cung la gan ma first-pass phai thay)
+    c = 1
+    if c > 0:
+        MaxPos = 9
+    tested += 1
+    total += check("shadow_trong_if", str(MaxPos), "9")
+
+    return test_summary("bug_const_shadow_test", total, tested)

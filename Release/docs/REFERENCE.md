@@ -383,12 +383,17 @@ số/trả về của nó chỉ suy được từ một `TypeAnn` "mục tiêu" 
 | `simd_gemm_packed_create` | `simd_gemm_packed_create(src, rows, cols, stride, T, trans)` | **M4** — prepack ma trận **một lần** / step, trả `i64` handle. `src` là `list[f32]` **hoặc `list[f64]`** (M4 ABI f64, SPEC §6 — Tensor production là `List[Double]`; bản f64 convert double→float **ngay trong pack**, không qua interpreted convert), `rows×cols` với `stride` là bề rộng hàng của nguồn; `T` là cỡ tile, `trans=1` để pack bản **transpose** (layout `W[n][k]`). Native copy + pad về `T`, zero-fill phần thiếu, do DLL quản lý. handle 0/thông số sai → ném lỗi rõ. |
 | `simd_gemm_packed` | `simd_gemm_packed(hA, hB, C, T)` | **M4** — chạy tile từ 2 handle đã pack: `C = A × B`. `C` là `list[f32]` **hoặc `list[f64]`** (ghi trực tiếp `_items`, không copy; bản f64 compute f32 rồi widen 1 lần cuối → **bit-giong** đường f32), `T` phải khớp cả 2 handle, `A.cols == B.rows`, `len(C) ≥ m×n`. Trả `0` = OK; sai → **ném `ArgumentException` rõ ràng** (handle sai/đã free, `T` không khớp, sai inner dim, `C` quá ngắn). |
 | `simd_gemm_packed_free` | `simd_gemm_packed_free(h)` | **M4** — giải phóng handle pack, trả `0` (gọi được dạng câu lệnh). Mẫu C: không GC, `free` một lần; handle `i64` gán ở top-level hàm (GĐ8). |
+| `simd_gemm_full` | `simd_gemm_full(a, b, c, m, n, k, ndim, trans_b, T, mode)` | **Yêu cầu #2 Ưu tiên A (2026-10-26)** — một gọi trọn **BUILD tile + GEMM + ACC** trong DLL: `mode=0` ghi đè `c = A×B`, `mode=1` tích lũy `c += A×B`; `.tkv` không còn vòng `while` quanh GEMM. `a`, `b`, `c` là `list[f32]` (`Tensor.data`), layout giống `_smm_core`: `a [m][k]`; `b [k][ndim]` nếu `trans_b=0` (`ndim = n`), `[n][ndim]` nếu `trans_b=1` (`ndim = k`); `c [m][n]`. `T` là cỡ tile (production truyền `256`). Native tự build tile A/B (copy + zero-pad `T²`, kể cả nhánh `trans_b`), gọi đúng kernel `simd_gemm` hiện có cho từng tile rồi acc theo thứ tự `i0 → p0 → j0` → **bit-giong** wrapper `_smm_core` (contract §3.3, test `tests/simd_gemm_full_test.tkv` 7/7). Re-entrancy: buffer theo-call, GEMM đi qua pool lock → 2 thread gọi không treo (§3.1). Sai/thiếu list, shape, `trans`/`mode`, `T` → **ném `ArgumentException` rõ** (rc native `-1..-8`); chỉ nhận `list[f32]` (f64 dùng `simd_gemm_packed_*`). Không đổi export cũ. |
 | `f32_zero` | `f32_zero(p, n)` | **M5** — memset 0 buffer native (`zero_grad`): `p` là `i64` (từ `alloc_bytes(n*4)`/`f32buf_wrap`), `n` là số phần tử `f32`. Trả `i64` `0` (gọi được dạng câu lệnh). |
 | `f32_copy_to_buf` | `f32_copy_to_buf(src, p, n)` | **M5** — memcpy `src` (`list[f32]`) → buffer native `p` (đọc thẳng `_items`, không ToArray trung gian). Trả `i64` = số phần tử đã chép; `src` ngắn hơn `n` → ném `ArgumentException`. |
 | `f32_copy_from_buf` | `f32_copy_from_buf(p, dst, n)` | **M5** — memcpy buffer native `p` → `dst` (`list[f32]`, ghi thẳng `_items`). Trả `i64` = số phần tử; `dst` ngắn hơn `n` → ném `ArgumentException`. |
 | `f32_addcmul` | `f32_addcmul(dst, x, y, scale, n)` | **M5** — `dst += scale*x*y` fused (1 pass, AVX2+FMA); cả 4 là buffer native `i64` (`dst`/`x`/`y`) + `scale` `f32`. Trả `i32` `0`=OK, `-1` tham số sai. |
 | `adamw_step` | `adamw_step(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s)` | **M5** — fused AdamW per-element đúng công thức GĐ10: `m←b1*m+(1-b1)*g`; `v←b2*v+(1-b2)*g^2`; `p←p - lr*(m*bc2s)/(sqrt(v)+eps*bc2s) - lr*wd*p`. fp32, 1 chia/ptần tử, `sqrt` chính xác (không rsqrt), thứ tự cố định. Trả `i32` `0`=OK. `bc1s/bc2s` truyền vào để team Inference giữ nguyên định nghĩa bias-correction. |
 | `lmhead_bwd_fused` | `lmhead_bwd_fused(logits, ids, wte, xf, dxf, dwte, B, S, E, V, scale)` | **M6** — fused cross-entropy backward + lm-head grad: softmax-grad (fp32, max-sub) → nhân `scale` → `dxf = dlogits @ wte` → tích lũy `dwte += dlogits^T @ xf`. 6 buffer native `i64` (không list), `ids` buffer `i32`, 4 shape `i32` (`B,S,E,V`; `T=B*S`, row-major), `scale` `f32` = **1/n theo hợp đồng (p − onehot)/n của GĐ10** (SPEC §6 — truyền `1.0/T`). `dxf` ghi đè, `dwte` tích lũy (gọi zero trước). Trả `i32` `0`=OK, `-1` tham số sai, `-6` không đủ bộ nhớ tạm. **v2 blocked/threaded (2026-10-25):** 5 pha trên thread pool + GEMM blocked — softmax song song theo `t` → `dxf = dl @ wte` (`run_rect_shaped`, **dùng chung dispatch M7 với M4**) → transpose `dl` theo ô 64 cột → `tmp = dlT @ xf` → `dwte += tmp` (AVX2); scratch tạm peak ~412 MB với shape thật. **Perf đo thật** (`tests/lmhead_bwd_fused_perf.tkv`, T=1024/V=50257/E=768): v1 naive single-thread 38.6-38.8 s (4.07 GFLOP/s, memory-bound) → **v2 = 1.40-1.51 s** (~113 GFLOP/s; ~27× v1, ~5× nhanh hơn path cũ 7.28 s). |
+| `f32_list_copy` | `f32_list_copy(dst, src, n)` | **Yêu cầu #3 Ưu tiên A (2026-10-26)** — `dst[i] = src[i]` (`i = 0..n-1`) bằng memcpy **bit-giong**, đọc/ghi thẳng `_items` của 2 `list[f32]` (không ToArray/boxing) — thay vòng interpreted ghi từng phần tử (copy-back `gpt2_unflatten` 844 ms/step, đơn §2.2). Chỉ ghi vùng `[0, n)`, phần còn lại của `dst` giữ nguyên; `n = 0` là nop. Trả `i32` `0`=OK; `dst` hoặc `src` ngắn hơn `n` (đếm theo **`Count`**, không phải capacity) → ném `ArgumentException` rõ. Chỉ nhận `list[f32]` — `list[f64]`/mảng handle/biểu thức bị **từ chối lúc dịch**. |
+| `f32_list_add` | `f32_list_add(dst, src, n)` | **Yêu cầu #3 Ưu tiên A** — `dst[i] += src[i]` (`i = 0..n-1`), tích lũy 1 pass native AVX2 — thay 2 vòng dense interpreted `a[k] = a[k] + b[k]` 38.6M phần tử (1202 ms = 24% BWD, đơn §2.1). Elementwise fp32 không gộp tổng → không đổi thứ tự cộng, **bit-giong** phiên interpreted. Trả `i32` `0`=OK; list ngắn hơn `n` → ném `ArgumentException` rõ. Chỉ nhận `list[f32]`. |
+| `f32_grad_norm` | `f32_grad_norm(g, n)` | **Yêu cầu #3 Ưu tiên A** — `sqrt(Σ g[i]²)` 1 pass native, thay vòng interpreted đọc 124M phần tử (~390 ms/step, đơn §2.3). **Hợp đồng số liệu (parity §2.3):** bình phương **trên float32** (giống `s = s + g[i]*g[i]` với `s: f64` của `.tkv`), tích lũy **f64 tuần tự `i = 0..n-1`** — không gộp lại, không song song — nên cùng thứ tự với phiên interpreted; `sqrt` trên f64; trả `f64`. `n = 0` → `0.0`; `g` ngắn hơn `n` → ném `ArgumentException` rõ. Test `tests/f32_list_ops_test.tkv` **bit-exact (`d=0.0`)** với reference scalar. ⚠ Phù hợp parity với `_norm_groups`/`_norm_mlp` (nhóm) chỉ khi cộng theo đúng nhóm — xem biên bản trả lời #3 §3. |
+| `adamw_step_glm` | `adamw_step_glm(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s)` | **Yêu cầu #3 §2.4** — cùng entry native `AdamwStepF32` và công thức GĐ10 như `adamw_step`, nhưng **`g` là `list[f32]`** đọc thẳng `_items` → **bỏ vòng r1 `f32_copy_to_buf`** (78–94 ms/bước) ở nhánh `coef == 1.0`. `p`/`m`/`v` vẫn là buffer native `i64`. `g` ngắn hơn `n` (theo `Count`) → ném `ArgumentException` rõ; chỉ nhận `list[f32]` cho `g`. Khi `coef != 1.0` (clip hoạt động) vẫn dùng `f32_addcmul` + `adamw_step` như cũ. |
 
 > **M7 — shape-class dispatch (env `TKV_GEMM_DISPATCH`, không thêm builtin — SPEC §6 ask 3).** `simd_gemm` và `simd_gemm_packed` phân lớp `(m,n,k)` ngay trong native:
 >
@@ -1186,31 +1191,32 @@ compiler - ghi de lam hong ca buoc bien dich.
 **DUNDER CUA RECORD (0)**
 
 
-**HAM BUILTIN (GOI DUOC TRUC TIEP) (181)**
+**HAM BUILTIN (GOI DUOC TRUC TIEP) (186)**
 
-`__tkv_lap` `adamw_step` `alloc_bytes` `ascii` `atan2` `atomic_add` `atomic_inc` `base64_decode`
-`base64_encode` `bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `c_puts` `callable`
-`choice` `chr` `cjson_delete` `cjson_get_obj` `cjson_get_str` `cjson_parse` `complex` `cpu_count`
-`ctypes_call` `ctypes_cdll` `date_make` `date_today` `datetime` `datetime_add` `datetime_diff` `datetime_fromisoformat`
-`datetime_make` `datetime_strptime` `datetime_sub` `datetime_ticks` `db_close` `delattr` `dict` `dir`
-`eval_arith` `eval_code` `exec_code` `f32` `f32_addcmul` `f32_copy_from_buf` `f32_copy_to_buf` `f32_zero`
-`f32buf_len` `f32buf_ptr` `f32x4` `factorial` `file_exists` `float` `fmt_float` `fmt_spec`
-`format` `free_bytes` `gc_allocated_bytes` `gc_collect` `gc_counts` `getattr` `hasattr` `hash`
-`hex` `http_delete` `http_get` `http_post` `http_post_type` `http_put` `hypot` `id`
-`int` `int64` `isinstance` `issubclass` `iter` `list` `lmhead_bwd_fused` `lock_acquire`
-`lock_release` `math_degrees` `math_e` `math_gcd` `math_isinf` `math_isnan` `math_log2` `math_pi`
-`math_radians` `md5_hex` `next` `now_ms` `now_us` `oct` `ord` `os_getenv`
-`os_list_files` `os_mkdir` `os_remove` `parallel_for` `path_abspath` `path_basename` `path_dirname` `path_exists`
-`path_isdir` `path_isfile` `path_join` `path_name` `path_normpath` `path_parent` `path_read_text` `path_stem`
-`path_suffix` `path_write_text` `pow` `proc_ra` `proc_run` `py_dict_new` `py_tuple_new` `randint`
-`random` `random_randint` `randrange` `re_fullmatch` `re_match` `re_replace` `re_search` `re_split`
-`re_sub` `read_ansi` `read_f32` `read_file` `read_i32` `read_i64` `read_u8` `repr`
-`reversed` `set` `setattr` `sha256_hex` `simd_add` `simd_axpy` `simd_dot` `simd_gemm`
-`simd_gemm_packed` `simd_gemm_packed_create` `simd_gemm_packed_free` `simd_hw` `simd_isa` `simd_lanes_f32` `simd_lanes_f64` `simd_max`
-`simd_min` `simd_mul` `simd_scale` `simd_sub` `simd_sum` `slice_step` `str` `str_maketrans`
-`sys_argv` `thread_id` `thread_join` `thread_sleep` `thread_spawn` `time_perf` `time_sleep` `time_time`
-`timedelta_make` `type` `uniform` `v_hsum4` `v_load4` `v_store4` `vtable_cell` `write_f32`
-`write_i32` `write_i64` `write_u8` `xml_encode_name` `zip_extract`
+`__tkv_lap` `adamw_step` `adamw_step_glm` `alloc_bytes` `ascii` `atan2` `atomic_add` `atomic_inc`
+`base64_decode` `base64_encode` `bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `c_puts`
+`callable` `choice` `chr` `cjson_delete` `cjson_get_obj` `cjson_get_str` `cjson_parse` `complex`
+`cpu_count` `ctypes_call` `ctypes_cdll` `date_make` `date_today` `datetime` `datetime_add` `datetime_diff`
+`datetime_fromisoformat` `datetime_make` `datetime_strptime` `datetime_sub` `datetime_ticks` `db_close` `delattr` `dict`
+`dir` `eval_arith` `eval_code` `exec_code` `f32` `f32_addcmul` `f32_copy_from_buf` `f32_copy_to_buf`
+`f32_grad_norm` `f32_list_add` `f32_list_copy` `f32_zero` `f32buf_len` `f32buf_ptr` `f32x4` `factorial`
+`file_exists` `float` `fmt_float` `fmt_spec` `format` `free_bytes` `gc_allocated_bytes` `gc_collect`
+`gc_counts` `getattr` `hasattr` `hash` `hex` `http_delete` `http_get` `http_post`
+`http_post_type` `http_put` `hypot` `id` `int` `int64` `isinstance` `issubclass`
+`iter` `list` `lmhead_bwd_fused` `lock_acquire` `lock_release` `math_degrees` `math_e` `math_gcd`
+`math_isinf` `math_isnan` `math_log2` `math_pi` `math_radians` `md5_hex` `next` `now_ms`
+`now_us` `oct` `ord` `os_getenv` `os_list_files` `os_mkdir` `os_remove` `parallel_for`
+`path_abspath` `path_basename` `path_dirname` `path_exists` `path_isdir` `path_isfile` `path_join` `path_name`
+`path_normpath` `path_parent` `path_read_text` `path_stem` `path_suffix` `path_write_text` `pow` `proc_ra`
+`proc_run` `py_dict_new` `py_tuple_new` `randint` `random` `random_randint` `randrange` `re_fullmatch`
+`re_match` `re_replace` `re_search` `re_split` `re_sub` `read_ansi` `read_f32` `read_file`
+`read_i32` `read_i64` `read_u8` `repr` `reversed` `set` `setattr` `sha256_hex`
+`simd_add` `simd_axpy` `simd_dot` `simd_gemm` `simd_gemm_full` `simd_gemm_packed` `simd_gemm_packed_create` `simd_gemm_packed_free`
+`simd_hw` `simd_isa` `simd_lanes_f32` `simd_lanes_f64` `simd_max` `simd_min` `simd_mul` `simd_scale`
+`simd_sub` `simd_sum` `slice_step` `str` `str_maketrans` `sys_argv` `thread_id` `thread_join`
+`thread_sleep` `thread_spawn` `time_perf` `time_sleep` `time_time` `timedelta_make` `type` `uniform`
+`v_hsum4` `v_load4` `v_store4` `vtable_cell` `write_f32` `write_i32` `write_i64` `write_u8`
+`xml_encode_name` `zip_extract`
 
 **KIEU CAU LENH (SINH IL) (69)**
 
@@ -1253,7 +1259,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 `str.join` `str.ljust` `str.match` `str.rjust` `str.rsplit` `str.search` `str.split` `str.splitlines`
 `str.sub` `str.title` `str.translate` `str.zfill` `timedelta.total_seconds` `tuple.count` `tuple.index`
 
-**Tong so ten da dang ky: 440**
+**Tong so ten da dang ky: 445**
 
 ### File trong `compiler_bootstrap/compiler/il_features/`
 
@@ -1287,7 +1293,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `f32_builtin.tkv` | 4824 |
 | `f32buf_type.tkv` | 14620 |
 | `ffi_feature.tkv` | 4089 |
-| `file_io.tkv` | 19351 |
+| `file_io.tkv` | 19437 |
 | `float_builtin.tkv` | 2767 |
 | `for_in_kvlist.tkv` | 11848 |
 | `fstring.tkv` | 11586 |
@@ -1321,7 +1327,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `set_methods_batch2.tkv` | 10306 |
 | `set_to_list.tkv` | 3291 |
 | `set_type.tkv` | 18201 |
-| `simd_feature.tkv` | 70312 |
+| `simd_feature.tkv` | 90476 |
 | `slicing.tkv` | 17880 |
 | `stdlib_aggregates.tkv` | 43929 |
 | `stdlib_base64.tkv` | 3892 |

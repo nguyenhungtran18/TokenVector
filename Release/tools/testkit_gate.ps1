@@ -45,6 +45,13 @@ if (-not (Test-Path $Compiler)) {
 # generated .exe files behind.
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
+# NATIVE DLL (2026-10-26): exe test chay tu $OutDir (thu muc temp) - P/Invoke
+# `tkv_simd_native.dll` tim thu muc CHUA EXE truoc -> phai copy sang day,
+# khong thi DllNotFoundException khi chay `simd_gemm_full_test` (test chay
+# native dau tien trong gate; truoc do moi test chi chay managed/IL).
+$nativeDll = Join-Path $code "runtime\tkv_simd_native.dll"
+if (Test-Path $nativeDll) { Copy-Item $nativeDll $OutDir -Force }
+
 $tests = Get-ChildItem (Join-Path $code "tests") -Filter "*_test.tkv" | Sort-Object Name
 Write-Output "compiler : $Compiler"
 Write-Output "tests    : $($tests.Count)"
