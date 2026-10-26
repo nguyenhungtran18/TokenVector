@@ -1,0 +1,51 @@
+compiler : D:\TokenVector\Release\dist\tkvc-tv.exe
+tests    : 130
+
+compiler : D:\TokenVector\Release\dist\tkvc-tv.exe
+CLI      : TU HOST (vi tri) - doc loi qua stdout, exit code khong dung duoc
+=== IL ASSERTIONS (2 checks) ===
+  ok    p6_vectorize_test.tkv
+  ok    index_store_narrow_test.tkv
+
+=== NEGATIVE TESTS (36 file phai bi tu choi) ===
+  ok    abs_complex.tkv (bi tu choi dung ly do)
+  ok    agg_bad_kwarg_name.tkv (bi tu choi dung ly do)
+  ok    agg_key_signature.tkv (bi tu choi dung ly do)
+  ok    break_in_try_finally.tkv (bi tu choi dung ly do)
+  ok    cond_mixed_types.tkv (bi tu choi dung ly do)
+  ok    datetime_args.tkv (bi tu choi dung ly do)
+  ok    del_on_string.tkv (bi tu choi dung ly do)
+  ok    del_variable.tkv (bi tu choi dung ly do)
+  ok    delattr_not_supported.tkv (bi tu choi dung ly do)
+  ok    f32_addcmul_on_list.tkv (bi tu choi dung ly do)
+  ok    f32_arity.tkv (bi tu choi dung ly do)
+  ok    f32_on_list.tkv (bi tu choi dung ly do)
+  ok    f32buf_free_on_list.tkv (bi tu choi dung ly do)
+  ok    f32buf_two_indices.tkv (bi tu choi dung ly do)
+  ok    for_tuple_pairs_var.tkv (bi tu choi dung ly do)
+  ok    fstring_bad_spec.tkv (bi tu choi dung ly do)
+  ok    generator_return_no_gen_ret.tkv (bi tu choi dung ly do)
+  ok    getattr_missing_field.tkv (bi tu choi dung ly do)
+  ok    iter_in_expression.tkv (bi tu choi dung ly do)
+  ok    iter_on_tuple.tkv (bi tu choi dung ly do)
+  ok    lmhead_bwd_fused_on_list.tkv (bi tu choi dung ly do)
+  ok    module_var_without_global.tkv (bi tu choi dung ly do)
+  ok    next_default_wrong_dtype.tkv (bi tu choi dung ly do)
+  ok    next_on_non_iterator.tkv (bi tu choi dung ly do)
+  ok    reassign_int_str.tkv (bi tu choi dung ly do)
+  ok    record_container_uninit.tkv (bi tu choi dung ly do)
+  ok    simd_gemm_packed_i32.tkv (bi tu choi dung ly do)
+  ok    sorted_reverse_non_bool.tkv (bi tu choi dung ly do)
+  ok    star_args_dynamic_src.tkv (bi tu choi dung ly do)
+  ok    star_kwargs_duplicate.tkv (bi tu choi dung ly do)
+  ok    star_kwargs_dynamic_src.tkv (bi tu choi dung ly do)
+  ok    star_kwargs_list_src.tkv (bi tu choi dung ly do)
+  ok    star_kwargs_unknown_key.tkv (bi tu choi dung ly do)
+  ok    str_tuple.tkv (bi tu choi dung ly do)
+  ok    tuple_empty_call.tkv (bi tu choi dung ly do)
+  ok    yield_from_bad_source.tkv (bi tu choi dung ly do)
+
+=== SUMMARY (out of 130 tests) ===
+PASS=130  BUILDFAIL=0    TESTFAIL=0    OTHER=0 TIMEOUT=0 ILFAIL=0 NEG=36/36
+
+GATE: PASS (130/130, negative 36/36)

@@ -1,0 +1,113 @@
+# -*- coding: utf-8 -*-
+"""f32(x) - ep gia tri ve kieu f32 - THEM 2026-10-25 de ho tro f32 native
+(YEU CAU 1.1 cua spec M4-M7: .tkv dung f32 thay f64 de giam wrapper overhead).
+
+Ho tro (doi xung voi `float(x)`/`int(x)`, xem float_builtin.tkv):
+- f32      -> f32: khong sinh lenh nao (gia tri da tren stack).
+- f64      -> f32: 'conv.r4' (narrow float).
+- i32/i64  -> f32: 'conv.i4'/'conv.i8' -> 'conv.r4'.
+- int      -> f32: TkvInt::ToF64 (struct TkvInt - conv truc tiep la SAI/GC).
+- str      -> f32: TkvStr::ParseF64 + 'conv.r4' (InvariantCulture + nhan
+  'inf'/'-inf'/'nan' - khong dung Single.Parse vi .NET khong doc duoc 'inf').
+- bool/khac -> bien dich nhu kieu goc roi 'conv.r4'.
+
+Luu y ve IDENTITY: `f32(x)` voi x da la f32 van PHAI compile doi so truoc -
+gia tri phai duoc day len stack, khong the return rong (do la bug cua ban nhap
+dau tien, 2026-10-25).
+"""
+from il_dispatch import register_expr_builtin
+from il_features.tkvstr import ensure_class
+from il_features.int_type import ensure_class_int
+from expr_row import ea_str, ekind
+
+__tkv_import__ = "il_dispatch"
+
+# Node container: ep `conv.r4` len mot object reference la IL HONG ma ilasm
+# van chap nhan (JIT khong verify) -> gia tri rac im lang. Chan ngay o luc
+# bien dich (cung triet ly `f32_addcmul_on_list.tkv` cua M5).
+_KIEU_CONTAINER: "set[str]" = {'list_literal', 'dict_lit', 'dict_rong',
+                                'set_lit', 'tuple_lit', 'tuple', 'dict'}
+
+
+def _la_container(node: "TkvNode", scope: "Scope") -> "i32":
+    """True neu doi so la container (list/dict/set/tuple/f32buf/record).
+
+    `_infer_dtype` bo qua shape va chi tra dtype PHAN TU, nen `f32(xs)` voi
+    xs: list[f64] suy ra 'f64' - phai doc truc tiep TypeAnn nhu `_la_list`
+    trong simd_feature.tkv."""
+    k = ekind(node)
+    if k in _KIEU_CONTAINER:
+        return 1
+    if k != 'var':
+        return 0
+    try:
+        ta = scope.tra(ea_str(node)).ta
+    except Exception:
+        return 0
+    # `shape_ten` rong "" = vo huong (xem TypeAnn.__init__); mang co dinh
+    # (`dims`) cung la container - ca hai deu khong ep `conv.r4` duoc.
+    if ta.shape_ten != "":
+        return 1
+    return 1 if ta.dims and len(ta.dims) > 0 else 0
+
+
+def push_f32_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """push_f32_builtin: bien dich doi so thanh f32. Tra ve f32."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: f32() chi nhan dung 1 tham so")
+    if _la_container(args[0], scope) == 1:
+        raise SyntaxError("il_codegen: f32() chi nhan SO VO HUONG " +
+                          "(f32/f64/i32/i64/int/str/bool), khong nhan container")
+    src = ctx.infer_dtype(args[0], scope, ctx.func_table, ctx.records,
+                          ctx.record_methods, None)
+    if src == 'f32':
+        # Identity - gia tri f32 da dung kieu, nhung van PHAI compile de
+        # day gia tri len stack (khong co gi tren stack neu return o day).
+        ctx.compile_expr(args[0], scope, out, 'f32', ctx)
+        return
+    if src == 'f64':
+        ctx.compile_expr(args[0], scope, out, 'f64', ctx)
+        out.append('    conv.r4')
+        return
+    if src in ('i32', 'i64'):
+        ctx.compile_expr(args[0], scope, out, src, ctx)
+        if src == 'i32':
+            out.append('    conv.i4')
+        else:
+            out.append('    conv.i8')
+        out.append('    conv.r4')
+        return
+    if src == 'int':
+        # 'int' la struct TkvInt - conv.r4 truc tiep tren struct sinh rac
+        # (cung bug da gap voi float(i)), phai di qua TkvInt::ToF64.
+        ensure_class_int(ctx)
+        ctx.compile_expr(args[0], scope, out, 'int', ctx)
+        out.append('    call float64 TkvInt::ToF64(valuetype TkvInt)')
+        out.append('    conv.r4')
+        return
+    if src == 'str':
+        # ParseF64 (khong phai Single.Parse): invariant culture + doc duoc
+        # 'inf'/'-inf'/'nan', doi xung voi float(str).
+        ensure_class(ctx)
+        ctx.compile_expr(args[0], scope, out, 'str', ctx)
+        out.append('    call float64 TkvStr::ParseF64(string)')
+        out.append('    conv.r4')
+        return
+    if src is None:
+        # Khong suy duoc kieu - bien dich sang f64 de _compile_expr bao loi
+        # ro rang neu that su khong hop le.
+        ctx.compile_expr(args[0], scope, out, 'f64', ctx)
+        out.append('    conv.r4')
+        return
+    # Cac kieu con lai (bool/...): bien dich nhu kieu goc roi ep f32.
+    ctx.compile_expr(args[0], scope, out, src, ctx)
+    out.append('    conv.r4')
+
+
+def bootstrap_f32_builtin(reg: "Registry"):
+    """Dang ky cua module nay - P6: KHONG chay luc import.
+
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
+    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
+    """
+    register_expr_builtin(reg, 'f32', push_f32_builtin, 'f32')

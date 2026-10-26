@@ -110,6 +110,7 @@
 | `int` | `int(x)` | Chuỗi → `i32`. Chuỗi ngoài `int32` **ném `OverflowException`** — dùng `int64()` cho số lớn. |
 | `int64` | `int64(x)` | Bản 64-bit riêng: `str` → `i64` (nhận `"2147483648"` mà `int()` ném lỗi). Thay cho cách cũ "ép `int()` thành 64-bit". |
 | `float` | `float(x)` | Chuỗi/số nguyên → `f64`. |
+| `f32` | `f32(x)` | Ép về **`f32`** — đối xứng `float(x)` (Yêu cầu 1.1 spec M4–M7: `.tkv` dùng `f32` thay `list[f64]` để bỏ wrapper BUILD+ACC+ALLOC). Nhận `f32` (identity, vẫn đẩy đối số lên stack) · `f64` → `conv.r4` · `i32`/`i64` → `conv.i4`/`conv.i8` + `conv.r4` · `int` (TkvInt) qua `TkvInt::ToF64` · `str` qua `TkvStr::ParseF64` (culture bất biến, nhận `"inf"`/`"nan"`) · `bool` → `conv.r4`. **Không nhận container** — `f32(list)` bị từ chối lúc biên dịch (negative test `f32_on_list.tkv`), vì `_infer_dtype` chỉ trả dtype phần tử nên phải đọc `TypeAnn` trực tiếp. Biến `x: "f32" = 1.0` và mọi phép toán trên nó đã chạy hoàn toàn trên `float32` (`ldc.r4`/`conv.r4`, không qua `f64`). |
 | `bool` | `bool(x)` | Trả `0`/`1` như Python. **Chỉ hỗ trợ biến số hoặc chuỗi literal** (giá trị xác định lúc biên dịch) — vì vậy hãy dùng `x != 0`. |
 | `chr` | `chr(n)` | Mã → ký tự 1 chữ. |
 | `ord` | `ord(s)` | Ký tự → mã. |
@@ -1175,51 +1176,53 @@ compiler - ghi de lam hong ca buoc bien dich.
 `pass` `raise` `return` `set_add` `set_discard` `set_remove` `try` `tuple_assign`
 `while` `with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
 
-**DANG PHAI PHAI CUA PHE GAN (26)**
+**DANG PHAI PHAI CUA PHE GAN (27)**
 
 `base64_decode` `base64_encode` `bytearray_new` `bytes_literal` `bytes_new` `datetime` `dict_new` `f32buf_new`
-`frozenset_new` `iter_call` `list_call` `list_count` `list_literal` `list_repeat` `list_slice` `md5_hex`
-`open_call` `os_getenv` `os_list_files` `os_mkdir` `repeat_str` `set_new` `sha256_hex` `shutil_rmtree`
-`tuple_call` `win_gui`
+`f32buf_wrap` `frozenset_new` `iter_call` `list_call` `list_count` `list_literal` `list_repeat` `list_slice`
+`md5_hex` `open_call` `os_getenv` `os_list_files` `os_mkdir` `repeat_str` `set_new` `sha256_hex`
+`shutil_rmtree` `tuple_call` `win_gui`
 
 **DUNDER CUA RECORD (0)**
 
 
-**HAM BUILTIN (GOI DUOC TRUC TIEP) (163)**
+**HAM BUILTIN (GOI DUOC TRUC TIEP) (181)**
 
-`__tkv_lap` `alloc_bytes` `ascii` `atan2` `atomic_add` `atomic_inc` `base64_decode` `base64_encode`
-`bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `c_puts` `callable` `choice`
-`chr` `cjson_delete` `cjson_get_obj` `cjson_get_str` `cjson_parse` `complex` `cpu_count` `ctypes_call`
-`ctypes_cdll` `date_make` `date_today` `datetime` `datetime_add` `datetime_diff` `datetime_fromisoformat` `datetime_make`
-`datetime_strptime` `datetime_sub` `datetime_ticks` `db_close` `delattr` `dict` `dir` `eval_arith`
-`eval_code` `exec_code` `f32x4` `factorial` `file_exists` `float` `fmt_float` `fmt_spec`
-`format` `free_bytes` `getattr` `hasattr` `hash` `hex` `http_delete` `http_get`
-`http_post` `http_post_type` `http_put` `hypot` `id` `int` `int64` `isinstance`
-`issubclass` `iter` `list` `lock_acquire` `lock_release` `math_degrees` `math_e` `math_gcd`
-`math_isinf` `math_isnan` `math_log2` `math_pi` `math_radians` `md5_hex` `next` `oct`
-`ord` `os_getenv` `os_list_files` `os_mkdir` `os_remove` `parallel_for` `path_abspath` `path_basename`
-`path_dirname` `path_exists` `path_isdir` `path_isfile` `path_join` `path_name` `path_normpath` `path_parent`
-`path_read_text` `path_stem` `path_suffix` `path_write_text` `pow` `proc_ra` `proc_run` `py_dict_new`
-`py_tuple_new` `randint` `random` `random_randint` `randrange` `re_fullmatch` `re_match` `re_replace`
-`re_search` `re_split` `re_sub` `read_ansi` `read_f32` `read_file` `read_i32` `read_i64`
-`read_u8` `repr` `reversed` `set` `setattr` `sha256_hex` `simd_add` `simd_axpy`
-`simd_dot` `simd_hw` `simd_isa` `simd_lanes_f32` `simd_lanes_f64` `simd_max` `simd_min` `simd_mul`
-`simd_scale` `simd_sub` `simd_sum` `slice_step` `str` `str_maketrans` `sys_argv` `thread_id`
-`thread_join` `thread_sleep` `thread_spawn` `time_perf` `time_sleep` `time_time` `timedelta_make` `type`
-`uniform` `v_hsum4` `v_load4` `v_store4` `vtable_cell` `write_f32` `write_i32` `write_i64`
-`write_u8` `xml_encode_name` `zip_extract`
+`__tkv_lap` `adamw_step` `alloc_bytes` `ascii` `atan2` `atomic_add` `atomic_inc` `base64_decode`
+`base64_encode` `bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `c_puts` `callable`
+`choice` `chr` `cjson_delete` `cjson_get_obj` `cjson_get_str` `cjson_parse` `complex` `cpu_count`
+`ctypes_call` `ctypes_cdll` `date_make` `date_today` `datetime` `datetime_add` `datetime_diff` `datetime_fromisoformat`
+`datetime_make` `datetime_strptime` `datetime_sub` `datetime_ticks` `db_close` `delattr` `dict` `dir`
+`eval_arith` `eval_code` `exec_code` `f32` `f32_addcmul` `f32_copy_from_buf` `f32_copy_to_buf` `f32_zero`
+`f32buf_len` `f32buf_ptr` `f32x4` `factorial` `file_exists` `float` `fmt_float` `fmt_spec`
+`format` `free_bytes` `gc_allocated_bytes` `gc_collect` `gc_counts` `getattr` `hasattr` `hash`
+`hex` `http_delete` `http_get` `http_post` `http_post_type` `http_put` `hypot` `id`
+`int` `int64` `isinstance` `issubclass` `iter` `list` `lmhead_bwd_fused` `lock_acquire`
+`lock_release` `math_degrees` `math_e` `math_gcd` `math_isinf` `math_isnan` `math_log2` `math_pi`
+`math_radians` `md5_hex` `next` `now_ms` `now_us` `oct` `ord` `os_getenv`
+`os_list_files` `os_mkdir` `os_remove` `parallel_for` `path_abspath` `path_basename` `path_dirname` `path_exists`
+`path_isdir` `path_isfile` `path_join` `path_name` `path_normpath` `path_parent` `path_read_text` `path_stem`
+`path_suffix` `path_write_text` `pow` `proc_ra` `proc_run` `py_dict_new` `py_tuple_new` `randint`
+`random` `random_randint` `randrange` `re_fullmatch` `re_match` `re_replace` `re_search` `re_split`
+`re_sub` `read_ansi` `read_f32` `read_file` `read_i32` `read_i64` `read_u8` `repr`
+`reversed` `set` `setattr` `sha256_hex` `simd_add` `simd_axpy` `simd_dot` `simd_gemm`
+`simd_gemm_packed` `simd_gemm_packed_create` `simd_gemm_packed_free` `simd_hw` `simd_isa` `simd_lanes_f32` `simd_lanes_f64` `simd_max`
+`simd_min` `simd_mul` `simd_scale` `simd_sub` `simd_sum` `slice_step` `str` `str_maketrans`
+`sys_argv` `thread_id` `thread_join` `thread_sleep` `thread_spawn` `time_perf` `time_sleep` `time_time`
+`timedelta_make` `type` `uniform` `v_hsum4` `v_load4` `v_store4` `vtable_cell` `write_f32`
+`write_i32` `write_i64` `write_u8` `xml_encode_name` `zip_extract`
 
-**KIEU CAU LENH (SINH IL) (68)**
+**KIEU CAU LENH (SINH IL) (69)**
 
 `assign_base64_decode` `assign_base64_encode` `assign_bytearray_new` `assign_bytes_literal` `assign_bytes_new` `assign_datetime_now` `assign_dict_new` `assign_f32buf_new`
-`assign_frozenset_empty` `assign_frozenset_literal` `assign_frozenset_new` `assign_iter` `assign_list_count` `assign_list_from` `assign_list_literal` `assign_list_new`
-`assign_list_repeat` `assign_list_slice` `assign_md5_hex` `assign_multi_target` `assign_open` `assign_os_getenv` `assign_os_list_files` `assign_os_mkdir`
-`assign_repeat_str` `assign_set_new` `assign_sha256_hex` `assign_shutil_rmtree` `assign_tuple_identity` `assign_win_gui` `attr_assign` `break`
-`bytearray_append` `call_stmt` `container_clear` `continue` `del_index` `f32buf_free_stmt` `for` `for_in_call_list`
-`for_in_dict_items` `for_in_generator` `for_in_iter` `if` `index_call_stmt` `list_append` `list_extend` `list_extend_expr`
-`list_insert` `list_remove` `list_reverse` `list_sort` `nested_def` `pass` `raise` `return`
-`return_tuple` `sb_append` `set_add` `set_discard` `set_remove` `try` `tuple_assign` `while`
-`with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
+`assign_f32buf_wrap` `assign_frozenset_empty` `assign_frozenset_literal` `assign_frozenset_new` `assign_iter` `assign_list_count` `assign_list_from` `assign_list_literal`
+`assign_list_new` `assign_list_repeat` `assign_list_slice` `assign_md5_hex` `assign_multi_target` `assign_open` `assign_os_getenv` `assign_os_list_files`
+`assign_os_mkdir` `assign_repeat_str` `assign_set_new` `assign_sha256_hex` `assign_shutil_rmtree` `assign_tuple_identity` `assign_win_gui` `attr_assign`
+`break` `bytearray_append` `call_stmt` `container_clear` `continue` `del_index` `f32buf_free_stmt` `for`
+`for_in_call_list` `for_in_dict_items` `for_in_generator` `for_in_iter` `if` `index_call_stmt` `list_append` `list_extend`
+`list_extend_expr` `list_insert` `list_remove` `list_reverse` `list_sort` `nested_def` `pass` `raise`
+`return` `return_tuple` `sb_append` `set_add` `set_discard` `set_remove` `try` `tuple_assign`
+`while` `with_ctx` `with_open` `yield_from_stmt` `yield_stmt`
 
 **MACRO VIET TAY (59)**
 
@@ -1250,7 +1253,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 `str.join` `str.ljust` `str.match` `str.rjust` `str.rsplit` `str.search` `str.split` `str.splitlines`
 `str.sub` `str.title` `str.translate` `str.zfill` `timedelta.total_seconds` `tuple.count` `tuple.index`
 
-**Tong so ten da dang ky: 420**
+**Tong so ten da dang ky: 440**
 
 ### File trong `compiler_bootstrap/compiler/il_features/`
 
@@ -1281,9 +1284,10 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `duck_typing.tkv` | 25628 |
 | `dynamic_exec.tkv` | 3839 |
 | `expr_hoist.tkv` | 15585 |
-| `f32buf_type.tkv` | 8886 |
+| `f32_builtin.tkv` | 4824 |
+| `f32buf_type.tkv` | 14620 |
 | `ffi_feature.tkv` | 4089 |
-| `file_io.tkv` | 18978 |
+| `file_io.tkv` | 19351 |
 | `float_builtin.tkv` | 2767 |
 | `for_in_kvlist.tkv` | 11848 |
 | `fstring.tkv` | 11586 |
@@ -1306,7 +1310,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `multi_assign.tkv` | 4710 |
 | `nativebuf.tkv` | 12877 |
 | `nested_array_extern.tkv` | 6442 |
-| `operators.tkv` | 51740 |
+| `operators.tkv` | 51008 |
 | `pickle_feature.tkv` | 4680 |
 | `print_feature.tkv` | 5703 |
 | `process_feature.tkv` | 8202 |
@@ -1317,8 +1321,8 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `set_methods_batch2.tkv` | 10306 |
 | `set_to_list.tkv` | 3291 |
 | `set_type.tkv` | 18201 |
-| `simd_feature.tkv` | 33786 |
-| `slicing.tkv` | 17277 |
+| `simd_feature.tkv` | 70312 |
+| `slicing.tkv` | 17880 |
 | `stdlib_aggregates.tkv` | 43929 |
 | `stdlib_base64.tkv` | 3892 |
 | `stdlib_bcl.tkv` | 3333 |
@@ -1347,7 +1351,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 | `stdlib_str_translate.tkv` | 6348 |
 | `stdlib_string_count.tkv` | 4573 |
 | `stdlib_string_zfill.tkv` | 5286 |
-| `stdlib_sys.tkv` | 3027 |
+| `stdlib_sys.tkv` | 5990 |
 | `stdlib_xml.tkv` | 1438 |
 | `stdlib_zipfile.tkv` | 3987 |
 | `str_accum.tkv` | 12143 |

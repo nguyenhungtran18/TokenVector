@@ -1,0 +1,10 @@
+# EXPECT-SUBSTRING: f32() chi nhan SO VO HUONG
+# -*- coding: utf-8 -*-
+# Negative test (YEU CAU 1.1): `f32(xs)` voi container khong duoc dich - ep
+# `conv.r4` len object reference tao ra IL HONG ma ilasm van chap nhan (JIT
+# khong verify) -> gia tri rac IM LANG. `_infer_dtype` chi tra dtype phan tu
+# (f64 cua list[f64]) nen phai doc TypeAnn truc tiep de chan o luc bien dich.
+def run() -> "i32":
+    a: "list[f64]" = [1.0, 2.0]
+    x = f32(a)
+    return 0
