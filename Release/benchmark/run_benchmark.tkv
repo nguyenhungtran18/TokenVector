@@ -73,29 +73,73 @@ def b_string(runs: "i32", n: "i32") -> "f64":
     return best
 
 
-def _sort(xs: "list[i64]", lo: "i32", hi: "i32") -> "i32":
+def b_string_scan(runs: "i32", n: "i32") -> "f64":
+    # Cung workload voi b_string/np_string: build + join + dem 'e' o n ky tu dau.
+    # Khac b_string: quet SIMD that qua simd_count_byte (AVX2 pcmpeqb trong
+    # tkv_simd_native.dll) tren ban sao BSTR - khong cap phat substring moi ky
+    # tu nhu s[j:j+1], khong vong doc tung byte nhu read_u8.
+    # Build dung append (giong b_string): [chunk]*n da do = 13.2ms - cham hon
+    # append 5.8ms (list-mu cua TV khong co fast path).
+    # GIOI HAN: dem tren byte LE cua UTF-16 nen chi dung duoc voi chuoi ASCII
+    # (workload 'abcdefgh' la ASCII - byte cao luon 0, byte thap = ma ky tu).
+    best: "f64" = 1.0e9
+    cs: "i32" = 0
+    i: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
+    chunk = "abcdefgh"
+    while i < runs:
+        t0 = time_perf()
+        buf = []
+        j: "i32" = 0
+        while j < n:
+            buf.append(chunk)
+            j = j + 1
+        s = "".join(buf)
+        bp = bstr_alloc(s)
+        # 2*n byte UTF-16LE: byte == 101 ('e') <=> ky tu 'e' (byte cao = 0)
+        cnt: "i64" = simd_count_byte(bp, n * 2, 101)
+        rf = bstr_free(bp)
+        cs = len(s) + int(cnt)
+        t1 = time_perf()
+        d: "f64" = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        i = i + 1
+    print("string_scan(200000)=" + str(cs) + "  best=" + str(best))
+    return best
+
+
+def _sort(xs: "list[i64]", lo: "i32", hi: "i32", tmp: "list[i64]") -> "i32":
     if hi - lo < 2:
         return 0
     mid: "i32" = (lo + hi) // 2
-    _sort(xs, lo, mid)
-    _sort(xs, mid, hi)
-    i: "i32" = lo
-    j: "i32" = mid
+    _sort(xs, lo, mid, tmp)
+    _sort(xs, mid, hi, tmp)
+    # Merge qua buffer tam. Merge tai cho loi khi k == i: ghi vao phan tu chua
+    # doc xong nen MAT phan tu - checksum truoc do 1548 la mang MAT, khong phai
+    # mang da sap. Dung buffer tao mot lan o ngoai vong lap (quy tac 2).
+    i: "i32" = 0
+    while i < hi - lo:
+        tmp[lo + i] = xs[lo + i]
+        i = i + 1
+    i = 0
+    j: "i32" = mid - lo
     k: "i32" = lo
-    while i < mid and j < hi:
-        if xs[i] <= xs[j]:
-            xs[k] = xs[i]
+    while i < mid - lo and j < hi - lo:
+        if tmp[lo + i] <= tmp[lo + j]:
+            xs[k] = tmp[lo + i]
             i = i + 1
         else:
-            xs[k] = xs[j]
+            xs[k] = tmp[lo + j]
             j = j + 1
         k = k + 1
-    while i < mid:
-        xs[k] = xs[i]
+    while i < mid - lo:
+        xs[k] = tmp[lo + i]
         i = i + 1
         k = k + 1
-    while j < hi:
-        xs[k] = xs[j]
+    while j < hi - lo:
+        xs[k] = tmp[lo + j]
         j = j + 1
         k = k + 1
     return 0
@@ -110,6 +154,11 @@ def b_sort(runs: "i32", n: "i32") -> "f64":
     best = 1.0e9
     cs = 0
     work = []
+    tmp = []
+    i = 0
+    while i < n:
+        tmp.append(src[i])
+        i = i + 1
     r = 0
     t0 = 0.0
     t1 = 0.0
@@ -119,7 +168,7 @@ def b_sort(runs: "i32", n: "i32") -> "f64":
             work.append(src[i])
             i = i + 1
         t0 = time_perf()
-        _sort(work, 0, n)
+        _sort(work, 0, n, tmp)
         t1 = time_perf()
         cs = work[0] + work[n - 1] + work[n // 2]
         i = 0
@@ -315,9 +364,9 @@ def b_f32mm_vec(runs: "i32", n: "i32") -> "f64":
     t1: "f64" = 0.0
     while rp < runs:
         t0 = time_perf()
-        i = 0
+        i: "i32" = 0
         while i < n:
-            j = 0
+            j: "i32" = 0
             while j < n:
                 acc = f32x4(0.0, 0.0, 0.0, 0.0)
                 k: "i32" = 0
@@ -342,27 +391,68 @@ def b_f32mm_vec(runs: "i32", n: "i32") -> "f64":
     return best
 
 
+def b_matmul32_simd(runs: "i32", n: "i32") -> "f64":
+    # Cung khoi viec voi b_matmul32 (i%7-3 / i%5-2, checksum = tong) de so
+    # truc tiep voi np_matmul32 va duong IL. simd_gemm = kernel native AVX2+FMA
+    # (tkv_simd_native.dll canh exe).
+    m: "i32" = n * n
+    a: "list[f64]" = []
+    b: "list[f64]" = []
+    r: "list[f64]" = []
+    i: "i32" = 0
+    while i < m:
+        a.append(float((i % 7)) - 3.0)
+        b.append(float((i % 5)) - 2.0)
+        r.append(0.0)
+        i = i + 1
+    best: "f64" = 1.0e9
+    cs: "f64" = 0.0
+    k: "i32" = 0
+    t0: "f64" = 0.0
+    t1: "f64" = 0.0
+    while k < runs:
+        t0 = time_perf()
+        simd_gemm(a, b, r, n)
+        t1 = time_perf()
+        # checksum o NGOAI vong do ( nhu b_matmul32 )
+        cs = 0.0
+        i = 0
+        while i < m:
+            cs = cs + r[i]
+            i = i + 1
+        d: "f64" = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        k = k + 1
+    print("matmul32_simd=" + str(cs) + "  best=" + str(best))
+    return best
+
+
 def main() -> "i32":
     print("=== TokenVector benchmark (tu do, khong can Python) ===")
     print("cung khoi viec voi TokenVector.TestOracle/benchmark/run.py")
     print()
     tf = b_fib(60)
     ts = b_string(3, 200000)
+    tss = b_string_scan(3, 200000)
     to = b_sort(20, 200000)
     ta = b_add(20, 262144)
     tm = b_matmul32(20, 32)
+    tg = b_matmul32_simd(100, 32)
     t32 = b_f32mm(100, 32)
     t32v = b_f32mm_vec(100, 32)
     print()
     print("=== TONG KET (ms, best-of-N) ===")
     print("fib            " + str(tf))
     print("string         " + str(ts))
+    print("string scan    " + str(tss))
     print("sort           " + str(to))
     print("add            " + str(ta))
     print("matmul32       " + str(tm))
+    print("matmul32 simd  " + str(tg))
     print("f32mm scalar   " + str(t32))
     print("f32mm vec      " + str(t32v) + "   (nhanh hon scalar " + str(t32 / t32v) + "x)")
     # Phai DUNG moi bien, neu khong JIT coi ket qua la chet
-    if tf < 0.0 or ts < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or t32 < 0.0 or t32v < 0.0:
+    if tf < 0.0 or ts < 0.0 or tss < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or tg < 0.0 or t32 < 0.0 or t32v < 0.0:
         return 1
     return 0

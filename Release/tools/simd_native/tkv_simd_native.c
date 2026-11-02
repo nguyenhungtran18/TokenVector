@@ -1434,3 +1434,31 @@ EXPORT double F32GradNorm(const float* g, int g_len, int n) {
     }
     return sqrt(acc);
 }
+
+/* CountByte(p, n, b) -> i64: dem so byte bang gia tri b trong [p, p+n).
+ * AVX2 pcmpeqb + movemask + dem bit (SWAR - khong can intrinsic popcnt),
+ * duoi scalar cho 32 byte cuoi. Goi tu .tkv qua simd_count_byte (P/Invoke
+ * trong class TkvSimd, xem il_features/simd_feature.tkv).
+ *
+ * Dung cho quet chuoi UTF-16LE ASCII (BSTR cua bstr_alloc): byte thap = ma
+ * ky tu, byte cao = 0 -> dem byte == 101 trong 2n byte = dem ky tu 'e'.
+ * Chuoi khong phai ASCII co the lech (byte cao 0x65 cua U+65xx) - chi dung
+ * voi workload ASCII da biet. */
+EXPORT long long CountByte(const unsigned char* p, int n, int b) {
+    long long cnt = 0;
+    long long i = 0;
+    unsigned char bb = (unsigned char)b;
+    if (!p || n <= 0) return 0;
+    __m256i vp = _mm256_set1_epi8((char)bb);
+    for (; i + 32 <= n; i += 32) {
+        __m256i d = _mm256_loadu_si256((const __m256i*)(const void*)(p + i));
+        __m256i eq = _mm256_cmpeq_epi8(d, vp);
+        unsigned int m = (unsigned int)_mm256_movemask_epi8(eq);
+        m = m - ((m >> 1) & 0x55555555u);
+        m = (m & 0x33333333u) + ((m >> 2) & 0x33333333u);
+        m = (m + (m >> 4)) & 0x0F0F0F0Fu;
+        cnt += (long long)((m * 0x01010101u) >> 24);
+    }
+    for (; i < n; i++) if (p[i] == bb) cnt++;
+    return cnt;
+}

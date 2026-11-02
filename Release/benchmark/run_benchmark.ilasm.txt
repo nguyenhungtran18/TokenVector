@@ -1,0 +1,209 @@
+
+Microsoft (R) .NET Framework IL Assembler.  Version 4.8.9105.0
+Copyright (c) Microsoft Corporation.  All rights reserved.
+Assembling 'Release/benchmark/run_benchmark.il'  to EXE --> 'Release/benchmark/run_benchmark.exe'
+Source file is ANSI
+
+Assembled method TkvInt::FromI64
+Assembled method TkvInt::FromStr
+Assembled method TkvInt::FromBig
+Assembled method TkvInt::ToBig
+Assembled method TkvInt::AddSlow
+Assembled method TkvInt::SubSlow
+Assembled method TkvInt::MulSlow
+Assembled method TkvInt::Cmp
+Assembled method TkvInt::Str
+Assembled method TkvInt::ToI32
+Assembled method TkvInt::ToI64
+Assembled method TkvInt::ToF64
+Assembled method TkvInt::CompareTo
+Assembled method TkvInt::CompareTo
+Assembled method TkvInt::FloorDiv
+Assembled method TkvInt::Mod
+Assembled method TkvInt::Pow
+Assembled method TkvInt::Neg
+Assembled method TkvInt::Add
+Assembled method TkvInt::Abs
+Assembled method TkvInt::FromF64
+Assembled method TkvInt::IsZero
+Assembled method TkvInt::BitAnd
+Assembled method TkvInt::BitOr
+Assembled method TkvInt::BitXor
+Assembled method TkvInt::Shl
+Assembled method TkvInt::Shr
+Assembled method TkvTime::Now
+Assembled method TkvTime::Perf
+Assembled method TkvTime::Sleep
+Assembled method TkvStr::I32
+Assembled method TkvStr::I64
+Assembled method TkvStr::Bool
+Assembled method TkvStr::F64
+Assembled method TkvStr::F32
+Assembled method TkvStr::Post
+Assembled method TkvStr::Expand16
+Assembled method TkvStr::ParseF64
+Assembled method TkvStr::Replace
+Assembled method TkvStr::ReplaceCount
+Assembled method TkvStr::RFind
+Assembled method TkvStr::IsDigit
+Assembled method TkvStr::IsAlpha
+Assembled method TkvStr::IsAlnum
+Assembled method TkvStr::IsSpace
+Assembled method TkvSlice::Norm
+Assembled method TkvSlice::Cnt
+Assembled method TkvSlice::NegNorm
+Assembled method TkvSlice::Lo
+Assembled method TkvSlice::Hi
+Assembled method TkvSlice::StepL
+Assembled method TkvSlice::RepL
+Assembled method TkvSlice::StepS
+Assembled method TkvSimd::Init
+Assembled method TkvSimd::Kern
+Assembled method TkvSimd::Isa
+Assembled method TkvSimd::PackedCreate
+Assembled method TkvSimd::PackedRun
+Assembled method TkvSimd::PackedCreate64
+Assembled method TkvSimd::PackedRun64
+Assembled method TkvSimd::PackedFree
+Assembled method TkvSimd::F32ZeroM
+Assembled method TkvSimd::F32CopyToM
+Assembled method TkvSimd::F32CopyFromM
+Assembled method TkvSimd::F32AddcmulM
+Assembled method TkvSimd::AdamwM
+Assembled method TkvSimd::LmheadBwdM
+Assembled method TkvSimd::LmheadBwdListM
+Assembled method TkvSimd::GemmFullM
+Assembled method TkvSimd::F32ListCopyM
+Assembled method TkvSimd::F32ListAddM
+Assembled method TkvSimd::LinearDwFusedM
+Assembled method TkvSimd::LinearDxFusedM
+Assembled method TkvSimd::F32GradNormM
+Assembled method TkvSimd::AdamwGlmM
+Assembled method TkvSimd::GemmF32
+Assembled method TkvSimd::GemmF32L
+Assembled method TkvSimd::GemmF64
+Assembled method TkvSimd::GemmF64L
+Assembled method TkvSimd::DotF32V
+Assembled method TkvSimd::SumF32V
+Assembled method TkvSimd::AddF32V
+Assembled method TkvSimd::SubF32V
+Assembled method TkvSimd::MulF32V
+Assembled method TkvSimd::ScaleF32V
+Assembled method TkvSimd::AxpyF32V
+Assembled method TkvSimd::DotF32
+Assembled method TkvSimd::SumF32
+Assembled method TkvSimd::AddF32
+Assembled method TkvSimd::SubF32
+Assembled method TkvSimd::MulF32
+Assembled method TkvSimd::ScaleF32
+Assembled method TkvSimd::AxpyF32
+Assembled method TkvSimd::DotF64V
+Assembled method TkvSimd::SumF64V
+Assembled method TkvSimd::AddF64V
+Assembled method TkvSimd::SubF64V
+Assembled method TkvSimd::MulF64V
+Assembled method TkvSimd::ScaleF64V
+Assembled method TkvSimd::AxpyF64V
+Assembled method TkvSimd::DotF64
+Assembled method TkvSimd::SumF64
+Assembled method TkvSimd::AddF64
+Assembled method TkvSimd::SubF64
+Assembled method TkvSimd::MulF64
+Assembled method TkvSimd::ScaleF64
+Assembled method TkvSimd::AxpyF64
+Assembled method TkvSimd::AddI32
+Assembled method TkvSimd::SubI32
+Assembled method TkvSimd::MulI32
+Assembled method TkvSimd::ScaleI32
+Assembled method TkvSimd::AxpyI32
+Assembled method TkvSimd::DotI32
+Assembled method TkvSimd::SumI32
+Assembled method TkvSimd::AddI64
+Assembled method TkvSimd::SubI64
+Assembled method TkvSimd::MulI64
+Assembled method TkvSimd::ScaleI64
+Assembled method TkvSimd::AxpyI64
+Assembled method TkvSimd::DotI64
+Assembled method TkvSimd::SumI64
+Assembled method TkvSimd::MaxF32
+Assembled method TkvSimd::MinF32
+Assembled method TkvSimd::MaxF64
+Assembled method TkvSimd::MinF64
+Assembled method TkvSimd::MaxI32
+Assembled method TkvSimd::MinI32
+Assembled method TkvSimd::MaxI64
+Assembled method TkvSimd::MinI64
+Assembled method TkvSimd::AddLF32
+Assembled method TkvSimd::SubLF32
+Assembled method TkvSimd::MulLF32
+Assembled method TkvSimd::DotLF32
+Assembled method TkvSimd::SumLF32
+Assembled method TkvSimd::MaxLF32
+Assembled method TkvSimd::MinLF32
+Assembled method TkvSimd::AddLF64
+Assembled method TkvSimd::SubLF64
+Assembled method TkvSimd::MulLF64
+Assembled method TkvSimd::DotLF64
+Assembled method TkvSimd::SumLF64
+Assembled method TkvSimd::MaxLF64
+Assembled method TkvSimd::MinLF64
+Assembled method TkvSimd::AddLI32
+Assembled method TkvSimd::SubLI32
+Assembled method TkvSimd::MulLI32
+Assembled method TkvSimd::DotLI32
+Assembled method TkvSimd::SumLI32
+Assembled method TkvSimd::MaxLI32
+Assembled method TkvSimd::MinLI32
+Assembled method TkvSimd::AddLI64
+Assembled method TkvSimd::SubLI64
+Assembled method TkvSimd::MulLI64
+Assembled method TkvSimd::DotLI64
+Assembled method TkvSimd::SumLI64
+Assembled method TkvSimd::MaxLI64
+Assembled method TkvSimd::MinLI64
+Assembled method TKVApp::_fib
+Assembled method TKVApp::b_fib
+Assembled method TKVApp::b_string
+Assembled method TKVApp::b_string_scan
+Assembled method TKVApp::_sort
+Assembled method TKVApp::b_sort
+Assembled method TKVApp::b_add
+Assembled method TKVApp::_mm32
+Assembled method TKVApp::b_matmul32
+Assembled method TKVApp::b_f32mm
+Assembled method TKVApp::b_f32mm_vec
+Assembled method TKVApp::b_matmul32_simd
+Assembled method TKVApp::main
+Assembled method TKVApp::Main
+Creating PE file
+
+Emitting classes:
+Class 1:	TkvInt
+Class 2:	TkvTime
+Class 3:	TkvStr
+Class 4:	TkvSlice
+Class 5:	TkvSimd
+Class 6:	TKVApp
+
+Emitting fields and methods:
+Global 	
+Class 1	Fields: 2;	Methods: 27;	
+Class 2	Methods: 3;	
+Class 3	Methods: 15;	
+Class 4	Methods: 8;	
+Class 5	Fields: 3;	Methods: 126;	
+Class 6	Methods: 14;	
+Resolving local member refs: 427 -> 427 defs, 0 refs, 0 unresolved
+
+Emitting events and properties:
+Global 	
+Class 1	
+Class 2	
+Class 3	
+Class 4	
+Class 5	
+Class 6	
+Method Implementations (total): 2
+Resolving local member refs: 0 -> 0 defs, 0 refs, 0 unresolved
+Writing PE file
+Operation completed successfully

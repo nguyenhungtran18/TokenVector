@@ -581,6 +581,14 @@ def _pt_gemm_pinvoke() -> "list[str]":
     ]
 
 
+def _pt_count_byte_pinvoke() -> "list[str]":
+    # CountByte(p, n, b) -> i64 trong tkv_simd_native.c: AVX2 pcmpeqb dem byte.
+    # Ky thuat so khop C: native int p (pointer), int32 n, int32 b, int64 kq.
+    return [
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "CountByte" winapi) int64 CountByteNative(native int p, int32 n, int32 b) cil managed preservesig { }',
+    ]
+
+
 def _pt_gemm_mang(d: "str") -> "list[str]":
     """Gemm<H>(T[] a, T[] b, T[] o, int32 n): pin 3 mang + goi kernel native."""
     t = _ten_il(d)
@@ -1172,6 +1180,7 @@ def _lop_simd() -> "list[str]":
     ra = ['.class public auto ansi beforefieldinit ' + _SIMD_CLASS + ' extends [mscorlib]System.Object', '{']
     ra = ra + _pt_native_ho_tro()
     ra = ra + _pt_gemm_pinvoke()
+    ra = ra + _pt_count_byte_pinvoke()
     ra = ra + _pt_packed_pinvoke()
     for d in ('f32', 'f64'):
         ra = ra + _pt_packed_create(d)
@@ -1522,6 +1531,22 @@ def compile_f32_zero(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dt
     out.append('    call int64 ' + _SIMD_CLASS + '::F32ZeroM(int64, int32)')
 
 
+def compile_simd_count_byte(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """simd_count_byte(p, n, b) -> i64: dem so byte bang gia tri b trong buffer
+    native [p, p+n) - AVX2 pcmpeqb (tkv_simd_native.dll::CountByte).
+    Dung cho quet chuoi UTF-16LE ASCII qua bstr_alloc: byte thap = ma ky tu,
+    byte cao = 0 -> dem byte b trong 2*n_bytes = dem ky tu trong n ky tu."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: simd_count_byte(p, n, b) can dung 3 tham so")
+    _kn_buffer(args[0], scope, 'simd_count_byte', 'p')
+    _ensure_class_simd(ctx)
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+    out.append('    conv.i')
+    ctx.compile_expr(args[1], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[2], scope, out, 'i32', ctx)
+    out.append('    call int64 ' + _SIMD_CLASS + '::CountByteNative(native int, int32, int32)')
+
+
 def compile_f32_copy_to_buf(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """f32_copy_to_buf(src: list[f32], p, n) -> i64: memcpy list -> buffer native."""
     if len(args) != 3:
@@ -1768,6 +1793,7 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'simd_gemm_packed_create', compile_simd_gemm_packed_create, 'i64')
     register_expr_builtin(reg, 'simd_gemm_packed', compile_simd_gemm_packed, 'i32')
     register_expr_builtin(reg, 'simd_gemm_packed_free', compile_simd_gemm_packed_free, 'i64')
+    register_expr_builtin(reg, 'simd_count_byte', compile_simd_count_byte, 'i64')
     register_expr_builtin(reg, 'f32_zero', compile_f32_zero, 'i64')
     register_expr_builtin(reg, 'f32_copy_to_buf', compile_f32_copy_to_buf, 'i64')
     register_expr_builtin(reg, 'f32_copy_from_buf', compile_f32_copy_from_buf, 'i64')
