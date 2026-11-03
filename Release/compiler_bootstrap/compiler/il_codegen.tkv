@@ -6642,6 +6642,17 @@ def _ten_lop_gen_ctx(arg_node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "str":
 
 def _khai_bien_tam_gen_cho_goi(call_node: "TkvNode", ctx: "WalkCtx"):
     """Khai bao local an cho viec rut generator thanh list truyen vao ham."""
+    if ekind(call_node) != 'call':
+        # `_walk_call_nodes` (nguon duy nhat cua `call_node`) tra CA 'call' LAN
+        # 'method_call'. O node 'method_call', o2 la TEN METHOD (KHUON khai
+        # 'str'), nen `eb_ds` ben duoi doc TEN lam DANH SACH NODE - cung loai
+        # loi voi `_p6_co_f64_cay` (2026-11-03). O day no khong lam sap
+        # compiler vi noi goi `_khai_bien_tam_gen_cho_bieu_thuc` boc tung loi
+        # goi trong `except Exception: pass`, tuc loi bi NUOT IM LANG - dung
+        # ly do phai chan tu dau thay vi de exception bi bo qua. Bo qua la
+        # dung ngu nghia: tham so cua method khong nam trong `func_table` nen
+        # khong co gi de doi chieu (xem il_features/record_feature.py).
+        return
     callee = (ctx.func_table or {}).get(ea_str(call_node))
     if callee is None:
         return

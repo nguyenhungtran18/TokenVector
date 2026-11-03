@@ -2692,12 +2692,10 @@ def _p6_preheader_guards(scope: "Scope", body: "list[str]", ctx: "Ctx", sig: "Tk
     body.append('  ' + dn + ':')
 
 
-def _p6_chi_so_la_iv(node: "TkvNode", iv: "str") -> "i32":
-    """1 neu chi so cua `f[i]` DUNG `iv` (chi so khac lech byte -> tu choi)."""
-    ds = eb_ds(node)
-    if len(ds) != 1:
-        return 0
-    return _p6_var_is(ds[0], iv)
+# (Da xoa `_p6_chi_so_la_iv`, 2026-11-03: ham chet, khong noi nao goi. No doc
+# `eb_ds(node)` tren node chua biet kind - dung loai loi ma guard `_ds_kiem`
+# cua expr_row.tkv gio bien thanh SyntaxError; giu lai chi lam cong cu audit
+# phai bao them mot cho MANUAL khong co gia tri.)
 
 
 def _p6_viet_lai_rhs(node: "TkvNode", scope: "Scope", iv: "str", loads: "list[str]",
