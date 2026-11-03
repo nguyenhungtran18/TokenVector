@@ -1,0 +1,540 @@
+# -*- coding: utf-8 -*-
+"""TACH THOI GIAN KERNEL SORT - tim xem thoi gian cua b_sort di dau.
+
+Cong cu thuong truc (chuyen tu build/scratch/_sort_parts.tkv, 2026-11-03).
+Chay tu `Release/`:
+
+    ./dist/tkvc-tv.exe tools/perf/perf_sort_parts.tkv build/scratch/perf_sort_parts.exe
+    ./build/scratch/perf_sort_parts.exe
+
+n = 200000, cung generator voi `b_sort` trong benchmark (checksum 98302 -
+checksum lech nghia la phep do hong, khong phai "nhanh hon").
+
+Cac phep do, CUNG du lieu, CUNG quy tac do (best-of-N, do trong vong lap, ket
+qua duoc dung de khong bi JIT xoa):
+
+  k_touch      doc tung phan tu list[i64]            -> chi phi TRUY CAP DOC
+  k_copy       tmp[i] = xs[i]                        -> truy cap DOC + GHI
+  k_merge_pass merge 2 nua da sap (1 tang cua merge)  -> 1 lan trai merge
+  k_sort       merge sort de quy goc (baseline)       -> so sanh voi b_sort
+  k_sort_h     merge sort de quy CO HOIST so sanh     -> bot truy cap lap lai
+  k_sort_nc    merge sort de quy KHONG so sanh du lieu -> chi phi so sanh + re nhanh
+  k_bu         insertion run + merge BOTTOM-UP (doi buffer, khong hoist)
+  k_bu_h       nhu tren + hoist so sanh  <- ban da vao benchmark
+
+Suy ra:
+  merge_pass * ceil(log2 n) ~= phan "trai merge" cua ca bai sort
+  k_sort - k_sort_h        = truy cap lap lai trong bieu thuc so sanh
+  k_sort_h - k_sort_nc     = so sanh du lieu + re nhanh
+  k_sort vs k_bu_h         = cai duoc tu doi thuat toan (26.6 -> 17.5 ms)
+
+KET LUAN (do 2026-11-03, ghi lai de khoi doan lai tu dau): hoist so sanh moi
+la phan tra tien (~7 ms); bottom-up thuan chi bot ~7% du luu luong bo nho giam
+mot nua moi tang, vi chi phi phan tu bi chi phoi boi duong so sanh chu khong
+phai bang thong list. Insertion run chi co loi rat hep: run=8 hon run=1 khoang
+0.9 ms, tu run>=32 chi phi insertion vuot phan tiet kiem (run=64 te hon ca ban
+khong insertion). Khoang cach con lai voi NumPy (3.94 ms) la THUAT TOAN -
+introsort tai cho tren buffer lien mach - nen pha tiep phai la kernel native,
+khong phai tinh chinh IL.
+"""
+def _mk_rand(n: "i32") -> "list[i64]":
+    xs: "list[i64]" = []
+    i: "i32" = 0
+    while i < n:
+        xs.append((i * 1103515245 + 12345) % 65536)
+        i = i + 1
+    return xs
+
+
+def _mk_sorted_halves(n: "i32") -> "list[i64]":
+    """2 nua DA SAP (chan tang, le tang) - de do dung 1 lan merge."""
+    xs: "list[i64]" = []
+    i: "i32" = 0
+    while i < n:
+        if i % 2 == 0:
+            xs.append(i)
+        else:
+            xs.append(i)
+        i = i + 1
+    # nua dau = 0..h-1, nua sau = h..n-1: ca hai da tang.
+    return xs
+
+
+def _sort_ban(xs: "list[i64]", lo: "i32", hi: "i32", tmp: "list[i64]") -> "i32":
+    if hi - lo < 2:
+        return 0
+    mid: "i32" = (lo + hi) // 2
+    _sort_ban(xs, lo, mid, tmp)
+    _sort_ban(xs, mid, hi, tmp)
+    i: "i32" = 0
+    while i < hi - lo:
+        tmp[lo + i] = xs[lo + i]
+        i = i + 1
+    i = 0
+    j: "i32" = mid - lo
+    k: "i32" = lo
+    while i < mid - lo and j < hi - lo:
+        if tmp[lo + i] <= tmp[lo + j]:
+            xs[k] = tmp[lo + i]
+            i = i + 1
+        else:
+            xs[k] = tmp[lo + j]
+            j = j + 1
+        k = k + 1
+    while i < mid - lo:
+        xs[k] = tmp[lo + i]
+        i = i + 1
+        k = k + 1
+    while j < hi - lo:
+        xs[k] = tmp[lo + j]
+        j = j + 1
+        k = k + 1
+    return 0
+
+
+def _sort_hoist(xs: "list[i64]", lo: "i32", hi: "i32", tmp: "list[i64]") -> "i32":
+    """Giong `_sort_ban` nhung so sanh tren BIEN CUC BO (khong doc lai list)."""
+    if hi - lo < 2:
+        return 0
+    mid: "i32" = (lo + hi) // 2
+    _sort_hoist(xs, lo, mid, tmp)
+    _sort_hoist(xs, mid, hi, tmp)
+    i: "i32" = 0
+    while i < hi - lo:
+        tmp[lo + i] = xs[lo + i]
+        i = i + 1
+    i = 0
+    j: "i32" = mid - lo
+    k: "i32" = lo
+    xi: "i64" = tmp[lo]
+    xj: "i64" = tmp[lo + j]
+    while i < mid - lo and j < hi - lo:
+        if xi <= xj:
+            xs[k] = xi
+            i = i + 1
+            if i < mid - lo:
+                xi = tmp[lo + i]
+        else:
+            xs[k] = xj
+            j = j + 1
+            if j < hi - lo:
+                xj = tmp[lo + j]
+        k = k + 1
+    while i < mid - lo:
+        xs[k] = tmp[lo + i]
+        i = i + 1
+        k = k + 1
+    while j < hi - lo:
+        xs[k] = tmp[lo + j]
+        j = j + 1
+        k = k + 1
+    return 0
+
+
+def _sort_nocmp(xs: "list[i64]", lo: "i32", hi: "i32", tmp: "list[i64]") -> "i32":
+    """Cung khung merge sort, nhung KHONG so sanh du lieu: chon nhanh theo
+    `i < j` (so sanh hai bien dem i32). Tach chi phi "so sanh phan tu list +
+    du doan re nhanh" ra khoi chi phi truy cap/ghi."""
+    if hi - lo < 2:
+        return 0
+    mid: "i32" = (lo + hi) // 2
+    _sort_nocmp(xs, lo, mid, tmp)
+    _sort_nocmp(xs, mid, hi, tmp)
+    i: "i32" = 0
+    while i < hi - lo:
+        tmp[lo + i] = xs[lo + i]
+        i = i + 1
+    i = 0
+    j: "i32" = mid - lo
+    k: "i32" = lo
+    while i < mid - lo and j < hi - lo:
+        if i < j:
+            xs[k] = tmp[lo + i]
+            i = i + 1
+        else:
+            xs[k] = tmp[lo + j]
+            j = j + 1
+        k = k + 1
+    while i < mid - lo:
+        xs[k] = tmp[lo + i]
+        i = i + 1
+        k = k + 1
+    while j < hi - lo:
+        xs[k] = tmp[lo + j]
+        j = j + 1
+        k = k + 1
+    return 0
+
+
+# ---------------- phuong an: insertion run + merge bottom-up ----------------
+# Merge sort de quy hien tai copy CA MANG ra buffer roi merge nguoc lai: 4 luot
+# truy cap moi tang (doc xs, ghi tmp, doc tmp, ghi xs). Bottom-up merge hai
+# buffer thay phien chi con 2 luot/tang (doc A, ghi B), khong copy lai.
+
+def _copy_to(src: "list[i64]", dst: "list[i64]", n: "i32") -> "i32":
+    i: "i32" = 0
+    while i < n:
+        dst[i] = src[i]
+        i = i + 1
+    return 0
+
+
+def _ins_run(xs: "list[i64]", lo: "i32", hi: "i32") -> "i32":
+    """Insertion sort doan [lo, hi) - dung de tao run nho ban dau."""
+    i: "i32" = lo + 1
+    while i < hi:
+        v: "i64" = xs[i]
+        j: "i32" = i - 1
+        while j >= lo and xs[j] > v:
+            xs[j + 1] = xs[j]
+            j = j - 1
+        xs[j + 1] = v
+        i = i + 1
+    return 0
+
+
+def _merge_lvl(src: "list[i64]", dst: "list[i64]", n: "i32", width: "i32") -> "i32":
+    """Mot TANG merge bottom-up: ghep cac cap run rong `width` tu src sang dst."""
+    lo: "i32" = 0
+    while lo < n:
+        mid: "i32" = lo + width
+        if mid > n:
+            mid = n
+        hi: "i32" = lo + width + width
+        if hi > n:
+            hi = n
+        i: "i32" = lo
+        j: "i32" = mid
+        k: "i32" = lo
+        while i < mid and j < hi:
+            if src[i] <= src[j]:
+                dst[k] = src[i]
+                i = i + 1
+            else:
+                dst[k] = src[j]
+                j = j + 1
+            k = k + 1
+        while i < mid:
+            dst[k] = src[i]
+            i = i + 1
+            k = k + 1
+        while j < hi:
+            dst[k] = src[j]
+            j = j + 1
+            k = k + 1
+        lo = lo + width + width
+    return 0
+
+
+def _sort_bu(xs: "list[i64]", buf: "list[i64]", n: "i32", run: "i32") -> "i32":
+    """Insertion sort tung run rong `run`, roi merge bottom-up doi buffer.
+    `run` = 1 => bottom-up thuan (khong insertion). Ket qua luon ve `xs`."""
+    if run > 1:
+        lo: "i32" = 0
+        while lo < n:
+            hi: "i32" = lo + run
+            if hi > n:
+                hi = n
+            _ins_run(xs, lo, hi)
+            lo = lo + run
+    flip: "i32" = 0
+    width: "i32" = run
+    while width < n:
+        if flip == 0:
+            _merge_lvl(xs, buf, n, width)
+        else:
+            _merge_lvl(buf, xs, n, width)
+        flip = 1 - flip
+        width = width + width
+    if flip == 1:
+        _copy_to(buf, xs, n)
+    return 0
+
+
+def _merge_lvl_h(src: "list[i64]", dst: "list[i64]", n: "i32", width: "i32") -> "i32":
+    """Nhu `_merge_lvl` nhung so sanh tren BIEN CUC BO: moi phan tu chi bi
+    doc MOT lan (sau khi con tro nhay), thay vi 2 lan doc/lan so sanh."""
+    lo: "i32" = 0
+    while lo < n:
+        mid: "i32" = lo + width
+        if mid > n:
+            mid = n
+        hi: "i32" = lo + width + width
+        if hi > n:
+            hi = n
+        i: "i32" = lo
+        j: "i32" = mid
+        k: "i32" = lo
+        xi: "i64" = src[lo]
+        # Run cuoi co the KHONG co nua phai (mid == hi == n): phai kiem truoc khi
+        # doc src[mid], neu khong ArgumentOutOfRangeException.
+        xj: "i64" = 0
+        if mid < hi:
+            xj = src[mid]
+        while i < mid and j < hi:
+            if xi <= xj:
+                dst[k] = xi
+                i = i + 1
+                if i < mid:
+                    xi = src[i]
+            else:
+                dst[k] = xj
+                j = j + 1
+                if j < hi:
+                    xj = src[j]
+            k = k + 1
+        while i < mid:
+            dst[k] = src[i]
+            i = i + 1
+            k = k + 1
+        while j < hi:
+            dst[k] = src[j]
+            j = j + 1
+            k = k + 1
+        lo = lo + width + width
+    return 0
+
+
+def _sort_bu_h(xs: "list[i64]", buf: "list[i64]", n: "i32", run: "i32") -> "i32":
+    if run > 1:
+        lo: "i32" = 0
+        while lo < n:
+            hi: "i32" = lo + run
+            if hi > n:
+                hi = n
+            _ins_run(xs, lo, hi)
+            lo = lo + run
+    flip: "i32" = 0
+    width: "i32" = run
+    while width < n:
+        if flip == 0:
+            _merge_lvl_h(xs, buf, n, width)
+        else:
+            _merge_lvl_h(buf, xs, n, width)
+        flip = 1 - flip
+        width = width + width
+    if flip == 1:
+        _copy_to(buf, xs, n)
+    return 0
+
+
+def k_bu_h(xs: "list[i64]", src: "list[i64]", tmp: "list[i64]", runs: "i32", run: "i32") -> "f64":
+    n: "i32" = len(src)
+    best = 1.0e9
+    r: "i32" = 0
+    while r < runs:
+        _copy_to(src, xs, n)
+        t0 = time_perf()
+        _sort_bu_h(xs, tmp, n, run)
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        r = r + 1
+    print("  sort_bu hoist run=" + str(run) + "      cs=" + str(xs[0] + xs[n - 1] + xs[n // 2]) + " best=" + str(best))
+    return best
+
+
+def k_bu(xs: "list[i64]", src: "list[i64]", tmp: "list[i64]", runs: "i32", run: "i32") -> "f64":
+    n: "i32" = len(src)
+    best = 1.0e9
+    r: "i32" = 0
+    while r < runs:
+        _copy_to(src, xs, n)
+        t0 = time_perf()
+        _sort_bu(xs, tmp, n, run)
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        r = r + 1
+    print("  sort_bu run=" + str(run) + "            cs=" + str(xs[0] + xs[n - 1] + xs[n // 2]) + " best=" + str(best))
+    return best
+
+
+def k_touch(xs: "list[i64]", runs: "i32") -> "f64":
+    n: "i32" = len(xs)
+    best = 1.0e9
+    s: "i64" = 0
+    r: "i32" = 0
+    while r < runs:
+        t0 = time_perf()
+        s = 0
+        i: "i32" = 0
+        while i < n:
+            s = s + xs[i]
+            i = i + 1
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        r = r + 1
+    print("  touch      read-only " + str(n) + " phan tu: cs=" + str(s) + " best=" + str(best))
+    return best
+
+
+def k_copy(xs: "list[i64]", tmp: "list[i64]", runs: "i32") -> "f64":
+    n: "i32" = len(xs)
+    best = 1.0e9
+    r: "i32" = 0
+    while r < runs:
+        t0 = time_perf()
+        i: "i32" = 0
+        while i < n:
+            tmp[i] = xs[i]
+            i = i + 1
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        r = r + 1
+    print("  copy       doc+ghi " + str(n) + " phan tu: cs=" + str(tmp[n - 1]) + " best=" + str(best))
+    return best
+
+
+def k_merge_pass(xs: "list[i64]", tmp: "list[i64]", runs: "i32") -> "f64":
+    """Mot TANG merge tren toan mang n (merge 2 nua n/2 da sap)."""
+    n: "i32" = len(xs)
+    mid: "i32" = n // 2
+    best = 1.0e9
+    r: "i32" = 0
+    while r < runs:
+        # nap lai tmp tu xs (khong tinh vao gio) de moi lan merge cung dau vao
+        i: "i32" = 0
+        while i < n:
+            tmp[i] = xs[i]
+            i = i + 1
+        t0 = time_perf()
+        i = 0
+        j: "i32" = mid
+        k: "i32" = 0
+        while i < mid and j < n:
+            if tmp[i] <= tmp[j]:
+                xs[k] = tmp[i]
+                i = i + 1
+            else:
+                xs[k] = tmp[j]
+                j = j + 1
+            k = k + 1
+        while i < mid:
+            xs[k] = tmp[i]
+            i = i + 1
+            k = k + 1
+        while j < n:
+            xs[k] = tmp[j]
+            j = j + 1
+            k = k + 1
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        r = r + 1
+    print("  merge_pass 1 tang tren n=" + str(n) + ": cs=" + str(xs[0] + xs[n - 1]) + " best=" + str(best))
+    return best
+
+
+def k_sort(xs: "list[i64]", src: "list[i64]", tmp: "list[i64]", runs: "i32") -> "f64":
+    n: "i32" = len(src)
+    best = 1.0e9
+    r: "i32" = 0
+    while r < runs:
+        i: "i32" = 0
+        while i < n:
+            xs[i] = src[i]
+            i = i + 1
+        t0 = time_perf()
+        _sort_ban(xs, 0, n, tmp)
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        r = r + 1
+    print("  sort_ban   day du:            cs=" + str(xs[0] + xs[n - 1] + xs[n // 2]) + " best=" + str(best))
+    return best
+
+
+def k_sort_h(xs: "list[i64]", src: "list[i64]", tmp: "list[i64]", runs: "i32") -> "f64":
+    n: "i32" = len(src)
+    best = 1.0e9
+    r: "i32" = 0
+    while r < runs:
+        i: "i32" = 0
+        while i < n:
+            xs[i] = src[i]
+            i = i + 1
+        t0 = time_perf()
+        _sort_hoist(xs, 0, n, tmp)
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        r = r + 1
+    print("  sort_hoist hoist so sanh:     cs=" + str(xs[0] + xs[n - 1] + xs[n // 2]) + " best=" + str(best))
+    return best
+
+
+def k_sort_nc(xs: "list[i64]", src: "list[i64]", tmp: "list[i64]", runs: "i32") -> "f64":
+    n: "i32" = len(src)
+    best = 1.0e9
+    r: "i32" = 0
+    while r < runs:
+        i: "i32" = 0
+        while i < n:
+            xs[i] = src[i]
+            i = i + 1
+        t0 = time_perf()
+        _sort_nocmp(xs, 0, n, tmp)
+        t1 = time_perf()
+        d = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        r = r + 1
+    print("  sort_nocmp khong so sanh:     cs=" + str(xs[0] + xs[n - 1] + xs[n // 2]) + " best=" + str(best))
+    return best
+
+
+def main() -> "i32":
+    n: "i32" = 200000
+    src: "list[i64]" = _mk_rand(n)
+    xs: "list[i64]" = []
+    tmp: "list[i64]" = []
+    i: "i32" = 0
+    while i < n:
+        xs.append(0)
+        tmp.append(0)
+        i = i + 1
+    print("=== TACH THOI GIAN SORT n=" + str(n) + " (ms, best-of-N) ===")
+    t_touch = k_touch(src, 20)
+    t_copy = k_copy(src, tmp, 20)
+    t_merge = k_merge_pass(src, tmp, 20)
+    t_ban = k_sort(xs, src, tmp, 9)
+    t_h = k_sort_h(xs, src, tmp, 9)
+    t_nc = k_sort_nc(xs, src, tmp, 9)
+    print("")
+    print("--- phuong an insertion run + merge bottom-up ---")
+    t_bu1 = k_bu(xs, src, tmp, 9, 1)
+    t_bu8 = k_bu(xs, src, tmp, 9, 8)
+    t_bu16 = k_bu(xs, src, tmp, 9, 16)
+    t_bu32 = k_bu(xs, src, tmp, 9, 32)
+    t_bu64 = k_bu(xs, src, tmp, 9, 64)
+    print("")
+    print("--- cung phuong an, merge CO HOIST so sanh ---")
+    t_h1 = k_bu_h(xs, src, tmp, 9, 1)
+    t_h8 = k_bu_h(xs, src, tmp, 9, 8)
+    t_h16 = k_bu_h(xs, src, tmp, 9, 16)
+    t_h32 = k_bu_h(xs, src, tmp, 9, 32)
+    print("")
+    print("sort_ban vs tot nhat: " + str(t_ban) + " -> " + str(t_h16) + " ms = " + str(t_ban / t_h16) + "x")
+    print("=== SUY RA ===")
+    levels: "i32" = 0
+    m: "i32" = 1
+    while m < n:
+        m = m * 2
+        levels = levels + 1
+    print("so tang merge (log2 n) = " + str(levels))
+    print("merge_pass * tang        = " + str(t_merge * levels) + " ms  (du doan cho ca bai)")
+    print("sort_ban thuc do         = " + str(t_ban) + " ms")
+    print("sort_ban - sort_nocmp    = " + str(t_ban - t_nc) + " ms  (so sanh du lieu + re nhanh)")
+    print("sort_ban - sort_hoist    = " + str(t_ban - t_h) + " ms  (truy cap lap lai trong so sanh)")
+    print("sort_nocmp (khung merge) = " + str(t_nc) + " ms")
+    return 0

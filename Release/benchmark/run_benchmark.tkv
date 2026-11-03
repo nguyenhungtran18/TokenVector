@@ -110,7 +110,7 @@ def b_string_scan(runs: "i32", n: "i32") -> "f64":
 # Ban sort cua benchmark (2026-11-03): insertion sort tung run nho roi merge
 # BOTTOM-UP doi buffer, so sanh tren bien cuc bo.
 #
-# Vi sao: do tach phan (build/scratch/_sort_parts.tkv) cho thay merge sort de
+# Vi sao: do tach phan (tools/perf/perf_sort_parts.tkv) cho thay merge sort de
 # quy cu copy CA MANG ra buffer roi merge nguoc lai - 4 luot truy cap/tang
 # (doc xs, ghi tmp, doc tmp, ghi xs) va ~400k nut de quy. Bottom-up ghi thang
 # sang buffer thu hai nen chi con 2 luot/tang va khong de quy; hoist so sanh

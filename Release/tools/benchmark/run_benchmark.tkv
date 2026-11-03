@@ -77,7 +77,7 @@ def b_string(runs: "i32", n: "i32") -> "f64":
 # BOTTOM-UP doi buffer, so sanh tren bien cuc bo. Giong het ban o
 # Release/benchmark/run_benchmark.tkv - hai ban phai do CUNG mot khoi viec.
 #
-# Vi sao: do tach phan (Release/build/scratch/_sort_parts.tkv) cho thay merge
+# Vi sao: do tach phan (Release/tools/perf/perf_sort_parts.tkv) cho thay merge
 # sort de quy cu copy CA MANG ra buffer roi merge nguoc lai - 4 luot truy cap/
 # tang (doc xs, ghi tmp, doc tmp, ghi xs) va ~400k nut de quy. Bottom-up ghi
 # thang sang buffer thu hai nen chi con 2 luot/tang va khong de quy; hoist so
