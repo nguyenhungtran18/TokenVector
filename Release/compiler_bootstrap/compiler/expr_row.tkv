@@ -271,25 +271,55 @@ def _ds(van: "str") -> "list[TkvNode]":
     return [int(x) for x in van.split(",")]
 
 
+def _ds_kiem(e: "TkvNode", i: "i32") -> "list[TkvNode]":
+    """Doc o `i` nhu DANH SACH NODE, CO KIEM `KHUON` truoc khi parse.
+
+    `_ds` (khong kiem) nhan moi thu: tren node `var` o 2 la TEN BIEN, nen no
+    goi `int("ctx")` va nem `FormatException: Input string was not in a
+    correct format.` - khong noi duoc node nao, o nao, kind gi (bug that
+    2026-11-03 trong `_p6_co_f64_cay` cua control_flow.tkv, phai bisect ca
+    cay tu-host moi tim ra).
+
+    Ba truong hop:
+      - khong phai node / o KHONG TON TAI  -> []  (giu hanh vi cu: `neg`,
+        `await` khong co o 2 nen `eb_ds` von tra rong);
+      - o co, KHUON khai 'ds'              -> parse binh thuong;
+      - o co, KHUON khai kieu KHAC 'ds'    -> SyntaxError CO TEN KIND + o,
+        tuc loi LAP TRINH cua compiler chu khong phai loi nguon nguoi dung.
+    """
+    if not la_node(e):
+        return []
+    van = _o_tho(e, i)
+    if van == "":
+        return []
+    kind = ekind(e)
+    kieu = KHUON.get(kind + ":" + str(i), "")
+    if kieu != "ds":
+        raise SyntaxError(
+            "expr_row: doc o " + str(i) + " cua node '" + kind + "' nhu DANH "
+            "SACH NODE, nhung KHUON khai kieu '" + kieu + "' (van ban: '"
+            + van + "'). Dung con_nut de duyet cay khong biet kind, hoac "
+            "dung accessor dung kieu (ea_str/ea_nut/ea_ds_str).")
+    return _ds(van)
+
+
 def ea_ds(e: "TkvNode") -> "list[TkvNode]":
     """O1 khi o do la DANH SACH NODE (co the rong)."""
-    return _ds(_o_tho(e, 1))
+    return _ds_kiem(e, 1)
 
 
 def eb_ds(e: "TkvNode") -> "list[TkvNode]":
     """O2 khi o do la DANH SACH NODE (co the rong).
 
-    CHI dung khi CHAC CHAN kind cua `e` co o2 kieu 'ds' trong KHUON. Voi
-    `var`/`attr` o2 la TEN nen `int("ctx")` nem `FormatException: Input
-    string was not in a correct format.` (bug that 2026-11-03 trong
-    `_p6_co_f64_cay` cua control_flow.tkv). Duyet cay KHONG biet kind thi
+    CHI dung khi CHAC CHAN kind cua `e` co o2 kieu 'ds' trong KHUON (neu sai,
+    `_ds_kiem` nem SyntaxError co ten kind). Duyet cay KHONG biet kind thi
     dung `con_nut` - no doc KHUON de chi lay dung o 'nut'/'ds'."""
-    return _ds(_o_tho(e, 2))
+    return _ds_kiem(e, 2)
 
 
 def ec_ds(e: "TkvNode") -> "list[TkvNode]":
     """O3 khi o do la DANH SACH NODE (co the rong)."""
-    return _ds(_o_tho(e, 3))
+    return _ds_kiem(e, 3)
 
 
 def ea_ds_str(e: "TkvNode") -> "list[str]":
