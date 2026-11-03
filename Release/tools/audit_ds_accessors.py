@@ -170,6 +170,8 @@ def main():
                     help="in tung call site, khong chi tong ket")
     ap.add_argument("--stage", action="store_true",
                     help="chi in so luong theo tung tang phan loai")
+    ap.add_argument("--show", type=int, default=0, metavar="N",
+                    help="in N dong ngu canh quanh moi call site MANUAL (de doc tay)")
     args = ap.parse_args()
 
     rows = classify()
@@ -188,8 +190,21 @@ def main():
     if manual:
         print()
         print("--- MANUAL: khong thay bang chung kiem kind (%d) - doc tay ---" % len(manual))
+        cache = {}
         for r in manual:
             print("%s:%d  %s(%s)  in %s()" % (r["path"], r["line"], r["fn"], r["arg"], r["owner"]))
+            if not args.show:
+                continue
+            if r["path"] not in cache:
+                cache[r["path"]] = open(r["path"], encoding="utf-8", errors="replace") \
+                    .read().split("\n")
+            src = cache[r["path"]]
+            lo = max(0, r["line"] - 1 - args.show)
+            hi = min(len(src), r["line"] + args.show)
+            for k in range(lo, hi):
+                mark = ">>" if k == r["line"] - 1 else "  "
+                print("   %s %5d| %s" % (mark, k + 1, src[k].rstrip()))
+            print()
     else:
         print("\nKhong con call site MANUAL: moi cho deu co bang chung tinh.")
 
