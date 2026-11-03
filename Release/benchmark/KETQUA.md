@@ -113,12 +113,12 @@ new compiler builtin `simd_count_byte(p, n, b)` — P/Invoke into
 `tkv_simd_native.dll::CountByte` (AVX2 `pcmpeqb` + movemask + popcount,
 scalar tail), emitted through class `TkvSimd`
 (`il_features/simd_feature.tkv`). Compiler rebuilt with `tools/vong.exe`
-(IL_IDENTICAL on the first pass); `tools/testkit_gate.ps1`: **132/133 +
-negative 42/42** — the single failure (`lmhead_bwd_fused_test.tkv`) is
-unrelated: the in-progress P6 work in `compiler_bootstrap/` emits
-`System.Runtime.Intrinsics` 10.0, which .NET Framework 4.8 cannot load
-(verified: the HEAD compiler runs that test 7/7 with zero Intrinsics
-references).
+(IL_IDENTICAL on the first pass); `tools/testkit_gate.ps1`: **133/133 +
+negative 42/42**. (An earlier run of this gate reported 132/133 because P6
+was emitting the f64 lane — `System.Runtime.Intrinsics` 10.0, which .NET
+Framework 4.8 cannot load — into `lmhead_bwd_fused_test.tkv`. That lane is
+now opt-in via `TKV_P6_F64=1`, so by default P6 only vectorises f32 loops
+and the emitted IL carries no Intrinsics reference.)
 
 Scan path: `bstr_alloc` (native copy — the analog of NumPy's `s.encode`)
 + `simd_count_byte(bp, n*2, 101)` over the UTF-16LE bytes (high byte is 0

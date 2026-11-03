@@ -2115,6 +2115,32 @@ def _p6_co_ten(node: "TkvNode", ds_ten: "list[str]") -> "i32":
     return 0
 
 
+def _p6_f64_bat() -> "i32":
+    """1 neu lane f64 cua P6 duoc BAT CHU DONG qua env `TKV_P6_F64=1`.
+
+    Lane f64 (`Vector<double>` 4 lane + bridge AVX) CHI chay tren .NET Core:
+      - `System.Runtime.Intrinsics` khong co tren .NET Framework 4.8 (chinh
+        ghi chu o simd_feature.tkv:5), nen moi IL tham chieu no se nem
+        `FileNotFoundException` NGAY khi nap ham;
+      - o .NET Framework, `Vector<double>` chi 16 byte (SSE2, 2 lane) chu
+        khong phai 32 byte, nen `v_dload` doc 32 byte se sai ngay ca khi
+        nap duoc assembly.
+
+    Compiler mac dinh phat IL cho `mscorlib` 4.8, vi vay lane f64 phai la
+    LUA CHON CHU DONG cua nguoi biet minh dang chay tren runtime co
+    Intrinsics. Tat (mac dinh) = moi vong cham toi f64 bi tu choi -> chay
+    duong scalar, IL khong bao gio co `.assembly extern System.Runtime.Intrinsics`
+    (dung hanh vi truoc #8, 2026-10-29).
+
+    Doc env moi lan goi: day la quyet dinh LUC BIEN DICH, khong phai luc
+    chay, va chi ton mot loi goi `GetEnvironmentVariable` tren moi vong
+    duoc xet.
+    """
+    if os_getenv("TKV_P6_F64") == "1":
+        return 1
+    return 0
+
+
 def _p6_rhs_f32(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
     """1 neu kieu SUY TU cua `node` la 'f32' (#7 Y3 - suy luan typed-local).
 
@@ -2134,8 +2160,12 @@ def _p6_rhs_f32(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
         return 0
     # #8: f64 cung hop le - phai dung chung nguon su thiet voi codegen, vi
     # `_day_vec64_operand` broadcast `f64` -> Vector<double> va `f32` -> Widen.
-    if _d == 'f32' or _d == 'f64':
+    # NHUNG f64 chi duoc chap nhan khi lane f64 duoc bat (xem `_p6_f64_bat`):
+    # mac dinh P6 chi vector hoa lane f32, nhu truoc #8.
+    if _d == 'f32':
         return 1
+    if _d == 'f64':
+        return _p6_f64_bat()
     return 0
 
 
@@ -2151,11 +2181,15 @@ def _p6_kieu_lane(scope: "Scope", ten: "str") -> "i32":
         return 0
     if _ta is None:
         return 0
-    # #8 (2026-10-29): lane temp f64 (vd `xh` cua LN_BWD) deu hop le -
-    # shadow tuong ung la `f64x4` (Vector<double>), 4 lane bit-giong scalar.
-    if _ta.dtype != 'f32' and _ta.dtype != 'f64':
-        return 0
-    return 1
+    # #8 (2026-10-29): lane temp f64 (vd `xh` cua LN_BWD) hop le khi lane f64
+    # duoc bat - shadow tuong ung la `f64x4` (Vector<double>), 4 lane bit-giong
+    # scalar. Mac dinh `_p6_f64_bat()` = 0 -> tu choi ca vong (xem ghi chu
+    # trong `_p6_f64_bat`: Intrinsics khong co tren .NET Framework 4.8).
+    if _ta.dtype == 'f32':
+        return 1
+    if _ta.dtype == 'f64':
+        return _p6_f64_bat()
+    return 0
 
 
 def _p6_chi_so_doc_lane(node: "TkvNode", lane_ten: "list[str]") -> "i32":
@@ -2233,12 +2267,33 @@ def _p6_phan_tich_than(stmts: "list[i32]", iv: "str", la_while: "i32",
             # scalar (scalar tang tai vi tri do) -> tu choi.
             if _pos_ctr_dau >= 0:
                 return 0
+            # Lane f64 dang TAT (mac dinh): vong ghi vao mang f64 phai di
+            # scalar. Chi rieng kiem tra RHS la KHONG du - const-fill
+            # `d[i] = 0.0` co RHS la literal `num` (infer None) nen lot qua
+            # `_p6_rhs_f32`, roi codegen se dung `v_dstore` + `.assembly
+            # extern System.Runtime.Intrinsics` -> binary khong nap duoc tren
+            # .NET Framework 4.8.
+            if _p6_f64_bat() == 0:
+                _bten = lay_str(_st, 'name')
+                if _bten is not None:
+                    _bta = _p6_ta_cua_base(scope, ctx, _bten)
+                    if _bta is not None and _bta.dtype == 'f64':
+                        return 0
             _n_idx = _n_idx + 1
             _pos_idx_cuoi = _vi_tri
             loai.append('idx')
         elif _k == 'assign_scalar' or _k == 'assign_typed_decl':
             _arhs = lay_nut(_st, 'rhs_node')
             _aten = lay_str(_st, 'name')
+            # Lane f64 TAT: cau `x = x + 1` (counter) va `__hoist*` (alias)
+            # khong mang kieu so - chi cau 'lane'/'inv' moi co the nang vong
+            # len f64, va ca hai da di qua `_p6_kieu_lane` / `_p6_rhs_f32`
+            # (deu tu choi f64 khi lane f64 tat). KHONG goi `_p6_co_f64_cay`
+            # o day: no `infer_dtype` tren MOI node RHS cua MOI vong, ke ca
+            # vong ma truoc day chua bao gio bi phan tich sau - da gap
+            # `FormatException: Input string was not in a correct format.`
+            # khi self-host (2026-11-03), tuc loi TIEM AN cua infer_dtype tren
+            # mot dang node hiem, khong phai loi cua lane f64.
             # `lay_str` tra None khi cau lenh khong co truong `name` -
             # phai chan TRUOC, khong thi buom `.find` tren None (NRE luc
             # self-host, da gap).
