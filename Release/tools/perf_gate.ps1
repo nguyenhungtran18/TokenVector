@@ -21,11 +21,32 @@
 # Cach dung:
 #   .\tools\perf_gate.ps1              # do va so voi baseline
 #   .\tools\perf_gate.ps1 -Update      # nap lai baseline
+#
+# RUNTIME (2026-10-30): kernel `perf_e2e` (va bat ky kernel nao sinh boi
+# codegen f64 `Vector<double>` + `Widen/Narrow`) KHONG chay tren .NET
+# Framework - `System.Numerics.Vector\u00601` / `Widen` khong co o do ->
+# `TypeLoadException`/`MissingMethodException` NGAY luc `& $exe`. Nen toan
+# bo gate chay bang `dotnet exec --runtimeconfig` tren .NET 10 (runtime co
+# `Widen`/`Narrow` hardware) - cung chien luoc voi `tools/gate_f32.sh`.
+# HOP DONG: moi binary sinh boi codegen f64 chi chay tren .NET 10 (HANDOFF
+# 0.56.1). Vi runtime doi, ms baseline cu (do tren .NET Framework) khong
+# con doi chieu duoc - phai chay `-Update` MOT LAN sau khi da xem so, rieng
+# CHECKSUM van so duoc voi baseline cu (so khong phu thuoc runtime - da kiem).
 param(
     [double]$ThreshPct = 7.0,
     [switch]$Update,
-    [int]$Runs = 5
+    # 2026-10-30: 5 -> 15. Do la TOAN BO process nen min cua 5 lan van con
+    # nhieu jitter ~chuc % o kernel nho (~16 ms net). Lay min nhieu hon thi
+    # gan day du toi thieu (khoi dong + code) - on hon nhieu hon 5 lan.
+    [int]$Runs = 15
 )
+# Nguong NHIEU TOAN TUYET (ms). Moi lan do la mot process moi, nen net
+# (tong - tare) van con jitter ~1.5-2 ms do trinh doi/va CPU - lon hon 7%
+# cua mot so kernel nho (perf_f32mm net ~20 ms -> 7% = 1.4 ms). Khong co
+# cai nay thi gate FLAP: do dung cong ngay cung van TUOT va nguoi chay se
+# quen chay `-Update` = mat canh bao. Chi FAIL khi DONG THOI vuot 7% VA
+# vuot khoi do nhieu -> kernel lon (delta hang chuc ms) van bat binh thuong.
+$NoiseMs = 2.5
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -38,6 +59,35 @@ if (-not (Test-Path -LiteralPath $TKVC)) {
     Write-Output "!! thieu $TKVC - khong the do"; exit 1
 }
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+
+# --- runtime .NET 10 cho `dotnet exec` (xem ghi chu tren) --------------------
+$rtVer = $null
+try {
+    $rtVer = (& dotnet --list-runtimes 2>$null |
+        Where-Object { $_ -match '^Microsoft\.NETCore\.App ' } |
+        ForEach-Object { if ($_ -match '([0-9]+\.[0-9]+\.[0-9]+)') { $Matches[1] } } |
+        Select-Object -Last 1)
+} catch { $rtVer = $null }
+$rtCfg = Join-Path $tmp "perf_gate.runtimeconfig.json"
+if ($rtVer) {
+    @"
+{
+  "runtimeOptions": {
+    "tfm": "net10.0",
+    "framework": { "name": "Microsoft.NETCore.App", "version": "$rtVer" }
+  }
+}
+"@ | Set-Content -Path $rtCfg -Encoding ASCII
+} else {
+    Write-Output "!! khong tim thay .NET runtime - perf_gate can no (codegen f64)"
+    exit 1
+}
+
+# Chay 1 kernel. Tra ve @{ ec = <exit code>; out = <stdout> }.
+function Invoke-PerfExe([string]$exe) {
+    $out = & dotnet exec --runtimeconfig $rtCfg $exe 2>&1
+    return @{ ec = $LASTEXITCODE; out = ($out | Out-String) }
+}
 
 $KERN = @()
 Get-ChildItem -LiteralPath $here -Filter "*.tkv" | Where-Object { $_.Name -notmatch '^_' } | Sort-Object Name | ForEach-Object {
@@ -56,17 +106,31 @@ function Measure-One($exe) {
     for ($i = 0; $i -lt $Runs; $i++) {
         # TUYET DOI khong pipe sang Select-Object: pipe cat mach se lam
         # process bi huy va exit code thanh khong 0 -> gate bao sai.
-        $out = & $exe 2>&1
-        if ($null -ne $out) { $line = ($out | Out-String).Trim() -split "`r?`n" | Select-Object -First 1 }
-        if ($LASTEXITCODE -ne 0) { return @{ ms = -1; out = "" } }
+        $r0 = Invoke-PerfExe $exe
+        if ($null -ne $r0.out) { $line = $r0.out.Trim() -split "`r?`n" | Select-Object -First 1 }
+        if ($r0.ec -ne 0) { return @{ ms = -1; out = "" } }
         $sw = [Diagnostics.Stopwatch]::StartNew()
-        $out = & $exe 2>&1
+        $r1 = Invoke-PerfExe $exe
         $sw.Stop()
-        if ($LASTEXITCODE -ne 0) { return @{ ms = -1; out = "" } }
+        if ($r1.ec -ne 0) { return @{ ms = -1; out = "" } }
         if ($sw.Elapsed.TotalMilliseconds -lt $best) { $best = $sw.Elapsed.TotalMilliseconds }
     }
     return @{ ms = $best; out = $line }
 }
+
+# --- TARE: tru khoi dong runtime khoi TUNG kernel ---------------------------
+# Ly do: `Measure-One` do ca process, va .NET 10 startup van cham hon .NET
+# Framework cu -> neu khong tru thi 7% se do "khoi dong" thay vi do code.
+# `_tare.tkv` (ten bat dau `_` nen bi bo qua khi liet ke kernel) la mot main
+# rong - so do duoc la chi phi khoi dong thuan. `net = tong - tare`.
+$TARE_EXE = Join-Path $tmp "_tare.exe"
+& $TKVC (Join-Path $here "_tare.tkv") $TARE_EXE "main" | Out-Null
+if (-not (Test-Path -LiteralPath $TARE_EXE)) {
+    Write-Output "!! BUILD FAIL: _tare (khong tru duoc khoi dong runtime)"; exit 1
+}
+$tareMs = (Measure-One $TARE_EXE).ms
+if ($tareMs -lt 0) { Write-Output "!! RUN FAIL: _tare"; exit 1 }
+Write-Output ("tare (khoi dong .NET 10) = {0:N1} ms`n" -f $tareMs)
 
 # Do: lay (nhanh nhat) va (dong ket qua) rieng, de biet ket qua co on
 # dinh khong khi do N lan.
@@ -74,6 +138,8 @@ $res = @{}
 foreach ($kv in $KERN) {
     $r = Measure-One (Join-Path $tmp ($kv + ".exe"))
     if ($r.ms -lt 0) { Write-Output "!! RUN FAIL (exit != 0): $kv - doi chieu ket qua SAU KHI NHANH"; exit 1 }
+    # net = tong - tare (xem ghi chu tren). `out` giuyen - do la checksum.
+    $r = @{ ms = [Math]::Max($r.ms - $tareMs, 0.0); out = $r.out }
     $res[$kv] = $r
     $tag = $kv.PadRight(14)
     Write-Output ("{0} {1,8:N1} ms   {2}" -f $tag, $r.ms, $r.out)
@@ -129,7 +195,8 @@ foreach ($kv in $KERN) {
         continue
     }
     if ($null -ne $cs_old) {
-        if ($pct -gt $ThreshPct) {
+        $delta = $cur - $old
+        if ($pct -gt $ThreshPct -and $delta -gt $NoiseMs) {
             $st = "TUOT {0:N1}%" -f $pct
             $fail = 1
         } elseif ($pct -lt -$ThreshPct) {

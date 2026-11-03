@@ -1653,7 +1653,8 @@ def _p6_var_is(node: "TkvNode", ten: "str") -> "i32":
     return 1 if ea_str(node) == ten else 0
 
 
-def _p6_leaf_vec_ok(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
+def _p6_leaf_vec_ok(node: "TkvNode", scope: "Scope", ctx: "Ctx",
+                    lane_ten: "list[str]"=None) -> "i32":
     """1 neu la TOAN HANG DON hop le lam ve phai vector.
 
     Cho phep:
@@ -1671,14 +1672,25 @@ def _p6_leaf_vec_ok(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
     if k == 'num':
         return 1
     if k == 'var':
+        # Doc LANE temp (#8 Y1): sau doi ten no la local `f32x4` da Vector4
+        # - khong con la bien so khieu goc nen khong the do bang `infer_dtype`.
+        if lane_ten is not None:
+            _ten_v = ea_str(node)
+            _tl = 0
+            while _tl < len(lane_ten):
+                if lane_ten[_tl] == _ten_v:
+                    return 1
+                _tl = _tl + 1
         d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records,
                             ctx.record_methods, None)
-        if d == 'f32' or d == 'f32x4':
+        # #8: + 'f64'/'f64x4' (mang/branch f64 va ket qua v_dload)
+        if d == 'f32' or d == 'f32x4' or d == 'f64' or d == 'f64x4':
             return 1
     return 0
 
 
-def _p6_vec_rhs_ok(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
+def _p6_vec_rhs_ok(node: "TkvNode", scope: "Scope", ctx: "Ctx",
+                   lane_ten: "list[str]"=None) -> "i32":
     """Ve phai (sau khi viet lai) co THE bien dich thanh phep so hoc vector.
 
     Moi toan tu phai la `+`/`-`/`*`/`/`, va la phai la `v_load4` hoac toan
@@ -1694,12 +1706,18 @@ def _p6_vec_rhs_ok(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
         return 0
     if ekind(node) == 'call' and ea_str(node) == 'v_load4':
         return 1
+    # P6 cho list[f32] (YEU CAU #5): `v_load4a` cung la mot phep doc vector.
+    if ekind(node) == 'call' and ea_str(node) == 'v_load4a':
+        return 1
+    # #8 (2026-10-29): `v_dload` = doc 4 float64 -> `f64x4`.
+    if ekind(node) == 'call' and ea_str(node) == 'v_dload':
+        return 1
     if ekind(node) == 'binop':
         op = ea_str(node)
         if op == '+' or op == '-' or op == '*' or op == '/':
-            return (_p6_vec_rhs_ok(eb_nut(node), scope, ctx)
-                    * _p6_vec_rhs_ok(ec_nut(node), scope, ctx))
-    return _p6_leaf_vec_ok(node, scope, ctx)
+            return (_p6_vec_rhs_ok(eb_nut(node), scope, ctx, lane_ten)
+                    * _p6_vec_rhs_ok(ec_nut(node), scope, ctx, lane_ten))
+    return _p6_leaf_vec_ok(node, scope, ctx, lane_ten)
 
 
 def _p6_is_f32buf(scope: "Scope", ten: "str") -> "i32":
@@ -1710,6 +1728,908 @@ def _p6_is_f32buf(scope: "Scope", ten: "str") -> "i32":
     return 1 if ta is not None and ta.shape_ten == 'f32buf' else 0
 
 
+# ==================== P6 cho `list[f32]` (YEU CAU #5, Phase C1) ===========
+#
+# Truoc day P6 CHI chap nhan substrate `f32buf` (con tro tho tu `alloc_bytes`),
+# nen MOI vong elementwise tren `list[f32]` - dang pho bien nhat trong repo -
+# di theo duong scalar. Bo nay mo rong cung bo khop mau, KHONG doi cau hinh
+# vong lap: van yeu cau `iv < n`, than DUNG 2 cau (idx_assign + iv = iv + 1),
+# chi so DUNG `iv`, ve phai la phep so hoc vector.
+#
+# Khac biet cot loi voi `f32buf`:
+#   - can preheader validate truoc vong (f32buf khong co hop dong exception,
+#     list[f32] thi CO - xem _oob_probe.tkv),
+#   - can lay mang nen `_items` MOT LAN truoc vong, luu vao local `object`,
+#   - doc/ghi di qua `ldelema` + `ldobj`/`stobj` thay vi con tro tho.
+
+_P6_OOB_MSG = 'Index was out of range. Must be non-negative and less than the size of the collection.'
+
+
+def _p6_is_list_f32(scope: "Scope", ten: "str") -> "i32":
+    """1 neu `ten` la `list[f32]` THUAN (khong phai list[list/...])."""
+    try:
+        ta = scope.tra(ten).ta
+    except (KeyError, SyntaxError):
+        return 0
+    if ta is None or ta.shape_ten != 'list':
+        return 0
+    # #8 (2026-10-29): mo rong sang `list[f64]` - vong P6 co kieu f64 (LN_BWD)
+    # dung cung mot duong hoist/preheader, chi khac elem type.
+    if (ta.dtype != 'f32' and ta.dtype != 'f64') or ta.elem_ta is not None:
+        return 0
+    return 1
+
+
+def _p6_is_vec_base(scope: "Scope", ten: "str") -> "i32":
+    """Co the dung lam nen vector khong: `f32buf` (cu) HOAC `list[f32]` (moi)."""
+    if _p6_is_f32buf(scope, ten) == 1:
+        return 1
+    return _p6_is_list_f32(scope, ten)
+
+
+# ============ YEU CAU #6 (2026-10-27): offset / const-fill / counter ========
+#
+# Bo khop mau mo rong trong CUNG bo matcher (khong doi cau hinh vong lap):
+#   (a) chi so `off + iv` loop-invariant  - `d[j] = flat[off + j]`,
+#       `gflat[o_wte + k]`, `d[j] = opt.p[off + j]`
+#   (b) const-fill `a[iv] = c` (c loop-invariant) - `self.g[i] = 0.0`,
+#       `out[dst] = z`
+#   (c) counter rieng `out[dst]` tang dong do voi `iv` - chinh shape
+#       acceptance `_f32p` (BUILD/ACC)
+# Ca ba deu di qua mot bo dieu kien range phat TRONG preheader (khong chung
+# minh ky thuat toi ngu - chi HOP DONG chay), neu khong phan loai duoc thi
+# tu choi = van di duong scalar (nguyen tac 'hoi nghi = tu choi' cua C1).
+
+
+def _p6_ta_cua_base(scope: "Scope", ctx: "Ctx", ten: "str") -> "TypeAnn":
+    """TypeAnn cua MOT base: ten bien don (`d`) hoac `obj.truong` (`opt.p`,
+    `gwpe.data`). Muc dich: chi so tren TRUONG record cung phai vector hoa duoc
+    (YEU CAU #6(a) - `d[j] = opt.p[off + j]`, `gflat[..] + gwpe.data[k]`)."""
+    if '.' in ten:
+        _p = ten.split('.')
+        if len(_p) != 2:
+            return None
+        try:
+            ta_obj = scope.tra(_p[0]).ta
+        except (KeyError, SyntaxError):
+            return None
+        if ta_obj is None:
+            return None
+        if ctx is None or not ctx.records:
+            return None
+        # KHONG kiem tra `shape_ten == 'record'` o day: `compile_attr_record`
+        # cung chi can `records.get(obj_ta.dtype, [])` (xem record_feature), va
+        # viec doan kieu mot truong lai con phu thuoc vao cach khai bao lop.
+        # Neu `dtype` khong phai ten lop nao thi `.get` tra None -> tu choi.
+        _ds = ctx.records.get(ta_obj.dtype, None)
+        if _ds is None:
+            return None
+        for _ten_tr, _fd in _ds:
+            if _ten_tr == _p[1]:
+                return _fd
+        return None
+    try:
+        return scope.tra(ten).ta
+    except (KeyError, SyntaxError):
+        return None
+
+
+def _p6_is_vec_base2(scope: "Scope", ctx: "Ctx", ten: "str") -> "i32":
+    """`_p6_is_vec_base` dung cho CA ten bien va `obj.truong`."""
+    ta = _p6_ta_cua_base(scope, ctx, ten)
+    if ta is None:
+        return 0
+    if ta.shape_ten == 'f32buf':
+        return 1
+    if ta.shape_ten == 'list' and (ta.dtype == 'f32' or ta.dtype == 'f64') and ta.elem_ta is None:
+        return 1
+    return 0
+
+
+def _p6_is_list_f32_2(scope: "Scope", ctx: "Ctx", ten: "str") -> "i32":
+    """`_p6_is_list_f32` dung cho CA ten bien va `obj.truong`."""
+    ta = _p6_ta_cua_base(scope, ctx, ten)
+    if ta is None:
+        return 0
+    if ta.shape_ten == 'list' and (ta.dtype == 'f32' or ta.dtype == 'f64') and ta.elem_ta is None:
+        return 1
+    return 0
+
+
+def _p6_co_f64_cay(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
+    """1 neu co BAT KY nut nao tren cay do ra kieu 'f64'/'f64x4'.
+
+    Dung de quyet xem vong co can duong f64 khong: chi can MOT bien f64 xuat
+    hien trong RHS (vd `mu`/`rstd`/`m1` cua LN_BWD) la phep toan da duoc
+    nang thanh `f64x4` (xem `_hop_kieu_so`), va khi do vong phai:
+      - khai scratch `__p6w8` cho bridge f32->f64, va
+      - chay `iv + 7 < n` de `v_wload4a` doc duoc 32 byte `Vector<float>`.
+    Literal `num` infer None ("boi hinh") nen khong tinh -> khong lam vong
+    f32 thu thuong nham chuyen doi (yeu cau #9 IL_IDENTICAL)."""
+    if not la_node(node):
+        return 0
+    _d = None
+    try:
+        _d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records,
+                             ctx.record_methods, None)
+    except Exception:
+        _d = None
+    if _d == 'f64' or _d == 'f64x4':
+        return 1
+    for _c in eb_ds(node):
+        if _p6_co_f64_cay(_c, scope, ctx) == 1:
+            return 1
+    return 0
+
+
+def _p6_el_of_ten(scope: "Scope", ctx: "Ctx", ten: "str") -> "str":
+    """Elem IL type cua 1 base bien/`obj.truong`: 'float64' neu kieu f64,
+    nguoc lai 'float32'. #8 (2026-10-29) - dung chung cho hoist/castclass/
+    chon intrinsic `v_load4a` vs `v_dload`/`v_store4a` vs `v_dstore`."""
+    _t = _p6_ta_cua_base(scope, ctx, ten)
+    if _t is not None and _t.dtype == 'f64':
+        return 'float64'
+    return 'float32'
+
+
+def _p6_node_cua_base(ten: "str") -> "TkvNode":
+    """Node bien dich cho mot key base: `d` -> var, `opt.p` -> attr."""
+    if '.' in ten:
+        _p = ten.split('.')
+        return mk3('attr', o_str(_p[0]), o_str(_p[1]))
+    return mk2('var', o_str(ten))
+
+
+def _p6_base_cua_index(node: "TkvNode") -> "str":
+    """Key base cua nut `index`/`index_expr`; '' neu khong dung duoc.
+
+    Parser tach 2 dang: `d[i]` -> `index` (o1 = ten bien), con `opt.p[i]` /
+    `gwpe.data[i]` -> `index_expr` (o1 = NUT base, `attr` hoac khac)."""
+    if not la_node(node):
+        return ''
+    k = ekind(node)
+    if k == 'index':
+        if len(eb_ds(node)) != 1:
+            return ''
+        return ea_str(node)
+    if k == 'index_expr':
+        base = ea_nut(node)
+        if not la_node(base):
+            return ''
+        if ekind(base) == 'var':
+            return ea_str(base)
+        if ekind(base) == 'attr':
+            return ea_str(base) + '.' + eb_str(base)
+        return ''
+    return ''
+
+
+def _p6_idx_cua_index(node: "TkvNode") -> "TkvNode":
+    """Nut chi so (DUNG 1 phan tu) cua `index`/`index_expr`; None neu khong hop le."""
+    if not la_node(node):
+        return None
+    k = ekind(node)
+    if k == 'index':
+        _ds = eb_ds(node)
+        if len(_ds) != 1:
+            return None
+        return _ds[0]
+    if k == 'index_expr':
+        _i = eb_nut(node)
+        if not la_node(_i):
+            return None
+        return _i
+    return None
+
+
+def _p6_la_counter(ten: "str", ctr: "list[str]") -> "i32":
+    """1 neu `ten` la 1 trong cac bien counter dong do voi `iv`."""
+    for _c in ctr:
+        if _c == ten:
+            return 1
+    return 0
+
+
+def _p6_co_biens(node: "TkvNode", iv: "str", ctr: "list[str]") -> "i32":
+    """1 neu `node` CO PHU THUOC vao `iv` hoac vao 1 counter -> khong invariant.
+
+    Mac dinh la 1 (khong biet = khong dung) chi cho phep `num`/`var`/`binop`
+    - nen `off` chi la hang so, bien, hoac phep tinh tren chung."""
+    if not la_node(node):
+        return 1
+    k = ekind(node)
+    if k == 'num':
+        return 0
+    if k == 'var':
+        _t = ea_str(node)
+        if _t == iv:
+            return 1
+        return _p6_la_counter(_t, ctr)
+    if k == 'binop':
+        if _p6_co_biens(eb_nut(node), iv, ctr) == 1:
+            return 1
+        return _p6_co_biens(ec_nut(node), iv, ctr)
+    if k == 'attr':
+        return _p6_la_counter(ea_str(node), ctr)
+    return 1
+
+
+def _p6_la_tang_mot(st: "i32") -> "i32":
+    """1 neu cau lenh la `x = x + 1` hoac `x = x - 1` (counter dong do).
+
+    `x: "i64" = x + 1` (assign_typed_decl) cung dung - chi khac o truong
+    KIEU, ve phai va `name` giong het (YEU CAU #8, debug _h2 2026-10-28)."""
+    _k0 = lay_str(st, 'kind')
+    if _k0 != 'assign_scalar' and _k0 != 'assign_typed_decl':
+        return 0
+    _rhs = lay_nut(st, 'rhs_node')
+    if not la_node(_rhs) or ekind(_rhs) != 'binop':
+        return 0
+    _op = ea_str(_rhs)
+    if _op != '+' and _op != '-':
+        return 0
+    if _p6_var_is(eb_nut(_rhs), lay_str(st, 'name')) == 0:
+        return 0
+    if _p6_num_is_one(ec_nut(_rhs)) == 0:
+        return 0
+    return 1
+
+
+def _p6_buoc_tang(st: "i32") -> "i32":
+    """+1 / -1 cho 1 cau `x = x +/- 1`."""
+    if ea_str(lay_nut(st, 'rhs_node')) == '+':
+        return 1
+    return -1
+
+
+def _p6_trong_ds(ten: "str", ds: "list[str]") -> "i32":
+    """1 neu `ten` co trong danh sach ten (tim tay - ds luon ngan)."""
+    for _x in ds:
+        if _x == ten:
+            return 1
+    return 0
+
+
+def _p6_co_call(node: "TkvNode") -> "i32":
+    """1 neu cay `node` CO goi ham (call/method_call/...). #8 Y1: so lan goi
+    phai giu NGUYEN moi lan lap elementwise - goi 1 lan/4 phan tu la doi
+    hanh vi, nen RHS chua goi ham tu choi."""
+    if not la_node(node):
+        return 0
+    k = ekind(node)
+    if k == 'call' or k == 'method_call' or k == 'method_call_expr' or k == 'index_call':
+        return 1
+    if k == 'binop':
+        if _p6_co_call(eb_nut(node)) == 1:
+            return 1
+        return _p6_co_call(ec_nut(node))
+    if k == 'neg':
+        return _p6_co_call(ea_nut(node))
+    if k == 'index':
+        _ds = eb_ds(node)
+        if _ds is not None:
+            for _x in _ds:
+                if _p6_co_call(_x) == 1:
+                    return 1
+        return 0
+    if k == 'index_expr':
+        if _p6_co_call(ea_nut(node)) == 1:
+            return 1
+        return _p6_co_call(eb_nut(node))
+    # #8 Y2 (2026-10-29): dieu kien `if` thuong la `compare`/`boolop` - phai
+    # duyet qua no, nguoc lai `if a[i] > f()` bi coi la khong goi/khong doc
+    # chi so -> unswitch sai (giong bug `_p6_gom_doc` duoi day).
+    if k == 'compare' or k == 'boolop':
+        if _p6_co_call(eb_nut(node)) == 1:
+            return 1
+        return _p6_co_call(ec_nut(node))
+    if k == 'not':
+        return _p6_co_call(ea_nut(node))
+    return 0
+
+
+def _p6_co_index(node: "TkvNode") -> "i32":
+    """1 neu cay `node` CO nut `index`/`index_expr` (doc/ghi phan tu list)."""
+    if not la_node(node):
+        return 0
+    k = ekind(node)
+    if k == 'index' or k == 'index_expr':
+        return 1
+    if k == 'binop':
+        if _p6_co_index(eb_nut(node)) == 1:
+            return 1
+        return _p6_co_index(ec_nut(node))
+    if k == 'neg':
+        return _p6_co_index(ea_nut(node))
+    if k == 'not':
+        return _p6_co_index(ea_nut(node))
+    # #8 Y2 (2026-10-29): cung ly do nhu `_p6_co_call` - `if a[i] > 0` la
+    # compare chua index, khong duyet qua no thi dieu kien bi HOIST ra ngoai
+    # vong voi chi so cua lan lap truoc.
+    if k == 'compare' or k == 'boolop':
+        if _p6_co_index(eb_nut(node)) == 1:
+            return 1
+        return _p6_co_index(ec_nut(node))
+    return 0
+
+
+def _p6_gom_doc(node: "TkvNode", ds_ten: "list[str]"):
+    """Gom ten BIEN ma `node` doc (var + doi tuong cua attr + base cua index)."""
+    if not la_node(node):
+        return
+    k = ekind(node)
+    if k == 'var':
+        ds_ten.append(ea_str(node))
+        return
+    if k == 'attr':
+        ds_ten.append(ea_str(node))
+        return
+    if k == 'binop':
+        _p6_gom_doc(eb_nut(node), ds_ten)
+        _p6_gom_doc(ec_nut(node), ds_ten)
+        return
+    if k == 'neg':
+        _p6_gom_doc(ea_nut(node), ds_ten)
+        return
+    if k == 'index':
+        _b = ea_str(node)
+        if _b is not None:
+            ds_ten.append(_b)
+        _ds = eb_ds(node)
+        if _ds is not None:
+            for _x in _ds:
+                _p6_gom_doc(_x, ds_ten)
+        return
+    if k == 'index_expr':
+        _p6_gom_doc(ea_nut(node), ds_ten)
+        _p6_gom_doc(eb_nut(node), ds_ten)
+        return
+    if k == 'call' or k == 'method_call' or k == 'method_call_expr':
+        _ds2 = eb_ds(node)
+        if _ds2 is not None:
+            for _y in _ds2:
+                _p6_gom_doc(_y, ds_ten)
+        return
+    # #8 Y2 (2026-10-29) - BUG THAT da do: khong duyet `compare`/`boolop`/`not`
+    # thi dieu kien `v > 0.0` (unary_relu) tra ve ds RONG -> kiem tra "dieu kien
+    # khong duoc doc ten thanh vong gan" mat hieu luc -> unswitch hoist `if` ra
+    # ngoai vong dung GIA TRI v CUA LAN TRUOC -> gap_tests fails=1 (2026-10-29).
+    # Chi cac kind ma `_p6_cond_inv` co the tra 1 moi can gom day du ten.
+    if k == 'compare' or k == 'boolop':
+        _p6_gom_doc(eb_nut(node), ds_ten)
+        _p6_gom_doc(ec_nut(node), ds_ten)
+        return
+    if k == 'not':
+        _p6_gom_doc(ea_nut(node), ds_ten)
+        return
+    return
+
+
+def _p6_co_ten(node: "TkvNode", ds_ten: "list[str]") -> "i32":
+    """1 neu `node` doc bat ky ten nao trong `ds_ten`."""
+    _ds: "list[str]" = []
+    _p6_gom_doc(node, _ds)
+    for _x in _ds:
+        if _p6_trong_ds(_x, ds_ten) == 1:
+            return 1
+    return 0
+
+
+def _p6_rhs_f32(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
+    """1 neu kieu SUY TU cua `node` la 'f32' (#7 Y3 - suy luan typed-local).
+
+    Bien KHONG annotation (`t = flat[o + jj]`) van duoc codegen khai la
+    `float32` (xem `_infer_dtype` - node `index` tra ve dtype PHAN TU cua
+    container), nhung `scope.tra(t).ta` luc do van la kieu mac dinh 'int'
+    -> `_p6_kieu_lane` hoi chi hong mot lane hop le. Goi cung mot nguon
+    su that voi codegen (`ctx.infer_dtype`) thi 2 duong khong the lech.
+    Tra 0 neu khong suy duoc - van nguyen tac "hoi nghi = tu choi"."""
+    if ctx is None:
+        return 0
+    _d = None
+    try:
+        _d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records,
+                             ctx.record_methods, None)
+    except Exception:
+        return 0
+    # #8: f64 cung hop le - phai dung chung nguon su thiet voi codegen, vi
+    # `_day_vec64_operand` broadcast `f64` -> Vector<double> va `f32` -> Widen.
+    if _d == 'f32' or _d == 'f64':
+        return 1
+    return 0
+
+
+def _p6_kieu_lane(scope: "Scope", ten: "str") -> "i32":
+    """1 neu bien nay duoc lam LANE temp: kieu THAT phai la 'f32'.
+
+    Lane temp luu GIA TRI Vector4 (4 lan/lan lap) - chi f32 thi 4 lane
+    bit-giong duong scalar; f64/int se lech so hoc -> tu choi ca vong."""
+    _ta = None
+    try:
+        _ta = scope.tra(ten).ta
+    except (KeyError, SyntaxError):
+        return 0
+    if _ta is None:
+        return 0
+    # #8 (2026-10-29): lane temp f64 (vd `xh` cua LN_BWD) deu hop le -
+    # shadow tuong ung la `f64x4` (Vector<double>), 4 lane bit-giong scalar.
+    if _ta.dtype != 'f32' and _ta.dtype != 'f64':
+        return 0
+    return 1
+
+
+def _p6_chi_so_doc_lane(node: "TkvNode", lane_ten: "list[str]") -> "i32":
+    """1 neu MOI vi tri chi so nao do doc lane temp (kieu f32).
+
+    Chi so phai la so nguyen (iv/counter/offset) - lane temp la f32 ma xuat
+    hien o vi tri chi so -> `_p6_xep_chi_so` se dua ra dieu kien range SAI
+    kieu, nen tu choi toan vong truoc khi quet."""
+    if not la_node(node):
+        return 0
+    k = ekind(node)
+    if k == 'binop':
+        if _p6_chi_so_doc_lane(eb_nut(node), lane_ten) == 1:
+            return 1
+        return _p6_chi_so_doc_lane(ec_nut(node), lane_ten)
+    if k == 'index':
+        _ds = eb_ds(node)
+        if _ds is not None:
+            for _x in _ds:
+                if _p6_co_ten(_x, lane_ten) == 1:
+                    return 1
+        return 0
+    if k == 'index_expr':
+        return _p6_co_ten(eb_nut(node), lane_ten)
+    return 0
+
+
+def _p6_phan_tich_than(stmts: "list[i32]", iv: "str", la_while: "i32",
+                       ctr: "list[str]", ctr_step: "list[i32]",
+                       alias_ten: "list[str]", alias_rhs: "list[i32]",
+                       loai: "list[str]", lane_ten: "list[str]",
+                       scope: "Scope", ctx: "Ctx") -> "i32":
+    """Xep than vong (YEU CAU #6(c)) - tra 0 neu khong dung mau.
+
+    Mau: DUNG MOT `idx_assign`, moi cau con lai la `x = x +/- 1` (counter)
+    HOAC 1 phep gan bien tu loop-invariant:
+
+      - `while` bat buoc co `iv = iv + 1`; `for` thi KHONG co (codegen_for
+        phat no ngoai than), co nghia la tu choi.
+      - moi phep tang PHAI nam SAU `idx_assign` (vi `x = x + 1` TRUOC phep
+        ghi thi gia tri chi so tai thoi diem ghi lech 1) - tu choi la tu nguyen.
+      - **gan bien tu** (ten `alias_*`): macro `_hoist_attr_index` bi danh
+        `tmp = obj.field` NGAY TRUOC dong `tmp[i] = ...` o trong than (khong
+        co duong rieng cho chi so tren truong record), nen than co 2+ cau.
+        Chi chap nhan khi ve phai loop-invariant va `tmp` khong chinh la
+        counter; cac phep nay duoc TU MINH gan lai TRUOC vong boi nguoi goi
+        (xem 2 duong `_p6_vectorize_*`), con duoi scalar van chay lai binh thuong.
+
+    Mang `ctr` chi nhan cac counter KHAC `iv` (da loai `iv` ra).
+
+    **#8 Y1 (2026-10-28): mo rong than N cau.** Than co the gom nhieu
+    `idx_assign`, counter, gan bien tu macro (`alias`) va cac cau gan bien
+    THUONG - phan loai vao `loai` (song song voi `stmts`):
+
+      - 'idx'    : phep ghi phan tu (van yeu cau DUNG 1 chi so dang 1 phan tu)
+      - 'counter': `x = x +/- 1` - bat buoc nam SAU moi cau khac (vector
+                   tang dong do o CUOI moi lan lap 4)
+      - 'alias'  : `__hoist*` invariant - cuu hanh vi #6 (gan truoc vong)
+      - 'lane'   : gan co phu thuoc iv/counter/index/lane temp -> GIA TRI
+                   Vector4 - can shadow f32x4 (kieu THAT buoc buoc 'f32')
+      - 'inv'    : gan invariant thuan - bien dich NGUYEN trong vong vector
+                   (khong hoist - giu hanh vi khi vong khong chay, cung nguyen
+                   tac voi bien nguoi dung cua #6)
+
+    `lane_ten` - ten cac lane temp (tu thu tu xuat hien, unique)."""
+    _n_idx = 0
+    _co_iv = 0
+    _vi_tri = 0
+    _pos_idx_cuoi = -1
+    _pos_ctr_dau = -1
+    for _st in stmts:
+        _k = lay_str(_st, 'kind')
+        if _k == 'idx_assign':
+            # idx SAU counter: vector bump cuoi vong se lech 1 so voi duong
+            # scalar (scalar tang tai vi tri do) -> tu choi.
+            if _pos_ctr_dau >= 0:
+                return 0
+            _n_idx = _n_idx + 1
+            _pos_idx_cuoi = _vi_tri
+            loai.append('idx')
+        elif _k == 'assign_scalar' or _k == 'assign_typed_decl':
+            _arhs = lay_nut(_st, 'rhs_node')
+            _aten = lay_str(_st, 'name')
+            # `lay_str` tra None khi cau lenh khong co truong `name` -
+            # phai chan TRUOC, khong thi buom `.find` tren None (NRE luc
+            # self-host, da gap).
+            if _aten is None:
+                return 0
+            if _arhs is None:
+                return 0
+            # KHONG doan tac: so lan goi phai giu NGUYEN moi lan lap (#8 Y1)
+            if _p6_co_call(_arhs) == 1:
+                return 0
+            if _p6_la_tang_mot(_st) == 1:
+                # counter dong do: bat buoc phai nam SAU moi cau khac (#8 Y1
+                # - vector loop tang dong do o cuoi moi lan lap 4)
+                if _pos_idx_cuoi < 0:
+                    return 0
+                if _aten == iv:
+                    if la_while == 0:
+                        return 0
+                    if _p6_buoc_tang(_st) != 1:
+                        return 0
+                    _co_iv = 1
+                else:
+                    ctr.append(_aten)
+                    ctr_step.append(_p6_buoc_tang(_st))
+                if _pos_ctr_dau < 0:
+                    _pos_ctr_dau = _vi_tri
+                loai.append('counter')
+            else:
+                if _aten == iv:
+                    return 0
+                if _p6_la_counter(_aten, ctr) == 1:
+                    return 0
+                # Cau sau counter ma van doc iv/counter -> vector bump o cuoi
+                # vong se lech gia tri -> tu choi ('hoi nghi = tu choi')
+                if _pos_ctr_dau >= 0 and _p6_co_biens(_arhs, iv, ctr) == 1:
+                    return 0
+                if _aten.find('__hoist') == 0 and _p6_co_biens(_arhs, iv, ctr) == 0:
+                    # gan bien tu macro `_hoist_attr_index` (#6 cu) - duoc
+                    # TU MINH gan lai TRUOC vong boi nguoi goi
+                    loai.append('alias')
+                    alias_ten.append(_aten)
+                    alias_rhs.append(_arhs)
+                elif (_p6_co_biens(_arhs, iv, ctr) == 1
+                      or _p6_co_index(_arhs) == 1
+                      or _p6_co_ten(_arhs, lane_ten) == 1):
+                    # phu thuoc iv/counter/index/lane temp -> GIA TRI LANE
+                    if _p6_kieu_lane(scope, _aten) == 0:
+                        # (#7 Y3) bien khong annotation ma kieu suy tu tu RHS
+                        # la f32 -> van dung duoc (codegen cung khai float32)
+                        if _p6_rhs_f32(_arhs, scope, ctx) == 0:
+                            return 0
+                    loai.append('lane')
+                    if _p6_trong_ds(_aten, lane_ten) == 0:
+                        lane_ten.append(_aten)
+                else:
+                    loai.append('inv')
+        else:
+            # print/if/nested-loop/... - khong doan tac, scalar nhu cu
+            return 0
+        _vi_tri = _vi_tri + 1
+    if _n_idx == 0:
+        return 0
+    if la_while == 1 and _co_iv == 0:
+        return 0
+    if la_while == 0 and _co_iv == 1:
+        return 0
+    # --- (#8 Y1) TINH DUA TOI TIEN: doc mot bien TRONG than ma chua duoc
+    # gan -> gia tri la cua lan lap TRUOC (loop-carried) - khong the tach
+    # thanh mot vong vector duong thang, tu choi. iv/counter KHONG xet o day
+    # (vi tri tang da duoc kiem tra o tren), chi xet target lane/inv/alias. ---
+    _tat_ca: "list[str]" = []
+    _vi = 0
+    while _vi < len(stmts):
+        _l = loai[_vi]
+        if _l == 'lane' or _l == 'inv' or _l == 'alias':
+            _tg = lay_str(stmts[_vi], 'name')
+            if _p6_trong_ds(_tg, _tat_ca) == 0:
+                _tat_ca.append(_tg)
+        _vi = _vi + 1
+    _da_gan: "list[str]" = []
+    _vi = 0
+    while _vi < len(stmts):
+        _l = loai[_vi]
+        _st2 = stmts[_vi]
+        _ds_doc: "list[str]" = []
+        if _l == 'idx':
+            _p6_gom_doc(lay_nut(_st2, 'rhs_node'), _ds_doc)
+            for _ix in lay_ds_nut(_st2, 'idx_nodes'):
+                _p6_gom_doc(_ix, _ds_doc)
+            _bd = lay_str(_st2, 'name')
+            if _bd is not None and _bd.find('.') > 0:
+                # base dang `obj.truong` - doc doi tuong obj
+                _ds_doc.append(_bd.split('.')[0])
+        elif _l == 'lane' or _l == 'inv' or _l == 'alias':
+            _p6_gom_doc(lay_nut(_st2, 'rhs_node'), _ds_doc)
+        for _d in _ds_doc:
+            if _p6_trong_ds(_d, _tat_ca) == 1 and _p6_trong_ds(_d, _da_gan) == 0:
+                return 0
+        if _l == 'lane' or _l == 'inv' or _l == 'alias':
+            _tg2 = lay_str(_st2, 'name')
+            if _p6_trong_ds(_tg2, _da_gan) == 0:
+                _da_gan.append(_tg2)
+        _vi = _vi + 1
+    return 1
+
+
+def _p6_xep_chi_so(idx: "TkvNode", ten: "str", iv: "str",
+                   ctr: "list[str]", ctr_step: "list[i32]",
+                   n_node: "TkvNode", rem_node: "TkvNode",
+                   pre_ten: "list[str]", pre_am: "list[i32]",
+                   pre_gioi: "list[i32]", ghi: "i32") -> "i32":
+    """Phan loai dang chi so cua MOT phan tu `list[f32]` va ghi dieu kien
+    range vao 3 mang dong bo (YEU CAU #6):
+
+      P0  `iv`            -> `n <= Count`
+      P1  `off + iv`      -> `off >= 0`  VA  `off + n <= Count`
+      P2  `counter` +/-1  -> theo buoc, dung `rem` = so lan lap con lai
+
+    `pre_am[i] = -1` nghia la khong co dieu kien am. Nhieu dang cho CUNG mot
+    base -> nhieu dong (moi dong mot dieu kien, tat ca deu phai dung).
+
+    `ghi == 0` (base khong phai `list[f32]` - vd `f32buf`, khong co hop dong
+    OOB) thi VAN phan loai de tu choi chi so sai, chi KHONG ghi dieu kien."""
+    _am = -1
+    _gioi = -1
+    if _p6_var_is(idx, iv) == 1:
+        _gioi = n_node
+    elif la_node(idx) and ekind(idx) == 'binop' and ea_str(idx) == '+':
+        _off = -1
+        if _p6_var_is(eb_nut(idx), iv) == 1:
+            _off = ec_nut(idx)
+        elif _p6_var_is(ec_nut(idx), iv) == 1:
+            _off = eb_nut(idx)
+        if _off < 0:
+            return 0
+        if _p6_co_biens(_off, iv, ctr) == 1:
+            return 0
+        _am = _off
+        _gioi = mk4('binop', o_str('+'), o_nut(_off), o_nut(n_node))
+    elif la_node(idx) and ekind(idx) == 'var':
+        _tc = ea_str(idx)
+        _b = 0
+        _i = 0
+        while _i < len(ctr):
+            if ctr[_i] == _tc:
+                _b = ctr_step[_i]
+            _i = _i + 1
+        if _b == 0:
+            return 0
+        _v = mk2('var', o_str(_tc))
+        if _b > 0:
+            # tang: min = c, max = c + rem - 1
+            _am = _v
+            _gioi = mk4('binop', o_str('+'), o_nut(_v), o_nut(rem_node))
+        else:
+            # giam: min = c - rem + 1, max = c
+            _vp = mk4('binop', o_str('+'), o_nut(_v), o_nut(mk2('num', o_str('1'))))
+            _am = mk4('binop', o_str('-'), o_nut(_vp), o_nut(rem_node))
+            _gioi = _vp
+    else:
+        return 0
+    if ghi == 1:
+        pre_ten.append(ten)
+        pre_am.append(_am)
+        pre_gioi.append(_gioi)
+    return 1
+
+
+def _p6_quet_chi_so(node: "TkvNode", scope: "Scope", ctx: "Ctx", iv: "str",
+                    ctr: "list[str]", ctr_step: "list[i32]",
+                    n_node: "TkvNode", rem_node: "TkvNode",
+                    pre_ten: "list[str]", pre_am: "list[i32]",
+                    pre_gioi: "list[i32]") -> "i32":
+    """Duyet MOI nut `index`/`index_expr` trong `node`, phan loai chi so va
+    ghi dieu kien range. Tra 0 -> ca vong lap khong vector hoa duoc.
+
+    Duyet vao `binop` (ve phai la phep tinh) va dung o index; cac loai nut
+    khac de nguyen - do la cong viec cua `_p6_viet_lai_rhs`/`_p6_vec_rhs_ok`."""
+    if not la_node(node):
+        return 1
+    k = ekind(node)
+    if k == 'binop':
+        if _p6_quet_chi_so(eb_nut(node), scope, ctx, iv, ctr, ctr_step,
+                           n_node, rem_node, pre_ten, pre_am, pre_gioi) == 0:
+            return 0
+        return _p6_quet_chi_so(ec_nut(node), scope, ctx, iv, ctr, ctr_step,
+                               n_node, rem_node, pre_ten, pre_am, pre_gioi)
+    if k != 'index' and k != 'index_expr':
+        return 1
+    ten = _p6_base_cua_index(node)
+    idx = _p6_idx_cua_index(node)
+    if ten == '' or idx is None:
+        return 0
+    if _p6_is_vec_base2(scope, ctx, ten) == 0:
+        return 0
+    _ghi = _p6_is_list_f32_2(scope, ctx, ten)
+    return _p6_xep_chi_so(idx, ten, iv, ctr, ctr_step, n_node, rem_node,
+                          pre_ten, pre_am, pre_gioi, _ghi)
+
+
+def _p6_scalar_ok(node: "TkvNode", scope: "Scope", iv: "str",
+                  ctr: "list[str]", ctx: "Ctx") -> "i32":
+    """1 neu `node` la SCALAR loop-invariant - dieu kien cho const-fill
+    (YEU CAU #6(b)) khi `loads` rong (RHS khong doc phan tu nao).
+
+    Cho phep hang so, bien khong ghi trong vong (va khong phai `iv`/counter),
+    va phep so hoc tren chung. Tu choi moi thu khac - neu RHS co phan tu list
+    thi duong do da di qua `_p6_vec_rhs_ok` binh thuong."""
+    if not la_node(node):
+        return 0
+    k = ekind(node)
+    if k == 'num':
+        return 1
+    if k == 'var':
+        if _p6_co_biens(node, iv, ctr) == 1:
+            return 0
+        try:
+            d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records,
+                                ctx.record_methods, None)
+        except (KeyError, SyntaxError):
+            return 0
+        if d == 'f32' or d == 'f64' or d == 'i32' or d == 'i64' or d == 'int':
+            return 1
+        return 0
+    if k == 'binop':
+        _op = ea_str(node)
+        if _op != '+' and _op != '-' and _op != '*' and _op != '/':
+            return 0
+        if _p6_scalar_ok(eb_nut(node), scope, iv, ctr, ctx) == 0:
+            return 0
+        return _p6_scalar_ok(ec_nut(node), scope, iv, ctr, ctx)
+    return 0
+
+
+def _p6_dang_ky_arr(scope: "Scope", ctx: "Ctx", ten: "str", ptr_map: "dict[str,str]") -> "str":
+    """Khai 1 local `float32[]` chua mang nen `float32[]` cua list `ten`, dang ky
+    vao `ctx.locals_decl` + `scope` va tra ve TEN local.
+
+    CUNG nguon ma LICM dung (xem `_licm`): chi so o nho = VI TRI trong
+    `ctx.locals_decl`, va `locals_decl` duoc render thanh `.locals init` SAU
+    khi codegen xong nen khai them luc nay van ra duoc file .il.
+
+    Dang ky LAZY luc dau tien gap `ten` trong RHS, TRUOC khi
+    `ctx.compile_expr` chay tren node da viet lai - vi vay luon co ten de dung."""
+    if ten in ptr_map:
+        return ptr_map[ten]
+    name = '__p6a' + str(len(ctx.locals_decl))
+    # PERF (2026-10-27): khai la `float32[]` (dims rank-1) chu khong phai
+    # `object`. Neu de `object` thi MOI phan tu trong vong vector lai phai
+    # sinh them mot `castclass float32[]` (xem push_v_load4a) - do tren vong
+    # nong lam 4 element/lan lap, va do la nguyen nhan A/B bench bi 0.69x.
+    # `dims=[0]` -> `la_vo_huong()` = 0 nen `il_type_str` roi xuong
+    # `il_array_rank_type('f32', 1)` = `float32[]`; gia tri 0 khong ai doc
+    # (khong ai cap phat local nay, chi ldloc/stloc).
+    # #8 (2026-10-29): list[f64] -> local `float64[]` (cung mot duong hoist).
+    _dt_a = 'f32'
+    try:
+        _ta_a = scope.tra(ten).ta
+        if _ta_a is not None and _ta_a.dtype == 'f64':
+            _dt_a = 'f64'
+    except (KeyError, SyntaxError):
+        _dt_a = 'f32'
+    ta = TypeAnn(_dt_a, None, dims=[0])
+    ctx.locals_decl.append((name, ta))
+    scope.add_local(name, len(ctx.locals_decl) - 1, ta)
+    # #8 (2026-10-29): khai LUON 1 local `T&` song song (ten `__p6b<N>` voi
+    # cung N) chua `&arr[0]` - duoc nap trong `_p6_hoist_items` (TRUOC vong)
+    # de vong nong tinh dia chi `byref + ofs` khong con bounds-check.
+    # #hops: vi cung duoc tao o day nen LUON di kem voi `__p6a<N>` - neu
+    # mang nay khong bi hoist thi ca 2 deu khong duoc nap, vi vay khong
+    # bao gio doc duong byref rong.
+    _el_b = 'float64' if _dt_a == 'f64' else 'float32'
+    _tb = TypeAnn(_el_b + '&', 'byref')
+    ctx.locals_decl.append(('__p6b' + name[5:], _tb))
+    scope.add_local('__p6b' + name[5:], len(ctx.locals_decl) - 1, _tb)
+    ptr_map[ten] = name
+    return name
+
+
+def _p6_throw_ooe(body: "list[str]"):
+    """Nem `ArgumentOutOfRangeException` DUNG type + message + paramName.
+
+    Bang chuan do trong `_oob_probe.tkv` (Q1) chay thuc duoc:
+
+        'Index was out of range. Must be non-negative and less than the size
+         of the collection.\r\nParameter name: index'
+
+    -> do la `Message` cua `.ctor(paramName, message)` tren .NET Framework:
+    `Message` = message + `"\\r\\nParameter name: " + paramName`.
+
+    **THU TU THAM SO QUAN TRONG:** `.ctor(string, string)` cua
+    `ArgumentOutOfRangeException` la `.ctor(paramName, message)` - tham so
+    DAU la paramName. Cung quy uoc nay ma `raise` dang dung (xem
+    `_EXC_CTOR_2STR` + ghi chu `("", msg)` o `_emit_throw`). Doi nguoc lai se
+    ra `str(e)` = 'index\r\nParameter name: <msg>' -> negative test huong.
+
+    Khong dung `ldelem` thô (no ném `IndexOutOfRangeException` - SAI type)."""
+    body.append('    ldstr "index"')
+    body.append('    ldstr "' + _P6_OOB_MSG + '"')
+    body.append('    newobj instance void [mscorlib]System.ArgumentOutOfRangeException::.ctor(string, string)')
+    body.append('    throw')
+
+
+def _p6_hoist_items(scope: "Scope", body: "list[str]", ctx: "Ctx",
+                    base_node: "TkvNode", arr_local: "str",
+                    el: "str"='float32'):
+    """HOIST mang nen `_items` (reflection 1 lan, truoc vong) vao `arr_local`.
+
+    `base_node` co the la `var` (ten bien) hoac `attr` (`opt.p`) - YEU CAU #6(a).
+    `el` = elem IL type ('float32'/'float64') - #8: list[f64] cung duong, chi
+    khac kieu `ldtoken`/`castclass`."""
+    _dcr = 'f32' if el == 'float32' else 'f64'
+    body.append('    ldtoken class [mscorlib]System.Collections.Generic.List`1<' + el + '>')
+    body.append('    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)')
+    body.append('    ldstr "_items"')
+    body.append('    ldc.i4 36')          # Public|NonPublic|Instance
+    body.append('    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)')
+    ctx.compile_expr(base_node, scope, body, _dcr, ctx)
+    body.append('    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)')
+    body.append('    castclass ' + el + '[]')
+    body.append('    stloc ' + arr_local)
+    # #8 (2026-10-29): luu luon `&arr[0]` (byref GC-tracked) vao local
+    # `__p6b<N>` - MOT bounds-check dung ngoai vong, con vong nong chi con
+    # `byref + ofs` (xem `_p6_day_mang_va_chi_so`).
+    body.append('    ldloc ' + arr_local)
+    body.append('    ldc.i4.0')
+    body.append('    ldelema ' + el)
+    body.append('    stloc ' + '__p6b' + arr_local[5:])
+
+
+def _p6_preheader_guards(scope: "Scope", body: "list[str]", ctx: "Ctx", sig: "TkvSig",
+                         tag: "str", iv: "str", n_node: "TkvNode",
+                         iv_duong_bat_buoc: "i32", body_dtype: "str",
+                         pre_ten: "list[str]", pre_am: "list[i32]",
+                         pre_gioi: "list[i32]"):
+    """Phat PREHEADER: guard `iv < n` + MOI dieu kien range TRUOC vong.
+
+    Hop dong (giong `_oob_probe.tkv`, giu nguyen):
+      - vong khong chay -> KHONG nem (moi check nam SAU guard `iv < n`);
+      - `iv < 0` (vong `while`) -> nem truoc khi vector lap chay;
+      - moi chi so phai >= 0 va `gioi <= len(list)` -> nguoc lai nem
+        `ArgumentOutOfRangeException` DUNG type/message/paramName.
+
+    Moi dong `pre_*` la MOT dieu kien (xem `_p6_xep_chi_so`):
+      `pre_am[i] = -1` nghia la khong co dieu kien am.
+
+    **SUA BUG (2026-10-27, bat buoc cho #6(a)):** lenh cu dung `ble ok`, tuc
+    `branch neu Count <= n` -> sao dung khi `n < len(list)` (vi du vong
+    `while i < 4` tren list 100 phan tu) va nem AOOE vo logic. Do chi chua
+    bi bat vi truoc do moi vong khop mau deu co `n == len(list)` (test
+    `_p6_list_test` luon do bang nhau, `off + n` cu bang `Count`). Doi sang
+    `bge` = `branch neu Count >= expr` = `expr <= Count` (dung)."""
+    run = f'{sig.name}_p6r{tag}'
+    nn = f'{sig.name}_p6n{tag}'
+    dn = f'{sig.name}_p6d{tag}'
+    # --- (1) guard: chi kiem tra khi vong THAT SU se chay ---
+    # Dung `_compile_cond` (khong compile thuc i32 tho): `iv` co the la
+    # TkvInt 16 byte hoac i64 - compare node de no chon dung lenh so sanh.
+    _c_run = mk4('compare', o_str('<'), o_nut(mk2('var', o_str(iv))), o_nut(n_node))
+    _compile_cond(_c_run, scope, body, body_dtype, ctx)
+    body.append('    brtrue ' + run)
+    body.append('    br ' + dn)
+    body.append('  ' + run + ':')
+    if iv_duong_bat_buoc == 0:
+        _c_nn = mk4('compare', o_str('>='),
+                    o_nut(mk2('var', o_str(iv))), o_nut(mk2('num', o_str('0'))))
+        _compile_cond(_c_nn, scope, body, body_dtype, ctx)
+        body.append('    brtrue ' + nn)
+        _p6_throw_ooe(body)
+    body.append('  ' + nn + ':')
+    _gi = 0
+    while _gi < len(pre_ten):
+        _am = pre_am[_gi]
+        if _am >= 0:
+            _c_am = mk4('compare', o_str('>='), o_nut(_am),
+                        o_nut(mk2('num', o_str('0'))))
+            _compile_cond(_c_am, scope, body, body_dtype, ctx)
+            body.append('    brtrue ' + f'{sig.name}_p6a{tag}_{_gi}')
+            _p6_throw_ooe(body)
+            body.append('  ' + f'{sig.name}_p6a{tag}_{_gi}' + ':')
+        # gioi <= len(list): day [Count, expr] nen `bge` = Count >= expr
+        ctx.compile_expr(_p6_node_cua_base(pre_ten[_gi]), scope, body, 'f32', ctx)
+        body.append('    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()')
+        ctx.compile_expr(pre_gioi[_gi], scope, body, 'i32', ctx)
+        body.append('    bge ' + f'{sig.name}_p6b{tag}_{_gi}')
+        _p6_throw_ooe(body)
+        body.append('  ' + f'{sig.name}_p6b{tag}_{_gi}' + ':')
+        _gi = _gi + 1
+    body.append('  ' + dn + ':')
+
+
 def _p6_chi_so_la_iv(node: "TkvNode", iv: "str") -> "i32":
     """1 neu chi so cua `f[i]` DUNG `iv` (chi so khac lech byte -> tu choi)."""
     ds = eb_ds(node)
@@ -1718,8 +2638,15 @@ def _p6_chi_so_la_iv(node: "TkvNode", iv: "str") -> "i32":
     return _p6_var_is(ds[0], iv)
 
 
-def _p6_viet_lai_rhs(node: "TkvNode", scope: "Scope", iv: "str", loads: "list[str]") -> "TkvNode":
+def _p6_viet_lai_rhs(node: "TkvNode", scope: "Scope", iv: "str", loads: "list[str]",
+                     ptr_map: "dict[str,str]", ctx: "Ctx") -> "TkvNode":
     """Doi quy ve phai: moi `f[i]` tren f32buf -> `v_load4(f, i*4)`.
+
+    **MOI (C1, YEU CAU #5):** `f[i]` tren `list[f32]` -> `v_load4a(arr_local, i)`
+    voi `arr_local` la local `object` chua mang nen `_items` - dang ky LAZY vao
+    `ctx.locals_decl` (xem `_p6_dang_ky_arr`) va duoc nap TRUOC vong boi
+    `_p6_preheader_list`. Khac `f32buf`: khong nhan `i*4` (byref tu tinh dia chi)
+    va khong can con tro tho.
 
     Tra None neu gap thu gi khong hop le - thi ca vong lap khong vector hoa duoc
     (quy tac 'hoi nghi = tu choi').
@@ -1730,33 +2657,661 @@ def _p6_viet_lai_rhs(node: "TkvNode", scope: "Scope", iv: "str", loads: "list[st
     if not la_node(node):
         return node
     k = ekind(node)
-    if k == 'index':
-        ten = ea_str(node)
-        if _p6_is_f32buf(scope, ten) == 0:
+    if k == 'index' or k == 'index_expr':
+        # YEU CAU #6(a): chi so khong nhat la `iv` nua - co the la `off + iv`
+        # hoac 1 counter. Chi so lay NGUYEN tu node goc (dung luc nay van la gia
+        # tri dung): `off + iv` tinh lai moi phan tu, `counter` da duoc vong
+        # vector tang dong do (xem `_p6_vec_phat`). Dieu kien range da duoc
+        # `_p6_quet_chi_so` ghi vao preheader TRUOC khi goi ham nay.
+        ten = _p6_base_cua_index(node)
+        idx = _p6_idx_cua_index(node)
+        if ten == '' or idx is None:
             return None
-        if _p6_chi_so_la_iv(node, iv) == 0:
+        if _p6_is_vec_base2(scope, ctx, ten) == 0:
             return None
         loads.append(ten)
-        _n1 = mk2('var', o_str(ten))
-        _c1 = mk2('var', o_str(iv))
+        if _p6_is_list_f32_2(scope, ctx, ten) == 1:
+            arr_local = _p6_dang_ky_arr(scope, ctx, ten, ptr_map)
+            _la: "list[TkvNode]" = []
+            _la.append(mk2('var', o_str(arr_local)))
+            _la.append(idx)
+            # #8 (2026-10-29): mang f64 -> `v_dload` (4 float64 -> f64x4),
+            # mang f32 -> `v_load4a` (4 float32 -> f32x4) nhu cu.
+            if _p6_el_of_ten(scope, ctx, ten) == 'float64':
+                return mk3('call', o_str('v_dload'), o_ds(_la))
+            return mk3('call', o_str('v_load4a'), o_ds(_la))
+        _n1 = _p6_node_cua_base(ten)
         _c2 = mk2('num', o_str('4'))
-        _n2 = mk4('binop', o_str('*'), o_nut(_c1), o_nut(_c2))
+        _n2 = mk4('binop', o_str('*'), o_nut(idx), o_nut(_c2))
         args: "list[TkvNode]" = []
         args.append(_n1)
         args.append(_n2)
         return mk3('call', o_str('v_load4'), o_ds(args))
     if k == 'binop':
-        l = _p6_viet_lai_rhs(eb_nut(node), scope, iv, loads)
+        l = _p6_viet_lai_rhs(eb_nut(node), scope, iv, loads, ptr_map, ctx)
         if l is None:
             return None
-        r = _p6_viet_lai_rhs(ec_nut(node), scope, iv, loads)
+        r = _p6_viet_lai_rhs(ec_nut(node), scope, iv, loads, ptr_map, ctx)
         if r is None:
             return None
         return mk4('binop', o_str(ea_str(node)), o_nut(l), o_nut(r))
     return node
 
 
-def _p6_vectorize_while(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void", n: "i32") -> "i32":
+def _p6_gom_ten_idx(node: "TkvNode", ds_ten: "list[str]"):
+    """Gom ten bien SO xuat hien tai VI TRI CHI SO (YEU CAU #7 Y1).
+
+    Duyet bieu thuc chi so (var / binop tren var + hang so) - chi gom o day
+    moi duoc doi sang shadow i64; vi tri gia tri (ten mang, phep toan f32)
+    khong dua vao day."""
+    if not la_node(node):
+        return
+    k = ekind(node)
+    if k == 'var':
+        ds_ten.append(ea_str(node))
+        return
+    if k == 'binop':
+        _p6_gom_ten_idx(eb_nut(node), ds_ten)
+        _p6_gom_ten_idx(ec_nut(node), ds_ten)
+        return
+
+
+def _p6_gom_ten_rhs(node: "TkvNode", ds_ten: "list[str]"):
+    """Duyet ve phai DA VIET LAI, gom ten bien so o VI TRI CHI SO cua
+    `v_load4a`/`v_load4` (sau `_p6_viet_lai_rhs` moi chi so da o day)."""
+    if not la_node(node):
+        return
+    k = ekind(node)
+    if k == 'binop':
+        _p6_gom_ten_rhs(eb_nut(node), ds_ten)
+        _p6_gom_ten_rhs(ec_nut(node), ds_ten)
+        return
+    if k == 'call':
+        _tg = ea_str(node)
+        _ds = eb_ds(node)
+        if _ds is None:
+            return
+        if (_tg == 'v_load4a' or _tg == 'v_load4') and len(_ds) == 2:
+            _p6_gom_ten_idx(_ds[1], ds_ten)
+            return
+        if (_tg == 'v_store4a' or _tg == 'v_store4') and len(_ds) == 3:
+            _p6_gom_ten_idx(_ds[1], ds_ten)
+            _p6_gom_ten_rhs(_ds[2], ds_ten)
+            return
+        # cac call khac (f32() const-fill, ...) la VI TRI GIA TRI - khong lam
+        return
+
+
+def _p6_doi_ten_idx(node: "TkvNode", bang: "dict[str,str]") -> "TkvNode":
+    """Doi ten bien so tai VI TRI CHI SO sang local shadow i64 (#7)."""
+    if not la_node(node):
+        return node
+    k = ekind(node)
+    if k == 'var':
+        _t = ea_str(node)
+        if _t in bang:
+            return mk2('var', o_str(bang[_t]))
+        return node
+    if k == 'binop':
+        return mk4('binop', o_str(ea_str(node)),
+                   o_nut(_p6_doi_ten_idx(eb_nut(node), bang)),
+                   o_nut(_p6_doi_ten_idx(ec_nut(node), bang)))
+    return node
+
+
+def _p6_doi_ten_rhs(node: "TkvNode", bang: "dict[str,str]",
+                    lane: "dict[str,str]"=None) -> "TkvNode":
+    """Duyet ve phai da viet lai - doi ten tai VI TRI CHI SO (`bang`, #7) va
+    tai VI TRI GIA TRI cua lane temp (`lane`, #8 Y1).
+
+    const-fill `f32(...)` giu nguyen (khong chi so, khong lane o trong)."""
+    if not la_node(node):
+        return node
+    k = ekind(node)
+    if k == 'var':
+        if lane is not None:
+            _t = ea_str(node)
+            if _t in lane:
+                return mk2('var', o_str(lane[_t]))
+        return node
+    if k == 'binop':
+        return mk4('binop', o_str(ea_str(node)),
+                   o_nut(_p6_doi_ten_rhs(eb_nut(node), bang, lane)),
+                   o_nut(_p6_doi_ten_rhs(ec_nut(node), bang, lane)))
+    if k == 'call':
+        _tg = ea_str(node)
+        _ds = eb_ds(node)
+        if _ds is None:
+            return node
+        if (_tg == 'v_load4a' or _tg == 'v_load4') and len(_ds) == 2:
+            _m: "list[TkvNode]" = [_ds[0], _p6_doi_ten_idx(_ds[1], bang)]
+            return mk3('call', o_str(_tg), o_ds(_m))
+        if (_tg == 'v_store4a' or _tg == 'v_store4') and len(_ds) == 3:
+            _n: "list[TkvNode]" = [_ds[0], _p6_doi_ten_idx(_ds[1], bang),
+                                   _p6_doi_ten_rhs(_ds[2], bang, lane)]
+            return mk3('call', o_str(_tg), o_ds(_n))
+        return node
+    return node
+
+
+def _p6_tang_idx(node: "TkvNode", ten_ds: "dict[str,str]") -> "TkvNode":
+    """UNROLL x2 (#8b 2026-10-31): tao lan 2 cua than vong vector - moi chi so
+    cua MOI bien bien dong duoc tang 4 (`iv` -> `iv + 4`, counter `bc` ->
+    `bc + 4` hoac `bc - 4` tuy dau).
+
+    `ten_ds`: ten bien -> '+' hoac '-' (dau tang/giang cua counter do, xem
+    `ctr_step`; iv luon '+'). PHAI dua ca COUNTER vao: chi so trong ke hoach
+    co the chua counter thay vi `iv` (vi du `_acc_f`: `cd[bc] += Ct[bt]` voi
+    bc/bt tang dong do 8/lan lap - neu chi tang `thi` 2 ban sao ghi cung 1 cho
+    -> 4 phan tu bi bo qua, da do 2026-10-31, gate 3/10 suite FAIL).
+
+    Duyet sau nhu `_p6_doi_ten_idx`/`_p6_doi_ten_rhs` (var/binop/compare/call
+    + wrapper ke hoach store/lane/inv); so hang khong an huong."""
+    if not la_node(node):
+        return node
+    _k_t = ekind(node)
+    if _k_t == 'var':
+        _ten_v = ea_str(node)
+        if _ten_v in ten_ds:
+            return mk4('binop', o_str(ten_ds[_ten_v]),
+                       o_nut(mk2('var', o_str(_ten_v))),
+                       o_nut(mk2('num', o_str('4'))))
+        return node
+    if _k_t == 'binop':
+        return mk4('binop', o_str(ea_str(node)),
+                   o_nut(_p6_tang_idx(eb_nut(node), ten_ds)),
+                   o_nut(_p6_tang_idx(ec_nut(node), ten_ds)))
+    if _k_t == 'compare':
+        return mk4('compare', o_str(ea_str(node)),
+                   o_nut(_p6_tang_idx(eb_nut(node), ten_ds)),
+                   o_nut(_p6_tang_idx(ec_nut(node), ten_ds)))
+    if _k_t == 'call':
+        _ds_t = eb_ds(node)
+        if _ds_t is None:
+            return node
+        _m_t: "list[TkvNode]" = []
+        _it = 0
+        while _it < len(_ds_t):
+            _m_t.append(_p6_tang_idx(_ds_t[_it], ten_ds))
+            _it = _it + 1
+        return mk3('call', o_str(ea_str(node)), o_ds(_m_t))
+    # Cac wrapper KE HOACH: `store` (idx: ten + chi so + rhs), `lane`/`inv`
+    # (ten + rhs) - PHAI duyet vao con, khong thi ban sao 2 trung ban sao 1 ->
+    # moi phan tu `iv+4..iv+7` bi bo qua (da do 2026-10-31, bit_bad hang nghin).
+    if _k_t == 'store':
+        return mk4('store', o_str(ea_str(node)),
+                   o_nut(_p6_tang_idx(eb_nut(node), ten_ds)),
+                   o_nut(_p6_tang_idx(ec_nut(node), ten_ds)))
+    if _k_t == 'lane' or _k_t == 'inv':
+        return mk3(_k_t, o_str(ea_str(node)),
+                   o_nut(_p6_tang_idx(eb_nut(node), ten_ds)))
+    return node
+
+
+def _p6_quet_union(stmts: "list[i32]", loai: "list[str]", lane_ten: "list[str]",
+                   scope: "Scope", ctx: "Ctx", iv: "str",
+                   ctr: "list[str]", ctr_step: "list[i32]",
+                   n_node: "TkvNode", rem_node: "TkvNode",
+                   pre_ten: "list[str]", pre_am: "list[i32]",
+                   pre_gioi: "list[i32]") -> "i32":
+    """Quet range-proof UNION cho MOI cau idx/lane trong than (#8 Y1).
+
+    Preheader phai bao ve moi chi so xuat hien trong MOI cau ghi/dao (khong
+    chi cau idx dau tien) - moi cau mot dong dieu kien, tat ca deu phai dung."""
+    _vi = 0
+    while _vi < len(stmts):
+        _l = loai[_vi]
+        if _l == 'idx' or _l == 'lane':
+            _rhs_i = lay_nut(stmts[_vi], 'rhs_node')
+            if _p6_co_index(_rhs_i) == 1 and _p6_chi_so_doc_lane(_rhs_i, lane_ten) == 1:
+                return 0
+            if _p6_quet_chi_so(_rhs_i, scope, ctx, iv, ctr, ctr_step, n_node,
+                               rem_node, pre_ten, pre_am, pre_gioi) == 0:
+                return 0
+            if _l == 'idx':
+                _nix_i = lay_ds_nut(stmts[_vi], 'idx_nodes')
+                if len(_nix_i) != 1:
+                    return 0
+                _dest_i = lay_str(stmts[_vi], 'name')
+                if _p6_is_vec_base2(scope, ctx, _dest_i) == 0:
+                    return 0
+                if _p6_co_index(_nix_i[0]) == 1 and _p6_chi_so_doc_lane(_nix_i[0], lane_ten) == 1:
+                    return 0
+                # CHI SO DEST: xep TRUC TIEP (khong qua _p6_quet_chi_so - ham do
+                # chi duyet bieu thuc) - hop dong #5: neu khong se mat dieu kien
+                # range cua DEST va lap qua len nang `ldelema` nem IooE thay vi
+                # AOOE.
+                if _p6_xep_chi_so(_nix_i[0], _dest_i, iv, ctr, ctr_step, n_node,
+                                  rem_node, pre_ten, pre_am, pre_gioi,
+                                  _p6_is_list_f32_2(scope, ctx, _dest_i)) == 0:
+                    return 0
+        _vi = _vi + 1
+    return 1
+
+
+def _p6_xep_ke_hoach(stmts: "list[i32]", loai: "list[str]",
+                     lane_ten: "list[str]", scope: "Scope", ctx: "Ctx",
+                     iv: "str", ctr: "list[str]", loads: "list[str]",
+                     ptr_map: "dict[str,str]", vec_loai: "list[str]",
+                     vec_node: "list[TkvNode]") -> "i32":
+    """Viet lai RHS moi cau + xep KE HOACH than vong vector, THU TU NGUON.
+
+    - idx: v_load4a/v_store4a (const-fill bo qua khong co load -> f32() wrap)
+    - lane: RHS dao thanh Vector4 (can load hoac doc lane temp khac)
+    - inv: giu nguyen RHS goc (bien dich scalar trong vong)"""
+    _vi = 0
+    while _vi < len(stmts):
+        _l = loai[_vi]
+        _st_j = stmts[_vi]
+        _rhs_j = lay_nut(_st_j, 'rhs_node')
+        _n_trc = len(loads)
+        _rw_j = _p6_viet_lai_rhs(_rhs_j, scope, iv, loads, ptr_map, ctx)
+        if _rw_j is None:
+            return 0
+        if _l == 'idx':
+            if len(loads) == _n_trc:
+                # const-fill (YEU CAU #6(b)): khong doc phan tu -> scalar
+                # loop-invariant, boc `f32()` de broadcast bit-preserving.
+                # (#8 Y1) RHS doc LANE temp thi khong phai const-fill: gia tri
+                # DA la Vector4 -> dung truc tiep lam ve phai vector, KHONG
+                # boc `f32()` (ep xuong f32 se sinh IL sai stack).
+                if len(lane_ten) > 0 and _p6_co_ten(_rhs_j, lane_ten) == 1:
+                    if _p6_vec_rhs_ok(_rw_j, scope, ctx, lane_ten) == 0:
+                        return 0
+                else:
+                    if _p6_scalar_ok(_rhs_j, scope, iv, ctr, ctx) == 0:
+                        return 0
+                    # #8: const-fill vao mang f64 phai boc phep ep ve f64 (khong
+                    # phai `f32()`) de broadcast bit-preserving lenh Vector<double>.
+                    # Dung `float()` - cung dtype 'f64', va `f64()` KHONG phai
+                    # builtin (da lo gap gate: `il_codegen: ham 'f64' khong ton
+                    # tai` khi gap_tests const-fill vao mang f64, 2026-10-30).
+                    _dt_cf = 'f32'
+                    if _p6_el_of_ten(scope, ctx, lay_str(_st_j, 'name')) == 'float64':
+                        _dt_cf = 'float'
+                    _rw_j = mk3('call', o_str(_dt_cf), o_ds([_rhs_j]))
+            else:
+                if _p6_vec_rhs_ok(_rw_j, scope, ctx, lane_ten) == 0:
+                    return 0
+            vec_loai.append('idx')
+            vec_node.append(mk4('store', o_str(lay_str(_st_j, 'name')),
+                                o_nut(lay_ds_nut(_st_j, 'idx_nodes')[0]),
+                                o_nut(_rw_j)))
+        elif _l == 'lane':
+            if len(loads) == _n_trc:
+                # Khong doc list: chi nhan khi doc THEM lane temp khac (gia tri
+                # Vector4 da gan truoc do) - va RHS khong duoc chua phep toan
+                # tren bien so khieu (leaf rule cua `_p6_vec_rhs_ok` tu choi -
+                # khong the broadcast 1 gia tri cho 4 lane khac nhau).
+                if _p6_co_ten(_rhs_j, lane_ten) == 0:
+                    return 0
+                if _p6_vec_rhs_ok(_rhs_j, scope, ctx, lane_ten) == 0:
+                    return 0
+            else:
+                if _p6_vec_rhs_ok(_rw_j, scope, ctx, lane_ten) == 0:
+                    return 0
+            vec_loai.append('lane')
+            vec_node.append(mk3('lane', o_str(lay_str(_st_j, 'name')), o_nut(_rw_j)))
+        elif _l == 'inv':
+            # khong co load (inv = khong index), khong co goi ham (da chan o
+            # phan tich) - bien dich NGUYEN trong thanh vong nhu duong scalar
+            vec_loai.append('inv')
+            vec_node.append(mk3('inv', o_str(lay_str(_st_j, 'name')),
+                                o_nut(_rhs_j)))
+        _vi = _vi + 1
+    return 1
+
+
+def _p6_tao_shadow(scope: "Scope", ctx: "Ctx", pre_ten: "list[str]",
+                   dest_idx: "TkvNode", vec_loai: "list[str]",
+                   vec_node: "list[TkvNode]", iv: "str", n_node: "TkvNode",
+                   ctr: "list[str]", lane_ten: "list[str]",
+                   shadow_bang: "dict[str,str]", shadow_khai: "list[str]",
+                   lane_bang: "dict[str,str]"):
+    """Tao SHADOW int i64 (`__p6n*`) + lane f32x4 (`__p6v*`) va doi ten
+    trong ke hoach (#7 Y1 + #8 Y1). Khong phat IL - chi dang ky local +
+    viet lai node; khoi tao shadow duoc phat o `_p6_vec_phat` (sau preheader).
+
+    Shadow int chi tao khi preheader da chung minh range (pre_ten rong =
+    chua chung minh -> khong doi ten, giu TkvInt nhu cu)."""
+    if len(pre_ten) > 0:
+        _ds_ten: "list[str]" = []
+        _p6_gom_ten_idx(dest_idx, _ds_ten)
+        _ri = 0
+        while _ri < len(vec_node):
+            if vec_loai[_ri] == 'idx':
+                _p6_gom_ten_idx(eb_nut(vec_node[_ri]), _ds_ten)
+                _p6_gom_ten_rhs(ec_nut(vec_node[_ri]), _ds_ten)
+            _ri = _ri + 1
+        _ds_ten.append(iv)
+        if la_node(n_node) and ekind(n_node) == 'var':
+            _ds_ten.append(ea_str(n_node))
+        if ctr is not None:
+            for _c in ctr:
+                _ds_ten.append(_c)
+        for _ten in _ds_ten:
+            if _ten in shadow_bang:
+                continue
+            _ta_s = None
+            try:
+                _ta_s = scope.tra(_ten).ta
+            except (KeyError, SyntaxError):
+                _ta_s = None
+            # Chi bien TkvInt (khieu) can shadow - i32/i64 da la ldloc native.
+            if _ta_s is None or _ta_s.dtype != 'int':
+                continue
+            _sh = '__p6n' + str(len(ctx.locals_decl))
+            _ta_sh = TypeAnn('i64', None)
+            ctx.locals_decl.append((_sh, _ta_sh))
+            scope.add_local(_sh, len(ctx.locals_decl) - 1, _ta_sh)
+            shadow_bang[_ten] = _sh
+            shadow_khai.append(_ten)
+    # LANE shadow (#8 Y1): moi lane temp mot local rieng. Kieu dung kieu
+    # GOC cua lane: f32 -> `f32x4` (Vector4), f64 -> `f64x4` (Vector<double>)
+    # de 4 lane bit-giong duong scalar tuong ung (#8, 2026-10-29).
+    for _lt in lane_ten:
+        _lv = '__p6v' + str(len(ctx.locals_decl))
+        _dt_lv = 'f32x4'
+        try:
+            _ta_lv = scope.tra(_lt).ta
+            if _ta_lv is not None and _ta_lv.dtype == 'f64':
+                _dt_lv = 'f64x4'
+        except (KeyError, SyntaxError):
+            _dt_lv = 'f32x4'
+        _talv = TypeAnn(_dt_lv, None)
+        ctx.locals_decl.append((_lv, _talv))
+        scope.add_local(_lv, len(ctx.locals_decl) - 1, _talv)
+        lane_bang[_lt] = _lv
+    # Doi ten trong ke hoach: chi so -> shadow i64, doc lane -> shadow f32x4
+    if len(shadow_bang) > 0 or len(lane_bang) > 0:
+        _ri = 0
+        while _ri < len(vec_node):
+            _pr = vec_node[_ri]
+            if vec_loai[_ri] == 'idx':
+                vec_node[_ri] = mk4('store', o_str(ea_str(_pr)),
+                                    o_nut(_p6_doi_ten_idx(eb_nut(_pr), shadow_bang)),
+                                    o_nut(_p6_doi_ten_rhs(ec_nut(_pr), shadow_bang, lane_bang)))
+            elif vec_loai[_ri] == 'lane':
+                vec_node[_ri] = mk3('lane', o_str(ea_str(_pr)),
+                                    o_nut(_p6_doi_ten_rhs(eb_nut(_pr), shadow_bang, lane_bang)))
+            _ri = _ri + 1
+
+
+def _p6_cond_inv(node: "TkvNode", iv: "str") -> "i32":
+    """1 neu dieu kien `if` LA loop-invariant (khong doc `iv`, khong qua so
+    khong xac dinh).
+
+    KHONG dung `_p6_co_biens` duoc: ham do mac dinh "khong biet = khong dung"
+    va `compare` khong nam trong cac kind no duyet -> moi dieu kien `x >= 0`
+    bi hong la "phu thuoc" (da do, xem Y2DBG 2026-10-28). Ham nay duyet ro
+    `compare`/`boolop`/`neg`/`not`; counter/lane con lai de `_p6_tach_unswitch`
+    lo bang bo qua tap ten duoc gan trong than."""
+    if not la_node(node):
+        return 0
+    k = ekind(node)
+    if k == 'num':
+        return 1
+    if k == 'var':
+        if ea_str(node) == iv:
+            return 0
+        return 1
+    if k == 'binop' or k == 'compare' or k == 'boolop':
+        if _p6_cond_inv(eb_nut(node), iv) == 0:
+            return 0
+        return _p6_cond_inv(ec_nut(node), iv)
+    if k == 'neg' or k == 'not':
+        return _p6_cond_inv(ea_nut(node), iv)
+    # #8 Y2 (2026-10-29): `attr` KHONG coi la invariant duoc - doc `t.flag`
+    # ma thanh vong ghi `t.flag = ...` (attr_assign) hoac goi `t.update()`
+    # (method_call) thi khong the do duoc tu ten (khong co thu tu choi tu
+    # cach phan loai) -> hoi nghi = tu choi. Cac shape #8 (`o_dg >= 0`,
+    # `dboff >= 0`) deu la `var` nen khong mat gi.
+    return 0
+
+
+def _p6_gom_gan(stmts: "list[i32]", ds_ten: "list[str]"):
+    """Ten duoc GAN ben trong than vong (gồm than con cua if/loop).
+
+    Dung de kiem dieu kien unswitch: dieu kien `if` khong duoc doc bat ky
+    bien ma than vong gan (gia tri tai thoi diem test phai la cua lan lap
+    truoc, khong phai invariant)."""
+    if stmts is None:
+        return
+    for _st in stmts:
+        _k = lay_str(_st, 'kind')
+        if _k == 'if':
+            _p6_gom_gan(lay_than(_st, 'body'), ds_ten)
+            _p6_gom_gan(lay_than(_st, 'else_body'), ds_ten)
+        elif _k == 'for' or _k == 'while':
+            _ivn = lay_str(_st, 'var')
+            if _ivn is not None and _p6_trong_ds(_ivn, ds_ten) == 0:
+                ds_ten.append(_ivn)
+            _p6_gom_gan(lay_than(_st, 'body'), ds_ten)
+        else:
+            # #8 Y2 (2026-10-29): gom MOI truong `name` (assign_scalar,
+            # idx_assign, list_append, set_add, ...) chu khong dung whitelist
+            # 3 kind - con rat nhieu kind gan/gia tri (attr_assign co truong
+            # `obj_name`, khong co `name`) ma neu bo qua thi dieu kien doc ten
+            # do se bi unswitch ra ngoai vong voi gia tri lan truoc.
+            _n = lay_str(_st, 'name')
+            if _n is None:
+                _n = lay_str(_st, 'obj_name')
+            if _n is not None:
+                if _p6_trong_ds(_n, ds_ten) == 0:
+                    ds_ten.append(_n)
+            else:
+                # tuple_assign / assign_multi_target luu ten trong
+                # `targets_text` (ngan cach phay) - tach ra tung ten.
+                # LUU Y (2026-10-29): KHONG dat ten bien la `_tt` - trong
+                # chuong trinh gop 133 file co `import ... as _tt` o module
+                # scope (tuple_type) -> ten nay bi doc la module, method
+                # `.split` khong dung duong str nua va loi "ham 'split' khong
+                # ton tai". Cung ly do cho cac ten duoi day (dung prefix `c8_`).
+                _c8_ten = lay_str(_st, 'targets_text')
+                if _c8_ten is not None:
+                    for _c8_muc in _split_top_level_comma(_c8_ten):
+                        if _c8_muc != '' and _p6_trong_ds(_c8_muc, ds_ten) == 0:
+                            ds_ten.append(_c8_muc)
+
+
+def _p6_if_sach(st: "i32", iv: "str", tg: "list[str]") -> "i32":
+    """1 neu cau `if` nay DUOC phep unswitch (Y2 #8).
+
+    Dieu kien: co/khong `else` day du; khong doc `iv`/counter/chi so/khong
+    goi ham; va khong doc ten ma thanh vong gan (gia tri tai thoi diem test
+    phai la cua lan lap truoc - khong phai invariant)."""
+    _c = lay_nut(st, 'cond_node')
+    _t = lay_than(st, 'body')
+    _e = lay_than(st, 'else_body')
+    if not la_node(_c):
+        return 0
+    if _t is None or _e is None:
+        return 0
+    if len(_t) == 0 or len(_e) == 0:
+        return 0
+    if _p6_cond_inv(_c, iv) == 0:
+        return 0
+    if _p6_co_index(_c) == 1:
+        return 0
+    if _p6_co_call(_c) == 1:
+        return 0
+    _doc: "list[str]" = []
+    _p6_gom_doc(_c, _doc)
+    for _d in _doc:
+        if _p6_trong_ds(_d, tg) == 1:
+            return 0
+    return 1
+
+
+def _p6_tach_unswitch(stmts: "list[i32]", iv: "str", scope: "Scope", ctx: "Ctx",
+                      cond_out: "list[i32]", then_out: "list[i32]",
+                      else_out: "list[i32]") -> "i32":
+    """#8 Y2 - tach 1 cau `if` loop-invariant thanh 2 KE HOACH than rieng.
+
+        if <dieu kien khong phu thuoc iv/counter/index>:   <- test 1 lan
+            <than A>
+        else:
+            <than B>
+
+    Tra 1 + day 3 mang ra (cond / than A da phang / than B da phang), 0 neu
+    khong dung mau - luc do van di duong scalar binh thuong (nguyen tac
+    'hoi nghi = tu choi'). Tu choi khi: khong co else; dieu kien doc
+    iv/counter/index/lane, co goi ham, hoac doc bien duoc gan ben trong than.
+
+    2026-10-28 (Y2 bo sung): than co THE co NHIEU cau `if` (LN_BWD co 2
+    nhánh invariant `o_dg`/`o_db`) - chon CAU DAU TIEN dat dieu kien roi
+    phang; cau con lai van o trong thanh da phang va se duoc unswitch tiep
+    boi `_p6_xay_arm` (de quy), neu la nhánh variant thi vectorize tu huy."""
+    # `_cond` = chi so nut (i32) nen khong the gan None - dung sentinel -1
+    # (_i_if < 0 guard, khong doc _cond truoc do); `_then`/`_else` la list
+    # (kieu tham chieu) nen None duoc - nhung gan [] cho ro kieu tu dau.
+    _i_if = -1
+    _i = 0
+    _chay = 1
+    _cond: "i32" = -1
+    _then: "list[i32]" = []
+    _else: "list[i32]" = []
+    _tg: "list[str]" = []
+    _p6_gom_gan(stmts, _tg)
+    for _st in stmts:
+        if _chay == 1 and lay_str(_st, 'kind') == 'if':
+            if _p6_if_sach(_st, iv, _tg) == 1:
+                _i_if = _i
+                _cond = lay_nut(_st, 'cond_node')
+                _then = lay_than(_st, 'body')
+                _else = lay_than(_st, 'else_body')
+                _chay = 0
+        _i = _i + 1
+    if _i_if < 0:
+        return 0
+    # phang: cau TRUOC if + than + cau SAU if (thu tu nguon giu nguyen)
+    _j = 0
+    while _j < 2:
+        _flat: "list[i32]" = []
+        _k = 0
+        while _k < _i_if:
+            _flat.append(stmts[_k])
+            _k = _k + 1
+        if _j == 0:
+            for _s2 in _then:
+                _flat.append(_s2)
+        else:
+            for _s2 in _else:
+                _flat.append(_s2)
+        _k = _i_if + 1
+        while _k < len(stmts):
+            _flat.append(stmts[_k])
+            _k = _k + 1
+        if _j == 0:
+            for _s3 in _flat:
+                then_out.append(_s3)
+        else:
+            for _s3 in _flat:
+                else_out.append(_s3)
+        _j = _j + 1
+    cond_out.append(_cond)
+    return 1
+
+
+def _p6_xay_arm(stmt: "i32", flat: "list[i32]", la_while: "i32",
+                scope: "Scope", body: "list[str]", body_dtype: "str",
+                ctx: "Ctx", sig: "TkvSig",
+                codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void",
+                n: "i32", iv: "str") -> "list[str]":
+    """Xay MOT thanh cho unswitch (Y2 #8) - tra ve day lenh IL, None neu khong lam duoc.
+
+    Neu thanh da phang VAN con mot cau `if` loop-invariant nua (LN_BWD co 2
+    nhánh `o_dg`/`o_db`) thi unswitch TIEP truoc khi vector hoa - de quy,
+    moi lan MOT if bien mat nen so if giam dan -> khong lap vo han. Con lai
+    (if variant / khong phan loai duoc) -> vectorize tu huy -> None -> bo
+    ngoai ca cay -> van di scalar (nguyen tac 'hoi nghi = tu choi')."""
+    if iv != '':
+        _cd: "list[i32]" = []
+        _ta: "list[i32]" = []
+        _el: "list[i32]" = []
+        if _p6_tach_unswitch(flat, iv, scope, ctx, _cd, _ta, _el) == 1:
+            _blk_b = _p6_xay_arm(stmt, _el, la_while, scope, body, body_dtype,
+                                 ctx, sig, codegen_stmts_fn, n, iv)
+            if _blk_b is not None:
+                _blk_a = _p6_xay_arm(stmt, _ta, la_while, scope, body, body_dtype,
+                                     ctx, sig, codegen_stmts_fn, n, iv)
+                if _blk_a is not None:
+                    # BO nhan rieng cho moi tang unswitch (giong ly do "Duplicate
+                    # label" da do o _p6_phat_2ban): preheader + vong vector lay
+                    # mot `n` moi tu label_counter chung.
+                    ctx.label_counter[0] += 1
+                    _m = ctx.label_counter[0]
+                    _l_a = f'{sig.name}_U{_m}_a'
+                    _l_e = f'{sig.name}_U{_m}_e'
+                    _out: "list[str]" = []
+                    _compile_cond(_cd[0], scope, _out, body_dtype, ctx)
+                    _out.append(f'    brtrue {_l_a}')
+                    for _ln in _blk_b:
+                        _out.append(_ln)
+                    _out.append(f'    br {_l_e}')
+                    _out.append(f'  {_l_a}:')
+                    for _ln in _blk_a:
+                        _out.append(_ln)
+                    _out.append(f'  {_l_e}:')
+                    return _out
+    _L = len(body)
+    ctx.label_counter[0] += 1
+    _n2 = ctx.label_counter[0]
+    if la_while == 1:
+        _ok = _p6_vectorize_while(stmt, scope, body, body_dtype, ctx, sig,
+                                  codegen_stmts_fn, _n2, flat)
+    else:
+        _ok = _p6_vectorize_for(stmt, scope, body, body_dtype, ctx, sig,
+                                codegen_stmts_fn, _n2, flat)
+    if _ok == 0:
+        while len(body) > _L:
+            body.pop()
+        return None
+    _blk = body[_L:]
+    while len(body) > _L:
+        body.pop()
+    return _blk
+
+
+def _p6_phat_2ban(stmt: "i32", cond: "TkvNode", flat_a: "list[i32]",
+                  flat_b: "list[i32]", la_while: "i32", iv: "str",
+                  scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx",
+                  sig: "TkvSig",
+                  codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void",
+                  n: "i32") -> "i32":
+    """Phat 2 phien ban vong vector da unswitch (Y2): test dieu kien 1 lan
+    ngoai vong, roi chay dung mot trong 2 thanh da chuan bi. Mot phien ban
+    khong match -> CAI KHAC cung khong nhan (hoi nghi = tu choi) va van di
+    duong scalar nhu cu.
+
+    Moi thanh di qua `_p6_xay_arm` - noi co the unswitch THEM nhung `if`
+    invariant con lai truoc khi vector hoa (LN_BWD: 2 nhánh -> 4 vong)."""
+    _blk_a = _p6_xay_arm(stmt, flat_a, la_while, scope, body, body_dtype,
+                         ctx, sig, codegen_stmts_fn, n, iv)
+    if _blk_a is None:
+        return 0
+    _blk_b = _p6_xay_arm(stmt, flat_b, la_while, scope, body, body_dtype,
+                         ctx, sig, codegen_stmts_fn, n, iv)
+    if _blk_b is None:
+        return 0
+    # --- ghep: <test> brtrue A | B | br end | A: | ... | end:
+    ctx.label_counter[0] += 1
+    _m = ctx.label_counter[0]
+    _l_a = f'{sig.name}_U{_m}_a'
+    _l_e = f'{sig.name}_U{_m}_e'
+    _compile_cond(cond, scope, body, body_dtype, ctx)
+    body.append(f'    brtrue {_l_a}')
+    for _ln in _blk_b:
+        body.append(_ln)
+    body.append(f'    br {_l_e}')
+    body.append(f'  {_l_a}:')
+    for _ln in _blk_a:
+        body.append(_ln)
+    body.append(f'  {_l_e}:')
+    return 1
+
+
+def _p6_vectorize_while(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void", n: "i32", stmts_ovr: "list[i32]"=None) -> "i32":
     """P6 (2026-09-29): TU DONG VECTOR HOA vong lap elementwise tren `f32buf`.
 
     Nhan dien MOT DANG duy nhat, het mong dong:
@@ -1792,7 +3347,27 @@ def _p6_vectorize_while(stmt: "i32", scope: "Scope", body: "list[str]", body_dty
     if lay_than(stmt, 'else_body'):
         return 0
     stmts = lay_than(stmt, 'body')
-    if len(stmts) != 2:
+    # --- Y2 (#8): branch loop-invariant -> 2 phien ban vong (unswitch)
+    if stmts_ovr is not None:
+        stmts = stmts_ovr
+    else:
+        _iv0 = ''
+        _c0 = lay_nut(stmt, 'cond_node')
+        if la_node(_c0) and ekind(_c0) == 'compare':
+            _v0 = eb_nut(_c0)
+            if la_node(_v0) and ekind(_v0) == 'var':
+                _iv0 = ea_str(_v0)
+        if _iv0 != '' and len(stmts) >= 1:
+            _cd: "list[i32]" = []
+            _ta: "list[i32]" = []
+            _el: "list[i32]" = []
+            if _p6_tach_unswitch(stmts, _iv0, scope, ctx, _cd, _ta, _el) == 1:
+                return _p6_phat_2ban(stmt, _cd[0], _ta, _el, 1, _iv0, scope,
+                                    body, body_dtype, ctx, sig,
+                                    codegen_stmts_fn, n)
+    # YEU CAU #6(c): than `while` con co 1 hay nhieu cau `x = x +/- 1` (counter
+    # dong do) - chi can DU 2 cau (idx_assign + `iv = iv + 1`).
+    if len(stmts) < 2:
         return 0
     cond = lay_nut(stmt, 'cond_node')
     # Toan tu cua node `compare`/`binop` nam o FIELD 1 (`ea_str`), con so hang o
@@ -1807,40 +3382,103 @@ def _p6_vectorize_while(stmt: "i32", scope: "Scope", body: "list[str]", body_dty
     if not la_node(n_node) or ekind(n_node) != 'var':
         return 0
     iv = ea_str(iv_node)
-    # Mot bien chi giu MOT kieu: stmt trong arena la chi so i32 nen dung -1 lam
-    # CO HIEU thay vi None.
-    idx_st = -1
-    inc_st = -1
+    # --- phan loai than (YEU CAU #6(c) + #8 Y1): idx/counter/alias/lane/inv
+    ctr: "list[str]" = []
+    ctr_step: "list[i32]" = []
+    alias_ten: "list[str]" = []
+    alias_rhs: "list[i32]" = []
+    loai: "list[str]" = []
+    lane_ten: "list[str]" = []
+    if _p6_phan_tich_than(stmts, iv, 1, ctr, ctr_step, alias_ten, alias_rhs,
+                          loai, lane_ten, scope, ctx) == 0:
+        return 0
+    idx_ds: "list[i32]" = []
     for st in stmts:
-        k = lay_str(st, 'kind')
-        if k == 'idx_assign' and idx_st < 0:
-            idx_st = st
-        elif k == 'assign_scalar' and inc_st < 0:
-            inc_st = st
-    if idx_st < 0 or inc_st < 0:
-        return 0
-    if lay_str(inc_st, 'name') != iv:
-        return 0
-    inc_rhs = lay_nut(inc_st, 'rhs_node')
-    if not la_node(inc_rhs) or ekind(inc_rhs) != 'binop' or ea_str(inc_rhs) != '+':
-        return 0
-    if _p6_var_is(eb_nut(inc_rhs), iv) == 0 or _p6_num_is_one(ec_nut(inc_rhs)) == 0:
-        return 0
-    dest = lay_str(idx_st, 'name')
-    idx_nodes = lay_ds_nut(idx_st, 'idx_nodes')
-    if len(idx_nodes) != 1 or _p6_var_is(idx_nodes[0], iv) == 0:
-        return 0
-    if _p6_is_f32buf(scope, dest) == 0:
+        if lay_str(st, 'kind') == 'idx_assign':
+            idx_ds.append(st)
+    if len(idx_ds) == 0:
         return 0
     loads: "list[str]" = []
-    rewritten = _p6_viet_lai_rhs(lay_nut(idx_st, 'rhs_node'), scope, iv, loads)
-    if rewritten is None or len(loads) == 0:
+    ptr_map: "dict[str,str]" = {}
+    pre_ten: "list[str]" = []
+    pre_am: "list[i32]" = []
+    pre_gioi: "list[i32]" = []
+    # `rem` = so lan lap CON LAI cua vong while = `n - iv` (guard o duoi dam bao
+    # `iv < n` nen luon duong) - can cho chi so la counter (YEU CAU #6(c)).
+    _rem = mk4('binop', o_str('-'), o_nut(n_node), o_nut(mk2('var', o_str(iv))))
+    # --- (#8 Y1) UNION range-proof cho MOI cau idx/lane (#7 still applies)
+    if _p6_quet_union(stmts, loai, lane_ten, scope, ctx, iv, ctr, ctr_step,
+                      n_node, _rem, pre_ten, pre_am, pre_gioi) == 0:
         return 0
-    if _p6_vec_rhs_ok(rewritten, scope, ctx) == 0:
+    # --- (#8 Y1) viet lai RHS + xep ke hoach than vong (thu tu nguon)
+    vec_loai: "list[str]" = []
+    vec_node: "list[TkvNode]" = []
+    if _p6_xep_ke_hoach(stmts, loai, lane_ten, scope, ctx, iv, ctr,
+                        loads, ptr_map, vec_loai, vec_node) == 0:
         return 0
+    # --- lay `dest`/`idx`/`rhs` cua CAU idx DAU TIEN (duong cu #7 dung toi)
+    # Gan `-1` (khong phai None): TkvInt/node ref la so i32, kieu so khong
+    # mang duoc None.
+    dest = ''
+    dest_idx = -1
+    rewritten = -1
+    _vi = 0
+    while _vi < len(vec_loai):
+        if vec_loai[_vi] == 'idx':
+            dest = ea_str(vec_node[_vi])
+            dest_idx = eb_nut(vec_node[_vi])
+            rewritten = ec_nut(vec_node[_vi])
+            break
+        _vi = _vi + 1
+    if dest_idx < 0:
+        return 0
+    # --- (#7/#8) tao SHADOW int i64 + lane f32x4, doi ten trong ke hoach
+    shadow_bang: "dict[str,str]" = {}
+    shadow_khai: "list[str]" = []
+    lane_bang: "dict[str,str]" = {}
+    _p6_tao_shadow(scope, ctx, pre_ten, dest_idx, vec_loai, vec_node, iv,
+                   n_node, ctr, lane_ten, shadow_bang, shadow_khai, lane_bang)
+    if len(shadow_bang) > 0:
+        dest_idx = _p6_doi_ten_idx(dest_idx, shadow_bang)
+        rewritten = _p6_doi_ten_rhs(rewritten, shadow_bang, lane_bang)
+    # --- P6 cho list[f32] (YEU CAU #5 C1): preheader cho TUNG list dung trong vong
+    # `iv` cua vong `while` khong duoc dat = 0 o day (co the dang co gia tri tu
+    # phia tren) -> bat buoc giu check `iv >= 0` (iv_duong_bat_buoc = 0).
+    for _st_d in idx_ds:
+        _dn = lay_str(_st_d, 'name')
+        if _p6_is_list_f32_2(scope, ctx, _dn) == 1:
+            _p6_dang_ky_arr(scope, ctx, _dn, ptr_map)
+            # PHAI dua vao `loads` nua: vong hoist chi duyet `loads`, thi otherwise
+            # local cua DEST duoc khai nhung KHONG duoc nap _items -> null -> NRE
+            # ngay `ldelema` (da do, xem _p6_list_test n=4).
+            loads.append(_dn)
+    # Gan bien tu (macro `_hoist_attr_index`) - PHAI chay TRUOC preheader/hoist
+    # vi preheader doc `get_Count` tren CHINH bien tu do, va hoist doc `_items`
+    # cua no - dua null vao do la NullReferenceException (da do, xem _p6x [5]).
+    # Duoi scalar van chay lai cau nay nhu cu.
+    _ai = 0
+    while _ai < len(alias_ten):
+        _at = scope.tra(alias_ten[_ai]).ta
+        ctx.compile_expr(alias_rhs[_ai], scope, body, _at.dtype, ctx)
+        ctx.store_var(alias_ten[_ai], scope, body)
+        _ai = _ai + 1
+    if len(pre_ten) > 0:
+        _p6_preheader_guards(scope, body, ctx, sig, str(n) + 'w', iv, n_node,
+                             0, body_dtype, pre_ten, pre_am, pre_gioi)
+    _da_q: "set[str]" = set()
+    for _ten in loads:
+        if _ten in _da_q:
+            continue
+        if _p6_is_list_f32_2(scope, ctx, _ten) == 0:
+            continue
+        _da_q.add(_ten)
+        _p6_hoist_items(scope, body, ctx, _p6_node_cua_base(_ten), ptr_map[_ten],
+                        _p6_el_of_ten(scope, ctx, _ten))
     _p6_vec_phat(scope, body, body_dtype, ctx, sig, codegen_stmts_fn,
-                 iv, n_node, lay_nut(stmt, 'cond_node'), stmts, n, '_W',
-                 0, dest, rewritten)
+                 iv, n_node, cond, stmts, n, '_W',
+                 0, dest, rewritten, ptr_map, dest_idx, ctr, ctr_step,
+                 shadow_bang, shadow_khai, vec_loai, vec_node,
+                 lane_bang, lane_ten)
     return 1
 
 
@@ -1849,7 +3487,17 @@ def _p6_vec_phat(scope: "Scope", body: "list[str]", body_dtype: "str",
                  codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void",
                  iv: "str", n_node: "TkvNode", cond_node: "TkvNode",
                  tail_stmts: "list[i32]", n: "i32", pre: "str",
-                 tang_iv: "i32", dest: "str", rewritten: "TkvNode") -> "i32":
+                 tang_iv: "i32", dest: "str", rewritten: "TkvNode",
+                 ptr_map: "dict[str,str]"=None,
+                 dest_idx: "TkvNode"=None,
+                 ctr: "list[str]"=None,
+                 ctr_step: "list[i32]"=None,
+                 shadow_bang: "dict[str,str]"=None,
+                 shadow_khai: "list[str]"=None,
+                 vec_loai: "list[str]"=None,
+                 vec_node: "list[TkvNode]"=None,
+                 lane_bang: "dict[str,str]"=None,
+                 lane_ten: "list[str]"=None) -> "i32":
     """Phat IL cho P6: vong vector buoc 4 + duoi scalar. KHONG kiem tra mau.
 
     Moi viec nhan dien mau da do `_p6_vectorize_while` / `_p6_vectorize_for`
@@ -1867,39 +3515,309 @@ def _p6_vec_phat(scope: "Scope", body: "list[str]", body_dtype: "str",
     vec_done = sig.name + pre + str(n) + '_vdone'
     tail_start = sig.name + pre + str(n) + '_tstart'
     end_lbl = sig.name + pre + str(n) + '_end'
-    # Offset byte: `i * 4`. `_vb_addr` tu ep ve 'i64' nen dtype o day KHONG
+    # YEU CAU #6(a)/(c): chi so ghi KHONG nhat la `iv` nua - co the la `off + iv`
+    # hoac 1 counter (o vong vector no da duoc tang dong do, xem duoi).
+    if dest_idx is None:
+        dest_idx = mk2('var', o_str(iv))
+    # --- YEU CAU #7 Y1/Y2: SHADOW native cho chi so/induction ---
+    # Bang/ke hoach da duoc tao + doi ten o MATCHER (truoc preheader) - day
+    # CHI phat khoi tao shadow TRUOC vong (vi tri nay nam SAU preheader/hoist)
+    # va doi ten con lai o `dest_idx`/`rewritten`. Moi bien khieu ('int') dung
+    # o vi tri chi so / iv / counter / n da tro thanh local i64 `__p6n*` ->
+    # than vong khong con TkvInt ceremony (FromI64/AddSlow/ToI32 - xem
+    # COMPILER_TEAM_REQUEST7.md §2.3). Chua chung minh duoc range thi khong
+    # co shadow - giu nguyen duong TkvInt cu (nguyen tac 'hoi nghi = tu choi').
+    _khai: "list[str]" = []
+    bang: "dict[str,str]" = {}
+    if shadow_bang is not None and shadow_khai is not None:
+        bang = shadow_bang
+        _khai = shadow_khai
+        # Khoi tao shadow TUAN TU
+        for _ten in _khai:
+            ctx.compile_expr(mk2('var', o_str(_ten)), scope, body, 'i64', ctx)
+            body.append('    stloc ' + bang[_ten])
+        dest_idx = _p6_doi_ten_idx(dest_idx, bang)
+        rewritten = _p6_doi_ten_rhs(rewritten, bang)
+    # Offset byte: `chi_so * 4`. `_vb_addr` tu ep ve 'i64' nen dtype o day KHONG
     # quan trong - nhung van phai dung node that, khong hard-code.
-    _o1 = mk2('var', o_str(iv))
     _o2 = mk2('num', o_str('4'))
-    off = mk4('binop', o_str('*'), o_nut(_o1), o_nut(_o2))
-    # VONG LAP VECTOR: chay khi con du 4 phan tu (iv + 3 < n)
+    off = mk4('binop', o_str('*'), o_nut(dest_idx), o_nut(_o2))
+    # VONG LAP VECTOR: chay khi con du 4 phan tu (iv + 3 < n) - dieu kien
+    # nay chay MOI lan lap vector nen dung SHADOW (native) neu co (#7): so
+    # sanh TkvInt moi 4 phan tu la chinh ceremony dang xoa.
+    _iv_cond = iv
+    _n_cond = n_node
+    if len(bang) > 0:
+        if iv in bang:
+            _iv_cond = bang[iv]
+        if la_node(n_node) and ekind(n_node) == 'var':
+            if ea_str(n_node) in bang:
+                _n_cond = mk2('var', o_str(bang[ea_str(n_node)]))
+    # #8 (2026-10-29): neu vong co kieu f64 thi cap phat scratch 8 float cho
+    # cau bridge f32->f64 (`v_load4a` -> Widen, xem `_day_vec64_operand`).
+    # Khai + cap phat TRUOC vong va CHI khi thuc su co f64 -> file khong co
+    # vong f64 van IL_IDENTICAL (yeu cau #9).
+    _co_f64 = 0
+    if vec_loai is not None:
+        _vf = 0
+        while _vf < len(vec_loai):
+            # 'idx' = mk4(store, ten, chi_so, rhs) -> rhs o `ec`; 'lane'/'inv'
+            # = mk3(ten, rhs) -> rhs o `eb` (giong chinh cach emit ben duoi).
+            _nd_vf = vec_node[_vf]
+            if vec_loai[_vf] == 'idx':
+                _nd_vf = ec_nut(_nd_vf)
+            else:
+                _nd_vf = eb_nut(_nd_vf)
+            if _p6_co_f64_cay(_nd_vf, scope, ctx) == 1:
+                _co_f64 = 1
+                break
+            _vf = _vf + 1
+    if _co_f64 == 1:
+        # 2026-10-30: bo cap phat mang scratch `__p6w8` (float32[8]).
+        # `_day_vec64_operand` da doi sang local `Vector<float>` `__p6w32`
+        # (`ldloca`/`stobj Vector4`/`ldloc` - xem vector4_type.tkv P6W32) nen
+        # mang nay khong ai doc nua - la dead `newarr` + `stloc` moi preheader.
+        # GIU NGUYEN co `_co_f64`: no con quyet dinh guard `iv+7 < n` (can cho
+        # `v_wload4a` doc 32 byte) - doan duoi khong doi.
+        pass
+    # #8b (2026-10-31): UNROLL x2 - than vong vector lay HAI lan chay cua ke
+    # hoach (lan 2 moi chi so +4) va tang dem 8/4 phan tu. Loi ich do guard
+    # `iv+K<n`, spill/reload byref va reload counter chi 1 lan/8 phan tu thay
+    # 1 lan/4 (vong B uop-bound ~12 uop/4 ptu: 3.85x -> 6.74x, `_p6ms` B). Chi
+    # lap khi co KE HOACH (`vec_loai`) - duong fallback giu hanh vi cu nguyen.
+    _unroll = 0
+    if vec_loai is not None and len(vec_loai) > 0:
+        _unroll = 1
     body.append('  ' + vec_start + ':')
-    _g1 = mk2('var', o_str(iv))
-    _g2 = mk2('num', o_str('3'))
+    _g1 = mk2('var', o_str(_iv_cond))
+    # #8: vong co f64 doc TRUC TIEP 32 byte `Vector<float>` (v_wload4a) nen
+    # phai du 8 phan tu con lai -> dieu kien `iv + 7 < n` (thay `iv + 3 < n`).
+    # Van an toan vi preheader da chung minh `n <= len` moi mang da doc, va
+    # duoi scalar chay tu `iv` den `n` nen phan thua van duoc xu ly dung.
+    _g2_ten = '3'
+    if _co_f64 == 1:
+        _g2_ten = '7'
+    if _unroll == 1:
+        # Lan 2 doc tai `iv + 4` nen can (iv + 4) + K_cu < n -> K = K_cu + 4
+        # (f32: 3 -> 7, f64: 7 -> 11) - van an toan vi preheader da chung minh
+        # `n <= len` cho TUNG mang.
+        if _co_f64 == 1:
+            _g2_ten = '11'
+        else:
+            _g2_ten = '7'
+    _g2 = mk2('num', o_str(_g2_ten))
     _g3 = mk4('binop', o_str('+'), o_nut(_g1), o_nut(_g2))
-    _gc = mk4('compare', o_str('<'), o_nut(_g3), o_nut(n_node))
+    _gc = mk4('compare', o_str('<'), o_nut(_g3), o_nut(_n_cond))
     _compile_cond(_gc, scope, body, body_dtype, ctx)
     body.append('    brfalse ' + vec_done)
-    st_args: "list[TkvNode]" = []
-    st_args.append(mk2('var', o_str(dest)))
-    st_args.append(off)
-    st_args.append(rewritten)
-    ctx.compile_expr(mk3('call', o_str('v_store4'), o_ds(st_args)),
-                     scope, body, 'i32', ctx)
-    body.append('    pop')
+    if vec_loai is not None:
+        # --- (#8 Y1) than vong vector = KE HOACH cau tu matcher (thu tu nguon):
+        # 'idx' -> store 4 phan tu, 'lane' -> gan shadow f32x4, 'inv' -> gan
+        # bien goc. Counter/alias khong xuat hien o day (counter tang cuoi vong,
+        # alias da gan truoc vong).
+        _loai2: "list[str]" = []
+        _node2: "list[TkvNode]" = []
+        _vp = 0
+        if _unroll == 1:
+            # Ban sao 1: ke hoach goc. Ban sao 2: moi chi so cua MOI bien
+            # bien dong + 4 (giu NGUYEN THU TU nguon: ca 2 ban sao chay
+            # lientiep, tuong duong 2 lan lap cu chua unroll - `inv` van cung
+            # gia tri, lane duoc ghi lai lan nua truoc W-copy cuoi vong).
+            # #8b: PHAI gom ca COUNTER (khong chi iv) - chi so co the la
+            # `bc`/`bt` (`_acc_f`), dau '-' neu counter tang giam (ctr_step).
+            _ds_shift: "dict[str,str]" = {}
+            _iv_shift = iv
+            if iv in bang:
+                _iv_shift = bang[iv]
+            _ds_shift[_iv_shift] = '+'
+            if ctr is not None:
+                _cs = 0
+                while _cs < len(ctr):
+                    _cn_s = ctr[_cs]
+                    if _cn_s in bang:
+                        _cn_s = bang[_cn_s]
+                    _op_s = '+'
+                    if ctr_step[_cs] < 0:
+                        _op_s = '-'
+                    _ds_shift[_cn_s] = _op_s
+                    _cs = _cs + 1
+            while _vp < len(vec_loai):
+                _loai2.append(vec_loai[_vp])
+                _node2.append(vec_node[_vp])
+                _vp = _vp + 1
+            _vp = 0
+            while _vp < len(vec_loai):
+                _loai2.append(vec_loai[_vp])
+                _node2.append(_p6_tang_idx(vec_node[_vp], _ds_shift))
+                _vp = _vp + 1
+        else:
+            while _vp < len(vec_loai):
+                _loai2.append(vec_loai[_vp])
+                _node2.append(vec_node[_vp])
+                _vp = _vp + 1
+        _vp = 0
+        while _vp < len(_loai2):
+            _pl = _loai2[_vp]
+            _pr = _node2[_vp]
+            if _pl == 'idx':
+                _d_key = ea_str(_pr)
+                _ix_r = eb_nut(_pr)
+                _rw_r = ec_nut(_pr)
+                _stc: "list[TkvNode]" = []
+                if ptr_map is not None and _d_key in ptr_map:
+                    # P6 list[f32] (#5): v_store4a - byref ldelema + stobj,
+                    # GC an toan, khong pin (xem vector4_type.tkv)
+                    # #8: dich f64 -> `v_dstore` (32 byte = 4 float64).
+                    _stc.append(mk2('var', o_str(ptr_map[_d_key])))
+                    _stc.append(_ix_r)
+                    _stc.append(_rw_r)
+                    _ten_st = 'v_store4a'
+                    if _p6_el_of_ten(scope, ctx, _d_key) == 'float64':
+                        _ten_st = 'v_dstore'
+                    ctx.compile_expr(mk3('call', o_str(_ten_st), o_ds(_stc)),
+                                     scope, body, 'i32', ctx)
+                else:
+                    _of_r = mk4('binop', o_str('*'), o_nut(_ix_r),
+                                o_nut(mk2('num', o_str('4'))))
+                    _stc.append(_p6_node_cua_base(_d_key))
+                    _stc.append(_of_r)
+                    _stc.append(_rw_r)
+                    ctx.compile_expr(mk3('call', o_str('v_store4'), o_ds(_stc)),
+                                     scope, body, 'i32', ctx)
+                body.append('    pop')
+            elif _pl == 'lane':
+                # gan lane temp: rhs da viet lai -> kieu vector cua SHADOW
+                # (f32 -> `f32x4`, f64 -> `f64x4` - xem `_p6_tao_shadow`).
+                _lw = ea_str(_pr)
+                _dt_lw = 'f32x4'
+                try:
+                    _ta_lw = scope.tra(_lw).ta
+                    if _ta_lw is not None and _ta_lw.dtype == 'f64':
+                        _dt_lw = 'f64x4'
+                except (KeyError, SyntaxError):
+                    _dt_lw = 'f32x4'
+                ctx.compile_expr(eb_nut(_pr), scope, body, _dt_lw, ctx)
+                ctx.store_var(lane_bang[_lw], scope, body)
+            else:
+                # inv: gan bien goc bang kieu THAT - gia tri invariant nen cung
+                # gia tri moi lan lap, chi chay 1 lan/4 phan tu (khong hoist -
+                # giu hanh vi khi vong khong chay)
+                _nv = ea_str(_pr)
+                _ta_nv = scope.tra(_nv).ta
+                ctx.compile_expr(eb_nut(_pr), scope, body, _ta_nv.dtype, ctx)
+                ctx.store_var(_nv, scope, body)
+            _vp = _vp + 1
+        # (#8 Y1) LANE W-COPY: ghi lane 4 (phan tu CUOI cua 4) vao bien goc
+        # MOI lan lap - sau vong bien goc = gia tri phan tu cuoi y het scalar
+        # (duoi scalar van ghi lai nua khi n % 4 != 0; khi vong khong chay lan
+        # nao thi khong ghi gi - bien goc giu gia tri cu).
+        if lane_ten is not None and lane_bang is not None:
+            for _lt in lane_ten:
+                _dt_w = 'f32'
+                try:
+                    _ta_w = scope.tra(_lt).ta
+                    if _ta_w is not None and _ta_w.dtype == 'f64':
+                        _dt_w = 'f64'
+                except (KeyError, SyntaxError):
+                    _dt_w = 'f32'
+                if _dt_w == 'f64':
+                    # `f64x4` = Vector<double> KHONG co field .w - doc lane 3
+                    # qua `get_Item(3)` (4 lane cuoi cung = gia tri ma scalar
+                    # de tren bien goc, cung nghia voi `.w` cua Vector4).
+                    ctx.load_var_addr(lane_bang[_lt], scope, body)
+                    body.append('    ldc.i4.3')
+                    # PHAI dung `!0` cho gia tri tra ve (khong phai `float64`):
+                    # viet kieu cu the -> ilasm tao MemberRef tren generic type
+                    # MO, bo qua instantiation -> runtime `Method not found`
+                    # (cung loi da gap voi `!0[]`/List`1, xem simd_feature.tkv).
+                    body.append('    call instance !0 valuetype '
+                                '[System.Numerics.Vectors]System.Numerics.Vector`1<float64>::get_Item(int32)')
+                else:
+                    ctx.compile_expr(mk3('attr', o_str(lane_bang[_lt]), o_str('w')),
+                                     scope, body, 'f32', ctx)
+                ctx.store_var(_lt, scope, body)
+    else:
+        st_args: "list[TkvNode]" = []
+        if ptr_map is not None and dest in ptr_map:
+            # P6 list[f32] (YEU CAU #5): ghi qua `v_store4a(arr_local, iv, v)`
+            # #8: dich f64 -> `v_dstore`.
+            st_args.append(mk2('var', o_str(ptr_map[dest])))
+            st_args.append(dest_idx)
+            st_args.append(rewritten)
+            _ten_sd = 'v_store4a'
+            if _p6_el_of_ten(scope, ctx, dest) == 'float64':
+                _ten_sd = 'v_dstore'
+            ctx.compile_expr(mk3('call', o_str(_ten_sd), o_ds(st_args)),
+                             scope, body, 'i32', ctx)
+        else:
+            st_args.append(_p6_node_cua_base(dest))
+            st_args.append(off)
+            st_args.append(rewritten)
+            ctx.compile_expr(mk3('call', o_str('v_store4'), o_ds(st_args)),
+                             scope, body, 'i32', ctx)
+        body.append('    pop')
     # `iv = iv + 4`. PHAI bien dich `iv + 4` o kieu THAT cua `iv`: trong test
     # `i` la bien so nguyen -> khai `int` (TkvInt, 16 byte). Bien dich voi
     # 'i32' roi `store_var` se chi ghi 4 byte vao local 16 byte, truong `big`
     # con rong -> `NullReferenceException` o lan doc TktInt sau do (da do
-    # 2026-10-11).
+    # 2026-10-11). Neu `iv` co SHADOW (#7) thi tang tren shadow i64 - chi so
+    # +4 nay chay 1 lan/4 phan tu ma van khong con TkvInt trong than.
     _ta_iv = scope.tra(iv).ta
-    _i1 = mk2('var', o_str(iv))
-    _i2 = mk2('num', o_str('4'))
+    _i1_ten = iv
+    if iv in bang:
+        _i1_ten = bang[iv]
+    _i1 = mk2('var', o_str(_i1_ten))
+    _buoc_ten = '4'
+    if _unroll == 1:
+        # 8 phan tu/lan lap (2 ban sao x 4) - dung voi guard `iv + 7/11 < n`.
+        _buoc_ten = '8'
+    _i2 = mk2('num', o_str(_buoc_ten))
     _ic = mk4('binop', o_str('+'), o_nut(_i1), o_nut(_i2))
-    ctx.compile_expr(_ic, scope, body, _ta_iv.dtype, ctx)
-    ctx.store_var(iv, scope, body)
+    if iv in bang:
+        ctx.compile_expr(_ic, scope, body, 'i64', ctx)
+        body.append('    stloc ' + bang[iv])
+    else:
+        ctx.compile_expr(_ic, scope, body, _ta_iv.dtype, ctx)
+        ctx.store_var(iv, scope, body)
+    # YEU CAU #6(c): cac counter rieng cung tang/giam 4 o MOI lan lap vector,
+    # giu nguyen dang `counter = counter0 + (iv - iv0)` cho duoi scalar chay
+    # tiep dung (neu khong, phan duoi se ghi sai vi tri).
+    if ctr is not None:
+        _ci = 0
+        while _ci < len(ctr):
+            _cn = ctr[_ci]
+            _op = '+'
+            if ctr_step[_ci] < 0:
+                _op = '-'
+            _k1_ten = _cn
+            if _cn in bang:
+                _k1_ten = bang[_cn]
+            _k1 = mk2('var', o_str(_k1_ten))
+            _k2 = mk2('num', o_str(_buoc_ten))
+            _kc = mk4('binop', o_str(_op), o_nut(_k1), o_nut(_k2))
+            if _cn in bang:
+                ctx.compile_expr(_kc, scope, body, 'i64', ctx)
+                body.append('    stloc ' + bang[_cn])
+            else:
+                _ta_c = scope.tra(_cn).ta
+                ctx.compile_expr(_kc, scope, body, _ta_c.dtype, ctx)
+                ctx.store_var(_cn, scope, body)
+            _ci = _ci + 1
     body.append('    br ' + vec_start)
     body.append('  ' + vec_done + ':')
+    # TRA SHADOW ve bien goc TRUOC duoi scalar (#7): duoi doc/ghi bien goc
+    # nhu cu, va khi n % 4 == 0 thi duoi khong chay - phai tra o day moi luon
+    # dung gia tri cuoi cua iv/counter ben ngoai vong. (Shadow cua bien chi
+    # doc - n, offset - tra lai gia tri khong doi: khong an huong gi.)
+    if len(_khai) > 0:
+        _rk = 0
+        while _rk < len(_khai):
+            _ten_g = _khai[_rk]
+            _ta_g = scope.tra(_ten_g).ta
+            ctx.compile_expr(mk2('var', o_str(bang[_ten_g])), scope, body,
+                             _ta_g.dtype, ctx)
+            ctx.store_var(_ten_g, scope, body)
+            _rk = _rk + 1
     # DUOI SCALAR: phan con lai (n % 4) chay bang lenh goc
     body.append('  ' + tail_start + ':')
     _compile_cond(cond_node, scope, body, body_dtype, ctx)
@@ -1922,7 +3840,7 @@ def _p6_vec_phat(scope: "Scope", body: "list[str]", body_dtype: "str",
     return 1
 
 
-def _p6_vectorize_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void", n: "i32") -> "i32":
+def _p6_vectorize_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void", n: "i32", stmts_ovr: "list[i32]"=None) -> "i32":
     """P6 (2026-10-14): vector hoa vong `for i in range(n)`, KHONG phai `while`.
 
     Do chi `while` thi vao duong nay truoc do, `for i in range(n): r[i] = a[i]+b[i]`
@@ -1951,26 +3869,72 @@ def _p6_vectorize_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype
     if _stp != 1:
         return 0
     stmts = lay_than(stmt, 'body')
-    if len(stmts) != 1:
-        return 0
-    idx_st = stmts[0]
-    if lay_str(idx_st, 'kind') != 'idx_assign':
+    # --- Y2 (#8): branch loop-invariant -> 2 phien ban vong (unswitch)
+    if stmts_ovr is not None:
+        stmts = stmts_ovr
+    else:
+        _iv0 = lay_str(stmt, 'var')
+        if _iv0 is not None and _iv0 != '' and len(stmts) >= 1:
+            _cd: "list[i32]" = []
+            _ta: "list[i32]" = []
+            _el: "list[i32]" = []
+            if _p6_tach_unswitch(stmts, _iv0, scope, ctx, _cd, _ta, _el) == 1:
+                return _p6_phat_2ban(stmt, _cd[0], _ta, _el, 0, _iv0, scope,
+                                    body, body_dtype, ctx, sig,
+                                    codegen_stmts_fn, n)
+    # YEU CAU #6(c) + #8 Y1: than `for` gom cac cau idx/counter/alias/lane/inv
+    if len(stmts) < 1:
         return 0
     n_node = lay_nut(stmt, 'bound_node')
     if not la_node(n_node):
         return 0
     iv = lay_str(stmt, 'var')
-    dest = lay_str(idx_st, 'name')
-    idx_nodes = lay_ds_nut(idx_st, 'idx_nodes')
-    if len(idx_nodes) != 1 or _p6_var_is(idx_nodes[0], iv) == 0:
+    ctr: "list[str]" = []
+    ctr_step: "list[i32]" = []
+    alias_ten: "list[str]" = []
+    alias_rhs: "list[i32]" = []
+    loai: "list[str]" = []
+    lane_ten: "list[str]" = []
+    if _p6_phan_tich_than(stmts, iv, 0, ctr, ctr_step, alias_ten, alias_rhs,
+                          loai, lane_ten, scope, ctx) == 0:
         return 0
-    if _p6_is_f32buf(scope, dest) == 0:
+    idx_ds: "list[i32]" = []
+    for st in stmts:
+        if lay_str(st, 'kind') == 'idx_assign':
+            idx_ds.append(st)
+    if len(idx_ds) == 0:
         return 0
     loads: "list[str]" = []
-    rewritten = _p6_viet_lai_rhs(lay_nut(idx_st, 'rhs_node'), scope, iv, loads)
-    if rewritten is None or len(loads) == 0:
+    ptr_map: "dict[str,str]" = {}
+    pre_ten: "list[str]" = []
+    pre_am: "list[i32]" = []
+    pre_gioi: "list[i32]" = []
+    # `for` dat `iv = 0` ngay truoc preheader nen so lan lap con lai = `n`.
+    _rem = n_node
+    # --- (#8 Y1) UNION range-proof + (#8 Y1) ke hoach than vong (thu tu nguon)
+    if _p6_quet_union(stmts, loai, lane_ten, scope, ctx, iv, ctr, ctr_step,
+                      n_node, _rem, pre_ten, pre_am, pre_gioi) == 0:
         return 0
-    if _p6_vec_rhs_ok(rewritten, scope, ctx) == 0:
+    vec_loai: "list[str]" = []
+    vec_node: "list[TkvNode]" = []
+    if _p6_xep_ke_hoach(stmts, loai, lane_ten, scope, ctx, iv, ctr,
+                        loads, ptr_map, vec_loai, vec_node) == 0:
+        return 0
+    # --- lay `dest`/`idx`/`rhs` cua CAU idx DAU TIEN (duong cu #7 dung toi)
+    # Gan `-1` (khong phai None): TkvInt/node ref la so i32, kieu so khong
+    # mang duoc None.
+    dest = ''
+    dest_idx = -1
+    rewritten = -1
+    _vi = 0
+    while _vi < len(vec_loai):
+        if vec_loai[_vi] == 'idx':
+            dest = ea_str(vec_node[_vi])
+            dest_idx = eb_nut(vec_node[_vi])
+            rewritten = ec_nut(vec_node[_vi])
+            break
+        _vi = _vi + 1
+    if dest_idx < 0:
         return 0
     # Khoi tao bien dem TRUOC vong vector (gia tri bat dau cua `range(n)`).
     # Bien dich theo kieu THAT cua bien dem: `for` co the dung lai mot ten da
@@ -1986,11 +3950,73 @@ def _p6_vectorize_for(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype
     _z = mk2('num', o_str('0'))
     ctx.compile_expr(_z, scope, body, _dv, ctx)
     ctx.store_var(iv, scope, body)
-    # Dieu kien duoi scalar: `iv < n`, dung lai node bound cua vong for.
+    # Hoist biendem `range(expr)` (YEU CAU #6, §4: `get_Count` trong than = 0).
+    # Python tinh `range(expr)` MOT LAN truoc vong, va `codegen_for` cung chi
+    # khoi tao biendem mot lan - nen viec lai goi `len()`/`get_Count` trong
+    # dieu kien vong VECTOR (moi 4 phan tu) la khong can thiet. Chi lam khi
+    # `n_node` khong phai bien (bien thi da la gia tri rieng, khong tinh toan gi).
+    # Hoan toan tu choi (`return 0` = van di duong scalar) neu khong suy duoc
+    # kieu so cua `expr`.
+    _n_node = n_node
+    if ekind(n_node) != 'var':
+        # Dung KIEU THAT cua bien dem (`_dv`) - cung kieu voi `iv = 0` ngay o
+        # tren - vi vay dieu kien `iv + 3 < n` ca hai ve CUNG kieu -> khong
+        # can `conv.ovf.i4` (neu de `len()` la i64 ma `iv` la i32 thi phep
+        # so sanh phai thu hep moi lan lap - dung nhung chua phai 0 lan
+        # trong than, xem §4 YEU CAU #6). Neu `n` qua lon cho kieu do thi
+        # `conv.ovf.i4`/`ToI32` van nem OverflowException - CHUNG dung nghia
+        # voi luong goc, chi di ra khoi vong nong.
+        _ten_n = '__p6b' + str(len(ctx.locals_decl))
+        _ta_n = TypeAnn(_dv, None)
+        ctx.locals_decl.append((_ten_n, _ta_n))
+        scope.add_local(_ten_n, len(ctx.locals_decl) - 1, _ta_n)
+        ctx.compile_expr(n_node, scope, body, _dv, ctx)
+        body.append('    stloc ' + _ten_n)
+        _n_node = mk2('var', o_str(_ten_n))
+    # --- (#7/#8) tao SHADOW int i64 + lane f32x4 (sau khi `_n_node` da hoist
+    # - vi tri nay khong phat IL, chi dang ky local + doi ten ke hoach)
+    shadow_bang: "dict[str,str]" = {}
+    shadow_khai: "list[str]" = []
+    lane_bang: "dict[str,str]" = {}
+    _p6_tao_shadow(scope, ctx, pre_ten, dest_idx, vec_loai, vec_node, iv,
+                   _n_node, ctr, lane_ten, shadow_bang, shadow_khai, lane_bang)
+    if len(shadow_bang) > 0:
+        dest_idx = _p6_doi_ten_idx(dest_idx, shadow_bang)
+        rewritten = _p6_doi_ten_rhs(rewritten, shadow_bang, lane_bang)
+    # --- P6 cho list[f32] (YEU CAU #5 C1) ---
+    # Dat SAU khoi tao `iv = 0` (guard so sanh `iv < n` can gia tri nay), va
+    # `iv_duong_bat_buoc = 1` vi `iv` chinh thuc la 0 o day -> bo qua check am.
+    for _st_d in idx_ds:
+        _dn = lay_str(_st_d, 'name')
+        if _p6_is_list_f32_2(scope, ctx, _dn) == 1:
+            _p6_dang_ky_arr(scope, ctx, _dn, ptr_map)
+            loads.append(_dn)      # giong duong `while` - xem ghi chu o do
+    # Gan bien tu - xem ghi chu giong duong `while` (PHAI truoc preheader/hoist).
+    _ai = 0
+    while _ai < len(alias_ten):
+        _at = scope.tra(alias_ten[_ai]).ta
+        ctx.compile_expr(alias_rhs[_ai], scope, body, _at.dtype, ctx)
+        ctx.store_var(alias_ten[_ai], scope, body)
+        _ai = _ai + 1
+    if len(pre_ten) > 0:
+        _p6_preheader_guards(scope, body, ctx, sig, str(n) + 'f', iv, n_node,
+                             1, body_dtype, pre_ten, pre_am, pre_gioi)
+    _da_q: "set[str]" = set()
+    for _ten in loads:
+        if _ten in _da_q:
+            continue
+        if _p6_is_list_f32_2(scope, ctx, _ten) == 0:
+            continue
+        _da_q.add(_ten)
+        _p6_hoist_items(scope, body, ctx, _p6_node_cua_base(_ten), ptr_map[_ten],
+                        _p6_el_of_ten(scope, ctx, _ten))
+    # Dieu kien duoi scalar: `iv < n`, dung lai biendem da hoist.
     _c1 = mk2('var', o_str(iv))
-    _cond = mk4('compare', o_str('<'), o_nut(_c1), o_nut(n_node))
+    _cond = mk4('compare', o_str('<'), o_nut(_c1), o_nut(_n_node))
     _p6_vec_phat(scope, body, body_dtype, ctx, sig, codegen_stmts_fn,
-                 iv, n_node, _cond, stmts, n, '_F', 1, dest, rewritten)
+                 iv, _n_node, _cond, stmts, n, '_F', 1, dest, rewritten, ptr_map,
+                 dest_idx, ctr, ctr_step, shadow_bang, shadow_khai, vec_loai,
+                 vec_node, lane_bang, lane_ten)
     return 1
 
 

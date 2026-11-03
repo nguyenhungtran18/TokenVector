@@ -1,0 +1,44 @@
+=== GATE simd_gemm_full (YEU CAU #2 UU TIEN A) - 2026-10-26 ===
+
+--- 1. vong.exe (self-host, 3 vong, 133 file):
+gop 133 file
+g1 xong
+g2 xong
+IL_IDENTICAL
+  dist/tkvc-tv.exe da build lai (co builtin simd_gemm_full).
+
+--- 2. testkit_gate.ps1:
+=== SUMMARY (out of 131 tests) ===
+GATE: PASS (131/131, negative 38/38)
+
+--- 3. dang_ky_gate:
+  133 file / 2141 ham - VI PHAM 0 - GATE: PASS
+
+--- 4. lint_rules_gate:
+  8 canh bao (baseline) - PASS: bat het loi, khong bao nham
+
+--- 5. gen_builtin_ref:
+  regenerate: 441 ten / 114 file; --check: 83 ten thieu doc = BASELINE (HEAD thieu 84; simd_gemm_full da doc -> cai thien 1)
+
+--- 6. assert_il (tests/simd_gemm_full_test.tkv):
+  expect TkvSimd::GemmFullM x6, as "SgemmFull" x1, float32& pinned x29, forbid ToArray x0 -> PASS
+
+--- 7. chay.exe (tests_suite):
+=== TRUOT: 734 ===
+  51 DAT / 734 TRUOT = TRUOC-SAN O HEAD (A/B compiler HEAD vs moi: 0 diff - xem handoff f32 2026-10-26)
+
+--- 8. perf_gate:
+kernel          hien tai  baseline     chenh  trang thai
+perf_e2e            48.4      50.3     -3.9%  ok
+perf_f32buf        232.1     241.5     -3.9%  ok
+perf_f32mm          37.6      38.8     -3.0%  ok
+perf_mm             28.6      27.7      3.4%  ok
+GATE: PASS
+
+--- 9. Test native C SgemmFull (scratch, khong commit): 26/26 PASS (5 shape x 2 mode x 2 trans vs naive + 6 rc case)
+
+--- 10. Benchmark A/B (best-of-3, T=256, wrapper ref i0->p0->j0 vs simd_gemm_full):
+S1_1024x768x3072: build_ms=31.0 cinit_ms=47.0 wrapper_ms=125.0 full_ms=31.0 speedup=4.032258064516129 maxdiff=0.0
+S3_1024x768x50257: build_ms=391.0 cinit_ms=641.0 wrapper_ms=1937.0 full_ms=563.0 speedup=3.4404973357015987 maxdiff=0.0
+S4_50257x768x1024: build_ms=453.0 cinit_ms=641.0 wrapper_ms=2046.0 full_ms=531.0 speedup=3.853107344632768 maxdiff=0.0
+S5_1024x50257x768: build_ms=1110.0 cinit_ms=0.0 wrapper_ms=1984.0 full_ms=546.0 speedup=3.6336996336996337 maxdiff=0.0

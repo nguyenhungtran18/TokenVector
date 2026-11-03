@@ -23,6 +23,7 @@ mot file doc lap voi ten lich su.
 
 from il_core import IL_SCALAR
 from il_dispatch import register_expr_builtin
+from expr_row import ea_str, ekind, la_node
 
 __tkv_import__ = "il_dispatch"
 
@@ -82,8 +83,97 @@ _VEC4_PROPS: "dict[str,str]" = {'x': 'X', 'y': 'Y', 'z': 'Z', 'w': 'W'}
 _VEC4_LANES: "list[str]" = ['X', 'Y', 'Z', 'W']
 
 
+# ================= #8 (2026-10-29): vector f64 ==============================
+# `Vector<double>` (4 lane) cho vong P6 co kieu f64 (LN_BWD: dx/dg/x la f64,
+# gy/g la f32). Phep toan tren type da INSTANCE co sig `!0` - quy uoc da kiem
+# chung o simd_feature.tkv (ilasm khong viet duoc `!0` tu dau); Widen/Narrow
+# da chay DUNG tren .NET 10 bang IL thuan (out/f64t.il - M5 widen->nhan->narrow
+# cho 2,4,6,8). `f64x4` giong `f32x4` la KIEU GHI DE, khong co literal.
+_VEC_G = '[System.Numerics.Vectors]System.Numerics.Vector'
+# PHAI la hang so chuoi THUAN: bien module khong duoc gan BIEU THUC
+# (tkvc: "gap assign o dong ..." - xem g1.exe.log 2026-10-29).
+IL_V64 = 'valuetype [System.Numerics.Vectors]System.Numerics.Vector`1<float64>'
+IL_V32 = 'valuetype [System.Numerics.Vectors]System.Numerics.Vector`1<float32>'
+_VEC_G_OP: "dict[str,str]" = {'+': 'op_Addition', '-': 'op_Subtraction', '*': 'op_Multiply', '/': 'op_Division'}
+_VEC_G_TS: "dict[str,str]" = {'f64x4': 'float64'}
+
+# #9 (2026-10-30): goi TRUC TIEP intrinsic AVX, thay cho `Widen(out, out)` va
+# `Narrow(a, zero)`.
+#
+# Ly do (do tren IL sinh, khong phai doan doc): moi lan `Narrow(a, zero)` goi
+# JIT sinh 3 lenh (vxorps + vcvtpd2ps tren 4 so 0 khong ai dung + vinsertf128
+# lay nua thap), moi lan `Widen(src, out lo, out hi)` thi `hi` duoc ghi va
+# KHONG AI DOC (grep `ldloc __p6wh` = 0 lan, `ldloca __p6wh` = 8 lan - chi de
+# lam out-param). Spike IL thuan (out/spike/spike.il) chung minh ilasm +
+# `Avx::ConvertToVector128Single` -> JIT chi sinh MOT lenh
+# `vcvtpd2ps ymm0, ymmword ptr [..]` va 4 ket qua dung 1.5/2.5/3.5/4.5.
+#
+# CANH BAO ARITY: IL PHAI viet `Vector256`1<float64>` (co backtick + so).
+# Viet `Vector256<float64>` thi ilasm tao TypeRef arity-0 -> runtime nem
+# `TypeLoadException: Could not load type ... due to value type mismatch`
+# (da do 2026-10-30).
+#
+# CANH BAO AVX: duong nay chi chay tren may co AVX. Truoc #9 no DA yeu cau
+# AVX2 (Vector<double> 4 lane = 32 byte, `v_wload4a` doc 32 byte) nen khong
+# tro thanh han che MOI; may khong co AVX van dung duong scalar.
+_IL_V128F32 = 'valuetype [System.Runtime.Intrinsics]System.Runtime.Intrinsics.Vector128`1<float32>'
+_IL_V256F64 = 'valuetype [System.Runtime.Intrinsics]System.Runtime.Intrinsics.Vector256`1<float64>'
+_INTR_AVX = '[System.Runtime.Intrinsics]System.Runtime.Intrinsics.X86.Avx'
+_INTR_EXTERN = '.assembly extern System.Runtime.Intrinsics { .publickeytoken = (CC 7B 13 FF CD 2D DD 51 ) .ver 10:0:0:0 }'
+
+
+def _ensure_intr(ctx: "Ctx"):
+    """Phat hanh `.assembly extern System.Runtime.Intrinsics` MOT LAN (lazy)."""
+    emitted = ctx.emitted_types
+    if emitted is None or 'TkvIntrExtern' in emitted:
+        return
+    emitted.add('TkvIntrExtern')
+    ctx.extra_classes.append([_INTR_EXTERN])
+
+# Local dung chung cho cau BRIDGE f32->f64 (xem push_v_widen64): Vector4 chi
+# 16 byte ma `Widen` can MOT gia tri `Vector<float>` 32 byte. BRIDGE chi can
+# mot DIEM de `stobj Vector4` ghi 16 byte dau roi `ldloc` doc ra `Vector<float>`
+# (neu cao hon 4 float dau la rac - khong ai doc, `lo` chi lay 4 float dau).
+#
+# 2026-10-30: TRUOC DAY dung mang `float32[8]` (`P6W8`) + `ldelema`/`ldobj`.
+# Doi sang local `Vector<float>` thuong (`P6W32`, `ldloca`/`stobj Vector4`/`ldloc`):
+#   - mảng la OBJECT dia chi lay - moi lan doc/ghi qua `ldelema` (2 lenh dia chi),
+#     va no day `float32[]` + `float32&` vao bang local -> JIT phai chiu ap luc
+#     register (chinh la nguon `mov rcx/rdx/r10, [rsp+..]` trong vong LN_BWD);
+#   - local la mot slot stack co kich thuoc CO DINH - khong con reference/array.
+# `Widen` lay source BY VALUE (chung minh boi push_v_wload4a: `ldobj` + `call`),
+# nen khong can giu dia chi qua phan goi.
+# KHONG dung `ldloca Vector<float>` + `stobj Vector<float>` (khong kich Thuoc).
+# Khai LAZY: chi ham nao thuc su vector hoa f64 moi co -> file khong co vong f64
+# van IL_IDENTICAL.
+# 2026-10-30 #9: BO `Widen(out lo, out hi)` di - `hi` duoc ghi 8 lan va doc
+# 0 lan tren IL sinh (dem bang grep `ldloc __p6wh` = 0), `lo` van doc 8 lan.
+# Thay bang intrinsic AVX truc tiep (xem `_ensure_intr` duoi) -> P6W32 xuong
+# 16 byte (`Vector128<float>`) va P6WL/P het can (2 local address-tan lay di
+# ap luc register cua vong LN_BWD).
+P6W32 = '__p6w32'
+
+
+def p6_khai_lokals_f64(ctx: "Ctx", scope: "Scope"):
+    """Khai LAZY 1 local can cho bridge f32->f64 (chi 1 lan/ham)."""
+    _co: "set[str]" = set()
+    for _d in ctx.locals_decl:
+        _co.add(_d[0])
+    if P6W32 not in _co:
+        _ta = TypeAnn('f32v128', None)
+        ctx.locals_decl.append((P6W32, _ta))
+        scope.add_local(P6W32, len(ctx.locals_decl) - 1, _ta)
+
+
 def register_vector4_dtype():
     IL_SCALAR['f32x4'] = VEC4
+    IL_SCALAR['f64x4'] = IL_V64
+    # Local `Vector<float>` 32 byte cho bridge (chi dung noi bo - khong phai
+    # kieu nguon doc duoc tu .tkv), xem P6W32.
+    IL_SCALAR['f32v'] = IL_V32
+    # #9: local `Vector128<float>` 16 byte - khop dung kieu intrinsic AVX
+    # (truoc do la `Vector<float>` 32 byte, chi deu dung 16 byte dau).
+    IL_SCALAR['f32v128'] = _IL_V128F32
 
 
 def _day_vec4_operand(node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
@@ -100,6 +190,20 @@ def _day_vec4_operand(node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "C
     d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records, ctx.record_methods, None)
     if d == 'f32x4':
         ctx.compile_expr(node, scope, out, 'f32x4', ctx)
+        return
+    if d == 'f64x4':
+        # #8 (2026-10-29): dich f64x4 -> f32x4 truoc khi `stobj Vector4`
+        # (dich `list[f32]`, vd `dx[j] = <phep toan f64>` cua LN_BWD).
+        # `Narrow(a, zero)` lay nua duoi = 4 float dau tien; nua 0 khong ai
+        # doc. Phep nay ROUND-TO-NEAREST-EVEN (vcvtpd2ps) - cUNG chinhxac voi
+        # `conv.r4` ma duong scalar dung khi ghi vao mang f32 -> bit-exact.
+        ctx.compile_expr(node, scope, out, 'f64x4', ctx)
+        # #9: `ConvertToVector128Single` thay `Narrow(a, zero)` - 1 lenh thay 3.
+        # Vector128<float> (16 byte) khop dung kich thuoc voi `stobj Vector4`
+        # (cung 16 byte / TYP_SIMD16) ma nguoi dung van phat hanh.
+        _ensure_intr(ctx)
+        out.append('    call ' + _IL_V128F32 + ' ' + _INTR_AVX
+                   + '::ConvertToVector128Single(' + _IL_V256F64 + ')')
         return
     ctx.compile_expr(node, scope, out, 'f32', ctx)
     j = 1
@@ -124,6 +228,78 @@ def compile_binop_vector4(op: "str", left: "TkvNode", right: "TkvNode", scope: "
     _day_vec4_operand(left, scope, out, ctx)
     _day_vec4_operand(right, scope, out, ctx)
     out.append(f'    call {VEC4} {VEC4_CLASS}::{method}({VEC4}, {VEC4})')
+
+
+def _day_vec64_operand(node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Day 1 toan hang len stack theo kieu `f64x4` (2026-10-29, #8).
+
+    3 duong:
+    - da `f64x4` (v_dload / ket qua phep toan) -> di nguyen;
+    - `f32x4` (v_load4a / lane temp f32 nhu `gg`) -> BRIDGE + Widen, lay
+      nua `lo` (4 float dau tien = 4 phan tu duong `i .. i+3`);
+    - so thuc (hang so `1.5`, bien `mu`/`rstd` f64, bien f32) -> broadcast
+      bang `newobj Vector<double>::.ctor(!0)` (mot gia tri cho 4 lane).
+    """
+    d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records,
+                        ctx.record_methods, None)
+    if d == 'f64x4':
+        ctx.compile_expr(node, scope, out, 'f64x4', ctx)
+        return
+    if d == 'f32x4':
+        # #8 (2026-10-29): load `v_load4a` duoc doc TRUC TIEP 32 byte
+        # `Vector<float>` + Widen - KHONG qua scratch (bridge). Dieu kien:
+        # vong phai dam bao `iv + 7 < n <= len` de 8 phan tu luon trong
+        # vung (xem `_p6_vec_phat`) - khi do `ldobj Vector<float>` doc
+        # `i .. i+7` la hop le va `lo` = dung 4 phan tu `i .. i+3`. Mat
+        # ~11 lenh + 48 byte scratch MOI lan doc (4 lan/vong lap) - do la
+        # khoi luong lon nhat cua vong LN_BWD (da do, xem ghi chu bench).
+        if la_node(node) and ekind(node) == 'call' and ea_str(node) == 'v_load4a':
+            _da = eb_ds(node)
+            if len(_da) == 2:
+                _nw: "list[TkvNode]" = []
+                _nw.append(_da[0])
+                _nw.append(_da[1])
+                ctx.compile_expr(mk3('call', o_str('v_wload4a'), o_ds(_nw)),
+                                 scope, out, 'f64x4', ctx)
+                return
+        # BRIDGE: Vector4 (16 byte) -> mang 8 float -> Vector<float> (32 byte)
+        # -> Widen -> `lo` (4 float dau). 16 byte cao cua Vector<float> la rac
+        # (giu nguyen 0 vi chi `stobj Vector4` vao 16 byte dau) - Widen doc
+        # khong anh huong `lo`.
+        # THU TU QUAN TRONG: `stobj` pop [dia chi, gia tri] nen DIA CHI phai
+        # day TRUOC. Neu day gia tri truoc roi moi `ldloc/ldc/ldelema` thi
+        # `stobj` lay `&scratch` lam GIA TRI va mang `float32[]` lam DIA CHI
+        # -> stack lech -> InvalidProgramException (da do 2026-10-29).
+        p6_khai_lokals_f64(ctx, scope)
+        out.append('    ldloca ' + P6W32)
+        ctx.compile_expr(node, scope, out, 'f32x4', ctx)
+        out.append('    stobj ' + VEC4)
+        out.append('    ldloc ' + P6W32)
+        # #9: `ConvertToVector256Double` thay `Widen` - chi tinh nua thap (4
+        # float dau ma vong can), khong con tinh + ghi nua cao bi vut di.
+        _ensure_intr(ctx)
+        out.append('    call ' + _IL_V256F64 + ' ' + _INTR_AVX
+                   + '::ConvertToVector256Double(' + _IL_V128F32 + ')')
+        return
+    # so thuc -> broadcast
+    ctx.compile_expr(node, scope, out, 'f64', ctx)
+    out.append('    newobj instance void ' + IL_V64 + '::.ctor(!0)')
+
+
+def compile_binop_vector64(op: "str", left: "TkvNode", right: "TkvNode",
+                           scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """'+'/'-'/'*'/'/' giua 2 gia tri 'f64x4' - operator cua BCL, sig `!0`."""
+    if op not in _VEC_G_OP:
+        raise SyntaxError(
+            "il_codegen: '" + op + "' khong ho tro tren 'f64x4' (chi +,-,*,/)")
+    method = _VEC_G_OP[op]
+    _day_vec64_operand(left, scope, out, ctx)
+    _day_vec64_operand(right, scope, out, ctx)
+    _ts = _VEC_G_TS['f64x4']
+    _base = 'valuetype ' + _VEC_G + '`1<' + _ts + '>'
+    _par = 'valuetype ' + _VEC_G + '`1<!0>'
+    out.append('    call ' + _par + ' ' + _base + '::' + method
+               + '(' + _par + ', ' + _par + ')')
 
 
 def compile_attr_vector4(obj_name: "str", field_name: "str", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
@@ -206,19 +382,311 @@ def push_v_store4(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype
         raise SyntaxError(
             "il_codegen: v_store4(p, off, v) can dung 3 tham so")
     _vb_addr(args[0], args[1], 0, scope, out, ctx)
-    ctx.compile_expr(args[2], scope, out, 'f32x4', ctx)
+    # SUA (2026-10-28): dung `_day_vec4_operand` thay `compile_expr(...,
+    # 'f32x4')` - nhu `push_v_store4a` duoi. Neu RHS la SCALAR (const-fill
+    # `onb[i] = 1.0` -> node `f32(1.0)` infer 'f32') thi `compile_expr` van
+    # chi day MOT float32, ma `stobj Vector4` doc 16 byte -> 3 lane LAY RAC
+    # STACK (BUG THAT: vong `__init___W1` trainer G4 - pone chi co 1.0 o
+    # chi so chia het cho 4, con lai heap junk, native addcmul doc pone rac
+    # -> step() cho p NaN/nondeterministic, trainer fails=7-9/15 + treo).
+    # `_day_vec4_operand` broadcast 4 lane + `newobj Vector4::.ctor` khi
+    # infer khac 'f32x4', va giu nguyen duong f32x4 khi da la vector.
+    _day_vec4_operand(args[2], scope, out, ctx)
     out.append(f'    stobj {VEC4}')
+    out.append('    ldc.i4 0')
+
+
+def _p6_index_khong_tran(node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Day chi so len stack la int32 - KHONG kiem tra tran (conv.i4).
+
+    Thay cho `conv.ovf.i4` (2 cmp + 2 branch moi phan tu) - mat kiem tra la
+    CO Y tren vong nong:
+
+      - preheader da chung minh `0 <= iv` va `iv + 3 < n <= len(list)` TRUOC
+        vong (xem `_p6_preheader_list`) nen iv luon vua int32;
+      - `ldelema` van GIU bounds-check lam lan bao cuoi, nen neu truong hop
+        nao do hong van nem IndexOutOfRangeException thay vi doc/ghi lung
+        tung o nho (khong bao gio ra duong doc/ghi sai vung).
+    """
+    # Mac dinh LA duong KIEM TRA ('i32' -> conv.ovf.i4/ToI32): chi dung
+    # duong khong kiem tra khi ro rang chi so la i64. Neu suy kieu loi ma lai
+    # mac dinh la khong kiem tra thi se mat chieu bao o duong loi.
+    d = 'i32'
+    try:
+        d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records,
+                            ctx.record_methods, None)
+    except (KeyError, SyntaxError):
+        d = 'i32'
+    if d == 'i64':
+        ctx.compile_expr(node, scope, out, 'i64', ctx)
+        out.append('    conv.i4')
+        return
+    ctx.compile_expr(node, scope, out, 'i32', ctx)
+
+
+def _p6_chi_so_i64(node: "TkvNode", scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Day chi so dang NGUYEN i64 len stack - KHONG ep 32-bit.
+
+    Dung rieng cho duong BYREF cua `_p6_day_mang_va_chi_so` (preheader da
+    chung minh vung hop le bang so i64: `0 <= off && off + n - 1 <= Count - 1`).
+
+    KHAC `_p6_index_khong_tran`: ham do sinh `conv.i4` vi no phuc vu `ldelema`
+    (chi so int32). O duong byref khong con `ldelema` nen `conv.i4` -> `conv.i8`
+    la THUA: JIT phai sinh `movsxd` MOI lan doc/ghi (6 lenh/phan tu tren vong
+    A/B/C) va no con CO THE cat so lon im lang neu len > 2^31. Bo no di thi
+    JIT gop duoc `lea [byref + idx*4]` thanh 1-2 lenh.
+
+    `except` giong `_p6_index_khong_tran`: suy kieu loi -> mac dinh i32 (duong
+    bao hon, van `conv.i8` duong day du)."""
+    d = 'i32'
+    try:
+        d = ctx.infer_dtype(node, scope, ctx.func_table, ctx.records,
+                            ctx.record_methods, None)
+    except (KeyError, SyntaxError):
+        d = 'i32'
+    if d == 'i64':
+        ctx.compile_expr(node, scope, out, 'i64', ctx)
+        return
+    ctx.compile_expr(node, scope, out, 'i32', ctx)
+    out.append('    conv.i8')
+
+
+def _p6_kieu_arr(arr_node: "TkvNode", scope: "Scope") -> "i32":
+    """Phan loai kieu cua tham so dau tien cua v_load4a/v_store4a.
+
+    Tra ve:
+      1 = `float32[]` - local `__p6a*` da P6 hoist
+          (xem `_p6_dang_ky_arr`: TypeAnn('f32', None, dims=[0]))
+      2 = `list[f32]` - List<T> cua BCL, KHONG phai mang nen nen khong the
+          `ldelema` truc tiep (phai lay `_items` truoc)
+      0 = khong xac dinh (khong phai var, ten khong co, hoac kieu khac)
+
+    Tra `i32` chu khong phai TypeAnn: self-host yeu cau return annotation
+    tren moi ham co tra gia tri (xem loi build 2026-10-27), va so nguyen
+    don gian hon nhieu."""
+    if not la_node(arr_node) or ekind(arr_node) != 'var':
+        return 0
+    try:
+        ta = scope.tra(ea_str(arr_node)).ta
+    except (KeyError, SyntaxError):
+        return 0
+    if ta is None:
+        return 0
+    if ta.shape_ten == '' and ta.dtype == 'f32' and len(ta.dims) > 0:
+        return 1
+    if ta.shape_ten == 'list' and ta.dtype == 'f32' and ta.elem_ta is None:
+        return 2
+    # #8 (2026-10-29): cung dang voi kieu f64 - `v_dload`/`v_dstore` ghi/doc
+    # 32 byte (4 float64) tren cung mot duong preheader/hoist da chung minh.
+    if ta.shape_ten == '' and ta.dtype == 'f64' and len(ta.dims) > 0:
+        return 3
+    if ta.shape_ten == 'list' and ta.dtype == 'f64' and ta.elem_ta is None:
+        return 4
+    return 0
+
+
+def _p6_day_mang_va_chi_so(arr_node: "TkvNode", idx_node: "TkvNode",
+                           scope: "Scope", out: "list[str]", ctx: "Ctx"):
+    """Day [dia chi BYREF, byte-offset i64] len stack - dung CHUNG cho
+    `v_load4a`/`v_wload4a`/`v_store4a`/`v_dload`/`v_dstore`; nguoi goi
+    chi can noi `add` (thay vi `ldelema`) truoc khi `ldobj`/`stobj`.
+
+    **#8 (2026-10-29) - BO BOUNDS-CHECK O VONG NONG:** truoc day ham nay
+    day `[float32[], i32]` de nguoi goi `ldelema` - moi lan doc/ghi lai phai
+    `cmp rdx, [arr+8] / jae throw` (5-6 cap/lap lap ~ 10-12 lenh JIT tren
+    doan 60 lenh). Preheader DA chung minh `0 <= off && off + n - 1 <= Count-1`
+    (xem `_p6_preheader_guards`) nen vong nong chi can:
+
+        ldloc __p6b<N>        ; `&arr[0]` - byref GC-tracked, da nap TRUOC vong
+        <byte ofs = sext(i32 idx) * 4|8>
+        add                   ; byref + i64 = dia chi, KHONG con bounds-check
+
+    Neu khong co byref hoist (mang khong di qua `_p6_dang_ky_arr`) thi
+    GIU NGUYEN duong cu: `ldelema arr[idx]` (co kiem tra) + offset 0 - dung
+    dung hop dong cu, khong an toan hon va khong nhanh hon nhung cung khong
+    kem hon.
+
+    GUARD KIEU (2026-10-27) - 3 nhanh:
+
+    1. `float32[]` (local `__p6a*` da P6 hoist) - DUONG NONG (xem tren).
+    2. `list[f32]` (goi TRUC TIEP builtin, khong qua P6): lay `_items` bang
+       reflection NGAY TAI CHO va `ldelema arr[idx]` dung chi so NGUYEN -
+       duong nay khong co preheader nen van phai kiem tra (khong dung
+       `conv.i4` khong kiem tra vi no se cat chi so lon im lang).
+    3. Do khac / khong suy duoc kieu: nem SyntaxError - tra loi ro rang hon
+       la sinh ra IL khong hop le (truoc day truyen `List<float32>` thang
+       vao `ldelema float32` -> ilasm/JIT loi).
+    """
+    k = _p6_kieu_arr(arr_node, scope)
+    # 3/4 = `float64[]` / `list[f64]` (#8) - chi so khac elem type, con lai
+    # gia tri nhu nhau (cung 1 preheader, cung `_p6_index_khong_tran`).
+    _el = 'float64' if (k == 3 or k == 4) else 'float32'
+    _sz = 8 if _el == 'float64' else 4
+    if k == 1 or k == 3:
+        # Duong nong: dung byref hoist neu co.
+        _ten_a = ''
+        if ekind(arr_node) == 'var':
+            _ten_a = ea_str(arr_node)
+        _b = '__p6b' + _ten_a[5:] if _ten_a.startswith('__p6a') else ''
+        _co = 0
+        if _b != '':
+            try:
+                scope.tra(_b)
+                _co = 1
+            except (KeyError, SyntaxError):
+                _co = 0
+        if _co == 1:
+            out.append('    ldloc ' + _b)
+            # #8b (2026-10-30): chi so i64 NGUYEN - bo `conv.i4`/`conv.i8`.
+            _p6_chi_so_i64(idx_node, scope, out, ctx)
+            out.append('    ldc.i8 ' + str(_sz))
+            out.append('    mul')
+            return
+        # Khong co byref -> GIU duong cu (ldelema co kiem tra) + offset 0.
+        ctx.compile_expr(arr_node, scope, out, 'object', ctx)
+        _p6_index_khong_tran(idx_node, scope, out, ctx)
+        out.append('    ldelema ' + _el)
+        out.append('    ldc.i8 0')
+        return
+    if k == 2 or k == 4:
+        out.append('    ldtoken class [mscorlib]System.Collections.Generic.List`1<' + _el + '>')
+        out.append('    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)')
+        out.append('    ldstr "_items"')
+        out.append('    ldc.i4 36')       # Public|NonPublic|Instance
+        out.append('    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)')
+        ctx.compile_expr(arr_node, scope, out, 'object', ctx)
+        out.append('    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)')
+        out.append('    castclass ' + _el + '[]')
+        # DUONG KIEM TRA: khong co preheader chung minh 0 <= i, nen van
+        # `ldelema arr[i]` dung chi so NGUYEN (khong dung `_p6_index_khong_tran`
+        # vi conv.i4 se cat chi so lon im lang) - offset sau do la 0.
+        ctx.compile_expr(idx_node, scope, out, 'i32', ctx)
+        out.append('    ldelema ' + _el)
+        out.append('    ldc.i8 0')
+        return
+    raise SyntaxError(
+        "il_codegen: v_load4a/v_store4a/v_dload/v_dstore chi nhan mang da P6 "
+        "hoist (local __p6a*) hoac list[f32]/list[f64] - khong suy duoc kieu "
+        "cua tham so dau")
+
+
+def push_v_load4a(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_load4a(arr, i)' - P6 cho `list[f32]`: doc 16 byte (4 lane) tu
+    `arr[i .. i+3]`, tra `f32x4`.
+
+    KHAC `v_load4` o cho substrate: o day la mang nen `float32[]` lay tu
+    `List<float32>._items` - `GetValue` tra `object` nen preheader van
+    castclass MOT LAN, roi luu vao local `float32[]` TRUOC vong (xem
+    `_p6_preheader_list`/`_p6_dang_ky_arr` trong control_flow.tkv) de vong
+    nong khong con phai castclass lan nua.
+
+    **AN TOAN MA (khong can pin):** `ldelema` tra ve managed byref (T&),
+    va byref la GC-ROOT duoc runtime CAP NHAT khi GC dich chuyen doi tuong -
+    nen `ldelema` + `ldobj` lien tuc la mot cap khong the roi khoi object.
+    Khac voi con tro THO (`native int`), byref khong can ghim.
+
+    Vung doc da duoc CHUNG MINH truoc vong bang preheader
+    (`iv >= 0 && n <= len(arr)`), vi vay `i+3 < n <= len` luon dung -
+    `ldelema` van giu bounds-check (luon dung, gan nhu mien) lam lan bao
+    thu hai neu truong hop nao do hong.
+    """
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: v_load4a(arr, i) can dung 2 tham so")
+    # PERF (2026-10-27): duong nong khong con `castclass` - xem
+    # `_p6_day_mang_va_chi_so` (guard kieu o dau function).
+    _p6_day_mang_va_chi_so(args[0], args[1], scope, out, ctx)
+    out.append('    add')              # #8: byref + ofs -> dia chi (khong check)
+    out.append(f'    ldobj {VEC4}')
+
+
+def push_v_wload4a(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_wload4a(arr, i)' - doc 32 byte `Vector<float>` TRUC TIEP roi Widen
+    ra `f64x4` - khong qua scratch bridge (xem `_day_vec64_operand`).
+
+    HOP LE chi khi vong chay `iv + 7 < n <= len` (xem `_p6_vec_phat`):
+    `ldobj Vector<float>` doc `i .. i+7` nen can 8 phan tu con lai; `lo` sau
+    Widen = dung 4 phan tu `i .. i+3` ma vong dang xu ly. So voi duong
+    bridge (Vector4 -> mang 8 float -> Vector<float>) thi bot ~11 lenh +
+    48 byte doc/ghi moi lan doc - va vong LN_BWD doc 4 lan/moi lap.
+    """
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: v_wload4a(arr, i) can dung 2 tham so")
+    _p6_day_mang_va_chi_so(args[0], args[1], scope, out, ctx)
+    out.append('    add')              # #8: byref + ofs -> dia chi (khong check)
+    # #9: doc 16 byte `i .. i+3` TRUC TIEP la `Vector128<float>` - dung dung
+    # kieu ma intrinsic nhan, khong can doc 32 byte + Widen(out) nua. `i+3`
+    # van duoc dam boi cung preheader `iv + 7 < n` cu (yeu cau yeu hon).
+    out.append('    ldobj ' + _IL_V128F32)
+    _ensure_intr(ctx)
+    out.append('    call ' + _IL_V256F64 + ' ' + _INTR_AVX
+               + '::ConvertToVector256Double(' + _IL_V128F32 + ')')
+
+
+def push_v_store4a(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_store4a(arr, i, v)' - P6 cho `list[f32]`: ghi 16 byte (4 lane)
+    vao `arr[i .. i+3]`. `stobj` pop [dia chi, gia tri] nen dia chi PHAI day duoi.
+
+    AN TOAN MA giong `v_load4a` (byref GC-tracked, khong can pin)."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: v_store4a(arr, i, v) can dung 3 tham so")
+    # Giong push_v_load4a: guard kieu trong `_p6_day_mang_va_chi_so`.
+    _p6_day_mang_va_chi_so(args[0], args[1], scope, out, ctx)
+    out.append('    add')              # #8: byref + ofs -> dia chi (khong check)
+    # YEU CAU #6(b): gia tri co the la SCALAR loop-invariant (const-fill
+    # `a[iv] = c`) - dung `_day_vec4_operand` de broadcast `c` thanh
+    # `Vector4(c,c,c,c)`. Neu giu `compile_expr(..., 'f32x4')` thi f32 tren
+    # stack khi Vector4 doi -> IL HONG (khong phai loi bien dich).
+    # Gia tri da la `f32x4` van di nguyen (helper nay kiem tra dtype truoc).
+    _day_vec4_operand(args[2], scope, out, ctx)
+    out.append(f'    stobj {VEC4}')
+    out.append('    ldc.i4 0')
+
+
+def push_v_dload(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_dload(arr, i)' - P6 cho mang f64 (#8): doc 32 byte (4 float64) tu
+    `arr[i .. i+3]`, tra `f64x4`. Dung chung duong `ldelema`/`ldobj` voi
+    `v_load4a` - preheader da chung minh `i+3 < n <= len` nen doc 32 byte luon
+    trong vung, va `ldelema` van giu bounds-check lam lan bao cuoi."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: v_dload(arr, i) can dung 2 tham so")
+    _p6_day_mang_va_chi_so(args[0], args[1], scope, out, ctx)
+    out.append('    add')              # #8: byref + ofs -> dia chi (khong check)
+    out.append('    ldobj ' + IL_V64)
+
+
+def push_v_dstore(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """'v_dstore(arr, i, v)' - P6 cho mang f64 (#8): ghi 32 byte (4 float64)
+    vao `arr[i .. i+3]`. `stobj` pop [dia chi, gia tri] nen dia chi PHAI day duoi.
+
+    Gia tri co the la SCALAR loop-invariant (const-fill `a[i] = 1.0`) -
+    `_day_vec64_operand` broadcast `Vector<double>(c,c,c,c)`; cung ly do voi
+    `push_v_store4a` (neu khong, `stobj` doc 32 byte tu STACK RONG)."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: v_dstore(arr, i, v) can dung 3 tham so")
+    _p6_day_mang_va_chi_so(args[0], args[1], scope, out, ctx)
+    out.append('    add')              # #8: byref + ofs -> dia chi (khong check)
+    _day_vec64_operand(args[2], scope, out, ctx)
+    out.append('    stobj ' + IL_V64)
     out.append('    ldc.i4 0')
 
 
 def bootstrap_vector4(reg: "Registry"):
     """Dang ky cua module nay - P6: KHONG chay luc import.
 
-    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh
-    (thu tu dang ky la MOT PHAN cua hanh vi - xem docstring o do).
-    """
+    Goi tuong minh tu compiler/bootstrap_all.py theo thu tu co dinh (thu tu
+    dang ky la MOT PHAN cua hanh vi - xem docstring o do)."""
     register_vector4_dtype()
     register_expr_builtin(reg, 'f32x4', compile_ctor_vector4, 'f32x4')
     register_expr_builtin(reg, 'v_load4', push_v_load4, 'f32x4')
     register_expr_builtin(reg, 'v_store4', push_v_store4, 'i32')
+    # P6 cho `list[f32]` (YEU CAU #5 C1) - dang ky CUNG voi v_load4/v_store4
+    # vi cung la intrinsic vector, chi khac substrate (mang nen vs con tro tho).
+    register_expr_builtin(reg, 'v_load4a', push_v_load4a, 'f32x4')
+    register_expr_builtin(reg, 'v_store4a', push_v_store4a, 'i32')
     register_expr_builtin(reg, 'v_hsum4', push_v_hsum4, 'f32')
+    # #8 (2026-10-29): duong f64 - `v_dload` doc 4 float64, `v_dstore` ghi
+    # 4 float64 (khong can Narrow vi dich DA la f64).
+    register_expr_builtin(reg, 'v_dload', push_v_dload, 'f64x4')
+    register_expr_builtin(reg, 'v_dstore', push_v_dstore, 'i32')
+    # #8: doc 8 float truc tiep + Widen (khong scratch) - xem push_v_wload4a.
+    register_expr_builtin(reg, 'v_wload4a', push_v_wload4a, 'f64x4')

@@ -77,4 +77,13 @@ KHUON: "dict[str,str]" = {
     'lambda:2': 'nut',
     'shape:1': 'str',
     'shape:2': 'i32',        # il_core.py: mk3('shape', v, int(v4))
+    # --- P6 ke hoach vector (khong xuat hien trong NGUON - matcher
+    # `control_flow._p6_*` tao ra trong luc dich va doc lai bang row accessors
+    # truoc khi phat IL, nen chung PHAI khai o day cho `_kiem_o` phe duyet):
+    #   store name[idx] = rhs   -> `mk4('store', name, idx, rhs)`
+    #   lane  name = rhs        -> `mk3('lane',  name, rhs)` (gia tri Vector4)
+    #   inv   name = rhs        -> `mk3('inv',   name, rhs)` (loop-invariant)
+    'store:1': 'str', 'store:2': 'nut', 'store:3': 'nut',
+    'lane:1': 'str', 'lane:2': 'nut',
+    'inv:1': 'str', 'inv:2': 'nut',
 }

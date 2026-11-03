@@ -1,7 +1,7 @@
 
 Microsoft (R) .NET Framework IL Assembler.  Version 4.8.9105.0
 Copyright (c) Microsoft Corporation.  All rights reserved.
-Assembling 'tests_suite\chay.il'  to EXE --> 'tests_suite\chay.exe'
+Assembling 'tests_suite/chay.il'  to EXE --> 'tests_suite/chay.exe'
 Source file is ANSI
 
 Assembled method TkvInt::FromI64
@@ -84,7 +84,7 @@ Class 2	Methods: 15;
 Class 3	Methods: 8;	
 Class 4	Methods: 2;	
 Class 5	Methods: 12;	
-Resolving local member refs: 247 -> 247 defs, 0 refs, 0 unresolved
+Resolving local member refs: 200 -> 200 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	

@@ -1,0 +1,14 @@
+# TARE cho perf_gate (2026-10-30) - KHONG phai kernel.
+#
+# `perf_gate.ps1` do TOAN BO process (bao gom khoi dong runtime), nen khi doi
+# sang .NET 10 (bat buoc - codegen f64 `Vector<double>` + `Widen` khong chay
+# tren .NET Framework) moi lan chay cong them mot khoi dong ~chuc ms - no lon
+# hon chinh mot so kernel nho. Neu khong tru di thi 7% threshold tro thanh
+# do "khoi dong" thay vi do code -> lai khong co dong ho lai tro lai.
+#
+# Ten bat dau bang `_` de `Get-ChildItem *.tkv | Where Name -notmatch '^_'`
+# bo qua khi liet ke kernel. Gate do cai nay TRUOC roi lay `net = tong - tare`.
+#
+# Dung: khong can goi thu cong - perf_gate.ps1 dich va do no tu dong.
+def main() -> "i32":
+    return 0

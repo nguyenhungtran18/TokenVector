@@ -639,6 +639,23 @@ static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, floa
     (void)m;
 }
 
+static int tkv_k_eff(const float* b, const float* a, int n) {
+    if (n <= 0) return 0;
+    for (int p = n - 1; p >= 0; p--) {
+        const float* br = b + (long long)p * n;
+        int j;
+        for (j = 0; j < n; j++)
+            if (br[j] != 0.0f) return p + 1;
+        for (int r = 0; r < n; r++) {
+            uint32_t bits;
+            float av = a[(long long)r * n + p];
+            memcpy(&bits, &av, sizeof bits);
+            if ((bits & 0x7F800000u) == 0x7F800000u) return p + 1;   /* Inf/NaN */
+        }
+    }
+    return 0;
+}
+
 EXPORT void SgemmF32(float* a, float* b, float* o, int n) {
     /* M7: lop VOCAB (n == 50257) chia cot manh + NC lon; con lai pattern cu.
      * nho (< MIN_N mac dinh 96) da tro thanh nt = 1 trong tkv_nthreads. */
@@ -648,6 +665,21 @@ EXPORT void SgemmF32(float* a, float* b, float* o, int n) {
         nc = GEMM_NC_RG;
         bpl = GEMM_BPL_MAX;
         if (nt > 1) cols_req = tkv_ncols_vocab(nt, n);
+    }
+    /* M9: rut k xuong k_eff khi tile B bi zero-pad (xem tkv_k_eff) - BIT-EXACT.
+     * k_eff == n (khong co hang 0 cuoi) -> khong vao nhay nay, di duong cu. */
+    {
+        int k_eff = tkv_k_eff(b, a, n);
+        if (k_eff < n) {
+            if (nt <= 1)
+                gemm_rect_f32(a, n, b, n, o, n, n, n, k_eff, 0, n, 0, n,
+                              GEMM_MC, nc, bpl);
+            else
+                tkv_run_mt_rect(nt, a, n, b, n, o, n, n, n, k_eff,
+                                (cols_req > 0) ? cols_req : tkv_ncols(nt, n),
+                                GEMM_MC, nc, bpl);
+            return;
+        }
     }
     if (nt <= 1) { gemm_rows_f32(a, b, o, n, 0, n, 0, n, GEMM_MC, nc, bpl); return; }
     tkv_run_mt(nt, a, b, o, n, 0, cols_req, GEMM_MC, nc, bpl);
@@ -1374,6 +1406,112 @@ EXPORT int SgemmFull(const float* a, const float* b, float* c,
     free(At); free(Bt); free(Ct);
     return 0;
 }
+
+/* LinearDxFused (YEU CAU #10 Ask B, 2026-11-01): dx = gy * w^T (trans_b=1).
+ * Thay cho `dx = smm_dot(gy, w, m, n, k)` trong gpt2_linear_bwd.
+ *
+ * VI SAO NHANH: smm_dot -> _smm_core (k>=256, m<=256) -> _smm_full ->
+ *   SgemmFull -> SgemmF32(At,Bt,Ct,T) tinh DAY DU T hang nhung chi r < ib = m
+ *   duoc _acc_f cong vao dx. 248/256 hang thua = 32x phep nhan (12.69 ms dx1).
+ *   O day goi TRUC TIEP gemm_rect_f32/gemm_rows_f32 voi i1 = m -> bo hang thua.
+ *
+ * BIT-EXACT (loss EXACT):
+ *   - Goi dung static helper cua TU nay (full_tile_a/full_tile_b/tkv_k_eff/
+ *     gemm_rect_f32/gemm_rows_f32) — khong copy code (tranh 2 nguon su that).
+ *   - At/Bt xay DAY DU T x T (hang i >= m = 0) de tkv_k_eff doc dung -> k_eff GIONG.
+ *   - j1 = T (KHONG jb) -> jc/nc/micro_f32 giong SgemmF32 -> cot 0..jb-1 cung bit.
+ *   - m % 4 == 0 (guard -11): micro_f32 i-tail (scalar, khac FMA) chi xay ra khi
+ *     mc % 4 != 0; reference (i1=T) luon mc=64 -> khong i-tail. m chia het 4 ->
+ *     mc = min(64, m-ic) chia het 4 -> khong i-tail -> cung FMA.
+ *   - k % 256 == 0 (guard -12): p-tile cuoi luon DAY (pw = T) -> tkv_k_eff = T
+ *     -> di `gemm_rows_f32`. DO: p-tile LE (pw < T) khien tkv_k_eff < T ->
+ *     `gemm_rect_f32`, va khi i1 = ib > GEMM_MC (nhieu block ic) no LECH BIT so
+ *     voi reference i1 = T (do ai chet: probe _am6 `k300-both` m=200 n=96
+ *     k=300 -> 1264 ptu lech; tach yeu to: `k300-onlyA` m=8 -> 0, `m200-onlyB`
+ *     k=768 -> 0 — chi CA HAI cung nhau moi lech). San pham khong bi anh huong:
+ *     out_d that luon {768, 2304, 3072} = boi cua 256 -> khong bao gio vao
+ *     gemm_rect_f32. HOP DONG: khong du chung minh -> KHONG nhan, caller fallback.
+ *   - Threading (tkv_run_mt*) chi chia [i0,i1)x[j0,j1) — moi ptu van 1 job cung
+ *     pc-block (KC=64) + cung FMA -> single-thread CUNG BIT.
+ *   - mode=0 + p0==0: memset +0.0f truoc khi cong (giu -0.0f), giong SgemmFull.
+ *
+ * TRA VE 0 = OK; am = loi (caller fallback smm_dot nguyen ven):
+ *   -1 NULL, -2 shape <=0, -5 list qua ngan, -6 khong du bo nho tam,
+ *   -9 k < 256 (khong di qua _smm_full), -10 m > 256 (-> _smm_pk),
+ *   -11 m % 4 != 0 (micro_f32 i-tail -> khac FMA),
+ *   -12 k % 256 != 0 (p-tile le + nhieu block ic -> khong chung minh duoc BIT). */
+EXPORT int LinearDxFused(const float* gy, int gy_len,
+                         const float* w, int w_len,
+                         float* dx, int dx_len,
+                         int m, int n, int k) {
+    if (!gy || !w || !dx) return -1;
+    if (m <= 0 || n <= 0 || k <= 0) return -2;
+    int T = 256;          /* cung so voi _smm_full (hardcode 256) */
+    int ndim = k;         /* smm_dot: trans_b=1, ndim = k */
+    if (k < 256) return -9;
+    if (m > T) return -10;
+    if ((m & 3) != 0) return -11;
+    if ((k & (T - 1)) != 0) return -12;
+    long long need_g = (long long)m * k;
+    long long need_w = (long long)n * ndim;
+    long long need_d = (long long)m * n;
+    if ((long long)gy_len < need_g || (long long)w_len < need_w ||
+        (long long)dx_len < need_d)
+        return -5;
+
+    long long tsq = (long long)T * (long long)T;
+    float* At = (float*)malloc((size_t)tsq * sizeof(float));
+    float* Bt = (float*)malloc((size_t)tsq * sizeof(float));
+    float* Ct = (float*)malloc((size_t)tsq * sizeof(float));
+    if (!At || !Bt || !Ct) { free(At); free(Bt); free(Ct); return -6; }
+
+    /* Giong SgemmFull: i0 -> p0 -> j0. m <= T -> i0 chi chay 1 lan (i0=0, ib=m). */
+    for (int i0 = 0; i0 < m; i0 += T) {
+        int ib = m - i0; if (ib > T) ib = T;
+        for (int p0 = 0; p0 < k; p0 += T) {
+            int pw = k - p0; if (pw > T) pw = T;
+            full_tile_a(At, gy, k, i0, ib, p0, pw, T);
+            for (int j0 = 0; j0 < n; j0 += T) {
+                int jb = n - j0; if (jb > T) jb = T;
+                full_tile_b(Bt, w, ndim, p0, pw, j0, jb, T, 1 /* trans_b=1 */);
+                if (ib >= T) {
+                    /* m = T: khong cat hang duoc -> goi SgemmF32 (chinh reference,
+                     * co thread) de KHONG regressed so voi smm_dot (do m=256 single-
+                     * thread thua threaded reference ~2x - do test_dx do duoc). */
+                    SgemmF32(At, Bt, Ct, T);
+                } else {
+                    /* Cat hang [ib, T): chi tinh hang that [0, ib). */
+                    int k_eff = tkv_k_eff(Bt, At, T);
+                    if (k_eff < T)
+                        gemm_rect_f32(At, T, Bt, T, Ct, T, T, T, k_eff,
+                                      0, ib, 0, T, GEMM_MC, GEMM_NC, GEMM_BPL);
+                    else
+                        gemm_rows_f32(At, Bt, Ct, T, 0, ib, 0, T,
+                                      GEMM_MC, GEMM_NC, GEMM_BPL);
+                }
+                if (p0 == 0) {
+                    /* mode=0 + p0==0: memset +0.0f truoc khi cong (giu -0.0f) */
+                    for (int r = 0; r < ib; r++)
+                        memset(dx + (long long)(i0 + r) * n + j0, 0,
+                               (size_t)jb * sizeof(float));
+                }
+                /* _acc_f: cd[(i0+r)*n + (j0+c)] += Ct[r*T+c], tang dan p0. */
+                for (int r = 0; r < ib; r++) {
+                    float* cd = dx + (long long)(i0 + r) * n + j0;
+                    const float* ct = Ct + (long long)r * T;
+                    for (int cc = 0; cc < jb; cc++)
+                        cd[cc] = cd[cc] + ct[cc];
+                }
+            }
+        }
+    }
+    free(At); free(Bt); free(Ct);
+    return 0;
+}
+
+/* LinearDwFused (YEU CAU #10 Ask A) nam trong tkv_linear_dw.c — TU rieng
+ * bien dich /fp:precise: /fp:fast cho phep tai lien ket nen ket qua phu thuoc
+ * gia tri dich (do 01/11). Xem build.ps1. */
 
 /* ---------------- YEU CAU #3 UU TIEN A (2026-10-26): native data plane -----
  * 3 kernel doc/ghi TRUC TIEP mang nen `_items` cua `list[f32]` (Tensor.data)

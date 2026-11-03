@@ -2,6 +2,12 @@
 # Yeu cau: MSVC (Visual Studio). Chay tu thu muc nay:
 #   powershell -ExecutionPolicy Bypass -File build.ps1
 # Ket qua: tkv_simd_native.dll (copy vao ../../runtime/).
+#
+# 2 translation unit (YEU CAU #10):
+#   tkv_simd_native.c  /fp:fast     - kernel cu (intrinsics, khong doi bit)
+#   tkv_linear_dw.c    /fp:precise  - LinearDwFused: /fp:fast cho phep tai lien
+#     ket nen ket qua phu thuoc gia tri dich (do 01/11), precise moi dung thu
+#     tu cong cua duong .tkv.
 
 $ErrorActionPreference = 'Stop'
 
@@ -11,9 +17,9 @@ $vs = & $vswhere -latest -property installationPath
 $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
 if (-not (Test-Path $vcvars)) { throw "Khong tim thay vcvars64.bat trong $vs" }
 
-$flags = "/nologo /O2 /arch:AVX2 /fp:fast"
-cmd /c "call `"$vcvars`" >nul 2>&1 && cl $flags /LD tkv_simd_native.c /Fe:tkv_simd_native.dll /Fo:tkv_simd_native.obj"
-if ($LASTEXITCODE -ne 0) { throw "cl that bai" }
+$base = "/nologo /O2 /arch:AVX2 /c"
+cmd /c "call `"$vcvars`" > nul 2>&1 && cl $base /fp:fast tkv_simd_native.c /Fo:tkv_simd_native.obj && cl $base /fp:precise tkv_linear_dw.c /Fo:tkv_linear_dw.obj && link /DLL /NOLOGO /OUT:tkv_simd_native.dll tkv_simd_native.obj tkv_linear_dw.obj"
+if ($LASTEXITCODE -ne 0) { throw "build that bai" }
 
 $dich = Join-Path (Resolve-Path "..\..\runtime") "tkv_simd_native.dll"
 Copy-Item tkv_simd_native.dll $dich -Force

@@ -1,0 +1,70 @@
+=== GATE native data plane + 2 bug (YEU CAU #3) - 2026-10-26 ===
+
+--- 1. vong.exe (self-host, 133 file):
+gop 133 file
+g1 xong
+g2 xong
+IL_IDENTICAL
+  (rebuild lan 2 sau khi doi kich thuoc theo Count):
+gop 133 file
+g1 xong
+g2 xong
+IL_IDENTICAL
+
+--- 2. testkit_gate.ps1:
+=== SUMMARY (out of 133 tests) ===
+PASS=133  BUILDFAIL=0    TESTFAIL=0    OTHER=0 TIMEOUT=0 ILFAIL=0 NEG=42/42
+
+GATE: PASS (133/133, negative 42/42)
+
+--- 3. dang_ky_gate:
+  === 133 file / 2149 ham tren duong TokenVector ===
+    A. co `-> "kieu"`                   : 1310
+    B. void (thieu chu ky, chi return)  : 812  HOP LE
+       bo qua 27 ham @__tkv_cpython_only__
+    --------------------------------------------------------
+    A + B  DA DANG KY DAY DU            : 2122
+  
+    VI PHAM (thieu chu ky + tra ve gia tri): 0
+    thieu chu ky tham so (tru self)        : 0
+  
+  GATE: PASS
+
+--- 4. lint_rules_gate:
+  ok   [FILE CO LOI] 8 canh bao
+  ok   [FILE SACH] 0 canh bao
+  ----
+  PASS: bat het loi, khong bao nham
+
+--- 5. gen_builtin_ref:
+  regenerate: 445 ten / 114 file; --check: 83 ten thieu doc = BASELINE (HEAD thieu 84)
+
+--- 6. assert_il (tests/f32_list_ops_test.tkv) + kiem tra pham vi 4 wrapper:
+  expect F32ListCopyM x5 / F32ListAddM x3 / F32GradNormM x4 / AdamwGlmM x2,
+  float32& pinned x35, get_Count x42, pinvokeimpl x19, GetField( x13 -> PASS
+  pham vi method: 4 wrapper -> ToArray=0, pin=1, get_Count=1, pinvoke=1
+  (ToArray x56 toan assembly la helper list-generic cu AddLF32/... - khong phai duong data plane)
+
+--- 7. chay.exe (tests_suite):
+  DAT: 51
+  === TRUOT: 734 ===
+  = TRUOC-SAN (khong regress)
+
+--- 8. perf_gate:
+
+kernel          hien tai  baseline     chenh  trang thai
+--------------------------------------------------------------
+perf_e2e            48.3      50.3     -3.9%  ok
+perf_f32buf        231.9     241.5     -4.0%  ok
+perf_f32mm          37.5      38.8     -3.4%  ok
+perf_mm             28.4      27.7      2.5%  ok
+
+GATE: PASS
+
+--- 9. A/B 3 builtin (best-of-3, interpreted vs native CUNG may):
+  ADD_bit_bad=0 status=0
+  ADD n=38600000 interpreted_ms=1094 native_ms=31
+  COPY_bit_bad=0 status=0
+  COPY n=38600000 interpreted_ms=1000 native_ms=15
+  GN_ref=10244.408972283674 native=10244.408972283674 absdiff=0.0
+  GN n=124000000 interpreted_ms=3172 native_ms=46

@@ -299,6 +299,12 @@ def il_type_str(type_ann: "TypeAnn", records: "dict[str,list[(str,TkvTypeAnn)]]"
         # P6 (2026-09-29, port tu bootstrap il_codegen L280): bo dem f32
         # native DO DUAN so huu. Gia tri bien la DIA CHI (native int).
         return 'native int'
+    if type_ann.shape_ten == 'byref':
+        # #8 (2026-10-29): local `T&` GC-tracked - `dtype` chua kieu IL THO
+        # (vd `float32&`). Dung de hoist `&arr[0]` ra TRUOC vong vector P6,
+        # cho phep vong nong tinh dia chi `byref + ofs` MA KHONG con
+        # bounds-check - xem `_p6_hoist_items`/`_p6_day_mang_va_chi_so`.
+        return type_ann.dtype
     if type_ann.shape_ten in ('dict', 'defaultdict', 'counter'):
         # 'defaultdict'/'counter' (Phase 3.2, 2026-08-11): vat ly VAN LA
         # Dictionary<K,V> giong het 'dict' - chi khac hanh vi doc chi so
@@ -828,6 +834,32 @@ _KIEU_NGUYEN: "set[str]" = {'i32', 'i64', 'int', 'i16', 'i8', 'u8', 'u16', 'u32'
 def _hop_kieu_so(l: "str", r: "str") -> "str":
     """Kieu ket qua cua phep toan hai ngoi: so thuc thang so nguyen ('1234.5 + n', 'n * 0.5') nhu Python;
     con lai giu quy tac cu (kieu cua ben trai, neu khong co thi ben phai) (2026-10-01)."""
+    # f32x4 (2026-10-28): neu MOT trong hai toan hang la Vector4 thi KET QUA
+    # la vector - toan hang f32/con lai se duoc broadcast boi
+    # `compile_binop_vector4`/`_day_vec4_operand`. Truoc day nhanh `return l
+    # or r` tra ve 'f32' khi ve PHAI la 'f32x4' (`scale*acc * x[i]` voi
+    # x[i] da P6 rewrite thanh `v_load4a`) -> ca `_infer_dtype` va
+    # `compile_binop` chon duong so thuc -> raw CIL `mul` tren (float32,
+    # Vector4) -> IL SAI KIEU, khong bao loi bien dich. (BUG THAT:
+    # mlp_loss_grad F15 - grad W1 ra rac, trainer G4 fails=8/15; ve trai
+    # f32x4 da dung tu truoc do, chi ve phai thieu.)
+    # #8 (2026-10-29): `f64x4` (Vector`1<float64>) thang `f32x4`/`f32`/`f64`
+    # - toan hang f32 (ket qua v_load4a, lane temp `gg`) se duoc broadcast/
+    # Widen ve f64x4 boi `_day_vec64_operand` (nguoc lai khong dung duoc:
+    # trunc xuong f32 se lech bit so voi duong scalar f64).
+    if l == 'f64x4' or r == 'f64x4':
+        return 'f64x4'
+    # #8 (2026-10-29): VECTOR f32 ket voi so THUC f64 da KHOA (khong phai
+    # literal - literal infer None, van xuong nhanh duoi) -> ket qua f64x4.
+    # Dung phep toan cua duong scalar (Python f32 + f64 -> f64). Truoc day
+    # tra 'f32x4' -> `_day_vec4_operand` broadcast f64 xuong f32, tinh
+    # `x[j] - mu` o f32 -> LECH BIT so voi scalar (LN_BWD shape A).
+    if l == 'f64x4' or r == 'f64x4':
+        return 'f64x4'
+    if (l == 'f64' and r == 'f32x4') or (r == 'f64' and l == 'f32x4'):
+        return 'f64x4'
+    if l == 'f32x4' or r == 'f32x4':
+        return 'f32x4'
     if l in _KIEU_THUC and r in _KIEU_NGUYEN:
         return l
     if r in _KIEU_THUC and l in _KIEU_NGUYEN:

@@ -966,6 +966,79 @@ def _pt_m6_wrappers() -> "list[str]":
     ]
 
 
+def _pt_m6_list_wrapper() -> "list[str]":
+    """H4b (2026-11-01): zero-copy cho lmhead_bwd_fused.
+
+    Variant cu (`lmhead_bwd_fused`) chi nhan handle `alloc_bytes`, nen muon goi
+    phai `f32_copy_to_buf` 3 lan + `f32_copy_from_buf` 2 lan tren buffer 154 MB
+    (5 lan copy/step = 770 MB). Wrapper nay lay `_items` cua 5 List<float32>
+    (logits/wte/xf/dxf/dwte) roi PIN tung mang (`ldelema float32` -> local
+    `float32& pinned`) va goi THANG cung entry native `lmhead_bwd_fused` bang
+    con tro - khong copy lan nao. `ids` van la buffer native i64 (nho).
+
+    Hop dong: do dai kiem theo shape TRUOC khi pin (logits >= B*S*V,
+    wte >= V*E, xf/dxf >= B*S*E, dwte >= V*E); thieu -> ArgumentException ro
+    rang thay vi native ghi tran. Shape <= 0 -> tra 0 (khong lam gi).
+    """
+    lt = _LT_F32
+    return [
+        '  .method public static int32 LmheadBwdListM(' + lt + ' logits, int64 ids, ' + lt + ' wte, ' + lt + ' xf, ' + lt + ' dxf, ' + lt + ' dwte, int32 B, int32 S, int32 E, int32 V, float32 scale) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, float32[] p2, float32[] p3, float32[] p4, int32 len0, int32 len1, int32 len2, int32 len3, int32 len4, int32 nlog, int32 nw, int32 nx, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1, float32& pinned q2, float32& pinned q3, float32& pinned q4)',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 13',
+        '    ldloc.s 13', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.0',
+        '    ldloc.s 13', '    ldarg.2', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.1',
+        '    ldloc.s 13', '    ldarg.3', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.2',
+        '    ldloc.s 13', '    ldarg.s 4', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.3',
+        '    ldloc.s 13', '    ldarg.s 5', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 4',
+        '    ldloc.0', '    ldlen', '    conv.i4', '    stloc.s 5',
+        '    ldloc.1', '    ldlen', '    conv.i4', '    stloc.s 6',
+        '    ldloc.2', '    ldlen', '    conv.i4', '    stloc.s 7',
+        '    ldloc.3', '    ldlen', '    conv.i4', '    stloc.s 8',
+        '    ldloc.s 4', '    ldlen', '    conv.i4', '    stloc.s 9',
+        '    ldarg.s 6', '    ldarg.s 7', '    mul', '    ldarg.s 9', '    mul', '    stloc.s 10',
+        '    ldarg.s 9', '    ldarg.s 8', '    mul', '    stloc.s 11',
+        '    ldarg.s 6', '    ldarg.s 7', '    mul', '    ldarg.s 8', '    mul', '    stloc.s 12',
+        '    ldloc.s 10', '    ldc.i4.0', '    ble V_M6L_ZERO',
+        '    ldloc.s 11', '    ldc.i4.0', '    ble V_M6L_ZERO',
+        '    ldloc.s 12', '    ldc.i4.0', '    ble V_M6L_ZERO',
+        '    ldloc.s 5', '    ldloc.s 10', '    blt V_M6L_BAD',
+        '    ldloc.s 6', '    ldloc.s 11', '    blt V_M6L_BAD',
+        '    ldloc.s 7', '    ldloc.s 12', '    blt V_M6L_BAD',
+        '    ldloc.s 8', '    ldloc.s 12', '    blt V_M6L_BAD',
+        '    ldloc.s 9', '    ldloc.s 11', '    blt V_M6L_BAD',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 14',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 15',
+        '    ldloc.2', '    ldc.i4.0', '    ldelema float32', '    stloc.s 16',
+        '    ldloc.3', '    ldc.i4.0', '    ldelema float32', '    stloc.s 17',
+        '    ldloc.s 4', '    ldc.i4.0', '    ldelema float32', '    stloc.s 18',
+        '    ldloc.s 14', '    conv.i',
+        '    ldarg.1',
+        '    ldloc.s 15', '    conv.i',
+        '    ldloc.s 16', '    conv.i',
+        '    ldloc.s 17', '    conv.i',
+        '    ldloc.s 18', '    conv.i',
+        '    ldarg.s 6', '    ldarg.s 7', '    ldarg.s 8', '    ldarg.s 9',
+        '    ldarg.s 10',
+        '    call int32 ' + _SIMD_CLASS + '::LmheadBwdNative(native int, native int, native int, native int, native int, native int, int32, int32, int32, int32, float32)',
+        '    ret',
+        '  V_M6L_ZERO:',
+        '    ldc.i4.0',
+        '    ret',
+        '  V_M6L_BAD:',
+        '    ldstr "lmhead_bwd_fused_list: logits/wte/xf/dxf/dwte phai du phan tu theo B,S,E,V"',
+        '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)',
+        '    throw',
+        '  }',
+    ]
+
+
 # --- YEU CAU #2 UU TIEN A (2026-10-26): simd_gemm_full - MOT lan goi tron ---
 # BUILD tile + GEMM + ACC toan bo trong DLL (spec M4-M7 request #2): .tkv khong
 # con vong while quanh GEMM - wrapper _smm_core truoc day mat 76-89% FULL cho
@@ -1033,6 +1106,8 @@ def _pt_dp_pinvoke() -> "list[str]":
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "F32ListCopy" winapi) int32 F32ListCopyNative(native int dst, int32 dst_len, native int src, int32 src_len, int32 n) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "F32ListAdd" winapi) int32 F32ListAddNative(native int dst, int32 dst_len, native int src, int32 src_len, int32 n) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "F32GradNorm" winapi) float64 F32GradNormNative(native int g, int32 g_len, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "LinearDwFused" winapi) int32 LinearDwFusedNative(native int x, int32 x_len, native int gy, int32 gy_len, native int gdw, int32 gdw_len, int32 gdw_off, int32 n, int32 in_d, int32 out_d) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "LinearDxFused" winapi) int32 LinearDxFusedNative(native int gy, int32 gy_len, native int w, int32 w_len, native int dx, int32 dx_len, int32 m, int32 n, int32 k) cil managed preservesig { }',
     ]
 
 
@@ -1094,6 +1169,139 @@ def _dp_list_wrapper(ten: "str", pinv: "str", tag: "str", msg: "str") -> "list[s
         ]
 
 
+def _pt_linear_dw_wrapper() -> "list[str]":
+    """YEU CAU #10 Ask A: `linear_dw_fused` (IL wrapper `LinearDwFusedM`).
+
+    Gop `dw = smm_fwd_at(x, gy, in_d, out_d, n)` + `gflat[goff+k] += dw[k]`
+    thanh MOT entry native (`LinearDwFused` trong tkv_linear_dw.c, TU rieng
+    bien dich /fp:precise): doc thang `_items` cua 3 list[f32], khong tao
+    Tensor dw, khong copy lan 2, true-k (khong build tile T x T = 64 x 64).
+
+    Kiem do dai TRUOC khi pin (x >= n*in_d, gy >= n*out_d,
+    gdw >= off + in_d*out_d) -> nem ArgumentException ro. Native tu choi shape
+    le (rc = -7) va tra am; caller .tkv phai fallback duong cu khi rc != 0."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 LinearDwFusedM(' + lt + ' x, ' + lt + ' gy, ' + lt + ' gdw, int32 goff, int32 n, int32 in_d, int32 out_d) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, float32[] p2, int32 l0, int32 l1, int32 l2, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1, float32& pinned q2)',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 6',
+        '    ldloc.s 6', '    ldarg.0',
+        '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)',
+        '    castclass float32[]', '    stloc.0',
+        '    ldloc.s 6', '    ldarg.1',
+        '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)',
+        '    castclass float32[]', '    stloc.1',
+        '    ldloc.s 6', '    ldarg.2',
+        '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)',
+        '    castclass float32[]', '    stloc.2',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.3',
+        '    ldarg.1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 4',
+        '    ldarg.2', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 5',
+        '    ldarg.s 4', '    ldc.i4.0', '    ble V_LDWZ',
+        '    ldarg.s 4', '    ldarg.s 5', '    mul', '    ldloc.3', '    bgt V_LDWB',
+        '    ldarg.s 4', '    ldarg.s 6', '    mul', '    ldloc.s 4', '    bgt V_LDWB',
+        '    ldarg.s 5', '    ldarg.s 6', '    mul', '    ldarg.3', '    add', '    ldloc.s 5', '    bgt V_LDWB',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 7',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 8',
+        '    ldloc.2', '    ldc.i4.0', '    ldelema float32', '    stloc.s 9',
+        '    ldloc.s 7', '    conv.i',
+        '    ldloc.3',
+        '    ldloc.s 8', '    conv.i',
+        '    ldloc.s 4',
+        '    ldloc.s 9', '    conv.i',
+        '    ldloc.s 5',
+        '    ldarg.3',
+        '    ldarg.s 4',
+        '    ldarg.s 5',
+        '    ldarg.s 6',
+        '    call int32 ' + _SIMD_CLASS + '::LinearDwFusedNative(native int, int32, native int, int32, native int, int32, int32, int32, int32, int32)',
+        '    ret',
+        '  V_LDWZ:',
+        '    ldc.i4.0',
+        '    ret',
+        '  V_LDWB:',
+        '    ldstr "linear_dw_fused: can len(x) >= n*in_d, len(gy) >= n*out_d, len(gdw) >= gdw_off + in_d*out_d"',
+        '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)',
+        '    throw',
+        '  }',
+    ]
+
+
+def _pt_linear_dx_wrapper() -> "list[str]":
+    """YEU CAU #10 Ask B: `linear_dx_fused` (IL wrapper `LinearDxFusedM`).
+
+    gop `dx = smm_dot(gy, w, m, n, k)` vao MOT entry native (`LinearDxFused`
+    trong tkv_simd_native.c): SgemmFull tinh DAY DU 256 hang nhung chi
+    hang < m duoc cong vao dx -> 248/256 hang thua = 32x phep nhan. O day
+    goi dung static helper cua TU (full_tile_a/full_tile_b/tkv_k_eff/
+    gemm_rect_f32/gemm_rows_f32) voi i1 = m -> bo hang thua, khong copy code.
+
+    dx la Tensor MOI (gpt2_linear_bwd tra `r[0]`, khong ghi vao gflat) ->
+    khong can goff, ghi tu chi so 0. Kiem do dai TRUOC khi pin -> nem
+    ArgumentException ro. Native tu choi shape le (k<256 / m>256 / m le 4)
+    va tra am; caller .tkv phai fallback `smm_dot` NGUYEN VAN khi rc != 0."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 LinearDxFusedM(' + lt + ' gy, ' + lt + ' w, ' + lt + ' dx, int32 m, int32 n, int32 k) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, float32[] p2, int32 l0, int32 l1, int32 l2, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1, float32& pinned q2)',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 6',
+        '    ldloc.s 6', '    ldarg.0',
+        '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)',
+        '    castclass float32[]', '    stloc.0',
+        '    ldloc.s 6', '    ldarg.1',
+        '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)',
+        '    castclass float32[]', '    stloc.1',
+        '    ldloc.s 6', '    ldarg.2',
+        '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)',
+        '    castclass float32[]', '    stloc.2',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.3',
+        '    ldarg.1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 4',
+        '    ldarg.2', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 5',
+        '    ldarg.3', '    ldc.i4.0', '    ble V_LDXZ',
+        '    ldarg.s 4', '    ldc.i4.0', '    ble V_LDXZ',
+        '    ldarg.s 5', '    ldc.i4.0', '    ble V_LDXZ',
+        '    ldarg.3', '    ldarg.s 5', '    mul', '    ldloc.3', '    bgt V_LDXB',
+        '    ldarg.s 4', '    ldarg.s 5', '    mul', '    ldloc.s 4', '    bgt V_LDXB',
+        '    ldarg.3', '    ldarg.s 4', '    mul', '    ldloc.s 5', '    bgt V_LDXB',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 7',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 8',
+        '    ldloc.2', '    ldc.i4.0', '    ldelema float32', '    stloc.s 9',
+        '    ldloc.s 7', '    conv.i',
+        '    ldloc.3',
+        '    ldloc.s 8', '    conv.i',
+        '    ldloc.s 4',
+        '    ldloc.s 9', '    conv.i',
+        '    ldloc.s 5',
+        '    ldarg.3',
+        '    ldarg.s 4',
+        '    ldarg.s 5',
+        '    call int32 ' + _SIMD_CLASS + '::LinearDxFusedNative(native int, int32, native int, int32, native int, int32, int32, int32, int32)',
+        '    ret',
+        '  V_LDXZ:',
+        '    ldc.i4.0',
+        '    ret',
+        '  V_LDXB:',
+        '    ldstr "linear_dx_fused: can len(gy) >= m*k, len(w) >= n*k, len(dx) >= m*n"',
+        '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)',
+        '    throw',
+        '  }',
+    ]
+
+
 def _pt_dp_wrappers() -> "list[str]":
     lt = _LT_F32
     ra: "list[str]" = []
@@ -1101,6 +1309,8 @@ def _pt_dp_wrappers() -> "list[str]":
                                'f32_list_copy: dst va src phai co it nhat n phan tu')
     ra = ra + _dp_list_wrapper('F32ListAddM', 'F32ListAddNative', 'FLA',
                                'f32_list_add: dst va src phai co it nhat n phan tu')
+    ra = ra + _pt_linear_dw_wrapper()
+    ra = ra + _pt_linear_dx_wrapper()
     # f32_grad_norm(g, n) -> f64 (n <= 0 -> tra 0.0; qua ngan -> nem)
     ra = ra + [
         '  .method public static float64 F32GradNormM(' + lt + ' g, int32 n) cil managed',
@@ -1190,6 +1400,7 @@ def _lop_simd() -> "list[str]":
     ra = ra + _pt_m5_wrappers()
     ra = ra + _pt_m6_pinvoke()
     ra = ra + _pt_m6_wrappers()
+    ra = ra + _pt_m6_list_wrapper()
     ra = ra + _pt_full_pinvoke()
     ra = ra + _pt_full_wrapper()
     ra = ra + _pt_dp_pinvoke()
@@ -1635,6 +1846,39 @@ def compile_lmhead_bwd_fused(args: "list[TkvNode]", scope: "Scope", out: "list[s
     out.append('    call int32 ' + _SIMD_CLASS + '::LmheadBwdM(' + _join_lap('int64', 6) + ', ' + _join_lap('int32', 4) + ', float32)')
 
 
+def compile_lmhead_bwd_fused_list(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """H4b (2026-11-01): variant zero-copy nhan list[f32] truc tiep cho 5 buffer
+    lon (logits, wte, xf, dxf, dwte); ids van la buffer native i64 (nho).
+    Khong copy 154 MB x5.
+
+    Goi wrapper `LmheadBwdListM` (IL sinh trong `_pt_m6_list_wrapper`), KHONG
+    phai `LmheadBwdM`: wrapper do moi lay `_items` + pin + truyen con tro that
+    sang native. Truyen thang List<float32> vao `LmheadBwdM(int64, ...)` la
+    SAI (IL day object ref vao tham so int64).
+    """
+    if len(args) != 11:
+        raise SyntaxError("il_codegen: lmhead_bwd_fused_list(logits, ids, wte, xf, dxf, dwte, B, S, E, V, scale) can dung 11 tham so")
+    # args: 0 logits(list), 1 ids(buf), 2 wte(list), 3 xf(list), 4 dxf(list), 5 dwte(list)
+    for idx in (0, 2, 3, 4, 5):
+        if not _la_list(args[idx], scope):
+            raise SyntaxError("il_codegen: lmhead_bwd_fused_list: tham so " + str(idx) + " phai la list[f32]")
+        dd = _dtype_mang(args[idx], scope, 'lmhead_bwd_fused_list')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: lmhead_bwd_fused_list chi ho tro f32 (gap " + dd + ")")
+    _kn_buffer(args[1], scope, 'lmhead_bwd_fused_list', 'ids')
+    _ensure_class_simd(ctx)
+    _nap_mang(args[0], scope, out, ctx)   # logits
+    ctx.compile_expr(args[1], scope, out, 'i64', ctx)  # ids
+    _nap_mang(args[2], scope, out, ctx)   # wte
+    _nap_mang(args[3], scope, out, ctx)   # xf
+    _nap_mang(args[4], scope, out, ctx)   # dxf
+    _nap_mang(args[5], scope, out, ctx)   # dwte
+    for i in range(6, 10):
+        ctx.compile_expr(args[i], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[10], scope, out, 'f32', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::LmheadBwdListM(' + _LT_F32 + ', int64, ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int32, int32, int32, int32, float32)')
+
+
 def compile_simd_gemm_full(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """simd_gemm_full(a, b, c, m, n, k, ndim, trans_b, T, mode) -> i32.
 
@@ -1709,6 +1953,55 @@ def compile_f32_list_add(args: "list[TkvNode]", scope: "Scope", out: "list[str]"
     _nap_mang(args[1], scope, out, ctx)
     ctx.compile_expr(args[2], scope, out, 'i32', ctx)
     out.append('    call int32 ' + _SIMD_CLASS + '::F32ListAddM(' + _LT_F32 + ', ' + _LT_F32 + ', int32)')
+
+
+def compile_linear_dw_fused(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """linear_dw_fused(x, gy, gdw, gdw_off, n, in_d, out_d) -> i32 (YEU CAU #10).
+
+    gdw[gdw_off + i*out_d + c] += sum_p x[p*in_d + i] * gy[p*out_d + c]
+    = `dw = smm_fwd_at(x, gy, in_d, out_d, n)` + `gflat[goff+k] += dw[k]` gop
+    lam MOT pass native. x/gy/gdw la list[f32] (Tensor.data) — pin tai cho,
+    khong tao Tensor dw, khong copy lan 2. Tra rc: 0 = OK; khac 0 = native tu
+    choi (shape le / qua ngan) -> caller PHAI fallback duong .tkv cu."""
+    if len(args) != 7:
+        raise SyntaxError("il_codegen: linear_dw_fused(x, gy, gdw, gdw_off, n, in_d, out_d) can dung 7 tham so")
+    for i in range(3):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: linear_dw_fused: tham so " + str(i) + " phai la list[f32] (Tensor.data)")
+        dd = _dtype_mang(args[i], scope, 'linear_dw_fused')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: linear_dw_fused chi ho tro f32 (gap " + dd + ")")
+    _ensure_class_simd(ctx)
+    for i in range(3):
+        _nap_mang(args[i], scope, out, ctx)
+    for i in range(3, 7):
+        ctx.compile_expr(args[i], scope, out, 'i32', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::LinearDwFusedM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int32, int32, int32, int32)')
+
+
+def compile_linear_dx_fused(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """linear_dx_fused(gy, w, dx, m, n, k) -> i32 (YEU CAU #10 Ask B).
+
+    dx[m][n] = sum_{p<k} gy[m][p] * w[n][p]  (trans_b=1) — cung chinh la
+    `dx = smm_dot(gy, w, m, n, k)` cua gpt2_linear_bwd. Native bo 248/256
+    hang thua cua SgemmFull (32x phep nhan). gy/w/dx la list[f32]
+    (Tensor.data) — pin tai cho, khong copy. Tra rc: 0 = OK; khac 0 = native
+    tu choi (k<256 / m>256 / m le 4 / list qua ngan) -> caller PHAI fallback
+    `smm_dot` NGUYEN VAN (loss EXACT khong phu thuoc native)."""
+    if len(args) != 6:
+        raise SyntaxError("il_codegen: linear_dx_fused(gy, w, dx, m, n, k) can dung 6 tham so")
+    for i in range(3):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: linear_dx_fused: tham so " + str(i) + " phai la list[f32] (Tensor.data)")
+        dd = _dtype_mang(args[i], scope, 'linear_dx_fused')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: linear_dx_fused chi ho tro f32 (gap " + dd + ")")
+    _ensure_class_simd(ctx)
+    for i in range(3):
+        _nap_mang(args[i], scope, out, ctx)
+    for i in range(3, 6):
+        ctx.compile_expr(args[i], scope, out, 'i32', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::LinearDxFusedM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int32, int32, int32)')
 
 
 def compile_f32_grad_norm(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
@@ -1802,8 +2095,11 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'adamw_step_glm', compile_adamw_step_glm, 'i32')
     register_expr_builtin(reg, 'f32_list_copy', compile_f32_list_copy, 'i32')
     register_expr_builtin(reg, 'f32_list_add', compile_f32_list_add, 'i32')
+    register_expr_builtin(reg, 'linear_dw_fused', compile_linear_dw_fused, 'i32')
+    register_expr_builtin(reg, 'linear_dx_fused', compile_linear_dx_fused, 'i32')
     register_expr_builtin(reg, 'f32_grad_norm', compile_f32_grad_norm, 'f64')
     register_expr_builtin(reg, 'lmhead_bwd_fused', compile_lmhead_bwd_fused, 'i32')
+    register_expr_builtin(reg, 'lmhead_bwd_fused_list', compile_lmhead_bwd_fused_list, 'i32')
     register_expr_builtin(reg, 'simd_gemm_full', compile_simd_gemm_full, 'i32')
     register_expr_builtin(reg, 'simd_lanes_f32', compile_simd_lanes_f32, 'i32')
     register_expr_builtin(reg, 'simd_lanes_f64', compile_simd_lanes_f64, 'i32')
