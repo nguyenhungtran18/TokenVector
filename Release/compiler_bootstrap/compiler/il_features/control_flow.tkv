@@ -37,7 +37,7 @@ from il_features.int_type import emit_is_zero
 from il_features.regex_match import emit_success
 from il_features.chan_ly import container_var_ta, la_chuoi_vo_huong, nap_container_khong_rong
 from record_owner import _method_owner_class
-from expr_row import ea_nut, ea_str, eb_ds, eb_nut, eb_str, ec_ds, ec_nut, ekind, eso_o, la_node, mk2, mk3, mk4, o_ds, o_nut, o_str
+from expr_row import con_nut, ea_nut, ea_str, eb_ds, eb_nut, eb_str, ec_ds, ec_nut, ekind, eso_o, la_node, mk2, mk3, mk4, o_ds, o_nut, o_str
 from il_features.tuple_type import il_tupleN_type
 import il_features.int_type as _int_type
 import il_features.regex_match as _regex_match
@@ -1856,7 +1856,14 @@ def _p6_co_f64_cay(node: "TkvNode", scope: "Scope", ctx: "Ctx") -> "i32":
         _d = None
     if _d == 'f64' or _d == 'f64x4':
         return 1
-    for _c in eb_ds(node):
+    # DUYET bang `con_nut` (kind-aware, doc `expr_layout.KHUON` de biet o nao
+    # la 'nut'/'ds'), KHONG phai `eb_ds`. `eb_ds` luon doc o 2 nhu danh sach
+    # chi so node, nen tren node `var` (o 2 la TEN BIEN) no goi `int("ctx")`
+    # va nem `FormatException: Input string was not in a correct format.`
+    # Loi nay nam im tu 2026-10-29 vi ham chi duoc goi tren RHS cua vong da
+    # duoc chap nhan (cac dang node do tinh co khong phai `var`); no chi lo ra
+    # khi (2026-11-03) ham duoc goi tren RHS cua MOI cau gan trong than vong.
+    for _c in con_nut(node):
         if _p6_co_f64_cay(_c, scope, ctx) == 1:
             return 1
     return 0
@@ -2285,21 +2292,21 @@ def _p6_phan_tich_than(stmts: "list[i32]", iv: "str", la_while: "i32",
         elif _k == 'assign_scalar' or _k == 'assign_typed_decl':
             _arhs = lay_nut(_st, 'rhs_node')
             _aten = lay_str(_st, 'name')
-            # Lane f64 TAT: cau `x = x + 1` (counter) va `__hoist*` (alias)
-            # khong mang kieu so - chi cau 'lane'/'inv' moi co the nang vong
-            # len f64, va ca hai da di qua `_p6_kieu_lane` / `_p6_rhs_f32`
-            # (deu tu choi f64 khi lane f64 tat). KHONG goi `_p6_co_f64_cay`
-            # o day: no `infer_dtype` tren MOI node RHS cua MOI vong, ke ca
-            # vong ma truoc day chua bao gio bi phan tich sau - da gap
-            # `FormatException: Input string was not in a correct format.`
-            # khi self-host (2026-11-03), tuc loi TIEM AN cua infer_dtype tren
-            # mot dang node hiem, khong phai loi cua lane f64.
+            # Lane f64 TAT: bat KY nut nao tren RHS suy ra f64 se nang CA
+            # vong len `f64x4` (xem `_hop_kieu_so`), ke ca khi bien dich
+            # (lane temp) da khai f32 - truong hop do `_p6_kieu_lane` tra 1
+            # nen `_p6_rhs_f32` KHONG duoc hoi. Thieu buoc nay thi vong do
+            # van duoc vector hoa va codegen phat `.assembly extern
+            # System.Runtime.Intrinsics` -> binary khong nap duoc tren .NET
+            # Framework 4.8 (xem `_p6_f64_bat`).
             # `lay_str` tra None khi cau lenh khong co truong `name` -
             # phai chan TRUOC, khong thi buom `.find` tren None (NRE luc
             # self-host, da gap).
             if _aten is None:
                 return 0
             if _arhs is None:
+                return 0
+            if _p6_f64_bat() == 0 and _p6_co_f64_cay(_arhs, scope, ctx) == 1:
                 return 0
             # KHONG doan tac: so lan goi phai giu NGUYEN moi lan lap (#8 Y1)
             if _p6_co_call(_arhs) == 1:

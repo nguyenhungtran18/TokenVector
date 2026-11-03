@@ -277,7 +277,13 @@ def ea_ds(e: "TkvNode") -> "list[TkvNode]":
 
 
 def eb_ds(e: "TkvNode") -> "list[TkvNode]":
-    """O2 khi o do la DANH SACH NODE (co the rong)."""
+    """O2 khi o do la DANH SACH NODE (co the rong).
+
+    CHI dung khi CHAC CHAN kind cua `e` co o2 kieu 'ds' trong KHUON. Voi
+    `var`/`attr` o2 la TEN nen `int("ctx")` nem `FormatException: Input
+    string was not in a correct format.` (bug that 2026-11-03 trong
+    `_p6_co_f64_cay` cua control_flow.tkv). Duyet cay KHONG biet kind thi
+    dung `con_nut` - no doc KHUON de chi lay dung o 'nut'/'ds'."""
     return _ds(_o_tho(e, 2))
 
 
