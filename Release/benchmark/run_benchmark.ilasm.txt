@@ -165,6 +165,9 @@ Assembled method TKVApp::_fib
 Assembled method TKVApp::b_fib
 Assembled method TKVApp::b_string
 Assembled method TKVApp::b_string_scan
+Assembled method TKVApp::_copy_to
+Assembled method TKVApp::_ins_run
+Assembled method TKVApp::_merge_lvl
 Assembled method TKVApp::_sort
 Assembled method TKVApp::b_sort
 Assembled method TKVApp::b_add
@@ -192,8 +195,8 @@ Class 2	Methods: 3;
 Class 3	Methods: 15;	
 Class 4	Methods: 8;	
 Class 5	Fields: 3;	Methods: 126;	
-Class 6	Methods: 14;	
-Resolving local member refs: 428 -> 429 defs, 0 refs, 0 unresolved
+Class 6	Methods: 17;	
+Resolving local member refs: 430 -> 431 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	

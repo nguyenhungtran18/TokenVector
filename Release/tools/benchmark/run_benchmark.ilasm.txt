@@ -1,7 +1,7 @@
 
 Microsoft (R) .NET Framework IL Assembler.  Version 4.8.9105.0
 Copyright (c) Microsoft Corporation.  All rights reserved.
-Assembling 'Release/tools/benchmark/run_benchmark.il'  to EXE --> 'Release/tools/benchmark/run_benchmark.exe'
+Assembling 'tools/benchmark/run_benchmark.il'  to EXE --> 'tools/benchmark/run_benchmark.exe'
 Source file is ANSI
 
 Assembled method TkvInt::FromI64
@@ -164,6 +164,9 @@ Assembled method TkvSimd::MinLI64
 Assembled method TKVApp::_fib
 Assembled method TKVApp::b_fib
 Assembled method TKVApp::b_string
+Assembled method TKVApp::_copy_to
+Assembled method TKVApp::_ins_run
+Assembled method TKVApp::_merge_lvl
 Assembled method TKVApp::_sort
 Assembled method TKVApp::b_sort
 Assembled method TKVApp::b_add
@@ -190,9 +193,9 @@ Class 1	Fields: 2;	Methods: 27;
 Class 2	Methods: 3;	
 Class 3	Methods: 15;	
 Class 4	Methods: 8;	
-Class 5	Fields: 3;	Methods: 125;	
-Class 6	Methods: 13;	
-Resolving local member refs: 406 -> 406 defs, 0 refs, 0 unresolved
+Class 5	Fields: 3;	Methods: 126;	
+Class 6	Methods: 16;	
+Resolving local member refs: 408 -> 408 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	

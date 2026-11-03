@@ -107,38 +107,104 @@ def b_string_scan(runs: "i32", n: "i32") -> "f64":
     return best
 
 
-def _sort(xs: "list[i64]", lo: "i32", hi: "i32", tmp: "list[i64]") -> "i32":
-    if hi - lo < 2:
-        return 0
-    mid: "i32" = (lo + hi) // 2
-    _sort(xs, lo, mid, tmp)
-    _sort(xs, mid, hi, tmp)
-    # Merge qua buffer tam. Merge tai cho loi khi k == i: ghi vao phan tu chua
-    # doc xong nen MAT phan tu - checksum truoc do 1548 la mang MAT, khong phai
-    # mang da sap. Dung buffer tao mot lan o ngoai vong lap (quy tac 2).
+# Ban sort cua benchmark (2026-11-03): insertion sort tung run nho roi merge
+# BOTTOM-UP doi buffer, so sanh tren bien cuc bo.
+#
+# Vi sao: do tach phan (build/scratch/_sort_parts.tkv) cho thay merge sort de
+# quy cu copy CA MANG ra buffer roi merge nguoc lai - 4 luot truy cap/tang
+# (doc xs, ghi tmp, doc tmp, ghi xs) va ~400k nut de quy. Bottom-up ghi thang
+# sang buffer thu hai nen chi con 2 luot/tang va khong de quy; hoist so sanh
+# bo 1 lan doc list moi phep so sanh. Do duoc: 29.9 -> 17.4 ms (1.72x),
+# checksum van 98302. NumPy (introsort, tai cho) 3.94 ms.
+#
+# BAY: run cuoi cua mot tang co the KHONG co nua phai (mid == hi == n) - phai
+# kiem `mid < hi` truoc khi doc src[mid], neu khong ArgumentOutOfRangeException.
+
+def _copy_to(src: "list[i64]", dst: "list[i64]", n: "i32") -> "i32":
     i: "i32" = 0
-    while i < hi - lo:
-        tmp[lo + i] = xs[lo + i]
+    while i < n:
+        dst[i] = src[i]
         i = i + 1
-    i = 0
-    j: "i32" = mid - lo
-    k: "i32" = lo
-    while i < mid - lo and j < hi - lo:
-        if tmp[lo + i] <= tmp[lo + j]:
-            xs[k] = tmp[lo + i]
+    return 0
+
+
+def _ins_run(xs: "list[i64]", lo: "i32", hi: "i32") -> "i32":
+    i: "i32" = lo + 1
+    while i < hi:
+        v: "i64" = xs[i]
+        j: "i32" = i - 1
+        while j >= lo and xs[j] > v:
+            xs[j + 1] = xs[j]
+            j = j - 1
+        xs[j + 1] = v
+        i = i + 1
+    return 0
+
+
+def _merge_lvl(src: "list[i64]", dst: "list[i64]", n: "i32", width: "i32") -> "i32":
+    """Mot tang merge bottom-up: ghep cac cap run rong `width` tu src sang dst."""
+    lo: "i32" = 0
+    while lo < n:
+        mid: "i32" = lo + width
+        if mid > n:
+            mid = n
+        hi: "i32" = lo + width + width
+        if hi > n:
+            hi = n
+        i: "i32" = lo
+        j: "i32" = mid
+        k: "i32" = lo
+        xi: "i64" = src[lo]
+        xj: "i64" = 0
+        if mid < hi:
+            xj = src[mid]
+        while i < mid and j < hi:
+            if xi <= xj:
+                dst[k] = xi
+                i = i + 1
+                if i < mid:
+                    xi = src[i]
+            else:
+                dst[k] = xj
+                j = j + 1
+                if j < hi:
+                    xj = src[j]
+            k = k + 1
+        while i < mid:
+            dst[k] = src[i]
             i = i + 1
-        else:
-            xs[k] = tmp[lo + j]
+            k = k + 1
+        while j < hi:
+            dst[k] = src[j]
             j = j + 1
-        k = k + 1
-    while i < mid - lo:
-        xs[k] = tmp[lo + i]
-        i = i + 1
-        k = k + 1
-    while j < hi - lo:
-        xs[k] = tmp[lo + j]
-        j = j + 1
-        k = k + 1
+            k = k + 1
+        lo = lo + width + width
+    return 0
+
+
+def _sort(xs: "list[i64]", buf: "list[i64]", n: "i32") -> "i32":
+    """Sap xep [0, n) cua `xs`; `buf` la buffer tam cung do dai, da cap phat san
+    (quy tac 2: khong cap phat trong vong lap do). Ket qua luon ve `xs`."""
+    lo: "i32" = 0
+    run: "i32" = 8
+    while lo < n:
+        hi: "i32" = lo + run
+        if hi > n:
+            hi = n
+        _ins_run(xs, lo, hi)
+        lo = lo + run
+    flip: "i32" = 0
+    width: "i32" = run
+    while width < n:
+        if flip == 0:
+            _merge_lvl(xs, buf, n, width)
+        else:
+            _merge_lvl(buf, xs, n, width)
+        flip = 1 - flip
+        width = width + width
+    # Tang le de ket qua nam o `buf`: chep ve xs mot lan (n doc + n ghi).
+    if flip == 1:
+        _copy_to(buf, xs, n)
     return 0
 
 
@@ -165,7 +231,7 @@ def b_sort(runs: "i32", n: "i32") -> "f64":
             work.append(src[i])
             i = i + 1
         t0 = time_perf()
-        _sort(work, 0, n, tmp)
+        _sort(work, tmp, n)
         t1 = time_perf()
         cs = work[0] + work[n - 1] + work[n // 2]
         i = 0

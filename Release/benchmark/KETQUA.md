@@ -7,7 +7,7 @@
 | fib(32) | Recursive Fibonacci n=32 | 1245 ms | n/a (recursive) | 14.1 ms |
 | string | Join 200k substrings + count chars | 323 ms | 2.51 ms | 11.0 ms |
 | string scan | Same + SIMD byte scan (BSTR + simd_count_byte, AVX2) | -- | -- | **5.09 ms** |
-| sort | Merge-sort 200k integers | 38220 ms | 3.94 ms | 26.6 ms |
+| sort | Sort 200k integers (insertion-run + bottom-up merge) | 38220 ms | 3.94 ms | 17.5 ms |
 | add | Add/sum 262k elements | 1646 ms | 0.925 ms | 0.34 ms |
 | matmul32 — IL path | Multiply 32x32 matrices | 353 ms | 0.0056 ms | 0.069 ms |
 | matmul32 — simd_gemm (native) | same workload, AVX2+FMA kernel | 353 ms | 0.0056 ms | **0.0035 ms** |
@@ -26,12 +26,12 @@
 
 | Metric | NumPy | TokenVector | Faster by |
 |--------|-------|-------------|-----------|
-| Geometric mean (4 kernels, IL path) | 0.476 ms | 1.62 ms | **NumPy 3.4x** |
+| Geometric mean (4 kernels, IL path) | 0.476 ms | 1.46 ms | **NumPy 3.1x** |
 | matmul32 — simd_gemm (native) | 0.0056 ms | 0.0035 ms | **TokenVector 1.6x** |
 | matmul32 — IL path | 0.0056 ms | 0.069 ms | **NumPy 12.3x** |
 | string | 2.51 ms | 11.0 ms | **NumPy 4.4x** |
 | string — SIMD scan row | 2.51 ms (np_string) | 5.09 ms | **NumPy 2.0x** |
-| sort | 3.94 ms | 26.6 ms | **NumPy 6.8x** |
+| sort | 3.94 ms | 17.5 ms | **NumPy 4.4x** |
 | add | 0.925 ms | 0.34 ms | **TokenVector 2.7x** |
 
 `fib` is excluded from the NumPy comparison: it is recursive, and NumPy has
@@ -53,8 +53,10 @@ implementation** — consistent with README §1b:
   (f32 n=32: 1.7 µs vs NumPy 5.5 µs) and the full n=128..1024 table in
   `docs/e_handoff/BAN_GIAO_2026-10-18-SIMD-GEMM.md`.
 - **Pure IL loses to BLAS**: NumPy wins 3 of 4 kernels on the IL path
-  (6.8–12.3x); TokenVector's element-wise `add` stays 2.7x ahead (both
-  sides memory-bound; TokenVector's f64 loop is vectorized).
+  (4.4–12.3x); TokenVector's element-wise `add` stays 2.7x ahead (both
+  sides memory-bound; TokenVector's f64 loop is vectorized). The sort
+  gap narrowed from 6.8x to 4.4x by changing the algorithm, not the
+  language (see the 2026-11-03 note below).
 - **string now has a SIMD scan AND a pre-sized join.** The `string scan`
   row replaces the per-char slice loop with `simd_count_byte` (new builtin
   → AVX2 `pcmpeqb` in `tkv_simd_native.dll`) and builds with `[chunk]*n`:
@@ -161,6 +163,68 @@ unrelated failure as before (`lmhead_bwd_fused_test`, P6 WIP). Results
 **string 18.0 → 11.0 ms** (11.94 / 11.23 / 11.02) — `np_string` 2.51 ms
 is now 2.0x ahead instead of 5.8x. Checksums unchanged (1625000 on both
 rows; every other row within noise of the table above).
+
+Note (2026-11-03, where the sort time goes): the sort gap to NumPy is
+not the comparisons. Same n=200000, same generator, measured with
+variants of `_sort` that keep the identical merge structure:
+
+| Variant | ms | What it isolates |
+|---------|----|------------------|
+| one pass, read only | 0.15 | indexed read of `list[i64]` |
+| one pass, read+write | 0.37 | indexed read + write |
+| one merge level over n | 0.63 | one level of merge (compare + write) |
+| `_sort` (current) | 27.75 | baseline (bench row reads 26.6) |
+| `_sort` with hoisted compares | 24.69 | −3.06 ms from not re-reading the list |
+| `_sort` with no data compare | 16.73 | the merge skeleton alone |
+
+So 18 merge levels cost 18 x 0.63 = 11.4 ms, the data comparison plus
+branch misprediction adds 11.0 ms, and the remaining ~5 ms is the
+approach overhead of 2n merge nodes (call + bounds bookkeeping) that the
+flat per-level loop does not pay. The decisive number is the no-compare
+skeleton: **16.7 ms is already 4.2x NumPy's whole 3.94 ms sort**, so even
+removing every comparison would not reach it. The cost is the
+copy-to-temp per level (a second write of every element, 18 times) on a
+list, against NumPy's in-place introsort on a contiguous buffer. Cutting
+recursion levels (sort small runs by insertion, then bottom-up merge)
+attacks that part; hoisting comparisons is worth ~11% on its own.
+
+Note (2026-11-03, sort rewritten: insertion run + bottom-up merge): both
+attacks above were applied together in `run_benchmark.tkv`. `_sort` no
+longer recurses and no longer copies the whole range to a temp buffer:
+it insertion-sorts runs of 8, then merges **bottom-up**, alternating the
+two pre-allocated buffers, so each level is read-from-A/write-to-B (2
+passes per level instead of the copy + merge-back 4), and the compare
+uses local `xi`/`xj` instead of re-reading `list` slots. Measured with
+the same n=200000, same generator, checksum still `98302`:
+
+| Variant | ms |
+|---------|----|
+| recursive `_sort` (previous) | 29.9 (same-process baseline) |
+| bottom-up, no insertion runs (`run=1`) | 29.5 |
+| bottom-up + insertion run=8 | 27.0 |
+| bottom-up + insertion run=16 | 25.3 |
+| bottom-up + hoisted compare, `run=1` | 18.3 |
+| **bottom-up + hoisted compare, `run=8`** | **17.4** |
+| bottom-up + hoisted compare, `run=32` | 20.7 |
+
+The hoist is what pays (~7 ms); bottom-up alone only removes ~7% because
+the per-element cost is dominated by the compare path, not by the extra
+copy, and insertion sort past `run≈8` costs more than the levels it
+saves (`run=64` is back to 30.3 ms). Row in the real harness:
+**26.6 → 17.5 ms** (best-of-9, two runs: 17.69 / 17.46). NumPy's in-place
+introsort on a contiguous buffer is still **4.4x** ahead; the remaining
+gap is algorithmic (O(n log n) merge through `List<T>` slots vs sorting a
+raw buffer in place) — chasing it further means a native in-place sort
+kernel, not more IL tuning.
+
+Emit trap found while writing it: the last run of a level may have no
+right half (`mid == hi == n`), so `src[mid]` must be guarded by
+`mid < hi` or the exe dies with `ArgumentOutOfRangeException`.
+
+Algorithm note: `py_kernels.py` keeps the plain recursive merge sort, so
+the CPython column still compares equal algorithms against each other;
+the TokenVector sort row is now a *different, faster* algorithm than the
+Python baseline's (same for NumPy, which was already introsort).
 
 ## Correctness
 
