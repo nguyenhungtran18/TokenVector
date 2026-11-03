@@ -229,11 +229,6 @@ def intern(row: "str") -> "i32":
     return len(_STMT_POOL) - 1
 
 
-def row_of(stmt: "i32") -> "str":
-    """Chuoi row cua mot chi so."""
-    return _STMT_POOL[stmt]
-
-
 def esc(s: "str") -> "str":
     """Ma hoa mot truong truoc khi ghi vao row (tab -> '\\t', '\\' -> '\\\\')."""
     if s is None:
@@ -998,14 +993,6 @@ def dat_nut(stmt: "i32", key: "str", node: "TkvNode") -> "i32":
         return stmt
     _MEMO_NUT[_khoa_memo(stmt, key)] = int(gia_tri)
     return stmt
-
-
-def thay_nut(stmt: "i32", key: "str", node: "TkvNode") -> "i32":
-    """Thay mot truong dang VAN BAN thanh node index (tra ve chinh chi so cu).
-
-    Khong tao hang moi: pool sua tai cho duoc, va caller van giu cung mot chi
-    so nen khong can viet nguoc vao cha."""
-    return dat_nut(stmt, key, node)
 
 
 def dat_ds_nut(stmt: "i32", key: "str", nodes: "list[TkvNode]") -> "i32":

@@ -640,17 +640,6 @@ def parse_type_ann_str(text: "str", record_names: "set[str]"=None, extern_class_
     return ta
 
 
-def looks_like_typed_signature(line: "str") -> "i32":
-    """Kiem tra nhanh (khong parse day du) truoc khi thu parse that - dung
-    de phan biet 1 dong la "chu ky typed function" hay la code Python/DSL
-    thuong khac, tranh nem SyntaxError tran lan khi quet qua file."""
-    stripped = line.strip()
-    if not stripped or stripped.startswith('#'):
-        return False
-    return bool(re.match(r'^[A-Za-z_]\w*\s*\(.*\)\s*(->|:|=>)', stripped) or
-                re.match(r'^[A-Za-z_]\w*\s*\(.*=>', stripped))
-
-
 if __name__ == '__main__':
     tests = [
         'dot(a: f32[256], b: f32[256]) -> f32 => sum(a * b)',

@@ -126,22 +126,6 @@ def skip_string(src: "str", i: "i32") -> "i32":
     return len(src)
 
 
-def indent_width(src: "str", i: "i32") -> "i32":
-    """So cot thut le tinh tu `i` (tab tinh 4 cot, dung quy uoc PEP 8)."""
-    n = 0
-    j = i
-    while j < len(src):
-        ch = src[j]
-        if ch == " ":
-            n = n + 1
-        elif ch == "\t":
-            n = n + 4
-        else:
-            return n
-        j = j + 1
-    return n
-
-
 def is_str_prefix(word: "str") -> "i32":
     """1 neu `word` la tien to chuoi (r, b, u, f, rb, fr...).
 

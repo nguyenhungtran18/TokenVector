@@ -2616,24 +2616,6 @@ def _make_extern_static_call_codegen(assembly: "str", dotnet_class: "str", metho
 #      node[1], KHONG phai gia tri da o tren stack) - closure phai tu goi
 #      ctx['load_var_ref'](obj_name, scope, out) truoc, khac ban nhap cua
 #      brief (bien nhan dau tien duoc coi la "da san tren stack").
-def _nap_extern_classes(extern_classes: "list[ExternLop]") -> "dict[str,i32]":
-    """Nap cac decl pragma vao ARENA cua il_extern_dtype, tra BANG TRA CUU
-    ten -> CHI SO hang.
-
-    Ban cu giu thang `{d.name: d}` - gia tri la dict LONG ('methods' la
-    danh sach cac dict) nen bang khong khai kieu duoc, va no la lenh cap
-    module cuoi cung chan phep gop o `il_extern_dtype`. Arena bo tang long
-    bang cach chi giu CHI SO, dung cach da dung cho cau lenh va bieu thuc.
-
-    Cac decl van la dict Python o day: chung la san pham TAM cua bo phan
-    tich pragma, nam trong THAN HAM chu khong o cap module, nen khong chan
-    gi ca."""
-    bang = {}
-    for d in extern_classes:
-        bang[d.name] = _nap_mot_extern_class(d)
-    return bang
-
-
 def _nap_mot_extern_class(d: "ExternLop") -> "i32":
     """Mot decl pragma -> mot hang trong arena, tra CHI SO.
 

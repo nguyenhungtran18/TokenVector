@@ -113,11 +113,6 @@ def ten_lop_extern() -> "set[str]":
     return ra
 
 
-def reset_extern_classes():
-    """Xoa bang tra cuu (arena giu nguyen - xem ghi chu tren)."""
-    _EXTERN_CLASS_DEFS.clear()
-
-
 def them_pt(ten: "str", params: "list[str]", returns: "str") -> "i32":
     """Mot hang PHUONG THUC (hoac static method) - tra CHI SO."""
     _HANG_PT.append(_esc_ex(ten) + "\t" + ngan_ds().join(params) + "\t" + _esc_ex(returns))
@@ -143,10 +138,6 @@ def them_lop(ten: "str", assembly: "str", lop: "str", ctor: "list[str]",
 
 def _o_lop(c: "i32", i: "i32") -> "str":
     return _HANG_LOP[c - MOC_LOP].split("\t")[i]
-
-
-def ex_ten(c: "i32") -> "str":
-    return _o_lop(c, 0)
 
 
 def ex_assembly(c: "i32") -> "str":

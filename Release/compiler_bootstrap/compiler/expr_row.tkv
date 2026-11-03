@@ -241,11 +241,6 @@ def eb_str(e: "TkvNode") -> "str":
     return unesc_o(_o_tho(e, 2))
 
 
-def ec_str(e: "TkvNode") -> "str":
-    """O3 khi o do la VAN BAN."""
-    return unesc_o(_o_tho(e, 3))
-
-
 def _nut(van: "str") -> "TkvNode":
     return None if van == "" or van == VANG else int(van)
 

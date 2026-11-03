@@ -6142,20 +6142,6 @@ def _lp_call_stmt(reg: "Registry", line: "str", lines: "list[(i32,str)]", pos: "
 # il_features/control_flow.py (Phase 1 buoc 9, 2026-07-28).
 
 
-def tkvint_class_il() -> "list[str]":
-    """Cac dong '.class TkvInt' o muc TOP-LEVEL, cho nhung noi TU RAP file
-    .il (tokenvector_compile.compile_model, alphaai_codegen) thay vi di
-    qua gen_il_program. Tu 2026-08-05 hang so nguyen mac dinh la 'int' nen
-    hau nhu ham nao cung tham chieu TkvInt::*; thieu dinh nghia thi ilasm
-    bao 'Reference to undefined class TkvInt' - loi THAT o ca hai cho tren."""
-    blocks: "list[list[str]]" = []
-    ensure_class_int(tao_ctx(emitted_types=set(), extra_classes=blocks))
-    ra: "list[str]" = []
-    for block in blocks:
-        ra.extend(block)
-    return ra
-
-
 def _bang_ta_rong() -> "dict[str,TypeAnn]":
     """Bang RONG co kieu (2026-09-25): trinh that chua nhan khai bao local
     dict co kieu, va bien nay con duoc ham LONG doc - kieu di qua day."""
