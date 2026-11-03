@@ -78,8 +78,9 @@ def b_string_scan(runs: "i32", n: "i32") -> "f64":
     # Khac b_string: quet SIMD that qua simd_count_byte (AVX2 pcmpeqb trong
     # tkv_simd_native.dll) tren ban sao BSTR - khong cap phat substring moi ky
     # tu nhu s[j:j+1], khong vong doc tung byte nhu read_u8.
-    # Build dung append (giong b_string): [chunk]*n da do = 13.2ms - cham hon
-    # append 5.8ms (list-mu cua TV khong co fast path).
+    # Build dung [chunk]*n - RepL da co fast path (presize + cnt==1 hoist
+    # o slicing.tkh) nen khong con cham hon append nua (truoc do 13.2ms vs
+    # append 5.8ms vi list-mu cua TV khong co fast path).
     # GIOI HAN: dem tren byte LE cua UTF-16 nen chi dung duoc voi chuoi ASCII
     # (workload 'abcdefgh' la ASCII - byte cao luon 0, byte thap = ma ky tu).
     best: "f64" = 1.0e9
@@ -90,11 +91,7 @@ def b_string_scan(runs: "i32", n: "i32") -> "f64":
     chunk = "abcdefgh"
     while i < runs:
         t0 = time_perf()
-        buf = []
-        j: "i32" = 0
-        while j < n:
-            buf.append(chunk)
-            j = j + 1
+        buf = [chunk] * n
         s = "".join(buf)
         bp = bstr_alloc(s)
         # 2*n byte UTF-16LE: byte == 101 ('e') <=> ky tu 'e' (byte cao = 0)

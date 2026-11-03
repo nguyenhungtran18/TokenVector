@@ -5,8 +5,8 @@
 | Kernel | Workload | Python 3.14 | NumPy 2.5.2 | TokenVector |
 |--------|----------|-------------|-------------|-------------|
 | fib(32) | Recursive Fibonacci n=32 | 1245 ms | n/a (recursive) | 14.1 ms |
-| string | Join 200k substrings + count chars | 323 ms | 2.51 ms | 18.0 ms |
-| string scan | Same + SIMD byte scan (BSTR + simd_count_byte, AVX2) | -- | -- | **14.5 ms** |
+| string | Join 200k substrings + count chars | 323 ms | 2.51 ms | 11.0 ms |
+| string scan | Same + SIMD byte scan (BSTR + simd_count_byte, AVX2) | -- | -- | **5.09 ms** |
 | sort | Merge-sort 200k integers | 38220 ms | 3.94 ms | 26.6 ms |
 | add | Add/sum 262k elements | 1646 ms | 0.925 ms | 0.34 ms |
 | matmul32 — IL path | Multiply 32x32 matrices | 353 ms | 0.0056 ms | 0.069 ms |
@@ -18,19 +18,19 @@
 
 | Metric | Python | TokenVector | Speedup |
 |--------|--------|-------------|---------|
-| Geometric mean (5 kernels) | 1549 ms | 2.75 ms | **564x** |
+| Geometric mean (5 kernels) | 1549 ms | 2.50 ms | **620x** |
 | Highest speedup (matmul32, IL) | 353 ms | 0.069 ms | **5109x** |
-| Lowest speedup (string) | 323 ms | 18.0 ms | **18.0x** |
+| Lowest speedup (string) | 323 ms | 11.0 ms | **29.4x** |
 
 ## Summary — vs NumPy (4 common kernels: string, sort, add, matmul32)
 
 | Metric | NumPy | TokenVector | Faster by |
 |--------|-------|-------------|-----------|
-| Geometric mean (4 kernels, IL path) | 0.476 ms | 1.83 ms | **NumPy 3.8x** |
+| Geometric mean (4 kernels, IL path) | 0.476 ms | 1.62 ms | **NumPy 3.4x** |
 | matmul32 — simd_gemm (native) | 0.0056 ms | 0.0035 ms | **TokenVector 1.6x** |
 | matmul32 — IL path | 0.0056 ms | 0.069 ms | **NumPy 12.3x** |
-| string | 2.51 ms | 18.0 ms | **NumPy 7.2x** |
-| string — SIMD scan row | 2.51 ms (np_string) | 14.5 ms | **NumPy 5.8x** |
+| string | 2.51 ms | 11.0 ms | **NumPy 4.4x** |
+| string — SIMD scan row | 2.51 ms (np_string) | 5.09 ms | **NumPy 2.0x** |
 | sort | 3.94 ms | 26.6 ms | **NumPy 6.8x** |
 | add | 0.925 ms | 0.34 ms | **TokenVector 2.7x** |
 
@@ -40,7 +40,7 @@ measure the same work).
 
 ## Conclusion
 
-**TokenVector achieves 18x–5109x speedup over CPython** on equivalent
+**TokenVector achieves 29x–5109x speedup over CPython** on equivalent
 workloads, on the same OS and hardware.
 
 **Against NumPy the picture is mixed, and the matmul row depends on the
@@ -55,11 +55,15 @@ implementation** — consistent with README §1b:
 - **Pure IL loses to BLAS**: NumPy wins 3 of 4 kernels on the IL path
   (6.8–12.3x); TokenVector's element-wise `add` stays 2.7x ahead (both
   sides memory-bound; TokenVector's f64 loop is vectorized).
-- **string now has a SIMD path.** The `string scan` row replaces the
-  per-char slice loop with `simd_count_byte` (new builtin → AVX2 `pcmpeqb`
-  in `tkv_simd_native.dll`): 16.6 → **14.5 ms** — but `np_string` is still
-  5.8x ahead: the scan itself is no longer the bottleneck (same timing as
-  the old native `read_u8` loop, within noise); TV's build+join dominate.
+- **string now has a SIMD scan AND a pre-sized join.** The `string scan`
+  row replaces the per-char slice loop with `simd_count_byte` (new builtin
+  → AVX2 `pcmpeqb` in `tkv_simd_native.dll`) and builds with `[chunk]*n`:
+  16.6 → **5.09 ms** — `np_string` is now only **2.0x** ahead (was 5.8x
+  at 14.5 ms). Once the scan hit ~0, the remaining ~13 ms was build+join;
+  both are fixed (see the 2026-11-03 note): `String::Join` takes the
+  pre-sized `ToArray + Join(string, string[])` path, `RepL` (list `* n`)
+  pre-sizes with a `cnt==1` hoist, and the row builds with `[chunk]*n`.
+  The plain `string` row rides the same join fix: 18.0 → 11.0 ms.
 
 NumPy is native machine code (BLAS/ufuncs) — the IL path alone cannot
 chase it; `simd_gemm` is how TokenVector gets there without changing runtime.
@@ -124,9 +128,39 @@ vs `np_string` 2.51 (NumPy 5.8x). Checksum 1625000 on all sides.
 
 Honest finding: the SIMD scan times the same as the earlier native
 `read_u8` loop (14.0 ms, within noise) — the scan was never the
-bottleneck; build+join dominate the row. Micro (best-of-20, warm): scan
-read_u8 9.1 vs slice 12.8 ms; `[chunk]*n` costs 13.2 ms in TV vs append
-5.8 ms (no fast path — the row builds with append like `b_string`).
+bottleneck; build+join dominated the row. Micro (best-of-20, warm): scan
+read_u8 9.1 vs slice 12.8 ms; at the time `[chunk]*n` cost 13.2 ms in TV
+vs append 5.8 ms (list `* n` had no fast path — it does since 2026-11-03,
+and the row now builds with it).
+
+Note (2026-11-03, join pre-size + list-mul fast path): the two
+bottlenecks above are now fixed in the compiler:
+
+- `"...".join(list)` no longer calls `String::Join(string,
+  IEnumerable<string>)` (foreach + `StringBuilder.Append` per element,
+  no pre-size). It now emits `ToArray()` + `String::Join(string, string[])`
+  — the path that totals the lengths first and allocates once, like
+  CPython's `''.join` (`il_features/string_join.tkv`,
+  `string_methods_batch2.tkv`).
+- list `* n` (`RepL`) now pre-sizes `new List<T>(cnt * n)` and, when
+  `cnt == 1`, hoists `s[0]` into a local and loops a plain `Add` — no
+  more per-op growth (`il_features/slicing.tkv`).
+
+Emit trap: the `ToArray()` memberref must use return type `!0[]`, never
+`string[]` — with a concrete return type ilasm builds the memberref on
+the open generic type and skips instantiation, which dies at runtime
+with `Method not found` (the same trap documented in `simd_feature.tkv`;
+`stdlib_path.tkv` already used the correct idiom).
+
+`b_string_scan` now builds with `[chunk] * n` (the same workload as
+`np_string`) instead of a while-append loop. Compiler rebuilt with
+`tools/vong.exe`: cycle 1 `IL KHAC NHAU`, cycle 2 `IL_IDENTICAL`.
+`tools/testkit_gate.ps1`: **132/133 + negative 42/42** — the same single
+unrelated failure as before (`lmhead_bwd_fused_test`, P6 WIP). Results
+(best-of-3): **string scan 14.5 → 5.09 ms** (5.48 / 5.09 / 5.15),
+**string 18.0 → 11.0 ms** (11.94 / 11.23 / 11.02) — `np_string` 2.51 ms
+is now 2.0x ahead instead of 5.8x. Checksums unchanged (1625000 on both
+rows; every other row within noise of the table above).
 
 ## Correctness
 

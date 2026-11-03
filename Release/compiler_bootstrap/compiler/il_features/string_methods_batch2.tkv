@@ -98,9 +98,12 @@ def compile_str_method_join(node: "TkvNode", scope: "Scope", out: "list[str]", d
     load_var_ref = ctx.load_var_ref
     load_var_ref(obj_name, scope, out)
     load_var_ref(lst_name, scope, out)
-    out.append(
-        '    call string [mscorlib]System.String::Join(string, class '
-        '[mscorlib]System.Collections.Generic.IEnumerable`1<string>)')
+    # Giong string_join.tkv: ToArray + Join(string, string[]) - duong pre-size
+    # (Join IEnumerable Append tung phan tu, khong co doan nay).
+    # Return type `!0[]` (khong `string[]`) - xem ghi chu ToArray trong
+    # simd_feature.tkv: viet kieu cu the -> runtime "Method not found".
+    out.append('    callvirt instance !0[] class [mscorlib]System.Collections.Generic.List`1<string>::ToArray()')
+    out.append('    call string [mscorlib]System.String::Join(string, string[])')
 
 
 STR_METHODS: "dict[str,func(TkvNode,Scope,list[str],str,Ctx)->void]" = {

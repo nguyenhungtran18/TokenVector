@@ -21,8 +21,19 @@ from il_features.record_feature import _STR_METHODS
 import il_features.record_feature as _rf
 import il_codegen as _ilc
 
-_JOIN_IL = ('    call string [mscorlib]System.String::Join(string, class '
-            '[mscorlib]System.Collections.Generic.IEnumerable`1<string>)')
+# ToArray() + Join(string, string[]): duong NHANH tren .NET Framework -
+# Join(string, IEnumerable) di foreach + StringBuilder Append tung phan tu
+# (khong pre-size, dispatch interface moi phan tu), con Join(string, string[])
+# tinh toan tong chieu dai TRUOC roi cap phat DUNG 1 lan (giong CPython
+# ''.join). Do bai join 200k phan tu: ~9.4ms -> ~2ms (hang string_scan).
+# LUU Y: 2 hach string rieng (khong dung tuple) - tuple gan cap module
+# chua duoc ho tro boi parser (xem loi 'HANG SO cap module').
+# Return type PHAI la `!0[]` (KHONG phai `string[]`): viet kieu cu the ->
+# ilasm tao MemberRef tren generic type MO bo qua instantiation -> runtime
+# "Method not found" (xem ghi chu ToArray trong simd_feature.tkv;
+# stdlib_path.tkv dung dung idiom nay cho chinh Join(string, string[])).
+_JOIN_IL_1 = '    callvirt instance !0[] class [mscorlib]System.Collections.Generic.List`1<string>::ToArray()'
+_JOIN_IL_2 = '    call string [mscorlib]System.String::Join(string, string[])'
 
 
 __tkv_import__ = ["il_dispatch", "tkv_types"]
@@ -46,7 +57,8 @@ def compile_str_join(node: "TkvNode", scope: "Scope", out: "list[str]", dtype: "
     _check_list_of_str(scope.tra(ea_str(args[0])).ta, "sep.join(lst)")
     ctx.load_var_ref(ea_str(node), scope, out)
     ctx.load_var_ref(ea_str(args[0]), scope, out)
-    out.append(_JOIN_IL)
+    out.append(_JOIN_IL_1)
+    out.append(_JOIN_IL_2)
 
 
 _RECV = '__tkv_recv_expr__'
@@ -207,7 +219,8 @@ def compile_method_call_expr(node: "TkvNode", scope: "Scope", out: "list[str]", 
         _check_list_of_str(_ta_bt, '"sep".join(<bieu thuc>)')
         ctx.compile_expr(base_node, scope, out, 'str', ctx)
         ctx.compile_expr(args[0], scope, out, 'str', ctx)
-        out.append(_JOIN_IL)
+        out.append(_JOIN_IL_1)
+        out.append(_JOIN_IL_2)
         return
     if len(args) != 1 or ekind(args[0]) != 'var':
         raise SyntaxError(
@@ -215,7 +228,8 @@ def compile_method_call_expr(node: "TkvNode", scope: "Scope", out: "list[str]", 
     _check_list_of_str(scope.tra(ea_str(args[0])).ta, '"sep".join(lst)')
     ctx.compile_expr(base_node, scope, out, 'str', ctx)
     ctx.load_var_ref(ea_str(args[0]), scope, out)
-    out.append(_JOIN_IL)
+    out.append(_JOIN_IL_1)
+    out.append(_JOIN_IL_2)
 
 
 def bootstrap_string_join(reg: "Registry"):
