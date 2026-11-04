@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
   <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="version 1.0.11">
   <img src="https://img.shields.io/badge/tests-134%2F134-brightgreen.svg?style=flat-square" alt="tests 134/134">
-  <img src="https://img.shields.io/badge/builtins-421-orange.svg?style=flat-square" alt="builtins 421">
+  <img src="https://img.shields.io/badge/builtins-422-orange.svg?style=flat-square" alt="builtins 422">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License: MIT">
 </p>
 
@@ -99,7 +99,7 @@ Measured 2026-11-04 against **CPython 3.14.7** and **NumPy 2.5.2**
 |---|---|---|---|
 | fib(32) | 14.9 ms | 1169 ms | **78×** |
 | sort | 1.51 ms | 37659 ms | **24989×** (different algorithms; see note) |
-| matmul32 | 9.5 µs | 308 ms | **32400×** |
+| matmul32 (native) | 3.2 µs | 308 ms | **96250×** |
 | add | 0.582 ms | 1540 ms | **2647×** |
 | string | 5.28 ms | 337 ms | **64×** |
 
@@ -134,7 +134,7 @@ they actually print. **If a gate is not green, the claim above does not hold.**
 | Lint-rule self-test | `powershell -File Release\tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
 | Registration | `Release\dist\tkvc-tv.exe Release\tools\dang_ky_gate.tkv Release\build\dk.exe run` | 0 violations |
 
-**Builtins registered: 421.**
+**Builtins registered: 422.**
 
 The compiler itself is **self-hosted**: its source is 132 `.tkv` files under
 `Release/compiler_bootstrap/`. `Release\tools\vong.exe` concatenates them,

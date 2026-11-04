@@ -34,7 +34,7 @@
 | [4](#4-dạng-dựng-giá-trị-vế-phải-của-phép-gán) | Dạng gán | 31 dạng vế phải được đăng ký riêng |
 | [5](#5-còn-thiếu--đã-probe-không-phải-suy-đoán) | Còn thiếu | Giới hạn đã đo, không giới hạn do đoán |
 | [6](#6-hướng-dẫn-dùng--cho-chỗ-khác-python) | Hướng dẫn dùng | 14 mục "ở đây khác Python, và vì sao" |
-| [7](#7-danh-mục-đầy-đủ-sinh-tự-động) | Danh mục đầy đủ | 421 tên + danh sách file (sinh tự động) |
+| [7](#7-danh-mục-đầy-đủ-sinh-tự-động) | Danh mục đầy đủ | 422 tên + danh sách file (sinh tự động) |
 
 | [8](#8-ba-sự-cố-đã-ghi--đừng-tin-mù) | Ba sự cố | Những chỗ đã sai vì tin tài liệu |
 
@@ -380,6 +380,7 @@ số/trả về của nó chỉ suy được từ một `TypeAnn` "mục tiêu" 
 | `v_load4` | `v_load4(p, off)` | Nạp 16 byte (4 lane) → `f32x4`. `off` tính theo **byte**. |
 | `v_store4` | `v_store4(p, off, v)` | Ghi 4 lane. |
 | `v_hsum4` | `v_hsum4(v)` | Gom 4 lane về 1 `f32`. **Thứ tự cộng là `((X+Y)+Z)+W`** — phải khớp đúng thứ tự của vòng scalar, nếu ghep cặp `(X+Y)+(Z+W)` thì sai số float. |
+| `matmul` | `matmul(a, b, r, n)` | Alias của `simd_gemm`: nhân ma trận vuông `n×n` `r = a × b`; `a`, `b`, `r` là `list[f32]` hoặc `list[f64]` (cùng kiểu, row-major), gọi kernel native AVX2+FMA, đa luồng, không copy vào/ra. |
 | `simd_gemm` | `simd_gemm(a, b, r, n)` | Nhân ma trận vuông `n×n`: `r = a × b`. `a`, `b`, `r` là `list[f32]` hoặc `list[f64]` (cùng kiểu), lưu theo hàng. Gọi kernel native AVX2+FMA trong `tkv_simd_native.dll` (nạp cạnh `.exe`), đa luồng; không copy vào/ra. Không kiểm tra kích thước — `n×n` phải khớp độ dài list. |
 | `simd_gemm_packed_create` | `simd_gemm_packed_create(src, rows, cols, stride, T, trans)` | **M4** — prepack ma trận **một lần** / step, trả `i64` handle. `src` là `list[f32]` **hoặc `list[f64]`** (M4 ABI f64, SPEC §6 — Tensor production là `List[Double]`; bản f64 convert double→float **ngay trong pack**, không qua interpreted convert), `rows×cols` với `stride` là bề rộng hàng của nguồn; `T` là cỡ tile, `trans=1` để pack bản **transpose** (layout `W[n][k]`). Native copy + pad về `T`, zero-fill phần thiếu, do DLL quản lý. handle 0/thông số sai → ném lỗi rõ. |
 | `simd_gemm_packed` | `simd_gemm_packed(hA, hB, C, T)` | **M4** — chạy tile từ 2 handle đã pack: `C = A × B`. `C` là `list[f32]` **hoặc `list[f64]`** (ghi trực tiếp `_items`, không copy; bản f64 compute f32 rồi widen 1 lần cuối → **bit-giong** đường f32), `T` phải khớp cả 2 handle, `A.cols == B.rows`, `len(C) ≥ m×n`. Trả `0` = OK; sai → **ném `ArgumentException` rõ ràng** (handle sai/đã free, `T` không khớp, sai inner dim, `C` quá ngắn). |
@@ -1205,7 +1206,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 `gc_counts` `getattr` `hasattr` `hash` `hex` `http_delete` `http_get` `http_post`
 `http_post_type` `http_put` `hypot` `id` `int` `int64` `isinstance` `issubclass`
 `iter` `list` `lmhead_bwd_fused` `lock_acquire` `lock_release` `math_degrees` `math_e` `math_gcd`
-`math_isinf` `math_isnan` `math_log2` `math_pi` `math_radians` `md5_hex` `next` `now_ms`
+`math_isinf` `math_isnan` `math_log2` `math_pi` `math_radians` `matmul` `md5_hex` `next` `now_ms`
 `now_us` `oct` `ord` `os_getenv` `os_list_files` `os_mkdir` `os_remove` `parallel_for`
 `path_abspath` `path_basename` `path_dirname` `path_exists` `path_isdir` `path_isfile` `path_join` `path_name`
 `path_normpath` `path_parent` `path_read_text` `path_stem` `path_suffix` `path_write_text` `pow` `proc_ra`

@@ -47,7 +47,7 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 | Tự kiểm bộ luật lint | `powershell -File tools\lint_rules_gate.ps1` | Bắt đủ 8 bẫy, 0 báo nhầm |
 | Đăng ký | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 vi phạm |
 
-**Đã đăng ký 421 builtin.**
+**Đã đăng ký 422 builtin.**
 
 > **Compiler thật sự là gì.** Mã nguồn compiler là **`compiler_bootstrap/`** —
 > 133 file **thật sự là TokenVector**. `dist\tkvc-tv.exe` do `tools\vong.exe`
@@ -71,7 +71,7 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 |---|---|---|---|
 | fib(32) | 14,9 ms | 1169 ms | **78×** |
 | sort | 1,51 ms | 37659 ms | **24989×** (thuật toán khác; xem ghi chú) |
-| matmul32 | 9,5 µs | 308 ms | **32400×** |
+| matmul32 (native) | 3,2 µs | 308 ms | **96250×** |
 | add | 0,582 ms | 1540 ms | **2647×** |
 | string | 5,28 ms | 337 ms | **64×** |
 
@@ -95,7 +95,7 @@ phạm vi, nên tỉ lệ đó đo thuật toán khác chứ không phải compa
 tổng quát.
 
 **Vậy vị trí trung thực là: TokenVector là thay thế CPython.** Trong
-harness này, tốc độ đo được so với CPython là **64×–32400×** và có SIMD
+harness này, tốc độ đo được so với CPython là **64×–96250×** và có SIMD
 thật. Đường IL thuần không thể đuổi tới hiệu năng BLAS `f64` trên .NET
 Framework 4.8; `simd_gemm` thì có, qua một kernel native, mà không cần đổi
 runtime.

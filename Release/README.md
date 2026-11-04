@@ -47,7 +47,7 @@ Everything below is checked by a gate in this repository. Numbers are from
 | Lint-rule self-test | `powershell -File tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
 | Registration | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 violations |
 
-**Builtins registered: 421.**
+**Builtins registered: 422.**
 
 > **What the compiler actually is.** The compiler source is **`compiler_bootstrap/`**
 > — 133 files that really are TokenVector. `dist\tkvc-tv.exe` is built by
@@ -73,7 +73,7 @@ Measured 2026-11-04 against **CPython 3.14.7** and **NumPy 2.5.2**
 |---|---|---|---|
 | fib(32) | 14.9 ms | 1169 ms | **78×** |
 | sort | 1.51 ms | 37659 ms | **24989×** (different algorithms; see note) |
-| matmul32 | 9.5 µs | 308 ms | **32400×** |
+| matmul32 (native `matmul`) | 3.2 µs | 308 ms | **96250×** |
 | add | 0.582 ms | 1540 ms | **2647×** |
 | string | 5.28 ms | 337 ms | **64×** |
 
@@ -97,7 +97,7 @@ merge for negative/out-of-range input, so its ratio measures a different
 algorithm, not a general-purpose comparison sort.
 
 **So the honest position is: TokenVector is a CPython replacement.** Its
-measured speedups over the interpreter it replaces are 64×–32400× in this
+measured speedups over the interpreter it replaces are 64×–96250× in this
 harness, and it has working SIMD. The pure-IL path cannot reach `f64` BLAS
 performance on .NET Framework 4.8; `simd_gemm` does, through a native kernel,
 without changing the runtime.

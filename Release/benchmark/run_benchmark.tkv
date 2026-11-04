@@ -458,7 +458,7 @@ def _mm32v(pa: "i32", pt: "i32", r: "list[f32]", n: "i32") -> "i32":
     return 0
 
 
-def b_matmul32(runs: "i32", n: "i32") -> "f64":
+def b_matmul32_il(runs: "i32", n: "i32") -> "f64":
     m: "i32" = n * n
     a: "list[f32]" = []
     b: "list[f32]" = []
@@ -504,7 +504,7 @@ def b_matmul32(runs: "i32", n: "i32") -> "f64":
         k = k + 1
     free_bytes(pt)
     free_bytes(pa)
-    print("matmul32=" + str(cs) + "  best=" + str(best))
+    print("matmul32_il=" + str(cs) + "  best=" + str(best))
     return best
 
 
@@ -610,10 +610,10 @@ def b_f32mm_vec(runs: "i32", n: "i32") -> "f64":
     return best
 
 
-def b_matmul32_simd(runs: "i32", n: "i32") -> "f64":
-    # Cung khoi viec voi b_matmul32 (i%7-3 / i%5-2, checksum = tong) de so
-    # truc tiep voi np_matmul32 va duong IL. simd_gemm = kernel native AVX2+FMA
-    # (tkv_simd_native.dll canh exe).
+def b_matmul32(runs: "i32", n: "i32") -> "f64":
+    # Cung khoi viec voi b_matmul32_il (i%7-3 / i%5-2, checksum = tong) de so
+    # truc tiep voi np_matmul32. matmul() = production path -> simd_gemm
+    # (kernel native AVX2+FMA, tkv_simd_native.dll).
     m: "i32" = n * n
     a: "list[f64]" = []
     b: "list[f64]" = []
@@ -631,7 +631,7 @@ def b_matmul32_simd(runs: "i32", n: "i32") -> "f64":
     t1: "f64" = 0.0
     while k < runs:
         t0 = time_perf()
-        simd_gemm(a, b, r, n)
+        matmul(a, b, r, n)
         t1 = time_perf()
         # checksum o NGOAI vong do ( nhu b_matmul32 )
         cs = 0.0
@@ -643,7 +643,7 @@ def b_matmul32_simd(runs: "i32", n: "i32") -> "f64":
         if d < best:
             best = d
         k = k + 1
-    print("matmul32_simd=" + str(cs) + "  best=" + str(best))
+    print("matmul32=" + str(cs) + "  best=" + str(best))
     return best
 
 
@@ -656,8 +656,8 @@ def main() -> "i32":
     tss = b_string_scan(3, 200000)
     to = b_sort(20, 200000)
     ta = b_add(20, 262144)
-    tm = b_matmul32(20, 32)
-    tg = b_matmul32_simd(100, 32)
+    tm_il = b_matmul32_il(20, 32)
+    tm = b_matmul32(100, 32)
     t32 = b_f32mm(100, 32)
     t32v = b_f32mm_vec(100, 32)
     print()
@@ -667,11 +667,11 @@ def main() -> "i32":
     print("string scan    " + str(tss))
     print("sort           " + str(to))
     print("add            " + str(ta))
+    print("matmul32_il    " + str(tm_il))
     print("matmul32       " + str(tm))
-    print("matmul32 simd  " + str(tg))
     print("f32mm scalar   " + str(t32))
     print("f32mm vec      " + str(t32v) + "   (nhanh hon scalar " + str(t32 / t32v) + "x)")
     # Phai DUNG moi bien, neu khong JIT coi ket qua la chet
-    if tf < 0.0 or ts < 0.0 or tss < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or tg < 0.0 or t32 < 0.0 or t32v < 0.0:
+    if tf < 0.0 or ts < 0.0 or tss < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or tm_il < 0.0 or t32 < 0.0 or t32v < 0.0:
         return 1
     return 0

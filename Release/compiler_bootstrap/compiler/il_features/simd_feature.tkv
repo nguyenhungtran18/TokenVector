@@ -2071,6 +2071,11 @@ def compile_simd_isa(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dt
     out.append('    call int32 ' + _SIMD_CLASS + '::Isa()')
 
 
+def compile_matmul(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """matmul(a, b, ra, n) -> i32: alias cua simd_gemm; native AVX2+FMA."""
+    compile_simd_gemm(args, scope, out, dtype, ctx)
+
+
 def bootstrap_simd_feature(reg: "Registry"):
     """Dang ky cua module nay - goi tu compiler/bootstrap_all.py."""
     register_expr_builtin(reg, 'simd_dot', compile_simd_dot, 'f64', return_dtype_fn=_dtype_tra_ve)
@@ -2082,6 +2087,7 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'simd_mul', compile_simd_mul, 'i32')
     register_expr_builtin(reg, 'simd_scale', compile_simd_scale, 'i32')
     register_expr_builtin(reg, 'simd_axpy', compile_simd_axpy, 'i32')
+    register_expr_builtin(reg, 'matmul', compile_matmul, 'i32')
     register_expr_builtin(reg, 'simd_gemm', compile_simd_gemm, 'i32')
     register_expr_builtin(reg, 'simd_gemm_packed_create', compile_simd_gemm_packed_create, 'i64')
     register_expr_builtin(reg, 'simd_gemm_packed', compile_simd_gemm_packed, 'i32')

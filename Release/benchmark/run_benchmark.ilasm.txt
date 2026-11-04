@@ -177,10 +177,10 @@ Assembled method TKVApp::b_sort
 Assembled method TKVApp::b_add
 Assembled method TKVApp::_mm32
 Assembled method TKVApp::_mm32v
-Assembled method TKVApp::b_matmul32
+Assembled method TKVApp::b_matmul32_il
 Assembled method TKVApp::b_f32mm
 Assembled method TKVApp::b_f32mm_vec
-Assembled method TKVApp::b_matmul32_simd
+Assembled method TKVApp::b_matmul32
 Assembled method TKVApp::main
 Assembled method TKVApp::Main
 Creating PE file
