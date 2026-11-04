@@ -1,0 +1,79 @@
+# -*- coding: utf-8 -*-
+# `re_replace` / `random_randint` (module `stdlib_bcl`) va `py_tuple_new` /
+# `py_dict_new` (module `pycapi_shim`) - BON builtin tung KHONG TON TAI voi
+# compiler, du codegen cho chung da co san: hai module do khong duoc goi
+# bootstrap, va helper CIL cua chung chi la hang chuoi khong ai tham chieu.
+#
+# Test nay la bang chung cho CA HAI mat:
+#   1. builtin co dang ky that (truoc day: "ham ... khong ton tai").
+#   2. helper duoc PHAT that thanh class (`TkvBcl` / `TkvPyCapi`), khong phai
+#      loi goi toi method khong ton tai - neu khong, exe se nem
+#      MissingMethodException va gate ghi EXIT/FAIL chu khong xanh.
+#
+# Gia tri ky vong doi chieu CPython 3.14:
+#   re.sub(r'[0-9]+', '-', 'a1b22c') == 'a-b-c'
+#   re.sub('z', '!', 'abc')          == 'abc'      (khong khop -> giu nguyen)
+#   re.sub(r'\s+', '_', 'a  b')      == 'a_b'
+#   random.randint(5, 5) == 5, random.randint(0, 1) in {0, 1}
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def dem_bien_tren(n: "i32") -> "i32":
+    """So lan random_randint(0, 3) ra dung 3 - bien TREN phai bao gom duoc
+    (Python `randint` dong ca hai dau; .NET `Next` la nua mo)."""
+    hits: "i32" = 0
+    i: "i32" = 0
+    while i < n:
+        if random_randint(0, 3) == 3:
+            hits = hits + 1
+        i = i + 1
+    return hits
+
+
+def dem_ngoai_khoang(n: "i32") -> "i32":
+    """So lan random_randint(2, 5) ra NGOAI [2, 5] - PHAI bang 0."""
+    bad: "i32" = 0
+    i: "i32" = 0
+    while i < n:
+        v: "i32" = random_randint(2, 5)
+        if v < 2 or v > 5:
+            bad = bad + 1
+        i = i + 1
+    return bad
+
+
+def run() -> "i32":
+    total: "i32" = 0
+    tested: "i32" = 0
+
+    tested = tested + 1
+    total = total + check("re_replace_digits", re_replace("a1b22c", "[0-9]+", "-"), "a-b-c")
+    tested = tested + 1
+    total = total + check("re_replace_no_match", re_replace("abc", "z", "!"), "abc")
+    tested = tested + 1
+    total = total + check("re_replace_spaces", re_replace("a  b", "[ ]+", "_"), "a_b")
+    tested = tested + 1
+    total = total + check("re_replace_backref", re_replace("ab", "(a)", "[$1]"), "[a]b")
+
+    # Khoang dong: lo == hi chi co MOT ket qua, nen kiem duoc tuyet doi.
+    tested = tested + 1
+    total = total + check("randint_single", str(random_randint(5, 5)), "5")
+    tested = tested + 1
+    total = total + check("randint_single_zero", str(random_randint(0, 0)), "0")
+    # 400 lan: moi gia tri phai trong [2,5], va phai cham duoc bien tren 5.
+    tested = tested + 1
+    total = total + check("randint_in_range", str(dem_ngoai_khoang(400)), "0")
+    tested = tested + 1
+    ok: "i32" = 0
+    if dem_bien_tren(400) > 0:
+        ok = 1
+    total = total + check("randint_inclusive_hi", str(ok), "1")
+
+    # Hai builtin pycapi: chi can chay duoc la du - gia tri co dtype 'object'
+    # va DSL chua co phep toan nao tren object (xem docstring pycapi_shim).
+    t = py_tuple_new(3)
+    d = py_dict_new()
+    tested = tested + 1
+    total = total + check("pycapi_calls_run", "ok", "ok")
+
+    return test_summary("bcl_pycapi_builtins_test", total, tested)

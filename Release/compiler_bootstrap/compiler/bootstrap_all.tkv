@@ -117,6 +117,8 @@ from il_features.stdlib_math import bootstrap_stdlib_math
 from il_features.stdlib_math_trig import bootstrap_stdlib_math_trig
 from il_codegen import bootstrap_il_codegen
 from il_features.regex_match import bootstrap_regex_match
+from il_features.stdlib_bcl import bootstrap_stdlib_bcl
+from il_features.pycapi_shim import bootstrap_pycapi_shim
 
 __tkv_import__ = "il_dispatch"
 
@@ -227,3 +229,10 @@ def bootstrap_all(reg: "Registry"):
     bootstrap_stdlib_math_trig(reg)
     bootstrap_il_codegen(reg)
     bootstrap_regex_match(reg)
+    # 2026-11-03: hai module nay truoc day bi bo ngoai danh sach (helper cua
+    # chung chi la hang chuoi khong ai tham chieu -> MissingMethodException luc
+    # chay). Gio helper duoc phat THAT thanh class rieng (`TkvBcl`,
+    # `TkvPyCapi`), nen noi lai duoc. Khong rang buoc thu tu: ca bon builtin
+    # vao BANG expr_builtin_codegen (tra cuu theo ten).
+    bootstrap_stdlib_bcl(reg)
+    bootstrap_pycapi_shim(reg)
