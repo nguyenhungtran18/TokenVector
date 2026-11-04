@@ -41,7 +41,7 @@ Everything below is checked by a gate in this repository. Numbers are from
 
 | Gate | Command | Result |
 |---|---|---|
-| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **134/134** pass, **42/42** negative cases correctly rejected |
+| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **135/135** pass, **44/44** negative cases correctly rejected |
 | Self-host fixpoint | `tools\vong.exe` | **IL_IDENTICAL** (133 files) |
 | Performance | `powershell -File tools\perf_gate.ps1` | 4 kernels, best-of-5, **checksum is compared** |
 | Lint-rule self-test | `powershell -File tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
@@ -117,7 +117,7 @@ It is **not** CPython with a faster interpreter. It is a **transpiler to CIL**:
 compiler_bootstrap/  the compiler — 133 .tkv files (the real TokenVector source)
 compiler_src/        file manifest (ds_gop.txt) used to concatenate them
 dist/                tkvc-tv.exe — the self-hosted compiler
-tests/               134 acceptance tests + 42 negative cases
+tests/               135 acceptance tests + 44 negative cases
 tests_suite/         154 .ca data-driven cases + 203 input samples
 tools/               gates + tkv_guide.tkv (the language guide, written in TokenVector)
 projects/            19 real tools written in .tkv

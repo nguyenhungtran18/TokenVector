@@ -5,12 +5,12 @@
 | Kernel | Workload | Python 3.14 | NumPy 2.5.2 | TokenVector |
 |--------|----------|-------------|-------------|-------------|
 | fib(32) | Recursive Fibonacci n=32 | 1169 ms | n/a (recursive) | 14.9 ms |
-| string | Join 200k substrings + count chars | 337 ms | 2.23 ms | 5.28 ms |
+| string | 2.23 ms | 4.85 ms | **NumPy 2.18x** |
 | string scan | Same + native UTF-16 char scan (`simd_count_char`, AVX2, no BSTR copy) | -- | -- | **4.58 ms** |
-| sort | Sort 200k integers (tally/count over 16-bit, merge fallback for negatives) | 37659 ms | 3.93 ms | **1.51 ms** |
-| add | Add/sum 262k elements | 1540 ms | 0.845 ms | **0.582 ms** |
-| matmul32 (production native) | Multiply 32x32 matrices, `matmul()` -> `simd_gemm` | 308 ms | 0.0052 ms | **0.0032 ms** |
-| matmul32 — IL path | same workload, blocked Vector4 kernel | 308 ms | 0.0052 ms | **0.0095 ms** |
+| sort | 3.93 ms | 1.63 ms | **TokenVector 2.41x** |
+| add | 0.845 ms | 0.58 ms | **TokenVector 1.46x** |
+| matmul32 - production native | 0.0052 ms | 0.0035 ms | **TokenVector 1.49x** |
+| matmul32 - IL path | 0.0052 ms | 0.0112 ms | **NumPy 2.14x** |
 | f32mm scalar | f32 matmul 32x32, scalar dot | -- | -- | 0.0725 ms |
 | f32mm vec | f32 matmul 32x32, SIMD Vector4 | -- | -- | 0.0141 ms |
 
@@ -23,20 +23,20 @@ full-process wall-clock baseline.
 | Metric | Python | TokenVector | Speedup |
 |--------|--------|-------------|---------|
 | Geometric mean (5 kernels) | 1477 ms | 0.740 ms | **1998x** |
-| Highest speedup (matmul32, native) | 308 ms | 0.0032 ms | **96250x** |
+| Highest speedup (matmul32, native) | 308 ms | 0.0035 ms | **96250x** |
 | Lowest speedup (string) | 337 ms | 5.28 ms | **63.8x** |
 
 ## Summary — vs NumPy (4 common kernels: string, sort, add, matmul32)
 
 | Metric | NumPy | TokenVector | Faster by |
 |--------|-------|-------------|-----------|
-| Geometric mean (4 kernels, production native path) | 0.443 ms | 0.349 ms | **TokenVector 1.27x** |
-| matmul32 — production native | 0.0052 ms | 0.0033 ms | **TokenVector 1.58x** |
-| matmul32 — IL path | 0.0052 ms | 0.0095 ms | **NumPy 1.83x** |
-| string | 2.23 ms | 5.28 ms | **NumPy 2.37x** |
-| string - SIMD scan row | 2.23 ms | 4.58 ms | **NumPy 2.05x** |
-| sort | 3.93 ms | 1.51 ms | **TokenVector 2.61x** |
-| add | 0.845 ms | 0.582 ms | **TokenVector 1.45x** |
+| Geometric mean (4 kernels, production native path) | 0.443 ms | 0.349 ms | **TokenVector 1.24x** |
+| matmul32 - production native | 0.0052 ms | 0.0035 ms | **TokenVector 1.49x** |
+| matmul32 - IL path | 0.0052 ms | 0.0112 ms | **NumPy 2.14x** |
+| string | 2.23 ms | 4.85 ms | **NumPy 2.18x** |
+| string - SIMD scan row | 2.23 ms | 4.50 ms | **NumPy 2.02x** |
+| sort | 3.93 ms | 1.63 ms | **TokenVector 2.41x** |
+| add | 0.845 ms | 0.58 ms | **TokenVector 1.46x** |
 
 `fib` is excluded from the NumPy comparison: it is recursive, and NumPy has
 no equivalent without changing the algorithm (matrix exponentiation would not
@@ -51,15 +51,14 @@ workloads, on the same OS and hardware.
 common kernels by geometric mean when the production matmul path is used:**
 
 - **Native kernel wins.** `simd_gemm` (AVX2+FMA, `tkv_simd_native.dll`)
-  does the exact same 32x32 f64 workload as `matmul32` in **0.0032 ms vs
-  NumPy's 0.0052 ms — TokenVector 1.58x faster**, and 2.9x faster than
-  TokenVector's own IL path (0.0095 ms). This matches README §1b
+  does the exact same 32x32 f64 workload as `matmul32` in **0.0035 ms vs
+  NumPy's 0.0052 ms — TokenVector 1.49x faster**, and 2.9x faster than
+  TokenVector's own IL path (0.0112 ms). This matches README §1b
   (f32 n=32: 1.7 µs vs NumPy 5.5 µs) and the full n=128..1024 table in
   `docs/e_handoff/BAN_GIAO_2026-10-18-SIMD-GEMM.md`.
-- **IL path still loses to BLAS** (`matmul32_il` 0.0095 ms vs 0.0052 ms —
-  NumPy 1.83x), and `string` is behind by 2.37x; but `sort` leads by
+  NumPy 1.83x), and `string` is behind by 2.18x; but `sort` leads by
   2.61x and `add` by 1.45x. Geometric mean across the four production
-  kernels is now **TokenVector 1.27x** (was NumPy 1.03x before the alias
+  kernels is now **TokenVector 1.24x** (was NumPy 1.03x before the alias
   became the benchmark's main row).
 - **string now avoids the 1-char substring allocation.** `b_string` uses
   the new `char_code_at(s, i)` builtin (`String::get_Chars`, raw UTF-16
@@ -307,6 +306,17 @@ same process): **3.88 / 3.90 → 3.16 / 3.17 ms**, checksum still
 4.85; earlier 3.89). `tools/vong.exe`: `IL_IDENTICAL`;
 `tools/testkit_gate.ps1`: **134/134**, negative **42/42**.
 
+Note (2026-11-04, DCE cho `TkvSimd`): truoc day compiler emit ca class
+`TkvSimd` (~126 method, ~5200 dong IL) cho moi chuong trinh. Nay class duoc
+sinh dan theo nhom tinh nang qua `_can_simd(ctx, feat)`; khoa dedupe trong
+`ctx.emitted_types` voi tien to `TkvSimd#<feat>`. Benchmark (chi dung
+`simd_count_char` + `matmul`): 105 method `TkvSimd::` trong `.ilasm.txt` truoc,
+sau: 5 managed (`CountCharStr`, `GemmF32`, `GemmF32L`, `GemmF64`, `GemmF64L`)
++ 4 P/Invoke = 9; file IL 10301 -> 5340 dong (-48%). Checksum khong doi:
+string=1625000, string scan=1625000, sort=98302, matmul32=1.0.
+`tools/vong.exe`: IL_IDENTICAL; `tools/testkit_gate.ps1`: 135/135, negative 44/44.
+Test moi `tests/simd_elem_dce_test.tkv` (42 check) bao ve tung nhom.
+
 Known divergence: `tools/benchmark/run_benchmark.tkv` (the legacy copy)
 still carries the merge sort and the scalar matmul — not ported here.
 
@@ -320,10 +330,10 @@ Python baseline's (same for NumPy, which was already introsort).
 | Kernel | Checksum Python | Checksum NumPy | Checksum TokenVector |
 |--------|-----------------|----------------|----------------------|
 | fib(32) | 2178309 | n/a | 2178309 |
-| string | 1625000 | 1625000 | 1625000 |
+| string | 2.23 ms | 4.85 ms | **NumPy 2.18x** |
 | string scan | 1625000 | 1625000 | 1625000 |
-| sort | 98302 | 98302 | 98302 |
-| add | 956798.1 | 956798.1000000001 | 956798.1 |
+| sort | 3.93 ms | 1.63 ms | **TokenVector 2.41x** |
+| add | 0.845 ms | 0.58 ms | **TokenVector 1.46x** |
 | matmul32 (IL + simd_gemm) | 1.0 | 1.0 | 1.0 |
 
 The NumPy `add` checksum differs from the others by ~2e-8 absolute

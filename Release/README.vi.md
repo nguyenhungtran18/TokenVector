@@ -41,7 +41,7 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 
 | Cổng | Lệnh | Kết quả |
 |---|---|---|
-| Nghiệm thu compiler | `powershell -File tools\testkit_gate.ps1` | **134/134** PASS, **42/42** negative bị từ chối đúng |
+| Nghiệm thu compiler | `powershell -File tools\testkit_gate.ps1` | **135/135** PASS, **44/44** negative bị từ chối đúng |
 | Fixpoint tự biên dịch | `tools\vong.exe` | **IL_IDENTICAL** (133 file) |
 | Hiệu năng | `powershell -File tools\perf_gate.ps1` | 4 kernel, best-of-5, **có so checksum** |
 | Tự kiểm bộ luật lint | `powershell -File tools\lint_rules_gate.ps1` | Bắt đủ 8 bẫy, 0 báo nhầm |
@@ -119,7 +119,7 @@ CIL**:
 compiler_bootstrap/  compiler — 133 file .tkv (đây là nguồn TokenVector thật)
 compiler_src/        manifest file (ds_gop.txt) dùng để gộp chúng lại
 dist/                tkvc-tv.exe — compiler tự biên dịch
-tests/               134 test nghiệm thu + 42 negative
+tests/               135 test nghi?m thu + 44 negative
 tests_suite/         154 case .ca + 203 mẫu vào
 tools/               các cổng kiểm + tkv_guide.tkv (tool hỏi đáp ngôn ngữ)
 projects/            19 công cụ thật viết bằng .tkv

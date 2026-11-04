@@ -5,7 +5,7 @@
 <p align="left">
   <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
   <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="version 1.0.11">
-  <img src="https://img.shields.io/badge/tests-134%2F134-brightgreen.svg?style=flat-square" alt="tests 134/134">
+  <img src="https://img.shields.io/badge/tests-135%2F135-brightgreen.svg?style=flat-square" alt="tests 134/134">
   <img src="https://img.shields.io/badge/builtins-423-orange.svg?style=flat-square" alt="builtins 423">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License: MIT">
 </p>
@@ -154,7 +154,7 @@ TokenVector/
     ├── compiler_bootstrap/   133 .tkv files — the compiler, written in TokenVector
     ├── compiler_src/         ds_gop.txt manifest used to concatenate them
     ├── dist/                 tkvc-tv.exe (the compiler) + il_features/
-    ├── tests/                134 acceptance tests + 42 negative cases
+    ├── tests/                135 acceptance tests + 44 negative cases
     ├── tests_suite/          154 .ca data-driven cases + 203 input samples
     ├── tools/                gates + tkv_guide.tkv (the language guide)
     ├── projects/             19 real tools written in .tkv

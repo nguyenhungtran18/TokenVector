@@ -1,0 +1,431 @@
+# -*- coding: utf-8 -*-
+"""GATE CHO DCE `TkvSimd` (2026-11-04).
+
+Truoc day compiler emit CA class TkvSimd (~126 method, ~5200 dong IL) cho moi
+chuong trinh, ke ca khi chi goi `matmul`. Nay class duoc sinh DAN theo nhom
+tinh nang: `_can_simd(ctx, feat)` chi chen IL cua nhom THAT SU duoc dung.
+
+Bai nay la luoi an toan cho thay doi do:
+  1. Moi nhom `elem_*` (f32/f64/i32/i64) phai TU DU: ban mang T[] duoc wrapper
+     List<T> goi toi, ban Vector<T> `...V` duoc ban mang goi toi, va `Kern`
+     (native chunk) phai duoc keo theo - thieu mot manh la InvalidProgramException
+     hoac Method not found luc CHAY, khong phai luc dich.
+  2. `native` (simd_isa/simd_hw/simd_lanes) khong duoc keo ca class.
+  3. `count` (simd_count_char) dung P/Invoke rieng.
+  4. `gemm` (matmul) dung P/Invoke rieng.
+
+Gia tri mong doi tinh bang vong scalar trong test. Voi dot/sum, thu tu cong
+cua SIMD (cong theo lane roi moi giam) KHAC scalar nen so sanh bang sai so;
+add/sub/mul/scale/axpy/max/min/min la tung phan tu nen phai BIT-EXACT.
+"""
+
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def _mk_f32(n: "i32", seed: "i32") -> "list[f32]":
+    out: "list[f32]" = []
+    i = 0
+    while i < n:
+        out.append(float(((i + seed) % 7) - 3) * 0.25)
+        i = i + 1
+    return out
+
+
+def _mk_f64(n: "i32", seed: "i32") -> "list[f64]":
+    out: "list[f64]" = []
+    i = 0
+    while i < n:
+        out.append(float(((i + seed) % 7) - 3) * 0.5)
+        i = i + 1
+    return out
+
+
+def _mk_i32(n: "i32", seed: "i32") -> "list[i32]":
+    out: "list[i32]" = []
+    i = 0
+    while i < n:
+        out.append(((i + seed) % 7) - 3)
+        i = i + 1
+    return out
+
+
+def _mk_i64(n: "i32", seed: "i32") -> "list[i64]":
+    out: "list[i64]" = []
+    i = 0
+    while i < n:
+        out.append(((i + seed) % 9) - 4)
+        i = i + 1
+    return out
+
+
+def _zero_f32(n: "i32") -> "list[f32]":
+    out: "list[f32]" = []
+    i = 0
+    while i < n:
+        out.append(0.0)
+        i = i + 1
+    return out
+
+
+def _zero_f64(n: "i32") -> "list[f64]":
+    out: "list[f64]" = []
+    i = 0
+    while i < n:
+        out.append(0.0)
+        i = i + 1
+    return out
+
+
+def _zero_i32(n: "i32") -> "list[i32]":
+    out: "list[i32]" = []
+    i = 0
+    while i < n:
+        out.append(0)
+        i = i + 1
+    return out
+
+
+def _zero_i64(n: "i32") -> "list[i64]":
+    out: "list[i64]" = []
+    i = 0
+    while i < n:
+        out.append(0)
+        i = i + 1
+    return out
+
+
+def _gan(got: "f64", exp: "f64", tol: "f64") -> "i32":
+    """1 neu |got - exp| <= tol (SIMD doi thu tu cong voi dot/sum)."""
+    d: "f64" = got - exp
+    if d < 0.0:
+        d = 0.0 - d
+    if d <= tol:
+        return 1
+    return 0
+
+
+def _test_f32() -> "i32":
+    total = 0
+    n: "i32" = 21
+    a = _mk_f32(n, 1)
+    b = _mk_f32(n, 2)
+    c = _zero_f32(n)
+
+    # add / sub / mul: tung phan tu -> bit-exact voi scalar
+    simd_add(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] + b[i]:
+            ok = 0
+        i = i + 1
+    total += check("f32_add", str(ok), "1")
+
+    simd_sub(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] - b[i]:
+            ok = 0
+        i = i + 1
+    total += check("f32_sub", str(ok), "1")
+
+    simd_mul(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] * b[i]:
+            ok = 0
+        i = i + 1
+    total += check("f32_mul", str(ok), "1")
+
+    # simd_scale/simd_axpy CHI co ban MANG (khong co wrapper List<T> trong
+    # compiler) nen khong goi duoc tu nguon TKV - bo qua o day.
+
+    # dot / sum: doi thu tu cong -> sai so ~1e-7 voi f32, dung tol 1e-4
+    exp: "f64" = 0.0
+    i = 0
+    while i < n:
+        exp = exp + float(a[i]) * float(b[i])
+        i = i + 1
+    total += check("f32_dot", str(_gan(float(simd_dot(a, b)), exp, 1.0e-4)), "1")
+
+    exp = 0.0
+    i = 0
+    while i < n:
+        exp = exp + float(a[i])
+        i = i + 1
+    total += check("f32_sum", str(_gan(float(simd_sum(a)), exp, 1.0e-4)), "1")
+
+    # max / min: chon phan tu -> bit-exact
+    mx: "f32" = a[0]
+    mn: "f32" = a[0]
+    i = 0
+    while i < n:
+        if a[i] > mx:
+            mx = a[i]
+        if a[i] < mn:
+            mn = a[i]
+        i = i + 1
+    total += check("f32_max", str(int(simd_max(a) == mx)), "1")
+    total += check("f32_min", str(int(simd_min(a) == mn)), "1")
+    return total
+
+
+def _test_f64() -> "i32":
+    total = 0
+    n: "i32" = 23
+    a = _mk_f64(n, 3)
+    b = _mk_f64(n, 4)
+    c = _zero_f64(n)
+
+    simd_add(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] + b[i]:
+            ok = 0
+        i = i + 1
+    total += check("f64_add", str(ok), "1")
+
+    simd_sub(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] - b[i]:
+            ok = 0
+        i = i + 1
+    total += check("f64_sub", str(ok), "1")
+
+    simd_mul(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] * b[i]:
+            ok = 0
+        i = i + 1
+    total += check("f64_mul", str(ok), "1")
+
+    # simd_scale/axpy chi co ban MANG - xem ghi chu o _test_f32.
+
+    exp: "f64" = 0.0
+    i = 0
+    while i < n:
+        exp = exp + a[i] * b[i]
+        i = i + 1
+    total += check("f64_dot", str(_gan(float(simd_dot(a, b)), exp, 1.0e-9)), "1")
+
+    exp = 0.0
+    i = 0
+    while i < n:
+        exp = exp + a[i]
+        i = i + 1
+    total += check("f64_sum", str(_gan(float(simd_sum(a)), exp, 1.0e-9)), "1")
+
+    mx: "f64" = a[0]
+    mn: "f64" = a[0]
+    i = 0
+    while i < n:
+        if a[i] > mx:
+            mx = a[i]
+        if a[i] < mn:
+            mn = a[i]
+        i = i + 1
+    total += check("f64_max", str(int(simd_max(a) == mx)), "1")
+    total += check("f64_min", str(int(simd_min(a) == mn)), "1")
+    return total
+
+
+def _test_i32() -> "i32":
+    total = 0
+    n: "i32" = 19
+    a = _mk_i32(n, 5)
+    b = _mk_i32(n, 6)
+    c = _zero_i32(n)
+
+    simd_add(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] + b[i]:
+            ok = 0
+        i = i + 1
+    total += check("i32_add", str(ok), "1")
+
+    simd_sub(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] - b[i]:
+            ok = 0
+        i = i + 1
+    total += check("i32_sub", str(ok), "1")
+
+    simd_mul(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] * b[i]:
+            ok = 0
+        i = i + 1
+    total += check("i32_mul", str(ok), "1")
+
+    # simd_scale/axpy chi co ban MANG - xem ghi chu o _test_f32.
+
+    exp: "i32" = 0
+    i = 0
+    while i < n:
+        exp = exp + a[i] * b[i]
+        i = i + 1
+    total += check("i32_dot", str(int(simd_dot(a, b))), str(exp))
+
+    exp = 0
+    i = 0
+    while i < n:
+        exp = exp + a[i]
+        i = i + 1
+    total += check("i32_sum", str(int(simd_sum(a))), str(exp))
+
+    mx: "i32" = a[0]
+    mn: "i32" = a[0]
+    i = 0
+    while i < n:
+        if a[i] > mx:
+            mx = a[i]
+        if a[i] < mn:
+            mn = a[i]
+        i = i + 1
+    total += check("i32_max", str(int(simd_max(a))), str(mx))
+    total += check("i32_min", str(int(simd_min(a))), str(mn))
+    return total
+
+
+def _test_i64() -> "i32":
+    total = 0
+    n: "i32" = 17
+    a = _mk_i64(n, 7)
+    b = _mk_i64(n, 8)
+    c = _zero_i64(n)
+
+    simd_add(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] + b[i]:
+            ok = 0
+        i = i + 1
+    total += check("i64_add", str(ok), "1")
+
+    simd_sub(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] - b[i]:
+            ok = 0
+        i = i + 1
+    total += check("i64_sub", str(ok), "1")
+
+    simd_mul(a, b, c)
+    ok = 1
+    i = 0
+    while i < n:
+        if c[i] != a[i] * b[i]:
+            ok = 0
+        i = i + 1
+    total += check("i64_mul", str(ok), "1")
+
+    # simd_scale/axpy chi co ban MANG - xem ghi chu o _test_f32.
+
+    exp: "i64" = 0
+    i = 0
+    while i < n:
+        exp = exp + a[i] * b[i]
+        i = i + 1
+    total += check("i64_dot", str(int(simd_dot(a, b))), str(exp))
+
+    exp = 0
+    i = 0
+    while i < n:
+        exp = exp + a[i]
+        i = i + 1
+    total += check("i64_sum", str(int(simd_sum(a))), str(exp))
+
+    mx: "i64" = a[0]
+    mn: "i64" = a[0]
+    i = 0
+    while i < n:
+        if a[i] > mx:
+            mx = a[i]
+        if a[i] < mn:
+            mn = a[i]
+        i = i + 1
+    total += check("i64_max", str(int(simd_max(a))), str(mx))
+    total += check("i64_min", str(int(simd_min(a))), str(mn))
+    return total
+
+
+def _test_isa() -> "i32":
+    """native chunk: Isa() phai goi Kern -> Init, khong duoc thieu."""
+    total = 0
+    isa = simd_isa()
+    total += check("isa_trong_0_2", str(int(isa >= 0 and isa <= 2)), "1")
+    l32 = simd_lanes_f32()
+    total += check("lanes_f32", str(int(l32 == 4 or l32 == 8)), "1")
+    l64 = simd_lanes_f64()
+    total += check("lanes_f64", str(int(l64 == 2 or l64 == 4)), "1")
+    hw = str(simd_hw())
+    total += check("hw_la_bool", str(int(hw == "True" or hw == "False")), "1")
+    return total
+
+
+def _test_count() -> "i32":
+    """count chunk: simd_count_char khong copy BSTR, so sanh 16-bit."""
+    total = 0
+    s = "abcdeabcde"
+    total += check("count_char_a", str(simd_count_char(s, 97, 10)), "2")
+    total += check("count_char_e_4", str(simd_count_char(s, 101, 4)), "0")
+    total += check("count_char_clamp", str(simd_count_char(s, 97, 99)), "2")
+    total += check("count_char_n0", str(simd_count_char(s, 97, 0)), "0")
+    total += check("count_char_n_am", str(simd_count_char(s, 97, -3)), "0")
+    return total
+
+
+def _test_gemm() -> "i32":
+    """gemm chunk: matmul alias cua simd_gemm (native AVX2+FMA)."""
+    total = 0
+    a: "list[f32]" = []
+    a.append(1.0)
+    a.append(2.0)
+    a.append(3.0)
+    a.append(4.0)
+    b: "list[f32]" = []
+    b.append(5.0)
+    b.append(6.0)
+    b.append(7.0)
+    b.append(8.0)
+    c: "list[f32]" = []
+    c.append(0.0)
+    c.append(0.0)
+    c.append(0.0)
+    c.append(0.0)
+    rc = matmul(a, b, c, 2)
+    total += check("matmul_rc", str(rc), "0")
+    # [[1,2],[3,4]] x [[5,6],[7,8]] = [[19,22],[43,50]]
+    total += check("matmul_c0", str(c[0]), "19.0")
+    total += check("matmul_c1", str(c[1]), "22.0")
+    total += check("matmul_c2", str(c[2]), "43.0")
+    total += check("matmul_c3", str(c[3]), "50.0")
+    return total
+
+
+def run() -> "i32":
+    total = 0
+    total += _test_f32()
+    total += _test_f64()
+    total += _test_i32()
+    total += _test_i64()
+    total += _test_isa()
+    total += _test_count()
+    total += _test_gemm()
+    # f32 7 + f64 7 + i32 7 + i64 7 + isa 4 + count 5 + gemm 5 = 42
+    return test_summary("simd_elem_dce_test", total, 42)

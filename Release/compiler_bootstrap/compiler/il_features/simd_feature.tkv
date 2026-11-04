@@ -74,8 +74,9 @@ def _vec(d: "str") -> "str":
 
 
 def _vop(d: "str", ten: "str") -> "str":
+    t = _ten_il(d)
     v = _vec(d)
-    g = 'valuetype ' + _VEC_ASM + '`1<!0>'
+    g = 'valuetype ' + _VEC_ASM + '`1<' + t + '>'
     return 'call ' + g + ' ' + v + '::' + ten + '(' + g + ', ' + g + ')'
 
 
@@ -110,64 +111,13 @@ def _pt_vong_2(d: "str", ten: "str", vop_ten: "str", sop: "str") -> "list[str]":
 
 
 def _pt_scale(d: "str") -> "list[str]":
-    t = _ten_il(d)
-    v = _vec(d)
-    return [
-        '  .method public static void Scale' + _hau_to(d) + '(' + t + '[] a, ' + t + ' s, ' + t + '[] o) cil managed',
-        '  {',
-        '    .maxstack 8',
-        '    .locals init (int32 i, int32 n, int32 w, ' + v + ' vs, ' + v + ' vt)',
-        '    ldarg.0', '    ldlen', '    conv.i4', '    ldarg.2', '    ldlen', '    conv.i4', '    call int32 [mscorlib]System.Math::Min(int32, int32)', '    stloc.1',
-        '    call int32 ' + v + '::get_Count()', '    stloc.2',
-        '    ldloca.s vs', '    ldarg.1', '    call instance void ' + v + '::.ctor(!0)',
-        '    ldc.i4.0', '    stloc.0',
-        '  V_LOOP:',
-        '    ldloc.0', '    ldloc.2', '    add', '    ldloc.1', '    bgt V_TAIL',
-        '    ldarg.0', '    ldloc.0', '    ldelema ' + t, '    ldobj ' + v,
-        '    ldloc.3',
-        '    ' + _vop(d, 'op_Multiply'), '    stloc.s vt',
-        '    ldloc.3', '    ldarg.2', '    ldloc.0', '    ldelema ' + t, '    stobj ' + v,
-        '    ldloc.0', '    ldloc.2', '    add', '    stloc.0', '    br V_LOOP',
-        '  V_TAIL:',
-        '    ldloc.0', '    ldloc.1', '    bge V_END',
-        '    ldarg.2', '    ldloc.0', '    ldarg.0', '    ldloc.0', '    ' + _ldelem(d), '    ldarg.1', '    mul', '    ' + _stelem(d),
-        '    ldloc.0', '    ldc.i4.1', '    add', '    stloc.0', '    br V_TAIL',
-        '  V_END:',
-        '    ret',
-        '  }',
-    ]
+    # Vector<T> khong co tren .NET Framework -> scalar fallback (xem _pt_scale_scalar).
+    return _pt_scale_scalar(d)
 
 
 def _pt_axpy(d: "str") -> "list[str]":
-    """Axpy(T alpha, T[] x, T[] y): y[i] += alpha * x[i]."""
-    t = _ten_il(d)
-    v = _vec(d)
-    return [
-        '  .method public static void Axpy' + _hau_to(d) + '(' + t + ' alpha, ' + t + '[] x, ' + t + '[] y) cil managed',
-        '  {',
-        '    .maxstack 8',
-        '    .locals init (int32 i, int32 n, int32 w, ' + v + ' va, ' + v + ' vt)',
-        '    ldarg.1', '    ldlen', '    conv.i4', '    ldarg.2', '    ldlen', '    conv.i4', '    call int32 [mscorlib]System.Math::Min(int32, int32)', '    stloc.1',
-        '    call int32 ' + v + '::get_Count()', '    stloc.2',
-        '    ldloca.s va', '    ldarg.0', '    call instance void ' + v + '::.ctor(!0)',
-        '    ldc.i4.0', '    stloc.0',
-        '  V_LOOP:',
-        '    ldloc.0', '    ldloc.2', '    add', '    ldloc.1', '    bgt V_TAIL',
-        '    ldarg.2', '    ldloc.0', '    ldelema ' + t, '    ldobj ' + v,
-        '    ldarg.1', '    ldloc.0', '    ldelema ' + t, '    ldobj ' + v,
-        '    ldloc.3',
-        '    ' + _vop(d, 'op_Multiply'),
-        '    ' + _vop(d, 'op_Addition'), '    stloc.s vt',
-        '    ldloc.3', '    ldarg.2', '    ldloc.0', '    ldelema ' + t, '    stobj ' + v,
-        '    ldloc.0', '    ldloc.2', '    add', '    stloc.0', '    br V_LOOP',
-        '  V_TAIL:',
-        '    ldloc.0', '    ldloc.1', '    bge V_END',
-        '    ldarg.2', '    ldloc.0', '    ldarg.2', '    ldloc.0', '    ' + _ldelem(d), '    ldarg.0', '    ldarg.1', '    ldloc.0', '    ' + _ldelem(d), '    mul', '    add', '    ' + _stelem(d),
-        '    ldloc.0', '    ldc.i4.1', '    add', '    stloc.0', '    br V_TAIL',
-        '  V_END:',
-        '    ret',
-        '  }',
-    ]
+    # Vector<T> khong co tren .NET Framework -> scalar fallback (xem _pt_axpy_scalar).
+    return _pt_axpy_scalar(d)
 
 
 def _lay_tong_lane(d: "str") -> "list[str]":
@@ -175,8 +125,8 @@ def _lay_tong_lane(d: "str") -> "list[str]":
     t = _ten_il(d)
     v = _vec(d)
     return [
-        '    call valuetype ' + _VEC_ASM + '`1<!0> ' + v + '::get_One()',
-        '    call !!0 ' + _VEC_ASM + '::Dot<' + t + '>(valuetype ' + _VEC_ASM + '`1<!!0>, valuetype ' + _VEC_ASM + '`1<!!0>)',
+        '    call valuetype ' + _VEC_ASM + '`1<' + t + '> ' + v + '::get_One()',
+        '    call ' + t + ' ' + _VEC_ASM + '::Dot<' + t + '>(valuetype ' + _VEC_ASM + '`1<' + t + '>, valuetype ' + _VEC_ASM + '`1<' + t + '>)',
     ]
 
 
@@ -190,7 +140,7 @@ def _pt_dot(d: "str") -> "list[str]":
         '    .locals init (int32 i, int32 n, int32 w, ' + v + ' acc, ' + t + ' s)',
         '    ldarg.0', '    ldlen', '    conv.i4', '    ldarg.1', '    ldlen', '    conv.i4', '    call int32 [mscorlib]System.Math::Min(int32, int32)', '    stloc.1',
         '    call int32 ' + v + '::get_Count()', '    stloc.2',
-        '    call valuetype ' + _VEC_ASM + '`1<!0> ' + v + '::get_Zero()', '    stloc.3',
+        '    call valuetype ' + _VEC_ASM + '`1<' + t + '> ' + v + '::get_Zero()', '    stloc.3',
         '    ldc.i4.0', '    stloc.0',
         '  V_LOOP:',
         '    ldloc.0', '    ldloc.2', '    add', '    ldloc.1', '    bgt V_RED',
@@ -224,7 +174,7 @@ def _pt_sum(d: "str") -> "list[str]":
         '    .locals init (int32 i, int32 n, int32 w, ' + v + ' acc, ' + t + ' s)',
         '    ldarg.0', '    ldlen', '    conv.i4', '    stloc.1',
         '    call int32 ' + v + '::get_Count()', '    stloc.2',
-        '    call valuetype ' + _VEC_ASM + '`1<!0> ' + v + '::get_Zero()', '    stloc.3',
+        '    call valuetype ' + _VEC_ASM + '`1<' + t + '> ' + v + '::get_Zero()', '    stloc.3',
         '    ldc.i4.0', '    stloc.0',
         '  V_LOOP:',
         '    ldloc.0', '    ldloc.2', '    add', '    ldloc.1', '    bgt V_RED',
@@ -250,49 +200,156 @@ def _pt_cuc_tri(d: "str", ten: "str", bo_qua: "str") -> "list[str]":
     """Max/Min: moi lane khoi tao = a[0] (khong doi ket qua); giam lane bang so sanh vo huong.
     bo_qua: 'ble' (Max: x <= r thi giu r) hoac 'bge' (Min)."""
     t = _ten_il(d)
-    v = _vec(d)
-    vg = 'valuetype ' + _VEC_ASM + '`1<!!0>'
     return [
         '  .method public static ' + t + ' ' + ten + _hau_to(d) + '(' + t + '[] a) cil managed',
         '  {',
         '    .maxstack 8',
-        '    .locals init (int32 i, int32 n, int32 w, ' + v + ' acc, ' + t + ' r, int32 k, ' + t + ' x)',
+        '    .locals init (int32 i, int32 n, ' + t + ' r, ' + t + ' x)',
         '    ldarg.0', '    ldlen', '    conv.i4', '    stloc.1',
         '    ldloc.1', '    brtrue V_OK',
         '    ldstr "' + ten.lower() + '() arg is an empty sequence"', '    newobj instance void [mscorlib]System.ArgumentException::.ctor(string)', '    throw',
         '  V_OK:',
-        '    call int32 ' + v + '::get_Count()', '    stloc.2',
         '    ldarg.0', '    ldc.i4.0', '    ' + _ldelem(d), '    stloc.s r',
-        '    ldloca.s acc', '    ldloc.s r', '    call instance void ' + v + '::.ctor(!0)',
-        '    ldc.i4.0', '    stloc.0',
+        '    ldc.i4.1', '    stloc.0',
         '  V_LOOP:',
-        '    ldloc.0', '    ldloc.2', '    add', '    ldloc.1', '    bgt V_RED',
-        '    ldloc.3',
-        '    ldloc.3',
-        '    ldarg.0', '    ldloc.0', '    ldelema ' + t, '    ldobj ' + v,
-        '    call ' + vg + ' ' + _VEC_ASM + '::' + ten + '<' + t + '>(' + vg + ', ' + vg + ')',
-        '    stloc.3',
-        '    ldloc.0', '    ldloc.2', '    add', '    stloc.0', '    br V_LOOP',
-        '  V_RED:',
-        '    ldc.i4.0', '    stloc.s k',
-        '  V_RL:',
-        '    ldloc.s k', '    ldloc.2', '    bge V_TAIL',
-        '    ldloca.s acc', '    ldloc.s k', '    call instance !0 ' + v + '::get_Item(int32)', '    stloc.s x',
-        '    ldloc.s x', '    ldloc.s r', '    ' + bo_qua + ' V_S1',
-        '    ldloc.s x', '    stloc.s r',
-        '  V_S1:',
-        '    ldloc.s k', '    ldc.i4.1', '    add', '    stloc.s k', '    br V_RL',
-        '  V_TAIL:',
         '    ldloc.0', '    ldloc.1', '    bge V_END',
         '    ldarg.0', '    ldloc.0', '    ' + _ldelem(d), '    stloc.s x',
-        '    ldloc.s x', '    ldloc.s r', '    ' + bo_qua + ' V_S2',
+        '    ldloc.s x', '    ldloc.s r', '    ' + bo_qua + ' V_SKIP',
         '    ldloc.s x', '    stloc.s r',
-        '  V_S2:',
-        '    ldloc.0', '    ldc.i4.1', '    add', '    stloc.0', '    br V_TAIL',
+        '  V_SKIP:',
+        '    ldloc.0', '    ldc.i4.1', '    add', '    stloc.0', '    br V_LOOP',
         '  V_END:',
         '    ldloc.s r', '    ret',
         '  }',
     ]
+
+def _pt_dot_scalar(d: "str") -> "list[str]":
+    t = _ten_il(d)
+    zero = 'ldc.i8 0' if d == 'i64' else 'ldc.i4.0'
+    conv = 'conv.i8' if d == 'i64' else ''
+    lines = [
+        '  .method public static ' + t + ' Dot' + _hau_to(d) + '(' + t + '[] a, ' + t + '[] b) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int32 i, int32 n, ' + t + ' acc)',
+        '    ldarg.0', '    ldlen', '    conv.i4', '    ldarg.1', '    ldlen', '    conv.i4',
+        '    call int32 [mscorlib]System.Math::Min(int32, int32)', '    stloc.1',
+    ]
+    if d == 'i64':
+        lines = lines + ['    ldc.i8 0', '    stloc.2']
+    else:
+        lines = lines + ['    ldc.i4.0', '    stloc.2']
+    lines = lines + [
+        '    ldc.i4.0', '    stloc.0',
+        '  V_LOOP:',
+        '    ldloc.0', '    ldloc.1', '    bge V_END',
+        '    ldloc.2', '    ldarg.0', '    ldloc.0', '    ' + _ldelem(d),
+        '    ldarg.1', '    ldloc.0', '    ' + _ldelem(d), '    mul', '    add', '    stloc.2',
+        '    ldloc.0', '    ldc.i4.1', '    add', '    stloc.0', '    br V_LOOP',
+        '  V_END:',
+        '    ldloc.2', '    ret',
+        '  }',
+    ]
+    return lines
+
+
+def _pt_sum_scalar(d: "str") -> "list[str]":
+    t = _ten_il(d)
+    lines = [
+        '  .method public static ' + t + ' Sum' + _hau_to(d) + '(' + t + '[] a) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int32 i, int32 n, ' + t + ' acc)',
+        '    ldarg.0', '    ldlen', '    conv.i4', '    stloc.1',
+    ]
+    if d == 'i64':
+        lines = lines + ['    ldc.i8 0', '    stloc.2']
+    else:
+        lines = lines + ['    ldc.i4.0', '    stloc.2']
+    lines = lines + [
+        '    ldc.i4.0', '    stloc.0',
+        '  V_LOOP:',
+        '    ldloc.0', '    ldloc.1', '    bge V_END',
+        '    ldloc.2', '    ldarg.0', '    ldloc.0', '    ' + _ldelem(d), '    add', '    stloc.2',
+        '    ldloc.0', '    ldc.i4.1', '    add', '    stloc.0', '    br V_LOOP',
+        '  V_END:',
+        '    ldloc.2', '    ret',
+        '  }',
+    ]
+    return lines
+
+
+def _pt_vong_2_scalar(d: "str", ten: "str", sop: "str") -> "list[str]":
+    t = _ten_il(d)
+    op = 'add' if sop == 'add' else ('sub' if sop == 'sub' else 'mul')
+    return [
+        '  .method public static void ' + ten + _hau_to(d) + '(' + t + '[] a, ' + t + '[] b, ' + t + '[] o) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int32 i, int32 n)',
+        '    ldarg.0', '    ldlen', '    conv.i4', '    ldarg.1', '    ldlen', '    conv.i4',
+        '    call int32 [mscorlib]System.Math::Min(int32, int32)', '    ldarg.2', '    ldlen', '    conv.i4',
+        '    call int32 [mscorlib]System.Math::Min(int32, int32)', '    stloc.1',
+        '    ldc.i4.0', '    stloc.0',
+        '  V_LOOP:',
+        '    ldloc.0', '    ldloc.1', '    bge V_END',
+        '    ldarg.2', '    ldloc.0',
+        '    ldarg.0', '    ldloc.0', '    ' + _ldelem(d),
+        '    ldarg.1', '    ldloc.0', '    ' + _ldelem(d),
+        '    ' + op,
+        '    ' + _stelem(d),
+        '    ldloc.0', '    ldc.i4.1', '    add', '    stloc.0', '    br V_LOOP',
+        '  V_END:',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_scale_scalar(d: "str") -> "list[str]":
+    t = _ten_il(d)
+    return [
+        '  .method public static void Scale' + _hau_to(d) + '(' + t + '[] a, ' + t + ' s, ' + t + '[] o) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int32 i, int32 n)',
+        '    ldarg.0', '    ldlen', '    conv.i4', '    ldarg.2', '    ldlen', '    conv.i4',
+        '    call int32 [mscorlib]System.Math::Min(int32, int32)', '    stloc.1',
+        '    ldc.i4.0', '    stloc.0',
+        '  V_LOOP:',
+        '    ldloc.0', '    ldloc.1', '    bge V_END',
+        '    ldarg.2', '    ldloc.0',
+        '    ldarg.0', '    ldloc.0', '    ' + _ldelem(d),
+        '    ldarg.1', '    mul',
+        '    ' + _stelem(d),
+        '    ldloc.0', '    ldc.i4.1', '    add', '    stloc.0', '    br V_LOOP',
+        '  V_END:',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_axpy_scalar(d: "str") -> "list[str]":
+    t = _ten_il(d)
+    return [
+        '  .method public static void Axpy' + _hau_to(d) + '(' + t + ' alpha, ' + t + '[] x, ' + t + '[] y) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int32 i, int32 n)',
+        '    ldarg.1', '    ldlen', '    conv.i4', '    ldarg.2', '    ldlen', '    conv.i4',
+        '    call int32 [mscorlib]System.Math::Min(int32, int32)', '    stloc.1',
+        '    ldc.i4.0', '    stloc.0',
+        '  V_LOOP:',
+        '    ldloc.0', '    ldloc.1', '    bge V_END',
+        '    ldarg.2', '    ldloc.0',
+        '    ldarg.2', '    ldloc.0', '    ' + _ldelem(d),
+        '    ldarg.0', '    ldarg.1', '    ldloc.0', '    ' + _ldelem(d), '    mul', '    add',
+        '    ' + _stelem(d),
+        '    ldloc.0', '    ldc.i4.1', '    add', '    stloc.0', '    br V_LOOP',
+        '  V_END:',
+        '    ret',
+        '  }',
+    ]
+
 
 
 def _doi_ten_v(khoi: "list[str]") -> "list[str]":
@@ -1421,31 +1478,28 @@ def _pt_dp_wrappers() -> "list[str]":
     return ra
 
 
-def _lop_simd() -> "list[str]":
-    ra = ['.class public auto ansi beforefieldinit ' + _SIMD_CLASS + ' extends [mscorlib]System.Object', '{']
-    ra = ra + _pt_native_ho_tro()
-    ra = ra + _pt_gemm_pinvoke()
-    ra = ra + _pt_count_byte_pinvoke()
-    ra = ra + _pt_packed_pinvoke()
-    for d in ('f32', 'f64'):
-        ra = ra + _pt_packed_create(d)
-        ra = ra + _pt_packed_run(d)
-    ra = ra + _pt_packed_free()
-    ra = ra + _pt_m5_pinvoke()
-    ra = ra + _pt_m5_wrappers()
-    ra = ra + _pt_m6_pinvoke()
-    ra = ra + _pt_m6_wrappers()
-    ra = ra + _pt_m6_list_wrapper()
-    ra = ra + _pt_full_pinvoke()
-    ra = ra + _pt_full_wrapper()
-    ra = ra + _pt_dp_pinvoke()
-    ra = ra + _pt_dp_wrappers()
-    for d in ('f32', 'f64'):
-        ra = ra + _pt_gemm_mang(d)
-        ra = ra + _pt_gemm_list(d)
-    ii = 0
-    for d in ('f32', 'f64'):
-        t = _ten_il(d)
+def _simd_dau() -> "str":
+    """Dong `.class ...` cua TkvSimd - ham chu KHONG phai hang module, vi
+    TKV chi cho hang module la literal (bieu thuc `+` bi tu choi)."""
+    return '.class public auto ansi beforefieldinit ' + _SIMD_CLASS + ' extends [mscorlib]System.Object'
+
+
+def _lop_simd_rong() -> "list[str]":
+    """Khung class TkvSimd RONG; tung nhom method duoc chen dan boi
+    `_can_simd` khi chuong trinh THAT SU dung builtin tuong ung (2026-11-04).
+
+    Truoc day moi chuong trinh deu emit ca class 126 method (ke ca khi chi
+    dung `matmul`), lam IL phinh ~5200 dong va JIT phai nap method chet."""
+    return [_simd_dau(), '{', '}']
+
+
+def _elem_block(d: "str") -> "list[str]":
+    """Nhom method SIMD phan tu cua 1 dtype: ban Vector<T> (hau to V), ban
+    mang T[], wrapper List<T>, va Max/Min."""
+    ra: "list[str]" = []
+    t = _ten_il(d)
+    if d == 'f32' or d == 'f64':
+        so = 0 if d == 'f32' else 1
         ra = ra + _doi_ten_v(_pt_dot(d))
         ra = ra + _doi_ten_v(_pt_sum(d))
         ra = ra + _doi_ten_v(_pt_vong_2(d, 'Add', 'op_Addition', 'add'))
@@ -1453,37 +1507,65 @@ def _lop_simd() -> "list[str]":
         ra = ra + _doi_ten_v(_pt_vong_2(d, 'Mul', 'op_Multiply', 'mul'))
         ra = ra + _doi_ten_v(_pt_scale(d))
         ra = ra + _doi_ten_v(_pt_axpy(d))
-        ra = ra + _mang_khoi('Dot', [t + '[] a', t + '[] b'], t, d, 'dot', ii * 7 + 0)
-        ra = ra + _mang_khoi('Sum', [t + '[] a'], t, d, 'sum', ii * 7 + 1)
-        ra = ra + _mang_khoi('Add', [t + '[] a', t + '[] b', t + '[] o'], 'void', d, 'add', ii * 7 + 2)
-        ra = ra + _mang_khoi('Sub', [t + '[] a', t + '[] b', t + '[] o'], 'void', d, 'sub', ii * 7 + 3)
-        ra = ra + _mang_khoi('Mul', [t + '[] a', t + '[] b', t + '[] o'], 'void', d, 'mul', ii * 7 + 4)
-        ra = ra + _mang_khoi('Scale', [t + '[] a', t + ' s', t + '[] o'], 'void', d, 'scale', ii * 7 + 5)
-        ra = ra + _mang_khoi('Axpy', [t + ' alpha', t + '[] x', t + '[] y'], 'void', d, 'axpy', ii * 7 + 6)
-        ii += 1
-    for d in ('i32', 'i64'):
-        ra = ra + _pt_vong_2(d, 'Add', 'op_Addition', 'add')
-        ra = ra + _pt_vong_2(d, 'Sub', 'op_Subtraction', 'sub')
-        ra = ra + _pt_vong_2(d, 'Mul', 'op_Multiply', 'mul')
-        ra = ra + _pt_scale(d)
-        ra = ra + _pt_axpy(d)
-        ra = ra + _pt_dot(d)
-        ra = ra + _pt_sum(d)
-    for d in ('f32', 'f64', 'i32', 'i64'):
-        ra = ra + _pt_cuc_tri(d, 'Max', 'ble')
-        ra = ra + _pt_cuc_tri(d, 'Min', 'bge')
-    # Wrapper `List<T>` (2026-10-17) - cho phep simd_* nhan kieu tensor
-    # `list[f32]/list[f64]/...` cua repo inference, thay vi chi nhan mang array.
-    for d in ('f32', 'f64', 'i32', 'i64'):
-        ra = ra + _mang_khoi_list('Add', 2, 1, 'void', d)
-        ra = ra + _mang_khoi_list('Sub', 2, 1, 'void', d)
-        ra = ra + _mang_khoi_list('Mul', 2, 1, 'void', d)
-        ra = ra + _mang_khoi_list('Dot', 2, 0, _ten_il(d), d)
-        ra = ra + _mang_khoi_list('Sum', 1, 0, _ten_il(d), d)
-        ra = ra + _mang_khoi_list('Max', 1, 0, _ten_il(d), d)
-        ra = ra + _mang_khoi_list('Min', 1, 0, _ten_il(d), d)
-    ra.append('}')
+        ra = ra + _mang_khoi('Dot', [t + '[] a', t + '[] b'], t, d, 'dot', so * 7 + 0)
+        ra = ra + _mang_khoi('Sum', [t + '[] a'], t, d, 'sum', so * 7 + 1)
+        ra = ra + _mang_khoi('Add', [t + '[] a', t + '[] b', t + '[] o'], 'void', d, 'add', so * 7 + 2)
+        ra = ra + _mang_khoi('Sub', [t + '[] a', t + '[] b', t + '[] o'], 'void', d, 'sub', so * 7 + 3)
+        ra = ra + _mang_khoi('Mul', [t + '[] a', t + '[] b', t + '[] o'], 'void', d, 'mul', so * 7 + 4)
+        ra = ra + _mang_khoi('Scale', [t + '[] a', t + ' s', t + '[] o'], 'void', d, 'scale', so * 7 + 5)
+        ra = ra + _mang_khoi('Axpy', [t + ' alpha', t + '[] x', t + '[] y'], 'void', d, 'axpy', so * 7 + 6)
+    else:
+        # int: Vector<T> khong co tren .NET Framework -> scalar fallback.
+        ra = ra + _pt_vong_2_scalar(d, 'Add', 'add')
+        ra = ra + _pt_vong_2_scalar(d, 'Sub', 'sub')
+        ra = ra + _pt_vong_2_scalar(d, 'Mul', 'mul')
+        ra = ra + _pt_scale_scalar(d)
+        ra = ra + _pt_axpy_scalar(d)
+        ra = ra + _pt_dot_scalar(d)
+        ra = ra + _pt_sum_scalar(d)
+    ra = ra + _pt_cuc_tri(d, 'Max', 'ble')
+    ra = ra + _pt_cuc_tri(d, 'Min', 'bge')
+    ra = ra + _mang_khoi_list('Add', 2, 1, 'void', d)
+    ra = ra + _mang_khoi_list('Sub', 2, 1, 'void', d)
+    ra = ra + _mang_khoi_list('Mul', 2, 1, 'void', d)
+    ra = ra + _mang_khoi_list('Dot', 2, 0, t, d)
+    ra = ra + _mang_khoi_list('Sum', 1, 0, t, d)
+    ra = ra + _mang_khoi_list('Max', 1, 0, t, d)
+    ra = ra + _mang_khoi_list('Min', 1, 0, t, d)
     return ra
+
+
+def _simd_chunk(feat: "str") -> "list[str]":
+    """IL cua 1 nhom tinh nang TkvSimd - chi sinh khi nguoi dung goi builtin
+    tuong ung. Phu thuoc: 'elem_*' va 'isa' can them 'native' (Init/Kern/Isa);
+    moi nhom con lai tu dung (chi goi *_Native cua DLL)."""
+    if feat == 'native':
+        return _pt_native_ho_tro()
+    if feat == 'gemm':
+        ra = _pt_gemm_pinvoke()
+        for d in ('f32', 'f64'):
+            ra = ra + _pt_gemm_mang(d)
+            ra = ra + _pt_gemm_list(d)
+        return ra
+    if feat == 'count':
+        return _pt_count_byte_pinvoke()
+    if feat == 'packed':
+        ra = _pt_packed_pinvoke()
+        for d in ('f32', 'f64'):
+            ra = ra + _pt_packed_create(d)
+            ra = ra + _pt_packed_run(d)
+        return ra + _pt_packed_free()
+    if feat == 'm5':
+        return _pt_m5_pinvoke() + _pt_m5_wrappers()
+    if feat == 'm6':
+        return _pt_m6_pinvoke() + _pt_m6_wrappers() + _pt_m6_list_wrapper()
+    if feat == 'full':
+        return _pt_full_pinvoke() + _pt_full_wrapper()
+    if feat == 'dp':
+        return _pt_dp_pinvoke() + _pt_dp_wrappers()
+    if feat.startswith('elem_'):
+        return _elem_block(feat[5:])
+    return []
 
 
 def _ensure_extern(ctx: "Ctx"):
@@ -1500,7 +1582,33 @@ def _ensure_class_simd(ctx: "Ctx"):
         return
     _ensure_extern(ctx)
     emitted.add(_SIMD_CLASS)
-    ctx.extra_classes.append(_lop_simd())
+    ctx.extra_classes.append(_lop_simd_rong())
+
+
+def _can_simd(ctx: "Ctx", feat: "str"):
+    """Bat buoc class TkvSimd co nhom `feat` (sinh IL 1 lan, chen truoc '}'
+    cuoi class). Dung THAY cho `_ensure_class_simd` o moi compile_* - nho vay
+    chuong trinh chi mang nhung method that su duoc goi."""
+    _ensure_class_simd(ctx)
+    emitted = ctx.emitted_types
+    if emitted is None:
+        return
+    if feat != 'native' and (feat == 'isa' or feat.startswith('elem_')):
+        _can_simd(ctx, 'native')
+    khoa = _SIMD_CLASS + '#' + feat
+    if khoa in emitted:
+        return
+    emitted.add(khoa)
+    ra = _simd_chunk(feat)
+    lop: "list[str]" = []
+    for cls in ctx.extra_classes:
+        if len(cls) > 0 and cls[0] == _simd_dau():
+            lop = cls
+            break
+    if len(lop) < 2:
+        return
+    for k in range(len(ra)):
+        lop.insert(len(lop) - 1, ra[k])
 
 
 def _join_lap(x: "str", n: "int") -> "str":
@@ -1569,7 +1677,7 @@ def compile_simd_dot(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dt
     d = _dtype_mang(args[0], scope, 'simd_dot')
     if _dtype_mang(args[1], scope, 'simd_dot') != d:
         raise SyntaxError("il_codegen: simd_dot(a, b): hai mang phai CUNG kieu phan tu")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'elem_' + d)
     _nap_mang(args[0], scope, out, ctx)
     _nap_mang(args[1], scope, out, ctx)
     if _la_list(args[0], scope) or _la_list(args[1], scope):
@@ -1586,7 +1694,7 @@ def _compile_thu_gon(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dt
     if len(args) != 1:
         raise SyntaxError("il_codegen: simd_" + ten.lower() + "(a) can 1 mang")
     d = _dtype_mang(args[0], scope, 'simd_' + ten.lower())
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'elem_' + d)
     _nap_mang(args[0], scope, out, ctx)
     if _la_list(args[0], scope):
         out.append('    call ' + _ten_il(d) + ' ' + _SIMD_CLASS + '::' + hop + 'L' + _hau_to(d) +
@@ -1614,7 +1722,7 @@ def _compile_vong_2(args: "list[TkvNode]", scope: "Scope", out: "list[str]", ctx
     d = _dtype_mang(args[0], scope, ten_ham)
     if _dtype_mang(args[1], scope, ten_ham) != d or _dtype_mang(args[2], scope, ten_ham) != d:
         raise SyntaxError("il_codegen: " + ten_ham + ": ba mang phai CUNG kieu phan tu")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'elem_' + d)
     # 2026-10-17: ca 3 deu la `list[dtype]` -> goi wrapper `HopL<T>` (tu
     # ToArray() ben trong ham wrapper). Neu chi mot phia la list thi van phai
     # truyen mang - nen yeu cau ca 3 cung loai, bao loi ro.
@@ -1655,7 +1763,12 @@ def compile_simd_scale(args: "list[TkvNode]", scope: "Scope", out: "list[str]", 
     d = _dtype_mang(args[0], scope, 'simd_scale')
     if _dtype_mang(args[2], scope, 'simd_scale') != d:
         raise SyntaxError("il_codegen: simd_scale: mang a va ra phai CUNG kieu phan tu")
-    _ensure_class_simd(ctx)
+    # 2026-11-04: ScaleF32/... chi co ban MANG. Truoc day `list[f32]` van di
+    # qua duong nay -> truyen doi tuong List vao tham so float32[] -> CLR nem
+    # InvalidProgram/AV luc CHAY. Chan som voi thong bao ro.
+    if _la_list(args[0], scope) or _la_list(args[2], scope):
+        raise SyntaxError("il_codegen: simd_scale chi ho tro mang T[] (chua co wrapper List<T>) - gap list[" + d + "]")
+    _can_simd(ctx, 'elem_' + d)
     _nap_mang(args[0], scope, out, ctx)
     ctx.compile_expr(args[1], scope, out, d, ctx)
     _nap_mang(args[2], scope, out, ctx)
@@ -1670,7 +1783,10 @@ def compile_simd_axpy(args: "list[TkvNode]", scope: "Scope", out: "list[str]", d
     d = _dtype_mang(args[1], scope, 'simd_axpy')
     if _dtype_mang(args[2], scope, 'simd_axpy') != d:
         raise SyntaxError("il_codegen: simd_axpy: x va y phai CUNG kieu phan tu")
-    _ensure_class_simd(ctx)
+    # 2026-11-04: AxpyF32/... chi co ban MANG - xem ghi chu o compile_simd_scale.
+    if _la_list(args[1], scope) or _la_list(args[2], scope):
+        raise SyntaxError("il_codegen: simd_axpy chi ho tro mang T[] (chua co wrapper List<T>) - gap list[" + d + "]")
+    _can_simd(ctx, 'elem_' + d)
     ctx.compile_expr(args[0], scope, out, d, ctx)
     _nap_mang(args[1], scope, out, ctx)
     _nap_mang(args[2], scope, out, ctx)
@@ -1688,7 +1804,7 @@ def compile_simd_gemm(args: "list[TkvNode]", scope: "Scope", out: "list[str]", d
         raise SyntaxError("il_codegen: simd_gemm: ba mang phai CUNG kieu phan tu")
     if d not in ('f32', 'f64'):
         raise SyntaxError("il_codegen: simd_gemm chi ho tro f32/f64 (gap " + d + ")")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'gemm')
     h = _hau_to(d)
     la_l = _la_list(args[0], scope) or _la_list(args[1], scope) or _la_list(args[2], scope)
     if la_l:
@@ -1723,7 +1839,7 @@ def compile_simd_gemm_packed_create(args: "list[TkvNode]", scope: "Scope", out: 
         raise SyntaxError("il_codegen: simd_gemm_packed_create chi ho tro f32 hoac f64 (gap " + d + ")")
     if not _la_list(args[0], scope):
         raise SyntaxError("il_codegen: simd_gemm_packed_create chi nhan list[f32]/list[f64]")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'packed')
     _nap_mang(args[0], scope, out, ctx)
     for i in range(1, 6):
         ctx.compile_expr(args[i], scope, out, 'i32', ctx)
@@ -1740,7 +1856,7 @@ def compile_simd_gemm_packed(args: "list[TkvNode]", scope: "Scope", out: "list[s
         raise SyntaxError("il_codegen: simd_gemm_packed chi ho tro f32 hoac f64 (gap " + d + ")")
     if not _la_list(args[2], scope):
         raise SyntaxError("il_codegen: simd_gemm_packed C phai la list[f32]/list[f64]")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'packed')
     ctx.compile_expr(args[0], scope, out, 'i64', ctx)
     ctx.compile_expr(args[1], scope, out, 'i64', ctx)
     _nap_mang(args[2], scope, out, ctx)
@@ -1752,7 +1868,7 @@ def compile_simd_gemm_packed_free(args: "list[TkvNode]", scope: "Scope", out: "l
     """simd_gemm_packed_free(h) -> i64 (tra 0, goi duoc dang cau lenh)."""
     if len(args) != 1:
         raise SyntaxError("il_codegen: simd_gemm_packed_free(h) can dung 1 tham so")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'packed')
     ctx.compile_expr(args[0], scope, out, 'i64', ctx)
     out.append('    call int64 ' + _SIMD_CLASS + '::PackedFree(int64)')
 
@@ -1771,7 +1887,7 @@ def compile_f32_zero(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dt
     if len(args) != 2:
         raise SyntaxError("il_codegen: f32_zero(p, n) can dung 2 tham so")
     _kn_buffer(args[0], scope, 'f32_zero', 'p')
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'm5')
     ctx.compile_expr(args[0], scope, out, 'i64', ctx)
     ctx.compile_expr(args[1], scope, out, 'i32', ctx)
     out.append('    call int64 ' + _SIMD_CLASS + '::F32ZeroM(int64, int32)')
@@ -1785,7 +1901,7 @@ def compile_simd_count_byte(args: "list[TkvNode]", scope: "Scope", out: "list[st
     if len(args) != 3:
         raise SyntaxError("il_codegen: simd_count_byte(p, n, b) can dung 3 tham so")
     _kn_buffer(args[0], scope, 'simd_count_byte', 'p')
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'count')
     ctx.compile_expr(args[0], scope, out, 'i64', ctx)
     out.append('    conv.i')
     ctx.compile_expr(args[1], scope, out, 'i32', ctx)
@@ -1801,7 +1917,7 @@ def compile_simd_count_char(args: "list[TkvNode]", scope: "Scope", out: "list[st
     > U+00FF, vi so sanh 16-bit)."""
     if len(args) != 3:
         raise SyntaxError("il_codegen: simd_count_char(s, ch, n) can dung 3 tham so")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'count')
     ctx.compile_expr(args[0], scope, out, 'str', ctx)
     ctx.compile_expr(args[1], scope, out, 'i32', ctx)
     ctx.compile_expr(args[2], scope, out, 'i32', ctx)
@@ -1815,7 +1931,7 @@ def compile_f32_copy_to_buf(args: "list[TkvNode]", scope: "Scope", out: "list[st
     if not _la_list(args[0], scope):
         raise SyntaxError("il_codegen: f32_copy_to_buf src phai la list[f32]")
     _kn_buffer(args[1], scope, 'f32_copy_to_buf', 'p')
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'm5')
     _nap_mang(args[0], scope, out, ctx)
     ctx.compile_expr(args[1], scope, out, 'i64', ctx)
     ctx.compile_expr(args[2], scope, out, 'i32', ctx)
@@ -1829,7 +1945,7 @@ def compile_f32_copy_from_buf(args: "list[TkvNode]", scope: "Scope", out: "list[
     if not _la_list(args[1], scope):
         raise SyntaxError("il_codegen: f32_copy_from_buf dst phai la list[f32]")
     _kn_buffer(args[0], scope, 'f32_copy_from_buf', 'p')
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'm5')
     ctx.compile_expr(args[0], scope, out, 'i64', ctx)
     _nap_mang(args[1], scope, out, ctx)
     ctx.compile_expr(args[2], scope, out, 'i32', ctx)
@@ -1843,7 +1959,7 @@ def compile_f32_addcmul(args: "list[TkvNode]", scope: "Scope", out: "list[str]",
     _kn_buffer(args[0], scope, 'f32_addcmul', 'dst')
     _kn_buffer(args[1], scope, 'f32_addcmul', 'x')
     _kn_buffer(args[2], scope, 'f32_addcmul', 'y')
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'm5')
     ctx.compile_expr(args[0], scope, out, 'i64', ctx)
     ctx.compile_expr(args[1], scope, out, 'i64', ctx)
     ctx.compile_expr(args[2], scope, out, 'i64', ctx)
@@ -1863,7 +1979,7 @@ def compile_adamw_step(args: "list[TkvNode]", scope: "Scope", out: "list[str]", 
     _kn_buffer(args[1], scope, 'adamw_step', 'm')
     _kn_buffer(args[2], scope, 'adamw_step', 'v')
     _kn_buffer(args[3], scope, 'adamw_step', 'g')
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'm5')
     for i in range(4):
         ctx.compile_expr(args[i], scope, out, 'i64', ctx)
     ctx.compile_expr(args[4], scope, out, 'i32', ctx)
@@ -1887,7 +2003,7 @@ def compile_lmhead_bwd_fused(args: "list[TkvNode]", scope: "Scope", out: "list[s
     _kn_buffer(args[3], scope, 'lmhead_bwd_fused', 'xf')
     _kn_buffer(args[4], scope, 'lmhead_bwd_fused', 'dxf')
     _kn_buffer(args[5], scope, 'lmhead_bwd_fused', 'dwte')
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'm6')
     for i in range(6):
         ctx.compile_expr(args[i], scope, out, 'i64', ctx)
     for i in range(6, 10):
@@ -1916,7 +2032,7 @@ def compile_lmhead_bwd_fused_list(args: "list[TkvNode]", scope: "Scope", out: "l
         if dd != 'f32':
             raise SyntaxError("il_codegen: lmhead_bwd_fused_list chi ho tro f32 (gap " + dd + ")")
     _kn_buffer(args[1], scope, 'lmhead_bwd_fused_list', 'ids')
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'm6')
     _nap_mang(args[0], scope, out, ctx)   # logits
     ctx.compile_expr(args[1], scope, out, 'i64', ctx)  # ids
     _nap_mang(args[2], scope, out, ctx)   # wte
@@ -1950,7 +2066,7 @@ def compile_simd_gemm_full(args: "list[TkvNode]", scope: "Scope", out: "list[str
             raise SyntaxError("il_codegen: simd_gemm_full: a/b/c phai cung kieu phan tu")
     if d0 != 'f32':
         raise SyntaxError("il_codegen: simd_gemm_full chi ho tro f32 (gap " + d0 + " - f64 dung simd_gemm_packed_create/simd_gemm_packed nhu M4)")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'full')
     _nap_mang(args[0], scope, out, ctx)
     _nap_mang(args[1], scope, out, ctx)
     _nap_mang(args[2], scope, out, ctx)
@@ -1976,7 +2092,7 @@ def compile_f32_list_copy(args: "list[TkvNode]", scope: "Scope", out: "list[str]
     d1 = _dtype_mang(args[1], scope, 'f32_list_copy')
     if d0 != 'f32' or d1 != 'f32':
         raise SyntaxError("il_codegen: f32_list_copy chi ho tro f32 (gap " + d0 + "/" + d1 + ")")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'dp')
     _nap_mang(args[0], scope, out, ctx)
     _nap_mang(args[1], scope, out, ctx)
     ctx.compile_expr(args[2], scope, out, 'i32', ctx)
@@ -1998,7 +2114,7 @@ def compile_f32_list_add(args: "list[TkvNode]", scope: "Scope", out: "list[str]"
     d1 = _dtype_mang(args[1], scope, 'f32_list_add')
     if d0 != 'f32' or d1 != 'f32':
         raise SyntaxError("il_codegen: f32_list_add chi ho tro f32 (gap " + d0 + "/" + d1 + ")")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'dp')
     _nap_mang(args[0], scope, out, ctx)
     _nap_mang(args[1], scope, out, ctx)
     ctx.compile_expr(args[2], scope, out, 'i32', ctx)
@@ -2021,7 +2137,7 @@ def compile_linear_dw_fused(args: "list[TkvNode]", scope: "Scope", out: "list[st
         dd = _dtype_mang(args[i], scope, 'linear_dw_fused')
         if dd != 'f32':
             raise SyntaxError("il_codegen: linear_dw_fused chi ho tro f32 (gap " + dd + ")")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'dp')
     for i in range(3):
         _nap_mang(args[i], scope, out, ctx)
     for i in range(3, 7):
@@ -2046,7 +2162,7 @@ def compile_linear_dx_fused(args: "list[TkvNode]", scope: "Scope", out: "list[st
         dd = _dtype_mang(args[i], scope, 'linear_dx_fused')
         if dd != 'f32':
             raise SyntaxError("il_codegen: linear_dx_fused chi ho tro f32 (gap " + dd + ")")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'dp')
     for i in range(3):
         _nap_mang(args[i], scope, out, ctx)
     for i in range(3, 6):
@@ -2067,7 +2183,7 @@ def compile_f32_grad_norm(args: "list[TkvNode]", scope: "Scope", out: "list[str]
     d0 = _dtype_mang(args[0], scope, 'f32_grad_norm')
     if d0 != 'f32':
         raise SyntaxError("il_codegen: f32_grad_norm chi ho tro f32 (gap " + d0 + ")")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'dp')
     _nap_mang(args[0], scope, out, ctx)
     ctx.compile_expr(args[1], scope, out, 'i32', ctx)
     out.append('    call float64 ' + _SIMD_CLASS + '::F32GradNormM(' + _LT_F32 + ', int32)')
@@ -2090,7 +2206,7 @@ def compile_adamw_step_glm(args: "list[TkvNode]", scope: "Scope", out: "list[str
     d3 = _dtype_mang(args[3], scope, 'adamw_step_glm')
     if d3 != 'f32':
         raise SyntaxError("il_codegen: adamw_step_glm chi ho tro g kieu f32 (gap " + d3 + ")")
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'm5')
     for i in range(3):
         ctx.compile_expr(args[i], scope, out, 'i64', ctx)
     _nap_mang(args[3], scope, out, ctx)
@@ -2117,7 +2233,7 @@ def compile_simd_hw(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dty
 
 def compile_simd_isa(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """simd_isa() -> 0 = Vector<T> (khong co kernel native), 1 = AVX2 native, 2 = SSE native (TKV_SIMD_ISA=sse)."""
-    _ensure_class_simd(ctx)
+    _can_simd(ctx, 'isa')
     out.append('    call int32 ' + _SIMD_CLASS + '::Isa()')
 
 

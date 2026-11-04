@@ -1,0 +1,14 @@
+# EXPECT-SUBSTRING: simd_scale chi ho tro mang
+# -*- coding: utf-8 -*-
+# simd_scale CHI co ban MANG (ScaleF32(float32[], float32, float32[])).
+# Truoc 2026-11-04, truyen `list[f32]` van di qua duong nay: compiler phat
+# `call ScaleF32` voi doi tuong List tren stack -> CLR nem InvalidProgram/
+# AccessViolation luc CHAY (khong phai luc dich). Nay phai bi tu choi som.
+
+def run() -> "i32":
+    a: "list[f32]" = []
+    a.append(1.0)
+    o: "list[f32]" = []
+    o.append(0.0)
+    simd_scale(a, 2.0, o)
+    return 0

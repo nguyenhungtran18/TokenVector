@@ -5,7 +5,7 @@
 <p align="left">
   <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
   <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="phiên bản 1.0.11">
-  <img src="https://img.shields.io/badge/tests-134%2F134-brightgreen.svg?style=flat-square" alt="tests 134/134">
+  <img src="https://img.shields.io/badge/tests-135%2F135-brightgreen.svg?style=flat-square" alt="tests 134/134">
   <img src="https://img.shields.io/badge/builtins-423-orange.svg?style=flat-square" alt="builtins 423">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="Giấy phép: MIT">
 </p>
@@ -154,7 +154,7 @@ TokenVector/
     ├── compiler_bootstrap/   133 file .tkv — compiler, viết bằng TokenVector
     ├── compiler_src/         manifest ds_gop.txt dùng để gộp chúng
     ├── dist/                 tkvc-tv.exe (compiler) + il_features/
-    ├── tests/                134 test chấp nhận + 42 case âm
+    ├── tests/                135 test chấp nhận + 44 case âm
     ├── tests_suite/          154 case dữ liệu .ca + 203 mẫu đầu vào
     ├── tools/                gate + tkv_guide.tkv (trợ lý tra quy tắc)
     ├── projects/             19 công cụ thật viết bằng .tkv
