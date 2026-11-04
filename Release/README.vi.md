@@ -97,7 +97,7 @@ tổng quát.
 **Vậy vị trí trung thực là: TokenVector là thay thế CPython.** Trong
 harness này, tốc độ đo được so với CPython là **64×–96250×** và có SIMD
 thật. Đường IL thuần không thể đuổi tới hiệu năng BLAS `f64` trên .NET
-Framework 4.8; `simd_gemm` thì có, qua một kernel native, mà không cần đổi
+.NET 10; `simd_gemm` thì có, qua một kernel native, mà không cần đổi
 runtime.
 
 ## 2. TokenVector KHÔNG phải là gì

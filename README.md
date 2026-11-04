@@ -3,7 +3,7 @@
 </p>
 
 <p align="left">
-  <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
+  <img src="https://img.shields.io/badge/.NET-10-purple.svg?style=flat-square" alt=".NET 10">
   <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="version 1.0.11">
   <img src="https://img.shields.io/badge/tests-135%2F135-brightgreen.svg?style=flat-square" alt="tests 134/134">
   <img src="https://img.shields.io/badge/builtins-423-orange.svg?style=flat-square" alt="builtins 423">
@@ -66,10 +66,10 @@ mean = 2.5
 The CLI is **positional** — `tkvc-tv.exe <source.tkv> <output.exe> <entry>`.
 
 The resulting `hello.exe` is **9.5 KB** (a bare `print("hi")` is **6 KB**) and runs on any machine with
-**.NET Framework 4.x**. Nothing else is installed alongside it.
+**.NET 10**. Nothing else is installed alongside it.
 
 > **Requirement:** the compiler itself (`tkvc-tv.exe`) is a Windows PE and needs
-> .NET Framework 4.x on the *build* machine. Programs it produces need the same
+> .NET 10 on the *build* machine. Programs it produces need the same
 > framework on the *run* machine — that is the only dependency.
 
 ---
@@ -80,7 +80,7 @@ The resulting `hello.exe` is **9.5 KB** (a bare `print("hi")` is **6 KB**) and r
 |---|---|
 | Output | one **standalone `.exe`** (PE), **6 KB** for a bare `print`, 9.5 KB for the example above |
 | Types | unboxed `i32` / `i64` / `f32` / `f64` / `str`, plus `int` and `bool` |
-| Runtime | .NET Framework 4.x — no interpreter, no GIL |
+| Runtime | .NET 10 — no interpreter, no GIL |
 | Threads | `thread_spawn` / `thread_join`, true multicore with no global lock |
 | SIMD | `f32x4` → `System.Numerics.Vector4`; elementwise loops are auto-vectorised (P6); `simd_gemm` runs a native AVX2+FMA kernel for f32/f64 matmul |
 | Interop | any .NET/NuGet assembly, P/Invoke, and raw C FFI |

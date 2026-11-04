@@ -3,7 +3,7 @@
 </p>
 
 <p align="left">
-  <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
+  <img src="https://img.shields.io/badge/.NET-10-purple.svg?style=flat-square" alt=".NET 10">
   <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="phiên bản 1.0.11">
   <img src="https://img.shields.io/badge/tests-135%2F135-brightgreen.svg?style=flat-square" alt="tests 134/134">
   <img src="https://img.shields.io/badge/builtins-423-orange.svg?style=flat-square" alt="builtins 423">
@@ -66,11 +66,11 @@ mean = 2.5
 CLI là **positional** — `tkvc-tv.exe <nguon.tkv> <ra.exe> <ham_entry>`.
 
 File `hello.exe` có kích thước **9,5 KB** (một `print("hi")` tối thiểu là
-**6 KB**) và chạy trên mọi máy có **.NET Framework 4.x**. Không có gì phải cài
+**6 KB**) và chạy trên mọi máy có **.NET 10**. Không có gì phải cài
 thêm.
 
 > **Yêu cầu:** bản thân compiler (`tkvc-tv.exe`) là PE Windows và cần
-> .NET Framework 4.x trên máy *biên dịch*. Chương trình nó tạo ra cũng cần
+> .NET 10 trên máy *biên dịch*. Chương trình nó tạo ra cũng cần
 > framework đó trên máy *chạy* — đó là phụ thuộc duy nhất.
 
 ---
@@ -81,7 +81,7 @@ thêm.
 |---|---|
 | Đầu ra | một **`.exe` độc lập** (PE), **6 KB** cho `print` tối thiểu, 9,5 KB cho ví dụ trên |
 | Kiểu dữ liệu | `i32` / `i64` / `f32` / `f64` / `str` không hộp, cùng `int` và `bool` |
-| Runtime | .NET Framework 4.x — không interpreter, không GIL |
+| Runtime | .NET 10 — không interpreter, không GIL |
 | Luồng | `thread_spawn` / `thread_join`, đa lõi thật, không có global lock |
 | SIMD | `f32x4` → `System.Numerics.Vector4`; vòng lặp elementwise được tự động vector hóa (P6); `simd_gemm` chạy kernel native AVX2+FMA cho matmul f32/f64 |
 | Interop | mọi assembly .NET/NuGet, P/Invoke, và C FFI trực tiếp |

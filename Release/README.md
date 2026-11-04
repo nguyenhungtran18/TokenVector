@@ -99,7 +99,7 @@ algorithm, not a general-purpose comparison sort.
 **So the honest position is: TokenVector is a CPython replacement.** Its
 measured speedups over the interpreter it replaces are 64×–96250× in this
 harness, and it has working SIMD. The pure-IL path cannot reach `f64` BLAS
-performance on .NET Framework 4.8; `simd_gemm` does, through a native kernel,
+performance on .NET 10; `simd_gemm` does, through a native kernel,
 without changing the runtime.
 
 ## 2. What TokenVector is *not*
