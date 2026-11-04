@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
   <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="version 1.0.11">
   <img src="https://img.shields.io/badge/tests-134%2F134-brightgreen.svg?style=flat-square" alt="tests 134/134">
-  <img src="https://img.shields.io/badge/builtins-422-orange.svg?style=flat-square" alt="builtins 422">
+  <img src="https://img.shields.io/badge/builtins-423-orange.svg?style=flat-square" alt="builtins 423">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License: MIT">
 </p>
 
@@ -113,7 +113,7 @@ Measured 2026-11-04 against **CPython 3.14.7** and **NumPy 2.5.2**
 | add | 0.582 ms | 0.845 ms | **TokenVector 1.45×** |
 | sort | 1.51 ms | 3.93 ms | **TokenVector 2.61×** (different algorithms; see note) |
 | string | 5.28 ms | 2.23 ms | NumPy 2.37× |
-| string — SIMD scan row | 5.53 ms | 2.23 ms | NumPy 2.48× |
+| string — SIMD scan row | 4.58 ms | 2.23 ms | NumPy 2.05× |
 
 NumPy is native machine code (BLAS/ufuncs), not a managed runtime. The
 IL path cannot chase BLAS consistently; `simd_gemm` is the native route.
@@ -134,7 +134,7 @@ they actually print. **If a gate is not green, the claim above does not hold.**
 | Lint-rule self-test | `powershell -File Release\tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
 | Registration | `Release\dist\tkvc-tv.exe Release\tools\dang_ky_gate.tkv Release\build\dk.exe run` | 0 violations |
 
-**Builtins registered: 422.**
+**Builtins registered: 423.**
 
 The compiler itself is **self-hosted**: its source is 132 `.tkv` files under
 `Release/compiler_bootstrap/`. `Release\tools\vong.exe` concatenates them,

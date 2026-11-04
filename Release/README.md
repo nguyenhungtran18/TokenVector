@@ -47,7 +47,7 @@ Everything below is checked by a gate in this repository. Numbers are from
 | Lint-rule self-test | `powershell -File tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
 | Registration | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 violations |
 
-**Builtins registered: 422.**
+**Builtins registered: 423.**
 
 > **What the compiler actually is.** The compiler source is **`compiler_bootstrap/`**
 > — 133 files that really are TokenVector. `dist\tkvc-tv.exe` is built by
@@ -88,7 +88,7 @@ machine code**, not a managed runtime:
 | add | 0.582 ms | 0.845 ms | **TokenVector 1.45×** |
 | sort | 1.51 ms | 3.93 ms | **TokenVector 2.61×** (different algorithms; see note) |
 | string | 5.28 ms | 2.23 ms | NumPy 2.37× |
-| string — SIMD scan row | 5.53 ms | 2.23 ms | NumPy 2.48× |
+| string — SIMD scan row | 4.58 ms | 2.23 ms | NumPy 2.05× |
 
 NumPy is native machine code (BLAS/ufuncs), not a managed runtime. The IL
 path cannot chase BLAS consistently; `simd_gemm` is the native route. The

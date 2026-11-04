@@ -1600,3 +1600,27 @@ EXPORT long long CountByte(const unsigned char* p, int n, int b) {
     for (; i < n; i++) if (p[i] == bb) cnt++;
     return cnt;
 }
+
+/* CountChar16(p, n, c) -> i64: dem so lan ma UTF-16 `c` xuat hien trong
+ * [p, p+n) (n tinh bang KY TU, p tro toi ky tu dau cua String).
+ * Khac CountByte: so sanh 16-bit nen dung duoc voi moi chuoi .NET, khong
+ * chi ASCII, va khong phai copy chuoi sang BSTR truoc khi quet.
+ * AVX2 pcmpeqw + movemask (moi lane khop = 2 bit) -> dem bit / 2. */
+EXPORT long long CountChar16(const unsigned short* p, int n, int c) {
+    long long cnt = 0;
+    long long i = 0;
+    unsigned short cc = (unsigned short)c;
+    if (!p || n <= 0) return 0;
+    __m256i vc = _mm256_set1_epi16((short)cc);
+    for (; i + 16 <= n; i += 16) {
+        __m256i d = _mm256_loadu_si256((const __m256i*)(const void*)(p + i));
+        __m256i eq = _mm256_cmpeq_epi16(d, vc);
+        unsigned int m = (unsigned int)_mm256_movemask_epi8(eq);
+        m = m - ((m >> 1) & 0x55555555u);
+        m = (m & 0x33333333u) + ((m >> 2) & 0x33333333u);
+        m = (m + (m >> 4)) & 0x0F0F0F0Fu;
+        cnt += (long long)((m * 0x01010101u) >> 24) / 2;
+    }
+    for (; i < n; i++) if (p[i] == cc) cnt++;
+    return cnt;
+}

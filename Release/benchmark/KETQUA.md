@@ -6,7 +6,7 @@
 |--------|----------|-------------|-------------|-------------|
 | fib(32) | Recursive Fibonacci n=32 | 1169 ms | n/a (recursive) | 14.9 ms |
 | string | Join 200k substrings + count chars | 337 ms | 2.23 ms | 5.28 ms |
-| string scan | Same + SIMD byte scan (BSTR + simd_count_byte, AVX2) | -- | -- | **5.53 ms** |
+| string scan | Same + native UTF-16 char scan (`simd_count_char`, AVX2, no BSTR copy) | -- | -- | **4.58 ms** |
 | sort | Sort 200k integers (tally/count over 16-bit, merge fallback for negatives) | 37659 ms | 3.93 ms | **1.51 ms** |
 | add | Add/sum 262k elements | 1540 ms | 0.845 ms | **0.582 ms** |
 | matmul32 (production native) | Multiply 32x32 matrices, `matmul()` -> `simd_gemm` | 308 ms | 0.0052 ms | **0.0032 ms** |
@@ -34,7 +34,7 @@ full-process wall-clock baseline.
 | matmul32 — production native | 0.0052 ms | 0.0033 ms | **TokenVector 1.58x** |
 | matmul32 — IL path | 0.0052 ms | 0.0095 ms | **NumPy 1.83x** |
 | string | 2.23 ms | 5.28 ms | **NumPy 2.37x** |
-| string — SIMD scan row | 2.23 ms | 5.53 ms | **NumPy 2.48x** |
+| string - SIMD scan row | 2.23 ms | 4.58 ms | **NumPy 2.05x** |
 | sort | 3.93 ms | 1.51 ms | **TokenVector 2.61x** |
 | add | 0.845 ms | 0.582 ms | **TokenVector 1.45x** |
 
@@ -67,13 +67,15 @@ common kernels by geometric mean when the production matmul path is used:**
   **10.2 → 5.28 ms** and the checksum remains **1625000**. `np_string` is
   **2.37x** ahead; the remaining gap is `join` (~3.8 ms measured) rather
   than the character scan.
-- **string scan is correct again.** The previous zero-copy `bstr_writable`
-  experiment emitted `conv.i` on the string object, not a pointer to the
-  UTF-16LE buffer, so the SIMD scan counted 24999 `'e'` bytes and failed the
-  documented checksum (`1624999`). It was removed; `b_string_scan` uses the
-  documented `bstr_alloc` / `simd_count_byte` / `bstr_free` path. The checksum
-  is **1625000** and the row measures **5.53 ms** (best of 3: 5.53 / 5.57 / 5.72).
-  `np_string` is **2.48x** ahead.
+- **string scan no longer copies the string.** `b_string_scan` now calls the
+  new `simd_count_char(s, ch, n)` builtin, which pins the `String` once and
+  runs an AVX2 `pcmpeqw` count directly on its UTF-16 buffer. The old path
+  (`bstr_alloc` + `simd_count_byte` + `bstr_free`) additionally allocated
+  and copied 3.2 MB per run. An A/B in one process (15 runs each, same
+  workload) measures the build+join+scan phase at **3.88 / 3.90 ms (old) vs
+  3.16 / 3.17 ms (new) — 1.23x**, identical checksums. The benchmark row
+  drops **5.53 → 4.58 ms** (`np_string` 2.05x ahead); a best-of-many quiet
+  run hit 3.89 ms, so treat this row as noisy.
 
 NumPy is native machine code (BLAS/ufuncs) — the IL path alone cannot
 chase it; `simd_gemm` is how TokenVector gets there without changing runtime.
@@ -291,6 +293,19 @@ Note (2026-11-04, `join` B experiment rejected): a managed `JoinList`
 **6.37 / 7.57 ms**. Both were slower than the existing `ToArray()` +
 `String::Join` path (**5.28 / 5.53 ms**) on this machine, so the compiler
 was reverted to the original joinIL; no experimental join code remains.
+
+Note (2026-11-04, `simd_count_char`): new builtin
+`simd_count_char(s, ch, n)` counts occurrences of a UTF-16 code unit in the
+first `n` characters of a string. It pins the `String` once
+(`GCHandle` + `AddrOfPinnedObject`, which points at the first char) and calls
+`CountChar16` (AVX2 `pcmpeqw`, 16 lanes/iteration) in
+`tkv_simd_native.dll` — no BSTR copy, and 16-bit comparison so non-ASCII
+works. `b_string_scan` switched from
+`bstr_alloc`/`simd_count_byte`/`bstr_free` to this builtin; A/B (15 runs,
+same process): **3.88 / 3.90 → 3.16 / 3.17 ms**, checksum still
+**1625000**. Benchmark row best-of-3: **4.58 ms** (3 runs: 4.58 / 5.05 /
+4.85; earlier 3.89). `tools/vong.exe`: `IL_IDENTICAL`;
+`tools/testkit_gate.ps1`: **134/134**, negative **42/42**.
 
 Known divergence: `tools/benchmark/run_benchmark.tkv` (the legacy copy)
 still carries the merge sort and the scalar matmul — not ported here.

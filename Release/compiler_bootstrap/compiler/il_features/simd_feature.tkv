@@ -584,8 +584,43 @@ def _pt_gemm_pinvoke() -> "list[str]":
 def _pt_count_byte_pinvoke() -> "list[str]":
     # CountByte(p, n, b) -> i64 trong tkv_simd_native.c: AVX2 pcmpeqb dem byte.
     # Ky thuat so khop C: native int p (pointer), int32 n, int32 b, int64 kq.
+    # CountChar16 (them 2026-11-04): dem ma UTF-16 truc tiep tren bo nho cua
+    # String (pin 1 lan, khong copy sang BSTR). AddrOfPinnedObject voi string
+    # tra ve con tro toi KY TU DAU (dac ta cua GCHandle).
     return [
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "CountByte" winapi) int64 CountByteNative(native int p, int32 n, int32 b) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "CountChar16" winapi) int64 CountCharNative(native int p, int32 n, int32 c) cil managed preservesig { }',
+        '  .method public hidebysig static int64 CountCharStr(string s, int32 c, int32 n) cil managed',
+        '  {',
+        '    .maxstack 3',
+        '    .locals init (valuetype [mscorlib]System.Runtime.InteropServices.GCHandle h, int64 r, int32 len)',
+        '    ldarg.2',
+        '    ldarg.0',
+        '    callvirt instance int32 [mscorlib]System.String::get_Length()',
+        '    blt.s COUNTCHAR_N',
+        '    ldarg.0',
+        '    callvirt instance int32 [mscorlib]System.String::get_Length()',
+        '    stloc.2',
+        '    br.s COUNTCHAR_GO',
+        '  COUNTCHAR_N:',
+        '    ldarg.2',
+        '    stloc.2',
+        '  COUNTCHAR_GO:',
+        '    ldarg.0',
+        '    ldc.i4.3',
+        '    call valuetype [mscorlib]System.Runtime.InteropServices.GCHandle [mscorlib]System.Runtime.InteropServices.GCHandle::Alloc(object, valuetype [mscorlib]System.Runtime.InteropServices.GCHandleType)',
+        '    stloc.0',
+        '    ldloca.s 0',
+        '    call instance native int [mscorlib]System.Runtime.InteropServices.GCHandle::AddrOfPinnedObject()',
+        '    ldloc.2',
+        '    ldarg.1',
+        '    call int64 ' + _SIMD_CLASS + '::CountCharNative(native int, int32, int32)',
+        '    stloc.1',
+        '    ldloca.s 0',
+        '    call instance void [mscorlib]System.Runtime.InteropServices.GCHandle::Free()',
+        '    ldloc.1',
+        '    ret',
+        '  }',
     ]
 
 
@@ -1758,6 +1793,21 @@ def compile_simd_count_byte(args: "list[TkvNode]", scope: "Scope", out: "list[st
     out.append('    call int64 ' + _SIMD_CLASS + '::CountByteNative(native int, int32, int32)')
 
 
+def compile_simd_count_char(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """simd_count_char(s, ch, n) -> i64: dem so lan ma UTF-16 `ch` xuat hien
+    trong n ky tu DAU cua chuoi `s` (n <= 0 -> 0; n > len(s) -> len(s))
+    (2026-11-04). Quet AVX2 pcmpeqw truc tiep tren bo nho String - KHONG copy
+    sang BSTR nhu simd_count_byte, va dung duoc voi moi chuoi (ke ca ky tu
+    > U+00FF, vi so sanh 16-bit)."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: simd_count_char(s, ch, n) can dung 3 tham so")
+    _ensure_class_simd(ctx)
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    ctx.compile_expr(args[1], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[2], scope, out, 'i32', ctx)
+    out.append('    call int64 ' + _SIMD_CLASS + '::CountCharStr(string, int32, int32)')
+
+
 def compile_f32_copy_to_buf(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """f32_copy_to_buf(src: list[f32], p, n) -> i64: memcpy list -> buffer native."""
     if len(args) != 3:
@@ -2093,6 +2143,7 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'simd_gemm_packed', compile_simd_gemm_packed, 'i32')
     register_expr_builtin(reg, 'simd_gemm_packed_free', compile_simd_gemm_packed_free, 'i64')
     register_expr_builtin(reg, 'simd_count_byte', compile_simd_count_byte, 'i64')
+    register_expr_builtin(reg, 'simd_count_char', compile_simd_count_char, 'i64')
     register_expr_builtin(reg, 'f32_zero', compile_f32_zero, 'i64')
     register_expr_builtin(reg, 'f32_copy_to_buf', compile_f32_copy_to_buf, 'i64')
     register_expr_builtin(reg, 'f32_copy_from_buf', compile_f32_copy_from_buf, 'i64')

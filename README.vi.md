@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
   <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="phiên bản 1.0.11">
   <img src="https://img.shields.io/badge/tests-134%2F134-brightgreen.svg?style=flat-square" alt="tests 134/134">
-  <img src="https://img.shields.io/badge/builtins-422-orange.svg?style=flat-square" alt="builtins 422">
+  <img src="https://img.shields.io/badge/builtins-423-orange.svg?style=flat-square" alt="builtins 423">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="Giấy phép: MIT">
 </p>
 
@@ -114,7 +114,7 @@ không phải do cấp phát từng ký tự:**
 | add | 0,582 ms | 0,845 ms | **TokenVector 1,45×** |
 | sort | 1,51 ms | 3,93 ms | **TokenVector 2,61×** (thuật toán khác; xem ghi chú) |
 | string | 5,28 ms | 2,23 ms | NumPy 2,37× |
-| string — hàng SIMD scan | 5,53 ms | 2,23 ms | NumPy 2,48× |
+| string — hàng SIMD scan | 4,58 ms | 2,23 ms | NumPy 2,05× |
 
 NumPy là mã native (BLAS/ufuncs), không phải runtime managed. Đường IL
 không thể đua đều với BLAS; `simd_gemm` là đường native. Hàng sort dùng
@@ -135,7 +135,7 @@ in ra. **Gate không xanh thì các tuyên bố trên không đứng.**
 | Tự kiểm luật lint | `powershell -File Release\tools\lint_rules_gate.ps1` | Bắt đủ 8 bẫy, 0 báo nhầm |
 | Đăng ký | `Release\dist\tkvc-tv.exe Release\tools\dang_ky_gate.tkv Release\build\dk.exe run` | 0 vi phạm |
 
-**Builtins đã đăng ký: 422.**
+**Builtins đã đăng ký: 423.**
 
 Bản thân compiler **tự sinh**: mã nguồn là 133 file `.tkv` trong
 `Release/compiler_bootstrap/`. `Release\tools\vong.exe` gộp chúng, biên dịch

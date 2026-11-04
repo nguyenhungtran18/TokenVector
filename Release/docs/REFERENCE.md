@@ -34,7 +34,7 @@
 | [4](#4-dạng-dựng-giá-trị-vế-phải-của-phép-gán) | Dạng gán | 31 dạng vế phải được đăng ký riêng |
 | [5](#5-còn-thiếu--đã-probe-không-phải-suy-đoán) | Còn thiếu | Giới hạn đã đo, không giới hạn do đoán |
 | [6](#6-hướng-dẫn-dùng--cho-chỗ-khác-python) | Hướng dẫn dùng | 14 mục "ở đây khác Python, và vì sao" |
-| [7](#7-danh-mục-đầy-đủ-sinh-tự-động) | Danh mục đầy đủ | 422 tên + danh sách file (sinh tự động) |
+| [7](#7-danh-mục-đầy-đủ-sinh-tự-động) | Danh mục đầy đủ | 423 tên + danh sách file (sinh tự động) |
 
 | [8](#8-ba-sự-cố-đã-ghi--đừng-tin-mù) | Ba sự cố | Những chỗ đã sai vì tin tài liệu |
 
@@ -380,6 +380,8 @@ số/trả về của nó chỉ suy được từ một `TypeAnn` "mục tiêu" 
 | `v_load4` | `v_load4(p, off)` | Nạp 16 byte (4 lane) → `f32x4`. `off` tính theo **byte**. |
 | `v_store4` | `v_store4(p, off, v)` | Ghi 4 lane. |
 | `v_hsum4` | `v_hsum4(v)` | Gom 4 lane về 1 `f32`. **Thứ tự cộng là `((X+Y)+Z)+W`** — phải khớp đúng thứ tự của vòng scalar, nếu ghep cặp `(X+Y)+(Z+W)` thì sai số float. |
+| `simd_count_byte` | `simd_count_byte(p, n, b)` | Đếm số byte bằng `b` trong buffer native `[p, p+n)` — AVX2 `pcmpeqb`, trả `i64`. Dùng cho buffer `bstr_alloc` (UTF-16LE): đếm byte thấp của ký tự ASCII. |
+| `simd_count_char` | `simd_count_char(s, ch, n)` | Đếm số lần mã UTF-16 `ch` xuất hiện trong `n` ký tự **đầu** của chuỗi `s` — AVX2 `pcmpeqw` chạy trực tiếp trên bộ nhớ `String` (pin 1 lần, **không copy sang BSTR**), trả `i64`. `n <= 0` → `0`; `n > len(s)` → quét hết chuỗi. So sánh 16-bit nên đúng với cả ký tự ngoài ASCII. |
 | `matmul` | `matmul(a, b, r, n)` | Alias của `simd_gemm`: nhân ma trận vuông `n×n` `r = a × b`; `a`, `b`, `r` là `list[f32]` hoặc `list[f64]` (cùng kiểu, row-major), gọi kernel native AVX2+FMA, đa luồng, không copy vào/ra. |
 | `simd_gemm` | `simd_gemm(a, b, r, n)` | Nhân ma trận vuông `n×n`: `r = a × b`. `a`, `b`, `r` là `list[f32]` hoặc `list[f64]` (cùng kiểu), lưu theo hàng. Gọi kernel native AVX2+FMA trong `tkv_simd_native.dll` (nạp cạnh `.exe`), đa luồng; không copy vào/ra. Không kiểm tra kích thước — `n×n` phải khớp độ dài list. |
 | `simd_gemm_packed_create` | `simd_gemm_packed_create(src, rows, cols, stride, T, trans)` | **M4** — prepack ma trận **một lần** / step, trả `i64` handle. `src` là `list[f32]` **hoặc `list[f64]`** (M4 ABI f64, SPEC §6 — Tensor production là `List[Double]`; bản f64 convert double→float **ngay trong pack**, không qua interpreted convert), `rows×cols` với `stride` là bề rộng hàng của nguồn; `T` là cỡ tile, `trans=1` để pack bản **transpose** (layout `W[n][k]`). Native copy + pad về `T`, zero-fill phần thiếu, do DLL quản lý. handle 0/thông số sai → ném lỗi rõ. |
@@ -1213,7 +1215,8 @@ compiler - ghi de lam hong ca buoc bien dich.
 `proc_run` `py_dict_new` `py_tuple_new` `randint` `random` `random_randint` `randrange` `re_fullmatch`
 `re_match` `re_replace` `re_search` `re_split` `re_sub` `read_ansi` `read_f32` `read_file`
 `read_i32` `read_i64` `read_u8` `repr` `reversed` `set` `setattr` `sha256_hex`
-`simd_add` `simd_axpy` `simd_dot` `simd_gemm` `simd_gemm_full` `simd_gemm_packed` `simd_gemm_packed_create` `simd_gemm_packed_free`
+`simd_add` `simd_axpy` `simd_count_byte` `simd_count_char` `simd_dot` `simd_gemm` `simd_gemm_full`
+`simd_gemm_packed` `simd_gemm_packed_create` `simd_gemm_packed_free`
 `simd_hw` `simd_isa` `simd_lanes_f32` `simd_lanes_f64` `simd_max` `simd_min` `simd_mul` `simd_scale`
 `simd_sub` `simd_sum` `slice_step` `str` `str_maketrans` `sys_argv` `thread_id` `thread_join`
 `thread_sleep` `thread_spawn` `time_perf` `time_sleep` `time_time` `timedelta_make` `type` `uniform`

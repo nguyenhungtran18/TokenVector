@@ -60,6 +60,7 @@ Assembled method TkvSlice::StepS
 Assembled method TkvSimd::Init
 Assembled method TkvSimd::Kern
 Assembled method TkvSimd::Isa
+Assembled method TkvSimd::CountCharStr
 Assembled method TkvSimd::PackedCreate
 Assembled method TkvSimd::PackedRun
 Assembled method TkvSimd::PackedCreate64
@@ -199,9 +200,9 @@ Class 1	Fields: 2;	Methods: 27;
 Class 2	Methods: 3;	
 Class 3	Methods: 15;	
 Class 4	Methods: 8;	
-Class 5	Fields: 3;	Methods: 126;	
+Class 5	Fields: 3;	Methods: 128;	
 Class 6	Methods: 22;	
-Resolving local member refs: 463 -> 465 defs, 0 refs, 0 unresolved
+Resolving local member refs: 464 -> 466 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	

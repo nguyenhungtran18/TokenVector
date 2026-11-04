@@ -47,7 +47,7 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 | Tự kiểm bộ luật lint | `powershell -File tools\lint_rules_gate.ps1` | Bắt đủ 8 bẫy, 0 báo nhầm |
 | Đăng ký | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 vi phạm |
 
-**Đã đăng ký 422 builtin.**
+**Đã đăng ký 423 builtin.**
 
 > **Compiler thật sự là gì.** Mã nguồn compiler là **`compiler_bootstrap/`** —
 > 133 file **thật sự là TokenVector**. `dist\tkvc-tv.exe` do `tools\vong.exe`
@@ -86,7 +86,7 @@ native**, không phải runtime managed:
 | add | 0,582 ms | 0,845 ms | **TokenVector 1,45×** |
 | sort | 1,51 ms | 3,93 ms | **TokenVector 2,61×** (thuật toán khác; xem ghi chú) |
 | string | 5,28 ms | 2,23 ms | NumPy 2,37× |
-| string — hàng SIMD scan | 5,53 ms | 2,23 ms | NumPy 2,48× |
+| string — hàng SIMD scan | 4,58 ms | 2,23 ms | NumPy 2,05× |
 
 NumPy là mã native (BLAS/ufuncs), không phải runtime managed. Đường IL
 không thể đua đều với BLAS; `simd_gemm` là đường native. Hàng sort dùng
