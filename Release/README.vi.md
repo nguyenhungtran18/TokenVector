@@ -37,20 +37,20 @@ Kết quả là một `.exe` khoảng **6 KB** (hello-world) chạy được tr�
 ## 1. Tình trạng — đã kiểm chứng, không phải hứa hẹn
 
 Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. Số liệu ngày
-2026-10-02.
+2026-11-04.
 
 | Cổng | Lệnh | Kết quả |
 |---|---|---|
-| Nghiệm thu compiler | `powershell -File tools\testkit_gate.ps1` | **125/125** PASS, **31/31** negative bị từ chối đúng |
-| Fixpoint tự biên dịch | `tools\vong.exe` | **IL_IDENTICAL** (132 file) |
+| Nghiệm thu compiler | `powershell -File tools\testkit_gate.ps1` | **134/134** PASS, **42/42** negative bị từ chối đúng |
+| Fixpoint tự biên dịch | `tools\vong.exe` | **IL_IDENTICAL** (133 file) |
 | Hiệu năng | `powershell -File tools\perf_gate.ps1` | 4 kernel, best-of-5, **có so checksum** |
 | Tự kiểm bộ luật lint | `powershell -File tools\lint_rules_gate.ps1` | Bắt đủ 8 bẫy, 0 báo nhầm |
 | Đăng ký | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 vi phạm |
 
-**Đã đăng ký 420 builtin.**
+**Đã đăng ký 421 builtin.**
 
 > **Compiler thật sự là gì.** Mã nguồn compiler là **`compiler_bootstrap/`** —
-> 132 file **thật sự là TokenVector**. `dist\tkvc-tv.exe` do `tools\vong.exe`
+> 133 file **thật sự là TokenVector**. `dist\tkvc-tv.exe` do `tools\vong.exe`
 > sinh ra: nó gộp các file đó rồi biên dịch **hai lần**, và hai bản IL phải
 > giống hệt nhau byte-for-byte (`IL_IDENTICAL`). Đó mới là "self-hosted".
 
@@ -61,48 +61,42 @@ Mọi dòng dưới đây đều do một cổng trong repo này kiểm tra. S�
 
 ## 1b. TokenVector đấu ở đâu — và KHÔNG đấu ở đâu
 
-Đo 2026-10-14 với **CPython 3.14.7** và **NumPy 2.5.2** (OpenBLAS 0.3.34,
-kernel "Haswell") trên Intel Xeon E5-2695 v3. Tái lập:
-`python D:\TokenVector.TestOracle\benchmark\run.py --self-host`.
+Đo ngày 2026-11-04 với **CPython 3.14.7** và **NumPy 2.5.2**
+(OpenBLAS 0.3.34, kernel "Haswell"). Phương pháp và checksum đầy đủ:
+`benchmark/KETQUA.md`.
 
-**Với CPython, TokenVector thắng ở mọi kernel:**
+**Với CPython, TokenVector thắng trên mọi kernel trong harness:**
 
 | kernel | TokenVector | CPython | TokenVector nhanh hơn |
 |---|---|---|---|
-| fib | 11,4 ms | 933 ms | **82×** |
-| sort | 15,7 ms | 1012 ms | **64×** |
-| matmul32 | 147 µs | 8,87 ms | **60×** |
-| add | 1,43 ms | 67,1 ms | **47×** |
-| f32mm_vec | 33 µs | 1,48 ms | **45×** |
-| f32mm | 141 µs | 1,49 ms | **11×** |
-| string | 22,9 ms | 49,7 ms | **2,2×** |
+| fib(32) | 14,9 ms | 1169 ms | **78×** |
+| sort | 1,51 ms | 37659 ms | **24989×** (thuật toán khác; xem ghi chú) |
+| matmul32 | 9,5 µs | 308 ms | **32400×** |
+| add | 0,582 ms | 1540 ms | **2647×** |
+| string | 5,28 ms | 337 ms | **64×** |
 
-Một `.exe` rỗng của TokenVector cũng khởi động trong **24,8 ms**, so với
-**35,2 ms** của `CPython -c pass`.
-
-**Với NumPy thì có thắng có thua — element-wise vẫn bị chặn băng thông, matmul
-giờ thắng nhờ `simd_gemm`.** NumPy là CPython gọi **mã máy native**, không phải
-runtime managed:
+**Với NumPy thì có thắng có thua, và `string` giờ bị chặn bởi `join`
+chứ không phải do cấp phát từng ký tự:** NumPy là CPython gọi **mã máy
+native**, không phải runtime managed:
 
 | kernel | TokenVector | NumPy | nhanh hơn |
 |---|---|---|---|
-| matmul32 (`simd_gemm`, f32) | 1,7 µs | 5,5 µs | **TokenVector 3,2×** |
-| matmul32 (duong IL f32x4 vector) | 14,1 µs | 5,5 µs | NumPy 2,4× |
-| matmul32 (duong IL typed, i32) | 85,6 µs | 5,7 µs | NumPy 15× |
-| add (duong IL typed, i32) | 0,639 ms | 0,911 ms | **TokenVector 1,4×** |
+| matmul32 (`simd_gemm`, f64) | 3,3 µs | 5,2 µs | **TokenVector 1,58×** |
+| matmul32 (đường IL f32x4) | 9,5 µs | 5,2 µs | NumPy 1,83× |
+| add | 0,582 ms | 0,845 ms | **TokenVector 1,45×** |
+| sort | 1,51 ms | 3,93 ms | **TokenVector 2,61×** (thuật toán khác; xem ghi chú) |
+| string | 5,28 ms | 2,23 ms | NumPy 2,37× |
+| string — hàng SIMD scan | 5,53 ms | 2,23 ms | NumPy 2,48× |
 
-Tuyên bố cũ rằng khoảng cách đường IL đến từ bề rộng vector là sai: `i`/`half` để nguyên kiểu, nên mặc định là `TkvInt` (boxed, độ chính xác tuỳ ý) và mỗi lần lặp đều trả `TkvInt::Cmp`/`FromI64`/`Add`/`ToI32`. Gán biến đếm `i32` riêng lẻ đưa `list[f64]` add từ 3,18 ms xuống 0,64 ms -- không đổi cấu trúc dữ liệu (`tools/benchmark/run_benchmark.il`, `b_add`; xem `benchmark/KETQUA.md`).
+NumPy là mã native (BLAS/ufuncs), không phải runtime managed. Đường IL
+không thể đua đều với BLAS; `simd_gemm` là đường native. Hàng sort dùng
+kernel đếm 16-bit cho workload này và lùi về merge khi gặp số âm/ngoài
+phạm vi, nên tỉ lệ đó đo thuật toán khác chứ không phải comparison sort
+tổng quát.
 
-Đường IL lồng `List` thuần và đường `f32x4` thủ công vẫn chậm so với BLAS, nên matmul được gom vào `simd_gemm`.
-**Cập nhật 2026-10-18 — `simd_gemm` (kernel native AVX2+FMA).** Khoảng cách
-trên là của đường IL/`Vector4`. `simd_gemm(a, b, r, n)` giờ gọi kernel C đi kèm
-(`tkv_simd_native.dll`) cho matmul f32/f64 và nhanh hơn NumPy 2.5.2 ở mọi kích
-thước đã thử (128–1024): ví dụ n=1024, 3,68 ms (f32) / 7,59 ms (f64) so với
-3,867 ms / 9,921 ms.
-
-**Vậy vị trí trung thực là: TokenVector là thay thế CPython.** Nó thắng
-interpreter nó thay thế 2–82× và có SIMD f32 thật (4,25× so với chính nó trên
-`f32mm_vec`). Đường IL thuần không thể đuổi tới hiệu năng BLAS `f64` trên .NET
+**Vậy vị trí trung thực là: TokenVector là thay thế CPython.** Trong
+harness này, tốc độ đo được so với CPython là **64×–32400×** và có SIMD
+thật. Đường IL thuần không thể đuổi tới hiệu năng BLAS `f64` trên .NET
 Framework 4.8; `simd_gemm` thì có, qua một kernel native, mà không cần đổi
 runtime.
 
@@ -122,10 +116,10 @@ CIL**:
 | Đường dẫn | Nội dung |
 |---|---|
 ```
-compiler_bootstrap/  compiler — 132 file .tkv (đây là nguồn TokenVector thật)
+compiler_bootstrap/  compiler — 133 file .tkv (đây là nguồn TokenVector thật)
 compiler_src/        manifest file (ds_gop.txt) dùng để gộp chúng lại
 dist/                tkvc-tv.exe — compiler tự biên dịch
-tests/               125 test nghi?m thu + 31 negative
+tests/               134 test nghiệm thu + 42 negative
 tests_suite/         154 case .ca + 203 mẫu vào
 tools/               các cổng kiểm + tkv_guide.tkv (tool hỏi đáp ngôn ngữ)
 projects/            19 công cụ thật viết bằng .tkv

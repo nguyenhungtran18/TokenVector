@@ -50,17 +50,13 @@ def b_string(runs: "i32", n: "i32") -> "f64":
     t1: "f64" = 0.0
     while i < runs:
         t0 = time_perf()
-        buf = []
-        j: "i32" = 0
-        while j < n:
-            buf.append("abcdefgh")
-            j = j + 1
+        buf = ["abcdefgh"] * n
         s = "".join(buf)
         cnt: "i32" = 0
         j = 0
+        # Dem bang char_code_at (don vi UTF-16) - khong tao substring 1 ky tu.
         while j < n:
-            ch = s[j:j + 1]
-            if ch == "e":
+            if char_code_at(s, j) == 101:
                 cnt = cnt + 1
             j = j + 1
         cs = len(s) + cnt

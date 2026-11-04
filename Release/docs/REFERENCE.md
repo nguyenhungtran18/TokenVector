@@ -34,7 +34,7 @@
 | [4](#4-dạng-dựng-giá-trị-vế-phải-của-phép-gán) | Dạng gán | 31 dạng vế phải được đăng ký riêng |
 | [5](#5-còn-thiếu--đã-probe-không-phải-suy-đoán) | Còn thiếu | Giới hạn đã đo, không giới hạn do đoán |
 | [6](#6-hướng-dẫn-dùng--cho-chỗ-khác-python) | Hướng dẫn dùng | 14 mục "ở đây khác Python, và vì sao" |
-| [7](#7-danh-mục-đầy-đủ-sinh-tự-động) | Danh mục đầy đủ | 420 tên + danh sách file (sinh tự động) |
+| [7](#7-danh-mục-đầy-đủ-sinh-tự-động) | Danh mục đầy đủ | 421 tên + danh sách file (sinh tự động) |
 
 | [8](#8-ba-sự-cố-đã-ghi--đừng-tin-mù) | Ba sự cố | Những chỗ đã sai vì tin tài liệu |
 
@@ -112,6 +112,7 @@
 | `float` | `float(x)` | Chuỗi/số nguyên → `f64`. |
 | `f32` | `f32(x)` | Ép về **`f32`** — đối xứng `float(x)` (Yêu cầu 1.1 spec M4–M7: `.tkv` dùng `f32` thay `list[f64]` để bỏ wrapper BUILD+ACC+ALLOC). Nhận `f32` (identity, vẫn đẩy đối số lên stack) · `f64` → `conv.r4` · `i32`/`i64` → `conv.i4`/`conv.i8` + `conv.r4` · `int` (TkvInt) qua `TkvInt::ToF64` · `str` qua `TkvStr::ParseF64` (culture bất biến, nhận `"inf"`/`"nan"`) · `bool` → `conv.r4`. **Không nhận container** — `f32(list)` bị từ chối lúc biên dịch (negative test `f32_on_list.tkv`), vì `_infer_dtype` chỉ trả dtype phần tử nên phải đọc `TypeAnn` trực tiếp. Biến `x: "f32" = 1.0` và mọi phép toán trên nó đã chạy hoàn toàn trên `float32` (`ldc.r4`/`conv.r4`, không qua `f64`). |
 | `bool` | `bool(x)` | Trả `0`/`1` như Python. **Chỉ hỗ trợ biến số hoặc chuỗi literal** (giá trị xác định lúc biên dịch) — vì vậy hãy dùng `x != 0`. |
+| `char_code_at` | `char_code_at(s, i)` | Trả đơn vị UTF-16 (0-based) tại `i`, dưới dạng `i32`. **Không giải mã surrogate pair**; `i` ngoài phạm vi ném `ArgumentOutOfRangeException`. Dành cho vòng quét ASCII/không cấp phát chuỗi 1 ký tự; không phải `ord(s[i])` theo nghĩa Python. |
 | `chr` | `chr(n)` | Mã → ký tự 1 chữ. |
 | `ord` | `ord(s)` | Ký tự → mã. |
 | `bin` | `bin(n)` | Số nguyên → chuỗi `"0b1010"` (tiền tố `0b` như Python). |
@@ -1195,7 +1196,7 @@ compiler - ghi de lam hong ca buoc bien dich.
 
 `__tkv_lap` `adamw_step` `adamw_step_glm` `alloc_bytes` `ascii` `atan2` `atomic_add` `atomic_inc`
 `base64_decode` `base64_encode` `bin` `bool` `bstr_alloc` `bstr_free` `bstr_read` `c_puts`
-`callable` `choice` `chr` `cjson_delete` `cjson_get_obj` `cjson_get_str` `cjson_parse` `complex`
+`callable` `char_code_at` `choice` `chr` `cjson_delete` `cjson_get_obj` `cjson_get_str` `cjson_parse` `complex`
 `cpu_count` `ctypes_call` `ctypes_cdll` `date_make` `date_today` `datetime` `datetime_add` `datetime_diff`
 `datetime_fromisoformat` `datetime_make` `datetime_strptime` `datetime_sub` `datetime_ticks` `db_close` `delattr` `dict`
 `dir` `eval_arith` `eval_code` `exec_code` `f32` `f32_addcmul` `f32_copy_from_buf` `f32_copy_to_buf`

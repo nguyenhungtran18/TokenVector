@@ -11,7 +11,7 @@ cd D:\TokenVector
 powershell -NoProfile -File tools\testkit_gate.ps1
 ```
 
-Kết quả hiện tại: **117/117 PASS**, **31/31 negative** (các file trong
+Kết quả hiện tại: **134/134 PASS**, **42/42 negative** (các file trong
 `negative/` phải **bị từ chối lúc biên dịch**). Gate ghi output ra TEMP nên
 không rác repo, và **thoát với mã khác 0** nếu có bất kỳ lỗi nào.
 

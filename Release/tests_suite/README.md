@@ -5,12 +5,12 @@
 | | `../tests/` | `../tests_suite/` (thư mục này) |
 |---|---|---|
 | Dạng | mỗi file là **một chương trình `.tkv` tự so** kết quả | **bảng dữ liệu** `.ca` trỏ tới file mẫu dùng chung |
-| Số lượng | 118 test + 31 negative | **154 bảng / 143 đạt**, dùng lại **203 file mẫu** |
+| Số lượng | 134 test + 42 negative | **154 bảng / 143 đạt**, dùng lại **203 file mẫu** |
 | Chạy | `tools\testkit_gate.ps1` | `tests_suite\chay.exe` |
 | So sánh | so trong chính code | so **stdout chính xác** + mã thoát |
 | Song song | không | có, 4 luồng |
 
-Hai bộ **bổ sung cho nhau**, không thay thế: `tests/` có 31 case negative mà
+Hai bộ **bổ sung cho nhau**, không thay thế: `tests/` có 42 case negative mà
 bộ này không có; bộ này tái sử dụng file mẫu nên thêm được ca mà không nhân
 bản chương trình.
 

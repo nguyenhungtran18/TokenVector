@@ -2,7 +2,7 @@
 ### (Kiến trúc hệ thống TokenVector)
 
 > **Có đúng MỘT compiler, và nó viết bằng TokenVector.** Nguồn là
-> `compiler_bootstrap/` — **132 file `.tkv` thật**, liệt kê đúng trong
+> `compiler_bootstrap/` — **133 file `.tkv` thật**, liệt kê đúng trong
 > `compiler_src/ds_gop.txt`. Không có CPython ở bất kỳ bước nào.
 
 Tài liệu này mô tả **nơi lưu trữ file** và **vai trò từng nhóm**. Số liệu đếm
@@ -14,7 +14,7 @@ trực tiếp từ cây nguồn, không suy đoán.
 
 `tools/vong.tkv` (đóng gói thành `tools/vong.exe`) làm đúng 4 việc:
 
-1. Gộp **132 file** theo `compiler_src/ds_gop.txt` thành một nguồn ≈ 2,9 MB.
+1. Gộp **133 file** theo `compiler_src/ds_gop.txt` thành một nguồn ≈ 2,9 MB.
 2. `dist/tkvc-tv.exe` biên dịch nguồn đó → `g1.il` ≈ 13 MB.
 3. **`g1.exe`** biên dịch lại **chính nó** → `g2.il`.
 4. In `IL_IDENTICAL` nếu hai bản `.il` giống hệt nhau byte-for-byte.
@@ -99,7 +99,7 @@ vi**. Các nhóm chính:
 
 ## 5. BỘ KIỂM THỬ (`tests/`)
 
-**125 test nghi?m thu** (*_test.tkv) + **31 negative case** + 	kv_test_lib.tkv.
+**134 test nghiệm thu** (`*_test.tkv`) + **42 negative case** + `kv_test_lib.tkv`.
 Chạy bằng `tools\testkit_gate.ps1`. Bổ sung: `tests_suite/` — 154 case `.ca` +
 203 mẫu vào, chạy bằng `chay.tkv`.
 

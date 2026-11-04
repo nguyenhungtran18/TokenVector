@@ -5,8 +5,8 @@
 <p align="left">
   <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
   <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="phiên bản 1.0.11">
-  <img src="https://img.shields.io/badge/tests-125%2F125-brightgreen.svg?style=flat-square" alt="tests 125/125">
-  <img src="https://img.shields.io/badge/builtins-420-orange.svg?style=flat-square" alt="builtins 420">
+  <img src="https://img.shields.io/badge/tests-134%2F134-brightgreen.svg?style=flat-square" alt="tests 134/134">
+  <img src="https://img.shields.io/badge/builtins-421-orange.svg?style=flat-square" alt="builtins 421">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="Giấy phép: MIT">
 </p>
 
@@ -90,66 +90,37 @@ thêm.
 
 ## Vị trí trung thực — thắng ở đâu, thua ở đâu
 
-Đo ngày 2026-10-14 với **CPython 3.14.7** và **NumPy 2.5.2** (OpenBLAS 0.3.34,
-kernel Haswell) trên Intel Xeon E5-2695 v3. Tái lập từ
-[`TokenVector.TestOracle`](https://github.com/nguyenhungtran18/TokenVector.TestOracle):
+Đo ngày 2026-11-04 với **CPython 3.14.7** và **NumPy 2.5.2**
+(OpenBLAS 0.3.34, kernel Haswell). Phương pháp và checksum đầy đủ:
+[`Release/benchmark/KETQUA.md`](Release/benchmark/KETQUA.md).
 
-```powershell
-python D:\TokenVector.TestOracle\benchmark\run.py --self-host
-```
-
-**Với CPython, TokenVector thắng trên mọi kernel:**
+**Với CPython, TokenVector thắng trên mọi kernel trong harness:**
 
 | kernel | TokenVector | CPython | nhanh hơn |
 |---|---|---|---|
-| fib | 11,4 ms | 933 ms | **82×** |
-| sort | 15,7 ms | 1012 ms | **64×** |
-| matmul32 | 147 µs | 8,87 ms | **60×** |
-| add | 1,43 ms | 67,1 ms | **47×** |
-| f32mm_vec | 33 µs | 1,48 ms | **45×** |
-| f32mm | 141 µs | 1,49 ms | **11×** |
-| string | 22,9 ms | 49,7 ms | **2,2×** |
+| fib(32) | 14,9 ms | 1169 ms | **78×** |
+| sort | 1,51 ms | 37659 ms | **24989×** (thuật toán khác; xem ghi chú) |
+| matmul32 | 9,5 µs | 308 ms | **32400×** |
+| add | 0,582 ms | 1540 ms | **2647×** |
+| string | 5,28 ms | 337 ms | **64×** |
 
-Một `.exe` rỗng của TokenVector cũng khởi động trong **24,8 ms**, so với
-**35,2 ms** của `CPython -c pass`.
+**Với NumPy thì có thắng có thua, và `string` giờ bị chặn ở `join` chứ
+không phải do cấp phát từng ký tự:**
 
-**Với NumPy thì có thắng có thua — element-wise vẫn bị chặn băng thông, matmul
-giờ thắng nhờ `simd_gemm`:**
-
-| kernel | TokenVector | NumPy | nhanh hơn |
+| kernel | TokenVector | NumPy 2.5.2 | nhanh hơn |
 |---|---|---|---|
-| matmul32 (`simd_gemm`, f32) | 1,7 µs | 5,5 µs | **TokenVector 3,2×** |
-| matmul32 (duong IL f32x4 vector) | 14,1 µs | 5,5 µs | NumPy 2,4× |
-| matmul32 (duong IL typed, i32) | 85,6 µs | 5,7 µs | NumPy 15× |
-| add (duong IL typed, i32) | 0,639 ms | 0,911 ms | **TokenVector 1,4× |
+| matmul32 (`simd_gemm`, f64) | 3,3 µs | 5,2 µs | **TokenVector 1,58×** |
+| matmul32 (đường IL f32x4) | 9,5 µs | 5,2 µs | NumPy 1,83× |
+| add | 0,582 ms | 0,845 ms | **TokenVector 1,45×** |
+| sort | 1,51 ms | 3,93 ms | **TokenVector 2,61×** (thuật toán khác; xem ghi chú) |
+| string | 5,28 ms | 2,23 ms | NumPy 2,37× |
+| string — hàng SIMD scan | 5,53 ms | 2,23 ms | NumPy 2,48× |
 
-Tuyên bố cũ rằng khoảng cách đường IL đến từ bề rộng vector là sai: `i`/`half` để nguyên kiểu, nên mặc định là `TkvInt` (boxed, độ chính xác tuỳ ý) và mỗi lần lặp đều trả `TkvInt::Cmp`/`FromI64`/`Add`/`ToI32`. Gán biến đếm `i32` riêng lẻ đưa `list[f64]` add từ 3,18 ms xuống 0,64 ms -- không đổi cấu trúc dữ liệu (`Release/tools/benchmark/run_benchmark.il`, `b_add`; xem `Release/benchmark/KETQUA.md`).
-
-Đường IL lồng `List` thuần và đường `f32x4` thủ công vẫn chậm so với BLAS, nên matmul được gom vào `simd_gemm`.
-**Cập nhật 2026-10-18 — `simd_gemm` (kernel native AVX2+FMA).** Khoảng cách
-trên là của đường IL/`Vector4`. `simd_gemm(a, b, r, n)` giờ gọi kernel C đi
-kèm (`tkv_simd_native.dll`; micro-kernel 4×16 f32 / 4×8 f64, chặn cache L1/L2,
-đa luồng theo lõi vật lý, chia việc 2 chiều hàng×cột) và nhận `list[f32]` /
-`list[f64]` không copy vào/ra. Đo trên cùng Xeon E5-2695 v3 với NumPy 2.5.2
-(OpenBLAS 0.3.34), tốt nhất qua nhiều lần chạy:
-
-| n | f32 `simd_gemm` | f32 NumPy | f64 `simd_gemm` | f64 NumPy |
-|---|---|---|---|---|
-| 128 | 0,039 ms | 0,122 ms | 0,055 ms | 0,098 ms |
-| 256 | 0,109 ms | 0,180 ms | 0,196 ms | 0,231 ms |
-| 512 | 0,496 ms | 0,811 ms | 1,03 ms | 1,569 ms |
-| 1024 | 3,68 ms | 3,867 ms | 7,59 ms | 9,921 ms |
-
-Nó nhanh hơn ở mọi kích thước đã thử (128–1024) ở cả hai độ chính xác. Đường
-IL thuần không đổi và vẫn không đóng được khoảng cách; `simd_gemm` đóng nó
-bằng cách đưa kernel trong xuống mã native, không phải bằng cách đổi runtime.
-Phương pháp đầy đủ và các kích thước trung gian:
-`Release/docs/e_handoff/BAN_GIAO_2026-10-18-SIMD-GEMM.md`.
-
-**Vậy: TokenVector là thay thế CPython.** Nó thắng interpreter nó thay thế
-2–82×, và có SIMD f32 chạy thật. Đường IL thuần không thể đuổi tới hiệu năng
-BLAS `f64` trên .NET Framework 4.8 — nhưng `simd_gemm` thì có, qua một kernel
-native AVX2+FMA, mà không cần đổi runtime.
+NumPy là mã native (BLAS/ufuncs), không phải runtime managed. Đường IL
+không thể đua đều với BLAS; `simd_gemm` là đường native. Hàng sort dùng
+kernel đếm 16-bit cho workload này và lùi về merge khi gặp số âm/ngoài
+phạm vi, nên tỉ lệ đó đo thuật toán khác chứ không phải comparison sort
+tổng quát.
 
 ### Các con số trên có được kiểm không?
 
@@ -158,15 +129,15 @@ in ra. **Gate không xanh thì các tuyên bố trên không đứng.**
 
 | Gate | Lệnh | Kết quả |
 |---|---|---|
-| Chấp nhận compiler | `powershell -File Release\tools\testkit_gate.ps1` | **125/125** đạt, **31/31** case âm bị từ chối đúng |
-| Điểm bất động tự sinh | `Release\tools\vong.exe` | **IL_IDENTICAL** (132 file) |
+| Chấp nhận compiler | `powershell -File Release\tools\testkit_gate.ps1` | **134/134** đạt, **42/42** case âm bị từ chối đúng |
+| Điểm bất động tự sinh | `Release\tools\vong.exe` | **IL_IDENTICAL** (133 file) |
 | Hiệu năng | `powershell -File Release\tools\perf_gate.ps1` | 4 kernel, best-of-5, **có so checksum** |
 | Tự kiểm luật lint | `powershell -File Release\tools\lint_rules_gate.ps1` | Bắt đủ 8 bẫy, 0 báo nhầm |
 | Đăng ký | `Release\dist\tkvc-tv.exe Release\tools\dang_ky_gate.tkv Release\build\dk.exe run` | 0 vi phạm |
 
-**Builtins đã đăng ký: 420.**
+**Builtins đã đăng ký: 421.**
 
-Bản thân compiler **tự sinh**: mã nguồn là 132 file `.tkv` trong
+Bản thân compiler **tự sinh**: mã nguồn là 133 file `.tkv` trong
 `Release/compiler_bootstrap/`. `Release\tools\vong.exe` gộp chúng, biên dịch
 hai lần, và đòi hai bản IL phải giống nhau từng byte (`IL_IDENTICAL`).
 
@@ -180,10 +151,10 @@ TokenVector/
 ├── README.vi.md         bản tiếng Việt
 ├── LICENSE              MIT
 └── Release/             toàn bộ bản phát hành
-    ├── compiler_bootstrap/   132 file .tkv — compiler, viết bằng TokenVector
+    ├── compiler_bootstrap/   133 file .tkv — compiler, viết bằng TokenVector
     ├── compiler_src/         manifest ds_gop.txt dùng để gộp chúng
     ├── dist/                 tkvc-tv.exe (compiler) + il_features/
-    ├── tests/                125 test chấp nhận + 31 case âm
+    ├── tests/                134 test chấp nhận + 42 case âm
     ├── tests_suite/          154 case dữ liệu .ca + 203 mẫu đầu vào
     ├── tools/                gate + tkv_guide.tkv (trợ lý tra quy tắc)
     ├── projects/             19 công cụ thật viết bằng .tkv

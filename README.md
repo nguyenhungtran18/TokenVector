@@ -5,8 +5,8 @@
 <p align="left">
   <img src="https://img.shields.io/badge/.NET%20Framework-4.8-purple.svg?style=flat-square" alt=".NET Framework 4.8">
   <img src="https://img.shields.io/badge/version-1.0.11-blue.svg?style=flat-square" alt="version 1.0.11">
-  <img src="https://img.shields.io/badge/tests-125%2F125-brightgreen.svg?style=flat-square" alt="tests 125/125">
-  <img src="https://img.shields.io/badge/builtins-420-orange.svg?style=flat-square" alt="builtins 420">
+  <img src="https://img.shields.io/badge/tests-134%2F134-brightgreen.svg?style=flat-square" alt="tests 134/134">
+  <img src="https://img.shields.io/badge/builtins-421-orange.svg?style=flat-square" alt="builtins 421">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License: MIT">
 </p>
 
@@ -89,65 +89,37 @@ The resulting `hello.exe` is **9.5 KB** (a bare `print("hi")` is **6 KB**) and r
 
 ## Honest positioning — where it wins and where it does not
 
-Measured 2026-10-14 against **CPython 3.14.7** and **NumPy 2.5.2** (OpenBLAS
-0.3.34, Haswell kernel) on an Intel Xeon E5-2695 v3. Reproduce from
-[`TokenVector.TestOracle`](https://github.com/nguyenhungtran18/TokenVector.TestOracle):
+Measured 2026-11-04 against **CPython 3.14.7** and **NumPy 2.5.2**
+(OpenBLAS 0.3.34, Haswell kernel). Full method and checksums:
+[`Release/benchmark/KETQUA.md`](Release/benchmark/KETQUA.md).
 
-```powershell
-python D:\TokenVector.TestOracle\benchmark\run.py --self-host
-```
-
-**Against CPython, TokenVector wins on every kernel:**
+**Against CPython, TokenVector wins on every kernel in the harness:**
 
 | kernel | TokenVector | CPython | faster by |
 |---|---|---|---|
-| fib | 11.4 ms | 933 ms | **82×** |
-| sort | 15.7 ms | 1012 ms | **64×** |
-| matmul32 | 147 µs | 8.87 ms | **60×** |
-| add | 1.43 ms | 67.1 ms | **47×** |
-| f32mm_vec | 33 µs | 1.48 ms | **45×** |
-| f32mm | 141 µs | 1.49 ms | **11×** |
-| string | 22.9 ms | 49.7 ms | **2.2×** |
+| fib(32) | 14.9 ms | 1169 ms | **78×** |
+| sort | 1.51 ms | 37659 ms | **24989×** (different algorithms; see note) |
+| matmul32 | 9.5 µs | 308 ms | **32400×** |
+| add | 0.582 ms | 1540 ms | **2647×** |
+| string | 5.28 ms | 337 ms | **64×** |
 
-An empty TokenVector `.exe` also starts in **24.8 ms** versus **35.2 ms** for
-`CPython -c pass`.
+**Against NumPy the picture is mixed, and `string` is now bounded by
+`join`, not per-character allocation:**
 
-**Against NumPy, it is mixed — element-wise stays memory-bound, matmul now wins
-with `simd_gemm`:**
-
-| kernel | TokenVector | NumPy | faster by |
+| kernel | TokenVector | NumPy 2.5.2 | faster by |
 |---|---|---|---|
-| matmul32 (`simd_gemm`, f32) | 1.7 µs | 5.5 µs | **TokenVector 3.2×** |
-| matmul32 (IL f32x4 vector) | 14.1 µs | 5.5 µs | NumPy 2.4× |
-| matmul32 (IL typed path, i32 counters) | 85.6 µs | 5.7 µs | NumPy 15× |
-| add (IL typed path, i32 counters) | 0.639 ms | 0.911 ms | **TokenVector 1.4×** |
+| matmul32 (`simd_gemm`, f64) | 3.3 µs | 5.2 µs | **TokenVector 1.58×** |
+| matmul32 (IL f32x4 path) | 9.5 µs | 5.2 µs | NumPy 1.83× |
+| add | 0.582 ms | 0.845 ms | **TokenVector 1.45×** |
+| sort | 1.51 ms | 3.93 ms | **TokenVector 2.61×** (different algorithms; see note) |
+| string | 5.28 ms | 2.23 ms | NumPy 2.37× |
+| string — SIMD scan row | 5.53 ms | 2.23 ms | NumPy 2.48× |
 
-The older claim that this IL gap came from vector width was wrong: `i`/`half` were left untyped, so they defaulted to `TkvInt` (boxed arbitrary-precision) and every iteration paid `TkvInt::Cmp` / `FromI64` / `Add` / `ToI32`. Typing the counters `i32` alone takes `list[f64]` add from 3.18 ms to 0.64 ms -- no change to the data structures (`Release/tools/benchmark/run_benchmark.il`, `b_add`; see `Release/benchmark/KETQUA.md`).
-
-The plain-IL nested-`List` matmul and the manual `f32x4` path are still slow next to BLAS, so matmul is covered by `simd_gemm`.**Update 2026-10-18 — `simd_gemm` (native AVX2+FMA kernel).** The gap above is
-for the IL/`Vector4` path. `simd_gemm(a, b, r, n)` now calls a shipped C kernel
-(`tkv_simd_native.dll`; 4×16 f32 / 4×8 f64 micro-kernels, L1/L2 cache
-blocking, physical-core threading, 2-D row×column split) and takes
-`list[f32]` / `list[f64]` with zero copy in and out. Measured on the same Xeon
-E5-2695 v3 against NumPy 2.5.2 (OpenBLAS 0.3.34), best of several runs:
-
-| n | f32 `simd_gemm` | f32 NumPy | f64 `simd_gemm` | f64 NumPy |
-|---|---|---|---|---|
-| 128 | 0.039 ms | 0.122 ms | 0.055 ms | 0.098 ms |
-| 256 | 0.109 ms | 0.180 ms | 0.196 ms | 0.231 ms |
-| 512 | 0.496 ms | 0.811 ms | 1.03 ms | 1.569 ms |
-| 1024 | 3.68 ms | 3.867 ms | 7.59 ms | 9.921 ms |
-
-It is faster at every size tested (128–1024) in both precisions. The pure-IL
-path is unchanged and still cannot close the gap; `simd_gemm` closes it by
-moving the inner kernel to native code, not by changing the runtime. Full
-method and intermediate sizes:
-`Release/docs/e_handoff/BAN_GIAO_2026-10-18-SIMD-GEMM.md`.
-
-**So: TokenVector is a CPython replacement.** It beats the interpreter it
-replaces 2–82×, and it has real f32 SIMD. The pure-IL path cannot reach f64
-BLAS performance on .NET Framework 4.8 — but `simd_gemm` does, through a
-native AVX2+FMA kernel, without changing the target runtime.
+NumPy is native machine code (BLAS/ufuncs), not a managed runtime. The
+IL path cannot chase BLAS consistently; `simd_gemm` is the native route.
+The sort row uses a 16-bit counting kernel on this workload and falls back
+to merge for negative/out-of-range input, so its ratio measures a different
+algorithm, not a general-purpose comparison sort.
 
 ### Is every number above checked?
 
@@ -156,13 +128,13 @@ they actually print. **If a gate is not green, the claim above does not hold.**
 
 | Gate | Command | Result |
 |---|---|---|
-| Compiler acceptance | `powershell -File Release\tools\testkit_gate.ps1` | **125/125** pass, **31/31** negative cases correctly rejected |
-| Self-host fixpoint | `Release\tools\vong.exe` | **IL_IDENTICAL** (132 files) |
+| Compiler acceptance | `powershell -File Release\tools\testkit_gate.ps1` | **134/134** pass, **42/42** negative cases correctly rejected |
+| Self-host fixpoint | `Release\tools\vong.exe` | **IL_IDENTICAL** (133 files) |
 | Performance | `powershell -File Release\tools\perf_gate.ps1` | 4 kernels, best-of-5, **checksum is compared** |
 | Lint-rule self-test | `powershell -File Release\tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
 | Registration | `Release\dist\tkvc-tv.exe Release\tools\dang_ky_gate.tkv Release\build\dk.exe run` | 0 violations |
 
-**Builtins registered: 420.**
+**Builtins registered: 421.**
 
 The compiler itself is **self-hosted**: its source is 132 `.tkv` files under
 `Release/compiler_bootstrap/`. `Release\tools\vong.exe` concatenates them,
@@ -179,10 +151,10 @@ TokenVector/
 ├── README.vi.md         Vietnamese translation
 ├── LICENSE              MIT
 └── Release/             the full release snapshot
-    ├── compiler_bootstrap/   132 .tkv files — the compiler, written in TokenVector
+    ├── compiler_bootstrap/   133 .tkv files — the compiler, written in TokenVector
     ├── compiler_src/         ds_gop.txt manifest used to concatenate them
     ├── dist/                 tkvc-tv.exe (the compiler) + il_features/
-    ├── tests/                125 acceptance tests + 31 negative cases
+    ├── tests/                134 acceptance tests + 42 negative cases
     ├── tests_suite/          154 .ca data-driven cases + 203 input samples
     ├── tools/                gates + tkv_guide.tkv (the language guide)
     ├── projects/             19 real tools written in .tkv

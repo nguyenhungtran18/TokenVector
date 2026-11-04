@@ -1127,6 +1127,16 @@ def _ensure_class_ord(ctx: "Ctx"):
     ])
 
 
+def compile_char_code_at(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """char_code_at(s, i) (2026-11-04): doc don vi UTF-16 tai chi so 0-based."""
+    if len(args) != 2:
+        raise SyntaxError("il_codegen: char_code_at() chi nhan dung 2 tham so (s, i)")
+    ctx.compile_expr(args[0], scope, out, 'str', ctx)
+    ctx.compile_expr(args[1], scope, out, 'i32', ctx)
+    out.append('    callvirt instance char [mscorlib]System.String::get_Chars(int32)')
+    out.append('    conv.i4')
+
+
 def compile_ord_builtin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """ord(c) (2026-09-26)."""
     if len(args) != 1:
@@ -1237,6 +1247,7 @@ def bootstrap_string_builtin(reg: "Registry"):
     register_expr_builtin(reg, 'str', compile_str_builtin, 'str')
     register_expr_builtin(reg, 'repr', compile_repr_builtin, 'str')
     register_expr_builtin(reg, 'chr', compile_chr_builtin, 'str')
+    register_expr_builtin(reg, 'char_code_at', compile_char_code_at, 'i32')
     register_expr_builtin(reg, 'ord', compile_ord_builtin, 'i32')
     register_expr_builtin(reg, 'bool', compile_bool_builtin, 'i32')
     register_expr_builtin(reg, 'fmt_float', compile_fmt_float, 'str')

@@ -201,7 +201,7 @@ Class 3	Methods: 15;
 Class 4	Methods: 8;	
 Class 5	Fields: 3;	Methods: 126;	
 Class 6	Methods: 22;	
-Resolving local member refs: 451 -> 452 defs, 0 refs, 0 unresolved
+Resolving local member refs: 463 -> 465 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	

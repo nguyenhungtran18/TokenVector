@@ -5,7 +5,7 @@ Based on TRIZ + self-host status. Priority: H = high (blocks Python replacement 
 ---
 
 ## 1. Ecosystem / package manager (pip equivalent) [H]
-- Gap: 420 builtins, no external package install mechanism.
+- Gap: 421 builtins, no external package install mechanism.
 - Action: define package manifest (`package.tkv` or `pyproject.tkv`), build `tkv_install` command that resolves dependencies from a repo index (e.g., git tags or static URL list).
 - Ref: `docs/PLAN.md` P8 (package registry).
 - Blocker: needs registry server or at least static index file.

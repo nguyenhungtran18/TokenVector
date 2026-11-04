@@ -5,14 +5,14 @@
 | Kernel | Workload | Python 3.14 | NumPy 2.5.2 | TokenVector |
 |--------|----------|-------------|-------------|-------------|
 | fib(32) | Recursive Fibonacci n=32 | 1169 ms | n/a (recursive) | 14.9 ms |
-| string | Join 200k substrings + count chars | 337 ms | 2.23 ms | 10.2 ms |
-| string scan | Same + SIMD byte scan (BSTR + simd_count_byte, AVX2) | -- | -- | **4.87 ms** |
-| sort | Sort 200k integers (tally/count over 16-bit, merge fallback for negatives) | 37659 ms | 3.93 ms | **1.49 ms** |
-| add | Add/sum 262k elements | 1540 ms | 0.845 ms | **0.580 ms** |
-| matmul32 — IL path | Multiply 32x32 matrices, blocked Vector4 kernel | 308 ms | 0.0052 ms | **0.0100 ms** |
+| string | Join 200k substrings + count chars | 337 ms | 2.23 ms | 5.28 ms |
+| string scan | Same + SIMD byte scan (BSTR + simd_count_byte, AVX2) | -- | -- | **5.53 ms** |
+| sort | Sort 200k integers (tally/count over 16-bit, merge fallback for negatives) | 37659 ms | 3.93 ms | **1.51 ms** |
+| add | Add/sum 262k elements | 1540 ms | 0.845 ms | **0.582 ms** |
+| matmul32 — IL path | Multiply 32x32 matrices, blocked Vector4 kernel | 308 ms | 0.0052 ms | **0.0095 ms** |
 | matmul32 — simd_gemm (native) | same workload, AVX2+FMA kernel | 308 ms | 0.0052 ms | **0.0033 ms** |
-| f32mm scalar | f32 matmul 32x32, scalar dot | -- | -- | 0.0689 ms |
-| f32mm vec | f32 matmul 32x32, SIMD Vector4 | -- | -- | 0.0140 ms |
+| f32mm scalar | f32 matmul 32x32, scalar dot | -- | -- | 0.0725 ms |
+| f32mm vec | f32 matmul 32x32, SIMD Vector4 | -- | -- | 0.0141 ms |
 
 All rows are the best of 3 runs on 2026-11-04 (machine noise ±10%); the
 NumPy column was re-measured the same session. Python remains a single-pass
@@ -22,21 +22,21 @@ full-process wall-clock baseline.
 
 | Metric | Python | TokenVector | Speedup |
 |--------|--------|-------------|---------|
-| Geometric mean (5 kernels) | 1477 ms | 1.06 ms | **1399x** |
-| Highest speedup (matmul32, IL) | 308 ms | 0.0100 ms | **30800x** |
-| Lowest speedup (string) | 337 ms | 10.2 ms | **33.1x** |
+| Geometric mean (5 kernels) | 1477 ms | 0.919 ms | **1607x** |
+| Highest speedup (matmul32, IL) | 308 ms | 0.0095 ms | **32400x** |
+| Lowest speedup (string) | 337 ms | 5.28 ms | **63.8x** |
 
 ## Summary — vs NumPy (4 common kernels: string, sort, add, matmul32)
 
 | Metric | NumPy | TokenVector | Faster by |
 |--------|-------|-------------|-----------|
-| Geometric mean (4 kernels, IL path) | 0.443 ms | 0.544 ms | **NumPy 1.23x** |
+| Geometric mean (4 kernels, IL path) | 0.443 ms | 0.458 ms | **NumPy 1.03x** |
 | matmul32 — simd_gemm (native) | 0.0052 ms | 0.0033 ms | **TokenVector 1.58x** |
-| matmul32 — IL path | 0.0052 ms | 0.0100 ms | **NumPy 1.92x** |
-| string | 2.23 ms | 10.2 ms | **NumPy 4.56x** |
-| string — SIMD scan row | 2.23 ms | 4.87 ms | **NumPy 2.18x** |
-| sort | 3.93 ms | 1.49 ms | **TokenVector 2.64x** |
-| add | 0.845 ms | 0.580 ms | **TokenVector 1.46x** |
+| matmul32 — IL path | 0.0052 ms | 0.0095 ms | **NumPy 1.83x** |
+| string | 2.23 ms | 5.28 ms | **NumPy 2.37x** |
+| string — SIMD scan row | 2.23 ms | 5.53 ms | **NumPy 2.48x** |
+| sort | 3.93 ms | 1.51 ms | **TokenVector 2.61x** |
+| add | 0.845 ms | 0.582 ms | **TokenVector 1.45x** |
 
 `fib` is excluded from the NumPy comparison: it is recursive, and NumPy has
 no equivalent without changing the algorithm (matrix exponentiation would not
@@ -44,28 +44,34 @@ measure the same work).
 
 ## Conclusion
 
-**TokenVector achieves 33x–30800x speedup over CPython** on equivalent
+**TokenVector achieves 63.8x–32400x speedup over CPython** on equivalent
 workloads, on the same OS and hardware.
 
-**Against NumPy the picture is mixed, with TokenVector now ahead on `sort` and
-`add`** — consistent with README §1b:
+**Against NumPy the picture is mixed, and the string gap is now dominated by
+`join`** — consistent with README §1b:
 
 - **Native kernel wins.** `simd_gemm` (AVX2+FMA, `tkv_simd_native.dll`)
   does the exact same 32x32 f64 workload as `matmul32` in **0.0033 ms vs
-  NumPy's 0.0052 ms — TokenVector 1.58x faster**, and 3.0x faster than
-  TokenVector's own IL path (0.0100 ms). This matches README §1b
+  NumPy's 0.0052 ms — TokenVector 1.58x faster**, and 2.9x faster than
+  TokenVector's own IL path (0.0095 ms). This matches README §1b
   (f32 n=32: 1.7 µs vs NumPy 5.5 µs) and the full n=128..1024 table in
   `docs/e_handoff/BAN_GIAO_2026-10-18-SIMD-GEMM.md`.
-- **Pure IL loses by 1.9x, not 4–12x**: the IL path is behind NumPy on
-  `matmul32` (1.92x) and `string` (4.56x), and ahead on `sort` (2.64x) and
-  `add` (1.46x). The geometric mean moved from NumPy 1.44x to NumPy 1.23x.
+- **Pure IL loses by 1.8x, not 4–12x**: the IL path is behind NumPy on
+  `matmul32` (1.83x) and `string` (2.37x), and ahead on `sort` (2.61x) and
+  `add` (1.45x). The geometric mean moved from NumPy 1.44x to NumPy 1.03x.
+- **string now avoids the 1-char substring allocation.** `b_string` uses
+  the new `char_code_at(s, i)` builtin (`String::get_Chars`, raw UTF-16
+  code unit) instead of `s[j:j+1] == "e"`. The row dropped from
+  **10.2 → 5.28 ms** and the checksum remains **1625000**. `np_string` is
+  **2.37x** ahead; the remaining gap is `join` (~3.8 ms measured) rather
+  than the character scan.
 - **string scan is correct again.** The previous zero-copy `bstr_writable`
   experiment emitted `conv.i` on the string object, not a pointer to the
   UTF-16LE buffer, so the SIMD scan counted 24999 `'e'` bytes and failed the
   documented checksum (`1624999`). It was removed; `b_string_scan` uses the
-  documented `bstr_alloc` / `simd_count_byte` / `bstr_free` path. The row
-  now measures **4.87 ms** (best of 3: 4.87 / 5.08 / 5.50) and the checksum
-  is **1625000**. `np_string` is **2.18x** ahead.
+  documented `bstr_alloc` / `simd_count_byte` / `bstr_free` path. The checksum
+  is **1625000** and the row measures **5.53 ms** (best of 3: 5.53 / 5.57 / 5.72).
+  `np_string` is **2.48x** ahead.
 
 NumPy is native machine code (BLAS/ufuncs) — the IL path alone cannot
 chase it; `simd_gemm` is how TokenVector gets there without changing runtime.
@@ -249,7 +255,7 @@ existed (`v_load4`/`f32x4`, `list[i64]` indexing).
   what pays; past 4 columns it stops paying.
 
 Note (2026-11-04, tally sort + string_scan checksum fix): the 2026-11-04
-radix row above was superseded in the same date's final tree. For the
+radix row above was superseded in the same date's earlier tree. For the
 common case `mx < 65536`, `_sort` now calls `_tally`, which counts keys
 first and writes them back in ascending order; this is a counting sort
 with sequential writes instead of the radix scatter's random writes.
@@ -266,6 +272,23 @@ the documented `bstr_alloc` / `simd_count_byte` / `bstr_free` path again.
 The checksum is **1625000** and the row measures **4.87 ms** (best of 3:
 4.87 / 5.08 / 5.50). `tools/vong.exe`: `IL_IDENTICAL`; `tools/testkit_gate.ps1`:
 **134/134**, negative **42/42**.
+
+Note (2026-11-04, `char_code_at` + final rerun): added the public builtin
+`char_code_at(s, i)` — it emits `String::get_Chars`, returning the raw
+UTF-16 code unit as `i32`, and does not allocate a 1-character substring.
+`b_string` now counts with `char_code_at(s, j) == 101` instead of
+`s[j:j+1] == "e"`. The row dropped from **10.2 → 5.28 ms**, checksum still
+**1625000**. The `string scan` row measures **5.53 ms** (best of 3:
+5.53 / 5.57 / 5.72; earlier 4.87 ms was same-day machine/run drift).
+`tools/vong.exe`: `IL_IDENTICAL`; `tools/testkit_gate.ps1`: **134/134**,
+negative **42/42**.
+
+Note (2026-11-04, `join` B experiment rejected): a managed `JoinList`
+(two passes over `List<string>`, pre-sized `StringBuilder`) measured
+**10.08 / 10.82 ms**; a `char[]` + `String.CopyTo` variant measured
+**6.37 / 7.57 ms**. Both were slower than the existing `ToArray()` +
+`String::Join` path (**5.28 / 5.53 ms**) on this machine, so the compiler
+was reverted to the original joinIL; no experimental join code remains.
 
 Known divergence: `tools/benchmark/run_benchmark.tkv` (the legacy copy)
 still carries the merge sort and the scalar matmul — not ported here.

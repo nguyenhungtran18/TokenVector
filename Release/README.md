@@ -37,20 +37,20 @@ The output is a **~6 KB** `.exe` (hello-world) that runs on any machine with the
 ## 1. Status — verified, not aspirational
 
 Everything below is checked by a gate in this repository. Numbers are from
-2026-10-14.
+2026-11-04.
 
 | Gate | Command | Result |
 |---|---|---|
-| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **125/125** pass, **31/31** negative cases correctly rejected |
-| Self-host fixpoint | `tools\vong.exe` | **IL_IDENTICAL** (132 files) |
+| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **134/134** pass, **42/42** negative cases correctly rejected |
+| Self-host fixpoint | `tools\vong.exe` | **IL_IDENTICAL** (133 files) |
 | Performance | `powershell -File tools\perf_gate.ps1` | 4 kernels, best-of-5, **checksum is compared** |
 | Lint-rule self-test | `powershell -File tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
 | Registration | `dist\tkvc-tv.exe tools\dang_ky_gate.tkv build\dk.exe run` | 0 violations |
 
-**Builtins registered: 420.**
+**Builtins registered: 421.**
 
 > **What the compiler actually is.** The compiler source is **`compiler_bootstrap/`**
-> — 132 files that really are TokenVector. `dist\tkvc-tv.exe` is built by
+> — 133 files that really are TokenVector. `dist\tkvc-tv.exe` is built by
 > `tools\vong.exe`, which concatenates those files and compiles them **twice**;
 > the two IL dumps must match byte-for-byte (`IL_IDENTICAL`). That is what
 > "self-hosted" means here.
@@ -63,47 +63,42 @@ Everything below is checked by a gate in this repository. Numbers are from
 
 ## 1b. Where TokenVector competes — and where it does not
 
-Measured 2026-10-14 against **CPython 3.14.7** and **NumPy 2.5.2** (OpenBLAS
-0.3.34, Haswell kernel) on an Intel Xeon E5-2695 v3. Reproduce with
-`python D:\TokenVector.TestOracle\benchmark\run.py --self-host`.
+Measured 2026-11-04 against **CPython 3.14.7** and **NumPy 2.5.2**
+(OpenBLAS 0.3.34, Haswell kernel). Full method and checksums:
+`benchmark/KETQUA.md`.
 
-**Against CPython, TokenVector wins everywhere:**
+**Against CPython, TokenVector wins on every kernel in the harness:**
 
 | kernel | TokenVector | CPython | TokenVector faster by |
 |---|---|---|---|
-| fib | 11.4 ms | 933 ms | **82×** |
-| sort | 15.7 ms | 1012 ms | **64×** |
-| matmul32 | 147 µs | 8.87 ms | **60×** |
-| add | 1.43 ms | 67.1 ms | **47×** |
-| f32mm_vec | 33 µs | 1.48 ms | **45×** |
-| f32mm | 141 µs | 1.49 ms | **11×** |
-| string | 22.9 ms | 49.7 ms | **2.2×** |
+| fib(32) | 14.9 ms | 1169 ms | **78×** |
+| sort | 1.51 ms | 37659 ms | **24989×** (different algorithms; see note) |
+| matmul32 | 9.5 µs | 308 ms | **32400×** |
+| add | 0.582 ms | 1540 ms | **2647×** |
+| string | 5.28 ms | 337 ms | **64×** |
 
-An empty TokenVector `.exe` also starts in **24.8 ms** versus **35.2 ms** for
-`CPython -c pass`.
-
-**Against NumPy, it is mixed — element-wise stays memory-bound, matmul now wins
-with `simd_gemm`.** NumPy is CPython calling **native machine code**, not a
-managed runtime:
+**Against NumPy the picture is mixed, and `string` is now bounded by
+`join`, not per-character allocation:** NumPy is CPython calling **native
+machine code**, not a managed runtime:
 
 | kernel | TokenVector | NumPy | faster by |
 |---|---|---|---|
-| matmul32 (`simd_gemm`, f32) | 1.7 µs | 5.5 µs | **TokenVector 3.2×** |
-| matmul32 (IL f32x4 vector) | 14.1 µs | 5.5 µs | NumPy 2.4× |
-| matmul32 (IL typed path, i32 counters) | 85.6 µs | 5.7 µs | NumPy 15× |
-| add (IL typed path, i32 counters) | 0.639 ms | 0.911 ms | **TokenVector 1.4×** |
+| matmul32 (`simd_gemm`, f64) | 3.3 µs | 5.2 µs | **TokenVector 1.58×** |
+| matmul32 (IL f32x4 path) | 9.5 µs | 5.2 µs | NumPy 1.83× |
+| add | 0.582 ms | 0.845 ms | **TokenVector 1.45×** |
+| sort | 1.51 ms | 3.93 ms | **TokenVector 2.61×** (different algorithms; see note) |
+| string | 5.28 ms | 2.23 ms | NumPy 2.37× |
+| string — SIMD scan row | 5.53 ms | 2.23 ms | NumPy 2.48× |
 
-The older claim that this IL gap came from vector width was wrong: `i`/`half` were left untyped, so they defaulted to `TkvInt` (boxed arbitrary-precision) and every iteration paid `TkvInt::Cmp` / `FromI64` / `Add` / `ToI32`. Typing the counters `i32` alone takes `list[f64]` add from 3.18 ms to 0.64 ms -- no change to the data structures (`tools/benchmark/run_benchmark.il`, `b_add`; see `benchmark/KETQUA.md`).
+NumPy is native machine code (BLAS/ufuncs), not a managed runtime. The IL
+path cannot chase BLAS consistently; `simd_gemm` is the native route. The
+sort row uses a 16-bit counting kernel on this workload and falls back to
+merge for negative/out-of-range input, so its ratio measures a different
+algorithm, not a general-purpose comparison sort.
 
-The plain-IL nested-`List` matmul and the manual `f32x4` path are still slow next to BLAS, so matmul is covered by `simd_gemm`.**Update 2026-10-18 — `simd_gemm` (native AVX2+FMA kernel).** The gap above is
-for the IL/`Vector4` path. `simd_gemm(a, b, r, n)` now calls a shipped C kernel
-(`tkv_simd_native.dll`) for f32/f64 matmul and is faster than NumPy 2.5.2 at
-every size tested (128–1024): e.g. n=1024, 3.68 ms (f32) / 7.59 ms (f64) vs
-3.867 ms / 9.921 ms.
-
-**So the honest position is: TokenVector is a CPython replacement.** It wins
-2–82× over the interpreter it replaces and has working f32 SIMD (4.25× over its
-own scalar path on `f32mm_vec`). The pure-IL path cannot reach `f64` BLAS
+**So the honest position is: TokenVector is a CPython replacement.** Its
+measured speedups over the interpreter it replaces are 64×–32400× in this
+harness, and it has working SIMD. The pure-IL path cannot reach `f64` BLAS
 performance on .NET Framework 4.8; `simd_gemm` does, through a native kernel,
 without changing the runtime.
 
@@ -119,10 +114,10 @@ It is **not** CPython with a faster interpreter. It is a **transpiler to CIL**:
 ## 3. Where things live
 
 ```
-compiler_bootstrap/  the compiler — 132 .tkv files (the real TokenVector source)
+compiler_bootstrap/  the compiler — 133 .tkv files (the real TokenVector source)
 compiler_src/        file manifest (ds_gop.txt) used to concatenate them
 dist/                tkvc-tv.exe — the self-hosted compiler
-tests/               125 acceptance tests + 31 negative cases
+tests/               134 acceptance tests + 42 negative cases
 tests_suite/         154 .ca data-driven cases + 203 input samples
 tools/               gates + tkv_guide.tkv (the language guide, written in TokenVector)
 projects/            19 real tools written in .tkv

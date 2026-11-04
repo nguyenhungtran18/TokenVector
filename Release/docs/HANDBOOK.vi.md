@@ -302,21 +302,21 @@ Toàn bộ bộ nghiệm thu chạy bằng **một lệnh gate** — không ph�
 .\tools\testkit_gate.ps1
 ```
 
-Gate tự build rồi chạy **125 test chấp nhận** trong `tests/*_test.tkv` cộng
-**31 test âm** (`tests/negative/`), và in bảng tổng kết:
+Gate tự build rồi chạy **134 test chấp nhận** trong `tests/*_test.tkv` cộng
+**42 test âm** (`tests/negative/`), và in bảng tổng kết:
 
 ```text
-=== SUMMARY (out of 125 tests) ===
-PASS=125  BUILDFAIL=0  TESTFAIL=0  OTHER=0 TIMEOUT=0 ILFAIL=0 NEG=31/31
+=== SUMMARY (out of 134 tests) ===
+PASS=134  BUILDFAIL=0  TESTFAIL=0  OTHER=0 TIMEOUT=0 ILFAIL=0 NEG=42/42
 
-GATE: PASS (125/125, negative 31/31)
+GATE: PASS (134/134, negative 42/42)
 ```
 
 Cổng kèm theo:
 
 | Lệnh | Đo gì |
 |---|---|
-| `.\tools\testkit_gate.ps1` | 125 test + 31 test âm |
+| `.\tools\testkit_gate.ps1` | 134 test + 42 test âm |
 | `.\tools\vong.exe` | Vòng tự-host — phải ra `IL_IDENTICAL` |
 | `.\tools\lint_rules_gate.ps1` | Bẫy cú pháp (8/8, 0 báo nhầm) |
 
