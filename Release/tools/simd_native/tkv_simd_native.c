@@ -1624,3 +1624,197 @@ EXPORT long long CountChar16(const unsigned short* p, int n, int c) {
     for (; i < n; i++) if (p[i] == cc) cnt++;
     return cnt;
 }
+
+/* ==== YEU CAU #14 (2026-11-06): attention_bwd FUSED per head ================
+ * Gop 6 GEMM + softmax fwd/bwd + writeback CUA MOT HEAD thanh 1 lenh goi:
+ *   Smat = smm_dot(gQ, gK, n, n, hd)  -> dispatch _smm_core (k>=64):
+ *          m <= 256 -> SgemmFull(T=256, mode=0) | m > 256 -> packed T=256
+ *   l13  = softmax_causal_fwd(Smat, n, inv)       (tkv_bwd_ops.c)
+ *   gCtx = smm_fwd(Smat, gV, n, hd, n)            -> dispatch giong tren
+ *   gDp  = smm_dot(gDc, gV, n, n, hd)             -> dispatch giong tren
+ *   l12  = softmax_causal_bwd(gDp, Smat, gDc, gCtx, n, hd)   (tkv_bwd_ops.c)
+ *   gDq  = smm_fwd(gDs, gK, n, hd, n)             -> dispatch giong tren (gDs = gDp in-place)
+ *   gDkT = smm_fwd_at(gQ, gDs)   (_p58 trans_a, T=64)  -> port truc tiep tai day
+ *   gDvT = smm_fwd_at(gDc, Smat) (_p58 trans_a, T=64)  -> port truc tiep tai day
+ *   writeback packed per head: [t*3hd+d | +hd+d | +2hd+d], dq/dk * inv, dv raw
+ *
+ * BIT-EXACT:
+ *   - 4 GEMM packed/full: GOI DUNG cac static/EXPORT trong file nay voi
+ *     DUNG T=256 + mode=0 (SgemmFull tu memset vung truoc khi cong) => cung ma
+ *     may, cung bits nhu duong .tkv.
+ *   - 2 trans-A: port _tile_a_at_w/_tile_b_w + SgemmF32 + tich luy p0 TANG DAN
+ *     (giong _p58_core_simple) => cung thu tu moi phep cong.
+ *   - Softmax: goi dung entry da duoc kiem chung (_am7/_am8).
+ *
+ * TRA VE 0 = OK, <0 = loi ro -> caller (.tkv) fallback duong cu NGUYEN VAN.
+ *   -1 NULL, -2 shape sai, -5 buffer qua ngan, -6 het bo nho, -13 n < 64
+ *   hoac hd != 64, -20 xgemm, -30 trans-A. */
+extern int SoftmaxCausalFwd(float* s, int s_len, int n, double inv);
+extern int SoftmaxCausalBwd(float* dp, int dp_len, const float* P, int P_len,
+                            const float* dctx, int dc_len, const float* ctx, int c_len,
+                            int n, int hd);
+
+/* Dispatch kieu _smm_core cho 2 truong hop:
+ *   trans_b = 0: B luu [k x np] (ndim = np)   — C[m][np] = A[m][k] x B[k][np]
+ *   trans_b = 1: B luu [np x k] (ndim = k)    — C[m][np] = A[m][k] x B^T
+ * Tra ve 0 = OK, <0 = loi. */
+static int attn_xgemm(float* c, const float* a, int m, int k,
+                      const float* b, int b_rows, int b_cols, int b_stride, int trans_b) {
+    int np = (trans_b == 0) ? b_cols : b_rows;
+    long long a_len = (long long)m * k;
+    long long b_len = (long long)b_rows * b_stride;
+    long long c_len = (long long)m * np;
+    if (k < 64) return -23;                        /* .tkv se di tiled — kernel khong dam bao */
+    if (m <= 256) {
+        int ndim = (trans_b == 0) ? np : k;
+        return SgemmFull(a, b, c, (int)a_len, (int)b_len, (int)c_len,
+                         m, np, k, ndim, trans_b, 256, 0);
+    }
+    long long hA = packed_create(a, NULL, (int)a_len, m, k, k, 256, 0);
+    if (!hA) return -21;
+    long long hB;
+    if (trans_b == 0) hB = packed_create(b, NULL, (int)b_len, k, np, np, 256, 0);
+    else              hB = packed_create(b, NULL, (int)b_len, np, k, k, 256, 1);
+    if (!hB) { SgemmPackedFree(hA); return -22; }
+    int rc = SgemmPacked(hA, hB, c, (int)c_len, 256);
+    SgemmPackedFree(hA);
+    SgemmPackedFree(hB);
+    if (rc != 0) return -30 - rc;
+    return 0;
+}
+
+/* Port _tile_a_at_w: At[r*T+t] = A_stored[(p0+t)*mdim + i0 + r], zero-fill T^2. */
+static void attn_tile_a_at_w(float* out, const float* d, int mdim, int i0, int ib,
+                             int p0, int pw, int T) {
+    memset(out, 0, (size_t)T * (size_t)T * sizeof(float));
+    for (int t = 0; t < pw; t++) {
+        const float* src = d + (long long)(p0 + t) * (long long)mdim + i0;
+        for (int r = 0; r < ib; r++) out[r * T + t] = src[r];
+    }
+}
+
+/* Port _tile_b_w voi trans_b = 0: B luu [k x ndim], tile[i][j] = B[p0+i, r0+j]. */
+static void attn_tile_b_w(float* out, const float* d, int ndim, int p0, int pw,
+                          int r0, int br, int T) {
+    memset(out, 0, (size_t)T * (size_t)T * sizeof(float));
+    for (int i = 0; i < pw; i++) {
+        const float* row = d + (long long)(p0 + i) * (long long)ndim + r0;
+        memcpy(out + i * T, row, (size_t)br * sizeof(float));
+    }
+}
+
+/* Port 1 GEMM trans-A cua _p58_core_simple (T=64, m=hd=64):
+ * cd[hd x n] = A^T x B, A luu [k x hd], B luu [k x n]; cd PHAI duoc zero-fill
+ * truoc boi caller. Tra ve 0 = OK, <0 = loi. */
+static int attn_trans_a64(float* cd, const float* sa, const float* b, int hd, int n,
+                          float* AtB, float* BtB, float* Ct) {
+    const int T = 64;
+    int k = n;                                     /* gDkT/gDvT: k = seq */
+    for (int i0 = 0; i0 < hd; i0 += T) {
+        int ib = hd - i0; if (ib > T) ib = T;
+        for (int p0 = 0; p0 < k; p0 += T) {
+            int pw = k - p0; if (pw > T) pw = T;
+            attn_tile_a_at_w(AtB, sa, hd, i0, ib, p0, pw, T);
+            for (int j0 = 0; j0 < n; j0 += T) {
+                int jb = n - j0; if (jb > T) jb = T;
+                attn_tile_b_w(BtB, b, n, p0, pw, j0, jb, T);
+                SgemmF32(AtB, BtB, Ct, T);
+                for (int r = 0; r < ib; r++) {
+                    float* dst = cd + (long long)(i0 + r) * (long long)n + j0;
+                    const float* ct = Ct + (long long)r * T;
+                    for (int c = 0; c < jb; c++) dst[c] = dst[c] + ct[c];
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+EXPORT int AttentionBwdFused(const float* qkv, int qkv_len,
+                             const float* dctx, int dctx_len,
+                             float* ctxo, int ctxo_len,
+                             float* dqo, int dqo_len,
+                             int n, int h, int hd, int head, double inv) {
+    if (!qkv || !dctx || !ctxo || !dqo) return -1;
+    if (n < 64 || h <= 0 || hd != 64) return -13;               /* .tkv tiled / shape nho */
+    if (head < 0 || head >= h / hd) return -2;
+    long long nn = (long long)n * n;
+    long long nd = (long long)n * hd;
+    long long n3h = (long long)n * 3 * h;
+    if ((long long)qkv_len < n3h) return -5;
+    if ((long long)dctx_len < (long long)n * h) return -5;
+    if ((long long)ctxo_len < nd) return -5;
+    if ((long long)dqo_len < (long long)n * 3 * hd) return -5;
+
+    float* gQ = NULL; float* gK = NULL; float* gV = NULL; float* gDc = NULL;
+    float* Smat = NULL; float* gCtx = NULL; float* gDp = NULL; float* gDq = NULL;
+    float* gDkT = NULL; float* gDvT = NULL;
+    float* AtB = NULL; float* BtB = NULL; float* Ct = NULL;
+    int rc = 0;
+
+#define ATTN_ALLOC(var, bytes)                                            \
+    do { var = (float*)malloc((size_t)(bytes));                            \
+         if (!var) { rc = -6; goto done; } } while (0)
+    ATTN_ALLOC(gQ, nd * 4);   ATTN_ALLOC(gK, nd * 4);
+    ATTN_ALLOC(gV, nd * 4);   ATTN_ALLOC(gDc, nd * 4);
+    ATTN_ALLOC(Smat, nn * 4); ATTN_ALLOC(gCtx, nd * 4);
+    ATTN_ALLOC(gDp, nn * 4);  ATTN_ALLOC(gDq, nd * 4);
+    ATTN_ALLOC(gDkT, nd * 4); ATTN_ALLOC(gDvT, nd * 4);
+    ATTN_ALLOC(AtB, 64 * 64 * 4); ATTN_ALLOC(BtB, 64 * 64 * 4); ATTN_ALLOC(Ct, 64 * 64 * 4);
+#undef ATTN_ALLOC
+
+    for (int t = 0; t < n; t++) {
+        const float* qs = qkv + (long long)t * 3 * h + (long long)head * hd;
+        const float* ds = dctx + (long long)t * h + (long long)head * hd;
+        memcpy(gQ + (long long)t * hd, qs, hd * sizeof(float));
+        memcpy(gK + (long long)t * hd, qs + h, hd * sizeof(float));
+        memcpy(gV + (long long)t * hd, qs + 2 * h, hd * sizeof(float));
+        memcpy(gDc + (long long)t * hd, ds, hd * sizeof(float));
+    }
+
+    /* 1) Smat = gQ x gK^T */
+    rc = attn_xgemm(Smat, gQ, n, hd, gK, n, hd, hd, 1);
+    if (rc != 0) goto done;
+    /* 2) softmax causal fwd (in-place) */
+    rc = SoftmaxCausalFwd(Smat, (int)nn, n, inv);
+    if (rc != 0) goto done;
+    /* 3) gCtx = Smat x gV */
+    rc = attn_xgemm(gCtx, Smat, n, n, gV, n, hd, hd, 0);
+    if (rc != 0) goto done;
+    /* 4) gDp = gDc x gV^T */
+    rc = attn_xgemm(gDp, gDc, n, hd, gV, n, hd, hd, 1);
+    if (rc != 0) goto done;
+    /* 5) softmax causal bwd (in-place on gDp; gDs = gDp) */
+    rc = SoftmaxCausalBwd(gDp, (int)nn, Smat, (int)nn, gDc, (int)nd, gCtx, (int)nd, n, hd);
+    if (rc != 0) goto done;
+    /* 6) gDq = gDs x gK */
+    rc = attn_xgemm(gDq, gDp, n, n, gK, n, hd, hd, 0);
+    if (rc != 0) goto done;
+    /* 7+8) gDkT = gQ^T x gDs | gDvT = gDc^T x Smat (trans-A, T=64) */
+    memset(gDkT, 0, (size_t)nd * 4);
+    rc = attn_trans_a64(gDkT, gQ, gDp, hd, n, AtB, BtB, Ct);
+    if (rc != 0) goto done;
+    memset(gDvT, 0, (size_t)nd * 4);
+    rc = attn_trans_a64(gDvT, gDc, Smat, hd, n, AtB, BtB, Ct);
+    if (rc != 0) goto done;
+    /* 9) writeback packed per head (giong cac vong .tkv) */
+    for (int t = 0; t < n; t++) {
+        long long d0 = (long long)t * hd;
+        long long p0 = (long long)t * 3 * hd;
+        float* dst = dqo + p0;
+        for (int d = 0; d < hd; d++) ctxo[d0 + d] = gCtx[d0 + d];
+        for (int d = 0; d < hd; d++) {
+            dst[d]          = (float)((double)gDq[d0 + d] * inv);
+            dst[hd + d]     = (float)((double)gDkT[(long long)d * n + t] * inv);
+            dst[2 * hd + d] = gDvT[(long long)d * n + t];
+        }
+    }
+    rc = 0;
+
+done:
+    free(gQ); free(gK); free(gV); free(gDc);
+    free(Smat); free(gCtx); free(gDp); free(gDq);
+    free(gDkT); free(gDvT);
+    free(AtB); free(BtB); free(Ct);
+    return rc;
+}
