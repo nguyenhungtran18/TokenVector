@@ -1204,6 +1204,7 @@ def _pt_dp_pinvoke() -> "list[str]":
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "BiasGrad" winapi) int32 BiasGradNative(native int gy, int32 gy_len, native int gflat, int32 gflat_len, int64 dboff, int32 n, int32 cols) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SoftmaxCausalBwd" winapi) int32 SoftmaxCausalBwdNative(native int dp, int32 dp_len, native int P, int32 P_len, native int dctx, int32 dctx_len, native int ctx, int32 ctx_len, int32 n, int32 hd) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "GeluErfBwd" winapi) int32 GeluErfBwdNative(native int x, int32 x_len, native int gy, int32 gy_len, native int outp, int32 out_len, int64 lo, int64 hi) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SoftmaxCausalFwd" winapi) int32 SoftmaxCausalFwdNative(native int s, int32 s_len, int32 n, float64 inv) cil managed preservesig { }',
     ]
 
 
@@ -1569,6 +1570,41 @@ def _pt_softmax_causal_bwd_wrapper() -> "list[str]":
     ]
 
 
+def _pt_softmax_causal_fwd_wrapper() -> "list[str]":
+    """`softmax_causal_fwd` (IL wrapper) — xem YEU CAU #13.
+
+    P = softmax(inv*Q.K^T) voi mask nhan qua, ghi IN-PLACE vao s (n x n).
+    rc < 0 -> caller fallback 4 vong .tkv cu."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 SoftmaxCausalFwdM(' + lt + ' s, int32 n, float64 inv) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (float32[] p0, int32 l0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0)',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.2',
+        '    ldloc.2', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.0',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.1',
+        '    ldarg.1', '    ldc.i4.0', '    ble V_SCFW',
+        '    ldarg.1', '    conv.i8', '    ldarg.1', '    conv.i8', '    mul', '    ldloc.1', '    conv.i8', '    bgt V_SCFW',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.3',
+        '    ldloc.3', '    conv.i',
+        '    ldloc.1',
+        '    ldarg.1',
+        '    ldarg.2',
+        '    call int32 ' + _SIMD_CLASS + '::SoftmaxCausalFwdNative(native int, int32, int32, float64)',
+        '    ret',
+        '  V_SCFW:',
+        '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
 def _pt_gelu_erf_bwd_wrapper() -> "list[str]":
     """YEU CAU #12 Ask A2: `gelu_erf_bwd` (IL wrapper).
 
@@ -1630,6 +1666,7 @@ def _pt_dp_wrappers() -> "list[str]":
     ra = ra + _pt_layernorm_bwd_fused_wrapper()
     ra = ra + _pt_bias_grad_wrapper()
     ra = ra + _pt_softmax_causal_bwd_wrapper()
+    ra = ra + _pt_softmax_causal_fwd_wrapper()
     ra = ra + _pt_gelu_erf_bwd_wrapper()
     # f32_grad_norm(g, n) -> f64 (n <= 0 -> tra 0.0; qua ngan -> nem)
     ra = ra + [
@@ -2469,6 +2506,26 @@ def compile_softmax_causal_bwd(args: "list[TkvNode]", scope: "Scope", out: "list
     out.append('    call int32 ' + _SIMD_CLASS + '::SoftmaxCausalBwdM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int32, int32)')
 
 
+def compile_softmax_causal_fwd(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """softmax_causal_fwd(s, n, inv) -> i32.
+
+    YEU CAU #13: P = softmax(inv*Q.K^T) (mask nhan qua) ghi in-place vao s,
+    gop 4 vong .tkv: scale+max / exp+tong / normalize / zero-fill.
+    s la list[f32] (Tensor.data), inv la f64. rc < 0 -> caller fallback."""
+    if len(args) != 3:
+        raise SyntaxError("il_codegen: softmax_causal_fwd(s, n, inv) can dung 3 tham so")
+    if not _la_list(args[0], scope):
+        raise SyntaxError("il_codegen: softmax_causal_fwd: s phai la list[f32] (Tensor.data)")
+    d0 = _dtype_mang(args[0], scope, 'softmax_causal_fwd')
+    if d0 != 'f32':
+        raise SyntaxError("il_codegen: softmax_causal_fwd chi ho tro f32 (gap " + d0 + ")")
+    _can_simd(ctx, 'dp')
+    _nap_mang(args[0], scope, out, ctx)
+    ctx.compile_expr(args[1], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[2], scope, out, 'f64', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::SoftmaxCausalFwdM(' + _LT_F32 + ', int32, float64)')
+
+
 def compile_gelu_erf_bwd(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """gelu_erf_bwd(x, gy, out, lo, hi) -> i32.
 
@@ -2594,6 +2651,7 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'layernorm_bwd_fused', compile_layernorm_bwd_fused, 'i32')
     register_expr_builtin(reg, 'bias_grad', compile_bias_grad, 'i32')
     register_expr_builtin(reg, 'softmax_causal_bwd', compile_softmax_causal_bwd, 'i32')
+    register_expr_builtin(reg, 'softmax_causal_fwd', compile_softmax_causal_fwd, 'i32')
     register_expr_builtin(reg, 'gelu_erf_bwd', compile_gelu_erf_bwd, 'i32')
     register_expr_builtin(reg, 'f32_grad_norm', compile_f32_grad_norm, 'f64')
     register_expr_builtin(reg, 'lmhead_bwd_fused', compile_lmhead_bwd_fused, 'i32')

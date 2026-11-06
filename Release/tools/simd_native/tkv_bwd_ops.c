@@ -152,6 +152,47 @@ EXPORT int BiasGrad(const float* gy, int gy_len, float* gflat, int gflat_len,
     return 0;
 }
 
+/* ---- SOFTMAX CAUSAL FWD: P = softmax(inv*Q.K^T), mask nhan qua ----
+ * _attn_hb_one + nhan n<128 (IL bseq_p10.il) — gop 4 vong cua duong .tkv:
+ *   m0 = s[t*n+u] * inv   -> f32*f64 = f64, store f32, mxv giu f64 CHUA ROUND
+ *   e  = exp(s - mxv)     -> s doc lai f32, exp f64, store f32, totv f64 chua round
+ *   ivv = 1.0/totv; s = s * ivv (f32*f64 -> f64 -> f32)
+ *   u > t -> 0
+ * exp: MSVC == .NET Math.Exp (probe _nt4: 3001/3001, dai -100..+20; o day
+ * doi so <= 0 nen nam trong dai da kiem).
+ */
+EXPORT int SoftmaxCausalFwd(float* s, int s_len, int n, double inv) {
+    if (!s) return -1;
+    if (n <= 0) return -2;
+    if ((long long)s_len < (long long)n * n) return -5;
+
+    for (int t = 0; t < n; t++) {
+        float* row = s + (long long)t * n;
+
+        /* scale + max: mxv la f64 TRUOC khi lam tron f32 */
+        double mxv = (double)row[0] * inv;
+        row[0] = (float)mxv;
+        for (int u = 1; u <= t; u++) {
+            double m0 = (double)row[u] * inv;
+            row[u] = (float)m0;
+            if (m0 > mxv) mxv = m0;
+        }
+
+        /* exp + tong: doc lai f32, cong don f64 (chua lam tron) */
+        double totv = 0.0;
+        for (int u = 0; u <= t; u++) {
+            double e = exp((double)row[u] - mxv);
+            row[u] = (float)e;
+            totv = totv + e;
+        }
+
+        double ivv = 1.0 / totv;
+        for (int u = 0; u <= t; u++) row[u] = (float)((double)row[u] * ivv);
+        for (int u = t + 1; u < n; u++) row[u] = 0.0f;
+    }
+    return 0;
+}
+
 /* ---- SOFTMAX CAUSAL BWD: dp in-place, P=softmax causal ---- */
 EXPORT int SoftmaxCausalBwd(float* dp, int dp_len, const float* P, int P_len,
                             const float* dctx, int dc_len, const float* ctx, int c_len,
