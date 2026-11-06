@@ -1818,3 +1818,116 @@ done:
     free(AtB); free(BtB); free(Ct);
     return rc;
 }
+
+/* ==== YEU CAU #15 (2026-11-06): linear_dw fused (trans-A GEMM + gflat add) ====
+ * gdw[gdw_off + i*out_d + c] += sum_p x[p*in_d + i] * gy[p*out_d + c]
+ *   (tuong duong `dw = smm_fwd_at(x, gy, in_d, out_d, n)` roi
+ *    `gflat[goff+k] = gflat[goff+k] + dw.data[k]`)
+ *
+ * Hai che do BIT-EXACT:
+ *   mode 0 (P58): tai hien _p58_core_simple — T = min(min(roundup64(k), 1024),
+ *     roundup64(min(m,n))) >= 64; SgemmF32 tren tile T; p0/i0/j0 TANG DAN;
+ *     cd zero-fill dau nen dung thu tu cong cua duong cu.
+ *   mode 1 (PACKED): tai hien smm_transpose + smm_fwd — pack x trans=1
+ *     (packed_create, logical [in_d][n] — buffer GIONG pack tu ctxTt
+ *     trans=0), pack gy trans=0, T=256; buoi cong gio giong y.
+ *
+ * Sau GEMM, kernel cong thang cd vao gdw (kng co vong interpreted) — moi ptu
+ * 1 phep f32 add giong duong .tkv. TRA VE 0 = OK; <0 = fail -> caller
+ * fallback duong cu nguyen van.
+ *   -1 NULL, -2 shape <= 0, -3 mode khong ho tro, -5 buffer qua ngan,
+ *   -6 gdw_off < 0 hoac het bo nho. */
+static int dw_at_gemm_p58(float* cd, const float* sa, const float* b,
+                          int m, int n, int k, float* AtB, float* BtB, float* Ct) {
+    long long tk = (((long long)k + 63) / 64) * 64;
+    if (tk > 1024) tk = 1024;
+    long long rmin = (long long)(m < n ? m : n);
+    long long t2 = ((rmin + 63) / 64) * 64;
+    int T = (int)(tk < t2 ? tk : t2);
+    if (T < 64) T = 64;
+    for (int i0 = 0; i0 < m; i0 += T) {
+        int ib = m - i0; if (ib > T) ib = T;
+        for (int p0 = 0; p0 < k; p0 += T) {
+            int pw = k - p0; if (pw > T) pw = T;
+            attn_tile_a_at_w(AtB, sa, m, i0, ib, p0, pw, T);
+            for (int j0 = 0; j0 < n; j0 += T) {
+                int jb = n - j0; if (jb > T) jb = T;
+                attn_tile_b_w(BtB, b, n, p0, pw, j0, jb, T);
+                SgemmF32(AtB, BtB, Ct, T);
+                for (int r = 0; r < ib; r++) {
+                    float* dst = cd + (long long)(i0 + r) * (long long)n + j0;
+                    const float* ct = Ct + (long long)r * T;
+                    for (int c = 0; c < jb; c++) dst[c] = dst[c] + ct[c];
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+EXPORT int LinearDwAtFused(const float* x, int x_len, const float* gy, int gy_len,
+                           float* gdw, int gdw_len, int gdw_off,
+                           int n, int in_d, int out_d, int mode) {
+    if (!x || !gy || !gdw) return -1;
+    if (n <= 0 || in_d <= 0 || out_d <= 0) return -2;
+    if (mode < 0 || mode > 1) return -3;
+    if (gdw_off < 0) return -6;
+    long long need_x = (long long)n * in_d;
+    long long need_y = (long long)n * out_d;
+    long long need_d = (long long)in_d * out_d;
+    if ((long long)x_len < need_x || (long long)gy_len < need_y) return -5;
+    if ((long long)gdw_len - gdw_off < need_d) return -5;
+
+    float* cd = (float*)malloc((size_t)need_d * sizeof(float));
+    if (!cd) return -6;
+    memset(cd, 0, (size_t)need_d * sizeof(float));
+    int rc = 0;
+
+    if (mode == 0) {
+        long long tk = (((long long)n + 63) / 64) * 64; if (tk > 1024) tk = 1024;
+        long long rmin = (long long)(in_d < out_d ? in_d : out_d);
+        long long t2 = ((rmin + 63) / 64) * 64;
+        int T = (int)(tk < t2 ? tk : t2); if (T < 64) T = 64;
+        float* AtB = (float*)malloc((size_t)T * T * sizeof(float));
+        float* BtB = (float*)malloc((size_t)T * T * sizeof(float));
+        float* Ct = (float*)malloc((size_t)T * T * sizeof(float));
+        if (!AtB || !BtB || !Ct) { free(AtB); free(BtB); free(Ct); free(cd); return -6; }
+        rc = dw_at_gemm_p58(cd, x, gy, in_d, out_d, n, AtB, BtB, Ct);
+        free(AtB); free(BtB); free(Ct);
+    } else {
+        /* Reproduce smm_transpose + smm_fwd: materialize x^T [in_d x n] trong C
+         * (pure copies - giong smm_transpose), roi CÙNG dispatch: k>=64 ->
+         * m<=256 ? SgemmFull(T=256,mode=0) : packed(T=256). */
+        if (n < 64) { free(cd); return -23; }
+        float* xt = (float*)malloc((size_t)need_x * sizeof(float));
+        if (!xt) { free(cd); return -6; }
+        for (int i = 0; i < in_d; i++) {
+            float* dst = xt + (long long)i * n;
+            for (int j = 0; j < n; j++) dst[j] = x[(long long)j * in_d + i];
+        }
+        int m = in_d;
+        if (m <= 256) {
+            rc = SgemmFull(xt, gy, cd, (int)need_x, (int)need_y, (int)need_d,
+                           m, out_d, n, out_d, 0, 256, 0);
+        } else {
+            long long hA = packed_create(xt, NULL, (int)need_x, m, n, n, 256, 0);
+            if (hA) {
+                long long hB = packed_create(gy, NULL, (int)need_y, n, out_d, out_d, 256, 0);
+                if (hB) {
+                    rc = SgemmPacked(hA, hB, cd, (int)need_d, 256);
+                    SgemmPackedFree(hA);
+                    SgemmPackedFree(hB);
+                    if (rc != 0) rc = -30 - rc;
+                } else { rc = -22; SgemmPackedFree(hA); }
+            } else { rc = -21; }
+        }
+        free(xt);
+    }
+
+    if (rc == 0) {
+        float* dst = gdw + gdw_off;
+        for (long long i = 0; i < need_d; i++) dst[i] = dst[i] + cd[i];
+    }
+    free(cd);
+    return rc;
+}
