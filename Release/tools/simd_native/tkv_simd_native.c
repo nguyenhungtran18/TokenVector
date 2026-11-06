@@ -17,6 +17,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
+#include <stdio.h>
 
 #define EXPORT __declspec(dllexport)
 
@@ -116,6 +117,69 @@ static void tkv_env_init(void) {
         k = GetEnvironmentVariableA("TKV_GEMM_THREADS", buf, 32);
         tkv_cap = (k > 0 && k < 64) ? atoi(buf) : 0;   /* 0 = auto */
     }
+}
+
+/* ==== BLAS integration (2026-11-06): scipy-openblas64 =====================
+ * gd: neu `TKV_GEMM_BLAS != 0` (mac dinh = ON theo quyet dinh se mat Loss
+ * EXACT) va DLL nap duoc, SgemmF32 se goi `cblas_sgemm` (row-major) thay
+ * vi kernel AVX2 noi bo — tao ra full cuong do BLAS cho MOI GEMM (packed,
+ * full, attention fused...). `TKV_GEMM_BLAS=0` -> quay lai kernel native.
+ * neu DLL khong co -> fallback native silently. */
+typedef long long TKV_BLASINT;
+static HMODULE g_blas_mod;
+static void (*p_cblas_sgemm)(int layout, int transA, int transB,
+                             TKV_BLASINT M, TKV_BLASINT N, TKV_BLASINT K,
+                             float alpha,
+                             const float* A, TKV_BLASINT lda,
+                             const float* B, TKV_BLASINT ldb,
+                             float beta,
+                             float* C, TKV_BLASINT ldc);
+static void (*p_openblas_set_num_threads)(int);
+static int g_blas_state = 0; /* 0 unknown, 1 ok, -1 unavailable */
+
+static int tkv_blas_load(void) {
+    if (g_blas_state != 0) return g_blas_state;
+    /* BLAS chi dung khi TKV_GEMM_BLAS=1 (mac dinh = 0 = kernel native AVX2).
+     * Ly do: BLAS khong nhanh hon trong cac shape production (~9000 ms bwd),
+     * va no pha 1 case matmul gate (tol 1e-4 vs 1.4e-04) — khong dang.
+     * Neu BLAS dang/muon su dung: TKV_GEMM_BLAS=1 dotnet ... */
+    const char* env_blas = getenv("TKV_GEMM_BLAS");
+    if (!env_blas || env_blas[0] != '1') { g_blas_state = -1; return -1; }
+    char path_buf[MAX_PATH] = {0};
+    const char* env_path = getenv("TKV_GEMM_BLAS_PATH");
+    g_blas_mod = NULL;
+    if (env_path && env_path[0]) g_blas_mod = LoadLibraryA(env_path);
+    if (!g_blas_mod) {
+        DWORD len = GetModuleFileNameA(NULL, path_buf, MAX_PATH);
+        if (len > 0 && len < MAX_PATH) {
+            char* slash = strrchr(path_buf, '\\');
+            if (slash) {
+                strcpy(slash + 1, "libscipy_openblas64_.dll");
+                g_blas_mod = LoadLibraryA(path_buf);
+            }
+        }
+    }
+    if (!g_blas_mod) g_blas_mod = LoadLibraryA("libscipy_openblas64_.dll");
+    if (!g_blas_mod) { g_blas_state = -1; return -1; }
+    p_cblas_sgemm = (void(*)(int, int, int, TKV_BLASINT, TKV_BLASINT, TKV_BLASINT,
+                             float, const float*, TKV_BLASINT,
+                             const float*, TKV_BLASINT, float, float*, TKV_BLASINT))
+                    GetProcAddress(g_blas_mod, "cblas_sgemm");
+    p_openblas_set_num_threads = (void(*)(int))GetProcAddress(g_blas_mod, "openblas_set_num_threads");
+    if (!p_cblas_sgemm) { FreeLibrary(g_blas_mod); g_blas_mod = NULL; g_blas_state = -1; return -1; }
+    fprintf(stderr, "[tkv] BLAS: scipy-openblas64_ loaded (cblas_sgemm)\n");
+    g_blas_state = 1;
+    return 1;
+}
+
+/* Return 1 = BLAS da dung thay kernel native, 0 = dung kernel native. */
+static int tkv_try_blas(float* a, float* b, float* o, int n) {
+    if (tkv_blas_load() != 1) return 0;
+    int nt = tkv_nthreads(n);
+    if (p_openblas_set_num_threads) p_openblas_set_num_threads(nt > 0 ? nt : 1);
+    p_cblas_sgemm(101 /*RowMajor*/, 111 /*NoTrans*/, 111 /*NoTrans*/,
+        n, n, n, 1.0f, a, n, b, n, 0.0f, o, n);
+    return 1;
 }
 
 static int tkv_nthreads(int n) {
@@ -657,6 +721,7 @@ static int tkv_k_eff(const float* b, const float* a, int n) {
 }
 
 EXPORT void SgemmF32(float* a, float* b, float* o, int n) {
+    if (tkv_try_blas(a, b, o, n)) return;
     /* M7: lop VOCAB (n == 50257) chia cot manh + NC lon; con lai pattern cu.
      * nho (< MIN_N mac dinh 96) da tro thanh nt = 1 trong tkv_nthreads. */
     int nt = tkv_nthreads(n);
