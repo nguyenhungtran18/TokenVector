@@ -287,6 +287,36 @@ static INIT_ONCE g_once = INIT_ONCE_STATIC_INIT;
  * bieu hien deadlock/hang > 90s. Mot lock quanh submit+wait la du. */
 static SRWLOCK g_gemm_lock = SRWLOCK_INIT;
 
+/* mode 6 (2026-11-06): pack 1 ma tran f32 vao buffer padded, chia theo HANG
+ * DICH [i0,i1). Thuan copy -> moi thu tu deu bit-giong (chi la di chuyen du
+ * lieu). `trans=1` ghi dst[i*ld+j] = src[j*stride+i] theo tile 32x32 de moi
+ * huong deu cache-friendly (truoc day vong j->i lam moi store lech 1 cot). */
+static void pack_rows_f32(const float* src, float* dst, int stride, int rows,
+                          int cols, int ld, int trans, int i0, int i1) {
+    if (!trans) {
+        for (int i = i0; i < i1; i++) {
+            float* d = dst + (long long)i * ld;
+            const float* s = src + (long long)i * stride;
+            int j = 0;
+            for (; j + 8 <= cols; j += 8)
+                _mm256_storeu_ps(d + j, _mm256_loadu_ps(s + j));
+            for (; j < cols; j++) d[j] = s[j];
+        }
+    } else {
+        for (int jj = 0; jj < rows; jj += 32) {
+            int je = jj + 32; if (je > rows) je = rows;
+            for (int ii = i0; ii < i1; ii += 32) {
+                int ie = ii + 32; if (ie > i1) ie = i1;
+                for (int j = jj; j < je; j++) {
+                    const float* s = src + (long long)j * stride;
+                    for (int i = ii; i < ie; i++)
+                        dst[(long long)i * ld + j] = s[i];
+                }
+            }
+        }
+    }
+}
+
 static DWORD WINAPI tkv_worker(LPVOID p) {
     int t = (int)(INT_PTR)p;
     for (;;) {
@@ -306,6 +336,9 @@ static DWORD WINAPI tkv_worker(LPVOID p) {
                                   j->i0, j->i1);
         else if (j->mode == 5)
             lmhead_add_rows((float*)j->o, (const float*)j->a, j->n, j->i0, j->i1);
+        else if (j->mode == 6)
+            pack_rows_f32((const float*)j->a, (float*)j->o, j->lda, j->m, j->n,
+                          j->k, j->mc, j->i0, j->i1);
         else
             gemm_rows_f32((const float*)j->a, (const float*)j->b, (float*)j->o, j->n, j->i0, j->i1, j->j0, j->j1,
                           j->mc, j->nc, j->bpl);
@@ -438,6 +471,34 @@ static void tkv_run_aux(int nt, int mode, const void* a, const void* b, void* o,
         g_job[used].mode = mode; g_job[used].n = n; g_job[used].m = m;
         g_job[used].alpha = alpha;
         g_job[used].i0 = (int)i0; g_job[used].i1 = (int)i1;
+        used++;
+    }
+    for (int t = 0; t < used; t++) SetEvent(g_start[t]);
+    if (used > 0) WaitForMultipleObjects((DWORD)used, g_done, TRUE, INFINITE);
+    ReleaseSRWLockExclusive(&g_gemm_lock);
+}
+
+/* Chay pack_rows_f32 tren pool (mode 6). Chia theo HANG DICH mtotal. */
+static void tkv_run_pack(int nt, const float* src, float* dst, int stride,
+                         int rows, int cols, int ld, int trans, int mtotal) {
+    if (mtotal <= 0) return;
+    AcquireSRWLockExclusive(&g_gemm_lock);
+    InitOnceExecuteOnce(&g_once, tkv_pool_init, NULL, NULL);
+    if (nt > g_nw) nt = g_nw;
+    if (nt < 1) nt = 1;
+    if (nt > mtotal) nt = mtotal;
+    int per = (mtotal + nt - 1) / nt;
+    if (per < 1) per = 1;
+    int used = 0;
+    for (int t = 0; t < nt; t++) {
+        int i0 = t * per;
+        if (i0 >= mtotal) break;
+        int i1 = i0 + per; if (i1 > mtotal) i1 = mtotal;
+        g_job[used].a = src; g_job[used].o = dst;
+        g_job[used].lda = stride; g_job[used].m = rows; g_job[used].n = cols;
+        g_job[used].k = ld; g_job[used].mc = trans;
+        g_job[used].mode = 6;
+        g_job[used].i0 = i0; g_job[used].i1 = i1;
         used++;
     }
     for (int t = 0; t < used; t++) SetEvent(g_start[t]);
@@ -679,8 +740,6 @@ static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, floa
                           int m, int n, int k, int i0, int i1, int j0, int j1,
                           int mc_b, int nc_b, int bpl) {
     if (i1 <= i0 || j1 <= j0) return;
-    for (int ii = i0; ii < i1; ii++)
-        memset(o + (long long)ii * ldc + j0, 0, (size_t)(j1 - j0) * sizeof(float));
     static __declspec(thread) float bp[GEMM_KC * GEMM_BPL_MAX];
     /* bao ve buffer (M7): bpl trong [GEMM_BPL, GEMM_BPL_MAX], nc <= bpl - 4 */
     if (bpl < GEMM_BPL) bpl = GEMM_BPL;
@@ -690,13 +749,28 @@ static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, floa
     if (mc_b < 1) mc_b = 1;
     for (int jc = j0; jc < j1; jc += nc_b) {
         int nc = j1 - jc; if (nc > nc_b) nc = nc_b;
-        for (int pc = 0; pc < k; pc += GEMM_KC) {
-            int kc = k - pc; if (kc > GEMM_KC) kc = GEMM_KC;
-            pack_b_f32(b, bp, ldb, pc, kc, jc, nc, bpl);
-            for (int ic = i0; ic < i1; ic += mc_b) {
-                int mc = i1 - ic; if (mc > mc_b) mc = mc_b;
-                micro_f32(a + (long long)ic * lda + pc, lda, bp,
-                          o + (long long)ic * ldc + jc, ldc, mc, nc, kc, bpl);
+        /* MC2 (2026-11-06): gom `mc2` HANG vao 1 chunk de tile C (mc2 x nc
+         * f32 ~ 128 KB) nam trong L2 -> C chi ra DRAM 1 lan thay vi
+         * (k/GEMM_KC) lan. Truoc day voi m lon (lm-head dwte: 50257 x 768
+         * @ k=1024) C bi doc+ghi lai 16 lan tren 154 MB -> 2.5 GB RMW va
+         * kernel tut con 69 GFLOPS (vs 389 GFLOPS cung shape m=4096).
+         * Thu tu cong theo k KHONG doi (pc tang dan, trong pc van la
+         * micro_f32) -> ket qua BIT-GIONG duong cu. */
+        int mc2 = 32768 / nc;                 /* ~128 KB C / chunk */
+        mc2 = (mc2 / mc_b) * mc_b;
+        if (mc2 < mc_b) mc2 = mc_b;
+        for (int ic2 = i0; ic2 < i1; ic2 += mc2) {
+            int ic2e = ic2 + mc2; if (ic2e > i1) ic2e = i1;
+            for (int ii = ic2; ii < ic2e; ii++)
+                memset(o + (long long)ii * ldc + jc, 0, (size_t)nc * sizeof(float));
+            for (int pc = 0; pc < k; pc += GEMM_KC) {
+                int kc = k - pc; if (kc > GEMM_KC) kc = GEMM_KC;
+                pack_b_f32(b, bp, ldb, pc, kc, jc, nc, bpl);
+                for (int ic = ic2; ic < ic2e; ic += mc_b) {
+                    int mc = ic2e - ic; if (mc > mc_b) mc = mc_b;
+                    micro_f32(a + (long long)ic * lda + pc, lda, bp,
+                              o + (long long)ic * ldc + jc, ldc, mc, nc, kc, bpl);
+                }
             }
         }
     }
@@ -985,7 +1059,16 @@ static long long packed_create(const float* srcf, const double* srcd, int src_le
     int mpad = ((m + T - 1) / T) * T;
     float* buf = (float*)calloc((size_t)mpad * (size_t)ld, sizeof(float));
     if (!buf) return 0;
-    if (!trans) {
+    if (!srcd && m > 0) {
+        /* 2026-11-06: pack song song (truoc day 1 luong, chiem 50-60% thoi
+         * gian 1 phep smm_dot: do bench_packed lin_bwd create=33.6ms vs
+         * gemm=24.2ms). Thuan copy -> bit-giong. */
+        int nt = tkv_nthreads(m);
+        if (nt > 1 && (long long)m * (long long)n >= (1LL << 16))
+            tkv_run_pack(nt, srcf, buf, stride, rows, cols, ld, trans, m);
+        else
+            pack_rows_f32(srcf, buf, stride, rows, cols, ld, trans, 0, m);
+    } else if (!trans) {
         for (int i = 0; i < rows; i++) {
             float* d = buf + (long long)i * ld;
             if (srcd) {
