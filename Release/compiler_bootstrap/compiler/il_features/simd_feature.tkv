@@ -2851,6 +2851,7 @@ def compile_adamw_step_glm(args: "list[TkvNode]", scope: "Scope", out: "list[str
     if d3 != 'f32':
         raise SyntaxError("il_codegen: adamw_step_glm chi ho tro g kieu f32 (gap " + d3 + ")")
     _can_simd(ctx, 'm5')
+    _can_simd(ctx, 'dp')
     for i in range(3):
         ctx.compile_expr(args[i], scope, out, 'i64', ctx)
     _nap_mang(args[3], scope, out, ctx)
