@@ -223,3 +223,64 @@ EXPORT int SoftmaxCausalBwd(float* dp, int dp_len, const float* P, int P_len,
     }
     return 0;
 }
+/* ---- EMBED BWD (op_embed_bwd): gw = scatter-add gy theo idx ---------------
+ * gw[r*d + j] += sum_{t: idx[t]=r} gy[t*d + j], voi thu tu .tkv:
+ *   counts[r] = so lan r xuat hien (tang dan t)
+ *   starts[r] = prefix sum (cumulative)
+ *   pos[cursor[r]] = t; cursor[r]++
+ *   for q in 0..n-1: t = pos[q]; r = idx[t]; for j in 0..d-1: gw[r*d+j] += gy[t*d+j]
+ *   (thu tu cong theo q TANG DAN — bit-exact).
+ * giu nguyen bit: moi ptu cong don doc lap, thu tu phep cong giong .tkv.
+ * rc < 0 -> caller fallback duong interpreted cu. */
+EXPORT int EmbedBwdFused(const long long* idx, int idx_len, int rows, int d,
+                        const float* gy, int gy_len, float* gw, int gw_len) {
+    if (!idx || !gy || !gw) return -1;
+    if (rows <= 0 || d <= 0 || idx_len < 0) return -2;
+    long long n = idx_len;
+    long long need_gy = n * d;
+    long long need_gw = (long long)rows * d;
+    if (gy_len < need_gy) return -5;
+    if (gw_len < need_gw) return -5;
+    /* zero-fill gw (giong t_zeros -> +0.0f) */
+    memset(gw, 0, (size_t)need_gw * sizeof(float));
+
+    if (n == 0) return 0;
+
+    /* counts + starts */
+    int* counts = (int*)calloc((size_t)rows, sizeof(int));
+    int* starts = (int*)malloc((size_t)rows * sizeof(int));
+    int* cursor = (int*)malloc((size_t)rows * sizeof(int));
+    int* pos = (int*)malloc((size_t)n * sizeof(int));
+    if (!counts || !starts || !cursor || !pos) {
+        free(counts); free(starts); free(cursor); free(pos);
+        return -6;
+    }
+    for (int r = 0; r < rows; r++) counts[r] = 0;
+    for (long long t = 0; t < n; t++) {
+        int r = (int)idx[t];
+        if (r < 0 || r >= rows) { /* out of range -> fallback */
+            free(counts); free(starts); free(cursor); free(pos);
+            return -7;
+        }
+        counts[r] = counts[r] + 1;
+    }
+    int s = 0;
+    for (int r = 0; r < rows; r++) { starts[r] = s; s = s + counts[r]; }
+    for (int r = 0; r < rows; r++) cursor[r] = starts[r];
+    for (long long t = 0; t < n; t++) {
+        int r = (int)idx[t];
+        pos[cursor[r]] = (int)t;
+        cursor[r] = cursor[r] + 1;
+    }
+    /* main loop: q in 0..n-1, t = pos[q], r = idx[t] */
+    for (long long q = 0; q < n; q++) {
+        int t = pos[q];
+        int r = (int)idx[t];
+        const float* gyrow = gy + (long long)t * d;
+        float* gwrow = gw + (long long)r * d;
+        for (int j = 0; j < d; j++) gwrow[j] = gwrow[j] + gyrow[j];
+    }
+    free(counts); free(starts); free(cursor); free(pos);
+    return 0;
+}
+
