@@ -1200,6 +1200,10 @@ def _pt_dp_pinvoke() -> "list[str]":
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "F32GradNorm" winapi) float64 F32GradNormNative(native int g, int32 g_len, int32 n) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "LinearDwFused" winapi) int32 LinearDwFusedNative(native int x, int32 x_len, native int gy, int32 gy_len, native int gdw, int32 gdw_len, int32 gdw_off, int32 n, int32 in_d, int32 out_d) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "LinearDxFused" winapi) int32 LinearDxFusedNative(native int gy, int32 gy_len, native int w, int32 w_len, native int dx, int32 dx_len, int32 m, int32 n, int32 k) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "LayernormBwdFused" winapi) int32 LayernormBwdFusedNative(native int x, int32 x_len, native int gy, int32 gy_len, native int g, int32 g_len, native int dx, int32 dx_len, native int gflat, int32 gflat_len, int32 n, int32 h, int64 o_dg, int64 o_db) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "BiasGrad" winapi) int32 BiasGradNative(native int gy, int32 gy_len, native int gflat, int32 gflat_len, int64 dboff, int32 n, int32 cols) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SoftmaxCausalBwd" winapi) int32 SoftmaxCausalBwdNative(native int dp, int32 dp_len, native int P, int32 P_len, native int dctx, int32 dctx_len, native int ctx, int32 ctx_len, int32 n, int32 hd) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "GeluErfBwd" winapi) int32 GeluErfBwdNative(native int x, int32 x_len, native int gy, int32 gy_len, native int outp, int32 out_len, int64 lo, int64 hi) cil managed preservesig { }',
     ]
 
 
@@ -1394,6 +1398,226 @@ def _pt_linear_dx_wrapper() -> "list[str]":
     ]
 
 
+def _pt_layernorm_bwd_fused_wrapper() -> "list[str]":
+    """YEU CAU #12 Ask A1: `layernorm_bwd_fused` (IL wrapper).
+
+    Gop mu/v/rstd/s1/s2 + dx + dg/db ghi thang vao gflat thanh MOT entry
+    native (`LayernormBwdFused`, TU /fp:precise). x/gy/g/dx/gflat la
+    list[f32]; o_dg/o_db la offset phan tu (int64), caller dam bao >= 0. Native tu choi n <= 0, h <= 0, list ngan, off am
+    (rc < 0) -> caller .tkv PHAI fallback duong cu khi rc != 0."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 LayernormBwdFusedM(' + lt + ' x, ' + lt + ' gy, ' + lt + ' g, ' + lt + ' dx, ' + lt + ' gflat, int32 n, int32 h, int64 o_dg, int64 o_db) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, float32[] p2, float32[] p3, float32[] p4, int32 l0, int32 l1, int32 l2, int32 l3, int32 l4, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1, float32& pinned q2, float32& pinned q3, float32& pinned q4)',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 10',
+        '    ldloc.s 10', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.0',
+        '    ldloc.s 10', '    ldarg.1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.1',
+        '    ldloc.s 10', '    ldarg.2', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.2',
+        '    ldloc.s 10', '    ldarg.3', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.3',
+        '    ldloc.s 10', '    ldarg.s 4', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 4',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 5',
+        '    ldarg.1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 6',
+        '    ldarg.2', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 7',
+        '    ldarg.3', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 8',
+        '    ldarg.s 4', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 9',
+        '    ldarg.s 5', '    ldc.i4.0', '    ble V_LNBF',
+        '    ldarg.s 6', '    ldc.i4.0', '    ble V_LNBF',
+        '    ldarg.s 7', '    ldc.i8 0', '    blt V_LNBF',
+        '    ldarg.s 8', '    ldc.i8 0', '    blt V_LNBF',
+        '    ldarg.s 5', '    ldarg.s 6', '    mul', '    ldloc.s 5', '    bgt V_LNBF',
+        '    ldarg.s 5', '    ldarg.s 6', '    mul', '    ldloc.s 6', '    bgt V_LNBF',
+        '    ldarg.s 5', '    ldarg.s 6', '    mul', '    ldloc.s 8', '    bgt V_LNBF',
+        '    ldarg.s 6', '    ldloc.s 7', '    bgt V_LNBF',
+        '    ldarg.s 7', '    ldarg.s 6', '    conv.i8', '    add', '    ldloc.s 9', '    conv.i8', '    bgt V_LNBF',
+        '    ldarg.s 8', '    ldarg.s 6', '    conv.i8', '    add', '    ldloc.s 9', '    conv.i8', '    bgt V_LNBF',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 11',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 12',
+        '    ldloc.2', '    ldc.i4.0', '    ldelema float32', '    stloc.s 13',
+        '    ldloc.3', '    ldc.i4.0', '    ldelema float32', '    stloc.s 14',
+        '    ldloc.s 4', '    ldc.i4.0', '    ldelema float32', '    stloc.s 15',
+        '    ldloc.s 11', '    conv.i',
+        '    ldloc.s 5',
+        '    ldloc.s 12', '    conv.i',
+        '    ldloc.s 6',
+        '    ldloc.s 13', '    conv.i',
+        '    ldloc.s 7',
+        '    ldloc.s 14', '    conv.i',
+        '    ldloc.s 8',
+        '    ldloc.s 15', '    conv.i',
+        '    ldloc.s 9',
+        '    ldarg.s 5',
+        '    ldarg.s 6',
+        '    ldarg.s 7',
+        '    ldarg.s 8',
+        '    call int32 ' + _SIMD_CLASS + '::LayernormBwdFusedNative(native int, int32, native int, int32, native int, int32, native int, int32, native int, int32, int32, int32, int64, int64)',
+        '    ret',
+        '  V_LNBF:',
+        '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_bias_grad_wrapper() -> "list[str]":
+    """YEU CAU #12 Ask A4: `bias_grad` (IL wrapper).
+
+    Tich luy gflat[off + c] += sum_i gy[i*cols + c]. gy/gflat la list[f32];
+    off la phan tu (int64). Chuoi cong theo i nguyen (f32) nen vectorize 8
+    lane AVX2 van bit-exact. rc < 0 -> caller fallback duong .tkv cu."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 BiasGradM(' + lt + ' gy, ' + lt + ' gflat, int64 dboff, int32 n, int32 cols) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, int32 len0, int32 len1, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1)',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 4',
+        '    ldloc.s 4', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.0',
+        '    ldloc.s 4', '    ldarg.1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.1',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 2',
+        '    ldarg.1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 3',
+        '    ldarg.s 3', '    ldc.i4.0', '    blt V_BGF',
+        '    ldarg.s 4', '    ldc.i4.0', '    ble V_BGF',
+        '    ldarg.2', '    ldc.i8 0', '    blt V_BGF',
+        '    ldarg.s 3', '    ldc.i4.0', '    beq V_BGZ',
+        '    ldarg.s 3', '    conv.i8', '    ldarg.s 4', '    conv.i8', '    mul', '    ldloc.s 2', '    conv.i8', '    bgt V_BGF',
+        '    ldarg.2', '    ldarg.s 4', '    conv.i8', '    add', '    ldloc.s 3', '    conv.i8', '    bgt V_BGF',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 5',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 6',
+        '    ldloc.s 5', '    conv.i',
+        '    ldloc.s 2',
+        '    ldloc.s 6', '    conv.i',
+        '    ldloc.s 3',
+        '    ldarg.2',
+        '    ldarg.s 3',
+        '    ldarg.s 4',
+        '    call int32 ' + _SIMD_CLASS + '::BiasGradNative(native int, int32, native int, int32, int64, int32, int32)',
+        '    ret',
+        '  V_BGZ:',
+        '    ldc.i4.0',
+        '    ret',
+        '  V_BGF:',
+        '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_softmax_causal_bwd_wrapper() -> "list[str]":
+    """YEU CAU #12 Ask A3: `softmax_causal_bwd` (IL wrapper).
+
+    Giu nguyen cong thuc attention_bwd: dot[t] = sum_d dctx*ctx (f64),
+    ds[t,u<=t] = P*(dp-dot) (f64 -> f32), ds[u>t] = 0; ghi IN-PLACE vao dp.
+    rc < 0 -> caller fallback duong .tkv cu."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 SoftmaxCausalBwdM(' + lt + ' dp, ' + lt + ' P, ' + lt + ' dctx, ' + lt + ' ctx, int32 n, int32 hd) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, float32[] p2, float32[] p3, int32 l0, int32 l1, int32 l2, int32 l3, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1, float32& pinned q2, float32& pinned q3)',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 8',
+        '    ldloc.s 8', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.0',
+        '    ldloc.s 8', '    ldarg.1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.1',
+        '    ldloc.s 8', '    ldarg.2', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.2',
+        '    ldloc.s 8', '    ldarg.3', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.3',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 4',
+        '    ldarg.1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 5',
+        '    ldarg.2', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 6',
+        '    ldarg.3', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 7',
+        '    ldarg.s 4', '    ldc.i4.0', '    ble V_SCF',
+        '    ldarg.s 5', '    ldc.i4.0', '    ble V_SCF',
+        '    ldarg.s 4', '    conv.i8', '    ldarg.s 4', '    conv.i8', '    mul', '    ldloc.s 4', '    conv.i8', '    bgt V_SCF',
+        '    ldarg.s 4', '    conv.i8', '    ldarg.s 4', '    conv.i8', '    mul', '    ldloc.s 5', '    conv.i8', '    bgt V_SCF',
+        '    ldarg.s 4', '    conv.i8', '    ldarg.s 5', '    conv.i8', '    mul', '    ldloc.s 6', '    conv.i8', '    bgt V_SCF',
+        '    ldarg.s 4', '    conv.i8', '    ldarg.s 5', '    conv.i8', '    mul', '    ldloc.s 7', '    conv.i8', '    bgt V_SCF',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 9',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 10',
+        '    ldloc.2', '    ldc.i4.0', '    ldelema float32', '    stloc.s 11',
+        '    ldloc.3', '    ldc.i4.0', '    ldelema float32', '    stloc.s 12',
+        '    ldloc.s 9', '    conv.i',
+        '    ldloc.s 4',
+        '    ldloc.s 10', '    conv.i',
+        '    ldloc.s 5',
+        '    ldloc.s 11', '    conv.i',
+        '    ldloc.s 6',
+        '    ldloc.s 12', '    conv.i',
+        '    ldloc.s 7',
+        '    ldarg.s 4',
+        '    ldarg.s 5',
+        '    call int32 ' + _SIMD_CLASS + '::SoftmaxCausalBwdNative(native int, int32, native int, int32, native int, int32, native int, int32, int32, int32)',
+        '    ret',
+        '  V_SCF:',
+        '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_gelu_erf_bwd_wrapper() -> "list[str]":
+    """YEU CAU #12 Ask A2: `gelu_erf_bwd` (IL wrapper).
+
+    out[i - lo] = gy[i] * dgelu(x[i]) tren doan [lo, hi). x/gy/out la
+    list[f32]; lo/hi la offset phan tu (int64). rc < 0 -> caller fallback
+    duong .tkv cu (n < 2000000 hoac worker _ogb_one)."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 GeluErfBwdM(' + lt + ' x, ' + lt + ' gy, ' + lt + ' outp, int64 lo, int64 hi) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, float32[] p2, int32 l0, int32 l1, int32 l2, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1, float32& pinned q2)',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 6',
+        '    ldloc.s 6', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.0',
+        '    ldloc.s 6', '    ldarg.1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.1',
+        '    ldloc.s 6', '    ldarg.2', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.2',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.3',
+        '    ldarg.1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 4',
+        '    ldarg.2', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 5',
+        '    ldarg.s 3', '    ldc.i8 0', '    blt V_GEB',
+        '    ldarg.s 4', '    ldarg.s 3', '    blt V_GEB',
+        '    ldarg.s 4', '    ldloc.3', '    conv.i8', '    bgt V_GEB',
+        '    ldarg.s 4', '    ldloc.s 4', '    conv.i8', '    bgt V_GEB',
+        '    ldarg.s 4', '    ldarg.s 3', '    sub', '    ldloc.s 5', '    conv.i8', '    bgt V_GEB',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 7',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 8',
+        '    ldloc.2', '    ldc.i4.0', '    ldelema float32', '    stloc.s 9',
+        '    ldloc.s 7', '    conv.i',
+        '    ldloc.3',
+        '    ldloc.s 8', '    conv.i',
+        '    ldloc.s 4',
+        '    ldloc.s 9', '    conv.i',
+        '    ldloc.s 5',
+        '    ldarg.s 3',
+        '    ldarg.s 4',
+        '    call int32 ' + _SIMD_CLASS + '::GeluErfBwdNative(native int, int32, native int, int32, native int, int32, int64, int64)',
+        '    ret',
+        '  V_GEB:',
+        '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
 def _pt_dp_wrappers() -> "list[str]":
     lt = _LT_F32
     ra: "list[str]" = []
@@ -1403,6 +1627,10 @@ def _pt_dp_wrappers() -> "list[str]":
                                'f32_list_add: dst va src phai co it nhat n phan tu')
     ra = ra + _pt_linear_dw_wrapper()
     ra = ra + _pt_linear_dx_wrapper()
+    ra = ra + _pt_layernorm_bwd_fused_wrapper()
+    ra = ra + _pt_bias_grad_wrapper()
+    ra = ra + _pt_softmax_causal_bwd_wrapper()
+    ra = ra + _pt_gelu_erf_bwd_wrapper()
     # f32_grad_norm(g, n) -> f64 (n <= 0 -> tra 0.0; qua ngan -> nem)
     ra = ra + [
         '  .method public static float64 F32GradNormM(' + lt + ' g, int32 n) cil managed',
@@ -2170,6 +2398,99 @@ def compile_linear_dx_fused(args: "list[TkvNode]", scope: "Scope", out: "list[st
     out.append('    call int32 ' + _SIMD_CLASS + '::LinearDxFusedM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int32, int32, int32)')
 
 
+def compile_layernorm_bwd_fused(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """layernorm_bwd_fused(x, gy, g, dx, gflat, n, h, o_dg, o_db) -> i32.
+
+    YEU CAU #12 Ask A1: mu/v/rstd/s1/s2 + dx + dg/db ghi thang gflat, mot
+    lan goi native. x/gy/g/dx/gflat la list[f32]; o_dg/o_db la offset phan
+    tu (int64). Tra rc: 0 = OK; khac 0 = native tu choi (n/h <= 0, list
+    qua ngan, offset am) -> caller PHAI fallback duong .tkv cu."""
+    if len(args) != 9:
+        raise SyntaxError("il_codegen: layernorm_bwd_fused(x, gy, g, dx, gflat, n, h, o_dg, o_db) can dung 9 tham so")
+    for i in range(5):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: layernorm_bwd_fused: tham so " + str(i) + " phai la list[f32] (Tensor.data)")
+        dd = _dtype_mang(args[i], scope, 'layernorm_bwd_fused')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: layernorm_bwd_fused chi ho tro f32 (gap " + dd + ")")
+    _can_simd(ctx, 'dp')
+    for i in range(5):
+        _nap_mang(args[i], scope, out, ctx)
+    ctx.compile_expr(args[5], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[6], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[7], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[8], scope, out, 'i64', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::LayernormBwdFusedM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int32, int32, int64, int64)')
+
+
+def compile_bias_grad(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """bias_grad(gy, gflat, off, n, cols) -> i32.
+
+    YEU CAU #12 Ask A4: gflat[off + c] += sum_i gy[i*cols + c]. Gy/gflat la
+    list[f32], off la offset phan tu (int64). Thu tu cong theo i nguyen
+    (f32), AVX2 8 lane moi lane la mot cot nen bit-exact. rc < 0 -> caller
+    fallback duong .tkv cu."""
+    if len(args) != 5:
+        raise SyntaxError("il_codegen: bias_grad(gy, gflat, off, n, cols) can dung 5 tham so")
+    if not _la_list(args[0], scope) or not _la_list(args[1], scope):
+        raise SyntaxError("il_codegen: bias_grad: gy/gflat phai la list[f32] (Tensor.data)")
+    d0 = _dtype_mang(args[0], scope, 'bias_grad')
+    d1 = _dtype_mang(args[1], scope, 'bias_grad')
+    if d0 != 'f32' or d1 != 'f32':
+        raise SyntaxError("il_codegen: bias_grad chi ho tro f32 (gap " + d0 + "/" + d1 + ")")
+    _can_simd(ctx, 'dp')
+    _nap_mang(args[0], scope, out, ctx)
+    _nap_mang(args[1], scope, out, ctx)
+    ctx.compile_expr(args[2], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[3], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[4], scope, out, 'i32', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::BiasGradM(' + _LT_F32 + ', ' + _LT_F32 + ', int64, int32, int32)')
+
+
+def compile_softmax_causal_bwd(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """softmax_causal_bwd(dp, P, dctx, ctx, n, hd) -> i32.
+
+    YEU CAU #12 Ask A3: ds = P * (dp - dot) in-place tren dp, causal mask.
+    dp/P/dctx/ctx la list[f32]. dot[t] tich luy f64 tuan tu hd, giong duong
+    interpreted. rc < 0 -> caller fallback duong .tkv cu."""
+    if len(args) != 6:
+        raise SyntaxError("il_codegen: softmax_causal_bwd(dp, P, dctx, ctx, n, hd) can dung 6 tham so")
+    for i in range(4):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: softmax_causal_bwd: tham so " + str(i) + " phai la list[f32] (Tensor.data)")
+        dd = _dtype_mang(args[i], scope, 'softmax_causal_bwd')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: softmax_causal_bwd chi ho tro f32 (gap " + dd + ")")
+    _can_simd(ctx, 'dp')
+    for i in range(4):
+        _nap_mang(args[i], scope, out, ctx)
+    ctx.compile_expr(args[4], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[5], scope, out, 'i32', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::SoftmaxCausalBwdM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int32, int32)')
+
+
+def compile_gelu_erf_bwd(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """gelu_erf_bwd(x, gy, out, lo, hi) -> i32.
+
+    YEU CAU #12 Ask A2: out[i - lo] = gy[i] * gelu'(x[i]) tren [lo, hi).
+    x/gy/out la list[f32]; lo/hi la offset phan tu (int64). rc < 0 -> caller
+    fallback duong .tkv cu."""
+    if len(args) != 5:
+        raise SyntaxError("il_codegen: gelu_erf_bwd(x, gy, out, lo, hi) can dung 5 tham so")
+    for i in range(3):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: gelu_erf_bwd: tham so " + str(i) + " phai la list[f32] (Tensor.data)")
+        dd = _dtype_mang(args[i], scope, 'gelu_erf_bwd')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: gelu_erf_bwd chi ho tro f32 (gap " + dd + ")")
+    _can_simd(ctx, 'dp')
+    for i in range(3):
+        _nap_mang(args[i], scope, out, ctx)
+    ctx.compile_expr(args[3], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[4], scope, out, 'i64', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::GeluErfBwdM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int64, int64)')
+
+
 def compile_f32_grad_norm(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """f32_grad_norm(g, n) -> f64: sqrt(sum g^2), 1 pass native (spec §2.3).
 
@@ -2270,6 +2591,10 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'f32_list_add', compile_f32_list_add, 'i32')
     register_expr_builtin(reg, 'linear_dw_fused', compile_linear_dw_fused, 'i32')
     register_expr_builtin(reg, 'linear_dx_fused', compile_linear_dx_fused, 'i32')
+    register_expr_builtin(reg, 'layernorm_bwd_fused', compile_layernorm_bwd_fused, 'i32')
+    register_expr_builtin(reg, 'bias_grad', compile_bias_grad, 'i32')
+    register_expr_builtin(reg, 'softmax_causal_bwd', compile_softmax_causal_bwd, 'i32')
+    register_expr_builtin(reg, 'gelu_erf_bwd', compile_gelu_erf_bwd, 'i32')
     register_expr_builtin(reg, 'f32_grad_norm', compile_f32_grad_norm, 'f64')
     register_expr_builtin(reg, 'lmhead_bwd_fused', compile_lmhead_bwd_fused, 'i32')
     register_expr_builtin(reg, 'lmhead_bwd_fused_list', compile_lmhead_bwd_fused_list, 'i32')

@@ -1,0 +1,184 @@
+/* tkv_bwd_ops.c - YEU CAU #12 ASK A (2026-11-05)
+ * Kernel non-GEMM trong backward: layernorm_bwd_fused, bias_grad,
+ * softmax_causal_bwd.
+ *
+ * BIT-EXACT voi duong .tkv interpreted (IL trong bseq_p10.il):
+ *   - moi phep hon loai f32/f64 -> JIT mo rong len f64 (probe _nt.tkv NT3);
+ *   - tich luy v/mu/s1/s2/dotv la f64, thu tu TUAN TU tang dan;
+ *   - store f32 ep ve f32 (conv.r4) nhu set_Item;
+ *   - gflat cong: f32 + f32 (o_db, db) hoac f64 cong roi ep f32 (o_dg).
+ *
+ * TU rieng, bien dich /fp:precise (giong tkv_linear_dw.c) - /fp:fast cho phep
+ * MSVC tai lien ket `a + b*c` (dis thanh FMA) lam lech bit.
+ *
+ * GeluErfBwd: da co (probe _nt4/_nt5: exp 3001/3001, erf+dgelu 401/401 khop
+ * MSVC voi input trung bit; JIT ep f64->f32 khi goi erf(float32)).
+ */
+#include <immintrin.h>
+#include <math.h>
+#include <string.h>
+
+#define EXPORT __declspec(dllexport)
+
+/* ---- LN: .tkv gpt2_layernorm_bwd (md5 9473DB7D... cho gflat path) ---- */
+EXPORT int LayernormBwdFused(const float* x, int x_len, const float* gy, int gy_len,
+                             const float* g,  int g_len,
+                             float* dx, int dx_len,
+                             float* gflat, int gflat_len,
+                             int n, int h, long long o_dg, long long o_db) {
+    if (!x || !gy || !g || !dx || !gflat) return -1;
+    if (n <= 0 || h <= 0 || o_dg < 0 || o_db < 0) return -2;
+
+    long long nxh = (long long)n * h;
+    if (x_len < nxh || gy_len < nxh || g_len < h || dx_len < nxh) return -5;
+    if ((long long)gflat_len - o_dg < h || (long long)gflat_len - o_db < h) return -5;
+
+    for (int i = 0; i < n; i++) {
+        const float* xr  = x  + (long long)i * h;
+        const float* gyr = gy + (long long)i * h;
+        float*       dxr = dx + (long long)i * h;
+
+        /* mu = sum(x) / h — tich luy f64, f32 duoc widen */
+        double mu = 0.0;
+        for (int j = 0; j < h; j++) mu = mu + (double)xr[j];
+        mu = mu / (double)h;
+
+        /* v = sum(d^2) / h — d tinh f64 */
+        double v = 0.0;
+        for (int j = 0; j < h; j++) {
+            double d = (double)xr[j] - mu;
+            v = v + d * d;
+        }
+        v = v / (double)h;
+
+        /* rstd = 1/sqrt(v + EPS): f64, sqrt IEEE (giong Math.Sqrt) */
+        double rstd = 1.0 / sqrt(v + 1e-6);
+
+        /* s1/s2: gg la F32 (gy*g), ep f64 truoc khi cong */
+        double s1 = 0.0, s2 = 0.0;
+        for (int j = 0; j < h; j++) {
+            double xh   = ((double)xr[j] - mu) * rstd;
+            float gg    = gyr[j] * g[j];          /* f32 mul, round f32 */
+            s1 = s1 + (double)gg;
+            s2 = s2 + (double)gg * xh;
+        }
+        double m1 = s1 / (double)h;
+        double m2 = s2 / (double)h;
+
+        /* dx + dg/db ghi thang gflat */
+        for (int j = 0; j < h; j++) {
+            double xh = ((double)xr[j] - mu) * rstd;
+            float gyv = gyr[j];
+            float gg  = gyv * g[j];               /* f32 mul */
+            dxr[j] = (float)(rstd * ((double)gg - m1 - xh * m2));
+
+            /* dg += gy*xh: (f32) + f64 -> f64 -> f32 */
+            float* pdg = gflat + o_dg + j;
+            *pdg = (float)((double)(*pdg) + (double)gyv * xh);
+
+            /* db += gy: f32 + f32 (o_db) */
+            float* pdb = gflat + o_db + j;
+            *pdb = *pdb + gyv;
+        }
+    }
+    return 0;
+}
+
+/* ---- GELU erf BWD: op_gelu_erf_bwd (sequential + _ogb_one) ----
+ * IL bseq_p10.il: dgelu = 0.5*(1.0+erf(v/s)) + (v*0.3989422804014327)*Exp((-0.5*v)*v)
+ *   - erf(v/s): div tinh f64, JIT ep f32 truoc khi goi erf(float32)
+ *     (probe _nt5.tkv: 401/401 khop voi kieu A);
+ *   - erf: t = 1.0/(1.0+0.3275911*ax) f64, Horner f64, exp((-ax)*ax) f32;
+ *   - out[i-lo] = (float)((double)gy[i] * dgelu).
+ * Elementwise -> thu tu khong anh huong bit; /fp:precise khong FMA.
+ */
+EXPORT int GeluErfBwd(const float* x, int x_len, const float* gy, int gy_len,
+                      float* out, int out_len, long long lo, long long hi) {
+    if (!x || !gy || !out) return -1;
+    if (lo < 0 || hi < lo) return -2;
+    if (x_len < hi || gy_len < hi || out_len < hi - lo) return -5;
+    if (lo == hi) return 0;
+
+    for (long long i = lo; i < hi; i++) {
+        float v = x[i];
+        /* erf(v / s): f64 div -> ep f32 (giong JIT) */
+        float ef;
+        {
+            float arg = (float)((double)v / 1.4142135623730951);
+            double sg = 1.0;
+            if (arg < 0.0f) sg = -1.0;
+            float ax = fabsf(arg);
+            double t = 1.0 / (1.0 + 0.3275911 * (double)ax);
+            double poly = 1.061405429;
+            poly = poly * t + -1.453152027;
+            poly = poly * t + 1.421413741;
+            poly = poly * t + -0.284496736;
+            poly = poly * t + 0.254829592;
+            poly = poly * t;
+            float e = (float)exp((double)((-ax) * ax));
+            ef = (float)(sg * (1.0 - (double)e * poly));
+        }
+        double d = 0.5 * (1.0 + (double)ef)
+                 + ((double)v * 0.3989422804014327) * exp(((-0.5) * (double)v) * (double)v);
+        out[i - lo] = (float)((double)gy[i] * d);
+    }
+    return 0;
+}
+
+/* ---- BIAS GRAD: .tkv vòng i-outer/o-inner, i64 off vao gflat ---- */
+EXPORT int BiasGrad(const float* gy, int gy_len, float* gflat, int gflat_len,
+                    long long off, int n, int cols) {
+    if (!gy || !gflat) return -1;
+    if (n < 0 || cols <= 0 || off < 0) return -2;
+
+    long long need = (long long)n * cols;
+    if (gy_len < need) return -5;
+    if ((long long)gflat_len - off < cols) return -5;
+    if (n == 0) return 0;
+
+    /* AVX2 8 lanes, thu tu cong tung cot y nguyen (1 ptu = 1 lane) */
+    int c = 0;
+    for (; c + 8 <= cols; c += 8) {
+        __m256 acc = _mm256_loadu_ps(gflat + off + c);
+        for (int i = 0; i < n; i++)
+            acc = _mm256_add_ps(acc, _mm256_loadu_ps(gy + (long long)i * cols + c));
+        _mm256_storeu_ps(gflat + off + c, acc);
+    }
+    for (; c < cols; c++) {
+        float acc = gflat[off + c];
+        for (int i = 0; i < n; i++) acc = acc + gy[(long long)i * cols + c];
+        gflat[off + c] = acc;
+    }
+    return 0;
+}
+
+/* ---- SOFTMAX CAUSAL BWD: dp in-place, P=softmax causal ---- */
+EXPORT int SoftmaxCausalBwd(float* dp, int dp_len, const float* P, int P_len,
+                            const float* dctx, int dc_len, const float* ctx, int c_len,
+                            int n, int hd) {
+    if (!dp || !P || !dctx || !ctx) return -1;
+    if (n <= 0 || hd <= 0) return -2;
+
+    long long nn = (long long)n * n;
+    long long nd = (long long)n * hd;
+    if (dp_len < nn || P_len < nn || dc_len < nd || c_len < nd) return -5;
+
+    for (int t = 0; t < n; t++) {
+        const float* d  = dctx + (long long)t * hd;
+        const float* ct = ctx  + (long long)t * hd;
+        const float* p  = P    + (long long)t * n;
+        float*       ds = dp   + (long long)t * n;
+
+        /* dotv: tich f32, tich luy f64 tuan tu hd */
+        double dotv = 0.0;
+        for (int u = 0; u < hd; u++) {
+            float prod = d[u] * ct[u];
+            dotv = dotv + (double)prod;
+        }
+
+        /* u <= t: ds = p * (dp - dotv) (f64), u > t: 0 */
+        for (int u = 0; u <= t; u++) ds[u] = (float)((double)p[u] * ((double)ds[u] - dotv));
+        for (int u = t + 1; u < n; u++) ds[u] = 0.0f;
+    }
+    return 0;
+}
