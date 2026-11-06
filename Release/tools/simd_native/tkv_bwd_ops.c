@@ -125,6 +125,42 @@ EXPORT int GeluErfBwd(const float* x, int x_len, const float* gy, int gy_len,
     return 0;
 }
 
+/* ---- GELU ERF FWD: y = 0.5*v*(1 + erf(v/s)) -------------------------------
+ * Cong thuc:  y = (0.5f * v) * (1.0f + erf(v/sqrt(2)))  — doi chieu TF
+ * 401/401 (probe _nt5) voi duong interpreted. rc < 0 -> caller fallback. */
+EXPORT int GeluErfFwd(const float* x, int x_len, float* out, int out_len, long long lo, long long hi) {
+    if (!x || !out) return -1;
+    if (lo < 0 || hi < lo) return -2;
+    if (x_len < hi || out_len < hi - lo) return -5;
+    if (lo == hi) return 0;
+    for (long long i = lo; i < hi; i++) {
+        float v = x[i];
+        float ef;
+        {
+            /* IL `gelu_erf`: ldc.r4 1.4142135623730951 -> f32; v / const la
+             * PHEP CHIA f32 (khong phai f64 roi lam tron). */
+            float arg = v / (float)1.4142135623730951;
+            double sg = 1.0;
+            if (arg < 0.0f) sg = -1.0;
+            float ax = fabsf(arg);
+            double t = 1.0 / (1.0 + 0.3275911 * (double)ax);
+            double poly = 1.061405429;
+            poly = poly * t + -1.453152027;
+            poly = poly * t + 1.421413741;
+            poly = poly * t + -0.284496736;
+            poly = poly * t + 0.254829592;
+            poly = poly * t;
+            float e = (float)exp((double)((-ax) * ax));
+            ef = (float)(sg * (1.0 - (double)e * poly));
+        }
+        /* IL: (0.5f*v) * (1.0f + erf) — ca hai ve lam tron f32 TRUOC khi nhan. */
+        float hf = 0.5f * v;
+        float op = 1.0f + ef;
+        out[i - lo] = hf * op;
+    }
+    return 0;
+}
+
 /* ---- BIAS GRAD: .tkv vòng i-outer/o-inner, i64 off vao gflat ---- */
 EXPORT int BiasGrad(const float* gy, int gy_len, float* gflat, int gflat_len,
                     long long off, int n, int cols) {
@@ -284,3 +320,37 @@ EXPORT int EmbedBwdFused(const long long* idx, int idx_len, int rows, int d,
     return 0;
 }
 
+
+/* ---- LAYERNORM FWD: out = (x - mu) * rstd * g + b -------------------------
+ * BIT-EXACT voi duong .tkv interpreted (gpt2_layernorm):
+ *   3 pass: mu (f64 acc, /h f32), v (f64 acc), scale (f32).
+ *   EPS = 1e-5 (hard-code, khop _EPS cua .tkv).
+ * rc < 0 -> caller fallback duong .tkv cu. */
+EXPORT int LayernormFwd(const float* x, int x_len, const float* g, int g_len,
+                        const float* b, int b_len, float* out, int out_len,
+                        int n, int h) {
+    if (!x || !g || !b || !out) return -1;
+    if (n <= 0 || h <= 0) return -2;
+    long long need = (long long)n * h;
+    long long need_g = h;
+    if (x_len < need || out_len < need || g_len < need_g || b_len < need_g) return -5;
+    const double EPS = 1e-6;
+    for (int i = 0; i < n; i++) {
+        const float* row = x + (long long)i * h;
+        float* orow = out + (long long)i * h;
+        double mu = 0.0;
+        for (int j = 0; j < h; j++) mu += (double)row[j];
+        mu = mu / (double)h;
+        double v = 0.0;
+        for (int j = 0; j < h; j++) {
+            double d = (double)row[j] - mu;
+            v += d * d;
+        }
+        v = v / (double)h;
+        double rstd = 1.0 / sqrt(v + EPS);
+        for (int j = 0; j < h; j++) {
+            orow[j] = (float)((((double)row[j] - mu) * rstd) * (double)g[j] + (double)b[j]);
+        }
+    }
+    return 0;
+}
