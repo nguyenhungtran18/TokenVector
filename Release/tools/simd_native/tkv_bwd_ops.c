@@ -259,6 +259,32 @@ EXPORT int SoftmaxCausalBwd(float* dp, int dp_len, const float* P, int P_len,
     }
     return 0;
 }
+/* ---- MEMORY-CRAM: _attn_hb_merge native (1 head) --------------
+ * Gop 1 head output rieng (PACKED) vao ctxT/dqkv theo vi tri (t, head, d).
+ * Tra lai 0 = OK; <0 = loi -> caller fallback duong interpreted cu. */
+EXPORT int MergeHbHead(const float* co, const float* dq, float* ctxT, float* dqkv,
+                       int n, int h, int hd, int hlo, int hhi) {
+    if (!co || !dq || !ctxT || !dqkv) return -1;
+    if (n <= 0 || h <= 0 || hd != 64) return -13;
+    if (hlo < 0 || hhi > h / hd || hlo >= hhi) return -2;
+    for (int head = hlo; head < hhi; head++) {
+        int ho = head * hd;
+        for (int t2 = 0; t2 < n; t2++) {
+            long long c0 = (long long)t2 * h + ho;
+            long long p0 = (long long)t2 * 3 * hd;
+            long long r0 = (long long)t2 * 3 * h + ho;
+            const float* src_dq = dq + p0;
+            for (int d = 0; d < hd; d++) {
+                ctxT[c0 + d]              = co[(long long)t2 * hd + d];
+                dqkv[r0 + d]              = src_dq[d];
+                dqkv[r0 + h + d]          = src_dq[hd + d];
+                dqkv[r0 + 2 * h + d]      = src_dq[2 * hd + d];
+            }
+        }
+    }
+    return 0;
+}
+
 /* ---- EMBED BWD (op_embed_bwd): gw = scatter-add gy theo idx ---------------
  * gw[r*d + j] += sum_{t: idx[t]=r} gy[t*d + j], voi thu tu .tkv:
  *   counts[r] = so lan r xuat hien (tang dan t)
