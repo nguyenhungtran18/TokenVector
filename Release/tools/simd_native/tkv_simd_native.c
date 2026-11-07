@@ -165,7 +165,14 @@ static int tkv_blas_load(void) {
                              float, const float*, TKV_BLASINT,
                              const float*, TKV_BLASINT, float, float*, TKV_BLASINT))
                     GetProcAddress(g_blas_mod, "cblas_sgemm");
+    if (!p_cblas_sgemm)
+        p_cblas_sgemm = (void(*)(int, int, int, TKV_BLASINT, TKV_BLASINT, TKV_BLASINT,
+                                 float, const float*, TKV_BLASINT,
+                                 const float*, TKV_BLASINT, float, float*, TKV_BLASINT))
+                        GetProcAddress(g_blas_mod, "scipy_cblas_sgemm");
     p_openblas_set_num_threads = (void(*)(int))GetProcAddress(g_blas_mod, "openblas_set_num_threads");
+    if (!p_openblas_set_num_threads)
+        p_openblas_set_num_threads = (void(*)(int))GetProcAddress(g_blas_mod, "scipy_openblas_set_num_threads");
     if (!p_cblas_sgemm) { FreeLibrary(g_blas_mod); g_blas_mod = NULL; g_blas_state = -1; return -1; }
     fprintf(stderr, "[tkv] BLAS: scipy-openblas64_ loaded (cblas_sgemm)\n");
     g_blas_state = 1;
