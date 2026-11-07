@@ -2021,11 +2021,31 @@ static int attn_trans_a64(float* cd, const float* sa, const float* b, int hd, in
     return 0;
 }
 
+/* flash kernel o tkv_flash_attn.c (link vao cung DLL) */
+extern int FlashAttentionBwdFused(const float*, int, const float*, int, float*, int, float*, int, int, int, int, int, double);
+
 EXPORT int AttentionBwdFused(const float* qkv, int qkv_len,
                              const float* dctx, int dctx_len,
                              float* ctxo, int ctxo_len,
                              float* dqo, int dqo_len,
                              int n, int h, int hd, int head, double inv) {
+    /* Thu flash (poco online-softmax, fp32) truoc - nhanh hon duong cu
+     * (khong materialize Smat n x n). rc != 0 -> duong cu NGUYEN VAN ben
+     * duoi (soft-fail; loss EXACT nhu truoc). xem tkv_flash_attn.c.
+     * TKV_FLASH_OFF=1 de tat dispatch nay (A/B + rollback). */
+    {
+        static __declspec(thread) int flash_off = -2;
+        if (flash_off == -2) {
+            char fb[8];
+            flash_off = (GetEnvironmentVariableA("TKV_FLASH_OFF", fb, 8) > 0 && fb[0] == '1') ? 1 : 0;
+        }
+        if (!flash_off) {
+            int rfc = FlashAttentionBwdFused(qkv, qkv_len, dctx, dctx_len,
+                                             ctxo, ctxo_len, dqo, dqo_len,
+                                             n, h, hd, head, inv);
+            if (rfc == 0) return 0;
+        }
+    }
     if (!qkv || !dctx || !ctxo || !dqo) return -1;
     if (n < 64 || h <= 0 || hd != 64) return -13;               /* .tkv tiled / shape nho */
     if (head < 0 || head >= h / hd) return -2;
