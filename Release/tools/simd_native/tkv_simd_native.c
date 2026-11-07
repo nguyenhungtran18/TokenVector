@@ -140,12 +140,11 @@ static int g_blas_state = 0; /* 0 unknown, 1 ok, -1 unavailable */
 
 static int tkv_blas_load(void) {
     if (g_blas_state != 0) return g_blas_state;
-    /* BLAS chi dung khi TKV_GEMM_BLAS=1 (mac dinh = 0 = kernel native AVX2).
-     * Ly do: BLAS khong nhanh hon trong cac shape production (~9000 ms bwd),
-     * va no pha 1 case matmul gate (tol 1e-4 vs 1.4e-04) — khong dang.
-     * Neu BLAS dang/muon su dung: TKV_GEMM_BLAS=1 dotnet ... */
+    /* BLAS mặc định bật (zero-config): GLAS_RUN_ENV thay qua opt-in
+     * TKV_GEMM_BLAS=1; với env khác ('0') tách BLAS hoàn toàn.
+     * Biên dịch thử nghiệm: .\bench_attn.exe tuỳ chọn TKV_GEMM_BLAS=0. */
     const char* env_blas = getenv("TKV_GEMM_BLAS");
-    if (!env_blas || env_blas[0] != '1') { g_blas_state = -1; return -1; }
+    if (env_blas && env_blas[0] == '0') { g_blas_state = -1; return -1; }
     char path_buf[MAX_PATH] = {0};
     const char* env_path = getenv("TKV_GEMM_BLAS_PATH");
     g_blas_mod = NULL;
@@ -1263,10 +1262,9 @@ static int packed_check(long long hA, long long hB, int T, PackedMat** pa, Packe
 /* Giữ kí tự ở metadata `rows` — phòng mách bạn. */
 static void run_rect_shaped_m(int mode, const float* a, int lda, const float* b, int ldb,
                               float* c, int ldc, int m, int n, int k) {
-    /* Env TKV_GEMM_BLAS=1: thử BLAS cblas_sgemm trước.
-     * Cùng mat-layout triệu RowMajor; không bit-exact (sink tol 1e-4 gate
-     * là OK). Trả về ngay nếu BLAS có kết quả. */
-    if (getenv("TKV_GEMM_BLAS") && getenv("TKV_GEMM_BLAS")[0] == '1') {
+    /* BLAS luôn được thử trước (zero-config). Set TKV_GEMM_BLAS=0 để
+     * bật lại kernel native cho mọi shape. Layout BLAS = RowMajor. */
+    if (tkv_blas_load() == 1) {
         int transA = (mode == 7) ? 112 : 111;
         if (tkv_try_blas_rect((float*)a, lda, (float*)b, ldb, c, ldc, m, n, k, transA) == 1)
             return;
