@@ -27,12 +27,13 @@ static void gemm_rows_f64(const double* a, const double* b, double* o, int n, in
 static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, float* o, int ldc,
                           int m, int n, int k, int i0, int i1, int j0, int j1,
                           int mc_b, int nc_b, int bpl);
+static void gemm_rect_ta_f32(const float* a, int lda, const float* b, int ldb, float* o, int ldc,
+                             int m, int n, int k, int i0, int i1, int j0, int j1,
+                             int mc_b, int nc_b, int bpl);
 
 /* M6 v2 (lmhead) - khai truoc truoc khi dung trong tkv_worker. */
 static void lmhead_softmax_rows(const float* logits, const int* ids, float* dl,
                                 int V, int t0, int t1, float scale);
-static void lmhead_transpose_rows(const float* dl, float* dlT, int V, int T,
-                                  int t0, int t1);
 static void lmhead_add_rows(float* dst, const float* src, int E, int v0, int v1);
 
 /* Tile cache-blocking (co the ghi de bang /DGEMM_* khi build). */
@@ -342,14 +343,15 @@ static DWORD WINAPI tkv_worker(LPVOID p) {
         else if (j->mode == 3)
             lmhead_softmax_rows((const float*)j->a, (const int*)j->b, (float*)j->o,
                                 j->n, j->i0, j->i1, j->alpha);
-        else if (j->mode == 4)
-            lmhead_transpose_rows((const float*)j->a, (float*)j->o, j->n, j->m,
-                                  j->i0, j->i1);
         else if (j->mode == 5)
             lmhead_add_rows((float*)j->o, (const float*)j->a, j->n, j->i0, j->i1);
         else if (j->mode == 6)
             pack_rows_f32((const float*)j->a, (float*)j->o, j->lda, j->m, j->n,
                           j->k, j->mc, j->i0, j->i1);
+        else if (j->mode == 7)
+            gemm_rect_ta_f32((const float*)j->a, j->lda, (const float*)j->b, j->ldb,
+                             (float*)j->o, j->n, j->m, j->n, j->k, j->i0, j->i1, j->j0, j->j1,
+                             j->mc, j->nc, j->bpl);
         else
             gemm_rows_f32((const float*)j->a, (const float*)j->b, (float*)j->o, j->n, j->i0, j->i1, j->j0, j->j1,
                           j->mc, j->nc, j->bpl);
@@ -420,7 +422,7 @@ static void tkv_run_mt(int nt, const void* a, const void* b, void* o, int n, int
 /* Rect submit - luoi 2D rows x cols (M7; cols=1 = pattern cu chi chia theo
  * hang), dung cung pool + cung lock. Moi job tinh vung [i0,i1)x[j0,j1) rieng
  * -> memset + ghi C khong trung; thu tu tich luy k giu nguyen -> bit-giong. */
-static void tkv_run_mt_rect(int nt, const float* a, int lda, const float* b, int ldb,
+static void tkv_run_mt_rect(int nt, int mode, const float* a, int lda, const float* b, int ldb,
                             float* c, int ldc, int m, int n, int k,
                             int cols_req, int mc, int nc, int bpl) {
     AcquireSRWLockExclusive(&g_gemm_lock);
@@ -447,7 +449,7 @@ static void tkv_run_mt_rect(int nt, const float* a, int lda, const float* b, int
             if (j1 > n) j1 = n;
             if (j0 >= j1) continue;
             g_job[used].a = a; g_job[used].b = b; g_job[used].o = c;
-            g_job[used].mode = 2;
+            g_job[used].mode = mode;
             g_job[used].lda = lda; g_job[used].ldb = ldb;
             g_job[used].n = ldc; g_job[used].m = m; g_job[used].k = k;
             g_job[used].i0 = i0; g_job[used].i1 = i1;
@@ -463,8 +465,7 @@ static void tkv_run_mt_rect(int nt, const float* a, int lda, const float* b, int
 
 /* Aux submit (M6 v2): chia `count` phan tu thanh nt job bien doc rieng (khong
  * trung) - dung cung pool + cung lock giong run_mt. mode 3 = softmax->dl,
- * 4 = transpose dl->dlT, 5 = dwte += tmp. n = V (mode 3/4) hoac E (mode 5),
- * m = T (mode 4), alpha = scale (mode 3). */
+ * 5 = dwte += tmp. n = V (mode 3) hoac E (mode 5), alpha = scale (mode 3). */
 static void tkv_run_aux(int nt, int mode, const void* a, const void* b, void* o,
                         int n, int m, float alpha, long long count) {
     AcquireSRWLockExclusive(&g_gemm_lock);
@@ -788,6 +789,112 @@ static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, floa
     (void)m;
 }
 
+/* Micro 4x16 voi A luu kieu [k][m] (lda = so phan tu 1 hang k, tuc chieu m):
+ * phan tu A[p][i] = a[p * lda + i]. Dung cho dwte = dl^T @ xf khi dl la
+ * [T][V]: k = t, m = v. Voi p co dinh, 4 gia tri v = i..i+3 NAM LIEN TIEP
+ * (cung cache line) nen thay 4 broadcast bang 4 lan doc sat nhau. Thu tu
+ * cong k va FMA y nguyen micro_f32 -> ket qua BIT-GIONG duong dlT. */
+static void micro_ta_f32(const float* a, int lda, const float* bp, float* c, int n,
+                         int mc, int nc, int kc, int bpl) {
+    int i = 0;
+    for (; i + 4 <= mc; i += 4) {
+        float* ci = c + (long long)i * n;
+        int j = 0;
+        for (; j + 16 <= nc; j += 16) {
+            __m256 c0a = _mm256_setzero_ps(), c0b = _mm256_setzero_ps();
+            __m256 c1a = _mm256_setzero_ps(), c1b = _mm256_setzero_ps();
+            __m256 c2a = _mm256_setzero_ps(), c2b = _mm256_setzero_ps();
+            __m256 c3a = _mm256_setzero_ps(), c3b = _mm256_setzero_ps();
+            for (int p = 0; p < kc; p++) {
+                const float* brow = bp + (long long)p * bpl + j;
+                __m256 vb0 = _mm256_loadu_ps(brow);
+                __m256 vb1 = _mm256_loadu_ps(brow + 8);
+                const float* ap = a + (long long)p * lda + i;
+                __m256 va0 = _mm256_broadcast_ss(ap);
+                __m256 va1 = _mm256_broadcast_ss(ap + 1);
+                __m256 va2 = _mm256_broadcast_ss(ap + 2);
+                __m256 va3 = _mm256_broadcast_ss(ap + 3);
+                c0a = _mm256_fmadd_ps(va0, vb0, c0a);
+                c0b = _mm256_fmadd_ps(va0, vb1, c0b);
+                c1a = _mm256_fmadd_ps(va1, vb0, c1a);
+                c1b = _mm256_fmadd_ps(va1, vb1, c1b);
+                c2a = _mm256_fmadd_ps(va2, vb0, c2a);
+                c2b = _mm256_fmadd_ps(va2, vb1, c2b);
+                c3a = _mm256_fmadd_ps(va3, vb0, c3a);
+                c3b = _mm256_fmadd_ps(va3, vb1, c3b);
+            }
+            float* cj = ci + j;
+            _mm256_storeu_ps(cj, _mm256_add_ps(_mm256_loadu_ps(cj), c0a));
+            _mm256_storeu_ps(cj + 8, _mm256_add_ps(_mm256_loadu_ps(cj + 8), c0b));
+            _mm256_storeu_ps(cj + n, _mm256_add_ps(_mm256_loadu_ps(cj + n), c1a));
+            _mm256_storeu_ps(cj + n + 8, _mm256_add_ps(_mm256_loadu_ps(cj + n + 8), c1b));
+            _mm256_storeu_ps(cj + 2 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 2 * n), c2a));
+            _mm256_storeu_ps(cj + 2 * n + 8, _mm256_add_ps(_mm256_loadu_ps(cj + 2 * n + 8), c2b));
+            _mm256_storeu_ps(cj + 3 * n, _mm256_add_ps(_mm256_loadu_ps(cj + 3 * n), c3a));
+            _mm256_storeu_ps(cj + 3 * n + 8, _mm256_add_ps(_mm256_loadu_ps(cj + 3 * n + 8), c3b));
+        }
+        for (; j < nc; j++) {
+            float s0 = 0.0f, s1 = 0.0f, s2 = 0.0f, s3 = 0.0f;
+            for (int p = 0; p < kc; p++) {
+                float bv = bp[(long long)p * bpl + j];
+                const float* ap = a + (long long)p * lda + i;
+                s0 += ap[0] * bv;
+                s1 += ap[1] * bv;
+                s2 += ap[2] * bv;
+                s3 += ap[3] * bv;
+            }
+            ci[j] += s0;
+            ci[n + j] += s1;
+            ci[2 * n + j] += s2;
+            ci[3 * n + j] += s3;
+        }
+    }
+    for (; i < mc; i++) {
+        float* ci = c + (long long)i * n;
+        for (int j = 0; j < nc; j++) {
+            float s = 0.0f;
+            for (int p = 0; p < kc; p++)
+                s += a[(long long)p * lda + i] * bp[(long long)p * bpl + j];
+            ci[j] += s;
+        }
+    }
+}
+
+/* Nhu gemm_rect_f32 nhung A la [k][m] (transposed A). C chi doc/ghi 1 lan
+ * nho MC2; thu tu cong p tang dan trong tung pc -> bit-giong. */
+static void gemm_rect_ta_f32(const float* a, int lda, const float* b, int ldb, float* o, int ldc,
+                             int m, int n, int k, int i0, int i1, int j0, int j1,
+                             int mc_b, int nc_b, int bpl) {
+    if (i1 <= i0 || j1 <= j0) return;
+    static __declspec(thread) float bp[GEMM_KC * GEMM_BPL_MAX];
+    if (bpl < GEMM_BPL) bpl = GEMM_BPL;
+    if (bpl > GEMM_BPL_MAX) bpl = GEMM_BPL_MAX;
+    if (nc_b > bpl - 4) nc_b = bpl - 4;
+    if (nc_b < 1) nc_b = 1;
+    if (mc_b < 1) mc_b = 1;
+    for (int jc = j0; jc < j1; jc += nc_b) {
+        int nc = j1 - jc; if (nc > nc_b) nc = nc_b;
+        int mc2 = 32768 / nc;
+        mc2 = (mc2 / mc_b) * mc_b;
+        if (mc2 < mc_b) mc2 = mc_b;
+        for (int ic2 = i0; ic2 < i1; ic2 += mc2) {
+            int ic2e = ic2 + mc2; if (ic2e > i1) ic2e = i1;
+            for (int ii = ic2; ii < ic2e; ii++)
+                memset(o + (long long)ii * ldc + jc, 0, (size_t)nc * sizeof(float));
+            for (int pc = 0; pc < k; pc += GEMM_KC) {
+                int kc = k - pc; if (kc > GEMM_KC) kc = GEMM_KC;
+                pack_b_f32(b, bp, ldb, pc, kc, jc, nc, bpl);
+                for (int ic = ic2; ic < ic2e; ic += mc_b) {
+                    int mc = ic2e - ic; if (mc > mc_b) mc = mc_b;
+                    micro_ta_f32(a + (long long)pc * lda + ic, lda, bp,
+                                 o + (long long)ic * ldc + jc, ldc, mc, nc, kc, bpl);
+                }
+            }
+        }
+    }
+    (void)m;
+}
+
 static int tkv_k_eff(const float* b, const float* a, int n) {
     if (n <= 0) return 0;
     for (int p = n - 1; p >= 0; p--) {
@@ -825,7 +932,7 @@ EXPORT void SgemmF32(float* a, float* b, float* o, int n) {
                 gemm_rect_f32(a, n, b, n, o, n, n, n, k_eff, 0, n, 0, n,
                               GEMM_MC, nc, bpl);
             else
-                tkv_run_mt_rect(nt, a, n, b, n, o, n, n, n, k_eff,
+                tkv_run_mt_rect(nt, 2, a, n, b, n, o, n, n, n, k_eff,
                                 (cols_req > 0) ? cols_req : tkv_ncols(nt, n),
                                 GEMM_MC, nc, bpl);
             return;
@@ -1139,9 +1246,10 @@ static int packed_check(long long hA, long long hB, int T, PackedMat** pa, Packe
 /* GEMM chu nhat co shape-dispatch M7 (env TKV_GEMM_DISPATCH; legacy = thu tu cu
  * y hieu): SMALL -> 1 luong; VOCAB -> cot manh + NC 128; RECT -> MC/NC 128/128;
  * SQUARE -> pattern hien tai. KC khong doi -> thu tu tich luy k giu nguyen ->
- * bit-giong. Dung CHUNG cho packed (M4) va lmhead v2 (M6). */
-static void run_rect_shaped(const float* a, int lda, const float* b, int ldb,
-                            float* c, int ldc, int m, int n, int k) {
+ * bit-giong. Dung CHUNG cho packed (M4) va lmhead v2 (M6).
+ * `mode` 2 = gemm_rect_f32 (A [m][k]), 7 = gemm_rect_ta_f32 (A [k][m]). */
+static void run_rect_shaped_m(int mode, const float* a, int lda, const float* b, int ldb,
+                              float* c, int ldc, int m, int n, int k) {
     int mc = GEMM_MC, nc = GEMM_NC, cols_req = 1, bpl = GEMM_BPL;
     int nt;
     if (tkv_shape_on()) {
@@ -1151,6 +1259,11 @@ static void run_rect_shaped(const float* a, int lda, const float* b, int ldb,
         } else {
             nt = tkv_nthreads(m > n ? m : n);
             if (cls == TKV_CLS_VOCAB) {
+                /* LUU Y (do 2026-11-07, bench_tile): doi cot sang boi 16
+                 * (cols=4, NC=64) nhanh hon ~190 ms nhung LECH BIT - 7/55 cot
+                 * bien cua strip cu tinh bang mul+add scalar, doi sang FMA
+                 * lam mode-1 loss 13.442915 -> 13.442913. GIU nguyen tiling
+                 * cu de bao toan bit-exact. */
                 if (nt > 1) cols_req = tkv_ncols_vocab(nt, n);
                 nc = GEMM_NC_RG;
                 bpl = GEMM_BPL_MAX;
@@ -1164,10 +1277,24 @@ static void run_rect_shaped(const float* a, int lda, const float* b, int ldb,
         nt = tkv_nthreads(m > n ? m : n);
     }
     if (t_nested) nt = 1;
-    if (nt <= 1)
-        gemm_rect_f32(a, lda, b, ldb, c, ldc, m, n, k, 0, m, 0, n, mc, nc, bpl);
-    else
-        tkv_run_mt_rect(nt, a, lda, b, ldb, c, ldc, m, n, k, cols_req, mc, nc, bpl);
+    if (nt <= 1) {
+        if (mode == 7)
+            gemm_rect_ta_f32(a, lda, b, ldb, c, ldc, m, n, k, 0, m, 0, n, mc, nc, bpl);
+        else
+            gemm_rect_f32(a, lda, b, ldb, c, ldc, m, n, k, 0, m, 0, n, mc, nc, bpl);
+    } else
+        tkv_run_mt_rect(nt, mode, a, lda, b, ldb, c, ldc, m, n, k, cols_req, mc, nc, bpl);
+}
+
+static void run_rect_shaped(const float* a, int lda, const float* b, int ldb,
+                            float* c, int ldc, int m, int n, int k) {
+    run_rect_shaped_m(2, a, lda, b, ldb, c, ldc, m, n, k);
+}
+
+/* Nhu run_rect_shaped nhung A la [k][m] (bo duoc buoc transpose A). */
+static void run_rect_ta_shaped(const float* a, int lda, const float* b, int ldb,
+                               float* c, int ldc, int m, int n, int k) {
+    run_rect_shaped_m(7, a, lda, b, ldb, c, ldc, m, n, k);
 }
 
 /* Nhanh chinh packed: A/B + c (m*n f32) da valid. */
@@ -1336,17 +1463,16 @@ EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
  *   dxf:    (T x E)  [OUTPUT, ghi de]
  *   dwte:   (V x E)  [OUTPUT, TICH LUY += - goi phai zero truoc]
  *
- * v2 (2026-10-25, doi chieu so do v1 = 38.6s): 5 pha, dung thread pool +
+ * v2 (2026-10-25, doi chieu so do v1 = 38.6s): 4 pha, dung thread pool +
  * GEMM blocked da co (run_rect_shaped):
  *   1. softmax-grad song song theo t -> scratch dl (T x V)   [pool mode 3]
  *   2. dxf = dl @ wte        -> run_rect_shaped (blocked/threaded, ghi de)
- *   3. dlT = transpose(dl)   -> theo o tile 64 cot           [pool mode 4]
- *   4. tmp = dlT @ xf        -> run_rect_shaped
- *   5. dwte += tmp           -> AVX2                          [pool mode 5]
+ *   3. tmp = dl^T @ xf       -> run_rect_ta_shaped (A [k][m], khong transpose)
+ *   4. dwte += tmp           -> AVX2                          [pool mode 5]
  * v1 single-thread bi memory-bound: moi t re-read toan wte + RMW toan dwte
  * (~630 GB) -> 38.6s. v2 moi buffer chi doc/ghi 1 lan + GEMM blocked.
- * Scratch tam: dl + dlT (2 x T*V*4) + tmp (V*E*4), free ngay trong loi
- * (peak dl+dlT ≈ 412 MB voi T=1024 V=50257).
+ * Scratch tam: dl (T*V*4) + tmp (V*E*4), free ngay trong loi
+ * (peak dl+tmp ≈ 360 MB voi T=1024 V=50257; truoc 2026-11-07 co them dlT).
  * Numerics: cong thuc dl (p-onehot)*scale va thu tu tich luy k tang dan (KC=64)
  * giu nguyen -> test scalar ref tol 1e-5 van ghim; A/B shape vs legacy bit-giong.
  * Tra ve 0 = OK, -1 tham so sai, -6 khong du bo nho tam. */
@@ -1366,21 +1492,6 @@ static void lmhead_softmax_rows(const float* logits, const int* ids, float* dl,
             float g = p;
             if (v == id) g -= 1.0f;               /* p - onehot */
             d[v] = g * scale;                     /* hop dong (p - onehot)/n, n = 1/scale */
-        }
-    }
-}
-
-static void lmhead_transpose_rows(const float* dl, float* dlT, int V, int T,
-                                  int t0, int t1) {
-    /* Tile theo 64 cot ngoai, t cua job noi: doc dl[t][vv:ve] lien tuc va
-     * ghi dlT[v][t0:t1] lien tuc -> ca hai huong deu cache-friendly. */
-    for (int vv = 0; vv < V; vv += 64) {
-        int ve = vv + 64;
-        if (ve > V) ve = V;
-        for (int t = t0; t < t1; t++) {
-            const float* s = dl + (long long)t * V + vv;
-            for (int v = vv; v < ve; v++)
-                dlT[(long long)v * T + t] = s[v - vv];
         }
     }
 }
@@ -1420,21 +1531,15 @@ EXPORT int lmhead_bwd_fused(const float* logits, const int* ids, const float* wt
     /* pha 2: dxf = dl @ wte - GEMM blocked/threaded, ghi de (dxf la OUTPUT) */
     run_rect_shaped(dl, V, wte, E, dxf, E, T, E, V);
 
-    /* pha 3: dlT = transpose(dl); doc dl xong -> free truoc khi cap tmp */
-    float* dlT = (float*)malloc((size_t)nlg * sizeof(float));
-    if (!dlT) { free(dl); return -6; }
-    if (nt <= 1)
-        lmhead_transpose_rows(dl, dlT, V, T, 0, T);
-    else
-        tkv_run_aux(nt, 4, dl, NULL, dlT, V, T, 0.0f, T);
-    free(dl);
-
-    /* pha 4: tmp = dlT @ xf */
+    /* pha 3+4: tmp = dlT @ xf. dl la [T][V] = [k][m] nen doc THANG bang
+     * gemm_rect_ta_f32 (A [k][m]) - bo han buoc transpose 51,5M ptu (do
+     * 2026-11-07 @seq1024: 110 ms) va bo buffer dlT 205 MB. Thu tu cong k (t)
+     * va FMA y nguyen duong dlT -> bit-giong (loss EXACT 10.760399). */
     long long nwe = (long long)V * E;
     float* tmp = (float*)malloc((size_t)nwe * sizeof(float));
-    if (!tmp) { free(dlT); return -6; }
-    run_rect_shaped(dlT, T, xf, E, tmp, E, V, E, T);
-    free(dlT);
+    if (!tmp) { free(dl); return -6; }
+    run_rect_ta_shaped(dl, V, xf, E, tmp, E, V, E, T);
+    free(dl);
 
     /* pha 5: dwte += tmp (dwte TICH LUY +=) */
     int nta = tkv_nthreads(V);
