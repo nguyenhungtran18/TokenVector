@@ -1933,15 +1933,15 @@ static int attn_xgemm(float* c, const float* a, int m, int k,
     if (m <= 256) {
         int ndim = (trans_b == 0) ? np : k;
         return SgemmFull(a, b, c, (int)a_len, (int)b_len, (int)c_len,
-                         m, np, k, ndim, trans_b, 256, 0);
+                         m, np, k, ndim, trans_b, 64, 0);
     }
-    long long hA = packed_create(a, NULL, (int)a_len, m, k, k, 256, 0);
+    long long hA = packed_create(a, NULL, (int)a_len, m, k, k, 64, 0);
     if (!hA) return -21;
     long long hB;
-    if (trans_b == 0) hB = packed_create(b, NULL, (int)b_len, k, np, np, 256, 0);
-    else              hB = packed_create(b, NULL, (int)b_len, np, k, k, 256, 1);
+    if (trans_b == 0) hB = packed_create(b, NULL, (int)b_len, k, np, np, 64, 0);
+    else              hB = packed_create(b, NULL, (int)b_len, np, k, k, 64, 1);
     if (!hB) { SgemmPackedFree(hA); return -22; }
-    int rc = SgemmPacked(hA, hB, c, (int)c_len, 256);
+    int rc = SgemmPacked(hA, hB, c, (int)c_len, 64);
     SgemmPackedFree(hA);
     SgemmPackedFree(hB);
     if (rc != 0) return -30 - rc;
