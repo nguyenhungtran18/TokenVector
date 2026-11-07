@@ -77,14 +77,15 @@ static inline void mul_row(float* dst, float s) {
 /* ---- Flash fwd 1 head (causal, no mask) ---- */
 static int flash_fwd_head(const float* qkv, float* ctx_out, float* lse_out,
                           int n, int h, int head, double inv) {
-    float qk[FL_QS * FL_KS];
-    float dst[FL_QS * FL_HD];
+    float* qk = (float*)malloc((size_t)FL_QS * FL_KS * 4);
+    float* dst = (float*)malloc((size_t)FL_QS * FL_HD * 4);
     float mx[FL_QS], sm[FL_QS];
     long long stride3 = (long long)3 * h;
     int coff_q = head * FL_HD;
     int coff_k = coff_q + h;
     int coff_v = coff_q + 2 * h;
     float finv = (float)inv;
+    if (!qk || !dst) { free(qk); free(dst); return -6; }
 
     for (int m0 = 0; m0 < n; m0 += FL_QS) {
         int qb = n - m0; if (qb > FL_QS) qb = FL_QS;
@@ -152,6 +153,8 @@ static int flash_fwd_head(const float* qkv, float* ctx_out, float* lse_out,
             if (lse_out) lse_out[t] = mx[i] + logf(sm[i]);
         }
     }
+    free(qk);
+    free(dst);
     return 0;
 }
 
@@ -200,10 +203,10 @@ static int flash_bwd_head(const float* qkv, const float* dctx,
     float* dq = (float*)malloc((size_t)n * FL_HD * 4);
     float* dk = (float*)malloc((size_t)n * FL_HD * 4);
     float* dv = (float*)malloc((size_t)n * FL_HD * 4);
-    float attn[FL_QS * FL_KS];
-    float gA[FL_QS * FL_KS];
-    float ds[FL_QS * FL_KS];
-    if (!out_buf || !lse || !dsum || !dq || !dk || !dv) { rc = -6; goto done; }
+    float* attn = (float*)malloc((size_t)FL_QS * FL_KS * 4);
+    float* gA = (float*)malloc((size_t)FL_QS * FL_KS * 4);
+    float* ds = (float*)malloc((size_t)FL_QS * FL_KS * 4);
+    if (!out_buf || !lse || !dsum || !dq || !dk || !dv || !attn || !gA || !ds) { rc = -6; goto done; }
     memset(dq, 0, (size_t)n * FL_HD * 4);
     memset(dk, 0, (size_t)n * FL_HD * 4);
     memset(dv, 0, (size_t)n * FL_HD * 4);
@@ -211,9 +214,10 @@ static int flash_bwd_head(const float* qkv, const float* dctx,
     /* pass 1: recompute out + lse (giong fwd nhung ghi vao out_buf) */
     {
         /* dung lai code fwd inline de giu chinh xac 1 duong tinh toan */
-        float qk[FL_QS * FL_KS];
-        float dst[FL_QS * FL_HD];
+        float* qk = (float*)malloc((size_t)FL_QS * FL_KS * 4);
+        float* dst = (float*)malloc((size_t)FL_QS * FL_HD * 4);
         float mx[FL_QS], sm[FL_QS];
+        if (!qk || !dst) { free(qk); free(dst); rc = -6; goto done; }
         for (int m0 = 0; m0 < n; m0 += FL_QS) {
             int qb = n - m0; if (qb > FL_QS) qb = FL_QS;
             int num_keys = m0 + qb; if (num_keys > n) num_keys = n;
@@ -272,6 +276,8 @@ static int flash_bwd_head(const float* qkv, const float* dctx,
                 lse[t] = mx[i] + logf(sm[i]);
             }
         }
+        free(qk);
+        free(dst);
     }
     /* dsum[t] = sum_d dctx[t,d] * out[t,d] (tich luy THUAN lenh hd, f32) */
     for (int t = 0; t < n; t++) {
@@ -362,6 +368,7 @@ static int flash_bwd_head(const float* qkv, const float* dctx,
 done:
     free(out_buf); free(lse); free(dsum);
     free(dq); free(dk); free(dv);
+    free(attn); free(gA); free(ds);
     return rc;
 }
 
