@@ -182,6 +182,26 @@ EXPORT int GeluErfFwd(const float* x, int x_len, float* out, int out_len, long l
     return 0;
 }
 
+/* ---- BIAS ADD ROWS: y[i, c] += b[c] (broadcast bias) ----------------------
+ * Elementwise f32 add theo hang; thu tu cong GIONG vong interpreted .tkv
+ * (i tang, o tang) -> BIT-EXACT. AVX2 8 cot/lan; /fp:precise (khong reorder). */
+EXPORT int BiasAddRows(float* y, const float* b, long long rows, long long cols) {
+    if (!y || !b) return -1;
+    if (rows < 0 || cols < 0) return -2;
+    long long full = (cols / 8) * 8;
+    for (long long i = 0; i < rows; i++) {
+        float* row = y + i * cols;
+        long long j = 0;
+        for (; j < full; j += 8) {
+            __m256 yr = _mm256_loadu_ps(row + j);
+            __m256 bb = _mm256_loadu_ps(b + j);
+            _mm256_storeu_ps(row + j, _mm256_add_ps(yr, bb));
+        }
+        for (; j < cols; j++) row[j] = row[j] + b[j];
+    }
+    return 0;
+}
+
 /* ---- BIAS GRAD: .tkv vòng i-outer/o-inner, i64 off vao gflat ---- */
 EXPORT int BiasGrad(const float* gy, int gy_len, float* gflat, int gflat_len,
                     long long off, int n, int cols) {
