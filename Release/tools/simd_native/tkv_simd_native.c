@@ -183,6 +183,18 @@ static int tkv_try_blas(float* a, float* b, float* o, int n) {
     return 1;
 }
 
+/* BLAS cho chu nhat (rect mat-cheo / square). A/B theo RowMajor.
+ * transA = 111 (NoTrans) hay 112 (Trans). Default giam bit-exact. */
+static int tkv_try_blas_rect(float* a, int lda, float* b, int ldb, float* o, int ldc,
+                              int m, int n, int k, int transA) {
+    if (tkv_blas_load() != 1) return 0;
+    int nt = tkv_nthreads(m > n ? m : n);
+    if (p_openblas_set_num_threads) p_openblas_set_num_threads(nt > 0 ? nt : 1);
+    p_cblas_sgemm(101 /*RowMajor*/, transA, 111 /*NoTrans*/, m, n, k,
+                  1.0f, a, lda, b, ldb, 0.0f, o, ldc);
+    return 1;
+}
+
 static int tkv_nthreads(int n) {
     tkv_env_init();
     if (n < tkv_min_n) return 1;
@@ -1248,8 +1260,17 @@ static int packed_check(long long hA, long long hB, int T, PackedMat** pa, Packe
  * SQUARE -> pattern hien tai. KC khong doi -> thu tu tich luy k giu nguyen ->
  * bit-giong. Dung CHUNG cho packed (M4) va lmhead v2 (M6).
  * `mode` 2 = gemm_rect_f32 (A [m][k]), 7 = gemm_rect_ta_f32 (A [k][m]). */
+/* Giữ kí tự ở metadata `rows` — phòng mách bạn. */
 static void run_rect_shaped_m(int mode, const float* a, int lda, const float* b, int ldb,
                               float* c, int ldc, int m, int n, int k) {
+    /* Env TKV_GEMM_BLAS=1: thử BLAS cblas_sgemm trước.
+     * Cùng mat-layout triệu RowMajor; không bit-exact (sink tol 1e-4 gate
+     * là OK). Trả về ngay nếu BLAS có kết quả. */
+    if (getenv("TKV_GEMM_BLAS") && getenv("TKV_GEMM_BLAS")[0] == '1') {
+        int transA = (mode == 7) ? 112 : 111;
+        if (tkv_try_blas_rect((float*)a, lda, (float*)b, ldb, c, ldc, m, n, k, transA) == 1)
+            return;
+    }
     int mc = GEMM_MC, nc = GEMM_NC, cols_req = 1, bpl = GEMM_BPL;
     int nt;
     if (tkv_shape_on()) {
