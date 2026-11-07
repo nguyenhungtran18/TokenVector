@@ -636,6 +636,7 @@ def _pt_gemm_pinvoke() -> "list[str]":
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmF32" winapi) void GemmF32Native(native int a, native int b, native int o, int32 n) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmF64" winapi) void GemmF64Native(native int a, native int b, native int o, int32 n) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "AttentionBwdFused" winapi) int32 AttentionBwdFusedNative(native int q, int32 q_len, native int d, int32 d_len, native int c, int32 c_len, native int dq, int32 dq_len, int32 n, int32 h, int32 hd, int32 head, float64 inv) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "FlashAttentionFwdFused" winapi) int32 FlashAttentionFwdFusedNative(native int q, int32 q_len, native int c, int32 c_len, int32 n, int32 h, int32 hd, int32 head, float64 inv) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "LinearDwAtFused" winapi) int32 LinearDwAtFusedNative(native int x, int32 x_len, native int gy, int32 gy_len, native int gdw, int32 gdw_len, int32 gdw_off, int32 n, int32 in_d, int32 out_d, int32 mode) cil managed preservesig { }',
     ]
 
@@ -700,6 +701,58 @@ def _pt_attention_bwd_wrapper() -> "list[str]":
         '    call int32 ' + _SIMD_CLASS + '::AttentionBwdFusedNative(native int, int32, native int, int32, native int, int32, native int, int32, int32, int32, int32, int32, float64)',
         '    ret',
         '  V_ABF:',
+        '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_attention_fwd_wrapper() -> "list[str]":
+    """`attention_fwd_fused` (IL wrapper).
+
+    attention_fwd_fused(qkv, ctxo, n, h, hd, head, inv) -> i32.
+    Flash-attention fwd (online-softmax, fp32, causal, hd == 64, n >= 64) cua MOT
+    head: 1 lenh native (FlashAttentionFwdFused, port tu thuat toan PyTorch ATen
+    BSD-3; xem tkv_flash_attn.c) thay cho block smm_dot + softmax_causal_fwd +
+    smm_fwd. qkv: list[f32] [n][3h] (input); ctxo: list[f32] packed per head [n][hd].
+    rc < 0 -> caller fallback duong .tkv nguyen van (KHONG nem)."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 AttentionFwdFusedM(' + lt + ' qkv, ' + lt + ' ctxo, int32 n, int32 h, int32 hd, int32 head, float64 inv) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, int32 l0, int32 l1, int64 m0, int64 m1, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1)',
+        '    ldarg.s 2', '    ldc.i4.0', '    ble V_AFD',
+        '    ldarg.s 3', '    ldc.i4.0', '    ble V_AFD',
+        '    ldarg.s 4', '    ldc.i4.s 64', '    bne.un V_AFD',
+        '    ldarg.s 2', '    conv.i8', '    ldc.i8 3', '    mul', '    ldarg.s 3', '    conv.i8', '    mul', '    stloc.s 4',
+        '    ldarg.s 2', '    conv.i8', '    ldarg.s 4', '    conv.i8', '    mul', '    stloc.s 5',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 6',
+        '    ldloc.s 6', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.0',
+        '    ldloc.s 6', '    ldarg.1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.1',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 2',
+        '    ldarg.1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 3',
+        '    ldloc.s 2', '    conv.i8', '    ldloc.s 4', '    blt V_AFD',
+        '    ldloc.s 3', '    conv.i8', '    ldloc.s 5', '    blt V_AFD',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 7',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 8',
+        '    ldloc.s 7', '    conv.i',
+        '    ldloc.s 2',
+        '    ldloc.s 8', '    conv.i',
+        '    ldloc.s 3',
+        '    ldarg.s 2',
+        '    ldarg.s 3',
+        '    ldarg.s 4',
+        '    ldarg.s 5',
+        '    ldarg.s 6',
+        '    call int32 ' + _SIMD_CLASS + '::FlashAttentionFwdFusedNative(native int, int32, native int, int32, int32, int32, int32, int32, float64)',
+        '    ret',
+        '  V_AFD:',
         '    ldc.i4.s -5',
         '    ret',
         '  }',
@@ -1951,6 +2004,7 @@ def _pt_dp_wrappers() -> "list[str]":
     ra = ra + _pt_softmax_causal_bwd_wrapper()
     ra = ra + _pt_softmax_causal_fwd_wrapper()
     ra = ra + _pt_attention_bwd_wrapper()
+    ra = ra + _pt_attention_fwd_wrapper()
     ra = ra + _pt_embed_bwd_fused_wrapper()
     ra = ra + _pt_linear_dw_at_fused_wrapper()
     ra = ra + _pt_gelu_erf_bwd_wrapper()
@@ -2861,6 +2915,32 @@ def compile_softmax_causal_fwd(args: "list[TkvNode]", scope: "Scope", out: "list
     out.append('    call int32 ' + _SIMD_CLASS + '::SoftmaxCausalFwdM(' + _LT_F32 + ', int32, float64)')
 
 
+def compile_attention_fwd_fused(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """attention_fwd_fused(qkv, ctxo, n, h, hd, head, inv) -> i32.
+
+    Flash-attention fwd (online-softmax, fp32, causal, hd == 64, n >= 64) cua
+    1 HEAD: 1 lenh native thay cho block smm_dot + softmax_causal_fwd + smm_fwd.
+    qkv: list[f32] INPUT [n][3h]; ctxo: list[f32] OUT (packed per head, [n][hd]).
+    rc < 0 -> caller fallback duong .tkv nguyen van."""
+    if len(args) != 7:
+        raise SyntaxError("il_codegen: attention_fwd_fused(qkv, ctxo, n, h, hd, head, inv) can dung 7 tham so")
+    for i in range(2):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: attention_fwd_fused: tham so " + str(i) + " phai la list[f32] (Tensor.data)")
+        dd = _dtype_mang(args[i], scope, 'attention_fwd_fused')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: attention_fwd_fused chi ho tro f32 (gap " + dd + ")")
+    _can_simd(ctx, 'dp')
+    for i in range(2):
+        _nap_mang(args[i], scope, out, ctx)
+    ctx.compile_expr(args[2], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[3], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[4], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[5], scope, out, 'i32', ctx)
+    ctx.compile_expr(args[6], scope, out, 'f64', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::AttentionFwdFusedM(' + _LT_F32 + ', ' + _LT_F32 + ', int32, int32, int32, int32, float64)')
+
+
 def compile_attention_bwd_fused(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """attention_bwd_fused(qkv, dctx, ctxo, dqo, n, h, hd, head, inv) -> i32.
 
@@ -3065,6 +3145,7 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'bias_grad', compile_bias_grad, 'i32')
     register_expr_builtin(reg, 'softmax_causal_bwd', compile_softmax_causal_bwd, 'i32')
     register_expr_builtin(reg, 'softmax_causal_fwd', compile_softmax_causal_fwd, 'i32')
+    register_expr_builtin(reg, 'attention_fwd_fused', compile_attention_fwd_fused, 'i32')
     register_expr_builtin(reg, 'attention_bwd_fused', compile_attention_bwd_fused, 'i32')
     register_expr_builtin(reg, 'gelu_erf_bwd', compile_gelu_erf_bwd, 'i32')
     register_expr_builtin(reg, 'gelu_erf_fwd', compile_gelu_erf_fwd, 'i32')
