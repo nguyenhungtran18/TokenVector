@@ -287,6 +287,17 @@ static INIT_ONCE g_once = INIT_ONCE_STATIC_INIT;
  * bieu hien deadlock/hang > 90s. Mot lock quanh submit+wait la du. */
 static SRWLOCK g_gemm_lock = SRWLOCK_INIT;
 
+/* 2026-11-06: co "dang chay trong 1 worker .tkv" (thread_spawn). Khi do 12 worker
+ * da song song san (attention_bwd: 12 head x 6 GEMM) -> GEMM/pack chi CAN chay
+ * DON LUONG, khong can pool chung (tranh g_gemm_lock + oversubscription).
+ * Ghi chu DO LAI: production attention GEMMs deu roi nhanh SMALL (k = hd = 64
+ * va n = 64 < TKV_MIN_N = 96) nen von da don luong; co nay KHONG doi toc do do
+ * duoc (ATTENTION_BWD ~250 ms/layer truoc va sau). Giu lai nhu safeguard cho
+ * shape lon hon; pack song song (pure copy) cung duoc tat trong nested.
+ * Doi so luong luong KHONG doi ket qua (moi ptu van 1 job, cung pc-block + FMA)
+ * -> van bit-exact. */
+static __declspec(thread) int t_nested = 0;
+
 /* mode 6 (2026-11-06): pack 1 ma tran f32 vao buffer padded, chia theo HANG
  * DICH [i0,i1). Thuan copy -> moi thu tu deu bit-giong (chi la di chuyen du
  * lieu). `trans=1` ghi dst[i*ld+j] = src[j*stride+i] theo tile 32x32 de moi
@@ -1063,7 +1074,7 @@ static long long packed_create(const float* srcf, const double* srcd, int src_le
         /* 2026-11-06: pack song song (truoc day 1 luong, chiem 50-60% thoi
          * gian 1 phep smm_dot: do bench_packed lin_bwd create=33.6ms vs
          * gemm=24.2ms). Thuan copy -> bit-giong. */
-        int nt = tkv_nthreads(m);
+        int nt = t_nested ? 1 : tkv_nthreads(m);
         if (nt > 1 && (long long)m * (long long)n >= (1LL << 16))
             tkv_run_pack(nt, srcf, buf, stride, rows, cols, ld, trans, m);
         else
@@ -1152,6 +1163,7 @@ static void run_rect_shaped(const float* a, int lda, const float* b, int ldb,
     } else {
         nt = tkv_nthreads(m > n ? m : n);
     }
+    if (t_nested) nt = 1;
     if (nt <= 1)
         gemm_rect_f32(a, lda, b, ldb, c, ldc, m, n, k, 0, m, 0, n, mc, nc, bpl);
     else
@@ -1899,6 +1911,8 @@ EXPORT int AttentionBwdFused(const float* qkv, int qkv_len,
     float* gDkT = NULL; float* gDvT = NULL;
     float* AtB = NULL; float* BtB = NULL; float* Ct = NULL;
     int rc = 0;
+    int save_nested = t_nested;
+    t_nested = 1;
 
 #define ATTN_ALLOC(var, bytes)                                            \
     do { var = (float*)malloc((size_t)(bytes));                            \
@@ -1960,6 +1974,7 @@ EXPORT int AttentionBwdFused(const float* qkv, int qkv_len,
     rc = 0;
 
 done:
+    t_nested = save_nested;
     free(gQ); free(gK); free(gV); free(gDc);
     free(Smat); free(gCtx); free(gDp); free(gDq);
     free(gDkT); free(gDvT);
