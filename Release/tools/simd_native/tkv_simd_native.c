@@ -125,7 +125,14 @@ static void tkv_env_init(void) {
  * EXACT) va DLL nap duoc, SgemmF32 se goi `cblas_sgemm` (row-major) thay
  * vi kernel AVX2 noi bo — tao ra full cuong do BLAS cho MOI GEMM (packed,
  * full, attention fused...). `TKV_GEMM_BLAS=0` -> quay lai kernel native.
- * neu DLL khong co -> fallback native silently. */
+ * neu DLL khong co -> fallback native silently.
+ *
+ * Build voi MKL (TKV_LINK_MKL=1, xem build.ps1): linked with import lib
+ * (mkl_intel_lp64_dll.lib + mkl_intel_thread_dll.lib + mkl_core_dll.lib)
+ * -> cblas_sgemm resolve AT LINK TIME (nhu Py torch nhúng oneDNN+MKL tĩnh).
+ * Runtime van can mkl_avx2.3.dll (hoac mkl_def.3.dll), mkl_mc3.3.dll,
+ * mkl_core.3.dll, mkl_intel_thread.3.dll (thuong) + libiomp5md.dll
+ * sao chép cạnh tkv_simd_native.dll. */
 typedef long long TKV_BLASINT;
 static HMODULE g_blas_mod;
 static void (*p_cblas_sgemm)(int layout, int transA, int transB,
@@ -138,8 +145,29 @@ static void (*p_cblas_sgemm)(int layout, int transA, int transB,
 static void (*p_openblas_set_num_threads)(int);
 static int g_blas_state = 0; /* 0 unknown, 1 ok, -1 unavailable */
 
+#ifdef TKV_LINK_MKL
+#include <mkl_cblas.h>
+#include <mkl.h>
+static int tkv_blas_load(void);
+static void tkv_mkl_set_threads(int nt) {
+    mkl_set_num_threads_local(nt > 0 ? nt : 1);
+}
+static void tkv_mkl_gemm(int transA, int m, int n, int k,
+                         const float* a, int lda, const float* b, int ldb,
+                         float* c, int ldc) {
+    cblas_sgemm(CblasRowMajor, (CBLAS_TRANSPOSE)transA, CblasNoTrans,
+                (MKL_INT)m, (MKL_INT)n, (MKL_INT)k, 1.0f, a, (MKL_INT)lda, b,
+                (MKL_INT)ldb, 0.0f, c, (MKL_INT)ldc);
+}
+#endif
+
 static int tkv_blas_load(void) {
     if (g_blas_state != 0) return g_blas_state;
+#ifdef TKV_LINK_MKL
+    fprintf(stderr, "[tkv] BLAS: MKL 2026.2 (linked static import lib, kernel runtime)\n");
+    g_blas_state = 1;
+    return 1;
+#else
     /* BLAS mặc định bật (zero-config): GLAS_RUN_ENV thay qua opt-in
      * TKV_GEMM_BLAS=1; với env khác ('0') tách BLAS hoàn toàn.
      * Biên dịch thử nghiệm: .\bench_attn.exe tuỳ chọn TKV_GEMM_BLAS=0. */
@@ -177,16 +205,23 @@ static int tkv_blas_load(void) {
     fprintf(stderr, "[tkv] BLAS: scipy-openblas64_ loaded (cblas_sgemm)\n");
     g_blas_state = 1;
     return 1;
+#endif
 }
 
 /* Return 1 = BLAS da dung thay kernel native, 0 = dung kernel native. */
 static int tkv_try_blas(float* a, float* b, float* o, int n) {
     if (tkv_blas_load() != 1) return 0;
     int nt = tkv_nthreads(n);
+#ifdef TKV_LINK_MKL
+    tkv_mkl_set_threads(nt > 0 ? nt : 1);
+    tkv_mkl_gemm(111 /*NoTrans*/, n, n, n, a, n, b, n, o, n);
+    return 1;
+#else
     if (p_openblas_set_num_threads) p_openblas_set_num_threads(nt > 0 ? nt : 1);
     p_cblas_sgemm(101 /*RowMajor*/, 111 /*NoTrans*/, 111 /*NoTrans*/,
         n, n, n, 1.0f, a, n, b, n, 0.0f, o, n);
     return 1;
+#endif
 }
 
 /* BLAS cho chu nhat (rect mat-cheo / square). A/B theo RowMajor.
@@ -195,10 +230,16 @@ static int tkv_try_blas_rect(float* a, int lda, float* b, int ldb, float* o, int
                               int m, int n, int k, int transA) {
     if (tkv_blas_load() != 1) return 0;
     int nt = tkv_nthreads(m > n ? m : n);
+#ifdef TKV_LINK_MKL
+    tkv_mkl_set_threads(nt > 0 ? nt : 1);
+    tkv_mkl_gemm(transA, m, n, k, a, lda, b, ldb, o, ldc);
+    return 1;
+#else
     if (p_openblas_set_num_threads) p_openblas_set_num_threads(nt > 0 ? nt : 1);
     p_cblas_sgemm(101 /*RowMajor*/, transA, 111 /*NoTrans*/, m, n, k,
                   1.0f, a, lda, b, ldb, 0.0f, o, ldc);
     return 1;
+#endif
 }
 
 static int tkv_nthreads(int n) {
