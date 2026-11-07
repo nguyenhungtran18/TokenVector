@@ -92,6 +92,53 @@ EXPORT int LayernormBwdFused(const float* x, int x_len, const float* gy, int gy_
  *   - out[i-lo] = (float)((double)gy[i] * dgelu).
  * Elementwise -> thu tu khong anh huong bit; /fp:precise khong FMA.
  */
+/* erf(v / s): f64 div -> ep f32 (giong JIT) - dung cho BWD (gelu_b_one).
+ * va
+ * erf(arg): f32 chia (giong JIT IL `gelu_erf`) - dung cho FWD (gelu_f_one).
+ * Cong thuc poly/Horner GIONG nhau, chi khac buoc chia. */
+static inline float gelu_erf_b(float v) {
+    float arg = (float)((double)v / 1.4142135623730951);
+    double sg = 1.0;
+    if (arg < 0.0f) sg = -1.0;
+    float ax = fabsf(arg);
+    double t = 1.0 / (1.0 + 0.3275911 * (double)ax);
+    double poly = 1.061405429;
+    poly = poly * t + -1.453152027;
+    poly = poly * t + 1.421413741;
+    poly = poly * t + -0.284496736;
+    poly = poly * t + 0.254829592;
+    poly = poly * t;
+    float e = (float)exp((double)((-ax) * ax));
+    return (float)(sg * (1.0 - (double)e * poly));
+}
+static inline float gelu_erf_f(float v) {
+    float arg = v / (float)1.4142135623730951;
+    double sg = 1.0;
+    if (arg < 0.0f) sg = -1.0;
+    float ax = fabsf(arg);
+    double t = 1.0 / (1.0 + 0.3275911 * (double)ax);
+    double poly = 1.061405429;
+    poly = poly * t + -1.453152027;
+    poly = poly * t + 1.421413741;
+    poly = poly * t + -0.284496736;
+    poly = poly * t + 0.254829592;
+    poly = poly * t;
+    float e = (float)exp((double)((-ax) * ax));
+    return (float)(sg * (1.0 - (double)e * poly));
+}
+static inline float gelu_f_one(float v) {
+    float e = gelu_erf_f(v);
+    float hf = 0.5f * v;
+    float op = 1.0f + e;
+    return hf * op;
+}
+static inline float gelu_b_one(float v) {
+    float ef = gelu_erf_b(v);
+    double d = 0.5 * (1.0 + (double)ef)
+             + ((double)v * 0.3989422804014327) * exp(((-0.5) * (double)v) * (double)v);
+    return (float)d;
+}
+
 EXPORT int GeluErfBwd(const float* x, int x_len, const float* gy, int gy_len,
                       float* out, int out_len, long long lo, long long hi) {
     if (!x || !gy || !out) return -1;
@@ -99,28 +146,17 @@ EXPORT int GeluErfBwd(const float* x, int x_len, const float* gy, int gy_len,
     if (x_len < hi || gy_len < hi || out_len < hi - lo) return -5;
     if (lo == hi) return 0;
 
-    for (long long i = lo; i < hi; i++) {
-        float v = x[i];
-        /* erf(v / s): f64 div -> ep f32 (giong JIT) */
-        float ef;
-        {
-            float arg = (float)((double)v / 1.4142135623730951);
-            double sg = 1.0;
-            if (arg < 0.0f) sg = -1.0;
-            float ax = fabsf(arg);
-            double t = 1.0 / (1.0 + 0.3275911 * (double)ax);
-            double poly = 1.061405429;
-            poly = poly * t + -1.453152027;
-            poly = poly * t + 1.421413741;
-            poly = poly * t + -0.284496736;
-            poly = poly * t + 0.254829592;
-            poly = poly * t;
-            float e = (float)exp((double)((-ax) * ax));
-            ef = (float)(sg * (1.0 - (double)e * poly));
-        }
-        double d = 0.5 * (1.0 + (double)ef)
-                 + ((double)v * 0.3989422804014327) * exp(((-0.5) * (double)v) * (double)v);
-        out[i - lo] = (float)((double)gy[i] * d);
+    long long i = lo;
+    for (; i + 3 < hi; i += 4) {
+        float v0 = x[i], v1 = x[i + 1], v2 = x[i + 2], v3 = x[i + 3];
+        float g0 = gy[i], g1 = gy[i + 1], g2 = gy[i + 2], g3 = gy[i + 3];
+        out[i - lo]     = (float)((double)g0 * gelu_b_one(v0));
+        out[i + 1 - lo] = (float)((double)g1 * gelu_b_one(v1));
+        out[i + 2 - lo] = (float)((double)g2 * gelu_b_one(v2));
+        out[i + 3 - lo] = (float)((double)g3 * gelu_b_one(v3));
+    }
+    for (; i < hi; i++) {
+        out[i - lo] = (float)((double)gy[i] * gelu_b_one(x[i]));
     }
     return 0;
 }
@@ -133,30 +169,15 @@ EXPORT int GeluErfFwd(const float* x, int x_len, float* out, int out_len, long l
     if (lo < 0 || hi < lo) return -2;
     if (x_len < hi || out_len < hi - lo) return -5;
     if (lo == hi) return 0;
-    for (long long i = lo; i < hi; i++) {
-        float v = x[i];
-        float ef;
-        {
-            /* IL `gelu_erf`: ldc.r4 1.4142135623730951 -> f32; v / const la
-             * PHEP CHIA f32 (khong phai f64 roi lam tron). */
-            float arg = v / (float)1.4142135623730951;
-            double sg = 1.0;
-            if (arg < 0.0f) sg = -1.0;
-            float ax = fabsf(arg);
-            double t = 1.0 / (1.0 + 0.3275911 * (double)ax);
-            double poly = 1.061405429;
-            poly = poly * t + -1.453152027;
-            poly = poly * t + 1.421413741;
-            poly = poly * t + -0.284496736;
-            poly = poly * t + 0.254829592;
-            poly = poly * t;
-            float e = (float)exp((double)((-ax) * ax));
-            ef = (float)(sg * (1.0 - (double)e * poly));
-        }
-        /* IL: (0.5f*v) * (1.0f + erf) — ca hai ve lam tron f32 TRUOC khi nhan. */
-        float hf = 0.5f * v;
-        float op = 1.0f + ef;
-        out[i - lo] = hf * op;
+    long long i = lo;
+    for (; i + 3 < hi; i += 4) {
+        out[i - lo]     = gelu_f_one(x[i]);
+        out[i + 1 - lo] = gelu_f_one(x[i + 1]);
+        out[i + 2 - lo] = gelu_f_one(x[i + 2]);
+        out[i + 3 - lo] = gelu_f_one(x[i + 3]);
+    }
+    for (; i < hi; i++) {
+        out[i - lo] = gelu_f_one(x[i]);
     }
     return 0;
 }
