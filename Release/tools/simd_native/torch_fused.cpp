@@ -136,6 +136,93 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g,
     }
 }
 
+/* Backward LayerNorm via ATen autograd (same graph PyTorch uses for HF
+ * gpt2 LN backward — at::layer_norm + .backward()). Outputs dx/dg/db into
+ * caller's buffers. eps must match fwd (1e-6 here, HF default). */
+TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
+                                          const float* b, const float* gy,
+                                          float* dx, float* dg, float* db,
+                                          int64_t n, int64_t h, double eps) {
+    if (!x || !g || !b || !gy || !dx || !dg || !db) return -1;
+    if (n <= 0 || h <= 0) return -2;
+    try {
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32);
+        auto t_x  = torch::from_blob(const_cast<float*>(x), {n, h}, opt.requires_grad(true));
+        auto t_g  = torch::from_blob(const_cast<float*>(g), {h},   opt.requires_grad(true));
+        auto t_b  = torch::from_blob(const_cast<float*>(b), {h},   opt.requires_grad(true));
+        auto t_gy = torch::from_blob(const_cast<float*>(gy), {n, h}, opt);
+        auto t_y  = at::layer_norm(t_x, {h}, t_g, t_b, eps);
+        t_y.backward(t_gy);
+        memcpy(dx, t_x.grad().const_data_ptr<float>(), (size_t)n * h * sizeof(float));
+        memcpy(dg, t_g.grad().const_data_ptr<float>(), (size_t)h * sizeof(float));
+        memcpy(db, t_b.grad().const_data_ptr<float>(), (size_t)h * sizeof(float));
+        return 0;
+    } catch (const std::exception&) {
+        return -4;
+    } catch (...) {
+        return -5;
+    }
+}
+/* Attention block BACKWARD via ATen autograd (same graph HF GPT2 uses:
+ *   x -> c_attn(addmm) -> [q,k,v split views] -> sdpa(is_causal=true) ->
+ *   reshape -> c_proj(addmm) -> seed(gout).backward()
+ * Outputs: dx into caller buffer; dw_qkv/db_qkv/dw_proj/db_proj DIRECTLY into
+ * gflat at element offsets o_qkv/o_bqkv/o_proj/o_bproj (gflat zeroed per
+ * step, each offset written once). rc < 0 -> caller fallback. */
+TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
+        const float* w_qkv, const float* b_qkv,
+        const float* w_proj, const float* b_proj,
+        float* dx, float* gflat,
+        int64_t n, int64_t h, int64_t nheads, int64_t hd,
+        long long o_qkv, long long o_bqkv, long long o_proj, long long o_bproj) {
+    if (!x || !gout || !w_qkv || !b_qkv || !w_proj || !b_proj || !dx) return -1;
+    try {
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32);
+        const int64_t T = n;
+        const int64_t H = nheads * hd;
+        if (h != H) return -2;
+        auto t_x   = torch::from_blob(const_cast<float*>(x),   {T, h},   opt.requires_grad(true));
+        auto t_wq  = torch::from_blob(const_cast<float*>(w_qkv), {h, 3 * h}, opt.requires_grad(true));
+        auto t_bq  = torch::from_blob(const_cast<float*>(b_qkv), {3 * h},   opt.requires_grad(true));
+        auto t_wp  = torch::from_blob(const_cast<float*>(w_proj), {h, h},  opt.requires_grad(true));
+        auto t_bp  = torch::from_blob(const_cast<float*>(b_proj), {h},     opt.requires_grad(true));
+
+        auto t_qkv = at::addmm(t_bq, t_x, t_wq);              /* [T, 3h] */
+        auto t_q3  = t_qkv.view({T, 3, nheads, hd});          /* contiguous view */
+        auto q = t_q3.select(1, 0).transpose(0, 1).unsqueeze(0);  /* [B(=1), H, T, hd] */
+        auto k = t_q3.select(1, 1).transpose(0, 1).unsqueeze(0);
+        auto v = t_q3.select(1, 2).transpose(0, 1).unsqueeze(0);
+
+        auto t_attn = at::scaled_dot_product_attention(q, k, v, std::nullopt,
+                                                       0.0, true, std::nullopt);
+        auto t_ctx  = t_attn.transpose(1, 2).reshape({T, h}).contiguous();  /* [T, h] */
+        auto t_proj = at::addmm(t_bp, t_ctx, t_wp);
+
+        auto t_gy = torch::from_blob(const_cast<float*>(gout), {T, h}, opt);
+        t_proj.backward(t_gy);
+
+        memcpy(dx, t_x.grad().const_data_ptr<float>(),
+               (size_t)T * h * sizeof(float));
+        if (gflat && o_qkv  >= 0)
+            memcpy(gflat + o_qkv,  t_wq.grad().const_data_ptr<float>(),
+                   (size_t)h * 3 * h * sizeof(float));
+        if (gflat && o_bqkv >= 0)
+            memcpy(gflat + o_bqkv, t_bq.grad().const_data_ptr<float>(),
+                   (size_t)3 * h * sizeof(float));
+        if (gflat && o_proj >= 0)
+            memcpy(gflat + o_proj, t_wp.grad().const_data_ptr<float>(),
+                   (size_t)h * h * sizeof(float));
+        if (gflat && o_bproj >= 0)
+            memcpy(gflat + o_bproj, t_bp.grad().const_data_ptr<float>(),
+                   (size_t)h * sizeof(float));
+        return 0;
+    } catch (const std::exception&) {
+        return -4;
+    } catch (...) {
+        return -5;
+    }
+}
+
 /* Mm transposed (LM head): y = x @ w^T. w [out_d, in_d] (tied-embedding layout,
  * HF lm_head does at::linear(x, W, None) internally -> at::mm(x, W^T)). */
 TKV_TORCH_EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,

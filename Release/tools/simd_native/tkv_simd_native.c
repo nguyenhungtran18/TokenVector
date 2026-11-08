@@ -2295,6 +2295,8 @@ typedef int (*tkv_lin_gelu_fn)(const float*, const float*, const float*, int64_t
 typedef int (*tkv_lin_fn)     (const float*, const float*, const float*, int64_t, int64_t, int64_t, float*);
 typedef int (*tkv_lin_bwd_fn) (const float*, const float*, const float*, float*, float*, float*, int64_t, int64_t, int64_t);
 typedef int (*tkv_ln_fn)      (const float*, const float*, const float*, float*, int64_t, int64_t, double);
+typedef int (*tkv_lnb_fn)     (const float*, const float*, const float*, const float*, float*, float*, float*, int64_t, int64_t, double);
+typedef int (*tkv_atnb_fn)    (const float*, const float*, const float*, const float*, const float*, const float*, float*, float*, int64_t, int64_t, int64_t, int64_t, long long, long long, long long, long long);
 typedef int (*tkv_mm_t_fn)    (const float*, const float*, float*, int64_t, int64_t, int64_t);
 typedef int (*tkv_sdpa_fn)    (const float*, float*, int64_t, int64_t, int64_t);
 static HMODULE g_torch_fused = NULL;
@@ -2302,6 +2304,8 @@ static tkv_lin_gelu_fn p_lin_gelu = NULL;
 static tkv_lin_fn p_lin = NULL;
 static tkv_lin_bwd_fn p_lin_bwd = NULL;
 static tkv_ln_fn p_ln = NULL;
+static tkv_lnb_fn p_lnb = NULL;
+static tkv_atnb_fn p_atnb = NULL;
 static tkv_mm_t_fn p_mm_t = NULL;
 static tkv_sdpa_fn p_sdpa = NULL;
 
@@ -2339,6 +2343,8 @@ static int tkv_torch_fused_load(void) {
     if (!p_lin_bwd) { FreeLibrary(h); return 0; }
     /* optional new exports (LN/MM_T/SDPA) — older bridge without them: fallback -9 */
     p_ln = (tkv_ln_fn)GetProcAddress(h, "TkvTorchLayerNormFwd");
+    p_lnb = (tkv_lnb_fn)GetProcAddress(h, "TkvTorchLayerNormBwd");
+    p_atnb = (tkv_atnb_fn)GetProcAddress(h, "TkvTorchAttentionBwd");
     p_mm_t = (tkv_mm_t_fn)GetProcAddress(h, "TkvTorchMmT");
     p_sdpa = (tkv_sdpa_fn)GetProcAddress(h, "TkvTorchSdpa");
     g_torch_fused = h;
@@ -2391,4 +2397,32 @@ EXPORT int TkvTorchSdpa(const float* qkv, float* y, int64_t n,
     if (!tkv_torch_fused_load()) return -9;
     if (!p_sdpa) return -9;
     return p_sdpa(qkv, y, n, nheads, hd);
+}
+
+/* Attention block backward qua ATen autograd (addmm -> sdpa -> addmm backward)
+ * - cung do thi HF GPT2, BIT-IDENTICAL. Ghi thang dw_qkv/db_qkv/dw_proj/db_proj
+ * vao gflat tai offsets o_*. rc < 0 -> caller fallback. */
+EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
+                               const float* w_qkv, const float* b_qkv,
+                               const float* w_proj, const float* b_proj,
+                               float* dx, float* gflat,
+                               int64_t n, int64_t h, int64_t nheads, int64_t hd,
+                               long long o_qkv, long long o_bqkv,
+                               long long o_proj, long long o_bproj) {
+    if (!x || !gout || !w_qkv || !b_qkv || !w_proj || !b_proj || !dx) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_atnb) return -9;
+    return p_atnb(x, gout, w_qkv, b_qkv, w_proj, b_proj, dx, gflat,
+                  n, h, nheads, hd, o_qkv, o_bqkv, o_proj, o_bproj);
+}
+
+/* LayerNorm backward qua ATen autograd (at::layer_norm(...).backward()) —
+ * cung do thi PyTorch HF gpt2 -> BIT-IDENTICAL. rc < 0 -> caller fallback. */
+EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g, const float* b,
+                                const float* gy, float* dx, float* dg, float* db,
+                                int64_t n, int64_t h, double eps) {
+    if (!x || !g || !b || !gy || !dx || !dg || !db) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_lnb) return -9;
+    return p_lnb(x, g, b, gy, dx, dg, db, n, h, eps);
 }

@@ -1609,6 +1609,7 @@ def _pt_dp_pinvoke() -> "list[str]":
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchLinearGeluFwd" winapi) int32 TkvTorchLinearGeluFwdNative(native int x, native int w, native int b, native int y, int64 n, int64 in_d, int64 out_d) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchMmT" winapi) int32 TkvTorchMmTNative(native int x, native int w, native int y, int64 n, int64 in_d, int64 out_d) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchSdpa" winapi) int32 TkvTorchSdpaNative(native int qkv, native int y, int64 n, int64 nheads, int64 hd) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchAttentionBwd" winapi) int32 TkvTorchAttentionBwdNative(native int x, native int gout, native int w_qkv, native int b_qkv, native int w_proj, native int b_proj, native int dx, native int gflat, int64 n, int64 h, int64 nheads, int64 hd, int64 o_qkv, int64 o_bqkv, int64 o_proj, int64 o_bproj) cil managed preservesig { }',
     ]
 
 
@@ -2303,6 +2304,80 @@ def _pt_torch_sdpa_wrapper() -> "list[str]":
     ]
 
 
+def _pt_torch_attention_bwd_wrapper() -> "list[str]":
+    """`torch_attention_bwd` (IL wrapper).
+
+    torch_attention_bwd(x, gy, w_qkv, b_qkv, w_proj, b_proj, dx, gflat,
+                        n, h, nheads, hd, o_qkv, o_bqkv, o_proj, o_bproj) -> i32.
+    Full-attention backward qua ATen autograd (cung graph HF GPT2:
+    addmm -> sdpa(is_causal) -> reshape -> addmm -> backward), BIT-IDENTICAL.
+    Ghi thang dw_qkv/db_qkv/dw_proj/db_proj vao gflat tai offset i64 o_*;
+    dx vao Tensor.data. rc < 0 -> caller fallback duong .tkv nguyen van."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 TorchAttentionBwdM(' + lt + ' x, ' + lt + ' gy, ' + lt + ' w_qkv, ' + lt + ' b_qkv, ' + lt + ' w_proj, ' + lt + ' b_proj, ' + lt + ' dx, ' + lt + ' gflat, int64 n, int64 h, int64 nheads, int64 hd, int64 o_qkv, int64 o_bqkv, int64 o_proj, int64 o_bproj) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, float32[] p2, float32[] p3, float32[] p4, float32[] p5, float32[] p6, float32[] p7, int64 m0, int64 m1, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1, float32& pinned q2, float32& pinned q3, float32& pinned q4, float32& pinned q5, float32& pinned q6, float32& pinned q7)',
+        '    ldarg.s 8', '    ldc.i8 0', '    ble V_ATB',
+        '    ldarg.s 9', '    ldc.i8 0', '    ble V_ATB',
+        '    ldarg.s 10', '    ldc.i8 0', '    ble V_ATB',
+        '    ldarg.s 11', '    ldc.i8 0', '    ble V_ATB',
+        '    ldarg.s 8', '    conv.i8', '    ldarg.s 9', '    conv.i8', '    mul', '    stloc.s 8',
+        '    ldarg.s 9', '    conv.i8', '    ldc.i8 3', '    mul', '    ldarg.s 9', '    conv.i8', '    mul', '    stloc.s 9',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 10',
+        '    ldloc.s 10', '    ldarg.s 0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 0',
+        '    ldloc.s 10', '    ldarg.s 1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 1',
+        '    ldloc.s 10', '    ldarg.s 2', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 2',
+        '    ldloc.s 10', '    ldarg.s 3', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 3',
+        '    ldloc.s 10', '    ldarg.s 4', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 4',
+        '    ldloc.s 10', '    ldarg.s 5', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 5',
+        '    ldloc.s 10', '    ldarg.s 6', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 6',
+        '    ldloc.s 10', '    ldarg.s 7', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 7',
+        '    ldarg.s 0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 8', '    blt V_ATB',
+        '    ldarg.s 1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 8', '    blt V_ATB',
+        '    ldarg.s 2', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 9', '    blt V_ATB',
+        '    ldarg.s 3', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldc.i8 0', '    blt V_ATB',
+        '    ldarg.s 4', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldc.i8 0', '    blt V_ATB',
+        '    ldarg.s 6', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 8', '    blt V_ATB',
+        '    ldloc.s 0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 11',
+        '    ldloc.s 1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 12',
+        '    ldloc.s 2', '    ldc.i4.0', '    ldelema float32', '    stloc.s 13',
+        '    ldloc.s 3', '    ldc.i4.0', '    ldelema float32', '    stloc.s 14',
+        '    ldloc.s 4', '    ldc.i4.0', '    ldelema float32', '    stloc.s 15',
+        '    ldloc.s 5', '    ldc.i4.0', '    ldelema float32', '    stloc.s 16',
+        '    ldloc.s 6', '    ldc.i4.0', '    ldelema float32', '    stloc.s 17',
+        '    ldloc.s 7', '    ldc.i4.0', '    ldelema float32', '    stloc.s 18',
+        '    ldloc.s 11', '    conv.i',
+        '    ldloc.s 12', '    conv.i',
+        '    ldloc.s 13', '    conv.i',
+        '    ldloc.s 14', '    conv.i',
+        '    ldloc.s 15', '    conv.i',
+        '    ldloc.s 16', '    conv.i',
+        '    ldloc.s 17', '    conv.i',
+        '    ldloc.s 18', '    conv.i',
+        '    ldarg.s 8',
+        '    ldarg.s 9',
+        '    ldarg.s 10',
+        '    ldarg.s 11',
+        '    ldarg.s 12',
+        '    ldarg.s 13',
+        '    ldarg.s 14',
+        '    ldarg.s 15',
+        '    call int32 ' + _SIMD_CLASS + '::TkvTorchAttentionBwdNative(native int, native int, native int, native int, native int, native int, native int, native int, int64, int64, int64, int64, int64, int64, int64, int64)',
+        '    ret',
+        '  V_ATB:',
+        '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
 def _pt_dp_wrappers() -> "list[str]":
     lt = _LT_F32
     ra: "list[str]" = []
@@ -2325,6 +2400,7 @@ def _pt_dp_wrappers() -> "list[str]":
     ra = ra + _pt_onednn_gelu_wrapper()
     ra = ra + _pt_torch_mm_t_wrapper()
     ra = ra + _pt_torch_sdpa_wrapper()
+    ra = ra + _pt_torch_attention_bwd_wrapper()
     ra = ra + _pt_embed_bwd_fused_wrapper()
     ra = ra + _pt_linear_dw_at_fused_wrapper()
     ra = ra + _pt_gelu_erf_bwd_wrapper()
@@ -3421,6 +3497,29 @@ def compile_torch_sdpa_fwd(args: "list[TkvNode]", scope: "Scope", out: "list[str
     out.append('    call int32 ' + _SIMD_CLASS + '::TorchSdpaM(' + _LT_F32 + ', ' + _LT_F32 + ', int64, int64, int64)')
 
 
+def compile_torch_attention_bwd(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """torch_attention_bwd(x, gy, w_qkv, b_qkv, w_proj, b_proj, dx, gflat,
+                        n, h, nheads, hd, o_qkv, o_bqkv, o_proj, o_bproj) -> i32.
+
+    Full-attention backward qua ATen autograd (cung graph HF GPT2).
+    BIT-IDENTICAL vs PyTorch. Ghi thang dw_qkv/db_qkv/dw_proj/db_proj vao
+    gflat tai offset i64 o_*; dx vao Tensor.data. rc < 0 -> caller fallback."""
+    if len(args) != 16:
+        raise SyntaxError("il_codegen: torch_attention_bwd can dung 16 tham so")
+    for i in range(8):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: torch_attention_bwd: tham so " + str(i) + " phai la list[f32] (Tensor.data)")
+        dd = _dtype_mang(args[i], scope, 'torch_attention_bwd')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: torch_attention_bwd chi ho tro f32 (gap " + dd + ")")
+    _can_simd(ctx, 'dp')
+    for i in range(8):
+        _nap_mang(args[i], scope, out, ctx)
+    for i in range(8, 16):
+        ctx.compile_expr(args[i], scope, out, 'i64', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::TorchAttentionBwdM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int64, int64, int64, int64, int64, int64, int64, int64)')
+
+
 def compile_embed_bwd_fused(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """embed_bwd_fused(idx, rows, d, gy, gw) -> i32 (YEU CAU #16).
 
@@ -3605,6 +3704,7 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'onednn_linear_bias_gelu', compile_onednn_linear_bias_gelu, 'i32')
     register_expr_builtin(reg, 'torch_mm_t', compile_torch_mm_t, 'i32')
     register_expr_builtin(reg, 'torch_sdpa_fwd', compile_torch_sdpa_fwd, 'i32')
+    register_expr_builtin(reg, 'torch_attention_bwd', compile_torch_attention_bwd, 'i32')
     register_expr_builtin(reg, 'attention_fwd_fused', compile_attention_fwd_fused, 'i32')
     register_expr_builtin(reg, 'attention_bwd_fused', compile_attention_bwd_fused, 'i32')
     register_expr_builtin(reg, 'gelu_erf_bwd', compile_gelu_erf_bwd, 'i32')

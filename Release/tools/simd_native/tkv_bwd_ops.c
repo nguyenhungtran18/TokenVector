@@ -17,6 +17,7 @@
 #include <immintrin.h>
 #include <math.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define EXPORT __declspec(dllexport)
 
@@ -32,6 +33,34 @@ EXPORT int LayernormBwdFused(const float* x, int x_len, const float* gy, int gy_
     long long nxh = (long long)n * h;
     if (x_len < nxh || gy_len < nxh || g_len < h || dx_len < nxh) return -5;
     if ((long long)gflat_len - o_dg < h || (long long)gflat_len - o_db < h) return -5;
+
+    /* §0.106 b (2026-11-08): uu tien ATen `at::layer_norm` + autograd.backward
+     * (TkvTorchLayerNormBwd) — cung kernel HF gpt2 backward -> BIT-IDENTICAL.
+     * gflat offsets chi ghi 1 lan moi backward (gflat khoi tao zero) nen
+     * gan thang dg/db = ket qua ATen, khong con drift f64-Welford vs f32-Welford. */
+    {
+        extern int TkvTorchLayerNormBwd(const float* x, const float* g, const float* b,
+                                        const float* gy, float* dx, float* dg, float* db,
+                                        long long n, long long h, double eps);
+        float* dgbuf = (float*)malloc((size_t)h * sizeof(float));
+        float* dbbuf = (float*)malloc((size_t)h * sizeof(float));
+        float* bzer  = (float*)calloc((size_t)h, sizeof(float)); /* LN bwd khong dung bias value — zero buffer doc lap */
+        if (dgbuf && dbbuf && bzer) {
+            int rc_at = TkvTorchLayerNormBwd(x, g, bzer, gy, dx, dgbuf, dbbuf,
+                                             (long long)n, (long long)h, 1e-6);
+            if (rc_at == 0) {
+                for (int j = 0; j < h; j++) {
+                    gflat[o_dg + j] = dgbuf[j];
+                    gflat[o_db + j] = dbbuf[j];
+                }
+                free(dgbuf); free(dbbuf); free(bzer);
+                return 0;
+            }
+        }
+        if (dgbuf) free(dgbuf);
+        if (dbbuf) free(dbbuf);
+        if (bzer)  free(bzer);
+    }
 
     for (int i = 0; i < n; i++) {
         const float* xr  = x  + (long long)i * h;
