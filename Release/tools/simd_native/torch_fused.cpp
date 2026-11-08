@@ -110,3 +110,93 @@ TKV_TORCH_EXPORT int TkvTorchLinearFwd(const float* x, const float* w,
         return -5;
     }
 }
+
+/* LayerNorm via ATen (same kernel HF GPT-2 uses: at::layer_norm).
+ *   y = (x - mu) * rstd * g + b. Welford vectorized f32 — bit-identical to
+ *   torch.nn.functional.layer_norm on the same build/dispatch, not to the
+ *   repo's f64-accumulation native path (intentional: parity goal). */
+TKV_TORCH_EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g,
+                                          const float* b, float* y,
+                                          int64_t n, int64_t h, double eps) {
+    if (!x || !g || !b || !y) return -1;
+    if (n <= 0 || h <= 0) return -2;
+    try {
+        auto t_x = wrap_in(x, n, h);
+        auto t_g = torch::from_blob(const_cast<float*>(g), {h},
+            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false));
+        auto t_b = torch::from_blob(const_cast<float*>(b), {h},
+            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false));
+        auto t_y = at::layer_norm(t_x, {h}, t_g, t_b, eps);
+        memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * h * sizeof(float));
+        return 0;
+    } catch (const std::exception&) {
+        return -4;
+    } catch (...) {
+        return -5;
+    }
+}
+
+/* Mm transposed (LM head): y = x @ w^T. w [out_d, in_d] (tied-embedding layout,
+ * HF lm_head does at::linear(x, W, None) internally -> at::mm(x, W^T)). */
+TKV_TORCH_EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,
+                                 int64_t n, int64_t in_d, int64_t out_d) {
+    if (!x || !w || !y) return -1;
+    if (n <= 0 || in_d <= 0 || out_d <= 0) return -2;
+    try {
+        auto t_x = wrap_in(x, n, in_d);
+        auto t_w = wrap_in(w, out_d, in_d);
+        auto t_y = at::mm(t_x, t_w.t());
+        memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * out_d * sizeof(float));
+        return 0;
+    } catch (const std::exception&) {
+        return -4;
+    } catch (...) {
+        return -5;
+    }
+}
+
+/* Scaled-dot-product attention CAUSAL (HF sdpa: is_causal=true, scale =
+ * 1/sqrt(hd), dropout 0). q/k/v slices from qkv [n, 3*h] rows; h = nheads*hd.
+ * Contiguous copies are made so the ATen CPU flash dispatch path matches what
+ * HF sdpa sees (identical kernel -> identical bits). Output interleaved per
+ * head into y [n, h] (same layout as repo ctxT). */
+TKV_TORCH_EXPORT int TkvTorchSdpa(const float* qkv, float* y,
+                                  int64_t n, int64_t nheads, int64_t hd) {
+    if (!qkv || !y) return -1;
+    if (n <= 0 || nheads <= 0 || hd <= 0) return -2;
+    const int64_t h = nheads * hd;
+    if (h <= 0) return -2;
+    try {
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32);
+        auto t_q = at::empty({1, nheads, n, hd}, opt);
+        auto t_k = at::empty({1, nheads, n, hd}, opt);
+        auto t_v = at::empty({1, nheads, n, hd}, opt);
+        const float* qsrc = qkv;
+        const float* ksrc = qkv + h;
+        const float* vsrc = qkv + 2 * h;
+        const int64_t stride = 3 * h;
+        float* qp = t_q.data_ptr<float>();
+        float* kp = t_k.data_ptr<float>();
+        float* vp = t_v.data_ptr<float>();
+        for (int64_t hi = 0; hi < nheads; hi++) {
+            for (int64_t t = 0; t < n; t++) {
+                memcpy(qp + (hi * n + t) * hd, qsrc + t * stride + hi * hd, hd * sizeof(float));
+                memcpy(kp + (hi * n + t) * hd, ksrc + t * stride + hi * hd, hd * sizeof(float));
+                memcpy(vp + (hi * n + t) * hd, vsrc + t * stride + hi * hd, hd * sizeof(float));
+            }
+        }
+        auto t_y = at::scaled_dot_product_attention(t_q, t_k, t_v, std::nullopt,
+                                                    0.0, true, std::nullopt);
+        const float* yp = t_y.const_data_ptr<float>();
+        for (int64_t hi = 0; hi < nheads; hi++) {
+            for (int64_t t = 0; t < n; t++) {
+                memcpy(y + t * h + hi * hd, yp + (hi * n + t) * hd, hd * sizeof(float));
+            }
+        }
+        return 0;
+    } catch (const std::exception&) {
+        return -4;
+    } catch (...) {
+        return -5;
+    }
+}

@@ -392,7 +392,14 @@ EXPORT int EmbedBwdFused(const long long* idx, int idx_len, int rows, int d,
  * BIT-EXACT voi duong .tkv interpreted (gpt2_layernorm):
  *   3 pass: mu (f64 acc, /h f32), v (f64 acc), scale (f32).
  *   EPS = 1e-5 (hard-code, khop _EPS cua .tkv).
- * rc < 0 -> caller fallback duong .tkv cu. */
+ * rc < 0 -> caller fallback duong .tkv cu.
+ *
+ * §0.105 (2026-11-08): uu tien ATen `at::layer_norm` qua bridge
+ * (TkvTorchLayerNormFwd) — cung kernel HF GPT-2 -> BIT-IDENTICAL voi PyTorch.
+ * rc != 0 (bridge cu/VANG export) -> quay lai duong f64 nguyen van. */
+/* forward decl: wrapper o tkv_simd_native.c (cung DLL); ABI: int64_t == long long (win64) */
+extern int TkvTorchLayerNormFwd(const float* x, const float* g, const float* b,
+                                float* y, long long n, long long h, double eps);
 EXPORT int LayernormFwd(const float* x, int x_len, const float* g, int g_len,
                         const float* b, int b_len, float* out, int out_len,
                         int n, int h) {
@@ -401,6 +408,10 @@ EXPORT int LayernormFwd(const float* x, int x_len, const float* g, int g_len,
     long long need = (long long)n * h;
     long long need_g = h;
     if (x_len < need || out_len < need || g_len < need_g || b_len < need_g) return -5;
+    {
+        int rc_at = TkvTorchLayerNormFwd(x, g, b, out, (long long)n, (long long)h, 1e-6);
+        if (rc_at == 0) return 0;
+    }
     const double EPS = 1e-6;
     for (int i = 0; i < n; i++) {
         const float* row = x + (long long)i * h;

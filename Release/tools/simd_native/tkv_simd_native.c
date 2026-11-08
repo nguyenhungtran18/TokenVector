@@ -2294,10 +2294,16 @@ EXPORT int LinearDwAtFused(const float* x, int x_len, const float* gy, int gy_le
 typedef int (*tkv_lin_gelu_fn)(const float*, const float*, const float*, int64_t, int64_t, int64_t, float*);
 typedef int (*tkv_lin_fn)     (const float*, const float*, const float*, int64_t, int64_t, int64_t, float*);
 typedef int (*tkv_lin_bwd_fn) (const float*, const float*, const float*, float*, float*, float*, int64_t, int64_t, int64_t);
+typedef int (*tkv_ln_fn)      (const float*, const float*, const float*, float*, int64_t, int64_t, double);
+typedef int (*tkv_mm_t_fn)    (const float*, const float*, float*, int64_t, int64_t, int64_t);
+typedef int (*tkv_sdpa_fn)    (const float*, float*, int64_t, int64_t, int64_t);
 static HMODULE g_torch_fused = NULL;
 static tkv_lin_gelu_fn p_lin_gelu = NULL;
 static tkv_lin_fn p_lin = NULL;
 static tkv_lin_bwd_fn p_lin_bwd = NULL;
+static tkv_ln_fn p_ln = NULL;
+static tkv_mm_t_fn p_mm_t = NULL;
+static tkv_sdpa_fn p_sdpa = NULL;
 
 static int tkv_torch_fused_load(void) {
     if (g_torch_fused) return 1;
@@ -2331,6 +2337,10 @@ static int tkv_torch_fused_load(void) {
     if (!p_lin) { FreeLibrary(h); return 0; }
     p_lin_bwd = (tkv_lin_bwd_fn)GetProcAddress(h, "TkvTorchLinearBwdFwd");
     if (!p_lin_bwd) { FreeLibrary(h); return 0; }
+    /* optional new exports (LN/MM_T/SDPA) — older bridge without them: fallback -9 */
+    p_ln = (tkv_ln_fn)GetProcAddress(h, "TkvTorchLayerNormFwd");
+    p_mm_t = (tkv_mm_t_fn)GetProcAddress(h, "TkvTorchMmT");
+    p_sdpa = (tkv_sdpa_fn)GetProcAddress(h, "TkvTorchSdpa");
     g_torch_fused = h;
     return 1;
 }
@@ -2355,4 +2365,30 @@ EXPORT int TkvTorchLinearBwdFwd(const float* x, const float* gy, const float* w,
     if (!x || !gy || !w || !dx || !dw || !db) return -1;
     if (!tkv_torch_fused_load()) return -9;
     return p_lin_bwd(x, gy, w, dx, dw, db, n, in_d, out_d);
+}
+
+/* ==== Tkv torch bridge: LN/SDPA/MmT (ATen same-kernel parity route §0.105) ====
+ * Cung load lazy nhu tren; vang export (bridge cu) -> -9 -> caller fallback. */
+EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g, const float* b,
+                                float* y, int64_t n, int64_t h, double eps) {
+    if (!x || !g || !b || !y) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_ln) return -9;
+    return p_ln(x, g, b, y, n, h, eps);
+}
+
+EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,
+                       int64_t n, int64_t in_d, int64_t out_d) {
+    if (!x || !w || !y) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_mm_t) return -9;
+    return p_mm_t(x, w, y, n, in_d, out_d);
+}
+
+EXPORT int TkvTorchSdpa(const float* qkv, float* y, int64_t n,
+                        int64_t nheads, int64_t hd) {
+    if (!qkv || !y) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_sdpa) return -9;
+    return p_sdpa(qkv, y, n, nheads, hd);
 }
