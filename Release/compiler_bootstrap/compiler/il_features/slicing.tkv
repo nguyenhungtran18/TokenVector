@@ -70,6 +70,18 @@ def compile_zeros_list(args: "list[TkvNode]", scope: "Scope", out: "list[str]", 
     out.append('    call class [mscorlib]System.Collections.Generic.List`1<float32> TkvSlice::ZeroListF32(int32)')
 
 
+def compile_torch_step124(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """torch_step124(*args) -> i64.
+
+    D5-1: native entry for the step-level native emit. Currently a structured
+    no-op returning 1 (so callers can branch). Production wiring emits only when
+    the native backend is present; fallback path must remain byte-identical.
+    """
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: torch_step124 requires exactly 1 argument (step handle i64)")
+    # No emission yet; just push constant 1.
+    out.append('    ldc.i8 1')
+
 def _ensure_class_slice(ctx: "Ctx"):
     """TkvSlice::Norm/Cnt - chi so cat lat theo ngu nghia Python (am -> +n, roi kep vao
     [0, n]; do dai am -> 0), thay cho GetRange/Substring nem ArgumentOutOfRange (2026-09-30)."""
@@ -405,5 +417,6 @@ def bootstrap_slicing(reg: "Registry"):
     register_expr_codegen(reg, 'slice', compile_slice)
     register_expr_builtin(reg, 'slice_step', compile_slice_step, 'str')
     register_expr_builtin(reg, 'zeros_list', compile_zeros_list, None, return_shape='list')
+    register_expr_builtin(reg, 'torch_step124', compile_torch_step124, 'i64')
     register_first_pass_walk(reg, 'assign_list_slice', fpw_assign_list_slice)
     register_stmt_codegen(reg, 'assign_list_slice', codegen_assign_list_slice)
