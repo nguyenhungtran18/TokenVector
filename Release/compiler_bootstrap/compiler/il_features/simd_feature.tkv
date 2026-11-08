@@ -629,6 +629,7 @@ def _mang_khoi_list(ten_ham: "str", n_mang_vao: "int", co_mang_ra: "i32",
 # Mang `list[f32]` -> ToArray -> pin -> goi kernel -> ghi nguoc bang Clear +
 # AddRange. Nhanh hon `_mm32` scalar ~18x va nhanh hon NumPy o n=32.
 _GEMM_DLL = 'tkv_simd_native.dll'
+_STEP124_DLL = 'tkv_step124.dll'
 
 
 def _pt_gemm_pinvoke() -> "list[str]":
@@ -1609,6 +1610,7 @@ def _pt_dp_pinvoke() -> "list[str]":
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchLinearGeluFwd" winapi) int32 TkvTorchLinearGeluFwdNative(native int x, native int w, native int b, native int y, int64 n, int64 in_d, int64 out_d) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchMmT" winapi) int32 TkvTorchMmTNative(native int x, native int w, native int y, int64 n, int64 in_d, int64 out_d) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchSdpa" winapi) int32 TkvTorchSdpaNative(native int qkv, native int y, int64 n, int64 nheads, int64 hd) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _STEP124_DLL + '" as "TkvStep124Embed" winapi) int32 TkvStep124EmbedNative(native int ids, native int pos, native int wte, native int wpe, native int outp, int64 n, int64 h) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchAttentionBwd" winapi) int32 TkvTorchAttentionBwdNative(native int x, native int gout, native int w_qkv, native int b_qkv, native int w_proj, native int b_proj, native int dx, native int gflat, int64 n, int64 h, int64 nheads, int64 hd, int64 o_qkv, int64 o_bqkv, int64 o_proj, int64 o_bproj) cil managed preservesig { }',
     ]
 
@@ -2378,6 +2380,76 @@ def _pt_torch_attention_bwd_wrapper() -> "list[str]":
     ]
 
 
+def _pt_torch_step124_embed_wrapper() -> "list[str]":
+    """`torch_step124_embed` (IL wrapper) -- D5-3 segment I.
+
+    torch_step124_embed(ids, pos, wte, wpe, outp, n, h) -> i32.
+    out[t, j] = wte[ids[t], j] + wpe[pos[t], j] via native AVX2 unroll.
+    BIT-EXACT voi duong .tkv interpreted. ids/pos la list[i64] (idx/pos);
+    wte/wpe/outp la list[f32] (Tensor.data). rc < 0 -> caller fallback."""
+    lt32 = _LT_F32
+    lt64 = _LT_I64
+    return [
+        '  .method public static int32 TorchStep124EmbedM(' + lt64 + ' ids, ' + lt64 + ' pos, ' + lt32 + ' wte, ' + lt32 + ' wpe, ' + lt32 + ' outp, int64 n, int64 h) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (int64[] p0, int64[] p1, float32[] p2, float32[] p3, float32[] p4, int32 l0, int32 l1, int32 l2, int32 l3, int32 l4, int32 l5, int32 l6, class [mscorlib]System.Reflection.FieldInfo fi0, class [mscorlib]System.Reflection.FieldInfo fi1, int64& pinned q0, int64& pinned q1, float32& pinned q2, float32& pinned q3, float32& pinned q4)',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<int64>::get_Count()', '    stloc.s 5',
+        '    ldarg.1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<int64>::get_Count()', '    stloc.s 6',
+        '    ldarg.s 5', '    ldc.i4.0', '    ble V_TSE',
+        '    ldarg.s 6', '    ldc.i4.0', '    ble V_TSE',
+        '    ldloc.s 5', '    ldc.i4.0', '    ble V_TSE',
+        '    ldloc.s 6', '    ldc.i4.0', '    ble V_TSE',
+        '    ldloc.s 5', '    ldloc.s 6', '    ceq', '    stloc.s 7',
+        '    ldloc.s 7', '    ldc.i4.0', '    beq V_TSE',
+        '    ldarg.2', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 8',
+        '    ldarg.3', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 9',
+        '    ldarg.s 4', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    stloc.s 10',
+        '    ldarg.s 5', '    ldarg.s 6', '    mul', '    conv.i4', '    stloc.s 11',
+        '    ldloc.s 11', '    ldloc.s 8', '    clt', '    stloc.s 7',
+        '    ldloc.s 7', '    ldc.i4.0', '    blt V_TSE',
+        '    ldloc.s 11', '    ldloc.s 9', '    clt', '    stloc.s 7',
+        '    ldloc.s 7', '    ldc.i4.0', '    blt V_TSE',
+        '    ldloc.s 11', '    ldloc.s 10', '    clt', '    stloc.s 7',
+        '    ldloc.s 7', '    ldc.i4.0', '    blt V_TSE',
+        '    ldtoken ' + lt64,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 12',
+        '    ldtoken ' + lt32,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 13',
+        '    ldloc.s 12', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass int64[]', '    stloc.0',
+        '    ldloc.s 12', '    ldarg.1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass int64[]', '    stloc.1',
+        '    ldloc.s 13', '    ldarg.2', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.2',
+        '    ldloc.s 13', '    ldarg.3', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.3',
+        '    ldloc.s 13', '    ldarg.s 4', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 4',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema int64', '    stloc.s 14',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema int64', '    stloc.s 15',
+        '    ldloc.2', '    ldc.i4.0', '    ldelema float32', '    stloc.s 16',
+        '    ldloc.3', '    ldc.i4.0', '    ldelema float32', '    stloc.s 17',
+        '    ldloc.s 4', '    ldc.i4.0', '    ldelema float32', '    stloc.s 18',
+        '    ldloc.s 14', '    conv.i',
+        '    ldloc.s 15', '    conv.i',
+        '    ldloc.s 16', '    conv.i',
+        '    ldloc.s 17', '    conv.i',
+        '    ldloc.s 18', '    conv.i',
+        '    ldarg.s 5',
+        '    ldarg.s 6',
+        '    call int32 ' + _SIMD_CLASS + '::TkvStep124EmbedNative(native int, native int, native int, native int, native int, int64, int64)',
+        '    ret',
+        '  V_TSE:',
+        '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
 def _pt_dp_wrappers() -> "list[str]":
     lt = _LT_F32
     ra: "list[str]" = []
@@ -2400,6 +2472,7 @@ def _pt_dp_wrappers() -> "list[str]":
     ra = ra + _pt_onednn_gelu_wrapper()
     ra = ra + _pt_torch_mm_t_wrapper()
     ra = ra + _pt_torch_sdpa_wrapper()
+    ra = ra + _pt_torch_step124_embed_wrapper()
     ra = ra + _pt_torch_attention_bwd_wrapper()
     ra = ra + _pt_embed_bwd_fused_wrapper()
     ra = ra + _pt_linear_dw_at_fused_wrapper()
@@ -3451,6 +3524,31 @@ def compile_attention_bwd_fused(args: "list[TkvNode]", scope: "Scope", out: "lis
     out.append('    call int32 ' + _SIMD_CLASS + '::AttentionBwdFusedM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int32, int32, int32, int32, float64)')
 
 
+def compile_torch_step124_embed(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """torch_step124_embed(ids, pos, wte, wpe, outp, n, h) -> i32.
+
+    out[t,j] = wte[ids[t],j] + wpe[pos[t],j] via native AVX2 unroll.
+    BIT-EXACT voi duong .tkv. rc < 0 -> caller fallback."""
+    if len(args) != 7:
+        raise SyntaxError("il_codegen: torch_step124_embed can dung 7 tham so")
+    for i in range(2):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: torch_step124_embed: tham so " + str(i) + " phai la list[i64] (idx/pos)")
+        dd = _dtype_mang(args[i], scope, 'torch_step124_embed')
+        if dd != 'i64':
+            raise SyntaxError("il_codegen: torch_step124_embed chi ho tro i64 cho ids/pos (gap " + dd + ")")
+    for i in range(2, 5):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: torch_step124_embed: tham so " + str(i) + " phai la list[f32] (Tensor.data)")
+        dd = _dtype_mang(args[i], scope, 'torch_step124_embed')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: torch_step124_embed chi ho tro f32 cho wte/wpe/out (gap " + dd + ")")
+    _can_simd(ctx, 'dp')
+    for i in range(7):
+        _nap_mang(args[i], scope, out, ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::TorchStep124EmbedM(' + _LT_I64 + ', ' + _LT_I64 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int64, int64)')
+
+
 def compile_torch_mm_t(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """torch_mm_t(x, w, y, n, in_d, out_d) -> i32.
 
@@ -3704,6 +3802,7 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'onednn_linear_bias_gelu', compile_onednn_linear_bias_gelu, 'i32')
     register_expr_builtin(reg, 'torch_mm_t', compile_torch_mm_t, 'i32')
     register_expr_builtin(reg, 'torch_sdpa_fwd', compile_torch_sdpa_fwd, 'i32')
+    register_expr_builtin(reg, 'torch_step124_embed', compile_torch_step124_embed, 'i32')
     register_expr_builtin(reg, 'torch_attention_bwd', compile_torch_attention_bwd, 'i32')
     register_expr_builtin(reg, 'attention_fwd_fused', compile_attention_fwd_fused, 'i32')
     register_expr_builtin(reg, 'attention_bwd_fused', compile_attention_bwd_fused, 'i32')
