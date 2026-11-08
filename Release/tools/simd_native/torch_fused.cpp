@@ -57,6 +57,38 @@ TKV_TORCH_EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w,
     }
 }
 
+/* Backward Linear (Conv1D layout: w [in_d, out_d]).
+ *   dx = gy @ w^T
+ *   dw = x^T @ gy
+ *   db = sum_n gy
+ * Uses g32 from_blob (no copy) and at::addmm/mm. Outputs written straight
+ * into caller buffers — caller owns lifetime. Optional rc guard. */
+TKV_TORCH_EXPORT int TkvTorchLinearBwdFwd(const float* x, const float* gy,
+                                          const float* w, float* dx, float* dw, float* db,
+                                          int64_t n, int64_t in_d, int64_t out_d) {
+    if (!x || !gy || !w || !dx || !dw || !db) return -1;
+    if (n <= 0 || in_d <= 0 || out_d <= 0) return -2;
+    try {
+        auto t_x  = wrap_in(x, n, in_d);
+        auto t_gy = wrap_in(gy, n, out_d);
+        auto t_w  = wrap_in(w, in_d, out_d);
+        auto t_dx = at::empty({n, in_d}, torch::TensorOptions().dtype(torch::kFloat32));
+        auto t_dw = at::empty({in_d, out_d}, torch::TensorOptions().dtype(torch::kFloat32));
+        auto t_db = at::empty({out_d}, torch::TensorOptions().dtype(torch::kFloat32));
+        at::mm_out(t_dx, t_gy, t_w.t());     /* gy @ w^T */
+        at::mm_out(t_dw, t_x.t(), t_gy);     /* x^T @ gy */
+        at::sum_out(t_db, t_gy, {0}, false); /* sum over n */
+        memcpy(dx, t_dx.const_data_ptr<float>(), (size_t)n * in_d * sizeof(float));
+        memcpy(dw, t_dw.const_data_ptr<float>(), (size_t)in_d * out_d * sizeof(float));
+        memcpy(db, t_db.const_data_ptr<float>(), (size_t)out_d * sizeof(float));
+        return 0;
+    } catch (const std::exception&) {
+        return -4;
+    } catch (...) {
+        return -5;
+    }
+}
+
 /* Plain Linear+bias (no gelu), for qkv/c_proj sites later. */
 TKV_TORCH_EXPORT int TkvTorchLinearFwd(const float* x, const float* w,
                                        const float* bias, int64_t n, int64_t in_d,

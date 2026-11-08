@@ -637,6 +637,8 @@ def _pt_gemm_pinvoke() -> "list[str]":
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "SgemmF64" winapi) void GemmF64Native(native int a, native int b, native int o, int32 n) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "AttentionBwdFused" winapi) int32 AttentionBwdFusedNative(native int q, int32 q_len, native int d, int32 d_len, native int c, int32 c_len, native int dq, int32 dq_len, int32 n, int32 h, int32 hd, int32 head, float64 inv) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "FlashAttentionFwdFused" winapi) int32 FlashAttentionFwdFusedNative(native int q, int32 q_len, native int c, int32 c_len, int32 n, int32 h, int32 hd, int32 head, float64 inv) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchLinearFwd" winapi) int32 TkvTorchLinearFwdNative(native int x, native int w, native int b, native int y, int64 n, int64 in_d, int64 out_d) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchLinearBwdFwd" winapi) int32 TkvTorchLinearBwdFwdNative(native int x, native int gy, native int w, native int dx, native int dw, native int db, int64 n, int64 in_d, int64 out_d) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvTorchLinearGeluFwd" winapi) int32 TkvTorchLinearGeluFwdNative(native int x, native int w, native int b, native int y, int64 n, int64 in_d, int64 out_d) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "LinearDwAtFused" winapi) int32 LinearDwAtFusedNative(native int x, int32 x_len, native int gy, int32 gy_len, native int gdw, int32 gdw_len, int32 gdw_off, int32 n, int32 in_d, int32 out_d, int32 mode) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "BiasAddRows" winapi) int32 BiasAddRowsNative(native int y, native int b, int64 rows, int64 cols) cil managed preservesig { }',
@@ -851,6 +853,123 @@ def _pt_onednn_gelu_wrapper() -> "list[str]":
         '    call int32 ' + _SIMD_CLASS + '::TkvTorchLinearGeluFwdNative(native int, native int, native int, native int, int64, int64, int64)',
         '    ret',
         '  V_ODG:',
+        '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_onednn_linear_bias_wrapper() -> "list[str]":
+    """`onednn_linear_bias` (IL wrapper).
+
+    onednn_linear_bias(x, w, b, y, n, in_d, out_d) -> i32. y = x @ w + b (oneDNN).
+    x/w/b/y: list[f32]. x: [n, in_d]; w: [in_d, out_d]; b: [out_d]; y: [n, out_d].
+    rc < 0 -> caller fallback duong .tkv nguyen van."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 OnednnLinearBiasM(' + lt + ' x, ' + lt + ' w, ' + lt + ' b, ' + lt + ' y, int64 n, int64 in_d, int64 out_d) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, float32[] p2, float32[] p3, int64 m0, int64 m1, int64 m2, int64 m3, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1, float32& pinned q2, float32& pinned q3)',
+        '    ldarg.s 4', '    ldc.i8 0', '    ble V_OLB',
+        '    ldarg.s 5', '    ldc.i8 0', '    ble V_OLB',
+        '    ldarg.s 6', '    ldc.i8 0', '    ble V_OLB',
+        '    ldarg.s 4', '    conv.i8', '    ldarg.s 5', '    conv.i8', '    mul', '    stloc.s 4',
+        '    ldarg.s 5', '    conv.i8', '    ldarg.s 6', '    conv.i8', '    mul', '    stloc.s 5',
+        '    ldarg.s 6', '    conv.i8', '    stloc.s 6',
+        '    ldarg.s 4', '    conv.i8', '    ldarg.s 6', '    conv.i8', '    mul', '    stloc.s 7',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 8',
+        '    ldloc.s 8', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.0',
+        '    ldloc.s 8', '    ldarg.1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.1',
+        '    ldloc.s 8', '    ldarg.2', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.2',
+        '    ldloc.s 8', '    ldarg.3', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.3',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 4', '    blt V_OLB',
+        '    ldarg.1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 5', '    blt V_OLB',
+        '    ldarg.2', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 6', '    blt V_OLB',
+        '    ldarg.3', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 7', '    blt V_OLB',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 9',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 10',
+        '    ldloc.2', '    ldc.i4.0', '    ldelema float32', '    stloc.s 11',
+        '    ldloc.3', '    ldc.i4.0', '    ldelema float32', '    stloc.s 12',
+        '    ldloc.s 9', '    conv.i',
+        '    ldloc.s 10', '    conv.i',
+        '    ldloc.s 11', '    conv.i',
+        '    ldloc.s 12', '    conv.i',
+        '    ldarg.s 4',
+        '    ldarg.s 5',
+        '    ldarg.s 6',
+        '    call int32 ' + _SIMD_CLASS + '::TkvTorchLinearFwdNative(native int, native int, native int, native int, int64, int64, int64)',
+        '    ret',
+        '  V_OLB:',
+        '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_onednn_linear_bwd_wrapper() -> "list[str]":
+    """`onednn_linear_bwd` (IL wrapper).
+
+    onednn_linear_bwd(x, gy, w, dx, dw, db, n, in_d, out_d) -> i32.
+    Backward Linear via PyTorch ATen: dx = gy @ w^T; dw = x^T @ gy; db = sum_n gy.
+    x/gy/w/dx/dw/db: list[f32]. w: [in_d, out_d] (Conv1D layout).
+    rc < 0 -> caller fallback duong .tkv nguyen van."""
+    lt = _LT_F32
+    return [
+        '  .method public static int32 OnednnLinearBwdM(' + lt + ' x, ' + lt + ' gy, ' + lt + ' w, ' + lt + ' dx, ' + lt + ' dw, ' + lt + ' db, int64 n, int64 in_d, int64 out_d) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, float32[] p1, float32[] p2, float32[] p3, float32[] p4, float32[] p5, int64 m0, int64 m1, int64 m2, int64 m3, int64 m4, int64 m5, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0, float32& pinned q1, float32& pinned q2, float32& pinned q3, float32& pinned q4, float32& pinned q5)',
+        '    ldarg.s 6', '    ldc.i8 0', '    ble V_OLBWD',
+        '    ldarg.s 7', '    ldc.i8 0', '    ble V_OLBWD',
+        '    ldarg.s 8', '    ldc.i8 0', '    ble V_OLBWD',
+        '    ldarg.s 6', '    conv.i8', '    ldarg.s 7', '    conv.i8', '    mul', '    stloc.s 6',
+        '    ldarg.s 7', '    conv.i8', '    ldarg.s 8', '    conv.i8', '    mul', '    stloc.s 7',
+        '    ldarg.s 8', '    conv.i8', '    stloc.s 8',
+        '    ldarg.s 6', '    conv.i8', '    ldarg.s 7', '    conv.i8', '    mul', '    stloc.s 9',
+        '    ldarg.s 6', '    conv.i8', '    ldarg.s 8', '    conv.i8', '    mul', '    stloc.s 10',
+        '    ldarg.s 8', '    conv.i8', '    stloc.s 11',
+        '    ldtoken ' + lt,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"',
+        '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 12',
+        '    ldloc.s 12', '    ldarg.0', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.0',
+        '    ldloc.s 12', '    ldarg.1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.1',
+        '    ldloc.s 12', '    ldarg.2', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.2',
+        '    ldloc.s 12', '    ldarg.3', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.3',
+        '    ldloc.s 12', '    ldarg.s 4', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 4',
+        '    ldloc.s 12', '    ldarg.s 5', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.s 5',
+        '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 6', '    blt V_OLBWD',
+        '    ldarg.1', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 10', '    blt V_OLBWD',
+        '    ldarg.2', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 7', '    blt V_OLBWD',
+        '    ldarg.3', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 6', '    blt V_OLBWD',
+        '    ldarg.s 4', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 7', '    blt V_OLBWD',
+        '    ldarg.s 5', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<float32>::get_Count()', '    conv.i8', '    ldloc.s 11', '    blt V_OLBWD',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 13',
+        '    ldloc.1', '    ldc.i4.0', '    ldelema float32', '    stloc.s 14',
+        '    ldloc.2', '    ldc.i4.0', '    ldelema float32', '    stloc.s 15',
+        '    ldloc.3', '    ldc.i4.0', '    ldelema float32', '    stloc.s 16',
+        '    ldloc.s 4', '    ldc.i4.0', '    ldelema float32', '    stloc.s 17',
+        '    ldloc.s 5', '    ldc.i4.0', '    ldelema float32', '    stloc.s 18',
+        '    ldloc.s 13', '    conv.i',
+        '    ldloc.s 14', '    conv.i',
+        '    ldloc.s 15', '    conv.i',
+        '    ldloc.s 16', '    conv.i',
+        '    ldloc.s 17', '    conv.i',
+        '    ldloc.s 18', '    conv.i',
+        '    ldarg.s 6',
+        '    ldarg.s 7',
+        '    ldarg.s 8',
+        '    call int32 ' + _SIMD_CLASS + '::TkvTorchLinearBwdFwdNative(native int, native int, native int, native int, native int, native int, int64, int64, int64)',
+        '    ret',
+        '  V_OLBWD:',
         '    ldc.i4.s -5',
         '    ret',
         '  }',
@@ -2104,6 +2223,8 @@ def _pt_dp_wrappers() -> "list[str]":
     ra = ra + _pt_attention_bwd_wrapper()
     ra = ra + _pt_attention_fwd_wrapper()
     ra = ra + _pt_bias_add_rows_wrapper()
+    ra = ra + _pt_onednn_linear_bias_wrapper()
+    ra = ra + _pt_onednn_linear_bwd_wrapper()
     ra = ra + _pt_onednn_gelu_wrapper()
     ra = ra + _pt_embed_bwd_fused_wrapper()
     ra = ra + _pt_linear_dw_at_fused_wrapper()
@@ -3036,6 +3157,50 @@ def compile_bias_add_rows(args: "list[TkvNode]", scope: "Scope", out: "list[str]
     out.append('    call int32 ' + _SIMD_CLASS + '::BiasAddRowsM(' + _LT_F32 + ', ' + _LT_F32 + ', int64, int64)')
 
 
+def compile_onednn_linear_bias(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """onednn_linear_bias(x, w, b, y, n, in_d, out_d) -> i32.
+
+    y = x @ w + b (oneDNN). x/w/b/y: list[f32].
+    rc < 0 -> caller fallback duong .tkv nguyen van."""
+    if len(args) != 7:
+        raise SyntaxError("il_codegen: onednn_linear_bias can dung 7 tham so")
+    for i in range(4):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: onednn_linear_bias: tham so " + str(i) + " phai la list[f32] (Tensor.data)")
+        dd = _dtype_mang(args[i], scope, 'onednn_linear_bias')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: onednn_linear_bias chi ho tro f32 (gap " + dd + ")")
+    _can_simd(ctx, 'dp')
+    for i in range(4):
+        _nap_mang(args[i], scope, out, ctx)
+    ctx.compile_expr(args[4], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[5], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[6], scope, out, 'i64', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::OnednnLinearBiasM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int64, int64, int64)')
+
+
+def compile_onednn_linear_bwd(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """onednn_linear_bwd(x, gy, w, dx, dw, db, n, in_d, out_d) -> i32.
+
+    Backward Linear (Conv1D w [in_d, out_d]): dx = gy @ w^T; dw = x^T @ gy;
+    db = sum_n gy. rc < 0 -> caller fallback duong .tkv nguyen van."""
+    if len(args) != 9:
+        raise SyntaxError("il_codegen: onednn_linear_bwd can dung 9 tham so")
+    for i in range(6):
+        if not _la_list(args[i], scope):
+            raise SyntaxError("il_codegen: onednn_linear_bwd: tham so " + str(i) + " phai la list[f32] (Tensor.data)")
+        dd = _dtype_mang(args[i], scope, 'onednn_linear_bwd')
+        if dd != 'f32':
+            raise SyntaxError("il_codegen: onednn_linear_bwd chi ho tro f32 (gap " + dd + ")")
+    _can_simd(ctx, 'dp')
+    for i in range(6):
+        _nap_mang(args[i], scope, out, ctx)
+    ctx.compile_expr(args[6], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[7], scope, out, 'i64', ctx)
+    ctx.compile_expr(args[8], scope, out, 'i64', ctx)
+    out.append('    call int32 ' + _SIMD_CLASS + '::OnednnLinearBwdM(' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', ' + _LT_F32 + ', int64, int64, int64)')
+
+
 def compile_onednn_linear_bias_gelu(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """onednn_linear_bias_gelu(x, w, b, y, n, in_d, out_d) -> i32.
 
@@ -3290,6 +3455,8 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'softmax_causal_bwd', compile_softmax_causal_bwd, 'i32')
     register_expr_builtin(reg, 'softmax_causal_fwd', compile_softmax_causal_fwd, 'i32')
     register_expr_builtin(reg, 'bias_add_rows', compile_bias_add_rows, 'i32')
+    register_expr_builtin(reg, 'onednn_linear_bias', compile_onednn_linear_bias, 'i32')
+    register_expr_builtin(reg, 'onednn_linear_bwd', compile_onednn_linear_bwd, 'i32')
     register_expr_builtin(reg, 'onednn_linear_bias_gelu', compile_onednn_linear_bias_gelu, 'i32')
     register_expr_builtin(reg, 'attention_fwd_fused', compile_attention_fwd_fused, 'i32')
     register_expr_builtin(reg, 'attention_bwd_fused', compile_attention_bwd_fused, 'i32')

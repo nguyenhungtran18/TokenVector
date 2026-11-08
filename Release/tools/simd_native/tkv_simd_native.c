@@ -2292,8 +2292,12 @@ EXPORT int LinearDwAtFused(const float* x, int x_len, const float* gy, int gy_le
  * TKV_TORCH_PATH env = absolute path to tkv_torch_fused.dll; else search PATH.
  * TkvTorchLinearGeluFwd(x, w, bias, y, n, in_d, out_d) -> i32. */
 typedef int (*tkv_lin_gelu_fn)(const float*, const float*, const float*, int64_t, int64_t, int64_t, float*);
+typedef int (*tkv_lin_fn)     (const float*, const float*, const float*, int64_t, int64_t, int64_t, float*);
+typedef int (*tkv_lin_bwd_fn) (const float*, const float*, const float*, float*, float*, float*, int64_t, int64_t, int64_t);
 static HMODULE g_torch_fused = NULL;
 static tkv_lin_gelu_fn p_lin_gelu = NULL;
+static tkv_lin_fn p_lin = NULL;
+static tkv_lin_bwd_fn p_lin_bwd = NULL;
 
 static int tkv_torch_fused_load(void) {
     if (g_torch_fused) return 1;
@@ -2323,6 +2327,10 @@ static int tkv_torch_fused_load(void) {
     if (!h) return 0;
     p_lin_gelu = (tkv_lin_gelu_fn)GetProcAddress(h, "TkvTorchLinearGeluFwd");
     if (!p_lin_gelu) { FreeLibrary(h); return 0; }
+    p_lin = (tkv_lin_fn)GetProcAddress(h, "TkvTorchLinearFwd");
+    if (!p_lin) { FreeLibrary(h); return 0; }
+    p_lin_bwd = (tkv_lin_bwd_fn)GetProcAddress(h, "TkvTorchLinearBwdFwd");
+    if (!p_lin_bwd) { FreeLibrary(h); return 0; }
     g_torch_fused = h;
     return 1;
 }
@@ -2332,4 +2340,19 @@ EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w, const float* bi
     if (!x || !w || !bias || !y) return -1;
     if (!tkv_torch_fused_load()) return -9;
     return p_lin_gelu(x, w, bias, n, in_d, out_d, y);
+}
+
+EXPORT int TkvTorchLinearFwd(const float* x, const float* w, const float* bias,
+                             float* y, int64_t n, int64_t in_d, int64_t out_d) {
+    if (!x || !w || !bias || !y) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    return p_lin(x, w, bias, n, in_d, out_d, y);
+}
+
+EXPORT int TkvTorchLinearBwdFwd(const float* x, const float* gy, const float* w,
+                                 float* dx, float* dw, float* db,
+                                 int64_t n, int64_t in_d, int64_t out_d) {
+    if (!x || !gy || !w || !dx || !dw || !db) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    return p_lin_bwd(x, gy, w, dx, dw, db, n, in_d, out_d);
 }
