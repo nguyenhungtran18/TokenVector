@@ -2286,3 +2286,50 @@ EXPORT int LinearDwAtFused(const float* x, int x_len, const float* gy, int gy_le
     free(cd);
     return rc;
 }
+/* ==== Tkv torch bridge: linear+bias+(gelu) fused via PyTorch ATen/oneDNN ====
+ * TTkv_torch_fused.dll (wrapped ATen addmm+gelu); optional at runtime.
+ * rc < 0 -> caller fallback duong cu NGUYEN VAN.
+ * TKV_TORCH_PATH env = absolute path to tkv_torch_fused.dll; else search PATH.
+ * TkvTorchLinearGeluFwd(x, w, bias, y, n, in_d, out_d) -> i32. */
+typedef int (*tkv_lin_gelu_fn)(const float*, const float*, const float*, int64_t, int64_t, int64_t, float*);
+static HMODULE g_torch_fused = NULL;
+static tkv_lin_gelu_fn p_lin_gelu = NULL;
+
+static int tkv_torch_fused_load(void) {
+    if (g_torch_fused) return 1;
+    const char* env = getenv("TKV_TORCH_PATH");
+    HMODULE h = NULL;
+    HMODULE self = NULL;
+    if (env && env[0]) {
+        h = LoadLibraryA(env);
+    } else {
+        /* 1) tim tkv_torch_fused.dll canh module goi (tkv_simd_native.dll) */
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, (LPCTSTR)&tkv_torch_fused_load, &self) && self) {
+            char dir[MAX_PATH] = {0};
+            DWORD n = GetModuleFileNameA(self, dir, MAX_PATH);
+            if (n > 0 && n < MAX_PATH) {
+                char* slash = strrchr(dir, '\\');
+                if (slash) {
+                    strcpy(slash + 1, "tkv_torch_fused.dll");
+                    /* LOAD_WITH_ALTERED_SEARCH_PATH -> dep resolve noi theo D:\\...\\out */
+                    h = LoadLibraryExA(dir, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+                    if (!h) {}
+                }
+            }
+        }
+        /* 2) fallback: search PATH/CWD nhu cu */
+        if (!h) h = LoadLibraryA("tkv_torch_fused.dll");
+    }
+    if (!h) return 0;
+    p_lin_gelu = (tkv_lin_gelu_fn)GetProcAddress(h, "TkvTorchLinearGeluFwd");
+    if (!p_lin_gelu) { FreeLibrary(h); return 0; }
+    g_torch_fused = h;
+    return 1;
+}
+
+EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w, const float* bias,
+                                 float* y, int64_t n, int64_t in_d, int64_t out_d) {
+    if (!x || !w || !bias || !y) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    return p_lin_gelu(x, w, bias, n, in_d, out_d, y);
+}
