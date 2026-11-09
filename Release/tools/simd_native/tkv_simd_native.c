@@ -2299,6 +2299,7 @@ typedef int (*tkv_lnb_fn)     (const float*, const float*, const float*, const f
 typedef int (*tkv_atnb_fn)    (const float*, const float*, const float*, const float*, const float*, const float*, float*, float*, int64_t, int64_t, int64_t, int64_t, long long, long long, long long, long long);
 typedef int (*tkv_mm_t_fn)    (const float*, const float*, float*, int64_t, int64_t, int64_t);
 typedef int (*tkv_sdpa_fn)    (const float*, float*, int64_t, int64_t, int64_t);
+typedef int (*tkv_gelu_bwd_fn)(const float*, const float*, float*, int64_t);
 static HMODULE g_torch_fused = NULL;
 static tkv_lin_gelu_fn p_lin_gelu = NULL;
 static tkv_lin_fn p_lin = NULL;
@@ -2308,6 +2309,7 @@ static tkv_lnb_fn p_lnb = NULL;
 static tkv_atnb_fn p_atnb = NULL;
 static tkv_mm_t_fn p_mm_t = NULL;
 static tkv_sdpa_fn p_sdpa = NULL;
+static tkv_gelu_bwd_fn p_gelu_bwd = NULL;
 
 static int tkv_torch_fused_load(void) {
     if (g_torch_fused) return 1;
@@ -2347,6 +2349,7 @@ static int tkv_torch_fused_load(void) {
     p_atnb = (tkv_atnb_fn)GetProcAddress(h, "TkvTorchAttentionBwd");
     p_mm_t = (tkv_mm_t_fn)GetProcAddress(h, "TkvTorchMmT");
     p_sdpa = (tkv_sdpa_fn)GetProcAddress(h, "TkvTorchSdpa");
+    p_gelu_bwd = (tkv_gelu_bwd_fn)GetProcAddress(h, "TkvTorchGeluBwd");
     g_torch_fused = h;
     return 1;
 }
@@ -2397,6 +2400,16 @@ EXPORT int TkvTorchSdpa(const float* qkv, float* y, int64_t n,
     if (!tkv_torch_fused_load()) return -9;
     if (!p_sdpa) return -9;
     return p_sdpa(qkv, y, n, nheads, hd);
+}
+
+/* GELU(erf) backward qua ATen (vectorized/multithread) — thay vong
+ * elementwise scalar cua .tkv. rc < 0 -> caller fallback nguyen van. */
+EXPORT int TkvTorchGeluBwd(const float* gy, const float* x, float* y, int64_t n) {
+    if (!gy || !x || !y) return -1;
+    if (n <= 0) return -2;
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_gelu_bwd) return -9;
+    return p_gelu_bwd(gy, x, y, n);
 }
 
 /* Attention block backward qua ATen autograd (addmm -> sdpa -> addmm backward)

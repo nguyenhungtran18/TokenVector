@@ -57,6 +57,29 @@ TKV_TORCH_EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w,
     }
 }
 
+/* GELU(erf) backward qua ATen: y[i] = gy[i] * d/dx gelu(x[i]).
+ * Cung cong thuc voi duong .tkv (0.5*(1+erf(x/sqrt2)) + x*phi(x)) nhung
+ * ATen tinh vectorized + multithread -> ~2 ms/3.1M thay vi ~47 ms.
+ * rc < 0 -> caller fallback duong .tkv nguyen van. */
+TKV_TORCH_EXPORT int TkvTorchGeluBwd(const float* gy, const float* x, float* y,
+                                     int64_t n) {
+    if (!gy || !x || !y) return -1;
+    if (n <= 0) return -2;
+    try {
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32);
+        auto t_gy = torch::from_blob(const_cast<float*>(gy), {n}, opt);
+        auto t_x  = torch::from_blob(const_cast<float*>(x),  {n}, opt);
+        auto t_y  = at::gelu_backward(t_gy, t_x, "none");
+        if (t_y.numel() != n) return -3;
+        memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * sizeof(float));
+        return 0;
+    } catch (const std::exception&) {
+        return -4;
+    } catch (...) {
+        return -5;
+    }
+}
+
 /* Backward Linear (Conv1D layout: w [in_d, out_d]).
  *   dx = gy @ w^T
  *   dw = x^T @ gy
