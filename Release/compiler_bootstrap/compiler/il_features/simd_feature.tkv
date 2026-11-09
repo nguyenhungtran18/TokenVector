@@ -563,7 +563,7 @@ def _pt_native_ho_tro() -> "list[str]":
 
 
 def _mang_khoi_list(ten_ham: "str", n_mang_vao: "int", co_mang_ra: "i32",
-                    ret: "str", d: "str") -> "list[str]":
+                    ret: "str", d: "str", ma: "int") -> "list[str]":
     """Wrapper nhan `List<T>` thay vi `T[]` (2026-10-17).
 
     Kieu tensor chuan cua repo inference la `list[f32]` (shape=list) chu khong
@@ -577,6 +577,70 @@ def _mang_khoi_list(ten_ham: "str", n_mang_vao: "int", co_mang_ra: "i32",
     t = _ten_il(d)
     h = _hau_to(d)
     lt = 'class [mscorlib]System.Collections.Generic.List`1<' + t + '>'
+    if ma >= 0 and ret == 'void' and n_mang_vao == 2 and co_mang_ra == 1 and d in ("f32", "f64"):
+        # Fast path (2026-11-09, Pha 2): pin _items + n = min(get_Count()) thay vi
+        # ToArray x3 + Clear + AddRange (~5ms/call tren [1024,768]); goi truc tiep
+        # kernel unmanaged id = ma (f64 +7), hoac managed AddF32 fallback neu Kern()==0.
+        L2 = []
+        L2.append('  .method public static void ' + ten_ham + 'L' + h + '(class [mscorlib]System.Collections.Generic.List`1<' + t + '> a0, class [mscorlib]System.Collections.Generic.List`1<' + t + '> a1, class [mscorlib]System.Collections.Generic.List`1<' + t + '> o) cil managed')
+        L2.append('  {')
+        L2.append('    .maxstack 16')
+        L2.append('    .locals init (' + t + '[] p0, ' + t + '[] p1, ' + t + '[] p2, class [mscorlib]System.Reflection.FieldInfo fi, int32 n0, int32 n1, int32 n2, int32 n, native int k, ' + t + '& pinned q0, ' + t + '& pinned q1, ' + t + '& pinned q2)')
+        L2.append('    ldtoken class [mscorlib]System.Collections.Generic.List`1<' + t + '>')
+        L2.append('    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)')
+        L2.append('    ldstr "_items"')
+        L2.append('    ldc.i4 36')
+        L2.append('    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)')
+        L2.append('    stloc.3')
+        for _ia in range(3):
+            L2.append('    ldloc.3')
+            L2.append('    ldarg.' + str(_ia))
+            L2.append('    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)')
+            L2.append('    castclass ' + t + '[]')
+            L2.append('    stloc.' + str(_ia))
+        for _ia in range(3):
+            L2.append('    ldarg.' + str(_ia))
+            L2.append('    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<' + t + '>::get_Count()')
+            L2.append('    stloc.s ' + str(4 + _ia))
+        L2.append('    ldloc.s 4')
+        L2.append('    ldloc.s 5')
+        L2.append('    call int32 [mscorlib]System.Math::Min(int32, int32)')
+        L2.append('    ldloc.s 6')
+        L2.append('    call int32 [mscorlib]System.Math::Min(int32, int32)')
+        L2.append('    stloc.s 7')
+        L2.append('    ldloc.s 7')
+        L2.append('    ldc.i4.0')
+        L2.append('    ble V_GLB_END')
+        L2.append('    ldc.i4 ' + str(ma))
+        L2.append('    call native int ' + _SIMD_CLASS + '::Kern(int32)')
+        L2.append('    stloc.s 8')
+        L2.append('    ldloc.s 8')
+        L2.append('    brfalse V_GLB_VEC')
+        for _ia in range(3):
+            L2.append('    ldloc.' + str(_ia))
+            L2.append('    ldc.i4.0')
+            L2.append('    ldelema ' + t)
+            L2.append('    stloc.s ' + str(9 + _ia))
+        L2.append('    ldloc.s 9')
+        L2.append('    conv.i')
+        L2.append('    ldloc.s 10')
+        L2.append('    conv.i')
+        L2.append('    ldloc.s 11')
+        L2.append('    conv.i')
+        L2.append('    ldloc.s 7')
+        L2.append('    ldloc.s 8')
+        L2.append('    calli unmanaged stdcall void(native int, native int, native int, int32)')
+        L2.append('    ret')
+        L2.append('  V_GLB_VEC:')
+        L2.append('    ldloc.0')
+        L2.append('    ldloc.1')
+        L2.append('    ldloc.2')
+        L2.append('    call void ' + _SIMD_CLASS + '::' + ten_ham + h + '(' + t + '[], ' + t + '[], ' + t + '[])')
+        L2.append('    ret')
+        L2.append('  V_GLB_END:')
+        L2.append('    ret')
+        L2.append('  }')
+        return L2
     ien = 'class [mscorlib]System.Collections.Generic.IEnumerable`1<' + t + '>'
     thanh_so: "list[str]" = []
     for i in range(n_mang_vao):
@@ -2645,13 +2709,13 @@ def _elem_block(d: "str") -> "list[str]":
         ra = ra + _pt_sum_scalar(d)
     ra = ra + _pt_cuc_tri(d, 'Max', 'ble')
     ra = ra + _pt_cuc_tri(d, 'Min', 'bge')
-    ra = ra + _mang_khoi_list('Add', 2, 1, 'void', d)
-    ra = ra + _mang_khoi_list('Sub', 2, 1, 'void', d)
-    ra = ra + _mang_khoi_list('Mul', 2, 1, 'void', d)
-    ra = ra + _mang_khoi_list('Dot', 2, 0, t, d)
-    ra = ra + _mang_khoi_list('Sum', 1, 0, t, d)
-    ra = ra + _mang_khoi_list('Max', 1, 0, t, d)
-    ra = ra + _mang_khoi_list('Min', 1, 0, t, d)
+    ra = ra + _mang_khoi_list('Add', 2, 1, 'void', d, so * 7 + 2)
+    ra = ra + _mang_khoi_list('Sub', 2, 1, 'void', d, so * 7 + 3)
+    ra = ra + _mang_khoi_list('Mul', 2, 1, 'void', d, so * 7 + 4)
+    ra = ra + _mang_khoi_list('Dot', 2, 0, t, d, -1)
+    ra = ra + _mang_khoi_list('Sum', 1, 0, t, d, -1)
+    ra = ra + _mang_khoi_list('Max', 1, 0, t, d, -1)
+    ra = ra + _mang_khoi_list('Min', 1, 0, t, d, -1)
     return ra
 
 
