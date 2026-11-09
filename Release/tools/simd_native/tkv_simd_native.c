@@ -356,6 +356,9 @@ static SRWLOCK g_gemm_lock = SRWLOCK_INIT;
  * shape lon hon; pack song song (pure copy) cung duoc tat trong nested.
  * Doi so luong luong KHONG doi ket qua (moi ptu van 1 job, cung pc-block + FMA)
  * -> van bit-exact. */
+
+typedef struct { const float* g; float* p; float* m; float* v; long long n; float lr, b1, b2, eps, wd, bc2s; } AdamwGlobal;
+static AdamwGlobal g_adamw_global;
 static __declspec(thread) int t_nested = 0;
 
 /* mode 6 (2026-11-06): pack 1 ma tran f32 vao buffer padded, chia theo HANG
@@ -388,6 +391,48 @@ static void pack_rows_f32(const float* src, float* dst, int stride, int rows,
     }
 }
 
+static void adamw_f32_range(float* p, float* m, float* v, const float* g,
+                            int i0, int i1, float lr, float b1, float b2,
+                            float eps, float wd, float bc2s) {
+    float one_mb1 = 1.0f - b1;
+    float one_mb2 = 1.0f - b2;
+    float lr_wd = lr * wd;
+    float eps_bc2s = eps * bc2s;
+    __m256 vb1 = _mm256_set1_ps(b1);
+    __m256 vomb1 = _mm256_set1_ps(one_mb1);
+    __m256 vb2 = _mm256_set1_ps(b2);
+    __m256 vomb2 = _mm256_set1_ps(one_mb2);
+    __m256 vlr = _mm256_set1_ps(lr);
+    __m256 vbc2s = _mm256_set1_ps(bc2s);
+    __m256 vepsbc = _mm256_set1_ps(eps_bc2s);
+    __m256 vlrwd = _mm256_set1_ps(lr_wd);
+    int i = i0;
+    for (; i + 8 <= i1; i += 8) {
+        __m256 vg = _mm256_loadu_ps(g + i);
+        __m256 vm = _mm256_loadu_ps(m + i);
+        __m256 vv = _mm256_loadu_ps(v + i);
+        __m256 vp = _mm256_loadu_ps(p + i);
+        vm = _mm256_fmadd_ps(vomb1, vg, _mm256_mul_ps(vb1, vm));
+        vv = _mm256_fmadd_ps(vomb2, _mm256_mul_ps(vg, vg), _mm256_mul_ps(vb2, vv));
+        _mm256_storeu_ps(m + i, vm);
+        _mm256_storeu_ps(v + i, vv);
+        __m256 num = _mm256_mul_ps(vlr, _mm256_mul_ps(vm, vbc2s));
+        __m256 den = _mm256_add_ps(_mm256_sqrt_ps(vv), vepsbc);
+        __m256 upd = _mm256_div_ps(num, den);
+        __m256 decay = _mm256_mul_ps(vlrwd, vp);
+        vp = _mm256_sub_ps(vp, _mm256_add_ps(upd, decay));
+        _mm256_storeu_ps(p + i, vp);
+    }
+    for (; i < i1; i++) {
+        float gi = g[i];
+        float mi = b1 * m[i] + one_mb1 * gi;
+        float vi = b2 * v[i] + one_mb2 * gi * gi;
+        m[i] = mi;
+        v[i] = vi;
+        p[i] = p[i] - lr * (mi * bc2s) / (sqrtf(vi) + eps_bc2s) - lr_wd * p[i];
+    }
+}
+
 static DWORD WINAPI tkv_worker(LPVOID p) {
     int t = (int)(INT_PTR)p;
     for (;;) {
@@ -410,7 +455,11 @@ static DWORD WINAPI tkv_worker(LPVOID p) {
         else if (j->mode == 7)
             gemm_rect_ta_f32((const float*)j->a, j->lda, (const float*)j->b, j->ldb,
                              (float*)j->o, j->n, j->m, j->n, j->k, j->i0, j->i1, j->j0, j->j1,
-                             j->mc, j->nc, j->bpl);
+                             j->mc, j->nc, j->bpl);
+        else if (j->mode == 8)
+            adamw_f32_range((float*)j->o, (float*)j->a, (float*)j->b, g_adamw_global.g, j->i0, j->i1,
+                            g_adamw_global.lr, g_adamw_global.b1, g_adamw_global.b2, g_adamw_global.eps,
+                            g_adamw_global.wd, g_adamw_global.bc2s);
         else
             gemm_rows_f32((const float*)j->a, (const float*)j->b, (float*)j->o, j->n, j->i0, j->i1, j->j0, j->j1,
                           j->mc, j->nc, j->bpl);
@@ -1485,6 +1534,20 @@ EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
     __m256 vbc2s = _mm256_set1_ps(bc2s);
     __m256 vepsbc = _mm256_set1_ps(eps_bc2s);
     __m256 vlrwd = _mm256_set1_ps(lr_wd);
+    /* 2026-11-09: SIMD 8-thread split qua pool ben trong (mode 8) khi n lon
+     * (cap ~ g_nw, TKV_MAXT = 32). Bit-exact: moi tieu thu co cung thu tu
+     * cong gian (disjoint ranges, cung cong thuc per-element). */
+    if (n >= 65536) {
+        int nt = tkv_nlogical();
+        if (nt > TKV_MAXT) nt = TKV_MAXT;
+        if (nt > 1) {
+            g_adamw_global.g = g; g_adamw_global.p = p; g_adamw_global.m = m; g_adamw_global.v = v;
+            g_adamw_global.n = n; g_adamw_global.lr = lr; g_adamw_global.b1 = b1; g_adamw_global.b2 = b2;
+            g_adamw_global.eps = eps; g_adamw_global.wd = wd; g_adamw_global.bc2s = bc2s;
+            tkv_run_aux(nt, 8, m, v, p, n, 1, 0.0f, (long long)n);
+            return 0;
+        }
+    }
     int i = 0;
     for (; i + 8 <= n; i += 8) {
         __m256 vg = _mm256_loadu_ps(g + i);
