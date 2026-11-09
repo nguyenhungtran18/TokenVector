@@ -43,6 +43,34 @@
 #define FL_HD 64
 
 /* dot 64 phan tu, tich luy f32 theo thu tu lane (khac BLAS -> khong bit-exact, user da nhan) */
+/* fast expf AVX2: polynomial + scalef; clamp [-87, 88] -> finite; KHONG bat buoc bit-exact
+ * (path da waiver user s0.125); ULP < ~2. Thay the expf scalar trong flash_bwd de giam
+ * ~12.6M expf/layer @seq1024. */
+static inline __m256 m256_exp_ps(__m256 x) {
+    const __m256 vexp_fast_lo = _mm256_set1_ps(-87.3f);
+    const __m256 vexp_fast_hi = _mm256_set1_ps(88.7f);
+    const __m256 vexp_magic   = _mm256_set1_ps(12582912.0f);   /* 1.5 * 2^23 */
+    const __m256 vexp_invln2  = _mm256_set1_ps(1.4426950408889634f);
+    const __m256 vexp_ln2     = _mm256_set1_ps(0.6931471805599453f);
+    x = _mm256_max_ps(x, vexp_fast_lo);
+    x = _mm256_min_ps(x, vexp_fast_hi);
+    __m256 t  = _mm256_mul_ps(x, vexp_invln2);
+    __m256 n  = _mm256_sub_ps(_mm256_add_ps(t, vexp_magic), vexp_magic);
+    __m256 f  = _mm256_sub_ps(t, n);
+    f  = _mm256_mul_ps(f, vexp_ln2);
+    __m256 r = _mm256_set1_ps(1.388888654e-04f);
+    r = _mm256_fmadd_ps(r, f, _mm256_set1_ps(8.333333e-03f));
+    r = _mm256_fmadd_ps(r, f, _mm256_set1_ps(4.1666665e-02f));
+    r = _mm256_fmadd_ps(r, f, _mm256_set1_ps(1.6666666e-01f));
+    r = _mm256_fmadd_ps(r, f, _mm256_set1_ps(5.0000000e-01f));
+    r = _mm256_fmadd_ps(r, f, _mm256_set1_ps(1.0000000e+00f));
+    r = _mm256_fmadd_ps(r, f, _mm256_set1_ps(1.0000000e+00f));
+    __m256i ni = _mm256_cvttps_epi32(n);
+    __m256i bits = _mm256_slli_epi32(_mm256_add_epi32(ni, _mm256_set1_epi32(127)), 23);
+    __m256 pow2n = _mm256_castsi256_ps(bits);
+    return _mm256_mul_ps(r, pow2n);
+}
+
 static inline float dot64(const float* a, const float* b) {
     __m256 acc = _mm256_setzero_ps();
     for (int i = 0; i < 64; i += 8) {
@@ -125,12 +153,7 @@ static int flash_fwd_head(const float* qkv, float* ctx_out, float* lse_out,
                 }
                 float exp_tmp = (n0 == 0) ? 1.0f : expf(mx[i] - newmax); /* mx[i]=-inf -> 0 */
                 if (mx[i] == -INFINITY) exp_tmp = 0.0f;
-                float bsum = 0.0f;
-                for (int j = 0; j < kvb; j++) {
-                    float e = expf(qk[i * FL_KS + j] - newmax);
-                    qk[i * FL_KS + j] = e;
-                    bsum += e;
-                }
+                float bsum = exp_sum_row_fast(qk + i * FL_KS, newmax, kvb);
                 if (n0 > 0) mul_row(dst + i * FL_HD, exp_tmp);
                 sm[i] = bsum + exp_tmp * sm[i];
                 mx[i] = newmax;
@@ -186,7 +209,60 @@ EXPORT int FlashAttentionFwdLse(const float* qkv, int qkv_len,
 }
 
 /* ---- Flash bwd 1 head (causal) ---- */
-static int flash_bwd_head(const float* qkv, const float* dctx,
+/* vectorized expf row: exp(x - newmax) cho row [0, kvb) - clamp thay vi branch cho -inf */
+static inline void exp_row_fast(float* qk, float newmax, int kvb) {
+    int j = 0;
+    __m256 vmax = _mm256_set1_ps(newmax);
+    for (; j + 8 <= kvb; j += 8) {
+        __m256 v = _mm256_loadu_ps(qk + j);
+        v = _mm256_sub_ps(v, vmax);
+        v = m256_exp_ps(v);
+        _mm256_storeu_ps(qk + j, v);
+    }
+    for (; j < kvb; j++) qk[j] = expf(qk[j] - newmax);
+}
+
+static inline float hsum256_ps(__m256 x) {
+    __m128 lo = _mm256_castps256_ps128(x);
+    __m128 hi = _mm256_extractf128_ps(x, 1);
+    __m128 s = _mm_add_ps(lo, hi);
+    __m128 shuf = _mm_movehdup_ps(s);
+    s = _mm_add_ps(s, shuf);
+    shuf = _mm_movehl_ps(s, s);
+    s = _mm_add_ss(s, shuf);
+    return _mm_cvtss_f32(s);
+}
+
+/* vectorized expf row va sum cua row : thay vong scalar bsum=expf(qk[.]) style */
+static inline float exp_sum_row_fast(float* qk, float newmax, int kvb) {
+    int j = 0;
+    __m256 vmax = _mm256_set1_ps(newmax);
+    __m256 bsum_vec = _mm256_setzero_ps();
+    for (; j + 8 <= kvb; j += 8) {
+        __m256 v = _mm256_loadu_ps(qk + j);
+        v = _mm256_sub_ps(v, vmax);
+        v = m256_exp_ps(v);
+        _mm256_storeu_ps(qk + j, v);
+        bsum_vec = _mm256_add_ps(bsum_vec, v);
+    }
+    float bsum = 0.0f;
+    __m128 lo = _mm256_castps256_ps128(bsum_vec);
+    __m128 hi = _mm256_extractf128_ps(bsum_vec, 1);
+    __m128 s = _mm_add_ps(lo, hi);
+    __m128 shuf = _mm_movehdup_ps(s);
+    s = _mm_add_ps(s, shuf);
+    shuf = _mm_movehl_ps(s, s);
+    s = _mm_add_ss(s, shuf);
+    bsum = _mm_cvtss_f32(s);
+    for (; j < kvb; j++) {
+        float e = expf(qk[j] - newmax);
+        qk[j] = e;
+        bsum += e;
+    }
+    return bsum;
+}
+
+    static int flash_bwd_head(const float* qkv, const float* dctx,
                           float* ctxo, float* dqo,
                           int n, int h, int head, double inv) {
     long long stride3 = (long long)3 * h;
@@ -248,12 +324,7 @@ static int flash_bwd_head(const float* qkv, const float* dctx,
                     }
                     float exp_tmp = (n0 == 0) ? 1.0f : expf(mx[i] - newmax);
                     if (mx[i] == -INFINITY) exp_tmp = 0.0f;
-                    float bsum = 0.0f;
-                    for (int j = 0; j < kvb; j++) {
-                        float e = expf(qk[i * FL_KS + j] - newmax);
-                        qk[i * FL_KS + j] = e;
-                        bsum += e;
-                    }
+                    float bsum = exp_sum_row_fast(qk + i * FL_KS, newmax, kvb);
                     if (n0 > 0) mul_row(dst + i * FL_HD, exp_tmp);
                     sm[i] = bsum + exp_tmp * sm[i];
                     mx[i] = newmax;
@@ -285,7 +356,7 @@ static int flash_bwd_head(const float* qkv, const float* dctx,
         dsum[t] = acc;
     }
 
-    /* pass 2: kv outer, q inner; recompute attn block tu lse */
+/* pass 2: kv outer, q inner; recompute attn block tu lse */
     for (int n0 = 0; n0 < n; n0 += FL_KS) {
         int kvb = n - n0; if (kvb > FL_KS) kvb = FL_KS;
         for (int m0 = (n0 / FL_QS) * FL_QS; m0 < n; m0 += FL_QS) {
