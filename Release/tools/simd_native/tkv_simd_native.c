@@ -406,21 +406,29 @@ static void adamw_f32_range(float* p, float* m, float* v, const float* g,
     __m256 vbc2s = _mm256_set1_ps(bc2s);
     __m256 vepsbc = _mm256_set1_ps(eps_bc2s);
     __m256 vlrwd = _mm256_set1_ps(lr_wd);
+    /* P1a (2026-11-09): prefetch T0 [i+64] - giup streaming reads vuot cache;
+     * NT store bi loai (do lai cham hon ~12-15% tren E5-2695 v3 - see HANDOFF 0.122). */
     int i = i0;
     for (; i + 8 <= i1; i += 8) {
+        if (i + 64 < i1) {
+            _mm_prefetch((const char*)(g + i + 64), _MM_HINT_T0);
+            _mm_prefetch((const char*)(m + i + 64), _MM_HINT_T0);
+            _mm_prefetch((const char*)(v + i + 64), _MM_HINT_T0);
+            _mm_prefetch((const char*)(p + i + 64), _MM_HINT_T0);
+        }
         __m256 vg = _mm256_loadu_ps(g + i);
         __m256 vm = _mm256_loadu_ps(m + i);
         __m256 vv = _mm256_loadu_ps(v + i);
         __m256 vp = _mm256_loadu_ps(p + i);
         vm = _mm256_fmadd_ps(vomb1, vg, _mm256_mul_ps(vb1, vm));
         vv = _mm256_fmadd_ps(vomb2, _mm256_mul_ps(vg, vg), _mm256_mul_ps(vb2, vv));
-        _mm256_storeu_ps(m + i, vm);
-        _mm256_storeu_ps(v + i, vv);
         __m256 num = _mm256_mul_ps(vlr, _mm256_mul_ps(vm, vbc2s));
         __m256 den = _mm256_add_ps(_mm256_sqrt_ps(vv), vepsbc);
         __m256 upd = _mm256_div_ps(num, den);
         __m256 decay = _mm256_mul_ps(vlrwd, vp);
         vp = _mm256_sub_ps(vp, _mm256_add_ps(upd, decay));
+        _mm256_storeu_ps(m + i, vm);
+        _mm256_storeu_ps(v + i, vv);
         _mm256_storeu_ps(p + i, vp);
     }
     for (; i < i1; i++) {
