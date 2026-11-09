@@ -1,7 +1,7 @@
 
 Microsoft (R) .NET Framework IL Assembler.  Version 4.8.9105.0
 Copyright (c) Microsoft Corporation.  All rights reserved.
-Assembling 'D:\TokenVector\dist\bin\tkv_guide.il'  to EXE --> 'D:\TokenVector\dist\bin\tkv_guide.exe'
+Assembling 'D:\TokenVector\Release\dist\bin\tkv_guide.il'  to EXE --> 'D:\TokenVector\Release\dist\bin\tkv_guide.exe'
 Source file is ANSI
 
 Assembled method TkvInt::FromI64

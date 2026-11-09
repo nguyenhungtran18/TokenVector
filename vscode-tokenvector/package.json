@@ -2,7 +2,7 @@
   "name": "tokenvector-syntax",
   "displayName": "TokenVector Language Support",
   "description": "Syntax highlighting, snippets and build/run commands for TokenVector (.tkv) - the Python-like AOT compiler for .NET.",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "publisher": "nguyenhungtran18",
   "license": "MIT",
   "icon": "icon.png",

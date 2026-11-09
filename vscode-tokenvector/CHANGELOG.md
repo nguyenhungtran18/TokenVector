@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.12] - 2026-11-04
+
+### Changed
+
+- Bumped version to 1.0.12.
+
 ## [1.0.11] - 2026-10-18
 
 ### Added

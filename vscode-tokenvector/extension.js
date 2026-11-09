@@ -15,6 +15,9 @@ function compilerCandidates(document) {
     candidates.push(configured);
   }
 
+  // Bundled compiler (shipped inside this extension).
+  candidates.push(path.join(__dirname, "bin", "tkvc-tv.exe"));
+
   const folders = vscode.workspace.workspaceFolders || [];
   for (const folder of folders) {
     const root = folder.uri.fsPath;
@@ -178,6 +181,17 @@ async function build(runAfter) {
       `TokenVector: build exited 0 but no output was produced at ${target}.`
     );
     return;
+  }
+
+  // Ensure the native DLL sits beside the produced exe so P/Invoke resolves.
+  const bundledDll = path.join(__dirname, "bin", "tkv_simd_native.dll");
+  const targetDll = path.join(path.dirname(target), "tkv_simd_native.dll");
+  if (fs.existsSync(bundledDll) && !fs.existsSync(targetDll)) {
+    try {
+      fs.copyFileSync(bundledDll, targetDll);
+    } catch (err) {
+      getOutput().appendLine(`[dll copy] ${err.message}`);
+    }
   }
 
   if (runAfter) {
