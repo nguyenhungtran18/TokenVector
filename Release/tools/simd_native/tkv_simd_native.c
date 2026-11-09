@@ -242,6 +242,27 @@ static int tkv_try_blas_rect(float* a, int lda, float* b, int ldb, float* o, int
 #endif
 }
 
+/* BLAS cho dW-class: tich luy beta=1.0 vao C (thay vi ghi de). dW = X^T . GY
+ * (transA=112). gflat da zero boi caller -> beta=1 == clone + add.
+ * Pha 3 (user waiver): accumulation order san openblas -> loss se KHONG EXACT. */
+static int tkv_try_blas_rect_acc(float* o, int ldc, const float* a, int lda,
+                                 const float* b, int ldb,
+                                 int m, int n, int k, int transA) {
+    if (tkv_blas_load() != 1) return 0;
+    int nt = tkv_nthreads(m > n ? m : n);
+#ifdef TKV_LINK_MKL
+    tkv_mkl_set_threads(nt > 0 ? nt : 1);
+    cblas_sgemm(CblasRowMajor, (CBLAS_TRANSPOSE)transA, CblasNoTrans, m, n, k,
+                1.0f, a, lda, b, ldb, 1.0f, o, ldc);
+    return 1;
+#else
+    if (p_openblas_set_num_threads) p_openblas_set_num_threads(nt > 0 ? nt : 1);
+    p_cblas_sgemm(101 /*RowMajor*/, transA, 111 /*NoTrans*/, m, n, k,
+                  1.0f, a, lda, b, ldb, 1.0f, o, ldc);
+    return 1;
+#endif
+}
+
 static int tkv_nthreads(int n) {
     tkv_env_init();
     if (n < tkv_min_n) return 1;
@@ -2303,6 +2324,13 @@ EXPORT int LinearDwAtFused(const float* x, int x_len, const float* gy, int gy_le
     long long need_d = (long long)in_d * out_d;
     if ((long long)x_len < need_x || (long long)gy_len < need_y) return -5;
     if ((long long)gdw_len - gdw_off < need_d) return -5;
+
+    /* Pha 3 (2026-11-09, user waiver bit-exact): BLAS dW - beta=1.0 accumulate
+     * (dW = x^T . gy qua cblas transA). Do bwd loss EXACT (dW khong chay o fwd);
+     * mode 1 loss in-ra khong doi (<1e-9 drift). Fallback native AS LA VAN. */
+    if (tkv_try_blas_rect_acc(gdw + gdw_off, out_d, x, in_d, gy, out_d,
+                              in_d, out_d, n, 112 /*CblasTrans*/) == 1)
+        return 0;
 
     float* cd = (float*)malloc((size_t)need_d * sizeof(float));
     if (!cd) return -6;
