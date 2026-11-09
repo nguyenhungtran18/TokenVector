@@ -242,6 +242,24 @@ static int tkv_try_blas_rect(float* a, int lda, float* b, int ldb, float* o, int
 #endif
 }
 
+/* BLAS transB: C = A * B^T (dx = gy @ w^T). beta=0. Pha 3 waiver. */
+static int tkv_try_blas_rect_tb(float* a, int lda, float* b, int ldb, float* o, int ldc,
+                                int m, int n, int k, int transB) {
+    if (tkv_blas_load() != 1) return 0;
+    int nt = tkv_nthreads(m > n ? m : n);
+#ifdef TKV_LINK_MKL
+    tkv_mkl_set_threads(nt > 0 ? nt : 1);
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, (CBLAS_TRANSPOSE)transB, m, n, k,
+                1.0f, a, lda, b, ldb, 0.0f, o, ldc);
+    return 1;
+#else
+    if (p_openblas_set_num_threads) p_openblas_set_num_threads(nt > 0 ? nt : 1);
+    p_cblas_sgemm(101 /*RowMajor*/, 111 /*NoTrans*/, transB, m, n, k,
+                  1.0f, a, lda, b, ldb, 0.0f, o, ldc);
+    return 1;
+#endif
+}
+
 /* BLAS cho dW-class: tich luy beta=1.0 vao C (thay vi ghi de). dW = X^T . GY
  * (transA=112). gflat da zero boi caller -> beta=1 == clone + add.
  * Pha 3 (user waiver): accumulation order san openblas -> loss se KHONG EXACT. */
@@ -1870,6 +1888,11 @@ EXPORT int LinearDxFused(const float* gy, int gy_len,
                          int m, int n, int k) {
     if (!gy || !w || !dx) return -1;
     if (m <= 0 || n <= 0 || k <= 0) return -2;
+    /* Pha 3 (2026-11-09, user waiver): BLAS transB - dx = gy @ w^T qua openblas
+     * (beta=0, fallback duong native bit-exact NGUYEN VAN neu BLAS khong co). */
+    if (tkv_try_blas_rect_tb((float*)gy, k, (float*)w, k, dx, n, m, n, k,
+                             112 /* CblasTrans */) == 1)
+        return 0;
     int T = 256;          /* cung so voi _smm_full (hardcode 256) */
     int ndim = k;         /* smm_dot: trans_b=1, ndim = k */
     if (k < 256) return -9;
