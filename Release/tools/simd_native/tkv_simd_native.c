@@ -2498,6 +2498,19 @@ EXPORT int TkvTorchLinearBwdFwd(const float* x, const float* gy, const float* w,
     return p_lin_bwd(x, gy, w, dx, dw, db, n, in_d, out_d);
 }
 
+/* YEU CAU ATen MLP bwd (s0.126): nhu TkvTorchLinearBwdFwd nhung dw/db ghi THANG
+ * vao gflat tai offset i64 (gflat phai duoc caller zero truoc moi buoc).
+ * ATen layout A->GD order giu nguyen (offset +4 bytes o C++, KHONG o IL). */
+EXPORT int TkvTorchLinearBwdFwdOff(const float* x, const float* gy, const float* w,
+                                    float* dx, float* gflat,
+                                    int64_t n, int64_t in_d, int64_t out_d,
+                                    int64_t o_dw, int64_t o_db) {
+    if (!x || !gy || !w || !dx || !gflat) return -1;
+    if (o_dw < 0 || o_db < 0) return -6;
+    if (!tkv_torch_fused_load()) return -9;
+    return p_lin_bwd(x, gy, w, dx, gflat + o_dw, gflat + o_db, n, in_d, out_d);
+}
+
 /* ==== Tkv torch bridge: LN/SDPA/MmT (ATen same-kernel parity route §0.105) ====
  * Cung load lazy nhu tren; vang export (bridge cu) -> -9 -> caller fallback. */
 EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g, const float* b,
