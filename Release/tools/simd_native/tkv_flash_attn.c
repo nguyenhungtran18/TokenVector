@@ -138,11 +138,7 @@ static int flash_fwd_head(const float* qkv, float* ctx_out, float* lse_out,
             }
             for (int i = 0; i < qb; i++) {
                 int t = m0 + i;
-                float rmax = -INFINITY;
-                for (int j = 0; j < kvb; j++) {
-                    float v = qk[i * FL_KS + j];
-                    if (v > rmax) rmax = v;
-                }
+    float rmax = row_max_fast(qk + i * FL_KS, kvb);
                 float newmax = (mx[i] > rmax) ? mx[i] : rmax;
                 if (newmax == -INFINITY) {
                     /* dong bi che hoan toan (chi khi n0 block dau) - fill 0 */
@@ -262,7 +258,40 @@ static inline float exp_sum_row_fast(float* qk, float newmax, int kvb) {
     return bsum;
 }
 
-    static int flash_bwd_head(const float* qkv, const float* dctx,
+    /* vectorized row maximum */
+static inline float row_max_fast(const float* v, int kvb) {
+    int j = 0;
+    __m256 rmax = _mm256_set1_ps(-INFINITY);
+    for (; j + 8 <= kvb; j += 8) {
+        __m256 vv = _mm256_loadu_ps(v + j);
+        rmax = _mm256_max_ps(rmax, vv);
+    }
+    __m128 lo = _mm256_castps256_ps128(rmax);
+    __m128 hi = _mm256_extractf128_ps(rmax, 1);
+    __m128 s = _mm_max_ps(lo, hi);
+    __m128 shuf = _mm_movehdup_ps(s);
+    s = _mm_max_ps(s, shuf);
+    shuf = _mm_movehl_ps(s, s);
+    s = _mm_max_ss(s, shuf);
+    float m = _mm_cvtss_f32(s);
+    for (; j < kvb; j++) if (v[j] > m) m = v[j];
+    return m;
+}
+
+/* vectorized ds = attn * (gA - dsum_i) cho row [0, kvb) */
+static inline void ds_row_fast(const float* attn, const float* gA, float* ds, float dsum_i, int kvb) {
+    int j = 0;
+    __m256 vdsum = _mm256_set1_ps(dsum_i);
+    for (; j + 8 <= kvb; j += 8) {
+        __m256 va = _mm256_loadu_ps(attn + j);
+        __m256 vg = _mm256_loadu_ps(gA + j);
+        __m256 vd = _mm256_sub_ps(vg, vdsum);
+        _mm256_storeu_ps(ds + j, _mm256_mul_ps(va, vd));
+    }
+    for (; j < kvb; j++) ds[j] = attn[j] * (gA[j] - dsum_i);
+}
+
+static int flash_bwd_head(const float* qkv, const float* dctx,
                           float* ctxo, float* dqo,
                           int n, int h, int head, double inv) {
     long long stride3 = (long long)3 * h;
@@ -312,10 +341,7 @@ static inline float exp_sum_row_fast(float* qk, float newmax, int kvb) {
                 }
                 for (int i = 0; i < qb; i++) {
                     int t = m0 + i;
-                    float rmax = -INFINITY;
-                    for (int j = 0; j < kvb; j++) {
-                        float v = qk[i * FL_KS + j]; if (v > rmax) rmax = v;
-                    }
+                    float rmax = row_max_fast(qk + i * FL_KS, kvb);
                     float newmax = (mx[i] > rmax) ? mx[i] : rmax;
                     if (newmax == -INFINITY) {
                         for (int j = 0; j < kvb; j++) qk[i * FL_KS + j] = 0.0f;
@@ -384,9 +410,7 @@ static inline float exp_sum_row_fast(float* qk, float newmax, int kvb) {
             /* ds = attn * (gA - dsum[i]) */
             for (int i = 0; i < qb; i++) {
                 float di = dsum[m0 + i];
-                for (int j = 0; j < kvb; j++) {
-                    ds[i * FL_KS + j] = attn[i * FL_KS + j] * (gA[i * FL_KS + j] - di);
-                }
+                ds_row_fast(attn + i * FL_KS, gA + i * FL_KS, ds + i * FL_KS, di, kvb);
             }
             /* dv[u] += sum_i attn[i,u] * dctx[i] */
             for (int j = 0; j < kvb; j++) {
