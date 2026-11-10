@@ -1,4 +1,4 @@
-# EXPECT-SUBSTRING: f-string spec
+# EXPECT-SUBSTRING: f-string format type
 # -*- coding: utf-8 -*-
 # Format spec f-string ma khong ho tro PHAI bi tu choi, KHONG duoc phat ra
 # nguyen van.
@@ -7,7 +7,12 @@
 # khac - `{n:05d}`, `{n:x}`, `{n:+}` - KHONG KHop, ca f-string duoc giu nguyen
 # va phat ra nhu chuoi thuong: `f"{n:05d}"` in ra `"{n:05d}"`. Do la sai am
 # tham, khong bao gi.
+#
+# (2026-11-10) Doi `{n:5d}` -> `{n:q}`. `{n:5d}` la spec HOP LE cua Python
+# (can le phai, dem khoang trang) va `syntax_forms.ca` mong no chay DUNG -
+# giu no o day thi hai test chot hai hanh vi nguoc nhau. `q` moi la type
+# that su khong ho tro (Python cung tu choi), nen no moi la ca am dung nghia.
 def run() -> "i32":
     n = 42
-    print(f"{n:5d}")
+    print(f"{n:q}")
     return 0

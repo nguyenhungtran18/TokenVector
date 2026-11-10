@@ -1637,8 +1637,17 @@ def fpw_assign_list_from(stmt: "i32", ctx: "WalkCtx"):
         return
     src = lay_str(stmt, 'src')
     src_ta = ctx.infer_scope.tra(src).ta
+    if src_ta.shape_ten == '' and src_ta.dtype == 'str':
+        # (2026-11-10) `list(s)` voi CHUOI -> list[str] cac ky tu, dung nhu
+        # Python (`list("abc") == ['a','b','c']`). Truoc day bi tu choi
+        # "can 's' la list". Da co san `emit_str_chars` (TkvChars::Of) cho
+        # `sorted(s)` nen chi can khai dung kieu roi de codegen goi no.
+        ctx.declared_names.add(name)
+        ctx.locals_decl.append((name, TypeAnn('str', 'list')))
+        ctx.infer_scope.set(name, TypeAnn('str', 'list'))
+        return
     if src_ta.shape_ten != 'list':
-        raise SyntaxError(f"il_codegen: list({src}) can '{src}' la list")
+        raise SyntaxError(f"il_codegen: list({src}) can '{src}' la list hoac str")
     ctx.declared_names.add(name)
     # Dung THANG src_ta (nhung bien container khac) thay TypeAnn(...) moi:
     # local moi tu constructor khong duoc infer kieu cho tuple append.
@@ -1647,11 +1656,17 @@ def fpw_assign_list_from(stmt: "i32", ctx: "WalkCtx"):
 
 
 def codegen_assign_list_from(stmt: "i32", scope: "Scope", body: "list[str]", body_dtype: "str", ctx: "Ctx", sig: "TkvSig", codegen_stmts_fn: "func(list[i32], Scope, list[str], str, Ctx, TkvSig)->void"):
-    """STMT_CODEGEN: `xs = list(ys)` (port 2026-10-09) - `List<T>(IEnumerable<T>)`."""
+    """STMT_CODEGEN: `xs = list(ys)` (port 2026-10-09) - `List<T>(IEnumerable<T>)`.
+    `ys` la CHUOI (2026-11-10): TkvChars::Of -> List<string> cac ky tu,
+    dung nhu Python `list("abc")`."""
+    src_ta = scope.tra(lay_str(stmt, 'src')).ta
     ctx.load_var_ref(lay_str(stmt, 'src'), scope, body)
-    ta = scope.tra(lay_str(stmt, 'name')).ta
-    list_il = ctx.il_type_str(ta, ctx.records)
-    body.append(f'    newobj instance void {list_il}::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
+    if src_ta.shape_ten == '' and src_ta.dtype == 'str':
+        emit_str_chars(ctx, body)
+    else:
+        ta = scope.tra(lay_str(stmt, 'name')).ta
+        list_il = ctx.il_type_str(ta, ctx.records)
+        body.append(f'    newobj instance void {list_il}::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)')
     ctx.store_var(lay_str(stmt, 'name'), scope, body)
 
 

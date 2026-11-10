@@ -618,11 +618,13 @@ def compile_fmt_spec(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dt
         raise SyntaxError("il_codegen: f-string format spec ',' chi di voi type d hoac f: " + spec)
     if typ is None:
         typ = ''
-    if typ == 'd' and width is not None and not zero:
-        # Co 1 test CHOT chi dang 0-pad ('05d') cho type d; do rong khong
-        # 0-pad ('5d') bi tu choi ro rang thay vi hieu kha ac.
-        raise SyntaxError("il_codegen: f-string spec '" + spec +
-                          "' chi ho tro dang 0-pad cho type d (vd '05d')")
+    # (2026-11-10) Da GO bo mot phep tu choi o day: truoc la
+    #   if typ == 'd' and width is not None and not zero: raise ...
+    # voi ly do "co 1 test CHOT chi dang 0-pad ('05d')". Nhung Python that
+    # CHO PHEP '{n:5d}' (can le phai, dem khoang trang) va golden
+    # `syntax_forms.ca` mong dung ket qua do. Duong sinh ma ben duoi da
+    # xu ly width day du qua TkvFmt::Pad voi al mac dinh '>' cho so, nen
+    # phep tu choi chi lam hong 5 ca ma khong bao ve dieu gi.
     if typ not in ('', 'd', 's', 'f', 'x', 'X', 'b', 'o'):
         raise SyntaxError("il_codegen: f-string format type " + typ + " chua ho tro (chi d s f x X b o): " + spec)
     if sign == ' ':
