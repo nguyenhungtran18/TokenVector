@@ -1,7 +1,7 @@
 
 Microsoft (R) .NET Framework IL Assembler.  Version 4.8.9105.0
 Copyright (c) Microsoft Corporation.  All rights reserved.
-Assembling 'tests_suite/chay.il'  to EXE --> 'tests_suite/chay.exe'
+Assembling 'tests_suite\chay.il'  to EXE --> 'tests_suite\chay.exe'
 Source file is ANSI
 
 Assembled method TkvInt::FromI64
@@ -51,6 +51,7 @@ Assembled method TkvSlice::Cnt
 Assembled method TkvSlice::NegNorm
 Assembled method TkvSlice::Lo
 Assembled method TkvSlice::Hi
+Assembled method TkvSlice::ZeroListF32
 Assembled method TkvSlice::StepL
 Assembled method TkvSlice::RepL
 Assembled method TkvSlice::StepS
@@ -81,7 +82,7 @@ Emitting fields and methods:
 Global 	
 Class 1	Fields: 2;	Methods: 27;	
 Class 2	Methods: 15;	
-Class 3	Methods: 8;	
+Class 3	Methods: 9;	
 Class 4	Methods: 2;	
 Class 5	Methods: 12;	
 Resolving local member refs: 200 -> 200 defs, 0 refs, 0 unresolved

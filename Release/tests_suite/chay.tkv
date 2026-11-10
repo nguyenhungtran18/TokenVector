@@ -83,7 +83,7 @@ def chay_ca(duong_ca: "str") -> "i32":
             ds_txt = ds_txt + f[0] + chr(9) + exe + chr(9) + f[1] + chr(10)
     lst = THU_MUC_TAM + "\\" + ten + ".lst"
     write_file(lst, ds_txt)
-    _m = proc_ra(TRINH_DICH, "@" + lst, lst + ".log")
+    _m = proc_ra(TRINH_DICH, "@" + lst + " --print-ret", lst + ".log")
     # 2) chay tung ca
     truot = 0
     k = 0

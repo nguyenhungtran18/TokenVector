@@ -1817,6 +1817,18 @@ def _extract_record_def(pool: "list[str]", class_nid: "i32", source_lines: "list
             # (vd 'Point(1.0, 2.0)' goi duoc duoi CPython that khi doi
             # chieu ket qua), giong dung tinh than '.tkv van la Python that'
             # da xac lap tu Buoc 9 (doi ten .py->.tkv).
+            #
+            # NHUNG van phai GIU than ham (2026-11-10): `_kiem_container_chua_gan`
+            # quet `record_init_bodies` de biet field container da duoc gan
+            # chua. `__init__` khong chu thich kieu la cach viet THUONG GAP
+            # NHAT (`def __init__(self, tag): self.counts = {}`), va bo han
+            # than o day lam moi class nhu vay bi tu choi sai voi thong bao
+            # "CHUA duoc gan o BAT CU dau nao".
+            #
+            # CHI ghi nhan body de kiem tra, KHONG doi duong bien dich: dong
+            # `continue` van giu nguyen (__init__ nay van khong sinh CIL).
+            if not exc_bases:
+                init_body = _body_source_lines(pool, source_lines, stmt)
             continue
         if k == "funcdef" and ar_col_a(pool, stmt) == '__init__':
             init_sig = _extract_record_method_sig_line(pool, class_nid, stmt, is_static=False)
@@ -3329,10 +3341,18 @@ def _nang_defaultdict(src: "str") -> "str":
     return ra + chr(10) + chr(10) + chr(10).join(them) + chr(10)
 
 
-def _kiem_container_chua_gan(record_defs_tho: "dict[str,list[(str,str)]]", record_methods_raw4: "dict[str,list[(str,list[str],i32,i32)]]", pairs: "list[(str,list[str],i32)]") -> "(str,str)":
+def _kiem_container_chua_gan(record_defs_tho: "dict[str,list[(str,str)]]", record_methods_raw4: "dict[str,list[(str,list[str],i32,i32)]]", pairs: "list[(str,list[str],i32)]", record_init_bodies: "dict[str,list[str]]"=None) -> "(str,str)":
     """(ten_class, ten_field) cua field container CHUA co `.field = ...` o bat
     ky than ham nao; (None, None) neu moi field deu duoc gan it nhat mot lan."""
     gop_all = []
+    # `__init__` KHONG nam trong `record_methods_raw4` - no duoc tach rieng
+    # vao `record_init_bodies` (xem `_parse_program_ast`, nhanh funcdef
+    # '__init__'). Thieu no o day lam MOI class gan container trong
+    # `__init__` bi tu choi sai: `self.data = []` trong ctor la cach viet
+    # thong thuong nhat, va no tung bao "CHUA duoc gan o BAT CU dau nao".
+    if record_init_bodies is not None:
+        for _ten_c in record_init_bodies:
+            gop_all.append(chr(10).join(record_init_bodies[_ten_c]))
     for rname in record_methods_raw4:
         for _sig_line, body_lines, _is_static, _is_property in record_methods_raw4[rname]:
             gop_all.append(chr(10).join(body_lines))
@@ -3499,7 +3519,12 @@ def _parse_program_ast(source_text: "str", la_import: "i32"=False, hoan_giai_fie
             record_methods_raw4[ten_nid] = dl.methods_raw
             record_bases[ten_nid] = dl.base_info
             record_interfaces[ten_nid] = dl.interface_names
-            if dl.init_sig != "":
+            # `init_sig` rong nghia la `__init__` KHONG co chu thich kieu (bi
+            # bo qua luc transpile) - nhung than ham VAN phai duoc ghi nhan
+            # de `_kiem_container_chua_gan` thay cac phep gan container
+            # trong ctor (2026-11-10). Vi vay dieu kien la "co sig HOAC co
+            # than", khong phai chi "co sig".
+            if dl.init_sig != "" or len(dl.init_body) > 0:
                 record_init_sigs[ten_nid] = dl.init_sig
                 record_init_bodies[ten_nid] = dl.init_body
         elif _ten_gan == '__tkv_import__':
@@ -3855,7 +3880,7 @@ def _parse_program_ast(source_text: "str", la_import: "i32"=False, hoan_giai_fie
     # Field container KHONG duoc gan o BAT CU dau nao phai bi tu choi: no se
     # NULL am tham. Chu tinh ca gan trong `__init__` LAN gan ben ngoai ctor
     # (Cua A, 2026-09-30) nen quet ca hai.
-    _r_cn, _f_cn = _kiem_container_chua_gan(record_defs_tho, record_methods_raw4, pairs)
+    _r_cn, _f_cn = _kiem_container_chua_gan(record_defs_tho, record_methods_raw4, pairs, record_init_bodies)
     if _r_cn is not None:
         raise TranspileError(
             f"class '{_r_cn}': field container '{_f_cn}' CHUA duoc gan o BAT CU "
@@ -4906,7 +4931,8 @@ def _cli_default_literal(param: "Param", sig: "TkvSig") -> "str":
 
 
 def build_generic_main(sig: "TkvSig", class_name: "str", module_globals: "dict[str,(str,list[list[str]])]"=None,
-                       func_table: "dict[str,TkvSig]"=None, records: "dict[str,list[(str,TkvTypeAnn)]]"=None) -> "list[str]":
+                       func_table: "dict[str,TkvSig]"=None, records: "dict[str,list[(str,TkvTypeAnn)]]"=None,
+                       in_ket_qua: "i32"=0) -> "list[str]":
     """Sinh 1 method Main(string[] args) TU DONG cho ham entry `sig`: doc
     N tham so vo huong tu argv THEO DUNG THU TU tham so (parse dung dtype,
     InvariantCulture cho f32/f64 - xem bug locale that da sua o Buoc 1-3),
@@ -4982,7 +5008,7 @@ def build_generic_main(sig: "TkvSig", class_name: "str", module_globals: "dict[s
                                  func_table=func_table, records=records)
 
     ret_dtype = sig.return_type.dtype
-    if ret_dtype in ('i32', 'i64'):
+    if ret_dtype in ('i32', 'i64') and not in_ket_qua:
         # 2026-10-12: ham entry tra SO NGUYEN thi gia tri do la EXIT CODE,
         # khong phai con in ra (nhu moi ngon ngu khac: C/Go/Rust, Python
         # `sys.exit(1)`). Truoc day chi `Console::WriteLine`, nen
@@ -5068,7 +5094,7 @@ def _compute_record_overrides(record_bases: "dict[str,list[str]]", record_method
 
 
 def compile_tkv_cli(tkv_path: "str", out_exe: "str", entry_name: "str"=None, class_name: "str"='TKVApp', debug: "i32"=False,
-                     reg: "Registry"=None, verify_all: "i32"=False) -> "str":
+                     reg: "Registry"=None, verify_all: "i32"=False, in_ket_qua: "i32"=False) -> "str":
     """Bien dich 1 file `.tkv` THAT thanh `.exe` GOI DUOC TU DONG LENH
     TRUC TIEP (tu dong sinh Main(), khong can tu tay viet IL nhu moi vi
     du truoc day trong session) - argv[0..] anh xa THEO THU TU tham so
@@ -5575,7 +5601,7 @@ def compile_tkv_cli(tkv_path: "str", out_exe: "str", entry_name: "str"=None, cla
                                            monomorphize_cache=monomorphize_cache,
                                            pending_monomorphize=pending_monomorphize)
         main_method = build_generic_main(func_table[entry_name], class_name, module_globals=module_globals,
-                                         func_table=func_table, records=record_defs)
+                                         func_table=func_table, records=record_defs, in_ket_qua=in_ket_qua)
         record_type_lines = gen_record_types(reg, record_defs, record_method_bodies=record_method_bodies,
                                               record_methods=record_methods, class_name=class_name,
                                               func_table=func_table, record_bases=record_bases,
