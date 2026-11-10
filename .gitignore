@@ -73,3 +73,6 @@ Release/benchmark/run_benchmark.exe
 Release/tools/vong.exe
 Release/tools/diff_il.exe
 Release/tests_suite/chay.exe
+
+# Perch session metadata (khong phai source)
+.perch/
