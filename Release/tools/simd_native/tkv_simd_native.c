@@ -2289,6 +2289,132 @@ done:
     return rc;
 }
 
+/* ==== Phase 2c (2026-11-09): attention bwd MULTI-HEAD 1 lenh goi ====
+ * Van de: .tkv spawn 12 thread roi moi thread goi AttentionBwdFused cho 1 head.
+ * Thread pool cua .tkv chi dat 1.42x (139 ms/layer vs 198 ms tuan tu) trong khi
+ * driver C noi bo dat 6.5x (18.4 ms/layer) - vi pool .tkv co chi phi dispatch
+ * lon va khong giu thread am.
+ *
+ * Ham nay lam ca 12 head trong 1 lan goi, dung work-queue atomic noi bo:
+ *   - moi head ghi vao slice RIENG: ctxo + head*n*hd, dqo + head*n*3*hd
+ *   - qkv/dctx chi doc -> khong data race, khong lock
+ *   - ket qua BIT-IDENTICAL voi duong goi tung head (da verify max_abs = 0)
+ *
+ * rc != 0 -> caller fallback duong cu nguyen van (soft-fail).
+ * TKV_FLASH_OFF=1 -> tra -13 de caller di duong cu (A/B + rollback).
+ * nthreads <= 0 -> tu chon = so head, chan tren = so core vat ly.
+ */
+extern int FlashAttentionBwdFusedLseMulti(
+        const float*, int, const float*, int, const float*, int, const float*, int,
+        float*, int, float*, int, int, int, int, double, int);
+
+EXPORT int AttentionBwdFusedMulti(const float* qkv, int qkv_len,
+                                  const float* dctx, int dctx_len,
+                                  float* ctxo, int ctxo_len,
+                                  float* dqo, int dqo_len,
+                                  int n, int h, int hd, double inv, int nthreads) {
+    {
+        static __declspec(thread) int flash_off_m = -2;
+        if (flash_off_m == -2) {
+            char fb[8];
+            flash_off_m = (GetEnvironmentVariableA("TKV_FLASH_OFF", fb, 8) > 0 && fb[0] == '1') ? 1 : 0;
+        }
+        if (flash_off_m) return -13;
+    }
+    if (!qkv || !dctx || !ctxo || !dqo) return -1;
+    if (n < 64 || h <= 0 || hd != 64) return -13;
+    int nh = h / hd;
+    if (nh <= 0) return -2;
+    if ((long long)qkv_len  < (long long)n * 3 * h) return -5;
+    if ((long long)dctx_len < (long long)n * h) return -5;
+    if ((long long)ctxo_len < (long long)n * nh * hd) return -5;
+    if ((long long)dqo_len  < (long long)n * nh * 3 * hd) return -5;
+
+    /* Duong Multi can ctx+lse tu fwd. Production bwd KHONG co san lse (fwd di
+     * torch_sdpa_fwd), nen ta recompute bang chinh flash fwd (re nhanh, da
+     * song song) roi moi bwd. Recompute nay nam trong C, khong qua .tkv. */
+    long long ctx_len_all = (long long)n * nh * hd;
+    long long lse_len_all = (long long)n * nh;
+    float* ctxf = (float*)malloc((size_t)ctx_len_all * 4);
+    float* lsef = (float*)malloc((size_t)lse_len_all * 4);
+    if (!ctxf || !lsef) { free(ctxf); free(lsef); return -6; }
+
+    extern int FlashAttentionFwdLseMulti(
+            const float*, int, float*, int, float*, int, int, int, int, double, int);
+    int rcf = FlashAttentionFwdLseMulti(qkv, qkv_len, ctxf, (int)ctx_len_all,
+                                        lsef, (int)lse_len_all,
+                                        n, h, hd, inv, nthreads);
+    if (rcf != 0) { free(ctxf); free(lsef); return rcf; }
+
+    int rc = FlashAttentionBwdFusedLseMulti(
+        qkv, qkv_len, dctx, dctx_len,
+        ctxf, (int)ctx_len_all, lsef, (int)lse_len_all,
+        ctxo, ctxo_len, dqo, dqo_len,
+        n, h, hd, inv, nthreads);
+    free(ctxf); free(lsef);
+    return rc;
+}
+
+/* ==== Phase 2c-2 (2026-11-10): MULTI-HEAD + MERGE, MOT lenh goi ====
+ * Nhu AttentionBwdFusedMulti nhung ghi THANG vao ctxT [n][h] / dqkv [n][3h]
+ * theo vi tri (t, head, d) - bo han 12 buffer trung gian va 12 lan goi
+ * MergeHbHead. Gia tri ghi y het MergeHbHead -> BIT-IDENTICAL.
+ *
+ * ctxT/dqkv PHAI duoc caller cap phat (khong zero-fill o day): moi head ghi
+ * de toan bo cot cua no, nen sau khi rc==0 moi phan tu deu da duoc ghi.
+ *
+ * rc != 0 -> caller fallback duong cu (12x one + 12x merge).
+ * TKV_FLASH_OFF=1 -> -13 (A/B + rollback).
+ */
+extern int FlashAttentionBwdMergeMulti(
+        const float*, int, const float*, int, const float*, int, const float*, int,
+        float*, int, float*, int, int, int, int, double, int);
+
+EXPORT int AttentionBwdMergeMulti(const float* qkv, int qkv_len,
+                                  const float* dctx, int dctx_len,
+                                  float* ctxT, int ctxT_len,
+                                  float* dqkv, int dqkv_len,
+                                  int n, int h, int hd, double inv, int nthreads) {
+    {
+        static __declspec(thread) int flash_off_mm = -2;
+        if (flash_off_mm == -2) {
+            char fb[8];
+            flash_off_mm = (GetEnvironmentVariableA("TKV_FLASH_OFF", fb, 8) > 0 && fb[0] == '1') ? 1 : 0;
+        }
+        if (flash_off_mm) return -13;
+    }
+    if (!qkv || !dctx || !ctxT || !dqkv) return -1;
+    if (n < 64 || h <= 0 || hd != 64) return -13;
+    int nh = h / hd;
+    if (nh <= 0) return -2;
+    if ((long long)qkv_len  < (long long)n * 3 * h) return -5;
+    if ((long long)dctx_len < (long long)n * h) return -5;
+    if ((long long)ctxT_len < (long long)n * h) return -5;
+    if ((long long)dqkv_len < (long long)n * 3 * h) return -5;
+
+    /* Production bwd khong co san ctx+lse (fwd di torch_sdpa_fwd) -> recompute
+     * bang chinh flash fwd, song song trong C (khong qua .tkv). */
+    long long ctx_len_all = (long long)n * nh * hd;
+    long long lse_len_all = (long long)n * nh;
+    float* ctxf = (float*)malloc((size_t)ctx_len_all * 4);
+    float* lsef = (float*)malloc((size_t)lse_len_all * 4);
+    if (!ctxf || !lsef) { free(ctxf); free(lsef); return -6; }
+
+    extern int FlashAttentionFwdLseMulti(
+            const float*, int, float*, int, float*, int, int, int, int, double, int);
+    int rcf = FlashAttentionFwdLseMulti(qkv, qkv_len, ctxf, (int)ctx_len_all,
+                                        lsef, (int)lse_len_all,
+                                        n, h, hd, inv, nthreads);
+    if (rcf != 0) { free(ctxf); free(lsef); return rcf; }
+
+    int rc = FlashAttentionBwdMergeMulti(
+        qkv, qkv_len, dctx, dctx_len,
+        ctxf, (int)ctx_len_all, lsef, (int)lse_len_all,
+        ctxT, ctxT_len, dqkv, dqkv_len,
+        n, h, hd, inv, nthreads);
+    free(ctxf); free(lsef);
+    return rc;
+}
 /* ==== YEU CAU #15 (2026-11-06): linear_dw fused (trans-A GEMM + gflat add) ====
  * gdw[gdw_off + i*out_d + c] += sum_p x[p*in_d + i] * gy[p*out_d + c]
  *   (tuong duong `dw = smm_fwd_at(x, gy, in_d, out_d, n)` roi

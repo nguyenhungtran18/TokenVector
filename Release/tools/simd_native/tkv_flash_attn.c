@@ -625,25 +625,37 @@ static int flash_bwd_head(const float* qkv, const float* dctx,
             int qb = n - m0; if (qb > FL_QS) qb = FL_QS;
             if (m0 + qb <= n0) continue;
 
+#ifndef ABL_NO_S
             /* attn = exp(Q.K^T * inv - lse) + causal mask */
             gemm_nt_block(Qp + (long long)m0 * 64, BTK, attn, qb, kvb, finv);
             for (int i = 0; i < qb; i++)
                 attn_row_from_lse(attn + (long long)i * FL_KS, lse[m0 + i], kvb, m0 + i, n0);
+#endif
+#ifndef ABL_NO_GA
 
             /* gA = dctx . V^T */
             gemm_nt_block(Dp + (long long)m0 * 64, BTV, gA, qb, kvb, 1.0f);
+#endif
+#ifndef ABL_NO_DS
 
             /* ds = attn * (gA - dsum) */
             for (int i = 0; i < qb; i++)
                 ds_row_fast(attn + (long long)i * FL_KS, gA + (long long)i * FL_KS,
                             ds + (long long)i * FL_KS, dsum[m0 + i], kvb);
+#endif
+#ifndef ABL_NO_DV
 
             /* dv[j] += sum_i attn[i,j] * dctx[i] */
             acc_block_t(dv + (long long)n0 * FL_HD, attn, Dp + (long long)m0 * 64, qb, kvb);
+#endif
+#ifndef ABL_NO_DQ
             /* dq[i] += sum_j ds[i,j] * K[j] */
             acc_block(dq + (long long)m0 * FL_HD, ds, Kp, qb, kvb, n0);
+#endif
+#ifndef ABL_NO_DK
             /* dk[j] += sum_i ds[i,j] * Q[i] */
             acc_block_t(dk + (long long)n0 * FL_HD, ds, Qp + (long long)m0 * 64, qb, kvb);
+#endif
         }
     }
 
@@ -701,4 +713,245 @@ EXPORT int FlashAttentionBwdFusedLse(const float* qkv, int qkv_len,
     if ((long long)ctxo_len < (long long)n * FL_HD) return -5;
     if ((long long)dqo_len < (long long)n * 3 * FL_HD) return -5;
     return flash_bwd_head(qkv, dctx, ctxo, dqo, n, h, head, inv, ctx_in, lse_in);
+}
+
+/* ===========================================================================
+ * Multi-head parallel driver (Phase 2c)
+ *
+ * Van de: kernel nay xu ly 1 head/lan goi, va production goi 12 lan TUAN TU
+ * tren 1 core. ATen SDPA bwd chia head ra nhieu thread -> do la ly do that su
+ * khien no thang (101 ms/layer vs 131 ms/layer cua ta o 12 head, single-thread).
+ *
+ * Moi head doc qkv/dctx chi-doc va ghi vao slice RIENG cua ctxo/dqo
+ * (head * n * hd va head * n * 3 * hd) -> khong co data race, khong can lock,
+ * ket qua BIT-IDENTICAL voi duong goi tuan tu.
+ * =========================================================================== */
+#include <windows.h>
+
+typedef struct {
+    const float* qkv;
+    const float* dctx;
+    const float* ctx_in;
+    const float* lse_in;
+    float* ctxo;
+    float* dqo;
+    int n, h, nh, hd;
+    double inv;
+    volatile LONG next;
+    volatile LONG rc;
+} mh_job_t;
+
+static DWORD WINAPI mh_bwd_worker(LPVOID p) {
+    mh_job_t* c = (mh_job_t*)p;
+    for (;;) {
+        LONG head = InterlockedIncrement(&c->next);
+        if (head >= c->nh) break;
+        int rc = flash_bwd_head(
+            c->qkv, c->dctx,
+            c->ctxo + (long long)head * c->n * c->hd,
+            c->dqo  + (long long)head * c->n * 3 * c->hd,
+            c->n, c->h, (int)head, c->inv,
+            c->ctx_in ? c->ctx_in + (long long)head * c->n * c->hd : NULL,
+            c->lse_in ? c->lse_in + (long long)head * c->n : NULL);
+        if (rc != 0) InterlockedCompareExchange(&c->rc, rc, 0);
+    }
+    return 0;
+}
+
+static DWORD WINAPI mh_fwd_worker(LPVOID p) {
+    mh_job_t* c = (mh_job_t*)p;
+    for (;;) {
+        LONG head = InterlockedIncrement(&c->next);
+        if (head >= c->nh) break;
+        int rc = flash_fwd_head(
+            c->qkv,
+            c->ctxo + (long long)head * c->n * c->hd,
+            c->lse_in ? (float*)c->lse_in + (long long)head * c->n : NULL,
+            c->n, c->h, (int)head, c->inv);
+        if (rc != 0) InterlockedCompareExchange(&c->rc, rc, 0);
+    }
+    return 0;
+}
+
+static int mh_run(mh_job_t* c, int nthreads, LPTHREAD_START_ROUTINE fn) {
+    if (nthreads > c->nh) nthreads = c->nh;
+    if (nthreads < 1) nthreads = 1;
+    if (nthreads == 1) { fn(c); return c->rc; }
+    HANDLE th[64];
+    int spawned = 0;
+    for (int i = 0; i < nthreads; i++) {
+        HANDLE h = CreateThread(NULL, 0, fn, c, 0, NULL);
+        if (h) th[spawned++] = h;
+    }
+    if (spawned == 0) { fn(c); return c->rc; }
+    WaitForMultipleObjects(spawned, th, TRUE, INFINITE);
+    for (int i = 0; i < spawned; i++) CloseHandle(th[i]);
+    return c->rc;
+}
+
+EXPORT int FlashAttentionBwdFusedLseMulti(
+        const float* qkv, int qkv_len,
+        const float* dctx, int dctx_len,
+        const float* ctx_in, int ctx_in_len,
+        const float* lse_in, int lse_in_len,
+        float* ctxo, int ctxo_len,
+        float* dqo, int dqo_len,
+        int n, int h, int hd, double inv, int nthreads) {
+    if (!qkv || !dctx || !ctx_in || !lse_in || !ctxo || !dqo) return -1;
+    if (n < 64 || h <= 0 || hd != FL_HD) return -13;
+    int nh = h / FL_HD;
+    if ((long long)qkv_len  < (long long)n * 3 * h) return -5;
+    if ((long long)dctx_len < (long long)n * h) return -5;
+    if ((long long)ctx_in_len < (long long)n * nh * FL_HD) return -5;
+    if ((long long)lse_in_len < (long long)n * nh) return -5;
+    if ((long long)ctxo_len < (long long)n * nh * FL_HD) return -5;
+    if ((long long)dqo_len  < (long long)n * nh * 3 * FL_HD) return -5;
+    mh_job_t c;
+    c.qkv = qkv; c.dctx = dctx; c.ctx_in = ctx_in; c.lse_in = lse_in;
+    c.ctxo = ctxo; c.dqo = dqo;
+    c.n = n; c.h = h; c.nh = nh; c.hd = FL_HD; c.inv = inv;
+    c.next = -1; c.rc = 0;
+    return mh_run(&c, nthreads, mh_bwd_worker);
+}
+
+EXPORT int FlashAttentionFwdLseMulti(
+        const float* qkv, int qkv_len,
+        float* ctx_out, int ctx_len,
+        float* lse, int lse_len,
+        int n, int h, int hd, double inv, int nthreads) {
+    if (!qkv || !ctx_out || !lse) return -1;
+    if (n < 64 || h <= 0 || hd != FL_HD) return -13;
+    int nh = h / FL_HD;
+    if ((long long)qkv_len < (long long)n * 3 * h) return -5;
+    if ((long long)ctx_len < (long long)n * nh * FL_HD) return -5;
+    if ((long long)lse_len < (long long)n * nh) return -5;
+    mh_job_t c;
+    c.qkv = qkv; c.dctx = NULL; c.ctx_in = NULL; c.lse_in = lse;
+    c.ctxo = ctx_out; c.dqo = NULL;
+    c.n = n; c.h = h; c.nh = nh; c.hd = FL_HD; c.inv = inv;
+    c.next = -1; c.rc = 0;
+    return mh_run(&c, nthreads, mh_fwd_worker);
+}
+
+/* ===========================================================================
+ * Phase 2c-2 (2026-11-10): MULTI-HEAD + MERGE trong MOT lenh goi
+ *
+ * Van de con lai: AttentionBwdFusedMulti da dat 6.17x (29.15 ms/layer vs
+ * 179.77) nhung production van phai lam 12 lan `_attn_hb_merge` (goi
+ * MergeHbHead rieng, moi lan 1 head) de rai ctxo/dqo vao ctxT/dqkv.
+ *
+ * Ham nay lam ca 12 head + merge trong 1 lan goi:
+ *   - worker bwd ghi thang vao ctxT/dqkv theo vi tri (t, head, d)
+ *     -> KHONG con buffer trung gian ctxo/dqo, KHONG con pass merge
+ *   - moi head chi cham vao cot [head*hd, head*hd+hd) cua moi hang t
+ *     -> khong data race, khong lock
+ *   - gia tri ghi y het MergeHbHead (cung cong thuc, cung thu tu doc)
+ *     -> BIT-IDENTICAL voi duong 12x one + 12x merge
+ *
+ * Voi n=1024, h=768: tiet kiem ~2 x 3.15M ptu doc/ghi (ctxo + dqo vao-ra)
+ * va 12 lan goi qua bien DLL.
+ * =========================================================================== */
+
+typedef struct {
+    const float* qkv;
+    const float* dctx;
+    const float* ctx_in;
+    const float* lse_in;
+    float* ctxT;      /* [n][h]  - ghi truc tiep cot (head*hd + d) */
+    float* dqkv;      /* [n][3h] - ghi truc tiep cot (head*hd + d) 3 lan */
+    int n, h, nh, hd;
+    double inv;
+    volatile LONG next;
+    volatile LONG rc;
+} mh_merge_job_t;
+
+/* Scatter 1 head tu buffer PACKED sang ctxT/dqkv - y het MergeHbHead
+ * (tkv_bwd_ops.c) nhung nhan con tro nguon rieng thay vi mang 12 buffer. */
+static void mh_scatter_head(const float* co, const float* dq,
+                            float* ctxT, float* dqkv,
+                            int n, int h, int hd, int head) {
+    int ho = head * hd;
+    for (int t2 = 0; t2 < n; t2++) {
+        long long c0 = (long long)t2 * h + ho;
+        long long p0 = (long long)t2 * 3 * hd;
+        long long r0 = (long long)t2 * 3 * h + ho;
+        const float* src_dq = dq + p0;
+        for (int d = 0; d < hd; d++) {
+            ctxT[c0 + d]         = co[(long long)t2 * hd + d];
+            dqkv[r0 + d]         = src_dq[d];
+            dqkv[r0 + h + d]     = src_dq[hd + d];
+            dqkv[r0 + 2 * h + d] = src_dq[2 * hd + d];
+        }
+    }
+}
+
+static DWORD WINAPI mh_merge_worker(LPVOID p) {
+    mh_merge_job_t* c = (mh_merge_job_t*)p;
+    long long ctx_len = (long long)c->n * c->hd;
+    long long dq_len  = (long long)c->n * 3 * c->hd;
+    float* co = (float*)malloc((size_t)ctx_len * 4);
+    float* dq = (float*)malloc((size_t)dq_len * 4);
+    if (!co || !dq) {
+        free(co); free(dq);
+        InterlockedCompareExchange(&c->rc, -6, 0);
+        return 0;
+    }
+    for (;;) {
+        LONG head = InterlockedIncrement(&c->next);
+        if (head >= c->nh) break;
+        int rc = flash_bwd_head(
+            c->qkv, c->dctx, co, dq,
+            c->n, c->h, (int)head, c->inv,
+            c->ctx_in ? c->ctx_in + (long long)head * c->n * c->hd : NULL,
+            c->lse_in ? c->lse_in + (long long)head * c->n : NULL);
+        if (rc != 0) { InterlockedCompareExchange(&c->rc, rc, 0); break; }
+        mh_scatter_head(co, dq, c->ctxT, c->dqkv, c->n, c->h, c->hd, (int)head);
+    }
+    free(co); free(dq);
+    return 0;
+}
+
+static int mh_merge_run(mh_merge_job_t* c, int nthreads) {
+    if (nthreads > c->nh) nthreads = c->nh;
+    if (nthreads < 1) nthreads = 1;
+    if (nthreads == 1) { mh_merge_worker(c); return c->rc; }
+    HANDLE th[64];
+    int spawned = 0;
+    for (int i = 0; i < nthreads; i++) {
+        HANDLE h = CreateThread(NULL, 0, mh_merge_worker, c, 0, NULL);
+        if (h) th[spawned++] = h;
+    }
+    if (spawned == 0) { mh_merge_worker(c); return c->rc; }
+    WaitForMultipleObjects(spawned, th, TRUE, INFINITE);
+    for (int i = 0; i < spawned; i++) CloseHandle(th[i]);
+    return c->rc;
+}
+
+/* FlashAttentionBwdMergeMulti: bwd 12 head + scatter thang vao ctxT/dqkv.
+ * ctxT: [n][h]   (caller cap, ghi DE toan bo cot head*hd..+hd)
+ * dqkv: [n][3h]  (caller cap, ghi DE tai (t, {0,h,2h}+head*hd+d))
+ * rc != 0 -> caller fallback duong cu (12x one + 12x merge). */
+EXPORT int FlashAttentionBwdMergeMulti(
+        const float* qkv, int qkv_len,
+        const float* dctx, int dctx_len,
+        const float* ctx_in, int ctx_in_len,
+        const float* lse_in, int lse_in_len,
+        float* ctxT, int ctxT_len,
+        float* dqkv, int dqkv_len,
+        int n, int h, int hd, double inv, int nthreads) {
+    if (!qkv || !dctx || !ctx_in || !lse_in || !ctxT || !dqkv) return -1;
+    if (n < 64 || h <= 0 || hd != FL_HD) return -13;
+    int nh = h / FL_HD;
+    if ((long long)qkv_len   < (long long)n * 3 * h) return -5;
+    if ((long long)dctx_len  < (long long)n * h) return -5;
+    if ((long long)ctx_in_len < (long long)n * nh * FL_HD) return -5;
+    if ((long long)lse_in_len < (long long)n * nh) return -5;
+    if ((long long)ctxT_len  < (long long)n * h) return -5;
+    if ((long long)dqkv_len  < (long long)n * 3 * h) return -5;
+    mh_merge_job_t c;
+    c.qkv = qkv; c.dctx = dctx; c.ctx_in = ctx_in; c.lse_in = lse_in;
+    c.ctxT = ctxT; c.dqkv = dqkv;
+    c.n = n; c.h = h; c.nh = nh; c.hd = FL_HD; c.inv = inv;
+    c.next = -1; c.rc = 0;
+    return mh_merge_run(&c, nthreads);
 }
