@@ -1,0 +1,77 @@
+# -*- coding: utf-8 -*-
+"""Test CHAN cho TkvSlice::ZeroListF32 (request #13, 2026-11-10).
+
+VI SAO TEST NAY TON TAI
+-----------------------
+`zeros_list(n)` truoc day cap phat HAI lan: mot mang float32[n] (CLR zero san),
+roi `new List<T>(IEnumerable<T>)` cap THEM mot mang nua va chep 147 MB. Ban sua
+thay bang `List<T>(TkvZeroSrc(n))` - ctor List<T> nhan duong nhanh ICollection<T>
+(Count = n) nen cap backing array DUNG MOT LAN, CopyTo rong nen khong chep.
+
+Test nay phai FAIL neu ai do:
+  - quay lai dung `List(IEnumerable)` sai cach (Count khong duoc ton trong ->
+    Count != n), hoac
+  - dung offset `_size` tho (lech layout giua .NET Framework 4.8 va .NET 10:
+    `_size` o offset 24 tren Framework, 16 tren .NET 10), hoac
+  - lam hong duong `n <= 0`, hoac
+  - lam backing array khong con ghi duoc (mot list "rong vo" chi bao Count = n).
+
+Ghi chu ve kieu: `zeros_list` khai return dtype 'i32' (xem compile_zeros_list),
+nen `z[i]` truc tiep bi tu choi. Moi phep kiem di qua tham so `list[f32]` -
+dung nhu production lam (`t_zeros` -> `Tensor(data, ...)`).
+
+Nam kich thuoc theo yeu cau §4: 0, 1, 7, 1000, 38597376.
+"""
+__tkv_import__ = ["tkv_test_lib"]
+
+
+def probe(name: "str", z: "list[f32]", n: "i32") -> "i32":
+    """1 kich thuoc: kiem Count, mau 0.0, ghi/doc lai, Add sau do.
+
+    Tra ve so ASSERT DA PASS, va cong don vao `tested` qua tham so thu ba de
+    test_summary dem dung (no dem theo so assert, khong theo so case)."""
+    ok = 0
+
+    ok = ok + check(name + ".count", str(len(z)), str(n))
+    if n <= 0:
+        # list rong: khong co phan tu nao de kiem mau
+        return ok
+
+    ok = ok + check(name + ".z0", str(z[0]), "0.0")
+    ok = ok + check(name + ".zmid", str(z[n // 2]), "0.0")
+    ok = ok + check(name + ".zlast", str(z[n - 1]), "0.0")
+
+    # ghi roi doc lai: chung minh backing array THAT SU ghi duoc
+    z[n - 1] = 42.0
+    ok = ok + check(name + ".write_read", str(z[n - 1]), "42.0")
+    z[n - 1] = 0.0
+
+    # Add() sau khi SetCount: capacity da du nen khong grow, phan tu moi dung cho
+    z.append(7.0)
+    ok = ok + check(name + ".add_count", str(len(z)), str(n + 1))
+    ok = ok + check(name + ".add_value", str(z[n]), "7.0")
+    return ok
+
+
+def run() -> "i32":
+    total = 0
+
+    # n = 0 -> list rong (nhanh TKVZM_RZ): 1 assert
+    total = total + probe("n0", zeros_list(0), 0)
+
+    # n = 1 -> bien nho nhat co phan tu that: 7 assert
+    total = total + probe("n1", zeros_list(1), 1)
+
+    # n = 7 -> le, khong phai boi cua 4/8: 7 assert
+    total = total + probe("n7", zeros_list(7), 7)
+
+    # n = 1000 -> kich thuoc thuong: 7 assert
+    total = total + probe("n1000", zeros_list(1000), 1000)
+
+    # n = 38597376 -> dung kich thuoc that cua _f124_bwd (147.2 MB).
+    # Day la ca ma ban sua huong toi; neu duong ICollection hong thi Count se
+    # sai hoac z[n-1] khong ghi duoc. 7 assert.
+    total = total + probe("n38597376", zeros_list(38597376), 38597376)
+
+    # 1 + 7*4 = 29 assert
+    return test_summary("zeros_list_scale", total, 29)

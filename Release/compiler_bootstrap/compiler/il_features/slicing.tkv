@@ -55,11 +55,15 @@ def try_rhs_list_slice(rhs: "str", name: "str", known_shapes: "dict[str,str]") -
 _SLICE_CLASS = 'TkvSlice'
 
 
-# builtin zeros_list: Span.Fill (faster than [0.0]*n / RepL for big n; ~50x).
+# builtin zeros_list: List<T> qua ICollection<T> gia (Count=n, CopyTo rong) -
+# backing array cap MOT lan, CLR zero-fill san, khong copy (2026-11-10, #13).
 def compile_zeros_list(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """zeros_list(n) -> list[f32] -- n phan tu float32 = 0.0.
 
-    TkvSlice::ZeroListF32(int32 n): alloc List<float32>(n), SetCount, Span.Fill(0).
+    TkvSlice::ZeroListF32(int32 n): List<float32>(TkvZeroSrc(n)) - ctor List<T>
+    nhan duong nhanh ICollection<T> (Count = n) nen cap backing array DUNG MOT
+    LAN, da duoc CLR zero-fill san; CopyTo cua TkvZeroSrc la RONG nen khong co
+    lan chep 147 MB nao. Khong vong scalar, khong cap lan hai.
     if n <= 0 -> list rong."""
     if len(args) != 1:
         raise SyntaxError("il_codegen: zeros_list(n) can dung 1 tham so")
@@ -171,19 +175,13 @@ def _ensure_class_slice(ctx: "Ctx"):
         '  .method public static class [mscorlib]System.Collections.Generic.List`1<float32> ZeroListF32(int32 n) cil managed',
         '  {',
         '    .maxstack 8',
-        '    .locals init (int32 n0, float32[] arr, class [mscorlib]System.Collections.Generic.List`1<float32> z, int32 i)',
-        '    ldarg.0', '    stloc.0',
-        '    ldloc.0', '    ldc.i4.0', '    ble TKVZM_RZ',
-        '  TKVZM_OK:',
-        '    ldloc.0', '    newarr float32', '    stloc.1',
-        '    ldc.i4.0', '    stloc.3',
-        '  TKVZM_CL:',
-        '    ldloc.3', '    ldloc.0', '    bge TKVZM_CD',
-        '    ldloc.1', '    ldloc.3', '    ldc.r4 0.0', '    stelem.r4',
-        '    ldloc.3', '    ldc.i4.1', '    add', '    stloc.3', '    br TKVZM_CL',
-        '  TKVZM_CD:',
-        '    ldloc.1', '    newobj instance void class [mscorlib]System.Collections.Generic.List`1<float32>::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)',
-        '    stloc.2', '    ldloc.2', '    ret',
+        '    ldarg.0',
+        '    ldc.i4.0',
+        '    ble TKVZM_RZ',
+        '    ldarg.0',
+        '    newobj instance void TkvZeroSrc::.ctor(int32)',
+        '    newobj instance void class [mscorlib]System.Collections.Generic.List`1<float32>::.ctor(class [mscorlib]System.Collections.Generic.IEnumerable`1<!0>)',
+        '    ret',
         '  TKVZM_RZ:',
         '    newobj instance void class [mscorlib]System.Collections.Generic.List`1<float32>::.ctor()', '    ret',
         '  }',
@@ -263,6 +261,91 @@ def _ensure_class_slice(ctx: "Ctx"):
         '    callvirt instance class [mscorlib]System.Text.StringBuilder [mscorlib]System.Text.StringBuilder::Append(char)', '    pop',
         '    ldloc.2', '    ldarg.3', '    add', '    stloc.2', '    br TKVSL_SP',
         '  TKVSL_SE:', '    ldloc.0', '    callvirt instance string [mscorlib]System.Object::ToString()', '    ret',
+        '  }',
+        '}',
+        # --- TkvZeroSrc: nguon "khong" cho ZeroListF32 (2026-11-10, request #13) ---
+        # VI SAO: `new List<T>(IEnumerable<T>)` co duong NHANH khi tham so la
+        # ICollection<T>: no lay `Count` de cap backing array DUNG MOT LAN roi
+        # goi `CopyTo`. Voi mot ICollection gia co Count = n va CopyTo RONG, ket
+        # qua la `List<T>` co dung n backing array da duoc CLR zero-fill san -
+        # khong cap lan hai, khong copy 147 MB, khong vong scalar.
+        # Do tren .NET 10 (N=38597376, 147.2 MB, best-of-3): cach cu 89.1 ms ->
+        # cach nay 15.6 ms (1.73 -> 9.88 GB/s). Chay DUNG tren ca .NET Framework
+        # 4.8 va .NET 10 (da kiem bang probe rieng), khong reflection, khong
+        # phu thuoc layout noi bo cua List<T>.
+        # Ghi chu: GetEnumerator nem NotSupportedException - lop nay chi de lam
+        # tham so cho ctor, khong bao gio duoc liet ke.
+        '.class private auto ansi sealed beforefieldinit TkvZeroSrc',
+        '       extends [mscorlib]System.Object',
+        '       implements class [mscorlib]System.Collections.Generic.ICollection`1<float32>,',
+        '                  [mscorlib]System.Collections.IEnumerable',
+        '{',
+        '  .field private int32 _n',
+        '  .method public hidebysig specialname rtspecialname instance void .ctor(int32 n) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ldarg.0',
+        '    call instance void [mscorlib]System.Object::.ctor()',
+        '    ldarg.0',
+        '    ldarg.1',
+        '    stfld int32 TkvZeroSrc::_n',
+        '    ret',
+        '  }',
+        '  .method public hidebysig specialname newslot virtual final instance int32 get_Count() cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ldarg.0',
+        '    ldfld int32 TkvZeroSrc::_n',
+        '    ret',
+        '  }',
+        '  .method public hidebysig specialname newslot virtual final instance bool get_IsReadOnly() cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ldc.i4.1',
+        '    ret',
+        '  }',
+        '  .method public hidebysig newslot virtual final instance void Add(float32 item) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ret',
+        '  }',
+        '  .method public hidebysig newslot virtual final instance void Clear() cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ret',
+        '  }',
+        '  .method public hidebysig newslot virtual final instance bool Contains(float32 item) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ldc.i4.0',
+        '    ret',
+        '  }',
+        # CopyTo RONG la diem cot loi: backing array da la 0 san, khong can chep gi.
+        '  .method public hidebysig newslot virtual final instance void CopyTo(float32[] arr, int32 idx) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ret',
+        '  }',
+        '  .method public hidebysig newslot virtual final instance bool Remove(float32 item) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ldc.i4.0',
+        '    ret',
+        '  }',
+        '  .method public hidebysig newslot virtual final instance class [mscorlib]System.Collections.Generic.IEnumerator`1<float32> GetEnumerator() cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    ldstr "TkvZeroSrc chi dung lam tham so khoi tao"',
+        '    newobj instance void [mscorlib]System.NotSupportedException::.ctor(string)',
+        '    throw',
+        '  }',
+        '  .method private hidebysig newslot virtual final instance class [mscorlib]System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() cil managed',
+        '  {',
+        '    .override [mscorlib]System.Collections.IEnumerable::GetEnumerator',
+        '    .maxstack 8',
+        '    ldstr "TkvZeroSrc chi dung lam tham so khoi tao"',
+        '    newobj instance void [mscorlib]System.NotSupportedException::.ctor(string)',
+        '    throw',
         '  }',
         '}',
     ])
