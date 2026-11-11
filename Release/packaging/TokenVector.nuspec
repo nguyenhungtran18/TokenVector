@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
   <metadata>
     <id>TokenVector</id>
-    <version>1.0.12</version>
+    <version>1.0.13</version>
     <title>TokenVector Compiler Platform</title>
     <authors>Nguyen Hung Tran, TokenVector Compiler Engineering Team</authors>
     <owners>nguyenhungtran18</owners>
@@ -13,7 +13,7 @@
     <readme>README.md</readme>
     <description>TokenVector Compiler Platform - High-performance ahead-of-time (AOT) compiler with Pythonic syntax and native .NET/CIL backend, zero Python runtime dependency, and no-GIL multithreading.</description>
     <summary>TokenVector AOT compiler tool for Pythonic syntax to native PE/CIL executables with full .NET interop.</summary>
-    <releaseNotes>Release 1.0.12 - DCE for TkvSimd (emit only used feature chunks: 105 -> 9 methods, -48% IL), simd_count_char builtin (UTF-16 AVX2 scan, no BSTR copy), matmul promoted to native simd_gemm alias. Self-hosted compiler, gate 135/135, negative 44/44, vong IL_IDENTICAL.</releaseNotes>
+    <releaseNotes>Release 1.0.13 - adamw_step_glm gains a coef parameter (clip-grad now one kernel pass instead of 3 auxiliary passes, bit-identical): zeros_list(n) allocates once (request #13), f-string {n:5d} + list(str) fixes, --print-ret, field containers assigned in __init__, SIMD flash-attention SDPA AVX2 phases 2/2b/2c (AttentionBwdMergeMulti/FusedMulti), onednn_linear_bwd_off, BLAS LinearDwAtFused/LinearDxFused, AdamwStepF32 prefetch+storeu fix, lm-head addmm_out (-156 ms/step). Self-hosted compiler, gate 136/136, negative 44/44, vong IL_IDENTICAL.</releaseNotes>
     <copyright>Copyright (c) 2026 Nguyen Hung Tran</copyright>
     <tags>tokenvector compiler python dotnet cil aot no-gil high-performance native roslyn msbuild cli</tags>
     <repository type="git" url="https://github.com/nguyenhungtran18/TokenVector" />
