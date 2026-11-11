@@ -65,11 +65,27 @@ Hash bàn giao:
 Bản cũ trước thay đổi: `dist\tkvc-tv.exe` = `E2DDA536…` (backup
 `dist\tkvc-tv.exe.bak_coef14`), DLL cũ 388,608 B.
 
-## 5. Chưa đo
+## 5. Đo trên nhánh Inference (sau khi wiring trainer)
 
-Chưa có số `opt` / full step trên nhánh Inference — cần wiring trainer + đo
-(bên dưới). Kỳ vọng giữ nguyên như request: `opt` 781 → **~560 ms**,
-full step @seq1024 4219 → **~4000 ms**.
+Đã wire `trainer.tkv` (+3 shadow) và đo lại trên máy này:
+
+| hạng mục | trước | sau |
+|---|---:|---:|
+| `opt.step()` (`_clip_real`, clip=1.0) | 781 ms | **484 ms** |
+| `opt.step()` clip=1e9 (đường nhanh) | 563 ms | **484 ms** |
+| chênh clip (chậm − nhanh) | 218 ms | **0.0 ms** |
+| `opt` pha trong BPHASE @seq8 / 256 / 1024 | 781 / 781 / 781 | **438 / 453 / 469** |
+| BPHASE TỔNG @seq1024 | 4484 | **4015** (0.972× torch cùng phiên) |
+| full step mode1 @seq1024 best-of-3 | 4219 | **4109** (dao động 4109–4344) |
+| full step mode1 @seq8 / 256 best-of-3 | 1187 / 1782 | **1141 / 1562** |
+
+Loss EXACT cả 3 seq: `10.572291 / 10.756927 / 10.760399`. Trainer **15/15**
+(clip `max_abs_diff=0.0`), `gpt2_full_tests` **33/33**, `gate_f32.sh` **135/135**,
+`run_cases` **22/4** như baseline.
+
+Ghi chú: mode1 dao động ±5% trên phiên này; con số `opt` (mode2) mới là thứ
+phản ánh trực tiếp thay đổi. `pt`/`pone` vẫn còn cấp phát vì các probe cũ đọc
+`opt.pt`/`opt.pone`.
 
 ## 6. Việc phía Inference (để đạt §5 của request)
 
