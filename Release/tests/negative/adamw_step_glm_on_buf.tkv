@@ -16,5 +16,6 @@ def run() -> "i32":
     wd: "f32" = 0.01
     bc1s: "f32" = 0.1
     bc2s: "f32" = 0.031
-    st = adamw_step_glm(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s)
+    coef: "f32" = 1.0
+    st = adamw_step_glm(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s, coef)
     return st

@@ -396,7 +396,7 @@ static SRWLOCK g_gemm_lock = SRWLOCK_INIT;
  * Doi so luong luong KHONG doi ket qua (moi ptu van 1 job, cung pc-block + FMA)
  * -> van bit-exact. */
 
-typedef struct { const float* g; float* p; float* m; float* v; long long n; float lr, b1, b2, eps, wd, bc2s; } AdamwGlobal;
+typedef struct { const float* g; float* p; float* m; float* v; long long n; float lr, b1, b2, eps, wd, bc2s, coef; } AdamwGlobal;
 static AdamwGlobal g_adamw_global;
 static __declspec(thread) int t_nested = 0;
 
@@ -432,7 +432,7 @@ static void pack_rows_f32(const float* src, float* dst, int stride, int rows,
 
 static void adamw_f32_range(float* p, float* m, float* v, const float* g,
                             int i0, int i1, float lr, float b1, float b2,
-                            float eps, float wd, float bc2s) {
+                            float eps, float wd, float bc2s, float coef) {
     float one_mb1 = 1.0f - b1;
     float one_mb2 = 1.0f - b2;
     float lr_wd = lr * wd;
@@ -445,6 +445,7 @@ static void adamw_f32_range(float* p, float* m, float* v, const float* g,
     __m256 vbc2s = _mm256_set1_ps(bc2s);
     __m256 vepsbc = _mm256_set1_ps(eps_bc2s);
     __m256 vlrwd = _mm256_set1_ps(lr_wd);
+    __m256 vcoef = _mm256_set1_ps(coef);
     /* P1a (2026-11-09): prefetch T0 [i+64] - giup streaming reads vuot cache;
      * NT store bi loai (do lai cham hon ~12-15% tren E5-2695 v3 - see HANDOFF 0.122). */
     int i = i0;
@@ -455,7 +456,7 @@ static void adamw_f32_range(float* p, float* m, float* v, const float* g,
             _mm_prefetch((const char*)(v + i + 64), _MM_HINT_T0);
             _mm_prefetch((const char*)(p + i + 64), _MM_HINT_T0);
         }
-        __m256 vg = _mm256_loadu_ps(g + i);
+        __m256 vg = _mm256_mul_ps(_mm256_loadu_ps(g + i), vcoef);
         __m256 vm = _mm256_loadu_ps(m + i);
         __m256 vv = _mm256_loadu_ps(v + i);
         __m256 vp = _mm256_loadu_ps(p + i);
@@ -471,7 +472,7 @@ static void adamw_f32_range(float* p, float* m, float* v, const float* g,
         _mm256_storeu_ps(p + i, vp);
     }
     for (; i < i1; i++) {
-        float gi = g[i];
+        float gi = g[i] * coef;
         float mi = b1 * m[i] + one_mb1 * gi;
         float vi = b2 * v[i] + one_mb2 * gi * gi;
         m[i] = mi;
@@ -506,7 +507,7 @@ static DWORD WINAPI tkv_worker(LPVOID p) {
         else if (j->mode == 8)
             adamw_f32_range((float*)j->o, (float*)j->a, (float*)j->b, g_adamw_global.g, j->i0, j->i1,
                             g_adamw_global.lr, g_adamw_global.b1, g_adamw_global.b2, g_adamw_global.eps,
-                            g_adamw_global.wd, g_adamw_global.bc2s);
+                            g_adamw_global.wd, g_adamw_global.bc2s, g_adamw_global.coef);
         else
             gemm_rows_f32((const float*)j->a, (const float*)j->b, (float*)j->o, j->n, j->i0, j->i1, j->j0, j->j1,
                           j->mc, j->nc, j->bpl);
@@ -1555,7 +1556,7 @@ EXPORT int F32Addcmul(float* dst, const float* x, const float* y, float scale, i
     return 0;
 }
 
-/* adamw_step(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s) -> i32
+/* adamw_step(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s[, coef]) -> i32
  * Fused AdamW per-element DUNG cong thuc GĐ10 (spec §M5):
  *   m <- b1*m + (1-b1)*g
  *   v <- b2*v + (1-b2)*g^2
@@ -1563,10 +1564,14 @@ EXPORT int F32Addcmul(float* dst, const float* x, const float* y, float scale, i
  * fp32, 1 chia/ptu, thu tu co dinh, sqrt PSD (khong rsqrt). bc1s truyen vao
  * theo ABI nhung cong thuc spec p-update dung bc2s - giu cho team Inference
  * giu nguyen dinh nghia bias-correction (cua so confirm het Phase 2).
+ * coef (2026-11-11, request #14): g_eff = coef * g tinh NGAY trong kernel,
+ * 1 luot, khong buffer trung gian. coef == 1.0f -> phep nhan la dong nhat
+ * IEEE-754 -> bit-giong het duong cu. AdamwStepF32C la ban 13 tham so;
+ * AdamwStepF32 giu nguyen ABI 12 tham so (coef = 1.0f).
  * Tra ve 0 = OK, -1 tham so sai. */
-EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
-                        float lr, float b1, float b2, float eps, float wd,
-                        float bc1s, float bc2s) {
+static int adamw_step_f32_impl(float* p, float* m, float* v, const float* g, int n,
+                               float lr, float b1, float b2, float eps, float wd,
+                               float bc1s, float bc2s, float coef) {
     (void)bc1s;
     if (!p || !m || !v || !g || n <= 0) return -1;
     float one_mb1 = 1.0f - b1;
@@ -1581,9 +1586,11 @@ EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
     __m256 vbc2s = _mm256_set1_ps(bc2s);
     __m256 vepsbc = _mm256_set1_ps(eps_bc2s);
     __m256 vlrwd = _mm256_set1_ps(lr_wd);
+    __m256 vcoef = _mm256_set1_ps(coef);
     /* 2026-11-09: SIMD 8-thread split qua pool ben trong (mode 8) khi n lon
      * (cap ~ g_nw, TKV_MAXT = 32). Bit-exact: moi tieu thu co cung thu tu
-     * cong gian (disjoint ranges, cung cong thuc per-element). */
+     * cong gian (disjoint ranges, cung cong thuc per-element; coef nhan
+     * giong het tren moi range). */
     if (n >= 65536) {
         int nt = tkv_nlogical();
         if (nt > TKV_MAXT) nt = TKV_MAXT;
@@ -1591,13 +1598,14 @@ EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
             g_adamw_global.g = g; g_adamw_global.p = p; g_adamw_global.m = m; g_adamw_global.v = v;
             g_adamw_global.n = n; g_adamw_global.lr = lr; g_adamw_global.b1 = b1; g_adamw_global.b2 = b2;
             g_adamw_global.eps = eps; g_adamw_global.wd = wd; g_adamw_global.bc2s = bc2s;
+            g_adamw_global.coef = coef;
             tkv_run_aux(nt, 8, m, v, p, n, 1, 0.0f, (long long)n);
             return 0;
         }
     }
     int i = 0;
     for (; i + 8 <= n; i += 8) {
-        __m256 vg = _mm256_loadu_ps(g + i);
+        __m256 vg = _mm256_mul_ps(_mm256_loadu_ps(g + i), vcoef);
         __m256 vm = _mm256_loadu_ps(m + i);
         __m256 vv = _mm256_loadu_ps(v + i);
         __m256 vp = _mm256_loadu_ps(p + i);
@@ -1616,7 +1624,7 @@ EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
         _mm256_storeu_ps(p + i, vp);
     }
     for (; i < n; i++) {
-        float gi = g[i];
+        float gi = g[i] * coef;
         float mi = b1 * m[i] + one_mb1 * gi;
         float vi = b2 * v[i] + one_mb2 * gi * gi;
         m[i] = mi;
@@ -1625,6 +1633,21 @@ EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
         p[i] = p[i] - lr * (mi * bc2s) / (sqrtf(vi) + eps_bc2s) - lr_wd * p[i];
     }
     return 0;
+}
+
+EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
+                        float lr, float b1, float b2, float eps, float wd,
+                        float bc1s, float bc2s) {
+    return adamw_step_f32_impl(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s, 1.0f);
+}
+
+/* AdamwStepF32C(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s, coef) -> i32
+ * Ban coef cua AdamwStepF32 (request #14): g_eff = coef * g tinh trong kernel,
+ * khong buffer trung gian. coef == 1.0f -> bit-giong het AdamwStepF32. */
+EXPORT int AdamwStepF32C(float* p, float* m, float* v, const float* g, int n,
+                         float lr, float b1, float b2, float eps, float wd,
+                         float bc1s, float bc2s, float coef) {
+    return adamw_step_f32_impl(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s, coef);
 }
 
 /* §0.148: khai bao truoc de lmhead_bwd_fused goi duoc (dinh nghia o cuoi file). */

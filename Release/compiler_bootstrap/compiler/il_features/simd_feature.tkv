@@ -1451,6 +1451,8 @@ def _pt_m5_pinvoke() -> "list[str]":
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "F32CopyFrom" winapi) int64 F32CopyFromNative(native int p, int32 n, native int dst, int32 dst_len) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "F32Addcmul" winapi) int32 F32AddcmulNative(native int dst, native int x, native int y, float32 scale, int32 n) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "AdamwStepF32" winapi) int32 AdamwNative(native int p, native int m, native int v, native int g, int32 n, float32 lr, float32 b1, float32 b2, float32 eps, float32 wd, float32 bc1s, float32 bc2s) cil managed preservesig { }',
+        # Request #14 (2026-11-11): ban coef - g_eff = coef * g tinh trong kernel, khong buffer trung gian.
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "AdamwStepF32C" winapi) int32 AdamwNativeC(native int p, native int m, native int v, native int g, int32 n, float32 lr, float32 b1, float32 b2, float32 eps, float32 wd, float32 bc1s, float32 bc2s, float32 coef) cil managed preservesig { }',
     ]
 
 
@@ -2759,11 +2761,13 @@ def _pt_dp_wrappers() -> "list[str]":
         '    throw',
         '  }',
     ]
-    # adamw_step_glm: CUNG cong thuc GĐ10/entry AdamwNative nhu adamw_step, nhung
+    # adamw_step_glm: CUNG cong thuc GĐ10/entry AdamwNativeC nhu adamw_step, nhung
     # g la list[f32] (doc truc tiep _items) thay vi buffer i64 - bo vong r1
-    # f32_copy_to_buf o bien (spec §2.4).
+    # f32_copy_to_buf o bien (spec §2.4). coef (request #14) nhan ngay trong
+    # kernel: g_eff = coef * g, khong buffer trung gian; coef == 1.0 ->
+    # bit-giong het duong truoc (nhan 1.0 la dong nhat IEEE-754).
     ra = ra + [
-        '  .method public static int32 AdamwGlmM(int64 p, int64 m, int64 v, ' + lt + ' g, int32 n, float32 lr, float32 b1, float32 b2, float32 eps, float32 wd, float32 bc1s, float32 bc2s) cil managed',
+        '  .method public static int32 AdamwGlmM(int64 p, int64 m, int64 v, ' + lt + ' g, int32 n, float32 lr, float32 b1, float32 b2, float32 eps, float32 wd, float32 bc1s, float32 bc2s, float32 coef) cil managed',
         '  {',
         '    .maxstack 16',
         '    .locals init (float32[] p0, int32 len0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0)',
@@ -2786,8 +2790,8 @@ def _pt_dp_wrappers() -> "list[str]":
         '    ldloc.3', '    conv.i',
         '    ldarg.s 4',
         '    ldarg.s 5', '    ldarg.s 6', '    ldarg.s 7', '    ldarg.s 8',
-        '    ldarg.s 9', '    ldarg.s 10', '    ldarg.s 11',
-        '    call int32 ' + _SIMD_CLASS + '::AdamwNative(native int, native int, native int, native int, int32, float32, float32, float32, float32, float32, float32, float32)',
+        '    ldarg.s 9', '    ldarg.s 10', '    ldarg.s 11', '    ldarg.s 12',
+        '    call int32 ' + _SIMD_CLASS + '::AdamwNativeC(native int, native int, native int, native int, int32, float32, float32, float32, float32, float32, float32, float32, float32)',
         '    ret',
         '  V_AGLZ:',
         '    ldc.i4.0',
@@ -4026,14 +4030,18 @@ def compile_f32_grad_norm(args: "list[TkvNode]", scope: "Scope", out: "list[str]
 
 
 def compile_adamw_step_glm(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
-    """adamw_step_glm(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s) -> i32.
+    """adamw_step_glm(p, m, v, g, n, lr, b1, b2, eps, wd, bc1s, bc2s, coef) -> i32.
 
     YEU CAU #3 §2.4: CUNG entry native/cong thuc GĐ10 nhu `adamw_step`, nhung
     `g` la list[f32] doc truc tiep `_items` (khong qua f32_copy_to_buf - bo vong
-    r1 78-94 ms/buoc o bien). p/m/v van la buffer native i64. Khi coef != 1.0
-    (clip hoat dong) van dung `f32_addcmul` + `adamw_step` nhu cu."""
-    if len(args) != 12:
-        raise SyntaxError("il_codegen: adamw_step_glm(p,m,v,g,n,lr,b1,b2,eps,wd,bc1s,bc2s) can dung 12 tham so")
+    r1 78-94 ms/buoc o bien). p/m/v van la buffer native i64.
+    YEU CAU #14 (2026-11-11): them `coef` (float32, tham so thu 13) - kernel
+    tinh g_eff = coef * g ngay trong mot luot, khong buffer trung gian, cho
+    nhanh clip (clip_grad_norm_) khong can 3 buoc phu (f32_copy_to_buf +
+    f32_zero + f32_addcmul). coef == 1.0 -> bit-giong het duong truoc
+    (nhan 1.0f la dong nhat IEEE-754)."""
+    if len(args) != 13:
+        raise SyntaxError("il_codegen: adamw_step_glm(p,m,v,g,n,lr,b1,b2,eps,wd,bc1s,bc2s,coef) can dung 13 tham so")
     _kn_buffer(args[0], scope, 'adamw_step_glm', 'p')
     _kn_buffer(args[1], scope, 'adamw_step_glm', 'm')
     _kn_buffer(args[2], scope, 'adamw_step_glm', 'v')
@@ -4048,9 +4056,9 @@ def compile_adamw_step_glm(args: "list[TkvNode]", scope: "Scope", out: "list[str
         ctx.compile_expr(args[i], scope, out, 'i64', ctx)
     _nap_mang(args[3], scope, out, ctx)
     ctx.compile_expr(args[4], scope, out, 'i32', ctx)
-    for i in range(5, 12):
+    for i in range(5, 13):
         ctx.compile_expr(args[i], scope, out, 'f32', ctx)
-    out.append('    call int32 ' + _SIMD_CLASS + '::AdamwGlmM(int64, int64, int64, ' + _LT_F32 + ', int32, ' + _join_lap('float32', 7) + ')')
+    out.append('    call int32 ' + _SIMD_CLASS + '::AdamwGlmM(int64, int64, int64, ' + _LT_F32 + ', int32, ' + _join_lap('float32', 8) + ')')
 
 
 def compile_simd_lanes_f32(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
