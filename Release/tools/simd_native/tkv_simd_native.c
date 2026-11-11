@@ -1627,6 +1627,10 @@ EXPORT int AdamwStepF32(float* p, float* m, float* v, const float* g, int n,
     return 0;
 }
 
+/* §0.148: khai bao truoc de lmhead_bwd_fused goi duoc (dinh nghia o cuoi file). */
+EXPORT int TkvTorchAddmmTaOut(const float* dl, const float* xf, float* dwte,
+                              int64_t T, int64_t V, int64_t E);
+
 /* ---------------- M6: fused lm-head backward (SPEC M4-M7 §M6) --------------
  * lmhead_bwd_fused: doc logits + ids -> softmax-grad (fp32, max-sub, giam tu
  * tu v=0..V-1) -> dxf = dlogits @ wte -> tich luy dwte += dlogits^T @ xf.
@@ -1708,6 +1712,20 @@ EXPORT int lmhead_bwd_fused(const float* logits, const int* ids, const float* wt
     /* pha 2: dxf = dl @ wte - GEMM blocked/threaded, ghi de (dxf la OUTPUT) */
     run_rect_shaped(dl, V, wte, E, dxf, E, T, E, V);
 
+    /* pha 3+4+5 (§0.148, 2026-11-11): dwte += dlT @ xf trong MOT lenh ATen.
+     * Duong cu: tmp = dlT @ xf (run_rect_ta_shaped/openblas 255 ms)
+     *          + dwte += tmp (AVX2 36.5 ms) = 298.8 ms, kem malloc tmp 147 MB.
+     * addmm_out(dwte, dwte, dl.t(), xf, 1, 1) = 195.9 ms -> -102.9 ms/step,
+     * bo luon buffer tmp. rc != 0 (bridge cu / thieu torch) -> roi xuong
+     * duong cu NGUYEN VAN ben duoi (soft-fail, giong moi cho khac).
+     * Numerics: khac thu vien tich luy -> loss lech ~1e-7 (da chap nhan waiver). */
+    int rc_addmm = TkvTorchAddmmTaOut(dl, xf, dwte, T, V, E);
+    if (rc_addmm == 0) {
+        free(dl);
+        return 0;
+    }
+
+    /* ---- fallback: duong cu nguyen van ---- */
     /* pha 3+4: tmp = dlT @ xf. dl la [T][V] = [k][m] nen doc THANG bang
      * gemm_rect_ta_f32 (A [k][m]) - bo han buoc transpose 51,5M ptu (do
      * 2026-11-07 @seq1024: 110 ms) va bo buffer dlT 205 MB. Thu tu cong k (t)
@@ -2548,6 +2566,9 @@ typedef int (*tkv_atnb_fn)    (const float*, const float*, const float*, const f
 typedef int (*tkv_mm_t_fn)    (const float*, const float*, float*, int64_t, int64_t, int64_t);
 typedef int (*tkv_sdpa_fn)    (const float*, float*, int64_t, int64_t, int64_t);
 typedef int (*tkv_gelu_bwd_fn)(const float*, const float*, float*, int64_t);
+/* §0.148: dwte += dlT @ xf trong MOT lenh ATen (addmm_out, beta=1).
+ * dl [T][V] doc thang (ATen tu .t() -> khong transpose vat ly). */
+typedef int (*tkv_addmm_ta_fn)(const float*, const float*, float*, int64_t, int64_t, int64_t);
 static HMODULE g_torch_fused = NULL;
 static tkv_lin_gelu_fn p_lin_gelu = NULL;
 static tkv_lin_fn p_lin = NULL;
@@ -2558,6 +2579,7 @@ static tkv_atnb_fn p_atnb = NULL;
 static tkv_mm_t_fn p_mm_t = NULL;
 static tkv_sdpa_fn p_sdpa = NULL;
 static tkv_gelu_bwd_fn p_gelu_bwd = NULL;
+static tkv_addmm_ta_fn p_addmm_ta = NULL;
 
 static int tkv_torch_fused_load(void) {
     if (g_torch_fused) return 1;
@@ -2598,6 +2620,7 @@ static int tkv_torch_fused_load(void) {
     p_mm_t = (tkv_mm_t_fn)GetProcAddress(h, "TkvTorchMmT");
     p_sdpa = (tkv_sdpa_fn)GetProcAddress(h, "TkvTorchSdpa");
     p_gelu_bwd = (tkv_gelu_bwd_fn)GetProcAddress(h, "TkvTorchGeluBwd");
+    p_addmm_ta = (tkv_addmm_ta_fn)GetProcAddress(h, "TkvTorchAddmmTaOut");
     g_torch_fused = h;
     return 1;
 }
@@ -2653,6 +2676,17 @@ EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,
     if (!tkv_torch_fused_load()) return -9;
     if (!p_mm_t) return -9;
     return p_mm_t(x, w, y, n, in_d, out_d);
+}
+
+/* §0.148: dwte += dlT @ xf trong MOT lenh ATen (addmm_out beta=1).
+ * rc != 0 -> caller (lmhead_bwd_fused) roi xuong duong openblas cu. */
+EXPORT int TkvTorchAddmmTaOut(const float* dl, const float* xf, float* dwte,
+                              int64_t T, int64_t V, int64_t E) {
+    if (!dl || !xf || !dwte) return -1;
+    if (T <= 0 || V <= 0 || E <= 0) return -2;
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_addmm_ta) return -9;
+    return p_addmm_ta(dl, xf, dwte, T, V, E);
 }
 
 EXPORT int TkvTorchSdpa(const float* qkv, float* y, int64_t n,

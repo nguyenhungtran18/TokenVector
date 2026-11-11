@@ -310,3 +310,26 @@ TKV_TORCH_EXPORT int TkvTorchSdpa(const float* qkv, float* y,
         return -5;
     }
 }
+
+/* §0.148 (2026-11-11): dwte += dlT @ xf trong MOT lenh ATen.
+ * dl [T][V] row-major; doc thang bang .t() -> khong transpose vat ly, khong buffer tmp.
+ * dwte [V][E] TICH LUY (beta=1) -> caller phai zero truoc (giong hop dong cu).
+ * Thay 2 buoc cu: tmp = dlT @ xf (openblas 255 ms) + dwte += tmp (36.5 ms).
+ * Do truoc: addmm_out 195.9 ms vs 298.8 ms -> -102.9 ms/step.
+ * Numerics: khac thu vien tich luy (ATen/oneDNN vs scipy-openblas) -> loss lech ~1e-7. */
+TKV_TORCH_EXPORT int TkvTorchAddmmTaOut(const float* dl, const float* xf, float* dwte,
+                                        int64_t T, int64_t V, int64_t E) {
+    if (!dl || !xf || !dwte) return -1;
+    if (T <= 0 || V <= 0 || E <= 0) return -2;
+    try {
+        auto t_dl = wrap_in(dl, T, V);
+        auto t_xf = wrap_in(xf, T, E);
+        auto t_dw = wrap_in(dwte, V, E);
+        at::addmm_out(t_dw, t_dw, t_dl.t(), t_xf, 1.0, 1.0);
+        return 0;
+    } catch (const std::exception&) {
+        return -4;
+    } catch (...) {
+        return -5;
+    }
+}
