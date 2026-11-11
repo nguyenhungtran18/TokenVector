@@ -76,3 +76,18 @@ Release/tests_suite/chay.exe
 
 # Perch session metadata (khong phai source)
 .perch/
+
+# --- Scratch cua Release/ (2026-11-11, §0.149) -----------------------------
+# `Release/out/` la thu muc lam viec tam: DLL copy ra de bench + exe/il cua
+# probe mot lan (zlst.*). KHONG phai san pham ban giao, khong ai doc lai.
+# Truoc day no hien `?? Release/out/` moi lan `git status`, che mat source
+# that su da sua. Quy tac phai NAM SAU cac dong `!Release/...` o tren.
+/Release/out/
+
+# Backup do chinh cac phien sua tay tao ra (2026-11-11 §0.148): ban sao 5 file
+# C truoc khi patch addmm_out. Da doi chieu, khong con can.
+/Release/tools/simd_native/_bak_20261111_addmm/
+
+# tkvc-tv.exe.new_*/.bak_* la file tam cua mot lan build lai compiler
+/Release/dist/tkvc-tv.exe.bak_*
+/Release/dist/tkvc-tv.exe.new_*
