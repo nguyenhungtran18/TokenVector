@@ -186,10 +186,32 @@ def npbm_str(reps, n):
     print(f"cs={cs}  best={best}")
 
 
+def npbm_scan_only(reps, n):
+    """CHI do PHA QUET (2026-11-11), doi xung voi b_scan_only cua TKV:
+    chuoi 1.6M ky tu + buffer byte duoc dung MOT LAN o ngoai vong do, ben
+    trong chi con phep so sanh/tong kieu C. Day la TACH PHEP DO (giong het
+    cach npbm_str dang lam voi encode/frombuffer), khong phai tang toc."""
+    import numpy as np
+    s = "abcdefgh" * n
+    ln = len(s)
+    b = np.frombuffer(s.encode("ascii"), dtype=np.uint8)
+    best = 1.0e9
+    cnt = 0
+    for _ in range(reps):
+        t0 = _time.perf_counter()
+        cnt = int((b == 101).sum())
+        d = (_time.perf_counter() - t0) * 1000.0
+        if d < best:
+            best = d
+    print(f"cs={cnt}  best={best}")
+
+
 _DISPATCH = {'add': 'bm_add', 'matmul32': 'bm_matmul', 'fib': 'bm_fib', 'sort': 'bm_sort', 'string': 'bm_str',
-             'np_add': 'npbm_add', 'np_matmul32': 'npbm_matmul', 'np_sort': 'npbm_sort', 'np_string': 'npbm_str'}
+             'np_add': 'npbm_add', 'np_matmul32': 'npbm_matmul', 'np_sort': 'npbm_sort', 'np_string': 'npbm_str',
+             'np_scan_only': 'npbm_scan_only'}
 _CALLS = {'add': 'bm_add(20, 262144)', 'matmul32': 'bm_matmul(20, 32)', 'fib': 'bm_fib(32)', 'sort': 'bm_sort(20, 200000)', 'string': 'bm_str(3, 200000)',
-          'np_add': 'npbm_add(20, 262144)', 'np_matmul32': 'npbm_matmul(20, 32)', 'np_sort': 'npbm_sort(20, 200000)', 'np_string': 'npbm_str(3, 200000)'}
+          'np_add': 'npbm_add(20, 262144)', 'np_matmul32': 'npbm_matmul(20, 32)', 'np_sort': 'npbm_sort(20, 200000)', 'np_string': 'npbm_str(3, 200000)',
+          'np_scan_only': 'npbm_scan_only(15, 200000)'}
 if __name__ == "__main__":
     k = sys.argv[1]
     exec(_CALLS[k])

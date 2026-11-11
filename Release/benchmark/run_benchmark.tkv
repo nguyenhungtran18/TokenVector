@@ -53,7 +53,7 @@ def b_string(runs: "i32", n: "i32") -> "f64":
         buf = ["abcdefgh"] * n
         s = "".join(buf)
         cnt: "i32" = 0
-        j = 0
+        j: "i32" = 0
         # Dem bang char_code_at (don vi UTF-16) - khong tao substring 1 ky tu.
         while j < n:
             if char_code_at(s, j) == 101:
@@ -97,6 +97,32 @@ def b_string_scan(runs: "i32", n: "i32") -> "f64":
             best = d
         i = i + 1
     print("string_scan(200000)=" + str(cs) + "  best=" + str(best))
+    return best
+
+
+def b_scan_only(runs: "i32", n: "i32") -> "f64":
+    # CHI do PHA QUET (2026-11-11): chuoi 1.6M ky tu duoc dung MOT LAN o ngoai
+    # vong do, y het cach NumPy duoc do (encode + frombuffer ngoai vong, chi
+    # con phep so sanh/tong ben trong). Tach row nay vi row `string` tron
+    # (build + join + quet) bi chi phoi boi viec LAP CHUOI managed, khong noi
+    # len toc do quet. KHONG phai tang toc - chi la tach phep do.
+    chunk = "abcdefgh"
+    buf = [chunk] * n
+    s = "".join(buf)
+    ln: "i32" = len(s)
+    best: "f64" = 1.0e9
+    i: "i32" = 0
+    cs: "i64" = 0
+    while i < runs:
+        t0 = time_perf()
+        c2: "i64" = simd_count_char(s, 101, ln)
+        t1 = time_perf()
+        d: "f64" = (t1 - t0) * 1000.0
+        if d < best:
+            best = d
+        cs = c2
+        i = i + 1
+    print("string_scan_only(1600000)=" + str(cs) + "  best=" + str(best))
     return best
 
 
@@ -651,6 +677,7 @@ def main() -> "i32":
     tf = b_fib(60)
     ts = b_string(3, 200000)
     tss = b_string_scan(3, 200000)
+    tso = b_scan_only(15, 200000)
     to = b_sort(20, 200000)
     ta = b_add(20, 262144)
     tm_il = b_matmul32_il(20, 32)
@@ -662,6 +689,7 @@ def main() -> "i32":
     print("fib            " + str(tf))
     print("string         " + str(ts))
     print("string scan    " + str(tss))
+    print("string scan only " + str(tso) + "   (quet 1.6M ky tu, build ngoai vong do)")
     print("sort           " + str(to))
     print("add            " + str(ta))
     print("matmul32_il    " + str(tm_il))
@@ -669,6 +697,6 @@ def main() -> "i32":
     print("f32mm scalar   " + str(t32))
     print("f32mm vec      " + str(t32v) + "   (nhanh hon scalar " + str(t32 / t32v) + "x)")
     # Phai DUNG moi bien, neu khong JIT coi ket qua la chet
-    if tf < 0.0 or ts < 0.0 or tss < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or tm_il < 0.0 or t32 < 0.0 or t32v < 0.0:
+    if tf < 0.0 or ts < 0.0 or tss < 0.0 or tso < 0.0 or to < 0.0 or ta < 0.0 or tm < 0.0 or tm_il < 0.0 or t32 < 0.0 or t32v < 0.0:
         return 1
     return 0

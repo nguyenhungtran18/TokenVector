@@ -22,6 +22,7 @@ python py_kernels.py np_string
 python py_kernels.py np_sort
 python py_kernels.py np_add
 python py_kernels.py np_matmul32
+python py_kernels.py np_scan_only
 
 # 2. TokenVector
 .\run_benchmark.exe
