@@ -361,8 +361,56 @@ def _doi_ten_v(khoi: "list[str]") -> "list[str]":
     return ra
 
 
+def _mk_tinh_n(L: "list[str]", mang: "list[int]"):
+    """IL: n = min(do dai cac mang) -> stloc.1; n == 0 -> nhay V_VEC."""
+    L.append('    ldarg.' + str(mang[0]))
+    L.append('    ldlen')
+    L.append('    conv.i4')
+    for i in mang[1:]:
+        L.append('    ldarg.' + str(i))
+        L.append('    ldlen')
+        L.append('    conv.i4')
+        L.append('    call int32 [mscorlib]System.Math::Min(int32, int32)')
+    L.append('    stloc.1')
+    L.append('    ldloc.1')
+    L.append('    brfalse V_VEC')
+
+
+def _mk_ghim(L: "list[str]", mang: "list[int]", t: "str"):
+    """IL: ghim tung mang vao local 2..2+len-1 (kieu `T& pinned`)."""
+    for j, i in enumerate(mang):
+        L.append('    ldarg.' + str(i))
+        L.append('    ldc.i4.0')
+        L.append('    ldelema ' + t)
+        L.append('    stloc.s ' + str(2 + j))
+
+
+def _mk_day_tham_so(L: "list[str]", tham_so: "list[str]", mang: "list[int]", t: "str") -> "list[str]":
+    """Day tham so theo thu tu goc: mang -> con tro da ghim (native int),
+    con lai -> ldarg. Tra ve danh sach kieu cho calli/P/Invoke."""
+    ct = []
+    j = 0
+    for i, ts in enumerate(tham_so):
+        if i in mang:
+            L.append('    ldloc.s ' + str(2 + j))
+            L.append('    conv.i')
+            ct.append('native int')
+            j += 1
+        else:
+            L.append('    ldarg.' + str(i))
+            ct.append(t)
+    return ct
+
+
 def _mang_khoi(ten_ham: "str", tham_so: "list[str]", tra_ve: "str", d: "str", loai: "str", ma_kern: "int") -> "list[str]":
-    """Dispatcher: neu co kernel native (AVX2/SSE) thi ghim mang + calli, nguoc lai goi ban Vector<T> '...V'."""
+    """Dispatcher 3 tang: kernel RWX (Windows) -> P/Invoke .so (Linux/macOS)
+    -> ban vo huong '...V'.
+
+    2026-11-12 (Phase A.2): tren Linux `Kern(id)` tra 0 (khong co blob RWX nen
+    truoc day roi vao vong vo huong managed). Nhung .so van export AddF32/... ban
+    AVX2 (`gcc -mavx2`) va da duoc nap san cho GEMM -> goi thang qua P/Invoke
+    khi `plat == 2`. Windows + `TKV_SIMD_ISA=off` van giu vo huong (khong doi
+    ngu nghia co tat kernel, va khong phu thuoc DLL tren Windows)."""
     t = _ten_il(d)
     h = _hau_to(d)
     L = []
@@ -382,41 +430,29 @@ def _mang_khoi(ten_ham: "str", tham_so: "list[str]", tra_ve: "str", d: "str", lo
     L.append('    call native int ' + _SIMD_CLASS + '::Kern(int32)')
     L.append('    stloc.0')
     L.append('    ldloc.0')
-    L.append('    brfalse V_VEC')
-    # n = min do dai cac mang
-    L.append('    ldarg.' + str(mang[0]))
-    L.append('    ldlen')
-    L.append('    conv.i4')
-    for i in mang[1:]:
-        L.append('    ldarg.' + str(i))
-        L.append('    ldlen')
-        L.append('    conv.i4')
-        L.append('    call int32 [mscorlib]System.Math::Min(int32, int32)')
-    L.append('    stloc.1')
-    L.append('    ldloc.1')
-    L.append('    brfalse V_VEC')
-    for j, i in enumerate(mang):
-        L.append('    ldarg.' + str(i))
-        L.append('    ldc.i4.0')
-        L.append('    ldelema ' + t)
-        L.append('    stloc.s ' + str(2 + j))
-    # nap doi so cho kernel theo thu tu tham so goc; sau do n, roi con tro ham
-    ct = []
-    j = 0
-    for i, ts in enumerate(tham_so):
-        if i in mang:
-            L.append('    ldloc.s ' + str(2 + j))
-            L.append('    conv.i')
-            ct.append('native int')
-            j += 1
-        else:
-            L.append('    ldarg.' + str(i))
-            ct.append(t)
+    L.append('    brfalse P_TRY')
+    # --- 1) kernel RWX trong bo nho thuc thi (Windows AVX2/SSE) ---
+    _mk_tinh_n(L, mang)
+    _mk_ghim(L, mang, t)
+    ct = _mk_day_tham_so(L, tham_so, mang, t)
     L.append('    ldloc.1')
     ct.append('int32')
     L.append('    ldloc.0')
     L.append('    calli unmanaged stdcall ' + tra_ve + '(' + ', '.join(ct) + ')')
     L.append('    ret')
+    # --- 2) P/Invoke thang vao .so (Linux/macOS): cung chu ky voi calli ---
+    L.append('  P_TRY:')
+    L.append('    ldsfld int32 ' + _SIMD_CLASS + '::plat')
+    L.append('    ldc.i4.2')
+    L.append('    bne.un V_VEC')
+    _mk_tinh_n(L, mang)
+    _mk_ghim(L, mang, t)
+    ct2 = _mk_day_tham_so(L, tham_so, mang, t)
+    L.append('    ldloc.1')
+    ct2.append('int32')
+    L.append('    call ' + tra_ve + ' ' + _SIMD_CLASS + '::' + ten_ham + h + 'Native(' + ', '.join(ct2) + ')')
+    L.append('    ret')
+    # --- 3) vo huong (fallback cuoi) ---
     L.append('  V_VEC:')
     for i in range(len(tham_so)):
         L.append('    ldarg.' + str(i))
@@ -442,6 +478,7 @@ def _pt_native_ho_tro() -> "list[str]":
         '  .field public static valuetype [mscorlib]System.IntPtr[] tab',
         '  .field public static int32 st',
         '  .field public static int32 isa',
+        '  .field public static int32 plat',
         '  .method public hidebysig static pinvokeimpl("kernel32.dll" as "IsProcessorFeaturePresent" winapi) int32 IsProcessorFeaturePresent(int32) cil managed preservesig { }',
         '  .method public hidebysig static pinvokeimpl("kernel32.dll" as "VirtualAlloc" winapi) native int VirtualAlloc(native int, native int, int32, int32) cil managed preservesig { }',
         '  .method public static void Init() cil managed',
@@ -451,12 +488,17 @@ def _pt_native_ho_tro() -> "list[str]":
         '    stsfld int32 ' + _SIMD_CLASS + '::st',
         '    ldc.i4.0',
         '    stsfld int32 ' + _SIMD_CLASS + '::isa',
+        '    ldc.i4.1',
+        '    stsfld int32 ' + _SIMD_CLASS + '::plat',
         '    call class [mscorlib]System.OperatingSystem [mscorlib]System.Environment::get_OSVersion()',
         '    callvirt instance valuetype [mscorlib]System.PlatformID [mscorlib]System.OperatingSystem::get_Platform()',
         '    ldc.i4.2',
-        '    bne.un I_END',
+        '    bne.un I_POSIX',
         '    call void ' + _SIMD_CLASS + '::InitWin()',
-        '  I_END:',
+        '    ret',
+        '  I_POSIX:',
+        '    ldc.i4.2',
+        '    stsfld int32 ' + _SIMD_CLASS + '::plat',
         '    ret',
         '  }',
         '  .method public static void InitWin() cil managed',
@@ -2837,6 +2879,24 @@ def _lop_simd_rong() -> "list[str]":
     return [_simd_dau(), '{', '}']
 
 
+def _pt_elem_pinvoke(d: "str") -> "list[str]":
+    """P/Invoke cho 7 op phan tu - CUNG DLL voi GEMM (tkv_simd_native.dll,
+    tren Linux la file .so cung ten). Chu ky khop voi kernel RWX: mang ->
+    native int (con tro da ghim), `n` cuoi; Scale/Axpy giu dung thu tu tham so
+    cua C (`ScaleF32(a, s, o, n)`, `AxpyF32(alpha, x, y, n)`)."""
+    h = _hau_to(d)
+    t = _ten_il(d)
+    return [
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "Add' + h + '" winapi) void Add' + h + 'Native(native int a, native int b, native int o, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "Sub' + h + '" winapi) void Sub' + h + 'Native(native int a, native int b, native int o, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "Mul' + h + '" winapi) void Mul' + h + 'Native(native int a, native int b, native int o, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "Scale' + h + '" winapi) void Scale' + h + 'Native(native int a, ' + t + ' s, native int o, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "Axpy' + h + '" winapi) void Axpy' + h + 'Native(' + t + ' alpha, native int x, native int y, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "Dot' + h + '" winapi) ' + t + ' Dot' + h + 'Native(native int a, native int b, int32 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "Sum' + h + '" winapi) ' + t + ' Sum' + h + 'Native(native int a, int32 n) cil managed preservesig { }',
+    ]
+
+
 def _elem_block(d: "str") -> "list[str]":
     """Nhom method SIMD phan tu cua 1 dtype: ban fallback (hau to V), ban
     mang T[], wrapper List<T>, va Max/Min.
@@ -2883,6 +2943,8 @@ def _elem_block(d: "str") -> "list[str]":
     ra = ra + _mang_khoi_list('Sum', 1, 0, t, d, -1)
     ra = ra + _mang_khoi_list('Max', 1, 0, t, d, -1)
     ra = ra + _mang_khoi_list('Min', 1, 0, t, d, -1)
+    if d == 'f32' or d == 'f64':
+        ra = ra + _pt_elem_pinvoke(d)
     return ra
 
 
