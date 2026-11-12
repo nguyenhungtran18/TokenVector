@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.14] - 2026-11-12
+
+### Changed
+
+- Bundled compiler refreshed to TokenVector 1.0.14 (`tkvc-tv.exe`):
+  `RepL` fast path for list repeat (`[x]*n`, total >= 64) — array doubling
+  via `Array.Copy` + `_items`/`_size` reflection install; `[chunk]*200000`
+  string build 0.99 -> 0.51 ms (~1.9x). `"".join(list[str])` unchanged
+  (experimental JoinList reverted after .NET 10 JIT rejected it).
+- Benchmark re-verified: gate 136/136, negative 44/44, inference 135/135,
+  trainer 15/15, self-host build IL_IDENTICAL.
+
 ## [1.0.13] - 2026-11-11
 
 ### Changed

@@ -4,7 +4,7 @@
 
 <p align="left">
   <img src="https://img.shields.io/badge/.NET-10-purple.svg?style=flat-square" alt=".NET 10">
-  <img src="https://img.shields.io/badge/version-1.0.13-blue.svg?style=flat-square" alt="version 1.0.13">
+  <img src="https://img.shields.io/badge/version-1.0.14-blue.svg?style=flat-square" alt="version 1.0.14">
   <img src="https://img.shields.io/badge/tests-136%2F136-brightgreen.svg?style=flat-square" alt="tests 136/136">
   <img src="https://img.shields.io/badge/builtins-423-orange.svg?style=flat-square" alt="builtins 423">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License: MIT">
