@@ -43,7 +43,6 @@ Assembled method TkvStr::Post
 Assembled method TkvStr::Expand16
 Assembled method TkvStr::ParseF64
 Assembled method TkvStr::Replace
-Assembled method TkvStr::JoinList
 Assembled method TkvStr::ReplaceCount
 Assembled method TkvStr::RFind
 Assembled method TkvStr::IsDigit
@@ -112,12 +111,12 @@ Emitting fields and methods:
 Global 	
 Class 1	Fields: 2;	Methods: 27;	
 Class 2	Methods: 3;	
-Class 3	Methods: 16;	
+Class 3	Methods: 15;	
 Class 4	Methods: 9;	
 Class 5	Fields: 1;	Methods: 10;	
 Class 6	Methods: 14;	
 Class 7	Methods: 23;	
-Resolving local member refs: 345 -> 348 defs, 0 refs, 0 unresolved
+Resolving local member refs: 342 -> 345 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	
