@@ -209,12 +209,64 @@ def _ensure_class_slice(ctx: "Ctx"):
         '  }',
         '  .method public static class [mscorlib]System.Collections.Generic.List`1<!!0> RepL<T>(class [mscorlib]System.Collections.Generic.List`1<!!0> s, int32 n) cil managed',
         '  {',
-        '    .maxstack 8',
-        '    .locals init (class [mscorlib]System.Collections.Generic.List`1<!!0> r, int32 i, int32 cnt, !!0 v)',
+        '    .maxstack 16',
+        '    .locals init (class [mscorlib]System.Collections.Generic.List`1<!!0> r, int32 i, int32 cnt, !!0 v,',
+        '                  int32 total, !!0[] arr, int32 filled, int32 m,',
+        '                  class [mscorlib]System.Type ty,',
+        '                  class [mscorlib]System.Reflection.FieldInfo fI,',
+        '                  class [mscorlib]System.Reflection.FieldInfo fS)',
         # n <= 0 hoac source rong -> list rong (giu hanh vi cu: vong i>=n ngay)
         '    ldarg.1', '    ldc.i4.0', '    ble TKVSL_RZ',
         '    ldarg.0', '    callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<!!0>::get_Count()', '    stloc.s 2',
         '    ldloc.s 2', '    brfalse TKVSL_RZ',
+        '    ldloc.s 2', '    ldarg.1', '    mul', '    conv.ovf.i4', '    stloc.s 4',
+        # total >= 64: MAN array + Array.Copy nhan DOI (1.6MB bang memmove)
+        # + reflection '_items' / '_size' de gan List tro truc tiep vao mang
+        # (khong AddCall 200k lan, khong tao list thu 2). Do that: 0.99ms ->
+        # 0.3-0.4ms tren Framework 4.8. total < 64: giu nguyen duong Add cu.
+        '    ldloc.s 4', '    ldc.i4.s 64', '    blt TKVSL_OLD',
+        '    ldloc.s 4', '    newarr !!0', '    stloc.s 5',
+        # Phase A: copy cnt phan tu dau tien (s[i] = arr[i]) bang stelem.any -
+        # cho [chunk]*n voi cnt==1 chi la 1 phep gan.
+        '    ldloc.s 2', '    ldloc.s 4', '    call int32 [mscorlib]System.Math::Min(int32, int32)', '    stloc.s 7',
+        '    ldc.i4.0', '    stloc.1',
+        '  TKVSL_RL0:',
+        '    ldloc.1', '    ldloc.s 7', '    bge TKVSL_RL0D',
+        '    ldloc.s 5', '    ldloc.1',
+        '    ldarg.0', '    ldloc.1', '    callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<!!0>::get_Item(int32)',
+        '    stelem.any !!0',
+        '    ldloc.1', '    ldc.i4.1', '    add', '    stloc.1', '    br TKVSL_RL0',
+        '  TKVSL_RL0D:',
+        '    ldloc.s 7', '    stloc.s 6',
+        # Phase B: nhan doi: src[0..filled) -> dst[filled..filled+m)
+        '  TKVSL_RL1:',
+        '    ldloc.s 6', '    ldloc.s 4', '    bge TKVSL_RHW',
+        '    ldloc.s 4', '    ldloc.s 6', '    sub', '    ldloc.s 6', '    call int32 [mscorlib]System.Math::Min(int32, int32)', '    stloc.s 7',
+        '    ldloc.s 5', '    ldc.i4.0', '    ldloc.s 5', '    ldloc.s 6', '    ldloc.s 7',
+        '    call void [mscorlib]System.Array::Copy(class [mscorlib]System.Array, int32, class [mscorlib]System.Array, int32, int32)',
+        '    ldloc.s 6', '    ldloc.s 7', '    add', '    stloc.s 6', '    br TKVSL_RL1',
+        # Phase C: boc mang vao List qua reflection ('_items' tro dung mang,
+        # '_size' = total). Compiler da dung reflection '_items' o simd_feature.
+        '  TKVSL_RHW:',
+        '    ldtoken class [mscorlib]System.Collections.Generic.List`1<!!0>',
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    stloc.s 8',
+        '    ldloc.s 8', '    ldstr "_items"', '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 9',
+        '    ldloc.s 8', '    ldstr "_size"', '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 10',
+        '    ldloc.s 4',
+        '    newobj instance void class [mscorlib]System.Collections.Generic.List`1<!!0>::.ctor(int32)',
+        '    stloc.0',
+        '    ldloc.s 9', '    ldloc.0', '    ldloc.s 5',
+        '    callvirt instance void [mscorlib]System.Reflection.FieldInfo::SetValue(object, object)',
+        '    ldloc.s 10', '    ldloc.0', '    ldloc.s 4', '    box int32',
+        '    callvirt instance void [mscorlib]System.Reflection.FieldInfo::SetValue(object, object)',
+        '    ldloc.0', '    ret',
+        # total < 64: duong cu (Add/AddRange), van dung cnt tu TKVSL_OLD
+        '  TKVSL_OLD:',
         # PRE-SIZE r = new List<T>(cnt * n): RepL cu AddRange khong presize,
         # moi lan grow + dispatch interface -> [chunk]*n 200k = 13.2ms (cham
         # hon append 5.8ms). Sau presize cac Add/AddRange khong con grow nua.

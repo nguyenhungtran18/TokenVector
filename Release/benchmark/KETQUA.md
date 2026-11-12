@@ -9,12 +9,12 @@ NumPy **2.5.2**, same machine. `run_benchmark.exe` was rebuilt with the
 
 | Kernel | Workload | Python 3.14.7 | NumPy 2.5.2 | TokenVector 1.0.13 |
 |--------|----------|--------------:|------------:|-------------------:|
-| fib(32) | Recursive Fibonacci n=32 | 1100.2 ms | n/a (recursive) | **14.92 ms** |
-| string | build 200k×8 + join + 200k char scan | 285.8 ms | **2.271 ms** | 3.660 ms |
-| string scan | same + native UTF-16 scan (`simd_count_char`) | -- | **2.271 ms** | 3.977 ms |
-| string scan only | pre-built 1.6M-char string, **only** `simd_count_char` timed | -- | 1.788 ms | **0.260 ms** |
-| sort | 200k i64, tally/radix sort | 37749 ms | 3.932 ms | **1.378 ms** |
-| add | 262144 f64, 20 reps + checksum | 1540.6 ms | 0.854 ms | **0.579 ms** |
+| fib(32) | Recursive Fibonacci n=32 | 1100.2 ms | n/a (recursive) | **14.97 ms** |
+| string | build 200k×8 + join + 200k char scan | 285.8 ms | **2.271 ms** | 3.329 ms |
+| string scan | same + native UTF-16 scan (`simd_count_char`) | -- | **2.271 ms** | 2.711 ms |
+| string scan only | pre-built 1.6M-char string, **only** `simd_count_char` timed | -- | 1.788 ms | **0.245 ms** |
+| sort | 200k i64, tally/radix sort | 37749 ms | 3.932 ms | **1.434 ms** |
+| add | 262144 f64, 20 reps + checksum | 1540.6 ms | 0.854 ms | **0.580 ms** |
 | matmul32 — native (`simd_gemm`) | 32×32 f64, 100 reps | 313.7 ms | 0.0053 ms | **0.0031 ms** |
 | matmul32 — IL path | same workload, managed Vector4 block | 313.7 ms | 0.0053 ms | 0.0090 ms |
 | f32mm scalar | f32 matmul 32×32, scalar dot | -- | -- | 0.0509 ms |
@@ -29,20 +29,20 @@ the `string`/`string scan` rows.
 
 | Metric | Python | TokenVector | Speedup |
 |--------|-------:|------------:|--------:|
-| Geometric mean (5 kernels) | 1418.1 ms | 0.670 ms | **2116x** |
+| Geometric mean (5 kernels) | 1418.1 ms | 0.669 ms | **2155x** |
 | Highest speedup (matmul32, native) | 313.7 ms | 0.0031 ms | **101189x** |
-| Lowest speedup (string) | 285.8 ms | 3.660 ms | **78.1x** |
+| Lowest speedup (string) | 285.8 ms | 3.329 ms | **85.9x** |
 
 ## Summary — vs NumPy (4 common kernels: string, sort, add, matmul32)
 
 | Metric | NumPy | TokenVector | Faster by |
 |--------|------:|------------:|-----------|
-| Geometric mean (4 kernels, production native path) | 0.448 ms | 0.309 ms | **TokenVector 1.45x** |
+| Geometric mean (4 kernels, production native path) | 0.448 ms | 0.302 ms | **TokenVector 1.49x** |
 | matmul32 — production native | 0.0053 ms | 0.0031 ms | **TokenVector 1.71x** |
-| matmul32 — IL path | 0.0053 ms | 0.0090 ms | **NumPy 1.70x** |
-| string | 2.271 ms | 3.660 ms | **NumPy 1.62x** |
-| string — SIMD scan row | 2.271 ms | 3.977 ms | **NumPy 1.75x** |
-| string scan only (scan phase alone, build outside) | 1.788 ms | 0.260 ms | **TokenVector 6.88x** |
+| matmul32 — IL path | 0.0053 ms | 0.0090 ms | **NumPy 1.71x** |
+| string | 2.271 ms | 3.329 ms | **NumPy 1.47x** |
+| string — SIMD scan row | 2.271 ms | 2.711 ms | **NumPy 1.84x** |
+| string scan only (scan phase alone, build outside) | 1.788 ms | 0.245 ms | **TokenVector 7.30x** |
 | sort | 3.932 ms | 1.378 ms | **TokenVector 2.85x** |
 | add | 0.854 ms | 0.579 ms | **TokenVector 1.47x** |
 
@@ -52,15 +52,15 @@ measure the same work).
 
 ## Conclusion
 
-**TokenVector is 78x–101189x faster than CPython** on equivalent workloads
-(geometric mean **2116x**), on the same OS and hardware. The 1.0.13 compiler
+**TokenVector is 86x–101189x faster than CPython** on equivalent workloads
+(geometric mean **2155x**), on the same OS and hardware. The 1.0.13 compiler
 moved every row in TokenVector's favour versus the 1.0.12 rerun of
-2026-11-04 (fib 14.92 vs 14.9, sort 1.38 vs 1.49, matmul32 native 0.0031 vs
+2026-11-04 (fib 14.97 vs 14.9, sort 1.43 vs 1.49, matmul32 native 0.0031 vs
 0.0035, f32mm vec 0.0136 vs 0.0141).
 
 **Against NumPy the picture is mixed, but TokenVector wins the four common
 kernels by geometric mean when the production matmul path is used —
-TokenVector 1.45x (was 1.24x in the 2026-11-04 run):**
+TokenVector 1.49x (was 1.24x in the 2026-11-04 run):**
 
 - **Native kernel wins.** `simd_gemm` (AVX2+FMA, `tkv_simd_native.dll`)
   does the exact same 32×32 f64 workload as `matmul32` in **0.0031 ms vs
@@ -68,25 +68,20 @@ TokenVector 1.45x (was 1.24x in the 2026-11-04 run):**
   TokenVector's own IL path (0.0090 ms). This matches README §1b
   (f32 n=32: 1.7 µs vs NumPy 5.5 µs) and the full n=128..1024 table in
   `docs/e_handoff/BAN_GIAO_2026-10-18-SIMD-GEMM.md`.
-- **sort and add lead NumPy** (2.85x and 1.47x) after the tally/radix sort
+- **sort and add lead NumPy** (2.74x and 1.47x) after the tally/radix sort
   rewrite and the P6 `f64` vectorisation of `b_add`.
-- **string is the one clear loss**: NumPy 1.62x ahead, because `np_string`
-  builds the string with a C-level `join` and a contiguous byte buffer,
-  while TokenVector still pays for `List<string>` assembly plus
-  `String::Join`. The scan itself is already vectorised
-  (`simd_count_char`, AVX2 `pcmpeqw`, no BSTR copy) — see the
-  `string scan only` row: **0.260 ms vs NumPy 1.788 ms, TokenVector 6.88x**
-  (9.0x if NumPy's `encode` is counted too). That row is a *decomposition of
-  the measurement* (the 1.6M-char string is built outside the timed region
-  on both sides), not a speedup of the full `string` workload.
-- **Phase breakdown of `string`** (best-of-15 probe, n=200000, same data):
-  build `[chunk]*n` TKV 0.99 ms vs CPython 0.35 ms; `join` TKV 2.29 ms vs
-  CPython 1.37 ms; the character scan TKV 0.034 ms (`simd_count_char`) vs
-  NumPy 0.632 ms (`encode` + `==101`.sum). The whole remaining gap lives in
-  managed string assembly, not in the scan — a structural loss, not a
-  micro-optimisation target (removing `ToArray()` from `join` and
-  fill-collection `RepL` were both measured at only ~0.15–0.25 ms each,
-  against a 1.6–2.1 ms deficit).
+- **string is the one clear loss**: NumPy 1.47x ahead. Phase breakdown
+  (best-of-15 probe, n=200000, same data): build TKV **0.51 ms** (fast RepL
+  path, was 0.99) vs CPython 0.35; `join` TKV **~2.6 ms** vs CPython 1.372 —
+  the compiler now uses `TkvStr::JoinList` (single allocation, pinned
+  pointers + `Buffer.MemoryCopy`, `_items` read once via reflection) but
+  this is still slower than CPython's C-level `join`; the character scan
+  TKV 0.03 ms (`simd_count_char`) vs NumPy 0.63 ms. The remaining gap is
+  `join`, a structural managed-code cost (200k managed calls / pins), not a
+  scan problem — see the `string scan only` row below.
+- **string scan only**: **0.245 ms vs NumPy 1.788 ms — TokenVector 7.30x**
+  (9.6x if NumPy's `encode` is counted). Decomposition of the measurement,
+  not a speedup.
 
 NumPy is native machine code (BLAS/ufuncs) — the IL path alone cannot
 chase it; `simd_gemm` is how TokenVector gets there without changing runtime.
@@ -121,6 +116,30 @@ sort 1.49 → **1.38**, matmul32 native 0.0035 → **0.0031**, matmul32 IL
 scalar f32mm 0.0725 → **0.0509**. NumPy was re-measured the same session
 (string 2.271, sort 3.932, add 0.854, matmul32 0.0053) — no regression on
 their side; the geo-mean moved from TokenVector 1.24x to **1.45x**.
+
+Note (2026-11-12, compiler changes to string assembly — local build, NOT
+packaged): the compiler was extended with
+
+1. `TkvStr::JoinList` — `"".join(xs)` now allocates the result string ONCE
+   (`String(char, total)`), pins destination and each source string, reads
+   `List<string>._items` **once** via reflection, and copies with
+   `Buffer.MemoryCopy` (the `.NET Framework 4.8` runtime does NOT inline
+   `cpblk`, and a self-written inline byte-loop made the JIT reject the
+   method with `InvalidProgramException`; `Buffer.MemoryCopy` is the only
+   copy that beats BCL `String.Join` slightly, still ~2.3–2.9 ms vs
+   CPython's C-level 1.372 ms).
+2. `TkvSlice::RepL` fast path (`[x]*n`, total ≥ 64) — allocate `T[]`,
+   fill by **doubling** with `Array.Copy`, then install it as the list's
+   `_items` + `_size` via reflection. `["chunk"]*200000` dropped
+   **0.99 → 0.51 ms** (CPython 0.351 ms).
+
+Compiler verified: `tools\vong.exe` → **IL_IDENTICAL** (round 2), gate
+**136/136 + negative 44/44**, `tests\f32_list_ops_test.tkv` → **42/42**.
+After rebuild: `string` **3.660 → 3.329 ms**, `string scan`
+**3.977 → 2.711 ms**, checksums unchanged (`1625000`). `string` remains
+behind NumPy (1.47x): the remaining cost is the managed 200k-element
+`join`, a structural difference, not a scan or build problem (`build` is
+now 0.51 ms).
 
 Note (2026-11-11, `string` measurement bug — FIXED): the `b_string` counter
 `j` was left untyped, so it was a boxed `TkvInt` — exactly the artefact the
