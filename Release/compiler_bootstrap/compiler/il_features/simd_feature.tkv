@@ -431,7 +431,13 @@ def _mang_khoi(ten_ham: "str", tham_so: "list[str]", tra_ve: "str", d: "str", lo
 
 
 def _pt_native_ho_tro() -> "list[str]":
-    """Init/Kern/Isa + P/Invoke kernel32: nap kernel vao bo nho thuc thi (VirtualAlloc RWX)."""
+    """Init/Kern/Isa + P/Invoke kernel32: nap kernel vao bo nho thuc thi (VirtualAlloc RWX).
+
+    2026-11-12 (Phase A cross-platform): Init() chi goi InitWin() khi
+    Environment.OSVersion.Platform == Win32NT. Tren Linux/macOS, InitWin()
+    KHONG BAO GIO duoc goi -> method khong duoc JIT -> P/Invoke kernel32
+    khong bao gio duoc resolve -> khong con DllNotFoundException.
+    Khi do st = 2, isa = 0 -> Kern() tra 0 -> dispatcher dung ban Vector<T>."""
     ra = [
         '  .field public static valuetype [mscorlib]System.IntPtr[] tab',
         '  .field public static int32 st',
@@ -441,11 +447,22 @@ def _pt_native_ho_tro() -> "list[str]":
         '  .method public static void Init() cil managed',
         '  {',
         '    .maxstack 8',
-        '    .locals init (string e, string b64, native int mem, uint8[] code, int32 i)',
         '    ldc.i4.2',
         '    stsfld int32 ' + _SIMD_CLASS + '::st',
         '    ldc.i4.0',
         '    stsfld int32 ' + _SIMD_CLASS + '::isa',
+        '    call class [mscorlib]System.OperatingSystem [mscorlib]System.Environment::get_OSVersion()',
+        '    callvirt instance valuetype [mscorlib]System.PlatformID [mscorlib]System.OperatingSystem::get_Platform()',
+        '    ldc.i4.2',
+        '    bne.un I_END',
+        '    call void ' + _SIMD_CLASS + '::InitWin()',
+        '  I_END:',
+        '    ret',
+        '  }',
+        '  .method public static void InitWin() cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (string e, string b64, native int mem, uint8[] code, int32 i)',
         '    ldstr "TKV_SIMD_ISA"',
         '    call string [mscorlib]System.Environment::GetEnvironmentVariable(string)',
         '    stloc.0',
@@ -2821,17 +2838,24 @@ def _lop_simd_rong() -> "list[str]":
 
 
 def _elem_block(d: "str") -> "list[str]":
-    """Nhom method SIMD phan tu cua 1 dtype: ban Vector<T> (hau to V), ban
-    mang T[], wrapper List<T>, va Max/Min."""
+    """Nhom method SIMD phan tu cua 1 dtype: ban fallback (hau to V), ban
+    mang T[], wrapper List<T>, va Max/Min.
+
+    2026-11-12: ban V dung vo huong (KHONG dung Vector<T>).
+    Ly do: tren .NET 10, `Vector<T>.op_Addition` khong resolve duoc tu IL
+    tham chieu `[System.Numerics.Vectors]` -> MissingMethodException khi
+    chay khong co kernel native (Linux/WSL, hoac TKV_SIMD_ISA=off).
+    Duong nhanh khong doi: kernel native AVX2/SSE (Windows) van duoc uu tien;
+    ban vo huong chi la fallback."""
     ra: "list[str]" = []
     t = _ten_il(d)
     if d == 'f32' or d == 'f64':
         so = 0 if d == 'f32' else 1
-        ra = ra + _doi_ten_v(_pt_dot(d))
-        ra = ra + _doi_ten_v(_pt_sum(d))
-        ra = ra + _doi_ten_v(_pt_vong_2(d, 'Add', 'op_Addition', 'add'))
-        ra = ra + _doi_ten_v(_pt_vong_2(d, 'Sub', 'op_Subtraction', 'sub'))
-        ra = ra + _doi_ten_v(_pt_vong_2(d, 'Mul', 'op_Multiply', 'mul'))
+        ra = ra + _doi_ten_v(_pt_dot_scalar(d))
+        ra = ra + _doi_ten_v(_pt_sum_scalar(d))
+        ra = ra + _doi_ten_v(_pt_vong_2_scalar(d, 'Add', 'add'))
+        ra = ra + _doi_ten_v(_pt_vong_2_scalar(d, 'Sub', 'sub'))
+        ra = ra + _doi_ten_v(_pt_vong_2_scalar(d, 'Mul', 'mul'))
         ra = ra + _doi_ten_v(_pt_scale(d))
         ra = ra + _doi_ten_v(_pt_axpy(d))
         ra = ra + _mang_khoi('Dot', [t + '[] a', t + '[] b'], t, d, 'dot', so * 7 + 0)
