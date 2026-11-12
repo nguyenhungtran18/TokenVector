@@ -151,6 +151,56 @@ static void tkv_mkl_gemm(int transA, int m, int n, int k,
 }
 #endif
 
+#if !defined(_WIN32) && !defined(TKV_LINK_MKL)
+#include <glob.h>
+/* Nạp BLAS trên Linux/POSIX. Không có "thư mục module" kiểu Win32 (dotnet host
+ * nằm ở /opt/dotnet, .so nằm trong app dir) và tên .so của scipy-openblas có
+ * hash (libscipy_openblas64_<hash>.so) nên phải thử soname + glob numpy.libs.
+ * Trả về handle; `name` nhận tên/path đã dùng (để log). */
+static const char* const tkv_blas_sonames[] = {
+    "libscipy_openblas64_.so",
+    "libopenblas64_.so.0", "libopenblas64_.so",
+    "libopenblas.so.0", "libopenblas.so",
+    "libmkl_rt.so.2", "libmkl_rt.so",
+    0
+};
+static const char* const tkv_blas_globs[] = {
+    "/usr/local/lib/python*/dist-packages/numpy.libs/libscipy_openblas64_*.so",
+    "/usr/local/lib/python*/site-packages/numpy.libs/libscipy_openblas64_*.so",
+    "/usr/lib/python*/dist-packages/numpy.libs/libscipy_openblas64_*.so",
+    "/usr/local/lib/python*/dist-packages/scipy.libs/libscipy_openblas64_*.so",
+    "/usr/local/lib/libscipy_openblas64_*.so",
+    "/usr/lib/x86_64-linux-gnu/libopenblas64_*.so*",
+    "/usr/lib/x86_64-linux-gnu/libopenblas.so*",
+    0
+};
+static HMODULE tkv_blas_open_posix(char* name, size_t cap) {
+    for (int i = 0; tkv_blas_sonames[i]; i++) {
+        HMODULE h = LoadLibraryA(tkv_blas_sonames[i]);
+        if (h) {
+            strncpy(name, tkv_blas_sonames[i], cap - 1);
+            name[cap - 1] = 0;
+            return h;
+        }
+    }
+    for (int i = 0; tkv_blas_globs[i]; i++) {
+        glob_t g;
+        memset(&g, 0, sizeof(g));
+        if (glob(tkv_blas_globs[i], 0, 0, &g) == 0 && g.gl_pathc > 0) {
+            HMODULE h = LoadLibraryA(g.gl_pathv[0]);
+            if (h) {
+                strncpy(name, g.gl_pathv[0], cap - 1);
+                name[cap - 1] = 0;
+                globfree(&g);
+                return h;
+            }
+        }
+        globfree(&g);
+    }
+    return 0;
+}
+#endif
+
 static int tkv_blas_load(void) {
     if (g_blas_state != 0) return g_blas_state;
 #ifdef TKV_LINK_MKL
@@ -158,27 +208,61 @@ static int tkv_blas_load(void) {
     g_blas_state = 1;
     return 1;
 #else
-    /* BLAS mặc định bật (zero-config): GLAS_RUN_ENV thay qua opt-in
-     * TKV_GEMM_BLAS=1; với env khác ('0') tách BLAS hoàn toàn.
-     * Biên dịch thử nghiệm: .\bench_attn.exe tuỳ chọn TKV_GEMM_BLAS=0. */
+    /* Windows: mặc định bật (zero-config), tìm `libscipy_openblas64_.dll` cạnh
+     * module; TKV_GEMM_BLAS=0 -> tắt hẳn.
+     * Linux/macOS: OPT-IN bằng TKV_GEMM_BLAS=1 — mặc định vẫn dùng kernel AVX2
+     * nội bộ để giữ loss EXACT (cùng kết quả với Windows) khi không yêu cầu.
+     * TKV_GEMM_BLAS_PATH trỏ thẳng file .dll/.so nếu muốn. */
     const char* env_blas = getenv("TKV_GEMM_BLAS");
     if (env_blas && env_blas[0] == '0') { g_blas_state = -1; return -1; }
     char path_buf[MAX_PATH] = {0};
+    char blas_name[256] = {0};
     const char* env_path = getenv("TKV_GEMM_BLAS_PATH");
+#ifndef _WIN32
+    /* Linux: OPT-IN — bật khi TKV_GEMM_BLAS được set (khác "0") hoặc khi
+     * TKV_GEMM_BLAS_PATH chỉ thẳng file .so. Mặc định vẫn kernel nội bộ. */
+    if (!((env_blas && env_blas[0] && env_blas[0] != '0') ||
+          (env_path && env_path[0]))) { g_blas_state = -1; return -1; }
+#endif
     g_blas_mod = NULL;
-    if (env_path && env_path[0]) g_blas_mod = LoadLibraryA(env_path);
+    if (env_path && env_path[0]) {
+        g_blas_mod = LoadLibraryA(env_path);
+        if (g_blas_mod) {
+            strncpy(blas_name, env_path, sizeof(blas_name) - 1);
+            blas_name[sizeof(blas_name) - 1] = 0;
+        }
+    }
     if (!g_blas_mod) {
+#ifdef _WIN32
         DWORD len = GetModuleFileNameA(NULL, path_buf, MAX_PATH);
         if (len > 0 && len < MAX_PATH) {
             char* slash = strrchr(path_buf, '\\');
             if (slash) {
                 strcpy(slash + 1, "libscipy_openblas64_.dll");
                 g_blas_mod = LoadLibraryA(path_buf);
+                if (g_blas_mod) {
+                    strncpy(blas_name, path_buf, sizeof(blas_name) - 1);
+                }
             }
         }
+        if (!g_blas_mod) {
+            g_blas_mod = LoadLibraryA("libscipy_openblas64_.dll");
+            if (g_blas_mod) {
+                strncpy(blas_name, "libscipy_openblas64_.dll", sizeof(blas_name) - 1);
+            }
+        }
+#else
+        (void)path_buf;
+        g_blas_mod = tkv_blas_open_posix(blas_name, sizeof(blas_name));
+#endif
     }
-    if (!g_blas_mod) g_blas_mod = LoadLibraryA("libscipy_openblas64_.dll");
-    if (!g_blas_mod) { g_blas_state = -1; return -1; }
+    if (!g_blas_mod) {
+        g_blas_state = -1;
+        const char* dbg = getenv("TKV_GEMM_BLAS_DEBUG");
+        if (dbg && dbg[0] && dbg[0] != '0')
+            fprintf(stderr, "[tkv] BLAS: khong nap duoc -> kernel noi bo\n");
+        return -1;
+    }
     p_cblas_sgemm = (void(*)(int, int, int, TKV_BLASINT, TKV_BLASINT, TKV_BLASINT,
                              float, const float*, TKV_BLASINT,
                              const float*, TKV_BLASINT, float, float*, TKV_BLASINT))
@@ -192,7 +276,8 @@ static int tkv_blas_load(void) {
     if (!p_openblas_set_num_threads)
         p_openblas_set_num_threads = (void(*)(int))GetProcAddress(g_blas_mod, "scipy_openblas_set_num_threads");
     if (!p_cblas_sgemm) { FreeLibrary(g_blas_mod); g_blas_mod = NULL; g_blas_state = -1; return -1; }
-    fprintf(stderr, "[tkv] BLAS: scipy-openblas64_ loaded (cblas_sgemm)\n");
+    fprintf(stderr, "[tkv] BLAS: %s (cblas_sgemm)\n",
+            blas_name[0] ? blas_name : "(khong ten)");
     g_blas_state = 1;
     return 1;
 #endif
@@ -200,6 +285,28 @@ static int tkv_blas_load(void) {
 
 /* Return 1 = BLAS da dung thay kernel native, 0 = dung kernel native. */
 static int tkv_nthreads(int n);
+
+/* Nguong kich thuoc cho BLAS (mac dinh 512): cac loi goi SgemmF32 voi n = T
+ * (tile 64/256) ben trong vong lap packed KHONG nen goi BLAS - overhead goi
+ * + thread pool cua BLAS lam CHAM hon kernel noi bo (do tren WSL 2026-11-12:
+ * mode2 seq1024 native TONG 8 975 ms vs BLAS-moi-tile 10 210 ms).
+ * Ep bang TKV_GEMM_BLAS_MIN_N=0 de quay lai hanh vi cu (BLAS cho moi n). */
+static int tkv_blas_min_n(void) {
+    static int v = -1;
+    if (v < 0) {
+        const char* s = getenv("TKV_GEMM_BLAS_MIN_N");
+#ifdef _WIN32
+        /* Windows: giu nguyen hanh vi cu (BLAS cho moi n) de khong lam lech
+         * cac so da do truoc 2026-11-12. */
+        v = (s && s[0]) ? atoi(s) : 0;
+#else
+        v = (s && s[0]) ? atoi(s) : 512;
+#endif
+        if (v < 0) v = 0;
+    }
+    return v;
+}
+
 static int tkv_try_blas(float* a, float* b, float* o, int n) {
     if (tkv_blas_load() != 1) return 0;
     int nt = tkv_nthreads(n);
@@ -1072,7 +1179,7 @@ static int tkv_k_eff(const float* b, const float* a, int n) {
 
 EXPORT void SgemmF32(float* a, float* b, float* o, int n) {
     if (TkvCUDA_SgemmF32(a, b, o, n)) return;
-    if (tkv_try_blas(a, b, o, n)) return;
+    if (n >= tkv_blas_min_n() && tkv_try_blas(a, b, o, n)) return;
     /* M7: lop VOCAB (n == 50257) chia cot manh + NC lon; con lai pattern cu.
      * nho (< MIN_N mac dinh 96) da tro thanh nt = 1 trong tkv_nthreads. */
     int nt = tkv_nthreads(n);
