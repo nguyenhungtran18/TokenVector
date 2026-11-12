@@ -29,19 +29,20 @@ dist\tkvc-tv.exe demo.tkv demo.exe run
 .\demo.exe
 ```
 
-The output is a **~6 KB** `.exe` (hello-world) that runs on any machine with the
-.NET Framework — **no Python, no runtime bundle, no venv**.
+The output is a **~6 KB** `.exe` (hello-world) that runs on any machine with
+**.NET 10** (ordinary programs also run on .NET Framework 4.8) — **no Python,
+no runtime bundle, no venv**.
 
 ---
 
 ## 1. Status — verified, not aspirational
 
 Everything below is checked by a gate in this repository. Numbers are from
-2026-11-04.
+2026-11-12.
 
 | Gate | Command | Result |
 |---|---|---|
-| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **135/135** pass, **44/44** negative cases correctly rejected |
+| Compiler acceptance | `powershell -File tools\testkit_gate.ps1` | **136/136** pass, **44/44** negative cases correctly rejected |
 | Self-host fixpoint | `tools\vong.exe` | **IL_IDENTICAL** (133 files) |
 | Performance | `powershell -File tools\perf_gate.ps1` | 4 kernels, best-of-5, **checksum is compared** |
 | Lint-rule self-test | `powershell -File tools\lint_rules_gate.ps1` | 8/8 traps caught, 0 false positives |
@@ -63,19 +64,18 @@ Everything below is checked by a gate in this repository. Numbers are from
 
 ## 1b. Where TokenVector competes — and where it does not
 
-Measured 2026-11-04 against **CPython 3.14.7** and **NumPy 2.5.2**
-(OpenBLAS 0.3.34, Haswell kernel). Full method and checksums:
-`benchmark/KETQUA.md`.
+Measured 2026-11-12 against **CPython 3.14.7** and **NumPy 2.5.2**.
+Full method and checksums: `benchmark/KETQUA.md`.
 
 **Against CPython, TokenVector wins on every kernel in the harness:**
 
 | kernel | TokenVector | CPython | TokenVector faster by |
 |---|---|---|---|
-| fib(32) | 14.9 ms | 1169 ms | **78×** |
-| sort | 1.51 ms | 37659 ms | **24989×** (different algorithms; see note) |
-| matmul32 (native `matmul`) | 3.2 µs | 308 ms | **96250×** |
-| add | 0.582 ms | 1540 ms | **2647×** |
-| string | 5.28 ms | 337 ms | **64×** |
+| fib(32) | 14.74 ms | 1100.2 ms | **74.6×** |
+| sort | 1.370 ms | 37749 ms | **27554×** (different algorithms; see note) |
+| matmul32 (native `matmul`) | 3.1 µs | 313.7 ms | **101189×** |
+| add | 0.580 ms | 1540.6 ms | **2657×** |
+| string | 3.414 ms | 285.8 ms | **83.7×** |
 
 **Against NumPy the picture is mixed, and `string` is now bounded by
 `join`, not per-character allocation:** NumPy is CPython calling **native
@@ -83,12 +83,12 @@ machine code**, not a managed runtime:
 
 | kernel | TokenVector | NumPy | faster by |
 |---|---|---|---|
-| matmul32 (`simd_gemm`, f64) | 3.3 µs | 5.2 µs | **TokenVector 1.58×** |
-| matmul32 (IL f32x4 path) | 9.5 µs | 5.2 µs | NumPy 1.83× |
-| add | 0.582 ms | 0.845 ms | **TokenVector 1.45×** |
-| sort | 1.51 ms | 3.93 ms | **TokenVector 2.61×** (different algorithms; see note) |
-| string | 5.28 ms | 2.23 ms | NumPy 2.37× |
-| string — SIMD scan row | 4.58 ms | 2.23 ms | NumPy 2.05× |
+| matmul32 (`simd_gemm`, f64) | 3.1 µs | 5.3 µs | **TokenVector 1.71×** |
+| matmul32 (IL f32x4 path) | 9.0 µs | 5.3 µs | NumPy 1.71× |
+| add | 0.580 ms | 0.854 ms | **TokenVector 1.47×** |
+| sort | 1.370 ms | 3.932 ms | **TokenVector 2.87×** (different algorithms; see note) |
+| string | 3.414 ms | 2.271 ms | NumPy 1.50× |
+| string — SIMD scan row | 3.326 ms | 2.271 ms | NumPy 1.46× |
 
 NumPy is native machine code (BLAS/ufuncs), not a managed runtime. The IL
 path cannot chase BLAS consistently; `simd_gemm` is the native route. The
@@ -97,7 +97,7 @@ merge for negative/out-of-range input, so its ratio measures a different
 algorithm, not a general-purpose comparison sort.
 
 **So the honest position is: TokenVector is a CPython replacement.** Its
-measured speedups over the interpreter it replaces are 64×–96250× in this
+measured speedups over the interpreter it replaces are 84×–101189× in this
 harness, and it has working SIMD. The pure-IL path cannot reach `f64` BLAS
 performance on .NET 10; `simd_gemm` does, through a native kernel,
 without changing the runtime.
@@ -117,7 +117,7 @@ It is **not** CPython with a faster interpreter. It is a **transpiler to CIL**:
 compiler_bootstrap/  the compiler — 133 .tkv files (the real TokenVector source)
 compiler_src/        file manifest (ds_gop.txt) used to concatenate them
 dist/                tkvc-tv.exe — the self-hosted compiler
-tests/               135 acceptance tests + 44 negative cases
+tests/               136 acceptance tests + 44 negative cases
 tests_suite/         154 .ca data-driven cases + 203 input samples
 tools/               gates + tkv_guide.tkv (the language guide, written in TokenVector)
 projects/            19 real tools written in .tkv
