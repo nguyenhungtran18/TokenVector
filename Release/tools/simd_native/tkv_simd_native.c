@@ -12,14 +12,20 @@
  * va ban f64 tuong tu.
  */
 #include <immintrin.h>
-#include <windows.h>
+/* TkvCUDA_SgemmF32: defined in tkv_cuda_native.c (dlopen libcublas) */
+int TkvCUDA_SgemmF32(const float* a, const float* b, float* o, int n);
+#include "tkv_platform.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
 #include <stdio.h>
 
+#ifdef _WIN32
 #define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
 
 static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i0, int i1, int j0, int j1,
                           int mc_b, int nc_b, int bpl);
@@ -81,27 +87,11 @@ static void lmhead_add_rows(float* dst, const float* src, int E, int v0, int v1)
 static int tkv_min_n = -1;
 static int tkv_cap = -1;   /* >0: ep buoc; -1: chua doc env; 0: auto */
 
-/* Dem so core VAT LY (RelationProcessorCore) - tren Windows >= Vista. */
+/* Dem so core VAT LY. Tren Linux dung so processor online (xap xi vat ly -
+ * khong xet hyperthreading; toi uu hoa sau neu can). */
 static int tkv_ncores(void) {
-    DWORD len = 0;
-    if (!GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len) || len == 0)
-        return 0;
-    char* buf = (char*)malloc(len);
-    if (!buf) return 0;
-    int nc = 0;
-    if (GetLogicalProcessorInformationEx(RelationProcessorCore,
-            (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)buf, &len)) {
-        DWORD off = 0;
-        while (off < len) {
-            SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX* p =
-                (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)(buf + off);
-            if (p->Relationship == RelationProcessorCore) nc++;
-            if (p->Size == 0) break;
-            off += p->Size;
-        }
-    }
-    free(buf);
-    return nc;
+    int nc = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    return nc >= 1 ? nc : 1;
 }
 
 /* So processor LOGICAL (co the gap doi neu co hyperthread). */
@@ -209,6 +199,7 @@ static int tkv_blas_load(void) {
 }
 
 /* Return 1 = BLAS da dung thay kernel native, 0 = dung kernel native. */
+static int tkv_nthreads(int n);
 static int tkv_try_blas(float* a, float* b, float* o, int n) {
     if (tkv_blas_load() != 1) return 0;
     int nt = tkv_nthreads(n);
@@ -398,7 +389,7 @@ static SRWLOCK g_gemm_lock = SRWLOCK_INIT;
 
 typedef struct { const float* g; float* p; float* m; float* v; long long n; float lr, b1, b2, eps, wd, bc2s, coef; } AdamwGlobal;
 static AdamwGlobal g_adamw_global;
-static __declspec(thread) int t_nested = 0;
+static __thread int t_nested = 0;
 
 /* mode 6 (2026-11-06): pack 1 ma tran f32 vao buffer padded, chia theo HANG
  * DICH [i0,i1). Thuan copy -> moi thu tu deu bit-giong (chi la di chuyen du
@@ -481,7 +472,11 @@ static void adamw_f32_range(float* p, float* m, float* v, const float* g,
     }
 }
 
+#ifdef _WIN32
 static DWORD WINAPI tkv_worker(LPVOID p) {
+#else
+static void* tkv_worker(void* p) {
+#endif
     int t = (int)(INT_PTR)p;
     for (;;) {
         WaitForSingleObject(g_start[t], INFINITE);
@@ -503,7 +498,8 @@ static DWORD WINAPI tkv_worker(LPVOID p) {
         else if (j->mode == 7)
             gemm_rect_ta_f32((const float*)j->a, j->lda, (const float*)j->b, j->ldb,
                              (float*)j->o, j->n, j->m, j->n, j->k, j->i0, j->i1, j->j0, j->j1,
-                             j->mc, j->nc, j->bpl);
+                             j->mc, j->nc, j->bpl);
+
         else if (j->mode == 8)
             adamw_f32_range((float*)j->o, (float*)j->a, (float*)j->b, g_adamw_global.g, j->i0, j->i1,
                             g_adamw_global.lr, g_adamw_global.b1, g_adamw_global.b2, g_adamw_global.eps,
@@ -516,8 +512,12 @@ static DWORD WINAPI tkv_worker(LPVOID p) {
     return 0;
 }
 
+#ifdef _WIN32
 static BOOL CALLBACK tkv_pool_init(PINIT_ONCE o, PVOID p, PVOID* c) {
     (void)o; (void)p; (void)c;
+#else
+static void tkv_pool_init(void) {
+#endif
     int cap = (tkv_cap > 0) ? tkv_cap : tkv_nlogical();
     if (cap < 1) cap = TKV_MAXT;
     if (cap > TKV_MAXT) cap = TKV_MAXT;
@@ -528,7 +528,9 @@ static BOOL CALLBACK tkv_pool_init(PINIT_ONCE o, PVOID p, PVOID* c) {
             CreateThread(NULL, 0, tkv_worker, (LPVOID)(INT_PTR)t, 0, NULL);
     }
     g_nw = cap;
+#if defined(_WIN32)
     return TRUE;
+#endif
 }
 
 static void tkv_run_mt(int nt, const void* a, const void* b, void* o, int n, int f64,
@@ -881,7 +883,7 @@ static void gemm_rows_f32(const float* a, const float* b, float* o, int n, int i
     else
         for (int ii = i0; ii < i1; ii++)
             memset(o + (long long)ii * n + j0, 0, (size_t)(j1 - j0) * sizeof(float));
-    static __declspec(thread) float bp[GEMM_KC * GEMM_BPL_MAX];
+    static __thread float bp[GEMM_KC * GEMM_BPL_MAX];
     /* bao ve buffer (M7): bpl trong [GEMM_BPL, GEMM_BPL_MAX], nc <= bpl - 4 */
     if (bpl < GEMM_BPL) bpl = GEMM_BPL;
     if (bpl > GEMM_BPL_MAX) bpl = GEMM_BPL_MAX;
@@ -908,7 +910,7 @@ static void gemm_rect_f32(const float* a, int lda, const float* b, int ldb, floa
                           int m, int n, int k, int i0, int i1, int j0, int j1,
                           int mc_b, int nc_b, int bpl) {
     if (i1 <= i0 || j1 <= j0) return;
-    static __declspec(thread) float bp[GEMM_KC * GEMM_BPL_MAX];
+    static __thread float bp[GEMM_KC * GEMM_BPL_MAX];
     /* bao ve buffer (M7): bpl trong [GEMM_BPL, GEMM_BPL_MAX], nc <= bpl - 4 */
     if (bpl < GEMM_BPL) bpl = GEMM_BPL;
     if (bpl > GEMM_BPL_MAX) bpl = GEMM_BPL_MAX;
@@ -1022,7 +1024,7 @@ static void gemm_rect_ta_f32(const float* a, int lda, const float* b, int ldb, f
                              int m, int n, int k, int i0, int i1, int j0, int j1,
                              int mc_b, int nc_b, int bpl) {
     if (i1 <= i0 || j1 <= j0) return;
-    static __declspec(thread) float bp[GEMM_KC * GEMM_BPL_MAX];
+    static __thread float bp[GEMM_KC * GEMM_BPL_MAX];
     if (bpl < GEMM_BPL) bpl = GEMM_BPL;
     if (bpl > GEMM_BPL_MAX) bpl = GEMM_BPL_MAX;
     if (nc_b > bpl - 4) nc_b = bpl - 4;
@@ -1069,6 +1071,7 @@ static int tkv_k_eff(const float* b, const float* a, int n) {
 }
 
 EXPORT void SgemmF32(float* a, float* b, float* o, int n) {
+    if (TkvCUDA_SgemmF32(a, b, o, n)) return;
     if (tkv_try_blas(a, b, o, n)) return;
     /* M7: lop VOCAB (n == 50257) chia cot manh + NC lon; con lai pattern cu.
      * nho (< MIN_N mac dinh 96) da tro thanh nt = 1 trong tkv_nthreads. */
@@ -1271,7 +1274,7 @@ static void gemm_rows_f64(const double* a, const double* b, double* o, int n, in
     else
         for (int ii = i0; ii < i1; ii++)
             memset(o + (long long)ii * n + j0, 0, (size_t)(j1 - j0) * sizeof(double));
-    static __declspec(thread) double bp[GEMM_KC64 * GEMM_BPL64];
+    static __thread double bp[GEMM_KC64 * GEMM_BPL64];
     for (int jc = j0; jc < j1; jc += GEMM_NC64) {
         int nc = j1 - jc; if (nc > GEMM_NC64) nc = GEMM_NC64;
         for (int pc = 0; pc < n; pc += GEMM_KC64) {
@@ -2231,7 +2234,7 @@ EXPORT int AttentionBwdFused(const float* qkv, int qkv_len,
      * duoi (soft-fail; loss EXACT nhu truoc). xem tkv_flash_attn.c.
      * TKV_FLASH_OFF=1 de tat dispatch nay (A/B + rollback). */
     {
-        static __declspec(thread) int flash_off = -2;
+        static __thread int flash_off = -2;
         if (flash_off == -2) {
             char fb[8];
             flash_off = (GetEnvironmentVariableA("TKV_FLASH_OFF", fb, 8) > 0 && fb[0] == '1') ? 1 : 0;
@@ -2355,7 +2358,7 @@ EXPORT int AttentionBwdFusedMulti(const float* qkv, int qkv_len,
                                   float* dqo, int dqo_len,
                                   int n, int h, int hd, double inv, int nthreads) {
     {
-        static __declspec(thread) int flash_off_m = -2;
+        static __thread int flash_off_m = -2;
         if (flash_off_m == -2) {
             char fb[8];
             flash_off_m = (GetEnvironmentVariableA("TKV_FLASH_OFF", fb, 8) > 0 && fb[0] == '1') ? 1 : 0;
@@ -2417,7 +2420,7 @@ EXPORT int AttentionBwdMergeMulti(const float* qkv, int qkv_len,
                                   float* dqkv, int dqkv_len,
                                   int n, int h, int hd, double inv, int nthreads) {
     {
-        static __declspec(thread) int flash_off_mm = -2;
+        static __thread int flash_off_mm = -2;
         if (flash_off_mm == -2) {
             char fb[8];
             flash_off_mm = (GetEnvironmentVariableA("TKV_FLASH_OFF", fb, 8) > 0 && fb[0] == '1') ? 1 : 0;
@@ -2613,6 +2616,7 @@ static int tkv_torch_fused_load(void) {
         h = LoadLibraryA(env);
     } else {
         /* 1) tim tkv_torch_fused.dll canh module goi (tkv_simd_native.dll) */
+#ifdef _WIN32
         if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, (LPCTSTR)&tkv_torch_fused_load, &self) && self) {
             char dir[MAX_PATH] = {0};
             DWORD n = GetModuleFileNameA(self, dir, MAX_PATH);
@@ -2620,12 +2624,26 @@ static int tkv_torch_fused_load(void) {
                 char* slash = strrchr(dir, '\\');
                 if (slash) {
                     strcpy(slash + 1, "tkv_torch_fused.dll");
-                    /* LOAD_WITH_ALTERED_SEARCH_PATH -> dep resolve noi theo D:\\...\\out */
+                    /* LOAD_WITH_ALTERED_SEARCH_PATH -> dep resolve noi theo D:\...\out */
                     h = LoadLibraryExA(dir, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
                     if (!h) {}
                 }
             }
         }
+#else
+        {
+            char dir[MAX_PATH] = {0};
+            ssize_t n = readlink("/proc/self/exe", dir, MAX_PATH - 1);
+            if (n > 0) {
+                dir[n] = 0;
+                char* slash = strrchr(dir, '/');
+                if (slash) {
+                    strcpy(slash + 1, "tkv_torch_fused.dll");
+                    h = LoadLibraryA(dir);
+                }
+            }
+        }
+#endif
         /* 2) fallback: search PATH/CWD nhu cu */
         if (!h) h = LoadLibraryA("tkv_torch_fused.dll");
     }
