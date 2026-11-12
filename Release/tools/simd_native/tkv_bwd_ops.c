@@ -19,7 +19,15 @@
 #include <string.h>
 #include <stdlib.h>
 
+#ifdef _WIN32
+#ifdef _WIN32
 #define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
 
 /* ---- LN: .tkv gpt2_layernorm_bwd (md5 9473DB7D... cho gflat path) ---- */
 EXPORT int LayernormBwdFused(const float* x, int x_len, const float* gy, int gy_len,

@@ -38,7 +38,15 @@
  */
 #include <immintrin.h>
 
+#ifdef _WIN32
+#ifdef _WIN32
 #define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
 
 EXPORT int LinearDwFused(const float* x, int x_len, const float* gy, int gy_len,
                          float* gdw, int gdw_len, int gdw_off,

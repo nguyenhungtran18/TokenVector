@@ -7,10 +7,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <windows.h>
+#include "tkv_platform.h"
 #include <immintrin.h>
 
+#ifdef _WIN32
 #define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
 #define TKV_TORCH_PATH_ENV "TKV_TORCH_PATH"
 
 // TkvTorchLinearFwd(x, w, b, n, in_d, out_d, y) -> i32  (y LAST, x64 fastcall)
@@ -29,6 +33,7 @@ static int load_bridge(void) {
         h = LoadLibraryA(env);
     } else {
         /* 1) look alongside this module first */
+#ifdef _WIN32
         if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
                                (LPCTSTR)&load_bridge, &self) && self) {
             char dir[MAX_PATH] = {0};
@@ -41,6 +46,20 @@ static int load_bridge(void) {
                 }
             }
         }
+#else
+        {
+            char dir[MAX_PATH] = {0};
+            ssize_t n = readlink("/proc/self/exe", dir, MAX_PATH - 1);
+            if (n > 0) {
+                dir[n] = 0;
+                char* slash = strrchr(dir, '/');
+                if (slash) {
+                    strcpy(slash + 1, "tkv_torch_fused.dll");
+                    h = LoadLibraryA(dir);
+                }
+            }
+        }
+#endif
         /* 2) fall back to PATH/CWD search */
         if (!h) h = LoadLibraryA("tkv_torch_fused.dll");
     }

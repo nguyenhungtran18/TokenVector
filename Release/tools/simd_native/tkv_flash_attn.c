@@ -60,7 +60,15 @@
 #include <string.h>
 #include <stdint.h>
 
+#ifdef _WIN32
+#ifdef _WIN32
 #define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
 
 #define FL_QS 64
 #define FL_KS 64
@@ -726,7 +734,7 @@ EXPORT int FlashAttentionBwdFusedLse(const float* qkv, int qkv_len,
  * (head * n * hd va head * n * 3 * hd) -> khong co data race, khong can lock,
  * ket qua BIT-IDENTICAL voi duong goi tuan tu.
  * =========================================================================== */
-#include <windows.h>
+#include "tkv_platform.h"
 
 typedef struct {
     const float* qkv;
@@ -741,7 +749,11 @@ typedef struct {
     volatile LONG rc;
 } mh_job_t;
 
+#ifdef _WIN32
 static DWORD WINAPI mh_bwd_worker(LPVOID p) {
+#else
+static void* mh_bwd_worker(void* p) {
+#endif
     mh_job_t* c = (mh_job_t*)p;
     for (;;) {
         LONG head = InterlockedIncrement(&c->next);
@@ -758,7 +770,11 @@ static DWORD WINAPI mh_bwd_worker(LPVOID p) {
     return 0;
 }
 
+#ifdef _WIN32
 static DWORD WINAPI mh_fwd_worker(LPVOID p) {
+#else
+static void* mh_fwd_worker(void* p) {
+#endif
     mh_job_t* c = (mh_job_t*)p;
     for (;;) {
         LONG head = InterlockedIncrement(&c->next);
@@ -885,7 +901,11 @@ static void mh_scatter_head(const float* co, const float* dq,
     }
 }
 
+#ifdef _WIN32
 static DWORD WINAPI mh_merge_worker(LPVOID p) {
+#else
+static void* mh_merge_worker(void* p) {
+#endif
     mh_merge_job_t* c = (mh_merge_job_t*)p;
     long long ctx_len = (long long)c->n * c->hd;
     long long dq_len  = (long long)c->n * 3 * c->hd;

@@ -76,7 +76,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
 #define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
 
 /* ==== Ban sao DOC THU TU tu tkv_simd_native.c (cung TU /fp:fast) ==== */
 #ifndef GEMM_KC
@@ -186,7 +190,7 @@ static void dx_gemm_rect(const float* a, int lda, const float* b, int ldb,
     for (int ii = i0; ii < i1; ii++)
         memset(o + (long long)ii * ldc + j0, 0,
                (size_t)(j1 - j0) * sizeof(float));
-    static __declspec(thread) float bp[GEMM_KC * (GEMM_NC + 4)];
+    static __thread float bp[GEMM_KC * (GEMM_NC + 4)];
     if (bpl < GEMM_BPL) bpl = GEMM_BPL;
     if (bpl > GEMM_NC + 4) bpl = GEMM_NC + 4;
     /* nc_b PHAI <= bpl - 16 (khong phai bpl - 4): micro_f32 doc 2 ymm = 16
