@@ -115,6 +115,23 @@ static int attn_on(void) {
     return on == 1 && cuda_init_attn() == 1;
 }
 
+/* 12 head chay trong 12 worker; cublasHandle_t DUNG CHUNG pick khong an toan
+ * -> mutex serialize toan bo attention CUDA (GEMMs ~µs, khong mat hieu qua). */
+#ifdef _WIN32
+static CRITICAL_SECTION g_attn_mu;
+static volatile LONG g_attn_mu_init = 0;
+static void attn_lock(void) {
+    if (InterlockedCompareExchange(&g_attn_mu_init, 1, 0) == 0) InitializeCriticalSection(&g_attn_mu);
+    EnterCriticalSection(&g_attn_mu);
+}
+static void attn_unlock(void) { LeaveCriticalSection(&g_attn_mu); }
+#else
+#include <pthread.h>
+static pthread_mutex_t g_attn_mu = PTHREAD_MUTEX_INITIALIZER;
+static void attn_lock(void) { pthread_mutex_lock(&g_attn_mu); }
+static void attn_unlock(void) { pthread_mutex_unlock(&g_attn_mu); }
+#endif
+
 /* Per-thread buffer set */
 typedef struct {
     float *d_q, *d_k, *d_v, *d_s, *d_p, *d_do, *d_dp, *d_o, *d_tmp, *d_tmp2;
@@ -359,7 +376,9 @@ EXPORT int TkvCudaAttnFwd(const float* qkv, int n, int h, int hd, int head, doub
     const int stride3 = 3 * h;
     float* dqkv = (float*)qkv;
     (void)stride3;
+    attn_lock();
     int rc = attn_fwd_head_impl(dqkv, ctx_out, n, h, hd, head, inv);
+    attn_unlock();
     return rc == 0 ? 1 : 0;
 }
 
@@ -367,6 +386,8 @@ EXPORT int TkvCudaAttnBwd(const float* qkv, const float* dctx, const float* ctx_
                           float* ctxo, float* dqo, int n, int h, int hd, int head, double inv) {
     if (!attn_on()) return 0;
     if (hd != FL_HD || n > TKV_MAX_N || inv == 0.0) return 0;
+    attn_lock();
     int rc = attn_bwd_head_impl(qkv, dctx, ctx_in, ctxo, dqo, n, h, hd, head, inv);
+    attn_unlock();
     return rc == 0 ? 1 : 0;
 }
