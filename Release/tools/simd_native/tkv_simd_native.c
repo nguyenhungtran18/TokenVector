@@ -12,6 +12,7 @@
  * va ban f64 tuong tu.
  */
 #include <immintrin.h>
+#include "tkv_prof.h"
 /* TkvCUDA_SgemmF32: defined in tkv_cuda_native.c (dlopen libcublas) */
 int TkvCUDA_SgemmF32(const float* a, const float* b, float* o, int n);
 
@@ -1891,9 +1892,7 @@ static void lmhead_add_rows(float* dst, const float* src, int E, int v0, int v1)
     }
 }
 
-EXPORT int lmhead_bwd_fused(const float* logits, const int* ids, const float* wte,
-                            const float* xf, float* dxf, float* dwte,
-                            int B, int S, int E, int V, float scale) {
+static int lmhead_bwd_fused_impl(const float* logits, const int* ids, const float* wte, const float* xf, float* dxf, float* dwte, int B, int S, int E, int V, float scale) {
     if (!logits || !ids || !wte || !xf || !dxf || !dwte) return -1;
     if (B <= 0 || S <= 0 || E <= 0 || V <= 0) return -1;
     long long Tll = (long long)B * (long long)S;
@@ -2101,10 +2100,7 @@ EXPORT int SgemmFull(const float* a, const float* b, float* c,
  *   -9 k < 256 (khong di qua _smm_full), -10 m > 256 (-> _smm_pk),
  *   -11 m % 4 != 0 (micro_f32 i-tail -> khac FMA),
  *   -12 k % 256 != 0 (p-tile le + nhieu block ic -> khong chung minh duoc BIT). */
-EXPORT int LinearDxFused(const float* gy, int gy_len,
-                         const float* w, int w_len,
-                         float* dx, int dx_len,
-                         int m, int n, int k) {
+static int LinearDxFused_impl(const float* gy, int gy_len, const float* w, int w_len, float* dx, int dx_len, int m, int n, int k) {
     if (!gy || !w || !dx) return -1;
     if (m <= 0 || n <= 0 || k <= 0) return -2;
     if (tkv_try_cuda_rect_tb((float*)gy, k, (float*)w, k, dx, n, m, n, k,
@@ -2402,11 +2398,7 @@ static int attn_trans_a64(float* cd, const float* sa, const float* b, int hd, in
 /* flash kernel o tkv_flash_attn.c (link vao cung DLL) */
 extern int FlashAttentionBwdFused(const float*, int, const float*, int, float*, int, float*, int, int, int, int, int, double);
 
-EXPORT int AttentionBwdFused(const float* qkv, int qkv_len,
-                             const float* dctx, int dctx_len,
-                             float* ctxo, int ctxo_len,
-                             float* dqo, int dqo_len,
-                             int n, int h, int hd, int head, double inv) {
+static int AttentionBwdFused_impl(const float* qkv, int qkv_len, const float* dctx, int dctx_len, float* ctxo, int ctxo_len, float* dqo, int dqo_len, int n, int h, int hd, int head, double inv) {
     /* Thu flash (poco online-softmax, fp32) truoc - nhanh hon duong cu
      * (khong materialize Smat n x n). rc != 0 -> duong cu NGUYEN VAN ben
      * duoi (soft-fail; loss EXACT nhu truoc). xem tkv_flash_attn.c.
@@ -2530,11 +2522,7 @@ extern int FlashAttentionBwdFusedLseMulti(
         const float*, int, const float*, int, const float*, int, const float*, int,
         float*, int, float*, int, int, int, int, double, int);
 
-EXPORT int AttentionBwdFusedMulti(const float* qkv, int qkv_len,
-                                  const float* dctx, int dctx_len,
-                                  float* ctxo, int ctxo_len,
-                                  float* dqo, int dqo_len,
-                                  int n, int h, int hd, double inv, int nthreads) {
+static int AttentionBwdFusedMulti_impl(const float* qkv, int qkv_len, const float* dctx, int dctx_len, float* ctxo, int ctxo_len, float* dqo, int dqo_len, int n, int h, int hd, double inv, int nthreads) {
     {
         static __thread int flash_off_m = -2;
         if (flash_off_m == -2) {
@@ -2592,11 +2580,7 @@ extern int FlashAttentionBwdMergeMulti(
         const float*, int, const float*, int, const float*, int, const float*, int,
         float*, int, float*, int, int, int, int, double, int);
 
-EXPORT int AttentionBwdMergeMulti(const float* qkv, int qkv_len,
-                                  const float* dctx, int dctx_len,
-                                  float* ctxT, int ctxT_len,
-                                  float* dqkv, int dqkv_len,
-                                  int n, int h, int hd, double inv, int nthreads) {
+static int AttentionBwdMergeMulti_impl(const float* qkv, int qkv_len, const float* dctx, int dctx_len, float* ctxT, int ctxT_len, float* dqkv, int dqkv_len, int n, int h, int hd, double inv, int nthreads) {
     {
         static __thread int flash_off_mm = -2;
         if (flash_off_mm == -2) {
@@ -2683,9 +2667,7 @@ static int dw_at_gemm_p58(float* cd, const float* sa, const float* b,
     return 0;
 }
 
-EXPORT int LinearDwAtFused(const float* x, int x_len, const float* gy, int gy_len,
-                           float* gdw, int gdw_len, int gdw_off,
-                           int n, int in_d, int out_d, int mode) {
+static int LinearDwAtFused_impl(const float* x, int x_len, const float* gy, int gy_len, float* gdw, int gdw_len, int gdw_off, int n, int in_d, int out_d, int mode) {
     if (!x || !gy || !gdw) return -1;
     if (n <= 0 || in_d <= 0 || out_d <= 0) return -2;
     if (mode < 0 || mode > 1) return -3;
@@ -2955,4 +2937,58 @@ EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g, const float* b,
     if (!tkv_torch_fused_load()) return -9;
     if (!p_lnb) return -9;
     return p_lnb(x, g, b, gy, dx, dg, db, n, h, eps);
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int lmhead_bwd_fused(const float* logits, const int* ids, const float* wte, const float* xf, float* dxf, float* dwte, int B, int S, int E, int V, float scale) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = lmhead_bwd_fused_impl(logits, ids, wte, xf, dxf, dwte, B, S, E, V, scale);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_LMHEAD_BWD] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_LMHEAD_BWD]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int LinearDxFused(const float* gy, int gy_len, const float* w, int w_len, float* dx, int dx_len, int m, int n, int k) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = LinearDxFused_impl(gy, gy_len, w, w_len, dx, dx_len, m, n, k);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_LIN_DX] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_LIN_DX]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int AttentionBwdFused(const float* qkv, int qkv_len, const float* dctx, int dctx_len, float* ctxo, int ctxo_len, float* dqo, int dqo_len, int n, int h, int hd, int head, double inv) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = AttentionBwdFused_impl(qkv, qkv_len, dctx, dctx_len, ctxo, ctxo_len, dqo, dqo_len, n, h, hd, head, inv);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_ATTN_BWD] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_ATTN_BWD]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int AttentionBwdFusedMulti(const float* qkv, int qkv_len, const float* dctx, int dctx_len, float* ctxo, int ctxo_len, float* dqo, int dqo_len, int n, int h, int hd, double inv, int nthreads) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = AttentionBwdFusedMulti_impl(qkv, qkv_len, dctx, dctx_len, ctxo, ctxo_len, dqo, dqo_len, n, h, hd, inv, nthreads);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_ATTN_BWD_MULTI] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_ATTN_BWD_MULTI]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int AttentionBwdMergeMulti(const float* qkv, int qkv_len, const float* dctx, int dctx_len, float* ctxT, int ctxT_len, float* dqkv, int dqkv_len, int n, int h, int hd, double inv, int nthreads) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = AttentionBwdMergeMulti_impl(qkv, qkv_len, dctx, dctx_len, ctxT, ctxT_len, dqkv, dqkv_len, n, h, hd, inv, nthreads);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_ATTN_BWD_MERGE] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_ATTN_BWD_MERGE]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int LinearDwAtFused(const float* x, int x_len, const float* gy, int gy_len, float* gdw, int gdw_len, int gdw_off, int n, int in_d, int out_d, int mode) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = LinearDwAtFused_impl(x, x_len, gy, gy_len, gdw, gdw_len, gdw_off, n, in_d, out_d, mode);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_LIN_DW] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_LIN_DW]++; }
+    return _tprc;
 }

@@ -15,6 +15,7 @@
  * MSVC voi input trung bit; JIT ep f64->f32 khi goi erf(float32)).
  */
 #include <immintrin.h>
+#include "tkv_prof.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -30,11 +31,7 @@
 #endif
 
 /* ---- LN: .tkv gpt2_layernorm_bwd (md5 9473DB7D... cho gflat path) ---- */
-EXPORT int LayernormBwdFused(const float* x, int x_len, const float* gy, int gy_len,
-                             const float* g,  int g_len,
-                             float* dx, int dx_len,
-                             float* gflat, int gflat_len,
-                             int n, int h, long long o_dg, long long o_db) {
+static int LayernormBwdFused_impl(const float* x, int x_len, const float* gy, int gy_len, const float* g, int g_len, float* dx, int dx_len, float* gflat, int gflat_len, int n, int h, long long o_dg, long long o_db) {
     if (!x || !gy || !g || !dx || !gflat) return -1;
     if (n <= 0 || h <= 0 || o_dg < 0 || o_db < 0) return -2;
 
@@ -176,8 +173,7 @@ static inline float gelu_b_one(float v) {
     return (float)d;
 }
 
-EXPORT int GeluErfBwd(const float* x, int x_len, const float* gy, int gy_len,
-                      float* out, int out_len, long long lo, long long hi) {
+static int GeluErfBwd_impl(const float* x, int x_len, const float* gy, int gy_len, float* out, int out_len, long long lo, long long hi) {
     if (!x || !gy || !out) return -1;
     if (lo < 0 || hi < lo) return -2;
     if (x_len < hi || gy_len < hi || out_len < hi - lo) return -5;
@@ -201,7 +197,7 @@ EXPORT int GeluErfBwd(const float* x, int x_len, const float* gy, int gy_len,
 /* ---- GELU ERF FWD: y = 0.5*v*(1 + erf(v/s)) -------------------------------
  * Cong thuc:  y = (0.5f * v) * (1.0f + erf(v/sqrt(2)))  — doi chieu TF
  * 401/401 (probe _nt5) voi duong interpreted. rc < 0 -> caller fallback. */
-EXPORT int GeluErfFwd(const float* x, int x_len, float* out, int out_len, long long lo, long long hi) {
+static int GeluErfFwd_impl(const float* x, int x_len, float* out, int out_len, long long lo, long long hi) {
     if (!x || !out) return -1;
     if (lo < 0 || hi < lo) return -2;
     if (x_len < hi || out_len < hi - lo) return -5;
@@ -240,8 +236,7 @@ EXPORT int BiasAddRows(float* y, const float* b, long long rows, long long cols)
 }
 
 /* ---- BIAS GRAD: .tkv vòng i-outer/o-inner, i64 off vao gflat ---- */
-EXPORT int BiasGrad(const float* gy, int gy_len, float* gflat, int gflat_len,
-                    long long off, int n, int cols) {
+static int BiasGrad_impl(const float* gy, int gy_len, float* gflat, int gflat_len, long long off, int n, int cols) {
     if (!gy || !gflat) return -1;
     if (n < 0 || cols <= 0 || off < 0) return -2;
 
@@ -308,9 +303,7 @@ EXPORT int SoftmaxCausalFwd(float* s, int s_len, int n, double inv) {
 }
 
 /* ---- SOFTMAX CAUSAL BWD: dp in-place, P=softmax causal ---- */
-EXPORT int SoftmaxCausalBwd(float* dp, int dp_len, const float* P, int P_len,
-                            const float* dctx, int dc_len, const float* ctx, int c_len,
-                            int n, int hd) {
+static int SoftmaxCausalBwd_impl(float* dp, int dp_len, const float* P, int P_len, const float* dctx, int dc_len, const float* ctx, int c_len, int n, int hd) {
     if (!dp || !P || !dctx || !ctx) return -1;
     if (n <= 0 || hd <= 0) return -2;
 
@@ -372,8 +365,7 @@ EXPORT int MergeHbHead(const float* co, const float* dq, float* ctxT, float* dqk
  *   (thu tu cong theo q TANG DAN — bit-exact).
  * giu nguyen bit: moi ptu cong don doc lap, thu tu phep cong giong .tkv.
  * rc < 0 -> caller fallback duong interpreted cu. */
-EXPORT int EmbedBwdFused(const long long* idx, int idx_len, int rows, int d,
-                        const float* gy, int gy_len, float* gw, int gw_len) {
+static int EmbedBwdFused_impl(const long long* idx, int idx_len, int rows, int d, const float* gy, int gy_len, float* gw, int gw_len) {
     if (!idx || !gy || !gw) return -1;
     if (rows <= 0 || d <= 0 || idx_len < 0) return -2;
     long long n = idx_len;
@@ -437,9 +429,7 @@ EXPORT int EmbedBwdFused(const long long* idx, int idx_len, int rows, int d,
 /* forward decl: wrapper o tkv_simd_native.c (cung DLL); ABI: int64_t == long long (win64) */
 extern int TkvTorchLayerNormFwd(const float* x, const float* g, const float* b,
                                 float* y, long long n, long long h, double eps);
-EXPORT int LayernormFwd(const float* x, int x_len, const float* g, int g_len,
-                        const float* b, int b_len, float* out, int out_len,
-                        int n, int h) {
+static int LayernormFwd_impl(const float* x, int x_len, const float* g, int g_len, const float* b, int b_len, float* out, int out_len, int n, int h) {
     if (!x || !g || !b || !out) return -1;
     if (n <= 0 || h <= 0) return -2;
     long long need = (long long)n * h;
@@ -468,4 +458,67 @@ EXPORT int LayernormFwd(const float* x, int x_len, const float* g, int g_len,
         }
     }
     return 0;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int LayernormBwdFused(const float* x, int x_len, const float* gy, int gy_len, const float* g, int g_len, float* dx, int dx_len, float* gflat, int gflat_len, int n, int h, long long o_dg, long long o_db) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = LayernormBwdFused_impl(x, x_len, gy, gy_len, g, g_len, dx, dx_len, gflat, gflat_len, n, h, o_dg, o_db);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_LN_BWD] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_LN_BWD]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int GeluErfBwd(const float* x, int x_len, const float* gy, int gy_len, float* out, int out_len, long long lo, long long hi) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = GeluErfBwd_impl(x, x_len, gy, gy_len, out, out_len, lo, hi);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_GELU_BWD] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_GELU_BWD]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int GeluErfFwd(const float* x, int x_len, float* out, int out_len, long long lo, long long hi) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = GeluErfFwd_impl(x, x_len, out, out_len, lo, hi);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_GELU_FWD] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_GELU_FWD]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int BiasGrad(const float* gy, int gy_len, float* gflat, int gflat_len, long long off, int n, int cols) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = BiasGrad_impl(gy, gy_len, gflat, gflat_len, off, n, cols);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_BIAS_GRAD] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_BIAS_GRAD]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int SoftmaxCausalBwd(float* dp, int dp_len, const float* P, int P_len, const float* dctx, int dc_len, const float* ctx, int c_len, int n, int hd) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = SoftmaxCausalBwd_impl(dp, dp_len, P, P_len, dctx, dc_len, ctx, c_len, n, hd);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_SOFTMAX_BWD] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_SOFTMAX_BWD]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int EmbedBwdFused(const long long* idx, int idx_len, int rows, int d, const float* gy, int gy_len, float* gw, int gw_len) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = EmbedBwdFused_impl(idx, idx_len, rows, d, gy, gy_len, gw, gw_len);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_EMB_BWD] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_EMB_BWD]++; }
+    return _tprc;
+}
+
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int LayernormFwd(const float* x, int x_len, const float* g, int g_len, const float* b, int b_len, float* out, int out_len, int n, int h) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = LayernormFwd_impl(x, x_len, g, g_len, b, b_len, out, out_len, n, h);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_LN_FWD] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_LN_FWD]++; }
+    return _tprc;
 }

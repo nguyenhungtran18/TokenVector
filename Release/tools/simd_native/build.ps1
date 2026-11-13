@@ -51,7 +51,7 @@ if ($useMkl) {
 }
 
 $base = "/nologo /O2 /arch:AVX2 /c$mklDef$mklIncArg"
-cmd /c "call `"$vcvars`" > nul 2>&1 && cl $base /fp:fast tkv_simd_native.c /Fo:tkv_simd_native.obj && cl $base /fp:precise tkv_linear_dw.c /Fo:tkv_linear_dw.obj && cl $base /fp:precise tkv_bwd_ops.c /Fo:tkv_bwd_ops.obj && cl $base /fp:fast tkv_flash_attn.c /Fo:tkv_flash_attn.obj && link /DLL /NOLOGO /OUT:tkv_simd_native.dll tkv_simd_native.obj tkv_linear_dw.obj tkv_bwd_ops.obj tkv_flash_attn.obj$mklLink"
+cmd /c "call `"$vcvars`" > nul 2>&1 && cl $base /fp:fast tkv_simd_native.c /Fo:tkv_simd_native.obj && cl $base /fp:precise tkv_linear_dw.c /Fo:tkv_linear_dw.obj && cl $base /fp:precise tkv_bwd_ops.c /Fo:tkv_bwd_ops.obj && cl $base /fp:fast tkv_flash_attn.c /Fo:tkv_flash_attn.obj && cl $base /fp:fast tkv_prof.c /Fo:tkv_prof.obj && link /DLL /NOLOGO /OUT:tkv_simd_native.dll tkv_simd_native.obj tkv_linear_dw.obj tkv_bwd_ops.obj tkv_flash_attn.obj tkv_prof.obj$mklLink"
 if ($LASTEXITCODE -ne 0) { throw "build that bai" }
 
 $dich = Join-Path (Resolve-Path "..\..\runtime") "tkv_simd_native.dll"

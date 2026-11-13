@@ -55,6 +55,7 @@
  * ---------------------------------------------------------------------------
  */
 #include <immintrin.h>
+#include "tkv_prof.h"
 #include <malloc.h>
 #include <math.h>
 #include <string.h>
@@ -497,9 +498,7 @@ done:
     return rc;
 }
 
-EXPORT int FlashAttentionFwdFused(const float* qkv, int qkv_len,
-                                  float* ctx_out, int ctx_len,
-                                  int n, int h, int hd, int head, double inv) {
+static int FlashAttentionFwdFused_impl(const float* qkv, int qkv_len, float* ctx_out, int ctx_len, int n, int h, int hd, int head, double inv) {
     if (!qkv || !ctx_out) return -1;
     if (n < 64 || h <= 0 || hd != FL_HD) return -13;
     if (head < 0 || head >= h / FL_HD) return -2;
@@ -974,4 +973,12 @@ EXPORT int FlashAttentionBwdMergeMulti(
     c.n = n; c.h = h; c.nh = nh; c.hd = FL_HD; c.inv = inv;
     c.next = -1; c.rc = 0;
     return mh_merge_run(&c, nthreads);
+}
+/* TKV_PROF wrapper (khong doi ABI exports) */
+EXPORT int FlashAttentionFwdFused(const float* qkv, int qkv_len, float* ctx_out, int ctx_len, int n, int h, int hd, int head, double inv) {
+    long long _tp0 = 0; int _tprc;
+    if (g_tkv_prof_on == 1) _tp0 = TkvProfNowNs();
+    _tprc = FlashAttentionFwdFused_impl(qkv, qkv_len, ctx_out, ctx_len, n, h, hd, head, inv);
+    if (g_tkv_prof_on == 1) { g_tkv_prof_ns[TKV_PROF_ATTN_FWD] += TkvProfNowNs() - _tp0; g_tkv_prof_n[TKV_PROF_ATTN_FWD]++; }
+    return _tprc;
 }
