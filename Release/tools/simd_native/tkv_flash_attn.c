@@ -71,6 +71,11 @@
 #define EXPORT __attribute__((visibility("default")))
 #endif
 
+/* TkvCudaAttnFwd/Bwd: global causal attention qua cuBLAS (TKV_ATTN_CUDA=1). */
+int TkvCudaAttnFwd(const float* qkv, int n, int h, int hd, int head, double inv, float* ctx_out);
+int TkvCudaAttnBwd(const float* qkv, const float* dctx, const float* ctx_in, float* ctxo, float* dqo,
+                   int n, int h, int hd, int head, double inv);
+
 #define FL_QS 64
 #define FL_KS 64
 #define FL_HD 64
@@ -505,6 +510,7 @@ static int FlashAttentionFwdFused_impl(const float* qkv, int qkv_len, float* ctx
     long long stride3 = (long long)3 * h;
     if ((long long)qkv_len < (long long)n * stride3) return -5;
     if ((long long)ctx_len < (long long)n * FL_HD) return -5;
+    if (TkvCudaAttnFwd(qkv, n, h, hd, head, inv, ctx_out) == 1) return 0;
     return flash_fwd_head(qkv, ctx_out, NULL, n, h, head, inv);
 }
 
@@ -699,6 +705,7 @@ EXPORT int FlashAttentionBwdFused(const float* qkv, int qkv_len,
     if ((long long)dctx_len < (long long)n * h) return -5;
     if ((long long)ctxo_len < (long long)n * FL_HD) return -5;
     if ((long long)dqo_len < (long long)n * 3 * FL_HD) return -5;
+    if (TkvCudaAttnBwd(qkv, dctx, NULL, ctxo, dqo, n, h, hd, head, inv) == 1) return 0;
     return flash_bwd_head(qkv, dctx, ctxo, dqo, n, h, head, inv, NULL, NULL);
 }
 
