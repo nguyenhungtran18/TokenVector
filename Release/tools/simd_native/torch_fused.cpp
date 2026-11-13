@@ -46,7 +46,7 @@ static Tensor dev(const Tensor& t) {
 static Tensor host(const Tensor& t) {
     return want_cuda() ? t.to(torch::kCPU) : t;
 }
-static TensorOptions dev_f32() {
+static auto dev_f32() {
     return want_cuda()
         ? torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA)
         : torch::TensorOptions().dtype(torch::kFloat32);
