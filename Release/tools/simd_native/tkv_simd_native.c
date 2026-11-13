@@ -210,20 +210,16 @@ static int tkv_blas_load(void) {
 #else
     /* Windows: mặc định bật (zero-config), tìm `libscipy_openblas64_.dll` cạnh
      * module; TKV_GEMM_BLAS=0 -> tắt hẳn.
-     * Linux/macOS: OPT-IN bằng TKV_GEMM_BLAS=1 — mặc định vẫn dùng kernel AVX2
-     * nội bộ để giữ loss EXACT (cùng kết quả với Windows) khi không yêu cầu.
+     * Linux/macOS: cũng MẶC ĐỊNH BẬT (2026-11-12) — đo ra BLAS (với số thread bị
+     * chặn ở 8) nhanh hơn kernel nội bộ ở mọi số core: Colab 2 vCPU −35%, WSL
+     * 28 core −13.4%. Đổi lại: loss lệch chữ số thứ 6 (không còn bit-identical).
+     * TKV_GEMM_BLAS=0 -> tắt, quay lại kernel AVX2 nội bộ (loss EXACT).
      * TKV_GEMM_BLAS_PATH trỏ thẳng file .dll/.so nếu muốn. */
     const char* env_blas = getenv("TKV_GEMM_BLAS");
     if (env_blas && env_blas[0] == '0') { g_blas_state = -1; return -1; }
     char path_buf[MAX_PATH] = {0};
     char blas_name[256] = {0};
     const char* env_path = getenv("TKV_GEMM_BLAS_PATH");
-#ifndef _WIN32
-    /* Linux: OPT-IN — bật khi TKV_GEMM_BLAS được set (khác "0") hoặc khi
-     * TKV_GEMM_BLAS_PATH chỉ thẳng file .so. Mặc định vẫn kernel nội bộ. */
-    if (!((env_blas && env_blas[0] && env_blas[0] != '0') ||
-          (env_path && env_path[0]))) { g_blas_state = -1; return -1; }
-#endif
     g_blas_mod = NULL;
     if (env_path && env_path[0]) {
         g_blas_mod = LoadLibraryA(env_path);
@@ -309,13 +305,19 @@ static int tkv_blas_min_n(void) {
 
 /* So thread tra cho BLAS. OpenBLAS bao hoa quanh 4-8 thread roi CHAM di tren
  * may nhieu core (WSL 2026-11-12, mode2 seq1024: 8 thread 8 153 ms vs 28 thread
- * ~10 001 ms) trong khi kernel noi bo van scale toi 28 thread. Vi vay cho phep
- * chan bang TKV_GEMM_BLAS_THREADS (0/khong set = khong chan). */
+ * ~10 001 ms) trong khi kernel noi bo van scale toi 28 thread. Vi vay:
+ *   - Linux/macOS: MAC DINH CHAN O 8 (0 = khong chan, TKV_GEMM_BLAS_THREADS=...).
+ *   - Windows: giu 0 (khong chan) de khong lam lech hanh vi cu. */
 static int tkv_blas_threads(int nt) {
     static int cap = -1;
     if (cap < 0) {
         const char* s = getenv("TKV_GEMM_BLAS_THREADS");
-        cap = (s && s[0]) ? atoi(s) : 0;
+#ifdef _WIN32
+        int mac_dinh = 0;
+#else
+        int mac_dinh = 8;
+#endif
+        cap = (s && s[0]) ? atoi(s) : mac_dinh;
         if (cap < 0) cap = 0;
     }
     if (nt < 1) nt = 1;
