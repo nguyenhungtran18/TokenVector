@@ -173,6 +173,46 @@ static void cuda_lock(void) { pthread_mutex_lock(&g_cuda_mu); }
 static void cuda_unlock(void) { pthread_mutex_unlock(&g_cuda_mu); }
 #endif
 
+/* ---- P2-lite (2026-11-13): weight-B cache tren GPU -------------------------
+ * Cac ma tran WEIGHT (khong doi giua 2 lan cap nhat) duoc upload 1 lan moi
+ * "epoch" va giu tren GPU; epoch tang moi lan AdamW chay (weights bi cap nhat).
+ *
+ * DIEU KIEN AN TOAN (kiem o nhanh trong TkvCUDA_RectF32):
+ *   transA == NoTrans (A la ACTIVATION) va accumulate == 0.
+ *   Khi do B trong toan bo cac GEMM day cua engine la WEIGHT cua Linear/fc/
+ *   lmhead. Cach cau hinh con lai deu dung transA=112 hoac beta=1 (dW).
+ *   Neu suy doan SAI -> ket qua SAI; gate 1e-5 se bat (loss lenh ro). */
+static unsigned long long g_wdirty = 1;
+EXPORT void TkvCUDA_MarkWeightsDirty(void) { g_wdirty++; }
+#define TKV_WCACHE_MAX 96
+typedef struct { const float* ptr; float* dev; size_t bytes; unsigned long long epoch; } TkvWEntry;
+static TkvWEntry g_wc[TKV_WCACHE_MAX];
+
+static int wcache_get(const float* b, size_t bytes, float** dev) {
+    for (int i = 0; i < TKV_WCACHE_MAX; i++)
+        if (g_wc[i].dev && g_wc[i].epoch == g_wdirty && g_wc[i].ptr == b && g_wc[i].bytes == bytes) {
+            *dev = g_wc[i].dev;
+            return 1;
+        }
+    return 0;
+}
+/* Cache B len device. Tra ve 1 = da co/da nap xong, 0 = khong cache duoc
+ * (day hoac loi alloc) -> caller dung duong copy thong thuong. */
+static int wcache_put(const float* b, size_t bytes, const float* hostB, float** dev) {
+    int idx = -1;
+    for (int i = 0; i < TKV_WCACHE_MAX; i++)
+        if (g_wc[i].dev == 0 || g_wc[i].epoch != g_wdirty) { idx = i; break; }
+    if (idx < 0) return 0;
+    if (g_wc[idx].dev) { p_cudafree(g_wc[idx].dev); g_wc[idx].dev = 0; }
+    if (p_cudamalloc((void**)&g_wc[idx].dev, bytes) != 0) return 0;
+    if (p_cudamemcpy(g_wc[idx].dev, hostB, bytes, cudaMemcpyHostToDevice) != 0) {
+        p_cudafree(g_wc[idx].dev); g_wc[idx].dev = 0; return 0;
+    }
+    g_wc[idx].ptr = b; g_wc[idx].bytes = bytes; g_wc[idx].epoch = g_wdirty;
+    *dev = g_wc[idx].dev;
+    return 1;
+}
+
 static int buf_get(float** p, size_t* sz, size_t need) {
     if (*sz >= need) return 1;
     if (*p) p_cudafree(*p);
@@ -199,17 +239,24 @@ EXPORT int TkvCUDA_RectF32(const float* a, int lda, const float* b, int ldb,
 
     cuda_lock();
     int ok = 0;
-    if (!buf_get(&g_da_buf, &g_da_sz, sz_a)) goto out;
-    if (!buf_get(&g_db_buf, &g_db_sz, sz_b)) goto out;
-    if (!buf_get(&g_dc_buf, &g_dc_sz, sz_c)) goto out;
+    float* b_dev = 0;
+    const int B_weight = (transA != 112 && !accumulate);   /* A=activation -> B=weight */
+    int use_cached_B = 0;
 
+    if (!buf_get(&g_da_buf, &g_da_sz, sz_a)) goto out;
+    if (!buf_get(&g_dc_buf, &g_dc_sz, sz_c)) goto out;
     if (p_cudamemcpy(g_da_buf, a, sz_a, cudaMemcpyHostToDevice) != 0) goto out;
-    if (p_cudamemcpy(g_db_buf, b, sz_b, cudaMemcpyHostToDevice) != 0) goto out;
     if (accumulate && p_cudamemcpy(g_dc_buf, c, sz_c, cudaMemcpyHostToDevice) != 0) goto out;
+
+    if (B_weight && (wcache_get(b, sz_b, &b_dev) || wcache_put(b, sz_b, b, &b_dev))) {
+        use_cached_B = 1;
+    } else if (!buf_get(&g_db_buf, &g_db_sz, sz_b)) goto out;
+    if (!use_cached_B && p_cudamemcpy(g_db_buf, b, sz_b, cudaMemcpyHostToDevice) != 0) goto out;
+    if (!use_cached_B) b_dev = g_db_buf;
 
     /* C^T = P·Q voi P = opB(B)·read(b), Q = opA(A)^T; dims n x m x k */
     if (p_sgemm(g_handle, (cublasOperation_t)opB, (cublasOperation_t)opA,
-                n, m, k, &alpha, g_db_buf, ldb, g_da_buf, lda, &beta, g_dc_buf, ldc) != 0) goto out;
+                n, m, k, &alpha, b_dev, ldb, g_da_buf, lda, &beta, g_dc_buf, ldc) != 0) goto out;
 
     if (p_cudamemcpy(c, g_dc_buf, sz_c, cudaMemcpyDeviceToHost) != 0) goto out;
     ok = 1;

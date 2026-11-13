@@ -19,6 +19,8 @@ int TkvCUDA_SgemmF32(const float* a, const float* b, float* o, int n);
 int TkvCUDA_RectF32(const float* a, int lda, const float* b, int ldb,
                     float* c, int ldc, int m, int n, int k,
                     int transA, int transB, int accumulate);
+/* P2-lite: tang epoch cua weight cache GPU (tkv_cuda_native.c). */
+void TkvCUDA_MarkWeightsDirty(void);
 #include "tkv_platform.h"
 #include <stdlib.h>
 #include <string.h>
@@ -1745,6 +1747,8 @@ static int adamw_step_f32_impl(float* p, float* m, float* v, const float* g, int
                                float lr, float b1, float b2, float eps, float wd,
                                float bc1s, float bc2s, float coef) {
     (void)bc1s;
+    /* P2-lite: epoch bump cho weight cache GPU (weights vua bi cap nhat). */
+    TkvCUDA_MarkWeightsDirty();
     if (!p || !m || !v || !g || n <= 0) return -1;
     float one_mb1 = 1.0f - b1;
     float one_mb2 = 1.0f - b2;
