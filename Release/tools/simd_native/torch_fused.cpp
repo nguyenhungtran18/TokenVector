@@ -32,6 +32,12 @@ using at::Tensor;
 #define TKV_TORCH_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
+/* mac dinh: TAT TF32 (cublas, cudnn) -> fp32 "chính xác", match AVX2 CPU tren T4 */
+__attribute__((constructor)) static void tkv_disable_tf32() {
+    torch::globalContext().setAllowTF32CuBLAS(false);
+    torch::globalContext().setAllowTF32CuDNN(false);
+}
+
 static bool want_cuda() {
     static int cached = -1;
     if (cached < 0) {
