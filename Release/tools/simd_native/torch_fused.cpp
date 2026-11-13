@@ -33,10 +33,19 @@ using at::Tensor;
 #define TKV_TORCH_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
-/* mac dinh: TAT TF32 (cublas, cudnn) -> fp32 "chính xác", match AVX2 CPU tren T4 */
+/* mac dinh: TAT TF32 (cublas, cudnn) -> fp32 "chính xác", match AVX2 CPU tren T4
+ * IMPORTANT: .NET host dlopen file .so nay KHONG truy qua Python torch, nen
+ * context CUDA chua duoc lazyInit; phai tu goi ngay khi load library hoac moi
+ * from_blob se "tensor does not have a device". */
 __attribute__((constructor)) static void tkv_disable_tf32() {
-    torch::globalContext().setAllowTF32CuBLAS(false);
-    torch::globalContext().setAllowTF32CuDNN(false);
+    try {
+        auto& ctx = torch::globalContext();
+        ctx.lazyInitDevice(torch::kCUDA);
+    } catch (...) { /* ignore */ }
+    try {
+        torch::globalContext().setAllowTF32CuBLAS(false);
+        torch::globalContext().setAllowTF32CuDNN(false);
+    } catch (...) { /* ignore */ }
 }
 
 static bool want_cuda() {
@@ -56,17 +65,17 @@ static Tensor host(const Tensor& t) {
 static auto dev_f32() {
     return want_cuda()
         ? torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA)
-        : torch::TensorOptions().dtype(torch::kFloat32);
+        : torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
 }
 
 /* helper: wrap caller memory as unmanaged tensor */
 static Tensor wrap_in(const float* p, int64_t rows, int64_t cols) {
     return torch::from_blob(const_cast<float*>(p), {rows, cols},
-        torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false));
+        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false));
 }
 static Tensor wrap_out(float* p, int64_t rows, int64_t cols) {
     return torch::from_blob(p, {rows, cols},
-        torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false));
+        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false));
 }
 
 /* -- TkvTorchLinearGeluFwd: x[n,in] @ w[in,out] + b -> GELU -> y[n,out] */
@@ -79,7 +88,7 @@ TKV_TORCH_EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w,
         auto t_x = dev(wrap_in(x, n, in_d));
         auto t_w = dev(wrap_in(w, in_d, out_d));
         auto t_b = dev(torch::from_blob(const_cast<float*>(bias), {out_d},
-            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false)));
+            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false)));
         auto t_y = dev(at::gelu(at::addmm(t_b, t_x, t_w, 1, 1)));
         auto t_yh = host(t_y);
         if (t_yh.numel() != (int64_t)n * out_d) return -3;
@@ -98,7 +107,7 @@ TKV_TORCH_EXPORT int TkvTorchGeluBwd(const float* gy, const float* x, float* y,
     if (!gy || !x || !y) return -1;
     if (n <= 0) return -2;
     try {
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32);
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
         auto t_gy = dev(torch::from_blob(const_cast<float*>(gy), {n}, opt));
         auto t_x  = dev(torch::from_blob(const_cast<float*>(x),  {n}, opt));
         auto t_y  = host(at::gelu_backward(t_gy, t_x, "none"));
@@ -152,7 +161,7 @@ TKV_TORCH_EXPORT int TkvTorchLinearFwd(const float* x, const float* w,
         auto t_x = dev(wrap_in(x, n, in_d));
         auto t_w = dev(wrap_in(w, in_d, out_d));
         auto t_b = dev(torch::from_blob(const_cast<float*>(bias), {out_d},
-            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false)));
+            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false)));
         auto t_y = host(at::addmm(t_b, t_x, t_w, 1, 1));
         if (t_y.numel() != (int64_t)n * out_d) return -3;
         memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * out_d * sizeof(float));
@@ -173,9 +182,9 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g,
     try {
         auto t_x = dev(wrap_in(x, n, h));
         auto t_g = dev(torch::from_blob(const_cast<float*>(g), {h},
-            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false)));
+            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false)));
         auto t_b = dev(torch::from_blob(const_cast<float*>(b), {h},
-            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false)));
+            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false)));
         auto t_y = host(at::layer_norm(t_x, {h}, t_g, t_b, eps));
         memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * h * sizeof(float));
         return 0;
@@ -194,12 +203,12 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
     if (!x || !g || !b || !gy || !dx || !dg || !db) return -1;
     if (n <= 0 || h <= 0) return -2;
     try {
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true);
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(true);
         auto t_x  = dev(torch::from_blob(const_cast<float*>(x), {n, h}, opt.requires_grad(true)));
         auto t_g  = dev(torch::from_blob(const_cast<float*>(g), {h},   opt.requires_grad(true)));
         auto t_b  = dev(torch::from_blob(const_cast<float*>(b), {h},   opt.requires_grad(true)));
         auto t_gy = dev(torch::from_blob(const_cast<float*>(gy), {n, h},
-             torch::TensorOptions().dtype(torch::kFloat32)));
+             torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)));
         auto t_y  = at::layer_norm(t_x, {h}, t_g, t_b, eps);
         t_y.backward(t_gy);
         memcpy(dx, host(t_x.grad()).const_data_ptr<float>(), (size_t)n * h * sizeof(float));
@@ -224,7 +233,7 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
     if (!dbg_once) { dbg_once = 1; std::fprintf(stderr, "[tkv-attn-bwd] entry n=%lld h=%lld nheads=%lld hd=%lld gpu=%d\n",
                                                  (long long)n, (long long)h, (long long)nheads, (long long)hd, want_cuda() ? 1 : 0); }
     try {
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true);
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(true);
         const int64_t T = n;
         const int64_t H = nheads * hd;
         if (h != H) return -2;
@@ -246,7 +255,7 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         auto t_proj = at::addmm(t_bp, t_ctx, t_wp);
 
         auto t_gy = dev(torch::from_blob(const_cast<float*>(gout), {T, h},
-             torch::TensorOptions().dtype(torch::kFloat32)));
+             torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)));
         t_proj.backward(t_gy);
 
         memcpy(dx, host(t_x.grad()).const_data_ptr<float>(),
@@ -300,7 +309,7 @@ TKV_TORCH_EXPORT int TkvTorchSdpa(const float* qkv, float* y,
     if (h <= 0) return -2;
     try {
         const bool cuda = want_cuda();
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32);
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
         /* CPU empty (host) de vong for dien qkv; sau do move sang CUDA neu can */
         auto t_q = at::empty({1, nheads, n, hd}, opt);
         auto t_k = at::empty({1, nheads, n, hd}, opt);
@@ -369,3 +378,4 @@ TKV_TORCH_EXPORT int TkvTorchAddmmTaOut(const float* dl, const float* xf, float*
         return -5;
     }
 }
+
