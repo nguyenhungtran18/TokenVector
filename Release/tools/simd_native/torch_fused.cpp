@@ -194,12 +194,12 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
     if (!x || !g || !b || !gy || !dx || !dg || !db) return -1;
     if (n <= 0 || h <= 0) return -2;
     try {
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA).requires_grad(true);
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true);
         auto t_x  = dev(torch::from_blob(const_cast<float*>(x), {n, h}, opt.requires_grad(true)));
         auto t_g  = dev(torch::from_blob(const_cast<float*>(g), {h},   opt.requires_grad(true)));
         auto t_b  = dev(torch::from_blob(const_cast<float*>(b), {h},   opt.requires_grad(true)));
         auto t_gy = dev(torch::from_blob(const_cast<float*>(gy), {n, h},
-             torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA)));
+             torch::TensorOptions().dtype(torch::kFloat32)));
         auto t_y  = at::layer_norm(t_x, {h}, t_g, t_b, eps);
         t_y.backward(t_gy);
         memcpy(dx, host(t_x.grad()).const_data_ptr<float>(), (size_t)n * h * sizeof(float));
@@ -224,7 +224,7 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
     if (!dbg_once) { dbg_once = 1; std::fprintf(stderr, "[tkv-attn-bwd] entry n=%lld h=%lld nheads=%lld hd=%lld gpu=%d\n",
                                                  (long long)n, (long long)h, (long long)nheads, (long long)hd, want_cuda() ? 1 : 0); }
     try {
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA).requires_grad(true);
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32).requires_grad(true);
         const int64_t T = n;
         const int64_t H = nheads * hd;
         if (h != H) return -2;
@@ -246,7 +246,7 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         auto t_proj = at::addmm(t_bp, t_ctx, t_wp);
 
         auto t_gy = dev(torch::from_blob(const_cast<float*>(gout), {T, h},
-             torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA)));
+             torch::TensorOptions().dtype(torch::kFloat32)));
         t_proj.backward(t_gy);
 
         memcpy(dx, host(t_x.grad()).const_data_ptr<float>(),
