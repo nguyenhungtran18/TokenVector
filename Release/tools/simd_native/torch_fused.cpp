@@ -10,14 +10,15 @@
  * Tensor from_blob over caller memory: const-floor read only. Output: out
  * preallocated [n][out_d] f32.
  *
- * Optional runtime: torch_cpu.dll must be reachable at load time of this
- * bridge DLL. Caller falls back to old kernels when load fails.
+ * 2026-11-14: TKV_TORCH_GPU=1 (env) chay moi op tren GPU: H2D -> ATen kernel
+ * GPU -> D2H; mac dinh 0 = CPU ATen (cu). Yeu cau CUDA-capable torch.
  */
 #include <torch/torch.h>
 #include <ATen/ATen.h>
 #include <ATen/core/Tensor.h>
 #include <c10/util/intrusive_ptr.h>
 #include <cstring>
+#include <cstdlib>
 
 #include <string>
 #include <vector>
@@ -25,30 +26,57 @@
 
 using at::Tensor;
 
+#if defined(_WIN32)
 #define TKV_TORCH_EXPORT extern "C" __declspec(dllexport)
+#else
+#define TKV_TORCH_EXPORT extern "C" __attribute__((visibility("default")))
+#endif
+
+static bool want_cuda() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char* s = getenv("TKV_TORCH_GPU");
+        cached = (s && s[0] == '1') ? 1 : 0;
+    }
+    return cached == 1;
+}
+static Tensor dev(const Tensor& t) {
+    return want_cuda() ? t.to(torch::kCUDA) : t;
+}
+static Tensor host(const Tensor& t) {
+    return want_cuda() ? t.to(torch::kCPU) : t;
+}
+static TensorOptions dev_f32() {
+    return want_cuda()
+        ? torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA)
+        : torch::TensorOptions().dtype(torch::kFloat32);
+}
 
 /* helper: wrap caller memory as unmanaged tensor */
 static Tensor wrap_in(const float* p, int64_t rows, int64_t cols) {
     return torch::from_blob(const_cast<float*>(p), {rows, cols},
         torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false));
 }
+static Tensor wrap_out(float* p, int64_t rows, int64_t cols) {
+    return torch::from_blob(p, {rows, cols},
+        torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false));
+}
 
-/* Scales/transposes: oneDNN linear layout is [input, output] right now (w1 in
- * ours is [in_d, out_d]). Direct at::addmm(bias, x, w) uses this layout.
- * Returns 0 on OK, <0 on error. */
+/* -- TkvTorchLinearGeluFwd: x[n,in] @ w[in,out] + b -> GELU -> y[n,out] */
 TKV_TORCH_EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w,
                                            const float* bias, int64_t n, int64_t in_d,
                                            int64_t out_d, float* y) {
     if (!x || !w || !bias || !y) return -1;
     if (n <= 0 || in_d <= 0 || out_d <= 0) return -2;
     try {
-        auto t_x = wrap_in(x, n, in_d);
-        auto t_w = wrap_in(w, in_d, out_d);
-        auto t_b = torch::from_blob(const_cast<float*>(bias), {out_d},
-            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false));
-        auto t_y = at::gelu(at::addmm(t_b, t_x, t_w, 1, 1));
-        if (t_y.numel() != (int64_t)n * out_d) return -3;
-        memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * out_d * sizeof(float));
+        auto t_x = dev(wrap_in(x, n, in_d));
+        auto t_w = dev(wrap_in(w, in_d, out_d));
+        auto t_b = dev(torch::from_blob(const_cast<float*>(bias), {out_d},
+            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false)));
+        auto t_y = dev(at::gelu(at::addmm(t_b, t_x, t_w, 1, 1)));
+        auto t_yh = host(t_y);
+        if (t_yh.numel() != (int64_t)n * out_d) return -3;
+        memcpy(y, t_yh.const_data_ptr<float>(), (size_t)n * out_d * sizeof(float));
         return 0;
     } catch (const std::exception&) {
         return -4;
@@ -57,19 +85,16 @@ TKV_TORCH_EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w,
     }
 }
 
-/* GELU(erf) backward qua ATen: y[i] = gy[i] * d/dx gelu(x[i]).
- * Cung cong thuc voi duong .tkv (0.5*(1+erf(x/sqrt2)) + x*phi(x)) nhung
- * ATen tinh vectorized + multithread -> ~2 ms/3.1M thay vi ~47 ms.
- * rc < 0 -> caller fallback duong .tkv nguyen van. */
+/* GELU(erf) backward qua ATen. */
 TKV_TORCH_EXPORT int TkvTorchGeluBwd(const float* gy, const float* x, float* y,
                                      int64_t n) {
     if (!gy || !x || !y) return -1;
     if (n <= 0) return -2;
     try {
         auto opt = torch::TensorOptions().dtype(torch::kFloat32);
-        auto t_gy = torch::from_blob(const_cast<float*>(gy), {n}, opt);
-        auto t_x  = torch::from_blob(const_cast<float*>(x),  {n}, opt);
-        auto t_y  = at::gelu_backward(t_gy, t_x, "none");
+        auto t_gy = dev(torch::from_blob(const_cast<float*>(gy), {n}, opt));
+        auto t_x  = dev(torch::from_blob(const_cast<float*>(x),  {n}, opt));
+        auto t_y  = host(at::gelu_backward(t_gy, t_x, "none"));
         if (t_y.numel() != n) return -3;
         memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * sizeof(float));
         return 0;
@@ -80,30 +105,28 @@ TKV_TORCH_EXPORT int TkvTorchGeluBwd(const float* gy, const float* x, float* y,
     }
 }
 
-/* Backward Linear (Conv1D layout: w [in_d, out_d]).
- *   dx = gy @ w^T
- *   dw = x^T @ gy
- *   db = sum_n gy
- * Uses g32 from_blob (no copy) and at::addmm/mm. Outputs written straight
- * into caller buffers — caller owns lifetime. Optional rc guard. */
+/* Backward Linear: dx = gy @ w^T ;
+ *   dw = x^T @ gy ;
+ *   db = sum_n gy. */
 TKV_TORCH_EXPORT int TkvTorchLinearBwdFwd(const float* x, const float* gy,
                                           const float* w, float* dx, float* dw, float* db,
                                           int64_t n, int64_t in_d, int64_t out_d) {
     if (!x || !gy || !w || !dx || !dw || !db) return -1;
     if (n <= 0 || in_d <= 0 || out_d <= 0) return -2;
     try {
-        auto t_x  = wrap_in(x, n, in_d);
-        auto t_gy = wrap_in(gy, n, out_d);
-        auto t_w  = wrap_in(w, in_d, out_d);
-        auto t_dx = at::empty({n, in_d}, torch::TensorOptions().dtype(torch::kFloat32));
-        auto t_dw = at::empty({in_d, out_d}, torch::TensorOptions().dtype(torch::kFloat32));
-        auto t_db = at::empty({out_d}, torch::TensorOptions().dtype(torch::kFloat32));
-        at::mm_out(t_dx, t_gy, t_w.t());     /* gy @ w^T */
-        at::mm_out(t_dw, t_x.t(), t_gy);     /* x^T @ gy */
-        at::sum_out(t_db, t_gy, {0}, false); /* sum over n */
-        memcpy(dx, t_dx.const_data_ptr<float>(), (size_t)n * in_d * sizeof(float));
-        memcpy(dw, t_dw.const_data_ptr<float>(), (size_t)in_d * out_d * sizeof(float));
-        memcpy(db, t_db.const_data_ptr<float>(), (size_t)out_d * sizeof(float));
+        auto t_x  = dev(wrap_in(x, n, in_d));
+        auto t_gy = dev(wrap_in(gy, n, out_d));
+        auto t_w  = dev(wrap_in(w, in_d, out_d));
+        auto dopt = dev_f32();
+        auto t_dx = at::empty({n, in_d}, dopt);
+        auto t_dw = at::empty({in_d, out_d}, dopt);
+        auto t_db = at::empty({out_d}, dopt);
+        at::mm_out(t_dx, t_gy, t_w.t());
+        at::mm_out(t_dw, t_x.t(), t_gy);
+        at::sum_out(t_db, t_gy, {0}, false);
+        memcpy(dx, host(t_dx).const_data_ptr<float>(), (size_t)n * in_d * sizeof(float));
+        memcpy(dw, host(t_dw).const_data_ptr<float>(), (size_t)in_d * out_d * sizeof(float));
+        memcpy(db, host(t_db).const_data_ptr<float>(), (size_t)out_d * sizeof(float));
         return 0;
     } catch (const std::exception&) {
         return -4;
@@ -112,18 +135,18 @@ TKV_TORCH_EXPORT int TkvTorchLinearBwdFwd(const float* x, const float* gy,
     }
 }
 
-/* Plain Linear+bias (no gelu), for qkv/c_proj sites later. */
+/* Plain Linear+bias. */
 TKV_TORCH_EXPORT int TkvTorchLinearFwd(const float* x, const float* w,
                                        const float* bias, int64_t n, int64_t in_d,
                                        int64_t out_d, float* y) {
     if (!x || !w || !bias || !y) return -1;
     if (n <= 0 || in_d <= 0 || out_d <= 0) return -2;
     try {
-        auto t_x = wrap_in(x, n, in_d);
-        auto t_w = wrap_in(w, in_d, out_d);
-        auto t_b = torch::from_blob(const_cast<float*>(bias), {out_d},
-            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false));
-        auto t_y = at::addmm(t_b, t_x, t_w, 1, 1);
+        auto t_x = dev(wrap_in(x, n, in_d));
+        auto t_w = dev(wrap_in(w, in_d, out_d));
+        auto t_b = dev(torch::from_blob(const_cast<float*>(bias), {out_d},
+            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false)));
+        auto t_y = host(at::addmm(t_b, t_x, t_w, 1, 1));
         if (t_y.numel() != (int64_t)n * out_d) return -3;
         memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * out_d * sizeof(float));
         return 0;
@@ -134,22 +157,19 @@ TKV_TORCH_EXPORT int TkvTorchLinearFwd(const float* x, const float* w,
     }
 }
 
-/* LayerNorm via ATen (same kernel HF GPT-2 uses: at::layer_norm).
- *   y = (x - mu) * rstd * g + b. Welford vectorized f32 — bit-identical to
- *   torch.nn.functional.layer_norm on the same build/dispatch, not to the
- *   repo's f64-accumulation native path (intentional: parity goal). */
+/* LayerNorm via ATen. */
 TKV_TORCH_EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g,
                                           const float* b, float* y,
                                           int64_t n, int64_t h, double eps) {
     if (!x || !g || !b || !y) return -1;
     if (n <= 0 || h <= 0) return -2;
     try {
-        auto t_x = wrap_in(x, n, h);
-        auto t_g = torch::from_blob(const_cast<float*>(g), {h},
-            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false));
-        auto t_b = torch::from_blob(const_cast<float*>(b), {h},
-            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false));
-        auto t_y = at::layer_norm(t_x, {h}, t_g, t_b, eps);
+        auto t_x = dev(wrap_in(x, n, h));
+        auto t_g = dev(torch::from_blob(const_cast<float*>(g), {h},
+            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false)));
+        auto t_b = dev(torch::from_blob(const_cast<float*>(b), {h},
+            torch::TensorOptions().dtype(torch::kFloat32).requires_grad(false)));
+        auto t_y = host(at::layer_norm(t_x, {h}, t_g, t_b, eps));
         memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * h * sizeof(float));
         return 0;
     } catch (const std::exception&) {
@@ -159,9 +179,7 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g,
     }
 }
 
-/* Backward LayerNorm via ATen autograd (same graph PyTorch uses for HF
- * gpt2 LN backward — at::layer_norm + .backward()). Outputs dx/dg/db into
- * caller's buffers. eps must match fwd (1e-6 here, HF default). */
+/* Backward LayerNorm via ATen autograd. */
 TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
                                           const float* b, const float* gy,
                                           float* dx, float* dg, float* db,
@@ -169,16 +187,17 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
     if (!x || !g || !b || !gy || !dx || !dg || !db) return -1;
     if (n <= 0 || h <= 0) return -2;
     try {
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32);
-        auto t_x  = torch::from_blob(const_cast<float*>(x), {n, h}, opt.requires_grad(true));
-        auto t_g  = torch::from_blob(const_cast<float*>(g), {h},   opt.requires_grad(true));
-        auto t_b  = torch::from_blob(const_cast<float*>(b), {h},   opt.requires_grad(true));
-        auto t_gy = torch::from_blob(const_cast<float*>(gy), {n, h}, opt);
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA).requires_grad(true);
+        auto t_x  = dev(torch::from_blob(const_cast<float*>(x), {n, h}, opt.requires_grad(true)));
+        auto t_g  = dev(torch::from_blob(const_cast<float*>(g), {h},   opt.requires_grad(true)));
+        auto t_b  = dev(torch::from_blob(const_cast<float*>(b), {h},   opt.requires_grad(true)));
+        auto t_gy = dev(torch::from_blob(const_cast<float*>(gy), {n, h},
+             torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA)));
         auto t_y  = at::layer_norm(t_x, {h}, t_g, t_b, eps);
         t_y.backward(t_gy);
-        memcpy(dx, t_x.grad().const_data_ptr<float>(), (size_t)n * h * sizeof(float));
-        memcpy(dg, t_g.grad().const_data_ptr<float>(), (size_t)h * sizeof(float));
-        memcpy(db, t_b.grad().const_data_ptr<float>(), (size_t)h * sizeof(float));
+        memcpy(dx, host(t_x.grad()).const_data_ptr<float>(), (size_t)n * h * sizeof(float));
+        memcpy(dg, host(t_g.grad()).const_data_ptr<float>(), (size_t)h * sizeof(float));
+        memcpy(db, host(t_b.grad()).const_data_ptr<float>(), (size_t)h * sizeof(float));
         return 0;
     } catch (const std::exception&) {
         return -4;
@@ -186,12 +205,7 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
         return -5;
     }
 }
-/* Attention block BACKWARD via ATen autograd (same graph HF GPT2 uses:
- *   x -> c_attn(addmm) -> [q,k,v split views] -> sdpa(is_causal=true) ->
- *   reshape -> c_proj(addmm) -> seed(gout).backward()
- * Outputs: dx into caller buffer; dw_qkv/db_qkv/dw_proj/db_proj DIRECTLY into
- * gflat at element offsets o_qkv/o_bqkv/o_proj/o_bproj (gflat zeroed per
- * step, each offset written once). rc < 0 -> caller fallback. */
+/* Attention block BACKWARD via ATen autograd. */
 TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         const float* w_qkv, const float* b_qkv,
         const float* w_proj, const float* b_proj,
@@ -200,43 +214,44 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         long long o_qkv, long long o_bqkv, long long o_proj, long long o_bproj) {
     if (!x || !gout || !w_qkv || !b_qkv || !w_proj || !b_proj || !dx) return -1;
     try {
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32);
+        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA).requires_grad(true);
         const int64_t T = n;
         const int64_t H = nheads * hd;
         if (h != H) return -2;
-        auto t_x   = torch::from_blob(const_cast<float*>(x),   {T, h},   opt.requires_grad(true));
-        auto t_wq  = torch::from_blob(const_cast<float*>(w_qkv), {h, 3 * h}, opt.requires_grad(true));
-        auto t_bq  = torch::from_blob(const_cast<float*>(b_qkv), {3 * h},   opt.requires_grad(true));
-        auto t_wp  = torch::from_blob(const_cast<float*>(w_proj), {h, h},  opt.requires_grad(true));
-        auto t_bp  = torch::from_blob(const_cast<float*>(b_proj), {h},     opt.requires_grad(true));
+        auto t_x   = dev(torch::from_blob(const_cast<float*>(x),   {T, h},   opt.requires_grad(true)));
+        auto t_wq  = dev(torch::from_blob(const_cast<float*>(w_qkv), {h, 3 * h}, opt.requires_grad(true)));
+        auto t_bq  = dev(torch::from_blob(const_cast<float*>(b_qkv), {3 * h},   opt.requires_grad(true)));
+        auto t_wp  = dev(torch::from_blob(const_cast<float*>(w_proj), {h, h},  opt.requires_grad(true)));
+        auto t_bp  = dev(torch::from_blob(const_cast<float*>(b_proj), {h},     opt.requires_grad(true)));
 
-        auto t_qkv = at::addmm(t_bq, t_x, t_wq);              /* [T, 3h] */
-        auto t_q3  = t_qkv.view({T, 3, nheads, hd});          /* contiguous view */
-        auto q = t_q3.select(1, 0).transpose(0, 1).unsqueeze(0);  /* [B(=1), H, T, hd] */
+        auto t_qkv = at::addmm(t_bq, t_x, t_wq);
+        auto t_q3  = t_qkv.view({T, 3, nheads, hd});
+        auto q = t_q3.select(1, 0).transpose(0, 1).unsqueeze(0);
         auto k = t_q3.select(1, 1).transpose(0, 1).unsqueeze(0);
         auto v = t_q3.select(1, 2).transpose(0, 1).unsqueeze(0);
 
         auto t_attn = at::scaled_dot_product_attention(q, k, v, std::nullopt,
                                                        0.0, true, std::nullopt);
-        auto t_ctx  = t_attn.transpose(1, 2).reshape({T, h}).contiguous();  /* [T, h] */
+        auto t_ctx  = t_attn.transpose(1, 2).reshape({T, h}).contiguous();
         auto t_proj = at::addmm(t_bp, t_ctx, t_wp);
 
-        auto t_gy = torch::from_blob(const_cast<float*>(gout), {T, h}, opt);
+        auto t_gy = dev(torch::from_blob(const_cast<float*>(gout), {T, h},
+             torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA)));
         t_proj.backward(t_gy);
 
-        memcpy(dx, t_x.grad().const_data_ptr<float>(),
+        memcpy(dx, host(t_x.grad()).const_data_ptr<float>(),
                (size_t)T * h * sizeof(float));
         if (gflat && o_qkv  >= 0)
-            memcpy(gflat + o_qkv,  t_wq.grad().const_data_ptr<float>(),
+            memcpy(gflat + o_qkv,  host(t_wq.grad()).const_data_ptr<float>(),
                    (size_t)h * 3 * h * sizeof(float));
         if (gflat && o_bqkv >= 0)
-            memcpy(gflat + o_bqkv, t_bq.grad().const_data_ptr<float>(),
+            memcpy(gflat + o_bqkv, host(t_bq.grad()).const_data_ptr<float>(),
                    (size_t)3 * h * sizeof(float));
         if (gflat && o_proj >= 0)
-            memcpy(gflat + o_proj, t_wp.grad().const_data_ptr<float>(),
+            memcpy(gflat + o_proj, host(t_wp.grad()).const_data_ptr<float>(),
                    (size_t)h * h * sizeof(float));
         if (gflat && o_bproj >= 0)
-            memcpy(gflat + o_bproj, t_bp.grad().const_data_ptr<float>(),
+            memcpy(gflat + o_bproj, host(t_bp.grad()).const_data_ptr<float>(),
                    (size_t)h * sizeof(float));
         return 0;
     } catch (const std::exception&) {
@@ -246,16 +261,15 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
     }
 }
 
-/* Mm transposed (LM head): y = x @ w^T. w [out_d, in_d] (tied-embedding layout,
- * HF lm_head does at::linear(x, W, None) internally -> at::mm(x, W^T)). */
+/* Mm transposed (LM head): y = x @ w^T. */
 TKV_TORCH_EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,
                                  int64_t n, int64_t in_d, int64_t out_d) {
     if (!x || !w || !y) return -1;
     if (n <= 0 || in_d <= 0 || out_d <= 0) return -2;
     try {
-        auto t_x = wrap_in(x, n, in_d);
-        auto t_w = wrap_in(w, out_d, in_d);
-        auto t_y = at::mm(t_x, t_w.t());
+        auto t_x = dev(wrap_in(x, n, in_d));
+        auto t_w = dev(wrap_in(w, out_d, in_d));
+        auto t_y = host(at::mm(t_x, t_w.t()));
         memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * out_d * sizeof(float));
         return 0;
     } catch (const std::exception&) {
@@ -265,11 +279,7 @@ TKV_TORCH_EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,
     }
 }
 
-/* Scaled-dot-product attention CAUSAL (HF sdpa: is_causal=true, scale =
- * 1/sqrt(hd), dropout 0). q/k/v slices from qkv [n, 3*h] rows; h = nheads*hd.
- * Contiguous copies are made so the ATen CPU flash dispatch path matches what
- * HF sdpa sees (identical kernel -> identical bits). Output interleaved per
- * head into y [n, h] (same layout as repo ctxT). */
+/* Scaled-dot-product attention CAUSAL. */
 TKV_TORCH_EXPORT int TkvTorchSdpa(const float* qkv, float* y,
                                   int64_t n, int64_t nheads, int64_t hd) {
     if (!qkv || !y) return -1;
@@ -277,7 +287,9 @@ TKV_TORCH_EXPORT int TkvTorchSdpa(const float* qkv, float* y,
     const int64_t h = nheads * hd;
     if (h <= 0) return -2;
     try {
+        const bool cuda = want_cuda();
         auto opt = torch::TensorOptions().dtype(torch::kFloat32);
+        /* CPU empty (host) de vong for dien qkv; sau do move sang CUDA neu can */
         auto t_q = at::empty({1, nheads, n, hd}, opt);
         auto t_k = at::empty({1, nheads, n, hd}, opt);
         auto t_v = at::empty({1, nheads, n, hd}, opt);
@@ -295,9 +307,16 @@ TKV_TORCH_EXPORT int TkvTorchSdpa(const float* qkv, float* y,
                 memcpy(vp + (hi * n + t) * hd, vsrc + t * stride + hi * hd, hd * sizeof(float));
             }
         }
-        auto t_y = at::scaled_dot_product_attention(t_q, t_k, t_v, std::nullopt,
-                                                    0.0, true, std::nullopt);
-        const float* yp = t_y.const_data_ptr<float>();
+        auto y_gpu = [&]() {
+            if (cuda) {
+                auto t_qo = t_q.to(torch::kCUDA), t_ko = t_k.to(torch::kCUDA), t_vo = t_v.to(torch::kCUDA);
+                return at::scaled_dot_product_attention(t_qo, t_ko, t_vo, std::nullopt, 0.0, true, std::nullopt);
+            } else {
+                return at::scaled_dot_product_attention(t_q, t_k, t_v, std::nullopt, 0.0, true, std::nullopt);
+            }
+        }();
+        auto y_cpu = cuda ? y_gpu.to(torch::kCPU) : y_gpu;
+        const float* yp = y_cpu.const_data_ptr<float>();
         for (int64_t hi = 0; hi < nheads; hi++) {
             for (int64_t t = 0; t < n; t++) {
                 memcpy(y + t * h + hi * hd, yp + (hi * n + t) * hd, hd * sizeof(float));
@@ -311,21 +330,26 @@ TKV_TORCH_EXPORT int TkvTorchSdpa(const float* qkv, float* y,
     }
 }
 
-/* §0.148 (2026-11-11): dwte += dlT @ xf trong MOT lenh ATen.
- * dl [T][V] row-major; doc thang bang .t() -> khong transpose vat ly, khong buffer tmp.
- * dwte [V][E] TICH LUY (beta=1) -> caller phai zero truoc (giong hop dong cu).
- * Thay 2 buoc cu: tmp = dlT @ xf (openblas 255 ms) + dwte += tmp (36.5 ms).
- * Do truoc: addmm_out 195.9 ms vs 298.8 ms -> -102.9 ms/step.
- * Numerics: khac thu vien tich luy (ATen/oneDNN vs scipy-openblas) -> loss lech ~1e-7. */
+/* A0.148: dwte += dlT @ xf. dl [T][V]; dwte [V][E] TICH LUY. */
 TKV_TORCH_EXPORT int TkvTorchAddmmTaOut(const float* dl, const float* xf, float* dwte,
                                         int64_t T, int64_t V, int64_t E) {
     if (!dl || !xf || !dwte) return -1;
     if (T <= 0 || V <= 0 || E <= 0) return -2;
     try {
+        if (want_cuda()) {
+            /* accumulate vao CUDA tensor; sau do copy back ve host */
+            auto t_dl = wrap_in(dl, T, V).to(torch::kCUDA);
+            auto t_xf = wrap_in(xf, T, E).to(torch::kCUDA);
+            auto t_dw = wrap_in(dwte, V, E).to(torch::kCUDA);
+            at::addmm_out(t_dw, t_dw, t_dl.t(), t_xf, 1.0, 1.0);
+            auto t_dw_cpu = t_dw.to(torch::kCPU);
+            memcpy(dwte, t_dw_cpu.const_data_ptr<float>(), (size_t)V * E * sizeof(float));
+            return 0;
+        }
         auto t_dl = wrap_in(dl, T, V);
         auto t_xf = wrap_in(xf, T, E);
         auto t_dw = wrap_in(dwte, V, E);
-        at::addmm_out(t_dw, t_dw, t_dl.t(), t_xf, 1.0, 1.0);
+        at::addmm_out(t_dw, t_dw, t_dl.t(), t_xf, 1.0, 1.0); /* beta=1 accumulate: tam chua */
         return 0;
     } catch (const std::exception&) {
         return -4;
