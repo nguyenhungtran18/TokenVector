@@ -224,7 +224,10 @@ static int buf_get(float** p, size_t* sz, size_t need) {
 
 EXPORT int TkvCUDA_RectF32(const float* a, int lda, const float* b, int ldb,
                            float* c, int ldc, int m, int n, int k,
-                           int transA, int transB, int accumulate) {
+                           int transA, int transB, int accumulate, int cacheB) {
+    /* He chu ky: cacheB==1 => B chac chan la WEIGHT (goi boi LinearDxFused)
+     * -> duoc device-cache qua epoch waiver. Moi duong khac (packed/attention/
+     * SgemmF32/dW): cacheB==0, KHONG suy doan (B co the la activation). */
     if (cuda_init() != 1) return 0;
     if (!a || !b || !c || m <= 0 || n <= 0 || k <= 0) return 0;
     /* Nho qua -> overhead PCIe > cai duoc GPU. */
@@ -240,8 +243,8 @@ EXPORT int TkvCUDA_RectF32(const float* a, int lda, const float* b, int ldb,
     cuda_lock();
     int ok = 0;
     float* b_dev = 0;
-    const int B_weight = (transA != 112 && !accumulate);   /* A=activation -> B=weight */
     int use_cached_B = 0;
+    const int B_weight = (cacheB == 1 && !accumulate);   /* LinearDxFused: B = weight */
 
     if (!buf_get(&g_da_buf, &g_da_sz, sz_a)) goto out;
     if (!buf_get(&g_dc_buf, &g_dc_sz, sz_c)) goto out;

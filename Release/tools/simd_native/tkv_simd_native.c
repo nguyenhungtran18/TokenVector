@@ -15,10 +15,11 @@
 /* TkvCUDA_SgemmF32: defined in tkv_cuda_native.c (dlopen libcublas) */
 int TkvCUDA_SgemmF32(const float* a, const float* b, float* o, int n);
 
-/* P1 (2026-11-13): rect GEMM row-major qua cuBLAS. */
+/* P1 (2026-11-13): rect GEMM row-major qua cuBLAS.
+ * cacheB==1 => B chac chan la WEIGHT (chi LinearDxFused); cacheB==0 (moi noi khac) */
 int TkvCUDA_RectF32(const float* a, int lda, const float* b, int ldb,
                     float* c, int ldc, int m, int n, int k,
-                    int transA, int transB, int accumulate);
+                    int transA, int transB, int accumulate, int cacheB);
 /* P2-lite: tang epoch cua weight cache GPU (tkv_cuda_native.c). */
 void TkvCUDA_MarkWeightsDirty(void);
 #include "tkv_platform.h"
@@ -364,20 +365,21 @@ static int tkv_cuda_on(void) {
 static int tkv_try_cuda_rect(const float* a, int lda, const float* b, int ldb, float* c, int ldc,
                               int m, int n, int k, int transA) {
     if (!tkv_cuda_on()) return 0;
-    return TkvCUDA_RectF32(a, lda, b, ldb, c, ldc, m, n, k, transA, 111, 0);
+    return TkvCUDA_RectF32(a, lda, b, ldb, c, ldc, m, n, k, transA, 111, 0, 0);
 }
 
 static int tkv_try_cuda_rect_tb(const float* a, int lda, const float* b, int ldb, float* c, int ldc,
                                  int m, int n, int k, int transB) {
     if (!tkv_cuda_on()) return 0;
-    return TkvCUDA_RectF32(a, lda, b, ldb, c, ldc, m, n, k, 111, transB, 0);
+    /* dx = gy @ w^T: B = weight -> duoc cache */
+    return TkvCUDA_RectF32(a, lda, b, ldb, c, ldc, m, n, k, 111, transB, 0, 1);
 }
 
 static int tkv_try_cuda_rect_acc(float* c, int ldc, const float* a, int lda,
                                   const float* b, int ldb,
                                   int m, int n, int k, int transA) {
     if (!tkv_cuda_on()) return 0;
-    return TkvCUDA_RectF32(a, lda, b, ldb, c, ldc, m, n, k, transA, 111, 1);
+    return TkvCUDA_RectF32(a, lda, b, ldb, c, ldc, m, n, k, transA, 111, 1, 0);
 }
 
 /* BLAS cho chu nhat (rect mat-cheo / square). A/B theo RowMajor.
