@@ -14,6 +14,11 @@
 #include <immintrin.h>
 /* TkvCUDA_SgemmF32: defined in tkv_cuda_native.c (dlopen libcublas) */
 int TkvCUDA_SgemmF32(const float* a, const float* b, float* o, int n);
+
+/* P1 (2026-11-13): rect GEMM row-major qua cuBLAS. */
+int TkvCUDA_RectF32(const float* a, int lda, const float* b, int ldb,
+                    float* c, int ldc, int m, int n, int k,
+                    int transA, int transB, int accumulate);
 #include "tkv_platform.h"
 #include <stdlib.h>
 #include <string.h>
@@ -338,6 +343,39 @@ static int tkv_try_blas(float* a, float* b, float* o, int n) {
         n, n, n, 1.0f, a, n, b, n, 0.0f, o, n);
     return 1;
 #endif
+}
+
+/* TKV_GEMM_CUDA=1 (mac dinh 0): chay GEMM qua cuBLAS thay BLAS/kernel.
+ * P1 — thu de do tren Colab; loss khong con EXACT (accumulation khac).
+ * Giu 0 de hanh vi = hien tai cho den khi do xong tren Colab. */
+static int tkv_cuda_on(void) {
+    static int on = -1;
+    if (on < 0) {
+        const char* s = getenv("TKV_GEMM_CUDA");
+        on = (s && s[0] && s[0] != '0') ? 1 : 0;
+    }
+    return on;
+}
+
+/* CUDA cho rect GEMM: C = opA(A)·opB(B) (row-major). transA/transB = 111/112
+ * (cblas convention nhu BLAS cua engine). */
+static int tkv_try_cuda_rect(const float* a, int lda, const float* b, int ldb, float* c, int ldc,
+                              int m, int n, int k, int transA) {
+    if (!tkv_cuda_on()) return 0;
+    return TkvCUDA_RectF32(a, lda, b, ldb, c, ldc, m, n, k, transA, 111, 0);
+}
+
+static int tkv_try_cuda_rect_tb(const float* a, int lda, const float* b, int ldb, float* c, int ldc,
+                                 int m, int n, int k, int transB) {
+    if (!tkv_cuda_on()) return 0;
+    return TkvCUDA_RectF32(a, lda, b, ldb, c, ldc, m, n, k, 111, transB, 0);
+}
+
+static int tkv_try_cuda_rect_acc(float* c, int ldc, const float* a, int lda,
+                                  const float* b, int ldb,
+                                  int m, int n, int k, int transA) {
+    if (!tkv_cuda_on()) return 0;
+    return TkvCUDA_RectF32(a, lda, b, ldb, c, ldc, m, n, k, transA, 111, 1);
 }
 
 /* BLAS cho chu nhat (rect mat-cheo / square). A/B theo RowMajor.
@@ -1196,7 +1234,7 @@ static int tkv_k_eff(const float* b, const float* a, int n) {
 }
 
 EXPORT void SgemmF32(float* a, float* b, float* o, int n) {
-    if (TkvCUDA_SgemmF32(a, b, o, n)) return;
+    if (tkv_cuda_on() && TkvCUDA_SgemmF32(a, b, o, n)) return;
     if (n >= tkv_blas_min_n() && tkv_try_blas(a, b, o, n)) return;
     /* M7: lop VOCAB (n == 50257) chia cot manh + NC lon; con lai pattern cu.
      * nho (< MIN_N mac dinh 96) da tro thanh nt = 1 trong tkv_nthreads. */
@@ -1537,6 +1575,12 @@ static void run_rect_shaped_m(int mode, const float* a, int lda, const float* b,
                               float* c, int ldc, int m, int n, int k) {
     /* BLAS luôn được thử trước (zero-config). Set TKV_GEMM_BLAS=0 để
      * bật lại kernel native cho mọi shape. Layout BLAS = RowMajor. */
+    /* CUDA thu truoc (TKV_GEMM_CUDA=1), roi BLAS, roi kernel noi bo. */
+    if (tkv_cuda_on()) {
+        int transA2 = (mode == 7) ? 112 : 111;
+        if (tkv_try_cuda_rect(a, lda, b, ldb, c, ldc, m, n, k, transA2) == 1)
+            return;
+    }
     if (tkv_blas_load() == 1) {
         int transA = (mode == 7) ? 112 : 111;
         if (tkv_try_blas_rect((float*)a, lda, (float*)b, ldb, c, ldc, m, n, k, transA) == 1)
@@ -2057,6 +2101,9 @@ EXPORT int LinearDxFused(const float* gy, int gy_len,
                          int m, int n, int k) {
     if (!gy || !w || !dx) return -1;
     if (m <= 0 || n <= 0 || k <= 0) return -2;
+    if (tkv_try_cuda_rect_tb((float*)gy, k, (float*)w, k, dx, n, m, n, k,
+                             112 /* CblasTrans */) == 1)
+        return 0;
     /* Pha 3 (2026-11-09, user waiver): BLAS transB - dx = gy @ w^T qua openblas
      * (beta=0, fallback duong native bit-exact NGUYEN VAN neu BLAS khong co). */
     if (tkv_try_blas_rect_tb((float*)gy, k, (float*)w, k, dx, n, m, n, k,
@@ -2643,6 +2690,9 @@ EXPORT int LinearDwAtFused(const float* x, int x_len, const float* gy, int gy_le
     if ((long long)x_len < need_x || (long long)gy_len < need_y) return -5;
     if ((long long)gdw_len - gdw_off < need_d) return -5;
 
+    if (tkv_try_cuda_rect_acc(gdw + gdw_off, out_d, x, in_d, gy, out_d,
+                              in_d, out_d, n, 112 /*CblasTrans*/) == 1)
+        return 0;
     /* Pha 3 (2026-11-09, user waiver bit-exact): BLAS dW - beta=1.0 accumulate
      * (dW = x^T . gy qua cblas transA). Do bwd loss EXACT (dW khong chay o fwd);
      * mode 1 loss in-ra khong doi (<1e-9 drift). Fallback native AS LA VAN. */

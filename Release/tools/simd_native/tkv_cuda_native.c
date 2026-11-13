@@ -140,6 +140,84 @@ fail:
     return 0;
 }
 
+/* ---- P1 (2026-11-13): GEMM chu nhat ROW-MAJOR ti cuBLAS ------------------
+ * Dung cho cac loi goi FULL GEMM (SgemmFull/SgemmPacked/LinearDxFused/
+ * LinearDwAtFused), KHONG dung cho tile ben trong vong lap. Goi tu
+ * tkv_simd_native.c khi TKV_GEMM_CUDA=1.
+ *
+ * Row-major C = opA(A)·opB(B)  <=>  col-major C^T = opB(B)·opA(A)^T
+ * (1 hang cua buffer row-major chinh la 1 cot cua ma tran col-major tuong ung,
+ * chi can truyen lda/ldb/ldc NGUYEN GIA TRI).
+ *
+ * transA/transB: 111 = NoTrans, 112 = Trans (cblas convention cua engine).
+ * accumulate:    1 => beta = 1.0 (dW cong don vao C -> H2D copy C truoc);
+ *                0 => beta = 0.0.
+ * Tra ve 1 = da chay tren GPU, 0 = nen fallback (CUDA thieu / shape nho / loi).
+ *
+ * Cac call tu worker thread DIFFERENT matrices -> mutex quay quanh toan bo
+ * lo goi; GEMM la nút co chai nen xep hang CPU con hon. */
+static float *g_da_buf = 0, *g_db_buf = 0, *g_dc_buf = 0;
+static size_t g_da_sz = 0, g_db_sz = 0, g_dc_sz = 0;
+#if defined(_WIN32)
+static CRITICAL_SECTION g_cuda_mu;
+static volatile LONG g_cuda_mu_init = 0;
+static void cuda_lock(void) {
+    if (InterlockedCompareExchange(&g_cuda_mu_init, 1, 0) == 0) InitializeCriticalSection(&g_cuda_mu);
+    EnterCriticalSection(&g_cuda_mu);
+}
+static void cuda_unlock(void) { LeaveCriticalSection(&g_cuda_mu); }
+#else
+#include <pthread.h>
+static pthread_mutex_t g_cuda_mu = PTHREAD_MUTEX_INITIALIZER;
+static void cuda_lock(void) { pthread_mutex_lock(&g_cuda_mu); }
+static void cuda_unlock(void) { pthread_mutex_unlock(&g_cuda_mu); }
+#endif
+
+static int buf_get(float** p, size_t* sz, size_t need) {
+    if (*sz >= need) return 1;
+    if (*p) p_cudafree(*p);
+    *p = 0; *sz = 0;
+    if (p_cudamalloc((void**)p, need) != 0) return 0;
+    *sz = need;
+    return 1;
+}
+
+EXPORT int TkvCUDA_RectF32(const float* a, int lda, const float* b, int ldb,
+                           float* c, int ldc, int m, int n, int k,
+                           int transA, int transB, int accumulate) {
+    if (cuda_init() != 1) return 0;
+    if (!a || !b || !c || m <= 0 || n <= 0 || k <= 0) return 0;
+    /* Nho qua -> overhead PCIe > cai duoc GPU. */
+    if ((long long)m * (long long)n < 65536) return 0;
+
+    const int opA = (transA == 112) ? 1 /*CUBLAS_OP_T*/ : 0 /*CUBLAS_OP_N*/;
+    const int opB = (transB == 112) ? 1 : 0;
+    const size_t sz_a = (size_t)lda * (size_t)(opA ? k : m) * sizeof(float);
+    const size_t sz_b = (size_t)ldb * (size_t)(opB ? n : k) * sizeof(float);
+    const size_t sz_c = (size_t)ldc * (size_t)m * sizeof(float);
+    const float alpha = 1.0f, beta = accumulate ? 1.0f : 0.0f;
+
+    cuda_lock();
+    int ok = 0;
+    if (!buf_get(&g_da_buf, &g_da_sz, sz_a)) goto out;
+    if (!buf_get(&g_db_buf, &g_db_sz, sz_b)) goto out;
+    if (!buf_get(&g_dc_buf, &g_dc_sz, sz_c)) goto out;
+
+    if (p_cudamemcpy(g_da_buf, a, sz_a, cudaMemcpyHostToDevice) != 0) goto out;
+    if (p_cudamemcpy(g_db_buf, b, sz_b, cudaMemcpyHostToDevice) != 0) goto out;
+    if (accumulate && p_cudamemcpy(g_dc_buf, c, sz_c, cudaMemcpyHostToDevice) != 0) goto out;
+
+    /* C^T = P·Q voi P = opB(B)·read(b), Q = opA(A)^T; dims n x m x k */
+    if (p_sgemm(g_handle, (cublasOperation_t)opB, (cublasOperation_t)opA,
+                n, m, k, &alpha, g_db_buf, ldb, g_da_buf, lda, &beta, g_dc_buf, ldc) != 0) goto out;
+
+    if (p_cudamemcpy(c, g_dc_buf, sz_c, cudaMemcpyDeviceToHost) != 0) goto out;
+    ok = 1;
+out:
+    cuda_unlock();
+    return ok;
+}
+
 EXPORT void TkvCUDA_Shutdown(void) {
     if (g_handle && p_destroy) p_destroy(g_handle);
     g_handle = 0;
