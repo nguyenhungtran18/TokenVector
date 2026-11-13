@@ -307,15 +307,31 @@ static int tkv_blas_min_n(void) {
     return v;
 }
 
+/* So thread tra cho BLAS. OpenBLAS bao hoa quanh 4-8 thread roi CHAM di tren
+ * may nhieu core (WSL 2026-11-12, mode2 seq1024: 8 thread 8 153 ms vs 28 thread
+ * ~10 001 ms) trong khi kernel noi bo van scale toi 28 thread. Vi vay cho phep
+ * chan bang TKV_GEMM_BLAS_THREADS (0/khong set = khong chan). */
+static int tkv_blas_threads(int nt) {
+    static int cap = -1;
+    if (cap < 0) {
+        const char* s = getenv("TKV_GEMM_BLAS_THREADS");
+        cap = (s && s[0]) ? atoi(s) : 0;
+        if (cap < 0) cap = 0;
+    }
+    if (nt < 1) nt = 1;
+    if (cap > 0 && nt > cap) nt = cap;
+    return nt;
+}
+
 static int tkv_try_blas(float* a, float* b, float* o, int n) {
     if (tkv_blas_load() != 1) return 0;
     int nt = tkv_nthreads(n);
 #ifdef TKV_LINK_MKL
-    tkv_mkl_set_threads(nt > 0 ? nt : 1);
+    tkv_mkl_set_threads(tkv_blas_threads(nt));
     tkv_mkl_gemm(111 /*NoTrans*/, n, n, n, a, n, b, n, o, n);
     return 1;
 #else
-    if (p_openblas_set_num_threads) p_openblas_set_num_threads(nt > 0 ? nt : 1);
+    if (p_openblas_set_num_threads) p_openblas_set_num_threads(tkv_blas_threads(nt));
     p_cblas_sgemm(101 /*RowMajor*/, 111 /*NoTrans*/, 111 /*NoTrans*/,
         n, n, n, 1.0f, a, n, b, n, 0.0f, o, n);
     return 1;
@@ -329,11 +345,11 @@ static int tkv_try_blas_rect(float* a, int lda, float* b, int ldb, float* o, int
     if (tkv_blas_load() != 1) return 0;
     int nt = tkv_nthreads(m > n ? m : n);
 #ifdef TKV_LINK_MKL
-    tkv_mkl_set_threads(nt > 0 ? nt : 1);
+    tkv_mkl_set_threads(tkv_blas_threads(nt));
     tkv_mkl_gemm(transA, m, n, k, a, lda, b, ldb, o, ldc);
     return 1;
 #else
-    if (p_openblas_set_num_threads) p_openblas_set_num_threads(nt > 0 ? nt : 1);
+    if (p_openblas_set_num_threads) p_openblas_set_num_threads(tkv_blas_threads(nt));
     p_cblas_sgemm(101 /*RowMajor*/, transA, 111 /*NoTrans*/, m, n, k,
                   1.0f, a, lda, b, ldb, 0.0f, o, ldc);
     return 1;
@@ -346,12 +362,12 @@ static int tkv_try_blas_rect_tb(float* a, int lda, float* b, int ldb, float* o, 
     if (tkv_blas_load() != 1) return 0;
     int nt = tkv_nthreads(m > n ? m : n);
 #ifdef TKV_LINK_MKL
-    tkv_mkl_set_threads(nt > 0 ? nt : 1);
+    tkv_mkl_set_threads(tkv_blas_threads(nt));
     cblas_sgemm(CblasRowMajor, CblasNoTrans, (CBLAS_TRANSPOSE)transB, m, n, k,
                 1.0f, a, lda, b, ldb, 0.0f, o, ldc);
     return 1;
 #else
-    if (p_openblas_set_num_threads) p_openblas_set_num_threads(nt > 0 ? nt : 1);
+    if (p_openblas_set_num_threads) p_openblas_set_num_threads(tkv_blas_threads(nt));
     p_cblas_sgemm(101 /*RowMajor*/, 111 /*NoTrans*/, transB, m, n, k,
                   1.0f, a, lda, b, ldb, 0.0f, o, ldc);
     return 1;
@@ -367,12 +383,12 @@ static int tkv_try_blas_rect_acc(float* o, int ldc, const float* a, int lda,
     if (tkv_blas_load() != 1) return 0;
     int nt = tkv_nthreads(m > n ? m : n);
 #ifdef TKV_LINK_MKL
-    tkv_mkl_set_threads(nt > 0 ? nt : 1);
+    tkv_mkl_set_threads(tkv_blas_threads(nt));
     cblas_sgemm(CblasRowMajor, (CBLAS_TRANSPOSE)transA, CblasNoTrans, m, n, k,
                 1.0f, a, lda, b, ldb, 1.0f, o, ldc);
     return 1;
 #else
-    if (p_openblas_set_num_threads) p_openblas_set_num_threads(nt > 0 ? nt : 1);
+    if (p_openblas_set_num_threads) p_openblas_set_num_threads(tkv_blas_threads(nt));
     p_cblas_sgemm(101 /*RowMajor*/, transA, 111 /*NoTrans*/, m, n, k,
                   1.0f, a, lda, b, ldb, 1.0f, o, ldc);
     return 1;
