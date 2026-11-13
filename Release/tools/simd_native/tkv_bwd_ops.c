@@ -16,6 +16,7 @@
  */
 #include <immintrin.h>
 #include "tkv_prof.h"
+#include "tkv_gelu_avx2.h"
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -180,13 +181,13 @@ static int GeluErfBwd_impl(const float* x, int x_len, const float* gy, int gy_le
     if (lo == hi) return 0;
 
     long long i = lo;
-    for (; i + 3 < hi; i += 4) {
-        float v0 = x[i], v1 = x[i + 1], v2 = x[i + 2], v3 = x[i + 3];
-        float g0 = gy[i], g1 = gy[i + 1], g2 = gy[i + 2], g3 = gy[i + 3];
-        out[i - lo]     = (float)((double)g0 * gelu_b_one(v0));
-        out[i + 1 - lo] = (float)((double)g1 * gelu_b_one(v1));
-        out[i + 2 - lo] = (float)((double)g2 * gelu_b_one(v2));
-        out[i + 3 - lo] = (float)((double)g3 * gelu_b_one(v3));
+    if (i + 8 <= hi) {
+        for (; i + 8 <= hi; i += 8) {
+            __m256 xv = _mm256_loadu_ps(x + i);
+            __m256 gv = _mm256_loadu_ps(gy + i);
+            __m256 bv = tkv_gelu_bwd_one(xv);
+            _mm256_storeu_ps(out + (i - lo), _mm256_mul_ps(bv, gv));
+        }
     }
     for (; i < hi; i++) {
         out[i - lo] = (float)((double)gy[i] * gelu_b_one(x[i]));
@@ -203,11 +204,12 @@ static int GeluErfFwd_impl(const float* x, int x_len, float* out, int out_len, l
     if (x_len < hi || out_len < hi - lo) return -5;
     if (lo == hi) return 0;
     long long i = lo;
-    for (; i + 3 < hi; i += 4) {
-        out[i - lo]     = gelu_f_one(x[i]);
-        out[i + 1 - lo] = gelu_f_one(x[i + 1]);
-        out[i + 2 - lo] = gelu_f_one(x[i + 2]);
-        out[i + 3 - lo] = gelu_f_one(x[i + 3]);
+    if (i + 8 <= hi) {
+        for (; i + 8 <= hi; i += 8) {
+            __m256 xv = _mm256_loadu_ps(x + i);
+            __m256 fv = tkv_gelu_fwd_one(xv);
+            _mm256_storeu_ps(out + (i - lo), fv);
+        }
     }
     for (; i < hi; i++) {
         out[i - lo] = gelu_f_one(x[i]);
