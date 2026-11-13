@@ -19,6 +19,7 @@
 #include <c10/util/intrusive_ptr.h>
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 
 #include <string>
 #include <vector>
@@ -219,6 +220,9 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         int64_t n, int64_t h, int64_t nheads, int64_t hd,
         long long o_qkv, long long o_bqkv, long long o_proj, long long o_bproj) {
     if (!x || !gout || !w_qkv || !b_qkv || !w_proj || !b_proj || !dx) return -1;
+    static int dbg_once = 0;
+    if (!dbg_once) { dbg_once = 1; std::fprintf(stderr, "[tkv-attn-bwd] entry n=%lld h=%lld nheads=%lld hd=%lld gpu=%d\n",
+                                                 (long long)n, (long long)h, (long long)nheads, (long long)hd, want_cuda() ? 1 : 0); }
     try {
         auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA).requires_grad(true);
         const int64_t T = n;
@@ -260,9 +264,11 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
             memcpy(gflat + o_bproj, host(t_bp.grad()).const_data_ptr<float>(),
                    (size_t)h * sizeof(float));
         return 0;
-    } catch (const std::exception&) {
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "[tkv-attn-bwd] FAIL (e): %s\n", e.what());
         return -4;
     } catch (...) {
+        std::fprintf(stderr, "[tkv-attn-bwd] FAIL (unknown)\n");
         return -5;
     }
 }
