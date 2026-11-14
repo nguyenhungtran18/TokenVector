@@ -57,10 +57,22 @@ static bool want_cuda() {
     return cached == 1;
 }
 static Tensor dev(const Tensor& t) {
-    return want_cuda() ? t.to(torch::kCUDA) : t;
+    if (!want_cuda()) return t;
+    auto opts = torch::TensorOptions().dtype(t.scalar_type()).device(torch::kCPU);
+    auto tgt = at::empty(t.sizes(), opts);
+    if (tgt.numel()) {
+        std::memcpy(tgt.data_ptr(), t.data_ptr(), (size_t)t.numel() * t.element_size());
+    }
+    return tgt.to(torch::kCUDA);
 }
 static Tensor host(const Tensor& t) {
-    return want_cuda() ? t.to(torch::kCPU) : t;
+    if (!want_cuda()) return t;
+    auto opts = torch::TensorOptions().dtype(t.scalar_type()).device(torch::kCPU);
+    auto tgt = at::empty(t.sizes(), opts);
+    if (tgt.numel()) {
+        std::memcpy(tgt.data_ptr(), t.data_ptr(), (size_t)t.numel() * t.element_size());
+    }
+    return tgt;
 }
 static auto dev_f32() {
     return want_cuda()
