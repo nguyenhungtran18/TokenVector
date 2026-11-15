@@ -61,7 +61,7 @@ static Tensor dev(const Tensor& t) {
     auto opts = torch::TensorOptions().dtype(t.scalar_type()).device(torch::kCPU);
     auto tgt = at::empty(t.sizes(), opts);
     if (tgt.numel()) {
-        std::memcpy(tgt.data_ptr(), t.data_ptr(), (size_t)t.numel() * t.element_size());
+        tgt.copy_(t);
     }
     return tgt.to(torch::kCUDA);
 }
@@ -70,7 +70,7 @@ static Tensor host(const Tensor& t) {
     auto opts = torch::TensorOptions().dtype(t.scalar_type()).device(torch::kCPU);
     auto tgt = at::empty(t.sizes(), opts);
     if (tgt.numel()) {
-        std::memcpy(tgt.data_ptr(), t.data_ptr(), (size_t)t.numel() * t.element_size());
+        tgt.copy_(t);
     }
     return tgt;
 }
