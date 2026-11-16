@@ -261,13 +261,19 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         auto t_bp  = dev(torch::from_blob(const_cast<float*>(b_proj), {h},     opt.requires_grad(true)));
 
         auto t_qkv = at::addmm(t_bq, t_x, t_wq);
+        t_qkv.retain_grad();
         auto t_q3  = t_qkv.view({T, 3, nheads, hd});
+        t_q3.retain_grad();
         auto q = t_q3.select(1, 0).transpose(0, 1).unsqueeze(0);
+        q.retain_grad();
         auto k = t_q3.select(1, 1).transpose(0, 1).unsqueeze(0);
+        k.retain_grad();
         auto v = t_q3.select(1, 2).transpose(0, 1).unsqueeze(0);
+        v.retain_grad();
 
         auto t_attn = at::scaled_dot_product_attention(q, k, v, std::nullopt,
                                                        0.0, true, std::nullopt);
+        t_attn.retain_grad();
         auto t_ctx  = t_attn.transpose(1, 2).reshape({T, h}).contiguous();
         auto t_proj = at::addmm(t_bp, t_ctx, t_wp);
 
