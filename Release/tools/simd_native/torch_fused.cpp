@@ -58,12 +58,13 @@ static bool want_cuda() {
 }
 static Tensor dev(const Tensor& t) {
     if (!want_cuda()) return t;
-    auto opts = torch::TensorOptions().dtype(t.scalar_type()).device(torch::kCPU);
+    auto opts = torch::TensorOptions().dtype(t.scalar_type()).device(torch::kCUDA).requires_grad(false);
     auto tgt = at::empty(t.sizes(), opts);
     if (tgt.numel()) {
         tgt.copy_(t);
     }
-    return tgt.to(torch::kCUDA);
+    tgt.set_requires_grad(t.requires_grad());
+    return tgt;
 }
 static Tensor host(const Tensor& t) {
     if (!want_cuda()) return t;
@@ -82,6 +83,10 @@ static auto dev_f32() {
 
 /* helper: wrap caller memory as unmanaged tensor */
 static Tensor wrap_in(const float* p, int64_t rows, int64_t cols) {
+    return torch::from_blob(const_cast<float*>(p), {rows, cols},
+        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false));
+}
+static Tensor wrap_grad(const float* p, int64_t rows, int64_t cols) {
     return torch::from_blob(const_cast<float*>(p), {rows, cols},
         torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(true));
 }
