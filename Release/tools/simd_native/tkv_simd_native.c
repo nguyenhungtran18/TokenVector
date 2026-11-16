@@ -1836,6 +1836,9 @@ EXPORT int TkvTorchAddmmTaOut(const float* dl, const float* xf, float* dwte,
  * khi TKV_TORCH_GPU khong bat -> caller fallback native bit-exact. */
 EXPORT int TkvTorchMmCudaOnly(const float* x, const float* w, float* y,
                               int64_t n, int64_t in_d, int64_t out_d);
+/* A0.150: khai bao truoc cho pha 1 (dinh nghia o cuoi file). */
+EXPORT int TkvTorchLmSoftmaxCudaOnly(const float* logits, const int* ids,
+                                     float* dl, int64_t T, int64_t V, double scale);
 
 /* ---------------- M6: fused lm-head backward (SPEC M4-M7 §M6) --------------
  * lmhead_bwd_fused: doc logits + ids -> softmax-grad (fp32, max-sub, giam tu
@@ -1904,14 +1907,21 @@ static int lmhead_bwd_fused_impl(const float* logits, const int* ids, const floa
     int T = (int)Tll;
     long long nlg = (long long)T * V;
 
-    /* pha 1: softmax-grad song song theo t -> dl (T x V) */
+    /* pha 0: scratch dl (T x V) */
     float* dl = (float*)malloc((size_t)nlg * sizeof(float));
     if (!dl) return -6;
-    int nt = tkv_nthreads(T);
-    if (nt <= 1)
-        lmhead_softmax_rows(logits, ids, dl, V, 0, T, scale);
-    else
-        tkv_run_aux(nt, 3, logits, ids, dl, V, 0, scale, T);
+
+    /* pha 1: softmax-grad song song theo t -> dl (T x V).
+     * A0.150: ATen CUDA (softmax + scatter) khi TKV_TORCH_GPU=1;
+     * rc != 0 (khong CUDA / bridge cu) -> native NGUYEN VAN, bit-exact. */
+    int rc_sm = TkvTorchLmSoftmaxCudaOnly(logits, ids, dl, T, V, (double)scale);
+    if (rc_sm != 0) {
+        int nt1 = tkv_nthreads(T);
+        if (nt1 <= 1)
+            lmhead_softmax_rows(logits, ids, dl, V, 0, T, scale);
+        else
+            tkv_run_aux(nt1, 3, logits, ids, dl, V, 0, scale, T);
+    }
 
     /* pha 2: dxf = dl @ wte (79 GFLOP). ATen CUDA khi TKV_TORCH_GPU=1
      * (cublas); rc != 0 (khong co CUDA / bridge cu) -> native SgemmF32
@@ -2765,6 +2775,8 @@ typedef int (*tkv_atnb_fn)    (const float*, const float*, const float*, const f
 typedef int (*tkv_mm_t_fn)    (const float*, const float*, float*, int64_t, int64_t, int64_t);
 /* A0.149: mm chi tren CUDA (bridge tra -9 khi TKV_TORCH_GPU khong bat). */
 typedef int (*tkv_mm_cuda_fn) (const float*, const float*, float*, int64_t, int64_t, int64_t);
+/* A0.150: pha 1 lmhead softmax-grad CHI tren CUDA (-9 khi khong bat). */
+typedef int (*tkv_lm_sm_fn)    (const float*, const int*, float*, int64_t, int64_t, double);
 typedef int (*tkv_sdpa_fn)    (const float*, float*, int64_t, int64_t, int64_t);
 typedef int (*tkv_gelu_bwd_fn)(const float*, const float*, float*, int64_t);
 /* §0.148: dwte += dlT @ xf trong MOT lenh ATen (addmm_out, beta=1).
@@ -2779,6 +2791,7 @@ static tkv_lnb_fn p_lnb = NULL;
 static tkv_atnb_fn p_atnb = NULL;
 static tkv_mm_t_fn p_mm_t = NULL;
 static tkv_mm_cuda_fn p_mm_cuda = NULL;
+static tkv_lm_sm_fn p_lm_sm = NULL;
 static tkv_sdpa_fn p_sdpa = NULL;
 static tkv_gelu_bwd_fn p_gelu_bwd = NULL;
 static tkv_addmm_ta_fn p_addmm_ta = NULL;
@@ -2836,6 +2849,7 @@ static int tkv_torch_fused_load(void) {
     p_atnb = (tkv_atnb_fn)GetProcAddress(h, "TkvTorchAttentionBwd");
     p_mm_t = (tkv_mm_t_fn)GetProcAddress(h, "TkvTorchMmT");
     p_mm_cuda = (tkv_mm_cuda_fn)GetProcAddress(h, "TkvTorchMmCudaOnly");
+    p_lm_sm = (tkv_lm_sm_fn)GetProcAddress(h, "TkvTorchLmSoftmaxCudaOnly");
     p_sdpa = (tkv_sdpa_fn)GetProcAddress(h, "TkvTorchSdpa");
     p_gelu_bwd = (tkv_gelu_bwd_fn)GetProcAddress(h, "TkvTorchGeluBwd");
     p_addmm_ta = (tkv_addmm_ta_fn)GetProcAddress(h, "TkvTorchAddmmTaOut");
@@ -2894,6 +2908,14 @@ EXPORT int TkvTorchMmCudaOnly(const float* x, const float* w, float* y,
     if (!tkv_torch_fused_load()) return -9;
     if (!p_mm_cuda) return -9;
     return p_mm_cuda(x, w, y, n, in_d, out_d);
+}
+
+EXPORT int TkvTorchLmSoftmaxCudaOnly(const float* logits, const int* ids,
+                                     float* dl, int64_t T, int64_t V, double scale) {
+    if (!logits || !ids || !dl) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_lm_sm) return -9;
+    return p_lm_sm(logits, ids, dl, T, V, scale);
 }
 
 EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,

@@ -318,6 +318,32 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         return -5;
     }
 }
+/* A0.150: pha 1 lmhead - dl = (softmax(logits) - onehot(id)) * scale
+ *   CHI tren CUDA. -9 khi TKV_TORCH_GPU khong bat -> caller fallback
+ *   lmhead_softmax_rows (native, bit-exact). ids int32 [T]. */
+TKV_TORCH_EXPORT int TkvTorchLmSoftmaxCudaOnly(const float* logits, const int* ids,
+                                               float* dl, int64_t T, int64_t V,
+                                               double scale) {
+    if (!logits || !ids || !dl) return -1;
+    if (T <= 0 || V <= 0) return -2;
+    if (!want_cuda()) return -9;
+    try {
+        auto t_l = dev(wrap_in(logits, T, V));               /* H2D 205 MB */
+        auto t_dl = at::softmax(t_l, 1).mul_((float)scale);          /* [T, V] CUDA */
+        auto t_ids = at::from_blob(const_cast<int*>(ids), {T},
+                     torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU))
+                     .to(torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA));
+        t_dl.scatter_(1, t_ids.unsqueeze(1), -(double)scale);        /* tru onehot*scale */
+        memcpy(dl, host(t_dl).const_data_ptr<float>(), (size_t)T * V * sizeof(float));
+        return 0;
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "[tkv-lm-sm] FAIL (e): %s\n", e.what());
+        return -4;
+    } catch (...) {
+        std::fprintf(stderr, "[tkv-lm-sm] FAIL (unknown)\n");
+        return -5;
+    }
+}
 /* A0.149: dxf = dl @ wte CHI tren CUDA. -9 khi TKV_TORCH_GPU khong bat ->
  * caller fallback native SgemmF32 (native mode giu bit-exact voi duong cu). */
 TKV_TORCH_EXPORT int TkvTorchMmCudaOnly(const float* x, const float* w, float* y,
