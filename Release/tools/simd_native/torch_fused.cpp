@@ -247,54 +247,68 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         long long o_qkv, long long o_bqkv, long long o_proj, long long o_bproj) {
     if (!x || !gout || !w_qkv || !b_qkv || !w_proj || !b_proj || !dx) return -1;
     static int dbg_once = 0;
-    if (!dbg_once) { dbg_once = 1; std::fprintf(stderr, "[tkv-attn-bwd] entry n=%lld h=%lld nheads=%lld hd=%lld gpu=%d\n",
+    if (!dbg_once) { dbg_once = 1; std::fprintf(stderr, "[tkv-attn-bwd] manual-path n=%lld h=%lld nheads=%lld hd=%lld gpu=%d\n",
                                                  (long long)n, (long long)h, (long long)nheads, (long long)hd, want_cuda() ? 1 : 0); }
     try {
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(true);
         const int64_t T = n;
         const int64_t H = nheads * hd;
         if (h != H) return -2;
-        auto t_x   = dev(torch::from_blob(const_cast<float*>(x),   {T, h},   opt.requires_grad(true)));
-        auto t_wq  = dev(torch::from_blob(const_cast<float*>(w_qkv), {h, 3 * h}, opt.requires_grad(true)));
-        auto t_bq  = dev(torch::from_blob(const_cast<float*>(b_qkv), {3 * h},   opt.requires_grad(true)));
-        auto t_wp  = dev(torch::from_blob(const_cast<float*>(w_proj), {h, h},  opt.requires_grad(true)));
-        auto t_bp  = dev(torch::from_blob(const_cast<float*>(b_proj), {h},     opt.requires_grad(true)));
+        const double inv = 1.0 / std::sqrt((double)hd);
+        auto t_x   = dev(wrap_in(x,      T, h));          /* [T, h] */
+        auto t_wq  = dev(wrap_in(w_qkv,  h,  3 * h));     /* [h, 3h] */
+        auto t_bq  = dev(wrap_in(b_qkv,  3 * h, 1)).squeeze(1);  /* [3h] */
+        auto t_wp  = dev(wrap_in(w_proj, h,  h));         /* [h, h] */
+        auto t_bp  = dev(wrap_in(b_proj, h,  1)).squeeze(1);     /* [h] */
 
-        auto t_qkv = at::addmm(t_bq, t_x, t_wq);
-        t_qkv.retain_grad();
-        auto t_q3  = t_qkv.view({T, 3, nheads, hd});
-        t_q3.retain_grad();
-        auto q = t_q3.select(1, 0).transpose(0, 1).unsqueeze(0);
-        q.retain_grad();
-        auto k = t_q3.select(1, 1).transpose(0, 1).unsqueeze(0);
-        k.retain_grad();
-        auto v = t_q3.select(1, 2).transpose(0, 1).unsqueeze(0);
-        v.retain_grad();
+        /* --- fwd (recompute) --- */
+        auto t_qkv  = at::addmm(t_bq, t_x, t_wq);          /* [T, 3h] */
+        auto t_q3   = t_qkv.view({T, 3, nheads, hd});
+        auto tq0    = t_q3.select(1, 0);              /* [T, nh, hd] */
+        auto tq1    = t_q3.select(1, 1);
+        auto tq2    = t_q3.select(1, 2);
+        auto q      = tq0.transpose(0, 1).unsqueeze(0);  /* [1, nh, T, hd] */
+        auto k      = tq1.transpose(0, 1).unsqueeze(0);  /* [1, nh, T, hd] */
+        auto v      = tq2.transpose(0, 1).unsqueeze(0);  /* [1, nh, T, hd] */
 
-        auto t_attn = at::scaled_dot_product_attention(q, k, v, std::nullopt,
-                                                       0.0, true, std::nullopt);
-        t_attn.retain_grad();
-        auto t_ctx  = t_attn.transpose(1, 2).reshape({T, h}).contiguous();
-        auto t_proj = at::addmm(t_bp, t_ctx, t_wp);
+        auto t_scale = at::scalar_tensor(inv, t_x.options());
+        auto t_scores = at::bmm(q, k.transpose(-1, -2)).mul_(t_scale);   /* [1, nh, T, T] */
+        auto t_mask = at::tril(at::ones({T, T}, t_x.options()));          /* [T, T] */
+        t_scores = t_scores.masked_fill_(t_mask.logical_not().unsqueeze(0).unsqueeze(0), -std::numeric_limits<float>::infinity());
+        auto P = t_scores.softmax(-1);                                    /* [1, nh, T, T] */
+        auto t_ctx = P.bmm(v);                                            /* [1, nh, T, hd] */
+        auto t_ctx2 = t_ctx.transpose(1, 2).reshape({T, h}).contiguous(); /* [T, h] */
+        auto t_out = at::addmm(t_bp, t_ctx2, t_wp);                      /* [T, h] */
 
-        auto t_gy = dev(torch::from_blob(const_cast<float*>(gout), {T, h},
-             torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)));
-        t_proj.backward(t_gy);
+        auto t_gy = dev(wrap_in(gout, T, h));
+        auto t_dbp = t_gy.sum({0});                        /* [h] */
+        auto t_dctx = t_gy.mm(t_wp.t());                   /* [T, h] */
+        auto t_dwp  = t_ctx2.t().mm(t_gy);
 
-        memcpy(dx, host(t_x.grad()).const_data_ptr<float>(),
-               (size_t)T * h * sizeof(float));
-        if (gflat && o_qkv  >= 0)
-            memcpy(gflat + o_qkv,  host(t_wq.grad()).const_data_ptr<float>(),
-                   (size_t)h * 3 * h * sizeof(float));
-        if (gflat && o_bqkv >= 0)
-            memcpy(gflat + o_bqkv, host(t_bq.grad()).const_data_ptr<float>(),
-                   (size_t)3 * h * sizeof(float));
-        if (gflat && o_proj >= 0)
-            memcpy(gflat + o_proj, host(t_wp.grad()).const_data_ptr<float>(),
-                   (size_t)h * h * sizeof(float));
-        if (gflat && o_bproj >= 0)
-            memcpy(gflat + o_bproj, host(t_bp.grad()).const_data_ptr<float>(),
-                   (size_t)h * sizeof(float));
+        auto d_ctx3 = t_dctx.view({T, nheads, hd}).transpose(0, 1).unsqueeze(0).contiguous();   /* [1, nh, T, hd] */
+        auto dP    = d_ctx3.bmm(v.transpose(-1, -2));      /* [1, nh, T, T] */
+        auto dPs   = (dP * P).sum({-1}, true);             /* [1, nh, T, 1] */
+        auto dS    = (dP - dPs * P).mul_((float)inv);      /* [1, nh, T, T] * inv */
+
+        auto dQ    = dS.bmm(k);                            /* [1, nh, T, hd] */
+        auto dK    = dS.transpose(-1, -2).bmm(q);          /* [1, nh, T, hd] */
+        auto dV    = P.transpose(-1, -2).bmm(d_ctx3);      /* [1, nh, T, hd] */
+
+        auto dQ2   = dQ.squeeze(0).transpose(0, 1).reshape({T, h}).contiguous();   /* [T, h] */
+        auto dK2   = dK.squeeze(0).transpose(0, 1).reshape({T, h}).contiguous();   /* [T, h] */
+        auto dV2   = dV.squeeze(0).transpose(0, 1).reshape({T, h}).contiguous();   /* [T, h] */
+        auto dqkv  = at::cat({dQ2, dK2, dV2}, 1);        /* [T, 3h] */
+
+        auto d_x   = dqkv.mm(t_wq.t());                    /* [T, h] */
+        auto d_wq  = t_x.t().mm(dqkv);
+        auto d_bq  = dqkv.sum({0});                        /* [3h] */
+
+        memcpy(dx, d_x.contiguous().const_data_ptr<float>(), (size_t)T * h * sizeof(float));
+        if (gflat) {
+            if (o_qkv  >= 0) memcpy(gflat + o_qkv,  host(d_wq.contiguous()).const_data_ptr<float>(), (size_t)h * 3 * h * sizeof(float));
+            if (o_bqkv >= 0) memcpy(gflat + o_bqkv, host(d_bq).const_data_ptr<float>(), (size_t)3 * h * sizeof(float));
+            if (o_proj >= 0) memcpy(gflat + o_proj, host(t_dwp.contiguous()).const_data_ptr<float>(), (size_t)h * h * sizeof(float));
+            if (o_bproj >= 0) memcpy(gflat + o_bproj, host(t_dbp).const_data_ptr<float>(), (size_t)h * sizeof(float));
+        }
         return 0;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[tkv-attn-bwd] FAIL (e): %s\n", e.what());
@@ -304,7 +318,6 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         return -5;
     }
 }
-
 /* Mm transposed (LM head): y = x @ w^T. */
 TKV_TORCH_EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,
                                  int64_t n, int64_t in_d, int64_t out_d) {
@@ -401,4 +414,5 @@ TKV_TORCH_EXPORT int TkvTorchAddmmTaOut(const float* dl, const float* xf, float*
         return -5;
     }
 }
+
 
