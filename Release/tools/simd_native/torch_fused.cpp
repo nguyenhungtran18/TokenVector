@@ -83,7 +83,7 @@ static auto dev_f32() {
 /* helper: wrap caller memory as unmanaged tensor */
 static Tensor wrap_in(const float* p, int64_t rows, int64_t cols) {
     return torch::from_blob(const_cast<float*>(p), {rows, cols},
-        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false));
+        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(true));
 }
 static Tensor wrap_out(float* p, int64_t rows, int64_t cols) {
     return torch::from_blob(p, {rows, cols},
