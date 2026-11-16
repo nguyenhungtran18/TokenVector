@@ -271,11 +271,11 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         auto v      = tq2.transpose(0, 1).unsqueeze(0);  /* [1, nh, T, hd] */
 
         auto t_scale = at::scalar_tensor(inv, t_x.options());
-        auto t_scores = at::bmm(q, k.transpose(-1, -2)).mul_(t_scale);   /* [1, nh, T, T] */
+        auto t_scores = at::matmul(q, k.transpose(-1, -2)).mul_(t_scale);   /* [1, nh, T, T] */
         auto t_mask = at::tril(at::ones({T, T}, t_x.options()));          /* [T, T] */
         t_scores = t_scores.masked_fill_(t_mask.logical_not().unsqueeze(0).unsqueeze(0), -std::numeric_limits<float>::infinity());
         auto P = t_scores.softmax(-1);                                    /* [1, nh, T, T] */
-        auto t_ctx = P.bmm(v);                                            /* [1, nh, T, hd] */
+        auto t_ctx = at::matmul(P, v);                                            /* [1, nh, T, hd] */
         auto t_ctx2 = t_ctx.transpose(1, 2).reshape({T, h}).contiguous(); /* [T, h] */
         auto t_out = at::addmm(t_bp, t_ctx2, t_wp);                      /* [T, h] */
 
@@ -285,13 +285,13 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         auto t_dwp  = t_ctx2.t().mm(t_gy);
 
         auto d_ctx3 = t_dctx.view({T, nheads, hd}).transpose(0, 1).unsqueeze(0).contiguous();   /* [1, nh, T, hd] */
-        auto dP    = d_ctx3.bmm(v.transpose(-1, -2));      /* [1, nh, T, T] */
+        auto dP    = at::matmul(d_ctx3, v.transpose(-1, -2));      /* [1, nh, T, T] */
         auto dPs   = (dP * P).sum({-1}, true);             /* [1, nh, T, 1] */
-        auto dS    = (dP - dPs * P).mul_((float)inv);      /* [1, nh, T, T] * inv */
+        auto dS    = ((dP - dPs) * P).mul_((float)inv);    /* dS = inv * P .* (dP - rowsum(dP .* P)) */
 
-        auto dQ    = dS.bmm(k);                            /* [1, nh, T, hd] */
-        auto dK    = dS.transpose(-1, -2).bmm(q);          /* [1, nh, T, hd] */
-        auto dV    = P.transpose(-1, -2).bmm(d_ctx3);      /* [1, nh, T, hd] */
+        auto dQ    = at::matmul(dS, k);                            /* [1, nh, T, hd] */
+        auto dK    = at::matmul(dS.transpose(-1, -2), q);          /* [1, nh, T, hd] */
+        auto dV    = at::matmul(P.transpose(-1, -2), d_ctx3);      /* [1, nh, T, hd] */
 
         auto dQ2   = dQ.squeeze(0).transpose(0, 1).reshape({T, h}).contiguous();   /* [T, h] */
         auto dK2   = dK.squeeze(0).transpose(0, 1).reshape({T, h}).contiguous();   /* [T, h] */
@@ -302,7 +302,7 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         auto d_wq  = t_x.t().mm(dqkv);
         auto d_bq  = dqkv.sum({0});                        /* [3h] */
 
-        memcpy(dx, d_x.contiguous().const_data_ptr<float>(), (size_t)T * h * sizeof(float));
+        memcpy(dx, host(d_x).const_data_ptr<float>(), (size_t)T * h * sizeof(float));
         if (gflat) {
             if (o_qkv  >= 0) memcpy(gflat + o_qkv,  host(d_wq.contiguous()).const_data_ptr<float>(), (size_t)h * 3 * h * sizeof(float));
             if (o_bqkv >= 0) memcpy(gflat + o_bqkv, host(d_bq).const_data_ptr<float>(), (size_t)3 * h * sizeof(float));
