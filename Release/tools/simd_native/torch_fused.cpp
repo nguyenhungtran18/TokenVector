@@ -318,6 +318,26 @@ TKV_TORCH_EXPORT int TkvTorchAttentionBwd(const float* x, const float* gout,
         return -5;
     }
 }
+/* A0.149: dxf = dl @ wte CHI tren CUDA. -9 khi TKV_TORCH_GPU khong bat ->
+ * caller fallback native SgemmF32 (native mode giu bit-exact voi duong cu). */
+TKV_TORCH_EXPORT int TkvTorchMmCudaOnly(const float* x, const float* w, float* y,
+                                        int64_t n, int64_t in_d, int64_t out_d) {
+    if (!x || !w || !y) return -1;
+    if (n <= 0 || in_d <= 0 || out_d <= 0) return -2;
+    if (!want_cuda()) return -9;
+    try {
+        auto t_x = dev(wrap_in(x, n, in_d));
+        auto t_w = dev(wrap_in(w, in_d, out_d));
+        auto t_y = host(at::mm(t_x, t_w));
+        if (t_y.numel() != (int64_t)n * out_d) return -3;
+        memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * out_d * sizeof(float));
+        return 0;
+    } catch (const std::exception&) {
+        return -4;
+    } catch (...) {
+        return -5;
+    }
+}
 /* Mm transposed (LM head): y = x @ w^T. */
 TKV_TORCH_EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,
                                  int64_t n, int64_t in_d, int64_t out_d) {

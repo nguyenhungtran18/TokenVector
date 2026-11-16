@@ -1832,6 +1832,10 @@ EXPORT int AdamwStepF32C(float* p, float* m, float* v, const float* g, int n,
 /* §0.148: khai bao truoc de lmhead_bwd_fused goi duoc (dinh nghia o cuoi file). */
 EXPORT int TkvTorchAddmmTaOut(const float* dl, const float* xf, float* dwte,
                               int64_t T, int64_t V, int64_t E);
+/* A0.149: khai bao truoc cho pha 2 (dinh nghia o cuoi file); bridge tra -9
+ * khi TKV_TORCH_GPU khong bat -> caller fallback native bit-exact. */
+EXPORT int TkvTorchMmCudaOnly(const float* x, const float* w, float* y,
+                              int64_t n, int64_t in_d, int64_t out_d);
 
 /* ---------------- M6: fused lm-head backward (SPEC M4-M7 §M6) --------------
  * lmhead_bwd_fused: doc logits + ids -> softmax-grad (fp32, max-sub, giam tu
@@ -1909,8 +1913,14 @@ static int lmhead_bwd_fused_impl(const float* logits, const int* ids, const floa
     else
         tkv_run_aux(nt, 3, logits, ids, dl, V, 0, scale, T);
 
-    /* pha 2: dxf = dl @ wte - GEMM blocked/threaded, ghi de (dxf la OUTPUT) */
-    run_rect_shaped(dl, V, wte, E, dxf, E, T, E, V);
+    /* pha 2: dxf = dl @ wte (79 GFLOP). ATen CUDA khi TKV_TORCH_GPU=1
+     * (cublas); rc != 0 (khong co CUDA / bridge cu) -> native SgemmF32
+     * NGUYEN VAN, native mode giu bit-exact voi duong cu. */
+    {
+        int rc_mm = TkvTorchMmCudaOnly(dl, wte, dxf, T, V, E);
+        if (rc_mm != 0)
+            run_rect_shaped(dl, V, wte, E, dxf, E, T, E, V);
+    }
 
     /* pha 3+4+5 (§0.148, 2026-11-11): dwte += dlT @ xf trong MOT lenh ATen.
      * Duong cu: tmp = dlT @ xf (run_rect_ta_shaped/openblas 255 ms)
@@ -2753,6 +2763,8 @@ typedef int (*tkv_ln_fn)      (const float*, const float*, const float*, float*,
 typedef int (*tkv_lnb_fn)     (const float*, const float*, const float*, const float*, float*, float*, float*, int64_t, int64_t, double);
 typedef int (*tkv_atnb_fn)    (const float*, const float*, const float*, const float*, const float*, const float*, float*, float*, int64_t, int64_t, int64_t, int64_t, long long, long long, long long, long long);
 typedef int (*tkv_mm_t_fn)    (const float*, const float*, float*, int64_t, int64_t, int64_t);
+/* A0.149: mm chi tren CUDA (bridge tra -9 khi TKV_TORCH_GPU khong bat). */
+typedef int (*tkv_mm_cuda_fn) (const float*, const float*, float*, int64_t, int64_t, int64_t);
 typedef int (*tkv_sdpa_fn)    (const float*, float*, int64_t, int64_t, int64_t);
 typedef int (*tkv_gelu_bwd_fn)(const float*, const float*, float*, int64_t);
 /* §0.148: dwte += dlT @ xf trong MOT lenh ATen (addmm_out, beta=1).
@@ -2766,6 +2778,7 @@ static tkv_ln_fn p_ln = NULL;
 static tkv_lnb_fn p_lnb = NULL;
 static tkv_atnb_fn p_atnb = NULL;
 static tkv_mm_t_fn p_mm_t = NULL;
+static tkv_mm_cuda_fn p_mm_cuda = NULL;
 static tkv_sdpa_fn p_sdpa = NULL;
 static tkv_gelu_bwd_fn p_gelu_bwd = NULL;
 static tkv_addmm_ta_fn p_addmm_ta = NULL;
@@ -2822,6 +2835,7 @@ static int tkv_torch_fused_load(void) {
     p_lnb = (tkv_lnb_fn)GetProcAddress(h, "TkvTorchLayerNormBwd");
     p_atnb = (tkv_atnb_fn)GetProcAddress(h, "TkvTorchAttentionBwd");
     p_mm_t = (tkv_mm_t_fn)GetProcAddress(h, "TkvTorchMmT");
+    p_mm_cuda = (tkv_mm_cuda_fn)GetProcAddress(h, "TkvTorchMmCudaOnly");
     p_sdpa = (tkv_sdpa_fn)GetProcAddress(h, "TkvTorchSdpa");
     p_gelu_bwd = (tkv_gelu_bwd_fn)GetProcAddress(h, "TkvTorchGeluBwd");
     p_addmm_ta = (tkv_addmm_ta_fn)GetProcAddress(h, "TkvTorchAddmmTaOut");
@@ -2872,6 +2886,14 @@ EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g, const float* b,
     if (!tkv_torch_fused_load()) return -9;
     if (!p_ln) return -9;
     return p_ln(x, g, b, y, n, h, eps);
+}
+
+EXPORT int TkvTorchMmCudaOnly(const float* x, const float* w, float* y,
+                              int64_t n, int64_t in_d, int64_t out_d) {
+    if (!x || !w || !y) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_mm_cuda) return -9;
+    return p_mm_cuda(x, w, y, n, in_d, out_d);
 }
 
 EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,
