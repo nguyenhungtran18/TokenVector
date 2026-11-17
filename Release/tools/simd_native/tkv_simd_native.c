@@ -2808,6 +2808,8 @@ typedef int (*tkv_gelu_bwd_fn)(const float*, const float*, float*, int64_t);
 /* §0.148: dwte += dlT @ xf trong MOT lenh ATen (addmm_out, beta=1).
  * dl [T][V] doc thang (ATen tu .t() -> khong transpose vat ly). */
 typedef int (*tkv_addmm_ta_fn)(const float*, const float*, float*, int64_t, int64_t, int64_t);
+/* A0.152: probe full-step spike */
+typedef int64_t (*tkv_full_ping_fn)(int64_t);
 static HMODULE g_torch_fused = NULL;
 static tkv_lin_gelu_fn p_lin_gelu = NULL;
 static tkv_lin_fn p_lin = NULL;
@@ -2822,6 +2824,7 @@ static tkv_lmh_fn p_lmh = NULL;
 static tkv_sdpa_fn p_sdpa = NULL;
 static tkv_gelu_bwd_fn p_gelu_bwd = NULL;
 static tkv_addmm_ta_fn p_addmm_ta = NULL;
+static tkv_full_ping_fn p_full_ping = NULL;
 
 static int tkv_torch_fused_load(void) {
     if (g_torch_fused) return 1;
@@ -2881,8 +2884,15 @@ static int tkv_torch_fused_load(void) {
     p_sdpa = (tkv_sdpa_fn)GetProcAddress(h, "TkvTorchSdpa");
     p_gelu_bwd = (tkv_gelu_bwd_fn)GetProcAddress(h, "TkvTorchGeluBwd");
     p_addmm_ta = (tkv_addmm_ta_fn)GetProcAddress(h, "TkvTorchAddmmTaOut");
+    p_full_ping = (tkv_full_ping_fn)GetProcAddress(h, "TkvFullPing");
     g_torch_fused = h;
     return 1;
+}
+
+EXPORT int64_t TkvFullPingNative(int64_t x) {
+    if (!tkv_torch_fused_load()) return 0x7FFFFFFFFFFFFFFFLL;
+    if (!p_full_ping) return 0x7FFFFFFFFFFFFFFELL;
+    return p_full_ping(x);
 }
 
 EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w, const float* bias,

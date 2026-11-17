@@ -1,7 +1,7 @@
 
-Microsoft (R) .NET Framework IL Assembler.  Version 4.8.9105.0
+Microsoft (R) .NET Framework IL Assembler.  Version 4.8.9221.0
 Copyright (c) Microsoft Corporation.  All rights reserved.
-Assembling 'tools/vong.il'  to EXE --> 'tools/vong.exe'
+Assembling 'tools\vong.il'  to EXE --> 'tools\vong.exe'
 Source file is ANSI
 
 Assembled method TkvInt::FromI64
@@ -51,9 +51,20 @@ Assembled method TkvSlice::Cnt
 Assembled method TkvSlice::NegNorm
 Assembled method TkvSlice::Lo
 Assembled method TkvSlice::Hi
+Assembled method TkvSlice::ZeroListF32
 Assembled method TkvSlice::StepL
 Assembled method TkvSlice::RepL
 Assembled method TkvSlice::StepS
+Assembled method TkvZeroSrc::.ctor
+Assembled method TkvZeroSrc::get_Count
+Assembled method TkvZeroSrc::get_IsReadOnly
+Assembled method TkvZeroSrc::Add
+Assembled method TkvZeroSrc::Clear
+Assembled method TkvZeroSrc::Contains
+Assembled method TkvZeroSrc::CopyTo
+Assembled method TkvZeroSrc::Remove
+Assembled method TkvZeroSrc::GetEnumerator
+Assembled method TkvZeroSrc::System.Collections.IEnumerable.GetEnumerator
 Assembled method TkvProc::Chay
 Assembled method TkvProc::ChayRa
 Assembled method TKVApp::gop_nguon
@@ -66,17 +77,19 @@ Emitting classes:
 Class 1:	TkvInt
 Class 2:	TkvStr
 Class 3:	TkvSlice
-Class 4:	TkvProc
-Class 5:	TKVApp
+Class 4:	TkvZeroSrc
+Class 5:	TkvProc
+Class 6:	TKVApp
 
 Emitting fields and methods:
 Global 	
 Class 1	Fields: 2;	Methods: 27;	
 Class 2	Methods: 15;	
-Class 3	Methods: 8;	
-Class 4	Methods: 2;	
-Class 5	Methods: 4;	
-Resolving local member refs: 128 -> 128 defs, 0 refs, 0 unresolved
+Class 3	Methods: 9;	
+Class 4	Fields: 1;	Methods: 10;	
+Class 5	Methods: 2;	
+Class 6	Methods: 4;	
+Resolving local member refs: 131 -> 131 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	
@@ -85,7 +98,8 @@ Class 2
 Class 3	
 Class 4	
 Class 5	
-Method Implementations (total): 2
+Class 6	
+Method Implementations (total): 3
 Resolving local member refs: 0 -> 0 defs, 0 refs, 0 unresolved
 Writing PE file
 Operation completed successfully

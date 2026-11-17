@@ -2474,6 +2474,26 @@ def _pt_gelu_erf_fwd_wrapper() -> "list[str]":
         '  }',
     ]
 
+def _pt_fullstep_pinvoke() -> "list[str]":
+    """P/Invoke toi thieu cho FULL-STEP: TkvFullPing."""
+    return [
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvFullPing" winapi) int64 TkvFullPingNative(int64 x) cil managed preservesig { }',
+    ]
+
+
+def _pt_fullstep_wrapper() -> "list[str]":
+    """IL wrapper cho tkv_full_ping - class TkvSimd luu 1 method TkvFullPingM."""
+    return [
+        '  .method public static int64 TkvFullPingM(int64 x) cil managed',
+        '  {',
+        '    .maxstack 4',
+        '    ldarg.0',
+        '    call int64 ' + _SIMD_CLASS + '::TkvFullPingNative(int64)',
+        '    ret',
+        '  }',
+    ]
+
+
 def _pt_torch_mm_t_wrapper() -> "list[str]":
     """`torch_mm_t` (IL wrapper).
 
@@ -2519,6 +2539,21 @@ def _pt_torch_mm_t_wrapper() -> "list[str]":
         '    ret',
         '  V_MMT:',
         '    ldc.i4.s -5',
+        '    ret',
+        '  }',
+    ]
+
+
+def _pt_tkv_full_ping_wrapper() -> "list[str]":
+    """`tkv_full_ping` (IL wrapper).
+
+    tkv_full_ping(x) -> i64.  Ping native, tra x + 42000. Dung cho pipeline."""
+    return [
+        '  .method public static int64 TkvFullPingM(int64 x) cil managed',
+        '  {',
+        '    .maxstack 4',
+        '    ldarg.0',
+        '    call int64 ' + _SIMD_CLASS + '::TkvFullPingNative(int64)',
         '    ret',
         '  }',
     ]
@@ -2783,6 +2818,7 @@ def _pt_dp_wrappers() -> "list[str]":
     ra = ra + _pt_torch_gelu_bwd_wrapper()
     ra = ra + _pt_torch_step124_embed_wrapper()
     ra = ra + _pt_torch_attention_bwd_wrapper()
+    ra = ra + _pt_tkv_full_ping_wrapper()
     ra = ra + _pt_embed_bwd_fused_wrapper()
     ra = ra + _pt_linear_dw_at_fused_wrapper()
     ra = ra + _pt_gelu_erf_bwd_wrapper()
@@ -2974,6 +3010,8 @@ def _simd_chunk(feat: "str") -> "list[str]":
         return _pt_m6_pinvoke() + _pt_m6_wrappers() + _pt_m6_list_wrapper()
     if feat == 'full':
         return _pt_full_pinvoke() + _pt_full_wrapper()
+    if feat == 'fullstep':
+        return _pt_fullstep_pinvoke() + _pt_fullstep_wrapper()
     if feat == 'dp':
         return _pt_dp_pinvoke() + _pt_dp_wrappers()
     if feat.startswith('elem_'):
@@ -4096,6 +4134,15 @@ def compile_gelu_erf_fwd(args: "list[TkvNode]", scope: "Scope", out: "list[str]"
     out.append('    call int32 ' + _SIMD_CLASS + '::GeluErfFwdM(' + _LT_F32 + ', ' + _LT_F32 + ', int64, int64)')
 
 
+def compile_tkv_full_ping(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    """tkv_full_ping(x) -> i64.  Ping native, tra x + 42000. Dung cho pipeline."""
+    if len(args) != 1:
+        raise SyntaxError("il_codegen: tkv_full_ping(x) can dung 1 tham so")
+    ctx.compile_expr(args[0], scope, out, 'i64', ctx)
+    _can_simd(ctx, 'fullstep')
+    out.append('    call int64 ' + _SIMD_CLASS + '::TkvFullPingM(int64)')
+
+
 def compile_f32_grad_norm(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """f32_grad_norm(g, n) -> f64: sqrt(sum g^2), 1 pass native (spec §2.3).
 
@@ -4186,6 +4233,7 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'simd_axpy', compile_simd_axpy, 'i32')
     register_expr_builtin(reg, 'matmul', compile_matmul, 'i32')
     register_expr_builtin(reg, 'simd_gemm', compile_simd_gemm, 'i32')
+    register_expr_builtin(reg, 'tkv_full_ping', compile_tkv_full_ping, 'i64')
     register_expr_builtin(reg, 'simd_gemm_packed_create', compile_simd_gemm_packed_create, 'i64')
     register_expr_builtin(reg, 'simd_gemm_packed', compile_simd_gemm_packed, 'i32')
     register_expr_builtin(reg, 'simd_gemm_packed_free', compile_simd_gemm_packed_free, 'i64')
