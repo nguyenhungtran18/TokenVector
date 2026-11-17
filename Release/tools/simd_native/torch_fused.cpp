@@ -20,12 +20,26 @@
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
+#include <cstdarg>
 
 #include <string>
 #include <vector>
 #include <memory>
 
 using at::Tensor;
+
+/* LN diagnostic logger: the .tkv bench harness drops the bridge's stderr, so
+ * write breadcrumbs to a file instead (no-op on error). Investigating whether
+ * at::layer_norm succeeds or throws on CUDA. */
+static void ln_clog(const char* fmt, ...) {
+    FILE* f = std::fopen("/tmp/tkv_ln_debug.log", "a");
+    if (!f) return;
+    va_list ap;
+    va_start(ap, fmt);
+    std::vfprintf(f, fmt, ap);
+    va_end(ap);
+    std::fclose(f);
+}
 
 #if defined(_WIN32)
 #define TKV_TORCH_EXPORT extern "C" __declspec(dllexport)
@@ -196,8 +210,7 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g,
                                           int64_t n, int64_t h, double eps) {
     if (!x || !g || !b || !y) return -1;
     if (n <= 0 || h <= 0) return -2;
-    static int dbg_lnf = 0;
-    if (!dbg_lnf) { dbg_lnf = 1; std::fprintf(stderr, "[tkv-ln-fwd] entry n=%lld h=%lld gpu=%d\n", (long long)n, (long long)h, want_cuda() ? 1 : 0); std::fflush(stderr); }
+    ln_clog("[tkv-ln-fwd] entry n=%lld h=%lld gpu=%d\n", (long long)n, (long long)h, want_cuda() ? 1 : 0);
     try {
         auto t_x = dev(wrap_in(x, n, h));
         auto t_g = dev(torch::from_blob(const_cast<float*>(g), {h},
@@ -206,14 +219,13 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g,
             torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false)));
         auto t_y = host(at::layer_norm(t_x, {h}, t_g, t_b, eps));
         memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * h * sizeof(float));
+        ln_clog("[tkv-ln-fwd] ok\n");
         return 0;
     } catch (const std::exception& e) {
-        static int dbg_lnf_err = 0;
-        if (!dbg_lnf_err) { dbg_lnf_err = 1; std::fprintf(stderr, "[tkv-ln-fwd] FAIL (e): %s\n", e.what()); std::fflush(stderr); }
+        ln_clog("[tkv-ln-fwd] FAIL (e): %s\n", e.what());
         return -4;
     } catch (...) {
-        static int dbg_lnf_err2 = 0;
-        if (!dbg_lnf_err2) { dbg_lnf_err2 = 1; std::fprintf(stderr, "[tkv-ln-fwd] FAIL (unknown)\n"); std::fflush(stderr); }
+        ln_clog("[tkv-ln-fwd] FAIL (unknown)\n");
         return -5;
     }
 }
@@ -225,8 +237,7 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
                                           int64_t n, int64_t h, double eps) {
     if (!x || !g || !b || !gy || !dx || !dg || !db) return -1;
     if (n <= 0 || h <= 0) return -2;
-    static int dbg_lnb = 0;
-    if (!dbg_lnb) { dbg_lnb = 1; std::fprintf(stderr, "[tkv-ln-bwd] entry n=%lld h=%lld gpu=%d\n", (long long)n, (long long)h, want_cuda() ? 1 : 0); std::fflush(stderr); }
+    ln_clog("[tkv-ln-bwd] entry n=%lld h=%lld gpu=%d\n", (long long)n, (long long)h, want_cuda() ? 1 : 0);
     try {
         auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(true);
         auto t_x  = dev(torch::from_blob(const_cast<float*>(x), {n, h}, opt.requires_grad(true)));
@@ -239,14 +250,13 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
         memcpy(dx, host(t_x.grad()).const_data_ptr<float>(), (size_t)n * h * sizeof(float));
         memcpy(dg, host(t_g.grad()).const_data_ptr<float>(), (size_t)h * sizeof(float));
         memcpy(db, host(t_b.grad()).const_data_ptr<float>(), (size_t)h * sizeof(float));
+        ln_clog("[tkv-ln-bwd] ok\n");
         return 0;
     } catch (const std::exception& e) {
-        static int dbg_lnb_err = 0;
-        if (!dbg_lnb_err) { dbg_lnb_err = 1; std::fprintf(stderr, "[tkv-ln-bwd] FAIL (e): %s\n", e.what()); std::fflush(stderr); }
+        ln_clog("[tkv-ln-bwd] FAIL (e): %s\n", e.what());
         return -4;
     } catch (...) {
-        static int dbg_lnb_err2 = 0;
-        if (!dbg_lnb_err2) { dbg_lnb_err2 = 1; std::fprintf(stderr, "[tkv-ln-bwd] FAIL (unknown)\n"); std::fflush(stderr); }
+        ln_clog("[tkv-ln-bwd] FAIL (unknown)\n");
         return -5;
     }
 }
