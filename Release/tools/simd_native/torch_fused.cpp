@@ -575,3 +575,104 @@ TKV_TORCH_EXPORT int TkvTorchAddmmTaOut(const float* dl, const float* xf, float*
 }
 
 
+
+
+/* ================= GPU full step (M1: forward + loss spike) ================= */
+/* Layout ps (giong ps trong bench): [wte, wpe, lnf_g, lnf_b, L x 12 ...] */
+static std::mutex g_full_mu;
+static std::vector<Tensor> g_p;      /* ids==(phase device); reset at Begin */
+static Tensor g_ids;                 /* [T] int64 */
+static Tensor g_pos;                 /* [T] int64 */
+static int g_nlayers = 12, g_h = 768, g_nhd = 12, g_hd = 64, g_vocab = 50257;
+
+static Tensor full_ln_fwd(const Tensor& x, const Tensor& g, const Tensor& b, double eps) {
+    auto t_mu = x.mean({-1}, true);
+    auto t_d = x - t_mu;
+    auto t_var = (t_d * t_d).mean({-1}, true);
+    auto t_rstd = (t_var + eps).rsqrt();
+    return t_d * t_rstd * g + b;
+}
+
+TKV_TORCH_EXPORT int TkvFullBegin(int64_t n_tensors, int64_t NLayers, int64_t H,
+                                  int64_t NHeads, int64_t Hd, int64_t Vocab) {
+    std::lock_guard<std::mutex> lk(g_full_mu);
+    if (n_tensors <= 4 || NLayers <= 0) return -2;
+    g_p.assign((size_t)n_tensors, Tensor());
+    g_ids.reset(); g_pos.reset();
+    g_nlayers = (int)NLayers; g_h = (int)H; g_nhd = (int)NHeads; g_hd = (int)Hd; g_vocab = (int)Vocab;
+    return 0;
+}
+TKV_TORCH_EXPORT int TkvFullSetTensor(int64_t idx, const float* ptr, int64_t numel) {
+    if (!ptr || numel <= 0) return -1;
+    std::lock_guard<std::mutex> lk(g_full_mu);
+    if (idx < 0 || (size_t)idx >= g_p.size()) return -2;
+    auto t = torch::from_blob(const_cast<float*>(ptr), {numel},
+        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false));
+    g_p[(size_t)idx] = dev(t);   /* stage 1 lan, CUDA-resident */
+    return 0;
+}
+TKV_TORCH_EXPORT int TkvFullSetIds(const int* ids, int64_t T) {
+    if (!ids || T <= 0) return -1;
+    std::lock_guard<std::mutex> lk(g_full_mu);
+    auto t = torch::from_blob(const_cast<int*>(ids), {T},
+        torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU).requires_grad(false));
+    auto opt = want_cuda() ? torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA)
+                           : torch::TensorOptions().dtype(torch::kLong).device(torch::kCPU);
+    g_ids = t.to(opt);
+    g_pos = at::arange(T, opt);
+    return 0;
+}
+TKV_TORCH_EXPORT float TkvFullStepFwd(int64_t mode) {
+    std::lock_guard<std::mutex> lk(g_full_mu);
+    if (g_p.size() != (size_t)(4 + g_nlayers * 12) || !g_ids.defined()) return -100.0f;
+    const int64_t T = g_ids.size(0);
+    const int64_t h = g_h, nh = g_nhd, hd = g_hd, V = g_vocab;
+    const int L = g_nlayers;
+    auto devOpt = torch::TensorOptions().dtype(torch::kFloat32)
+        .device(want_cuda() ? torch::kCUDA : torch::kCPU);
+    auto wte = g_p[0].view({V, h});
+    auto wpe = g_p[1].view({1024, h});
+    Tensor x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
+    for (int li = 0; li < L; ++li) {
+        const Tensor& ln1g = g_p[4 + li*12 + 0];
+        const Tensor& ln1b = g_p[4 + li*12 + 1];
+        const Tensor& wqkv  = g_p[4 + li*12 + 2].view({h, 3*h});
+        const Tensor& bqkv  = g_p[4 + li*12 + 3];
+        const Tensor& wp    = g_p[4 + li*12 + 4].view({h, h});
+        const Tensor& bp    = g_p[4 + li*12 + 5];
+        const Tensor& ln2g  = g_p[4 + li*12 + 6];
+        const Tensor& ln2b  = g_p[4 + li*12 + 7];
+        const Tensor& w1    = g_p[4 + li*12 + 8].view({h, 4*h});
+        const Tensor& b1    = g_p[4 + li*12 + 9];
+        const Tensor& w2    = g_p[4 + li*12 + 10].view({4*h, h});
+        const Tensor& b2    = g_p[4 + li*12 + 11];
+
+        Tensor a = full_ln_fwd(x, ln1g, ln1b, 1e-6);
+        Tensor qkv = at::addmm(bqkv, a, wqkv);            /* [T, 3h] */
+        auto q3 = qkv.view({T, 3, nh, hd});
+        auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0);  /* [1,nh,T,hd] */
+        auto k  = q3.select(1, 1).transpose(0, 1).unsqueeze(0);
+        auto v  = q3.select(1, 2).transpose(0, 1).unsqueeze(0);
+        Tensor attn = at::scaled_dot_product_attention(q, k, v, std::nullopt, 0.0, true, std::nullopt);
+        Tensor ctx = attn.transpose(1, 2).reshape({T, h}).contiguous();      /* [T, h] */
+        Tensor proj = at::addmm(bp, ctx, wp);            /* x+ctx@W+b */
+        x = x + proj;
+        Tensor m  = full_ln_fwd(x, ln2g, ln2b, 1e-6);
+        Tensor u  = at::addmm(b1, m, w1);                 /* [T, 4h] */
+        Tensor g1 = at::gelu(u);                          /* erf */
+        Tensor h2 = at::addmm(b2, g1, w2);
+        x = x + h2;
+    }
+    const Tensor& lnfg = g_p[2];
+    const Tensor& lnfb = g_p[3];
+    Tensor xf = full_ln_fwd(x, lnfg, lnfb, 1e-6);
+    Tensor logits = xf.mm(wte.t());                       /* [T, V] */
+    auto lp = logits.log_softmax(-1);
+    auto tgt = g_ids.unsqueeze(1);                        /* [T, 1] */
+    Tensor loss = -(lp.gather(1, tgt).squeeze(1)).mean();
+    return loss.item<float>();
+}
+/* FullStep spike probe - 2026-11-17: dung de verifier pipeline compiler */
+TKV_TORCH_EXPORT int64_t TkvFullPing(int64_t x) {
+    return x + 42000;
+}
