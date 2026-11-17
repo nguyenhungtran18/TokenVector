@@ -1839,6 +1839,11 @@ EXPORT int TkvTorchMmCudaOnly(const float* x, const float* w, float* y,
 /* A0.150: khai bao truoc cho pha 1 (dinh nghia o cuoi file). */
 EXPORT int TkvTorchLmSoftmaxCudaOnly(const float* logits, const int* ids,
                                      float* dl, int64_t T, int64_t V, double scale);
+/* A0.151: khai bao truoc cho duong tron goi (dinh nghia o cuoi file). */
+EXPORT int TkvTorchLmHeadBwdCudaOnly(const float* logits, const int* ids,
+                                     const float* wte, const float* xf,
+                                     float* dxf, float* dwte,
+                                     int64_t T, int64_t E, int64_t V, double scale);
 
 /* ---------------- M6: fused lm-head backward (SPEC M4-M7 §M6) --------------
  * lmhead_bwd_fused: doc logits + ids -> softmax-grad (fp32, max-sub, giam tu
@@ -1906,6 +1911,14 @@ static int lmhead_bwd_fused_impl(const float* logits, const int* ids, const floa
     if (Tll <= 0 || Tll > 2000000000LL) return -1;
     int T = (int)Tll;
     long long nlg = (long long)T * V;
+
+    /* A0.151: duong tron goi LM head backward tren CUDA (pha1+2+3 trong 1 call,
+     * dl KHONG ve CPU). rc != 0 (khong CUDA / bridge cu) -> duong native ben duoi
+     * NGUYEN VAN (bit-exact voi moi op truoc day). */
+    {
+        int rc_full = TkvTorchLmHeadBwdCudaOnly(logits, ids, wte, xf, dxf, dwte, T, E, V, (double)scale);
+        if (rc_full == 0) return 0;
+    }
 
     /* pha 0: scratch dl (T x V) */
     float* dl = (float*)malloc((size_t)nlg * sizeof(float));
@@ -2777,6 +2790,8 @@ typedef int (*tkv_mm_t_fn)    (const float*, const float*, float*, int64_t, int6
 typedef int (*tkv_mm_cuda_fn) (const float*, const float*, float*, int64_t, int64_t, int64_t);
 /* A0.150: pha 1 lmhead softmax-grad CHI tren CUDA (-9 khi khong bat). */
 typedef int (*tkv_lm_sm_fn)    (const float*, const int*, float*, int64_t, int64_t, double);
+/* A0.151: lmhead backward tron goi CHI tren CUDA (-9 khi khong bat). */
+typedef int (*tkv_lmh_fn)      (const float*, const int*, const float*, const float*, float*, float*, int64_t, int64_t, int64_t, double);
 typedef int (*tkv_sdpa_fn)    (const float*, float*, int64_t, int64_t, int64_t);
 typedef int (*tkv_gelu_bwd_fn)(const float*, const float*, float*, int64_t);
 /* §0.148: dwte += dlT @ xf trong MOT lenh ATen (addmm_out, beta=1).
@@ -2792,6 +2807,7 @@ static tkv_atnb_fn p_atnb = NULL;
 static tkv_mm_t_fn p_mm_t = NULL;
 static tkv_mm_cuda_fn p_mm_cuda = NULL;
 static tkv_lm_sm_fn p_lm_sm = NULL;
+static tkv_lmh_fn p_lmh = NULL;
 static tkv_sdpa_fn p_sdpa = NULL;
 static tkv_gelu_bwd_fn p_gelu_bwd = NULL;
 static tkv_addmm_ta_fn p_addmm_ta = NULL;
@@ -2850,6 +2866,7 @@ static int tkv_torch_fused_load(void) {
     p_mm_t = (tkv_mm_t_fn)GetProcAddress(h, "TkvTorchMmT");
     p_mm_cuda = (tkv_mm_cuda_fn)GetProcAddress(h, "TkvTorchMmCudaOnly");
     p_lm_sm = (tkv_lm_sm_fn)GetProcAddress(h, "TkvTorchLmSoftmaxCudaOnly");
+    p_lmh = (tkv_lmh_fn)GetProcAddress(h, "TkvTorchLmHeadBwdCudaOnly");
     p_sdpa = (tkv_sdpa_fn)GetProcAddress(h, "TkvTorchSdpa");
     p_gelu_bwd = (tkv_gelu_bwd_fn)GetProcAddress(h, "TkvTorchGeluBwd");
     p_addmm_ta = (tkv_addmm_ta_fn)GetProcAddress(h, "TkvTorchAddmmTaOut");
@@ -2916,6 +2933,16 @@ EXPORT int TkvTorchLmSoftmaxCudaOnly(const float* logits, const int* ids,
     if (!tkv_torch_fused_load()) return -9;
     if (!p_lm_sm) return -9;
     return p_lm_sm(logits, ids, dl, T, V, scale);
+}
+
+EXPORT int TkvTorchLmHeadBwdCudaOnly(const float* logits, const int* ids,
+                                     const float* wte, const float* xf,
+                                     float* dxf, float* dwte,
+                                     int64_t T, int64_t E, int64_t V, double scale) {
+    if (!logits || !ids || !wte || !xf || !dxf || !dwte) return -1;
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_lmh) return -9;
+    return p_lmh(logits, ids, wte, xf, dxf, dwte, T, E, V, scale);
 }
 
 EXPORT int TkvTorchMmT(const float* x, const float* w, float* y,
