@@ -57,6 +57,17 @@ __attribute__((constructor)) static void tkv_disable_tf32() {
         auto& ctx = torch::globalContext();
         ctx.lazyInitDevice(torch::kCUDA);
     } catch (...) { /* ignore */ }
+    /* warm cuBLAS + goi kernel dang ky lazy-load (lan dau CUDA kernel launch
+     * cua tien trinh ton ~250-460ms: module load on-demand). Chuyen ve ngoai
+     * vung bench de LN_FWD step 1 / LMHEAD step 1 khong phai ganh. */
+    try {
+        if (want_cuda()) {
+            auto t = at::zeros({64, 64}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+            auto r = at::mm(t, t);
+            auto y = at::softmax(r, 0);
+            (void)y;
+        }
+    } catch (...) { /* ignore */ }
     try {
         torch::globalContext().setAllowTF32CuBLAS(false);
         torch::globalContext().setAllowTF32CuDNN(false);
