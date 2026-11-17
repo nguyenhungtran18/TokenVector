@@ -246,7 +246,12 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
         auto t_gy = dev(torch::from_blob(const_cast<float*>(gy), {n, h},
              torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)));
         auto t_y  = at::layer_norm(t_x, {h}, t_g, t_b, eps);
+        ln_clog("[tkv-ln-bwd] y def=%d req=%d\n", (int)t_y.defined(), (int)t_y.requires_grad());
         t_y.backward(t_gy);
+        ln_clog("[tkv-ln-bwd] bwd ok; x.g=%d (%d) g.g=%d (%d) b.g=%d (%d)\n",
+                (int)t_x.grad().defined(), t_x.grad().defined() ? (int)t_x.grad().scalar_type() : -1,
+                (int)t_g.grad().defined(), t_g.grad().defined() ? (int)t_g.grad().scalar_type() : -1,
+                (int)t_b.grad().defined(), t_b.grad().defined() ? (int)t_b.grad().scalar_type() : -1);
         memcpy(dx, host(t_x.grad()).const_data_ptr<float>(), (size_t)n * h * sizeof(float));
         memcpy(dg, host(t_g.grad()).const_data_ptr<float>(), (size_t)h * sizeof(float));
         memcpy(db, host(t_b.grad()).const_data_ptr<float>(), (size_t)h * sizeof(float));
