@@ -239,22 +239,29 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
     if (n <= 0 || h <= 0) return -2;
     ln_clog("[tkv-ln-bwd] entry n=%lld h=%lld gpu=%d\n", (long long)n, (long long)h, want_cuda() ? 1 : 0);
     try {
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(true);
-        auto t_x  = dev(torch::from_blob(const_cast<float*>(x), {n, h}, opt.requires_grad(true)));
-        auto t_g  = dev(torch::from_blob(const_cast<float*>(g), {h},   opt.requires_grad(true)));
-        auto t_b  = dev(torch::from_blob(const_cast<float*>(b), {h},   opt.requires_grad(true)));
-        auto t_gy = dev(torch::from_blob(const_cast<float*>(gy), {n, h},
-             torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU)));
-        auto t_y  = at::layer_norm(t_x, {h}, t_g, t_b, eps);
-        ln_clog("[tkv-ln-bwd] y def=%d req=%d\n", (int)t_y.defined(), (int)t_y.requires_grad());
-        t_y.backward(t_gy);
-        ln_clog("[tkv-ln-bwd] bwd ok; x.g=%d (%d) g.g=%d (%d) b.g=%d (%d)\n",
-                (int)t_x.grad().defined(), t_x.grad().defined() ? (int)t_x.grad().scalar_type() : -1,
-                (int)t_g.grad().defined(), t_g.grad().defined() ? (int)t_g.grad().scalar_type() : -1,
-                (int)t_b.grad().defined(), t_b.grad().defined() ? (int)t_b.grad().scalar_type() : -1);
-        memcpy(dx, host(t_x.grad()).const_data_ptr<float>(), (size_t)n * h * sizeof(float));
-        memcpy(dg, host(t_g.grad()).const_data_ptr<float>(), (size_t)h * sizeof(float));
-        memcpy(db, host(t_b.grad()).const_data_ptr<float>(), (size_t)h * sizeof(float));
+        /* manual LN backward — KHONG qua autograd (CUDA autograd im lang trong
+         * engine nay: backward() chay, leaves' .grad deu undefined -> lan luot
+         * throw UNKNOWN_SCALAR). Cong thuc: dx = rstd*(gy*g - mean(gy*g) -
+         * xh*mean(gy*g*xh)); dg = sum_rows(gy*xh); db = sum_rows(gy). */
+        auto t_x  = dev(wrap_in(x, n, h));                  /* [T, h] */
+        auto t_g  = dev(wrap_in(g, 1, h)).squeeze(0);       /* [h] */
+        auto t_gy = dev(wrap_in(gy, n, h));                 /* [T, h] */
+
+        auto t_mu   = t_x.mean({-1}, true);                 /* [T, 1] */
+        auto t_d    = t_x - t_mu;
+        auto t_var  = t_d.pow(2).mean({-1}, true);          /* [T, 1] (biased, giong f64 fwd) */
+        auto t_rstd = (t_var + (double)eps).rsqrt();        /* [T, 1] */
+        auto t_xh   = t_d * t_rstd;                         /* [T, h] */
+        auto t_gyg  = t_gy * t_g;                           /* broadcast [h] over rows */
+        auto t_c1   = t_gyg.mean({-1}, true);               /* [T, 1] */
+        auto t_c2   = (t_gyg * t_xh).mean({-1}, true);      /* [T, 1] */
+        auto t_dx   = (t_gyg - t_c1 - t_xh * t_c2) * t_rstd;/* [T, h] */
+        auto t_dg   = (t_gy * t_xh).sum({0});               /* [h] */
+        auto t_db   = t_gy.sum({0});                        /* [h] */
+
+        memcpy(dx, host(t_dx).const_data_ptr<float>(), (size_t)n * h * sizeof(float));
+        memcpy(dg, host(t_dg).const_data_ptr<float>(), (size_t)h * sizeof(float));
+        memcpy(db, host(t_db).const_data_ptr<float>(), (size_t)h * sizeof(float));
         ln_clog("[tkv-ln-bwd] ok\n");
         return 0;
     } catch (const std::exception& e) {
