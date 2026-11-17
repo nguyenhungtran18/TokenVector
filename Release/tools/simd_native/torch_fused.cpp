@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstdarg>
+#include <chrono>
 
 #include <string>
 #include <vector>
@@ -212,14 +213,25 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g,
     if (n <= 0 || h <= 0) return -2;
     ln_clog("[tkv-ln-fwd] entry n=%lld h=%lld gpu=%d\n", (long long)n, (long long)h, want_cuda() ? 1 : 0);
     try {
+        auto t_s0 = std::chrono::steady_clock::now();
+        /* A0.152: manual LN fwd qua ATen elementwise/reduce - at::layer_norm
+         * "ok" nhung cham la thuong ~10ms/call (dispatch fallback?). Cong thuc:
+         * y = ((x - mean) * rsqrt(var + eps)) * g + b ; var biased (giong f64 fwd). */
         auto t_x = dev(wrap_in(x, n, h));
-        auto t_g = dev(torch::from_blob(const_cast<float*>(g), {h},
-            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false)));
-        auto t_b = dev(torch::from_blob(const_cast<float*>(b), {h},
-            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false)));
-        auto t_y = host(at::layer_norm(t_x, {h}, t_g, t_b, eps));
-        memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * h * sizeof(float));
-        ln_clog("[tkv-ln-fwd] ok\n");
+        auto t_g = dev(wrap_in(g, 1, h)).squeeze(0);        /* [h] */
+        auto t_b = dev(wrap_in(b, 1, h)).squeeze(0);        /* [h] */
+        auto t_s1 = std::chrono::steady_clock::now();
+        auto t_mu   = t_x.mean({-1}, true);                 /* [T, 1] */
+        auto t_d    = t_x - t_mu;
+        auto t_var  = (t_d * t_d).mean({-1}, true);         /* [T, 1] */
+        auto t_rstd = (t_var + (double)eps).rsqrt();        /* [T, 1] */
+        auto t_y    = t_d * t_rstd * t_g + t_b;
+        auto t_s2 = std::chrono::steady_clock::now();
+        auto t_yh = host(t_y);
+        auto t_s3 = std::chrono::steady_clock::now();
+        memcpy(y, t_yh.const_data_ptr<float>(), (size_t)n * h * sizeof(float));
+        auto us = [](auto a, auto b) { return (long long)std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+        ln_clog("[tkv-ln-fwd] ok dev=%lldus ln=%lldus d2h=%lldus\n", us(t_s0, t_s1), us(t_s1, t_s2), us(t_s2, t_s3));
         return 0;
     } catch (const std::exception& e) {
         ln_clog("[tkv-ln-fwd] FAIL (e): %s\n", e.what());
@@ -249,7 +261,7 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
 
         auto t_mu   = t_x.mean({-1}, true);                 /* [T, 1] */
         auto t_d    = t_x - t_mu;
-        auto t_var  = t_d.pow(2).mean({-1}, true);          /* [T, 1] (biased, giong f64 fwd) */
+        auto t_var  = (t_d * t_d).mean({-1}, true);         /* [T, 1] (biased, giong f64 fwd) */
         auto t_rstd = (t_var + (double)eps).rsqrt();        /* [T, 1] */
         auto t_xh   = t_d * t_rstd;                         /* [T, h] */
         auto t_gyg  = t_gy * t_g;                           /* broadcast [h] over rows */
