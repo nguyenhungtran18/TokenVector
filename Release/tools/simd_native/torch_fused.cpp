@@ -196,6 +196,8 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g,
                                           int64_t n, int64_t h, double eps) {
     if (!x || !g || !b || !y) return -1;
     if (n <= 0 || h <= 0) return -2;
+    static int dbg_lnf = 0;
+    if (!dbg_lnf) { dbg_lnf = 1; std::fprintf(stderr, "[tkv-ln-fwd] entry n=%lld h=%lld gpu=%d\n", (long long)n, (long long)h, want_cuda() ? 1 : 0); std::fflush(stderr); }
     try {
         auto t_x = dev(wrap_in(x, n, h));
         auto t_g = dev(torch::from_blob(const_cast<float*>(g), {h},
@@ -205,9 +207,13 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormFwd(const float* x, const float* g,
         auto t_y = host(at::layer_norm(t_x, {h}, t_g, t_b, eps));
         memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * h * sizeof(float));
         return 0;
-    } catch (const std::exception&) {
+    } catch (const std::exception& e) {
+        static int dbg_lnf_err = 0;
+        if (!dbg_lnf_err) { dbg_lnf_err = 1; std::fprintf(stderr, "[tkv-ln-fwd] FAIL (e): %s\n", e.what()); std::fflush(stderr); }
         return -4;
     } catch (...) {
+        static int dbg_lnf_err2 = 0;
+        if (!dbg_lnf_err2) { dbg_lnf_err2 = 1; std::fprintf(stderr, "[tkv-ln-fwd] FAIL (unknown)\n"); std::fflush(stderr); }
         return -5;
     }
 }
@@ -219,6 +225,8 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
                                           int64_t n, int64_t h, double eps) {
     if (!x || !g || !b || !gy || !dx || !dg || !db) return -1;
     if (n <= 0 || h <= 0) return -2;
+    static int dbg_lnb = 0;
+    if (!dbg_lnb) { dbg_lnb = 1; std::fprintf(stderr, "[tkv-ln-bwd] entry n=%lld h=%lld gpu=%d\n", (long long)n, (long long)h, want_cuda() ? 1 : 0); std::fflush(stderr); }
     try {
         auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(true);
         auto t_x  = dev(torch::from_blob(const_cast<float*>(x), {n, h}, opt.requires_grad(true)));
@@ -232,9 +240,13 @@ TKV_TORCH_EXPORT int TkvTorchLayerNormBwd(const float* x, const float* g,
         memcpy(dg, host(t_g.grad()).const_data_ptr<float>(), (size_t)h * sizeof(float));
         memcpy(db, host(t_b.grad()).const_data_ptr<float>(), (size_t)h * sizeof(float));
         return 0;
-    } catch (const std::exception&) {
+    } catch (const std::exception& e) {
+        static int dbg_lnb_err = 0;
+        if (!dbg_lnb_err) { dbg_lnb_err = 1; std::fprintf(stderr, "[tkv-ln-bwd] FAIL (e): %s\n", e.what()); std::fflush(stderr); }
         return -4;
     } catch (...) {
+        static int dbg_lnb_err2 = 0;
+        if (!dbg_lnb_err2) { dbg_lnb_err2 = 1; std::fprintf(stderr, "[tkv-ln-bwd] FAIL (unknown)\n"); std::fflush(stderr); }
         return -5;
     }
 }
