@@ -29,6 +29,7 @@ void TkvCUDA_MarkWeightsDirty(void);
 #include <stdint.h>
 #include <math.h>
 #include <stdio.h>
+#include <pthread.h>
 
 #ifdef _WIN32
 #define EXPORT __declspec(dllexport)
@@ -1920,8 +1921,19 @@ static int lmhead_bwd_fused_impl(const float* logits, const int* ids, const floa
         if (rc_full == 0) return 0;
     }
 
-    /* pha 0: scratch dl (T x V) */
-    float* dl = (float*)malloc((size_t)nlg * sizeof(float));
+    /* pha 0: scratch dl (T x V) - BUFFER TINH TAI SU DUNG (mutex): tranh
+     * malloc/free 205MB + page-fault storm moi call (3 call/step). */
+    static pthread_mutex_t g_dl_mu = PTHREAD_MUTEX_INITIALIZER;
+    static float* g_dl_buf = NULL;
+    static size_t g_dl_elems = 0;
+    pthread_mutex_lock(&g_dl_mu);
+    if (g_dl_elems < (size_t)nlg) {
+        free(g_dl_buf);
+        g_dl_buf = (float*)malloc((size_t)nlg * sizeof(float));
+        g_dl_elems = g_dl_buf ? (size_t)nlg : 0;
+    }
+    float* dl = g_dl_buf;
+    pthread_mutex_unlock(&g_dl_mu);
     if (!dl) return -6;
 
     /* pha 1: softmax-grad song song theo t -> dl (T x V).
@@ -1954,8 +1966,7 @@ static int lmhead_bwd_fused_impl(const float* logits, const int* ids, const floa
      * Numerics: khac thu vien tich luy -> loss lech ~1e-7 (da chap nhan waiver). */
     int rc_addmm = TkvTorchAddmmTaOut(dl, xf, dwte, T, V, E);
     if (rc_addmm == 0) {
-        free(dl);
-        return 0;
+        return 0;   /* dl dung buffer tinh - khong free */
     }
 
     /* ---- fallback: duong cu nguyen van ---- */
@@ -1965,9 +1976,9 @@ static int lmhead_bwd_fused_impl(const float* logits, const int* ids, const floa
      * va FMA y nguyen duong dlT -> bit-giong (loss EXACT 10.760399). */
     long long nwe = (long long)V * E;
     float* tmp = (float*)malloc((size_t)nwe * sizeof(float));
-    if (!tmp) { free(dl); return -6; }
+    if (!tmp) { return -6; }   /* dl dung buffer tinh - khong free */
     run_rect_ta_shaped(dl, V, xf, E, tmp, E, V, E, T);
-    free(dl);
+    /* dl dung buffer tinh - khong free */
 
     /* pha 5: dwte += tmp (dwte TICH LUY +=) */
     int nta = tkv_nthreads(V);

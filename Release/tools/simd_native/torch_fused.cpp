@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstdarg>
 #include <chrono>
+#include <mutex>
 
 #include <string>
 #include <vector>
@@ -85,24 +86,37 @@ static bool want_cuda() {
     }
     return cached == 1;
 }
+
+/* Pinned-memory staging tinh (tai su dung, mutex de an toan tu 2 thread).
+ * H2D: pageable(caller) -> pinned (memcpy nhanh, ~memcpy), pinned -> CUDA (sync, ~25GB/s)
+ * D2H: CUDA -> pinned (sync, ~25GB/s), caller doc truc tiep tu buffer (contract: khong giu ptr qua call tiep theo) */
+static std::mutex g_pin_mu;
+static Tensor g_pin_stage;   /* pageable -> pinned cho H2D */
+static Tensor g_pin_out;     /* CUDA -> pinned cho D2H   */
+static Tensor pin_grow(Tensor& buf, int64_t numel, at::ScalarType st) {
+    if (!buf.defined() || buf.numel() < numel || buf.scalar_type() != st)
+        buf = at::empty({numel}, torch::TensorOptions().dtype(st).device(torch::kCPU).pinned_memory(true));
+    return buf;
+}
 static Tensor dev(const Tensor& t) {
     if (!want_cuda()) return t;
-    auto opts = torch::TensorOptions().dtype(t.scalar_type()).device(torch::kCUDA).requires_grad(false);
-    auto tgt = at::empty(t.sizes(), opts);
-    if (tgt.numel()) {
-        tgt.copy_(t);
-    }
+    std::lock_guard<std::mutex> lk(g_pin_mu);
+    auto& stage = pin_grow(g_pin_stage, t.numel(), t.scalar_type());
+    auto src = stage.narrow(0, 0, t.numel()).view(t.sizes());
+    src.copy_(t);                                  /* pageable -> pinned (dong bo, nhanh) */
+    auto tgt = at::empty(t.sizes(),
+        torch::TensorOptions().dtype(t.scalar_type()).device(torch::kCUDA).requires_grad(false));
+    tgt.copy_(src);                                /* pinned -> CUDA (dong bo, nhanh) */
     tgt.set_requires_grad(t.requires_grad());
     return tgt;
 }
 static Tensor host(const Tensor& t) {
     if (!want_cuda()) return t;
-    auto opts = torch::TensorOptions().dtype(t.scalar_type()).device(torch::kCPU);
-    auto tgt = at::empty(t.sizes(), opts);
-    if (tgt.numel()) {
-        tgt.copy_(t);
-    }
-    return tgt;
+    std::lock_guard<std::mutex> lk(g_pin_mu);
+    auto& out = pin_grow(g_pin_out, t.numel(), t.scalar_type());
+    auto dst = out.narrow(0, 0, t.numel()).view(t.sizes());
+    dst.copy_(t);                                  /* CUDA -> pinned (dong bo, nhanh) */
+    return dst;                                    /* caller memcpy ngay; khong giu qua op tiep */
 }
 static auto dev_f32() {
     return want_cuda()
