@@ -29,6 +29,9 @@
 
 using at::Tensor;
 
+/* forward decl: constructor dung truoc dinh nghia */
+static bool want_cuda();
+
 /* LN diagnostic logger: the .tkv bench harness drops the bridge's stderr, so
  * write breadcrumbs to a file instead (no-op on error). Investigating whether
  * at::layer_norm succeeds or throws on CUDA. */
