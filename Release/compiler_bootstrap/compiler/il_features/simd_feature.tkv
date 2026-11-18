@@ -2478,6 +2478,12 @@ def _pt_fullstep_pinvoke() -> "list[str]":
     """P/Invoke toi thieu cho FULL-STEP: TkvFullPing."""
     return [
         '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvFullPing" winapi) int64 TkvFullPingNative(int64 x) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvFullBegin" winapi) int32 TkvFullBeginNative(int64 n, int64 L, int64 H, int64 NH, int64 HD, int64 V) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvFullSetTensor" winapi) int32 TkvFullSetTensorNative(int64 idx, native int ptr, int64 numel) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvFullSetIds" winapi) int32 TkvFullSetIdsNative(native int ids, int64 T) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvFullSetGrad" winapi) int32 TkvFullSetGradNative(native int gradbuf, int64 n) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvFullSetOpt" winapi) int32 TkvFullSetOptNative(native int p, native int m, native int v, float32 lr, float32 b1, float32 b2, float32 eps, float32 wd, int64 total, int64 cur) cil managed preservesig { }',
+        '  .method public hidebysig static pinvokeimpl("' + _GEMM_DLL + '" as "TkvFullStep" winapi) float32 TkvFullStepNative(int64 mode) cil managed preservesig { }',
     ]
 
 
@@ -2491,6 +2497,44 @@ def _pt_fullstep_wrapper() -> "list[str]":
         '    call int64 ' + _SIMD_CLASS + '::TkvFullPingNative(int64)',
         '    ret',
         '  }',
+    ]
+
+
+def _pt_fullstep_api_wrapper() -> "list[str]":
+    """IL wrappers for full-step API (begin/set_*/step).
+     Tat ca tham so la i64 pointers hoac so; khong can reflection."""
+    return [
+        '  .method public static int32 TkvFullBeginM(int64 n, int64 L, int64 H, int64 NH, int64 HD, int64 V) cil managed',
+        '  {', '    .maxstack 8',
+        '    ldarg.0', '    ldarg.1', '    ldarg.2', '    ldarg.3', '    ldarg.s 4', '    ldarg.s 5',
+        '    call int32 ' + _SIMD_CLASS + '::TkvFullBeginNative(int64, int64, int64, int64, int64, int64)',
+        '    ret', '  }',
+        '  .method public static int32 TkvFullSetTensorM(int64 idx, native int ptr, int64 numel) cil managed',
+        '  {', '    .maxstack 8',
+        '    ldarg.0', '    ldarg.1', '    ldarg.2',
+        '    call int32 ' + _SIMD_CLASS + '::TkvFullSetTensorNative(int64, native int, int64)',
+        '    ret', '  }',
+        '  .method public static int32 TkvFullSetIdsM(native int ids, int64 T) cil managed',
+        '  {', '    .maxstack 8',
+        '    ldarg.0', '    ldarg.1',
+        '    call int32 ' + _SIMD_CLASS + '::TkvFullSetIdsNative(native int, int64)',
+        '    ret', '  }',
+        '  .method public static int32 TkvFullSetGradM(native int gradbuf, int64 n) cil managed',
+        '  {', '    .maxstack 8',
+        '    ldarg.0', '    ldarg.1',
+        '    call int32 ' + _SIMD_CLASS + '::TkvFullSetGradNative(native int, int64)',
+        '    ret', '  }',
+        '  .method public static int32 TkvFullSetOptM(native int p, native int m, native int v, float32 lr, float32 b1, float32 b2, float32 eps, float32 wd, int64 total, int64 cur) cil managed',
+        '  {', '    .maxstack 10',
+        '    ldarg.0', '    ldarg.1', '    ldarg.2', '    ldarg.3', '    ldarg.s 4', '    ldarg.s 5',
+        '    ldarg.s 6', '    ldarg.s 7', '    ldarg.s 8', '    ldarg.s 9',
+        '    call int32 ' + _SIMD_CLASS + '::TkvFullSetOptNative(native int, native int, native int, float32, float32, float32, float32, float32, int64, int64)',
+        '    ret', '  }',
+        '  .method public static float32 TkvFullStepM(int64 mode) cil managed',
+        '  {', '    .maxstack 4',
+        '    ldarg.0',
+        '    call float32 ' + _SIMD_CLASS + '::TkvFullStepNative(int64)',
+        '    ret', '  }',
     ]
 
 
@@ -3011,7 +3055,7 @@ def _simd_chunk(feat: "str") -> "list[str]":
     if feat == 'full':
         return _pt_full_pinvoke() + _pt_full_wrapper()
     if feat == 'fullstep':
-        return _pt_fullstep_pinvoke() + _pt_fullstep_wrapper()
+        return _pt_fullstep_pinvoke() + _pt_fullstep_wrapper() + _pt_fullstep_api_wrapper()
     if feat == 'dp':
         return _pt_dp_pinvoke() + _pt_dp_wrappers()
     if feat.startswith('elem_'):
@@ -4134,6 +4178,38 @@ def compile_gelu_erf_fwd(args: "list[TkvNode]", scope: "Scope", out: "list[str]"
     out.append('    call int32 ' + _SIMD_CLASS + '::GeluErfFwdM(' + _LT_F32 + ', ' + _LT_F32 + ', int64, int64)')
 
 
+def _emit_full_api(name: "str", method: "str", nargs: "i32", dtype: "str", dtypes: "list[str]" = None,
+                   args: "list[TkvNode]" = None, scope: "Scope" = None, out: "list[str]" = None, ctx: "Ctx" = None) -> "i32":
+    if len(args) != nargs:
+        raise SyntaxError("il_codegen: " + name + " can dung " + str(nargs) + " tham so")
+    sig = []
+    for k in range(nargs):
+        d = dtypes[k] if dtypes else 'i64'
+        ctx.compile_expr(args[k], scope, out, d, ctx)
+        sig.append(d)
+    out.append('    call ' + dtype + ' ' + _SIMD_CLASS + '::' + method + '(' + ', '.join(sig) + ')')
+    return 0
+
+
+def compile_full_begin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    _emit_full_api('tkv_full_begin', 'TkvFullBeginM', 6, 'int32', None, args, scope, out, ctx)
+
+def compile_full_set_tensor(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    _emit_full_api('tkv_full_set_tensor', 'TkvFullSetTensorM', 3, 'int32', ['i64','native_int','i64'], args, scope, out, ctx)
+
+def compile_full_set_ids(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    _emit_full_api('tkv_full_set_ids', 'TkvFullSetIdsM', 2, 'int32', ['native_int','i64'], args, scope, out, ctx)
+
+def compile_full_set_grad(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    _emit_full_api('tkv_full_set_grad', 'TkvFullSetGradM', 2, 'int32', ['native_int','i64'], args, scope, out, ctx)
+
+def compile_full_set_opt(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    _emit_full_api('tkv_full_set_opt', 'TkvFullSetOptM', 10, 'int32', ['native_int','native_int','native_int','f32','f32','f32','f32','f32','i64','i64'], args, scope, out, ctx)
+
+def compile_full_step(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
+    _emit_full_api('tkv_full_step', 'TkvFullStepM', 1, 'float32', None, args, scope, out, ctx)
+
+
 def compile_tkv_full_ping(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     """tkv_full_ping(x) -> i64.  Ping native, tra x + 42000. Dung cho pipeline."""
     if len(args) != 1:
@@ -4234,6 +4310,12 @@ def bootstrap_simd_feature(reg: "Registry"):
     register_expr_builtin(reg, 'matmul', compile_matmul, 'i32')
     register_expr_builtin(reg, 'simd_gemm', compile_simd_gemm, 'i32')
     register_expr_builtin(reg, 'tkv_full_ping', compile_tkv_full_ping, 'i64')
+    register_expr_builtin(reg, 'tkv_full_begin', compile_full_begin, 'i32')
+    register_expr_builtin(reg, 'tkv_full_set_tensor', compile_full_set_tensor, 'i32')
+    register_expr_builtin(reg, 'tkv_full_set_ids', compile_full_set_ids, 'i32')
+    register_expr_builtin(reg, 'tkv_full_set_grad', compile_full_set_grad, 'i32')
+    register_expr_builtin(reg, 'tkv_full_set_opt', compile_full_set_opt, 'i32')
+    register_expr_builtin(reg, 'tkv_full_step', compile_full_step, 'f32')
     register_expr_builtin(reg, 'simd_gemm_packed_create', compile_simd_gemm_packed_create, 'i64')
     register_expr_builtin(reg, 'simd_gemm_packed', compile_simd_gemm_packed, 'i32')
     register_expr_builtin(reg, 'simd_gemm_packed_free', compile_simd_gemm_packed_free, 'i64')
