@@ -101,7 +101,7 @@ static Tensor pin_grow(Tensor& buf, int64_t numel, at::ScalarType st) {
 static Tensor dev(const Tensor& t) {
     if (!want_cuda()) return t;
     std::lock_guard<std::mutex> lk(g_pin_mu);
-    auto& stage = pin_grow(g_pin_stage, t.numel(), t.scalar_type());
+    auto stage = pin_grow(g_pin_stage, t.numel(), t.scalar_type());
     auto src = stage.narrow(0, 0, t.numel()).view(t.sizes());
     src.copy_(t);                                  /* pageable -> pinned (dong bo, nhanh) */
     auto tgt = at::empty(t.sizes(),
@@ -113,7 +113,7 @@ static Tensor dev(const Tensor& t) {
 static Tensor host(const Tensor& t) {
     if (!want_cuda()) return t;
     std::lock_guard<std::mutex> lk(g_pin_mu);
-    auto& out = pin_grow(g_pin_out, t.numel(), t.scalar_type());
+    auto out = pin_grow(g_pin_out, t.numel(), t.scalar_type());
     auto dst = out.narrow(0, 0, t.numel()).view(t.sizes());
     dst.copy_(t);                                  /* CUDA -> pinned (dong bo, nhanh) */
     return dst;                                    /* caller memcpy ngay; khong giu qua op tiep */
