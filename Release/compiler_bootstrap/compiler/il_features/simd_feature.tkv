@@ -3068,7 +3068,7 @@ def _simd_chunk(feat: "str") -> "list[str]":
     if feat == 'full':
         return _pt_full_pinvoke() + _pt_full_wrapper()
     if feat == 'fullstep':
-        return _pt_fullstep_pinvoke() + _pt_fullstep_wrapper() + _pt_fullstep_api_wrapper()
+        return _pt_fullstep_pinvoke() + _pt_fullstep_api_wrapper()
     if feat == 'dp':
         return _pt_dp_pinvoke() + _pt_dp_wrappers()
     if feat.startswith('elem_'):
