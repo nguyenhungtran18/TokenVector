@@ -2509,14 +2509,27 @@ def _pt_fullstep_api_wrapper() -> "list[str]":
         '    ldarg.0', '    ldarg.1', '    ldarg.2', '    ldarg.3', '    ldarg.s 4', '    ldarg.s 5',
         '    call int32 ' + _SIMD_CLASS + '::TkvFullBeginNative(int64, int64, int64, int64, int64, int64)',
         '    ret', '  }',
-        '  .method public static int32 TkvFullSetTensorM(int64 idx, native int ptr, int64 numel) cil managed',
-        '  {', '    .maxstack 8',
-        '    ldarg.0', '    ldarg.1', '    ldarg.2',
+        '  .method public static int32 TkvFullSetTensorM(int64 idx, ' + _LT_F32 + ' ptr, int64 numel) cil managed',
+        '  {',
+        '    .maxstack 16',
+        '    .locals init (float32[] p0, class [mscorlib]System.Reflection.FieldInfo fi, float32& pinned q0)',
+        '    ldtoken ' + _LT_F32,
+        '    call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle)',
+        '    ldstr "_items"', '    ldc.i4 36',
+        '    callvirt instance class [mscorlib]System.Reflection.FieldInfo [mscorlib]System.Type::GetField(string, valuetype [mscorlib]System.Reflection.BindingFlags)',
+        '    stloc.s 1',
+        '    ldloc.s 1', '    ldarg.1', '    callvirt instance object [mscorlib]System.Reflection.FieldInfo::GetValue(object)', '    castclass float32[]', '    stloc.0',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema float32', '    stloc.s 2',
+        '    ldarg.0', '    ldloc.s 2', '    conv.i', '    ldarg.2',
         '    call int32 ' + _SIMD_CLASS + '::TkvFullSetTensorNative(int64, native int, int64)',
         '    ret', '  }',
-        '  .method public static int32 TkvFullSetIdsM(native int ids, int64 T) cil managed',
-        '  {', '    .maxstack 8',
-        '    ldarg.0', '    ldarg.1',
+        '  .method public static int32 TkvFullSetIdsM(int64[] ids, int64 T) cil managed',
+        '  {',
+        '    .maxstack 8',
+        '    .locals init (int64[] p0, int64& pinned q0)',
+        '    ldarg.0', '    stloc.0',
+        '    ldloc.0', '    ldc.i4.0', '    ldelema int64', '    stloc.s 1',
+        '    ldloc.s 1', '    conv.i', '    ldarg.1',
         '    call int32 ' + _SIMD_CLASS + '::TkvFullSetIdsNative(native int, int64)',
         '    ret', '  }',
         '  .method public static int32 TkvFullSetGradM(native int gradbuf, int64 n) cil managed',
@@ -4180,13 +4193,22 @@ def compile_gelu_erf_fwd(args: "list[TkvNode]", scope: "Scope", out: "list[str]"
 
 def _emit_full_api(name: "str", method: "str", nargs: "i32", dtype: "str", dtypes: "list[str]" = None,
                    args: "list[TkvNode]" = None, scope: "Scope" = None, out: "list[str]" = None, ctx: "Ctx" = None) -> "i32":
+    _can_simd(ctx, 'fullstep')
     if len(args) != nargs:
         raise SyntaxError("il_codegen: " + name + " can dung " + str(nargs) + " tham so")
     sig = []
     for k in range(nargs):
         d = dtypes[k] if dtypes else 'i64'
-        ctx.compile_expr(args[k], scope, out, d, ctx)
-        sig.append(d)
+        if d == 'list_f32':
+            _nap_mang(args[k], scope, out, ctx)
+            sig.append(_LT_F32)
+        elif d == 'list_i64':
+            _nap_mang(args[k], scope, out, ctx)
+            sig.append('int64[]')
+        else:
+            il_d = 'int64' if d == 'i64' else ('float32' if d == 'f32' else d)
+            ctx.compile_expr(args[k], scope, out, d, ctx)
+            sig.append(il_d)
     out.append('    call ' + dtype + ' ' + _SIMD_CLASS + '::' + method + '(' + ', '.join(sig) + ')')
     return 0
 
@@ -4195,16 +4217,16 @@ def compile_full_begin(args: "list[TkvNode]", scope: "Scope", out: "list[str]", 
     _emit_full_api('tkv_full_begin', 'TkvFullBeginM', 6, 'int32', None, args, scope, out, ctx)
 
 def compile_full_set_tensor(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
-    _emit_full_api('tkv_full_set_tensor', 'TkvFullSetTensorM', 3, 'int32', ['i64','native_int','i64'], args, scope, out, ctx)
+    _emit_full_api('tkv_full_set_tensor', 'TkvFullSetTensorM', 3, 'int32', ['i64','list_f32','i64'], args, scope, out, ctx)
 
 def compile_full_set_ids(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
-    _emit_full_api('tkv_full_set_ids', 'TkvFullSetIdsM', 2, 'int32', ['native_int','i64'], args, scope, out, ctx)
+    _emit_full_api('tkv_full_set_ids', 'TkvFullSetIdsM', 2, 'int32', ['list_i64','i64'], args, scope, out, ctx)
 
 def compile_full_set_grad(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
-    _emit_full_api('tkv_full_set_grad', 'TkvFullSetGradM', 2, 'int32', ['native_int','i64'], args, scope, out, ctx)
+    _emit_full_api('tkv_full_set_grad', 'TkvFullSetGradM', 2, 'int32', ['i64','i64'], args, scope, out, ctx)
 
 def compile_full_set_opt(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
-    _emit_full_api('tkv_full_set_opt', 'TkvFullSetOptM', 10, 'int32', ['native_int','native_int','native_int','f32','f32','f32','f32','f32','i64','i64'], args, scope, out, ctx)
+    _emit_full_api('tkv_full_set_opt', 'TkvFullSetOptM', 10, 'int32', ['i64','i64','i64','f32','f32','f32','f32','f32','i64','i64'], args, scope, out, ctx)
 
 def compile_full_step(args: "list[TkvNode]", scope: "Scope", out: "list[str]", dtype: "str", ctx: "Ctx"):
     _emit_full_api('tkv_full_step', 'TkvFullStepM', 1, 'float32', None, args, scope, out, ctx)
