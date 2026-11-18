@@ -2810,6 +2810,13 @@ typedef int (*tkv_gelu_bwd_fn)(const float*, const float*, float*, int64_t);
 typedef int (*tkv_addmm_ta_fn)(const float*, const float*, float*, int64_t, int64_t, int64_t);
 /* A0.152: probe full-step spike */
 typedef int64_t (*tkv_full_ping_fn)(int64_t);
+/* Full-step M2: fwd+bwd+adam trong 1 call */
+typedef int (*tkv_full_begin_fn)(int64_t,int64_t,int64_t,int64_t,int64_t,int64_t);
+typedef int (*tkv_full_set_tensor_fn)(int64_t,const float*,int64_t);
+typedef int (*tkv_full_set_ids_fn)(const int*,int64_t);
+typedef int (*tkv_full_set_grad_fn)(float*,int64_t);
+typedef int (*tkv_full_set_opt_fn)(float*,float*,float*,float,float,float,float,float,int64_t,int64_t);
+typedef float (*tkv_full_step_fn)(int64_t);
 static HMODULE g_torch_fused = NULL;
 static tkv_lin_gelu_fn p_lin_gelu = NULL;
 static tkv_lin_fn p_lin = NULL;
@@ -2825,6 +2832,12 @@ static tkv_sdpa_fn p_sdpa = NULL;
 static tkv_gelu_bwd_fn p_gelu_bwd = NULL;
 static tkv_addmm_ta_fn p_addmm_ta = NULL;
 static tkv_full_ping_fn p_full_ping = NULL;
+static tkv_full_begin_fn p_full_begin = NULL;
+static tkv_full_set_tensor_fn p_full_set_tensor = NULL;
+static tkv_full_set_ids_fn p_full_set_ids = NULL;
+static tkv_full_set_grad_fn p_full_set_grad = NULL;
+static tkv_full_set_opt_fn p_full_set_opt = NULL;
+static tkv_full_step_fn p_full_step = NULL;
 
 static int tkv_torch_fused_load(void) {
     if (g_torch_fused) return 1;
@@ -2885,6 +2898,12 @@ static int tkv_torch_fused_load(void) {
     p_gelu_bwd = (tkv_gelu_bwd_fn)GetProcAddress(h, "TkvTorchGeluBwd");
     p_addmm_ta = (tkv_addmm_ta_fn)GetProcAddress(h, "TkvTorchAddmmTaOut");
     p_full_ping = (tkv_full_ping_fn)GetProcAddress(h, "TkvFullPing");
+    p_full_begin = (tkv_full_begin_fn)GetProcAddress(h, "TkvFullBegin");
+    p_full_set_tensor = (tkv_full_set_tensor_fn)GetProcAddress(h, "TkvFullSetTensor");
+    p_full_set_ids = (tkv_full_set_ids_fn)GetProcAddress(h, "TkvFullSetIds");
+    p_full_set_grad = (tkv_full_set_grad_fn)GetProcAddress(h, "TkvFullSetGrad");
+    p_full_set_opt = (tkv_full_set_opt_fn)GetProcAddress(h, "TkvFullSetOpt");
+    p_full_step = (tkv_full_step_fn)GetProcAddress(h, "TkvFullStep124m");
     g_torch_fused = h;
     return 1;
 }
@@ -2893,6 +2912,32 @@ EXPORT int64_t TkvFullPingNative(int64_t x) {
     if (!tkv_torch_fused_load()) return 0x7FFFFFFFFFFFFFFFLL;
     if (!p_full_ping) return 0x7FFFFFFFFFFFFFFELL;
     return p_full_ping(x);
+}
+
+EXPORT int TkvFullBeginNative(int64_t n, int64_t L, int64_t H, int64_t NH, int64_t HD, int64_t V) {
+    if (!tkv_torch_fused_load()) return -9;
+    if (!p_full_begin) return -9;
+    return p_full_begin(n, L, H, NH, HD, V);
+}
+EXPORT int TkvFullSetTensorNative(int64_t idx, const float* ptr, int64_t numel) {
+    if (!p_full_set_tensor) return -9;
+    return p_full_set_tensor(idx, ptr, numel);
+}
+EXPORT int TkvFullSetIdsNative(const int* ids, int64_t T) {
+    if (!p_full_set_ids) return -9;
+    return p_full_set_ids(ids, T);
+}
+EXPORT int TkvFullSetGradNative(float* gradbuf, int64_t n) {
+    if (!p_full_set_grad) return -9;
+    return p_full_set_grad(gradbuf, n);
+}
+EXPORT int TkvFullSetOptNative(float* p, float* m, float* v, float lr, float b1, float b2, float eps, float wd, int64_t total, int64_t cur) {
+    if (!p_full_set_opt) return -9;
+    return p_full_set_opt(p, m, v, lr, b1, b2, eps, wd, total, cur);
+}
+EXPORT float TkvFullStepNative(int64_t mode) {
+    if (!p_full_step) return -100.0f;
+    return p_full_step(mode);
 }
 
 EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w, const float* bias,
