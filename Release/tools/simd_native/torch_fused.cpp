@@ -23,6 +23,7 @@
 #include <cstdarg>
 #include <chrono>
 #include <mutex>
+#include <algorithm>
 
 #include <string>
 #include <vector>
@@ -577,12 +578,23 @@ TKV_TORCH_EXPORT int TkvTorchAddmmTaOut(const float* dl, const float* xf, float*
 
 
 
-/* ================= GPU full step (M1: forward + loss spike) ================= */
-/* Layout ps (giong ps trong bench): [wte, wpe, lnf_g, lnf_b, L x 12 ...] */
+
+/* ================= GPU full step M2: fwd + bwd + AdamW trong 1 call ================= */
+/* Layout ps: [wte, wpe, lnf_g, lnf_b, L x 12]. Gradient flat theo thu tu ps.
+ * Begin -> SetTensor*(params) -> SetIds -> SetGrad(buf) -> SetOpt(p,m,v,hyp)
+ * -> Run(0=full, 1=fwd only) -> loss (-100 = chua san sang). */
+
 static std::mutex g_full_mu;
-static std::vector<Tensor> g_p;      /* ids==(phase device); reset at Begin */
-static Tensor g_ids;                 /* [T] int64 */
-static Tensor g_pos;                 /* [T] int64 */
+static std::vector<Tensor> g_p;
+static Tensor g_ids;
+static Tensor g_pos;
+static float* g_grad_buf = nullptr;
+static int64_t g_grad_len = 0;
+static float* g_p_buf = nullptr;
+static float* g_m_buf = nullptr;
+static float* g_v_buf = nullptr;
+static float g_lr = 0.0025f, g_b1 = 0.9f, g_b2 = 0.999f, g_eps = 1e-8f, g_wd = 0.0f;
+static int64_t g_total_steps = 1000, g_cur_step = 0;
 static int g_nlayers = 12, g_h = 768, g_nhd = 12, g_hd = 64, g_vocab = 50257;
 
 static Tensor full_ln_fwd(const Tensor& x, const Tensor& g, const Tensor& b, double eps) {
@@ -592,6 +604,18 @@ static Tensor full_ln_fwd(const Tensor& x, const Tensor& g, const Tensor& b, dou
     auto t_rstd = (t_var + eps).rsqrt();
     return t_d * t_rstd * g + b;
 }
+/* (dx, dg, db) - giong TkvTorchLayerNormBwd manual (verified) */
+static std::vector<Tensor> full_ln_bwd(const Tensor& x, const Tensor& g, const Tensor& gy, double eps) {
+    auto t_mu   = x.mean({-1}, true);
+    auto t_d    = x - t_mu;
+    auto t_var  = (t_d * t_d).mean({-1}, true);
+    auto t_rstd = (t_var + eps).rsqrt();
+    auto t_xh   = t_d * t_rstd;
+    auto t_gyg  = gy * g;
+    auto t_c1   = t_gyg.mean({-1}, true);
+    auto t_c2   = (t_gyg * t_xh).mean({-1}, true);
+    return {(t_gyg - t_c1 - t_xh * t_c2) * t_rstd, (gy * t_xh).sum({0}), gy.sum({0})};
+}
 
 TKV_TORCH_EXPORT int TkvFullBegin(int64_t n_tensors, int64_t NLayers, int64_t H,
                                   int64_t NHeads, int64_t Hd, int64_t Vocab) {
@@ -599,6 +623,8 @@ TKV_TORCH_EXPORT int TkvFullBegin(int64_t n_tensors, int64_t NLayers, int64_t H,
     if (n_tensors <= 4 || NLayers <= 0) return -2;
     g_p.assign((size_t)n_tensors, Tensor());
     g_ids.reset(); g_pos.reset();
+    g_grad_buf = nullptr; g_grad_len = 0;
+    g_p_buf = g_m_buf = g_v_buf = nullptr;
     g_nlayers = (int)NLayers; g_h = (int)H; g_nhd = (int)NHeads; g_hd = (int)Hd; g_vocab = (int)Vocab;
     return 0;
 }
@@ -608,7 +634,7 @@ TKV_TORCH_EXPORT int TkvFullSetTensor(int64_t idx, const float* ptr, int64_t num
     if (idx < 0 || (size_t)idx >= g_p.size()) return -2;
     auto t = torch::from_blob(const_cast<float*>(ptr), {numel},
         torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false));
-    g_p[(size_t)idx] = dev(t);   /* stage 1 lan, CUDA-resident */
+    g_p[(size_t)idx] = dev(t);
     return 0;
 }
 TKV_TORCH_EXPORT int TkvFullSetIds(const int* ids, int64_t T) {
@@ -622,16 +648,34 @@ TKV_TORCH_EXPORT int TkvFullSetIds(const int* ids, int64_t T) {
     g_pos = at::arange(T, opt);
     return 0;
 }
-TKV_TORCH_EXPORT float TkvFullStepFwd(int64_t mode) {
+TKV_TORCH_EXPORT int TkvFullSetGrad(float* gradbuf, int64_t n) {
+    std::lock_guard<std::mutex> lk(g_full_mu);
+    if (!gradbuf || n <= 0) return -1;
+    g_grad_buf = gradbuf; g_grad_len = n;
+    return 0;
+}
+TKV_TORCH_EXPORT int TkvFullSetOpt(float* p, float* m, float* v,
+                                   float lr, float b1, float b2, float eps, float wd,
+                                   int64_t total_steps, int64_t cur_step) {
+    std::lock_guard<std::mutex> lk(g_full_mu);
+    g_p_buf = p; g_m_buf = m; g_v_buf = v;
+    g_lr = lr; g_b1 = b1; g_b2 = b2; g_eps = eps; g_wd = wd;
+    g_total_steps = total_steps; g_cur_step = cur_step;
+    return 0;
+}
+
+TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     std::lock_guard<std::mutex> lk(g_full_mu);
     if (g_p.size() != (size_t)(4 + g_nlayers * 12) || !g_ids.defined()) return -100.0f;
     const int64_t T = g_ids.size(0);
     const int64_t h = g_h, nh = g_nhd, hd = g_hd, V = g_vocab;
     const int L = g_nlayers;
-    auto devOpt = torch::TensorOptions().dtype(torch::kFloat32)
-        .device(want_cuda() ? torch::kCUDA : torch::kCPU);
     auto wte = g_p[0].view({V, h});
     auto wpe = g_p[1].view({1024, h});
+    const double inv = 1.0 / std::sqrt((double)hd);
+
+    /* ---- forward, save activations ---- */
+    std::vector<Tensor> xin(L), a_in(L), m_in(L), ctx_s(L), v_s(L), u_s(L), g1_s(L), qkv_s(L);
     Tensor x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
     for (int li = 0; li < L; ++li) {
         const Tensor& ln1g = g_p[4 + li*12 + 0];
@@ -647,30 +691,143 @@ TKV_TORCH_EXPORT float TkvFullStepFwd(int64_t mode) {
         const Tensor& w2    = g_p[4 + li*12 + 10].view({4*h, h});
         const Tensor& b2    = g_p[4 + li*12 + 11];
 
+        xin[li] = x;
         Tensor a = full_ln_fwd(x, ln1g, ln1b, 1e-6);
-        Tensor qkv = at::addmm(bqkv, a, wqkv);            /* [T, 3h] */
+        a_in[li] = a;
+        Tensor qkv = at::addmm(bqkv, a, wqkv);
+        qkv_s[li] = qkv;
         auto q3 = qkv.view({T, 3, nh, hd});
-        auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0);  /* [1,nh,T,hd] */
+        auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0);
         auto k  = q3.select(1, 1).transpose(0, 1).unsqueeze(0);
         auto v  = q3.select(1, 2).transpose(0, 1).unsqueeze(0);
+        v_s[li] = v;
         Tensor attn = at::scaled_dot_product_attention(q, k, v, std::nullopt, 0.0, true, std::nullopt);
-        Tensor ctx = attn.transpose(1, 2).reshape({T, h}).contiguous();      /* [T, h] */
-        Tensor proj = at::addmm(bp, ctx, wp);            /* x+ctx@W+b */
+        Tensor ctx = attn.transpose(1, 2).reshape({T, h}).contiguous();
+        ctx_s[li] = ctx;
+        Tensor proj = at::addmm(bp, ctx, wp);
         x = x + proj;
-        Tensor m  = full_ln_fwd(x, ln2g, ln2b, 1e-6);
-        Tensor u  = at::addmm(b1, m, w1);                 /* [T, 4h] */
-        Tensor g1 = at::gelu(u);                          /* erf */
-        Tensor h2 = at::addmm(b2, g1, w2);
-        x = x + h2;
+        Tensor m = full_ln_fwd(x, ln2g, ln2b, 1e-6);
+        m_in[li] = m;
+        Tensor u = at::addmm(b1, m, w1);
+        u_s[li] = u;
+        Tensor g1 = at::gelu(u);
+        g1_s[li] = g1;
+        x = x + at::addmm(b2, g1, w2);
     }
     const Tensor& lnfg = g_p[2];
     const Tensor& lnfb = g_p[3];
     Tensor xf = full_ln_fwd(x, lnfg, lnfb, 1e-6);
-    Tensor logits = xf.mm(wte.t());                       /* [T, V] */
+    Tensor logits = xf.mm(wte.t());
     auto lp = logits.log_softmax(-1);
-    auto tgt = g_ids.unsqueeze(1);                        /* [T, 1] */
-    Tensor loss = -(lp.gather(1, tgt).squeeze(1)).mean();
-    return loss.item<float>();
+    auto tgt = g_ids.unsqueeze(1);
+    float loss_val = (-(lp.gather(1, tgt).squeeze(1)).mean()).item<float>();
+    if (run_mode == 1 || !g_grad_buf) return loss_val;
+
+    /* ---- backward (no autograd) ---- */
+    auto P = lp.exp();
+    auto dlogits = P.clone();
+    dlogits.scatter_add_(1, tgt, torch::full({T,1}, -1.0f, dlogits.options()));
+    dlogits = dlogits / (float)T;
+    Tensor dxf = dlogits.mm(wte);
+    Tensor dwte = dlogits.t().mm(xf);
+    auto lnf = full_ln_bwd(x, lnfg, dxf, 1e-6);
+    Tensor dx = lnf[0];
+    Tensor dlnfg = lnf[1], dlnfb = lnf[2];
+
+    std::vector<Tensor> g_ln1g(L), g_ln1b(L), g_wqkv(L), g_bqkv(L), g_wp(L), g_bp(L);
+    std::vector<Tensor> g_ln2g(L), g_ln2b(L), g_w1(L), g_b1(L), g_w2(L), g_b2(L);
+    Tensor d_emb = torch::zeros_like(x);
+
+    for (int li = L - 1; li >= 0; --li) {
+        const Tensor& ln1g = g_p[4 + li*12 + 0];
+        const Tensor& ln1b = g_p[4 + li*12 + 1];
+        const Tensor& wqkv  = g_p[4 + li*12 + 2].view({h, 3*h});
+        const Tensor& wp    = g_p[4 + li*12 + 4].view({h, h});
+        const Tensor& ln2g  = g_p[4 + li*12 + 6];
+        const Tensor& ln2b  = g_p[4 + li*12 + 7];
+        const Tensor& w1    = g_p[4 + li*12 + 8].view({h, 4*h});
+        const Tensor& w2    = g_p[4 + li*12 + 10].view({4*h, h});
+        Tensor a = a_in[li], m = m_in[li], ctx = ctx_s[li], v = v_s[li], u = u_s[li], g1 = g1_s[li];
+
+        /* MLP */
+        Tensor dh2 = dx;
+        g_w2[li] = g1.t().mm(dh2);
+        g_b2[li] = dh2.sum({0});
+        Tensor du = at::gelu_backward(dh2.mm(w2.t()), u, "none");
+        g_w1[li] = m.t().mm(du);
+        g_b1[li] = du.sum({0});
+        auto ln2 = full_ln_bwd(xin[li], ln2g, du.mm(w1.t()), 1e-6);
+        g_ln2g[li] = ln2[1]; g_ln2b[li] = ln2[2];
+        dx = ln2[0] + dh2;
+
+        /* attention */
+        Tensor dctx = dx.mm(wp.t());
+        g_wp[li] = ctx.t().mm(dx);
+        g_bp[li] = dx.sum({0});
+        auto q3 = qkv_s[li].view({T, 3, nh, hd});
+        auto q = q3.select(1, 0).transpose(0, 1).unsqueeze(0);
+        auto k = q3.select(1, 1).transpose(0, 1).unsqueeze(0);
+        auto vv = q3.select(1, 2).transpose(0, 1).unsqueeze(0);
+        auto scores = at::matmul(q, k.transpose(-1,-2)).mul_(inv);
+        auto mask = at::tril(at::ones({T,T}, scores.options()));
+        scores = scores.masked_fill_(mask.logical_not().unsqueeze(0).unsqueeze(0), -std::numeric_limits<float>::infinity());
+        auto Patt = scores.softmax(-1);
+        auto dA = at::matmul(dctx.view({1,nh,T,hd}), vv.transpose(-1,-2));
+        auto dSsum = (dA * Patt).sum({-1}, true);
+        auto dScores = (Patt * (dA - dSsum)).mul_((float)inv);
+        auto dQ = at::matmul(dScores, k);
+        auto dK = at::matmul(dScores.transpose(-1,-2), q);
+        auto dV = at::matmul(Patt.transpose(-1,-2), dctx.view({1,nh,T,hd}));
+        auto dQKV = at::cat({dQ.squeeze(0).transpose(0,1).reshape({T,h}),
+                             dK.squeeze(0).transpose(0,1).reshape({T,h}),
+                             dV.squeeze(0).transpose(0,1).reshape({T,h})}, 1);
+        g_wqkv[li] = a.t().mm(dQKV);
+        g_bqkv[li] = dQKV.sum({0});
+        auto ln1 = full_ln_bwd(xin[li], ln1g, dQKV.mm(wqkv.t()), 1e-6);
+        g_ln1g[li] = ln1[1]; g_ln1b[li] = ln1[2];
+        dx = ln1[0] + dx;
+        d_emb = d_emb + dx;
+    }
+    dwte.scatter_add_(0, g_ids, d_emb);
+    Tensor dwpe = torch::zeros_like(wpe);
+    dwpe.scatter_add_(0, g_pos, d_emb);
+
+    /* write grads in ps order */
+    auto put = [&](int64_t idx, const Tensor& grad) {
+        int64_t off = 0;
+        for (int64_t i = 0; i < idx; ++i) off += g_p[(size_t)i].numel();
+        if (off + grad.numel() <= g_grad_len)
+            memcpy(g_grad_buf + off, host(grad.contiguous()).const_data_ptr<float>(),
+                   (size_t)grad.numel() * sizeof(float));
+    };
+    put(0, dwte); put(1, dwpe); put(2, dlnfg); put(3, dlnfb);
+    for (int li = 0; li < L; ++li) {
+        int64_t b = 4 + li*12;
+        put(b+0,g_ln1g[li]); put(b+1,g_ln1b[li]); put(b+2,g_wqkv[li]); put(b+3,g_bqkv[li]);
+        put(b+4,g_wp[li]);   put(b+5,g_bp[li]);   put(b+6,g_ln2g[li]); put(b+7,g_ln2b[li]);
+        put(b+8,g_w1[li]);   put(b+9,g_b1[li]);   put(b+10,g_w2[li]);  put(b+11,g_b2[li]);
+    }
+    /* AdamW (flat host buffers) */
+    if (g_p_buf && g_m_buf && g_v_buf && g_grad_len > 0) {
+        float lr_t = g_lr;
+        if (g_total_steps > 0) {
+            float step = (float)(g_cur_step + 1);
+            float warm = (float)std::min<int64_t>(2, g_total_steps);
+            if (warm > 0 && step < warm) lr_t *= step / warm;
+            lr_t *= 0.5f * (1.0f + std::cos(3.14159265f * step / (float)g_total_steps));
+        }
+        float bc1 = 1.0f - std::pow(g_b1, (double)(g_cur_step + 1));
+        float bc2 = 1.0f - std::pow(g_b2, (double)(g_cur_step + 1));
+        for (int64_t i = 0; i < g_grad_len; ++i) {
+            float gt = g_grad_buf[i];
+            float m = g_b1 * g_m_buf[i] + (1.0f - g_b1) * gt;
+            float v = g_b2 * g_v_buf[i] + (1.0f - g_b2) * gt * gt;
+            g_m_buf[i] = m; g_v_buf[i] = v;
+            g_p_buf[i] -= lr_t * ((m / bc1) / (std::sqrt(v / bc2) + g_eps) + g_wd * g_p_buf[i]);
+        }
+        g_cur_step++;
+    }
+    return loss_val;
 }
 /* FullStep spike probe - 2026-11-17: dung de verifier pipeline compiler */
 TKV_TORCH_EXPORT int64_t TkvFullPing(int64_t x) {
