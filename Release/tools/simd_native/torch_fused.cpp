@@ -654,10 +654,18 @@ TKV_TORCH_EXPORT int TkvFullSetTensor(int64_t idx, const float* ptr, int64_t num
         g_p_src[(size_t)idx] == ptr) return 0;
     auto t = torch::from_blob(const_cast<float*>(ptr), {numel},
         torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false));
-    if (g_p[(size_t)idx].defined() && g_p[(size_t)idx].numel() == numel)
-        g_p[(size_t)idx].copy_(t);                 /* H2D vao view hien co */
-    else
-        g_p[(size_t)idx] = dev(t);
+    if (!want_cuda()) {
+        g_p[(size_t)idx] = t;
+        g_p_src[(size_t)idx] = ptr;
+        g_p_numels[(size_t)idx] = numel;
+        return 0;
+    }
+    auto ht = t.to(torch::kHalf);  /* params CUDA fp16 */
+    if (g_p[(size_t)idx].defined() && g_p[(size_t)idx].numel() == numel) {
+        g_p[(size_t)idx].copy_(ht);
+    } else {
+        g_p[(size_t)idx] = dev(ht);
+    }
     g_p_src[(size_t)idx] = ptr;
     g_p_numels[(size_t)idx] = numel;
     return 0;
@@ -710,7 +718,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
                 if (g_p[i].numel() > 0)
                     g_p_all.narrow(0, offs[i], g_p[i].numel()).copy_(g_p[i]);
             for (size_t i = 0; i < g_p.size(); ++i)
-                g_p[i] = g_p_all.narrow(0, offs[i], g_p_numels[i]);
+                g_p[i] = g_p_all.narrow(0, offs[i], g_p_numels[i]).to(torch::kHalf);
             /* 2GB VRAM: m/v fp32 (~1GB). g_grad_dev cap phat TRE (chi luc
              * optimizer) de khong chong chan voi activations fwd/bwd. */
             g_m_dev = at::zeros({off}, cudaOpt);
@@ -878,7 +886,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         if (want_cuda() && g_dev_ready && g_grad_dev.defined()) {
             /* grad sau reshape(-1) de copy_ 1D -> 1D (broadcast khong chong chan) */
             if (off + grad.numel() <= g_grad_dev.numel())
-                g_grad_dev.narrow(0, off, grad.numel()).copy_(grad.contiguous().reshape({grad.numel()}));
+                g_grad_dev.narrow(0, off, grad.numel()).copy_(grad.to(torch::kFloat).contiguous().reshape({grad.numel()}));
             return;
         }
         if (off + grad.numel() <= g_grad_len)
