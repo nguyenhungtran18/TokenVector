@@ -715,9 +715,13 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
                     g_p_all.narrow(0, offs[i], g_p[i].numel()).copy_(g_p[i]);
             for (size_t i = 0; i < g_p.size(); ++i)
                 g_p[i] = g_p_all.narrow(0, offs[i], g_p_numels[i]);
-            g_m_dev = at::zeros({off}, cudaOpt);
-            g_v_dev = at::zeros({off}, cudaOpt);
-            g_grad_dev = at::empty({off}, cudaOpt);
+            /* 2GB VRAM: m/v fp16 (~496MB total thay vi ~1GB fp32).
+             * g_grad_dev fp32 duoc cap phat TRE (chi luc optimizer) de khong
+             * chong chan voi activations cua forward/backward. */
+            auto halfOpt = torch::TensorOptions().dtype(torch::kHalf).device(torch::kCUDA);
+            g_m_dev = at::zeros({off}, halfOpt);
+            g_v_dev = at::zeros({off}, halfOpt);
+            g_grad_dev.reset();
             g_dev_ready = true;
         }
         if (g_dev_state_dirty) {
@@ -783,17 +787,22 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     Tensor xf = full_ln_fwd(x, lnfg, lnfb, 1e-6);
     Tensor logits = xf.mm(wte.t());
     auto lp = logits.log_softmax(-1);
+    logits.reset();   /* 2GB: giai phong [T,V] ngay sau log_softmax */
     auto tgt = g_ids.unsqueeze(1);
     float loss_val = (-(lp.gather(1, tgt).squeeze(1)).mean()).item<float>();
     if (run_mode == 1 || !g_grad_buf) return loss_val;
 
     /* ---- backward (no autograd) ---- */
     auto P = lp.exp();
+    lp.reset();       /* 2GB: khong giu lp [T,V] */
     auto dlogits = P.clone();
+    P.reset();        /* 2GB: khong giu P [T,V] */
     dlogits.scatter_add_(1, tgt, torch::full({T,1}, -1.0f, dlogits.options()));
-    dlogits = dlogits / (float)T;
+    dlogits.div_((float)T);   /* in-place: tran cap them [T,V] ~200MB */
     Tensor dxf = dlogits.mm(wte);
     Tensor dwte = dlogits.t().mm(xf);
+    dlogits.reset();  /* 2GB: xong LM-head bwd */
+    xf.reset();
     auto lnf = full_ln_bwd(x, lnfg, dxf, 1e-6);
     Tensor dx = lnf[0];
     Tensor dlnfg = lnf[1], dlnfb = lnf[2];
@@ -857,6 +866,15 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     Tensor dwpe = torch::zeros_like(wpe);
     dwpe.scatter_add_(0, g_pos.unsqueeze(1), d_emb);
 
+    /* 2GB: xong backward -> giai phong activations TRUOC khi cap phat grad */
+    x.reset();
+    xin.clear(); a_in.clear(); m_in.clear(); ctx_s.clear();
+    v_s.clear(); u_s.clear(); g1_s.clear(); qkv_s.clear();
+    if (want_cuda() && g_dev_ready) {
+        g_grad_dev = at::empty({g_p_all.numel()},
+            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+    }
+
     /* write grads in ps order - CUDA: D2D vao g_grad_dev (KHONG D2H) */
     auto put = [&](int64_t idx, const Tensor& grad) {
         int64_t off = 0;
@@ -877,7 +895,15 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         put(b+4,g_wp[li]);   put(b+5,g_bp[li]);   put(b+6,g_ln2g[li]); put(b+7,g_ln2b[li]);
         put(b+8,g_w1[li]);   put(b+9,g_b1v[li]);   put(b+10,g_w2[li]);  put(b+11,g_b2v[li]);
     }
-    /* AdamW - CUDA: elementwise tren GPU (p/m/v/grad deu o VRAM) */
+    /* 2GB: grad da copy sang g_grad_dev -> giai phong ban goc truoc AdamW */
+    if (want_cuda() && g_dev_ready) {
+        dwte.reset(); dwpe.reset(); dlnfg.reset(); dlnfb.reset(); d_emb.reset(); dx.reset();
+        g_ln1g.clear(); g_ln1b.clear(); g_wqkv.clear(); g_bqkv.clear();
+        g_wp.clear();   g_bp.clear();   g_ln2g.clear(); g_ln2b.clear();
+        g_w1.clear();   g_b1v.clear();  g_w2.clear();   g_b2v.clear();
+    }
+    /* AdamW - CUDA 2GB: m/v fp16 o VRAM, tinh fp32 theo chunk (~64MB temp).
+     * p, grad fp32; khong D2H, khong can buffer host. */
     if (want_cuda() && g_dev_ready && g_grad_dev.defined()) {
         float lr_t = g_lr;
         if (g_total_steps > 0) {
@@ -888,11 +914,24 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         }
         float bc1 = 1.0f - std::pow(g_b1, (double)(g_cur_step + 1));
         float bc2 = 1.0f - std::pow(g_b2, (double)(g_cur_step + 1));
-        g_m_dev.mul_(g_b1).add_(g_grad_dev, 1.0f - g_b1);
-        g_v_dev.mul_(g_b2).addcmul_(g_grad_dev, g_grad_dev, 1.0f - g_b2);
-        auto denom = (g_v_dev / bc2).sqrt_().add_(g_eps);
-        auto upd = (g_m_dev / bc1) / denom + g_wd * g_p_all;
-        g_p_all.sub_(lr_t * upd);
+        const int64_t CH = 1 << 22;   /* 4M phan tu = 16MB fp32 / chunk */
+        for (int64_t base = 0; base < g_p_all.numel(); base += CH) {
+            int64_t n = std::min<int64_t>(CH, g_p_all.numel() - base);
+            auto p  = g_p_all.narrow(0, base, n);
+            auto g  = g_grad_dev.narrow(0, base, n);
+            auto mh = g_m_dev.narrow(0, base, n);
+            auto vh = g_v_dev.narrow(0, base, n);
+            auto m = mh.to(torch::kFloat);
+            auto v = vh.to(torch::kFloat);
+            m.mul_(g_b1).add_(g, 1.0f - g_b1);
+            v.mul_(g_b2).addcmul_(g, g, 1.0f - g_b2);
+            auto denom = (v / bc2).sqrt_().add_(g_eps);
+            auto upd = (m / bc1) / denom + g_wd * p;
+            p.sub_(lr_t * upd);
+            mh.copy_(m);
+            vh.copy_(v);
+        }
+        g_grad_dev.reset();   /* 2GB: tra lai 500MB truoc step sau */
         g_cur_step++;
     } else if (g_p_buf && g_m_buf && g_v_buf && g_grad_len > 0) {
         /* CPU mode: flat host buffers (native path, gi nguyen) */
