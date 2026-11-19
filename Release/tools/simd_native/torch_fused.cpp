@@ -773,8 +773,12 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0);
         auto k  = q3.select(1, 1).transpose(0, 1).unsqueeze(0);
         auto v  = q3.select(1, 2).transpose(0, 1).unsqueeze(0);
-        Tensor attn = at::scaled_dot_product_attention(q, k, v, std::nullopt, 0.0, true, std::nullopt);
-        Tensor ctx = attn.transpose(1, 2).reshape({T, h}).contiguous();
+        Tensor attn;
+        {
+            auto qh = q.to(torch::kHalf), kh = k.to(torch::kHalf), vh = v.to(torch::kHalf);
+            attn = at::scaled_dot_product_attention(qh, kh, vh, std::nullopt, 0.0, true, std::nullopt);
+        }
+        Tensor ctx = attn.to(torch::kFloat).transpose(1, 2).reshape({T, h}).contiguous();
         ctx_s[li] = ctx;
         Tensor proj = at::addmm(bp, ctx, wp);
         x = x + proj;
@@ -842,15 +846,15 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         g_wp[li] = ctx.t().mm(dx);
         g_bp[li] = dx.sum({0});
         auto q3b = qkv_s[li].view({T, 3, nh, hd});
-        auto qb = q3b.select(1, 0).transpose(0, 1).unsqueeze(0).detach(); qb.set_requires_grad(true);
-        auto kb = q3b.select(1, 1).transpose(0, 1).unsqueeze(0).detach(); kb.set_requires_grad(true);
-        auto vb = q3b.select(1, 2).transpose(0, 1).unsqueeze(0).detach(); vb.set_requires_grad(true);
+        auto qb = q3b.select(1, 0).transpose(0, 1).unsqueeze(0).detach().to(torch::kHalf); qb.set_requires_grad(true);
+        auto kb = q3b.select(1, 1).transpose(0, 1).unsqueeze(0).detach().to(torch::kHalf); kb.set_requires_grad(true);
+        auto vb = q3b.select(1, 2).transpose(0, 1).unsqueeze(0).detach().to(torch::kHalf); vb.set_requires_grad(true);
         Tensor attnb = at::scaled_dot_product_attention(qb, kb, vb, std::nullopt, 0.0, true, std::nullopt);
-        Tensor dctx_a = dctx.view({T, nh, hd}).transpose(0, 1).unsqueeze(0).contiguous();
+        Tensor dctx_a = dctx.view({T, nh, hd}).transpose(0, 1).unsqueeze(0).contiguous().to(torch::kHalf);
         attnb.backward(dctx_a);
-        auto dQ = qb.grad();
-        auto dK = kb.grad();
-        auto dV = vb.grad();
+        auto dQ = qb.grad().to(torch::kFloat);
+        auto dK = kb.grad().to(torch::kFloat);
+        auto dV = vb.grad().to(torch::kFloat);
         auto dQKV = at::cat({dQ.squeeze(0).transpose(0,1).reshape({T,h}),
                              dK.squeeze(0).transpose(0,1).reshape({T,h}),
                              dV.squeeze(0).transpose(0,1).reshape({T,h})}, 1);
