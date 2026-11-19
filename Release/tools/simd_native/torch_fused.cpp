@@ -607,7 +607,8 @@ static const float* g_opt_m_prev = nullptr;
 static const float* g_opt_v_prev = nullptr;
 
 static Tensor full_ln_fwd(const Tensor& x, const Tensor& g, const Tensor& b, double eps) {
-    return at::layer_norm(x, at::IntArrayRef{x.size(-1)}, g, b, eps);
+    auto st = x.scalar_type();
+    return at::layer_norm(x, at::IntArrayRef{x.size(-1)}, g, b, eps).to(st);
 }
 /* (dx, dg, db) - giong TkvTorchLayerNormBwd manual (verified) */
 static std::vector<Tensor> full_ln_bwd(const Tensor& x, const Tensor& g, const Tensor& gy, double eps) {
