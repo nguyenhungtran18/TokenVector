@@ -607,11 +607,7 @@ static const float* g_opt_m_prev = nullptr;
 static const float* g_opt_v_prev = nullptr;
 
 static Tensor full_ln_fwd(const Tensor& x, const Tensor& g, const Tensor& b, double eps) {
-    auto t_mu = x.mean({-1}, true);
-    auto t_d = x - t_mu;
-    auto t_var = (t_d * t_d).mean({-1}, true);
-    auto t_rstd = (t_var + eps).rsqrt();
-    return t_d * t_rstd * g + b;
+    return at::layer_norm(x, at::IntArrayRef{x.size(-1)}, g, b, eps);
 }
 /* (dx, dg, db) - giong TkvTorchLayerNormBwd manual (verified) */
 static std::vector<Tensor> full_ln_bwd(const Tensor& x, const Tensor& g, const Tensor& gy, double eps) {
