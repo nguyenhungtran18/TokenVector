@@ -735,7 +735,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     Tensor dlnfg = lnf[1], dlnfb = lnf[2];
 
     std::vector<Tensor> g_ln1g(L), g_ln1b(L), g_wqkv(L), g_bqkv(L), g_wp(L), g_bp(L);
-    std::vector<Tensor> g_ln2g(L), g_ln2b(L), g_w1(L), g_b1(L), g_w2(L), g_b2(L);
+    std::vector<Tensor> g_ln2g(L), g_ln2b(L), g_w1(L), g_b1v(L), g_w2(L), g_b2v(L);
     Tensor d_emb = torch::zeros_like(x);
 
     for (int li = L - 1; li >= 0; --li) {
@@ -752,10 +752,10 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         /* MLP */
         Tensor dh2 = dx;
         g_w2[li] = g1.t().mm(dh2);
-        g_b2[li] = dh2.sum({0});
+        g_b2v[li] = dh2.sum({0});
         Tensor du = at::gelu_backward(dh2.mm(w2.t()), u, "none");
         g_w1[li] = m.t().mm(du);
-        g_b1[li] = du.sum({0});
+        g_b1v[li] = du.sum({0});
         auto ln2 = full_ln_bwd(xin[li], ln2g, du.mm(w1.t()), 1e-6);
         g_ln2g[li] = ln2[1]; g_ln2b[li] = ln2[2];
         dx = ln2[0] + dh2;
@@ -805,7 +805,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         int64_t b = 4 + li*12;
         put(b+0,g_ln1g[li]); put(b+1,g_ln1b[li]); put(b+2,g_wqkv[li]); put(b+3,g_bqkv[li]);
         put(b+4,g_wp[li]);   put(b+5,g_bp[li]);   put(b+6,g_ln2g[li]); put(b+7,g_ln2b[li]);
-        put(b+8,g_w1[li]);   put(b+9,g_b1[li]);   put(b+10,g_w2[li]);  put(b+11,g_b2[li]);
+        put(b+8,g_w1[li]);   put(b+9,g_b1v[li]);   put(b+10,g_w2[li]);  put(b+11,g_b2v[li]);
     }
     /* AdamW (flat host buffers) */
     if (g_p_buf && g_m_buf && g_v_buf && g_grad_len > 0) {
@@ -820,8 +820,8 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         float bc2 = 1.0f - std::pow(g_b2, (double)(g_cur_step + 1));
         for (int64_t i = 0; i < g_grad_len; ++i) {
             float gt = g_grad_buf[i];
-            float m = g_b1 * g_m_buf[i] + (1.0f - g_b1) * gt;
-            float v = g_b2 * g_v_buf[i] + (1.0f - g_b2) * gt * gt;
+        float m = g_b1 * g_m_buf[i] + (1.0f - g_b1) * gt;
+        float v = g_b2 * g_v_buf[i] + (1.0f - g_b2) * gt * gt;
             g_m_buf[i] = m; g_v_buf[i] = v;
             g_p_buf[i] -= lr_t * ((m / bc1) / (std::sqrt(v / bc2) + g_eps) + g_wd * g_p_buf[i]);
         }
