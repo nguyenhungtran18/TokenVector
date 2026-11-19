@@ -663,6 +663,7 @@ TKV_TORCH_EXPORT int TkvFullSetTensor(int64_t idx, const float* ptr, int64_t num
         return 0;
     }
     auto ht = t.to(torch::kHalf);  /* params CUDA fp16 */
+    if (idx == 0) fprintf(stderr, "XDBG SetTensor: ht dtype=%d t dtype=%d\n", (int)ht.scalar_type(), (int)t.scalar_type());
     if (g_p[(size_t)idx].defined() && g_p[(size_t)idx].numel() == numel) {
         g_p[(size_t)idx].copy_(ht);
     } else {
@@ -723,6 +724,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
                     g_p_all.narrow(0, offs[i], g_p[i].numel()).copy_(g_p[i]);
             for (size_t i = 0; i < g_p.size(); ++i)
                 g_p[i] = g_p_all.narrow(0, offs[i], g_p_numels[i]).to(torch::kHalf);
+            fprintf(stderr, "XDBG setup: g_p[0] type=%d g_p[1] type=%d\n", (int)g_p[0].scalar_type(), (int)g_p[1].scalar_type());
             /* 2GB VRAM: m/v fp32 (~1GB). g_grad_dev cap phat TRE (chi luc
              * optimizer) de khong chong chan voi activations fwd/bwd. */
             g_m_dev = at::zeros({off}, cudaOpt);
