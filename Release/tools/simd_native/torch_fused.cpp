@@ -715,14 +715,16 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
                     g_p_all.narrow(0, offs[i], g_p[i].numel()).copy_(g_p[i]);
             for (size_t i = 0; i < g_p.size(); ++i)
                 g_p[i] = g_p_all.narrow(0, offs[i], g_p_numels[i]);
-            /* 2GB VRAM: m/v fp16 (~496MB total thay vi ~1GB fp32).
-             * g_grad_dev fp32 duoc cap phat TRE (chi luc optimizer) de khong
-             * chong chan voi activations cua forward/backward. */
-            auto halfOpt = torch::TensorOptions().dtype(torch::kHalf).device(torch::kCUDA);
-            g_m_dev = at::zeros({off}, halfOpt);
-            g_v_dev = at::zeros({off}, halfOpt);
+            /* 2GB VRAM: m/v fp32 (~1GB). g_grad_dev cap phat TRE (chi luc
+             * optimizer) de khong chong chan voi activations fwd/bwd. */
+            g_m_dev = at::zeros({off}, cudaOpt);
+            g_v_dev = at::zeros({off}, cudaOpt);
             g_grad_dev.reset();
             g_dev_ready = true;
+        }
+        if (want_cuda() && g_dev_ready && !g_grad_dev.defined()) {
+            auto cudaOpt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
+            g_grad_dev = at::empty({g_p_all.numel()}, cudaOpt);
         }
         if (g_dev_state_dirty) {
             if (g_m_buf) {
@@ -743,18 +745,12 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     const int64_t Pw = g_p[1].numel() / h;
     auto wpe = g_p[1].view({Pw, h});
     if (T > Pw) return -3;
-    fprintf(stderr, "XDBG wpe=%lldx%lld Pw=%lld T=%lld\n",
-            (long long)wpe.size(0), (long long)wpe.size(1), (long long)Pw, (long long)T);
     const double inv = 1.0 / std::sqrt((double)hd);
 
     /* ---- forward, save activations ---- */
-    std::vector<Tensor> xin(L), a_in(L), m_in(L), ctx_s(L), v_s(L), u_s(L), g1_s(L), qkv_s(L);
-    Tensor xq = at::index_select(wte, 0, g_ids);
-    Tensor xp = at::index_select(wpe, 0, g_pos);
-    fprintf(stderr, "XDBG xq=%lldx%lld xp=%lldx%lld\n",
-            (long long)xq.size(0), (long long)xq.size(1),
-            (long long)xp.size(0), (long long)xp.size(1));
-    Tensor x = xq + xp;
+    std::vector<Tensor> xin(L), a_in(L), m_in(L), ctx_s(L), attn_s(L),
+                        qs_s(L), ks_s(L), v_s(L), u_s(L), g1_s(L), qkv_s(L);
+    Tensor x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
     for (int li = 0; li < L; ++li) {
         const Tensor& ln1g = g_p[4 + li*12 + 0];
         const Tensor& ln1b = g_p[4 + li*12 + 1];
@@ -775,11 +771,13 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         Tensor qkv = at::addmm(bqkv, a, wqkv);
         qkv_s[li] = qkv;
         auto q3 = qkv.view({T, 3, nh, hd});
-        auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0);
-        auto k  = q3.select(1, 1).transpose(0, 1).unsqueeze(0);
-        auto v  = q3.select(1, 2).transpose(0, 1).unsqueeze(0);
-        v_s[li] = v;
+        auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0).contiguous();
+        auto k  = q3.select(1, 1).transpose(0, 1).unsqueeze(0).contiguous();
+        auto v  = q3.select(1, 2).transpose(0, 1).unsqueeze(0).contiguous();
+        q.set_requires_grad_(true); k.set_requires_grad_(true); v.set_requires_grad_(true);
+        qs_s[li] = q; ks_s[li] = k; v_s[li] = v;
         Tensor attn = at::scaled_dot_product_attention(q, k, v, std::nullopt, 0.0, true, std::nullopt);
+        attn_s[li] = attn;
         Tensor ctx = attn.transpose(1, 2).reshape({T, h}).contiguous();
         ctx_s[li] = ctx;
         Tensor proj = at::addmm(bp, ctx, wp);
@@ -843,24 +841,14 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         g_ln2g[li] = ln2[1]; g_ln2b[li] = ln2[2];
         dx = ln2[0] + dh2;
 
-        /* attention */
+        /* attention — backward via SDPA autograd fused (flash bwd) */
         Tensor dctx = dx.mm(wp.t());
         g_wp[li] = ctx.t().mm(dx);
         g_bp[li] = dx.sum({0});
-        auto q3 = qkv_s[li].view({T, 3, nh, hd});
-        auto q = q3.select(1, 0).transpose(0, 1).unsqueeze(0);
-        auto k = q3.select(1, 1).transpose(0, 1).unsqueeze(0);
-        auto vv = q3.select(1, 2).transpose(0, 1).unsqueeze(0);
-        auto scores = at::matmul(q, k.transpose(-1,-2)).mul_(inv);
-        auto mask = at::tril(at::ones({T,T}, scores.options()));
-        scores = scores.masked_fill_(mask.logical_not().unsqueeze(0).unsqueeze(0), -std::numeric_limits<float>::infinity());
-        auto Patt = scores.softmax(-1);
-        auto dA = at::matmul(dctx.view({1,nh,T,hd}), vv.transpose(-1,-2));
-        auto dSsum = (dA * Patt).sum({-1}, true);
-        auto dScores = (Patt * (dA - dSsum)).mul_((float)inv);
-        auto dQ = at::matmul(dScores, k);
-        auto dK = at::matmul(dScores.transpose(-1,-2), q);
-        auto dV = at::matmul(Patt.transpose(-1,-2), dctx.view({1,nh,T,hd}));
+        ctx_s[li].backward(dctx);
+        auto dQ = qs_s[li].grad();
+        auto dK = ks_s[li].grad();
+        auto dV = v_s[li].grad();
         auto dQKV = at::cat({dQ.squeeze(0).transpose(0,1).reshape({T,h}),
                              dK.squeeze(0).transpose(0,1).reshape({T,h}),
                              dV.squeeze(0).transpose(0,1).reshape({T,h})}, 1);
@@ -876,20 +864,17 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     Tensor dwpe = torch::zeros_like(wpe);
     dwpe.scatter_add_(0, g_pos.unsqueeze(1), d_emb);
 
-    /* 2GB: xong backward -> giai phong activations TRUOC khi cap phat grad */
+    /* 2GB: xong backward -> giai phong activations + attn_s (2.4GB graph) */
     x.reset();
-    xin.clear(); a_in.clear(); m_in.clear(); ctx_s.clear();
+    xin.clear(); a_in.clear(); m_in.clear(); ctx_s.clear(); attn_s.clear();
+    qs_s.clear(); ks_s.clear();
     v_s.clear(); u_s.clear(); g1_s.clear(); qkv_s.clear();
-    if (want_cuda() && g_dev_ready) {
-        g_grad_dev = at::empty({g_p_all.numel()},
-            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
-    }
 
     /* write grads in ps order - CUDA: D2D vao g_grad_dev (KHONG D2H) */
     auto put = [&](int64_t idx, const Tensor& grad) {
         int64_t off = 0;
         for (int64_t i = 0; i < idx; ++i) off += g_p[(size_t)i].numel();
-        if (want_cuda() && g_dev_ready) {
+        if (want_cuda() && g_dev_ready && g_grad_dev.defined()) {
             /* grad sau reshape(-1) de copy_ 1D -> 1D (broadcast khong chong chan) */
             if (off + grad.numel() <= g_grad_dev.numel())
                 g_grad_dev.narrow(0, off, grad.numel()).copy_(grad.contiguous().reshape({grad.numel()}));
@@ -913,8 +898,8 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         g_wp.clear();   g_bp.clear();   g_ln2g.clear(); g_ln2b.clear();
         g_w1.clear();   g_b1v.clear();  g_w2.clear();   g_b2v.clear();
     }
-    /* AdamW - CUDA 2GB: m/v fp16 o VRAM, tinh fp32 theo chunk (~64MB temp).
-     * p, grad fp32; khong D2H, khong can buffer host. */
+    /* AdamW - CUDA: single-pass ATen (như torch AdamW foreach), fp32.
+     * p/m/v/grad đều trên VRAM, không D2H, không cần buffer host. */
     if (want_cuda() && g_dev_ready && g_grad_dev.defined()) {
         float lr_t = g_lr;
         if (g_total_steps > 0) {
@@ -925,24 +910,12 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         }
         float bc1 = 1.0f - std::pow(g_b1, (double)(g_cur_step + 1));
         float bc2 = 1.0f - std::pow(g_b2, (double)(g_cur_step + 1));
-        const int64_t CH = 1 << 22;   /* 4M phan tu = 16MB fp32 / chunk */
-        for (int64_t base = 0; base < g_p_all.numel(); base += CH) {
-            int64_t n = std::min<int64_t>(CH, g_p_all.numel() - base);
-            auto p  = g_p_all.narrow(0, base, n);
-            auto g  = g_grad_dev.narrow(0, base, n);
-            auto mh = g_m_dev.narrow(0, base, n);
-            auto vh = g_v_dev.narrow(0, base, n);
-            auto m = mh.to(torch::kFloat);
-            auto v = vh.to(torch::kFloat);
-            m.mul_(g_b1).add_(g, 1.0f - g_b1);
-            v.mul_(g_b2).addcmul_(g, g, 1.0f - g_b2);
-            auto denom = (v / bc2).sqrt_().add_(g_eps);
-            auto upd = (m / bc1) / denom + g_wd * p;
-            p.sub_(lr_t * upd);
-            mh.copy_(m);
-            vh.copy_(v);
-        }
-        g_grad_dev.reset();   /* 2GB: tra lai 500MB truoc step sau */
+        g_m_dev.mul_(g_b1).add_(g_grad_dev, 1.0f - g_b1);
+        g_v_dev.mul_(g_b2).addcmul_(g_grad_dev, g_grad_dev, 1.0f - g_b2);
+        auto denom = (g_v_dev / bc2).sqrt_().add_(g_eps);
+        auto upd = (g_m_dev / bc1) / denom + g_wd * g_p_all;
+        g_p_all.sub_(lr_t * upd);
+        g_grad_dev.reset();
         g_cur_step++;
     } else if (g_p_buf && g_m_buf && g_v_buf && g_grad_len > 0) {
         /* CPU mode: flat host buffers (native path, gi nguyen) */
