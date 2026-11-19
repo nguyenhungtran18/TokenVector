@@ -622,6 +622,31 @@ static std::vector<Tensor> full_ln_bwd(const Tensor& x, const Tensor& g, const T
     auto t_c2   = (t_gyg * t_xh).mean({-1}, true);
     return {(t_gyg - t_c1 - t_xh * t_c2) * t_rstd, (gy * t_xh).sum({0}), gy.sum({0})};
 }
+/* Fullstep CUDA: toan bo param/activation la fp16. Helper dam bao cac mm/addmm
+ * khong bao mismatch (cast no-op neu da Half), dong thoi in thong bao chan doan
+ * neu co tensor nao lot Float vao (de tranh crash manh mu). */
+static Tensor half_mm2(const char* tag, const Tensor& a, const Tensor& w) {
+    const auto st = at::ScalarType::Half;
+    if (a.scalar_type() != st || w.scalar_type() != st) {
+        fprintf(stderr, "XDBG half_mm2 %s: a=%d w=%d -> cast Half\n",
+                tag, (int)a.scalar_type(), (int)w.scalar_type());
+    }
+    auto ha = a.scalar_type() == st ? a : a.to(st);
+    auto hw = w.scalar_type() == st ? w : w.to(st);
+    return at::mm(ha, hw);
+}
+static Tensor half_mat2(const char* tag, const Tensor& b, const Tensor& a, const Tensor& w, bool add_bias) {
+    const auto st = at::ScalarType::Half;
+    bool bad = b.scalar_type() != st || a.scalar_type() != st || w.scalar_type() != st;
+    if (bad) {
+        fprintf(stderr, "XDBG half_mat2 %s: b=%d a=%d w=%d -> cast Half\n",
+                tag, (int)b.scalar_type(), (int)a.scalar_type(), (int)w.scalar_type());
+    }
+    auto hb = b.scalar_type() == st ? b : b.to(st);
+    auto ha = a.scalar_type() == st ? a : a.to(st);
+    auto hw = w.scalar_type() == st ? w : w.to(st);
+    return add_bias ? at::addmm(hb, ha, hw) : at::mm(ha, hw);
+}
 
 TKV_TORCH_EXPORT int TkvFullBegin(int64_t n_tensors, int64_t NLayers, int64_t H,
                                   int64_t NHeads, int64_t Hd, int64_t Vocab) {
@@ -772,7 +797,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         xin[li] = x;
         Tensor a = full_ln_fwd(x, ln1g, ln1b, 1e-6).to(at::ScalarType::Half);
         a_in[li] = a;
-        Tensor qkv = at::addmm(bqkv, a, wqkv);
+        Tensor qkv = half_mat2("qkv", bqkv, a, wqkv, true);
         qkv_s[li] = qkv;
         auto q3 = qkv.view({T, 3, nh, hd});
         auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0);
@@ -785,20 +810,20 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         }
         Tensor ctx = attn.transpose(1, 2).reshape({T, h}).contiguous();
         ctx_s[li] = ctx;
-        Tensor proj = at::addmm(bp, ctx, wp);
+        Tensor proj = half_mat2("proj", bp, ctx, wp, true);
         x = x + proj;
         Tensor m = full_ln_fwd(x, ln2g, ln2b, 1e-6).to(at::ScalarType::Half);
         m_in[li] = m;
-        Tensor u = at::addmm(b1, m, w1);
+        Tensor u = half_mat2("mlp-up", b1, m, w1, true);
         u_s[li] = u;
         Tensor g1 = at::gelu(u);
         g1_s[li] = g1;
-        x = x + at::addmm(b2, g1, w2);
+        x = x + half_mat2("mlp-down", b2, g1, w2, true);
     }
     const Tensor& lnfg = g_p[2];
     const Tensor& lnfb = g_p[3];
     Tensor xf = full_ln_fwd(x, lnfg, lnfb, 1e-6).to(at::ScalarType::Half);
-    Tensor logits = xf.mm(wte.t());
+    Tensor logits = half_mm2("logits", xf, wte.t());
     auto lp = logits.log_softmax(-1);
     logits.reset();   /* 2GB: giai phong [T,V] ngay sau log_softmax */
     auto tgt = g_ids.unsqueeze(1);
@@ -812,8 +837,8 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     P.reset();        /* 2GB: khong giu P [T,V] */
     dlogits.scatter_add_(1, tgt, torch::full({T,1}, -1.0f, dlogits.options()));
     dlogits.div_((float)T);   /* in-place: tran cap them [T,V] ~200MB */
-    Tensor dxf = dlogits.mm(wte);
-    Tensor dwte = dlogits.t().mm(xf);
+    Tensor dxf = half_mm2("lmhead-dxf", dlogits, wte);
+    Tensor dwte = half_mm2("lmhead-dwte", dlogits.t(), xf);
     dlogits.reset();  /* 2GB: xong LM-head bwd */
     xf.reset();
     auto lnf = full_ln_bwd(x, lnfg, dxf, 1e-6);
@@ -837,18 +862,18 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
 
         /* MLP */
         Tensor dh2 = dx;
-        g_w2[li] = g1.t().mm(dh2);
+        g_w2[li] = half_mm2("g_w2", g1.t(), dh2);
         g_b2v[li] = dh2.sum({0});
-        Tensor du = at::gelu_backward(dh2.mm(w2.t()), u, "none");
-        g_w1[li] = m.t().mm(du);
+        Tensor du = at::gelu_backward(half_mm2("mlp-du-in", dh2, w2.t()), u, "none");
+        g_w1[li] = half_mm2("g_w1", m.t(), du);
         g_b1v[li] = du.sum({0});
-        auto ln2 = full_ln_bwd(xin[li], ln2g, du.mm(w1.t()), 1e-6);
+        auto ln2 = full_ln_bwd(xin[li], ln2g, half_mm2("mlp-dxmid", du, w1.t()), 1e-6);
         g_ln2g[li] = ln2[1]; g_ln2b[li] = ln2[2];
         dx = ln2[0] + dh2;
 
         /* attention — recompute + SDPA backward fused (flash bwd) */
-        Tensor dctx = dx.mm(wp.t());
-        g_wp[li] = ctx.t().mm(dx);
+        Tensor dctx = half_mm2("attn-dctx", dx, wp.t());
+        g_wp[li] = half_mm2("attn-g_wp", ctx.t(), dx);
         g_bp[li] = dx.sum({0});
         auto q3b = qkv_s[li].view({T, 3, nh, hd});
         auto qb = q3b.select(1, 0).transpose(0, 1).unsqueeze(0).detach().to(at::ScalarType::Half); qb.set_requires_grad(true);
@@ -857,15 +882,15 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         Tensor attnb = at::scaled_dot_product_attention(qb, kb, vb, std::nullopt, 0.0, true, std::nullopt);
         Tensor dctx_a = dctx.view({T, nh, hd}).transpose(0, 1).unsqueeze(0).contiguous().to(at::ScalarType::Half);
         attnb.backward(dctx_a);
-        auto dQ = qb.grad().to(at::ScalarType::Float);
-        auto dK = kb.grad().to(at::ScalarType::Float);
-        auto dV = vb.grad().to(at::ScalarType::Float);
+        auto dQ = qb.grad().to(at::ScalarType::Half);
+        auto dK = kb.grad().to(at::ScalarType::Half);
+        auto dV = vb.grad().to(at::ScalarType::Half);
         auto dQKV = at::cat({dQ.squeeze(0).transpose(0,1).reshape({T,h}),
                              dK.squeeze(0).transpose(0,1).reshape({T,h}),
                              dV.squeeze(0).transpose(0,1).reshape({T,h})}, 1);
-        g_wqkv[li] = a.t().mm(dQKV);
+        g_wqkv[li] = half_mm2("attn-g_wqkv", a.t(), dQKV);
         g_bqkv[li] = dQKV.sum({0});
-        auto ln1 = full_ln_bwd(xin[li], ln1g, dQKV.mm(wqkv.t()), 1e-6);
+        auto ln1 = full_ln_bwd(xin[li], ln1g, half_mm2("attn-dx1", dQKV, wqkv.t()), 1e-6);
         g_ln1g[li] = ln1[1]; g_ln1b[li] = ln1[2];
         dx = ln1[0] + dx;
     }
@@ -925,6 +950,17 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         auto denom = (g_v_dev / bc2).sqrt_().add_(g_eps);
         auto upd = (g_m_dev / bc1) / denom + g_wd * g_p_all;
         g_p_all.sub_(lr_t * upd);
+        /* Dong bo params fp16 (g_p[i] la ban copy) voi master fp32 sau update:
+         * neu khong, cac step sau tiep tuc dung weights cu. copy_ tu
+         * Float->Half la kernel cast CUDA, khong D2H. */
+        {
+            int64_t off = 0;
+            for (size_t i = 0; i < g_p.size(); ++i) {
+                int64_t n = g_p[i].numel();
+                if (n > 0) g_p[i].copy_(g_p_all.narrow(0, off, n));
+                off += n;
+            }
+        }
         g_grad_dev.reset();
         g_cur_step++;
     } else if (g_p_buf && g_m_buf && g_v_buf && g_grad_len > 0) {
