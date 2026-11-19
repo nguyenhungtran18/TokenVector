@@ -770,7 +770,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         const Tensor& b2    = g_p[4 + li*12 + 11];
 
         xin[li] = x;
-        Tensor a = full_ln_fwd(x, ln1g, ln1b, 1e-6);
+        Tensor a = full_ln_fwd(x, ln1g, ln1b, 1e-6).to(torch::kHalf);
         a_in[li] = a;
         Tensor qkv = at::addmm(bqkv, a, wqkv);
         qkv_s[li] = qkv;
@@ -787,7 +787,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         ctx_s[li] = ctx;
         Tensor proj = at::addmm(bp, ctx, wp);
         x = x + proj;
-        Tensor m = full_ln_fwd(x, ln2g, ln2b, 1e-6);
+        Tensor m = full_ln_fwd(x, ln2g, ln2b, 1e-6).to(torch::kHalf);
         m_in[li] = m;
         Tensor u = at::addmm(b1, m, w1);
         u_s[li] = u;
@@ -797,7 +797,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     }
     const Tensor& lnfg = g_p[2];
     const Tensor& lnfb = g_p[3];
-    Tensor xf = full_ln_fwd(x, lnfg, lnfb, 1e-6);
+    Tensor xf = full_ln_fwd(x, lnfg, lnfb, 1e-6).to(torch::kHalf);
     Tensor logits = xf.mm(wte.t());
     auto lp = logits.log_softmax(-1);
     logits.reset();   /* 2GB: giai phong [T,V] ngay sau log_softmax */
