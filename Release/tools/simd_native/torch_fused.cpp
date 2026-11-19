@@ -862,11 +862,24 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         u_s.clear(); g1_s.clear(); qkv_s.clear();
         lp.reset();
         loss_t.backward();
+        fprintf(stderr, "XDBG autograd bwd: lt.rg=%d | p0(rg=%d,gdef=%d,n=%lld) p1(rg=%d,gdef=%d,n=%lld) p2(rg=%d,gdef=%d,n=%lld)\n",
+                (int)loss_t.requires_grad(),
+                (int)g_p[0].requires_grad(), (int)g_p[0].grad().defined(), (long long)g_p[0].grad().numel(),
+                (int)g_p[1].requires_grad(), (int)g_p[1].grad().defined(), (long long)g_p[1].grad().numel(),
+                (int)g_p[2].requires_grad(), (int)g_p[2].grad().defined(), (long long)g_p[2].grad().numel());
         /* grad của g_p[i] có order trùng với flat layout của put(). */
         for (size_t i = 0; i < g_p.size(); ++i) {
             const Tensor& gr = g_p[i].grad();
             if (gr.defined()) put((int64_t)i, gr);
-            else fprintf(stderr, "XDBG autograd: no grad for param %zu\n", i);
+            else {
+                if (want_cuda() && g_dev_ready && g_grad_dev.defined()) {
+                    int64_t off = 0;
+                    for (size_t j = 0; j < i; ++j) off += g_p[j].numel();
+                    if (off + g_p[i].numel() <= g_grad_dev.numel())
+                        g_grad_dev.narrow(0, off, g_p[i].numel()).zero_();
+                }
+                fprintf(stderr, "XDBG autograd: no grad for param %zu -> zero_() fallback\n", i);
+            }
         }
         /* Release fp16 grads: next step .grad accumulate dau het. */
         for (auto& p : g_p) if (p.grad().defined()) p.mutable_grad() = Tensor();
