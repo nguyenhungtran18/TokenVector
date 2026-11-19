@@ -628,6 +628,7 @@ TKV_TORCH_EXPORT int TkvFullBegin(int64_t n_tensors, int64_t NLayers, int64_t H,
     std::lock_guard<std::mutex> lk(g_full_mu);
     if (n_tensors <= 4 || NLayers <= 0) return -2;
     std::vector<int64_t> cfg{n_tensors, NLayers, H, NHeads, Hd, Vocab};
+    fprintf(stderr, "XDBG want_cuda=%d\n", (int)want_cuda());
     if (cfg != g_full_cfg || (int64_t)g_p.size() != n_tensors) {
         /* cau hinh doi: reset state. Cung cau hinh: GIU p/m/v tren GPU. */
         g_full_cfg = cfg;
