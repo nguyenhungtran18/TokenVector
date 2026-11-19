@@ -748,8 +748,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     const double inv = 1.0 / std::sqrt((double)hd);
 
     /* ---- forward, save activations ---- */
-    std::vector<Tensor> xin(L), a_in(L), m_in(L), ctx_s(L), attn_s(L),
-                        qs_s(L), ks_s(L), v_s(L), u_s(L), g1_s(L), qkv_s(L);
+    std::vector<Tensor> xin(L), a_in(L), m_in(L), ctx_s(L), u_s(L), g1_s(L), qkv_s(L);
     Tensor x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
     for (int li = 0; li < L; ++li) {
         const Tensor& ln1g = g_p[4 + li*12 + 0];
@@ -771,14 +770,10 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         Tensor qkv = at::addmm(bqkv, a, wqkv);
         qkv_s[li] = qkv;
         auto q3 = qkv.view({T, 3, nh, hd});
-        auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0).contiguous();
-        auto k  = q3.select(1, 1).transpose(0, 1).unsqueeze(0).contiguous();
-        auto v  = q3.select(1, 2).transpose(0, 1).unsqueeze(0).contiguous();
-        q = q.detach(); k = k.detach(); v = v.detach();
-        q.set_requires_grad(true); k.set_requires_grad(true); v.set_requires_grad(true);
-        qs_s[li] = q; ks_s[li] = k; v_s[li] = v;
+        auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0);
+        auto k  = q3.select(1, 1).transpose(0, 1).unsqueeze(0);
+        auto v  = q3.select(1, 2).transpose(0, 1).unsqueeze(0);
         Tensor attn = at::scaled_dot_product_attention(q, k, v, std::nullopt, 0.0, true, std::nullopt);
-        attn_s[li] = attn;
         Tensor ctx = attn.transpose(1, 2).reshape({T, h}).contiguous();
         ctx_s[li] = ctx;
         Tensor proj = at::addmm(bp, ctx, wp);
@@ -829,7 +824,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         const Tensor& ln2b  = g_p[4 + li*12 + 7];
         const Tensor& w1    = g_p[4 + li*12 + 8].view({h, 4*h});
         const Tensor& w2    = g_p[4 + li*12 + 10].view({4*h, h});
-        Tensor a = a_in[li], m = m_in[li], ctx = ctx_s[li], v = v_s[li], u = u_s[li], g1 = g1_s[li];
+        Tensor a = a_in[li], m = m_in[li], ctx = ctx_s[li], u = u_s[li], g1 = g1_s[li];
 
         /* MLP */
         Tensor dh2 = dx;
@@ -842,14 +837,20 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         g_ln2g[li] = ln2[1]; g_ln2b[li] = ln2[2];
         dx = ln2[0] + dh2;
 
-        /* attention — backward via SDPA autograd fused (flash bwd) */
+        /* attention — recompute + SDPA backward fused (flash bwd) */
         Tensor dctx = dx.mm(wp.t());
         g_wp[li] = ctx.t().mm(dx);
         g_bp[li] = dx.sum({0});
-        ctx_s[li].backward(dctx);
-        auto dQ = qs_s[li].grad();
-        auto dK = ks_s[li].grad();
-        auto dV = v_s[li].grad();
+        auto q3b = qkv_s[li].view({T, 3, nh, hd});
+        auto qb = q3b.select(1, 0).transpose(0, 1).unsqueeze(0).detach(); qb.set_requires_grad(true);
+        auto kb = q3b.select(1, 1).transpose(0, 1).unsqueeze(0).detach(); kb.set_requires_grad(true);
+        auto vb = q3b.select(1, 2).transpose(0, 1).unsqueeze(0).detach(); vb.set_requires_grad(true);
+        Tensor attnb = at::scaled_dot_product_attention(qb, kb, vb, std::nullopt, 0.0, true, std::nullopt);
+        Tensor dctx_a = dctx.view({T, nh, hd}).transpose(0, 1).unsqueeze(0).contiguous();
+        attnb.backward(dctx_a);
+        auto dQ = qb.grad();
+        auto dK = kb.grad();
+        auto dV = vb.grad();
         auto dQKV = at::cat({dQ.squeeze(0).transpose(0,1).reshape({T,h}),
                              dK.squeeze(0).transpose(0,1).reshape({T,h}),
                              dV.squeeze(0).transpose(0,1).reshape({T,h})}, 1);
@@ -865,11 +866,10 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     Tensor dwpe = torch::zeros_like(wpe);
     dwpe.scatter_add_(0, g_pos.unsqueeze(1), d_emb);
 
-    /* 2GB: xong backward -> giai phong activations + attn_s (2.4GB graph) */
+    /* 2GB: xong backward -> giai phong activations */
     x.reset();
-    xin.clear(); a_in.clear(); m_in.clear(); ctx_s.clear(); attn_s.clear();
-    qs_s.clear(); ks_s.clear();
-    v_s.clear(); u_s.clear(); g1_s.clear(); qkv_s.clear();
+    xin.clear(); a_in.clear(); m_in.clear(); ctx_s.clear();
+    u_s.clear(); g1_s.clear(); qkv_s.clear();
 
     /* write grads in ps order - CUDA: D2D vao g_grad_dev (KHONG D2H) */
     auto put = [&](int64_t idx, const Tensor& grad) {
