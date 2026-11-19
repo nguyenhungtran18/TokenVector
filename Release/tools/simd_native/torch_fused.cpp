@@ -736,7 +736,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
 
     std::vector<Tensor> g_ln1g(L), g_ln1b(L), g_wqkv(L), g_bqkv(L), g_wp(L), g_bp(L);
     std::vector<Tensor> g_ln2g(L), g_ln2b(L), g_w1(L), g_b1v(L), g_w2(L), g_b2v(L);
-    Tensor d_emb = torch::zeros_like(x);
+    Tensor d_emb;   /* gpackage sau vong: dx(li=0) = grad cua embedding */
 
     for (int li = L - 1; li >= 0; --li) {
         const Tensor& ln1g = g_p[4 + li*12 + 0];
@@ -786,11 +786,12 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         auto ln1 = full_ln_bwd(xin[li], ln1g, dQKV.mm(wqkv.t()), 1e-6);
         g_ln1g[li] = ln1[1]; g_ln1b[li] = ln1[2];
         dx = ln1[0] + dx;
-        d_emb = d_emb + dx;
     }
-    dwte.scatter_add_(0, g_ids, d_emb);
+    /* dx sau vong li=0 = dL/d_embed_output */
+    d_emb = dx;
+    dwte.scatter_add_(0, g_ids.unsqueeze(1), d_emb);  /* += grad loi lookup (tu 732) */
     Tensor dwpe = torch::zeros_like(wpe);
-    dwpe.scatter_add_(0, g_pos, d_emb);
+    dwpe.scatter_add_(0, g_pos.unsqueeze(1), d_emb);
 
     /* write grads in ps order */
     auto put = [&](int64_t idx, const Tensor& grad) {
