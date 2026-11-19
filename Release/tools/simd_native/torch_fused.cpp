@@ -739,7 +739,10 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         }
     }
     auto wte = g_p[0].view({V, h});
-    auto wpe = g_p[1].view({1024, h});
+    /* 2GB+T>1024: wpe size tu ham, ko co hardcode {1024,h} */
+    const int64_t P = g_p[1].numel() / h;
+    auto wpe = g_p[1];
+    if (T > P) return -3;
     const double inv = 1.0 / std::sqrt((double)hd);
 
     /* ---- forward, save activations ---- */
