@@ -743,11 +743,18 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     const int64_t Pw = g_p[1].numel() / h;
     auto wpe = g_p[1].view({Pw, h});
     if (T > Pw) return -3;
+    fprintf(stderr, "XDBG wpe=%lldx%lld Pw=%lld T=%lld\n",
+            (long long)wpe.size(0), (long long)wpe.size(1), (long long)Pw, (long long)T);
     const double inv = 1.0 / std::sqrt((double)hd);
 
     /* ---- forward, save activations ---- */
     std::vector<Tensor> xin(L), a_in(L), m_in(L), ctx_s(L), v_s(L), u_s(L), g1_s(L), qkv_s(L);
-    Tensor x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
+    Tensor xq = at::index_select(wte, 0, g_ids);
+    Tensor xp = at::index_select(wpe, 0, g_pos);
+    fprintf(stderr, "XDBG xq=%lldx%lld xp=%lldx%lld\n",
+            (long long)xq.size(0), (long long)xq.size(1),
+            (long long)xp.size(0), (long long)xp.size(1));
+    Tensor x = xq + xp;
     for (int li = 0; li < L; ++li) {
         const Tensor& ln1g = g_p[4 + li*12 + 0];
         const Tensor& ln1b = g_p[4 + li*12 + 1];
