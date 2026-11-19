@@ -67,7 +67,7 @@ __attribute__((constructor)) static void tkv_disable_tf32() {
      * vung bench de LN_FWD step 1 / LMHEAD step 1 khong phai ganh. */
     try {
         if (want_cuda()) {
-            auto t = at::zeros({64, 64}, torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA));
+            auto t = at::zeros({64, 64}, torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCUDA));
             auto r = at::mm(t, t);
             auto y = at::softmax(r, 0);
             (void)y;
@@ -121,22 +121,22 @@ static Tensor host(const Tensor& t) {
 }
 static auto dev_f32() {
     return want_cuda()
-        ? torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA)
-        : torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+        ? torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCUDA)
+        : torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU);
 }
 
 /* helper: wrap caller memory as unmanaged tensor */
 static Tensor wrap_in(const float* p, int64_t rows, int64_t cols) {
     return torch::from_blob(const_cast<float*>(p), {rows, cols},
-        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false));
+        torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU).requires_grad(false));
 }
 static Tensor wrap_grad(const float* p, int64_t rows, int64_t cols) {
     return torch::from_blob(const_cast<float*>(p), {rows, cols},
-        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(true));
+        torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU).requires_grad(true));
 }
 static Tensor wrap_out(float* p, int64_t rows, int64_t cols) {
     return torch::from_blob(p, {rows, cols},
-        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false));
+        torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU).requires_grad(false));
 }
 
 /* -- TkvTorchLinearGeluFwd: x[n,in] @ w[in,out] + b -> GELU -> y[n,out] */
@@ -149,7 +149,7 @@ TKV_TORCH_EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w,
         auto t_x = dev(wrap_in(x, n, in_d));
         auto t_w = dev(wrap_in(w, in_d, out_d));
         auto t_b = dev(torch::from_blob(const_cast<float*>(bias), {out_d},
-            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false)));
+            torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU).requires_grad(false)));
         auto t_y = dev(at::gelu(at::addmm(t_b, t_x, t_w, 1, 1)));
         auto t_yh = host(t_y);
         if (t_yh.numel() != (int64_t)n * out_d) return -3;
@@ -168,7 +168,7 @@ TKV_TORCH_EXPORT int TkvTorchGeluBwd(const float* gy, const float* x, float* y,
     if (!gy || !x || !y) return -1;
     if (n <= 0) return -2;
     try {
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+        auto opt = torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU);
         auto t_gy = dev(torch::from_blob(const_cast<float*>(gy), {n}, opt));
         auto t_x  = dev(torch::from_blob(const_cast<float*>(x),  {n}, opt));
         auto t_y  = host(at::gelu_backward(t_gy, t_x, "none"));
@@ -222,7 +222,7 @@ TKV_TORCH_EXPORT int TkvTorchLinearFwd(const float* x, const float* w,
         auto t_x = dev(wrap_in(x, n, in_d));
         auto t_w = dev(wrap_in(w, in_d, out_d));
         auto t_b = dev(torch::from_blob(const_cast<float*>(bias), {out_d},
-            torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false)));
+            torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU).requires_grad(false)));
         auto t_y = host(at::addmm(t_b, t_x, t_w, 1, 1));
         if (t_y.numel() != (int64_t)n * out_d) return -3;
         memcpy(y, t_y.const_data_ptr<float>(), (size_t)n * out_d * sizeof(float));
@@ -409,8 +409,8 @@ TKV_TORCH_EXPORT int TkvTorchLmHeadBwdCudaOnly(const float* logits, const int* i
         auto t_l = dev(wrap_in(logits, T, V));                    /* H2D ~205 MB */
         auto t_dl = at::softmax(t_l, 1).mul_((float)scale);       /* [T, V] CUDA cua pha 1 */
         auto t_ids = at::from_blob(const_cast<int*>(ids), {T},
-                     torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU))
-                     .to(torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA));
+                     torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU))
+                     .to(torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCUDA));
         t_dl.scatter_(1, t_ids.unsqueeze(1), -(double)scale);     /* (softmax - onehot) * scale */
 
         /* pha 2: dxf = dl @ wte (cublas, 79 GFLOP) */
@@ -445,8 +445,8 @@ TKV_TORCH_EXPORT int TkvTorchLmSoftmaxCudaOnly(const float* logits, const int* i
         auto t_l = dev(wrap_in(logits, T, V));               /* H2D 205 MB */
         auto t_dl = at::softmax(t_l, 1).mul_((float)scale);          /* [T, V] CUDA */
         auto t_ids = at::from_blob(const_cast<int*>(ids), {T},
-                     torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU))
-                     .to(torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA));
+                     torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU))
+                     .to(torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCUDA));
         t_dl.scatter_(1, t_ids.unsqueeze(1), -(double)scale);        /* tru onehot*scale */
         memcpy(dl, host(t_dl).const_data_ptr<float>(), (size_t)T * V * sizeof(float));
         return 0;
@@ -505,7 +505,7 @@ TKV_TORCH_EXPORT int TkvTorchSdpa(const float* qkv, float* y,
     if (h <= 0) return -2;
     try {
         const bool cuda = want_cuda();
-        auto opt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU);
+        auto opt = torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU);
         /* CPU empty (host) de vong for dien qkv; sau do move sang CUDA neu can */
         auto t_q = at::empty({1, nheads, n, hd}, opt);
         auto t_k = at::empty({1, nheads, n, hd}, opt);
@@ -628,7 +628,6 @@ TKV_TORCH_EXPORT int TkvFullBegin(int64_t n_tensors, int64_t NLayers, int64_t H,
     std::lock_guard<std::mutex> lk(g_full_mu);
     if (n_tensors <= 4 || NLayers <= 0) return -2;
     std::vector<int64_t> cfg{n_tensors, NLayers, H, NHeads, Hd, Vocab};
-    fprintf(stderr, "XDBG want_cuda=%d\n", (int)want_cuda());
     if (cfg != g_full_cfg || (int64_t)g_p.size() != n_tensors) {
         /* cau hinh doi: reset state. Cung cau hinh: GIU p/m/v tren GPU. */
         g_full_cfg = cfg;
@@ -655,15 +654,14 @@ TKV_TORCH_EXPORT int TkvFullSetTensor(int64_t idx, const float* ptr, int64_t num
     if (g_p[(size_t)idx].defined() && g_p[(size_t)idx].numel() == numel &&
         g_p_src[(size_t)idx] == ptr) return 0;
     auto t = torch::from_blob(const_cast<float*>(ptr), {numel},
-        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).requires_grad(false));
+        torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU).requires_grad(false));
     if (!want_cuda()) {
         g_p[(size_t)idx] = t;
         g_p_src[(size_t)idx] = ptr;
         g_p_numels[(size_t)idx] = numel;
         return 0;
     }
-    auto ht = t.to(torch::kHalf);  /* params CUDA fp16 */
-    if (idx == 0) fprintf(stderr, "XDBG SetTensor: ht dtype=%d t dtype=%d\n", (int)ht.scalar_type(), (int)t.scalar_type());
+    auto ht = t.to(at::ScalarType::Half);  /* params CUDA fp16 */
     if (g_p[(size_t)idx].defined() && g_p[(size_t)idx].numel() == numel) {
         g_p[(size_t)idx].copy_(ht);
     } else {
@@ -677,9 +675,9 @@ TKV_TORCH_EXPORT int TkvFullSetIds(const int* ids, int64_t T) {
     if (!ids || T <= 0) return -1;
     std::lock_guard<std::mutex> lk(g_full_mu);
     auto t = torch::from_blob(const_cast<int*>(ids), {T},
-        torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU).requires_grad(false));
-    auto opt = want_cuda() ? torch::TensorOptions().dtype(torch::kLong).device(torch::kCUDA)
-                           : torch::TensorOptions().dtype(torch::kLong).device(torch::kCPU);
+        torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU).requires_grad(false));
+    auto opt = want_cuda() ? torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCUDA)
+                           : torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU);
     g_ids = t.to(opt);
     g_pos = at::arange(T, opt);
     return 0;
@@ -705,7 +703,6 @@ TKV_TORCH_EXPORT int TkvFullSetOpt(float* p, float* m, float* v,
 TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     std::lock_guard<std::mutex> lk(g_full_mu);
     if (g_p.size() != (size_t)(4 + g_nlayers * 12) || !g_ids.defined()) return -100.0f;
-    fprintf(stderr, "XDBG entry: g_p0=%d g_p1=%d V=%d h=%d\n",
         (int)g_p[0].scalar_type(), (int)g_p[1].scalar_type(), (int)g_vocab, (int)g_h);
     const int64_t T = g_ids.size(0);
     const int64_t h = g_h, nh = g_nhd, hd = g_hd, V = g_vocab;
@@ -717,14 +714,13 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
             int64_t off = 0;
             std::vector<int64_t> offs(g_p.size());
             for (size_t i = 0; i < g_p.size(); ++i) { offs[i] = off; off += g_p[i].numel(); }
-            auto cudaOpt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
+            auto cudaOpt = torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCUDA);
             g_p_all = at::empty({off}, cudaOpt);
             for (size_t i = 0; i < g_p.size(); ++i)
                 if (g_p[i].numel() > 0)
                     g_p_all.narrow(0, offs[i], g_p[i].numel()).copy_(g_p[i]);
             for (size_t i = 0; i < g_p.size(); ++i)
-                g_p[i] = g_p_all.narrow(0, offs[i], g_p_numels[i]).to(torch::kHalf);
-            fprintf(stderr, "XDBG setup: g_p[0] type=%d g_p[1] type=%d\n", (int)g_p[0].scalar_type(), (int)g_p[1].scalar_type());
+                g_p[i] = g_p_all.narrow(0, offs[i], g_p_numels[i]).to(at::ScalarType::Half);
             /* 2GB VRAM: m/v fp32 (~1GB). g_grad_dev cap phat TRE (chi luc
              * optimizer) de khong chong chan voi activations fwd/bwd. */
             g_m_dev = at::zeros({off}, cudaOpt);
@@ -733,18 +729,18 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
             g_dev_ready = true;
         }
         if (want_cuda() && g_dev_ready && !g_grad_dev.defined()) {
-            auto cudaOpt = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
+            auto cudaOpt = torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCUDA);
             g_grad_dev = at::empty({g_p_all.numel()}, cudaOpt);
         }
         if (g_dev_state_dirty) {
             if (g_m_buf) {
                 auto hm = torch::from_blob(g_m_buf, {g_m_dev.numel()},
-                    torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU));
+                    torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU));
                 g_m_dev.copy_(hm);
             }
             if (g_v_buf) {
                 auto hv = torch::from_blob(g_v_buf, {g_v_dev.numel()},
-                    torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU));
+                    torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU));
                 g_v_dev.copy_(hv);
             }
             g_dev_state_dirty = false;
@@ -775,9 +771,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         const Tensor& b2    = g_p[4 + li*12 + 11];
 
         xin[li] = x;
-        Tensor a = full_ln_fwd(x, ln1g, ln1b, 1e-6).to(torch::kHalf);
-        if (li == 0) fprintf(stderr, "XDBG a dtype=%d wqkv=%d bqkv=%d\n",
-            (int)a.scalar_type(), (int)wqkv.scalar_type(), (int)bqkv.scalar_type());
+        Tensor a = full_ln_fwd(x, ln1g, ln1b, 1e-6).to(at::ScalarType::Half);
         a_in[li] = a;
         Tensor qkv = at::addmm(bqkv, a, wqkv);
         qkv_s[li] = qkv;
@@ -787,14 +781,14 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         auto v  = q3.select(1, 2).transpose(0, 1).unsqueeze(0);
         Tensor attn;
         {
-            auto qh = q.to(torch::kHalf), kh = k.to(torch::kHalf), vh = v.to(torch::kHalf);
+            auto qh = q.to(at::ScalarType::Half), kh = k.to(at::ScalarType::Half), vh = v.to(at::ScalarType::Half);
             attn = at::scaled_dot_product_attention(qh, kh, vh, std::nullopt, 0.0, true, std::nullopt);
         }
-        Tensor ctx = attn.to(torch::kFloat).transpose(1, 2).reshape({T, h}).contiguous();
+        Tensor ctx = attn.transpose(1, 2).reshape({T, h}).contiguous();
         ctx_s[li] = ctx;
         Tensor proj = at::addmm(bp, ctx, wp);
         x = x + proj;
-        Tensor m = full_ln_fwd(x, ln2g, ln2b, 1e-6).to(torch::kHalf);
+        Tensor m = full_ln_fwd(x, ln2g, ln2b, 1e-6).to(at::ScalarType::Half);
         m_in[li] = m;
         Tensor u = at::addmm(b1, m, w1);
         u_s[li] = u;
@@ -804,7 +798,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     }
     const Tensor& lnfg = g_p[2];
     const Tensor& lnfb = g_p[3];
-    Tensor xf = full_ln_fwd(x, lnfg, lnfb, 1e-6).to(torch::kHalf);
+    Tensor xf = full_ln_fwd(x, lnfg, lnfb, 1e-6).to(at::ScalarType::Half);
     Tensor logits = xf.mm(wte.t());
     auto lp = logits.log_softmax(-1);
     logits.reset();   /* 2GB: giai phong [T,V] ngay sau log_softmax */
@@ -858,15 +852,15 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         g_wp[li] = ctx.t().mm(dx);
         g_bp[li] = dx.sum({0});
         auto q3b = qkv_s[li].view({T, 3, nh, hd});
-        auto qb = q3b.select(1, 0).transpose(0, 1).unsqueeze(0).detach().to(torch::kHalf); qb.set_requires_grad(true);
-        auto kb = q3b.select(1, 1).transpose(0, 1).unsqueeze(0).detach().to(torch::kHalf); kb.set_requires_grad(true);
-        auto vb = q3b.select(1, 2).transpose(0, 1).unsqueeze(0).detach().to(torch::kHalf); vb.set_requires_grad(true);
+        auto qb = q3b.select(1, 0).transpose(0, 1).unsqueeze(0).detach().to(at::ScalarType::Half); qb.set_requires_grad(true);
+        auto kb = q3b.select(1, 1).transpose(0, 1).unsqueeze(0).detach().to(at::ScalarType::Half); kb.set_requires_grad(true);
+        auto vb = q3b.select(1, 2).transpose(0, 1).unsqueeze(0).detach().to(at::ScalarType::Half); vb.set_requires_grad(true);
         Tensor attnb = at::scaled_dot_product_attention(qb, kb, vb, std::nullopt, 0.0, true, std::nullopt);
-        Tensor dctx_a = dctx.view({T, nh, hd}).transpose(0, 1).unsqueeze(0).contiguous().to(torch::kHalf);
+        Tensor dctx_a = dctx.view({T, nh, hd}).transpose(0, 1).unsqueeze(0).contiguous().to(at::ScalarType::Half);
         attnb.backward(dctx_a);
-        auto dQ = qb.grad().to(torch::kFloat);
-        auto dK = kb.grad().to(torch::kFloat);
-        auto dV = vb.grad().to(torch::kFloat);
+        auto dQ = qb.grad().to(at::ScalarType::Float);
+        auto dK = kb.grad().to(at::ScalarType::Float);
+        auto dV = vb.grad().to(at::ScalarType::Float);
         auto dQKV = at::cat({dQ.squeeze(0).transpose(0,1).reshape({T,h}),
                              dK.squeeze(0).transpose(0,1).reshape({T,h}),
                              dV.squeeze(0).transpose(0,1).reshape({T,h})}, 1);
@@ -894,7 +888,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         if (want_cuda() && g_dev_ready && g_grad_dev.defined()) {
             /* grad sau reshape(-1) de copy_ 1D -> 1D (broadcast khong chong chan) */
             if (off + grad.numel() <= g_grad_dev.numel())
-                g_grad_dev.narrow(0, off, grad.numel()).copy_(grad.to(torch::kFloat).contiguous().reshape({grad.numel()}));
+                g_grad_dev.narrow(0, off, grad.numel()).copy_(grad.to(at::ScalarType::Float).contiguous().reshape({grad.numel()}));
             return;
         }
         if (off + grad.numel() <= g_grad_len)
