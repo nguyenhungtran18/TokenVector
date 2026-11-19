@@ -880,8 +880,9 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         int64_t off = 0;
         for (int64_t i = 0; i < idx; ++i) off += g_p[(size_t)i].numel();
         if (want_cuda() && g_dev_ready) {
+            /* grad sau reshape(-1) de copy_ 1D -> 1D (broadcast khong chong chan) */
             if (off + grad.numel() <= g_grad_dev.numel())
-                g_grad_dev.narrow(0, off, grad.numel()).copy_(grad.contiguous());
+                g_grad_dev.narrow(0, off, grad.numel()).copy_(grad.contiguous().reshape({grad.numel()}));
             return;
         }
         if (off + grad.numel() <= g_grad_len)
