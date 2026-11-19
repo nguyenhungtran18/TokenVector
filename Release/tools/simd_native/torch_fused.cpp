@@ -774,7 +774,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0).contiguous();
         auto k  = q3.select(1, 1).transpose(0, 1).unsqueeze(0).contiguous();
         auto v  = q3.select(1, 2).transpose(0, 1).unsqueeze(0).contiguous();
-        q.set_requires_grad_(true); k.set_requires_grad_(true); v.set_requires_grad_(true);
+        q.set_requires_grad(true); k.set_requires_grad(true); v.set_requires_grad(true);
         qs_s[li] = q; ks_s[li] = k; v_s[li] = v;
         Tensor attn = at::scaled_dot_product_attention(q, k, v, std::nullopt, 0.0, true, std::nullopt);
         attn_s[li] = attn;
