@@ -16,6 +16,7 @@
 #include <torch/torch.h>
 #include <ATen/ATen.h>
 #include <ATen/core/Tensor.h>
+#include <c10/core/GradMode.h>
 #include <c10/util/intrusive_ptr.h>
 #include <cstring>
 #include <cstdlib>
@@ -777,6 +778,15 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     if (T > Pw) return -3;
     const double inv = 1.0 / std::sqrt((double)hd);
 
+    /* Autograd backward (CUDA): record graph in fwd, call loss_t.backward() once.
+     * Manual backward duoc giu cho CPU/native-ATen path (ungam kha nhau). */
+    const bool do_bwd = (run_mode != 1) && g_grad_buf && g_grad_len > 0;
+    const bool use_autograd = want_cuda() && do_bwd;
+    if (use_autograd) {
+        for (auto& p : g_p)
+            if (p.defined() && !p.requires_grad()) p.set_requires_grad(true);
+    }
+
     /* ---- forward, save activations ---- */
     std::vector<Tensor> xin(L), a_in(L), m_in(L), ctx_s(L), u_s(L), g1_s(L), qkv_s(L);
     Tensor x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
@@ -827,10 +837,40 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     auto lp = logits.log_softmax(-1);
     logits.reset();   /* 2GB: giai phong [T,V] ngay sau log_softmax */
     auto tgt = g_ids.unsqueeze(1);
-    float loss_val = (-(lp.gather(1, tgt).squeeze(1)).mean()).item<float>();
+    Tensor loss_t = -(lp.gather(1, tgt).squeeze(1)).mean();
+    float loss_val = loss_t.item<float>();
     if (run_mode == 1 || !g_grad_buf) return loss_val;
 
-    /* ---- backward (no autograd) ---- */
+    /* ---- backward ---- */
+    /* Hoist put lambda dùng chung cho autograd (tu y) va manual bwd (C/older path). */
+    auto put = [&](int64_t idx, const Tensor& grad) {
+        int64_t off = 0;
+        for (int64_t i = 0; i < idx; ++i) off += g_p[(size_t)i].numel();
+        if (want_cuda() && g_dev_ready && g_grad_dev.defined()) {
+            if (off + grad.numel() <= g_grad_dev.numel())
+                g_grad_dev.narrow(0, off, grad.numel()).copy_(grad.to(at::ScalarType::Float).contiguous().reshape({grad.numel()}));
+            return;
+        }
+        if (off + grad.numel() <= g_grad_len)
+            memcpy(g_grad_buf + off, host(grad.contiguous()).const_data_ptr<float>(),
+                   (size_t)grad.numel() * sizeof(float));
+    };
+
+    if (use_autograd) {
+        /* Nen saved activations khi co the (graph tự giữ tốn cần thiết). */
+        xin.clear(); a_in.clear(); m_in.clear(); ctx_s.clear();
+        u_s.clear(); g1_s.clear(); qkv_s.clear();
+        lp.reset();
+        loss_t.backward();
+        /* grad của g_p[i] có order trùng với flat layout của put(). */
+        for (size_t i = 0; i < g_p.size(); ++i) {
+            const Tensor& gr = g_p[i].grad();
+            if (gr.defined()) put((int64_t)i, gr);
+            else fprintf(stderr, "XDBG autograd: no grad for param %zu\n", i);
+        }
+        /* Release fp16 grads: next step .grad accumulate dau het. */
+        for (auto& p : g_p) if (p.grad().defined()) p.mutable_grad() = Tensor();
+    } else {
     auto P = lp.exp();
     lp.reset();       /* 2GB: khong giu lp [T,V] */
     auto dlogits = P.clone();
@@ -905,20 +945,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     xin.clear(); a_in.clear(); m_in.clear(); ctx_s.clear();
     u_s.clear(); g1_s.clear(); qkv_s.clear();
 
-    /* write grads in ps order - CUDA: D2D vao g_grad_dev (KHONG D2H) */
-    auto put = [&](int64_t idx, const Tensor& grad) {
-        int64_t off = 0;
-        for (int64_t i = 0; i < idx; ++i) off += g_p[(size_t)i].numel();
-        if (want_cuda() && g_dev_ready && g_grad_dev.defined()) {
-            /* grad sau reshape(-1) de copy_ 1D -> 1D (broadcast khong chong chan) */
-            if (off + grad.numel() <= g_grad_dev.numel())
-                g_grad_dev.narrow(0, off, grad.numel()).copy_(grad.to(at::ScalarType::Float).contiguous().reshape({grad.numel()}));
-            return;
-        }
-        if (off + grad.numel() <= g_grad_len)
-            memcpy(g_grad_buf + off, host(grad.contiguous()).const_data_ptr<float>(),
-                   (size_t)grad.numel() * sizeof(float));
-    };
+    /* put lambda được hoist len trên (dùng chung autograd va manual). */
     put(0, dwte); put(1, dwpe); put(2, dlnfg); put(3, dlnfb);
     for (int li = 0; li < L; ++li) {
         int64_t b = 4 + li*12;
@@ -933,6 +960,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         g_wp.clear();   g_bp.clear();   g_ln2g.clear(); g_ln2b.clear();
         g_w1.clear();   g_b1v.clear();  g_w2.clear();   g_b2v.clear();
     }
+    }  /* ^^ vòng manual backward (nguyên giữ CPU path) */
     /* AdamW - CUDA: single-pass ATen (như torch AdamW foreach), fp32.
      * p/m/v/grad đều trên VRAM, không D2H, không cần buffer host. */
     if (want_cuda() && g_dev_ready && g_grad_dev.defined()) {
@@ -952,8 +980,11 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         g_p_all.sub_(lr_t * upd);
         /* Dong bo params fp16 (g_p[i] la ban copy) voi master fp32 sau update:
          * neu khong, cac step sau tiep tuc dung weights cu. copy_ tu
-         * Float->Half la kernel cast CUDA, khong D2H. */
+         * Float->Half la kernel cast CUDA, khong D2H. In no-grad cho tru
+         * khi g_p[i].requires_grad() (duong Autograd bwd dua do):
+         * in-place op tren leaf se throw Exception. */
         {
+            c10::AutoGradMode guard(false);
             int64_t off = 0;
             for (size_t i = 0; i < g_p.size(); ++i) {
                 int64_t n = g_p[i].numel();
