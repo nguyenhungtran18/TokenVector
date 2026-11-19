@@ -771,6 +771,8 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
 
         xin[li] = x;
         Tensor a = full_ln_fwd(x, ln1g, ln1b, 1e-6).to(torch::kHalf);
+        if (li == 0) fprintf(stderr, "XDBG a dtype=%d wqkv=%d bqkv=%d\n",
+            (int)a.scalar_type(), (int)wqkv.scalar_type(), (int)bqkv.scalar_type());
         a_in[li] = a;
         Tensor qkv = at::addmm(bqkv, a, wqkv);
         qkv_s[li] = qkv;
