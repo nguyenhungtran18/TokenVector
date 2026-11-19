@@ -704,6 +704,8 @@ TKV_TORCH_EXPORT int TkvFullSetOpt(float* p, float* m, float* v,
 TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     std::lock_guard<std::mutex> lk(g_full_mu);
     if (g_p.size() != (size_t)(4 + g_nlayers * 12) || !g_ids.defined()) return -100.0f;
+    fprintf(stderr, "XDBG entry: g_p0=%d g_p1=%d V=%d h=%d\n",
+        (int)g_p[0].scalar_type(), (int)g_p[1].scalar_type(), (int)g_vocab, (int)g_h);
     const int64_t T = g_ids.size(0);
     const int64_t h = g_h, nh = g_nhd, hd = g_hd, V = g_vocab;
     const int L = g_nlayers;
