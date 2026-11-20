@@ -901,7 +901,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     const Tensor& lnfg = g_p[2];
     const Tensor& lnfb = g_p[3];
     Tensor xf = full_ln_fwd(x, lnfg, lnfb, 1e-6).to(at::ScalarType::Half);
-    Tensor logits = half_mm2("logits", xf, wte.t());
+    Tensor logits = half_mm2("logits", xf, wte.t()).to(at::ScalarType::Float);
     auto lp = logits.log_softmax(-1);
     logits.reset();   /* 2GB: giai phong [T,V] ngay sau log_softmax */
     const Tensor& tgt_ids = g_tgt.defined() ? g_tgt : g_ids;
