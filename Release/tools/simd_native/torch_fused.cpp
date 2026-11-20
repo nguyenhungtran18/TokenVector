@@ -730,6 +730,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     std::lock_guard<std::mutex> lk(g_full_mu);
     auto tk_start = std::chrono::high_resolution_clock::now();
     std::chrono::high_resolution_clock::time_point tk_fwd, tk_bwd, tk_put, tk_adam;
+    double sdpa_ms = 0.0;
     if (g_p.size() != (size_t)(4 + g_nlayers * 12) || !g_ids.defined()) return -100.0f;
     const int64_t T = g_ids.size(0);
     const int64_t h = g_h, nh = g_nhd, hd = g_hd, V = g_vocab;
@@ -819,8 +820,11 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         auto v  = q3.select(1, 2).transpose(0, 1).unsqueeze(0);
         Tensor attn;
         {
+            auto t_s0 = std::chrono::high_resolution_clock::now();
             auto qh = q.to(at::ScalarType::Half), kh = k.to(at::ScalarType::Half), vh = v.to(at::ScalarType::Half);
             attn = at::scaled_dot_product_attention(qh, kh, vh, std::nullopt, 0.0, true, std::nullopt);
+            sdpa_ms += std::chrono::duration<double, std::milli>(
+                std::chrono::high_resolution_clock::now() - t_s0).count();
         }
         Tensor ctx = attn.transpose(1, 2).reshape({T, h}).contiguous();
         ctx_s[li] = ctx;
@@ -991,8 +995,10 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         g_m_dev.mul_(g_b1).add_(g_grad_dev, 1.0f - g_b1);
         g_v_dev.mul_(g_b2).addcmul_(g_grad_dev, g_grad_dev, 1.0f - g_b2);
         auto denom = (g_v_dev / bc2).sqrt_().add_(g_eps);
-        auto upd = (g_m_dev / bc1) / denom + g_wd * g_p_all;
-        g_p_all.sub_(lr_t * upd);
+        /* Fused: bo 3 pass trung gian (m/bc1, upd, lr*upd) bang addcdiv_.
+         * Weight decay decoupled: p *= (1 - lr*wd) tuong duong term wd*p. */
+        if (g_wd != 0.0f) g_p_all.mul_(1.0f - lr_t * g_wd);
+        g_p_all.addcdiv_(g_m_dev, denom, -lr_t / bc1);
         /* Dong bo params fp16 (g_p[i] la ban copy) voi master fp32 sau update:
          * neu khong, cac step sau tiep tuc dung weights cu. copy_ tu
          * Float->Half la kernel cast CUDA, khong D2H. In no-grad cho tru
@@ -1035,8 +1041,8 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
                      std::chrono::high_resolution_clock::time_point b) {
             return std::chrono::duration<double, std::milli>(b - a).count();
         };
-        fprintf(stderr, "XDBG timing fwd=%.1f bwd=%.1f put=%.1f adam=%.1f total=%.1f ms\n",
-                ms(tk_start, tk_fwd), ms(tk_fwd, tk_bwd), ms(tk_bwd, tk_put),
+        fprintf(stderr, "XDBG timing fwd=%.1f (sdpa=%.1f) bwd=%.1f put=%.1f adam=%.1f total=%.1f ms\n",
+                ms(tk_start, tk_fwd), sdpa_ms, ms(tk_fwd, tk_bwd), ms(tk_bwd, tk_put),
                 ms(tk_put, tk_adam), ms(tk_start, std::chrono::high_resolution_clock::now()));
     }
     return loss_val;
