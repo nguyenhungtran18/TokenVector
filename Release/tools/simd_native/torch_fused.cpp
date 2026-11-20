@@ -601,6 +601,8 @@ static int g_nlayers = 12, g_h = 768, g_nhd = 12, g_hd = 64, g_vocab = 50257;
 /* GPU-resident full-step state (mode CUDA): p/m/v/grad song tren VRAM, khong
  * upload/download moi step. g_p[i] la view cua g_p_all (flat CUDA). */
 static Tensor g_p_all, g_m_dev, g_v_dev, g_grad_dev, g_tgt;
+/* Debug intermediates (TKV_FULL_DEBUG=1) to compare against HF layer-by-layer. */
+static Tensor g_dbg_emb, g_dbg_ln1, g_dbg_qkv, g_dbg_x1, g_dbg_xf, g_dbg_logits;
 static std::vector<const float*> g_p_src;
 static std::vector<int64_t> g_p_numels, g_full_cfg;
 static bool g_dev_ready = false, g_dev_state_dirty = true;
@@ -767,6 +769,15 @@ TKV_TORCH_EXPORT int TkvFullGetParams(float* dst, int64_t n) {
     std::memcpy(dst, h.const_data_ptr<float>(), (size_t)n * sizeof(float));
     return 0;
 }
+/* which: 0=emb 1=ln1 2=qkv 3=x1(after layer0) 4=xf 5=logits[:10] */
+TKV_TORCH_EXPORT int TkvFullDebugGet(int which, float* dst, int64_t n) {
+    if (!dst || n <= 0 || which < 0 || which > 5) return -1;
+    static Tensor* arrs[] = {&g_dbg_emb, &g_dbg_ln1, &g_dbg_qkv, &g_dbg_x1, &g_dbg_xf, &g_dbg_logits};
+    Tensor& t = *arrs[which];
+    if (!t.defined() || t.numel() != n) return -2;
+    std::memcpy(dst, t.const_data_ptr<float>(), (size_t)n * sizeof(float));
+    return 0;
+}
 TKV_TORCH_EXPORT int TkvFullSetOpt(float* p, float* m, float* v,
                                    float lr, float b1, float b2, float eps, float wd,
                                    int64_t total_steps, int64_t cur_step) {
@@ -781,6 +792,7 @@ TKV_TORCH_EXPORT int TkvFullSetOpt(float* p, float* m, float* v,
 
 TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     std::lock_guard<std::mutex> lk(g_full_mu);
+    static const bool dbg = getenv("TKV_FULL_DEBUG") != nullptr;
     auto tk_start = std::chrono::high_resolution_clock::now();
     std::chrono::high_resolution_clock::time_point tk_fwd, tk_bwd, tk_put, tk_adam;
     double sdpa_ms = 0.0;
@@ -855,6 +867,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     /* ---- forward, save activations ---- */
     std::vector<Tensor> xin(L), a_in(L), m_in(L), ctx_s(L), u_s(L), g1_s(L), qkv_s(L);
     Tensor x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
+    if (dbg) g_dbg_emb = x.detach().to(at::ScalarType::Float).cpu();
     for (int li = 0; li < L; ++li) {
         const Tensor& ln1g = g_p[4 + li*12 + 0];
         const Tensor& ln1b = g_p[4 + li*12 + 1];
@@ -871,8 +884,10 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
 
         xin[li] = x;
         Tensor a = full_ln_fwd(x, ln1g, ln1b, 1e-6).to(at::ScalarType::Half);
+        if (dbg && li == 0) g_dbg_ln1 = a.detach().to(at::ScalarType::Float).cpu();
         a_in[li] = a;
         Tensor qkv = half_mat2("qkv", bqkv, a, wqkv, true);
+        if (dbg && li == 0) g_dbg_qkv = qkv.detach().to(at::ScalarType::Float).cpu();
         qkv_s[li] = qkv;
         auto q3 = qkv.view({T, 3, nh, hd});
         auto q  = q3.select(1, 0).transpose(0, 1).unsqueeze(0);
@@ -899,11 +914,14 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         Tensor g1 = at::gelu(u);
         g1_s[li] = g1;
         x = x + half_mat2("mlp-down", b2, g1, w2, true);
+        if (dbg && li == 0) g_dbg_x1 = x.detach().to(at::ScalarType::Float).cpu();
     }
     const Tensor& lnfg = g_p[2];
     const Tensor& lnfb = g_p[3];
     Tensor xf = full_ln_fwd(x, lnfg, lnfb, 1e-6).to(at::ScalarType::Half);
+    if (dbg) g_dbg_xf = xf.detach().to(at::ScalarType::Float).cpu();
     Tensor logits = half_mm2("logits", xf, wte.t()).to(at::ScalarType::Float);
+    if (dbg) g_dbg_logits = logits.detach().cpu().slice(0, 0, 10).contiguous();
     auto lp = logits.log_softmax(-1);
     logits.reset();   /* 2GB: giai phong [T,V] ngay sau log_softmax */
     const Tensor& tgt_ids = g_tgt.defined() ? g_tgt : g_ids;
