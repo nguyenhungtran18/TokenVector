@@ -881,7 +881,9 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         Tensor attn;
         {
             auto t_s0 = std::chrono::high_resolution_clock::now();
-            auto qh = q.to(at::ScalarType::Half), kh = k.to(at::ScalarType::Half), vh = v.to(at::ScalarType::Half);
+            auto qh = q.contiguous().to(at::ScalarType::Half);
+            auto kh = k.contiguous().to(at::ScalarType::Half);
+            auto vh = v.contiguous().to(at::ScalarType::Half);
             attn = at::scaled_dot_product_attention(qh, kh, vh, std::nullopt, 0.0, true, std::nullopt);
             sdpa_ms += std::chrono::duration<double, std::milli>(
                 std::chrono::high_resolution_clock::now() - t_s0).count();
