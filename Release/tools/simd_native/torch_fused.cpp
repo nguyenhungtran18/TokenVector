@@ -719,6 +719,10 @@ TKV_TORCH_EXPORT int TkvFullSetIds64(const int64_t* ids, int64_t T) {
                            : torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU);
     g_ids = t.to(opt);
     g_pos = at::arange(T, opt);
+    {
+        int64_t lo = g_ids.min().item<int64_t>(), hi = g_ids.max().item<int64_t>();
+        fprintf(stderr, "XDBG ids64 T=%lld min=%lld max=%lld\n", (long long)T, (long long)lo, (long long)hi);
+    }
     return 0;
 }
 TKV_TORCH_EXPORT int TkvFullSetGrad(float* gradbuf, int64_t n) {
@@ -803,6 +807,13 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     const int64_t Pw = g_p[1].numel() / h;
     auto wpe = g_p[1].view({Pw, h});
     if (T > Pw) return -3;
+    {
+        int64_t ilo = g_ids.min().item<int64_t>(), ihi = g_ids.max().item<int64_t>();
+        fprintf(stderr, "XDBG fullstep T=%lld V=%lld Pw=%lld wte=%lld wpe=%lld ids=[%lld,%lld]\n",
+                (long long)T, (long long)V, (long long)Pw,
+                (long long)g_p[0].numel(), (long long)g_p[1].numel(),
+                (long long)ilo, (long long)ihi);
+    }
     const double inv = 1.0 / std::sqrt((double)hd);
 
     /* ---- forward, save activations ---- */
