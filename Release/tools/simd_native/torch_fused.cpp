@@ -18,7 +18,6 @@
 #include <ATen/core/Tensor.h>
 #include <c10/core/GradMode.h>
 #include <c10/util/intrusive_ptr.h>
-#include <cuda_runtime.h>
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
@@ -88,56 +87,6 @@ static bool want_cuda() {
         cached = (s && s[0] == '1') ? 1 : 0;
     }
     return cached == 1;
-}
-
-/* ---- CUDA kernel: AdamW fp32 trong 1 pass --------------------------------
- * m = b1*m + (1-b1)*g
- * v = b2*v + (1-b2)*g*g
- * denom = sqrt(v/bc2) + eps
- * p = p*(1 - lr*wd)   [neu wd != 0]
- * p = p - lr_t*m/(bc1*denom)
- * Gom 6-7 launch ATen thanh 1 kernel. */
-__global__ void adamw_fused_kernel(
-    float* __restrict__ param,
-    const float* __restrict__ grad,
-    float* __restrict__ m,
-    float* __restrict__ v,
-    int64_t numel,
-    float lr_t, float b1, float b2,
-    float bc1, float bc2,
-    float eps, float wd
-) {
-    int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= numel) return;
-    float g = grad[idx];
-    float mi = b1 * m[idx] + (1.0f - b1) * g;
-    float vi = b2 * v[idx] + (1.0f - b2) * g * g;
-    float denom = sqrtf(vi / bc2) + eps;
-    float pi = param[idx];
-    if (wd != 0.0f) pi *= (1.0f - lr_t * wd);
-    pi -= lr_t * mi / (bc1 * denom);
-    m[idx] = mi;
-    v[idx] = vi;
-    param[idx] = pi;
-}
-
-/* ---- CUDA kernel: flatten tat ca grad tensor vao g_grad_dev mot lan ------
- * Thay 148 lan copy_ (moi lan la mot kernel launch) bang 1 kernel. */
-__global__ void flatten_grad_kernel(
-    float* __restrict__ dst,
-    const float* const* __restrict__ src_ptrs,
-    const int64_t* __restrict__ offsets,
-    const int64_t* __restrict__ sizes,
-    int num_tensors
-) {
-    int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= num_tensors) return;
-    int64_t off = offsets[tid];
-    int64_t n = sizes[tid];
-    const float* src = src_ptrs[tid];
-    for (int64_t i = 0; i < n; ++i) {
-        dst[off + i] = src[i];
-    }
 }
 
 /* Pinned-memory staging tinh (tai su dung, mutex de an toan tu 2 thread).
@@ -1124,22 +1073,13 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         }
         float bc1 = 1.0f - std::pow(g_b1, (double)(g_cur_step + 1));
         float bc2 = 1.0f - std::pow(g_b2, (double)(g_cur_step + 1));
-        /* AdamW fused kernel: 1 launch thay 6-7 launch ATen. */
-        {
-            int64_t numel = g_p_all.numel();
-            int threads = 256;
-            int blocks = (int)((numel + threads - 1) / threads);
-            adamw_fused_kernel<<<blocks, threads>>>(
-                g_p_all.data_ptr<float>(),
-                g_grad_dev.data_ptr<float>(),
-                g_m_dev.data_ptr<float>(),
-                g_v_dev.data_ptr<float>(),
-                numel,
-                lr_t, g_b1, g_b2,
-                bc1, bc2,
-                g_eps, g_wd
-            );
-        }
+        g_m_dev.mul_(g_b1).add_(g_grad_dev, 1.0f - g_b1);
+        g_v_dev.mul_(g_b2).addcmul_(g_grad_dev, g_grad_dev, 1.0f - g_b2);
+        auto denom = (g_v_dev / bc2).sqrt_().add_(g_eps);
+        /* Fused: bo 3 pass trung gian (m/bc1, upd, lr*upd) bang addcdiv_.
+         * Weight decay decoupled: p *= (1 - lr*wd) tuong duong term wd*p. */
+        if (g_wd != 0.0f) g_p_all.mul_(1.0f - lr_t * g_wd);
+        g_p_all.addcdiv_(g_m_dev, denom, -lr_t / bc1);
         /* Dong bo params fp16 (g_p[i] la ban copy) voi master fp32 sau update:
          * neu khong, cac step sau tiep tuc dung weights cu. copy_ tu
          * Float->Half la kernel cast CUDA, khong D2H. In no-grad cho tru
