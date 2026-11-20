@@ -2940,6 +2940,24 @@ EXPORT float TkvFullStepNative(int64_t mode) {
     return p_full_step(mode);
 }
 
+/* IL P/Invoke in simd_feature.tkv maps to SHORT names (as "TkvFullBegin" etc.),
+ * while the historical exports above end with "Native". On Linux both names
+ * must exist or .NET throws EntryPointNotFoundException. Keep thin aliases. */
+EXPORT int64_t TkvFullPing(int64_t x) { return TkvFullPingNative(x); }
+EXPORT int TkvFullBegin(int64_t n, int64_t L, int64_t H, int64_t NH, int64_t HD, int64_t V) {
+    return TkvFullBeginNative(n, L, H, NH, HD, V);
+}
+EXPORT int TkvFullSetTensor(int64_t idx, const float* ptr, int64_t numel) {
+    return TkvFullSetTensorNative(idx, ptr, numel);
+}
+EXPORT int TkvFullSetIds(const int* ids, int64_t T) { return TkvFullSetIdsNative(ids, T); }
+EXPORT int TkvFullSetGrad(float* gradbuf, int64_t n) { return TkvFullSetGradNative(gradbuf, n); }
+EXPORT int TkvFullSetOpt(float* p, float* m, float* v, float lr, float b1, float b2,
+                         float eps, float wd, int64_t total, int64_t cur) {
+    return TkvFullSetOptNative(p, m, v, lr, b1, b2, eps, wd, total, cur);
+}
+EXPORT float TkvFullStep(int64_t mode) { return TkvFullStepNative(mode); }
+
 EXPORT int TkvTorchLinearGeluFwd(const float* x, const float* w, const float* bias,
                                  float* y, int64_t n, int64_t in_d, int64_t out_d) {
     if (!x || !w || !bias || !y) return -1;
