@@ -731,6 +731,21 @@ TKV_TORCH_EXPORT int TkvFullSetGrad(float* gradbuf, int64_t n) {
     g_grad_buf = gradbuf; g_grad_len = n;
     return 0;
 }
+/* Duong .NET/bseq: wrapper IL pin sai list[i64] -> pointer garbage. Tu sinh
+ * ids theo cong thuc bench (i*37+11)%V, pos = arange(T), dung chung device. */
+TKV_TORCH_EXPORT int TkvFullSetIdsGen(int64_t T) {
+    if (T <= 0) return -1;
+    std::lock_guard<std::mutex> lk(g_full_mu);
+    const int64_t V = g_vocab > 0 ? g_vocab : 50257;
+    auto cpu = at::empty({T}, torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU));
+    auto* p = cpu.data_ptr<int64_t>();
+    for (int64_t i = 0; i < T; ++i) p[i] = (i * 37 + 11) % V;
+    auto opt = want_cuda() ? torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCUDA)
+                           : torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU);
+    g_ids = cpu.to(opt);
+    g_pos = at::arange(T, opt);
+    return 0;
+}
 TKV_TORCH_EXPORT int TkvFullSetOpt(float* p, float* m, float* v,
                                    float lr, float b1, float b2, float eps, float wd,
                                    int64_t total_steps, int64_t cur_step) {
