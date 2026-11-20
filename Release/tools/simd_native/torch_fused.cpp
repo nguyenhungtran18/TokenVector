@@ -771,21 +771,23 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
             g_dev_state_dirty = false;
         }
     }
-    auto wte = g_p[0].view({V, h});
-    /* 2GB+T>1024: wpe size tu ham, ko co hardcode {1024,h} */
-    const int64_t Pw = g_p[1].numel() / h;
-    auto wpe = g_p[1].view({Pw, h});
-    if (T > Pw) return -3;
-    const double inv = 1.0 / std::sqrt((double)hd);
 
-    /* Autograd backward (CUDA): record graph in fwd, call loss_t.backward() once.
-     * Manual backward duoc giu cho CPU/native-ATen path (ungam kha nhau). */
+    /* Autograd bwd: BAT BUOC set requires_grad TRUOC khi tao wte/wpe views.
+     * Neu dat sau view, lan dau view duoc tao luc param con rg=false -> graph
+     * khong di qua embedding -> g_p[0]/g_p[1] khong co grad o step 0. */
     const bool do_bwd = (run_mode != 1) && g_grad_buf && g_grad_len > 0;
     const bool use_autograd = want_cuda() && do_bwd;
     if (use_autograd) {
         for (auto& p : g_p)
             if (p.defined() && !p.requires_grad()) p.set_requires_grad(true);
     }
+
+    auto wte = g_p[0].view({V, h});
+    /* 2GB+T>1024: wpe size tu ham, ko co hardcode {1024,h} */
+    const int64_t Pw = g_p[1].numel() / h;
+    auto wpe = g_p[1].view({Pw, h});
+    if (T > Pw) return -3;
+    const double inv = 1.0 / std::sqrt((double)hd);
 
     /* ---- forward, save activations ---- */
     std::vector<Tensor> xin(L), a_in(L), m_in(L), ctx_s(L), u_s(L), g1_s(L), qkv_s(L);
