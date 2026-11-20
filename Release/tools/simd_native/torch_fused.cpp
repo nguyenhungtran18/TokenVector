@@ -728,6 +728,8 @@ TKV_TORCH_EXPORT int TkvFullSetOpt(float* p, float* m, float* v,
 
 TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     std::lock_guard<std::mutex> lk(g_full_mu);
+    auto tk_start = std::chrono::high_resolution_clock::now();
+    std::chrono::high_resolution_clock::time_point tk_fwd, tk_bwd, tk_put, tk_adam;
     if (g_p.size() != (size_t)(4 + g_nlayers * 12) || !g_ids.defined()) return -100.0f;
     const int64_t T = g_ids.size(0);
     const int64_t h = g_h, nh = g_nhd, hd = g_hd, V = g_vocab;
@@ -841,6 +843,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     auto tgt = g_ids.unsqueeze(1);
     Tensor loss_t = -(lp.gather(1, tgt).squeeze(1)).mean();
     float loss_val = loss_t.item<float>();
+    tk_fwd = std::chrono::high_resolution_clock::now();
     if (run_mode == 1 || !g_grad_buf) return loss_val;
 
     /* ---- backward ---- */
@@ -864,11 +867,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         u_s.clear(); g1_s.clear(); qkv_s.clear();
         lp.reset();
         loss_t.backward();
-        fprintf(stderr, "XDBG autograd bwd: lt.rg=%d | p0(rg=%d,gdef=%d,n=%lld) p1(rg=%d,gdef=%d,n=%lld) p2(rg=%d,gdef=%d,n=%lld)\n",
-                (int)loss_t.requires_grad(),
-                (int)g_p[0].requires_grad(), (int)g_p[0].grad().defined(), (long long)g_p[0].grad().numel(),
-                (int)g_p[1].requires_grad(), (int)g_p[1].grad().defined(), (long long)g_p[1].grad().numel(),
-                (int)g_p[2].requires_grad(), (int)g_p[2].grad().defined(), (long long)g_p[2].grad().numel());
+        tk_bwd = std::chrono::high_resolution_clock::now();
         /* grad của g_p[i] có order trùng với flat layout của put(). */
         for (size_t i = 0; i < g_p.size(); ++i) {
             const Tensor& gr = g_p[i].grad();
@@ -885,6 +884,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         }
         /* Release fp16 grads: next step .grad accumulate dau het. */
         for (auto& p : g_p) if (p.grad().defined()) p.mutable_grad() = Tensor();
+        tk_put = std::chrono::high_resolution_clock::now();
     } else {
     auto P = lp.exp();
     lp.reset();       /* 2GB: khong giu lp [T,V] */
@@ -1009,6 +1009,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
         }
         g_grad_dev.reset();
         g_cur_step++;
+        tk_adam = std::chrono::high_resolution_clock::now();
     } else if (g_p_buf && g_m_buf && g_v_buf && g_grad_len > 0) {
         /* CPU mode: flat host buffers (native path, gi nguyen) */
         float lr_t = g_lr;
@@ -1028,6 +1029,15 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
             g_p_buf[i] -= lr_t * ((m / bc1) / (std::sqrt(v / bc2) + g_eps) + g_wd * g_p_buf[i]);
         }
         g_cur_step++;
+    }
+    if (use_autograd && tk_adam.time_since_epoch().count() > 0) {
+        auto ms = [](std::chrono::high_resolution_clock::time_point a,
+                     std::chrono::high_resolution_clock::time_point b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        fprintf(stderr, "XDBG timing fwd=%.1f bwd=%.1f put=%.1f adam=%.1f total=%.1f ms\n",
+                ms(tk_start, tk_fwd), ms(tk_fwd, tk_bwd), ms(tk_bwd, tk_put),
+                ms(tk_put, tk_adam), ms(tk_start, std::chrono::high_resolution_clock::now()));
     }
     return loss_val;
 }
