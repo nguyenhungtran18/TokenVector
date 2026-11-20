@@ -2814,6 +2814,7 @@ typedef int64_t (*tkv_full_ping_fn)(int64_t);
 typedef int (*tkv_full_begin_fn)(int64_t,int64_t,int64_t,int64_t,int64_t,int64_t);
 typedef int (*tkv_full_set_tensor_fn)(int64_t,const float*,int64_t);
 typedef int (*tkv_full_set_ids_fn)(const int*,int64_t);
+typedef int (*tkv_full_set_ids64_fn)(const int64_t*,int64_t);
 typedef int (*tkv_full_set_grad_fn)(float*,int64_t);
 typedef int (*tkv_full_set_opt_fn)(float*,float*,float*,float,float,float,float,float,int64_t,int64_t);
 typedef float (*tkv_full_step_fn)(int64_t);
@@ -2835,6 +2836,7 @@ static tkv_full_ping_fn p_full_ping = NULL;
 static tkv_full_begin_fn p_full_begin = NULL;
 static tkv_full_set_tensor_fn p_full_set_tensor = NULL;
 static tkv_full_set_ids_fn p_full_set_ids = NULL;
+static tkv_full_set_ids64_fn p_full_set_ids64 = NULL;
 static tkv_full_set_grad_fn p_full_set_grad = NULL;
 static tkv_full_set_opt_fn p_full_set_opt = NULL;
 static tkv_full_step_fn p_full_step = NULL;
@@ -2901,6 +2903,7 @@ static int tkv_torch_fused_load(void) {
     p_full_begin = (tkv_full_begin_fn)GetProcAddress(h, "TkvFullBegin");
     p_full_set_tensor = (tkv_full_set_tensor_fn)GetProcAddress(h, "TkvFullSetTensor");
     p_full_set_ids = (tkv_full_set_ids_fn)GetProcAddress(h, "TkvFullSetIds");
+    p_full_set_ids64 = (tkv_full_set_ids64_fn)GetProcAddress(h, "TkvFullSetIds64");
     p_full_set_grad = (tkv_full_set_grad_fn)GetProcAddress(h, "TkvFullSetGrad");
     p_full_set_opt = (tkv_full_set_opt_fn)GetProcAddress(h, "TkvFullSetOpt");
     p_full_step = (tkv_full_step_fn)GetProcAddress(h, "TkvFullStep124m");
@@ -2950,7 +2953,11 @@ EXPORT int TkvFullBegin(int64_t n, int64_t L, int64_t H, int64_t NH, int64_t HD,
 EXPORT int TkvFullSetTensor(int64_t idx, const float* ptr, int64_t numel) {
     return TkvFullSetTensorNative(idx, ptr, numel);
 }
-EXPORT int TkvFullSetIds(const int* ids, int64_t T) { return TkvFullSetIdsNative(ids, T); }
+EXPORT int TkvFullSetIds(const int64_t* ids, int64_t T) {
+    /* .NET wrapper pins list[i64]; int32 reader would scramble indices. */
+    if (!p_full_set_ids64) return -9;
+    return p_full_set_ids64(ids, T);
+}
 EXPORT int TkvFullSetGrad(float* gradbuf, int64_t n) { return TkvFullSetGradNative(gradbuf, n); }
 EXPORT int TkvFullSetOpt(float* p, float* m, float* v, float lr, float b1, float b2,
                          float eps, float wd, int64_t total, int64_t cur) {

@@ -708,6 +708,19 @@ TKV_TORCH_EXPORT int TkvFullSetIds(const int* ids, int64_t T) {
     g_pos = at::arange(T, opt);
     return 0;
 }
+/* Duong .NET/bseq truyen list[i64] (8 bytes/phan tu). Doc nhu int* se lay
+ * sai thanh low/high 32-bit -> id out of range -> index_select crash. */
+TKV_TORCH_EXPORT int TkvFullSetIds64(const int64_t* ids, int64_t T) {
+    if (!ids || T <= 0) return -1;
+    std::lock_guard<std::mutex> lk(g_full_mu);
+    auto t = torch::from_blob(const_cast<int64_t*>(ids), {T},
+        torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU).requires_grad(false));
+    auto opt = want_cuda() ? torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCUDA)
+                           : torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU);
+    g_ids = t.to(opt);
+    g_pos = at::arange(T, opt);
+    return 0;
+}
 TKV_TORCH_EXPORT int TkvFullSetGrad(float* gradbuf, int64_t n) {
     std::lock_guard<std::mutex> lk(g_full_mu);
     if (!gradbuf || n <= 0) return -1;
