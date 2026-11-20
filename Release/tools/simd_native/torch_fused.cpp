@@ -600,7 +600,7 @@ static int g_nlayers = 12, g_h = 768, g_nhd = 12, g_hd = 64, g_vocab = 50257;
 
 /* GPU-resident full-step state (mode CUDA): p/m/v/grad song tren VRAM, khong
  * upload/download moi step. g_p[i] la view cua g_p_all (flat CUDA). */
-static Tensor g_p_all, g_m_dev, g_v_dev, g_grad_dev;
+static Tensor g_p_all, g_m_dev, g_v_dev, g_grad_dev, g_tgt;
 static std::vector<const float*> g_p_src;
 static std::vector<int64_t> g_p_numels, g_full_cfg;
 static bool g_dev_ready = false, g_dev_state_dirty = true;
@@ -660,7 +660,7 @@ TKV_TORCH_EXPORT int TkvFullBegin(int64_t n_tensors, int64_t NLayers, int64_t H,
         g_p.assign((size_t)n_tensors, Tensor());
         g_p_src.assign((size_t)n_tensors, nullptr);
         g_p_numels.assign((size_t)n_tensors, 0);
-        g_p_all.reset(); g_m_dev.reset(); g_v_dev.reset(); g_grad_dev.reset();
+        g_p_all.reset(); g_m_dev.reset(); g_v_dev.reset(); g_grad_dev.reset(); g_tgt.reset();
         g_dev_ready = false; g_dev_state_dirty = true;
         g_ids.reset(); g_pos.reset();
         g_opt_m_prev = g_opt_v_prev = nullptr;
@@ -744,6 +744,27 @@ TKV_TORCH_EXPORT int TkvFullSetIdsGen(int64_t T) {
                            : torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU);
     g_ids = cpu.to(opt);
     g_pos = at::arange(T, opt);
+    return 0;
+}
+/* Target ids rieng (next-token) cho training that. Neu khong goi, target = g_ids
+ * nhu cu (duong bench giu nguyen). */
+TKV_TORCH_EXPORT int TkvFullSetTargets(const int* ids, int64_t T) {
+    if (!ids || T <= 0) return -1;
+    std::lock_guard<std::mutex> lk(g_full_mu);
+    auto t = torch::from_blob(const_cast<int*>(ids), {T},
+        torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU).requires_grad(false));
+    auto opt = want_cuda() ? torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCUDA)
+                           : torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU);
+    g_tgt = t.to(opt);
+    return 0;
+}
+/* Doc lai master fp32 sau khi train (de luu checkpoint). */
+TKV_TORCH_EXPORT int TkvFullGetParams(float* dst, int64_t n) {
+    if (!dst || n <= 0) return -1;
+    std::lock_guard<std::mutex> lk(g_full_mu);
+    if (!g_p_all.defined() || g_p_all.numel() != n) return -2;
+    auto h = g_p_all.to(torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU));
+    std::memcpy(dst, h.const_data_ptr<float>(), (size_t)n * sizeof(float));
     return 0;
 }
 TKV_TORCH_EXPORT int TkvFullSetOpt(float* p, float* m, float* v,
@@ -883,7 +904,8 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
     Tensor logits = half_mm2("logits", xf, wte.t());
     auto lp = logits.log_softmax(-1);
     logits.reset();   /* 2GB: giai phong [T,V] ngay sau log_softmax */
-    auto tgt = g_ids.unsqueeze(1);
+    const Tensor& tgt_ids = g_tgt.defined() ? g_tgt : g_ids;
+    auto tgt = tgt_ids.unsqueeze(1);
     Tensor loss_t = -(lp.gather(1, tgt).squeeze(1)).mean();
     float loss_val = loss_t.item<float>();
     tk_fwd = std::chrono::high_resolution_clock::now();
