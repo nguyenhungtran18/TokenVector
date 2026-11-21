@@ -1,0 +1,45 @@
+# -*- coding: utf-8 -*-
+# LayerNorm BWD THUAN TOKENVECTOR (khong chen C).
+# Khop LayernormBwdFused_impl f64 fallback trong tkv_bwd_ops.c:
+#  - mu/v/rstd f64, sqrt double (d_sqrt)
+#  - gg = gy*g NHAN F32 roi widen f64 (f_gg -> float)
+#  - s1/s2 f64; dx = rstd*(gg - m1 - xh*m2) ep float
+#  - dg += (double)gy*xh accumulate f64 roi ep float
+#  - db += gy PHAI CONG F32 (dung truc tiep gy[...], KHONG dung d_gyv)
+# ATen bridge (TkvTorchLayerNormBwd) vang trong Colab -> native dung duong fallback nay.
+# @tkv.cpu_kernel target="avx2"
+def LayernormBwdFused(x: "ptr[f32]", x_len: "i32", gy: "ptr[f32]", gy_len: "i32", g: "ptr[f32]", g_len: "i32", dx: "ptr[f32]", dx_len: "i32", gflat: "ptr[f32]", gflat_len: "i32", n: "i32", h: "i32", o_dg: "i64", o_db: "i64") -> "i32":
+    for i in range(n):
+        base = i * h
+        d_mu = 0.0
+        for j in range(h):
+            d_mu = d_mu + x[base + j]
+        d_mu = d_mu / h
+        d_var = 0.0
+        for j in range(h):
+            d_d = x[base + j] - d_mu
+            d_var = d_var + d_d * d_d
+        d_var = d_var / h
+        d_rstd = 1.0 / d_sqrt(d_var + 1e-6)
+        d_s1 = 0.0
+        d_s2 = 0.0
+        for j in range(h):
+            d_xh = (x[base + j] - d_mu) * d_rstd
+            f_gg = gy[base + j] * g[j]
+            d_s1 = d_s1 + f_gg
+            d_s2 = d_s2 + f_gg * d_xh
+        d_m1 = d_s1 / h
+        d_m2 = d_s2 / h
+        for j in range(h):
+            d_xh = (x[base + j] - d_mu) * d_rstd
+            d_gyv = gy[base + j]
+            f_gg = gy[base + j] * g[j]
+            d_tmp = d_rstd * (f_gg - d_m1 - d_xh * d_m2)
+            dx[base + j] = d_tmp
+            d_pdg = gflat[o_dg + j]
+            gflat[o_dg + j] = d_pdg + d_gyv * d_xh
+            gflat[o_db + j] = gflat[o_db + j] + gy[base + j]
+
+
+def run() -> "i32":
+    return 0
