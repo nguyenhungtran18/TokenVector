@@ -1,0 +1,11 @@
+# -*- coding: utf-8 -*-
+# Tuong duong BIT-EXACT SoftmaxCausalFwd: scale(max f64) + exp(tong f64) + normalize
+# C goc duoc notebook chen vao file sinh (tkv_softmax_cf).
+# @tkv.cpu_kernel target="avx2"
+def SoftmaxCausalFwd(s: "ptr[f32]", s_len: "i32", n: "i32", inv: "f64") -> "i32":
+    softmax_cf(s, n, inv)
+    return 0
+
+
+def run() -> "i32":
+    return 0
