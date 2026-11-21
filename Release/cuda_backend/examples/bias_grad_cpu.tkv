@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-# Tuong duong BIT-EXACT BiasGrad_impl: gflat[off+c] += sum_i gy[i*cols+c]
-# Native: acc = load(gflat[off+c]); for i: acc += gy[...] (khong ai dau 0).
+# Signature PHAI khop native export: BiasGrad(gy, gy_len, gflat, gflat_len, off, n, cols)
 # @tkv.cpu_kernel target="avx2"
-def BiasGrad(gy: "ptr[f32]", gflat: "ptr[f32]", off: "i64", n: "i32", cols: "i32") -> "i32":
+def BiasGrad(gy: "ptr[f32]", gy_len: "i32", gflat: "ptr[f32]", gflat_len: "i32", off: "i64", n: "i32", cols: "i32") -> "i32":
     for c in range(cols):
         acc = gflat[off + c]
         for i in range(n):

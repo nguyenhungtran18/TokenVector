@@ -5,7 +5,7 @@
 #define EXPORT __attribute__((visibility("default")))
 
 
-EXPORT int BiasGrad(float* gy, float* gflat, long long off, int n, int cols) {
+EXPORT int BiasGrad(float* gy, int gy_len, float* gflat, int gflat_len, long long off, int n, int cols) {
 for (int c = 0; c < (cols); c++) {
   float acc = gflat[off + c];
   for (int i = 0; i < (n); i++) {
