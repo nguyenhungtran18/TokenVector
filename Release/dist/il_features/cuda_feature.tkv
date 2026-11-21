@@ -135,7 +135,7 @@ def _cuda_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
                             is_int = 0
                         if left == 'mean' or left == 'rstd' or left == 'var':
                             is_int = 0
-                        if left == 'row' or left == 'stride' or left == 'base' or left == 'wid':
+                        if left == 'row' or left == 'stride' or left == 'base' or left == 'wid' or left == 'total' or left == 'i':
                             is_int = 1
                     if 'r * ' in rhs or 'i * ' in rhs or 'j * ' in rhs or 'row * ' in rhs or 'base * ' in rhs:
                         is_int = 1
@@ -145,7 +145,7 @@ def _cuda_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
                         if nm + '[' in rhs and 'i32' in params[k][1]:
                             is_int = 1
                         k = k + 1
-                    if left == 'lane' or left == 'wid':
+                    if left == 'lane' or left == 'wid' or left == 'total':
                         is_int = 1
                     ctype = 'double' if left.startswith('d_') else ('int' if is_int else 'float')
                     declared.append(left)

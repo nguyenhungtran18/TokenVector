@@ -1,0 +1,18 @@
+# -*- coding: utf-8 -*-
+# Tuong duong LinearDwFused: gdw[i*out_d + c] += sum_p x[p*in_d+i]*gy[p*out_d+c]
+# Moi thread xu ly 1 phan tu, vong p tang dan (giong CPU FMA ordering).
+# @tkv.cuda_kernel grid="(in_d * out_d + 255) // 256" block="256"
+def linear_dw(x: "ptr[f32]", gy: "ptr[f32]", gdw: "ptr[f32]", n: "i32", in_d: "i32", out_d: "i32") -> "void":
+    tid = tid()
+    total = in_d * out_d
+    if tid < total:
+        i = tid / out_d
+        c = tid % out_d
+        s = gdw[tid]
+        for p in range(n):
+            s = x[p * in_d + i] * gy[p * out_d + c] + s
+        gdw[tid] = s
+
+
+def run() -> "i32":
+    return 0
