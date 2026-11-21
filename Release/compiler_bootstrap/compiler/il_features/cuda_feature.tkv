@@ -50,6 +50,7 @@ def _cuda_is_ptr(ann: "str") -> "i32":
 
 def _cuda_expr(e: "str") -> "str":
     """Dich bieu thuc dang Python sang C (cac phep toan so hoc giong nhau)."""
+    e = e.replace('ltid()', 'threadIdx.x')
     e = e.replace('tid()', '(blockIdx.x * blockDim.x + threadIdx.x)')
     e = e.replace('bid()', 'blockIdx.x')
     e = e.replace('bdim()', 'blockDim.x')

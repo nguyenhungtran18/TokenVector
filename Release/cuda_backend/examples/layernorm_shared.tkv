@@ -5,7 +5,7 @@
 def layernorm_shared(x: "ptr[f32]", g: "ptr[f32]", b: "ptr[f32]", out: "ptr[f32]", rows: "i32", h: "i32", eps: "f32") -> "void":
     s = shared_array(1024)
     r = bid()
-    t = tid()
+    t = ltid()
     if r < rows:
         base = r * h
         if t < h:

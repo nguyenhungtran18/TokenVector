@@ -3,7 +3,7 @@
 extern "C" __global__ void tkv_kernel_layernorm_shared(float* __restrict__ x, float* __restrict__ g, float* __restrict__ b, float* __restrict__ out, int rows, int h, float eps) {
 __shared__ float s[1024];
 int r = blockIdx.x;
-int t = (blockIdx.x * blockDim.x + threadIdx.x);
+int t = threadIdx.x;
 if (r < rows) {
   int base = r * h;
   if (t < h) {
