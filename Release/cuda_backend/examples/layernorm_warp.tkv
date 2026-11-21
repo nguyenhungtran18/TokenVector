@@ -16,7 +16,7 @@ def layernorm_warp(x: "ptr[f32]", g: "ptr[f32]", b: "ptr[f32]", out: "ptr[f32]",
         if lane == 0:
             s[wid] = sm
         syncthreads()
-        # warp 0: lane<8 doc s[lane], lane>=8 gan 0 de wreduce an toan
+        /* warp 0: lane<8 reads s[lane], lane>=8 zero-fill for safe wreduce */
         m8 = 0.0
         if wid == 0:
             sv = 0.0

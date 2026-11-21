@@ -27,7 +27,7 @@ if (r < rows) {
     s[wid] = sm;
   }
   __syncthreads();
-  # warp 0: lane<8 doc s[lane], lane>=8 gan 0 de wreduce an toan;
+  /* warp 0: lane<8 reads s[lane], lane>=8 zero-fill for safe wreduce */;
   float m8 = 0.0;
   if (wid == 0) {
     float sv = 0.0;
