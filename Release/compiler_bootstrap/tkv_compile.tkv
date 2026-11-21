@@ -105,6 +105,7 @@ from il_features.stdlib_cjson import uses_cjson as _uses_cjson, CJSON_PINVOKE_DE
 # --- END GEMINI ADDED CODE ---
 # CUDA backend prototype (2026-11-21): rewrite nguon truoc khi parse.
 from il_features.cuda_feature import cuda_rewrite_source  # noqa: E402
+from il_features.cpu_feature import cpu_rewrite_source  # noqa: E402
 from il_dispatch import register_expr_builtin, register_expr_method  # noqa: E402
 
 
@@ -4272,6 +4273,8 @@ def extract_program_file(tkv_path: "str", _visited: "set[str]"=None, la_import: 
     # CUDA backend prototype: neu file co kernel duoc danh dau, sinh .cu +
     # glue __tkv_extern_pinvoke__ roi thay kernel bang wrapper truoc khi parse.
     source_text = cuda_rewrite_source(source_text, tkv_path)
+    # CPU AVX2 backend prototype: kernel # @tkv.cpu_kernel -> .cpu.c + glue
+    source_text = cpu_rewrite_source(source_text, tkv_path)
     if not la_import:
         il_codegen.dat_bi_danh_module(_bi_danh_import(source_text))
         il_codegen.dat_doi_ten_import(_doi_ten_import(source_text), True)
