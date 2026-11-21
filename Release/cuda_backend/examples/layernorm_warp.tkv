@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-# LayerNorm fp32 bang TokenVector .tkv: warp-shuffle reduce (nhanh nhat).
-# 1 block = 1 row, 8 warps (256 thread). Moi warp reduce 32 phan tu, warp 0 gop.
+# LayerNorm warp-shuffle: moi warp reduce 32 phan tu; warp 0 gop 8 gia tri shared.
 # @tkv.cuda_kernel grid="rows" block="256"
 def layernorm_warp(x: "ptr[f32]", g: "ptr[f32]", b: "ptr[f32]", out: "ptr[f32]", rows: "i32", h: "i32", eps: "f32") -> "void":
-    s = shared_array(8)
+    s = shared_array(32)
     r = bid()
     t = ltid()
     lane = laneid()
@@ -17,26 +16,33 @@ def layernorm_warp(x: "ptr[f32]", g: "ptr[f32]", b: "ptr[f32]", out: "ptr[f32]",
         if lane == 0:
             s[wid] = sm
         syncthreads()
+        # warp 0: lane<8 doc s[lane], lane>=8 gan 0 de wreduce an toan
         m8 = 0.0
         if wid == 0:
-            m8 = wreduce(s[lane])
+            sv = 0.0
+            if lane < 8:
+                sv = s[lane]
+            m8 = wreduce(sv) / h
         if t == 0:
-            s[0] = m8 / h
+            s[0] = m8
         syncthreads()
         mean = s[0]
         v2 = 0.0
         if t < h:
             d2 = x[base + t] - mean
             v2 = d2 * d2
-        sv = wreduce(v2)
+        sv2 = wreduce(v2)
         if lane == 0:
-            s[wid] = sv
+            s[wid] = sv2
         syncthreads()
         v8 = 0.0
         if wid == 0:
-            v8 = wreduce(s[lane])
+            svv = 0.0
+            if lane < 8:
+                svv = s[lane]
+            v8 = wreduce(svv) / h
         if t == 0:
-            s[0] = v8 / h
+            s[0] = v8
         syncthreads()
         rstd = 1.0 / sqrt(s[0] + eps)
         if t < h:

@@ -11,7 +11,7 @@ __device__ __forceinline__ float tkv_wreduce(float v) {
 
 
 extern "C" __global__ void tkv_kernel_layernorm_warp(float* __restrict__ x, float* __restrict__ g, float* __restrict__ b, float* __restrict__ out, int rows, int h, float eps) {
-__shared__ float s[8];
+__shared__ float s[32];
 int r = blockIdx.x;
 int t = threadIdx.x;
 int lane = (threadIdx.x & 31);
@@ -27,12 +27,17 @@ if (r < rows) {
     s[wid] = sm;
   }
   __syncthreads();
+  # warp 0: lane<8 doc s[lane], lane>=8 gan 0 de wreduce an toan;
   float m8 = 0.0;
   if (wid == 0) {
-    m8 = tkv_wreduce(s[lane]);
+    float sv = 0.0;
+    if (lane < 8) {
+      sv = s[lane];
+    }
+    m8 = tkv_wreduce(sv) / h;
   }
   if (t == 0) {
-    s[0] = m8 / h;
+    s[0] = m8;
   }
   __syncthreads();
   float mean = s[0];
@@ -41,17 +46,21 @@ if (r < rows) {
     float d2 = x[base + t] - mean;
     v2 = d2 * d2;
   }
-  float sv = tkv_wreduce(v2);
+  float sv2 = tkv_wreduce(v2);
   if (lane == 0) {
-    s[wid] = sv;
+    s[wid] = sv2;
   }
   __syncthreads();
   float v8 = 0.0;
   if (wid == 0) {
-    v8 = tkv_wreduce(s[lane]);
+    float svv = 0.0;
+    if (lane < 8) {
+      svv = s[lane];
+    }
+    v8 = tkv_wreduce(svv) / h;
   }
   if (t == 0) {
-    s[0] = v8 / h;
+    s[0] = v8;
   }
   __syncthreads();
   float rstd = 1.0 / sqrtf(s[0] + eps);
