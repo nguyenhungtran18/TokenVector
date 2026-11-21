@@ -270,7 +270,10 @@ def gen_cu(kernels: List[Kernel]) -> str:
         chunks.append("extern \"C\" int tkv_launch_%s(%s) {" % (k.name, g.c_params(True)))
         chunks.append("  tkv_kernel_%s<<<grid, block>>>(%s);" % (
             k.name, ", ".join(a.arg for a in k.args)))
-        chunks.append("  return (int)cudaGetLastError();")
+        chunks.append("  cudaError_t launch_err = cudaGetLastError();")
+        chunks.append("  cudaDeviceSynchronize();   /* host must see kernel writes */")
+        chunks.append("  cudaError_t sync_err = cudaGetLastError();")
+        chunks.append("  return (int)(launch_err != cudaSuccess ? launch_err : sync_err);")
         chunks.append("}")
         chunks.append("")
     return "\n".join(chunks)
