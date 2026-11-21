@@ -99,9 +99,9 @@ typedef int (*tkv_adamw_launch_fn)(
     int64_t n, float lr, float b1, float b2,
     float bc1, float bc2, float eps, float wd,
     int grid, int block);
-static tkv_adamw_launch_fn p_tkv_adamw_launch = nullptr;
+static tkv_adamw_launch_fn p_tkv_adamw_launch = nullptr;`nstatic int g_adamw_path = 0;   /* 1=tkv .tkv kernel, 2=ATen fallback */
 static void* g_tkv_cuda_handle = nullptr;
-static tkv_adamw_launch_fn load_tkv_adamw() {
+TKV_TORCH_EXPORT int TkvFullAdamwPath() { return g_adamw_path; }`n`nstatic tkv_adamw_launch_fn load_tkv_adamw() {
     if (p_tkv_adamw_launch) return p_tkv_adamw_launch;
     const char* path = getenv("TKV_CUDA_KERNELS_SO");
     if (!path) path = "/content/TokenVectorCuda/Release/cuda_backend/examples/tkv_cuda_kernels.so";
@@ -1107,9 +1107,9 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
                     g_m_dev.data_ptr<float>(), g_v_dev.data_ptr<float>(),
                     numel, lr_t, g_b1, g_b2, bc1, bc2, g_eps, g_wd,
                     blocks, threads);
-                fprintf(stderr, "XDBG tkv_adamw LAUNCHED (TKV .tkv kernel) rc=%d\n", rc);
+                g_adamw_path = 1;`n                fprintf(stderr, "XDBG tkv_adamw LAUNCHED (TKV .tkv kernel) rc=%d\n", rc);
             } else {
-                fprintf(stderr, "XDBG tkv_adamw FALLBACK to ATen (kernel .tkv NOT used)\n");
+                g_adamw_path = 2;`n                fprintf(stderr, "XDBG tkv_adamw FALLBACK to ATen (kernel .tkv NOT used)\n");
                 g_m_dev.mul_(g_b1).add_(g_grad_dev, 1.0f - g_b1);
                 g_v_dev.mul_(g_b2).addcmul_(g_grad_dev, g_grad_dev, 1.0f - g_b2);
                 auto denom = (g_v_dev / bc2).sqrt_().add_(g_eps);
