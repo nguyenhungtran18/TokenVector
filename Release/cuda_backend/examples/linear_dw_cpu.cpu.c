@@ -5,7 +5,7 @@
 #define EXPORT __attribute__((visibility("default")))
 
 
-EXPORT int tkv_cpu_linear_dw_cpu(float* x, float* gy, float* gdw, int n, int in_d, int out_d) {
+EXPORT int LinearDwFused(float* x, float* gy, float* gdw, int n, int in_d, int out_d) {
 for (int i = 0; i < (in_d); i++) {
   for (int c = 0; c < (out_d); c++) {
     float acc = 0.0;

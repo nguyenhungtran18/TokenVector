@@ -149,7 +149,7 @@ def _cpu_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]") -> 
     for pn, ann in params:
         decls.append(_cpu_c_type(ann) + ' ' + pn)
         args.append(pn)
-    s = 'EXPORT int tkv_cpu_' + name + '(' + ', '.join(decls) + ') {\n'
+    s = 'EXPORT int ' + name + '(' + ', '.join(decls) + ') {\n'
     s = s + _cpu_body_c(body, params)
     s = s + '  return 0;\n'
     s = s + '}\n'
@@ -169,7 +169,7 @@ def _cpu_pragma(name: "str", params: "list[(str,str)]", so: "str") -> "str":
             ts.append('"i64"')
         else:
             ts.append('"i32"')
-    sym = 'tkv_cpu_' + name
+    sym = name
     return ('    {"name": "' + sym + '", "dll": "' + so + '", "symbol": "' + sym + '",\n'
             '     "convention": "cdecl", "params": [' + ', '.join(ts) + '], "returns": "i32"},')
 
@@ -185,7 +185,7 @@ def _cpu_wrapper(name: "str", params: "list[(str,str)]") -> "str":
         sig.append(pn + ': "' + t + '"')
         args.append(pn)
     return ('def ' + name + '_launch(' + ', '.join(sig) + ') -> "i32":\n'
-            '    return tkv_cpu_' + name + '(' + ', '.join(args) + ')\n')
+            '    return ' + name + '(' + ', '.join(args) + ')\n')
 
 
 def cpu_rewrite_source(src: "str", path: "str") -> "str":

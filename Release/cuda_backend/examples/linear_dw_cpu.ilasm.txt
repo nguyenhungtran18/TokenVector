@@ -31,7 +31,7 @@ Assembled method TkvInt::BitOr
 Assembled method TkvInt::BitXor
 Assembled method TkvInt::Shl
 Assembled method TkvInt::Shr
-Assembled method TKVApp::linear_dw_cpu_launch
+Assembled method TKVApp::LinearDwFused_launch
 Assembled method TKVApp::run
 Assembled method TKVApp::Main
 Creating PE file
