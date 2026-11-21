@@ -1,0 +1,10 @@
+# -*- coding: utf-8 -*-
+# @tkv.cuda_kernel grid="(n + 255) // 256" block="256"
+def vec_add(a: "ptr[f32]", b: "ptr[f32]", c: "ptr[f32]", n: "i32") -> "void":
+    i = tid()
+    if i < n:
+        c[i] = a[i] + b[i]
+
+
+def run() -> "i32":
+    return 0

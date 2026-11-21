@@ -106,6 +106,7 @@ string_split.tkv
 string_title.tkv
 threading_feature.tkv
 simd_feature.tkv
+cuda_feature.tkv
 tkvstr.tkv
 tuple_type.tkv
 typecheck.tkv

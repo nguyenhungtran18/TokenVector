@@ -1,0 +1,21 @@
+# -*- coding: utf-8 -*-
+# Prototype: dinh nghia CUDA kernel ngay trong file .tkv.
+# Dong danh dau o tren moi ham la marker; tkv_cuda.py se thay kernel bang
+# __tkv_extern_pinvoke__ + wrapper, con phan con lai van la .tkv binh thuong.
+
+# @tkv.cuda_kernel grid="(n + 255) // 256" block="256"
+def vec_add(a: "ptr[f32]", b: "ptr[f32]", c: "ptr[f32]", n: "i32") -> "void":
+    i = tid()
+    if i < n:
+        c[i] = a[i] + b[i]
+
+
+# @tkv.cuda_kernel grid="(n + 255) // 256" block="256"
+def scale(x: "ptr[f32]", k: "f32", n: "i32") -> "void":
+    i = tid()
+    if i < n:
+        x[i] = x[i] * k
+
+
+def run() -> "i32":
+    return 0
