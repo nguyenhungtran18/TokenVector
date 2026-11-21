@@ -4,9 +4,7 @@
 # Signature khop native: GeluErfFwd(x, x_len, out, out_len, lo, hi)
 # @tkv.cpu_kernel target="avx2"
 def GeluErfFwd(x: "ptr[f32]", x_len: "i32", out: "ptr[f32]", out_len: "i32", lo: "i64", hi: "i64") -> "i32":
-    for i in range(hi):
-        if i >= lo:
-            out[i - lo] = gelu_f(x[i])
+    gelu_fv(x, out, lo, hi)
     return 0
 
 
