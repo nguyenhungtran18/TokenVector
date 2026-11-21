@@ -1,0 +1,10 @@
+# -*- coding: utf-8 -*-
+# F32ListAdd THUAN TOKENVECTOR: dst[i] += src[i], 1 phep cong f32/ptu.
+# @tkv.cpu_kernel target="avx2"
+def F32ListAdd(dst: "ptr[f32]", dst_len: "i32", src: "ptr[f32]", src_len: "i32", n: "i32") -> "i32":
+    for i in range(n):
+        dst[i] = dst[i] + src[i]
+
+
+def run() -> "i32":
+    return 0
