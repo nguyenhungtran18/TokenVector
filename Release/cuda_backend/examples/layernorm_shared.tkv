@@ -1,0 +1,35 @@
+# -*- coding: utf-8 -*-
+# LayerNorm fp32 bang TokenVector .tkv, dung __shared__ + block reduce.
+# 1 block = 1 row; moi thread load 1 phan tu vao shared roi reduce.
+# @tkv.cuda_kernel grid="rows" block="256"
+def layernorm_shared(x: "ptr[f32]", g: "ptr[f32]", b: "ptr[f32]", out: "ptr[f32]", rows: "i32", h: "i32", eps: "f32") -> "void":
+    s = shared_array(1024)
+    r = bid()
+    t = tid()
+    if r < rows:
+        base = r * h
+        if t < h:
+            s[t] = x[base + t]
+        syncthreads()
+        stride = h / 2
+        for k in range(10):
+            if t < stride:
+                s[t] = s[t] + s[t + stride]
+            syncthreads()
+            stride = stride / 2
+        mean = s[0] / h
+        syncthreads()
+        var = 0.0
+        if t == 0:
+            for j in range(h):
+                d = x[base + j] - mean
+                var = var + d * d
+            s[0] = var / h
+        syncthreads()
+        rstd = 1.0 / sqrt(s[0] + eps)
+        if t < h:
+            out[base + t] = (x[base + t] - mean) * rstd * g[t] + b[t]
+
+
+def run() -> "i32":
+    return 0

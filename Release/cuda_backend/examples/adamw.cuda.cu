@@ -6,7 +6,7 @@ if (i < n) {
   float mi = b1 * m[i] + (1.0 - b1) * g[i];
   float vi = b2 * v[i] + (1.0 - b2) * g[i] * g[i];
   float denom = sqrtf(vi / bc2) + eps;
-  float pi = p[i] - lr * mi / (bc1 * denom);
+  int pi = p[i] - lr * mi / (bc1 * denom);
   p[i] = pi - lr * wd * p[i];
   m[i] = mi;
   v[i] = vi;

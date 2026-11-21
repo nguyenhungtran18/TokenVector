@@ -57,6 +57,7 @@ def _cuda_expr(e: "str") -> "str":
     e = e.replace('sqrt(', 'sqrtf(')
     e = e.replace('erf(', 'erff(')
     e = e.replace('exp(', 'expf(')
+    e = e.replace('syncthreads()', '__syncthreads()')
     return e
 
 
@@ -102,6 +103,12 @@ def _cuda_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
             if v not in declared:
                 declared.append(v)
             depth = level
+        elif 'shared_array(' in st and '=' in st:
+            left = st.split('=')[0].strip()
+            arg = st[st.index('shared_array(') + 13:st.index(')')]
+            lines.append('  ' * (level - 1) + '__shared__ float ' + left + '[' + arg + '];')
+            if left not in declared:
+                declared.append(left)
         elif st.endswith(':'):
             cond = st[:len(st) - 1].strip()
             if cond.startswith('if '):
@@ -116,20 +123,22 @@ def _cuda_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
                 left = st.split('=')[0].strip()
                 if left not in declared and left not in ('',):
                     rhs = st.split('=', 1)[1]
-                    is_int = ('tid()' in rhs or 'bid()' in rhs or 'bdim()' in rhs
-                              or '%' in rhs
-                              or ('/' in rhs and 'sqrt' not in rhs and '1.0' not in rhs))
+                    is_int = ('tid()' in rhs or 'bid()' in rhs or 'bdim()' in rhs or '%' in rhs)
+                    if '/' in rhs and 'sqrt' not in rhs and '1.0' not in rhs:
+                        if 's[' in rhs:
+                            is_int = 0
+                        if 'mean' in rhs or 'var' in rhs:
+                            is_int = 0
+                        if left == 'mean' or left == 'rstd' or left == 'var':
+                            is_int = 0
+                        if left == 'row' or left == 'stride' or left == 'base':
+                            is_int = 1
                     if 'r * ' in rhs or 'i * ' in rhs or 'j * ' in rhs or 'row * ' in rhs or 'base * ' in rhs:
                         is_int = 1
                     k = 0
                     while k < len(params):
                         nm = params[k][0]
                         if nm + '[' in rhs and 'i32' in params[k][1]:
-                            is_int = 1
-                        k = k + 1
-                    k = 0
-                    while k < len(declared):
-                        if declared[k] + '[' in rhs:
                             is_int = 1
                         k = k + 1
                     ctype = 'int' if is_int else 'float'
