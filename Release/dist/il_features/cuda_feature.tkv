@@ -54,6 +54,7 @@ def _cuda_expr(e: "str") -> "str":
     e = e.replace('bid()', 'blockIdx.x')
     e = e.replace('bdim()', 'blockDim.x')
     e = e.replace('//', '/')
+    e = e.replace('sqrt(', 'sqrtf(')
     return e
 
 

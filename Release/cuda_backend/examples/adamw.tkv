@@ -1,0 +1,17 @@
+# -*- coding: utf-8 -*-
+# Fused AdamW (fp32) viet bang TokenVector .tkv (khong C++, khong Python).
+# @tkv.cuda_kernel grid="(n + 255) // 256" block="256"
+def adamw_step(p: "ptr[f32]", g: "ptr[f32]", m: "ptr[f32]", v: "ptr[f32]", n: "i32", lr: "f32", b1: "f32", b2: "f32", bc1: "f32", bc2: "f32", eps: "f32", wd: "f32") -> "void":
+    i = tid()
+    if i < n:
+        mi = b1 * m[i] + (1.0 - b1) * g[i]
+        vi = b2 * v[i] + (1.0 - b2) * g[i] * g[i]
+        denom = sqrt(vi / bc2) + eps
+        pi = p[i] - lr * mi / (bc1 * denom)
+        p[i] = pi - lr * wd * p[i]
+        m[i] = mi
+        v[i] = vi
+
+
+def run() -> "i32":
+    return 0
