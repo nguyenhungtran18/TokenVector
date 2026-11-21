@@ -108,8 +108,7 @@ static tkv_adamw_launch_fn load_tkv_adamw() {
     g_tkv_cuda_handle = dlopen(path, RTLD_NOW);
     if (!g_tkv_cuda_handle) return nullptr;
     p_tkv_adamw_launch = (tkv_adamw_launch_fn)dlsym(g_tkv_cuda_handle, "tkv_launch_adamw_step");
-    fprintf(stderr, "XDBG tkv_adamw load: handle=%p sym=%p path=%s
-", (void*)g_tkv_cuda_handle, (void*)p_tkv_adamw_launch, path);
+    fprintf(stderr, "XDBG tkv_adamw load: handle=%p sym=%p path=%s\n", (void*)g_tkv_cuda_handle, (void*)p_tkv_adamw_launch, path);
     return p_tkv_adamw_launch;
 }
 /* Pinned-memory staging tinh (tai su dung, mutex de an toan tu 2 thread).
