@@ -125,8 +125,6 @@ def _cpu_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
                             is_int = 0
                         if left == 'row' or left == 'stride' or left == 'base' or left == 'wid' or left == 'total' or left == 'i':
                             is_int = 1
-                    if 'r * ' in rhs or 'i * ' in rhs or 'j * ' in rhs or 'row * ' in rhs or 'base * ' in rhs:
-                        is_int = 1
                     k = 0
                     while k < len(params):
                         nm = params[k][0]
