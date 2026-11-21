@@ -1,0 +1,22 @@
+# -*- coding: utf-8 -*-
+# Tuong duong BIT-EXACT MergeHbHead: copy co->ctxT va dq->dqkv (pure copy, khong phep toan)
+# Signature khop native: MergeHbHead(co, dq, ctxT, dqkv, n, h, hd, hlo, hhi)
+# @tkv.cpu_kernel target="avx2"
+def MergeHbHead(co: "ptr[f32]", dq: "ptr[f32]", ctxT: "ptr[f32]", dqkv: "ptr[f32]", n: "i32", h: "i32", hd: "i32", hlo: "i32", hhi: "i32") -> "i32":
+    for head in range(hhi):
+        if head >= hlo:
+            ho = head * hd
+            for t2 in range(n):
+                base = t2 * h
+                p0 = t2 * 3 * hd
+                r0 = t2 * 3 * h
+                for d in range(hd):
+                    ctxT[base + ho + d] = co[t2 * hd + d]
+                    dqkv[r0 + ho + d] = dq[p0 + d]
+                    dqkv[r0 + h + ho + d] = dq[p0 + hd + d]
+                    dqkv[r0 + 2 * h + ho + d] = dq[p0 + 2 * hd + d]
+    return 0
+
+
+def run() -> "i32":
+    return 0
