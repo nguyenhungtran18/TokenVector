@@ -20,16 +20,21 @@ if (r < rows) {
   }
   float mean = s[0] / h;
   __syncthreads();
-  float var = 0.0;
-  if (t == 0) {
-    for (int j = 0; j < (h); j++) {
-      float d = x[base + j] - mean;
-      var = var + d * d;
-    }
-    s[0] = var / h;
+  if (t < h) {
+    float d = x[base + t] - mean;
+    s[t] = d * d;
   }
   __syncthreads();
-  float rstd = 1.0 / sqrtf(s[0] + eps);
+  stride = h / 2;
+  for (int k = 0; k < (10); k++) {
+    if (t < stride) {
+      s[t] = s[t] + s[t + stride];
+    }
+    __syncthreads();
+    stride = stride / 2;
+  }
+  float var = s[0] / h;
+  float rstd = 1.0 / sqrtf(var + eps);
   if (t < h) {
     out[base + t] = (x[base + t] - mean) * rstd * g[t] + b[t];
   }
