@@ -55,6 +55,8 @@ def _cuda_expr(e: "str") -> "str":
     e = e.replace('bdim()', 'blockDim.x')
     e = e.replace('//', '/')
     e = e.replace('sqrt(', 'sqrtf(')
+    e = e.replace('erf(', 'erff(')
+    e = e.replace('exp(', 'expf(')
     return e
 
 
@@ -75,7 +77,7 @@ def _cuda_params(header: "str") -> "list[(str,str)]":
     return out
 
 
-def _cuda_body_c(body: "list[str]") -> "str":
+def _cuda_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
     """Sinh thân kernel C tu thân ham Python (ho tro cac cap if long nhau)."""
     lines = []
     declared = []
@@ -100,7 +102,21 @@ def _cuda_body_c(body: "list[str]") -> "str":
             if '=' in st and '[' not in st.split('=')[0]:
                 left = st.split('=')[0].strip()
                 if left not in declared and left not in ('',):
-                    ctype = 'int' if ('tid()' in st or 'bid()' in st or 'bdim()' in st) else 'float'
+                    rhs = st.split('=', 1)[1]
+                    is_int = ('tid()' in rhs or 'bid()' in rhs or 'bdim()' in rhs
+                              or '%' in rhs or '/' in rhs)
+                    k = 0
+                    while k < len(params):
+                        nm = params[k][0]
+                        if nm + '[' in rhs and 'i32' in params[k][1]:
+                            is_int = 1
+                        k = k + 1
+                    k = 0
+                    while k < len(declared):
+                        if declared[k] + '[' in rhs:
+                            is_int = 1
+                        k = k + 1
+                    ctype = 'int' if is_int else 'float'
                     declared.append(left)
                     st = ctype + ' ' + st
             lines.append('  ' * (level - 1) + _cuda_expr(st) + ';')
@@ -120,7 +136,7 @@ def _cuda_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]") ->
             decls.append(_cuda_c_type(ann) + ' ' + pn)
         args.append(pn)
     s = 'extern "C" __global__ void tkv_kernel_' + name + '(' + ', '.join(decls) + ') {\n'
-    s = s + _cuda_body_c(body)
+    s = s + _cuda_body_c(body, params)
     s = s + '}\n\n'
     s = s + 'extern "C" int tkv_launch_' + name + '(' + ', '.join(decls) + ', int grid, int block) {\n'
     s = s + '  tkv_kernel_' + name + '<<<grid, block>>>(' + ', '.join(args) + ');\n'

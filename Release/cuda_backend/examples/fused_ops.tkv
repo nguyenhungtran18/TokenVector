@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+# Cac kernel elementwise viet bang TokenVector .tkv, thay ATen trong forward.
+# @tkv.cuda_kernel grid="(n + 255) // 256" block="256"
+def embed_add(wte: "ptr[f32]", wpe: "ptr[f32]", ids: "ptr[i32]", out: "ptr[f32]", n: "i32", h: "i32") -> "void":
+    i = tid()
+    if i < n:
+        row = i / h
+        col = i % h
+        tok = ids[row]
+        out[i] = wte[tok * h + col] + wpe[i]
+
+
+# @tkv.cuda_kernel grid="(n + 255) // 256" block="256"
+def gelu_erf(x: "ptr[f32]", out: "ptr[f32]", n: "i32") -> "void":
+    i = tid()
+    if i < n:
+        v = x[i]
+        out[i] = 0.5 * v * (1.0 + erf(v * 0.70710678))
+
+
+# @tkv.cuda_kernel grid="(n + 255) // 256" block="256"
+def bias_add(x: "ptr[f32]", b: "ptr[f32]", out: "ptr[f32]", n: "i32", h: "i32") -> "void":
+    i = tid()
+    if i < n:
+        col = i % h
+        out[i] = x[i] + b[col]
+
+
+def run() -> "i32":
+    return 0
