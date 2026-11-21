@@ -55,6 +55,7 @@ def _cpu_is_ptr(ann: "str") -> "i32":
 
 def _cpu_expr(e: "str") -> "str":
     """Dich bieu thuc dang Python sang C. fma() -> fmaf() (bit-exact)."""
+    e = e.replace('embed_bwd(', 'tkv_embed_bwd(')
     e = e.replace('softmax_cb(', 'tkv_softmax_cb(')
     e = e.replace('softmax_cf(', 'tkv_softmax_cf(')
     e = e.replace('gelu_bv(', 'tkv_gelu_bv(')

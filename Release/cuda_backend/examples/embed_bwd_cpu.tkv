@@ -1,0 +1,11 @@
+# -*- coding: utf-8 -*-
+# Tuong duong BIT-EXACT EmbedBwdFused (scatter-add theo idx, thu tu q tang dan).
+# C goc (calloc/starts/cursor/pos) duoc notebook chen vao file sinh.
+# @tkv.cpu_kernel target="avx2"
+def EmbedBwdFused(idx: "ptr[i64]", idx_len: "i32", rows: "i32", d: "i32", gy: "ptr[f32]", gy_len: "i32", gw: "ptr[f32]", gw_len: "i32") -> "i32":
+    embed_bwd(idx, gy, gw, rows, d, idx_len)
+    return 0
+
+
+def run() -> "i32":
+    return 0
