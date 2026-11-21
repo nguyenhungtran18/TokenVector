@@ -20,11 +20,13 @@ for (int i = 0; i < (n); i++) {
   }
   d_var = d_var / h;
   double d_rstd = 1.0 / sqrt(d_var + 1e-6);
+  double d_xh = 0.0;
+  float f_gg = 0.0;
   double d_s1 = 0.0;
   double d_s2 = 0.0;
   for (int j = 0; j < (h); j++) {
-    double d_xh = (x[base + j] - d_mu) * d_rstd;
-    float f_gg = gy[base + j] * g[j];
+    d_xh = (x[base + j] - d_mu) * d_rstd;
+    f_gg = gy[base + j] * g[j];
     d_s1 = d_s1 + f_gg;
     d_s2 = d_s2 + f_gg * d_xh;
   }

@@ -21,6 +21,8 @@ def LayernormBwdFused(x: "ptr[f32]", x_len: "i32", gy: "ptr[f32]", gy_len: "i32"
             d_var = d_var + d_d * d_d
         d_var = d_var / h
         d_rstd = 1.0 / d_sqrt(d_var + 1e-6)
+        d_xh = 0.0
+        f_gg = 0.0
         d_s1 = 0.0
         d_s2 = 0.0
         for j in range(h):
