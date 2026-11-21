@@ -1,0 +1,24 @@
+# -*- coding: utf-8 -*-
+# LayerNorm fp32 viet bang TokenVector .tkv, dung for (DSL moi).
+# Moi thread xu ly 1 row: doc het row tinh mean/var roi normalize.
+# @tkv.cuda_kernel grid="(rows + 255) // 256" block="256"
+def layernorm_fwd(x: "ptr[f32]", g: "ptr[f32]", b: "ptr[f32]", out: "ptr[f32]", rows: "i32", h: "i32", eps: "f32") -> "void":
+    r = bid()
+    if r < rows:
+        base = r * h
+        mean = 0.0
+        for j in range(h):
+            mean = mean + x[base + j]
+        mean = mean / h
+        var = 0.0
+        for j in range(h):
+            d = x[base + j] - mean
+            var = var + d * d
+        var = var / h
+        rstd = 1.0 / sqrt(var + eps)
+        for j in range(h):
+            out[base + j] = (x[base + j] - mean) * rstd * g[j] + b[j]
+
+
+def run() -> "i32":
+    return 0

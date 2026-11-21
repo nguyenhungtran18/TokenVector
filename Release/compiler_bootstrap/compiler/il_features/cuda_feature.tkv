@@ -91,10 +91,23 @@ def _cuda_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
         while depth > level - 1:
             depth = depth - 1
             lines.append('  ' * depth + '}')
-        if st.endswith(':'):
+        if st.startswith('for ') and st.endswith(':'):
+            hdr = st[4:len(st) - 1].strip()
+            parts = hdr.split(' in ')
+            v = parts[0].strip()
+            lim = parts[1].strip()
+            if lim.startswith('range('):
+                lim = lim[6:len(lim) - 1]
+            lines.append('  ' * (level - 1) + 'for (int ' + v + ' = 0; ' + v + ' < (' + _cuda_expr(lim) + '); ' + v + '++) {')
+            if v not in declared:
+                declared.append(v)
+            depth = level
+        elif st.endswith(':'):
             cond = st[:len(st) - 1].strip()
             if cond.startswith('if '):
                 cond = cond[3:]
+            elif cond.startswith('else'):
+                cond = '1'
             lines.append('  ' * (level - 1) + 'if (' + _cuda_expr(cond) + ') {')
             depth = level
         else:
@@ -104,7 +117,10 @@ def _cuda_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
                 if left not in declared and left not in ('',):
                     rhs = st.split('=', 1)[1]
                     is_int = ('tid()' in rhs or 'bid()' in rhs or 'bdim()' in rhs
-                              or '%' in rhs or '/' in rhs)
+                              or '%' in rhs
+                              or ('/' in rhs and 'sqrt' not in rhs and '1.0' not in rhs))
+                    if 'r * ' in rhs or 'i * ' in rhs or 'j * ' in rhs or 'row * ' in rhs or 'base * ' in rhs:
+                        is_int = 1
                     k = 0
                     while k < len(params):
                         nm = params[k][0]
