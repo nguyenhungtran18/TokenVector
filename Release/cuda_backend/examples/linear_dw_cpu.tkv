@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
-# Tuong duong BIT-EXACT LinearDwFused (tkv_linear_dw.c / CPU AVX2 /fp:precise).
-# Moi phan tu dw[i,c] = gdw_old + sum_p fma(x[p,i], gy[p,c]), FMA THEO THU TU p.
-# Khong tree-reduce, khong reorder.
+# BIT-EXACT theo tkv_linear_dw.c: accumulator bat dau = 0 (nhu _mm256_setzero_ps),
+# chuoi FMA tu 0, ROI cong gdw cu O CUOI (_mm256_add_ps(load(d), b)).
 # @tkv.cpu_kernel target="avx2"
 def linear_dw_cpu(x: "ptr[f32]", gy: "ptr[f32]", gdw: "ptr[f32]", n: "i32", in_d: "i32", out_d: "i32") -> "void":
     for i in range(in_d):
         for c in range(out_d):
-            s = gdw[i * out_d + c]
+            acc = 0.0
             for p in range(n):
-                s = fma(x[p * in_d + i], gy[p * out_d + c], s)
-            gdw[i * out_d + c] = s
+                acc = fma(x[p * in_d + i], gy[p * out_d + c], acc)
+            gdw[i * out_d + c] = gdw[i * out_d + c] + acc
 
 
 def run() -> "i32":
