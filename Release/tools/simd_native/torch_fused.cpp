@@ -108,6 +108,8 @@ static tkv_adamw_launch_fn load_tkv_adamw() {
     g_tkv_cuda_handle = dlopen(path, RTLD_NOW);
     if (!g_tkv_cuda_handle) return nullptr;
     p_tkv_adamw_launch = (tkv_adamw_launch_fn)dlsym(g_tkv_cuda_handle, "tkv_launch_adamw_step");
+    fprintf(stderr, "XDBG tkv_adamw load: handle=%p sym=%p path=%s
+", (void*)g_tkv_cuda_handle, (void*)p_tkv_adamw_launch, path);
     return p_tkv_adamw_launch;
 }
 /* Pinned-memory staging tinh (tai su dung, mutex de an toan tu 2 thread).
@@ -1106,13 +1108,13 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
                     g_m_dev.data_ptr<float>(), g_v_dev.data_ptr<float>(),
                     numel, lr_t, g_b1, g_b2, bc1, bc2, g_eps, g_wd,
                     blocks, threads);
-                if (rc != 0) fprintf(stderr, "XDBG tkv_adamw launch rc=%d\n", rc);
+                fprintf(stderr, "XDBG tkv_adamw LAUNCHED (TKV .tkv kernel) rc=%d\n", rc);
             } else {
+                fprintf(stderr, "XDBG tkv_adamw FALLBACK to ATen (kernel .tkv NOT used)\n");
                 g_m_dev.mul_(g_b1).add_(g_grad_dev, 1.0f - g_b1);
                 g_v_dev.mul_(g_b2).addcmul_(g_grad_dev, g_grad_dev, 1.0f - g_b2);
                 auto denom = (g_v_dev / bc2).sqrt_().add_(g_eps);
                 g_p_all.addcdiv_(g_m_dev, denom, -lr_t / bc1);
-            }
         }
         /* Dong bo params fp16 (g_p[i] la ban copy) voi master fp32 sau update:
          * neu khong, cac step sau tiep tuc dung weights cu. copy_ tu
