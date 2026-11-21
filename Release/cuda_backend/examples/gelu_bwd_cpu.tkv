@@ -1,0 +1,11 @@
+# -*- coding: utf-8 -*-
+# Tuong duong BIT-EXACT GeluErfBwd_impl: out[i-lo] = gy[i] * gelu_bwd_one(x[i])
+# Signature khop native: GeluErfBwd(x, x_len, gy, gy_len, out, out_len, lo, hi)
+# @tkv.cpu_kernel target="avx2"
+def GeluErfBwd(x: "ptr[f32]", x_len: "i32", gy: "ptr[f32]", gy_len: "i32", out: "ptr[f32]", out_len: "i32", lo: "i64", hi: "i64") -> "i32":
+    gelu_bv(x, gy, out, lo, hi)
+    return 0
+
+
+def run() -> "i32":
+    return 0
