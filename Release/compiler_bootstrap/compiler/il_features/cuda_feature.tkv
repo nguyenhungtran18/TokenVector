@@ -123,7 +123,10 @@ def _cuda_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]") ->
     s = s + '}\n\n'
     s = s + 'extern "C" int tkv_launch_' + name + '(' + ', '.join(decls) + ', int grid, int block) {\n'
     s = s + '  tkv_kernel_' + name + '<<<grid, block>>>(' + ', '.join(args) + ');\n'
-    s = s + '  return (int)cudaGetLastError();\n'
+    s = s + '  cudaError_t launch_err = cudaGetLastError();\n'
+    s = s + '  cudaDeviceSynchronize();\n'
+    s = s + '  cudaError_t sync_err = cudaGetLastError();\n'
+    s = s + '  return (int)(launch_err != cudaSuccess ? launch_err : sync_err);\n'
     s = s + '}\n'
     return s
 
