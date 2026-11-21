@@ -1,0 +1,47 @@
+# -*- coding: utf-8 -*-
+# LayerNorm fp32 bang TokenVector .tkv: warp-shuffle reduce (nhanh nhat).
+# 1 block = 1 row, 8 warps (256 thread). Moi warp reduce 32 phan tu, warp 0 gop.
+# @tkv.cuda_kernel grid="rows" block="256"
+def layernorm_warp(x: "ptr[f32]", g: "ptr[f32]", b: "ptr[f32]", out: "ptr[f32]", rows: "i32", h: "i32", eps: "f32") -> "void":
+    s = shared_array(8)
+    r = bid()
+    t = ltid()
+    lane = laneid()
+    wid = t / 32
+    if r < rows:
+        base = r * h
+        v = 0.0
+        if t < h:
+            v = x[base + t]
+        sm = wreduce(v)
+        if lane == 0:
+            s[wid] = sm
+        syncthreads()
+        m8 = 0.0
+        if wid == 0:
+            m8 = wreduce(s[lane])
+        if t == 0:
+            s[0] = m8 / h
+        syncthreads()
+        mean = s[0]
+        v2 = 0.0
+        if t < h:
+            d2 = x[base + t] - mean
+            v2 = d2 * d2
+        sv = wreduce(v2)
+        if lane == 0:
+            s[wid] = sv
+        syncthreads()
+        v8 = 0.0
+        if wid == 0:
+            v8 = wreduce(s[lane])
+        if t == 0:
+            s[0] = v8 / h
+        syncthreads()
+        rstd = 1.0 / sqrt(s[0] + eps)
+        if t < h:
+            out[base + t] = (x[base + t] - mean) * rstd * g[t] + b[t]
+
+
+def run() -> "i32":
+    return 0

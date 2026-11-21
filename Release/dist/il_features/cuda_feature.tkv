@@ -51,6 +51,8 @@ def _cuda_is_ptr(ann: "str") -> "i32":
 def _cuda_expr(e: "str") -> "str":
     """Dich bieu thuc dang Python sang C (cac phep toan so hoc giong nhau)."""
     e = e.replace('ltid()', 'threadIdx.x')
+    e = e.replace('laneid()', '(threadIdx.x & 31)')
+    e = e.replace('wreduce(', 'tkv_wreduce(')
     e = e.replace('tid()', '(blockIdx.x * blockDim.x + threadIdx.x)')
     e = e.replace('bid()', 'blockIdx.x')
     e = e.replace('bdim()', 'blockDim.x')
@@ -132,7 +134,7 @@ def _cuda_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
                             is_int = 0
                         if left == 'mean' or left == 'rstd' or left == 'var':
                             is_int = 0
-                        if left == 'row' or left == 'stride' or left == 'base':
+                        if left == 'row' or left == 'stride' or left == 'base' or left == 'wid':
                             is_int = 1
                     if 'r * ' in rhs or 'i * ' in rhs or 'j * ' in rhs or 'row * ' in rhs or 'base * ' in rhs:
                         is_int = 1
@@ -142,6 +144,8 @@ def _cuda_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
                         if nm + '[' in rhs and 'i32' in params[k][1]:
                             is_int = 1
                         k = k + 1
+                    if left == 'lane' or left == 'wid':
+                        is_int = 1
                     ctype = 'int' if is_int else 'float'
                     declared.append(left)
                     st = ctype + ' ' + st
@@ -228,6 +232,13 @@ def cuda_rewrite_source(src: "str", path: "str") -> "str":
     pragmas = []
     wrappers = []
     cu_parts = ['#include <cuda_runtime.h>\n']
+    cu_parts.append('#include <stdint.h>' + chr(10))
+    cu_parts.append('__device__ __forceinline__ float tkv_wreduce(float v) {' + chr(10) +
+                    '  for (int off = 16; off > 0; off >>= 1) {' + chr(10) +
+                    '    v += __shfl_down_sync(0xffffffff, v, off);' + chr(10) +
+                    '  }' + chr(10) +
+                    '  return v;' + chr(10) +
+                    '}' + chr(10) + chr(10))
     i = 0
     while i < len(lines):
         ln = lines[i]
