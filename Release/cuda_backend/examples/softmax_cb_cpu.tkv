@@ -1,0 +1,10 @@
+# -*- coding: utf-8 -*-
+# Tuong duong BIT-EXACT SoftmaxCausalBwd (f64 dot tuan tu + causal mask).
+# @tkv.cpu_kernel target="avx2"
+def SoftmaxCausalBwd(dp: "ptr[f32]", dp_len: "i32", P: "ptr[f32]", P_len: "i32", dctx: "ptr[f32]", dc_len: "i32", ctx: "ptr[f32]", c_len: "i32", n: "i32", hd: "i32") -> "i32":
+    softmax_cb(dp, P, dctx, ctx, n, hd)
+    return 0
+
+
+def run() -> "i32":
+    return 0
