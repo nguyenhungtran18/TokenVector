@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+# LayerNorm warp1 voi REDUCE fp64 -> chinh xac, doc x 1 lan, khong shared/sync.
+# @tkv.cuda_kernel grid="rows" block="32"
+def layernorm_warp1d(x: "ptr[f32]", g: "ptr[f32]", b: "ptr[f32]", out: "ptr[f32]", rows: "i32", h: "i32", eps: "f32") -> "void":
+    r = bid()
+    lane = laneid()
+    if r < rows:
+        base = r * h
+        x0 = x[base + lane]
+        x1 = x[base + lane + 32]
+        x2 = x[base + lane + 64]
+        x3 = x[base + lane + 96]
+        x4 = x[base + lane + 128]
+        x5 = x[base + lane + 160]
+        x6 = x[base + lane + 192]
+        x7 = x[base + lane + 224]
+        d_s = x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7
+        d_q = x0*x0 + x1*x1 + x2*x2 + x3*x3 + x4*x4 + x5*x5 + x6*x6 + x7*x7
+        d_st = wreduce_d(d_s)
+        d_qt = wreduce_d(d_q)
+        d_mean = d_st / h
+        d_var = d_qt / h - d_mean * d_mean
+        rstd = 1.0 / sqrt(d_var + eps)
+        m = d_mean
+        out[base + lane] = (x0 - m) * rstd * g[lane] + b[lane]
+        out[base + lane + 32] = (x1 - m) * rstd * g[lane + 32] + b[lane + 32]
+        out[base + lane + 64] = (x2 - m) * rstd * g[lane + 64] + b[lane + 64]
+        out[base + lane + 96] = (x3 - m) * rstd * g[lane + 96] + b[lane + 96]
+        out[base + lane + 128] = (x4 - m) * rstd * g[lane + 128] + b[lane + 128]
+        out[base + lane + 160] = (x5 - m) * rstd * g[lane + 160] + b[lane + 160]
+        out[base + lane + 192] = (x6 - m) * rstd * g[lane + 192] + b[lane + 192]
+        out[base + lane + 224] = (x7 - m) * rstd * g[lane + 224] + b[lane + 224]
+
+
+def run() -> "i32":
+    return 0
