@@ -8,7 +8,7 @@
 EXPORT int MergeHbHead(float* co, float* dq, float* ctxT, float* dqkv, int n, int h, int hd, int hlo, int hhi) {
 for (int head = 0; head < (hhi); head++) {
   if (head >= hlo) {
-    float ho = head * hd;
+    long long ho = head * hd;
     for (int t2 = 0; t2 < (n); t2++) {
       long long base = t2 * h;
       long long p0 = t2 * 3 * hd;
