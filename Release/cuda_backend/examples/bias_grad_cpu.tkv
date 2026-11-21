@@ -1,0 +1,15 @@
+# -*- coding: utf-8 -*-
+# Tuong duong BIT-EXACT BiasGrad_impl: gflat[off+c] += sum_i gy[i*cols+c]
+# Native: acc = load(gflat[off+c]); for i: acc += gy[...] (khong ai dau 0).
+# @tkv.cpu_kernel target="avx2"
+def BiasGrad(gy: "ptr[f32]", gflat: "ptr[f32]", off: "i64", n: "i32", cols: "i32") -> "i32":
+    for c in range(cols):
+        acc = gflat[off + c]
+        for i in range(n):
+            acc = acc + gy[i * cols + c]
+        gflat[off + c] = acc
+    return 0
+
+
+def run() -> "i32":
+    return 0
