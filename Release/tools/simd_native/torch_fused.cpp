@@ -1115,6 +1115,7 @@ TKV_TORCH_EXPORT float TkvFullStep124m(int64_t run_mode) {
                 g_v_dev.mul_(g_b2).addcmul_(g_grad_dev, g_grad_dev, 1.0f - g_b2);
                 auto denom = (g_v_dev / bc2).sqrt_().add_(g_eps);
                 g_p_all.addcdiv_(g_m_dev, denom, -lr_t / bc1);
+            }
         }
         /* Dong bo params fp16 (g_p[i] la ban copy) voi master fp32 sau update:
          * neu khong, cac step sau tiep tuc dung weights cu. copy_ tu
