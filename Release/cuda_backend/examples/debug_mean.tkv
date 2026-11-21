@@ -1,0 +1,24 @@
+# -*- coding: utf-8 -*-
+# Debug: ghi mean (s[0]/h) vao out[r] de so voi torch.
+# @tkv.cuda_kernel grid="rows" block="256"
+def debug_mean(x: "ptr[f32]", out: "ptr[f32]", rows: "i32", h: "i32") -> "void":
+    s = shared_array(1024)
+    r = bid()
+    t = ltid()
+    if r < rows:
+        base = r * h
+        if t < h:
+            s[t] = x[base + t]
+        syncthreads()
+        stride = h / 2
+        for k in range(10):
+            if t < stride:
+                s[t] = s[t] + s[t + stride]
+            syncthreads()
+            stride = stride / 2
+        if t == 0:
+            out[r] = s[0] / h
+
+
+def run() -> "i32":
+    return 0
