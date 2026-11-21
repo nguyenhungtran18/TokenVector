@@ -43,15 +43,14 @@ và ghi log vào `demo.cuda.build.log`. Để chạy CUDA thật trong Colab: bu
 | `compiler_bootstrap/tkv_compile.tkv` | 1 import + 1 dòng gọi `cuda_rewrite_source()` trong `extract_program_file` |
 | `compiler_src/ds_gop.txt`, `compiler_src/feature_can.txt`, `dist/il_features/` | đăng ký module mới |
 | `dist/tkvc-tv.exe` | compiler tự host rebuild (134 file) |
-| `cuda_backend/tkv_cuda.py`, `examples/`, `tests/` | prototype tiền xử lý độc lập (Python), dùng để thử nghiệm nhanh |
+| `cuda_backend/examples/` | ví dụ `.tkv` có kernel + file `.cu`/`.build.sh` do compiler sinh |
 
 ## Đã kiểm tra
 
 - `tools\vong.exe`: `gop 134 file`, `g1 xong`, `g2 xong`, **IL_IDENTICAL**.
 - `tools\testkit_gate.ps1`: **PASS 136/136**, negative **44/44** (không hồi quy).
 - `kernel_demo.tkv`: build OK, chạy `run` trả 0; `.cu` sinh ra đúng cấu trúc
-  (`__global__`, launcher, `cudaGetLastError`).
-- `cuda_backend/tests/test_gen.py`: 6/6 test (chỉ kiểm tra sinh mã, không cần GPU).
+  (`__global__`, launcher, `cudaDeviceSynchronize` + `cudaGetLastError`).
 
 ## Giới hạn (cố ý)
 
