@@ -133,7 +133,10 @@ def _cpu_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
                         k = k + 1
                     if left == 'lane' or left == 'wid' or left == 'total':
                         is_int = 1
-                    ctype = 'double' if left.startswith('d_') else ('int' if is_int else 'float')
+                    if left == 'base':
+                        ctype = 'long long'
+                    else:
+                        ctype = 'double' if left.startswith('d_') else ('int' if is_int else 'float')
                     declared.append(left)
                     st = ctype + ' ' + st
             lines.append('  ' * (level - 1) + _cpu_expr(st) + ';')

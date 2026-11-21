@@ -1,0 +1,13 @@
+# -*- coding: utf-8 -*-
+# Tuong duong BIT-EXACT BiasAddRows (tkv_bwd_ops.c): y[i*cols + j] += b[j]
+# Phep cong don, khong reorder (/fp:precise).
+# @tkv.cpu_kernel target="avx2"
+def BiasAddRows(y: "ptr[f32]", b: "ptr[f32]", rows: "i64", cols: "i64") -> "i32":
+    for i in range(rows):
+        base = i * cols
+        for j in range(cols):
+            y[base + j] = y[base + j] + b[j]
+
+
+def run() -> "i32":
+    return 0
