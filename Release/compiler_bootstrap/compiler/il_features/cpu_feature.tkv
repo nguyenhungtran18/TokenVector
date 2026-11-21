@@ -64,7 +64,9 @@ def _cpu_expr(e: "str") -> "str":
     e = e.replace('gelu_b(', 'tkv_gelu_b(')
     e = e.replace('fma(', 'fmaf(')
     e = e.replace('//', '/')
+    e = e.replace('d_sqrt(', '__TKVSQRT__')
     e = e.replace('sqrt(', 'sqrtf(')
+    e = e.replace('__TKVSQRT__', 'sqrt(')
     e = e.replace('erf(', 'erff(')
     e = e.replace('exp(', 'expf(')
     return e

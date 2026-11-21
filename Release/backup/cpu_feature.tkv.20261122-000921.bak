@@ -1,0 +1,263 @@
+# -*- coding: utf-8 -*-
+"""PROTOTYPE: CPU AVX2 kernel backend cho TokenVector (2026-11-21).
+
+Cho phep viet kernel CPU ngay trong file .tkv:
+
+    # @tkv.cpu_kernel target="avx2"
+    def linear_dw(x: "ptr[f32]", gy: "ptr[f32]", gdw: "ptr[f32]",
+                  n: "i32", in_d: "i32", out_d: "i32") -> "void":
+        for i0 in range(in_d):
+            for c in range(out_d):
+                s = gdw[i0 * out_d + c]
+                for p in range(n):
+                    s = fma(x[p * in_d + i0], gy[p * out_d + c], s)
+                gdw[i0 * out_d + c] = s
+
+Luong bien dich:
+  1. cpu_rewrite_source() (goi tu extract_program_file) quet marker, sinh
+     <stem>.cpu.c + wrapper, thay kernel bang __tkv_extern_pinvoke__.
+  2. <stem>.cpu.build.sh build bang gcc -mavx2 -mfma -ffp-contract=off
+     -fno-fast-math (tuong duong /fp:precise, KHONG reorder FMA).
+  3. phan con lai di vao pipeline binh thuong (pragma P/Invoke co san).
+
+BIT-EXACT: `fma(a,b,c)` duoc chuyen thanh fmaf() -> vfmadd (khong lam tron
+trung gian), dung thu tu vong for. Khong tree-reduce, khong -ffast-math.
+Khong co marker -> ham tra nguyen chuoi, khong doi gi ca.
+"""
+
+CPU_MARK = '# @tkv.cpu_kernel'
+
+
+def _cpu_c_type(ann: "str") -> "str":
+    """'ptr[f32]' -> 'float*' ; 'i32' -> 'int'."""
+    if ann.startswith('ptr['):
+        base = ann[4:len(ann) - 1]
+        star = '*'
+    else:
+        base = ann
+        star = ''
+    if base == 'f32':
+        return 'float' + star
+    if base == 'f64':
+        return 'double' + star
+    if base == 'i32':
+        return 'int' + star
+    if base == 'i64':
+        return 'long long' + star
+    return base + star
+
+
+def _cpu_is_ptr(ann: "str") -> "i32":
+    if ann.startswith('ptr['):
+        return 1
+    return 0
+
+
+def _cpu_expr(e: "str") -> "str":
+    """Dich bieu thuc dang Python sang C. fma() -> fmaf() (bit-exact)."""
+    e = e.replace('embed_bwd(', 'tkv_embed_bwd(')
+    e = e.replace('softmax_cb(', 'tkv_softmax_cb(')
+    e = e.replace('softmax_cf(', 'tkv_softmax_cf(')
+    e = e.replace('gelu_bv(', 'tkv_gelu_bv(')
+    e = e.replace('gelu_fv(', 'tkv_gelu_fv(')
+    e = e.replace('gelu_f(', 'tkv_gelu_f(')
+    e = e.replace('gelu_b(', 'tkv_gelu_b(')
+    e = e.replace('fma(', 'fmaf(')
+    e = e.replace('//', '/')
+    e = e.replace('sqrt(', 'sqrtf(')
+    e = e.replace('erf(', 'erff(')
+    e = e.replace('exp(', 'expf(')
+    return e
+
+
+def _cpu_params(header: "str") -> "list[(str,str)]":
+    out = []
+    parts = header.split(',')
+    for p in parts:
+        p = p.strip()
+        if p == '':
+            continue
+        k = p.find(':')
+        if k < 0:
+            continue
+        ten = p[:k].strip()
+        ann = p[k + 1:].strip()
+        ann = ann.replace('"', '').replace("'", '')
+        out.append((ten, ann))
+    return out
+
+
+def _cpu_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
+    """Sinh than kernel C tu than ham Python (for/if long nhau, FMA giu thu tu)."""
+    lines = []
+    declared = []
+    depth = 0
+    for ln in body:
+        st = ln.strip()
+        if st == '':
+            continue
+        ind = len(ln) - len(ln.lstrip(' '))
+        level = ind // 4
+        while depth > level - 1:
+            depth = depth - 1
+            lines.append('  ' * depth + '}')
+        if st.startswith('for ') and st.endswith(':'):
+            hdr = st[4:len(st) - 1].strip()
+            parts = hdr.split(' in ')
+            v = parts[0].strip()
+            lim = parts[1].strip()
+            if lim.startswith('range('):
+                lim = lim[6:len(lim) - 1]
+            lines.append('  ' * (level - 1) + 'for (int ' + v + ' = 0; ' + v + ' < (' + _cpu_expr(lim) + '); ' + v + '++) {')
+            if v not in declared:
+                declared.append(v)
+            depth = level
+        elif st.endswith(':'):
+            cond = st[:len(st) - 1].strip()
+            if cond.startswith('if '):
+                cond = cond[3:]
+            elif cond.startswith('else'):
+                cond = '1'
+            lines.append('  ' * (level - 1) + 'if (' + _cpu_expr(cond) + ') {')
+            depth = level
+        else:
+            # khai bien cuc bo lan dau gan - suy kieu don gian nhu CUDA backend
+            if '=' in st and '[' not in st.split('=')[0]:
+                left = st.split('=')[0].strip()
+                if left not in declared and left not in ('',):
+                    rhs = st.split('=', 1)[1]
+                    is_int = ('%' in rhs)
+                    if '/' in rhs and 'sqrt' not in rhs and '1.0' not in rhs:
+                        if left == 'mean' or left == 'rstd' or left == 'var':
+                            is_int = 0
+                        if left == 'row' or left == 'stride' or left == 'base' or left == 'wid' or left == 'total' or left == 'i':
+                            is_int = 1
+                    k = 0
+                    while k < len(params):
+                        nm = params[k][0]
+                        if nm + '[' in rhs and 'i32' in params[k][1]:
+                            is_int = 1
+                        k = k + 1
+                    if left == 'lane' or left == 'wid' or left == 'total':
+                        is_int = 1
+                    if left == 'base' or left == 'p0' or left == 'r0' or left == 'c0' or left == 'ho':
+                        ctype = 'long long'
+                    else:
+                        ctype = 'double' if left.startswith('d_') else ('int' if is_int else 'float')
+                    declared.append(left)
+                    st = ctype + ' ' + st
+            lines.append('  ' * (level - 1) + _cpu_expr(st) + ';')
+    while depth > 0:
+        depth = depth - 1
+        lines.append('  ' * depth + '}')
+    return '\n'.join(lines) + '\n'
+
+
+def _cpu_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]") -> "str":
+    decls = []
+    args = []
+    for pn, ann in params:
+        decls.append(_cpu_c_type(ann) + ' ' + pn)
+        args.append(pn)
+    s = 'EXPORT int ' + name + '(' + ', '.join(decls) + ') {\n'
+    s = s + _cpu_body_c(body, params)
+    s = s + '  return 0;\n'
+    s = s + '}\n'
+    return s
+
+
+def _cpu_pragma(name: "str", params: "list[(str,str)]", so: "str") -> "str":
+    ts = []
+    for pn, ann in params:
+        if _cpu_is_ptr(ann) == 1:
+            ts.append('"i64"')
+        elif ann == 'f32':
+            ts.append('"f32"')
+        elif ann == 'f64':
+            ts.append('"f64"')
+        elif ann == 'i64':
+            ts.append('"i64"')
+        else:
+            ts.append('"i32"')
+    sym = name
+    return ('    {"name": "' + sym + '", "dll": "' + so + '", "symbol": "' + sym + '",\n'
+            '     "convention": "cdecl", "params": [' + ', '.join(ts) + '], "returns": "i32"},')
+
+
+def _cpu_wrapper(name: "str", params: "list[(str,str)]") -> "str":
+    sig = []
+    args = []
+    for pn, ann in params:
+        if _cpu_is_ptr(ann) == 1:
+            t = 'i64'
+        else:
+            t = ann
+        sig.append(pn + ': "' + t + '"')
+        args.append(pn)
+    return ('def ' + name + '_launch(' + ', '.join(sig) + ') -> "i32":\n'
+            '    return ' + name + '(' + ', '.join(args) + ')\n')
+
+
+def cpu_rewrite_source(src: "str", path: "str") -> "str":
+    """Di tim cac kernel duoc danh dau, sinh .cpu.c + glue, tra source moi."""
+    lines = src.splitlines()
+    if not any(ln.startswith(CPU_MARK) for ln in lines):
+        return src
+    dirp = path_dirname(path)
+    stem = path_stem(path)
+    cu_path = dirp + '/' + stem + '.cpu.c'
+    sh_path = dirp + '/' + stem + '.cpu.build.sh'
+    # Validator pragma yeu cau ten ket thuc '.dll'; Linux van la ELF .so
+    so = stem + '_cpu.dll'
+    out = []
+    pragmas = []
+    wrappers = []
+    cu_parts = ['#include <immintrin.h>\n']
+    cu_parts.append('#include <math.h>' + chr(10))
+    cu_parts.append('#define EXPORT __attribute__((visibility("default")))' + chr(10) + chr(10))
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+        if ln.startswith(CPU_MARK):
+            j = i + 1
+            while j < len(lines) and not lines[j].lstrip().startswith('def '):
+                j = j + 1
+            if j >= len(lines):
+                raise TranspileError('CPU kernel: thieu dinh nghia def sau marker')
+            head = lines[j].strip()
+            a = head.find('(')
+            b = head.find(')')
+            if a < 0 or b < 0:
+                raise TranspileError('CPU kernel: dong def khong hop le: ' + head)
+            name = head[4:a].strip()
+            params = _cpu_params(head[a + 1:b])
+            k = j + 1
+            body = []
+            while k < len(lines) and (lines[k].strip() == '' or lines[k].startswith('    ')):
+                body.append(lines[k])
+                k = k + 1
+            cu_parts.append(_cpu_kernel_c(name, params, body))
+            pragmas.append(_cpu_pragma(name, params, so))
+            wrappers.append(_cpu_wrapper(name, params))
+            i = k
+        else:
+            out.append(ln)
+            i = i + 1
+    if len(pragmas) == 0:
+        return src
+    cu = '\n'.join(cu_parts)
+    path_write_text(cu_path, cu)
+    sh = ('#!/bin/sh\nset -e\ngcc -O2 -mavx2 -mfma -ffp-contract=off -fno-fast-math '
+          '-shared -fPIC ' + cu_path + ' -o ' + so + ' -lm -lpthread -ldl\n')
+    path_write_text(sh_path, sh)
+    gcc = os_getenv('TKV_CPU_GCC')
+    if gcc is not None and gcc != '':
+        rc = proc_ra(gcc, '-O2 -mavx2 -mfma -ffp-contract=off -fno-fast-math -shared -fPIC ' +
+                     cu_path + ' -o ' + so + ' -lm -lpthread -ldl',
+                     dirp + '/' + stem + '.cpu.build.log')
+        if rc != 0:
+            raise TranspileError('gcc that bai (xem ' + dirp + '/' + stem + '.cpu.build.log)')
+    pragma = ('__tkv_extern_pinvoke__ = [\n' + '\n'.join(pragmas) + '\n]\n\n')
+    glue = '\n'.join(wrappers) + '\n'
+    res = pragma + glue + '\n'.join(out)
+    return res

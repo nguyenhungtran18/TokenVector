@@ -1,0 +1,27 @@
+# -*- coding: utf-8 -*-
+# LayerNorm FWD THUAN TOKENVECTOR (khong chen C).
+# Cong thuc native: mu/v/rstd f64, sqrt double, ghi ket qua (float).
+# EPS = 1e-6 (hard-code giong native TkvTorchLayerNormFwd fallback).
+# @tkv.cpu_kernel target="avx2"
+def LayernormFwd(x: "ptr[f32]", x_len: "i32", g: "ptr[f32]", g_len: "i32", b: "ptr[f32]", b_len: "i32", out: "ptr[f32]", out_len: "i32", n: "i32", h: "i32") -> "i32":
+    for i in range(n):
+        base = i * h
+        d_mu = 0.0
+        for j in range(h):
+            d_mu = d_mu + x[base + j]
+        d_mu = d_mu / h
+        d_var = 0.0
+        for j in range(h):
+            d_d = x[base + j] - d_mu
+            d_var = d_var + d_d * d_d
+        d_var = d_var / h
+        d_rstd = 1.0 / d_sqrt(d_var + 1e-6)
+        for j in range(h):
+            d_y = x[base + j] - d_mu
+            d_z = d_y * d_rstd
+            d_w = d_z * g[j] + b[j]
+            out[base + j] = d_w
+
+
+def run() -> "i32":
+    return 0
