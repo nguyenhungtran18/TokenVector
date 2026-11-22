@@ -1,0 +1,10 @@
+# -*- coding: utf-8 -*-
+# probe torch backend
+# @tkv.torch_kernel target="cuda"
+def TkvFullPing(x: "i64") -> "i64":
+    y = x + 42000
+    return y
+
+
+def run() -> "i32":
+    return 0
