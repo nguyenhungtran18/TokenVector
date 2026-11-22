@@ -33,6 +33,7 @@ Assembled method TkvInt::Shl
 Assembled method TkvInt::Shr
 Assembled method TKVApp::TkvFullPing_launch
 Assembled method TKVApp::TkvFullAdamwPath_launch
+Assembled method TKVApp::TkvFullSetGrad_launch
 Assembled method TKVApp::run
 Assembled method TKVApp::Main
 Creating PE file
@@ -44,7 +45,7 @@ Class 2:	TKVApp
 Emitting fields and methods:
 Global 	
 Class 1	Fields: 2;	Methods: 27;	
-Class 2	Fields: 1;	Methods: 6;	
+Class 2	Methods: 8;	
 Resolving local member refs: 97 -> 97 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:

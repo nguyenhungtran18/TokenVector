@@ -36,6 +36,8 @@ def _torch_c_type(ann: "str") -> "str":
     else:
         base = ann
         star = ''
+    if base == 'tensor':
+        return 'at::Tensor' + star
     if base == 'f32':
         return 'float' + star
     if base == 'f64':
@@ -266,6 +268,29 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts = ['#include <torch/extension.h>\n#include <ATen/ATen.h>\n#include <cuda_runtime.h>\n']
     cu_parts.append('#include <math.h>' + chr(10))
     cu_parts.append('#include <stdlib.h>' + chr(10))
+    gdecl_lines = []
+    glines = []
+    for gl in lines:
+        eq = gl.find('=')
+        if gl.startswith('g_') and eq > 0:
+            gn = gl[:eq].strip()
+            rest = gl[eq+1:].strip()
+            gv = rest
+            ha = rest.find('#')
+            if ha >= 0:
+                gv = rest[:ha].strip()
+                ga = rest[ha+1:].strip()
+            else:
+                ga = 'int'
+            if gv == '0' and ga == 'int':
+                gt = 'int'
+            else:
+                gt = _torch_c_type(ga)
+            glines.append(gn)
+            if ga == 'tensor':
+                gdecl_lines.append('at::Tensor ' + gn + ';')
+            else:
+                gdecl_lines.append(gt + ' ' + gn + ' = ' + gv + ';')
     cu_parts.append('#define TKV_TORCH_EXPORT __attribute__((visibility("default")))' + chr(10) + chr(10))
     i = 0
     while i < len(lines):
@@ -296,11 +321,22 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
             wrappers.append(_torch_wrapper(name, params))
             i = k
         else:
-            out.append(ln)
+            if not (ln.startswith('g_') and '=' in ln):
+                out.append(ln)
             i = i + 1
     if len(pragmas) == 0:
         return src
     cu = '\n'.join(cu_parts)
+    for gn in glines:
+        for gty in ('int','long long','float','double','float*','at::Tensor'):
+            cu = cu.replace(gty + ' ' + gn + ' = ', gn + ' = ')
+    for gn in glines:
+        for gty in ('int','long long','float','double','float*','at::Tensor'):
+            cu = cu.replace(gty + ' ' + gn + ' = ', gn + ' = ')
+    gdecls = ''
+    for gd in gdecl_lines:
+        gdecls = gdecls + gd + chr(10)
+    cu = gdecls + cu
     path_write_text(cu_path, cu)
     sh = ('#!/bin/sh\nset -e\ngcc -O2 -mavx2 -mfma -ffp-contract=off -fno-fast-math '
           '-shared -fPIC ' + cu_path + ' -o ' + so + ' -lm -lpthread -ldl\n')

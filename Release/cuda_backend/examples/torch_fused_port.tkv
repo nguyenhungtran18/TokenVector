@@ -1,8 +1,15 @@
 # -*- coding: utf-8 -*-
+g_adamw_path: "i32" = 0
+
 # @tkv.torch_kernel target="cuda"
 def TkvFullPing(x: "i64") -> "i64":
     y = x + 42000
     return y
+
+
+# @tkv.torch_kernel target="cuda"
+def TkvFullAdamwPath() -> "i32":
+    return g_adamw_path
 
 
 def run() -> "i32":

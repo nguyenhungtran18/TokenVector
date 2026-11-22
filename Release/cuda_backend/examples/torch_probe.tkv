@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-# probe globals + torch backend
-g_adamw_path: "i32" = 0
+g_adamw_path = 0
+g_grad_buf = 0  # ptr[f32]
+g_grad_len = 0  # i64
 
 # @tkv.torch_kernel target="cuda"
 def TkvFullPing(x: "i64") -> "i64":
@@ -11,6 +12,13 @@ def TkvFullPing(x: "i64") -> "i64":
 # @tkv.torch_kernel target="cuda"
 def TkvFullAdamwPath() -> "i32":
     return g_adamw_path
+
+
+# @tkv.torch_kernel target="cuda"
+def TkvFullSetGrad(buf: "ptr[f32]", n: "i64") -> "i32":
+    g_grad_buf = buf
+    g_grad_len = n
+    return 0
 
 
 def run() -> "i32":
