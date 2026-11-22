@@ -8,6 +8,7 @@
 
 
 EXPORT int FlashFwdHead(float* qkv, float* ctx_out, float* lse_out, int n, int h, int head, double inv) {
+int stride3 = 3 * h % 1000000;
 int coff_q = head * 64 % 1000000;
 float f_inv = inv;
 int nb_m = (n + 63) / 64 % 1000000;
@@ -140,7 +141,7 @@ for (int im = 0; im < (nb_m); im++) {
     for (int d = 0; d < (64); d++) {
       ctx_out[obase + d] = dst[i * 64 + d] * f_sinv;
     }
-    lse[m0 + i] = mx[i] + logf(sm[i]);
+    lse_out[m0 + i] = mx[i] + logf(sm[i]);
   }
 }
   free(qk);
@@ -151,6 +152,7 @@ for (int im = 0; im < (nb_m); im++) {
 }
 
 EXPORT int FlashBwdHead(float* qkv, float* dctx, float* ctx_in, float* lse_in, float* ctxo, float* dqo, int n, int h, int head, double inv) {
+int stride3 = 3 * h % 1000000;
 int coff_q = head * 64 % 1000000;
 float f_inv = inv;
 float* dsum = (float*)malloc((size_t)(1024) * sizeof(float));

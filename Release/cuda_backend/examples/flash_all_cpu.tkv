@@ -2,7 +2,8 @@
 # Flash attention - TOAN BO 7 kernel export bang TokenVector thuann (khong chen C).
 # 2 helper (fwd/bwd 1 head) duoc goi lai boi cac wrapper export.
 # @tkv.cpu_kernel target="avx2"
-def FlashFwdHead(qkv: "ptr[f32]", ctx_out: "ptr[f32]", lse_out: "ptr[f32]", n: "i32", h: "i32", head: "i32", inv: "f64") -> "i32":    stride3 = 3 * h % 1000000
+def FlashFwdHead(qkv: "ptr[f32]", ctx_out: "ptr[f32]", lse_out: "ptr[f32]", n: "i32", h: "i32", head: "i32", inv: "f64") -> "i32":
+    stride3 = 3 * h % 1000000
     coff_q = head * 64 % 1000000
     f_inv = inv
     nb_m = (n + 63) // 64 % 1000000
@@ -104,10 +105,11 @@ def FlashFwdHead(qkv: "ptr[f32]", ctx_out: "ptr[f32]", lse_out: "ptr[f32]", n: "
             obase = ((m0 + i) * 64) % 1000000000
             for d in range(64):
                 ctx_out[obase + d] = dst[i * 64 + d] * f_sinv
-            lse[m0 + i] = mx[i] + log(sm[i])
+            lse_out[m0 + i] = mx[i] + log(sm[i])
 
 # @tkv.cpu_kernel target="avx2"
-def FlashBwdHead(qkv: "ptr[f32]", dctx: "ptr[f32]", ctx_in: "ptr[f32]", lse_in: "ptr[f32]", ctxo: "ptr[f32]", dqo: "ptr[f32]", n: "i32", h: "i32", head: "i32", inv: "f64") -> "i32":    stride3 = 3 * h % 1000000
+def FlashBwdHead(qkv: "ptr[f32]", dctx: "ptr[f32]", ctx_in: "ptr[f32]", lse_in: "ptr[f32]", ctxo: "ptr[f32]", dqo: "ptr[f32]", n: "i32", h: "i32", head: "i32", inv: "f64") -> "i32":
+    stride3 = 3 * h % 1000000
     coff_q = head * 64 % 1000000
     f_inv = inv
     dsum = f32buf(1024)
