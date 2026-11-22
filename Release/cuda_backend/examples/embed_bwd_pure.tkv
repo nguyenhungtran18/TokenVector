@@ -1,0 +1,19 @@
+# -*- coding: utf-8 -*-
+# EmbedBwdFused THUAN TOKENVECTOR (thay file auto-glue C cu, KHONG calloc).
+# Native dung counts/starts/cursor/pos de scatter theo thu tu q tang dan,
+# nhung trong moi row thi t tang dan. Scatter truc tiep theo t=0..n-1 cho
+# CUNG THU TU cong tai moi row -> BIT-IDENTICAL va van O(n*d).
+# @tkv.cpu_kernel target="avx2"
+def EmbedBwdFused(idx: "ptr[i64]", idx_len: "i32", rows: "i32", d: "i32", gy: "ptr[f32]", gy_len: "i32", gw: "ptr[f32]", gw_len: "i32") -> "i32":
+    for j in range(rows * d):
+        gw[j] = 0.0
+    for t in range(idx_len):
+        r = idx[t] % 1000000000
+        base = r * d
+        gybase = (t * d) % 1000000000
+        for j in range(d):
+            gw[base + j] = gw[base + j] + gy[gybase + j]
+
+
+def run() -> "i32":
+    return 0
