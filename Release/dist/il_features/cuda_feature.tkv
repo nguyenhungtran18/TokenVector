@@ -65,6 +65,21 @@ def _cuda_expr(e: "str") -> "str":
     return e
 
 
+def _cuda_has_int_mul(s: "str") -> "i32":
+    # rule cu `'r * ' in rhs` khop NHAM `lr * mi` (bien lr ket thuc bang r) -> int pi.
+    # Chi co tinh la index neu toan tu o ranh gioi tu (khong nam giua ten bien).
+    for t in ('r', 'i', 'j', 'row', 'base'):
+        key = t + ' * '
+        p = 0
+        while True:
+            k = s.find(key, p)
+            if k < 0:
+                break
+            if k == 0 or not (s[k - 1].isalnum() or s[k - 1] == '_'):
+                return 1
+            p = k + 1
+    return 0
+
 def _cuda_params(header: "str") -> "list[(str,str)]":
     out = []
     parts = header.split(',')
@@ -137,7 +152,7 @@ def _cuda_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
                             is_int = 0
                         if left == 'row' or left == 'stride' or left == 'base' or left == 'wid' or left == 'total' or left == 'i':
                             is_int = 1
-                    if 'r * ' in rhs or 'i * ' in rhs or 'j * ' in rhs or 'row * ' in rhs or 'base * ' in rhs:
+                    if _cuda_has_int_mul(rhs):
                         is_int = 1
                     k = 0
                     while k < len(params):
