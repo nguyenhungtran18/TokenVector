@@ -56,7 +56,20 @@ def _torch_is_ptr(ann: "str") -> "i32":
 
 
 def _torch_expr(e: "str") -> "str":
+    # ATen helpers (sinh ra C++/ATen tu DSL)
     """Dich bieu thuc dang Python sang C. fma() -> fmaf() (bit-exact)."""
+    if 'torch_blob_i32(' in e:
+        aa = e[e.index('torch_blob_i32(') + 15:e.rindex(')')]
+        pp = aa.split(',')
+        return e[:e.index('torch_blob_i32(')] + 'torch::from_blob(const_cast<int*>(' + pp[0].strip() + '), {' + pp[1].strip() + '}, torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU).requires_grad(false))'
+    if 'torch_blob_f32(' in e:
+        aa = e[e.index('torch_blob_f32(') + 15:e.rindex(')')]
+        pp = aa.split(',')
+        return e[:e.index('torch_blob_f32(')] + 'torch::from_blob(const_cast<float*>(' + pp[0].strip() + '), {' + pp[1].strip() + '}, torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU).requires_grad(false))'
+    e = e.replace('torch_arange(', 'at::arange(')
+    e = e.replace('torch_to_long(', 'tkv_to_long(')
+    e = e.replace('torch_to_half(', 'tkv_to_half(')
+    e = e.replace('torch_copy_(', 'tkv_copy_(')
     e = e.replace('embed_bwd(', 'tkv_embed_bwd(')
     e = e.replace('softmax_cb(', 'tkv_softmax_cb(')
     e = e.replace('softmax_cf(', 'tkv_softmax_cf(')
@@ -188,6 +201,8 @@ def _torch_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[s
                         ctype = 'long long'
                     else:
                         ctype = 'double' if left.startswith('d_') else ('int' if is_int else 'float')
+                if 'torch_blob_i32(' in rhs or 'torch_blob_f32(' in rhs:
+                    ctype = 'auto'
                     declared.append(left)
                     st = ctype + ' ' + st
             lines.append('  ' * (level - 1) + _torch_expr(st) + ';')
@@ -292,6 +307,11 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
             else:
                 gdecl_lines.append(gt + ' ' + gn + ' = ' + gv + ';')
     cu_parts.append('#define TKV_TORCH_EXPORT __attribute__((visibility("default")))' + chr(10) + chr(10))
+    cu_parts.append('static inline bool tkv_want_cuda() { const char* s = getenv("TKV_TORCH_GPU"); return s && s[0] != 0; }' + chr(10))
+    cu_parts.append('static inline torch::TensorOptions tkv_opt_long() { return tkv_want_cuda() ? torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCUDA) : torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_to_long(const torch::Tensor& t) { return t.to(tkv_opt_long()); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_to_half(const torch::Tensor& t) { return t.to(at::ScalarType::Half); }' + chr(10))
+    cu_parts.append('static inline void tkv_copy_(torch::Tensor& d, const torch::Tensor& s) { d.copy_(s); }' + chr(10))
     i = 0
     while i < len(lines):
         ln = lines[i]

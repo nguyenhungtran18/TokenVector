@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# GPU bridge port - nhom export quan ly state (dau tien)
+# GPU bridge port - state + ids
 g_adamw_path = 0
 g_grad_buf = 0  # ptr[f32]
 g_grad_len = 0  # i64
@@ -10,6 +10,9 @@ g_eps = 0.00000001  # f32
 g_wd = 0.0  # f32
 g_total_steps = 0  # i64
 g_cur_step = 0  # i64
+g_ids = 0  # tensor
+g_pos = 0  # tensor
+g_tgt = 0  # tensor
 
 # @tkv.torch_kernel target="cuda"
 def TkvFullPing(x: "i64") -> "i64":
@@ -37,6 +40,21 @@ def TkvFullSetOpt(p: "ptr[f32]", m: "ptr[f32]", v: "ptr[f32]", lr: "f32", b1: "f
     g_wd = wd
     g_total_steps = total_steps
     g_cur_step = cur_step
+    return 0
+
+
+# @tkv.torch_kernel target="cuda"
+def TkvFullSetIds(ids: "ptr[i32]", T: "i64") -> "i32":
+    t = torch_blob_i32(ids, T)
+    g_ids = torch_to_long(t)
+    g_pos = torch_arange(T, tkv_opt_long())
+    return 0
+
+
+# @tkv.torch_kernel target="cuda"
+def TkvFullSetTargets(ids: "ptr[i32]", T: "i64") -> "i32":
+    t = torch_blob_i32(ids, T)
+    g_tgt = torch_to_long(t)
     return 0
 
 

@@ -17,7 +17,20 @@ float g_eps = 0.00000001;
 float g_wd = 0.0;
 long long g_total_steps = 0;
 long long g_cur_step = 0;
+at::Tensor g_ids;
+at::Tensor g_pos;
+at::Tensor g_tgt;
 
+
+static inline bool tkv_want_cuda() { const char* s = getenv("TKV_TORCH_GPU"); return s && s[0] != 0; }
+
+static inline torch::TensorOptions tkv_opt_long() { return tkv_want_cuda() ? torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCUDA) : torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU); }
+
+static inline torch::Tensor tkv_to_long(const torch::Tensor& t) { return t.to(tkv_opt_long()); }
+
+static inline torch::Tensor tkv_to_half(const torch::Tensor& t) { return t.to(at::ScalarType::Half); }
+
+static inline void tkv_copy_(torch::Tensor& d, const torch::Tensor& s) { d.copy_(s); }
 
 TKV_TORCH_EXPORT long long TkvFullPing(long long x) {
 return x + 42000;
@@ -41,5 +54,18 @@ g_eps = eps;
 g_wd = wd;
 g_total_steps = total_steps;
 g_cur_step = cur_step;
+return 0;
+}
+
+TKV_TORCH_EXPORT int TkvFullSetIds(int* ids, long long T) {
+auto t = torch::from_blob(const_cast<int*>(ids), {T}, torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU).requires_grad(false));
+g_ids = tkv_to_long(t);
+g_pos = at::arange(T, tkv_opt_long());
+return 0;
+}
+
+TKV_TORCH_EXPORT int TkvFullSetTargets(int* ids, long long T) {
+auto t = torch::from_blob(const_cast<int*>(ids), {T}, torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU).requires_grad(false));
+g_tgt = tkv_to_long(t);
 return 0;
 }
