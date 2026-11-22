@@ -1,0 +1,65 @@
+# -*- coding: utf-8 -*-
+# LinearDxFused THUAN TOKENVECTOR (khong chen C, khong can __m256).
+# dx[i*n+j] = sum_{p<k} gy[i*k+p] * w[j*k+p], tich luy f32 theo dung thu tu
+# cua native tkv_linear_dx.c (tile T=256, k_eff, KC=64, Ct gop truoc khi cong dx).
+# Moi lane AVX2 tinh doc lap bang fmaf -> scalar fmaf cung thu tu = BIT-IDENTICAL.
+# @tkv.cpu_kernel target="avx2"
+def LinearDxFused(gy: "ptr[f32]", gy_len: "i32", w: "ptr[f32]", w_len: "i32", dx: "ptr[f32]", dx_len: "i32", m: "i32", n: "i32", k: "i32", ndim: "i32", T: "i32") -> "i32":
+    nb_m = (m + T - 1) // T % 1000000
+    for im in range(nb_m):
+        i0 = (im * T) % 1000000
+        ib = (m - i0) % 1000000
+        if ib > T:
+            ib = T
+        nb_p = (k + T - 1) // T % 1000000
+        for ip in range(nb_p):
+            p0 = (ip * T) % 1000000
+            pw = (k - p0) % 1000000
+            if pw > T:
+                pw = T
+            nb_j = (n + T - 1) // T % 1000000
+            for ij in range(nb_j):
+                j0 = (ij * T) % 1000000
+                jb = (n - j0) % 1000000
+                if jb > T:
+                    jb = T
+                k_eff = 0 % 1
+                for p in range(pw):
+                    f_has = 0.0
+                    for c in range(jb):
+                        f_wv = w[(j0 + c) * ndim + p0 + p]
+                        if f_wv != 0.0:
+                            f_has = 1.0
+                    for r in range(ib):
+                        f_gv = gy[(i0 + r) * k + p0 + p]
+                        if tkv_notfinite(f_gv):
+                            f_has = 1.0
+                    if f_has == 1.0:
+                        k_eff = p + 1
+                if p0 == 0:
+                    for r in range(ib):
+                        for c in range(jb):
+                            dx[(i0 + r) * n + j0 + c] = 0.0
+                nchunks = (k_eff + 63) // 64 % 1000000
+                for r in range(ib):
+                    for c in range(jb):
+                        f_ct = 0.0
+                        for pc_i in range(nchunks):
+                            pc = (pc_i * 64) % 1000000
+                            kc = (k_eff - pc) % 1000000
+                            if kc > 64:
+                                kc = 64
+                            f_s = 0.0
+                            for p in range(kc):
+                                f_av = 0.0
+                                f_bv = 0.0
+                                if p0 + pc + p < pw:
+                                    f_av = gy[(i0 + r) * k + p0 + pc + p]
+                                    f_bv = w[(j0 + c) * ndim + p0 + pc + p]
+                                f_s = fma(f_av, f_bv, f_s)
+                            f_ct = f_ct + f_s
+                        dx[(i0 + r) * n + j0 + c] = dx[(i0 + r) * n + j0 + c] + f_ct
+
+
+def run() -> "i32":
+    return 0

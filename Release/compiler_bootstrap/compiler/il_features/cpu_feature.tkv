@@ -62,6 +62,7 @@ def _cpu_expr(e: "str") -> "str":
     e = e.replace('gelu_fv(', 'tkv_gelu_fv(')
     e = e.replace('gelu_f(', 'tkv_gelu_f(')
     e = e.replace('gelu_b(', 'tkv_gelu_b(')
+    e = e.replace('tkv_notfinite(', '!isfinite(')
     e = e.replace('fma(', 'fmaf(')
     e = e.replace('//', '/')
     e = e.replace('d_sqrt(', '__TKVSQRT__')

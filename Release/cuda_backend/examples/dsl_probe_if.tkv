@@ -1,0 +1,16 @@
+# -*- coding: utf-8 -*-
+# probe: if long nhau + tkv_notfinite -> !isfinite
+# @tkv.cpu_kernel target="avx2"
+def DslProbe(out: "ptr[f32]", x: "ptr[f32]", n: "i32") -> "i32":
+    f_has = 0.0
+    for i in range(n):
+        f_v = x[i]
+        if tkv_notfinite(f_v):
+            f_has = 1.0
+        if f_v > 0.0:
+            out[i] = f_v
+    out[0] = f_has
+
+
+def run() -> "i32":
+    return 0
