@@ -1,0 +1,17 @@
+# -*- coding: utf-8 -*-
+# probe: kernel B goi kernel A
+# @tkv.cpu_kernel target="avx2"
+def AddOne(a: "ptr[f32]", n: "i32") -> "i32":
+    for i in range(n):
+        a[i] = a[i] + 1.0
+
+
+# @tkv.cpu_kernel target="avx2"
+def Caller(a: "ptr[f32]", n: "i32") -> "i32":
+    AddOne(a, n)
+    for i in range(n):
+        a[i] = a[i] * 2.0
+
+
+def run() -> "i32":
+    return 0
