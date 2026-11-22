@@ -69,7 +69,12 @@ def _torch_expr(e: "str") -> "str":
     e = e.replace('torch_arange(', 'at::arange(')
     e = e.replace('torch_to_long(', 'tkv_to_long(')
     e = e.replace('torch_to_half(', 'tkv_to_half(')
+    e = e.replace('torch_to_dev(', 'tkv_to_dev(')
     e = e.replace('torch_copy_(', 'tkv_copy_(')
+    e = e.replace(' and ', ' && ')
+    e = e.replace(' or ', ' || ')
+    e = e.replace('tkv_defined(', 'tkv_defined(')
+    e = e.replace('vec_len(', 'tkv_vec_len(')
     e = e.replace('embed_bwd(', 'tkv_embed_bwd(')
     e = e.replace('softmax_cb(', 'tkv_softmax_cb(')
     e = e.replace('softmax_cf(', 'tkv_softmax_cf(')
@@ -283,6 +288,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts = ['#include <torch/extension.h>\n#include <ATen/ATen.h>\n#include <cuda_runtime.h>\n']
     cu_parts.append('#include <math.h>' + chr(10))
     cu_parts.append('#include <stdlib.h>' + chr(10))
+    cu_parts.append('#include <vector>' + chr(10))
     gdecl_lines = []
     glines = []
     for gl in lines:
@@ -302,6 +308,12 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
             else:
                 gt = _torch_c_type(ga)
             glines.append(gn)
+            if ga == 'tensor[]':
+                gdecl_lines.append('std::vector<at::Tensor> ' + gn + ';')
+            elif ga == 'ptr[]':
+                gdecl_lines.append('std::vector<float*> ' + gn + ';')
+            elif ga == 'i64[]':
+                gdecl_lines.append('std::vector<long long> ' + gn + ';')
             if ga == 'tensor':
                 gdecl_lines.append('at::Tensor ' + gn + ';')
             else:
@@ -312,6 +324,10 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('static inline torch::Tensor tkv_to_long(const torch::Tensor& t) { return t.to(tkv_opt_long()); }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_to_half(const torch::Tensor& t) { return t.to(at::ScalarType::Half); }' + chr(10))
     cu_parts.append('static inline void tkv_copy_(torch::Tensor& d, const torch::Tensor& s) { d.copy_(s); }' + chr(10))
+    cu_parts.append('static inline bool tkv_defined(const at::Tensor& t) { return t.defined(); }' + chr(10))
+    cu_parts.append('static inline long long tkv_numel(const at::Tensor& t) { return t.numel(); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_to_dev(const torch::Tensor& t) { return tkv_want_cuda() ? t.to(torch::TensorOptions().dtype(at::ScalarType::Half).device(torch::kCUDA)) : t; }' + chr(10))
+    cu_parts.append('static inline long long tkv_vec_len(const std::vector<at::Tensor>& v) { return (long long)v.size(); }' + chr(10))
     i = 0
     while i < len(lines):
         ln = lines[i]
