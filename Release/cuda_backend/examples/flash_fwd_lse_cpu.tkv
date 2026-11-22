@@ -1,0 +1,114 @@
+# -*- coding: utf-8 -*-
+# FlashAttentionFwdLse THUAN TOKENVECTOR (khong chen C).
+# Scalar replica cua flash_fwd_head: GEMM fmaf theo thu tu d tang, online softmax
+# f32, custom exp AVX2 (m256_exp_ps) replica bang fmaf/rint/ldexp cho phan vector,
+# expf cho tail (j>=nvec), giong native.
+# @tkv.cpu_kernel target="avx2"
+def FlashAttentionFwdLse(qkv: "ptr[f32]", qkv_len: "i32", ctx_out: "ptr[f32]", ctx_len: "i32", lse: "ptr[f32]", lse_len: "i32", n: "i32", h: "i32", hd: "i32", head: "i32", inv: "f64") -> "i32":
+    stride3 = 3 * h % 1000000
+    coff_q = head * 64 % 1000000
+    f_inv = inv
+    nb_m = (n + 63) // 64 % 1000000
+    qk = f32buf(4096)
+    dst = f32buf(4096)
+    mx = f32buf(64)
+    sm = f32buf(64)
+    for im in range(nb_m):
+        m0 = (im * 64) % 1000000
+        qb = (n - m0) % 1000000
+        if qb > 64:
+            qb = 64
+        num_keys = (m0 + qb) % 1000000
+        if num_keys > n:
+            num_keys = n
+        nb_kv = (num_keys + 63) // 64 % 1000000
+        for a in range(64):
+            mx[a] = -3.4028234663852886e38
+            sm[a] = 0.0
+        for a in range(4096):
+            dst[a] = 0.0
+        for ik in range(nb_kv):
+            n0 = (ik * 64) % 1000000
+            kvb = (num_keys - n0) % 1000000
+            if kvb > 64:
+                kvb = 64
+            nvec = (kvb // 8) * 8 % 1000000
+            for i in range(qb):
+                qbase = ((m0 + i) * stride3 + coff_q) % 1000000000
+                for j in range(kvb):
+                    f_s = 0.0
+                    kbase = ((n0 + j) * stride3 + h + coff_q) % 1000000000
+                    for d in range(64):
+                        f_s = fma(qkv[qbase + d], qkv[kbase + d], f_s)
+                    qk[i * 64 + j] = f_s * f_inv
+                    if n0 + j > m0 + i:
+                        qk[i * 64 + j] = -3.4028234663852886e38
+                f_rmax = -3.4028234663852886e38
+                for j in range(kvb):
+                    if qk[i * 64 + j] > f_rmax:
+                        f_rmax = qk[i * 64 + j]
+                f_newmax = f_rmax
+                if mx[i] > f_newmax:
+                    f_newmax = mx[i]
+                f_ok = 1.0
+                if f_newmax == -3.4028234663852886e38:
+                    f_ok = 0.0
+                if f_ok == 1.0:
+                    f_exptmp = 1.0
+                    if n0 > 0:
+                        f_exptmp = exp(mx[i] - f_newmax)
+                    if mx[i] == -3.4028234663852886e38:
+                        f_exptmp = 0.0
+                    f_bsum = 0.0
+                    for j in range(kvb):
+                        f_x = qk[i * 64 + j] - f_newmax
+                        f_e = 0.0
+                        if j < nvec:
+                            if f_x < -87.3:
+                                f_x = -87.3
+                            if f_x > 88.7:
+                                f_x = 88.7
+                            f_t = f_x * 1.4426950408889634f
+                            f_n = tkv_rint(f_t)
+                            f_f = f_t - f_n
+                            f_f = f_f * 0.6931471805599453f
+                            f_r = 1.388888654e-04f
+                            f_r = fma(f_r, f_f, 8.333333e-03f)
+                            f_r = fma(f_r, f_f, 4.1666665e-02f)
+                            f_r = fma(f_r, f_f, 1.6666666e-01f)
+                            f_r = fma(f_r, f_f, 5.0000000e-01f)
+                            f_r = fma(f_r, f_f, 1.00000000e+00f)
+                            f_r = fma(f_r, f_f, 1.00000000e+00f)
+                            f_e = f_r * tkv_ldexp(1.0f, f_n)
+                        if j >= nvec:
+                            f_e = exp(f_x)
+                        qk[i * 64 + j] = f_e
+                        f_bsum = f_bsum + f_e
+                    if n0 > 0:
+                        for d in range(64):
+                            dst[i * 64 + d] = dst[i * 64 + d] * f_exptmp
+                    sm[i] = f_bsum + f_exptmp * sm[i]
+                    mx[i] = f_newmax
+                if f_ok == 0.0:
+                    for j in range(kvb):
+                        qk[i * 64 + j] = 0.0
+                    for d in range(64):
+                        dst[i * 64 + d] = 0.0
+                    mx[i] = f_newmax
+            for i in range(qb):
+                vbase = (n0 * stride3 + 2 * h + coff_q) % 1000000000
+                for d in range(64):
+                    f_acc = dst[i * 64 + d]
+                    for j in range(kvb):
+                        f_acc = fma(qk[i * 64 + j], qkv[vbase + j * stride3 + d], f_acc)
+                    dst[i * 64 + d] = f_acc
+        for i in range(qb):
+            f_sinv = 1.0 / sm[i]
+            obase = ((m0 + i) * 64) % 1000000000
+            for d in range(64):
+                ctx_out[obase + d] = dst[i * 64 + d] * f_sinv
+            lse[m0 + i] = mx[i] + log(sm[i])
+
+
+def run() -> "i32":
+    return 0

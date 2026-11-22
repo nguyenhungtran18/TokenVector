@@ -75,6 +75,7 @@ def _cpu_expr(e: "str") -> "str":
     e = e.replace('erf(', 'erff(')
     e = e.replace('d_exp(', '__TKVEXP__')
     e = e.replace('exp(', 'expf(')
+    e = e.replace('log(', 'logf(')
     e = e.replace('__TKVEXP__', 'exp(')
     return e
 
@@ -96,7 +97,7 @@ def _cpu_params(header: "str") -> "list[(str,str)]":
     return out
 
 
-def _cpu_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
+def _cpu_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[str]") -> "str":
     """Sinh than kernel C tu than ham Python (for/if long nhau, FMA giu thu tu)."""
     lines = []
     declared = []
@@ -129,6 +130,17 @@ def _cpu_body_c(body: "list[str]", params: "list[(str,str)]") -> "str":
                 cond = '1'
             lines.append('  ' * (level - 1) + 'if (' + _cpu_expr(cond) + ') {')
             depth = level
+        elif 'f32buf(' in st or 'i32buf(' in st:
+            left = st.split('=')[0].strip() if '=' in st else ''
+            isf = 'f32buf(' in st
+            mark = 'f32buf(' if isf else 'i32buf('
+            arg = st[st.index(mark) + len(mark):st.index(')')]
+            ct = 'float' if isf else 'int'
+            lines.append('  ' * (level - 1) + ct + '* ' + left + ' = (' + ct + '*)malloc((size_t)(' + _cpu_expr(arg) + ') * sizeof(' + ct + '));')
+            if buffers is not None:
+                buffers.append(left)
+            if left not in declared:
+                declared.append(left)
         else:
             # khai bien cuc bo lan dau gan - suy kieu don gian nhu CUDA backend
             if '=' in st and '[' not in st.split('=')[0]:
@@ -169,7 +181,10 @@ def _cpu_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]") -> 
         decls.append(_cpu_c_type(ann) + ' ' + pn)
         args.append(pn)
     s = 'EXPORT int ' + name + '(' + ', '.join(decls) + ') {\n'
-    s = s + _cpu_body_c(body, params)
+    bufs = []
+    s = s + _cpu_body_c(body, params, bufs)
+    for b in bufs:
+        s = s + '  free(' + b + ');\n'
     s = s + '  return 0;\n'
     s = s + '}\n'
     return s
@@ -223,6 +238,7 @@ def cpu_rewrite_source(src: "str", path: "str") -> "str":
     wrappers = []
     cu_parts = ['#include <immintrin.h>\n']
     cu_parts.append('#include <math.h>' + chr(10))
+    cu_parts.append('#include <stdlib.h>' + chr(10))
     cu_parts.append('#define EXPORT __attribute__((visibility("default")))' + chr(10) + chr(10))
     i = 0
     while i < len(lines):

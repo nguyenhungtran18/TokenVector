@@ -1,0 +1,13 @@
+# -*- coding: utf-8 -*-
+# probe f32buf: malloc/free tu dong
+# @tkv.cpu_kernel target="avx2"
+def BufProbe(out: "ptr[f32]", n: "i32") -> "i32":
+    tmp = f32buf(n)
+    for i in range(n):
+        tmp[i] = out[i] * 2.0
+    for i in range(n):
+        out[i] = tmp[i] + 1.0
+
+
+def run() -> "i32":
+    return 0
