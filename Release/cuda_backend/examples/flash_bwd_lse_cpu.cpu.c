@@ -18,6 +18,7 @@ float* dv = (float*)malloc((size_t)(65536) * sizeof(float));
 float* attn = (float*)malloc((size_t)(4096) * sizeof(float));
 float* gA = (float*)malloc((size_t)(4096) * sizeof(float));
 float* ds = (float*)malloc((size_t)(4096) * sizeof(float));
+float f_acc = 0.0;
 for (int a = 0; a < (n); a++) {
   dsum[a] = 0.0;
 }
@@ -114,7 +115,7 @@ for (int ik = 0; ik < (nb_kv); ik++) {
     }
     for (int j = 0; j < (kvb); j++) {
       for (int d = 0; d < (64); d++) {
-        float f_acc = dv[(n0 + j) * 64 + d];
+        f_acc = dv[(n0 + j) * 64 + d];
         int dbase2 = ((m0) * stride3 + h + coff_q) % 1000000000;
         for (int i = 0; i < (qb); i++) {
           f_acc = fmaf(attn[i * 64 + j], dctx[dbase2 + i * stride3 + d], f_acc);
@@ -145,13 +146,13 @@ for (int ik = 0; ik < (nb_kv); ik++) {
   }
 }
 for (int t = 0; t < (n); t++) {
-  ob = (t * 64) % 1000000000;
+  int wb = (t * 64) % 1000000000;
   int pb = (t * 192) % 1000000000;
   for (int d = 0; d < (64); d++) {
-    ctxo[ob + d] = ctx_in[ob + d];
-    dqo[pb + d] = dq[ob + d] * f_inv;
-    dqo[pb + 64 + d] = dk[ob + d] * f_inv;
-    dqo[pb + 128 + d] = dv[ob + d];
+    ctxo[wb + d] = ctx_in[wb + d];
+    dqo[pb + d] = dq[wb + d] * f_inv;
+    dqo[pb + 64 + d] = dk[wb + d] * f_inv;
+    dqo[pb + 128 + d] = dv[wb + d];
   }
 }
   free(dsum);

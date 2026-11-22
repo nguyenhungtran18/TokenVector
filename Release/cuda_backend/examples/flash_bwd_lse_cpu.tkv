@@ -14,6 +14,7 @@ def FlashAttentionBwdFusedLse(qkv: "ptr[f32]", qkv_len: "i32", dctx: "ptr[f32]",
     attn = f32buf(4096)
     gA = f32buf(4096)
     ds = f32buf(4096)
+    f_acc = 0.0
     for a in range(n):
         dsum[a] = 0.0
     for a in range(n * 64):
@@ -115,13 +116,13 @@ def FlashAttentionBwdFusedLse(qkv: "ptr[f32]", qkv_len: "i32", dctx: "ptr[f32]",
                         f_acc = fma(ds[i * 64 + j], qkv[qbase2 + i * stride3 + d], f_acc)
                     dk[(n0 + j) * 64 + d] = f_acc
     for t in range(n):
-        ob = (t * 64) % 1000000000
+        wb = (t * 64) % 1000000000
         pb = (t * 192) % 1000000000
         for d in range(64):
-            ctxo[ob + d] = ctx_in[ob + d]
-            dqo[pb + d] = dq[ob + d] * f_inv
-            dqo[pb + 64 + d] = dk[ob + d] * f_inv
-            dqo[pb + 128 + d] = dv[ob + d]
+            ctxo[wb + d] = ctx_in[wb + d]
+            dqo[pb + d] = dq[wb + d] * f_inv
+            dqo[pb + 64 + d] = dk[wb + d] * f_inv
+            dqo[pb + 128 + d] = dv[wb + d]
 
 
 def run() -> "i32":
