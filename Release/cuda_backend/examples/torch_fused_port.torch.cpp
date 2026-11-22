@@ -8,6 +8,8 @@
 
 #include <vector>
 
+#include <cstring>
+
 #define TKV_TORCH_EXPORT __attribute__((visibility("default")))
 int g_adamw_path = 0;
 float* g_grad_buf = 0;
@@ -28,6 +30,18 @@ std::vector<float*> g_p_src;
 * g_p_src = 0;
 std::vector<long long> g_p_numels;
 i64[] g_p_numels = 0;
+at::Tensor g_p_all;
+int g_cfg0 = 0;
+int g_cfg1 = 0;
+int g_cfg2 = 0;
+int g_cfg3 = 0;
+int g_cfg4 = 0;
+int g_cfg5 = 0;
+int g_nlayers = 0;
+int g_h = 0;
+int g_nhd = 0;
+int g_hd = 0;
+int g_vocab = 0;
 
 
 static inline bool tkv_want_cuda() { const char* s = getenv("TKV_TORCH_GPU"); return s && s[0] != 0; }
@@ -47,6 +61,20 @@ static inline long long tkv_numel(const at::Tensor& t) { return t.numel(); }
 static inline torch::Tensor tkv_to_dev(const torch::Tensor& t) { return tkv_want_cuda() ? t.to(torch::TensorOptions().dtype(at::ScalarType::Half).device(torch::kCUDA)) : t; }
 
 static inline long long tkv_vec_len(const std::vector<at::Tensor>& v) { return (long long)v.size(); }
+
+static inline void tkv_assign_tensor(std::vector<at::Tensor>& v, long long n) { v.assign((size_t)n, at::Tensor()); }
+
+static inline void tkv_assign_ptr(std::vector<float*>& v, long long n) { v.assign((size_t)n, nullptr); }
+
+static inline void tkv_assign_i64(std::vector<long long>& v, long long n) { v.assign((size_t)n, 0); }
+
+static inline void tkv_reset(at::Tensor& t) { t.reset(); }
+
+static inline void tkv_copy_out(const at::Tensor& t, float* dst, long long n) { auto h = t.to(torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU)); std::memcpy(dst, h.const_data_ptr<float>(), (size_t)n * sizeof(float)); }
+
+static inline at::Tensor tkv_empty_i64(long long n) { return at::empty({n}, torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU)); }
+
+static inline long long* tkv_data_i64(at::Tensor& t) { return t.data_ptr<long long>(); }
 
 TKV_TORCH_EXPORT long long TkvFullPing(long long x) {
 return x + 42000;
@@ -106,5 +134,88 @@ if (1) {
 }
 g_p_src[idx] = ptr;
 g_p_numels[idx] = numel;
+return 0;
+}
+
+TKV_TORCH_EXPORT int TkvFullBegin(long long n_tensors, long long NLayers, long long H, long long NHeads, long long Hd, long long Vocab) {
+if (n_tensors <= 4) {
+  return -2;
+}
+if (NLayers <= 0) {
+  return -2;
+}
+changed = 0;
+if (g_cfg0 != n_tensors) {
+  changed = 1;
+}
+if (g_cfg1 != NLayers) {
+  changed = 1;
+}
+if (g_cfg2 != H) {
+  changed = 1;
+}
+if (g_cfg3 != NHeads) {
+  changed = 1;
+}
+if (g_cfg4 != Hd) {
+  changed = 1;
+}
+if (g_cfg5 != Vocab) {
+  changed = 1;
+}
+if (changed == 1) {
+  g_cfg0 = n_tensors;
+  g_cfg1 = NLayers;
+  g_cfg2 = H;
+  g_cfg3 = NHeads;
+  g_cfg4 = Hd;
+  g_cfg5 = Vocab;
+  tkv_assign_tensor(g_p, n_tensors);
+  tkv_assign_ptr(g_p_src, n_tensors);
+  tkv_assign_i64(g_p_numels, n_tensors);
+  tkv_reset(g_p_all);
+  tkv_reset(g_ids);
+  tkv_reset(g_pos);
+  tkv_reset(g_tgt);
+}
+g_grad_buf = 0;
+g_grad_len = 0;
+g_nlayers = NLayers;
+g_h = H;
+g_nhd = NHeads;
+g_hd = Hd;
+g_vocab = Vocab;
+return 0;
+}
+
+TKV_TORCH_EXPORT int TkvFullGetParams(float* dst, long long n) {
+if (n <= 0) {
+  return -1;
+}
+if (tkv_defined(g_p_all) == 0) {
+  return -2;
+}
+if (tkv_numel(g_p_all) != n) {
+  return -2;
+}
+tkv_copy_out(g_p_all, dst, n);
+return 0;
+}
+
+TKV_TORCH_EXPORT int TkvFullSetIdsGen(long long T) {
+if (T <= 0) {
+  return -1;
+}
+V = g_vocab;
+if (V <= 0) {
+  V = 50257;
+}
+cpu = tkv_empty_i64(T);
+p = tkv_data_i64(cpu);
+for (int i = 0; i < (T); i++) {
+  p[i] = (i * 37 + 11) % V;
+}
+g_ids = tkv_to_long(cpu);
+g_pos = at::arange(T, tkv_opt_long());
 return 0;
 }

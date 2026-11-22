@@ -16,6 +16,18 @@ g_tgt = 0  # tensor
 g_p = 0  # tensor[]
 g_p_src = 0  # ptr[]
 g_p_numels = 0  # i64[]
+g_p_all = 0  # tensor
+g_cfg0 = 0
+g_cfg1 = 0
+g_cfg2 = 0
+g_cfg3 = 0
+g_cfg4 = 0
+g_cfg5 = 0
+g_nlayers = 0
+g_h = 0
+g_nhd = 0
+g_hd = 0
+g_vocab = 0
 
 # @tkv.torch_kernel target="cuda"
 def TkvFullPing(x: "i64") -> "i64":
@@ -77,6 +89,77 @@ def TkvFullSetTensor(idx: "i64", ptr: "ptr[f32]", numel: "i64") -> "i32":
         g_p[idx] = torch_to_dev(ht)
     g_p_src[idx] = ptr
     g_p_numels[idx] = numel
+    return 0
+
+
+# @tkv.torch_kernel target="cuda"
+def TkvFullBegin(n_tensors: "i64", NLayers: "i64", H: "i64", NHeads: "i64", Hd: "i64", Vocab: "i64") -> "i32":
+    if n_tensors <= 4:
+        return -2
+    if NLayers <= 0:
+        return -2
+    changed = 0
+    if g_cfg0 != n_tensors:
+        changed = 1
+    if g_cfg1 != NLayers:
+        changed = 1
+    if g_cfg2 != H:
+        changed = 1
+    if g_cfg3 != NHeads:
+        changed = 1
+    if g_cfg4 != Hd:
+        changed = 1
+    if g_cfg5 != Vocab:
+        changed = 1
+    if changed == 1:
+        g_cfg0 = n_tensors
+        g_cfg1 = NLayers
+        g_cfg2 = H
+        g_cfg3 = NHeads
+        g_cfg4 = Hd
+        g_cfg5 = Vocab
+        tkv_assign_tensor(g_p, n_tensors)
+        tkv_assign_ptr(g_p_src, n_tensors)
+        tkv_assign_i64(g_p_numels, n_tensors)
+        tkv_reset(g_p_all)
+        tkv_reset(g_ids)
+        tkv_reset(g_pos)
+        tkv_reset(g_tgt)
+    g_grad_buf = 0
+    g_grad_len = 0
+    g_nlayers = NLayers
+    g_h = H
+    g_nhd = NHeads
+    g_hd = Hd
+    g_vocab = Vocab
+    return 0
+
+
+# @tkv.torch_kernel target="cuda"
+def TkvFullGetParams(dst: "ptr[f32]", n: "i64") -> "i32":
+    if n <= 0:
+        return -1
+    if tkv_defined(g_p_all) == 0:
+        return -2
+    if tkv_numel(g_p_all) != n:
+        return -2
+    tkv_copy_out(g_p_all, dst, n)
+    return 0
+
+
+# @tkv.torch_kernel target="cuda"
+def TkvFullSetIdsGen(T: "i64") -> "i32":
+    if T <= 0:
+        return -1
+    V = g_vocab
+    if V <= 0:
+        V = 50257
+    cpu = tkv_empty_i64(T)
+    p = tkv_data_i64(cpu)
+    for i in range(T):
+        p[i] = (i * 37 + 11) % V
+    g_ids = torch_to_long(cpu)
+    g_pos = torch_arange(T, tkv_opt_long())
     return 0
 
 

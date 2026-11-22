@@ -289,6 +289,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('#include <math.h>' + chr(10))
     cu_parts.append('#include <stdlib.h>' + chr(10))
     cu_parts.append('#include <vector>' + chr(10))
+    cu_parts.append('#include <cstring>' + chr(10))
     gdecl_lines = []
     glines = []
     for gl in lines:
@@ -328,6 +329,13 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('static inline long long tkv_numel(const at::Tensor& t) { return t.numel(); }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_to_dev(const torch::Tensor& t) { return tkv_want_cuda() ? t.to(torch::TensorOptions().dtype(at::ScalarType::Half).device(torch::kCUDA)) : t; }' + chr(10))
     cu_parts.append('static inline long long tkv_vec_len(const std::vector<at::Tensor>& v) { return (long long)v.size(); }' + chr(10))
+    cu_parts.append('static inline void tkv_assign_tensor(std::vector<at::Tensor>& v, long long n) { v.assign((size_t)n, at::Tensor()); }' + chr(10))
+    cu_parts.append('static inline void tkv_assign_ptr(std::vector<float*>& v, long long n) { v.assign((size_t)n, nullptr); }' + chr(10))
+    cu_parts.append('static inline void tkv_assign_i64(std::vector<long long>& v, long long n) { v.assign((size_t)n, 0); }' + chr(10))
+    cu_parts.append('static inline void tkv_reset(at::Tensor& t) { t.reset(); }' + chr(10))
+    cu_parts.append('static inline void tkv_copy_out(const at::Tensor& t, float* dst, long long n) { auto h = t.to(torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU)); std::memcpy(dst, h.const_data_ptr<float>(), (size_t)n * sizeof(float)); }' + chr(10))
+    cu_parts.append('static inline at::Tensor tkv_empty_i64(long long n) { return at::empty({n}, torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU)); }' + chr(10))
+    cu_parts.append('static inline long long* tkv_data_i64(at::Tensor& t) { return t.data_ptr<long long>(); }' + chr(10))
     i = 0
     while i < len(lines):
         ln = lines[i]
