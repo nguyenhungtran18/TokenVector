@@ -2,6 +2,8 @@
 
 #include <math.h>
 
+#include <stdlib.h>
+
 #define EXPORT __attribute__((visibility("default")))
 
 

@@ -97,6 +97,20 @@ def _cpu_params(header: "str") -> "list[(str,str)]":
     return out
 
 
+def _cpu_has_idx(s: "str", nm: "str") -> "i32":
+    # rule cu `nm + '[' in rhs` khop NHAM `n[` nam trong `lse_in[` -> is_int sai.
+    # Chi co tinh la index neu toan tu o ranh gioi tu.
+    key = nm + '['
+    p = 0
+    while True:
+        k = s.find(key, p)
+        if k < 0:
+            break
+        if k == 0 or not (s[k - 1].isalnum() or s[k - 1] == '_'):
+            return 1
+        p = k + 1
+    return 0
+
 def _cpu_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[str]") -> "str":
     """Sinh than kernel C tu than ham Python (for/if long nhau, FMA giu thu tu)."""
     lines = []
@@ -156,7 +170,7 @@ def _cpu_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[str
                     k = 0
                     while k < len(params):
                         nm = params[k][0]
-                        if nm + '[' in rhs and 'i32' in params[k][1]:
+                        if _cpu_has_idx(rhs, nm) and 'i32' in params[k][1]:
                             is_int = 1
                         k = k + 1
                     if left == 'lane' or left == 'wid' or left == 'total':

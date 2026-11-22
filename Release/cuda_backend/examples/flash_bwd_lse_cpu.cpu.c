@@ -75,7 +75,7 @@ for (int ik = 0; ik < (nb_kv); ik++) {
         for (int d = 0; d < (64); d++) {
           f_s = fmaf(qkv[qbase + d], qkv[kbase + d], f_s);
         }
-        int f_x = f_s * f_inv - lse_in[m0 + i];
+        float f_x = f_s * f_inv - lse_in[m0 + i];
         float f_e = 0.0;
         if (j < nvec) {
           if (f_x < -87.3) {
