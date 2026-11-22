@@ -92,8 +92,9 @@ for (int j = 0; j < (nt); j++) {
   double d_neg = d_vv * d_v;
   double d_e2 = exp(d_neg);
   double d_res_d = 0.5 * (1.0 + t_ef) + (d_v * 0.3989422804014327) * d_e2;
+  float t_res = d_res_d;
   double d_gy = gy[i];
-  double d_res = d_gy * d_res_d;
+  double d_res = d_gy * t_res;
   out[i - lo] = d_res;
 }
   return 0;

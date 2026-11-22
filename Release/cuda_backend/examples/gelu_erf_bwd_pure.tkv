@@ -86,8 +86,9 @@ def GeluErfBwd(x: "ptr[f32]", x_len: "i32", gy: "ptr[f32]", gy_len: "i32", out: 
         d_neg = d_vv * d_v
         d_e2 = d_exp(d_neg)
         d_res_d = 0.5 * (1.0 + t_ef) + (d_v * 0.3989422804014327) * d_e2
+        t_res = d_res_d
         d_gy = gy[i]
-        d_res = d_gy * d_res_d
+        d_res = d_gy * t_res
         out[i - lo] = d_res
 
 
