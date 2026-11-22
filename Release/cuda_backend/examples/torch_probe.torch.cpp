@@ -13,3 +13,7 @@ TKV_TORCH_EXPORT long long TkvFullPing(long long x) {
 long long y = x + 42000;
 return y;
 }
+
+TKV_TORCH_EXPORT int TkvFullAdamwPath() {
+return g_adamw_path;
+}
