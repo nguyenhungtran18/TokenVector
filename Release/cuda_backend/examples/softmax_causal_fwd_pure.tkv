@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+# SoftmaxCausalFwd THUAN TOKENVECTOR (thay the file auto-glue C cu).
+# Native la SCALAR THUAN: scale/max f64 (mxv chua round), exp f64 (d_exp),
+# totv f64 chua round, ivv f64, nhan lai f32, mask u>t = 0.
+# @tkv.cpu_kernel target="avx2"
+def SoftmaxCausalFwd(s: "ptr[f32]", s_len: "i32", n: "i32", inv: "f64") -> "i32":
+    for t in range(n):
+        d_mxv = s[t * n] * inv
+        s[t * n] = d_mxv
+        for u in range(t + 1):
+            if u > 0:
+                d_m0 = s[t * n + u] * inv
+                s[t * n + u] = d_m0
+                if d_m0 > d_mxv:
+                    d_mxv = d_m0
+        d_totv = 0.0
+        for u in range(t + 1):
+            d_e = d_exp(s[t * n + u] - d_mxv)
+            s[t * n + u] = d_e
+            d_totv = d_totv + d_e
+        d_ivv = 1.0 / d_totv
+        for u in range(t + 1):
+            s[t * n + u] = s[t * n + u] * d_ivv
+        for u in range(n):
+            if u > t:
+                s[t * n + u] = 0.0
+
+
+def run() -> "i32":
+    return 0

@@ -69,7 +69,9 @@ def _cpu_expr(e: "str") -> "str":
     e = e.replace('sqrt(', 'sqrtf(')
     e = e.replace('__TKVSQRT__', 'sqrt(')
     e = e.replace('erf(', 'erff(')
+    e = e.replace('d_exp(', '__TKVEXP__')
     e = e.replace('exp(', 'expf(')
+    e = e.replace('__TKVEXP__', 'exp(')
     return e
 
 
