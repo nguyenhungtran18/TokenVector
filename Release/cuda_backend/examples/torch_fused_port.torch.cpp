@@ -76,6 +76,28 @@ static inline at::Tensor tkv_empty_i64(long long n) { return at::empty({n}, torc
 
 static inline long long* tkv_data_i64(at::Tensor& t) { return t.data_ptr<long long>(); }
 
+static inline torch::Tensor tkv_contiguous(const torch::Tensor& t) { return t.contiguous(); }
+
+static inline torch::Tensor tkv_view3(const torch::Tensor& t, long long a, long long b, long long c) { return t.view({a,b,c}); }
+
+static inline torch::Tensor tkv_view2(const torch::Tensor& t, long long a, long long b) { return t.view({a,b}); }
+
+static inline torch::Tensor tkv_view4(const torch::Tensor& t, long long a, long long b, long long c, long long d) { return t.view({a,b,c,d}); }
+
+static inline torch::Tensor tkv_reshape2(const torch::Tensor& t, long long a, long long b) { return t.reshape({a,b}); }
+
+static inline torch::Tensor tkv_select(const torch::Tensor& t, long long dim, long long idx) { return t.select(dim, idx); }
+
+static inline torch::Tensor tkv_unsqueeze(const torch::Tensor& t, long long d) { return t.unsqueeze(d); }
+
+static inline torch::Tensor tkv_transpose(const torch::Tensor& t, long long a, long long b) { return t.transpose(a,b); }
+
+static inline torch::Tensor tkv_ln(const torch::Tensor& x, const torch::Tensor& g, const torch::Tensor& b, double eps) { return at::layer_norm(x, at::IntArrayRef{x.size(-1)}, g, b, eps).to(x.scalar_type()); }
+
+static inline torch::Tensor tkv_half_mm(const torch::Tensor& a, const torch::Tensor& w) { return at::mm(a.to(at::ScalarType::Half), w.to(at::ScalarType::Half)); }
+
+static inline torch::Tensor tkv_half_addmm(const torch::Tensor& bias, const torch::Tensor& a, const torch::Tensor& w) { return at::addmm(bias.to(at::ScalarType::Half), a.to(at::ScalarType::Half), w.to(at::ScalarType::Half)); }
+
 TKV_TORCH_EXPORT long long TkvFullPing(long long x) {
 return x + 42000;
 }
@@ -103,14 +125,14 @@ return 0;
 
 TKV_TORCH_EXPORT int TkvFullSetIds(int* ids, long long T) {
 auto t = torch::from_blob(const_cast<int*>(ids), {T}, torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU).requires_grad(false));
-g_ids = tkv_to_long(t);
-g_pos = at::arange(T, tkv_opt_long());
+auto g_ids = tkv_to_long(t);
+auto g_pos = at::arange(T, tkv_opt_long());
 return 0;
 }
 
 TKV_TORCH_EXPORT int TkvFullSetTargets(int* ids, long long T) {
 auto t = torch::from_blob(const_cast<int*>(ids), {T}, torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU).requires_grad(false));
-g_tgt = tkv_to_long(t);
+auto g_tgt = tkv_to_long(t);
 return 0;
 }
 
@@ -125,7 +147,7 @@ if (tkv_defined(g_p[idx]) && tkv_numel(g_p[idx]) == numel && g_p_src[idx] == ptr
   return 0;
 }
 auto t = torch::from_blob(const_cast<float*>(ptr), {numel}, torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU).requires_grad(false));
-ht = tkv_to_half(t);
+auto ht = tkv_to_half(t);
 if (tkv_defined(g_p[idx]) && tkv_numel(g_p[idx]) == numel) {
   tkv_copy_(g_p[idx], ht);
 }
@@ -210,12 +232,52 @@ V = g_vocab;
 if (V <= 0) {
   V = 50257;
 }
-cpu = tkv_empty_i64(T);
+auto cpu = tkv_empty_i64(T);
 p = tkv_data_i64(cpu);
 for (int i = 0; i < (T); i++) {
   p[i] = (i * 37 + 11) % V;
 }
-g_ids = tkv_to_long(cpu);
-g_pos = at::arange(T, tkv_opt_long());
+auto g_ids = tkv_to_long(cpu);
+auto g_pos = at::arange(T, tkv_opt_long());
 return 0;
+}
+
+TKV_TORCH_EXPORT float TkvFullStep124mFwd(long long run_mode) {
+T = g_ids.numel();
+h = g_h;
+nh = g_nhd;
+hd = g_hd;
+V = g_vocab;
+L = g_nlayers;
+auto wte = tkv_view2(g_p[0], V, h);
+Pw = g_p[1].numel() / h;
+auto wpe = tkv_view2(g_p[1], Pw, h);
+auto x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
+for (int li = 0; li < (L); li++) {
+  b0 = 4 + li * 12;
+  auto a = tkv_ln(x, g_p[b0], g_p[b0 + 1], 1e-6);
+  auto wqkv = tkv_view2(g_p[b0 + 2], h, 3 * h);
+  auto qkv = tkv_half_addmm(g_p[b0 + 3], a, wqkv);
+  qkv3 = tkv_view4(qkv, T, 3, nh, hd);
+  q = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 0), 0, 1), 0);
+  k = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 1), 0, 1), 0);
+  v = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 2), 0, 1), 0);
+  auto attn = at::scaled_dot_product_attention(q, k, v);
+  ctx = tkv_reshape2(tkv_transpose(attn, 1, 2), T, h);
+  auto wp = tkv_view2(g_p[b0 + 4], h, h);
+  auto proj = tkv_half_addmm(g_p[b0 + 5], ctx, wp);
+  x = x + proj;
+  auto m = tkv_ln(x, g_p[b0 + 6], g_p[b0 + 7], 1e-6);
+  auto w1 = tkv_view2(g_p[b0 + 8], h, 4 * h);
+  auto u = tkv_half_addmm(g_p[b0 + 9], m, w1);
+  auto g1 = torch_gelu(u);
+  auto w2 = tkv_view2(g_p[b0 + 10], 4 * h, h);
+  x = x + tkv_half_addmm(g_p[b0 + 11], g1, w2);
+}
+auto xf = tkv_ln(x, g_p[2], g_p[3], 1e-6);
+auto logits = tkv_half_mm(xf, tkv_transpose(wte, 0, 1));
+auto lp = at::log_softmax(logits, -1);
+tgt = tkv_unsqueeze(g_tgt, 1);
+auto loss_t = -at::mean(at::gather(lp, 1, tgt));
+return loss_t.item();
 }

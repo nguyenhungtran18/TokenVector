@@ -71,6 +71,24 @@ def _torch_expr(e: "str") -> "str":
     e = e.replace('torch_to_half(', 'tkv_to_half(')
     e = e.replace('torch_to_dev(', 'tkv_to_dev(')
     e = e.replace('torch_copy_(', 'tkv_copy_(')
+    e = e.replace('torch_index_select(', 'at::index_select(')
+    e = e.replace('torch_transpose(', 'tkv_transpose(')
+    e = e.replace('torch_view3(', 'tkv_view3(')
+    e = e.replace('torch_view4(', 'tkv_view4(')
+    e = e.replace('torch_reshape2(', 'tkv_reshape2(')
+    e = e.replace('torch_select(', 'tkv_select(')
+    e = e.replace('torch_unsqueeze(', 'tkv_unsqueeze(')
+    e = e.replace('torch_ln(', 'tkv_ln(')
+    e = e.replace('torch_half_mm(', 'tkv_half_mm(')
+    e = e.replace('torch_half_addmm(', 'tkv_half_addmm(')
+    e = e.replace('torch_unsqueeze(', 'torch::unsqueeze(')
+    e = e.replace('torch_contiguous(', 'tkv_contiguous(')
+    e = e.replace('torch_addmm(', 'at::addmm(')
+    e = e.replace('torch_view2(', 'tkv_view2(')
+    e = e.replace('torch_sdpa(', 'at::scaled_dot_product_attention(')
+    e = e.replace('torch_log_softmax(', 'at::log_softmax(')
+    e = e.replace('torch_gather(', 'at::gather(')
+    e = e.replace('torch_mean(', 'at::mean(')
     e = e.replace(' and ', ' && ')
     e = e.replace(' or ', ' || ')
     e = e.replace('tkv_defined(', 'tkv_defined(')
@@ -206,7 +224,61 @@ def _torch_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[s
                         ctype = 'long long'
                     else:
                         ctype = 'double' if left.startswith('d_') else ('int' if is_int else 'float')
-                if 'torch_blob_i32(' in rhs or 'torch_blob_f32(' in rhs:
+                isten = 0
+                if 'torch_view2(' in rhs:
+                    isten = 1
+                if 'torch_blob_i32(' in rhs:
+                    isten = 1
+                if 'torch_blob_f32(' in rhs:
+                    isten = 1
+                if 'torch_to_long(' in rhs:
+                    isten = 1
+                if 'torch_to_half(' in rhs:
+                    isten = 1
+                if 'torch_to_dev(' in rhs:
+                    isten = 1
+                if 'torch_arange(' in rhs:
+                    isten = 1
+                if 'tkv_view3(' in rhs:
+                    isten = 1
+                if 'tkv_view4(' in rhs:
+                    isten = 1
+                if 'tkv_reshape2(' in rhs:
+                    isten = 1
+                if 'tkv_select(' in rhs:
+                    isten = 1
+                if 'tkv_unsqueeze(' in rhs:
+                    isten = 1
+                if 'tkv_transpose(' in rhs:
+                    isten = 1
+                if 'tkv_contiguous(' in rhs:
+                    isten = 1
+                if 'torch_ln(' in rhs:
+                    isten = 1
+                if 'torch_half_mm(' in rhs:
+                    isten = 1
+                if 'torch_half_addmm(' in rhs:
+                    isten = 1
+                if 'torch_mm(' in rhs:
+                    isten = 1
+                if 'torch_addmm(' in rhs:
+                    isten = 1
+                if 'torch_sdpa(' in rhs:
+                    isten = 1
+                if 'torch_gelu(' in rhs:
+                    isten = 1
+                if 'torch_index_select(' in rhs:
+                    isten = 1
+                if 'torch_log_softmax(' in rhs:
+                    isten = 1
+                if 'torch_gather(' in rhs:
+                    isten = 1
+                if 'torch_mean(' in rhs:
+                    isten = 1
+                if 'tkv_empty_i64(' in rhs:
+                    isten = 1
+                if isten == 1 and left not in declared:
+                    ctype = 'auto'
                     ctype = 'auto'
                     declared.append(left)
                     st = ctype + ' ' + st
@@ -336,6 +408,17 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('static inline void tkv_copy_out(const at::Tensor& t, float* dst, long long n) { auto h = t.to(torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU)); std::memcpy(dst, h.const_data_ptr<float>(), (size_t)n * sizeof(float)); }' + chr(10))
     cu_parts.append('static inline at::Tensor tkv_empty_i64(long long n) { return at::empty({n}, torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU)); }' + chr(10))
     cu_parts.append('static inline long long* tkv_data_i64(at::Tensor& t) { return t.data_ptr<long long>(); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_contiguous(const torch::Tensor& t) { return t.contiguous(); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_view3(const torch::Tensor& t, long long a, long long b, long long c) { return t.view({a,b,c}); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_view2(const torch::Tensor& t, long long a, long long b) { return t.view({a,b}); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_view4(const torch::Tensor& t, long long a, long long b, long long c, long long d) { return t.view({a,b,c,d}); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_reshape2(const torch::Tensor& t, long long a, long long b) { return t.reshape({a,b}); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_select(const torch::Tensor& t, long long dim, long long idx) { return t.select(dim, idx); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_unsqueeze(const torch::Tensor& t, long long d) { return t.unsqueeze(d); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_transpose(const torch::Tensor& t, long long a, long long b) { return t.transpose(a,b); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_ln(const torch::Tensor& x, const torch::Tensor& g, const torch::Tensor& b, double eps) { return at::layer_norm(x, at::IntArrayRef{x.size(-1)}, g, b, eps).to(x.scalar_type()); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_half_mm(const torch::Tensor& a, const torch::Tensor& w) { return at::mm(a.to(at::ScalarType::Half), w.to(at::ScalarType::Half)); }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_half_addmm(const torch::Tensor& bias, const torch::Tensor& a, const torch::Tensor& w) { return at::addmm(bias.to(at::ScalarType::Half), a.to(at::ScalarType::Half), w.to(at::ScalarType::Half)); }' + chr(10))
     i = 0
     while i < len(lines):
         ln = lines[i]

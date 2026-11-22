@@ -163,5 +163,45 @@ def TkvFullSetIdsGen(T: "i64") -> "i32":
     return 0
 
 
+# @tkv.torch_kernel target="cuda"
+def TkvFullStep124mFwd(run_mode: "i64") -> "f32":
+    T = g_ids.numel()
+    h = g_h
+    nh = g_nhd
+    hd = g_hd
+    V = g_vocab
+    L = g_nlayers
+    wte = torch_view2(g_p[0], V, h)
+    Pw = g_p[1].numel() / h
+    wpe = torch_view2(g_p[1], Pw, h)
+    x = torch_index_select(wte, 0, g_ids) + torch_index_select(wpe, 0, g_pos)
+    for li in range(L):
+        b0 = 4 + li * 12
+        a = torch_ln(x, g_p[b0], g_p[b0 + 1], 1e-6)
+        wqkv = torch_view2(g_p[b0 + 2], h, 3 * h)
+        qkv = torch_half_addmm(g_p[b0 + 3], a, wqkv)
+        qkv3 = torch_view4(qkv, T, 3, nh, hd)
+        q = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 0), 0, 1), 0)
+        k = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 1), 0, 1), 0)
+        v = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 2), 0, 1), 0)
+        attn = torch_sdpa(q, k, v)
+        ctx = torch_reshape2(torch_transpose(attn, 1, 2), T, h)
+        wp = torch_view2(g_p[b0 + 4], h, h)
+        proj = torch_half_addmm(g_p[b0 + 5], ctx, wp)
+        x = x + proj
+        m = torch_ln(x, g_p[b0 + 6], g_p[b0 + 7], 1e-6)
+        w1 = torch_view2(g_p[b0 + 8], h, 4 * h)
+        u = torch_half_addmm(g_p[b0 + 9], m, w1)
+        g1 = torch_gelu(u)
+        w2 = torch_view2(g_p[b0 + 10], 4 * h, h)
+        x = x + torch_half_addmm(g_p[b0 + 11], g1, w2)
+    xf = torch_ln(x, g_p[2], g_p[3], 1e-6)
+    logits = torch_half_mm(xf, torch_transpose(wte, 0, 1))
+    lp = torch_log_softmax(logits, -1)
+    tgt = torch_unsqueeze(g_tgt, 1)
+    loss_t = -torch_mean(torch_gather(lp, 1, tgt))
+    return loss_t.item()
+
+
 def run() -> "i32":
     return 0
