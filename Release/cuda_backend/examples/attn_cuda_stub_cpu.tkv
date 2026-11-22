@@ -1,0 +1,18 @@
+# -*- coding: utf-8 -*-
+# TkvCudaAttnFwd/Bwd THUAN TOKENVECTOR.
+# Native tkv_attn_cuda.c la bridge cuBLAS, CHI chay khi TKV_ATTN_CUDA=1 (mac dinh TAT).
+# Mac dinh 2 export tra 0 de caller fallback sang flash (da thay bang pure TKV).
+# DSL CPU khong the bieu dien cuBLAS -> duong cuBLAS tuy y bi BO; hanh vi mac dinh
+# (tra 0) duoc giu nguyen bitwise.
+# @tkv.cpu_kernel target="avx2"
+def TkvCudaAttnFwd(qkv: "ptr[f32]", n: "i32", h: "i32", hd: "i32", head: "i32", inv: "f64", ctx_out: "ptr[f32]") -> "i32":
+    f_rc = 0.0
+
+
+# @tkv.cpu_kernel target="avx2"
+def TkvCudaAttnBwd(qkv: "ptr[f32]", dctx: "ptr[f32]", ctx_in: "ptr[f32]", ctxo: "ptr[f32]", dqo: "ptr[f32]", n: "i32", h: "i32", hd: "i32", head: "i32", inv: "f64") -> "i32":
+    f_rc = 0.0
+
+
+def run() -> "i32":
+    return 0
