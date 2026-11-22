@@ -67,7 +67,7 @@ for (int im = 0; im < (nb_m); im++) {
             for (int p = 0; p < (kc); p++) {
               float f_av = 0.0;
               float f_bv = 0.0;
-              if (p0 + pc + p < pw) {
+              if (pc + p < pw) {
                 f_av = gy[(i0 + r) * k + p0 + pc + p];
                 f_bv = w[(j0 + c) * ndim + p0 + pc + p];
               }

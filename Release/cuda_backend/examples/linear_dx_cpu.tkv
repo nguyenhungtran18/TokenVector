@@ -53,7 +53,7 @@ def LinearDxFused(gy: "ptr[f32]", gy_len: "i32", w: "ptr[f32]", w_len: "i32", dx
                             for p in range(kc):
                                 f_av = 0.0
                                 f_bv = 0.0
-                                if p0 + pc + p < pw:
+                                if pc + p < pw:
                                     f_av = gy[(i0 + r) * k + p0 + pc + p]
                                     f_bv = w[(j0 + c) * ndim + p0 + pc + p]
                                 f_s = fma(f_av, f_bv, f_s)
