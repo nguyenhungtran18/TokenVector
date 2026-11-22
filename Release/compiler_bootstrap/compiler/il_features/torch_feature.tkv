@@ -330,13 +330,11 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     for gn in glines:
         for gty in ('int','long long','float','double','float*','at::Tensor'):
             cu = cu.replace(gty + ' ' + gn + ' = ', gn + ' = ')
-    for gn in glines:
-        for gty in ('int','long long','float','double','float*','at::Tensor'):
-            cu = cu.replace(gty + ' ' + gn + ' = ', gn + ' = ')
     gdecls = ''
     for gd in gdecl_lines:
         gdecls = gdecls + gd + chr(10)
-    cu = gdecls + cu
+    marker = '#define TKV_TORCH_EXPORT __attribute__((visibility("default")))' + chr(10)
+    cu = cu.replace(marker, marker + gdecls)
     path_write_text(cu_path, cu)
     sh = ('#!/bin/sh\nset -e\ngcc -O2 -mavx2 -mfma -ffp-contract=off -fno-fast-math '
           '-shared -fPIC ' + cu_path + ' -o ' + so + ' -lm -lpthread -ldl\n')

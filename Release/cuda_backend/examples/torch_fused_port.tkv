@@ -1,15 +1,43 @@
 # -*- coding: utf-8 -*-
-g_adamw_path: "i32" = 0
+# GPU bridge port - nhom export quan ly state (dau tien)
+g_adamw_path = 0
+g_grad_buf = 0  # ptr[f32]
+g_grad_len = 0  # i64
+g_lr = 0.00005  # f32
+g_b1 = 0.9  # f32
+g_b2 = 0.999  # f32
+g_eps = 0.00000001  # f32
+g_wd = 0.0  # f32
+g_total_steps = 0  # i64
+g_cur_step = 0  # i64
 
 # @tkv.torch_kernel target="cuda"
 def TkvFullPing(x: "i64") -> "i64":
-    y = x + 42000
-    return y
+    return x + 42000
 
 
 # @tkv.torch_kernel target="cuda"
 def TkvFullAdamwPath() -> "i32":
     return g_adamw_path
+
+
+# @tkv.torch_kernel target="cuda"
+def TkvFullSetGrad(buf: "ptr[f32]", n: "i64") -> "i32":
+    g_grad_buf = buf
+    g_grad_len = n
+    return 0
+
+
+# @tkv.torch_kernel target="cuda"
+def TkvFullSetOpt(p: "ptr[f32]", m: "ptr[f32]", v: "ptr[f32]", lr: "f32", b1: "f32", b2: "f32", eps: "f32", wd: "f32", total_steps: "i64", cur_step: "i64") -> "i32":
+    g_lr = lr
+    g_b1 = b1
+    g_b2 = b2
+    g_eps = eps
+    g_wd = wd
+    g_total_steps = total_steps
+    g_cur_step = cur_step
+    return 0
 
 
 def run() -> "i32":
