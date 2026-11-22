@@ -38,7 +38,7 @@ for (int t = 0; t < (n); t++) {
   float f_a5 = 0.0;
   float f_a6 = 0.0;
   float f_a7 = 0.0;
-  int bbase = (t * stride3 + h + coff_q) % 1000000000;
+  int bbase = (t * h + coff_q) % 1000000000;
   for (int p = 0; p < (8); p++) {
     f_a0 = fmaf(dctx[bbase + p], ctx_in[ob + p], f_a0);
     f_a1 = fmaf(dctx[bbase + 8 + p], ctx_in[ob + 8 + p], f_a1);
@@ -68,7 +68,7 @@ for (int ik = 0; ik < (nb_kv); ik++) {
     }
     for (int i = 0; i < (qb); i++) {
       int qbase = ((m0 + i) * stride3 + coff_q) % 1000000000;
-      int dbase = ((m0 + i) * stride3 + h + coff_q) % 1000000000;
+      int dbase = ((m0 + i) * h + coff_q) % 1000000000;
       for (int j = 0; j < (kvb); j++) {
         int kbase = ((n0 + j) * stride3 + h + coff_q) % 1000000000;
         float f_s = 0.0;
@@ -116,9 +116,9 @@ for (int ik = 0; ik < (nb_kv); ik++) {
     for (int j = 0; j < (kvb); j++) {
       for (int d = 0; d < (64); d++) {
         f_acc = dv[(n0 + j) * 64 + d];
-        int dbase2 = ((m0) * stride3 + h + coff_q) % 1000000000;
+        int dbase2 = (m0 * h + coff_q) % 1000000000;
         for (int i = 0; i < (qb); i++) {
-          f_acc = fmaf(attn[i * 64 + j], dctx[dbase2 + i * stride3 + d], f_acc);
+          f_acc = fmaf(attn[i * 64 + j], dctx[dbase2 + i * h + d], f_acc);
         }
         dv[(n0 + j) * 64 + d] = f_acc;
       }

@@ -32,7 +32,7 @@ def FlashAttentionBwdFusedLse(qkv: "ptr[f32]", qkv_len: "i32", dctx: "ptr[f32]",
         f_a5 = 0.0
         f_a6 = 0.0
         f_a7 = 0.0
-        bbase = (t * stride3 + h + coff_q) % 1000000000
+        bbase = (t * h + coff_q) % 1000000000
         for p in range(8):
             f_a0 = fma(dctx[bbase + p], ctx_in[ob + p], f_a0)
             f_a1 = fma(dctx[bbase + 8 + p], ctx_in[ob + 8 + p], f_a1)
@@ -58,7 +58,7 @@ def FlashAttentionBwdFusedLse(qkv: "ptr[f32]", qkv_len: "i32", dctx: "ptr[f32]",
                 qb = 64
             for i in range(qb):
                 qbase = ((m0 + i) * stride3 + coff_q) % 1000000000
-                dbase = ((m0 + i) * stride3 + h + coff_q) % 1000000000
+                dbase = ((m0 + i) * h + coff_q) % 1000000000
                 for j in range(kvb):
                     kbase = ((n0 + j) * stride3 + h + coff_q) % 1000000000
                     f_s = 0.0
@@ -97,9 +97,9 @@ def FlashAttentionBwdFusedLse(qkv: "ptr[f32]", qkv_len: "i32", dctx: "ptr[f32]",
             for j in range(kvb):
                 for d in range(64):
                     f_acc = dv[(n0 + j) * 64 + d]
-                    dbase2 = ((m0) * stride3 + h + coff_q) % 1000000000
+                    dbase2 = (m0 * h + coff_q) % 1000000000
                     for i in range(qb):
-                        f_acc = fma(attn[i * 64 + j], dctx[dbase2 + i * stride3 + d], f_acc)
+                        f_acc = fma(attn[i * 64 + j], dctx[dbase2 + i * h + d], f_acc)
                     dv[(n0 + j) * 64 + d] = f_acc
             for i in range(qb):
                 for d in range(64):
