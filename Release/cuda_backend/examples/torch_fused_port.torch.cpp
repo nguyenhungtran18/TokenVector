@@ -146,14 +146,14 @@ return 0;
 
 TKV_TORCH_EXPORT int TkvFullSetIds(int* ids, long long T) {
 auto t = torch::from_blob(const_cast<int*>(ids), {T}, torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU).requires_grad(false));
-auto g_ids = tkv_to_long(t);
-auto g_pos = at::arange(T, tkv_opt_long());
+g_ids = tkv_to_long(t);
+g_pos = at::arange(T, tkv_opt_long());
 return 0;
 }
 
 TKV_TORCH_EXPORT int TkvFullSetTargets(int* ids, long long T) {
 auto t = torch::from_blob(const_cast<int*>(ids), {T}, torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU).requires_grad(false));
-auto g_tgt = tkv_to_long(t);
+g_tgt = tkv_to_long(t);
 return 0;
 }
 
@@ -187,7 +187,7 @@ if (n_tensors <= 4) {
 if (NLayers <= 0) {
   return -2;
 }
-changed = 0;
+int changed = 0 % 1;
 if (g_cfg0 != n_tensors) {
   changed = 1;
 }
@@ -249,42 +249,42 @@ TKV_TORCH_EXPORT int TkvFullSetIdsGen(long long T) {
 if (T <= 0) {
   return -1;
 }
-V = g_vocab;
+int V = g_vocab % 1 % 1;
 if (V <= 0) {
   V = 50257;
 }
 auto cpu = tkv_empty_i64(T);
-p = tkv_data_i64(cpu);
+auto p = tkv_data_i64(cpu);
 for (int i = 0; i < (T); i++) {
   p[i] = (i * 37 + 11) % V;
 }
-auto g_ids = tkv_to_long(cpu);
-auto g_pos = at::arange(T, tkv_opt_long());
+g_ids = tkv_to_long(cpu);
+g_pos = at::arange(T, tkv_opt_long());
 return 0;
 }
 
 TKV_TORCH_EXPORT float TkvFullStep124mFwd(long long run_mode) {
-T = g_ids.numel();
-h = g_h;
-nh = g_nhd;
-hd = g_hd;
-V = g_vocab;
-L = g_nlayers;
+int T = g_ids.numel() % 1;
+int h = g_h % 1;
+int nh = g_nhd % 1;
+int hd = g_hd % 1;
+int V = g_vocab % 1 % 1;
+int L = g_nlayers % 1;
 auto wte = tkv_view2(g_p[0], V, h);
-Pw = g_p[1].numel() / h;
+int Pw = (g_p[1].numel() / h) % 1;
 auto wpe = tkv_view2(g_p[1], Pw, h);
 auto x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
 for (int li = 0; li < (L); li++) {
-  b0 = 4 + li * 12;
+  int b0 = (4 + li * 12) % 1;
   auto a = tkv_ln(x, g_p[b0], g_p[b0 + 1], 1e-6);
   auto wqkv = tkv_view2(g_p[b0 + 2], h, 3 * h);
   auto qkv = tkv_half_addmm(g_p[b0 + 3], a, wqkv);
-  qkv3 = tkv_view4(qkv, T, 3, nh, hd);
-  q = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 0), 0, 1), 0);
-  k = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 1), 0, 1), 0);
-  v = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 2), 0, 1), 0);
+  auto qkv3 = tkv_view4(qkv, T, 3, nh, hd);
+  auto q = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 0), 0, 1), 0);
+  auto k = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 1), 0, 1), 0);
+  auto v = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 2), 0, 1), 0);
   auto attn = at::scaled_dot_product_attention(q, k, v);
-  ctx = tkv_reshape2(tkv_transpose(attn, 1, 2), T, h);
+  auto ctx = tkv_reshape2(tkv_transpose(attn, 1, 2), T, h);
   auto wp = tkv_view2(g_p[b0 + 4], h, h);
   auto proj = tkv_half_addmm(g_p[b0 + 5], ctx, wp);
   x = x + proj;
@@ -298,33 +298,33 @@ for (int li = 0; li < (L); li++) {
 auto xf = tkv_ln(x, g_p[2], g_p[3], 1e-6);
 auto logits = tkv_half_mm(xf, tkv_transpose(wte, 0, 1));
 auto lp = at::log_softmax(logits, -1);
-tgt = tkv_unsqueeze(g_tgt, 1);
+auto tgt = tkv_unsqueeze(g_tgt, 1);
 auto loss_t = -at::mean(at::gather(lp, 1, tgt));
 return loss_t.item();
 }
 
 TKV_TORCH_EXPORT float TkvFullStep124m(long long run_mode) {
-T = g_ids.numel();
-h = g_h;
-nh = g_nhd;
-hd = g_hd;
-V = g_vocab;
-L = g_nlayers;
+int T = g_ids.numel() % 1;
+int h = g_h % 1;
+int nh = g_nhd % 1;
+int hd = g_hd % 1;
+int V = g_vocab % 1 % 1;
+int L = g_nlayers % 1;
 auto wte = tkv_view2(g_p[0], V, h);
-Pw = g_p[1].numel() / h;
+int Pw = (g_p[1].numel() / h) % 1;
 auto wpe = tkv_view2(g_p[1], Pw, h);
 auto x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
 for (int li = 0; li < (L); li++) {
-  b0 = 4 + li * 12;
+  int b0 = (4 + li * 12) % 1;
   auto a = tkv_ln(x, g_p[b0], g_p[b0 + 1], 1e-6);
   auto wqkv = tkv_view2(g_p[b0 + 2], h, 3 * h);
   auto qkv = tkv_half_addmm(g_p[b0 + 3], a, wqkv);
-  qkv3 = tkv_view4(qkv, T, 3, nh, hd);
-  q = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 0), 0, 1), 0);
-  k = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 1), 0, 1), 0);
-  v = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 2), 0, 1), 0);
+  auto qkv3 = tkv_view4(qkv, T, 3, nh, hd);
+  auto q = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 0), 0, 1), 0);
+  auto k = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 1), 0, 1), 0);
+  auto v = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 2), 0, 1), 0);
   auto attn = at::scaled_dot_product_attention(q, k, v);
-  ctx = tkv_reshape2(tkv_transpose(attn, 1, 2), T, h);
+  auto ctx = tkv_reshape2(tkv_transpose(attn, 1, 2), T, h);
   auto wp = tkv_view2(g_p[b0 + 4], h, h);
   auto proj = tkv_half_addmm(g_p[b0 + 5], ctx, wp);
   x = x + proj;
@@ -338,9 +338,9 @@ for (int li = 0; li < (L); li++) {
 auto xf = tkv_ln(x, g_p[2], g_p[3], 1e-6);
 auto logits = tkv_half_mm(xf, tkv_transpose(wte, 0, 1));
 auto lp = at::log_softmax(logits, -1);
-tgt = tkv_unsqueeze(g_tgt, 1);
+auto tgt = tkv_unsqueeze(g_tgt, 1);
 auto loss_t = -at::mean(at::gather(lp, 1, tgt));
-loss_val = loss_t.item();
+float loss_val = loss_t.item();
 if (run_mode == 1) {
   return loss_val;
 }

@@ -157,7 +157,9 @@ def _torch_has_idx(s: "str", nm: "str") -> "i32":
         p = k + 1
     return 0
 
-def _torch_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[str]") -> "str":
+def _torch_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[str]", gnames: "list[str]" = None) -> "str":
+    if gnames is None:
+        gnames = []
     """Sinh than kernel C tu than ham Python (for/if long nhau, FMA giu thu tu)."""
     lines = []
     declared = []
@@ -205,9 +207,11 @@ def _torch_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[s
             # khai bien cuc bo lan dau gan - suy kieu don gian nhu CUDA backend
             if '=' in st and '[' not in st.split('=')[0]:
                 left = st.split('=')[0].strip()
-                if left not in declared and left not in ('',):
+                if left not in declared and left not in ('',) and left not in gnames:
                     rhs = st.split('=', 1)[1]
-                    is_int = ('%' in rhs)
+                    is_int = 0
+                    if '%' in rhs:
+                        is_int = 1
                     if '/' in rhs and 'sqrt' not in rhs and '1.0' not in rhs:
                         if left == 'mean' or left == 'rstd' or left == 'var':
                             is_int = 0
@@ -221,75 +225,25 @@ def _torch_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[s
                         k = k + 1
                     if left == 'lane' or left == 'wid' or left == 'total':
                         is_int = 1
-                    if left == 'base' or left == 'p0' or left == 'r0' or left == 'c0' or left == 'ho':
-                        ctype = 'long long'
-                    else:
-                        i64use = 0
+                    i64use = 0
                     for pk in params:
                         if 'i64' in pk[1] and pk[0] + ' ' in rhs:
                             i64use = 1
-                    if i64use == 1:
+                    if left == 'base' or left == 'p0' or left == 'r0' or left == 'c0' or left == 'ho':
+                        ctype = 'long long'
+                    elif i64use == 1:
                         ctype = 'long long'
                     else:
                         ctype = 'double' if left.startswith('d_') else ('int' if is_int else 'float')
-                isten = 0
-                if 'torch_grad(' in rhs:
-                    isten = 1
-                if 'torch_view2(' in rhs:
-                    isten = 1
-                if 'torch_blob_i32(' in rhs:
-                    isten = 1
-                if 'torch_blob_f32(' in rhs:
-                    isten = 1
-                if 'torch_to_long(' in rhs:
-                    isten = 1
-                if 'torch_to_half(' in rhs:
-                    isten = 1
-                if 'torch_to_dev(' in rhs:
-                    isten = 1
-                if 'torch_arange(' in rhs:
-                    isten = 1
-                if 'tkv_view3(' in rhs:
-                    isten = 1
-                if 'tkv_view4(' in rhs:
-                    isten = 1
-                if 'tkv_reshape2(' in rhs:
-                    isten = 1
-                if 'tkv_select(' in rhs:
-                    isten = 1
-                if 'tkv_unsqueeze(' in rhs:
-                    isten = 1
-                if 'tkv_transpose(' in rhs:
-                    isten = 1
-                if 'tkv_contiguous(' in rhs:
-                    isten = 1
-                if 'torch_ln(' in rhs:
-                    isten = 1
-                if 'torch_half_mm(' in rhs:
-                    isten = 1
-                if 'torch_half_addmm(' in rhs:
-                    isten = 1
-                if 'torch_mm(' in rhs:
-                    isten = 1
-                if 'torch_addmm(' in rhs:
-                    isten = 1
-                if 'torch_sdpa(' in rhs:
-                    isten = 1
-                if 'torch_gelu(' in rhs:
-                    isten = 1
-                if 'torch_index_select(' in rhs:
-                    isten = 1
-                if 'torch_log_softmax(' in rhs:
-                    isten = 1
-                if 'torch_gather(' in rhs:
-                    isten = 1
-                if 'torch_mean(' in rhs:
-                    isten = 1
-                if 'tkv_empty_i64(' in rhs:
-                    isten = 1
-                if isten == 1 and left not in declared:
-                    ctype = 'auto'
-                    ctype = 'auto'
+                    isten = 0
+                    tfs = 'torch_unsqueeze|torch_select|torch_transpose|torch_reshape2|torch_contiguous|torch_view3|torch_view4|torch_grad|torch_view2|torch_blob_i32|torch_blob_f32|torch_to_long|torch_to_half|torch_to_dev|torch_arange|tkv_view3|tkv_view4|tkv_reshape2|tkv_select|tkv_unsqueeze|tkv_transpose|tkv_contiguous|torch_ln|torch_half_mm|torch_half_addmm|torch_mm|torch_addmm|torch_sdpa|torch_gelu|torch_index_select|torch_log_softmax|torch_gather|torch_mean|tkv_empty_i64|tkv_data_i64'
+                    for tf in tfs.split('|'):
+                        if tf in rhs:
+                            isten = 1
+                        if tf in rhs:
+                            isten = 1
+                    if isten == 1:
+                        ctype = 'auto'
                     declared.append(left)
                     st = ctype + ' ' + st
             lines.append('  ' * (level - 1) + _torch_expr(st) + ';')
@@ -299,7 +253,7 @@ def _torch_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[s
     return '\n'.join(lines) + '\n'
 
 
-def _torch_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]", ret: "str" = "void") -> "str":
+def _torch_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]", ret: "str" = "void", gnames: "list[str]" = None) -> "str":
     decls = []
     args = []
     for pn, ann in params:
@@ -308,7 +262,7 @@ def _torch_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]", r
     rt = 'void' if ret == 'void' else _torch_c_type(ret)
     s = 'TKV_TORCH_EXPORT ' + rt + ' ' + name + '(' + ', '.join(decls) + ') {' + chr(10)
     bufs = []
-    s = s + _torch_body_c(body, params, bufs)
+    s = s + _torch_body_c(body, params, bufs, gnames)
     for b in bufs:
         s = s + '  free(' + b + ');\n'
     hasret = 0
@@ -374,6 +328,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('#include <cstring>' + chr(10))
     cu_parts.append('#include <dlfcn.h>' + chr(10))
     cu_parts.append('#include <cmath>' + chr(10))
+    gnames = []
     gdecl_lines = []
     glines = []
     for gl in lines:
@@ -393,6 +348,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
             else:
                 gt = _torch_c_type(ga)
             glines.append(gn)
+            gnames.append(gn)
             if ga == 'tensor[]':
                 gdecl_lines.append('std::vector<at::Tensor> ' + gn + ';')
             elif ga == 'ptr[]':
@@ -463,7 +419,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
             while k < len(lines) and (lines[k].strip() == '' or lines[k].startswith('    ')):
                 body.append(lines[k])
                 k = k + 1
-            cu_parts.append(_torch_kernel_c(name, params, body, ret))
+            cu_parts.append(_torch_kernel_c(name, params, body, ret, gnames))
             pragmas.append(_torch_pragma(name, params, so))
             wrappers.append(_torch_wrapper(name, params))
             i = k
