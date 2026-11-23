@@ -238,7 +238,7 @@ if (n_tensors <= 4) {
 if (NLayers <= 0) {
   return -2;
 }
-int changed = 0 % 1;
+int changed = 0 % 1000000007;
 if (g_cfg0 != n_tensors) {
   changed = 1;
 }
@@ -304,7 +304,7 @@ TKV_TORCH_EXPORT int TkvFullSetIdsGen(long long T) {
 if (T <= 0) {
   return -1;
 }
-int V = g_vocab % 1 % 1;
+int V = g_vocab % 1000000007;
 if (V <= 0) {
   V = 50257;
 }
@@ -321,18 +321,18 @@ return 0;
 
 TKV_TORCH_EXPORT float TkvFullStep124mFwd(long long run_mode) {
   try {
-int T = g_ids.numel() % 1;
-int h = g_h % 1;
-int nh = g_nhd % 1;
-int hd = g_hd % 1;
-int V = g_vocab % 1 % 1;
-int L = g_nlayers % 1;
+int T = g_ids.numel() % 1000000007;
+int h = g_h % 1000000007;
+int nh = g_nhd % 1000000007;
+int hd = g_hd % 1000000007;
+int V = g_vocab % 1000000007;
+int L = g_nlayers % 1000000007;
 auto wte = tkv_view2(g_p[0], V, h);
-int Pw = (g_p[1].numel() / h) % 1;
+int Pw = (g_p[1].numel() / h) % 1000000007;
 auto wpe = tkv_view2(g_p[1], Pw, h);
 auto x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
 for (int li = 0; li < (L); li++) {
-  int b0 = (4 + li * 12) % 1;
+  int b0 = (4 + li * 12) % 1000000007;
   auto a = tkv_ln(x, g_p[b0], g_p[b0 + 1], 1e-6);
   auto wqkv = tkv_view2(g_p[b0 + 2], h, 3 * h);
   auto qkv = tkv_half_addmm(g_p[b0 + 3], a, wqkv);
@@ -363,12 +363,12 @@ return tkv_item_f32(loss_t);
 
 TKV_TORCH_EXPORT float TkvFullStep124m(long long run_mode) {
   try {
-int T = g_ids.numel() % 1;
-int h = g_h % 1;
-int nh = g_nhd % 1;
-int hd = g_hd % 1;
-int V = g_vocab % 1 % 1;
-int L = g_nlayers % 1;
+int T = g_ids.numel() % 1000000007;
+int h = g_h % 1000000007;
+int nh = g_nhd % 1000000007;
+int hd = g_hd % 1000000007;
+int V = g_vocab % 1000000007;
+int L = g_nlayers % 1000000007;
 tkv_dbg(1, 0.0);
 if (g_grad_len > 0) {
   if (g_dev_ready == 0) {
@@ -396,11 +396,11 @@ if (g_dev_ready != 0) {
 }
 tkv_dbg(2, 0.0);
 auto wte = tkv_view2(g_p[0], V, h);
-int Pw = (g_p[1].numel() / h) % 1;
+int Pw = (g_p[1].numel() / h) % 1000000007;
 auto wpe = tkv_view2(g_p[1], Pw, h);
 auto x = at::index_select(wte, 0, g_ids) + at::index_select(wpe, 0, g_pos);
 for (int li = 0; li < (L); li++) {
-  int b0 = (4 + li * 12) % 1;
+  int b0 = (4 + li * 12) % 1000000007;
   auto a = tkv_ln(x, g_p[b0], g_p[b0 + 1], 1e-6);
   auto wqkv = tkv_view2(g_p[b0 + 2], h, 3 * h);
   auto qkv = tkv_half_addmm(g_p[b0 + 3], a, wqkv);

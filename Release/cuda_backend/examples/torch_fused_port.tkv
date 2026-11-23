@@ -106,7 +106,7 @@ def TkvFullBegin(n_tensors: "i64", NLayers: "i64", H: "i64", NHeads: "i64", Hd: 
         return -2
     if NLayers <= 0:
         return -2
-    changed = 0 % 1
+    changed = 0 % 1000000007
     if g_cfg0 != n_tensors:
         changed = 1
     if g_cfg1 != NLayers:
@@ -159,7 +159,7 @@ def TkvFullGetParams(dst: "ptr[f32]", n: "i64") -> "i32":
 def TkvFullSetIdsGen(T: "i64") -> "i32":
     if T <= 0:
         return -1
-    V = g_vocab % 1 % 1
+    V = g_vocab % 1000000007
     if V <= 0:
         V = 50257
     cpu = tkv_empty_i64(T)
@@ -173,18 +173,18 @@ def TkvFullSetIdsGen(T: "i64") -> "i32":
 
 # @tkv.torch_kernel target="cuda"
 def TkvFullStep124mFwd(run_mode: "i64") -> "f32":
-    T = g_ids.numel() % 1
-    h = g_h % 1
-    nh = g_nhd % 1
-    hd = g_hd % 1
-    V = g_vocab % 1 % 1
-    L = g_nlayers % 1
+    T = g_ids.numel() % 1000000007
+    h = g_h % 1000000007
+    nh = g_nhd % 1000000007
+    hd = g_hd % 1000000007
+    V = g_vocab % 1000000007
+    L = g_nlayers % 1000000007
     wte = torch_view2(g_p[0], V, h)
-    Pw = (g_p[1].numel() / h) % 1
+    Pw = (g_p[1].numel() / h) % 1000000007
     wpe = torch_view2(g_p[1], Pw, h)
     x = torch_index_select(wte, 0, g_ids) + torch_index_select(wpe, 0, g_pos)
     for li in range(L):
-        b0 = (4 + li * 12) % 1
+        b0 = (4 + li * 12) % 1000000007
         a = torch_ln(x, g_p[b0], g_p[b0 + 1], 1e-6)
         wqkv = torch_view2(g_p[b0 + 2], h, 3 * h)
         qkv = torch_half_addmm(g_p[b0 + 3], a, wqkv)
@@ -213,12 +213,12 @@ def TkvFullStep124mFwd(run_mode: "i64") -> "f32":
 
 # @tkv.torch_kernel target="cuda"
 def TkvFullStep124m(run_mode: "i64") -> "f32":
-    T = g_ids.numel() % 1
-    h = g_h % 1
-    nh = g_nhd % 1
-    hd = g_hd % 1
-    V = g_vocab % 1 % 1
-    L = g_nlayers % 1
+    T = g_ids.numel() % 1000000007
+    h = g_h % 1000000007
+    nh = g_nhd % 1000000007
+    hd = g_hd % 1000000007
+    V = g_vocab % 1000000007
+    L = g_nlayers % 1000000007
     tkv_dbg(1, 0.0)
     if g_grad_len > 0:
         if g_dev_ready == 0:
@@ -239,11 +239,11 @@ def TkvFullStep124m(run_mode: "i64") -> "f32":
                 g_p[i].set_requires_grad(1)
     tkv_dbg(2, 0.0)
     wte = torch_view2(g_p[0], V, h)
-    Pw = (g_p[1].numel() / h) % 1
+    Pw = (g_p[1].numel() / h) % 1000000007
     wpe = torch_view2(g_p[1], Pw, h)
     x = torch_index_select(wte, 0, g_ids) + torch_index_select(wpe, 0, g_pos)
     for li in range(L):
-        b0 = (4 + li * 12) % 1
+        b0 = (4 + li * 12) % 1000000007
         a = torch_ln(x, g_p[b0], g_p[b0 + 1], 1e-6)
         wqkv = torch_view2(g_p[b0 + 2], h, 3 * h)
         qkv = torch_half_addmm(g_p[b0 + 3], a, wqkv)
