@@ -264,6 +264,7 @@ def _torch_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]", r
         args.append(pn)
     rt = 'void' if ret == 'void' else _torch_c_type(ret)
     s = 'TKV_TORCH_EXPORT ' + rt + ' ' + name + '(' + ', '.join(decls) + ') {' + chr(10)
+    s = s + '  try {\n'
     bufs = []
     s = s + _torch_body_c(body, params, bufs, gnames)
     for b in bufs:
@@ -274,6 +275,16 @@ def _torch_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]", r
             hasret = 1
     if hasret == 0:
         s = s + '  return 0;\n'
+    if rt == 'void':
+        s = s + '  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return; }\n'
+    elif rt == 'float':
+        s = s + '  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999.0f; }\n'
+    elif rt == 'double':
+        s = s + '  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999.0; }\n'
+    elif rt == 'long long':
+        s = s + '  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999LL; }\n'
+    else:
+        s = s + '  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }\n'
     s = s + '}\n'
     return s
 
@@ -332,6 +343,8 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('#include <dlfcn.h>' + chr(10))
     cu_parts.append('#include <cmath>' + chr(10))
     cu_parts.append('#include <cstdint>' + chr(10))
+    cu_parts.append('#include <cstdio>' + chr(10))
+    cu_parts.append('#include <exception>' + chr(10))
     gnames = []
     gdecl_lines = []
     glines = []
@@ -385,6 +398,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('static inline torch::Tensor tkv_view2(const torch::Tensor& t, long long a, long long b) { return t.view({a,b}); }' + chr(10))
     cu_parts.append('static inline void tkv_backward(const torch::Tensor& t) { t.backward(); }' + chr(10))
     cu_parts.append('static inline float tkv_item_f32(const torch::Tensor& t) { return t.item<float>(); }' + chr(10))
+    cu_parts.append('static inline void tkv_dbg(long long m, double v) { const char* s = getenv(\"TKV_FULL_DEBUG\"); if (s && s[0] != 0) { fprintf(stderr, \"TKVDBG %lld %.6f%c\", m, v, 10); fflush(stderr); } }' + chr(10))
     cu_parts.append('typedef int (*tkv_adamw_fn)(float*, const float*, float*, float*, long long, float, float, float, float, float, float, float, int, int);' + chr(10))
     cu_parts.append('static inline void tkv_adamw_launch() { const char* path = getenv("TKV_CUDA_KERNELS_SO"); if (!path) return; void* h = dlopen(path, RTLD_NOW); if (!h) return; tkv_adamw_fn fn = (tkv_adamw_fn)dlsym(h, "tkv_launch_adamw_step"); if (!fn) return; long long numel = g_p_all.numel(); int threads = 256; int blocks = (int)((numel + threads - 1) / threads); fn(g_p_all.data_ptr<float>(), g_grad_dev.data_ptr<float>(), g_m_dev.data_ptr<float>(), g_v_dev.data_ptr<float>(), numel, g_lr, g_b1, g_b2, 1.0f - pow(g_b1, (double)(g_cur_step + 1)), 1.0f - pow(g_b2, (double)(g_cur_step + 1)), g_eps, g_wd, blocks, threads); g_adamw_path = 1; }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_grad(const torch::Tensor& t) { return t.grad(); }' + chr(10))

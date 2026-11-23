@@ -219,6 +219,7 @@ def TkvFullStep124m(run_mode: "i64") -> "f32":
     hd = g_hd % 1
     V = g_vocab % 1 % 1
     L = g_nlayers % 1
+    tkv_dbg(1, 0.0)
     if g_grad_len > 0:
         if g_dev_ready == 0:
             g_p_all = tkv_dev_flat_from(g_p)
@@ -236,6 +237,7 @@ def TkvFullStep124m(run_mode: "i64") -> "f32":
         for i in range(g_p.size()):
             if g_p[i].requires_grad() == 0:
                 g_p[i].set_requires_grad(1)
+    tkv_dbg(2, 0.0)
     wte = torch_view2(g_p[0], V, h)
     Pw = (g_p[1].numel() / h) % 1
     wpe = torch_view2(g_p[1], Pw, h)
@@ -266,6 +268,7 @@ def TkvFullStep124m(run_mode: "i64") -> "f32":
     tgt = torch_unsqueeze(g_tgt, 1)
     loss_t = -torch_mean(torch_gather(lp, 1, tgt))
     loss_val = torch_item_f32(loss_t)
+    tkv_dbg(3, loss_val)
     if run_mode == 1:
         return loss_val
     if g_dev_ready == 0:
@@ -278,8 +281,10 @@ def TkvFullStep124m(run_mode: "i64") -> "f32":
         if tkv_defined(gr) == 0:
             torch_zero_grad(i)
         torch_clear_grad(g_p[i])
+    tkv_dbg(4, 0.0)
     torch_adamw()
     torch_sync_fp16()
+    tkv_dbg(5, 0.0)
     g_cur_step = g_cur_step + 1
     return loss_val
 
