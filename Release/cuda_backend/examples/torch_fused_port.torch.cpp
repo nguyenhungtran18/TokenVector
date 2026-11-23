@@ -16,7 +16,7 @@
 
 #include <cstdint>
 
-#define TKV_TORCH_EXPORT __attribute__((visibility("default")))
+#define TKV_TORCH_EXPORT extern "C" __attribute__((visibility("default")))
 int g_adamw_path = 0;
 float* g_grad_buf = 0;
 long long g_grad_len = 0;

@@ -361,7 +361,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
                 gdecl_lines.append('at::Tensor ' + gn + ';')
             else:
                 gdecl_lines.append(gt + ' ' + gn + ' = ' + gv + ';')
-    cu_parts.append('#define TKV_TORCH_EXPORT __attribute__((visibility("default")))' + chr(10) + chr(10))
+    cu_parts.append('#define TKV_TORCH_EXPORT extern "C" __attribute__((visibility("default")))' + chr(10) + chr(10))
     cu_parts.append('static inline bool tkv_want_cuda() { const char* s = getenv("TKV_TORCH_GPU"); return s && s[0] != 0; }' + chr(10))
     cu_parts.append('static inline torch::TensorOptions tkv_opt_long() { return tkv_want_cuda() ? torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCUDA) : torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU); }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_to_long(const torch::Tensor& t) { return t.to(tkv_opt_long()); }' + chr(10))
@@ -439,7 +439,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     gdecls = ''
     for gd in gdecl_lines:
         gdecls = gdecls + gd + chr(10)
-    marker = '#define TKV_TORCH_EXPORT __attribute__((visibility("default")))' + chr(10)
+    marker = '#define TKV_TORCH_EXPORT extern "C" __attribute__((visibility("default")))' + chr(10)
     cu = cu.replace(marker, marker + gdecls)
     path_write_text(cu_path, cu)
     sh = ('#!/bin/sh\nset -e\ngcc -O2 -mavx2 -mfma -ffp-contract=off -fno-fast-math '
