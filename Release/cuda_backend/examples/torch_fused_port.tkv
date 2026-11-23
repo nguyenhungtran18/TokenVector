@@ -204,7 +204,7 @@ def TkvFullStep124mFwd(run_mode: "i64") -> "f32":
     lp = torch_log_softmax(logits, -1)
     tgt = torch_unsqueeze(g_tgt, 1)
     loss_t = -torch_mean(torch_gather(lp, 1, tgt))
-    return loss_t.item()
+    return torch_item_f32(loss_t)
 
 
 # @tkv.torch_kernel target="cuda"
@@ -244,7 +244,7 @@ def TkvFullStep124m(run_mode: "i64") -> "f32":
     lp = torch_log_softmax(logits, -1)
     tgt = torch_unsqueeze(g_tgt, 1)
     loss_t = -torch_mean(torch_gather(lp, 1, tgt))
-    loss_val = loss_t.item()
+    loss_val = torch_item_f32(loss_t)
     if run_mode == 1:
         return loss_val
     if g_dev_ready == 0:

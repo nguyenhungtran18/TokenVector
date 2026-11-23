@@ -89,6 +89,8 @@ static inline torch::Tensor tkv_view2(const torch::Tensor& t, long long a, long 
 
 static inline void tkv_backward(const torch::Tensor& t) { t.backward(); }
 
+static inline float tkv_item_f32(const torch::Tensor& t) { return t.item<float>(); }
+
 typedef int (*tkv_adamw_fn)(float*, const float*, float*, float*, long long, float, float, float, float, float, float, float, int, int);
 
 static inline void tkv_adamw_launch() { const char* path = getenv("TKV_CUDA_KERNELS_SO"); if (!path) return; void* h = dlopen(path, RTLD_NOW); if (!h) return; tkv_adamw_fn fn = (tkv_adamw_fn)dlsym(h, "tkv_launch_adamw_step"); if (!fn) return; long long numel = g_p_all.numel(); int threads = 256; int blocks = (int)((numel + threads - 1) / threads); fn(g_p_all.data_ptr<float>(), g_grad_dev.data_ptr<float>(), g_m_dev.data_ptr<float>(), g_v_dev.data_ptr<float>(), numel, g_lr, g_b1, g_b2, 1.0f - pow(g_b1, (double)(g_cur_step + 1)), 1.0f - pow(g_b2, (double)(g_cur_step + 1)), g_eps, g_wd, blocks, threads); g_adamw_path = 1; }
@@ -300,7 +302,7 @@ auto logits = tkv_half_mm(xf, tkv_transpose(wte, 0, 1));
 auto lp = at::log_softmax(logits, -1);
 auto tgt = tkv_unsqueeze(g_tgt, 1);
 auto loss_t = -at::mean(at::gather(lp, 1, tgt));
-return loss_t.item();
+return tkv_item_f32(loss_t);
 }
 
 TKV_TORCH_EXPORT float TkvFullStep124m(long long run_mode) {
@@ -340,7 +342,7 @@ auto logits = tkv_half_mm(xf, tkv_transpose(wte, 0, 1));
 auto lp = at::log_softmax(logits, -1);
 auto tgt = tkv_unsqueeze(g_tgt, 1);
 auto loss_t = -at::mean(at::gather(lp, 1, tgt));
-float loss_val = loss_t.item();
+float loss_val = tkv_item_f32(loss_t);
 if (run_mode == 1) {
   return loss_val;
 }
