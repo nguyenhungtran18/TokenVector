@@ -34,6 +34,8 @@ std::vector<at::Tensor> g_p;
 std::vector<float*> g_p_src;
 std::vector<long long> g_p_numels;
 at::Tensor g_p_all;
+float* g_m_buf = 0;
+float* g_v_buf = 0;
 int g_cfg0 = 0;
 int g_cfg1 = 0;
 int g_cfg2 = 0;
@@ -107,6 +109,22 @@ static inline void tkv_zero_grad(long long idx) { long long off = 0; for (long l
 
 static inline void tkv_sync_fp16() { c10::NoGradGuard g; long long off = 0; for (size_t i = 0; i < g_p.size(); ++i) { long long nn = g_p[i].numel(); if (nn > 0) g_p[i].copy_(g_p_all.narrow(0, off, nn)); off += nn; } }
 
+static inline long long tkv_flat_total(const std::vector<at::Tensor>& v) { long long s = 0; for (size_t i = 0; i < v.size(); ++i) s += v[i].numel(); return s; }
+
+static inline long long tkv_flat_off(const std::vector<at::Tensor>& v, long long idx) { long long s = 0; for (long long i = 0; i < idx; ++i) s += v[(size_t)i].numel(); return s; }
+
+static inline at::Tensor tkv_dev_flat_from(const std::vector<at::Tensor>& v) { return at::empty({tkv_flat_total(v)}, torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCUDA)); }
+
+static inline at::Tensor tkv_dev_empty_f32(long long n) { return at::empty({n}, torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCUDA)); }
+
+static inline at::Tensor tkv_dev_zeros_f32(long long n) { return at::zeros({n}, torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCUDA)); }
+
+static inline void tkv_flat_copy_f32(const at::Tensor& dst, long long off, const at::Tensor& src) { if (src.numel() > 0) dst.narrow(0, off, src.numel()).copy_(src.to(at::ScalarType::Float)); }
+
+static inline at::Tensor tkv_flat_half(const at::Tensor& dst, long long off, long long n) { return dst.narrow(0, off, n).to(at::ScalarType::Half); }
+
+static inline void tkv_host_copy_f32(at::Tensor& dst, float* buf, long long n) { if (buf && n > 0 && dst.numel() >= n) { auto h = torch::from_blob(buf, {n}, torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU)); dst.narrow(0, 0, n).copy_(h); } }
+
 static inline torch::Tensor tkv_view4(const torch::Tensor& t, long long a, long long b, long long c, long long d) { return t.view({a,b,c,d}); }
 
 static inline torch::Tensor tkv_reshape2(const torch::Tensor& t, long long a, long long b) { return t.reshape({a,b}); }
@@ -122,6 +140,10 @@ static inline torch::Tensor tkv_ln(const torch::Tensor& x, const torch::Tensor& 
 static inline torch::Tensor tkv_half_mm(const torch::Tensor& a, const torch::Tensor& w) { return at::mm(a.to(at::ScalarType::Half), w.to(at::ScalarType::Half)); }
 
 static inline torch::Tensor tkv_half_addmm(const torch::Tensor& bias, const torch::Tensor& a, const torch::Tensor& w) { return at::addmm(bias.to(at::ScalarType::Half), a.to(at::ScalarType::Half), w.to(at::ScalarType::Half)); }
+
+static inline torch::Tensor tkv_sdpa_causal(const torch::Tensor& q, const torch::Tensor& k, const torch::Tensor& v) { return at::scaled_dot_product_attention(q.contiguous().to(at::ScalarType::Half), k.contiguous().to(at::ScalarType::Half), v.contiguous().to(at::ScalarType::Half), std::nullopt, 0.0, true, std::nullopt); }
+
+static inline torch::Tensor tkv_to_f32(const torch::Tensor& t) { return t.to(at::ScalarType::Float); }
 
 TKV_TORCH_EXPORT long long TkvFullPing(long long x) {
 return x + 42000;
@@ -145,6 +167,8 @@ g_eps = eps;
 g_wd = wd;
 g_total_steps = total_steps;
 g_cur_step = cur_step;
+g_m_buf = m;
+g_v_buf = v;
 return 0;
 }
 
@@ -287,7 +311,7 @@ for (int li = 0; li < (L); li++) {
   auto q = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 0), 0, 1), 0);
   auto k = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 1), 0, 1), 0);
   auto v = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 2), 0, 1), 0);
-  auto attn = at::scaled_dot_product_attention(q, k, v);
+  auto attn = tkv_sdpa_causal(q, k, v);
   auto ctx = tkv_reshape2(tkv_transpose(attn, 1, 2), T, h);
   auto wp = tkv_view2(g_p[b0 + 4], h, h);
   auto proj = tkv_half_addmm(g_p[b0 + 5], ctx, wp);
@@ -301,7 +325,7 @@ for (int li = 0; li < (L); li++) {
 }
 auto xf = tkv_ln(x, g_p[2], g_p[3], 1e-6);
 auto logits = tkv_half_mm(xf, tkv_transpose(wte, 0, 1));
-auto lp = at::log_softmax(logits, -1);
+auto lp = at::log_softmax(tkv_to_f32(logits), -1);
 auto tgt = tkv_unsqueeze(g_tgt, 1);
 auto loss_t = -at::mean(at::gather(lp, 1, tgt));
 return tkv_item_f32(loss_t);
@@ -314,6 +338,30 @@ int nh = g_nhd % 1;
 int hd = g_hd % 1;
 int V = g_vocab % 1 % 1;
 int L = g_nlayers % 1;
+if (g_grad_len > 0) {
+  if (g_dev_ready == 0) {
+    g_p_all = tkv_dev_flat_from(g_p);
+    for (int i = 0; i < (g_p.size()); i++) {
+      tkv_flat_copy_f32(g_p_all, tkv_flat_off(g_p, i), g_p[i]);
+    }
+    for (int i = 0; i < (g_p.size()); i++) {
+      g_p[i] = tkv_flat_half(g_p_all, tkv_flat_off(g_p, i), g_p_numels[i]);
+    }
+    g_m_dev = tkv_dev_zeros_f32(g_p_all.numel());
+    g_v_dev = tkv_dev_zeros_f32(g_p_all.numel());
+    tkv_host_copy_f32(g_m_dev, g_m_buf, g_p_all.numel());
+    tkv_host_copy_f32(g_v_dev, g_v_buf, g_p_all.numel());
+    g_grad_dev = tkv_dev_empty_f32(g_p_all.numel());
+    g_dev_ready = 1;
+  }
+}
+if (g_dev_ready != 0) {
+  for (int i = 0; i < (g_p.size()); i++) {
+    if (g_p[i].requires_grad() == 0) {
+      g_p[i].set_requires_grad(1);
+    }
+  }
+}
 auto wte = tkv_view2(g_p[0], V, h);
 int Pw = (g_p[1].numel() / h) % 1;
 auto wpe = tkv_view2(g_p[1], Pw, h);
@@ -327,7 +375,7 @@ for (int li = 0; li < (L); li++) {
   auto q = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 0), 0, 1), 0);
   auto k = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 1), 0, 1), 0);
   auto v = tkv_unsqueeze(tkv_transpose(tkv_select(qkv3, 1, 2), 0, 1), 0);
-  auto attn = at::scaled_dot_product_attention(q, k, v);
+  auto attn = tkv_sdpa_causal(q, k, v);
   auto ctx = tkv_reshape2(tkv_transpose(attn, 1, 2), T, h);
   auto wp = tkv_view2(g_p[b0 + 4], h, h);
   auto proj = tkv_half_addmm(g_p[b0 + 5], ctx, wp);
@@ -341,7 +389,7 @@ for (int li = 0; li < (L); li++) {
 }
 auto xf = tkv_ln(x, g_p[2], g_p[3], 1e-6);
 auto logits = tkv_half_mm(xf, tkv_transpose(wte, 0, 1));
-auto lp = at::log_softmax(logits, -1);
+auto lp = at::log_softmax(tkv_to_f32(logits), -1);
 auto tgt = tkv_unsqueeze(g_tgt, 1);
 auto loss_t = -at::mean(at::gather(lp, 1, tgt));
 float loss_val = tkv_item_f32(loss_t);
@@ -350,11 +398,6 @@ if (run_mode == 1) {
 }
 if (g_dev_ready == 0) {
   return loss_val;
-}
-for (int i = 0; i < (g_p.size()); i++) {
-  if (g_p[i].requires_grad() == 0) {
-    g_p[i].set_requires_grad(1);
-  }
 }
 tkv_backward(loss_t);
 for (int i = 0; i < (g_p.size()); i++) {

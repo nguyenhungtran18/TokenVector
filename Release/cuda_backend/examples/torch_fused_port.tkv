@@ -17,6 +17,8 @@ g_p = 0  # tensor[]
 g_p_src = 0  # ptr[]
 g_p_numels = 0  # i64[]
 g_p_all = 0  # tensor
+g_m_buf = 0  # ptr[f32]
+g_v_buf = 0  # ptr[f32]
 g_cfg0 = 0
 g_cfg1 = 0
 g_cfg2 = 0
@@ -59,6 +61,8 @@ def TkvFullSetOpt(p: "ptr[f32]", m: "ptr[f32]", v: "ptr[f32]", lr: "f32", b1: "f
     g_wd = wd
     g_total_steps = total_steps
     g_cur_step = cur_step
+    g_m_buf = m
+    g_v_buf = v
     return 0
 
 
@@ -188,7 +192,7 @@ def TkvFullStep124mFwd(run_mode: "i64") -> "f32":
         q = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 0), 0, 1), 0)
         k = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 1), 0, 1), 0)
         v = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 2), 0, 1), 0)
-        attn = torch_sdpa(q, k, v)
+        attn = torch_sdpa_causal(q, k, v)
         ctx = torch_reshape2(torch_transpose(attn, 1, 2), T, h)
         wp = torch_view2(g_p[b0 + 4], h, h)
         proj = torch_half_addmm(g_p[b0 + 5], ctx, wp)
@@ -201,7 +205,7 @@ def TkvFullStep124mFwd(run_mode: "i64") -> "f32":
         x = x + torch_half_addmm(g_p[b0 + 11], g1, w2)
     xf = torch_ln(x, g_p[2], g_p[3], 1e-6)
     logits = torch_half_mm(xf, torch_transpose(wte, 0, 1))
-    lp = torch_log_softmax(logits, -1)
+    lp = torch_log_softmax(torch_to_f32(logits), -1)
     tgt = torch_unsqueeze(g_tgt, 1)
     loss_t = -torch_mean(torch_gather(lp, 1, tgt))
     return torch_item_f32(loss_t)
@@ -215,6 +219,23 @@ def TkvFullStep124m(run_mode: "i64") -> "f32":
     hd = g_hd % 1
     V = g_vocab % 1 % 1
     L = g_nlayers % 1
+    if g_grad_len > 0:
+        if g_dev_ready == 0:
+            g_p_all = tkv_dev_flat_from(g_p)
+            for i in range(g_p.size()):
+                tkv_flat_copy_f32(g_p_all, tkv_flat_off(g_p, i), g_p[i])
+            for i in range(g_p.size()):
+                g_p[i] = tkv_flat_half(g_p_all, tkv_flat_off(g_p, i), g_p_numels[i])
+            g_m_dev = tkv_dev_zeros_f32(g_p_all.numel())
+            g_v_dev = tkv_dev_zeros_f32(g_p_all.numel())
+            tkv_host_copy_f32(g_m_dev, g_m_buf, g_p_all.numel())
+            tkv_host_copy_f32(g_v_dev, g_v_buf, g_p_all.numel())
+            g_grad_dev = tkv_dev_empty_f32(g_p_all.numel())
+            g_dev_ready = 1
+    if g_dev_ready != 0:
+        for i in range(g_p.size()):
+            if g_p[i].requires_grad() == 0:
+                g_p[i].set_requires_grad(1)
     wte = torch_view2(g_p[0], V, h)
     Pw = (g_p[1].numel() / h) % 1
     wpe = torch_view2(g_p[1], Pw, h)
@@ -228,7 +249,7 @@ def TkvFullStep124m(run_mode: "i64") -> "f32":
         q = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 0), 0, 1), 0)
         k = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 1), 0, 1), 0)
         v = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 2), 0, 1), 0)
-        attn = torch_sdpa(q, k, v)
+        attn = torch_sdpa_causal(q, k, v)
         ctx = torch_reshape2(torch_transpose(attn, 1, 2), T, h)
         wp = torch_view2(g_p[b0 + 4], h, h)
         proj = torch_half_addmm(g_p[b0 + 5], ctx, wp)
@@ -241,7 +262,7 @@ def TkvFullStep124m(run_mode: "i64") -> "f32":
         x = x + torch_half_addmm(g_p[b0 + 11], g1, w2)
     xf = torch_ln(x, g_p[2], g_p[3], 1e-6)
     logits = torch_half_mm(xf, torch_transpose(wte, 0, 1))
-    lp = torch_log_softmax(logits, -1)
+    lp = torch_log_softmax(torch_to_f32(logits), -1)
     tgt = torch_unsqueeze(g_tgt, 1)
     loss_t = -torch_mean(torch_gather(lp, 1, tgt))
     loss_val = torch_item_f32(loss_t)
@@ -249,9 +270,6 @@ def TkvFullStep124m(run_mode: "i64") -> "f32":
         return loss_val
     if g_dev_ready == 0:
         return loss_val
-    for i in range(g_p.size()):
-        if g_p[i].requires_grad() == 0:
-            g_p[i].set_requires_grad(1)
     torch_backward(loss_t)
     for i in range(g_p.size()):
         gr = torch_grad(g_p[i])
