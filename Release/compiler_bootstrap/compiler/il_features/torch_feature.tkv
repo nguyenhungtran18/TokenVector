@@ -276,15 +276,15 @@ def _torch_kernel_c(name: "str", params: "list[(str,str)]", body: "list[str]", r
     if hasret == 0:
         s = s + '  return 0;\n'
     if rt == 'void':
-        s = s + '  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return; }\n'
+        s = s + '  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return; }\n'
     elif rt == 'float':
-        s = s + '  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999.0f; }\n'
+        s = s + '  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999.0f; }\n'
     elif rt == 'double':
-        s = s + '  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999.0; }\n'
+        s = s + '  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999.0; }\n'
     elif rt == 'long long':
-        s = s + '  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999LL; }\n'
+        s = s + '  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999LL; }\n'
     else:
-        s = s + '  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }\n'
+        s = s + '  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR ' + name + ' %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }\n'
     s = s + '}\n'
     return s
 
@@ -345,6 +345,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('#include <cstdint>' + chr(10))
     cu_parts.append('#include <cstdio>' + chr(10))
     cu_parts.append('#include <exception>' + chr(10))
+    cu_parts.append('static char g_tkv_last_err[1024];' + chr(10))
     gnames = []
     gdecl_lines = []
     glines = []
@@ -456,6 +457,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
             if not (ln.startswith('g_') and '=' in ln):
                 out.append(ln)
             i = i + 1
+    cu_parts.append('TKV_TORCH_EXPORT long long TkvFullLastErr() { return (long long)g_tkv_last_err; }' + chr(10))
     if len(pragmas) == 0:
         return src
     cu = '\n'.join(cu_parts)

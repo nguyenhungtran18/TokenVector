@@ -20,6 +20,8 @@
 
 #include <exception>
 
+static char g_tkv_last_err[1024];
+
 #define TKV_TORCH_EXPORT extern "C" __attribute__((visibility("default")))
 int g_adamw_path = 0;
 float* g_grad_buf = 0;
@@ -154,13 +156,13 @@ static inline torch::Tensor tkv_to_f32(const torch::Tensor& t) { return t.to(at:
 TKV_TORCH_EXPORT long long TkvFullPing(long long x) {
   try {
 return x + 42000;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullPing %s%c", tkv_e.what(), 10); fflush(stderr); return -999LL; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullPing %s%c", tkv_e.what(), 10); fflush(stderr); return -999LL; }
 }
 
 TKV_TORCH_EXPORT int TkvFullAdamwPath() {
   try {
 return g_adamw_path;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullAdamwPath %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullAdamwPath %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
 }
 
 TKV_TORCH_EXPORT int TkvFullSetGrad(float* buf, long long n) {
@@ -168,7 +170,7 @@ TKV_TORCH_EXPORT int TkvFullSetGrad(float* buf, long long n) {
 g_grad_buf = buf;
 g_grad_len = n;
 return 0;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullSetGrad %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullSetGrad %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
 }
 
 TKV_TORCH_EXPORT int TkvFullSetOpt(float* p, float* m, float* v, float lr, float b1, float b2, float eps, float wd, long long total_steps, long long cur_step) {
@@ -183,7 +185,7 @@ g_cur_step = cur_step;
 g_m_buf = m;
 g_v_buf = v;
 return 0;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullSetOpt %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullSetOpt %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
 }
 
 TKV_TORCH_EXPORT int TkvFullSetIds(int* ids, long long T) {
@@ -192,7 +194,7 @@ auto t = torch::from_blob(const_cast<int*>(ids), {T}, torch::TensorOptions().dty
 g_ids = tkv_to_long(t);
 g_pos = at::arange(T, tkv_opt_long());
 return 0;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullSetIds %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullSetIds %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
 }
 
 TKV_TORCH_EXPORT int TkvFullSetTargets(int* ids, long long T) {
@@ -200,7 +202,7 @@ TKV_TORCH_EXPORT int TkvFullSetTargets(int* ids, long long T) {
 auto t = torch::from_blob(const_cast<int*>(ids), {T}, torch::TensorOptions().dtype(at::ScalarType::Int).device(torch::kCPU).requires_grad(false));
 g_tgt = tkv_to_long(t);
 return 0;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullSetTargets %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullSetTargets %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
 }
 
 TKV_TORCH_EXPORT int TkvFullSetTensor(long long idx, float* ptr, long long numel) {
@@ -225,7 +227,7 @@ if (1) {
 g_p_src[idx] = ptr;
 g_p_numels[idx] = numel;
 return 0;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullSetTensor %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullSetTensor %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
 }
 
 TKV_TORCH_EXPORT int TkvFullBegin(long long n_tensors, long long NLayers, long long H, long long NHeads, long long Hd, long long Vocab) {
@@ -278,7 +280,7 @@ g_nhd = NHeads;
 g_hd = Hd;
 g_vocab = Vocab;
 return 0;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullBegin %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullBegin %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
 }
 
 TKV_TORCH_EXPORT int TkvFullGetParams(float* dst, long long n) {
@@ -294,7 +296,7 @@ if (tkv_numel(g_p_all) != n) {
 }
 tkv_copy_out(g_p_all, dst, n);
 return 0;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullGetParams %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullGetParams %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
 }
 
 TKV_TORCH_EXPORT int TkvFullSetIdsGen(long long T) {
@@ -314,7 +316,7 @@ for (int i = 0; i < (T); i++) {
 g_ids = tkv_to_long(cpu);
 g_pos = at::arange(T, tkv_opt_long());
 return 0;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullSetIdsGen %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullSetIdsGen %s%c", tkv_e.what(), 10); fflush(stderr); return -999; }
 }
 
 TKV_TORCH_EXPORT float TkvFullStep124mFwd(long long run_mode) {
@@ -356,7 +358,7 @@ auto lp = at::log_softmax(tkv_to_f32(logits), -1);
 auto tgt = tkv_unsqueeze(g_tgt, 1);
 auto loss_t = -at::mean(at::gather(lp, 1, tgt));
 return tkv_item_f32(loss_t);
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullStep124mFwd %s%c", tkv_e.what(), 10); fflush(stderr); return -999.0f; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullStep124mFwd %s%c", tkv_e.what(), 10); fflush(stderr); return -999.0f; }
 }
 
 TKV_TORCH_EXPORT float TkvFullStep124m(long long run_mode) {
@@ -448,5 +450,7 @@ tkv_sync_fp16();
 tkv_dbg(5, 0.0);
 g_cur_step = g_cur_step + 1;
 return loss_val;
-  } catch (const std::exception& tkv_e) { fprintf(stderr, "TKV_ERR TkvFullStep124m %s%c", tkv_e.what(), 10); fflush(stderr); return -999.0f; }
+  } catch (const std::exception& tkv_e) { snprintf(g_tkv_last_err, 1024, "%s", tkv_e.what()); fprintf(stderr, "TKV_ERR TkvFullStep124m %s%c", tkv_e.what(), 10); fflush(stderr); return -999.0f; }
 }
+
+TKV_TORCH_EXPORT long long TkvFullLastErr() { return (long long)g_tkv_last_err; }
