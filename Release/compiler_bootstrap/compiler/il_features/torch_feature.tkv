@@ -399,7 +399,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
                 gdecl_lines.append('std::vector<float*> ' + gn + ';')
             elif ga == 'i64[]':
                 gdecl_lines.append('std::vector<long long> ' + gn + ';')
-            if ga == 'tensor':
+            elif ga == 'tensor':
                 gdecl_lines.append('at::Tensor ' + gn + ';')
             else:
                 gdecl_lines.append(gt + ' ' + gn + ' = ' + gv + ';')
