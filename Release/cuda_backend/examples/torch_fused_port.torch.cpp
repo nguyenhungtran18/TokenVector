@@ -14,6 +14,8 @@
 
 #include <cmath>
 
+#include <cstdint>
+
 #define TKV_TORCH_EXPORT __attribute__((visibility("default")))
 int g_adamw_path = 0;
 float* g_grad_buf = 0;
@@ -79,7 +81,7 @@ static inline void tkv_copy_out(const at::Tensor& t, float* dst, long long n) { 
 
 static inline at::Tensor tkv_empty_i64(long long n) { return at::empty({n}, torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU)); }
 
-static inline long long* tkv_data_i64(at::Tensor& t) { return t.data_ptr<long long>(); }
+static inline long long* tkv_data_i64(at::Tensor& t) { return t.data_ptr<int64_t>(); }
 
 static inline torch::Tensor tkv_contiguous(const torch::Tensor& t) { return t.contiguous(); }
 

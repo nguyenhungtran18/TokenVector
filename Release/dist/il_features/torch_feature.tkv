@@ -329,6 +329,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('#include <cstring>' + chr(10))
     cu_parts.append('#include <dlfcn.h>' + chr(10))
     cu_parts.append('#include <cmath>' + chr(10))
+    cu_parts.append('#include <cstdint>' + chr(10))
     gnames = []
     gdecl_lines = []
     glines = []
@@ -376,7 +377,7 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('static inline void tkv_reset(at::Tensor& t) { t.reset(); }' + chr(10))
     cu_parts.append('static inline void tkv_copy_out(const at::Tensor& t, float* dst, long long n) { auto h = t.to(torch::TensorOptions().dtype(at::ScalarType::Float).device(torch::kCPU)); std::memcpy(dst, h.const_data_ptr<float>(), (size_t)n * sizeof(float)); }' + chr(10))
     cu_parts.append('static inline at::Tensor tkv_empty_i64(long long n) { return at::empty({n}, torch::TensorOptions().dtype(at::ScalarType::Long).device(torch::kCPU)); }' + chr(10))
-    cu_parts.append('static inline long long* tkv_data_i64(at::Tensor& t) { return t.data_ptr<long long>(); }' + chr(10))
+    cu_parts.append('static inline long long* tkv_data_i64(at::Tensor& t) { return t.data_ptr<int64_t>(); }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_contiguous(const torch::Tensor& t) { return t.contiguous(); }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_view3(const torch::Tensor& t, long long a, long long b, long long c) { return t.view({a,b,c}); }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_view2(const torch::Tensor& t, long long a, long long b) { return t.view({a,b}); }' + chr(10))
