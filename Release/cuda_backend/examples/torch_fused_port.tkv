@@ -28,6 +28,10 @@ g_h = 0
 g_nhd = 0
 g_hd = 0
 g_vocab = 0
+g_grad_dev = 0  # tensor
+g_m_dev = 0  # tensor
+g_v_dev = 0  # tensor
+g_dev_ready = 0
 
 # @tkv.torch_kernel target="cuda"
 def TkvFullPing(x: "i64") -> "i64":
@@ -201,6 +205,65 @@ def TkvFullStep124mFwd(run_mode: "i64") -> "f32":
     tgt = torch_unsqueeze(g_tgt, 1)
     loss_t = -torch_mean(torch_gather(lp, 1, tgt))
     return loss_t.item()
+
+
+# @tkv.torch_kernel target="cuda"
+def TkvFullStep124m(run_mode: "i64") -> "f32":
+    T = g_ids.numel()
+    h = g_h
+    nh = g_nhd
+    hd = g_hd
+    V = g_vocab
+    L = g_nlayers
+    wte = torch_view2(g_p[0], V, h)
+    Pw = g_p[1].numel() / h
+    wpe = torch_view2(g_p[1], Pw, h)
+    x = torch_index_select(wte, 0, g_ids) + torch_index_select(wpe, 0, g_pos)
+    for li in range(L):
+        b0 = 4 + li * 12
+        a = torch_ln(x, g_p[b0], g_p[b0 + 1], 1e-6)
+        wqkv = torch_view2(g_p[b0 + 2], h, 3 * h)
+        qkv = torch_half_addmm(g_p[b0 + 3], a, wqkv)
+        qkv3 = torch_view4(qkv, T, 3, nh, hd)
+        q = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 0), 0, 1), 0)
+        k = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 1), 0, 1), 0)
+        v = torch_unsqueeze(torch_transpose(torch_select(qkv3, 1, 2), 0, 1), 0)
+        attn = torch_sdpa(q, k, v)
+        ctx = torch_reshape2(torch_transpose(attn, 1, 2), T, h)
+        wp = torch_view2(g_p[b0 + 4], h, h)
+        proj = torch_half_addmm(g_p[b0 + 5], ctx, wp)
+        x = x + proj
+        m = torch_ln(x, g_p[b0 + 6], g_p[b0 + 7], 1e-6)
+        w1 = torch_view2(g_p[b0 + 8], h, 4 * h)
+        u = torch_half_addmm(g_p[b0 + 9], m, w1)
+        g1 = torch_gelu(u)
+        w2 = torch_view2(g_p[b0 + 10], 4 * h, h)
+        x = x + torch_half_addmm(g_p[b0 + 11], g1, w2)
+    xf = torch_ln(x, g_p[2], g_p[3], 1e-6)
+    logits = torch_half_mm(xf, torch_transpose(wte, 0, 1))
+    lp = torch_log_softmax(logits, -1)
+    tgt = torch_unsqueeze(g_tgt, 1)
+    loss_t = -torch_mean(torch_gather(lp, 1, tgt))
+    loss_val = loss_t.item()
+    if run_mode == 1:
+        return loss_val
+    if g_dev_ready == 0:
+        return loss_val
+    for i in range(g_p.size()):
+        if g_p[i].requires_grad() == 0:
+            g_p[i].set_requires_grad(1)
+    torch_backward(loss_t)
+    for i in range(g_p.size()):
+        gr = torch_grad(g_p[i])
+        if tkv_defined(gr) != 0:
+            torch_put_grad(i, gr)
+        if tkv_defined(gr) == 0:
+            torch_zero_grad(i)
+        torch_clear_grad(g_p[i])
+    torch_adamw()
+    torch_sync_fp16()
+    g_cur_step = g_cur_step + 1
+    return loss_val
 
 
 def run() -> "i32":

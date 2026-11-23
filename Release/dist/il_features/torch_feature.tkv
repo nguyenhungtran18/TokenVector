@@ -86,6 +86,14 @@ def _torch_expr(e: "str") -> "str":
     e = e.replace('torch_addmm(', 'at::addmm(')
     e = e.replace('torch_view2(', 'tkv_view2(')
     e = e.replace('torch_sdpa(', 'at::scaled_dot_product_attention(')
+    e = e.replace('torch_backward(', 'tkv_backward(')
+    e = e.replace('torch_grad(', 'tkv_grad(')
+    e = e.replace('torch_clear_grad(', 'tkv_clear_grad(')
+    e = e.replace('torch_put_grad(', 'tkv_put_grad(')
+    e = e.replace('torch_zero_grad(', 'tkv_zero_grad(')
+    e = e.replace('torch_adamw(', 'tkv_adamw_launch(')
+    e = e.replace('torch_sync_fp16(', 'tkv_sync_fp16(')
+    e = e.replace('torch_gelu(', 'at::gelu(')
     e = e.replace('torch_log_softmax(', 'at::log_softmax(')
     e = e.replace('torch_gather(', 'at::gather(')
     e = e.replace('torch_mean(', 'at::mean(')
@@ -225,6 +233,8 @@ def _torch_body_c(body: "list[str]", params: "list[(str,str)]", buffers: "list[s
                     else:
                         ctype = 'double' if left.startswith('d_') else ('int' if is_int else 'float')
                 isten = 0
+                if 'torch_grad(' in rhs:
+                    isten = 1
                 if 'torch_view2(' in rhs:
                     isten = 1
                 if 'torch_blob_i32(' in rhs:
@@ -362,6 +372,8 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('#include <stdlib.h>' + chr(10))
     cu_parts.append('#include <vector>' + chr(10))
     cu_parts.append('#include <cstring>' + chr(10))
+    cu_parts.append('#include <dlfcn.h>' + chr(10))
+    cu_parts.append('#include <cmath>' + chr(10))
     gdecl_lines = []
     glines = []
     for gl in lines:
@@ -411,6 +423,14 @@ def torch_rewrite_source(src: "str", path: "str") -> "str":
     cu_parts.append('static inline torch::Tensor tkv_contiguous(const torch::Tensor& t) { return t.contiguous(); }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_view3(const torch::Tensor& t, long long a, long long b, long long c) { return t.view({a,b,c}); }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_view2(const torch::Tensor& t, long long a, long long b) { return t.view({a,b}); }' + chr(10))
+    cu_parts.append('static inline void tkv_backward(const torch::Tensor& t) { t.backward(); }' + chr(10))
+    cu_parts.append('typedef int (*tkv_adamw_fn)(float*, const float*, float*, float*, long long, float, float, float, float, float, float, float, int, int);' + chr(10))
+    cu_parts.append('static inline void tkv_adamw_launch() { const char* path = getenv("TKV_CUDA_KERNELS_SO"); if (!path) return; void* h = dlopen(path, RTLD_NOW); if (!h) return; tkv_adamw_fn fn = (tkv_adamw_fn)dlsym(h, "tkv_launch_adamw_step"); if (!fn) return; long long numel = g_p_all.numel(); int threads = 256; int blocks = (int)((numel + threads - 1) / threads); fn(g_p_all.data_ptr<float>(), g_grad_dev.data_ptr<float>(), g_m_dev.data_ptr<float>(), g_v_dev.data_ptr<float>(), numel, g_lr, g_b1, g_b2, 1.0f - pow(g_b1, (double)(g_cur_step + 1)), 1.0f - pow(g_b2, (double)(g_cur_step + 1)), g_eps, g_wd, blocks, threads); g_adamw_path = 1; }' + chr(10))
+    cu_parts.append('static inline torch::Tensor tkv_grad(const torch::Tensor& t) { return t.grad(); }' + chr(10))
+    cu_parts.append('static inline void tkv_clear_grad(torch::Tensor& t) { t.mutable_grad() = at::Tensor(); }' + chr(10))
+    cu_parts.append('static inline void tkv_put_grad(long long idx, const torch::Tensor& gr) { long long off = 0; for (long long i = 0; i < idx; ++i) off += g_p[(size_t)i].numel(); if (tkv_defined(g_grad_dev) && off + gr.numel() <= g_grad_dev.numel()) g_grad_dev.narrow(0, off, gr.numel()).copy_(gr.to(at::ScalarType::Float).contiguous().reshape({gr.numel()})); }' + chr(10))
+    cu_parts.append('static inline void tkv_zero_grad(long long idx) { long long off = 0; for (long long i = 0; i < idx; ++i) off += g_p[(size_t)i].numel(); if (tkv_defined(g_grad_dev) && off + g_p[(size_t)idx].numel() <= g_grad_dev.numel()) g_grad_dev.narrow(0, off, g_p[(size_t)idx].numel()).zero_(); }' + chr(10))
+    cu_parts.append('static inline void tkv_sync_fp16() { c10::NoGradGuard g; long long off = 0; for (size_t i = 0; i < g_p.size(); ++i) { long long nn = g_p[i].numel(); if (nn > 0) g_p[i].copy_(g_p_all.narrow(0, off, nn)); off += nn; } }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_view4(const torch::Tensor& t, long long a, long long b, long long c, long long d) { return t.view({a,b,c,d}); }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_reshape2(const torch::Tensor& t, long long a, long long b) { return t.reshape({a,b}); }' + chr(10))
     cu_parts.append('static inline torch::Tensor tkv_select(const torch::Tensor& t, long long dim, long long idx) { return t.select(dim, idx); }' + chr(10))

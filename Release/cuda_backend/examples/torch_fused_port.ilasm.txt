@@ -42,6 +42,7 @@ Assembled method TKVApp::TkvFullBegin_launch
 Assembled method TKVApp::TkvFullGetParams_launch
 Assembled method TKVApp::TkvFullSetIdsGen_launch
 Assembled method TKVApp::TkvFullStep124mFwd_launch
+Assembled method TKVApp::TkvFullStep124m_launch
 Assembled method TKVApp::run
 Assembled method TKVApp::Main
 Creating PE file
@@ -53,8 +54,8 @@ Class 2:	TKVApp
 Emitting fields and methods:
 Global 	
 Class 1	Fields: 2;	Methods: 27;	
-Class 2	Methods: 24;	
-Resolving local member refs: 105 -> 105 defs, 0 refs, 0 unresolved
+Class 2	Methods: 26;	
+Resolving local member refs: 106 -> 106 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	
