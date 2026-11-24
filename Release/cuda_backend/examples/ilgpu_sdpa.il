@@ -4869,6 +4869,60 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     stloc.s 40
+    newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
+    dup
+    ldc.i4 115
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 99
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 97
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 108
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 101
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 95
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 107
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 101
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 114
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 110
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 101
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 108
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 0
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    stloc.s 40
     ldloc.s 39
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     ldc.i4 1
