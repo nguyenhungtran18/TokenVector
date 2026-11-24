@@ -30,6 +30,7 @@ __tkv_extern_pinvoke__ = [
      "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32", "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
     {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cu_errstr", "dll": "cuda.dll", "symbol": "cuGetErrorString", "convention": "cdecl", "params": ["i32", "i64"], "returns": "i32"},
 ]
 
 # PTX thuann - KHONG phai C/C++ source. Nhung ky tu \n la newline that trong bytes.
@@ -86,6 +87,10 @@ def run() -> "i32":
     rc = cu_module_load(mc, pb)
     if rc != 0:
         print("LSM load fail", rc)
+        ec = alloc_bytes(8)
+        rx: "i32" = cu_errstr(rc, ec)
+        ep = read_i64(ec, 0)
+        print("ERRSTR", read_ansi(ep, 0, 256))
         return 1
     mo = read_i64(mc, 0)
     fb = alloc_bytes(len(FN))
@@ -116,7 +121,7 @@ def run() -> "i32":
     if rc != 0:
         print("LSM launch fail", rc)
         return 1
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gath_kernel(.param .u64 px, .param .u64 pid, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 f1;\n.reg .u32 i,j,off;\n.reg .u64 x,id,y,o64;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 id,[pid]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\ncvta.to.global.u64 x,x; cvta.to.global.u64 id,id; cvta.to.global.u64 y,y;\nmul.wide.u32 o64,i,4; add.u64 id,id,o64; ld.global.u32 j,[id];\nmul.lo.u32 off,i,v; add.u32 off,off,j; mul.wide.u32 o64,off,4; add.u64 x,x,off;\nld.global.f32 f1,[x];\nmul.wide.u32 o64,i,4; add.u64 y,y,o64; st.global.f32 [y],f1;\nLEND: ret;\n}\n"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gath_kernel(.param .u64 px, .param .u64 pid, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 f1;\n.reg .u32 i,j,off;\n.reg .u64 x,id,y,o64;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 id,[pid]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\ncvta.to.global.u64 x,x; cvta.to.global.u64 id,id; cvta.to.global.u64 y,y;\nmul.wide.u32 o64,i,4; add.u64 id,id,o64; ld.global.u32 j,[id];\nmul.lo.u32 off,i,v; add.u32 off,off,j; mul.wide.u32 o64,off,4; add.u64 x,x,o64;\nld.global.f32 f1,[x];\nmul.wide.u32 o64,i,4; add.u64 y,y,o64; st.global.f32 [y],f1;\nLEND: ret;\n}\n"
     FN = b"gath_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
@@ -128,6 +133,10 @@ def run() -> "i32":
     rc = cu_module_load(mc, pb)
     if rc != 0:
         print("GATH load fail", rc)
+        ec = alloc_bytes(8)
+        rx: "i32" = cu_errstr(rc, ec)
+        ep = read_i64(ec, 0)
+        print("ERRSTR", read_ansi(ep, 0, 256))
         return 1
     mo = read_i64(mc, 0)
     fb = alloc_bytes(len(FN))
