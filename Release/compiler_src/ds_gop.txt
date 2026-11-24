@@ -121,6 +121,7 @@ compiler_bootstrap\compiler\il_features\string_title.tkv
 compiler_bootstrap\compiler\il_features\threading_feature.tkv
 compiler_bootstrap\compiler\il_features\cuda_feature.tkv
 compiler_bootstrap\compiler\il_features\cpu_feature.tkv
+compiler_bootstrap\compiler\il_features\ptx_feature.tkv
 compiler_bootstrap\compiler\il_features\torch_feature.tkv
 compiler_bootstrap\compiler\il_features\simd_feature.tkv
 compiler_bootstrap\compiler\il_features\tkvstr.tkv

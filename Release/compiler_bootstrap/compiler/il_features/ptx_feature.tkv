@@ -1,0 +1,144 @@
+# -*- coding: utf-8 -*-
+"""PTX codegen feature cho TokenVector (self-host compatible).
+
+Nguon .tkv danh dau:
+    # @tkv.ptx_kernel name="gath_kernel" kind="gath"
+    def TkvPtxGath():
+        return 0
+
+ptx_rewrite_source chen vao dau than ham 2 dong PTX = b"..." va FN = b"name\\x00".
+Khong C++/CUDA source; moi kernel co mot spec duy nhat o ptx_get().
+"""
+
+
+def ptx_get(kind: "str") -> "str":
+    head = '.version 8.0\\n.target sm_75\\n.address_size 64\\n'
+    if kind == 'exp':
+        return head + (
+            '.entry exp_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\\n'
+            '{\\n'
+            '.reg .f32 f1,t;\\n'
+            '.reg .u64 x,y,o64;\\n'
+            '.reg .u32 i,n;\\n'
+            '.reg .pred q;\\n'
+            'ld.param.u64 x,[px]; ld.param.u64 y,[py]; ld.param.u32 n,[pn];\\n'
+            'mov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\\n'
+            'mul.wide.u32 o64,i,4; cvta.to.global.u64 x,x; cvta.to.global.u64 y,y;\\n'
+            'add.u64 x,x,o64; add.u64 y,y,o64; ld.global.f32 f1,[x];\\n'
+            'mov.f32 t,1.442695; mul.f32 f1,f1,t; ex2.approx.f32 f1,f1; st.global.f32 [y],f1;\\n'
+            'LEND: ret;\\n'
+            '}\\n'
+        )
+    if kind == 'scale':
+        return head + (
+            '.entry scale_kernel(.param .u64 px, .param .u64 py, .param .u32 pn, .param .f32 pinv)\\n'
+            '{\\n'
+            '.reg .f32 f1,inv;\\n'
+            '.reg .u64 x,y,o64;\\n'
+            '.reg .u32 i,n;\\n'
+            '.reg .pred q;\\n'
+            'ld.param.u64 x,[px]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.f32 inv,[pinv];\\n'
+            'mov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\\n'
+            'mul.wide.u32 o64,i,4; cvta.to.global.u64 x,x; cvta.to.global.u64 y,y;\\n'
+            'add.u64 x,x,o64; add.u64 y,y,o64; ld.global.f32 f1,[x];\\n'
+            'mul.f32 f1,f1,inv; st.global.f32 [y],f1;\\n'
+            'LEND: ret;\\n'
+            '}\\n'
+        )
+    if kind == 'norm':
+        return head + (
+            '.entry norm_kernel(.param .u64 px, .param .u64 pg, .param .u64 pb, .param .u64 py, .param .u32 pn, .param .f32 pmean, .param .f32 prstd)\\n'
+            '{\\n'
+            '.reg .f32 x,g,b,y,mean,rstd,t;\\n'
+            '.reg .u64 xb,gb,bb,yb,off;\\n'
+            '.reg .u32 i,n;\\n'
+            '.reg .pred q;\\n'
+            'ld.param.u64 xb,[px]; ld.param.u64 gb,[pg]; ld.param.u64 bb,[pb]; ld.param.u64 yb,[py]; ld.param.u32 n,[pn];\\n'
+            'ld.param.f32 mean,[pmean]; ld.param.f32 rstd,[prstd];\\n'
+            'mov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\\n'
+            'mul.wide.u32 off,i,4;\\n'
+            'cvta.to.global.u64 xb,xb; cvta.to.global.u64 gb,gb;\\n'
+            'cvta.to.global.u64 bb,bb; cvta.to.global.u64 yb,yb;\\n'
+            'add.u64 xb,xb,off; add.u64 gb,gb,off; add.u64 bb,bb,off; add.u64 yb,yb,off;\\n'
+            'ld.global.f32 x,[xb]; ld.global.f32 g,[gb]; ld.global.f32 b,[bb];\\n'
+            'sub.f32 t,x,mean; mul.f32 t,t,rstd; mul.f32 t,t,g; add.f32 y,t,b;\\n'
+            'st.global.f32 [yb],y;\\n'
+            'LEND: ret;\\n'
+            '}\\n'
+        )
+    if kind == 'gath':
+        return head + (
+            '.entry gath_kernel(.param .u64 px, .param .u64 pid, .param .u64 py, .param .u32 pn, .param .u32 pv)\\n'
+            '{\\n'
+            '.reg .f32 f1;\\n'
+            '.reg .u32 i,j,idx;\\n'
+            '.reg .u64 x,id,y,o64;\\n'
+            '.reg .pred q;\\n'
+            'ld.param.u64 x,[px]; ld.param.u64 id,[pid]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\\n'
+            'mov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\\n'
+            'mul.wide.u32 o64,i,4; cvta.to.global.u64 id,id; add.u64 id,id,o64; ld.global.u32 j,[id];\\n'
+            'mul.lo.u32 idx,i,v; add.u32 idx,idx,j;\\n'
+            'mul.wide.u32 o64,idx,4; cvta.to.global.u64 x,x; add.u64 x,x,o64; ld.global.f32 f1,[x];\\n'
+            'mul.wide.u32 o64,i,4; cvta.to.global.u64 y,y; add.u64 y,y,o64; st.global.f32 [y],f1;\\n'
+            'LEND: ret;\\n'
+            '}\\n'
+        )
+    if kind == 'prep':
+        return head + (
+            '.entry prep_kernel(.param .u64 px, .param .u64 py, .param .u32 pn, .param .u32 pt, .param .f32 pinv)\\n'
+            '{\\n'
+            '.reg .f32 f1,t,inv;\\n'
+            '.reg .u32 i,n,T,row,col,tmp;\\n'
+            '.reg .u64 x,y,o64;\\n'
+            '.reg .pred q,r;\\n'
+            'ld.param.u64 x,[px]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 T,[pt]; ld.param.f32 inv,[pinv];\\n'
+            'mov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\\n'
+            'div.u32 row,i,T; mul.lo.u32 tmp,row,T; sub.u32 col,i,tmp;\\n'
+            'setp.gt.u32 r,col,row; @r bra MASK;\\n'
+            'mul.wide.u32 o64,i,4; cvta.to.global.u64 x,x; add.u64 x,x,o64; ld.global.f32 f1,[x];\\n'
+            'mul.f32 f1,f1,inv;\\n'
+            'bra EXPP;\\n'
+            'MASK:\\n'
+            'mov.f32 f1,-1000000000.0;\\n'
+            'EXPP:\\n'
+            'mov.f32 t,1.442695; mul.f32 f1,f1,t; ex2.approx.f32 f1,f1;\\n'
+            'mul.wide.u32 o64,i,4; cvta.to.global.u64 y,y; add.u64 y,y,o64; st.global.f32 [y],f1;\\n'
+            'LEND: ret;\\n'
+            '}\\n'
+        )
+    return ''
+
+
+def ptx_rewrite_source(src: "str", path: "str") -> "str":
+    if '# @tkv.ptx_kernel' not in src:
+        return src
+    lines = [ln for ln in src.split('\n')]
+    out = []
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+        out.append(ln)
+        marker = '# @tkv.ptx_kernel'
+        if ln.lstrip().startswith(marker):
+            name = ''
+            kind = ''
+            if 'name="' in ln:
+                name = ln.split('name="', 1)[1].split('"', 1)[0]
+            if 'kind="' in ln:
+                kind = ln.split('kind="', 1)[1].split('"', 1)[0]
+            var = 'PTX'
+            if 'var="' in ln:
+                var = ln.split('var="', 1)[1].split('"', 1)[0]
+            fname = var.replace('PTX', 'FN')
+            ptx = ptx_get(kind)
+            if ptx == '':
+                raise SyntaxError('ptx_feature: unknown kind ' + kind)
+            if name == '':
+                raise SyntaxError('ptx_feature: missing kernel name')
+            indent = ln[:len(ln) - len(ln.lstrip())]
+            out.append(indent + var + ' = b"' + ptx + '"')
+            out.append(indent + fname + ' = b"' + name + '\x00"')
+            i = i + 1
+            continue
+        i = i + 1
+    return '\n'.join(out)

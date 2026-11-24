@@ -90,8 +90,7 @@ def run() -> "i32":
     bcell = alloc_bytes(4)
     wb: "i64" = write_f32(bcell, 0, 0.0)
     # EXP (da xac nhan)
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry exp_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,t;\n.reg .u64 x,y,o64;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 y,[py]; ld.param.u32 n,[pn];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 o64,i,4; cvta.to.global.u64 x,x; cvta.to.global.u64 y,y;\nadd.u64 x,x,o64; add.u64 y,y,o64; ld.global.f32 f1,[x];\nmov.f32 t,1.442695; mul.f32 f1,f1,t; ex2.approx.f32 f1,f1; st.global.f32 [y],f1;\nLEND: ret;\n}\n"
-    FN = b"exp_kernel\x00"
+    # @tkv.ptx_kernel name="exp_kernel" kind="exp" var="PTX"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
     while kk < len(PTX):
@@ -152,8 +151,7 @@ def run() -> "i32":
     wq2: "i64" = cuda_h2d(hg, hG, lb, 1)
     wq3: "i64" = cuda_h2d(hb, hB, lb, 1)
     # NORM (da xac nhan): y = (x-0)*1*g + b = x + b = x - log(rowsum)
-    PTX2 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry norm_kernel(.param .u64 px, .param .u64 pg, .param .u64 pb, .param .u64 py, .param .u32 pn, .param .f32 pmean, .param .f32 prstd)\n{\n.reg .f32 x,g,b,y,mean,rstd,t;\n.reg .u64 xb,gb,bb,yb,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 xb,[px]; ld.param.u64 gb,[pg]; ld.param.u64 bb,[pb]; ld.param.u64 yb,[py]; ld.param.u32 n,[pn];\nld.param.f32 mean,[pmean]; ld.param.f32 rstd,[prstd];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 gb,gb;\ncvta.to.global.u64 bb,bb;\ncvta.to.global.u64 yb,yb;\nadd.u64 xb,xb,off;\nadd.u64 gb,gb,off;\nadd.u64 bb,bb,off;\nadd.u64 yb,yb,off;\nld.global.f32 x,[xb];\nld.global.f32 g,[gb];\nld.global.f32 b,[bb];\nsub.f32 t,x,mean;\nmul.f32 t,t,rstd;\nmul.f32 t,t,g;\nadd.f32 y,t,b;\nst.global.f32 [yb],y;\nLEND: ret;\n}\n"
-    FN2 = b"norm_kernel\x00"
+    # @tkv.ptx_kernel name="norm_kernel" kind="norm" var="PTX2"
     pb2 = alloc_bytes(len(PTX2) + 1)
     kk = 0
     while kk < len(PTX2):
@@ -204,8 +202,7 @@ def run() -> "i32":
         print("NORM launch fail", rc)
         return 1
     # GATH (da xac nhan)
-    PTX3 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gath_kernel(.param .u64 px, .param .u64 pid, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 f1;\n.reg .u32 i,j,idx;\n.reg .u64 x,id,y,o64;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 id,[pid]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 o64,i,4; cvta.to.global.u64 id,id; add.u64 id,id,o64; ld.global.u32 j,[id];\nmul.lo.u32 idx,i,v; add.u32 idx,idx,j;\nmul.wide.u32 o64,idx,4; cvta.to.global.u64 x,x; add.u64 x,x,o64; ld.global.f32 f1,[x];\nmul.wide.u32 o64,i,4; cvta.to.global.u64 y,y; add.u64 y,y,o64; st.global.f32 [y],f1;\nLEND: ret;\n}\n"
-    FN3 = b"gath_kernel\x00"
+    # @tkv.ptx_kernel name="gath_kernel" kind="gath" var="PTX3"
     p3 = alloc_bytes(len(PTX3) + 1)
     kk = 0
     while kk < len(PTX3):

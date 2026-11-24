@@ -6205,7 +6205,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -6413,7 +6413,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -6593,7 +6593,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -6669,7 +6669,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -6745,7 +6745,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -6909,7 +6909,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -6997,7 +6997,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -7157,7 +7157,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -7229,7 +7229,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -7289,7 +7289,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
