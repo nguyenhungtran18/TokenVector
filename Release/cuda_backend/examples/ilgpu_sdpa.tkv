@@ -91,7 +91,6 @@ def run() -> "i32":
     # PREP = scale * mask * exp (da chay o M3)
     PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry prep_kernel(.param .u64 px, .param .u64 py, .param .u32 pn, .param .u32 pt, .param .f32 pinv)\n{\n.reg .f32 f1,t,inv;\n.reg .u32 i,n,T,row,col,tmp;\n.reg .u64 x,y,o64;\n.reg .pred q,r;\nld.param.u64 x,[px]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 T,[pt]; ld.param.f32 inv,[pinv];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\ndiv.u32 row,i,T; mul.lo.u32 tmp,row,T; sub.u32 col,i,tmp;\nsetp.gt.u32 r,col,row; @r bra MASK;\nmul.wide.u32 o64,i,4; cvta.to.global.u64 x,x; add.u64 x,x,o64; ld.global.f32 f1,[x];\nmul.f32 f1,f1,inv; mov.f32 t,1.442695; mul.f32 f1,f1,t; ex2.approx.f32 f1,f1;\nbra STORE;\nMASK:\nmov.f32 f1,-1000000000.0;\nSTORE:\nmul.wide.u32 o64,i,4; cvta.to.global.u64 y,y; add.u64 y,y,o64; st.global.f32 [y],f1;\nLEND: ret;\n}\n"
     FN = b"prep_kernel\x00"
-    FN = b"scale_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
     while kk < len(PTX):
