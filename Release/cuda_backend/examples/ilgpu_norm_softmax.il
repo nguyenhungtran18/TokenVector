@@ -3699,7 +3699,7 @@
     ldloc.s 1
     ldloc.s 53
     ldloc.s 23
-    ldloc.s 1
+    ldc.i4 1
     ldloc.s 16
     ldloc.s 1
     ldloc.s 55
@@ -3749,7 +3749,7 @@
     ldloc.s 1
     ldloc.s 53
     ldloc.s 23
-    ldloc.s 1
+    ldc.i4 1
     ldloc.s 17
     ldloc.s 1
     ldloc.s 55
@@ -9971,7 +9971,7 @@
     ldloc.s 1
     ldloc.s 53
     ldloc.s 23
-    ldloc.s 1
+    ldc.i4 1
     ldloc.s 17
     ldloc.s 1
     ldloc.s 55

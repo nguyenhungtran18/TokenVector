@@ -131,14 +131,14 @@ def run() -> "i32":
     wz1: "i64" = write_f32(acell, 0, 1.0)
     bcell = alloc_bytes(4)
     wz2: "i64" = write_f32(bcell, 0, 0.0)
-    rc = cublas_sgemm(ch, 0, 0, 1, 1, h, acell, done, h, dx, h, bcell, dscalar, 1)
+    rc = cublas_sgemm(ch, 0, 0, 1, 1, h, acell, done, 1, dx, h, bcell, dscalar, 1)
     if rc != 0:
         print("sgemm sumx fail", rc)
         return 1
     hs = alloc_bytes(4)
     wz3: "i64" = cuda_h2d(hs, dscalar, 4, 2)
     sumx: "f32" = read_f32(hs, 0)
-    rc = cublas_sgemm(ch, 0, 0, 1, 1, h, acell, done, h, ds, h, bcell, dscalar, 1)
+    rc = cublas_sgemm(ch, 0, 0, 1, 1, h, acell, done, 1, ds, h, bcell, dscalar, 1)
     wz4: "i64" = cuda_h2d(hs, dscalar, 4, 2)
     sumsq: "f32" = read_f32(hs, 0)
     mean: "f32" = sumx / 8.0
@@ -244,7 +244,7 @@ def run() -> "i32":
     if rc != 0:
         print("EXP launch fail", rc)
         return 1
-    rc = cublas_sgemm(ch, 0, 0, 1, 1, h, acell, done, h, ds, h, bcell, dscalar, 1)
+    rc = cublas_sgemm(ch, 0, 0, 1, 1, h, acell, done, 1, ds, h, bcell, dscalar, 1)
     wz5: "i64" = cuda_h2d(hs, dscalar, 4, 2)
     ssum: "f32" = read_f32(hs, 0)
     inv: "f32" = 1.0 / ssum
