@@ -1,0 +1,109 @@
+# -*- coding: utf-8 -*-
+# M3 - IL-only GPU: PTX do TokenVector embed (KHONG phai C++/CUDA source),
+# nap qua CUDA driver, launch truc tiep tu IL. Khong torch.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
+     "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_free", "dll": "cudart.dll", "symbol": "cudaFree",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},    {"name": "cu_mem_alloc", "dll": "cuda.dll", "symbol": "cuMemAlloc_v2",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_mem_free", "dll": "cuda.dll", "symbol": "cuMemFree_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cu_h2d", "dll": "cuda.dll", "symbol": "cuMemcpyHtoD_v2",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_d2h", "dll": "cuda.dll", "symbol": "cuMemcpyDtoH_v2",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32", "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
+    {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+]
+
+# PTX thuann - KHONG phai C/C++ source. Nhung ky tu \n la newline that trong bytes.
+
+def run() -> "i32":
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        return 1
+    T: "i32" = 4
+    V: "i32" = 8
+    n: "i32" = T * V
+    nb: "i32" = n * 4
+    cell = alloc_bytes(8)
+    rc = cuda_malloc(cell, 4)
+    probe = read_i64(cell, 0)
+    hx = alloc_bytes(nb)
+    hd = alloc_bytes(nb)
+    hp = alloc_bytes(nb)
+    i: "i32" = 0
+    v: "f32" = -1.0
+    while i < n:
+        w0: "i64" = write_f32(hx, i * 4, v)
+        v = v + 0.25
+        i = i + 1
+    rc = cuda_malloc(cell, nb)
+    dx = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    dd = read_i64(cell, 0)
+    w1: "i64" = cuda_h2d(dx, hx, nb, 1)
+    inv: "f32" = 0.125
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry dgelu_kernel(.param .u64 px, .param .u64 pd, .param .u32 pn)\n{\n.reg .f32 x,g,z,t1,t2,t3,t4,d;\n.reg .u64 x_,d_,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 x_,[px]; ld.param.u64 d_,[pd]; ld.param.u32 n,[pn];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 off,i,4; cvta.to.global.u64 x_,x_; cvta.to.global.u64 d_,d_;\nadd.u64 x_,x_,off; add.u64 d_,d_,off; ld.global.f32 x,[x_];\nmul.f32 t1,x,x; mul.f32 t1,t1,x;\nmov.f32 t2,0.044715; fma.rn.f32 t1,t1,t2,x;\nmov.f32 t2,0.79788456; mul.f32 z,t1,t2;\ntanh.approx.f32 t3,z;\nmov.f32 t4,1.0; sub.f32 t4,t4,t3; mov.f32 t2,0.5; mul.f32 t4,t4,t2;\nmov.f32 t2,1.0; sub.f32 t2,t2,t3; mul.f32 t2,t2,t3;\nmov.f32 t3,0.3; mul.f32 t3,x,x; mul.f32 t3,t3,t3; mov.f32 g,1.0; fma.rn.f32 g,g,t3,t2;\nmul.f32 g,g,0.5;\nmul.f32 g,g,t1;\nadd.f32 g,g,t4;\nld.global.f32 d,[d_]; mul.f32 d,d,g; st.global.f32 [d_],d;\nLEND: ret;\n}\n"
+    FN = b"dgelu_kernel\x00"
+    pb = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wu: "i64" = write_u8(pb, kk, PTX[kk])
+        kk = kk + 1
+    wv: "i64" = write_u8(pb, kk, 0)
+    mc = alloc_bytes(8)
+    rc = cu_module_load(mc, pb)
+    if rc != 0:
+        print("DGELU load fail", rc)
+        return 1
+    mo = read_i64(mc, 0)
+    fb = alloc_bytes(len(FN))
+    rf: "i32" = 0
+    while rf < len(FN):
+        ww: "i64" = write_u8(fb, rf, FN[rf])
+        rf = rf + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mo, fb)
+    if rc != 0:
+        print("DGELU fn fail", rc)
+        return 1
+    fn = read_i64(fc, 0)
+    a0 = alloc_bytes(8)
+    wx0: "i64" = write_i64(a0, 0, dx)
+    a1 = alloc_bytes(8)
+    wx1: "i64" = write_i64(a1, 0, dd)
+    a2 = alloc_bytes(8)
+    wx2: "i64" = write_i64(a2, 0, n)
+    par = alloc_bytes(24)
+    wp0: "i64" = write_i64(par, 0, a0)
+    wp1: "i64" = write_i64(par, 8, a1)
+    wp2: "i64" = write_i64(par, 16, a2)
+    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
+    if rc != 0:
+        print("DGELU launch fail", rc)
+        return 1
+    w2: "i64" = cuda_h2d(hd, dd, nb, 2)
+    i = 0
+    while i < n:
+        dv: "f32" = read_f32(hd, i * 4)
+        print("DGELU", i, dv)
+        i = i + 1
+    print("BATCH DONE")
+    return 0
