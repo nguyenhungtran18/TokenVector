@@ -3332,7 +3332,7 @@
     ldloc.s 10
     ldloc.s 4
     conv.i8
-    call int32 TKVApp::__pinvoke_cu_mem_alloc(int64, int64)
+    call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 2
     ldloc.s 2
     ldc.i4 0
@@ -3360,7 +3360,7 @@
     ldloc.s 10
     ldloc.s 4
     conv.i8
-    call int32 TKVApp::__pinvoke_cu_mem_alloc(int64, int64)
+    call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 2
     ldloc.s 2
     ldc.i4 0
@@ -3389,7 +3389,8 @@
     ldloc.s 5
     ldloc.s 4
     conv.i8
-    call int32 TKVApp::__pinvoke_cu_h2d(int64, int64, int64)
+    ldc.i4 1
+    call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     stloc.s 2
     ldloc.s 2
     ldc.i4 0
@@ -3602,7 +3603,8 @@
     ldloc.s 12
     ldloc.s 4
     conv.i8
-    call int32 TKVApp::__pinvoke_cu_d2h(int64, int64, int64)
+    ldc.i4 2
+    call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     stloc.s 2
     ldloc.s 2
     ldc.i4 0
@@ -3707,10 +3709,10 @@
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 11
-    call int32 TKVApp::__pinvoke_cu_mem_free(int64)
+    call int32 TKVApp::__pinvoke_cuda_free(int64)
     stloc.s 32
     ldloc.s 12
-    call int32 TKVApp::__pinvoke_cu_mem_free(int64)
+    call int32 TKVApp::__pinvoke_cuda_free(int64)
     stloc.s 33
     ldloc.s 10
     conv.i
@@ -3786,6 +3788,12 @@
     int32 __pinvoke_cu_module_fn(int64, int64, int64) cil managed preservesig {}
 .method public hidebysig static pinvokeimpl("cuda.dll" as "cuLaunchKernel" cdecl)
     int32 __pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64) cil managed preservesig {}
+.method public hidebysig static pinvokeimpl("cudart.dll" as "cudaMalloc" cdecl)
+    int32 __pinvoke_cuda_malloc(int64, int64) cil managed preservesig {}
+.method public hidebysig static pinvokeimpl("cudart.dll" as "cudaFree" cdecl)
+    int32 __pinvoke_cuda_free(int64) cil managed preservesig {}
+.method public hidebysig static pinvokeimpl("cudart.dll" as "cudaMemcpy" cdecl)
+    int32 __pinvoke_cuda_h2d(int64, int64, int64, int32) cil managed preservesig {}
 .method public hidebysig static pinvokeimpl("cuda.dll" as "cuMemAlloc_v2" cdecl)
     int32 __pinvoke_cu_mem_alloc(int64, int64) cil managed preservesig {}
 .method public hidebysig static pinvokeimpl("cuda.dll" as "cuMemFree_v2" cdecl)

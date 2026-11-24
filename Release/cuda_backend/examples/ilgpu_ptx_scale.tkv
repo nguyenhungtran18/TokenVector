@@ -12,7 +12,12 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl",
      "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
      "returns": "i32"},
-    {"name": "cu_mem_alloc", "dll": "cuda.dll", "symbol": "cuMemAlloc_v2",
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_free", "dll": "cudart.dll", "symbol": "cudaFree",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},    {"name": "cu_mem_alloc", "dll": "cuda.dll", "symbol": "cuMemAlloc_v2",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cu_mem_free", "dll": "cuda.dll", "symbol": "cuMemFree_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
@@ -43,17 +48,17 @@ def run() -> "i32":
         v = v + 1.0
         i = i + 1
     cell = alloc_bytes(8)
-    rc = cu_mem_alloc(cell, nb)
+    rc = cuda_malloc(cell, nb)
     if rc != 0:
         print("cuMemAlloc x fail", rc)
         return 1
     dx = read_i64(cell, 0)
-    rc = cu_mem_alloc(cell, nb)
+    rc = cuda_malloc(cell, nb)
     if rc != 0:
         print("cuMemAlloc y fail", rc)
         return 1
     dy = read_i64(cell, 0)
-    rc = cu_h2d(dx, ha, nb)
+    rc = cuda_h2d(dx, ha, nb, 1)
     if rc != 0:
         print("H2D fail", rc)
         return 1
@@ -88,7 +93,7 @@ def run() -> "i32":
     if rc != 0:
         print("cuLaunchKernel fail", rc)
         return 1
-    rc = cu_d2h(hy, dy, nb)
+    rc = cuda_h2d(hy, dy, nb, 2)
     if rc != 0:
         print("D2H fail", rc)
         return 1
@@ -105,8 +110,8 @@ def run() -> "i32":
         print("scale", i, "got", got, "exp", exp)
         i = i + 1
     print("MAXERR", maxerr)
-    r0: "i32" = cu_mem_free(dx)
-    r1: "i32" = cu_mem_free(dy)
+    r0: "i32" = cuda_free(dx)
+    r1: "i32" = cuda_free(dy)
     free_bytes(cell)
     free_bytes(ptxb)
     free_bytes(fnb)
