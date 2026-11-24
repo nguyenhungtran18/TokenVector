@@ -1228,8 +1228,8 @@
 {
   .method public static int32 'run'() cil managed
   {
-    .maxstack 57
-    .locals init (class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FNAME', int32 'rc', int32 'n', int32 'nb', int64 'ha', int64 'hy', int32 'i', float32 'v', int64 'wn1', int64 'cell', int64 'dx', int64 'dy', int64 'ptxb', int32 'k', int64 'w0', int64 'w2', int64 'mcell', int64 'mod', int64 'fnb', int32 'rfn', int64 'w1', int64 'fcell', int64 'fn', int64 'par', int64 'wn2', int64 'wn3', int64 'wn4', float32 'maxerr', float32 'got', float32 'exp', float32 'd', int32 'r0', int32 'r1', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
+    .maxstack 60
+    .locals init (class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FNAME', int32 'rc', int32 'n', int32 'nb', int64 'ha', int64 'hy', int32 'i', float32 'v', int64 'wn1', int64 'cell', int64 'dx', int64 'dy', int64 'ptxb', int32 'k', int64 'w0', int64 'w2', int64 'mcell', int64 'mod', int64 'fnb', int32 'rfn', int64 'w1', int64 'fcell', int64 'fn', int64 'a0', int64 'wn3', int64 'a1', int64 'wn4', int64 'a2', int64 'wn5', int64 'par', int64 'wn6', int64 'wn7', int64 'wn8', float32 'maxerr', float32 'got', float32 'exp', float32 'd', int32 'r0', int32 'r1', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
     dup
     ldc.i4 46
@@ -3539,7 +3539,7 @@
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
     stloc.s 23
-    ldc.i4 24
+    ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
     stloc.s 24
@@ -3552,24 +3552,63 @@
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
     stloc.s 25
-    ldloc.s 24
     ldc.i4 8
+    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
+    conv.i8
+    stloc.s 26
+    ldloc.s 26
+    ldc.i4 0
     conv.i8
     add
     conv.i
     ldloc.s 12
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 26
-    ldloc.s 24
-    ldc.i4 16
+    stloc.s 27
+    ldc.i4 4
+    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
+    conv.i8
+    stloc.s 28
+    ldloc.s 28
+    ldc.i4 0
     conv.i8
     add
     conv.i
     ldloc.s 3
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt32(native int, int32)
     ldc.i8 0
-    stloc.s 27
+    stloc.s 29
+    ldc.i4 24
+    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
+    conv.i8
+    stloc.s 30
+    ldloc.s 30
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    ldloc.s 24
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 31
+    ldloc.s 30
+    ldc.i4 8
+    conv.i8
+    add
+    conv.i
+    ldloc.s 26
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 32
+    ldloc.s 30
+    ldc.i4 16
+    conv.i8
+    add
+    conv.i
+    ldloc.s 28
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 33
     ldloc.s 23
     ldc.i4 1
     ldc.i4 1
@@ -3579,7 +3618,7 @@
     ldc.i4 1
     ldc.i4 0
     ldc.i8 0
-    ldloc.s 24
+    ldloc.s 30
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 2
@@ -3623,7 +3662,7 @@
     ret
   run_If11_else:
     ldc.r4 0.0
-    stloc.s 28
+    stloc.s 34
     ldc.i4 0
     stloc.s 7
   run_W12_start:
@@ -3639,7 +3678,7 @@
     add
     conv.i
     ldind.r4
-    stloc.s 29
+    stloc.s 35
     ldloc.s 5
     ldloc.s 7
     ldc.i4 4
@@ -3650,25 +3689,25 @@
     ldind.r4
     ldc.r4 2.0
     mul
-    stloc.s 30
-    ldloc.s 29
-    ldloc.s 30
+    stloc.s 36
+    ldloc.s 35
+    ldloc.s 36
     sub
-    stloc.s 31
-    ldloc.s 31
+    stloc.s 37
+    ldloc.s 37
     ldc.r4 0.0
     clt
     brfalse run_If13_else
-    ldloc.s 31
+    ldloc.s 37
     neg
-    stloc.s 31
+    stloc.s 37
   run_If13_else:
-    ldloc.s 31
-    ldloc.s 28
+    ldloc.s 37
+    ldloc.s 34
     cgt
     brfalse run_If14_else
-    ldloc.s 31
-    stloc.s 28
+    ldloc.s 37
+    stloc.s 34
   run_If14_else:
     ldstr "scale"
     ldstr " "
@@ -3681,7 +3720,7 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     ldstr " "
-    ldloc.s 29
+    ldloc.s 35
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
@@ -3690,7 +3729,7 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     ldstr " "
-    ldloc.s 30
+    ldloc.s 36
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
@@ -3703,17 +3742,17 @@
   run_W12_end:
     ldstr "MAXERR"
     ldstr " "
-    ldloc.s 28
+    ldloc.s 34
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 11
     call int32 TKVApp::__pinvoke_cuda_free(int64)
-    stloc.s 32
+    stloc.s 38
     ldloc.s 12
     call int32 TKVApp::__pinvoke_cuda_free(int64)
-    stloc.s 33
+    stloc.s 39
     ldloc.s 10
     conv.i
     call void [mscorlib]System.Runtime.InteropServices.Marshal::FreeHGlobal(native int)
@@ -3744,7 +3783,25 @@
     ldc.i8 0
     conv.ovf.i4
     pop
+    ldloc.s 30
+    conv.i
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::FreeHGlobal(native int)
+    ldc.i8 0
+    conv.ovf.i4
+    pop
     ldloc.s 24
+    conv.i
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::FreeHGlobal(native int)
+    ldc.i8 0
+    conv.ovf.i4
+    pop
+    ldloc.s 26
+    conv.i
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::FreeHGlobal(native int)
+    ldc.i8 0
+    conv.ovf.i4
+    pop
+    ldloc.s 28
     conv.i
     call void [mscorlib]System.Runtime.InteropServices.Marshal::FreeHGlobal(native int)
     ldc.i8 0
@@ -3762,7 +3819,7 @@
     ldc.i8 0
     conv.ovf.i4
     pop
-    ldloc.s 28
+    ldloc.s 34
     ldc.r4 0.0001
     cgt
     brfalse run_If15_else
