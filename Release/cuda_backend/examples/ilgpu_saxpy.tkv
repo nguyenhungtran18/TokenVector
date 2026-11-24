@@ -25,10 +25,14 @@ def run() -> "i32":
     ha = alloc_bytes(nb)
     hb = alloc_bytes(nb)
     hy = alloc_bytes(nb)
+    av: "f32" = 1.0
+    bv: "f32" = 0.5
     i: "i32" = 0
     while i < n:
-        write_f32(ha, i * 4, float(i + 1))
-        write_f32(hb, i * 4, float(i) + 0.5)
+        write_f32(ha, i * 4, av)
+        write_f32(hb, i * 4, bv)
+        av = av + 1.0
+        bv = bv + 1.0
         i = i + 1
     cell = alloc_bytes(8)
     rc: "i32" = cuda_malloc(cell, nb)
@@ -74,7 +78,9 @@ def run() -> "i32":
     i = 0
     while i < n:
         got: "f32" = read_f32(hy, i * 4)
-        exp: "f32" = float(i + 1) * 2.0 + (float(i) + 0.5)
+        eav: "f32" = read_f32(ha, i * 4)
+        ebv: "f32" = read_f32(hb, i * 4)
+        exp: "f32" = eav * 2.0 + ebv
         d: "f32" = got - exp
         if d < 0.0:
             d = -d
