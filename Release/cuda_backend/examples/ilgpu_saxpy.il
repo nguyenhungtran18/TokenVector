@@ -1228,8 +1228,8 @@
 {
   .method public static int32 'run'() cil managed
   {
-    .maxstack 54
-    .locals init (int32 'n', int32 'nb', int64 'ha', int64 'hb', int64 'hy', int32 'i', int64 'cell', int32 'rc', int64 'dx', int64 'dy', int64 'hcell', int64 'h', float32 'alpha', float32 'maxerr', float32 'got', float32 'exp', float32 'd', int32 'r0', int32 'r1', int32 'r2', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
+    .maxstack 57
+    .locals init (int32 'n', int32 'nb', int64 'ha', int64 'hb', int64 'hy', int32 'i', int64 'cell', int32 'rc', int64 'dx', int64 'dy', int64 'hcell', int64 'h', int64 'acell', int64 'alpha', float32 'maxerr', float32 'got', float32 'exp', float32 'd', int32 'r0', int32 'r1', int32 'r2', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
     ldc.i4 8
     stloc.s 0
     ldloc.s 0
@@ -1427,16 +1427,30 @@
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
     stloc.s 11
-    ldc.r4 2.0
+    ldc.i4 4
+    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
+    conv.i8
     stloc.s 12
+    ldloc.s 12
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    ldc.r4 2.0
+    stind.r4
+    ldc.i8 0
+    conv.ovf.i4
+    pop
+    ldloc.s 12
+    stloc.s 13
     ldloc.s 11
     ldloc.s 0
-    ldloc.s 12
+    ldloc.s 13
     ldloc.s 8
     ldc.i4 1
     ldloc.s 9
     ldc.i4 1
-    call int32 TKVApp::__pinvoke_cublas_saxpy(int64, int32, float32, int64, int32, int64, int32)
+    call int32 TKVApp::__pinvoke_cublas_saxpy(int64, int32, int64, int64, int32, int64, int32)
     stloc.s 7
     ldloc.s 7
     ldc.i4 0
@@ -1496,7 +1510,7 @@
     ret
   run_If9_else:
     ldc.r4 0.0
-    stloc.s 13
+    stloc.s 14
     ldc.i4 0
     stloc.s 5
   run_W10_start:
@@ -1512,7 +1526,7 @@
     add
     conv.i
     ldind.r4
-    stloc.s 14
+    stloc.s 15
     ldloc.s 5
     ldc.i4 1
     add
@@ -1524,25 +1538,25 @@
     ldc.r4 0.5
     add
     add
-    stloc.s 15
-    ldloc.s 14
-    ldloc.s 15
-    sub
     stloc.s 16
+    ldloc.s 15
     ldloc.s 16
+    sub
+    stloc.s 17
+    ldloc.s 17
     ldc.r4 0.0
     clt
     brfalse run_If11_else
-    ldloc.s 16
+    ldloc.s 17
     neg
-    stloc.s 16
+    stloc.s 17
   run_If11_else:
-    ldloc.s 16
-    ldloc.s 13
+    ldloc.s 17
+    ldloc.s 14
     cgt
     brfalse run_If12_else
-    ldloc.s 16
-    stloc.s 13
+    ldloc.s 17
+    stloc.s 14
   run_If12_else:
     ldstr "idx"
     ldstr " "
@@ -1555,7 +1569,7 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     ldstr " "
-    ldloc.s 14
+    ldloc.s 15
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
@@ -1564,7 +1578,7 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     ldstr " "
-    ldloc.s 15
+    ldloc.s 16
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
@@ -1577,20 +1591,20 @@
   run_W10_end:
     ldstr "MAXERR"
     ldstr " "
-    ldloc.s 13
+    ldloc.s 14
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 11
     call int32 TKVApp::__pinvoke_cublas_destroy(int64)
-    stloc.s 17
+    stloc.s 18
     ldloc.s 8
     call int32 TKVApp::__pinvoke_cuda_free(int64)
-    stloc.s 18
+    stloc.s 19
     ldloc.s 9
     call int32 TKVApp::__pinvoke_cuda_free(int64)
-    stloc.s 19
+    stloc.s 20
     ldloc.s 6
     conv.i
     call void [mscorlib]System.Runtime.InteropServices.Marshal::FreeHGlobal(native int)
@@ -1598,6 +1612,12 @@
     conv.ovf.i4
     pop
     ldloc.s 10
+    conv.i
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::FreeHGlobal(native int)
+    ldc.i8 0
+    conv.ovf.i4
+    pop
+    ldloc.s 12
     conv.i
     call void [mscorlib]System.Runtime.InteropServices.Marshal::FreeHGlobal(native int)
     ldc.i8 0
@@ -1621,7 +1641,7 @@
     ldc.i8 0
     conv.ovf.i4
     pop
-    ldloc.s 13
+    ldloc.s 14
     ldc.r4 0.0001
     cgt
     brfalse run_If13_else
@@ -1650,7 +1670,7 @@
 .method public hidebysig static pinvokeimpl("cublas.dll" as "cublasCreate_v2" cdecl)
     int32 __pinvoke_cublas_create(int64) cil managed preservesig {}
 .method public hidebysig static pinvokeimpl("cublas.dll" as "cublasSaxpy_v2" cdecl)
-    int32 __pinvoke_cublas_saxpy(int64, int32, float32, int64, int32, int64, int32) cil managed preservesig {}
+    int32 __pinvoke_cublas_saxpy(int64, int32, int64, int64, int32, int64, int32) cil managed preservesig {}
 .method public hidebysig static pinvokeimpl("cublas.dll" as "cublasDestroy_v2" cdecl)
     int32 __pinvoke_cublas_destroy(int64) cil managed preservesig {}
 }

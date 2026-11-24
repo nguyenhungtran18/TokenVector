@@ -13,7 +13,7 @@ __tkv_extern_pinvoke__ = [
     {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
     {"name": "cublas_saxpy", "dll": "cublas.dll", "symbol": "cublasSaxpy_v2",
-     "convention": "cdecl", "params": ["i64", "i32", "f32", "i64", "i32", "i64", "i32"], "returns": "i32"},
+     "convention": "cdecl", "params": ["i64", "i32", "i64", "i64", "i32", "i64", "i32"], "returns": "i32"},
     {"name": "cublas_destroy", "dll": "cublas.dll", "symbol": "cublasDestroy_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
 ]
@@ -55,7 +55,9 @@ def run() -> "i32":
         print("cublasCreate fail", rc)
         return 1
     h = read_i64(hcell, 0)
-    alpha: "f32" = 2.0
+    acell = alloc_bytes(4)
+    write_f32(acell, 0, 2.0)
+    alpha = acell
     rc = cublas_saxpy(h, n, alpha, dx, 1, dy, 1)
     if rc != 0:
         print("cublasSaxpy fail", rc)
@@ -86,6 +88,7 @@ def run() -> "i32":
     r2: "i32" = cuda_free(dy)
     free_bytes(cell)
     free_bytes(hcell)
+    free_bytes(acell)
     free_bytes(ha)
     free_bytes(hb)
     free_bytes(hy)
