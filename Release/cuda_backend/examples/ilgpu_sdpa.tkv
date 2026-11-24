@@ -121,6 +121,7 @@ def run() -> "i32":
     rc = cu_module_load_ex(mc, pb, 2, opts, vals)
     if rc != 0:
         print("EXP load fail", rc)
+        print("JITLOG:", read_ansi(errbuf, 0, 1024))
         return 1
     mo = read_i64(mc, 0)
     fb = alloc_bytes(len(FN))
@@ -170,6 +171,7 @@ def run() -> "i32":
     rc = cu_module_load_ex(mc, pb, 2, opts, vals)
     if rc != 0:
         print("ROWSCALE load fail", rc)
+        print("JITLOG:", read_ansi(errbuf, 0, 1024))
         return 1
     mo = read_i64(mc, 0)
     fb = alloc_bytes(len(FN))

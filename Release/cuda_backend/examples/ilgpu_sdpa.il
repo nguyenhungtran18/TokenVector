@@ -1228,7 +1228,7 @@
 {
   .method public static int32 'run'() cil managed
   {
-    .maxstack 141
+    .maxstack 143
     .locals init (int32 'rc', int64 'hcell', int64 'ch', int64 'errbuf', int64 'szbuf', int64 'szw', int64 'opts', int64 'ow0', int64 'ow1', int64 'vals', int64 'vw0', int64 'vw1', int32 'T', int32 'D', int32 'qn', int32 'sn', int32 'qb', int32 'sb', int64 'hq', int64 'hk', int64 'hv', int64 'hs', int64 'hp', int64 'ho', int64 'honeT', int64 'hrow', int32 'i', int32 'j', int64 'w0', int64 'w1', int64 'w2', int64 'w3', int64 'cell', int64 'dq', int64 'dk', int64 'dv', int64 'ds', int64 'de', int64 'dp', int64 'do', int64 'doneT', int64 'drow', int64 'w4', int64 'w5', int64 'w6', int64 'w7', int64 'acell', int64 'w8', int64 'bcell', int64 'w9', float32 'inv', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN', int64 'pb', int32 'kk', int64 'wu', int64 'wv', int64 'mc', int64 'mo', int64 'fb', int32 'rf', int64 'ww', int64 'fc', int64 'fn', int64 'a0', int64 'wx0', int64 'a1', int64 'wx1', int64 'a2', int64 'wx2', int64 'a3', int64 'wx3', int64 'a4', int64 'wx4', int64 'par', int64 'wp0', int64 'wp1', int64 'wp2', int64 'wp3', int64 'wp4', int64 'wa', float32 'ov', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
     ldc.i4 0
     call int32 TKVApp::__pinvoke_cu_init(int32)
@@ -4989,6 +4989,23 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
+    ldstr "JITLOG:"
+    ldstr " "
+    ldloc.s 3
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    ldc.i4 1024
+    call string [mscorlib]System.Runtime.InteropServices.Marshal::PtrToStringAnsi(native int, int32)
+    dup
+    brtrue run_ansi7_nonnull
+    pop
+    ldstr ""
+  run_ansi7_nonnull:
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
   run_If6_else:
@@ -5006,12 +5023,12 @@
     stloc.s 59
     ldc.i4 0
     stloc.s 60
-  run_W7_start:
+  run_W8_start:
     ldloc.s 60
     ldloc.s 52
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     clt
-    brfalse run_W7_end
+    brfalse run_W8_end
     ldloc.s 59
     conv.i
     ldloc.s 60
@@ -5026,8 +5043,8 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W7_start
-  run_W7_end:
+    br run_W8_start
+  run_W8_end:
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
@@ -5042,7 +5059,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If8_else
+    brfalse run_If9_else
     ldstr "EXP fn fail"
     ldstr " "
     ldloc.s 0
@@ -5052,7 +5069,7 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If8_else:
+  run_If9_else:
     ldloc.s 62
     ldc.i4 0
     conv.i8
@@ -5194,7 +5211,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If9_else
+    brfalse run_If10_else
     ldstr "PREP launch fail"
     ldstr " "
     ldloc.s 0
@@ -5204,7 +5221,7 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If9_else:
+  run_If10_else:
     ldloc.s 2
     ldc.i4 0
     ldc.i4 0
@@ -5226,7 +5243,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If10_else
+    brfalse run_If11_else
     ldstr "rowsum sgemm fail"
     ldstr " "
     ldloc.s 0
@@ -5236,7 +5253,7 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If10_else:
+  run_If11_else:
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
     dup
     ldc.i4 46
@@ -8166,12 +8183,12 @@
     stloc.s 53
     ldc.i4 0
     stloc.s 54
-  run_W11_start:
+  run_W12_start:
     ldloc.s 54
     ldloc.s 51
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     clt
-    brfalse run_W11_end
+    brfalse run_W12_end
     ldloc.s 53
     conv.i
     ldloc.s 54
@@ -8186,8 +8203,8 @@
     ldc.i4 1
     add
     stloc.s 54
-    br run_W11_start
-  run_W11_end:
+    br run_W12_start
+  run_W12_end:
     ldloc.s 53
     conv.i
     ldloc.s 54
@@ -8212,7 +8229,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If12_else
+    brfalse run_If13_else
     ldstr "ROWSCALE load fail"
     ldstr " "
     ldloc.s 0
@@ -8220,9 +8237,26 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
+    ldstr "JITLOG:"
+    ldstr " "
+    ldloc.s 3
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    ldc.i4 1024
+    call string [mscorlib]System.Runtime.InteropServices.Marshal::PtrToStringAnsi(native int, int32)
+    dup
+    brtrue run_ansi14_nonnull
+    pop
+    ldstr ""
+  run_ansi14_nonnull:
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If12_else:
+  run_If13_else:
     ldloc.s 57
     ldc.i4 0
     conv.i8
@@ -8237,12 +8271,12 @@
     stloc.s 59
     ldc.i4 0
     stloc.s 60
-  run_W13_start:
+  run_W15_start:
     ldloc.s 60
     ldloc.s 52
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     clt
-    brfalse run_W13_end
+    brfalse run_W15_end
     ldloc.s 59
     conv.i
     ldloc.s 60
@@ -8257,8 +8291,8 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W13_start
-  run_W13_end:
+    br run_W15_start
+  run_W15_end:
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
@@ -8273,7 +8307,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If14_else
+    brfalse run_If16_else
     ldstr "ROWSCALE fn fail"
     ldstr " "
     ldloc.s 0
@@ -8283,7 +8317,7 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If14_else:
+  run_If16_else:
     ldloc.s 62
     ldc.i4 0
     conv.i8
@@ -8424,7 +8458,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If15_else
+    brfalse run_If17_else
     ldstr "ROWSCALE launch fail"
     ldstr " "
     ldloc.s 0
@@ -8434,7 +8468,7 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If15_else:
+  run_If17_else:
     ldloc.s 2
     ldc.i4 0
     ldc.i4 0
@@ -8456,7 +8490,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If16_else
+    brfalse run_If18_else
     ldstr "PV sgemm fail"
     ldstr " "
     ldloc.s 0
@@ -8466,7 +8500,7 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If16_else:
+  run_If18_else:
     ldloc.s 23
     ldloc.s 39
     ldloc.s 16
@@ -8477,18 +8511,18 @@
     stloc.s 80
     ldc.i4 0
     stloc.s 26
-  run_W17_start:
+  run_W19_start:
     ldloc.s 26
     ldloc.s 12
     clt
-    brfalse run_W17_end
+    brfalse run_W19_end
     ldc.i4 0
     stloc.s 27
-  run_W18_start:
+  run_W20_start:
     ldloc.s 27
     ldloc.s 13
     clt
-    brfalse run_W18_end
+    brfalse run_W20_end
     ldloc.s 23
     ldloc.s 26
     ldloc.s 27
@@ -8523,14 +8557,14 @@
     ldc.i4 1
     add
     stloc.s 27
-    br run_W18_start
-  run_W18_end:
+    br run_W20_start
+  run_W20_end:
     ldloc.s 26
     ldc.i4 1
     add
     stloc.s 26
-    br run_W17_start
-  run_W17_end:
+    br run_W19_start
+  run_W19_end:
     ldstr "BATCH DONE"
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 0

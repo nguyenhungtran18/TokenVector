@@ -113,6 +113,7 @@ def run() -> "i32":
     rc = cu_module_load_ex(mc, pb, 2, opts, vals)
     if rc != 0:
         print("EXP load fail", rc)
+        print("JITLOG:", read_ansi(errbuf, 0, 1024))
         return 1
     mo = read_i64(mc, 0)
     fb = alloc_bytes(len(FN))
@@ -156,6 +157,7 @@ def run() -> "i32":
     rc = cu_module_load_ex(mc2, pb2, 2, opts, vals)
     if rc != 0:
         print("LSM2 load fail", rc)
+        print("JITLOG:", read_ansi(errbuf, 0, 1024))
         return 1
     mo2 = read_i64(mc2, 0)
     fb2 = alloc_bytes(len(FN2))
@@ -201,6 +203,7 @@ def run() -> "i32":
     rc = cu_module_load_ex(mc, pb, 2, opts, vals)
     if rc != 0:
         print("GATH load fail", rc)
+        print("JITLOG:", read_ansi(errbuf, 0, 1024))
         ec = alloc_bytes(8)
         rx: "i32" = cu_errstr(rc, ec)
         ep = read_i64(ec, 0)
