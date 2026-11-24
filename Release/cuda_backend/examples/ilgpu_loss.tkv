@@ -48,7 +48,7 @@ def run() -> "i32":
         while j < V:
             w0: "i64" = write_f32(hx, (i * V + j) * 4, (i - j) * 0.25)
             j = j + 1
-        wi: "i32" = (i + 1) % V
+        wi: "i32" = i * V + (i + 1) % V
         w1: "i64" = write_i32(hid, i * 4, wi)
         w2: "i64" = write_f32(honT, i * 4, 1.0)
         i = i + 1
@@ -234,14 +234,14 @@ def run() -> "i32":
     wg5: "i64" = write_i64(g2, 0, dg)
     g3 = alloc_bytes(4)
     wg6: "i64" = write_i32(g3, 0, T)
-    g4 = alloc_bytes(4)
-    wg7: "i64" = write_i32(g4, 0, V)
-    gpa = alloc_bytes(40)
+    # g4 retired
+    # g4 retired
+    gpa = alloc_bytes(32)
     wp3_0: "i64" = write_i64(gpa, 0, g0)
     wp3_1: "i64" = write_i64(gpa, 8, g1)
     wp3_2: "i64" = write_i64(gpa, 16, g2)
     wp3_3: "i64" = write_i64(gpa, 24, g3)
-    wp3_4: "i64" = write_i64(gpa, 32, g4)
+    # g4 retired
     rc = cu_launch(fn3, 1, 1, 1, 64, 1, 1, 0, 0, gpa, 0)
     if rc != 0:
         print("GATH launch fail", rc)

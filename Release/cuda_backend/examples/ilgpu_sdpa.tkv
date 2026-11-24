@@ -89,51 +89,23 @@ def run() -> "i32":
         print("QK fail", rc)
         return 1
     # PREP = scale * mask * exp (da chay o M3)
-    # @tkv.ptx_kernel name="prep_kernel" kind="prep" var="PTX"
-    pb = alloc_bytes(len(PTX) + 1)
-    kk: "i32" = 0
-    while kk < len(PTX):
-        wu: "i64" = write_u8(pb, kk, PTX[kk])
-        kk = kk + 1
-    wv: "i64" = write_u8(pb, kk, 0)
-    mc = alloc_bytes(8)
-    rc = cu_module_load(mc, pb)
-    if rc != 0:
-        print("PREP load fail", rc)
-        return 1
-    mo = read_i64(mc, 0)
-    fb = alloc_bytes(len(FN))
-    rf: "i32" = 0
-    while rf < len(FN):
-        ww: "i64" = write_u8(fb, rf, FN[rf])
-        rf = rf + 1
-    fc = alloc_bytes(8)
-    rc = cu_module_fn(fc, mo, fb)
-    if rc != 0:
-        print("PREP fn fail", rc)
-        return 1
-    fn = read_i64(fc, 0)
-    a0 = alloc_bytes(8)
-    wa0: "i64" = write_i64(a0, 0, ds)
-    a1 = alloc_bytes(8)
-    wa1: "i64" = write_i64(a1, 0, de)
-    a2 = alloc_bytes(4)
-    wa2: "i64" = write_i32(a2, 0, sn)
-    a3 = alloc_bytes(4)
-    wa3: "i64" = write_i32(a3, 0, T)
-    a4 = alloc_bytes(4)
-    wa4: "i64" = write_f32(a4, 0, 0.35355339)
-    par = alloc_bytes(40)
-    wp0: "i64" = write_i64(par, 0, a0)
-    wp1: "i64" = write_i64(par, 8, a1)
-    wp2: "i64" = write_i64(par, 16, a2)
-    wp3: "i64" = write_i64(par, 24, a3)
-    wp4: "i64" = write_i64(par, 32, a4)
-    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
-    if rc != 0:
-        print("PREP launch fail", rc)
-        return 1
-    # row sum = de * ones
+    hs0 = alloc_bytes(sb)
+    wzs: "i64" = cuda_h2d(hs0, ds, sb, 2)
+    he = alloc_bytes(sb)
+    ii: "i32" = 0
+    jj: "i32" = 0
+    while ii < T:
+        jj = 0
+        while jj < T:
+            raw: "f32" = read_f32(hs0, (ii + jj * T) * 4)
+            ev: "f32" = 0.0
+            if jj <= ii:
+                sv: "f32" = raw * 0.35355339
+                ev = exp(sv)
+            whe: "i64" = write_f32(he, (ii + jj * T) * 4, ev)
+            jj = jj + 1
+        ii = ii + 1
+    wzhe: "i64" = cuda_h2d(de, he, sb, 1)
     rc = cublas_sgemm(ch, 0, 0, T, 1, T, acell, de, T, done, T, bcell, drow, T)
     if rc != 0:
         print("rowsum fail", rc)
