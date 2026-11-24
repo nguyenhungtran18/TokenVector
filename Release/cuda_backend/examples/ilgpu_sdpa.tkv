@@ -152,7 +152,7 @@ def run() -> "i32":
     wp2: "i64" = write_i64(par, 16, a2)
     wp3: "i64" = write_i64(par, 24, a3)
     wp4: "i64" = write_i64(par, 32, a4)
-    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
+    rc = cu_launch(fn, T, 1, 1, 32, 1, 1, 0, 0, par, 0)
     if rc != 0:
         print("PREP launch fail", rc)
         return 1
@@ -160,7 +160,7 @@ def run() -> "i32":
     if rc != 0:
         print("rowsum sgemm fail", rc)
         return 1
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry rowscale_kernel(.param .u64 px, .param .u64 ps, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 val,s;\n.reg .u32 i,row,tmp;\n.reg .u64 x,y,so,o64;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 so,[ps]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\ndiv.u32 row,i,v; mul.lo.u32 tmp,row,v; sub.u32 tmp,i,tmp;\nmul.wide.u32 o64,tmp,4; cvta.to.global.u64 so,so; add.u64 so,so,o64; ld.global.f32 s,[so];\nmul.wide.u32 o64,i,4; cvta.to.global.u64 x,x; cvta.to.global.u64 y,y;\nadd.u64 x,x,o64; add.u64 y,y,o64; ld.global.f32 val,[x]; div.rn.f32 val,val,s; st.global.f32 [y],val;\nLEND: ret;\n}\n"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry rowscale_kernel(.param .u64 px, .param .u64 ps, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 val,s;\n.reg .u32 row,col,idx;\n.reg .u64 x,y,so,o64;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 so,[ps]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 row,%ctaid.x; mov.u32 col,%laneid;\nsetp.ge.u32 q,col,v; @q bra LEND;\nmul.lo.u32 idx,row,v; add.u32 idx,idx,col;\nmul.wide.u32 o64,row,4; cvta.to.global.u64 so,so; add.u64 so,so,o64; ld.global.f32 s,[so];\nmul.wide.u32 o64,idx,4; cvta.to.global.u64 x,x; cvta.to.global.u64 y,y;\nadd.u64 x,x,o64; add.u64 y,y,o64; ld.global.f32 val,[x]; div.rn.f32 val,val,s; st.global.f32 [y],val;\nLEND: ret;\n}\n"
     FN = b"rowscale_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
@@ -202,7 +202,7 @@ def run() -> "i32":
     wp2: "i64" = write_i64(par, 16, a2)
     wp3: "i64" = write_i64(par, 24, a3)
     wp4: "i64" = write_i64(par, 32, a4)
-    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
+    rc = cu_launch(fn, T, 1, 1, 32, 1, 1, 0, 0, par, 0)
     if rc != 0:
         print("ROWSCALE launch fail", rc)
         return 1
