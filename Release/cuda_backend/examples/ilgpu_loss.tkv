@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-# M3 - IL-only GPU: PTX do TokenVector embed (KHONG phai C++/CUDA source),
-# nap qua CUDA driver, launch truc tiep tu IL. Khong torch.
+# IL-only loss: log-softmax + gather + mean. Khong C++/torch.
+# Chi dung kernel da xac nhan: EXP, NORM, GATH.
 __tkv_extern_pinvoke__ = [
     {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
      "convention": "cdecl", "params": ["i32"], "returns": "i32"},
@@ -14,27 +14,16 @@ __tkv_extern_pinvoke__ = [
      "returns": "i32"},
     {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
-    {"name": "cuda_free", "dll": "cudart.dll", "symbol": "cudaFree",
-     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
     {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
-     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},    {"name": "cu_mem_alloc", "dll": "cuda.dll", "symbol": "cuMemAlloc_v2",
-     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
-    {"name": "cu_mem_free", "dll": "cuda.dll", "symbol": "cuMemFree_v2",
-     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
-    {"name": "cu_h2d", "dll": "cuda.dll", "symbol": "cuMemcpyHtoD_v2",
-     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
-    {"name": "cu_d2h", "dll": "cuda.dll", "symbol": "cuMemcpyDtoH_v2",
-     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
-    {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
-     "convention": "cdecl",
-     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32", "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
     {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
-    {"name": "cu_module_load_ex", "dll": "cuda.dll", "symbol": "cuModuleLoadDataEx", "convention": "cdecl", "params": ["i64", "i64", "i32", "i64", "i64"], "returns": "i32"},
-    {"name": "cu_errstr", "dll": "cuda.dll", "symbol": "cuGetErrorString", "convention": "cdecl", "params": ["i32", "i64"], "returns": "i32"},
+    {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32",
+                "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
 ]
 
-# PTX thuann - KHONG phai C/C++ source. Nhung ky tu \n la newline that trong bytes.
 
 def run() -> "i32":
     rc: "i32" = cu_init(0)
@@ -43,26 +32,15 @@ def run() -> "i32":
     hcell = alloc_bytes(8)
     rc = cublas_create(hcell)
     ch = read_i64(hcell, 0)
-    errbuf = alloc_bytes(4096)
-    ez: "i64" = write_u8(errbuf, 0, 0)
-    szbuf = alloc_bytes(8)
-    szw: "i64" = write_i64(szbuf, 0, 4096)
-    opts = alloc_bytes(8)
-    ow0: "i64" = write_i32(opts, 0, 5)
-    ow1: "i64" = write_i32(opts, 4, 6)
-    vals = alloc_bytes(16)
-    vw0: "i64" = write_i64(vals, 0, errbuf)
-    vw1: "i64" = write_i64(vals, 8, szbuf)
     T: "i32" = 4
     V: "i32" = 8
     ln: "i32" = T * V
     lb: "i32" = ln * 4
     tg: "i32" = T * 4
     hx = alloc_bytes(lb)
-    hl = alloc_bytes(lb)
+    honV = alloc_bytes(V * 4)
+    honT = alloc_bytes(tg)
     hid = alloc_bytes(tg)
-    hg = alloc_bytes(tg)
-    hs = alloc_bytes(4)
     i: "i32" = 0
     j: "i32" = 0
     while i < T:
@@ -72,36 +50,46 @@ def run() -> "i32":
             j = j + 1
         wi: "i32" = (i + 1) % V
         w1: "i64" = write_i32(hid, i * 4, wi)
+        w2: "i64" = write_f32(honT, i * 4, 1.0)
         i = i + 1
+    j = 0
+    while j < V:
+        w3: "i64" = write_f32(honV, j * 4, 1.0)
+        j = j + 1
     cell = alloc_bytes(8)
     rc = cuda_malloc(cell, lb)
     dx = read_i64(cell, 0)
+    rc = cuda_malloc(cell, lb)
+    de = read_i64(cell, 0)
     rc = cuda_malloc(cell, lb)
     dl = read_i64(cell, 0)
     rc = cuda_malloc(cell, tg)
     did = read_i64(cell, 0)
     rc = cuda_malloc(cell, tg)
     dg = read_i64(cell, 0)
-    rc = cuda_malloc(cell, 4)
-    dsum = read_i64(cell, 0)
-    rc = cuda_malloc(cell, lb)
-    de = read_i64(cell, 0)
-    rc = cuda_malloc(cell, V * 4)
-    doneV = read_i64(cell, 0)
     rc = cuda_malloc(cell, tg)
     drow = read_i64(cell, 0)
-    hV = alloc_bytes(V * 4)
-    j = 0
-    while j < V:
-        wv0: "i64" = write_f32(hV, j * 4, 1.0)
-        j = j + 1
-    wv1: "i64" = cuda_h2d(doneV, hV, V * 4, 1)
-    aex = alloc_bytes(4)
-    wv2: "i64" = write_f32(aex, 0, 1.0)
-    bex = alloc_bytes(4)
-    wv3: "i64" = write_f32(bex, 0, 0.0)
-    w2: "i64" = cuda_h2d(dx, hx, lb, 1)
-    w3: "i64" = cuda_h2d(did, hid, tg, 1)
+    rc = cuda_malloc(cell, V * 4)
+    donV = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tg)
+    donT = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tg)
+    dinv = read_i64(cell, 0)
+    rc = cuda_malloc(cell, lb)
+    hg = read_i64(cell, 0)
+    rc = cuda_malloc(cell, lb)
+    hb = read_i64(cell, 0)
+    rc = cuda_malloc(cell, 4)
+    dsum = read_i64(cell, 0)
+    w4: "i64" = cuda_h2d(dx, hx, lb, 1)
+    w5: "i64" = cuda_h2d(did, hid, tg, 1)
+    w6: "i64" = cuda_h2d(donV, honV, V * 4, 1)
+    w7: "i64" = cuda_h2d(donT, honT, tg, 1)
+    acell = alloc_bytes(4)
+    wa: "i64" = write_f32(acell, 0, 1.0)
+    bcell = alloc_bytes(4)
+    wb: "i64" = write_f32(bcell, 0, 0.0)
+    # EXP (da xac nhan)
     PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry exp_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,t;\n.reg .u64 x,y,o64;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 y,[py]; ld.param.u32 n,[pn];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 o64,i,4; cvta.to.global.u64 x,x; cvta.to.global.u64 y,y;\nadd.u64 x,x,o64; add.u64 y,y,o64; ld.global.f32 f1,[x];\nmov.f32 t,1.442695; mul.f32 f1,f1,t; ex2.approx.f32 f1,f1; st.global.f32 [y],f1;\nLEND: ret;\n}\n"
     FN = b"exp_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
@@ -109,12 +97,11 @@ def run() -> "i32":
     while kk < len(PTX):
         wu: "i64" = write_u8(pb, kk, PTX[kk])
         kk = kk + 1
-    wv4: "i64" = write_u8(pb, kk, 0)
+    wv: "i64" = write_u8(pb, kk, 0)
     mc = alloc_bytes(8)
-    rc = cu_module_load_ex(mc, pb, 2, opts, vals)
+    rc = cu_module_load(mc, pb)
     if rc != 0:
         print("EXP load fail", rc)
-        print("JITLOG:", read_ansi(errbuf, 0, 1024))
         return 1
     mo = read_i64(mc, 0)
     fb = alloc_bytes(len(FN))
@@ -128,37 +115,55 @@ def run() -> "i32":
         print("EXP fn fail", rc)
         return 1
     fn = read_i64(fc, 0)
-    e0 = alloc_bytes(8)
-    we0: "i64" = write_i64(e0, 0, dx)
-    e1 = alloc_bytes(8)
-    we1: "i64" = write_i64(e1, 0, de)
-    e2 = alloc_bytes(4)
-    we2: "i64" = write_i32(e2, 0, ln)
-    epa = alloc_bytes(24)
-    wep0: "i64" = write_i64(epa, 0, e0)
-    wep1: "i64" = write_i64(epa, 8, e1)
-    wep2: "i64" = write_i64(epa, 16, e2)
-    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, epa, 0)
+    a0 = alloc_bytes(8)
+    wx0: "i64" = write_i64(a0, 0, dx)
+    a1 = alloc_bytes(8)
+    wx1: "i64" = write_i64(a1, 0, de)
+    a2 = alloc_bytes(4)
+    wx2: "i64" = write_i32(a2, 0, ln)
+    par = alloc_bytes(24)
+    wp0: "i64" = write_i64(par, 0, a0)
+    wp1: "i64" = write_i64(par, 8, a1)
+    wp2: "i64" = write_i64(par, 16, a2)
+    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
     if rc != 0:
         print("EXP launch fail", rc)
         return 1
-    rc = cublas_sgemm(ch, 0, 0, T, 1, V, aex, de, V, doneV, V, bex, drow, T)
+    # row sum = de(T,V) * ones(V,1)
+    rc = cublas_sgemm(ch, 0, 0, T, 1, V, acell, de, V, donV, V, bcell, drow, T)
     if rc != 0:
-        print("rowsum sgemm fail", rc)
+        print("rowsum fail", rc)
         return 1
-    PTX2 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry logsm2_kernel(.param .u64 px, .param .u64 ps, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 x,s,t,lp;\n.reg .u32 row,col,idx;\n.reg .u64 xb,sb,yb,o64;\n.reg .pred q;\nld.param.u64 xb,[px]; ld.param.u64 sb,[ps]; ld.param.u64 yb,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 row,%ctaid.x; mov.u32 col,%laneid;\nsetp.ge.u32 q,col,v; @q bra LEND;\nmul.lo.u32 idx,row,v; add.u32 idx,idx,col;\nmul.wide.u32 o64,row,4; cvta.to.global.u64 sb,sb; add.u64 sb,sb,o64; ld.global.f32 s,[sb];\nmul.wide.u32 o64,idx,4; cvta.to.global.u64 xb,xb; cvta.to.global.u64 yb,yb;\nadd.u64 xb,xb,o64; add.u64 yb,yb,o64; ld.global.f32 x,[xb];\nmov.f32 t,2.0; lg2.approx.f32 t,s; mul.f32 t,t,0.69314718;\nsub.f32 lp,x,t; st.global.f32 [yb],lp;\nLEND: ret;\n}\n"
-    FN2 = b"logsm2_kernel\x00"
+    hr = alloc_bytes(tg)
+    wz: "i64" = cuda_h2d(hr, drow, tg, 2)
+    hG = alloc_bytes(lb)
+    hB = alloc_bytes(lb)
+    ii: "i32" = 0
+    jj: "i32" = 0
+    while ii < T:
+        rv: "f32" = read_f32(hr, ii * 4)
+        bv: "f32" = -1.0 * log(rv)
+        jj = 0
+        while jj < V:
+            wq0: "i64" = write_f32(hG, (ii * V + jj) * 4, 1.0)
+            wq1: "i64" = write_f32(hB, (ii * V + jj) * 4, bv)
+            jj = jj + 1
+        ii = ii + 1
+    wq2: "i64" = cuda_h2d(hg, hG, lb, 1)
+    wq3: "i64" = cuda_h2d(hb, hB, lb, 1)
+    # NORM (da xac nhan): y = (x-0)*1*g + b = x + b = x - log(rowsum)
+    PTX2 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry norm_kernel(.param .u64 px, .param .u64 pg, .param .u64 pb, .param .u64 py, .param .u32 pn, .param .f32 pmean, .param .f32 prstd)\n{\n.reg .f32 x,g,b,y,mean,rstd,t;\n.reg .u64 xb,gb,bb,yb,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 xb,[px]; ld.param.u64 gb,[pg]; ld.param.u64 bb,[pb]; ld.param.u64 yb,[py]; ld.param.u32 n,[pn];\nld.param.f32 mean,[pmean]; ld.param.f32 rstd,[prstd];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 gb,gb;\ncvta.to.global.u64 bb,bb;\ncvta.to.global.u64 yb,yb;\nadd.u64 xb,xb,off;\nadd.u64 gb,gb,off;\nadd.u64 bb,bb,off;\nadd.u64 yb,yb,off;\nld.global.f32 x,[xb];\nld.global.f32 g,[gb];\nld.global.f32 b,[bb];\nsub.f32 t,x,mean;\nmul.f32 t,t,rstd;\nmul.f32 t,t,g;\nadd.f32 y,t,b;\nst.global.f32 [yb],y;\nLEND: ret;\n}\n"
+    FN2 = b"norm_kernel\x00"
     pb2 = alloc_bytes(len(PTX2) + 1)
     kk = 0
     while kk < len(PTX2):
         wu2: "i64" = write_u8(pb2, kk, PTX2[kk])
         kk = kk + 1
-    wv5: "i64" = write_u8(pb2, kk, 0)
+    wv2: "i64" = write_u8(pb2, kk, 0)
     mc2 = alloc_bytes(8)
-    rc = cu_module_load_ex(mc2, pb2, 2, opts, vals)
+    rc = cu_module_load(mc2, pb2)
     if rc != 0:
-        print("LSM2 load fail", rc)
-        print("JITLOG:", read_ansi(errbuf, 0, 1024))
+        print("NORM load fail", rc)
         return 1
     mo2 = read_i64(mc2, 0)
     fb2 = alloc_bytes(len(FN2))
@@ -169,102 +174,91 @@ def run() -> "i32":
     fc2 = alloc_bytes(8)
     rc = cu_module_fn(fc2, mo2, fb2)
     if rc != 0:
-        print("LSM2 fn fail", rc)
+        print("NORM fn fail", rc)
         return 1
     fn2 = read_i64(fc2, 0)
-    g0 = alloc_bytes(8)
-    wg0: "i64" = write_i64(g0, 0, dx)
-    g1 = alloc_bytes(8)
-    wg1: "i64" = write_i64(g1, 0, drow)
-    g2 = alloc_bytes(8)
-    wg2: "i64" = write_i64(g2, 0, dl)
-    g3 = alloc_bytes(4)
-    wg3: "i64" = write_i32(g3, 0, ln)
-    g4 = alloc_bytes(4)
-    wg4: "i64" = write_i32(g4, 0, V)
-    gpa = alloc_bytes(40)
-    wgp0: "i64" = write_i64(gpa, 0, g0)
-    wgp1: "i64" = write_i64(gpa, 8, g1)
-    wgp2: "i64" = write_i64(gpa, 16, g2)
-    wgp3: "i64" = write_i64(gpa, 24, g3)
-    wgp4: "i64" = write_i64(gpa, 32, g4)
-    rc = cu_launch(fn2, T, 1, 1, 32, 1, 1, 0, 0, gpa, 0)
+    b0 = alloc_bytes(8)
+    wb0: "i64" = write_i64(b0, 0, dx)
+    b1 = alloc_bytes(8)
+    wb1: "i64" = write_i64(b1, 0, hg)
+    b2 = alloc_bytes(8)
+    wb2: "i64" = write_i64(b2, 0, hb)
+    b3 = alloc_bytes(8)
+    wb3: "i64" = write_i64(b3, 0, dl)
+    b4 = alloc_bytes(4)
+    wb4: "i64" = write_i32(b4, 0, ln)
+    b5 = alloc_bytes(4)
+    wb5: "i64" = write_f32(b5, 0, 0.0)
+    b6 = alloc_bytes(4)
+    wb6: "i64" = write_f32(b6, 0, 1.0)
+    npar = alloc_bytes(56)
+    wn0: "i64" = write_i64(npar, 0, b0)
+    wn1: "i64" = write_i64(npar, 8, b1)
+    wn2: "i64" = write_i64(npar, 16, b2)
+    wn3: "i64" = write_i64(npar, 24, b3)
+    wn4: "i64" = write_i64(npar, 32, b4)
+    wn5: "i64" = write_i64(npar, 40, b5)
+    wn6: "i64" = write_i64(npar, 48, b6)
+    rc = cu_launch(fn2, 1, 1, 1, 64, 1, 1, 0, 0, npar, 0)
     if rc != 0:
-        print("LSM2 launch fail", rc)
+        print("NORM launch fail", rc)
         return 1
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gath_kernel(.param .u64 px, .param .u64 pid, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 f1;\n.reg .u32 i,j,off;\n.reg .u64 x,id,y,o64;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 id,[pid]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\ncvta.to.global.u64 x,x; cvta.to.global.u64 id,id; cvta.to.global.u64 y,y;\nmul.wide.u32 o64,i,4; add.u64 id,id,o64; ld.global.u32 j,[id];\nmul.lo.u32 off,i,v; add.u32 off,off,j; mul.wide.u32 o64,off,4; add.u64 x,x,o64;\nld.global.f32 f1,[x];\nmul.wide.u32 o64,i,4; add.u64 y,y,o64; st.global.f32 [y],f1;\nLEND: ret;\n}\n"
-    FN = b"gath_kernel\x00"
-    pb = alloc_bytes(len(PTX) + 1)
-    kk: "i32" = 0
-    while kk < len(PTX):
-        wu: "i64" = write_u8(pb, kk, PTX[kk])
+    # GATH (da xac nhan)
+    PTX3 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gath_kernel(.param .u64 px, .param .u64 pid, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 f1;\n.reg .u32 i,j,off;\n.reg .u64 x,id,y,o64;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 id,[pid]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\ncvta.to.global.u64 x,x; cvta.to.global.u64 id,id; cvta.to.global.u64 y,y;\nmul.wide.u32 o64,i,4; add.u64 id,id,o64; ld.global.u32 j,[id];\nmul.lo.u32 off,i,v; add.u32 off,off,j; mul.wide.u32 o64,off,4; add.u64 x,x,o64;\nld.global.f32 f1,[x];\nmul.wide.u32 o64,i,4; add.u64 y,y,o64; st.global.f32 [y],f1;\nLEND: ret;\n}\n"
+    FN3 = b"gath_kernel\x00"
+    p3 = alloc_bytes(len(PTX3) + 1)
+    kk = 0
+    while kk < len(PTX3):
+        wg0: "i64" = write_u8(p3, kk, PTX3[kk])
         kk = kk + 1
-    wv: "i64" = write_u8(pb, kk, 0)
-    mc = alloc_bytes(8)
-    rc = cu_module_load_ex(mc, pb, 2, opts, vals)
+    wg1: "i64" = write_u8(p3, kk, 0)
+    m3 = alloc_bytes(8)
+    rc = cu_module_load(m3, p3)
     if rc != 0:
         print("GATH load fail", rc)
-        print("JITLOG:", read_ansi(errbuf, 0, 1024))
-        ec = alloc_bytes(8)
-        rx: "i32" = cu_errstr(rc, ec)
-        ep = read_i64(ec, 0)
-        print("JITLOG:", read_ansi(errbuf, 0, 1024))
         return 1
-    mo = read_i64(mc, 0)
-    fb = alloc_bytes(len(FN))
-    rf: "i32" = 0
-    while rf < len(FN):
-        ww: "i64" = write_u8(fb, rf, FN[rf])
+    o3 = read_i64(m3, 0)
+    f3 = alloc_bytes(len(FN3))
+    rf = 0
+    while rf < len(FN3):
+        wg2: "i64" = write_u8(f3, rf, FN3[rf])
         rf = rf + 1
-    fc = alloc_bytes(8)
-    rc = cu_module_fn(fc, mo, fb)
+    c3 = alloc_bytes(8)
+    rc = cu_module_fn(c3, o3, f3)
     if rc != 0:
         print("GATH fn fail", rc)
         return 1
-    fn = read_i64(fc, 0)
-    a0 = alloc_bytes(8)
-    wx0: "i64" = write_i64(a0, 0, dl)
-    a1 = alloc_bytes(8)
-    wx1: "i64" = write_i64(a1, 0, did)
-    a2 = alloc_bytes(8)
-    wx2: "i64" = write_i64(a2, 0, dg)
-    a3 = alloc_bytes(4)
-    wx3: "i64" = write_i32(a3, 0, T)
-    a4 = alloc_bytes(4)
-    wx4: "i64" = write_i32(a4, 0, V)
-    par = alloc_bytes(40)
-    wp0: "i64" = write_i64(par, 0, a0)
-    wp1: "i64" = write_i64(par, 8, a1)
-    wp2: "i64" = write_i64(par, 16, a2)
-    wp3: "i64" = write_i64(par, 24, a3)
-    wp4: "i64" = write_i64(par, 32, a4)
-    rc = cu_launch(fn, 1, 1, 1, 32, 1, 1, 0, 0, par, 0)
+    fn3 = read_i64(c3, 0)
+    g0 = alloc_bytes(8)
+    wg3: "i64" = write_i64(g0, 0, dl)
+    g1 = alloc_bytes(8)
+    wg4: "i64" = write_i64(g1, 0, did)
+    g2 = alloc_bytes(8)
+    wg5: "i64" = write_i64(g2, 0, dg)
+    g3 = alloc_bytes(4)
+    wg6: "i64" = write_i32(g3, 0, T)
+    g4 = alloc_bytes(4)
+    wg7: "i64" = write_i32(g4, 0, V)
+    gpa = alloc_bytes(40)
+    wp3_0: "i64" = write_i64(gpa, 0, g0)
+    wp3_1: "i64" = write_i64(gpa, 8, g1)
+    wp3_2: "i64" = write_i64(gpa, 16, g2)
+    wp3_3: "i64" = write_i64(gpa, 24, g3)
+    wp3_4: "i64" = write_i64(gpa, 32, g4)
+    rc = cu_launch(fn3, 1, 1, 1, 64, 1, 1, 0, 0, gpa, 0)
     if rc != 0:
         print("GATH launch fail", rc)
         return 1
-    w4: "i64" = cuda_h2d(hg, dg, tg, 2)
-    i = 0
-    while i < T:
-        gv: "f32" = read_f32(hg, i * 4)
-        print("GATHER", i, gv)
-        i = i + 1
-    hone = alloc_bytes(tg)
-    i = 0
-    while i < T:
-        w5: "i64" = write_f32(hone, i * 4, 1.0)
-        i = i + 1
-    rc = cuda_malloc(cell, tg)
-    done = read_i64(cell, 0)
-    w6: "i64" = cuda_h2d(done, hone, tg, 1)
     an = alloc_bytes(4)
-    w7: "i64" = write_f32(an, 0, -0.25)
+    wan: "i64" = write_f32(an, 0, -0.25)
     bn = alloc_bytes(4)
-    w8: "i64" = write_f32(bn, 0, 0.0)
-    rc = cublas_sgemm(ch, 0, 0, 1, 1, T, an, done, 1, dg, T, bn, dsum, 1)
+    wbn: "i64" = write_f32(bn, 0, 0.0)
+    rc = cublas_sgemm(ch, 0, 0, 1, 1, T, an, donT, 1, dg, T, bn, dsum, 1)
     if rc != 0:
         print("loss sgemm fail", rc)
         return 1
-    w9: "i64" = cuda_h2d(hs, dsum, 4, 2)
+    hs = alloc_bytes(4)
+    whs: "i64" = cuda_h2d(hs, dsum, 4, 2)
     loss: "f32" = read_f32(hs, 0)
     print("LOSS", loss)
     print("BATCH DONE")

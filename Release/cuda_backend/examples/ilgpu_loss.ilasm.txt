@@ -59,8 +59,8 @@ Emitting fields and methods:
 Global 	
 Class 1	Fields: 2;	Methods: 27;	
 Class 2	Methods: 15;	
-Class 3	Methods: 17;	
-Resolving local member refs: 141 -> 141 defs, 0 refs, 0 unresolved
+Class 3	Methods: 10;	
+Resolving local member refs: 143 -> 143 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	
