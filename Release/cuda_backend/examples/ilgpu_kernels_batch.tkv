@@ -170,7 +170,7 @@ def run() -> "i32":
     rc = cuda_malloc(cell, nb)
     ds = read_i64(cell, 0)
     wi: "i64" = cuda_h2d(did, hid, nb, 1)
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry sel_kernel(.param .u64 px, .param .u64 pid, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1;\n.reg .s32 j;\n.reg .u64 x,id,y,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 x,[px];\nld.param.u64 id,[pid];\nld.param.u64 y,[py];\nld.param.u32 n,[pn];\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\ncvta.to.global.u64 x,x;\ncvta.to.global.u64 id,id;\ncvta.to.global.u64 y,y;\nmul.wide.u32 off,i,4;\nadd.u64 id,id,off;\nld.global.s32 j,[id];\nmul.wide.u32 off,j,4;\nadd.u64 x,x,off;\nld.global.f32 f1,[x];\nadd.u64 y,y,i;\nst.global.f32 [y],f1;\nLEND:\nret;\n}\n"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry sel_kernel(.param .u64 px, .param .u64 pid, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1;\n.reg .u32 j;\n.reg .u64 x,id,y,off,off2;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 x,[px];\nld.param.u64 id,[pid];\nld.param.u64 y,[py];\nld.param.u32 n,[pn];\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\ncvta.to.global.u64 x,x;\ncvta.to.global.u64 id,id;\ncvta.to.global.u64 y,y;\nmul.wide.u32 off,i,4;\nadd.u64 id,id,off;\nld.global.u32 j,[id];\nmul.wide.u32 off,j,4;\nadd.u64 x,x,off;\nld.global.f32 f1,[x];\nmul.wide.u32 off2,i,4;\nadd.u64 y,y,off2;\nst.global.f32 [y],f1;\nLEND:\nret;\n}\n"
     FNAME = b"sel_kernel\x00"
     ptxb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
