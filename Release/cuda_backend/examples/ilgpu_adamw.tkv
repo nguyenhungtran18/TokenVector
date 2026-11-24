@@ -1,0 +1,127 @@
+# -*- coding: utf-8 -*-
+# IL-only GPU AdamW: PTX do TokenVector embed, KHONG C++/torch.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
+     "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+]
+
+def run() -> "i32":
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry adamw_kernel(.param .u64 pp, .param .u64 pm, .param .u64 pv, .param .u64 pg, .param .u32 pn, .param .f32 plr, .param .f32 pb1, .param .f32 pb2, .param .f32 peps, .param .f32 pwd, .param .f32 pbc1, .param .f32 pbc2)\n{\n.reg .f32 p,m,v,g,lr,b1,b2,eps,wd,bc1,bc2,t1,t2,t3,t4,t5,t6;\n.reg .u64 pb_,pm_,pv_,pg_,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 pb_,[pp];\nld.param.u64 pm_,[pm];\nld.param.u64 pv_,[pv];\nld.param.u64 pg_,[pg];\nld.param.u32 n,[pn];\nld.param.f32 lr,[plr];\nld.param.f32 b1,[pb1];\nld.param.f32 b2,[pb2];\nld.param.f32 eps,[peps];\nld.param.f32 wd,[pwd];\nld.param.f32 bc1,[pbc1];\nld.param.f32 bc2,[pbc2];\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 pb_,pb_;\ncvta.to.global.u64 pm_,pm_;\ncvta.to.global.u64 pv_,pv_;\ncvta.to.global.u64 pg_,pg_;\nadd.u64 pb_,pb_,off;\nadd.u64 pm_,pm_,off;\nadd.u64 pv_,pv_,off;\nadd.u64 pg_,pg_,off;\nld.global.f32 p,[pb_];\nld.global.f32 m,[pm_];\nld.global.f32 v,[pv_];\nld.global.f32 g,[pg_];\nmov.f32 t1,1.0;\nsub.f32 t1,t1,b1;\nmul.f32 t2,t1,g;\nfma.rn.f32 m,m,b1,t2;\nmov.f32 t1,1.0;\nsub.f32 t1,t1,b2;\nmul.f32 t2,g,g;\nmul.f32 t2,t1,t2;\nfma.rn.f32 v,v,b2,t2;\nst.global.f32 [pm_],m;\nst.global.f32 [pv_],v;\ndiv.rn.f32 t3,m,bc1;\ndiv.rn.f32 t4,v,bc2;\nsqrt.rn.f32 t5,t4;\nadd.f32 t5,t5,eps;\ndiv.rn.f32 t6,t3,t5;\nmul.f32 t6,lr,t6;\nmul.f32 t5,lr,wd;\nmul.f32 t5,t5,p;\nsub.f32 p,p,t6;\nsub.f32 p,p,t5;\nst.global.f32 [pb_],p;\nLEND:\nret;\n}\n"
+    FNAME = b"adamw_kernel\x00"
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        return 1
+    n: "i32" = 8
+    nb: "i32" = n * 4
+    hp = alloc_bytes(nb)
+    hm = alloc_bytes(nb)
+    hv = alloc_bytes(nb)
+    hg = alloc_bytes(nb)
+    i: "i32" = 0
+    pv: "f32" = 1.0
+    gv: "f32" = 0.5
+    while i < n:
+        w0: "i64" = write_f32(hp, i * 4, pv)
+        w1: "i64" = write_f32(hm, i * 4, 0.0)
+        w2: "i64" = write_f32(hv, i * 4, 0.0)
+        w3: "i64" = write_f32(hg, i * 4, gv)
+        pv = pv + 1.0
+        gv = gv + 0.25
+        i = i + 1
+    cell = alloc_bytes(8)
+    rc = cuda_malloc(cell, nb)
+    dp = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    dm = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    dv = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    dg = read_i64(cell, 0)
+    w4: "i64" = cuda_h2d(dp, hp, nb, 1)
+    w5: "i64" = cuda_h2d(dm, hm, nb, 1)
+    w6: "i64" = cuda_h2d(dv, hv, nb, 1)
+    w7: "i64" = cuda_h2d(dg, hg, nb, 1)
+    pp = alloc_bytes(len(PTX) + 1)
+    k: "i32" = 0
+    while k < len(PTX):
+        w8: "i64" = write_u8(pp, k, PTX[k])
+        k = k + 1
+    w9: "i64" = write_u8(pp, k, 0)
+    mc = alloc_bytes(8)
+    rc = cu_module_load(mc, pp)
+    if rc != 0:
+        print("ADAMW load fail", rc)
+        return 1
+    mo = read_i64(mc, 0)
+    fb = alloc_bytes(len(FNAME))
+    rf: "i32" = 0
+    while rf < len(FNAME):
+        wa: "i64" = write_u8(fb, rf, FNAME[rf])
+        rf = rf + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mo, fb)
+    if rc != 0:
+        print("ADAMW fn fail", rc)
+        return 1
+    fn = read_i64(fc, 0)
+    wa0 = alloc_bytes(8)
+    wb0: "i64" = write_i64(wa0, 0, dp)
+    wa1 = alloc_bytes(8)
+    wb1: "i64" = write_i64(wa1, 0, dm)
+    wa2 = alloc_bytes(8)
+    wb2: "i64" = write_i64(wa2, 0, dv)
+    wa3 = alloc_bytes(8)
+    wb3: "i64" = write_i64(wa3, 0, dg)
+    wa4 = alloc_bytes(4)
+    wb4: "i64" = write_i32(wa4, 0, n)
+    wa5 = alloc_bytes(4)
+    wb5: "i64" = write_f32(wa5, 0, 0.01)
+    wa6 = alloc_bytes(4)
+    wb6: "i64" = write_f32(wa6, 0, 0.9)
+    wa7 = alloc_bytes(4)
+    wb7: "i64" = write_f32(wa7, 0, 0.999)
+    wa8 = alloc_bytes(4)
+    wb8: "i64" = write_f32(wa8, 0, 0.000001)
+    wa9 = alloc_bytes(4)
+    wb9: "i64" = write_f32(wa9, 0, 0.01)
+    wa10 = alloc_bytes(4)
+    wb10: "i64" = write_f32(wa10, 0, 0.1)
+    wa11 = alloc_bytes(4)
+    wb11: "i64" = write_f32(wa11, 0, 0.001)
+    par = alloc_bytes(96)
+    wc0: "i64" = write_i64(par, 0, wa0)
+    wc1: "i64" = write_i64(par, 8, wa1)
+    wc2: "i64" = write_i64(par, 16, wa2)
+    wc3: "i64" = write_i64(par, 24, wa3)
+    wc4: "i64" = write_i64(par, 32, wa4)
+    wc5: "i64" = write_i64(par, 40, wa5)
+    wc6: "i64" = write_i64(par, 48, wa6)
+    wc7: "i64" = write_i64(par, 56, wa7)
+    wc8: "i64" = write_i64(par, 64, wa8)
+    wc9: "i64" = write_i64(par, 72, wa9)
+    wc10: "i64" = write_i64(par, 80, wa10)
+    wc11: "i64" = write_i64(par, 88, wa11)
+    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
+    if rc != 0:
+        print("ADAMW launch fail", rc)
+        return 1
+    wd: "i64" = cuda_h2d(hp, dp, nb, 2)
+    i = 0
+    while i < n:
+        outv: "f32" = read_f32(hp, i * 4)
+        print("ADAMW", i, outv)
+        i = i + 1
+    print("BATCH DONE")
+    return 0
