@@ -30,6 +30,7 @@ __tkv_extern_pinvoke__ = [
      "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32", "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
     {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cu_module_load_ex", "dll": "cuda.dll", "symbol": "cuModuleLoadDataEx", "convention": "cdecl", "params": ["i64", "i64", "i32", "i64", "i64"], "returns": "i32"},
     {"name": "cu_errstr", "dll": "cuda.dll", "symbol": "cuGetErrorString", "convention": "cdecl", "params": ["i32", "i64"], "returns": "i32"},
 ]
 
@@ -42,6 +43,15 @@ def run() -> "i32":
     hcell = alloc_bytes(8)
     rc = cublas_create(hcell)
     ch = read_i64(hcell, 0)
+    errbuf = alloc_bytes(4096)
+    szbuf = alloc_bytes(4)
+    szw: "i64" = write_i32(szbuf, 0, 4096)
+    opts = alloc_bytes(8)
+    ow0: "i64" = write_i32(opts, 0, 5)
+    ow1: "i64" = write_i32(opts, 4, 6)
+    vals = alloc_bytes(16)
+    vw0: "i64" = write_i64(vals, 0, errbuf)
+    vw1: "i64" = write_i64(vals, 8, szbuf)
     T: "i32" = 4
     D: "i32" = 8
     qn: "i32" = T * D
@@ -108,7 +118,7 @@ def run() -> "i32":
         kk = kk + 1
     wv: "i64" = write_u8(pb, kk, 0)
     mc = alloc_bytes(8)
-    rc = cu_module_load(mc, pb)
+    rc = cu_module_load_ex(mc, pb, 2, opts, vals)
     if rc != 0:
         print("EXP load fail", rc)
         return 1
@@ -157,7 +167,7 @@ def run() -> "i32":
         kk = kk + 1
     wv: "i64" = write_u8(pb, kk, 0)
     mc = alloc_bytes(8)
-    rc = cu_module_load(mc, pb)
+    rc = cu_module_load_ex(mc, pb, 2, opts, vals)
     if rc != 0:
         print("ROWSCALE load fail", rc)
         return 1

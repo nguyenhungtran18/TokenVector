@@ -30,6 +30,7 @@ __tkv_extern_pinvoke__ = [
      "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32", "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
     {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cu_module_load_ex", "dll": "cuda.dll", "symbol": "cuModuleLoadDataEx", "convention": "cdecl", "params": ["i64", "i64", "i32", "i64", "i64"], "returns": "i32"},
     {"name": "cu_errstr", "dll": "cuda.dll", "symbol": "cuGetErrorString", "convention": "cdecl", "params": ["i32", "i64"], "returns": "i32"},
 ]
 
@@ -42,6 +43,15 @@ def run() -> "i32":
     hcell = alloc_bytes(8)
     rc = cublas_create(hcell)
     ch = read_i64(hcell, 0)
+    errbuf = alloc_bytes(4096)
+    szbuf = alloc_bytes(4)
+    szw: "i64" = write_i32(szbuf, 0, 4096)
+    opts = alloc_bytes(8)
+    ow0: "i64" = write_i32(opts, 0, 5)
+    ow1: "i64" = write_i32(opts, 4, 6)
+    vals = alloc_bytes(16)
+    vw0: "i64" = write_i64(vals, 0, errbuf)
+    vw1: "i64" = write_i64(vals, 8, szbuf)
     T: "i32" = 4
     V: "i32" = 8
     ln: "i32" = T * V
@@ -100,7 +110,7 @@ def run() -> "i32":
         kk = kk + 1
     wv4: "i64" = write_u8(pb, kk, 0)
     mc = alloc_bytes(8)
-    rc = cu_module_load(mc, pb)
+    rc = cu_module_load_ex(mc, pb, 2, opts, vals)
     if rc != 0:
         print("EXP load fail", rc)
         return 1
@@ -143,7 +153,7 @@ def run() -> "i32":
         kk = kk + 1
     wv5: "i64" = write_u8(pb2, kk, 0)
     mc2 = alloc_bytes(8)
-    rc = cu_module_load(mc2, pb2)
+    rc = cu_module_load_ex(mc2, pb2, 2, opts, vals)
     if rc != 0:
         print("LSM2 load fail", rc)
         return 1
@@ -188,13 +198,13 @@ def run() -> "i32":
         kk = kk + 1
     wv: "i64" = write_u8(pb, kk, 0)
     mc = alloc_bytes(8)
-    rc = cu_module_load(mc, pb)
+    rc = cu_module_load_ex(mc, pb, 2, opts, vals)
     if rc != 0:
         print("GATH load fail", rc)
         ec = alloc_bytes(8)
         rx: "i32" = cu_errstr(rc, ec)
         ep = read_i64(ec, 0)
-        print("ERRSTR", read_ansi(ep, 0, 256))
+        print("JITLOG:", read_ansi(errbuf, 0, 1024))
         return 1
     mo = read_i64(mc, 0)
     fb = alloc_bytes(len(FN))
