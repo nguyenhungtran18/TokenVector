@@ -1,0 +1,94 @@
+# -*- coding: utf-8 -*-
+# M1 - IL-only GPU: SAXPY qua cuBLAS, KHONG sinh C/C++ nao ca.
+# IL goi thang libcudart / libcublas qua __tkv_extern_pinvoke__.
+__tkv_extern_pinvoke__ = [
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_memcpy", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+    {"name": "cuda_free", "dll": "cudart.dll", "symbol": "cudaFree",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
+     "convention": "cdecl", "params": [], "returns": "i32"},
+    {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cublas_saxpy", "dll": "cublas.dll", "symbol": "cublasSaxpy_v2",
+     "convention": "cdecl", "params": ["i64", "i32", "f32", "i64", "i32", "i64", "i32"], "returns": "i32"},
+    {"name": "cublas_destroy", "dll": "cublas.dll", "symbol": "cublasDestroy_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    n: "i32" = 8
+    nb: "i32" = n * 4
+    ha = alloc_bytes(nb)
+    hb = alloc_bytes(nb)
+    hy = alloc_bytes(nb)
+    i: "i32" = 0
+    while i < n:
+        write_f32(ha, i * 4, float(i + 1))
+        write_f32(hb, i * 4, float(i) + 0.5)
+        i = i + 1
+    cell = alloc_bytes(8)
+    rc: "i32" = cuda_malloc(cell, nb)
+    if rc != 0:
+        print("cudaMalloc x fail", rc)
+        return 1
+    dx = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    if rc != 0:
+        print("cudaMalloc y fail", rc)
+        return 1
+    dy = read_i64(cell, 0)
+    rc = cuda_memcpy(dx, ha, nb, 1)
+    if rc != 0:
+        print("H2D x fail", rc)
+        return 1
+    rc = cuda_memcpy(dy, hb, nb, 1)
+    if rc != 0:
+        print("H2D y fail", rc)
+        return 1
+    hcell = alloc_bytes(8)
+    rc = cublas_create(hcell)
+    if rc != 0:
+        print("cublasCreate fail", rc)
+        return 1
+    h = read_i64(hcell, 0)
+    alpha: "f32" = 2.0
+    rc = cublas_saxpy(h, n, alpha, dx, 1, dy, 1)
+    if rc != 0:
+        print("cublasSaxpy fail", rc)
+        return 1
+    rc = cuda_sync()
+    if rc != 0:
+        print("cudaSync fail", rc)
+        return 1
+    rc = cuda_memcpy(hy, dy, nb, 2)
+    if rc != 0:
+        print("D2H fail", rc)
+        return 1
+    maxerr: "f32" = 0.0
+    i = 0
+    while i < n:
+        got: "f32" = read_f32(hy, i * 4)
+        exp: "f32" = float(i + 1) * 2.0 + (float(i) + 0.5)
+        d: "f32" = got - exp
+        if d < 0.0:
+            d = -d
+        if d > maxerr:
+            maxerr = d
+        print("idx", i, "got", got, "exp", exp)
+        i = i + 1
+    print("MAXERR", maxerr)
+    r0: "i32" = cublas_destroy(h)
+    r1: "i32" = cuda_free(dx)
+    r2: "i32" = cuda_free(dy)
+    free_bytes(cell)
+    free_bytes(hcell)
+    free_bytes(ha)
+    free_bytes(hb)
+    free_bytes(hy)
+    if maxerr > 0.0001:
+        return 2
+    return 0
