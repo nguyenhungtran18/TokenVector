@@ -1,0 +1,110 @@
+# -*- coding: utf-8 -*-
+# M2 - IL-only GPU: SGEMM qua cuBLAS (KHONG sinh C/C++, KHONG torch).
+# C_col[i + j*ldc] = sum_t A_col[i + t*lda] * B_col[t + j*ldb]
+__tkv_extern_pinvoke__ = [
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_memcpy", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+    {"name": "cuda_free", "dll": "cudart.dll", "symbol": "cudaFree",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
+     "convention": "cdecl", "params": [], "returns": "i32"},
+    {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32",
+                "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
+    {"name": "cublas_destroy", "dll": "cublas.dll", "symbol": "cublasDestroy_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    n: "i32" = 4
+    cnt: "i32" = n * n
+    nb: "i32" = cnt * 4
+    ha = alloc_bytes(nb)
+    hb = alloc_bytes(nb)
+    hc = alloc_bytes(nb)
+    i: "i32" = 0
+    j: "i32" = 0
+    while i < cnt:
+        write_f32(ha, i * 4, float(i + 1))
+        write_f32(hb, i * 4, float(i) * 0.5 + 1.0)
+        i = i + 1
+    cell = alloc_bytes(8)
+    rc: "i32" = cuda_malloc(cell, nb)
+    if rc != 0:
+        return 1
+    da = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    if rc != 0:
+        return 1
+    db = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    if rc != 0:
+        return 1
+    dc = read_i64(cell, 0)
+    rc = cuda_memcpy(da, ha, nb, 1)
+    if rc != 0:
+        return 1
+    rc = cuda_memcpy(db, hb, nb, 1)
+    if rc != 0:
+        return 1
+    hcell = alloc_bytes(8)
+    rc = cublas_create(hcell)
+    if rc != 0:
+        return 1
+    h = read_i64(hcell, 0)
+    acell = alloc_bytes(4)
+    bcell = alloc_bytes(4)
+    write_f32(acell, 0, 1.0)
+    write_f32(bcell, 0, 0.0)
+    rc = cublas_sgemm(h, 0, 0, n, n, n, acell, da, n, db, n, bcell, dc, n)
+    if rc != 0:
+        print("cublasSgemm fail", rc)
+        return 1
+    rc = cuda_sync()
+    if rc != 0:
+        return 1
+    rc = cuda_memcpy(hc, dc, nb, 2)
+    if rc != 0:
+        return 1
+    maxerr: "f32" = 0.0
+    j = 0
+    while j < n:
+        i = 0
+        while i < n:
+            t: "i32" = 0
+            acc: "f32" = 0.0
+            while t < n:
+                av: "f32" = read_f32(ha, (i + t * n) * 4)
+                bv: "f32" = read_f32(hb, (t + j * n) * 4)
+                acc = acc + av * bv
+                t = t + 1
+            got: "f32" = read_f32(hc, (i + j * n) * 4)
+            d: "f32" = got - acc
+            if d < 0.0:
+                d = -d
+            if d > maxerr:
+                maxerr = d
+            print("c", i, j, "got", got, "exp", acc)
+            i = i + 1
+        j = j + 1
+    print("MAXERR", maxerr)
+    r0: "i32" = cublas_destroy(h)
+    r1: "i32" = cuda_free(da)
+    r2: "i32" = cuda_free(db)
+    r3: "i32" = cuda_free(dc)
+    free_bytes(cell)
+    free_bytes(hcell)
+    free_bytes(acell)
+    free_bytes(bcell)
+    free_bytes(ha)
+    free_bytes(hb)
+    free_bytes(hc)
+    if maxerr > 0.0001:
+        return 2
+    return 0
