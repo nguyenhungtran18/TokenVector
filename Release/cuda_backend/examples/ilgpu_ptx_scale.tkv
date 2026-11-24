@@ -1,0 +1,120 @@
+# -*- coding: utf-8 -*-
+# M3 - IL-only GPU: PTX do TokenVector embed (KHONG phai C++/CUDA source),
+# nap qua CUDA driver, launch truc tiep tu IL. Khong torch.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
+     "returns": "i32"},
+    {"name": "cu_mem_alloc", "dll": "cuda.dll", "symbol": "cuMemAlloc_v2",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_mem_free", "dll": "cuda.dll", "symbol": "cuMemFree_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cu_h2d", "dll": "cuda.dll", "symbol": "cuMemcpyHtoD_v2",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_d2h", "dll": "cuda.dll", "symbol": "cuMemcpyDtoH_v2",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+]
+
+# PTX thuann - KHONG phai C/C++ source. Nhung ky tu \n la newline that trong bytes.
+
+
+def run() -> "i32":
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry scale_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1, f2;\n.reg .u64 x, y, off;\n.reg .u32 i, n;\n.reg .pred p;\nld.param.u64 x, [px];\nld.param.u64 y, [py];\nld.param.u32 n, [pn];\nmov.u32 i, %tid.x;\nsetp.ge.u32 p, i, n;\n@p bra LEND;\nmul.wide.u32 off, i, 4;\ncvta.to.global.u64 x, x;\ncvta.to.global.u64 y, y;\nadd.u64 x, x, off;\nadd.u64 y, y, off;\nld.global.f32 f1, [x];\nmul.f32 f2, f1, 2.0;\nst.global.f32 [y], f2;\nLEND:\nret;\n}\n"
+    FNAME = b"scale_kernel\x00"
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        print("cuInit fail", rc)
+        return 1
+    n: "i32" = 8
+    nb: "i32" = n * 4
+    ha = alloc_bytes(nb)
+    hy = alloc_bytes(nb)
+    i: "i32" = 0
+    v: "f32" = 1.0
+    while i < n:
+        wn1: "i64" = write_f32(ha, i * 4, v)
+        v = v + 1.0
+        i = i + 1
+    cell = alloc_bytes(8)
+    rc = cu_mem_alloc(cell, nb)
+    if rc != 0:
+        print("cuMemAlloc x fail", rc)
+        return 1
+    dx = read_i64(cell, 0)
+    rc = cu_mem_alloc(cell, nb)
+    if rc != 0:
+        print("cuMemAlloc y fail", rc)
+        return 1
+    dy = read_i64(cell, 0)
+    rc = cu_h2d(dx, ha, nb)
+    if rc != 0:
+        print("H2D fail", rc)
+        return 1
+    ptxb = alloc_bytes(len(PTX) + 1)
+    k: "i32" = 0
+    while k < len(PTX):
+        w0: "i64" = write_u8(ptxb, k, PTX[k])
+        k = k + 1
+    w2: "i64" = write_u8(ptxb, k, 0)
+    mcell = alloc_bytes(8)
+    rc = cu_module_load(mcell, ptxb)
+    if rc != 0:
+        print("cuModuleLoadData fail", rc)
+        return 1
+    mod = read_i64(mcell, 0)
+    fnb = alloc_bytes(len(FNAME))
+    rfn: "i32" = 0
+    while rfn < len(FNAME):
+        w1: "i64" = write_u8(fnb, rfn, FNAME[rfn])
+        rfn = rfn + 1
+    fcell = alloc_bytes(8)
+    rc = cu_module_fn(fcell, mod, fnb)
+    if rc != 0:
+        print("cuModuleGetFunction fail", rc)
+        return 1
+    fn = read_i64(fcell, 0)
+    par = alloc_bytes(24)
+    wn2: "i64" = write_i64(par, 0, dx)
+    wn3: "i64" = write_i64(par, 8, dy)
+    wn4: "i64" = write_i32(par, 16, n)
+    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
+    if rc != 0:
+        print("cuLaunchKernel fail", rc)
+        return 1
+    rc = cu_d2h(hy, dy, nb)
+    if rc != 0:
+        print("D2H fail", rc)
+        return 1
+    maxerr: "f32" = 0.0
+    i = 0
+    while i < n:
+        got: "f32" = read_f32(hy, i * 4)
+        exp: "f32" = read_f32(ha, i * 4) * 2.0
+        d: "f32" = got - exp
+        if d < 0.0:
+            d = -d
+        if d > maxerr:
+            maxerr = d
+        print("scale", i, "got", got, "exp", exp)
+        i = i + 1
+    print("MAXERR", maxerr)
+    r0: "i32" = cu_mem_free(dx)
+    r1: "i32" = cu_mem_free(dy)
+    free_bytes(cell)
+    free_bytes(ptxb)
+    free_bytes(fnb)
+    free_bytes(mcell)
+    free_bytes(fcell)
+    free_bytes(par)
+    free_bytes(ha)
+    free_bytes(hy)
+    if maxerr > 0.0001:
+        return 2
+    return 0
