@@ -73,24 +73,36 @@ def run() -> "i32":
     dg = read_i64(cell, 0)
     rc = cuda_malloc(cell, 4)
     dsum = read_i64(cell, 0)
+    rc = cuda_malloc(cell, lb)
+    de = read_i64(cell, 0)
+    rc = cuda_malloc(cell, V * 4)
+    doneV = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tg)
+    drow = read_i64(cell, 0)
+    hV = alloc_bytes(V * 4)
+    j = 0
+    while j < V:
+        wv0: "i64" = write_f32(hV, j * 4, 1.0)
+        j = j + 1
+    wv1: "i64" = cuda_h2d(doneV, hV, V * 4, 1)
+    aex = alloc_bytes(4)
+    wv2: "i64" = write_f32(aex, 0, 1.0)
+    bex = alloc_bytes(4)
+    wv3: "i64" = write_f32(bex, 0, 0.0)
     w2: "i64" = cuda_h2d(dx, hx, lb, 1)
     w3: "i64" = cuda_h2d(did, hid, tg, 1)
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry logsm_kernel(.param .u64 px, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 x,mx,e,s,t,lp;\n.reg .u32 row,lane,n,v,off;\n.reg .u64 base,o64;\n.reg .pred q;\nld.param.u64 px0,[px]; ld.param.u64 py0,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 row,%ctaid.x; mov.u32 lane,%laneid;\nmul.lo.u32 off,row,v; add.u32 off,off,lane;\nsetp.lt.u32 q,lane,v;\n@q bra LOAD;\nmov.f32 mx,-1000000000.0;\nbra REDMAX;\nLOAD:\nmul.wide.u32 o64,off,4;\ncvta.to.global.u64 base,px0;\nadd.u64 base,base,o64;\nld.global.f32 mx,[base];\nREDMAX:\nshfl.sync.down.b32 t,mx,16,31,0xffffffff; max.f32 mx,mx,t;\nshfl.sync.down.b32 t,mx,8,31,0xffffffff; max.f32 mx,mx,t;\nshfl.sync.down.b32 t,mx,4,31,0xffffffff; max.f32 mx,mx,t;\nshfl.sync.down.b32 t,mx,2,31,0xffffffff; max.f32 mx,mx,t;\nshfl.sync.down.b32 t,mx,1,31,0xffffffff; max.f32 mx,mx,t;\nshfl.sync.idx.b32 mx,mx,0,31,0xffffffff;\nmov.f32 e,0.0;\n@q bra EXPP;\nbra REDSUM;\nEXPP:\nmul.wide.u32 o64,off,4;\ncvta.to.global.u64 base,px0;\nadd.u64 base,base,o64;\nld.global.f32 x,[base];\nsub.f32 x,x,mx;\nmov.f32 t,1.442695;\nmul.f32 x,x,t;\nex2.approx.f32 e,x;\nREDSUM:\nmov.f32 s,e;\nshfl.sync.down.b32 t,s,16,31,0xffffffff; add.f32 s,s,t;\nshfl.sync.down.b32 t,s,8,31,0xffffffff; add.f32 s,s,t;\nshfl.sync.down.b32 t,s,4,31,0xffffffff; add.f32 s,s,t;\nshfl.sync.down.b32 t,s,2,31,0xffffffff; add.f32 s,s,t;\nshfl.sync.down.b32 t,s,1,31,0xffffffff; add.f32 s,s,t;\nshfl.sync.idx.b32 s,s,0,31,0xffffffff;\nmov.f32 t,2.0;\nlg2.approx.f32 t,s;\nmul.f32 t,t,0.69314718;\nsub.f32 lp,x,t;\n@q bra STORE;\nbra LEND;\nSTORE:\nmul.wide.u32 o64,off,4;\ncvta.to.global.u64 base,py0;\nadd.u64 base,base,o64;\nst.global.f32 [base],lp;\nLEND: ret;\n}\n"
-    FN = b"logsm_kernel\x00"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry exp_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,t;\n.reg .u64 x,y,o64;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 y,[py]; ld.param.u32 n,[pn];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 o64,i,4; cvta.to.global.u64 x,x; cvta.to.global.u64 y,y;\nadd.u64 x,x,o64; add.u64 y,y,o64; ld.global.f32 f1,[x];\nmov.f32 t,1.442695; mul.f32 f1,f1,t; ex2.approx.f32 f1,f1; st.global.f32 [y],f1;\nLEND: ret;\n}\n"
+    FN = b"exp_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
     while kk < len(PTX):
         wu: "i64" = write_u8(pb, kk, PTX[kk])
         kk = kk + 1
-    wv: "i64" = write_u8(pb, kk, 0)
+    wv4: "i64" = write_u8(pb, kk, 0)
     mc = alloc_bytes(8)
     rc = cu_module_load(mc, pb)
     if rc != 0:
-        print("LSM load fail", rc)
-        ec = alloc_bytes(8)
-        rx: "i32" = cu_errstr(rc, ec)
-        ep = read_i64(ec, 0)
-        print("ERRSTR", read_ansi(ep, 0, 256))
+        print("EXP load fail", rc)
         return 1
     mo = read_i64(mc, 0)
     fb = alloc_bytes(len(FN))
@@ -101,25 +113,71 @@ def run() -> "i32":
     fc = alloc_bytes(8)
     rc = cu_module_fn(fc, mo, fb)
     if rc != 0:
-        print("LSM fn fail", rc)
+        print("EXP fn fail", rc)
         return 1
     fn = read_i64(fc, 0)
-    a0 = alloc_bytes(8)
-    wx0: "i64" = write_i64(a0, 0, dx)
-    a1 = alloc_bytes(8)
-    wx1: "i64" = write_i64(a1, 0, dl)
-    a2 = alloc_bytes(4)
-    wx2: "i64" = write_i32(a2, 0, T)
-    a3 = alloc_bytes(4)
-    wx3: "i64" = write_i32(a3, 0, V)
-    par = alloc_bytes(32)
-    wp0: "i64" = write_i64(par, 0, a0)
-    wp1: "i64" = write_i64(par, 8, a1)
-    wp2: "i64" = write_i64(par, 16, a2)
-    wp3: "i64" = write_i64(par, 24, a3)
-    rc = cu_launch(fn, T, 1, 1, 32, 1, 1, 0, 0, par, 0)
+    e0 = alloc_bytes(8)
+    we0: "i64" = write_i64(e0, 0, dx)
+    e1 = alloc_bytes(8)
+    we1: "i64" = write_i64(e1, 0, de)
+    e2 = alloc_bytes(4)
+    we2: "i64" = write_i32(e2, 0, ln)
+    epa = alloc_bytes(24)
+    wep0: "i64" = write_i64(epa, 0, e0)
+    wep1: "i64" = write_i64(epa, 8, e1)
+    wep2: "i64" = write_i64(epa, 16, e2)
+    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, epa, 0)
     if rc != 0:
-        print("LSM launch fail", rc)
+        print("EXP launch fail", rc)
+        return 1
+    rc = cublas_sgemm(ch, 0, 0, T, 1, V, aex, de, V, doneV, V, bex, drow, T)
+    if rc != 0:
+        print("rowsum sgemm fail", rc)
+        return 1
+    PTX2 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry logsm2_kernel(.param .u64 px, .param .u64 ps, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 x,s,t,lp;\n.reg .u32 i,row,tmp,off;\n.reg .u64 xb,sb,yb,o64;\n.reg .pred q;\nld.param.u64 xb,[px]; ld.param.u64 sb,[ps]; ld.param.u64 yb,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\ndiv.u32 row,i,v; mul.wide.u32 o64,row,4; cvta.to.global.u64 sb,sb; add.u64 sb,sb,o64; ld.global.f32 s,[sb];\nmul.wide.u32 o64,i,4; cvta.to.global.u64 xb,xb; cvta.to.global.u64 yb,yb;\nadd.u64 xb,xb,o64; add.u64 yb,yb,o64; ld.global.f32 x,[xb];\nmov.f32 t,2.0; lg2.approx.f32 t,s; mul.f32 t,t,0.69314718;\nsub.f32 lp,x,t; st.global.f32 [yb],lp;\nLEND: ret;\n}\n"
+    FN2 = b"logsm2_kernel\x00"
+    pb2 = alloc_bytes(len(PTX2) + 1)
+    kk = 0
+    while kk < len(PTX2):
+        wu2: "i64" = write_u8(pb2, kk, PTX2[kk])
+        kk = kk + 1
+    wv5: "i64" = write_u8(pb2, kk, 0)
+    mc2 = alloc_bytes(8)
+    rc = cu_module_load(mc2, pb2)
+    if rc != 0:
+        print("LSM2 load fail", rc)
+        return 1
+    mo2 = read_i64(mc2, 0)
+    fb2 = alloc_bytes(len(FN2))
+    rf = 0
+    while rf < len(FN2):
+        ww2: "i64" = write_u8(fb2, rf, FN2[rf])
+        rf = rf + 1
+    fc2 = alloc_bytes(8)
+    rc = cu_module_fn(fc2, mo2, fb2)
+    if rc != 0:
+        print("LSM2 fn fail", rc)
+        return 1
+    fn2 = read_i64(fc2, 0)
+    g0 = alloc_bytes(8)
+    wg0: "i64" = write_i64(g0, 0, dx)
+    g1 = alloc_bytes(8)
+    wg1: "i64" = write_i64(g1, 0, drow)
+    g2 = alloc_bytes(8)
+    wg2: "i64" = write_i64(g2, 0, dl)
+    g3 = alloc_bytes(4)
+    wg3: "i64" = write_i32(g3, 0, ln)
+    g4 = alloc_bytes(4)
+    wg4: "i64" = write_i32(g4, 0, V)
+    gpa = alloc_bytes(40)
+    wgp0: "i64" = write_i64(gpa, 0, g0)
+    wgp1: "i64" = write_i64(gpa, 8, g1)
+    wgp2: "i64" = write_i64(gpa, 16, g2)
+    wgp3: "i64" = write_i64(gpa, 24, g3)
+    wgp4: "i64" = write_i64(gpa, 32, g4)
+    rc = cu_launch(fn2, 1, 1, 1, 64, 1, 1, 0, 0, gpa, 0)
+    if rc != 0:
+        print("LSM2 launch fail", rc)
         return 1
     PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gath_kernel(.param .u64 px, .param .u64 pid, .param .u64 py, .param .u32 pn, .param .u32 pv)\n{\n.reg .f32 f1;\n.reg .u32 i,j,off;\n.reg .u64 x,id,y,o64;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 id,[pid]; ld.param.u64 y,[py]; ld.param.u32 n,[pn]; ld.param.u32 v,[pv];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\ncvta.to.global.u64 x,x; cvta.to.global.u64 id,id; cvta.to.global.u64 y,y;\nmul.wide.u32 o64,i,4; add.u64 id,id,o64; ld.global.u32 j,[id];\nmul.lo.u32 off,i,v; add.u32 off,off,j; mul.wide.u32 o64,off,4; add.u64 x,x,o64;\nld.global.f32 f1,[x];\nmul.wide.u32 o64,i,4; add.u64 y,y,o64; st.global.f32 [y],f1;\nLEND: ret;\n}\n"
     FN = b"gath_kernel\x00"
