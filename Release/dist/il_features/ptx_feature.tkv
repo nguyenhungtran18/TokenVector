@@ -125,6 +125,49 @@ def ptx_get(kind: "str") -> "str":
             'LEND: ret;\\n'
             '}\\n'
         )
+    if kind == 'gelu':
+        return head + (
+            '.entry gelu_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\\n'
+            '{\\n'
+            '.reg .f32 f1,f2,f3,f4,f5;\\n'
+            '.reg .u64 x,y,off;\\n'
+            '.reg .u32 i,n;\\n'
+            '.reg .pred q;\\n'
+            'ld.param.u64 x,[px]; ld.param.u64 y,[py]; ld.param.u32 n,[pn];\\n'
+            'mov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\\n'
+            'mul.wide.u32 off,i,4; cvta.to.global.u64 x,x; cvta.to.global.u64 y,y;\\n'
+            'add.u64 x,x,off; add.u64 y,y,off; ld.global.f32 f1,[x];\\n'
+            'mul.f32 f3,f1,f1; mul.f32 f3,f3,f1;\\n'
+            'mov.f32 f4,0.044715; fma.rn.f32 f3,f3,f4,f1;\\n'
+            'mov.f32 f4,0.79788456; mul.f32 f2,f3,f4;\\n'
+            'tanh.approx.f32 f2,f2;\\n'
+            'mov.f32 f3,1.0; add.f32 f2,f2,f3;\\n'
+            'mov.f32 f3,0.5; mul.f32 f2,f2,f3;\\n'
+            'mul.f32 f5,f1,f2; st.global.f32 [y],f5;\\n'
+            'LEND: ret;\\n'
+            '}\\n'
+        )
+    if kind == 'biasadd':
+        return head + (
+            '.entry biasadd_kernel(.param .u64 px, .param .u64 pb, .param .u64 py)\\n'
+            '{\\n'
+            '.reg .f32 x,b,y;\\n'
+            '.reg .u64 xb,yb,off;\\n'
+            '.reg .u32 col,row,idx;\\n'
+            '.reg .pred q;\\n'
+            'ld.param.u64 xb,[px]; ld.param.u64 pb,[pb]; ld.param.u64 yb,[py];\\n'
+            'mov.u32 col,%ctaid.x; mov.u32 row,%laneid;\\n'
+            'setp.ge.u32 q,row,4; @q bra LEND;\\n'
+            'mul.lo.u32 idx,col,4; add.u32 idx,idx,row;\\n'
+            'mul.wide.u32 off,idx,4;\\n'
+            'cvta.to.global.u64 xb,xb; cvta.to.global.u64 yb,yb;\\n'
+            'add.u64 xb,xb,off; add.u64 yb,yb,off;\\n'
+            'ld.global.f32 x,[xb];\\n'
+            'mul.wide.u32 off,col,4; cvta.to.global.u64 pb,pb; add.u64 pb,pb,off; ld.global.f32 b,[pb];\\n'
+            'add.f32 y,x,b; st.global.f32 [yb],y;\\n'
+            'LEND: ret;\\n'
+            '}\\n'
+        )
     if kind == 'adamw':
         return head + (
             '.entry adamw_kernel(.param .u64 pp, .param .u64 pm, .param .u64 pv, .param .u64 pg, .param .u32 pn, .param .f32 plr, .param .f32 pb1, .param .f32 pb2, .param .f32 peps, .param .f32 pwd, .param .f32 pbc1, .param .f32 pbc2)\\n'

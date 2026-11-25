@@ -1,0 +1,226 @@
+# -*- coding: utf-8 -*-
+# IL-only GPU forward 2 layer (GEMM + bias + GELU) + host loss. Khong C++/torch.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
+     "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+    {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32",
+                "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        print("CUINIT FAIL", rc)
+        return 1
+    hc = alloc_bytes(8)
+    rc = cublas_create(hc)
+    ch = read_i64(hc, 0)
+    T: "i32" = 4
+    D: "i32" = 8
+    V: "i32" = 8
+    td: "i32" = T * D
+    dv: "i32" = D * V
+    tb: "i32" = td * 4
+    vb: "i32" = dv * 4
+    hX = alloc_bytes(tb)
+    hW1 = alloc_bytes(tb)
+    hW2 = alloc_bytes(vb)
+    hb1 = alloc_bytes(D * 4)
+    hb2 = alloc_bytes(V * 4)
+    hIds = alloc_bytes(T * 4)
+    hLG = alloc_bytes(vb)
+    hcell = alloc_bytes(4)
+    w1: "i64" = write_f32(hcell, 0, 1.0)
+    w0: "i64" = write_f32(hcell, 0, 0.0)
+    i: "i32" = 0
+    j: "i32" = 0
+    while i < T:
+        j = 0
+        while j < D:
+            wx: "i64" = write_f32(hX, (i + j * T) * 4, 0.1 + 0.02 * (i + j))
+            j = j + 1
+        idv: "i32" = (i + 1) % V
+        wids: "i64" = write_i32(hIds, i * 4, idv)
+        i = i + 1
+    i = 0
+    while i < D:
+        j = 0
+        while j < D:
+            ww1: "i64" = write_f32(hW1, (i + j * D) * 4, 0.2 + 0.01 * (i + j))
+            j = j + 1
+        wb1: "i64" = write_f32(hb1, i * 4, 0.1)
+        i = i + 1
+    i = 0
+    while i < D:
+        j = 0
+        while j < V:
+            ww2: "i64" = write_f32(hW2, (i + j * D) * 4, 0.3 + 0.01 * (i + j))
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < V:
+        wb2: "i64" = write_f32(hb2, i * 4, 0.05)
+        i = i + 1
+    cell = alloc_bytes(8)
+    rc = cuda_malloc(cell, tb)
+    dX = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tb)
+    dW1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tb)
+    dZ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tb)
+    dH = read_i64(cell, 0)
+    rc = cuda_malloc(cell, vb)
+    dW2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, vb)
+    dLG = read_i64(cell, 0)
+    rc = cuda_malloc(cell, D * 4)
+    db1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, V * 4)
+    db2 = read_i64(cell, 0)
+    wa: "i64" = cuda_h2d(dX, hX, tb, 1)
+    wb: "i64" = cuda_h2d(dW1, hW1, tb, 1)
+    wc: "i64" = cuda_h2d(dW2, hW2, vb, 1)
+    wd: "i64" = cuda_h2d(db1, hb1, D * 4, 1)
+    we: "i64" = cuda_h2d(db2, hb2, V * 4, 1)
+    # Z = X @ W1
+    rc = cublas_sgemm(ch, 0, 0, T, D, D, hcell, dX, T, dW1, D, w0, dZ, T)
+    if rc != 0:
+        print("GEMM1 FAIL", rc)
+        return 1
+    # BIASADD Z += b1 ; GELU Z -> H
+    # @tkv.ptx_kernel name="biasadd_kernel" kind="biasadd" var="PTX2"
+    p2 = alloc_bytes(len(PTX2) + 1)
+    k2: "i32" = 0
+    while k2 < len(PTX2):
+        wu2: "i64" = write_u8(p2, k2, PTX2[k2])
+        k2 = k2 + 1
+    wz2: "i64" = write_u8(p2, k2, 0)
+    m2 = alloc_bytes(8)
+    rc = cu_module_load(m2, p2)
+    if rc != 0:
+        print("BIASLOAD FAIL", rc)
+        return 1
+    o2 = read_i64(m2, 0)
+    f2 = alloc_bytes(len(FN2))
+    r2: "i32" = 0
+    while r2 < len(FN2):
+        ww2b: "i64" = write_u8(f2, r2, FN2[r2])
+        r2 = r2 + 1
+    c2 = alloc_bytes(8)
+    rc = cu_module_fn(c2, o2, f2)
+    fn2 = read_i64(c2, 0)
+    b0 = alloc_bytes(8)
+    wb0: "i64" = write_i64(b0, 0, dZ)
+    b1p = alloc_bytes(8)
+    wb1p: "i64" = write_i64(b1p, 0, db1)
+    b2p = alloc_bytes(8)
+    wb2p: "i64" = write_i64(b2p, 0, dZ)
+    pa2 = alloc_bytes(24)
+    wp20: "i64" = write_i64(pa2, 0, b0)
+    wp21: "i64" = write_i64(pa2, 8, b1p)
+    wp22: "i64" = write_i64(pa2, 16, b2p)
+    rc = cu_launch(fn2, D, 1, 1, 32, 1, 1, 0, 0, pa2, 0)
+    if rc != 0:
+        print("BIAS1 LAUNCH FAIL", rc)
+        return 1
+    # @tkv.ptx_kernel name="gelu_kernel" kind="gelu" var="PTX3"
+    p3 = alloc_bytes(len(PTX3) + 1)
+    k3: "i32" = 0
+    while k3 < len(PTX3):
+        wu3: "i64" = write_u8(p3, k3, PTX3[k3])
+        k3 = k3 + 1
+    wz3: "i64" = write_u8(p3, k3, 0)
+    m3 = alloc_bytes(8)
+    rc = cu_module_load(m3, p3)
+    if rc != 0:
+        print("GELULOAD FAIL", rc)
+        return 1
+    o3 = read_i64(m3, 0)
+    f3 = alloc_bytes(len(FN3))
+    r3: "i32" = 0
+    while r3 < len(FN3):
+        ww3: "i64" = write_u8(f3, r3, FN3[r3])
+        r3 = r3 + 1
+    c3 = alloc_bytes(8)
+    rc = cu_module_fn(c3, o3, f3)
+    fn3 = read_i64(c3, 0)
+    g0 = alloc_bytes(8)
+    wg0: "i64" = write_i64(g0, 0, dZ)
+    g1 = alloc_bytes(8)
+    wg1: "i64" = write_i64(g1, 0, dH)
+    g2 = alloc_bytes(4)
+    wg2: "i64" = write_i32(g2, 0, td)
+    pag = alloc_bytes(24)
+    wg3: "i64" = write_i64(pag, 0, g0)
+    wg4: "i64" = write_i64(pag, 8, g1)
+    wg5: "i64" = write_i64(pag, 16, g2)
+    rc = cu_launch(fn3, 1, 1, 1, 64, 1, 1, 0, 0, pag, 0)
+    if rc != 0:
+        print("GELU LAUNCH FAIL", rc)
+        return 1
+    # LG = H @ W2
+    rc = cublas_sgemm(ch, 0, 0, T, V, D, hcell, dH, T, dW2, D, w0, dLG, T)
+    if rc != 0:
+        print("GEMM2 FAIL", rc)
+        return 1
+    # bias2
+    q0 = alloc_bytes(8)
+    wq0: "i64" = write_i64(q0, 0, dLG)
+    q1 = alloc_bytes(8)
+    wq1: "i64" = write_i64(q1, 0, db2)
+    q2 = alloc_bytes(8)
+    wq2: "i64" = write_i64(q2, 0, dLG)
+    paq = alloc_bytes(24)
+    wq3: "i64" = write_i64(paq, 0, q0)
+    wq4: "i64" = write_i64(paq, 8, q1)
+    wq5: "i64" = write_i64(paq, 16, q2)
+    rc = cu_launch(fn2, V, 1, 1, 32, 1, 1, 0, 0, paq, 0)
+    if rc != 0:
+        print("BIAS2 LAUNCH FAIL", rc)
+        return 1
+    wr: "i64" = cuda_h2d(hLG, dLG, vb, 2)
+    # loss on host
+    loss: "f32" = 0.0
+    i = 0
+    while i < T:
+        mx: "f32" = -1000000000.0
+        j = 0
+        while j < V:
+            lv: "f32" = read_f32(hLG, (i + j * T) * 4)
+            if lv > mx:
+                mx = lv
+            j = j + 1
+        zsum: "f32" = 0.0
+        j = 0
+        while j < V:
+            lv = read_f32(hLG, (i + j * T) * 4)
+            ev: "f32" = exp(lv - mx)
+            zsum = zsum + ev
+            j = j + 1
+        idv2: "i32" = read_i32(hIds, i * 4)
+        lv2: "f32" = read_f32(hLG, (i + idv2 * T) * 4)
+        ev2: "f32" = exp(lv2 - mx)
+        loss = loss - log(ev2 / zsum)
+        i = i + 1
+    loss = loss / 4.0
+    print("LOSS", loss)
+    print("BATCH DONE")
+    return 0
