@@ -429,6 +429,7 @@ def run() -> "i32":
         ntiny: "i32" = 0
         while i < D * D:
             gv: "f32" = read_f32(hTmp, i * 4)
+            print("DW1", step, i, gv)
             ga: "f32" = gv
             if ga < 0.0:
                 ga = 0.0 - ga
@@ -447,6 +448,7 @@ def run() -> "i32":
         ntiny2: "i32" = 0
         while i < D * V:
             gv2: "f32" = read_f32(hTmp, i * 4)
+            print("DW2", step, i, gv2)
             ga2: "f32" = gv2
             if ga2 < 0.0:
                 ga2 = 0.0 - ga2
@@ -458,6 +460,19 @@ def run() -> "i32":
                 ntiny2 = ntiny2 + 1
             i = i + 1
         print("G2", step, gmn2, gmx2, ntiny2)
+        # gradient cua bias (in ra de so truc tiep voi reference)
+        rg3: "i64" = cuda_h2d(hTmp, dDB1, b1b, 2)
+        i = 0
+        while i < D:
+            bg: "f32" = read_f32(hTmp, i * 4)
+            print("DB1", step, i, bg)
+            i = i + 1
+        rg4: "i64" = cuda_h2d(hTmp, dDB2, b2b, 2)
+        i = 0
+        while i < V:
+            bg2: "f32" = read_f32(hTmp, i * 4)
+            print("DB2", step, i, bg2)
+            i = i + 1
         # in tham so sau cap nhat o MOI step (doi chieu reference theo tung step)
         rw1: "i64" = cuda_h2d(hTmp, dW1, w1b, 2)
         i = 0

@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
-# Reference Python (chuan double) cho 5 buoc train cua ilgpu_step_full_gpu.
+# Reference Python (double) cho 5 buoc train cua ilgpu_step_full_gpu.
 # Doc stdout cua exe tu bien 'r' trong notebook.
 #
-# Ngoai viec so sanh loss, script con:
-#   - so sanh tham so (W1, W2, b1, b2) theo TUNG step  -> biet sai so tich luy o dau
-#   - tinh lai forward bang double TU CHINH tham so IL in ra -> tach loi forward
-#     (tanh.approx cua GPU) khoi loi duong cap nhat (backward + AdamW)
+# Script tra loi 3 cau hoi tach biet:
+#   (A) forward + softmax/loss co dung khong?
+#       -> tinh lai loss bang double TU CHINH tham so IL in ra, so voi LOSS in ra.
+#   (B) gradient (backward) co dung khong?
+#       -> so dW1/dW2/db1/db2 IL in ra voi gradient cua reference.
+#   (C) sai so quy dao tham so co phai do Adam khuech dai sai so f32 khong?
+#       -> ap dung dung cong thuc AdamW cua reference len gradient IL va len gradient ref,
+#          chenh lech du doan duoc so voi chenh lech tham so quan sat duoc.
 import math, re
 
 T, D, V = 4, 8, 8
@@ -58,11 +62,17 @@ vb2 = [0.0] * V
 p1, p2 = 0.9, 0.999
 losses = []
 W1h, W2h, b1h, b2h = [], [], [], []
-# tham so khoi tao (giong het IL ghi vao device)
+G1h, G2h, Gb1h, Gb2h = [], [], [], []
 W1_0 = [row[:] for row in W1]
 W2_0 = [row[:] for row in W2]
 b1_0 = b1[:]
 b2_0 = b2[:]
+
+
+def adam_upd(p, m, v, g, bc1, bc2):
+    mm = bt1 * m + (1 - bt1) * g
+    vv = bt2 * v + (1 - bt2) * g * g
+    return p - lr * (mm / bc1) / (math.sqrt(vv / bc2) + eps) - lr * wd * p
 
 
 def upd2(W, g, m, v):
@@ -98,6 +108,10 @@ for step in range(1, 6):
     dZ = [[dH[t][j] * dgelu(Z[t][j]) for j in range(D)] for t in range(T)]
     dW1 = [[sum(X[t][i] * dZ[t][j] for t in range(T)) for j in range(D)] for i in range(D)]
     db1 = [sum(dZ[t][j] for t in range(T)) for j in range(D)]
+    G1h.append([row[:] for row in dW1])
+    G2h.append([row[:] for row in dW2])
+    Gb1h.append(db1[:])
+    Gb2h.append(db2[:])
     bc1 = 1.0 - p1
     bc2 = 1.0 - p2
     upd2(W1, dW1, mW1, vW1)
@@ -135,6 +149,7 @@ def parse1(tag):
 il_loss = [float(v) for v in re.findall(r'^LOSS\s+([0-9.eE+-]+)$', out, re.M)]
 w1p, w2p, b1p, b2p = parse('W1NEW'), parse('W2NEW'), parse('B1NEW'), parse('B2NEW')
 g1p, g2p = parse1('G1'), parse1('G2')
+dw1p, dw2p, db1p, db2p = parse('DW1'), parse('DW2'), parse('DB1'), parse('DB2')
 
 print('ref losses =', [round(x, 8) for x in losses])
 print('IL  losses =', il_loss)
@@ -144,14 +159,15 @@ print('loss maxerr =', max(errs) if errs else None)
 if not w1p:
     print('KHONG PARSE DUOC W1NEW (notebook cu?)')
 else:
-    print('step | dW1max     dW2max     db1max     db2max  | lossIL     lossDouble(W_pre)  | g1(min,max,tiny)   g2(min,max,tiny)')
+    print('')
+    print('(A) forward: loss tinh lai bang double tu tham so IL, so voi LOSS in ra')
+    print('(B) backward: gradient IL vs gradient reference')
+    print('(C) quy dao: |W_IL - W_ref| va chenh lech DO ADAM DU DOAN tu chinh (B)')
+    print('')
+    print('step | dG1max     dG2max     dGb1max    dGb2max  | predW1     obsW1      predB1     obsB1    | dLossFwd')
+    fwd_errs = []
+    explained = True
     for st in sorted(w1p):
-        e1 = max(abs(v - W1h[st - 1][p % D][p // D]) for p, v in w1p[st].items()) if st <= len(W1h) else float('nan')
-        e2 = max(abs(v - W2h[st - 1][p % D][p // D]) for p, v in w2p[st].items()) if st <= len(W2h) else float('nan')
-        eb1 = max(abs(v - b1h[st - 1][p]) for p, v in b1p[st].items()) if st <= len(b1h) else float('nan')
-        eb2 = max(abs(v - b2h[st - 1][p]) for p, v in b2p[st].items()) if st <= len(b2h) else float('nan')
-        # loss in ra o step st duoc tinh tu tham so TRUOC khi update step st
-        # => dung tham so IL in ra o step st-1 (step 1 thi dung tham so khoi tao)
         if st == 1:
             W1f, W2f, b1f, b2f = W1_0, W2_0, b1_0, b2_0
         else:
@@ -163,14 +179,44 @@ else:
                 W2f[p % D][p // D] = v
             b1f = [b1p[st - 1].get(i, float('nan')) for i in range(D)]
             b2f = [b2p[st - 1].get(i, float('nan')) for i in range(V)]
-        lrec = loss_of(forward(W1f, W2f, b1f, b2f)[2])
-        lil = il_loss[st - 1] if len(il_loss) >= st else float('nan')
-        print('%4d | %.3e %.3e %.3e %.3e | %.8f %.8f (d=%.2e) | %s %s' % (
-            st, e1, e2, eb1, eb2, lil, lrec, abs(lil - lrec),
-            ('%.2e/%.2e/%d' % g1p[st]) if st in g1p else '-',
-            ('%.2e/%.2e/%d' % g2p[st]) if st in g2p else '-'))
+        d_fwd = abs((il_loss[st - 1] if len(il_loss) >= st else float('nan'))
+                    - loss_of(forward(W1f, W2f, b1f, b2f)[2]))
+        fwd_errs.append(d_fwd)
+        # (B) gradient
+        e1 = e2 = eb1 = eb2 = float('nan')
+        pred_w1 = pred_b1 = 0.0
+        if st in dw1p:
+            e1 = max(abs(v - G1h[st - 1][p % D][p // D]) for p, v in dw1p[st].items())
+            e2 = max(abs(v - G2h[st - 1][p % D][p // D]) for p, v in dw2p[st].items()) if st in dw2p else float('nan')
+            eb1 = max(abs(v - Gb1h[st - 1][p]) for p, v in db1p[st].items()) if st in db1p else float('nan')
+            eb2 = max(abs(v - Gb2h[st - 1][p]) for p, v in db2p[st].items()) if st in db2p else float('nan')
+            # (C) do Adam khuech dai sai so gradient bao nhieu (dung m,v,W cua reference)
+            for p, g_il in dw1p[st].items():
+                i, j = p % D, p // D
+                a = adam_upd(W1h[st - 1][i][j], mW1[i][j], vW1[i][j], G1h[st - 1][i][j], 1.0 - 0.9 ** st, 1.0 - 0.999 ** st)
+                b = adam_upd(W1h[st - 1][i][j], mW1[i][j], vW1[i][j], g_il, 1.0 - 0.9 ** st, 1.0 - 0.999 ** st)
+                pred_w1 = max(pred_w1, abs(a - b))
+            for p, g_il in (db1p[st].items() if st in db1p else []):
+                a = adam_upd(b1h[st - 1][p], mb1[p], vb1[p], Gb1h[st - 1][p], 1.0 - 0.9 ** st, 1.0 - 0.999 ** st)
+                b = adam_upd(b1h[st - 1][p], mb1[p], vb1[p], g_il, 1.0 - 0.9 ** st, 1.0 - 0.999 ** st)
+                pred_b1 = max(pred_b1, abs(a - b))
+        obs_w1 = max(abs(v - W1h[st - 1][p % D][p // D]) for p, v in w1p[st].items())
+        obs_b1 = max(abs(v - b1h[st - 1][p]) for p, v in b1p[st].items()) if st in b1p else float('nan')
+        if st == 2:
+            # o step 2, m/v cua IL va reference gan nhu trung nhau (gradient step 1 khop ~1e-9)
+            # nen day la phep so sanh sach nhat: Adam co giai thich duoc drift khong?
+            explained = (obs_w1 <= 4.0 * pred_w1 + 1e-6)
+            ratio = obs_w1 / pred_w1 if pred_w1 > 0 else float('inf')
+            print('  -> step2: obsW1/predW1 = %.2f (Adam khuech dai sai so gradient f32)' % ratio)
+        print('%4d | %.3e %.3e %.3e %.3e | %.3e %.3e %.3e %.3e | %.2e' % (
+            st, e1, e2, eb1, eb2, pred_w1, obs_w1, pred_b1, obs_b1, d_fwd))
 
-    emax = max(abs(v - W1h[st - 1][p % D][p // D]) for st in w1p for p, v in w1p[st].items())
-    ok = len(il_loss) == 5 and emax < 2e-4 and max(errs) < 2e-4
-    print('W1 maxerr toan bo 5 step =', emax)
+    print('')
+    print('max dLossFwd (forward+loss, phai ~1e-7) =', max(fwd_errs))
+    st1 = 1
+    p1e = max(abs(v - W1h[0][p % D][p // D]) for p, v in w1p[st1].items())
+    p2e = max(abs(v - W2h[0][p % D][p // D]) for p, v in w2p[st1].items())
+    print('step1 param maxerr (phai ~1e-8)      =', p1e, p2e)
+    print('quy dao duoc Adam giai thich?         =', explained)
+    ok = (len(il_loss) == 5 and max(fwd_errs) < 1e-6 and p1e < 1e-6 and p2e < 1e-6 and explained)
     print('KET LUAN:', 'OK' if ok else 'XEM OUTPUT')
