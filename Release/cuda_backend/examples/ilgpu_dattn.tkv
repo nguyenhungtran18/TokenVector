@@ -8,6 +8,12 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
      "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+    {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32",
+                "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
 ]
 
 
@@ -15,6 +21,9 @@ def run() -> "i32":
     rc: "i32" = cu_init(0)
     if rc != 0:
         return 1
+    hcell = alloc_bytes(8)
+    rc = cublas_create(hcell)
+    ch = read_i64(hcell, 0)
     T: "i32" = 4
     D: "i32" = 8
     qd: "i32" = T * D * 4
@@ -109,76 +118,62 @@ def run() -> "i32":
             wds: "i64" = write_f32(hdS, (i + j * T) * 4, pp * (dp - z))
             j = j + 1
         i = i + 1
-    # dQ = inv * dS * K ; dK = inv * dS^T * Q ; dV = P^T * dO
-    i = 0
-    while i < T:
-        j = 0
-        while j < D:
-            s = 0.0
-            k = 0
-            while k < T:
-                ds: "f32" = read_f32(hdS, (i + k * T) * 4)
-                kk: "f32" = read_f32(hK, (k + j * T) * 4)
-                s = s + ds * kk
-                k = k + 1
-            wdq: "i64" = write_f32(hdQ, (i + j * T) * 4, s * 0.35355339)
-            j = j + 1
-        i = i + 1
-    i = 0
-    while i < T:
-        j = 0
-        while j < D:
-            s = 0.0
-            k = 0
-            while k < T:
-                ds = read_f32(hdS, (k + i * T) * 4)
-                qq: "f32" = read_f32(hQ, (k + j * T) * 4)
-                s = s + ds * qq
-                k = k + 1
-            wdk: "i64" = write_f32(hdK, (i + j * T) * 4, s * 0.35355339)
-            j = j + 1
-        i = i + 1
-    i = 0
-    while i < T:
-        j = 0
-        while j < D:
-            s = 0.0
-            k = 0
-            while k < T:
-                pp = read_f32(hP, (k + i * T) * 4)
-                gg: "f32" = read_f32(hdO, (k + j * T) * 4)
-                s = s + pp * gg
-                k = k + 1
-            wdv: "i64" = write_f32(hdV, (i + j * T) * 4, s)
-            j = j + 1
-        i = i + 1
-    cell = alloc_bytes(8)
-    rc = cuda_malloc(cell, qd)
-    pQ = read_i64(cell, 0)
-    rc = cuda_malloc(cell, qd)
-    pK = read_i64(cell, 0)
-    rc = cuda_malloc(cell, qd)
-    pV = read_i64(cell, 0)
-    w1: "i64" = cuda_h2d(pQ, hdQ, qd, 1)
-    w2: "i64" = cuda_h2d(pK, hdK, qd, 1)
-    w3: "i64" = cuda_h2d(pV, hdV, qd, 1)
-    w4: "i64" = cuda_h2d(ho, pQ, qd, 2)
+    cell1 = alloc_bytes(8)
+    rc = cuda_malloc(cell1, qd)
+    dQ0 = read_i64(cell1, 0)
+    rc = cuda_malloc(cell1, qd)
+    dK0 = read_i64(cell1, 0)
+    rc = cuda_malloc(cell1, qd)
+    dV0 = read_i64(cell1, 0)
+    rc = cuda_malloc(cell1, qd)
+    dOdev = read_i64(cell1, 0)
+    wqd: "i64" = cuda_h2d(dQ0, hQ, qd, 1)
+    wkd: "i64" = cuda_h2d(dK0, hK, qd, 1)
+    wvd: "i64" = cuda_h2d(dV0, hV, qd, 1)
+    wog: "i64" = cuda_h2d(dOdev, hdO, qd, 1)
+    # GEMM grads: dQ = inv*dS*K ; dK = inv*dS^T*Q ; dV = P^T*dO
+    cell2 = alloc_bytes(8)
+    rc = cuda_malloc(cell2, qd)
+    dQ = read_i64(cell2, 0)
+    rc = cuda_malloc(cell2, qd)
+    dK = read_i64(cell2, 0)
+    rc = cuda_malloc(cell2, qd)
+    dV = read_i64(cell2, 0)
+    rc = cuda_malloc(cell2, sd)
+    dPdev = read_i64(cell2, 0)
+    rc = cuda_malloc(cell2, sd)
+    dSdev = read_i64(cell2, 0)
+    rc = cuda_malloc(cell2, sd)
+    dPdev2 = read_i64(cell2, 0)
+    wgd1: "i64" = cuda_h2d(dPdev, hdP, sd, 1)
+    wgd2: "i64" = cuda_h2d(dSdev, hdS, sd, 1)
+    wgd3: "i64" = cuda_h2d(dPdev2, hP, sd, 1)
+    ac = alloc_bytes(4)
+    wa1: "i64" = write_f32(ac, 0, 0.35355339)
+    one = alloc_bytes(4)
+    wo1: "i64" = write_f32(one, 0, 1.0)
+    zero = alloc_bytes(4)
+    wz1: "i64" = write_f32(zero, 0, 0.0)
+    rc = cublas_sgemm(ch, 0, 0, T, D, T, ac, dSdev, T, dK0, T, zero, dQ, T)
+    rc = cublas_sgemm(ch, 1, 0, T, D, T, ac, dSdev, T, dQ0, T, zero, dK, T)
+    rc = cublas_sgemm(ch, 1, 0, T, D, T, one, dPdev2, T, dOdev, T, zero, dV, T)
+    wgq: "i64" = cuda_h2d(ho, dQ, qd, 2)
     i = 0
     while i < T * D:
-        vv = read_f32(ho, i * 4)
-        print("DQ", i, vv)
+        vv2 = read_f32(ho, i * 4)
+        print("DQ", i, vv2)
         i = i + 1
-    w5: "i64" = cuda_h2d(ho, pK, qd, 2)
+    wgk: "i64" = cuda_h2d(ho, dK, qd, 2)
     i = 0
     while i < T * D:
-        vv = read_f32(ho, i * 4)
-        print("DK", i, vv)
+        vv2 = read_f32(ho, i * 4)
+        print("DK", i, vv2)
         i = i + 1
-    w6: "i64" = cuda_h2d(ho, pV, qd, 2)
+    wgv: "i64" = cuda_h2d(ho, dV, qd, 2)
     i = 0
     while i < T * D:
-        vv = read_f32(ho, i * 4)
-        print("DV", i, vv)
+        vv2 = read_f32(ho, i * 4)
+        print("DV", i, vv2)
         i = i + 1
     print("BATCH DONE")
     return 0
