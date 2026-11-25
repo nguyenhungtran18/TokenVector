@@ -1,0 +1,180 @@
+# -*- coding: utf-8 -*-
+# IL-only attention backward. Tinh tren host bang .tkv; GPU luu ket qua.
+# Khong C++/torch.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        return 1
+    T: "i32" = 4
+    D: "i32" = 8
+    qd: "i32" = T * D * 4
+    sd: "i32" = T * T * 4
+    hQ = alloc_bytes(qd)
+    hK = alloc_bytes(qd)
+    hV = alloc_bytes(qd)
+    hdO = alloc_bytes(qd)
+    hP = alloc_bytes(sd)
+    hE = alloc_bytes(sd)
+    hdP = alloc_bytes(sd)
+    hdS = alloc_bytes(sd)
+    hdQ = alloc_bytes(qd)
+    hdK = alloc_bytes(qd)
+    hdV = alloc_bytes(qd)
+    ho = alloc_bytes(qd)
+    i: "i32" = 0
+    j: "i32" = 0
+    while i < T:
+        j = 0
+        while j < D:
+            wq: "i64" = write_f32(hQ, (i + j * T) * 4, 1.0 + 0.1 * (i + j))
+            wk: "i64" = write_f32(hK, (i + j * T) * 4, 0.5 + 0.05 * (i - j))
+            wv: "i64" = write_f32(hV, (i + j * T) * 4, 0.2 + 0.03 * (i + j))
+            wg: "i64" = write_f32(hdO, (i + j * T) * 4, 0.1 + 0.02 * j)
+            j = j + 1
+        i = i + 1
+    # forward: scores, causal mask, softmax -> P
+    i = 0
+    while i < T:
+        j = 0
+        while j < T:
+            sum: "f32" = 0.0
+            k: "i32" = 0
+            while k < D:
+                aq: "f32" = read_f32(hQ, (i + k * T) * 4)
+                bk: "f32" = read_f32(hK, (j + k * T) * 4)
+                sum = sum + aq * bk
+                k = k + 1
+            e: "f32" = 0.0
+            if j <= i:
+                e = exp(sum * 0.35355339)
+            we: "i64" = write_f32(hE, (i + j * T) * 4, e)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < T:
+        z: "f32" = 0.0
+        j = 0
+        while j < T:
+            ee: "f32" = read_f32(hE, (i + j * T) * 4)
+            z = z + ee
+            j = j + 1
+        j = 0
+        while j < T:
+            ee = read_f32(hE, (i + j * T) * 4)
+            wp: "i64" = write_f32(hP, (i + j * T) * 4, ee / z)
+            j = j + 1
+        i = i + 1
+    # dP = dO * V^T ; row dot = sum_j P*dP
+    i = 0
+    while i < T:
+        j = 0
+        while j < T:
+            s: "f32" = 0.0
+            k = 0
+            while k < D:
+                g: "f32" = read_f32(hdO, (i + k * T) * 4)
+                vv: "f32" = read_f32(hV, (j + k * T) * 4)
+                s = s + g * vv
+                k = k + 1
+            wdp: "i64" = write_f32(hdP, (i + j * T) * 4, s)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < T:
+        z = 0.0
+        j = 0
+        while j < T:
+            pp: "f32" = read_f32(hP, (i + j * T) * 4)
+            dp: "f32" = read_f32(hdP, (i + j * T) * 4)
+            z = z + pp * dp
+            j = j + 1
+        j = 0
+        while j < T:
+            pp = read_f32(hP, (i + j * T) * 4)
+            dp = read_f32(hdP, (i + j * T) * 4)
+            wds: "i64" = write_f32(hdS, (i + j * T) * 4, pp * (dp - z))
+            j = j + 1
+        i = i + 1
+    # dQ = inv * dS * K ; dK = inv * dS^T * Q ; dV = P^T * dO
+    i = 0
+    while i < T:
+        j = 0
+        while j < D:
+            s = 0.0
+            k = 0
+            while k < T:
+                ds: "f32" = read_f32(hdS, (i + k * T) * 4)
+                kk: "f32" = read_f32(hK, (k + j * T) * 4)
+                s = s + ds * kk
+                k = k + 1
+            wdq: "i64" = write_f32(hdQ, (i + j * T) * 4, s * 0.35355339)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < T:
+        j = 0
+        while j < D:
+            s = 0.0
+            k = 0
+            while k < T:
+                ds = read_f32(hdS, (k + i * T) * 4)
+                qq: "f32" = read_f32(hQ, (k + j * T) * 4)
+                s = s + ds * qq
+                k = k + 1
+            wdk: "i64" = write_f32(hdK, (i + j * T) * 4, s * 0.35355339)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < T:
+        j = 0
+        while j < D:
+            s = 0.0
+            k = 0
+            while k < T:
+                pp = read_f32(hP, (k + i * T) * 4)
+                gg: "f32" = read_f32(hdO, (k + j * T) * 4)
+                s = s + pp * gg
+                k = k + 1
+            wdv: "i64" = write_f32(hdV, (i + j * T) * 4, s)
+            j = j + 1
+        i = i + 1
+    cell = alloc_bytes(8)
+    rc = cuda_malloc(cell, qd)
+    pQ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, qd)
+    pK = read_i64(cell, 0)
+    rc = cuda_malloc(cell, qd)
+    pV = read_i64(cell, 0)
+    w1: "i64" = cuda_h2d(pQ, hdQ, qd, 1)
+    w2: "i64" = cuda_h2d(pK, hdK, qd, 1)
+    w3: "i64" = cuda_h2d(pV, hdV, qd, 1)
+    w4: "i64" = cuda_h2d(ho, pQ, qd, 2)
+    i = 0
+    while i < T * D:
+        vv = read_f32(ho, i * 4)
+        print("DQ", i, vv)
+        i = i + 1
+    w5: "i64" = cuda_h2d(ho, pK, qd, 2)
+    i = 0
+    while i < T * D:
+        vv = read_f32(ho, i * 4)
+        print("DK", i, vv)
+        i = i + 1
+    w6: "i64" = cuda_h2d(ho, pV, qd, 2)
+    i = 0
+    while i < T * D:
+        vv = read_f32(ho, i * 4)
+        print("DV", i, vv)
+        i = i + 1
+    print("BATCH DONE")
+    return 0
