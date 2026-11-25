@@ -7126,9 +7126,18 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     stloc.s 1
+    ldstr "MARK START"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 0
     call int32 TKVApp::__pinvoke_cu_init(int32)
     stloc.s 2
+    ldstr "MARK CUINIT"
+    ldstr " "
+    ldloc.s 2
+    call string TkvStr::I32(int32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 2
     ldc.i4 0
     ceq
@@ -7376,6 +7385,8 @@
     ldc.i4 1
     ret
   run_If4_else:
+    ldstr "MARK MODULE OK"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 29
     ldc.i4 0
     conv.i8
@@ -7437,6 +7448,8 @@
     ldc.i4 1
     ret
   run_If6_else:
+    ldstr "MARK FN OK"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 34
     ldc.i4 0
     conv.i8
@@ -7725,6 +7738,13 @@
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 2
+    ldstr "MARK POST LAUNCH"
+    ldstr " "
+    ldloc.s 2
+    call string TkvStr::I32(int32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 2
     ldc.i4 0
     ceq

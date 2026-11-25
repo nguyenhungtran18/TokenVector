@@ -20,7 +20,9 @@ __tkv_extern_pinvoke__ = [
 def run() -> "i32":
     PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry adamw_kernel(.param .u64 pp, .param .u64 pm, .param .u64 pv, .param .u64 pg, .param .u32 pn, .param .f32 plr, .param .f32 pb1, .param .f32 pb2, .param .f32 peps, .param .f32 pwd, .param .f32 pbc1, .param .f32 pbc2)\n{\n.reg .f32 p,m,v,g,lr,b1,b2,eps,wd,bc1,bc2,t1,t2,t3,t4,t5,t6;\n.reg .u64 pb_,pm_,pv_,pg_,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 pb_,[pp];\nld.param.u64 pm_,[pm];\nld.param.u64 pv_,[pv];\nld.param.u64 pg_,[pg];\nld.param.u32 n,[pn];\nld.param.f32 lr,[plr];\nld.param.f32 b1,[pb1];\nld.param.f32 b2,[pb2];\nld.param.f32 eps,[peps];\nld.param.f32 wd,[pwd];\nld.param.f32 bc1,[pbc1];\nld.param.f32 bc2,[pbc2];\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 pb_,pb_;\ncvta.to.global.u64 pm_,pm_;\ncvta.to.global.u64 pv_,pv_;\ncvta.to.global.u64 pg_,pg_;\nadd.u64 pb_,pb_,off;\nadd.u64 pm_,pm_,off;\nadd.u64 pv_,pv_,off;\nadd.u64 pg_,pg_,off;\nld.global.f32 p,[pb_];\nld.global.f32 m,[pm_];\nld.global.f32 v,[pv_];\nld.global.f32 g,[pg_];\nmov.f32 t1,1.0;\nsub.f32 t1,t1,b1;\nmul.f32 t2,t1,g;\nfma.rn.f32 m,m,b1,t2;\nmov.f32 t1,1.0;\nsub.f32 t1,t1,b2;\nmul.f32 t2,g,g;\nmul.f32 t2,t1,t2;\nfma.rn.f32 v,v,b2,t2;\nst.global.f32 [pm_],m;\nst.global.f32 [pv_],v;\ndiv.rn.f32 t3,m,bc1;\ndiv.rn.f32 t4,v,bc2;\nsqrt.rn.f32 t5,t4;\nadd.f32 t5,t5,eps;\ndiv.rn.f32 t6,t3,t5;\nmul.f32 t6,lr,t6;\nmul.f32 t5,lr,wd;\nmul.f32 t5,t5,p;\nsub.f32 p,p,t6;\nsub.f32 p,p,t5;\nst.global.f32 [pb_],p;\nLEND:\nret;\n}\n"
     FNAME = b"adamw_kernel\x00"
+    print("MARK START")
     rc: "i32" = cu_init(0)
+    print("MARK CUINIT", rc)
     if rc != 0:
         return 1
     n: "i32" = 8
@@ -64,6 +66,7 @@ def run() -> "i32":
     if rc != 0:
         print("ADAMW load fail", rc)
         return 1
+    print("MARK MODULE OK")
     mo = read_i64(mc, 0)
     fb = alloc_bytes(len(FNAME))
     rf: "i32" = 0
@@ -75,6 +78,7 @@ def run() -> "i32":
     if rc != 0:
         print("ADAMW fn fail", rc)
         return 1
+    print("MARK FN OK")
     fn = read_i64(fc, 0)
     wa0 = alloc_bytes(8)
     wb0: "i64" = write_i64(wa0, 0, dp)
@@ -114,6 +118,7 @@ def run() -> "i32":
     wc10: "i64" = write_i64(par, 80, wa10)
     wc11: "i64" = write_i64(par, 88, wa11)
     rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
+    print("MARK POST LAUNCH", rc)
     if rc != 0:
         print("ADAMW launch fail", rc)
         return 1
