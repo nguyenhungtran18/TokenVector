@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# IL-only GPU forward 2 layer (GEMM + bias + GELU) + host loss. Khong C++/torch.
+# IL-only GPU forward 2 layer (GEMM + fused bias/GELU) + host loss. Khong C++/torch.
 __tkv_extern_pinvoke__ = [
     {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
      "convention": "cdecl", "params": ["i32"], "returns": "i32"},
@@ -46,7 +46,6 @@ def run() -> "i32":
     hb2 = alloc_bytes(V * 4)
     hIds = alloc_bytes(T * 4)
     hLG = alloc_bytes(vb)
-    hcell = alloc_bytes(4)
     ha = alloc_bytes(4)
     wa1: "i64" = write_f32(ha, 0, 1.0)
     hb = alloc_bytes(4)
@@ -67,7 +66,7 @@ def run() -> "i32":
         while j < D:
             ww1: "i64" = write_f32(hW1, (i + j * D) * 4, 0.2 + 0.01 * (i + j))
             j = j + 1
-        wb1: "i64" = write_f32(hb1, i * 4, 0.1)
+        wb1x: "i64" = write_f32(hb1, i * 4, 0.1)
         i = i + 1
     i = 0
     while i < D:
@@ -97,31 +96,6 @@ def run() -> "i32":
     db1 = read_i64(cell, 0)
     rc = cuda_malloc(cell, V * 4)
     db2 = read_i64(cell, 0)
-    hbe1 = alloc_bytes(tb)
-    hbe2 = alloc_bytes(vb)
-    ii: "i32" = 0
-    jj: "i32" = 0
-    while ii < T:
-        jj = 0
-        while jj < D:
-            bv1: "f32" = read_f32(hb1, jj * 4)
-            wbe1: "i64" = write_f32(hbe1, (ii + jj * T) * 4, bv1)
-            jj = jj + 1
-        ii = ii + 1
-    ii = 0
-    while ii < T:
-        jj = 0
-        while jj < V:
-            bv2: "f32" = read_f32(hb2, jj * 4)
-            wbe2: "i64" = write_f32(hbe2, (ii + jj * T) * 4, bv2)
-            jj = jj + 1
-        ii = ii + 1
-    rc = cuda_malloc(cell, tb)
-    dbe1 = read_i64(cell, 0)
-    rc = cuda_malloc(cell, vb)
-    dbe2 = read_i64(cell, 0)
-    wbe1d: "i64" = cuda_h2d(dbe1, hbe1, tb, 1)
-    wbe2d: "i64" = cuda_h2d(dbe2, hbe2, vb, 1)
     wa: "i64" = cuda_h2d(dX, hX, tb, 1)
     wb: "i64" = cuda_h2d(dW1, hW1, tb, 1)
     wc: "i64" = cuda_h2d(dW2, hW2, vb, 1)
@@ -132,121 +106,107 @@ def run() -> "i32":
     if rc != 0:
         print("GEMM1 FAIL", rc)
         return 1
-    # BIASADD Z += b1 ; GELU Z -> H
+    # fused kernel 1: H = gelu(Z + b1), bias doc theo cot
+    PTXA = b".version 8.0\n.target sm_75\n.address_size 64\n.entry biasgelu_kernel(.param .u64 px, .param .u64 pb, .param .u64 py)\n{\n.reg .f32 f1,f2,f3,f4,f5,fb;\n.reg .u64 xp,bp,yp,off,offb;\n.reg .u32 col,row,idx,nt;\n.reg .pred q;\nld.param.u64 xp,[px];\nld.param.u64 bp,[pb];\nld.param.u64 yp,[py];\nmov.u32 col,%ctaid.x;\nmov.u32 row,%tid.x;\nmov.u32 nt,%ntid.x;\nsetp.ge.u32 q,row,nt;\n@q bra LEND;\nmul.lo.u32 idx,col,nt;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nmul.wide.u32 offb,col,4;\ncvta.to.global.u64 xp,xp;\ncvta.to.global.u64 bp,bp;\ncvta.to.global.u64 yp,yp;\nadd.u64 xp,xp,off;\nadd.u64 yp,yp,off;\nadd.u64 bp,bp,offb;\nld.global.f32 f1,[xp];\nld.global.f32 fb,[bp];\nadd.f32 f1,f1,fb;\nmul.f32 f3,f1,f1;\nmul.f32 f3,f3,f1;\nmov.f32 f4,0.044715;\nfma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456;\nmul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0;\nadd.f32 f2,f2,f3;\nmov.f32 f3,0.5;\nmul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2;\nst.global.f32 [yp],f5;\nLEND: ret;\n}\n"
+    FNA = b"biasgelu_kernel\x00"
+    pa = alloc_bytes(len(PTXA) + 1)
+    ka = 0
+    while ka < len(PTXA):
+        wua: "i64" = write_u8(pa, ka, PTXA[ka])
+        ka = ka + 1
+    wza: "i64" = write_u8(pa, ka, 0)
+    ma = alloc_bytes(8)
+    rc = cu_module_load(ma, pa)
+    if rc != 0:
+        print("BIASGELU LOAD FAIL", rc)
+        return 1
+    oa = read_i64(ma, 0)
+    fa = alloc_bytes(len(FNA))
+    ra = 0
+    while ra < len(FNA):
+        wfa: "i64" = write_u8(fa, ra, FNA[ra])
+        ra = ra + 1
+    ca = alloc_bytes(8)
+    rc = cu_module_fn(ca, oa, fa)
+    if rc != 0:
+        print("BIASGELU FN FAIL", rc)
+        return 1
+    fna = read_i64(ca, 0)
+    a0 = alloc_bytes(8)
+    wa0: "i64" = write_i64(a0, 0, dZ)
+    a1 = alloc_bytes(8)
+    wa2: "i64" = write_i64(a1, 0, db1)
+    a2 = alloc_bytes(8)
+    wa3: "i64" = write_i64(a2, 0, dH)
+    par = alloc_bytes(24)
+    wa4: "i64" = write_i64(par, 0, a0)
+    wa5: "i64" = write_i64(par, 8, a1)
+    wa6: "i64" = write_i64(par, 16, a2)
+    rc = cu_launch(fna, D, 1, 1, T, 1, 1, 0, 0, par, 0)
+    if rc != 0:
+        print("BIASGELU LAUNCH FAIL", rc)
+        return 1
+    # diag: Z truoc bias, H sau bias+gelu
     wzdiag: "i64" = cuda_h2d(hLG, dZ, tb, 2)
     dz: "i32" = 0
-    while dz < 8:
+    while dz < 4:
         zv: "f32" = read_f32(hLG, dz * 4)
         print("Z", dz, zv)
         dz = dz + 1
-    PTX2 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry biasadd_kernel(.param .u64 px, .param .u64 pb, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 x,b,y;\n.reg .u64 xb,bb,yb,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 xb,[px]; ld.param.u64 bb,[pb]; ld.param.u64 yb,[py]; ld.param.u32 n,[pn];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 xb,xb; cvta.to.global.u64 bb,bb; cvta.to.global.u64 yb,yb;\nadd.u64 xb,xb,off; add.u64 bb,bb,off; add.u64 yb,yb,off;\nld.global.f32 x,[xb]; ld.global.f32 b,[bb]; add.f32 y,x,b; st.global.f32 [yb],y;\nLEND: ret;\n}\n"
-    FN2 = b"biasadd_kernel\x00"
-    p2 = alloc_bytes(len(PTX2) + 1)
-    k2 = 0
-    while k2 < len(PTX2):
-        wu2: "i64" = write_u8(p2, k2, PTX2[k2])
-        k2 = k2 + 1
-    wz2: "i64" = write_u8(p2, k2, 0)
-    m2 = alloc_bytes(8)
-    rc = cu_module_load(m2, p2)
-    if rc != 0:
-        print("BIASLOAD FAIL", rc)
-        return 1
-    o2 = read_i64(m2, 0)
-    f2 = alloc_bytes(len(FN2))
-    r2 = 0
-    while r2 < len(FN2):
-        ww2b: "i64" = write_u8(f2, r2, FN2[r2])
-        r2 = r2 + 1
-    c2 = alloc_bytes(8)
-    rc = cu_module_fn(c2, o2, f2)
-    fn2 = read_i64(c2, 0)
-    b0 = alloc_bytes(8)
-    wb0: "i64" = write_i64(b0, 0, dZ)
-    b1p = alloc_bytes(8)
-    wb1p: "i64" = write_i64(b1p, 0, dbe1)
-    b2p = alloc_bytes(8)
-    wb2p: "i64" = write_i32(b2p, 0, td)
-    b3p = alloc_bytes(8)
-    wb3p: "i64" = write_i64(b3p, 0, dZ)
-    pa2 = alloc_bytes(32)
-    wp20: "i64" = write_i64(pa2, 0, b0)
-    wp21: "i64" = write_i64(pa2, 8, b1p)
-    wp22: "i64" = write_i64(pa2, 16, b3p)
-    wp23: "i64" = write_i64(pa2, 24, b2p)
-    rc = cu_launch(fn2, 1, 1, 1, 64, 1, 1, 0, 0, pa2, 0)
-    if rc != 0:
-        print("BIAS1 LAUNCH FAIL", rc)
-        return 1
-    PTX3 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gelu_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,f2,f3,f4,f5;\n.reg .u64 x,y,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 y,[py]; ld.param.u32 n,[pn];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 off,i,4; cvta.to.global.u64 x,x; cvta.to.global.u64 y,y;\nadd.u64 x,x,off; add.u64 y,y,off; ld.global.f32 f1,[x];\nmul.f32 f3,f1,f1; mul.f32 f3,f3,f1;\nmov.f32 f4,0.044715; fma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456; mul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0; add.f32 f2,f2,f3;\nmov.f32 f3,0.5; mul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2; st.global.f32 [y],f5;\nLEND: ret;\n}\n"
-    FN3 = b"gelu_kernel\x00"
-    p3 = alloc_bytes(len(PTX3) + 1)
-    k3: "i32" = 0
-    while k3 < len(PTX3):
-        wu3: "i64" = write_u8(p3, k3, PTX3[k3])
-        k3 = k3 + 1
-    wz3: "i64" = write_u8(p3, k3, 0)
-    m3 = alloc_bytes(8)
-    rc = cu_module_load(m3, p3)
-    if rc != 0:
-        print("GELULOAD FAIL", rc)
-        return 1
-    o3 = read_i64(m3, 0)
-    f3 = alloc_bytes(len(FN3))
-    r3: "i32" = 0
-    while r3 < len(FN3):
-        ww3: "i64" = write_u8(f3, r3, FN3[r3])
-        r3 = r3 + 1
-    c3 = alloc_bytes(8)
-    rc = cu_module_fn(c3, o3, f3)
-    fn3 = read_i64(c3, 0)
-    g0 = alloc_bytes(8)
-    wg0: "i64" = write_i64(g0, 0, dZ)
-    g1 = alloc_bytes(8)
-    wg1: "i64" = write_i64(g1, 0, dH)
-    g2 = alloc_bytes(4)
-    wg2: "i64" = write_i32(g2, 0, td)
-    pag = alloc_bytes(24)
-    wg3: "i64" = write_i64(pag, 0, g0)
-    wg4: "i64" = write_i64(pag, 8, g1)
-    wg5: "i64" = write_i64(pag, 16, g2)
-    rc = cu_launch(fn3, 1, 1, 1, 64, 1, 1, 0, 0, pag, 0)
-    if rc != 0:
-        print("GELU LAUNCH FAIL", rc)
-        return 1
-    # LG = H @ W2
     whdiag: "i64" = cuda_h2d(hLG, dH, tb, 2)
     dh2: "i32" = 0
-    while dh2 < 8:
+    while dh2 < 4:
         hv2: "f32" = read_f32(hLG, dh2 * 4)
         print("H", dh2, hv2)
         dh2 = dh2 + 1
+    # LG = H @ W2
     rc = cublas_sgemm(ch, 0, 0, T, V, D, ha, dH, T, dW2, D, hb, dLG, T)
     if rc != 0:
         print("GEMM2 FAIL", rc)
         return 1
-    # bias2
-    q0 = alloc_bytes(8)
-    wq0: "i64" = write_i64(q0, 0, dLG)
-    q1 = alloc_bytes(8)
-    wq1: "i64" = write_i64(q1, 0, dbe2)
-    q2 = alloc_bytes(8)
-    wq2: "i64" = write_i64(q2, 0, dLG)
-    q3 = alloc_bytes(4)
-    wq3n: "i64" = write_i32(q3, 0, dv)
-    paq = alloc_bytes(32)
-    wq4: "i64" = write_i64(paq, 0, q0)
-    wq5: "i64" = write_i64(paq, 8, q1)
-    wq6: "i64" = write_i64(paq, 16, q2)
-    wq7: "i64" = write_i64(paq, 24, q3)
-    rc = cu_launch(fn2, 1, 1, 1, 64, 1, 1, 0, 0, paq, 0)
+    # fused kernel 2: LG = LG + b2, bias doc theo cot
+    PTXB = b".version 8.0\n.target sm_75\n.address_size 64\n.entry biasadd_kernel(.param .u64 px, .param .u64 pb, .param .u64 py)\n{\n.reg .f32 f1,fb,f3;\n.reg .u64 xp,bp,yp,off,offb;\n.reg .u32 col,row,idx,nt;\n.reg .pred q;\nld.param.u64 xp,[px];\nld.param.u64 bp,[pb];\nld.param.u64 yp,[py];\nmov.u32 col,%ctaid.x;\nmov.u32 row,%tid.x;\nmov.u32 nt,%ntid.x;\nsetp.ge.u32 q,row,nt;\n@q bra LEND;\nmul.lo.u32 idx,col,nt;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nmul.wide.u32 offb,col,4;\ncvta.to.global.u64 xp,xp;\ncvta.to.global.u64 bp,bp;\ncvta.to.global.u64 yp,yp;\nadd.u64 xp,xp,off;\nadd.u64 yp,yp,off;\nadd.u64 bp,bp,offb;\nld.global.f32 f1,[xp];\nld.global.f32 fb,[bp];\nadd.f32 f3,f1,fb;\nst.global.f32 [yp],f3;\nLEND: ret;\n}\n"
+    FNB = b"biasadd_kernel\x00"
+    pb = alloc_bytes(len(PTXB) + 1)
+    kb = 0
+    while kb < len(PTXB):
+        wub: "i64" = write_u8(pb, kb, PTXB[kb])
+        kb = kb + 1
+    wzb: "i64" = write_u8(pb, kb, 0)
+    mb = alloc_bytes(8)
+    rc = cu_module_load(mb, pb)
     if rc != 0:
-        print("BIAS2 LAUNCH FAIL", rc)
+        print("BIASADD LOAD FAIL", rc)
+        return 1
+    ob = read_i64(mb, 0)
+    fb2 = alloc_bytes(len(FNB))
+    rb = 0
+    while rb < len(FNB):
+        wfb: "i64" = write_u8(fb2, rb, FNB[rb])
+        rb = rb + 1
+    cb = alloc_bytes(8)
+    rc = cu_module_fn(cb, ob, fb2)
+    if rc != 0:
+        print("BIASADD FN FAIL", rc)
+        return 1
+    fnb = read_i64(cb, 0)
+    b0 = alloc_bytes(8)
+    wb0b: "i64" = write_i64(b0, 0, dLG)
+    b1p = alloc_bytes(8)
+    wb1p: "i64" = write_i64(b1p, 0, db2)
+    b2p = alloc_bytes(8)
+    wb2p: "i64" = write_i64(b2p, 0, dLG)
+    parb = alloc_bytes(24)
+    wb3: "i64" = write_i64(parb, 0, b0)
+    wb4: "i64" = write_i64(parb, 8, b1p)
+    wb5: "i64" = write_i64(parb, 16, b2p)
+    rc = cu_launch(fnb, V, 1, 1, T, 1, 1, 0, 0, parb, 0)
+    if rc != 0:
+        print("BIASADD LAUNCH FAIL", rc)
         return 1
     wr: "i64" = cuda_h2d(hLG, dLG, vb, 2)
-    wr: "i64" = cuda_h2d(hLG, dLG, vb, 2)
     dl2: "i32" = 0
-    while dl2 < 8:
+    while dl2 < 4:
         lgv: "f32" = read_f32(hLG, dl2 * 4)
         print("LG", dl2, lgv)
         dl2 = dl2 + 1
