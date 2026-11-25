@@ -22,6 +22,12 @@ def bwd(pb: "i64") -> "i32":
     T: "i32" = 4
     D: "i32" = 8
     V: "i32" = 8
+    i: "i32" = 0
+    j: "i32" = 0
+    k: "i32" = 0
+    t: "i32" = 0
+    v: "i32" = 0
+    idv: "i32" = 0
     hH = read_i64(pb, 0)
     hDL = read_i64(pb, 8)
     hDW2 = read_i64(pb, 16)
