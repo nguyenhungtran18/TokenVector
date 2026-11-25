@@ -1,0 +1,90 @@
+# -*- coding: utf-8 -*-
+# IL-only backward kernel dGELU, PTX do compiler sinh (khong C++/torch).
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
+     "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        return 1
+    n: "i32" = 8
+    nb: "i32" = n * 4
+    cell = alloc_bytes(8)
+    rc = cuda_malloc(cell, 4)
+    probe = read_i64(cell, 0)
+    hx = alloc_bytes(nb)
+    hd = alloc_bytes(nb)
+    i: "i32" = 0
+    v: "f32" = -1.5
+    while i < n:
+        w0: "i64" = write_f32(hx, i * 4, v)
+        w1: "i64" = write_f32(hd, i * 4, 1.0)
+        v = v + 0.5
+        i = i + 1
+    rc = cuda_malloc(cell, nb)
+    dx = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    dd = read_i64(cell, 0)
+    w2: "i64" = cuda_h2d(dx, hx, nb, 1)
+    w3: "i64" = cuda_h2d(dd, hd, nb, 1)
+    # @tkv.ptx_kernel name="dgelu_kernel" kind="dgelu" var="PTX"
+    pb = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wu: "i64" = write_u8(pb, kk, PTX[kk])
+        kk = kk + 1
+    wv: "i64" = write_u8(pb, kk, 0)
+    mc = alloc_bytes(8)
+    rc = cu_module_load(mc, pb)
+    if rc != 0:
+        print("DGELU load fail", rc)
+        return 1
+    mo = read_i64(mc, 0)
+    fb = alloc_bytes(len(FN))
+    rf: "i32" = 0
+    while rf < len(FN):
+        ww: "i64" = write_u8(fb, rf, FN[rf])
+        rf = rf + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mo, fb)
+    if rc != 0:
+        print("DGELU fn fail", rc)
+        return 1
+    fn = read_i64(fc, 0)
+    a0 = alloc_bytes(8)
+    wa0: "i64" = write_i64(a0, 0, dx)
+    a1 = alloc_bytes(8)
+    wa1: "i64" = write_i64(a1, 0, dd)
+    a2 = alloc_bytes(4)
+    wa2: "i64" = write_i32(a2, 0, n)
+    par = alloc_bytes(24)
+    wp0: "i64" = write_i64(par, 0, a0)
+    wp1: "i64" = write_i64(par, 8, a1)
+    wp2: "i64" = write_i64(par, 16, a2)
+    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
+    if rc != 0:
+        print("DGELU launch fail", rc)
+        return 1
+    w4: "i64" = cuda_h2d(hd, dd, nb, 2)
+    i = 0
+    while i < n:
+        gv: "f32" = read_f32(hd, i * 4)
+        print("DGELU", i, gv)
+        i = i + 1
+    print("BATCH DONE")
+    return 0

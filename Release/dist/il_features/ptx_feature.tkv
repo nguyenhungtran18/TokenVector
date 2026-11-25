@@ -97,6 +97,34 @@ def ptx_get(kind: "str") -> "str":
             'LEND: ret;\\n'
             '}\\n'
         )
+    if kind == 'dgelu':
+        return head + (
+            '.entry dgelu_kernel(.param .u64 px, .param .u64 pd, .param .u32 pn)\\n'
+            '{\\n'
+            '.reg .f32 x,z,th,a,b,t1,t2,t3,c,g,d;\\n'
+            '.reg .u64 xb,db,off;\\n'
+            '.reg .u32 i,n;\\n'
+            '.reg .pred q;\\n'
+            'ld.param.u64 xb,[px]; ld.param.u64 db,[pd]; ld.param.u32 n,[pn];\\n'
+            'mov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\\n'
+            'mul.wide.u32 off,i,4; cvta.to.global.u64 xb,xb; cvta.to.global.u64 db,db;\\n'
+            'add.u64 xb,xb,off; add.u64 db,db,off; ld.global.f32 x,[xb]; ld.global.f32 d,[db];\\n'
+            'mul.f32 t1,x,x;\\n'
+            'mov.f32 t2,0.134145; fma.rn.f32 t2,t1,t2,1.0;\\n'
+            'mul.f32 t3,x,t1;\\n'
+            'mov.f32 z,0.79788456; mul.f32 z,z,x;\\n'
+            'mov.f32 c,0.0356774; fma.rn.f32 z,c,t3,z;\\n'
+            'tanh.approx.f32 th,z;\\n'
+            'mov.f32 a,1.0; add.f32 a,a,th; mov.f32 c,0.5; mul.f32 a,a,c;\\n'
+            'mov.f32 b,1.0; mul.f32 t1,th,th; sub.f32 b,b,t1; mul.f32 b,b,x;\\n'
+            'mov.f32 c,0.79788456; mul.f32 b,b,c;\\n'
+            'mul.f32 b,b,0.5;\\n'
+            'mov.f32 t2,0.134145; fma.rn.f32 t2,t1,t2,1.0;\\n'
+            'mul.f32 b,b,t2;\\n'
+            'add.f32 g,a,b; mul.f32 d,d,g; st.global.f32 [db],d;\\n'
+            'LEND: ret;\\n'
+            '}\\n'
+        )
     if kind == 'prep':
         return head + (
             '.entry prep_kernel(.param .u64 px, .param .u64 py, .param .u32 pn, .param .u32 pt, .param .f32 pinv)\\n'
