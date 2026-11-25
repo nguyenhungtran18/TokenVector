@@ -47,14 +47,14 @@ def run() -> "i32":
     while i < T:
         j = 0
         while j < T:
-            sum: "f32" = 0.0
+            sum = 0.0
             k: "i32" = 0
             while k < D:
-                aq: "f32" = read_f32(hQ, (i + k * T) * 4)
-                bk: "f32" = read_f32(hK, (j + k * T) * 4)
+                aq = read_f32(hQ, (i + k * T) * 4)
+                bk = read_f32(hK, (j + k * T) * 4)
                 sum = sum + aq * bk
                 k = k + 1
-            e: "f32" = 0.0
+            e = 0.0
             if j <= i:
                 e = exp(sum * 0.35355339)
             we: "i64" = write_f32(hE, (i + j * T) * 4, e)
@@ -62,10 +62,10 @@ def run() -> "i32":
         i = i + 1
     i = 0
     while i < T:
-        z: "f32" = 0.0
+        z = 0.0
         j = 0
         while j < T:
-            ee: "f32" = read_f32(hE, (i + j * T) * 4)
+            ee = read_f32(hE, (i + j * T) * 4)
             z = z + ee
             j = j + 1
         j = 0
@@ -79,11 +79,11 @@ def run() -> "i32":
     while i < T:
         j = 0
         while j < T:
-            s: "f32" = 0.0
+            s = 0.0
             k = 0
             while k < D:
-                g: "f32" = read_f32(hdO, (i + k * T) * 4)
-                vv: "f32" = read_f32(hV, (j + k * T) * 4)
+                g = read_f32(hdO, (i + k * T) * 4)
+                vv = read_f32(hV, (j + k * T) * 4)
                 s = s + g * vv
                 k = k + 1
             wdp: "i64" = write_f32(hdP, (i + j * T) * 4, s)
@@ -94,8 +94,8 @@ def run() -> "i32":
         z = 0.0
         j = 0
         while j < T:
-            pp: "f32" = read_f32(hP, (i + j * T) * 4)
-            dp: "f32" = read_f32(hdP, (i + j * T) * 4)
+            pp = read_f32(hP, (i + j * T) * 4)
+            dp = read_f32(hdP, (i + j * T) * 4)
             z = z + pp * dp
             j = j + 1
         j = 0
@@ -113,8 +113,8 @@ def run() -> "i32":
             s = 0.0
             k = 0
             while k < T:
-                ds: "f32" = read_f32(hdS, (i + k * T) * 4)
-                kk: "f32" = read_f32(hK, (k + j * T) * 4)
+                ds = read_f32(hdS, (i + k * T) * 4)
+                kk = read_f32(hK, (k + j * T) * 4)
                 s = s + ds * kk
                 k = k + 1
             wdq: "i64" = write_f32(hdQ, (i + j * T) * 4, s * 0.35355339)
@@ -128,7 +128,7 @@ def run() -> "i32":
             k = 0
             while k < T:
                 ds = read_f32(hdS, (k + i * T) * 4)
-                qq: "f32" = read_f32(hQ, (k + j * T) * 4)
+                qq = read_f32(hQ, (k + j * T) * 4)
                 s = s + ds * qq
                 k = k + 1
             wdk: "i64" = write_f32(hdK, (i + j * T) * 4, s * 0.35355339)
@@ -142,7 +142,7 @@ def run() -> "i32":
             k = 0
             while k < T:
                 pp = read_f32(hP, (k + i * T) * 4)
-                gg: "f32" = read_f32(hdO, (k + j * T) * 4)
+                gg = read_f32(hdO, (k + j * T) * 4)
                 s = s + pp * gg
                 k = k + 1
             wdv: "i64" = write_f32(hdV, (i + j * T) * 4, s)
