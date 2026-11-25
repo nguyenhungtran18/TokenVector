@@ -1226,21 +1226,112 @@
 
 .class public auto ansi TKVApp extends [mscorlib]System.Object
 {
-  .method public static int32 'bwd'(int64 'hH', int64 'hDL', int64 'hDW2', int64 'hDB2', int64 'hDH', int64 'hW2', int64 'hX', int64 'hDZ', int64 'hDW1', int64 'hIds', int64 'hP', int64 'hLG', int64 'hZ') cil managed
+  .method public static int32 'bwd'(int64 'pb') cil managed
   {
-    .maxstack 817
-    .locals init (int32 'T', int32 'D', int32 'V', valuetype TkvInt 'i', int32 'idv', valuetype TkvInt 'j', float32 'pv3', float32 'dv', int64 'wdl', float32 's3', int32 't', float32 'hv3', float32 'dl', float32 'old', int64 'wdw', float32 's4', float32 'ob', int64 'wdb', float32 's5', valuetype TkvInt 'v', float32 'w2', int64 'wdh', float32 'zv2', float32 'zz3', float32 'ee2', float32 'th2', float32 'a1', float32 'bq', float32 'dzv', int64 'wdz', float32 's6', float32 'xv2', float32 'dz2', float32 'o2', int64 'wdw1', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
+    .maxstack 830
+    .locals init (int32 'T', int32 'D', int32 'V', int64 'hH', int64 'hDL', int64 'hDW2', int64 'hDB2', int64 'hDH', int64 'hW2', int64 'hX', int64 'hDZ', int64 'hDW1', int64 'hIds', int64 'hP', int64 'hLG', int64 'hZ', valuetype TkvInt 'i', int32 'idv', valuetype TkvInt 'j', float32 'pv3', float32 'dv', int64 'wdl', float32 's3', int32 't', float32 'hv3', float32 'dl', float32 'old', int64 'wdw', float32 's4', float32 'ob', int64 'wdb', float32 's5', valuetype TkvInt 'v', float32 'w2', int64 'wdh', float32 'zv2', float32 'zz3', float32 'ee2', float32 'th2', float32 'a1', float32 'bq', float32 'dzv', int64 'wdz', float32 's6', float32 'xv2', float32 'dz2', float32 'o2', int64 'wdw1', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
     ldc.i4 4
     stloc.s 0
     ldc.i4 8
     stloc.s 1
     ldc.i4 8
     stloc.s 2
+    ldarg.s 0
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 3
+    ldarg.s 0
+    ldc.i4 8
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 4
+    ldarg.s 0
+    ldc.i4 16
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 5
+    ldarg.s 0
+    ldc.i4 24
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 6
+    ldarg.s 0
+    ldc.i4 32
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 7
+    ldarg.s 0
+    ldc.i4 40
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 8
+    ldarg.s 0
+    ldc.i4 48
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 9
+    ldarg.s 0
+    ldc.i4 56
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 10
+    ldarg.s 0
+    ldc.i4 64
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 11
+    ldarg.s 0
+    ldc.i4 72
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 12
+    ldarg.s 0
+    ldc.i4 80
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 13
+    ldarg.s 0
+    ldc.i4 88
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 14
+    ldarg.s 0
+    ldc.i4 96
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 15
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 3
+    stloc.s 16
   bwd_W1_start:
-    ldloc.s 3
+    ldloc.s 16
     ldloc.s 0
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -1248,51 +1339,51 @@
     ldc.i4.0
     clt
     brfalse bwd_W1_end
-    ldarg.s 9
-    ldloc.s 3
+    ldloc.s 12
+    ldloc.s 16
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int2_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int2_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int2_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int2_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int2_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int2_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int2_done
   bwd_int2_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int2_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -1300,12 +1391,12 @@
     add
     conv.i
     call int32 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt32(native int)
-    stloc.s 4
+    stloc.s 17
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 5
+    stloc.s 18
   bwd_W3_start:
-    ldloc.s 5
+    ldloc.s 18
     ldloc.s 2
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -1313,136 +1404,136 @@
     ldc.i4.0
     clt
     brfalse bwd_W3_end
-    ldarg.s 10
-    ldloc.s 3
-    ldloc.s 5
+    ldloc.s 13
+    ldloc.s 16
+    ldloc.s 18
     ldloc.s 2
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int4_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int4_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int4_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int4_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int4_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int4_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int4_done
   bwd_int4_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int4_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int5_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int5_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int5_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int5_done
   bwd_int5_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int5_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int6_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int6_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int6_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int6_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int6_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int6_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int6_done
   bwd_int6_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int6_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -1450,259 +1541,259 @@
     add
     conv.i
     ldind.r4
-    stloc.s 6
-    ldloc.s 6
-    stloc.s 7
-    ldloc.s 5
-    ldloc.s 4
+    stloc.s 19
+    ldloc.s 19
+    stloc.s 20
+    ldloc.s 18
+    ldloc.s 17
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
     call int32 TkvInt::Cmp(valuetype TkvInt, valuetype TkvInt)
     ldc.i4.0
     ceq
     brfalse bwd_If7_else
-    ldloc.s 7
+    ldloc.s 20
     ldc.r4 1.0
     sub
-    stloc.s 7
+    stloc.s 20
   bwd_If7_else:
-    ldloc.s 7
+    ldloc.s 20
     ldc.r4 4.0
     div
-    stloc.s 7
-    ldarg.s 1
-    ldloc.s 3
-    ldloc.s 5
+    stloc.s 20
+    ldloc.s 4
+    ldloc.s 16
+    ldloc.s 18
     ldloc.s 2
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int8_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int8_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int8_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int8_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int8_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int8_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int8_done
   bwd_int8_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int8_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int9_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int9_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int9_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int9_done
   bwd_int9_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int9_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int10_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int10_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int10_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int10_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int10_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int10_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int10_done
   bwd_int10_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int10_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
     conv.i8
     add
     conv.i
-    ldloc.s 7
+    ldloc.s 20
     stind.r4
     ldc.i8 0
-    stloc.s 8
-    ldloc.s 5
+    stloc.s 21
+    ldloc.s 18
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int11_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int11_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int11_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int11_done
   bwd_int11_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int11_done:
-    stloc.s 5
+    stloc.s 18
     br bwd_W3_start
   bwd_W3_end:
-    ldloc.s 3
+    ldloc.s 16
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int12_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int12_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int12_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int12_done
   bwd_int12_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int12_done:
-    stloc.s 3
+    stloc.s 16
     br bwd_W1_start
   bwd_W1_end:
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 3
+    stloc.s 16
   bwd_W13_start:
-    ldloc.s 3
+    ldloc.s 16
     ldloc.s 1
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -1712,9 +1803,9 @@
     brfalse bwd_W13_end
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 5
+    stloc.s 18
   bwd_W14_start:
-    ldloc.s 5
+    ldloc.s 18
     ldloc.s 2
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -1723,63 +1814,63 @@
     clt
     brfalse bwd_W14_end
     ldc.r4 0.0
-    stloc.s 9
+    stloc.s 22
     ldc.r4 0.0
-    stloc.s 9
+    stloc.s 22
     ldc.i4 0
-    stloc.s 10
+    stloc.s 23
   bwd_W15_start:
-    ldloc.s 10
+    ldloc.s 23
     ldloc.s 0
     clt
     brfalse bwd_W15_end
-    ldarg.s 0
-    ldloc.s 10
     ldloc.s 3
+    ldloc.s 23
+    ldloc.s 16
     ldloc.s 0
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int16_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int16_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int16_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int16_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int16_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int16_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int16_done
   bwd_int16_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int16_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -1790,54 +1881,54 @@
     add
     conv.i
     ldind.r4
-    stloc.s 11
-    ldarg.s 1
-    ldloc.s 10
-    ldloc.s 5
+    stloc.s 24
+    ldloc.s 4
+    ldloc.s 23
+    ldloc.s 18
     ldloc.s 2
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int17_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int17_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int17_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int17_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int17_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int17_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int17_done
   bwd_int17_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int17_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -1848,149 +1939,149 @@
     add
     conv.i
     ldind.r4
-    stloc.s 12
-    ldloc.s 9
-    ldloc.s 11
-    ldloc.s 12
+    stloc.s 25
+    ldloc.s 22
+    ldloc.s 24
+    ldloc.s 25
     mul
     add
-    stloc.s 9
-    ldloc.s 10
+    stloc.s 22
+    ldloc.s 23
     ldc.i4 1
     add
-    stloc.s 10
+    stloc.s 23
     br bwd_W15_start
   bwd_W15_end:
-    ldarg.s 2
-    ldloc.s 3
     ldloc.s 5
+    ldloc.s 16
+    ldloc.s 18
     ldloc.s 1
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int18_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int18_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int18_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int18_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int18_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int18_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int18_done
   bwd_int18_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int18_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int19_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int19_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int19_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int19_done
   bwd_int19_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int19_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int20_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int20_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int20_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int20_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int20_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int20_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int20_done
   bwd_int20_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int20_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -1998,242 +2089,242 @@
     add
     conv.i
     ldind.r4
-    stloc.s 13
-    ldarg.s 2
-    ldloc.s 3
+    stloc.s 26
     ldloc.s 5
+    ldloc.s 16
+    ldloc.s 18
     ldloc.s 1
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int21_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int21_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int21_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int21_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int21_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int21_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int21_done
   bwd_int21_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int21_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int22_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int22_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int22_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int22_done
   bwd_int22_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int22_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int23_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int23_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int23_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int23_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int23_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int23_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int23_done
   bwd_int23_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int23_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
     conv.i8
     add
     conv.i
-    ldloc.s 13
-    ldloc.s 9
+    ldloc.s 26
+    ldloc.s 22
     add
     stind.r4
     ldc.i8 0
-    stloc.s 14
-    ldloc.s 5
+    stloc.s 27
+    ldloc.s 18
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int24_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int24_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int24_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int24_done
   bwd_int24_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int24_done:
-    stloc.s 5
+    stloc.s 18
     br bwd_W14_start
   bwd_W14_end:
-    ldloc.s 3
+    ldloc.s 16
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int25_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int25_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int25_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int25_done
   bwd_int25_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int25_done:
-    stloc.s 3
+    stloc.s 16
     br bwd_W13_start
   bwd_W13_end:
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 5
+    stloc.s 18
   bwd_W26_start:
-    ldloc.s 5
+    ldloc.s 18
     ldloc.s 2
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -2242,63 +2333,63 @@
     clt
     brfalse bwd_W26_end
     ldc.r4 0.0
-    stloc.s 15
+    stloc.s 28
     ldc.r4 0.0
-    stloc.s 15
+    stloc.s 28
     ldc.i4 0
-    stloc.s 10
+    stloc.s 23
   bwd_W27_start:
-    ldloc.s 10
+    ldloc.s 23
     ldloc.s 0
     clt
     brfalse bwd_W27_end
-    ldarg.s 1
-    ldloc.s 10
-    ldloc.s 5
+    ldloc.s 4
+    ldloc.s 23
+    ldloc.s 18
     ldloc.s 2
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int28_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int28_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int28_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int28_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int28_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int28_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int28_done
   bwd_int28_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int28_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -2309,62 +2400,62 @@
     add
     conv.i
     ldind.r4
-    stloc.s 12
-    ldloc.s 15
-    ldloc.s 12
+    stloc.s 25
+    ldloc.s 28
+    ldloc.s 25
     add
-    stloc.s 15
-    ldloc.s 10
+    stloc.s 28
+    ldloc.s 23
     ldc.i4 1
     add
-    stloc.s 10
+    stloc.s 23
     br bwd_W27_start
   bwd_W27_end:
-    ldarg.s 3
-    ldloc.s 5
+    ldloc.s 6
+    ldloc.s 18
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int29_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int29_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int29_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int29_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int29_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int29_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int29_done
   bwd_int29_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int29_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -2372,113 +2463,113 @@
     add
     conv.i
     ldind.r4
-    stloc.s 16
-    ldarg.s 3
-    ldloc.s 5
+    stloc.s 29
+    ldloc.s 6
+    ldloc.s 18
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int30_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int30_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int30_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int30_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int30_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int30_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int30_done
   bwd_int30_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int30_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
     conv.i8
     add
     conv.i
-    ldloc.s 16
-    ldloc.s 15
+    ldloc.s 29
+    ldloc.s 28
     add
     stind.r4
     ldc.i8 0
-    stloc.s 17
-    ldloc.s 5
+    stloc.s 30
+    ldloc.s 18
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int31_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int31_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int31_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int31_done
   bwd_int31_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int31_done:
-    stloc.s 5
+    stloc.s 18
     br bwd_W26_start
   bwd_W26_end:
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 3
+    stloc.s 16
   bwd_W32_start:
-    ldloc.s 3
+    ldloc.s 16
     ldloc.s 0
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -2488,9 +2579,9 @@
     brfalse bwd_W32_end
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 5
+    stloc.s 18
   bwd_W33_start:
-    ldloc.s 5
+    ldloc.s 18
     ldloc.s 1
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -2499,14 +2590,14 @@
     clt
     brfalse bwd_W33_end
     ldc.r4 0.0
-    stloc.s 18
+    stloc.s 31
     ldc.r4 0.0
-    stloc.s 18
+    stloc.s 31
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 19
+    stloc.s 32
   bwd_W34_start:
-    ldloc.s 19
+    ldloc.s 32
     ldloc.s 2
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -2514,136 +2605,136 @@
     ldc.i4.0
     clt
     brfalse bwd_W34_end
-    ldarg.s 1
-    ldloc.s 3
-    ldloc.s 19
+    ldloc.s 4
+    ldloc.s 16
+    ldloc.s 32
     ldloc.s 2
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int35_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int35_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int35_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int35_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int35_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int35_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int35_done
   bwd_int35_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int35_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int36_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int36_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int36_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int36_done
   bwd_int36_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int36_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int37_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int37_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int37_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int37_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int37_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int37_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int37_done
   bwd_int37_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int37_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -2651,137 +2742,137 @@
     add
     conv.i
     ldind.r4
-    stloc.s 12
-    ldarg.s 5
-    ldloc.s 5
-    ldloc.s 19
+    stloc.s 25
+    ldloc.s 8
+    ldloc.s 18
+    ldloc.s 32
     ldloc.s 1
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int38_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int38_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int38_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int38_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int38_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int38_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int38_done
   bwd_int38_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int38_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int39_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int39_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int39_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int39_done
   bwd_int39_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int39_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int40_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int40_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int40_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int40_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int40_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int40_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int40_done
   bwd_int40_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int40_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -2789,290 +2880,290 @@
     add
     conv.i
     ldind.r4
-    stloc.s 20
-    ldloc.s 18
-    ldloc.s 12
-    ldloc.s 20
+    stloc.s 33
+    ldloc.s 31
+    ldloc.s 25
+    ldloc.s 33
     mul
     add
-    stloc.s 18
-    ldloc.s 19
+    stloc.s 31
+    ldloc.s 32
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int41_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int41_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int41_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int41_done
   bwd_int41_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int41_done:
-    stloc.s 19
+    stloc.s 32
     br bwd_W34_start
   bwd_W34_end:
-    ldarg.s 4
-    ldloc.s 3
-    ldloc.s 5
+    ldloc.s 7
+    ldloc.s 16
+    ldloc.s 18
     ldloc.s 0
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int42_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int42_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int42_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int42_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int42_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int42_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int42_done
   bwd_int42_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int42_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int43_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int43_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int43_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int43_done
   bwd_int43_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int43_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int44_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int44_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int44_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int44_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int44_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int44_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int44_done
   bwd_int44_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int44_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
     conv.i8
     add
     conv.i
-    ldloc.s 18
+    ldloc.s 31
     stind.r4
     ldc.i8 0
-    stloc.s 21
-    ldloc.s 5
+    stloc.s 34
+    ldloc.s 18
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int45_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int45_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int45_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int45_done
   bwd_int45_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int45_done:
-    stloc.s 5
+    stloc.s 18
     br bwd_W33_start
   bwd_W33_end:
-    ldloc.s 3
+    ldloc.s 16
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int46_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int46_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int46_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int46_done
   bwd_int46_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int46_done:
-    stloc.s 3
+    stloc.s 16
     br bwd_W32_start
   bwd_W32_end:
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 3
+    stloc.s 16
   bwd_W47_start:
-    ldloc.s 3
+    ldloc.s 16
     ldloc.s 0
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -3082,9 +3173,9 @@
     brfalse bwd_W47_end
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 5
+    stloc.s 18
   bwd_W48_start:
-    ldloc.s 5
+    ldloc.s 18
     ldloc.s 1
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -3092,136 +3183,136 @@
     ldc.i4.0
     clt
     brfalse bwd_W48_end
-    ldarg.s 12
-    ldloc.s 3
-    ldloc.s 5
+    ldloc.s 15
+    ldloc.s 16
+    ldloc.s 18
     ldloc.s 0
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int49_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int49_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int49_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int49_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int49_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int49_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int49_done
   bwd_int49_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int49_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int50_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int50_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int50_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int50_done
   bwd_int50_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int50_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int51_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int51_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int51_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int51_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int51_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int51_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int51_done
   bwd_int51_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int51_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -3229,46 +3320,46 @@
     add
     conv.i
     ldind.r4
-    stloc.s 22
+    stloc.s 35
     ldc.r4 0.79788456
-    ldloc.s 22
+    ldloc.s 35
     ldc.r4 0.044715
-    ldloc.s 22
+    ldloc.s 35
     mul
-    ldloc.s 22
+    ldloc.s 35
     mul
-    ldloc.s 22
+    ldloc.s 35
     mul
     add
     mul
-    stloc.s 23
+    stloc.s 36
     ldc.r4 2.0
-    ldloc.s 23
+    ldloc.s 36
     mul
     conv.r8
     call float64 [mscorlib]System.Math::Exp(float64)
     conv.r4
-    stloc.s 24
-    ldloc.s 24
+    stloc.s 37
+    ldloc.s 37
     ldc.r4 1.0
     sub
-    ldloc.s 24
+    ldloc.s 37
     ldc.r4 1.0
     add
     div
-    stloc.s 25
+    stloc.s 38
     ldc.r4 0.5
     ldc.r4 1.0
-    ldloc.s 25
+    ldloc.s 38
     add
     mul
-    stloc.s 26
+    stloc.s 39
     ldc.r4 0.5
-    ldloc.s 22
+    ldloc.s 35
     mul
     ldc.r4 1.0
-    ldloc.s 25
-    ldloc.s 25
+    ldloc.s 38
+    ldloc.s 38
     mul
     sub
     mul
@@ -3276,143 +3367,143 @@
     mul
     ldc.r4 1.0
     ldc.r4 0.134145
-    ldloc.s 22
+    ldloc.s 35
     mul
-    ldloc.s 22
+    ldloc.s 35
     mul
     add
     mul
-    stloc.s 27
-    ldarg.s 4
-    ldloc.s 3
-    ldloc.s 5
+    stloc.s 40
+    ldloc.s 7
+    ldloc.s 16
+    ldloc.s 18
     ldloc.s 0
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int52_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int52_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int52_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int52_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int52_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int52_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int52_done
   bwd_int52_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int52_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int53_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int53_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int53_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int53_done
   bwd_int53_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int53_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int54_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int54_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int54_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int54_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int54_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int54_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int54_done
   bwd_int54_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int54_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -3420,244 +3511,244 @@
     add
     conv.i
     ldind.r4
-    ldloc.s 26
-    ldloc.s 27
+    ldloc.s 39
+    ldloc.s 40
     add
     mul
-    stloc.s 28
-    ldarg.s 7
-    ldloc.s 3
-    ldloc.s 5
+    stloc.s 41
+    ldloc.s 10
+    ldloc.s 16
+    ldloc.s 18
     ldloc.s 0
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int55_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int55_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int55_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int55_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int55_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int55_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int55_done
   bwd_int55_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int55_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int56_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int56_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int56_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int56_done
   bwd_int56_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int56_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int57_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int57_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int57_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int57_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int57_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int57_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int57_done
   bwd_int57_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int57_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
     conv.i8
     add
     conv.i
-    ldloc.s 28
+    ldloc.s 41
     stind.r4
     ldc.i8 0
-    stloc.s 29
-    ldloc.s 5
+    stloc.s 42
+    ldloc.s 18
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int58_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int58_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int58_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int58_done
   bwd_int58_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int58_done:
-    stloc.s 5
+    stloc.s 18
     br bwd_W48_start
   bwd_W48_end:
-    ldloc.s 3
+    ldloc.s 16
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int59_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int59_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int59_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int59_done
   bwd_int59_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int59_done:
-    stloc.s 3
+    stloc.s 16
     br bwd_W47_start
   bwd_W47_end:
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 3
+    stloc.s 16
   bwd_W60_start:
-    ldloc.s 3
+    ldloc.s 16
     ldloc.s 1
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -3667,9 +3758,9 @@
     brfalse bwd_W60_end
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 5
+    stloc.s 18
   bwd_W61_start:
-    ldloc.s 5
+    ldloc.s 18
     ldloc.s 1
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -3678,63 +3769,63 @@
     clt
     brfalse bwd_W61_end
     ldc.r4 0.0
-    stloc.s 30
+    stloc.s 43
     ldc.r4 0.0
-    stloc.s 30
+    stloc.s 43
     ldc.i4 0
-    stloc.s 10
+    stloc.s 23
   bwd_W62_start:
-    ldloc.s 10
+    ldloc.s 23
     ldloc.s 0
     clt
     brfalse bwd_W62_end
-    ldarg.s 6
-    ldloc.s 10
-    ldloc.s 3
+    ldloc.s 9
+    ldloc.s 23
+    ldloc.s 16
     ldloc.s 0
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int63_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int63_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int63_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int63_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int63_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int63_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int63_done
   bwd_int63_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int63_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -3745,54 +3836,54 @@
     add
     conv.i
     ldind.r4
-    stloc.s 31
-    ldarg.s 7
+    stloc.s 44
     ldloc.s 10
-    ldloc.s 5
+    ldloc.s 23
+    ldloc.s 18
     ldloc.s 0
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int64_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int64_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int64_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int64_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int64_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int64_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int64_done
   bwd_int64_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int64_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -3803,149 +3894,149 @@
     add
     conv.i
     ldind.r4
-    stloc.s 32
-    ldloc.s 30
-    ldloc.s 31
-    ldloc.s 32
+    stloc.s 45
+    ldloc.s 43
+    ldloc.s 44
+    ldloc.s 45
     mul
     add
-    stloc.s 30
-    ldloc.s 10
+    stloc.s 43
+    ldloc.s 23
     ldc.i4 1
     add
-    stloc.s 10
+    stloc.s 23
     br bwd_W62_start
   bwd_W62_end:
-    ldarg.s 8
-    ldloc.s 3
-    ldloc.s 5
+    ldloc.s 11
+    ldloc.s 16
+    ldloc.s 18
     ldloc.s 1
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int65_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int65_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int65_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int65_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int65_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int65_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int65_done
   bwd_int65_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int65_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int66_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int66_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int66_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int66_done
   bwd_int66_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int66_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int67_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int67_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int67_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int67_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int67_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int67_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int67_done
   bwd_int67_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int67_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
@@ -3953,235 +4044,235 @@
     add
     conv.i
     ldind.r4
-    stloc.s 33
-    ldarg.s 8
-    ldloc.s 3
-    ldloc.s 5
+    stloc.s 46
+    ldloc.s 11
+    ldloc.s 16
+    ldloc.s 18
     ldloc.s 1
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int68_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int68_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int68_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int68_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int68_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int68_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int68_done
   bwd_int68_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int68_done:
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int69_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int69_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int69_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int69_done
   bwd_int69_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int69_done:
     ldc.i8 4
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int70_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int70_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int70_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int70_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 -2147483648
     blt bwd_int70_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     ldc.i8 2147483647
     bgt bwd_int70_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     mul
-    stloc.s 38
-    ldloca.s 37
-    ldloc.s 38
+    stloc.s 51
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int70_done
   bwd_int70_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::MulSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int70_done:
     call int32 TkvInt::ToI32(valuetype TkvInt)
     conv.i8
     add
     conv.i
-    ldloc.s 33
-    ldloc.s 30
+    ldloc.s 46
+    ldloc.s 43
     add
     stind.r4
     ldc.i8 0
-    stloc.s 34
-    ldloc.s 5
+    stloc.s 47
+    ldloc.s 18
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int71_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int71_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int71_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int71_done
   bwd_int71_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int71_done:
-    stloc.s 5
+    stloc.s 18
     br bwd_W61_start
   bwd_W61_end:
-    ldloc.s 3
+    ldloc.s 16
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 36
-    stloc.s 35
-    ldloca.s 35
+    stloc.s 49
+    stloc.s 48
+    ldloca.s 48
     ldfld object TkvInt::big
     brtrue bwd_int72_slow
-    ldloca.s 36
+    ldloca.s 49
     ldfld object TkvInt::big
     brtrue bwd_int72_slow
-    ldloca.s 35
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
     add
-    stloc.s 38
-    ldloca.s 35
+    stloc.s 51
+    ldloca.s 48
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
-    ldloca.s 36
+    ldloca.s 49
     ldfld int64 TkvInt::lo
-    ldloc.s 38
+    ldloc.s 51
     xor
     and
     ldc.i8 0
     blt bwd_int72_slow
-    ldloca.s 37
-    ldloc.s 38
+    ldloca.s 50
+    ldloc.s 51
     stfld int64 TkvInt::lo
-    ldloca.s 37
+    ldloca.s 50
     ldnull
     stfld object TkvInt::big
-    ldloc.s 37
+    ldloc.s 50
     br bwd_int72_done
   bwd_int72_slow:
-    ldloc.s 35
-    ldloc.s 36
+    ldloc.s 48
+    ldloc.s 49
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   bwd_int72_done:
-    stloc.s 3
+    stloc.s 16
     br bwd_W60_start
   bwd_W60_end:
     ldc.i4 0
@@ -4189,8 +4280,8 @@
   }
   .method public static int32 'run'() cil managed
   {
-    .maxstack 323
-    .locals init (int32 'rc', int32 'T', int32 'D', int32 'V', int32 'n1', int32 'n2', int32 'b1n', int32 'b2n', int32 'w1b', int32 'w2b', int64 'hW1', int64 'hW2', int64 'hb1', int64 'hb2', int64 'hX', int64 'hIds', int64 'hZ', int64 'hH', int64 'hLG', int64 'hP', int64 'hDL', int64 'hDW1', int64 'hDW2', int64 'hDB1', int64 'hDB2', int64 'hDH', int64 'hDZ', int64 'hM1', int64 'hM2', int64 'hV1', int64 'hV2', int64 'hOut', int32 'i', int32 'j', int64 'vw', int64 'vdm', int64 'vdv', int64 'vdg', int64 'vw2', int64 'vdm2', int64 'vdv2', int64 'vdg2', int64 'vb1', int64 'vdb1', int64 'vb2', int64 'vdb2', int64 'vx', int32 'vi', int32 '__idiv1000832_a', int32 '__idiv1000832_b', int32 '__idiv1000832_q', int32 '__idiv1000832_r', int64 'vid', float32 's', int32 'k', float32 'xv', float32 'wv', float32 'bv', float32 'zv', int64 'wz', float32 'zz', float32 'ee', float32 'th', float32 'hv', int64 'wh', float32 's2', float32 'hv2', float32 'w2v', float32 'b2v', int64 'wl', float32 'mx', float32 'lv', float32 'zz2', float32 'ev', int64 'wp', float32 'pv', int64 'wq', float32 'loss', int32 'idv', float32 'pv2', int32 'rcb', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN', int64 'pb', int32 'kk', int64 'wu', int64 'wvz', int64 'mc', int64 'mo', int64 'fb', int32 'rf', int64 'ww', int64 'fc', int64 'fn', int64 'cell', int64 'dW1', int64 'dM1', int64 'dV1', int64 'dG1', int64 'dW2', int64 'dM2', int64 'dV2', int64 'dG2', int64 'ww1', int64 'wm1', int64 'wv1', int64 'wg1', int64 'ww2', int64 'wm2', int64 'wv2', int64 'wg2', int64 'lr', int64 'bb1', int64 'wb1', int64 'bb2', int64 'wb2', int64 'eps', int64 'wep', int64 'wd', int64 'wdd', int64 'bc1', int64 'wbc1', int64 'bc2', int64 'wbc2', int64 'nn', int64 'wnn', int64 'par', int64 'wp0', int64 'wp1', int64 'wp2', int64 'wp3', int64 'wp4', int64 'wp5', int64 'wp6', int64 'wp7', int64 'wp8', int64 'wp9', int64 'wp10', int64 'wp11', int64 'wnn2', int64 'wp0b', int64 'wp1b', int64 'wp2b', int64 'wp3b', int64 'wr1', float32 'ov', int64 'wr2', float32 'ov2', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum', int32 '__licm158', int32 '__licm159')
+    .maxstack 336
+    .locals init (int32 'rc', int32 'T', int32 'D', int32 'V', int32 'n1', int32 'n2', int32 'b1n', int32 'b2n', int32 'w1b', int32 'w2b', int64 'hW1', int64 'hW2', int64 'hb1', int64 'hb2', int64 'hX', int64 'hIds', int64 'hZ', int64 'hH', int64 'hLG', int64 'hP', int64 'hDL', int64 'hDW1', int64 'hDW2', int64 'hDB1', int64 'hDB2', int64 'hDH', int64 'hDZ', int64 'hM1', int64 'hM2', int64 'hV1', int64 'hV2', int64 'hOut', int32 'i', int32 'j', int64 'vw', int64 'vdm', int64 'vdv', int64 'vdg', int64 'vw2', int64 'vdm2', int64 'vdv2', int64 'vdg2', int64 'vb1', int64 'vdb1', int64 'vb2', int64 'vdb2', int64 'vx', int32 'vi', int32 '__idiv1000910_a', int32 '__idiv1000910_b', int32 '__idiv1000910_q', int32 '__idiv1000910_r', int64 'vid', float32 's', int32 'k', float32 'xv', float32 'wv', float32 'bv', float32 'zv', int64 'wz', float32 'zz', float32 'ee', float32 'th', float32 'hv', int64 'wh', float32 's2', float32 'hv2', float32 'w2v', float32 'b2v', int64 'wl', float32 'mx', float32 'lv', float32 'zz2', float32 'ev', int64 'wp', float32 'pv', int64 'wq', float32 'loss', int32 'idv', float32 'pv2', int64 'pb', int64 'pb0', int64 'pb1', int64 'pb2', int64 'pb3', int64 'pb4', int64 'pb5', int64 'pb6', int64 'pb7', int64 'pb8', int64 'pb9', int64 'pb10', int64 'pb11', int64 'pb12', int32 'rcb', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN', int32 'kk', int64 'wu', int64 'wvz', int64 'mc', int64 'mo', int64 'fb', int32 'rf', int64 'ww', int64 'fc', int64 'fn', int64 'cell', int64 'dW1', int64 'dM1', int64 'dV1', int64 'dG1', int64 'dW2', int64 'dM2', int64 'dV2', int64 'dG2', int64 'ww1', int64 'wm1', int64 'wv1', int64 'wg1', int64 'ww2', int64 'wm2', int64 'wv2', int64 'wg2', int64 'lr', int64 'bb1', int64 'wb1', int64 'bb2', int64 'wb2', int64 'eps', int64 'wep', int64 'wd', int64 'wdd', int64 'bc1', int64 'wbc1', int64 'bc2', int64 'wbc2', int64 'nn', int64 'wnn', int64 'par', int64 'wp0', int64 'wp1', int64 'wp2', int64 'wp3', int64 'wp4', int64 'wp5', int64 'wp6', int64 'wp7', int64 'wp8', int64 'wp9', int64 'wp10', int64 'wp11', int64 'wnn2', int64 'wp0b', int64 'wp1b', int64 'wp2b', int64 'wp3b', int64 'wr1', float32 'ov', int64 'wr2', float32 'ov2', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum', int32 '__licm171', int32 '__licm172')
     ldc.i4 0
     call int32 TKVApp::__pinvoke_cu_init(int32)
     stloc.s 0
@@ -4724,7 +4815,7 @@
     ldloc.s 33
     ldloc.s 2
     mul
-    stloc.s 158
+    stloc.s 171
   run_W13_start:
     ldloc.s 54
     ldloc.s 2
@@ -4745,7 +4836,7 @@
     stloc.s 55
     ldloc.s 10
     ldloc.s 54
-    ldloc.s 158
+    ldloc.s 171
     add
     ldc.i4 4
     mul
@@ -4879,7 +4970,7 @@
     ldloc.s 33
     ldloc.s 2
     mul
-    stloc.s 159
+    stloc.s 172
   run_W16_start:
     ldloc.s 54
     ldloc.s 2
@@ -4900,7 +4991,7 @@
     stloc.s 66
     ldloc.s 11
     ldloc.s 54
-    ldloc.s 159
+    ldloc.s 172
     add
     ldc.i4 4
     mul
@@ -5162,22 +5253,131 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
-    ldloc.s 17
-    ldloc.s 20
-    ldloc.s 22
-    ldloc.s 24
-    ldloc.s 25
-    ldloc.s 11
-    ldloc.s 14
-    ldloc.s 26
-    ldloc.s 21
-    ldloc.s 15
-    ldloc.s 19
-    ldloc.s 18
-    ldloc.s 16
-    call int32 TKVApp::'bwd'(int64, int64, int64, int64, int64, int64, int64, int64, int64, int64, int64, int64, int64)
+    ldc.i4 104
+    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
+    conv.i8
     stloc.s 80
     ldloc.s 80
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    ldloc.s 17
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 81
+    ldloc.s 80
+    ldc.i4 8
+    conv.i8
+    add
+    conv.i
+    ldloc.s 20
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 82
+    ldloc.s 80
+    ldc.i4 16
+    conv.i8
+    add
+    conv.i
+    ldloc.s 22
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 83
+    ldloc.s 80
+    ldc.i4 24
+    conv.i8
+    add
+    conv.i
+    ldloc.s 24
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 84
+    ldloc.s 80
+    ldc.i4 32
+    conv.i8
+    add
+    conv.i
+    ldloc.s 25
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 85
+    ldloc.s 80
+    ldc.i4 40
+    conv.i8
+    add
+    conv.i
+    ldloc.s 11
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 86
+    ldloc.s 80
+    ldc.i4 48
+    conv.i8
+    add
+    conv.i
+    ldloc.s 14
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 87
+    ldloc.s 80
+    ldc.i4 56
+    conv.i8
+    add
+    conv.i
+    ldloc.s 26
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 88
+    ldloc.s 80
+    ldc.i4 64
+    conv.i8
+    add
+    conv.i
+    ldloc.s 21
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 89
+    ldloc.s 80
+    ldc.i4 72
+    conv.i8
+    add
+    conv.i
+    ldloc.s 15
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 90
+    ldloc.s 80
+    ldc.i4 80
+    conv.i8
+    add
+    conv.i
+    ldloc.s 19
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 91
+    ldloc.s 80
+    ldc.i4 88
+    conv.i8
+    add
+    conv.i
+    ldloc.s 18
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 92
+    ldloc.s 80
+    ldc.i4 96
+    conv.i8
+    add
+    conv.i
+    ldloc.s 16
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 93
+    ldloc.s 80
+    call int32 TKVApp::'bwd'(int64)
+    stloc.s 94
+    ldloc.s 94
     ldc.i4 0
     ceq
     ldc.i4.0
@@ -11031,7 +11231,7 @@
     ldc.i4 10
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    stloc.s 81
+    stloc.s 95
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
     dup
     ldc.i4 97
@@ -11085,52 +11285,52 @@
     ldc.i4 0
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    stloc.s 82
-    ldloc.s 81
+    stloc.s 96
+    ldloc.s 95
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     ldc.i4 1
     add
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 83
+    stloc.s 80
     ldc.i4 0
-    stloc.s 84
+    stloc.s 97
   run_W24_start:
-    ldloc.s 84
-    ldloc.s 81
+    ldloc.s 97
+    ldloc.s 95
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     clt
     brfalse run_W24_end
-    ldloc.s 83
+    ldloc.s 80
     conv.i
-    ldloc.s 84
-    ldloc.s 81
-    ldloc.s 84
+    ldloc.s 97
+    ldloc.s 95
+    ldloc.s 97
     callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Item(int32)
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 85
-    ldloc.s 84
+    stloc.s 98
+    ldloc.s 97
     ldc.i4 1
     add
-    stloc.s 84
+    stloc.s 97
     br run_W24_start
   run_W24_end:
-    ldloc.s 83
+    ldloc.s 80
     conv.i
-    ldloc.s 84
+    ldloc.s 97
     ldc.i4 0
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 86
+    stloc.s 99
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 87
-    ldloc.s 87
-    ldloc.s 83
+    stloc.s 100
+    ldloc.s 100
+    ldloc.s 80
     call int32 TKVApp::__pinvoke_cu_module_load(int64, int64)
     stloc.s 0
     ldloc.s 0
@@ -11149,49 +11349,49 @@
     ldc.i4 1
     ret
   run_If25_else:
-    ldloc.s 87
+    ldloc.s 100
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 88
-    ldloc.s 82
+    stloc.s 101
+    ldloc.s 96
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 89
+    stloc.s 102
     ldc.i4 0
-    stloc.s 90
+    stloc.s 103
   run_W26_start:
-    ldloc.s 90
-    ldloc.s 82
+    ldloc.s 103
+    ldloc.s 96
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     clt
     brfalse run_W26_end
-    ldloc.s 89
+    ldloc.s 102
     conv.i
-    ldloc.s 90
-    ldloc.s 82
-    ldloc.s 90
+    ldloc.s 103
+    ldloc.s 96
+    ldloc.s 103
     callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Item(int32)
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 91
-    ldloc.s 90
+    stloc.s 104
+    ldloc.s 103
     ldc.i4 1
     add
-    stloc.s 90
+    stloc.s 103
     br run_W26_start
   run_W26_end:
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 92
-    ldloc.s 92
-    ldloc.s 88
-    ldloc.s 89
+    stloc.s 105
+    ldloc.s 105
+    ldloc.s 101
+    ldloc.s 102
     call int32 TKVApp::__pinvoke_cu_module_fn(int64, int64, int64)
     stloc.s 0
     ldloc.s 0
@@ -11210,182 +11410,182 @@
     ldc.i4 1
     ret
   run_If27_else:
-    ldloc.s 92
+    ldloc.s 105
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 93
+    stloc.s 106
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 94
-    ldloc.s 94
+    stloc.s 107
+    ldloc.s 107
     ldloc.s 8
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
-    ldloc.s 94
+    ldloc.s 107
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 95
-    ldloc.s 94
+    stloc.s 108
+    ldloc.s 107
     ldloc.s 8
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
-    ldloc.s 94
+    ldloc.s 107
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 96
-    ldloc.s 94
+    stloc.s 109
+    ldloc.s 107
     ldloc.s 8
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
-    ldloc.s 94
+    ldloc.s 107
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 97
-    ldloc.s 94
+    stloc.s 110
+    ldloc.s 107
     ldloc.s 8
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
-    ldloc.s 94
+    ldloc.s 107
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 98
-    ldloc.s 94
+    stloc.s 111
+    ldloc.s 107
     ldloc.s 9
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
-    ldloc.s 94
+    ldloc.s 107
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 99
-    ldloc.s 94
+    stloc.s 112
+    ldloc.s 107
     ldloc.s 9
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
-    ldloc.s 94
+    ldloc.s 107
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 100
-    ldloc.s 94
+    stloc.s 113
+    ldloc.s 107
     ldloc.s 9
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
-    ldloc.s 94
+    ldloc.s 107
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 101
-    ldloc.s 94
+    stloc.s 114
+    ldloc.s 107
     ldloc.s 9
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
-    ldloc.s 94
+    ldloc.s 107
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 102
-    ldloc.s 95
+    stloc.s 115
+    ldloc.s 108
     ldloc.s 10
     ldloc.s 8
     conv.i8
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 103
-    ldloc.s 96
+    stloc.s 116
+    ldloc.s 109
     ldloc.s 27
     ldloc.s 8
     conv.i8
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 104
-    ldloc.s 97
+    stloc.s 117
+    ldloc.s 110
     ldloc.s 29
     ldloc.s 8
     conv.i8
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 105
-    ldloc.s 98
+    stloc.s 118
+    ldloc.s 111
     ldloc.s 21
     ldloc.s 8
     conv.i8
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 106
-    ldloc.s 99
+    stloc.s 119
+    ldloc.s 112
     ldloc.s 11
     ldloc.s 9
     conv.i8
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 107
-    ldloc.s 100
+    stloc.s 120
+    ldloc.s 113
     ldloc.s 28
     ldloc.s 9
     conv.i8
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 108
-    ldloc.s 101
+    stloc.s 121
+    ldloc.s 114
     ldloc.s 30
     ldloc.s 9
     conv.i8
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 109
-    ldloc.s 102
+    stloc.s 122
+    ldloc.s 115
     ldloc.s 22
     ldloc.s 9
     conv.i8
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 110
+    stloc.s 123
     ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 111
-    ldloc.s 111
+    stloc.s 124
+    ldloc.s 124
     ldc.i4 0
     conv.i8
     add
@@ -11397,8 +11597,8 @@
     ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 112
-    ldloc.s 112
+    stloc.s 125
+    ldloc.s 125
     ldc.i4 0
     conv.i8
     add
@@ -11406,12 +11606,12 @@
     ldc.r4 0.9
     stind.r4
     ldc.i8 0
-    stloc.s 113
+    stloc.s 126
     ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 114
-    ldloc.s 114
+    stloc.s 127
+    ldloc.s 127
     ldc.i4 0
     conv.i8
     add
@@ -11419,12 +11619,12 @@
     ldc.r4 0.999
     stind.r4
     ldc.i8 0
-    stloc.s 115
+    stloc.s 128
     ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 116
-    ldloc.s 116
+    stloc.s 129
+    ldloc.s 129
     ldc.i4 0
     conv.i8
     add
@@ -11432,12 +11632,12 @@
     ldc.r4 0.00000001
     stind.r4
     ldc.i8 0
-    stloc.s 117
+    stloc.s 130
     ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 118
-    ldloc.s 118
+    stloc.s 131
+    ldloc.s 131
     ldc.i4 0
     conv.i8
     add
@@ -11445,12 +11645,12 @@
     ldc.r4 0.01
     stind.r4
     ldc.i8 0
-    stloc.s 119
+    stloc.s 132
     ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 120
-    ldloc.s 120
+    stloc.s 133
+    ldloc.s 133
     ldc.i4 0
     conv.i8
     add
@@ -11458,12 +11658,12 @@
     ldc.r4 0.1
     stind.r4
     ldc.i8 0
-    stloc.s 121
+    stloc.s 134
     ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 122
-    ldloc.s 122
+    stloc.s 135
+    ldloc.s 135
     ldc.i4 0
     conv.i8
     add
@@ -11471,12 +11671,12 @@
     ldc.r4 0.001
     stind.r4
     ldc.i8 0
-    stloc.s 123
+    stloc.s 136
     ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 124
-    ldloc.s 124
+    stloc.s 137
+    ldloc.s 137
     ldc.i4 0
     conv.i8
     add
@@ -11484,120 +11684,120 @@
     ldloc.s 4
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt32(native int, int32)
     ldc.i8 0
-    stloc.s 125
+    stloc.s 138
     ldc.i4 96
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 126
-    ldloc.s 126
+    stloc.s 139
+    ldloc.s 139
     ldc.i4 0
     conv.i8
     add
     conv.i
-    ldloc.s 95
+    ldloc.s 108
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 127
-    ldloc.s 126
+    stloc.s 140
+    ldloc.s 139
     ldc.i4 8
     conv.i8
     add
     conv.i
-    ldloc.s 96
+    ldloc.s 109
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 128
-    ldloc.s 126
+    stloc.s 141
+    ldloc.s 139
     ldc.i4 16
     conv.i8
     add
     conv.i
-    ldloc.s 97
+    ldloc.s 110
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 129
-    ldloc.s 126
+    stloc.s 142
+    ldloc.s 139
     ldc.i4 24
-    conv.i8
-    add
-    conv.i
-    ldloc.s 98
-    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
-    ldc.i8 0
-    stloc.s 130
-    ldloc.s 126
-    ldc.i4 32
-    conv.i8
-    add
-    conv.i
-    ldloc.s 124
-    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
-    ldc.i8 0
-    stloc.s 131
-    ldloc.s 126
-    ldc.i4 40
     conv.i8
     add
     conv.i
     ldloc.s 111
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 132
-    ldloc.s 126
+    stloc.s 143
+    ldloc.s 139
+    ldc.i4 32
+    conv.i8
+    add
+    conv.i
+    ldloc.s 137
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 144
+    ldloc.s 139
+    ldc.i4 40
+    conv.i8
+    add
+    conv.i
+    ldloc.s 124
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 145
+    ldloc.s 139
     ldc.i4 48
     conv.i8
     add
     conv.i
-    ldloc.s 112
+    ldloc.s 125
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 133
-    ldloc.s 126
+    stloc.s 146
+    ldloc.s 139
     ldc.i4 56
     conv.i8
     add
     conv.i
-    ldloc.s 114
+    ldloc.s 127
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 134
-    ldloc.s 126
+    stloc.s 147
+    ldloc.s 139
     ldc.i4 64
     conv.i8
     add
     conv.i
-    ldloc.s 116
+    ldloc.s 129
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 135
-    ldloc.s 126
+    stloc.s 148
+    ldloc.s 139
     ldc.i4 72
     conv.i8
     add
     conv.i
-    ldloc.s 118
+    ldloc.s 131
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 136
-    ldloc.s 126
+    stloc.s 149
+    ldloc.s 139
     ldc.i4 80
     conv.i8
     add
     conv.i
-    ldloc.s 120
+    ldloc.s 133
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 137
-    ldloc.s 126
+    stloc.s 150
+    ldloc.s 139
     ldc.i4 88
     conv.i8
     add
     conv.i
-    ldloc.s 122
+    ldloc.s 135
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 138
-    ldloc.s 93
+    stloc.s 151
+    ldloc.s 106
     ldc.i4 1
     ldc.i4 1
     ldc.i4 1
@@ -11606,7 +11806,7 @@
     ldc.i4 1
     ldc.i4 0
     ldc.i8 0
-    ldloc.s 126
+    ldloc.s 139
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 0
@@ -11626,7 +11826,7 @@
     ldc.i4 1
     ret
   run_If28_else:
-    ldloc.s 124
+    ldloc.s 137
     ldc.i4 0
     conv.i8
     add
@@ -11634,44 +11834,44 @@
     ldloc.s 5
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt32(native int, int32)
     ldc.i8 0
-    stloc.s 139
-    ldloc.s 126
+    stloc.s 152
+    ldloc.s 139
     ldc.i4 0
     conv.i8
     add
     conv.i
-    ldloc.s 99
+    ldloc.s 112
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 140
-    ldloc.s 126
+    stloc.s 153
+    ldloc.s 139
     ldc.i4 8
     conv.i8
     add
     conv.i
-    ldloc.s 100
+    ldloc.s 113
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 141
-    ldloc.s 126
+    stloc.s 154
+    ldloc.s 139
     ldc.i4 16
     conv.i8
     add
     conv.i
-    ldloc.s 101
+    ldloc.s 114
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 142
-    ldloc.s 126
+    stloc.s 155
+    ldloc.s 139
     ldc.i4 24
     conv.i8
     add
     conv.i
-    ldloc.s 102
+    ldloc.s 115
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 143
-    ldloc.s 93
+    stloc.s 156
+    ldloc.s 106
     ldc.i4 1
     ldc.i4 1
     ldc.i4 1
@@ -11680,7 +11880,7 @@
     ldc.i4 1
     ldc.i4 0
     ldc.i8 0
-    ldloc.s 126
+    ldloc.s 139
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 0
@@ -11701,13 +11901,13 @@
     ret
   run_If29_else:
     ldloc.s 31
-    ldloc.s 95
+    ldloc.s 108
     ldloc.s 8
     conv.i8
     ldc.i4 2
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 144
+    stloc.s 157
     ldc.i4 0
     stloc.s 32
   run_W30_start:
@@ -11723,7 +11923,7 @@
     add
     conv.i
     ldind.r4
-    stloc.s 145
+    stloc.s 158
     ldstr "W1NEW"
     ldstr " "
     ldloc.s 32
@@ -11731,7 +11931,7 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     ldstr " "
-    ldloc.s 145
+    ldloc.s 158
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
@@ -11743,13 +11943,13 @@
     br run_W30_start
   run_W30_end:
     ldloc.s 31
-    ldloc.s 99
+    ldloc.s 112
     ldloc.s 9
     conv.i8
     ldc.i4 2
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 146
+    stloc.s 159
     ldc.i4 0
     stloc.s 32
   run_W31_start:
@@ -11765,7 +11965,7 @@
     add
     conv.i
     ldind.r4
-    stloc.s 147
+    stloc.s 160
     ldstr "W2NEW"
     ldstr " "
     ldloc.s 32
@@ -11773,7 +11973,7 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     ldstr " "
-    ldloc.s 147
+    ldloc.s 160
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
