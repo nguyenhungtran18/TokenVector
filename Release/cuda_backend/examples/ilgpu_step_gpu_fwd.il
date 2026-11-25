@@ -1229,7 +1229,7 @@
   .method public static int32 'run'() cil managed
   {
     .maxstack 234
-    .locals init (int32 'rc', int64 'hc', int64 'ch', int32 'T', int32 'D', int32 'V', int32 'td', int32 'dv', int32 'tb', int32 'vb', int64 'hX', int64 'hW1', int64 'hW2', int64 'hb1', int64 'hb2', int64 'hIds', int64 'hLG', int64 'hcell', int64 'ha', int64 'wa1', int64 'hb', int64 'wb0', int32 'i', int32 'j', int64 'wx', int32 'idv', int32 '__idiv1000097_a', int32 '__idiv1000097_b', int32 '__idiv1000097_q', int32 '__idiv1000097_r', int64 'wids', int64 'ww1', int64 'wb1', int64 'ww2', int64 'wb2', int64 'cell', int64 'dX', int64 'dW1', int64 'dZ', int64 'dH', int64 'dW2', int64 'dLG', int64 'db1', int64 'db2', int64 'hbe1', int64 'hbe2', int32 'ii', int32 'jj', float32 'bv1', int64 'wbe1', float32 'bv2', int64 'wbe2', int64 'dbe1', int64 'dbe2', int64 'wbe1d', int64 'wbe2d', int64 'wa', int64 'wb', int64 'wc', int64 'wd', int64 'we', int32 'dz', float32 'zv', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX2', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN2', int64 'p2', valuetype TkvInt 'k2', int64 'wu2', int64 'wz2', int64 'm2', int64 'o2', int64 'f2', valuetype TkvInt 'r2', int64 'ww2b', int64 'c2', int64 'fn2', int64 'b0', int64 'b1p', int64 'wb1p', int64 'b2p', int64 'wb2p', int64 'b3p', int64 'wb3p', int64 'pa2', int64 'wp20', int64 'wp21', int64 'wp22', int64 'wp23', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX3', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN3', int64 'p3', int32 'k3', int64 'wu3', int64 'wz3', int64 'm3', int64 'o3', int64 'f3', int32 'r3', int64 'ww3', int64 'c3', int64 'fn3', int64 'g0', int64 'wg0', int64 'g1', int64 'wg1', int64 'g2', int64 'wg2', int64 'pag', int64 'wg3', int64 'wg4', int64 'wg5', int32 'dh2', float32 'hv2', int64 'q0', int64 'wq0', int64 'q1', int64 'wq1', int64 'q2', int64 'wq2', int64 'q3', int64 'wq3n', int64 'paq', int64 'wq4', int64 'wq5', int64 'wq6', int64 'wq7', int64 'wr', int32 'dl2', float32 'lgv', float32 'loss', float32 'mx', float32 'lv', float32 'zsum', float32 'ev', int32 'idv2', float32 'lv2', float32 'ev2', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
+    .locals init (int32 'rc', int64 'hc', int64 'ch', int32 'T', int32 'D', int32 'V', int32 'td', int32 'dv', int32 'tb', int32 'vb', int64 'hX', int64 'hW1', int64 'hW2', int64 'hb1', int64 'hb2', int64 'hIds', int64 'hLG', int64 'hcell', int64 'ha', int64 'wa1', int64 'hb', int64 'wb0', int32 'i', int32 'j', int64 'wx', int32 'idv', int32 '__idiv1000097_a', int32 '__idiv1000097_b', int32 '__idiv1000097_q', int32 '__idiv1000097_r', int64 'wids', int64 'ww1', int64 'wb1', int64 'ww2', int64 'wb2', int64 'cell', int64 'dX', int64 'dW1', int64 'dZ', int64 'dH', int64 'dW2', int64 'dLG', int64 'db1', int64 'db2', int64 'hbe1', int64 'hbe2', int32 'ii', int32 'jj', float32 'bv1', int64 'wbe1', float32 'bv2', int64 'wbe2', int64 'dbe1', int64 'dbe2', int64 'wbe1d', int64 'wbe2d', int64 'wa', int64 'wb', int64 'wc', int64 'wd', int64 'we', int64 'wzdiag', int32 'dz', float32 'zv', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX2', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN2', int64 'p2', valuetype TkvInt 'k2', int64 'wu2', int64 'wz2', int64 'm2', int64 'o2', int64 'f2', valuetype TkvInt 'r2', int64 'ww2b', int64 'c2', int64 'fn2', int64 'b0', int64 'b1p', int64 'wb1p', int64 'b2p', int64 'wb2p', int64 'b3p', int64 'wb3p', int64 'pa2', int64 'wp20', int64 'wp21', int64 'wp22', int64 'wp23', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX3', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN3', int64 'p3', int32 'k3', int64 'wu3', int64 'wz3', int64 'm3', int64 'o3', int64 'f3', int32 'r3', int64 'ww3', int64 'c3', int64 'fn3', int64 'g0', int64 'wg0', int64 'g1', int64 'wg1', int64 'g2', int64 'wg2', int64 'pag', int64 'wg3', int64 'wg4', int64 'wg5', int64 'whdiag', int32 'dh2', float32 'hv2', int64 'q0', int64 'wq0', int64 'q1', int64 'wq1', int64 'q2', int64 'wq2', int64 'q3', int64 'wq3n', int64 'paq', int64 'wq4', int64 'wq5', int64 'wq6', int64 'wq7', int64 'wr', int32 'dl2', float32 'lgv', float32 'loss', float32 'mx', float32 'lv', float32 'zsum', float32 'ev', int32 'idv2', float32 'lv2', float32 'ev2', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
     ldc.i4 0
     call int32 TKVApp::__pinvoke_cu_init(int32)
     stloc.s 0
@@ -1906,38 +1906,46 @@
     ldc.i4 1
     ret
   run_If14_else:
-    ldc.i4 0
+    ldloc.s 16
+    ldloc.s 38
+    ldloc.s 8
+    conv.i8
+    ldc.i4 2
+    call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
+    conv.i8
     stloc.s 61
+    ldc.i4 0
+    stloc.s 62
   run_W15_start:
-    ldloc.s 61
+    ldloc.s 62
     ldc.i4 8
     clt
     brfalse run_W15_end
     ldloc.s 16
-    ldloc.s 61
+    ldloc.s 62
     ldc.i4 4
     mul
     conv.i8
     add
     conv.i
     ldind.r4
-    stloc.s 62
+    stloc.s 63
     ldstr "Z"
     ldstr " "
-    ldloc.s 61
+    ldloc.s 62
     call string TkvStr::I32(int32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     ldstr " "
-    ldloc.s 62
+    ldloc.s 63
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
-    ldloc.s 61
+    ldloc.s 62
     ldc.i4 1
     add
-    stloc.s 61
+    stloc.s 62
     br run_W15_start
   run_W15_end:
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
@@ -4301,7 +4309,7 @@
     ldc.i4 10
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    stloc.s 63
+    stloc.s 64
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
     dup
     ldc.i4 98
@@ -4363,20 +4371,20 @@
     ldc.i4 0
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    stloc.s 64
-    ldloc.s 63
+    stloc.s 65
+    ldloc.s 64
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     ldc.i4 1
     add
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 65
+    stloc.s 66
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 66
+    stloc.s 67
   run_W16_start:
-    ldloc.s 66
-    ldloc.s 63
+    ldloc.s 67
+    ldloc.s 64
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -4384,77 +4392,77 @@
     ldc.i4.0
     clt
     brfalse run_W16_end
-    ldloc.s 65
+    ldloc.s 66
     conv.i
-    ldloc.s 66
+    ldloc.s 67
     call int32 TkvInt::ToI32(valuetype TkvInt)
-    ldloc.s 63
-    ldloc.s 66
+    ldloc.s 64
+    ldloc.s 67
     call int32 TkvInt::ToI32(valuetype TkvInt)
     callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Item(int32)
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 67
-    ldloc.s 66
+    stloc.s 68
+    ldloc.s 67
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 138
-    stloc.s 137
-    ldloca.s 137
+    stloc.s 140
+    stloc.s 139
+    ldloca.s 139
     ldfld object TkvInt::big
     brtrue run_int17_slow
-    ldloca.s 138
+    ldloca.s 140
     ldfld object TkvInt::big
     brtrue run_int17_slow
-    ldloca.s 137
+    ldloca.s 139
     ldfld int64 TkvInt::lo
-    ldloca.s 138
+    ldloca.s 140
     ldfld int64 TkvInt::lo
     add
-    stloc.s 140
-    ldloca.s 137
+    stloc.s 142
+    ldloca.s 139
     ldfld int64 TkvInt::lo
-    ldloc.s 140
+    ldloc.s 142
     xor
-    ldloca.s 138
+    ldloca.s 140
     ldfld int64 TkvInt::lo
-    ldloc.s 140
+    ldloc.s 142
     xor
     and
     ldc.i8 0
     blt run_int17_slow
-    ldloca.s 139
-    ldloc.s 140
+    ldloca.s 141
+    ldloc.s 142
     stfld int64 TkvInt::lo
-    ldloca.s 139
+    ldloca.s 141
     ldnull
     stfld object TkvInt::big
-    ldloc.s 139
+    ldloc.s 141
     br run_int17_done
   run_int17_slow:
-    ldloc.s 137
-    ldloc.s 138
+    ldloc.s 139
+    ldloc.s 140
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   run_int17_done:
-    stloc.s 66
+    stloc.s 67
     br run_W16_start
   run_W16_end:
-    ldloc.s 65
-    conv.i
     ldloc.s 66
+    conv.i
+    ldloc.s 67
     call int32 TkvInt::ToI32(valuetype TkvInt)
     ldc.i4 0
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 68
+    stloc.s 69
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 69
-    ldloc.s 69
-    ldloc.s 65
+    stloc.s 70
+    ldloc.s 70
+    ldloc.s 66
     call int32 TKVApp::__pinvoke_cu_module_load(int64, int64)
     stloc.s 0
     ldloc.s 0
@@ -4473,24 +4481,24 @@
     ldc.i4 1
     ret
   run_If18_else:
-    ldloc.s 69
+    ldloc.s 70
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 70
-    ldloc.s 64
+    stloc.s 71
+    ldloc.s 65
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 71
+    stloc.s 72
     ldc.i8 0
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 72
+    stloc.s 73
   run_W19_start:
-    ldloc.s 72
-    ldloc.s 64
+    ldloc.s 73
+    ldloc.s 65
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     conv.i8
     call valuetype TkvInt TkvInt::FromI64(int64)
@@ -4498,83 +4506,83 @@
     ldc.i4.0
     clt
     brfalse run_W19_end
-    ldloc.s 71
+    ldloc.s 72
     conv.i
-    ldloc.s 72
+    ldloc.s 73
     call int32 TkvInt::ToI32(valuetype TkvInt)
-    ldloc.s 64
-    ldloc.s 72
+    ldloc.s 65
+    ldloc.s 73
     call int32 TkvInt::ToI32(valuetype TkvInt)
     callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Item(int32)
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 73
-    ldloc.s 72
+    stloc.s 74
+    ldloc.s 73
     ldc.i8 1
     call valuetype TkvInt TkvInt::FromI64(int64)
-    stloc.s 138
-    stloc.s 137
-    ldloca.s 137
+    stloc.s 140
+    stloc.s 139
+    ldloca.s 139
     ldfld object TkvInt::big
     brtrue run_int20_slow
-    ldloca.s 138
+    ldloca.s 140
     ldfld object TkvInt::big
     brtrue run_int20_slow
-    ldloca.s 137
+    ldloca.s 139
     ldfld int64 TkvInt::lo
-    ldloca.s 138
+    ldloca.s 140
     ldfld int64 TkvInt::lo
     add
-    stloc.s 140
-    ldloca.s 137
+    stloc.s 142
+    ldloca.s 139
     ldfld int64 TkvInt::lo
-    ldloc.s 140
+    ldloc.s 142
     xor
-    ldloca.s 138
+    ldloca.s 140
     ldfld int64 TkvInt::lo
-    ldloc.s 140
+    ldloc.s 142
     xor
     and
     ldc.i8 0
     blt run_int20_slow
-    ldloca.s 139
-    ldloc.s 140
+    ldloca.s 141
+    ldloc.s 142
     stfld int64 TkvInt::lo
-    ldloca.s 139
+    ldloca.s 141
     ldnull
     stfld object TkvInt::big
-    ldloc.s 139
+    ldloc.s 141
     br run_int20_done
   run_int20_slow:
-    ldloc.s 137
-    ldloc.s 138
+    ldloc.s 139
+    ldloc.s 140
     call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
   run_int20_done:
-    stloc.s 72
+    stloc.s 73
     br run_W19_start
   run_W19_end:
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 74
-    ldloc.s 74
-    ldloc.s 70
+    stloc.s 75
+    ldloc.s 75
     ldloc.s 71
+    ldloc.s 72
     call int32 TKVApp::__pinvoke_cu_module_fn(int64, int64, int64)
     stloc.s 0
-    ldloc.s 74
+    ldloc.s 75
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 75
+    stloc.s 76
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 76
-    ldloc.s 76
+    stloc.s 77
+    ldloc.s 77
     ldc.i4 0
     conv.i8
     add
@@ -4586,8 +4594,8 @@
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 77
-    ldloc.s 77
+    stloc.s 78
+    ldloc.s 78
     ldc.i4 0
     conv.i8
     add
@@ -4595,12 +4603,12 @@
     ldloc.s 52
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 78
+    stloc.s 79
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 79
-    ldloc.s 79
+    stloc.s 80
+    ldloc.s 80
     ldc.i4 0
     conv.i8
     add
@@ -4608,12 +4616,12 @@
     ldloc.s 6
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt32(native int, int32)
     ldc.i8 0
-    stloc.s 80
+    stloc.s 81
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 81
-    ldloc.s 81
+    stloc.s 82
+    ldloc.s 82
     ldc.i4 0
     conv.i8
     add
@@ -4621,22 +4629,13 @@
     ldloc.s 38
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 82
+    stloc.s 83
     ldc.i4 32
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 83
-    ldloc.s 83
-    ldc.i4 0
-    conv.i8
-    add
-    conv.i
-    ldloc.s 76
-    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
-    ldc.i8 0
     stloc.s 84
-    ldloc.s 83
-    ldc.i4 8
+    ldloc.s 84
+    ldc.i4 0
     conv.i8
     add
     conv.i
@@ -4644,25 +4643,34 @@
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
     stloc.s 85
-    ldloc.s 83
+    ldloc.s 84
+    ldc.i4 8
+    conv.i8
+    add
+    conv.i
+    ldloc.s 78
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 86
+    ldloc.s 84
     ldc.i4 16
     conv.i8
     add
     conv.i
-    ldloc.s 81
+    ldloc.s 82
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 86
-    ldloc.s 83
+    stloc.s 87
+    ldloc.s 84
     ldc.i4 24
     conv.i8
     add
     conv.i
-    ldloc.s 79
+    ldloc.s 80
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 87
-    ldloc.s 75
+    stloc.s 88
+    ldloc.s 76
     ldc.i4 1
     ldc.i4 1
     ldc.i4 1
@@ -4671,7 +4679,7 @@
     ldc.i4 1
     ldc.i4 0
     ldc.i8 0
-    ldloc.s 83
+    ldloc.s 84
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 0
@@ -7460,7 +7468,7 @@
     ldc.i4 10
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    stloc.s 88
+    stloc.s 89
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
     dup
     ldc.i4 103
@@ -7510,52 +7518,52 @@
     ldc.i4 0
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    stloc.s 89
-    ldloc.s 88
+    stloc.s 90
+    ldloc.s 89
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     ldc.i4 1
     add
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 90
-    ldc.i4 0
     stloc.s 91
+    ldc.i4 0
+    stloc.s 92
   run_W22_start:
-    ldloc.s 91
-    ldloc.s 88
+    ldloc.s 92
+    ldloc.s 89
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     clt
     brfalse run_W22_end
-    ldloc.s 90
+    ldloc.s 91
     conv.i
-    ldloc.s 91
-    ldloc.s 88
-    ldloc.s 91
+    ldloc.s 92
+    ldloc.s 89
+    ldloc.s 92
     callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Item(int32)
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 92
-    ldloc.s 91
+    stloc.s 93
+    ldloc.s 92
     ldc.i4 1
     add
-    stloc.s 91
+    stloc.s 92
     br run_W22_start
   run_W22_end:
-    ldloc.s 90
-    conv.i
     ldloc.s 91
+    conv.i
+    ldloc.s 92
     ldc.i4 0
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 93
+    stloc.s 94
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 94
-    ldloc.s 94
-    ldloc.s 90
+    stloc.s 95
+    ldloc.s 95
+    ldloc.s 91
     call int32 TKVApp::__pinvoke_cu_module_load(int64, int64)
     stloc.s 0
     ldloc.s 0
@@ -7574,63 +7582,63 @@
     ldc.i4 1
     ret
   run_If23_else:
-    ldloc.s 94
+    ldloc.s 95
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 95
-    ldloc.s 89
+    stloc.s 96
+    ldloc.s 90
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 96
-    ldc.i4 0
     stloc.s 97
+    ldc.i4 0
+    stloc.s 98
   run_W24_start:
-    ldloc.s 97
-    ldloc.s 89
+    ldloc.s 98
+    ldloc.s 90
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     clt
     brfalse run_W24_end
-    ldloc.s 96
+    ldloc.s 97
     conv.i
-    ldloc.s 97
-    ldloc.s 89
-    ldloc.s 97
+    ldloc.s 98
+    ldloc.s 90
+    ldloc.s 98
     callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Item(int32)
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 98
-    ldloc.s 97
+    stloc.s 99
+    ldloc.s 98
     ldc.i4 1
     add
-    stloc.s 97
+    stloc.s 98
     br run_W24_start
   run_W24_end:
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 99
-    ldloc.s 99
-    ldloc.s 95
+    stloc.s 100
+    ldloc.s 100
     ldloc.s 96
+    ldloc.s 97
     call int32 TKVApp::__pinvoke_cu_module_fn(int64, int64, int64)
     stloc.s 0
-    ldloc.s 99
+    ldloc.s 100
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 100
+    stloc.s 101
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 101
-    ldloc.s 101
+    stloc.s 102
+    ldloc.s 102
     ldc.i4 0
     conv.i8
     add
@@ -7638,12 +7646,12 @@
     ldloc.s 38
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 102
+    stloc.s 103
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 103
-    ldloc.s 103
+    stloc.s 104
+    ldloc.s 104
     ldc.i4 0
     conv.i8
     add
@@ -7651,12 +7659,12 @@
     ldloc.s 39
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 104
+    stloc.s 105
     ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 105
-    ldloc.s 105
+    stloc.s 106
+    ldloc.s 106
     ldc.i4 0
     conv.i8
     add
@@ -7664,39 +7672,39 @@
     ldloc.s 6
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt32(native int, int32)
     ldc.i8 0
-    stloc.s 106
+    stloc.s 107
     ldc.i4 24
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 107
-    ldloc.s 107
+    stloc.s 108
+    ldloc.s 108
     ldc.i4 0
     conv.i8
     add
     conv.i
-    ldloc.s 101
+    ldloc.s 102
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 108
-    ldloc.s 107
+    stloc.s 109
+    ldloc.s 108
     ldc.i4 8
     conv.i8
     add
     conv.i
-    ldloc.s 103
+    ldloc.s 104
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 109
-    ldloc.s 107
+    stloc.s 110
+    ldloc.s 108
     ldc.i4 16
     conv.i8
     add
     conv.i
-    ldloc.s 105
+    ldloc.s 106
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 110
-    ldloc.s 100
+    stloc.s 111
+    ldloc.s 101
     ldc.i4 1
     ldc.i4 1
     ldc.i4 1
@@ -7705,7 +7713,7 @@
     ldc.i4 1
     ldc.i4 0
     ldc.i8 0
-    ldloc.s 107
+    ldloc.s 108
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 0
@@ -7725,38 +7733,46 @@
     ldc.i4 1
     ret
   run_If25_else:
+    ldloc.s 16
+    ldloc.s 39
+    ldloc.s 8
+    conv.i8
+    ldc.i4 2
+    call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
+    conv.i8
+    stloc.s 112
     ldc.i4 0
-    stloc.s 111
+    stloc.s 113
   run_W26_start:
-    ldloc.s 111
+    ldloc.s 113
     ldc.i4 8
     clt
     brfalse run_W26_end
     ldloc.s 16
-    ldloc.s 111
+    ldloc.s 113
     ldc.i4 4
     mul
     conv.i8
     add
     conv.i
     ldind.r4
-    stloc.s 112
+    stloc.s 114
     ldstr "H"
     ldstr " "
-    ldloc.s 111
+    ldloc.s 113
     call string TkvStr::I32(int32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     ldstr " "
-    ldloc.s 112
+    ldloc.s 114
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
-    ldloc.s 111
+    ldloc.s 113
     ldc.i4 1
     add
-    stloc.s 111
+    stloc.s 113
     br run_W26_start
   run_W26_end:
     ldloc.s 2
@@ -7794,26 +7810,13 @@
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 113
-    ldloc.s 113
-    ldc.i4 0
-    conv.i8
-    add
-    conv.i
-    ldloc.s 41
-    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
-    ldc.i8 0
-    stloc.s 114
-    ldc.i4 8
-    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
-    conv.i8
     stloc.s 115
     ldloc.s 115
     ldc.i4 0
     conv.i8
     add
     conv.i
-    ldloc.s 53
+    ldloc.s 41
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
     stloc.s 116
@@ -7826,11 +7829,11 @@
     conv.i8
     add
     conv.i
-    ldloc.s 41
+    ldloc.s 53
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
     stloc.s 118
-    ldc.i4 4
+    ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
     stloc.s 119
@@ -7839,11 +7842,11 @@
     conv.i8
     add
     conv.i
-    ldloc.s 7
-    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt32(native int, int32)
+    ldloc.s 41
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
     stloc.s 120
-    ldc.i4 32
+    ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
     stloc.s 121
@@ -7852,38 +7855,51 @@
     conv.i8
     add
     conv.i
-    ldloc.s 113
-    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldloc.s 7
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt32(native int, int32)
     ldc.i8 0
     stloc.s 122
-    ldloc.s 121
-    ldc.i4 8
+    ldc.i4 32
+    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
+    conv.i8
+    stloc.s 123
+    ldloc.s 123
+    ldc.i4 0
     conv.i8
     add
     conv.i
     ldloc.s 115
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 123
-    ldloc.s 121
-    ldc.i4 16
+    stloc.s 124
+    ldloc.s 123
+    ldc.i4 8
     conv.i8
     add
     conv.i
     ldloc.s 117
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 124
-    ldloc.s 121
-    ldc.i4 24
+    stloc.s 125
+    ldloc.s 123
+    ldc.i4 16
     conv.i8
     add
     conv.i
     ldloc.s 119
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 125
-    ldloc.s 75
+    stloc.s 126
+    ldloc.s 123
+    ldc.i4 24
+    conv.i8
+    add
+    conv.i
+    ldloc.s 121
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 127
+    ldloc.s 76
     ldc.i4 1
     ldc.i4 1
     ldc.i4 1
@@ -7892,7 +7908,7 @@
     ldc.i4 1
     ldc.i4 0
     ldc.i8 0
-    ldloc.s 121
+    ldloc.s 123
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 0
@@ -7919,7 +7935,7 @@
     ldc.i4 2
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 126
+    stloc.s 128
     ldloc.s 16
     ldloc.s 41
     ldloc.s 9
@@ -7927,43 +7943,43 @@
     ldc.i4 2
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 126
+    stloc.s 128
     ldc.i4 0
-    stloc.s 127
+    stloc.s 129
   run_W29_start:
-    ldloc.s 127
+    ldloc.s 129
     ldc.i4 8
     clt
     brfalse run_W29_end
     ldloc.s 16
-    ldloc.s 127
+    ldloc.s 129
     ldc.i4 4
     mul
     conv.i8
     add
     conv.i
     ldind.r4
-    stloc.s 128
+    stloc.s 130
     ldstr "LG"
     ldstr " "
-    ldloc.s 127
+    ldloc.s 129
     call string TkvStr::I32(int32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     ldstr " "
-    ldloc.s 128
+    ldloc.s 130
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
-    ldloc.s 127
+    ldloc.s 129
     ldc.i4 1
     add
-    stloc.s 127
+    stloc.s 129
     br run_W29_start
   run_W29_end:
     ldc.r4 0.0
-    stloc.s 129
+    stloc.s 131
     ldc.i4 0
     stloc.s 22
   run_W30_start:
@@ -7973,7 +7989,7 @@
     brfalse run_W30_end
     ldc.r4 1000000000.0
     neg
-    stloc.s 130
+    stloc.s 132
     ldc.i4 0
     stloc.s 23
   run_W31_start:
@@ -7993,13 +8009,13 @@
     add
     conv.i
     ldind.r4
-    stloc.s 131
-    ldloc.s 131
-    ldloc.s 130
+    stloc.s 133
+    ldloc.s 133
+    ldloc.s 132
     cgt
     brfalse run_If32_else
-    ldloc.s 131
-    stloc.s 130
+    ldloc.s 133
+    stloc.s 132
   run_If32_else:
     ldloc.s 23
     ldc.i4 1
@@ -8008,7 +8024,7 @@
     br run_W31_start
   run_W31_end:
     ldc.r4 0.0
-    stloc.s 132
+    stloc.s 134
     ldc.i4 0
     stloc.s 23
   run_W33_start:
@@ -8028,18 +8044,18 @@
     add
     conv.i
     ldind.r4
-    stloc.s 131
-    ldloc.s 131
-    ldloc.s 130
+    stloc.s 133
+    ldloc.s 133
+    ldloc.s 132
     sub
     conv.r8
     call float64 [mscorlib]System.Math::Exp(float64)
     conv.r4
-    stloc.s 133
-    ldloc.s 132
-    ldloc.s 133
+    stloc.s 135
+    ldloc.s 134
+    ldloc.s 135
     add
-    stloc.s 132
+    stloc.s 134
     ldloc.s 23
     ldc.i4 1
     add
@@ -8054,10 +8070,10 @@
     add
     conv.i
     call int32 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt32(native int)
-    stloc.s 134
+    stloc.s 136
     ldloc.s 16
     ldloc.s 22
-    ldloc.s 134
+    ldloc.s 136
     ldloc.s 3
     mul
     add
@@ -8067,36 +8083,36 @@
     add
     conv.i
     ldind.r4
-    stloc.s 135
-    ldloc.s 135
-    ldloc.s 130
+    stloc.s 137
+    ldloc.s 137
+    ldloc.s 132
     sub
     conv.r8
     call float64 [mscorlib]System.Math::Exp(float64)
     conv.r4
-    stloc.s 136
-    ldloc.s 129
-    ldloc.s 136
-    ldloc.s 132
+    stloc.s 138
+    ldloc.s 131
+    ldloc.s 138
+    ldloc.s 134
     div
     conv.r8
     call float64 [mscorlib]System.Math::Log(float64)
     conv.r4
     sub
-    stloc.s 129
+    stloc.s 131
     ldloc.s 22
     ldc.i4 1
     add
     stloc.s 22
     br run_W30_start
   run_W30_end:
-    ldloc.s 129
+    ldloc.s 131
     ldc.r4 4.0
     div
-    stloc.s 129
+    stloc.s 131
     ldstr "LOSS"
     ldstr " "
-    ldloc.s 129
+    ldloc.s 131
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)

@@ -133,6 +133,7 @@ def run() -> "i32":
         print("GEMM1 FAIL", rc)
         return 1
     # BIASADD Z += b1 ; GELU Z -> H
+    wzdiag: "i64" = cuda_h2d(hLG, dZ, tb, 2)
     dz: "i32" = 0
     while dz < 8:
         zv: "f32" = read_f32(hLG, dz * 4)
@@ -214,6 +215,7 @@ def run() -> "i32":
         print("GELU LAUNCH FAIL", rc)
         return 1
     # LG = H @ W2
+    whdiag: "i64" = cuda_h2d(hLG, dH, tb, 2)
     dh2: "i32" = 0
     while dh2 < 8:
         hv2: "f32" = read_f32(hLG, dh2 * 4)
