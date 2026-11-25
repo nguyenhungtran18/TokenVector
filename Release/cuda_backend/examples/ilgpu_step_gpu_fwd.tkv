@@ -101,6 +101,12 @@ def run() -> "i32":
     wc: "i64" = cuda_h2d(dW2, hW2, vb, 1)
     wd: "i64" = cuda_h2d(db1, hb1, D * 4, 1)
     we: "i64" = cuda_h2d(db2, hb2, V * 4, 1)
+    print("HB1", read_f32(hb1, 0), read_f32(hb1, 4))
+    print("WD", wd, we)
+    wd2: "i64" = cuda_h2d(hLG, db1, D * 4, 2)
+    print("DB1", read_f32(hLG, 0), read_f32(hLG, 4), read_f32(hLG, 8))
+    wd3: "i64" = cuda_h2d(hLG, dX, tb, 2)
+    print("DX", read_f32(hLG, 0), read_f32(hLG, 4))
     # Z = X @ W1
     rc = cublas_sgemm(ch, 0, 0, T, D, D, ha, dX, T, dW1, D, hb, dZ, T)
     if rc != 0:

@@ -60,7 +60,7 @@ Global
 Class 1	Fields: 2;	Methods: 27;	
 Class 2	Methods: 15;	
 Class 3	Methods: 10;	
-Resolving local member refs: 202 -> 202 defs, 0 refs, 0 unresolved
+Resolving local member refs: 213 -> 213 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	
