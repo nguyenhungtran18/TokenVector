@@ -132,6 +132,8 @@ def run() -> "i32":
     dDH = read_i64(cell, 0)
     rc = cuda_malloc(cell, tdb)
     dDZ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tdb)
+    dZB1 = read_i64(cell, 0)
     rc = cuda_malloc(cell, w1b)
     dDW1 = read_i64(cell, 0)
     rc = cuda_malloc(cell, w2b)
@@ -360,9 +362,16 @@ def run() -> "i32":
         if rc != 0:
             print("GEM_DH FAIL", rc)
             return 1
-        # 9) dZ = dgelu(Z, dH)
+        # 9) dZ = dgelu(Z + b1) * dH   (bias phai cong TRUOC gelu, giong forward)
+        wf0 = write_i64(f0, 0, dZ)
+        wf1 = write_i64(f1, 0, db1)
+        wf2 = write_i64(f2, 0, dZB1)
+        rc = cu_launch(k_ba, D, 1, 1, T, 1, 1, 0, 0, p3, 0)
+        if rc != 0:
+            print("BIASZB1 FAIL", rc)
+            return 1
         cp: "i64" = cuda_h2d(dDZ, dDH, tdb, 3)
-        wg0: "i64" = write_i64(f0, 0, dZ)
+        wg0: "i64" = write_i64(f0, 0, dZB1)
         wg3: "i64" = write_i64(f1, 0, dDZ)
         rc = cu_launch(k_dg, 1, 1, 1, 64, 1, 1, 0, 0, p4, 0)
         if rc != 0:
