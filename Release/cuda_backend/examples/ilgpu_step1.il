@@ -9009,6 +9009,8 @@
     ldc.i4 1
     ret
   run_If25_else:
+    ldstr "MARK MODULE OK"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 102
     ldc.i4 0
     conv.i8
@@ -9070,6 +9072,8 @@
     ldc.i4 1
     ret
   run_If27_else:
+    ldstr "MARK FN OK"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 107
     ldc.i4 0
     conv.i8
@@ -9470,6 +9474,8 @@
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 0
+    ldstr "MARK LAUNCH1 OK"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 0
     ldc.i4 0
     ceq
@@ -9560,6 +9566,8 @@
     ldc.i4 1
     ret
   run_If29_else:
+    ldstr "MARK LAUNCH2 OK"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 33
     ldloc.s 110
     ldloc.s 10

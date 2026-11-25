@@ -313,6 +313,7 @@ def run() -> "i32":
     if rc != 0:
         print("ADAMW load fail", rc)
         return 1
+    print("MARK MODULE OK")
     mo = read_i64(mc, 0)
     fb = alloc_bytes(len(FN))
     rf: "i32" = 0
@@ -324,6 +325,7 @@ def run() -> "i32":
     if rc != 0:
         print("ADAMW fn fail", rc)
         return 1
+    print("MARK FN OK")
     fn = read_i64(fc, 0)
     cell = alloc_bytes(8)
     rc = cuda_malloc(cell, w1b)
@@ -380,6 +382,7 @@ def run() -> "i32":
     wp10: "i64" = write_i64(par, 80, bc1)
     wp11: "i64" = write_i64(par, 88, bc2)
     rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
+    print("MARK LAUNCH1 OK")
     if rc != 0:
         print("ADAMW1 launch fail", rc)
         return 1
@@ -392,6 +395,7 @@ def run() -> "i32":
     if rc != 0:
         print("ADAMW2 launch fail", rc)
         return 1
+    print("MARK LAUNCH2 OK")
     wr1: "i64" = cuda_h2d(hOut, dW1, w1b, 2)
     i = 0
     while i < 8:
