@@ -11,6 +11,8 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl",
      "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
      "returns": "i32"},
+    {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
+     "convention": "cdecl", "params": [], "returns": "i32"},
     {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
@@ -296,6 +298,7 @@ def run() -> "i32":
     p2: "f32" = 0.999
     step: "i32" = 1
     nsteps: "i32" = 5
+    t0 = time_perf()
     while step <= nsteps:
         # 1) Z = X @ W1
         rc = cublas_sgemm(ch, 0, 0, T, D, D, ha, dX, T, dW1, D, hb, dZ, T)
@@ -521,5 +524,10 @@ def run() -> "i32":
             print("B2NEW", step, i, bv2)
             i = i + 1
         step = step + 1
+    rcs: "i32" = cuda_sync()
+    t1 = time_perf()
+    dt: "f64" = t1 - t0
+    print("MS_TOTAL", dt * 1000.0)
+    print("MS_STEP", (dt * 1000.0) / nsteps)
     print("BATCH DONE")
     return 0
