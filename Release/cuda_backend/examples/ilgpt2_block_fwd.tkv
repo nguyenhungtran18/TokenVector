@@ -353,6 +353,7 @@ def run() -> "i32":
     lz8: "i64" = write_i64(pl2, 64, a8)
     lz9: "i64" = write_i64(pl2, 72, a9)
     print("MARK 7w params")
+    print("PTRS", dX2, dG2, dB2, dY2, dXH2, dST2)
     rc = cu_launch(k_lnf, 1, 1, 1, 64, 1, 1, 0, 0, pl2, 0)
     if rc != 0:
         print("LNF2 FAIL", rc)

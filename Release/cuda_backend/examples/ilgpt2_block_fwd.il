@@ -20687,6 +20687,38 @@
     stloc.s 177
     ldstr "MARK 7w params"
     call void [mscorlib]System.Console::WriteLine(string)
+    ldstr "PTRS"
+    ldstr " "
+    ldloc.s 49
+    call string TkvStr::I64(int64)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 65
+    call string TkvStr::I64(int64)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 66
+    call string TkvStr::I64(int64)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 50
+    call string TkvStr::I64(int64)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 51
+    call string TkvStr::I64(int64)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 52
+    call string TkvStr::I64(int64)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 97
     ldc.i4 1
     ldc.i4 1
