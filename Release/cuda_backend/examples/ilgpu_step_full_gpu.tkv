@@ -421,19 +421,68 @@ def run() -> "i32":
             return 1
         p1 = p1 * 0.9
         p2 = p2 * 0.999
-        if step == 1:
-            rw1: "i64" = cuda_h2d(hTmp, dW1, w1b, 2)
-            i = 0
-            while i < D:
-                wv: "f32" = read_f32(hTmp, i * 4)
-                print("W1NEW", i, wv)
-                i = i + 1
-            rw2: "i64" = cuda_h2d(hTmp, dW2, w2b, 2)
-            i = 0
-            while i < V:
-                wv2: "f32" = read_f32(hTmp, i * 4)
-                print("W2NEW", i, wv2)
-                i = i + 1
+        # chan doan: thong ke |gradient| tren host (min, max, so phan tu < 1e-7)
+        rg1: "i64" = cuda_h2d(hTmp, dDW1, w1b, 2)
+        i = 0
+        gmn: "f32" = 1000000000.0
+        gmx: "f32" = 0.0
+        ntiny: "i32" = 0
+        while i < D * D:
+            gv: "f32" = read_f32(hTmp, i * 4)
+            ga: "f32" = gv
+            if ga < 0.0:
+                ga = 0.0 - ga
+            if ga < gmn:
+                gmn = ga
+            if ga > gmx:
+                gmx = ga
+            if ga < 1e-07:
+                ntiny = ntiny + 1
+            i = i + 1
+        print("G1", step, gmn, gmx, ntiny)
+        rg2: "i64" = cuda_h2d(hTmp, dDW2, w2b, 2)
+        i = 0
+        gmn2: "f32" = 1000000000.0
+        gmx2: "f32" = 0.0
+        ntiny2: "i32" = 0
+        while i < D * V:
+            gv2: "f32" = read_f32(hTmp, i * 4)
+            ga2: "f32" = gv2
+            if ga2 < 0.0:
+                ga2 = 0.0 - ga2
+            if ga2 < gmn2:
+                gmn2 = ga2
+            if ga2 > gmx2:
+                gmx2 = ga2
+            if ga2 < 1e-07:
+                ntiny2 = ntiny2 + 1
+            i = i + 1
+        print("G2", step, gmn2, gmx2, ntiny2)
+        # in tham so sau cap nhat o MOI step (doi chieu reference theo tung step)
+        rw1: "i64" = cuda_h2d(hTmp, dW1, w1b, 2)
+        i = 0
+        while i < D * D:
+            wv: "f32" = read_f32(hTmp, i * 4)
+            print("W1NEW", step, i, wv)
+            i = i + 1
+        rw2: "i64" = cuda_h2d(hTmp, dW2, w2b, 2)
+        i = 0
+        while i < D * V:
+            wv2: "f32" = read_f32(hTmp, i * 4)
+            print("W2NEW", step, i, wv2)
+            i = i + 1
+        rb1: "i64" = cuda_h2d(hTmp, db1, b1b, 2)
+        i = 0
+        while i < D:
+            bv: "f32" = read_f32(hTmp, i * 4)
+            print("B1NEW", step, i, bv)
+            i = i + 1
+        rb2: "i64" = cuda_h2d(hTmp, db2, b2b, 2)
+        i = 0
+        while i < V:
+            bv2: "f32" = read_f32(hTmp, i * 4)
+            print("B2NEW", step, i, bv2)
+            i = i + 1
         step = step + 1
     print("BATCH DONE")
     return 0

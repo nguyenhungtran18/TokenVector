@@ -1,7 +1,7 @@
 
 Microsoft (R) .NET Framework IL Assembler.  Version 4.8.9221.0
 Copyright (c) Microsoft Corporation.  All rights reserved.
-Assembling 'cuda_backend\examples\ilgpu_step_full_gpu.il'  to EXE --> 'cuda_backend\examples\ilgpu_step_full_gpu.exe'
+Assembling 'ilgpu_step_full_gpu.il'  to EXE --> 'ilgpu_step_full_gpu.exe'
 Source file is ANSI
 
 Assembled method TkvInt::FromI64
@@ -60,7 +60,7 @@ Global
 Class 1	Fields: 2;	Methods: 27;	
 Class 2	Methods: 15;	
 Class 3	Methods: 10;	
-Resolving local member refs: 187 -> 187 defs, 0 refs, 0 unresolved
+Resolving local member refs: 207 -> 207 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	
