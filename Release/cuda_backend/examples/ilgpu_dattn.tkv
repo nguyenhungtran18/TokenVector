@@ -87,6 +87,11 @@ def run() -> "i32":
             j = j + 1
         i = i + 1
     # dP = dO * V^T ; row dot = sum_j P*dP
+    ip: "i32" = 0
+    while ip < T * T:
+        pv = read_f32(hP, ip * 4)
+        print("P", ip, pv)
+        ip = ip + 1
     i = 0
     while i < T:
         j = 0
@@ -132,6 +137,11 @@ def run() -> "i32":
     wvd: "i64" = cuda_h2d(dV0, hV, qd, 1)
     wog: "i64" = cuda_h2d(dOdev, hdO, qd, 1)
     # GEMM grads: dQ = inv*dS*K ; dK = inv*dS^T*Q ; dV = P^T*dO
+    isx: "i32" = 0
+    while isx < T * T:
+        sv2 = read_f32(hdS, isx * 4)
+        print("DS", isx, sv2)
+        isx = isx + 1
     cell2 = alloc_bytes(8)
     rc = cuda_malloc(cell2, qd)
     dQ = read_i64(cell2, 0)
