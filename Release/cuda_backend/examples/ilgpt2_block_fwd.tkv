@@ -340,14 +340,20 @@ def run() -> "i32":
         print("ADD1 FAIL", rc)
         return 1
     print("MARK 7 attn+res")
-    # 8) LN2
-    wzp0 = write_i64(pl, 0, dX2)
-    wzp1 = write_i64(pl, 8, dG2)
-    wzp2 = write_i64(pl, 16, dB2)
-    wzp3 = write_i64(pl, 24, dY2)
-    wzp4 = write_i64(pl, 32, dXH2)
-    wzp5 = write_i64(pl, 40, dST2)
-    rc = cu_launch(k_lnf, 1, 1, 1, 64, 1, 1, 0, 0, pl, 0)
+    # 8) LN2 - buffer params RIENG (khong tai dung pl/wzp*)
+    pl2 = alloc_bytes(80)
+    lz0: "i64" = write_i64(pl2, 0, dX2)
+    lz1: "i64" = write_i64(pl2, 8, dG2)
+    lz2: "i64" = write_i64(pl2, 16, dB2)
+    lz3: "i64" = write_i64(pl2, 24, dY2)
+    lz4: "i64" = write_i64(pl2, 32, dXH2)
+    lz5: "i64" = write_i64(pl2, 40, dST2)
+    lz6: "i64" = write_i64(pl2, 48, a6)
+    lz7: "i64" = write_i64(pl2, 56, a7)
+    lz8: "i64" = write_i64(pl2, 64, a8)
+    lz9: "i64" = write_i64(pl2, 72, a9)
+    print("MARK 7w params")
+    rc = cu_launch(k_lnf, 1, 1, 1, 64, 1, 1, 0, 0, pl2, 0)
     if rc != 0:
         print("LNF2 FAIL", rc)
         return 1
