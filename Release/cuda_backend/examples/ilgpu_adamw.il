@@ -7242,6 +7242,8 @@
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
     stloc.s 16
+    ldstr "MARK MALLOC"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 16
     ldloc.s 4
     conv.i8
@@ -7725,6 +7727,8 @@
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
     stloc.s 72
+    ldstr "MARK PRE LAUNCH"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 35
     ldc.i4 1
     ldc.i4 1

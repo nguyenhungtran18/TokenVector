@@ -43,6 +43,7 @@ def run() -> "i32":
         gv = gv + 0.25
         i = i + 1
     cell = alloc_bytes(8)
+    print("MARK MALLOC")
     rc = cuda_malloc(cell, nb)
     dp = read_i64(cell, 0)
     rc = cuda_malloc(cell, nb)
@@ -117,6 +118,7 @@ def run() -> "i32":
     wc9: "i64" = write_i64(par, 72, wa9)
     wc10: "i64" = write_i64(par, 80, wa10)
     wc11: "i64" = write_i64(par, 88, wa11)
+    print("MARK PRE LAUNCH")
     rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
     print("MARK POST LAUNCH", rc)
     if rc != 0:
