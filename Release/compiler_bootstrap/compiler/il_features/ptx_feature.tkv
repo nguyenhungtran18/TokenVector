@@ -149,24 +149,20 @@ def ptx_get(kind: "str") -> "str":
         )
     if kind == 'biasadd':
         return head + (
-            '.entry biasadd_kernel(.param .u64 px, .param .u64 pb, .param .u64 py)\\n'
-            '{\\n'
-            '.reg .f32 x,b,y;\\n'
-            '.reg .u64 xb,yb,off;\\n'
-            '.reg .u32 col,row,idx;\\n'
-            '.reg .pred q;\\n'
-            'ld.param.u64 xb,[px]; ld.param.u64 bp,[pb]; ld.param.u64 yb,[py];\\n'
-            'mov.u32 col,%ctaid.x; mov.u32 row,%laneid;\\n'
-            'setp.ge.u32 q,row,4; @q bra LEND;\\n'
-            'mul.lo.u32 idx,col,4; add.u32 idx,idx,row;\\n'
-            'mul.wide.u32 off,idx,4;\\n'
-            'cvta.to.global.u64 xb,xb; cvta.to.global.u64 yb,yb;\\n'
-            'add.u64 xb,xb,off; add.u64 yb,yb,off;\\n'
-            'ld.global.f32 x,[xb];\\n'
-            'mul.wide.u32 off,col,4; cvta.to.global.u64 bp,bp; add.u64 bp,bp,off; ld.global.f32 b,[bp];\\n'
-            'add.f32 y,x,b; st.global.f32 [yb],y;\\n'
-            'LEND: ret;\\n'
-            '}\\n'
+            '.entry biasadd_kernel(.param .u64 px, .param .u64 pb, .param .u64 py, .param .u32 pn)\n'
+            '{\n'
+            '.reg .f32 x,b,y;\n'
+            '.reg .u64 xb,bb,yb,off;\n'
+            '.reg .u32 i,n;\n'
+            '.reg .pred q;\n'
+            'ld.param.u64 xb,[px]; ld.param.u64 bb,[pb]; ld.param.u64 yb,[py]; ld.param.u32 n,[pn];\n'
+            'mov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\n'
+            'mul.wide.u32 off,i,4;\n'
+            'cvta.to.global.u64 xb,xb; cvta.to.global.u64 bb,bb; cvta.to.global.u64 yb,yb;\n'
+            'add.u64 xb,xb,off; add.u64 bb,bb,off; add.u64 yb,yb,off;\n'
+            'ld.global.f32 x,[xb]; ld.global.f32 b,[bb]; add.f32 y,x,b; st.global.f32 [yb],y;\n'
+            'LEND: ret;\n'
+            '}\n'
         )
     if kind == 'adamw':
         return head + (

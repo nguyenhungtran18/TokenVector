@@ -97,6 +97,31 @@ def run() -> "i32":
     db1 = read_i64(cell, 0)
     rc = cuda_malloc(cell, V * 4)
     db2 = read_i64(cell, 0)
+    hbe1 = alloc_bytes(tb)
+    hbe2 = alloc_bytes(vb)
+    ii: "i32" = 0
+    jj: "i32" = 0
+    while ii < T:
+        jj = 0
+        while jj < D:
+            bv1: "f32" = read_f32(hb1, jj * 4)
+            wbe1: "i64" = write_f32(hbe1, (ii + jj * T) * 4, bv1)
+            jj = jj + 1
+        ii = ii + 1
+    ii = 0
+    while ii < T:
+        jj = 0
+        while jj < V:
+            bv2: "f32" = read_f32(hb2, jj * 4)
+            wbe2: "i64" = write_f32(hbe2, (ii + jj * T) * 4, bv2)
+            jj = jj + 1
+        ii = ii + 1
+    rc = cuda_malloc(cell, tb)
+    dbe1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, vb)
+    dbe2 = read_i64(cell, 0)
+    wbe1d: "i64" = cuda_h2d(dbe1, hbe1, tb, 1)
+    wbe2d: "i64" = cuda_h2d(dbe2, hbe2, vb, 1)
     wa: "i64" = cuda_h2d(dX, hX, tb, 1)
     wb: "i64" = cuda_h2d(dW1, hW1, tb, 1)
     wc: "i64" = cuda_h2d(dW2, hW2, vb, 1)
@@ -108,9 +133,10 @@ def run() -> "i32":
         print("GEMM1 FAIL", rc)
         return 1
     # BIASADD Z += b1 ; GELU Z -> H
-    # @tkv.ptx_kernel name="biasadd_kernel" kind="biasadd" var="PTX2"
+    PTX2 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry biasadd_kernel(.param .u64 px, .param .u64 pb, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 x,b,y;\n.reg .u64 xb,bb,yb,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 xb,[px]; ld.param.u64 bb,[pb]; ld.param.u64 yb,[py]; ld.param.u32 n,[pn];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 xb,xb; cvta.to.global.u64 bb,bb; cvta.to.global.u64 yb,yb;\nadd.u64 xb,xb,off; add.u64 bb,bb,off; add.u64 yb,yb,off;\nld.global.f32 x,[xb]; ld.global.f32 b,[bb]; add.f32 y,x,b; st.global.f32 [yb],y;\nLEND: ret;\n}\n"
+    FN2 = b"biasadd_kernel\x00"
     p2 = alloc_bytes(len(PTX2) + 1)
-    k2: "i32" = 0
+    k2 = 0
     while k2 < len(PTX2):
         wu2: "i64" = write_u8(p2, k2, PTX2[k2])
         k2 = k2 + 1
@@ -122,7 +148,7 @@ def run() -> "i32":
         return 1
     o2 = read_i64(m2, 0)
     f2 = alloc_bytes(len(FN2))
-    r2: "i32" = 0
+    r2 = 0
     while r2 < len(FN2):
         ww2b: "i64" = write_u8(f2, r2, FN2[r2])
         r2 = r2 + 1
@@ -132,18 +158,22 @@ def run() -> "i32":
     b0 = alloc_bytes(8)
     wb0: "i64" = write_i64(b0, 0, dZ)
     b1p = alloc_bytes(8)
-    wb1p: "i64" = write_i64(b1p, 0, db1)
+    wb1p: "i64" = write_i64(b1p, 0, dbe1)
     b2p = alloc_bytes(8)
-    wb2p: "i64" = write_i64(b2p, 0, dZ)
-    pa2 = alloc_bytes(24)
+    wb2p: "i64" = write_i32(b2p, 0, td)
+    b3p = alloc_bytes(8)
+    wb3p: "i64" = write_i64(b3p, 0, dZ)
+    pa2 = alloc_bytes(32)
     wp20: "i64" = write_i64(pa2, 0, b0)
     wp21: "i64" = write_i64(pa2, 8, b1p)
-    wp22: "i64" = write_i64(pa2, 16, b2p)
-    rc = cu_launch(fn2, D, 1, 1, 32, 1, 1, 0, 0, pa2, 0)
+    wp22: "i64" = write_i64(pa2, 16, b3p)
+    wp23: "i64" = write_i64(pa2, 24, b2p)
+    rc = cu_launch(fn2, 1, 1, 1, 64, 1, 1, 0, 0, pa2, 0)
     if rc != 0:
         print("BIAS1 LAUNCH FAIL", rc)
         return 1
-    # @tkv.ptx_kernel name="gelu_kernel" kind="gelu" var="PTX3"
+    PTX3 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gelu_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,f2,f3,f4,f5;\n.reg .u64 x,y,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 x,[px]; ld.param.u64 y,[py]; ld.param.u32 n,[pn];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 off,i,4; cvta.to.global.u64 x,x; cvta.to.global.u64 y,y;\nadd.u64 x,x,off; add.u64 y,y,off; ld.global.f32 f1,[x];\nmul.f32 f3,f1,f1; mul.f32 f3,f3,f1;\nmov.f32 f4,0.044715; fma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456; mul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0; add.f32 f2,f2,f3;\nmov.f32 f3,0.5; mul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2; st.global.f32 [y],f5;\nLEND: ret;\n}\n"
+    FN3 = b"gelu_kernel\x00"
     p3 = alloc_bytes(len(PTX3) + 1)
     k3: "i32" = 0
     while k3 < len(PTX3):
@@ -187,14 +217,17 @@ def run() -> "i32":
     q0 = alloc_bytes(8)
     wq0: "i64" = write_i64(q0, 0, dLG)
     q1 = alloc_bytes(8)
-    wq1: "i64" = write_i64(q1, 0, db2)
+    wq1: "i64" = write_i64(q1, 0, dbe2)
     q2 = alloc_bytes(8)
     wq2: "i64" = write_i64(q2, 0, dLG)
-    paq = alloc_bytes(24)
-    wq3: "i64" = write_i64(paq, 0, q0)
-    wq4: "i64" = write_i64(paq, 8, q1)
-    wq5: "i64" = write_i64(paq, 16, q2)
-    rc = cu_launch(fn2, V, 1, 1, 32, 1, 1, 0, 0, paq, 0)
+    q3 = alloc_bytes(4)
+    wq3n: "i64" = write_i32(q3, 0, dv)
+    paq = alloc_bytes(32)
+    wq4: "i64" = write_i64(paq, 0, q0)
+    wq5: "i64" = write_i64(paq, 8, q1)
+    wq6: "i64" = write_i64(paq, 16, q2)
+    wq7: "i64" = write_i64(paq, 24, q3)
+    rc = cu_launch(fn2, 1, 1, 1, 64, 1, 1, 0, 0, paq, 0)
     if rc != 0:
         print("BIAS2 LAUNCH FAIL", rc)
         return 1

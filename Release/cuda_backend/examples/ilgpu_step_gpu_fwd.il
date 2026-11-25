@@ -1228,8 +1228,8 @@
 {
   .method public static int32 'run'() cil managed
   {
-    .maxstack 172
-    .locals init (int32 'rc', int64 'hc', int64 'ch', int32 'T', int32 'D', int32 'V', int32 'td', int32 'dv', int32 'tb', int32 'vb', int64 'hX', int64 'hW1', int64 'hW2', int64 'hb1', int64 'hb2', int64 'hIds', int64 'hLG', int64 'hcell', int64 'ha', int64 'wa1', int64 'hb', int64 'wb0', int32 'i', int32 'j', int64 'wx', int32 'idv', int32 '__idiv1000097_a', int32 '__idiv1000097_b', int32 '__idiv1000097_q', int32 '__idiv1000097_r', int64 'wids', int64 'ww1', int64 'wb1', int64 'ww2', int64 'wb2', int64 'cell', int64 'dX', int64 'dW1', int64 'dZ', int64 'dH', int64 'dW2', int64 'dLG', int64 'db1', int64 'db2', int64 'wa', int64 'wb', int64 'wc', int64 'wd', int64 'we', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX2', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN2', int64 'p2', int32 'k2', int64 'wu2', int64 'wz2', int64 'm2', int64 'o2', int64 'f2', int32 'r2', int64 'ww2b', int64 'c2', int64 'fn2', int64 'b0', int64 'b1p', int64 'wb1p', int64 'b2p', int64 'wb2p', int64 'pa2', int64 'wp20', int64 'wp21', int64 'wp22', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX3', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN3', int64 'p3', int32 'k3', int64 'wu3', int64 'wz3', int64 'm3', int64 'o3', int64 'f3', int32 'r3', int64 'ww3', int64 'c3', int64 'fn3', int64 'g0', int64 'wg0', int64 'g1', int64 'wg1', int64 'g2', int64 'wg2', int64 'pag', int64 'wg3', int64 'wg4', int64 'wg5', int64 'q0', int64 'wq0', int64 'q1', int64 'wq1', int64 'q2', int64 'wq2', int64 'paq', int64 'wq3', int64 'wq4', int64 'wq5', int64 'wr', float32 'loss', float32 'mx', float32 'lv', float32 'zsum', float32 'ev', int32 'idv2', float32 'lv2', float32 'ev2', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
+    .maxstack 222
+    .locals init (int32 'rc', int64 'hc', int64 'ch', int32 'T', int32 'D', int32 'V', int32 'td', int32 'dv', int32 'tb', int32 'vb', int64 'hX', int64 'hW1', int64 'hW2', int64 'hb1', int64 'hb2', int64 'hIds', int64 'hLG', int64 'hcell', int64 'ha', int64 'wa1', int64 'hb', int64 'wb0', int32 'i', int32 'j', int64 'wx', int32 'idv', int32 '__idiv1000097_a', int32 '__idiv1000097_b', int32 '__idiv1000097_q', int32 '__idiv1000097_r', int64 'wids', int64 'ww1', int64 'wb1', int64 'ww2', int64 'wb2', int64 'cell', int64 'dX', int64 'dW1', int64 'dZ', int64 'dH', int64 'dW2', int64 'dLG', int64 'db1', int64 'db2', int64 'hbe1', int64 'hbe2', int32 'ii', int32 'jj', float32 'bv1', int64 'wbe1', float32 'bv2', int64 'wbe2', int64 'dbe1', int64 'dbe2', int64 'wbe1d', int64 'wbe2d', int64 'wa', int64 'wb', int64 'wc', int64 'wd', int64 'we', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX2', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN2', int64 'p2', valuetype TkvInt 'k2', int64 'wu2', int64 'wz2', int64 'm2', int64 'o2', int64 'f2', valuetype TkvInt 'r2', int64 'ww2b', int64 'c2', int64 'fn2', int64 'b0', int64 'b1p', int64 'wb1p', int64 'b2p', int64 'wb2p', int64 'b3p', int64 'wb3p', int64 'pa2', int64 'wp20', int64 'wp21', int64 'wp22', int64 'wp23', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX3', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN3', int64 'p3', int32 'k3', int64 'wu3', int64 'wz3', int64 'm3', int64 'o3', int64 'f3', int32 'r3', int64 'ww3', int64 'c3', int64 'fn3', int64 'g0', int64 'wg0', int64 'g1', int64 'wg1', int64 'g2', int64 'wg2', int64 'pag', int64 'wg3', int64 'wg4', int64 'wg5', int64 'q0', int64 'wq0', int64 'q1', int64 'wq1', int64 'q2', int64 'wq2', int64 'q3', int64 'wq3n', int64 'paq', int64 'wq4', int64 'wq5', int64 'wq6', int64 'wq7', int64 'wr', float32 'loss', float32 'mx', float32 'lv', float32 'zsum', float32 'ev', int32 'idv2', float32 'lv2', float32 'ev2', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
     ldc.i4 0
     call int32 TKVApp::__pinvoke_cu_init(int32)
     stloc.s 0
@@ -1680,6 +1680,156 @@
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
     stloc.s 43
+    ldloc.s 8
+    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
+    conv.i8
+    stloc.s 44
+    ldloc.s 9
+    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
+    conv.i8
+    stloc.s 45
+    ldc.i4 0
+    stloc.s 46
+    ldc.i4 0
+    stloc.s 47
+  run_W10_start:
+    ldloc.s 46
+    ldloc.s 3
+    clt
+    brfalse run_W10_end
+    ldc.i4 0
+    stloc.s 47
+  run_W11_start:
+    ldloc.s 47
+    ldloc.s 4
+    clt
+    brfalse run_W11_end
+    ldloc.s 13
+    ldloc.s 47
+    ldc.i4 4
+    mul
+    conv.i8
+    add
+    conv.i
+    ldind.r4
+    stloc.s 48
+    ldloc.s 44
+    ldloc.s 46
+    ldloc.s 47
+    ldloc.s 3
+    mul
+    add
+    ldc.i4 4
+    mul
+    conv.i8
+    add
+    conv.i
+    ldloc.s 48
+    stind.r4
+    ldc.i8 0
+    stloc.s 49
+    ldloc.s 47
+    ldc.i4 1
+    add
+    stloc.s 47
+    br run_W11_start
+  run_W11_end:
+    ldloc.s 46
+    ldc.i4 1
+    add
+    stloc.s 46
+    br run_W10_start
+  run_W10_end:
+    ldc.i4 0
+    stloc.s 46
+  run_W12_start:
+    ldloc.s 46
+    ldloc.s 3
+    clt
+    brfalse run_W12_end
+    ldc.i4 0
+    stloc.s 47
+  run_W13_start:
+    ldloc.s 47
+    ldloc.s 5
+    clt
+    brfalse run_W13_end
+    ldloc.s 14
+    ldloc.s 47
+    ldc.i4 4
+    mul
+    conv.i8
+    add
+    conv.i
+    ldind.r4
+    stloc.s 50
+    ldloc.s 45
+    ldloc.s 46
+    ldloc.s 47
+    ldloc.s 3
+    mul
+    add
+    ldc.i4 4
+    mul
+    conv.i8
+    add
+    conv.i
+    ldloc.s 50
+    stind.r4
+    ldc.i8 0
+    stloc.s 51
+    ldloc.s 47
+    ldc.i4 1
+    add
+    stloc.s 47
+    br run_W13_start
+  run_W13_end:
+    ldloc.s 46
+    ldc.i4 1
+    add
+    stloc.s 46
+    br run_W12_start
+  run_W12_end:
+    ldloc.s 35
+    ldloc.s 8
+    conv.i8
+    call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
+    stloc.s 0
+    ldloc.s 35
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 52
+    ldloc.s 35
+    ldloc.s 9
+    conv.i8
+    call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
+    stloc.s 0
+    ldloc.s 35
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
+    stloc.s 53
+    ldloc.s 52
+    ldloc.s 44
+    ldloc.s 8
+    conv.i8
+    ldc.i4 1
+    call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
+    conv.i8
+    stloc.s 54
+    ldloc.s 53
+    ldloc.s 45
+    ldloc.s 9
+    conv.i8
+    ldc.i4 1
+    call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
+    conv.i8
+    stloc.s 55
     ldloc.s 36
     ldloc.s 10
     ldloc.s 8
@@ -1687,7 +1837,7 @@
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 44
+    stloc.s 56
     ldloc.s 37
     ldloc.s 11
     ldloc.s 8
@@ -1695,7 +1845,7 @@
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 45
+    stloc.s 57
     ldloc.s 40
     ldloc.s 12
     ldloc.s 9
@@ -1703,7 +1853,7 @@
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 46
+    stloc.s 58
     ldloc.s 42
     ldloc.s 13
     ldloc.s 4
@@ -1713,7 +1863,7 @@
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 47
+    stloc.s 59
     ldloc.s 43
     ldloc.s 14
     ldloc.s 5
@@ -1723,7 +1873,7 @@
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 48
+    stloc.s 60
     ldloc.s 2
     ldc.i4 0
     ldc.i4 0
@@ -1745,7 +1895,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If10_else
+    brfalse run_If14_else
     ldstr "GEMM1 FAIL"
     ldstr " "
     ldloc.s 0
@@ -1755,7 +1905,7 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If10_else:
+  run_If14_else:
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
     dup
     ldc.i4 46
@@ -2206,6 +2356,70 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
+    ldc.i4 44
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 32
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 46
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 112
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 97
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 114
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 97
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 109
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 32
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 46
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 117
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 51
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 50
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 32
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 112
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 110
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
     ldc.i4 41
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
@@ -2342,6 +2556,18 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
+    ldc.i4 98
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 98
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 44
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
     ldc.i4 121
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
@@ -2414,47 +2640,15 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 99
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 108
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 114
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 119
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
     ldc.i4 105
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 100
+    ldc.i4 44
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 120
+    ldc.i4 110
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -2666,7 +2860,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 112
+    ldc.i4 98
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -2782,6 +2976,90 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
+    ldc.i4 32
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 108
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 100
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 46
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 112
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 97
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 114
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 97
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 109
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 46
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 117
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 51
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 50
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 32
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 110
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 44
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 91
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 112
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 110
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 93
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 59
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
     ldc.i4 10
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
@@ -2818,15 +3096,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 99
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 108
+    ldc.i4 105
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -2838,15 +3108,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 99
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
     ldc.i4 116
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 97
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -2871,90 +3133,6 @@
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
     ldc.i4 32
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 109
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 118
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 46
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 117
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 51
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 50
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 32
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 114
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 119
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 37
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 108
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 97
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 110
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 101
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 105
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 100
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 59
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 10
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -3014,15 +3192,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 114
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 119
+    ldc.i4 105
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -3030,7 +3200,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 52
+    ldc.i4 110
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -3110,178 +3280,6 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 108
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 46
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 117
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 51
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 50
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 32
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 105
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 100
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 120
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 99
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 108
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 52
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 59
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 32
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 97
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 100
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 100
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 46
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 117
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 51
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 50
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 32
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 105
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 100
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 120
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 105
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 100
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 120
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 114
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 119
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 59
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 10
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 109
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 117
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 108
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 46
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
     ldc.i4 119
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
@@ -3338,14 +3336,6 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 100
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 120
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
     ldc.i4 44
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
@@ -3542,6 +3532,110 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
+    ldc.i4 98
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 98
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 44
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 98
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 98
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 59
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 32
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 99
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 118
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 116
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 97
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 46
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 116
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 111
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 46
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 103
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 108
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 111
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 98
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 97
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 108
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 46
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 117
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 54
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 52
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 32
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
     ldc.i4 121
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
@@ -3615,6 +3709,82 @@
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
     ldc.i4 120
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 98
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 44
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 111
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 102
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 102
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 59
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 32
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 97
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 100
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 100
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 46
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 117
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 54
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 52
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 32
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 98
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 98
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 44
+    conv.u1
+    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
+    dup
+    ldc.i4 98
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -3806,282 +3976,6 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 109
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 117
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 108
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 46
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 119
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 105
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 100
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 101
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 46
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 117
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 51
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 50
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 32
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 102
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 102
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 99
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 108
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 52
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 59
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 32
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 99
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 118
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 116
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 97
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 46
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 116
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 46
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 103
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 108
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 98
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 97
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 108
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 46
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 117
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 54
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 52
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 32
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 98
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 112
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 98
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 112
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 59
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 32
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 97
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 100
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 100
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 46
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 117
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 54
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 52
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 32
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 98
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 112
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 98
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 112
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 44
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 111
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 102
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 102
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
-    ldc.i4 59
-    conv.u1
-    callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    dup
     ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
@@ -4158,7 +4052,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 112
+    ldc.i4 98
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -4170,7 +4064,7 @@
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
-    ldc.i4 10
+    ldc.i4 32
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
     dup
@@ -4373,7 +4267,7 @@
     ldc.i4 10
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    stloc.s 49
+    stloc.s 61
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
     dup
     ldc.i4 98
@@ -4435,52 +4329,98 @@
     ldc.i4 0
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    stloc.s 50
-    ldloc.s 49
+    stloc.s 62
+    ldloc.s 61
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     ldc.i4 1
     add
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 51
-    ldc.i4 0
-    stloc.s 52
-  run_W11_start:
-    ldloc.s 52
-    ldloc.s 49
+    stloc.s 63
+    ldc.i8 0
+    call valuetype TkvInt TkvInt::FromI64(int64)
+    stloc.s 64
+  run_W15_start:
+    ldloc.s 64
+    ldloc.s 61
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
+    conv.i8
+    call valuetype TkvInt TkvInt::FromI64(int64)
+    call int32 TkvInt::Cmp(valuetype TkvInt, valuetype TkvInt)
+    ldc.i4.0
     clt
-    brfalse run_W11_end
-    ldloc.s 51
+    brfalse run_W15_end
+    ldloc.s 63
     conv.i
-    ldloc.s 52
-    ldloc.s 49
-    ldloc.s 52
+    ldloc.s 64
+    call int32 TkvInt::ToI32(valuetype TkvInt)
+    ldloc.s 61
+    ldloc.s 64
+    call int32 TkvInt::ToI32(valuetype TkvInt)
     callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Item(int32)
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 53
-    ldloc.s 52
-    ldc.i4 1
+    stloc.s 65
+    ldloc.s 64
+    ldc.i8 1
+    call valuetype TkvInt TkvInt::FromI64(int64)
+    stloc.s 132
+    stloc.s 131
+    ldloca.s 131
+    ldfld object TkvInt::big
+    brtrue run_int16_slow
+    ldloca.s 132
+    ldfld object TkvInt::big
+    brtrue run_int16_slow
+    ldloca.s 131
+    ldfld int64 TkvInt::lo
+    ldloca.s 132
+    ldfld int64 TkvInt::lo
     add
-    stloc.s 52
-    br run_W11_start
-  run_W11_end:
-    ldloc.s 51
+    stloc.s 134
+    ldloca.s 131
+    ldfld int64 TkvInt::lo
+    ldloc.s 134
+    xor
+    ldloca.s 132
+    ldfld int64 TkvInt::lo
+    ldloc.s 134
+    xor
+    and
+    ldc.i8 0
+    blt run_int16_slow
+    ldloca.s 133
+    ldloc.s 134
+    stfld int64 TkvInt::lo
+    ldloca.s 133
+    ldnull
+    stfld object TkvInt::big
+    ldloc.s 133
+    br run_int16_done
+  run_int16_slow:
+    ldloc.s 131
+    ldloc.s 132
+    call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
+  run_int16_done:
+    stloc.s 64
+    br run_W15_start
+  run_W15_end:
+    ldloc.s 63
     conv.i
-    ldloc.s 52
+    ldloc.s 64
+    call int32 TkvInt::ToI32(valuetype TkvInt)
     ldc.i4 0
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 54
+    stloc.s 66
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 55
-    ldloc.s 55
-    ldloc.s 51
+    stloc.s 67
+    ldloc.s 67
+    ldloc.s 63
     call int32 TKVApp::__pinvoke_cu_module_load(int64, int64)
     stloc.s 0
     ldloc.s 0
@@ -4488,7 +4428,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If12_else
+    brfalse run_If17_else
     ldstr "BIASLOAD FAIL"
     ldstr " "
     ldloc.s 0
@@ -4498,64 +4438,109 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If12_else:
-    ldloc.s 55
+  run_If17_else:
+    ldloc.s 67
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 56
-    ldloc.s 50
+    stloc.s 68
+    ldloc.s 62
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 57
-    ldc.i4 0
-    stloc.s 58
-  run_W13_start:
-    ldloc.s 58
-    ldloc.s 50
+    stloc.s 69
+    ldc.i8 0
+    call valuetype TkvInt TkvInt::FromI64(int64)
+    stloc.s 70
+  run_W18_start:
+    ldloc.s 70
+    ldloc.s 62
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
+    conv.i8
+    call valuetype TkvInt TkvInt::FromI64(int64)
+    call int32 TkvInt::Cmp(valuetype TkvInt, valuetype TkvInt)
+    ldc.i4.0
     clt
-    brfalse run_W13_end
-    ldloc.s 57
+    brfalse run_W18_end
+    ldloc.s 69
     conv.i
-    ldloc.s 58
-    ldloc.s 50
-    ldloc.s 58
+    ldloc.s 70
+    call int32 TkvInt::ToI32(valuetype TkvInt)
+    ldloc.s 62
+    ldloc.s 70
+    call int32 TkvInt::ToI32(valuetype TkvInt)
     callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Item(int32)
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 59
-    ldloc.s 58
-    ldc.i4 1
+    stloc.s 71
+    ldloc.s 70
+    ldc.i8 1
+    call valuetype TkvInt TkvInt::FromI64(int64)
+    stloc.s 132
+    stloc.s 131
+    ldloca.s 131
+    ldfld object TkvInt::big
+    brtrue run_int19_slow
+    ldloca.s 132
+    ldfld object TkvInt::big
+    brtrue run_int19_slow
+    ldloca.s 131
+    ldfld int64 TkvInt::lo
+    ldloca.s 132
+    ldfld int64 TkvInt::lo
     add
-    stloc.s 58
-    br run_W13_start
-  run_W13_end:
+    stloc.s 134
+    ldloca.s 131
+    ldfld int64 TkvInt::lo
+    ldloc.s 134
+    xor
+    ldloca.s 132
+    ldfld int64 TkvInt::lo
+    ldloc.s 134
+    xor
+    and
+    ldc.i8 0
+    blt run_int19_slow
+    ldloca.s 133
+    ldloc.s 134
+    stfld int64 TkvInt::lo
+    ldloca.s 133
+    ldnull
+    stfld object TkvInt::big
+    ldloc.s 133
+    br run_int19_done
+  run_int19_slow:
+    ldloc.s 131
+    ldloc.s 132
+    call valuetype TkvInt TkvInt::AddSlow(valuetype TkvInt, valuetype TkvInt)
+  run_int19_done:
+    stloc.s 70
+    br run_W18_start
+  run_W18_end:
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 60
-    ldloc.s 60
-    ldloc.s 56
-    ldloc.s 57
+    stloc.s 72
+    ldloc.s 72
+    ldloc.s 68
+    ldloc.s 69
     call int32 TKVApp::__pinvoke_cu_module_fn(int64, int64, int64)
     stloc.s 0
-    ldloc.s 60
+    ldloc.s 72
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 61
+    stloc.s 73
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 62
-    ldloc.s 62
+    stloc.s 74
+    ldloc.s 74
     ldc.i4 0
     conv.i8
     add
@@ -4567,21 +4552,34 @@
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 63
-    ldloc.s 63
+    stloc.s 75
+    ldloc.s 75
     ldc.i4 0
     conv.i8
     add
     conv.i
-    ldloc.s 42
+    ldloc.s 52
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 64
+    stloc.s 76
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 65
-    ldloc.s 65
+    stloc.s 77
+    ldloc.s 77
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    ldloc.s 6
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt32(native int, int32)
+    ldc.i8 0
+    stloc.s 78
+    ldc.i4 8
+    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
+    conv.i8
+    stloc.s 79
+    ldloc.s 79
     ldc.i4 0
     conv.i8
     add
@@ -4589,48 +4587,57 @@
     ldloc.s 38
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 66
-    ldc.i4 24
+    stloc.s 80
+    ldc.i4 32
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 67
-    ldloc.s 67
+    stloc.s 81
+    ldloc.s 81
     ldc.i4 0
     conv.i8
     add
     conv.i
-    ldloc.s 62
+    ldloc.s 74
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 68
-    ldloc.s 67
+    stloc.s 82
+    ldloc.s 81
     ldc.i4 8
     conv.i8
     add
     conv.i
-    ldloc.s 63
+    ldloc.s 75
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 69
-    ldloc.s 67
+    stloc.s 83
+    ldloc.s 81
     ldc.i4 16
     conv.i8
     add
     conv.i
-    ldloc.s 65
+    ldloc.s 79
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 70
-    ldloc.s 61
-    ldloc.s 4
+    stloc.s 84
+    ldloc.s 81
+    ldc.i4 24
+    conv.i8
+    add
+    conv.i
+    ldloc.s 77
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 85
+    ldloc.s 73
     ldc.i4 1
     ldc.i4 1
-    ldc.i4 32
+    ldc.i4 1
+    ldc.i4 64
     ldc.i4 1
     ldc.i4 1
     ldc.i4 0
     ldc.i8 0
-    ldloc.s 67
+    ldloc.s 81
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 0
@@ -4639,7 +4646,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If14_else
+    brfalse run_If20_else
     ldstr "BIAS1 LAUNCH FAIL"
     ldstr " "
     ldloc.s 0
@@ -4649,7 +4656,7 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If14_else:
+  run_If20_else:
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
     dup
     ldc.i4 46
@@ -7419,7 +7426,7 @@
     ldc.i4 10
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    stloc.s 71
+    stloc.s 86
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
     dup
     ldc.i4 103
@@ -7469,52 +7476,52 @@
     ldc.i4 0
     conv.u1
     callvirt instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::Add(!0)
-    stloc.s 72
-    ldloc.s 71
+    stloc.s 87
+    ldloc.s 86
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     ldc.i4 1
     add
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 73
+    stloc.s 88
     ldc.i4 0
-    stloc.s 74
-  run_W15_start:
-    ldloc.s 74
-    ldloc.s 71
+    stloc.s 89
+  run_W21_start:
+    ldloc.s 89
+    ldloc.s 86
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     clt
-    brfalse run_W15_end
-    ldloc.s 73
+    brfalse run_W21_end
+    ldloc.s 88
     conv.i
-    ldloc.s 74
-    ldloc.s 71
-    ldloc.s 74
+    ldloc.s 89
+    ldloc.s 86
+    ldloc.s 89
     callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Item(int32)
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 75
-    ldloc.s 74
+    stloc.s 90
+    ldloc.s 89
     ldc.i4 1
     add
-    stloc.s 74
-    br run_W15_start
-  run_W15_end:
-    ldloc.s 73
+    stloc.s 89
+    br run_W21_start
+  run_W21_end:
+    ldloc.s 88
     conv.i
-    ldloc.s 74
+    ldloc.s 89
     ldc.i4 0
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 76
+    stloc.s 91
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 77
-    ldloc.s 77
-    ldloc.s 73
+    stloc.s 92
+    ldloc.s 92
+    ldloc.s 88
     call int32 TKVApp::__pinvoke_cu_module_load(int64, int64)
     stloc.s 0
     ldloc.s 0
@@ -7522,7 +7529,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If16_else
+    brfalse run_If22_else
     ldstr "GELULOAD FAIL"
     ldstr " "
     ldloc.s 0
@@ -7532,64 +7539,64 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If16_else:
-    ldloc.s 77
+  run_If22_else:
+    ldloc.s 92
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 78
-    ldloc.s 72
+    stloc.s 93
+    ldloc.s 87
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 79
+    stloc.s 94
     ldc.i4 0
-    stloc.s 80
-  run_W17_start:
-    ldloc.s 80
-    ldloc.s 72
+    stloc.s 95
+  run_W23_start:
+    ldloc.s 95
+    ldloc.s 87
     callvirt instance int32 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Count()
     clt
-    brfalse run_W17_end
-    ldloc.s 79
+    brfalse run_W23_end
+    ldloc.s 94
     conv.i
-    ldloc.s 80
-    ldloc.s 72
-    ldloc.s 80
+    ldloc.s 95
+    ldloc.s 87
+    ldloc.s 95
     callvirt instance !0 class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::get_Item(int32)
     conv.ovf.u1
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteByte(native int, int32, uint8)
     ldc.i8 0
-    stloc.s 81
-    ldloc.s 80
+    stloc.s 96
+    ldloc.s 95
     ldc.i4 1
     add
-    stloc.s 80
-    br run_W17_start
-  run_W17_end:
+    stloc.s 95
+    br run_W23_start
+  run_W23_end:
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 82
-    ldloc.s 82
-    ldloc.s 78
-    ldloc.s 79
+    stloc.s 97
+    ldloc.s 97
+    ldloc.s 93
+    ldloc.s 94
     call int32 TKVApp::__pinvoke_cu_module_fn(int64, int64, int64)
     stloc.s 0
-    ldloc.s 82
+    ldloc.s 97
     ldc.i4 0
     conv.i8
     add
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
-    stloc.s 83
+    stloc.s 98
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 84
-    ldloc.s 84
+    stloc.s 99
+    ldloc.s 99
     ldc.i4 0
     conv.i8
     add
@@ -7597,12 +7604,12 @@
     ldloc.s 38
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 85
+    stloc.s 100
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 86
-    ldloc.s 86
+    stloc.s 101
+    ldloc.s 101
     ldc.i4 0
     conv.i8
     add
@@ -7610,12 +7617,12 @@
     ldloc.s 39
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 87
+    stloc.s 102
     ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 88
-    ldloc.s 88
+    stloc.s 103
+    ldloc.s 103
     ldc.i4 0
     conv.i8
     add
@@ -7623,39 +7630,39 @@
     ldloc.s 6
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt32(native int, int32)
     ldc.i8 0
-    stloc.s 89
+    stloc.s 104
     ldc.i4 24
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 90
-    ldloc.s 90
+    stloc.s 105
+    ldloc.s 105
     ldc.i4 0
     conv.i8
     add
     conv.i
-    ldloc.s 84
+    ldloc.s 99
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 91
-    ldloc.s 90
+    stloc.s 106
+    ldloc.s 105
     ldc.i4 8
     conv.i8
     add
     conv.i
-    ldloc.s 86
+    ldloc.s 101
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 92
-    ldloc.s 90
+    stloc.s 107
+    ldloc.s 105
     ldc.i4 16
     conv.i8
     add
     conv.i
-    ldloc.s 88
+    ldloc.s 103
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 93
-    ldloc.s 83
+    stloc.s 108
+    ldloc.s 98
     ldc.i4 1
     ldc.i4 1
     ldc.i4 1
@@ -7664,7 +7671,7 @@
     ldc.i4 1
     ldc.i4 0
     ldc.i8 0
-    ldloc.s 90
+    ldloc.s 105
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 0
@@ -7673,7 +7680,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If18_else
+    brfalse run_If24_else
     ldstr "GELU LAUNCH FAIL"
     ldstr " "
     ldloc.s 0
@@ -7683,7 +7690,7 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If18_else:
+  run_If24_else:
     ldloc.s 2
     ldc.i4 0
     ldc.i4 0
@@ -7705,7 +7712,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If19_else
+    brfalse run_If25_else
     ldstr "GEMM2 FAIL"
     ldstr " "
     ldloc.s 0
@@ -7715,12 +7722,12 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If19_else:
+  run_If25_else:
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 94
-    ldloc.s 94
+    stloc.s 109
+    ldloc.s 109
     ldc.i4 0
     conv.i8
     add
@@ -7728,25 +7735,25 @@
     ldloc.s 41
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 95
+    stloc.s 110
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 96
-    ldloc.s 96
+    stloc.s 111
+    ldloc.s 111
     ldc.i4 0
     conv.i8
     add
     conv.i
-    ldloc.s 43
+    ldloc.s 53
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 97
+    stloc.s 112
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 98
-    ldloc.s 98
+    stloc.s 113
+    ldloc.s 113
     ldc.i4 0
     conv.i8
     add
@@ -7754,48 +7761,70 @@
     ldloc.s 41
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 99
-    ldc.i4 24
+    stloc.s 114
+    ldc.i4 4
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
-    stloc.s 100
-    ldloc.s 100
+    stloc.s 115
+    ldloc.s 115
     ldc.i4 0
     conv.i8
     add
     conv.i
-    ldloc.s 94
+    ldloc.s 7
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt32(native int, int32)
+    ldc.i8 0
+    stloc.s 116
+    ldc.i4 32
+    call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
+    conv.i8
+    stloc.s 117
+    ldloc.s 117
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    ldloc.s 109
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 101
-    ldloc.s 100
+    stloc.s 118
+    ldloc.s 117
     ldc.i4 8
     conv.i8
     add
     conv.i
-    ldloc.s 96
+    ldloc.s 111
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 102
-    ldloc.s 100
+    stloc.s 119
+    ldloc.s 117
     ldc.i4 16
     conv.i8
     add
     conv.i
-    ldloc.s 98
+    ldloc.s 113
     call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
     ldc.i8 0
-    stloc.s 103
-    ldloc.s 61
-    ldloc.s 5
+    stloc.s 120
+    ldloc.s 117
+    ldc.i4 24
+    conv.i8
+    add
+    conv.i
+    ldloc.s 115
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 121
+    ldloc.s 73
     ldc.i4 1
     ldc.i4 1
-    ldc.i4 32
+    ldc.i4 1
+    ldc.i4 64
     ldc.i4 1
     ldc.i4 1
     ldc.i4 0
     ldc.i8 0
-    ldloc.s 100
+    ldloc.s 117
     ldc.i8 0
     call int32 TKVApp::__pinvoke_cu_launch(int64, int32, int32, int32, int32, int32, int32, int32, int64, int64, int64)
     stloc.s 0
@@ -7804,7 +7833,7 @@
     ceq
     ldc.i4.0
     ceq
-    brfalse run_If20_else
+    brfalse run_If26_else
     ldstr "BIAS2 LAUNCH FAIL"
     ldstr " "
     ldloc.s 0
@@ -7814,7 +7843,7 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 1
     ret
-  run_If20_else:
+  run_If26_else:
     ldloc.s 16
     ldloc.s 41
     ldloc.s 9
@@ -7822,26 +7851,26 @@
     ldc.i4 2
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
-    stloc.s 104
+    stloc.s 122
     ldc.r4 0.0
-    stloc.s 105
+    stloc.s 123
     ldc.i4 0
     stloc.s 22
-  run_W21_start:
+  run_W27_start:
     ldloc.s 22
     ldloc.s 3
     clt
-    brfalse run_W21_end
+    brfalse run_W27_end
     ldc.r4 1000000000.0
     neg
-    stloc.s 106
+    stloc.s 124
     ldc.i4 0
     stloc.s 23
-  run_W22_start:
+  run_W28_start:
     ldloc.s 23
     ldloc.s 5
     clt
-    brfalse run_W22_end
+    brfalse run_W28_end
     ldloc.s 16
     ldloc.s 22
     ldloc.s 23
@@ -7854,29 +7883,29 @@
     add
     conv.i
     ldind.r4
-    stloc.s 107
-    ldloc.s 107
-    ldloc.s 106
+    stloc.s 125
+    ldloc.s 125
+    ldloc.s 124
     cgt
-    brfalse run_If23_else
-    ldloc.s 107
-    stloc.s 106
-  run_If23_else:
+    brfalse run_If29_else
+    ldloc.s 125
+    stloc.s 124
+  run_If29_else:
     ldloc.s 23
     ldc.i4 1
     add
     stloc.s 23
-    br run_W22_start
-  run_W22_end:
+    br run_W28_start
+  run_W28_end:
     ldc.r4 0.0
-    stloc.s 108
+    stloc.s 126
     ldc.i4 0
     stloc.s 23
-  run_W24_start:
+  run_W30_start:
     ldloc.s 23
     ldloc.s 5
     clt
-    brfalse run_W24_end
+    brfalse run_W30_end
     ldloc.s 16
     ldloc.s 22
     ldloc.s 23
@@ -7889,24 +7918,24 @@
     add
     conv.i
     ldind.r4
-    stloc.s 107
-    ldloc.s 107
-    ldloc.s 106
+    stloc.s 125
+    ldloc.s 125
+    ldloc.s 124
     sub
     conv.r8
     call float64 [mscorlib]System.Math::Exp(float64)
     conv.r4
-    stloc.s 109
-    ldloc.s 108
-    ldloc.s 109
+    stloc.s 127
+    ldloc.s 126
+    ldloc.s 127
     add
-    stloc.s 108
+    stloc.s 126
     ldloc.s 23
     ldc.i4 1
     add
     stloc.s 23
-    br run_W24_start
-  run_W24_end:
+    br run_W30_start
+  run_W30_end:
     ldloc.s 15
     ldloc.s 22
     ldc.i4 4
@@ -7915,10 +7944,10 @@
     add
     conv.i
     call int32 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt32(native int)
-    stloc.s 110
+    stloc.s 128
     ldloc.s 16
     ldloc.s 22
-    ldloc.s 110
+    ldloc.s 128
     ldloc.s 3
     mul
     add
@@ -7928,36 +7957,36 @@
     add
     conv.i
     ldind.r4
-    stloc.s 111
-    ldloc.s 111
-    ldloc.s 106
+    stloc.s 129
+    ldloc.s 129
+    ldloc.s 124
     sub
     conv.r8
     call float64 [mscorlib]System.Math::Exp(float64)
     conv.r4
-    stloc.s 112
-    ldloc.s 105
-    ldloc.s 112
-    ldloc.s 108
+    stloc.s 130
+    ldloc.s 123
+    ldloc.s 130
+    ldloc.s 126
     div
     conv.r8
     call float64 [mscorlib]System.Math::Log(float64)
     conv.r4
     sub
-    stloc.s 105
+    stloc.s 123
     ldloc.s 22
     ldc.i4 1
     add
     stloc.s 22
-    br run_W21_start
-  run_W21_end:
-    ldloc.s 105
+    br run_W27_start
+  run_W27_end:
+    ldloc.s 123
     ldc.r4 4.0
     div
-    stloc.s 105
+    stloc.s 123
     ldstr "LOSS"
     ldstr " "
-    ldloc.s 105
+    ldloc.s 123
     call string TkvStr::F32(float32)
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
