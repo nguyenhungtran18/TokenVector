@@ -73,7 +73,7 @@ def parse(tag):
 
 
 allok = True
-for tag, ref in [('Y1', Y1), ('P', P), ('X2', X2), ('Y2', Y2), ('HH', HH), ('OUT', OUT)]:
+for tag, ref in [('Y1', Y1), ('P', P), ('X2', X2), ('Y2', Y2), ('HH', HH), ('O2', O2), ('OUT', OUT)]:
     got = parse(tag)
     if not got:
         print(tag, 'KHONG CO OUTPUT')
