@@ -18,6 +18,98 @@ __tkv_extern_pinvoke__ = [
 ]
 
 
+def bwd(hH: "i64", hDL: "i64", hDW2: "i64", hDB2: "i64", hDH: "i64", hW2: "i64", hX: "i64", hDZ: "i64", hDW1: "i64", hIds: "i64", hP: "i64", hLG: "i64", hZ: "i64") -> "i32":
+    T: "i32" = 4
+    D: "i32" = 8
+    V: "i32" = 8
+    i = 0
+    while i < T:
+        idv = read_i32(hIds, i * 4)
+        j = 0
+        while j < V:
+            pv3: "f32" = read_f32(hP, (i + j * V) * 4)
+            dv: "f32" = pv3
+            if j == idv:
+                dv = dv - 1.0
+            dv = dv / 4.0
+            wdl: "i64" = write_f32(hDL, (i + j * V) * 4, dv)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < D:
+        j = 0
+        while j < V:
+            s3: "f32" = 0.0
+            s3 = 0.0
+            t: "i32" = 0
+            while t < T:
+                hv3: "f32" = read_f32(hH, (t + i * T) * 4)
+                dl: "f32" = read_f32(hDL, (t + j * V) * 4)
+                s3 = s3 + hv3 * dl
+                t = t + 1
+            old: "f32" = read_f32(hDW2, (i + j * D) * 4)
+            wdw: "i64" = write_f32(hDW2, (i + j * D) * 4, old + s3)
+            j = j + 1
+        i = i + 1
+    j = 0
+    while j < V:
+        s4: "f32" = 0.0
+        s4 = 0.0
+        t = 0
+        while t < T:
+            dl = read_f32(hDL, (t + j * V) * 4)
+            s4 = s4 + dl
+            t = t + 1
+        ob: "f32" = read_f32(hDB2, j * 4)
+        wdb: "i64" = write_f32(hDB2, j * 4, ob + s4)
+        j = j + 1
+    i = 0
+    while i < T:
+        j = 0
+        while j < D:
+            s5: "f32" = 0.0
+            s5 = 0.0
+            v = 0
+            while v < V:
+                dl = read_f32(hDL, (i + v * V) * 4)
+                w2 = read_f32(hW2, (j + v * D) * 4)
+                s5 = s5 + dl * w2
+                v = v + 1
+            wdh: "i64" = write_f32(hDH, (i + j * T) * 4, s5)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < T:
+        j = 0
+        while j < D:
+            zv2: "f32" = read_f32(hZ, (i + j * T) * 4)
+            zz3: "f32" = 0.79788456 * (zv2 + 0.044715 * zv2 * zv2 * zv2)
+            ee2: "f32" = exp(2.0 * zz3)
+            th2: "f32" = (ee2 - 1.0) / (ee2 + 1.0)
+            a1: "f32" = 0.5 * (1.0 + th2)
+            bq: "f32" = 0.5 * zv2 * (1.0 - th2 * th2) * 0.79788456 * (1.0 + 0.134145 * zv2 * zv2)
+            dzv: "f32" = read_f32(hDH, (i + j * T) * 4) * (a1 + bq)
+            wdz: "i64" = write_f32(hDZ, (i + j * T) * 4, dzv)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < D:
+        j = 0
+        while j < D:
+            s6: "f32" = 0.0
+            s6 = 0.0
+            t = 0
+            while t < T:
+                xv2: "f32" = read_f32(hX, (t + i * T) * 4)
+                dz2: "f32" = read_f32(hDZ, (t + j * T) * 4)
+                s6 = s6 + xv2 * dz2
+                t = t + 1
+            o2: "f32" = read_f32(hDW1, (i + j * D) * 4)
+            wdw1: "i64" = write_f32(hDW1, (i + j * D) * 4, o2 + s6)
+            j = j + 1
+        i = i + 1
+    return 0
+
 def run() -> "i32":
     rc: "i32" = cu_init(0)
     if rc != 0:
@@ -167,95 +259,10 @@ def run() -> "i32":
     loss = loss / 4.0
     print("MARK FWD DONE")
     print("LOSS", loss)
-    # backward dlogits = (P - onehot)/T
-    i = 0
-    while i < T:
-        idv = read_i32(hIds, i * 4)
-        j = 0
-        while j < V:
-            pv3: "f32" = read_f32(hP, (i + j * V) * 4)
-            dv: "f32" = pv3
-            if j == idv:
-                dv = dv - 1.0
-            dv = dv / 4.0
-            wdl: "i64" = write_f32(hDL, (i + j * V) * 4, dv)
-            j = j + 1
-        i = i + 1
-    # dW2 += h^T * dL ; db2 += dL ; dh = dL * W2^T
-    i = 0
-    while i < D:
-        j = 0
-        while j < V:
-            s3: "f32" = 0.0
-            s3 = 0.0
-            t: "i32" = 0
-            while t < T:
-                hv3: "f32" = read_f32(hH, (t + i * T) * 4)
-                dl: "f32" = read_f32(hDL, (t + j * V) * 4)
-                s3 = s3 + hv3 * dl
-                t = t + 1
-            old: "f32" = read_f32(hDW2, (i + j * D) * 4)
-            wdw: "i64" = write_f32(hDW2, (i + j * D) * 4, old + s3)
-            j = j + 1
-        i = i + 1
-    j = 0
-    while j < V:
-        s4: "f32" = 0.0
-        s4 = 0.0
-        t = 0
-        while t < T:
-            dl = read_f32(hDL, (t + j * V) * 4)
-            s4 = s4 + dl
-            t = t + 1
-        ob: "f32" = read_f32(hDB2, j * 4)
-        wdb: "i64" = write_f32(hDB2, j * 4, ob + s4)
-        j = j + 1
-    i = 0
-    while i < T:
-        j = 0
-        while j < D:
-            s5: "f32" = 0.0
-            s5 = 0.0
-            v = 0
-            while v < V:
-                dl = read_f32(hDL, (i + v * V) * 4)
-                w2 = read_f32(hW2, (j + v * D) * 4)
-                s5 = s5 + dl * w2
-                v = v + 1
-            wdh: "i64" = write_f32(hDH, (i + j * T) * 4, s5)
-            j = j + 1
-        i = i + 1
-    # dz = dh * gelu'(z) ; dW1 += x^T*dz ; db1 += dz
-    i = 0
-    while i < T:
-        j = 0
-        while j < D:
-            zv2: "f32" = read_f32(hZ, (i + j * T) * 4)
-            zz3: "f32" = 0.79788456 * (zv2 + 0.044715 * zv2 * zv2 * zv2)
-            ee2: "f32" = exp(2.0 * zz3)
-            th2: "f32" = (ee2 - 1.0) / (ee2 + 1.0)
-            a1: "f32" = 0.5 * (1.0 + th2)
-            bq: "f32" = 0.5 * zv2 * (1.0 - th2 * th2) * 0.79788456 * (1.0 + 0.134145 * zv2 * zv2)
-            dzv: "f32" = read_f32(hDH, (i + j * T) * 4) * (a1 + bq)
-            wdz: "i64" = write_f32(hDZ, (i + j * T) * 4, dzv)
-            j = j + 1
-        i = i + 1
-    i = 0
-    while i < D:
-        j = 0
-        while j < D:
-            s6: "f32" = 0.0
-            s6 = 0.0
-            t = 0
-            while t < T:
-                xv2: "f32" = read_f32(hX, (t + i * T) * 4)
-                dz2: "f32" = read_f32(hDZ, (t + j * T) * 4)
-                s6 = s6 + xv2 * dz2
-                t = t + 1
-            o2: "f32" = read_f32(hDW1, (i + j * D) * 4)
-            wdw1: "i64" = write_f32(hDW1, (i + j * D) * 4, o2 + s6)
-            j = j + 1
-        i = i + 1
+    rcb: "i32" = bwd(hH, hDL, hDW2, hDB2, hDH, hW2, hX, hDZ, hDW1, hIds, hP, hLG, hZ)
+    if rcb != 0:
+        return 1
+    print("MARK BWD DONE")
     print("MARK BWD DONE")
     # AdamW via PTX (compiler sinh)
     # @tkv.ptx_kernel name="adamw_kernel" kind="adamw" var="PTX"
