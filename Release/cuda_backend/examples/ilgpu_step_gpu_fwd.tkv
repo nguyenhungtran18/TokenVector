@@ -52,6 +52,15 @@ def run() -> "i32":
     wb0: "i64" = write_f32(hb, 0, 0.0)
     i: "i32" = 0
     j: "i32" = 0
+    while i < D:
+        wb1x: "i64" = write_f32(hb1, i * 4, 0.1)
+        i = i + 1
+    i = 0
+    while i < V:
+        wb2: "i64" = write_f32(hb2, i * 4, 0.05)
+        i = i + 1
+    print("HB1A", read_f32(hb1, 0), read_f32(hb1, 4))
+    i = 0
     while i < T:
         j = 0
         while j < D:
@@ -66,7 +75,6 @@ def run() -> "i32":
         while j < D:
             ww1: "i64" = write_f32(hW1, (i + j * D) * 4, 0.2 + 0.01 * (i + j))
             j = j + 1
-        wb1x: "i64" = write_f32(hb1, i * 4, 0.1)
         i = i + 1
     i = 0
     while i < D:
@@ -75,10 +83,9 @@ def run() -> "i32":
             ww2: "i64" = write_f32(hW2, (i + j * D) * 4, 0.3 + 0.01 * (i + j))
             j = j + 1
         i = i + 1
-    i = 0
-    while i < V:
-        wb2: "i64" = write_f32(hb2, i * 4, 0.05)
-        i = i + 1
+    print("HB1B", read_f32(hb1, 0), read_f32(hb1, 4))
+    print("HB2", read_f32(hb2, 0), read_f32(hb2, 4))
+    print("HW1", read_f32(hW1, 0), read_f32(hW1, 4), read_f32(hW1, 56), read_f32(hW1, 60))
     cell = alloc_bytes(8)
     rc = cuda_malloc(cell, tb)
     dX = read_i64(cell, 0)
