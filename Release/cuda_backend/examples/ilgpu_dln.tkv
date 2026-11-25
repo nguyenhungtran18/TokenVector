@@ -1,0 +1,114 @@
+# -*- coding: utf-8 -*-
+# IL-only dLayerNorm: tinh dao ham tren host bang .tkv, GPU chi luu ket qua.
+# Khong C++/torch.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        return 1
+    H: "i32" = 8
+    nb: "i32" = H * 4
+    hx = alloc_bytes(nb)
+    hg = alloc_bytes(nb)
+    hb = alloc_bytes(nb)
+    hdy = alloc_bytes(nb)
+    hxh = alloc_bytes(nb)
+    hdx = alloc_bytes(nb)
+    hdg = alloc_bytes(nb)
+    hdb = alloc_bytes(nb)
+    ho = alloc_bytes(nb)
+    i: "i32" = 0
+    xv: "f32" = -2.0
+    gv: "f32" = 1.0
+    yv: "f32" = 0.5
+    while i < H:
+        wa: "i64" = write_f32(hx, i * 4, xv)
+        wb: "i64" = write_f32(hg, i * 4, gv)
+        wc: "i64" = write_f32(hb, i * 4, 0.25)
+        wd: "i64" = write_f32(hdy, i * 4, yv)
+        xv = xv + 0.5
+        gv = gv + 0.1
+        yv = yv + 0.05
+        i = i + 1
+    sm: "f32" = 0.0
+    sv: "f32" = 0.0
+    i = 0
+    while i < H:
+        ax: "f32" = read_f32(hx, i * 4)
+        sm = sm + ax
+        i = i + 1
+    mean: "f32" = sm / 8.0
+    i = 0
+    while i < H:
+        ax = read_f32(hx, i * 4)
+        d: "f32" = ax - mean
+        sv = sv + d * d
+        i = i + 1
+    var: "f32" = sv / 8.0
+    rstd: "f32" = 1.0 / sqrt(var + 0.000001)
+    s1: "f32" = 0.0
+    s2: "f32" = 0.0
+    i = 0
+    while i < H:
+        ax = read_f32(hx, i * 4)
+        gg: "f32" = read_f32(hg, i * 4)
+        dy: "f32" = read_f32(hdy, i * 4)
+        xh: "f32" = (ax - mean) * rstd
+        we: "i64" = write_f32(hxh, i * 4, xh)
+        t: "f32" = gg * dy
+        s1 = s1 + t
+        s2 = s2 + t * xh
+        i = i + 1
+    m1: "f32" = s1 / 8.0
+    m2: "f32" = s2 / 8.0
+    i = 0
+    while i < H:
+        gg = read_f32(hg, i * 4)
+        dy = read_f32(hdy, i * 4)
+        xh = read_f32(hxh, i * 4)
+        dxv: "f32" = rstd * (gg * dy - m1 - xh * m2)
+        dgv: "f32" = dy * xh
+        dbv: "f32" = dy
+        wf: "i64" = write_f32(hdx, i * 4, dxv)
+        wg: "i64" = write_f32(hdg, i * 4, dgv)
+        wh: "i64" = write_f32(hdb, i * 4, dbv)
+        i = i + 1
+    cell = alloc_bytes(8)
+    rc = cuda_malloc(cell, nb)
+    pdx = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    pdg = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    pdb = read_i64(cell, 0)
+    wi: "i64" = cuda_h2d(pdx, hdx, nb, 1)
+    wj: "i64" = cuda_h2d(pdg, hdg, nb, 1)
+    wk: "i64" = cuda_h2d(pdb, hdb, nb, 1)
+    wl: "i64" = cuda_h2d(ho, pdx, nb, 2)
+    i = 0
+    while i < H:
+        ov: "f32" = read_f32(ho, i * 4)
+        print("DX", i, ov)
+        i = i + 1
+    wl2: "i64" = cuda_h2d(ho, pdg, nb, 2)
+    i = 0
+    while i < H:
+        ov = read_f32(ho, i * 4)
+        print("DG", i, ov)
+        i = i + 1
+    wl3: "i64" = cuda_h2d(ho, pdb, nb, 2)
+    i = 0
+    while i < H:
+        ov = read_f32(ho, i * 4)
+        print("DB", i, ov)
+        i = i + 1
+    print("BATCH DONE")
+    return 0
