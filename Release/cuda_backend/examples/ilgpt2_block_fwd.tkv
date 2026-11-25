@@ -184,7 +184,7 @@ def run() -> "i32":
         print("MODULE FAIL", rc)
         return 1
     mod: "i64" = read_i64(mc, 0)
-    nb = alloc_bytes(len(FN1))
+    nb = alloc_bytes(32)
     r1: "i32" = 0
     while r1 < len(FN1):
         w1: "i64" = write_u8(nb, r1, FN1[r1])
