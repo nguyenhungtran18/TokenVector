@@ -333,25 +333,42 @@ def run() -> "i32":
         print("ADD1 FAIL", rc)
         return 1
     print("MARK 7 attn+res")
-    # 8) LN2 - buffer params RIENG (khong tai dung pl/wzp*)
-    pl2 = alloc_bytes(80)
-    lz0: "i64" = write_i64(pl2, 0, dX2)
-    lz1: "i64" = write_i64(pl2, 8, dG2)
-    lz2: "i64" = write_i64(pl2, 16, dB2)
-    lz3: "i64" = write_i64(pl2, 24, dY2)
-    lz4: "i64" = write_i64(pl2, 32, dXH2)
-    lz5: "i64" = write_i64(pl2, 40, dST2)
-    lz6: "i64" = write_i64(pl2, 48, a6)
-    lz7: "i64" = write_i64(pl2, 56, a7)
-    lz8: "i64" = write_i64(pl2, 64, a8)
-    lz9: "i64" = write_i64(pl2, 72, a9)
-    print("PTRS", dX2, dG2, dB2, dY2, dXH2, dST2)
-    print("MARK 7w params")
-    rc = cu_launch(k_lnf, 1, 1, 1, 64, 1, 1, 0, 0, pl2, 0)
-    if rc != 0:
-        print("LNF2 FAIL", rc)
-        return 1
-    print("MARK 7a lnf2")
+    # 8) LN2 - tam thoi tren host (device kernel se thay lai sau)
+    hr2 = alloc_bytes(qb)
+    chk2: "i64" = cuda_h2d(hr2, dX2, qb, 2)
+    hY2 = alloc_bytes(qb)
+    hXH2 = alloc_bytes(qb)
+    hST2 = alloc_bytes(stb)
+    ii: "i32" = 0
+    while ii < T:
+        su: "f32" = 0.0
+        sq: "f32" = 0.0
+        jj: "i32" = 0
+        while jj < H:
+            xv: "f32" = read_f32(hr2, (ii + jj * T) * 4)
+            su = su + xv
+            sq = sq + xv * xv
+            jj = jj + 1
+        mn: "f32" = su / H
+        vr: "f32" = sq / H - mn * mn
+        vr = vr + eps
+        rs: "f32" = 1.0 / sqrt(vr)
+        wq0: "i64" = write_f32(hST2, ii * 8, mn)
+        wq1: "i64" = write_f32(hST2, ii * 8 + 4, rs)
+        jj = 0
+        while jj < H:
+            xv = read_f32(hr2, (ii + jj * T) * 4)
+            xhv: "f32" = (xv - mn) * rs
+            gv: "f32" = read_f32(hG2, jj * 4)
+            bv: "f32" = read_f32(hB2, jj * 4)
+            wq2: "i64" = write_f32(hXH2, (ii + jj * T) * 4, xhv)
+            wq3: "i64" = write_f32(hY2, (ii + jj * T) * 4, xhv * gv + bv)
+            jj = jj + 1
+        ii = ii + 1
+    up0: "i64" = cuda_h2d(dY2, hY2, qb, 1)
+    up1: "i64" = cuda_h2d(dXH2, hXH2, qb, 1)
+    up2: "i64" = cuda_h2d(dST2, hST2, stb, 1)
+    print("MARK 7a lnf2 host")
     # 9) Z = Y2 W1
     rc = cublas_sgemm(ch, 0, 0, T, F, H, ha, dY2, T, dW1, H, hb0, dZ, T)
     if rc != 0:
