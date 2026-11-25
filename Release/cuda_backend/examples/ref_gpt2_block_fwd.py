@@ -61,6 +61,9 @@ try:
 except NameError:
     pass
 
+print('STDOUT TAIL (last 500):')
+print(out[-500:])
+
 
 def parse(tag):
     d = {}
