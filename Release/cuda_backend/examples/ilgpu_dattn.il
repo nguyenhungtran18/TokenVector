@@ -1229,7 +1229,7 @@
   .method public static int32 'run'() cil managed
   {
     .maxstack 242
-    .locals init (int32 'rc', int32 'T', int32 'D', int32 'qd', int32 'sd', int64 'hQ', int64 'hK', int64 'hV', int64 'hdO', int64 'hP', int64 'hE', int64 'hdP', int64 'hdS', int64 'hdQ', int64 'hdK', int64 'hdV', int64 'ho', int32 'i', int32 'j', int64 'wq', int64 'wk', int64 'wv', int64 'wg', float64 'sum', int32 'k', float32 'aq', float32 'bk', float64 'e', int64 'we', float64 'z', float32 'ee', int64 'wp', float64 's', float32 'g', float32 'vv', int64 'wdp', float32 'pp', float32 'dp', int64 'wds', float32 'ds', float32 'kk', int64 'wdq', float32 'qq', int64 'wdk', float32 'gg', int64 'wdv', int64 'cell', int64 'pQ', int64 'pK', int64 'pV', int64 'w1', int64 'w2', int64 'w3', int64 'w4', int64 'w5', int64 'w6', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum', int32 '__licm66', int32 '__licm67', int32 '__licm68', int32 '__licm69', int32 '__licm70')
+    .locals init (int32 'rc', int32 'T', int32 'D', int32 'qd', int32 'sd', int64 'hQ', int64 'hK', int64 'hV', int64 'hdO', int64 'hP', int64 'hE', int64 'hdP', int64 'hdS', int64 'hdQ', int64 'hdK', int64 'hdV', int64 'ho', int32 'i', int32 'j', int64 'wq', int64 'wk', int64 'wv', int64 'wg', float32 'sum', int32 'k', float32 'aq', float32 'bk', float32 'e', int64 'we', float32 'z', float32 'ee', int64 'wp', float32 's', float32 'g', float32 'vv', int64 'wdp', float32 'pp', float32 'dp', int64 'wds', float32 'ds', float32 'kk', int64 'wdq', float32 'qq', int64 'wdk', float32 'gg', int64 'wdv', int64 'cell', int64 'pQ', int64 'pK', int64 'pV', int64 'w1', int64 'w2', int64 'w3', int64 'w4', int64 'w5', int64 'w6', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum', int32 '__licm66', int32 '__licm67', int32 '__licm68', int32 '__licm69', int32 '__licm70')
     ldc.i4 0
     call int32 TKVApp::__pinvoke_cu_init(int32)
     stloc.s 0
@@ -1440,7 +1440,9 @@
     ldloc.s 1
     clt
     brfalse run_W5_end
-    ldc.r8 0.0
+    ldc.r4 0.0
+    stloc.s 23
+    ldc.r4 0.0
     stloc.s 23
     ldc.i4 0
     stloc.s 24
@@ -1487,7 +1489,9 @@
     stloc.s 24
     br run_W6_start
   run_W6_end:
-    ldc.r8 0.0
+    ldc.r4 0.0
+    stloc.s 27
+    ldc.r4 0.0
     stloc.s 27
     ldloc.s 18
     ldloc.s 17
@@ -1496,10 +1500,11 @@
     ceq
     brfalse run_If7_else
     ldloc.s 23
-    ldc.r8 0.35355339
+    ldc.r4 0.35355339
     mul
     conv.r8
     call float64 [mscorlib]System.Math::Exp(float64)
+    conv.r4
     stloc.s 27
   run_If7_else:
     ldloc.s 10
@@ -1536,7 +1541,9 @@
     ldloc.s 1
     clt
     brfalse run_W8_end
-    ldc.r8 0.0
+    ldc.r4 0.0
+    stloc.s 29
+    ldc.r4 0.0
     stloc.s 29
     ldc.i4 0
     stloc.s 18
@@ -1631,7 +1638,9 @@
     ldloc.s 1
     clt
     brfalse run_W12_end
-    ldc.r8 0.0
+    ldc.r4 0.0
+    stloc.s 32
+    ldc.r4 0.0
     stloc.s 32
     ldc.i4 0
     stloc.s 24
@@ -1712,7 +1721,7 @@
     ldloc.s 1
     clt
     brfalse run_W14_end
-    ldc.r8 0.0
+    ldc.r4 0.0
     stloc.s 29
     ldc.i4 0
     stloc.s 18
@@ -1837,7 +1846,7 @@
     ldloc.s 2
     clt
     brfalse run_W18_end
-    ldc.r8 0.0
+    ldc.r4 0.0
     stloc.s 32
     ldc.i4 0
     stloc.s 24
@@ -1933,7 +1942,7 @@
     ldloc.s 2
     clt
     brfalse run_W21_end
-    ldc.r8 0.0
+    ldc.r4 0.0
     stloc.s 32
     ldc.i4 0
     stloc.s 24
@@ -2027,7 +2036,7 @@
     ldloc.s 2
     clt
     brfalse run_W24_end
-    ldc.r8 0.0
+    ldc.r4 0.0
     stloc.s 32
     ldc.i4 0
     stloc.s 24
