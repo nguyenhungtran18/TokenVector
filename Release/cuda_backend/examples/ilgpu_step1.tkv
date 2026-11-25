@@ -1,0 +1,362 @@
+# -*- coding: utf-8 -*-
+# IL-only mot buoc train nho: forward + backward + AdamW. Khong C++/torch.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
+     "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        return 1
+    T: "i32" = 4
+    D: "i32" = 8
+    V: "i32" = 8
+    n1: "i32" = D * D
+    n2: "i32" = D * V
+    b1n: "i32" = T * D
+    b2n: "i32" = T * V
+    w1b: "i32" = n1 * 4
+    w2b: "i32" = n2 * 4
+    hW1 = alloc_bytes(w1b)
+    hW2 = alloc_bytes(w2b)
+    hb1 = alloc_bytes(D * 4)
+    hb2 = alloc_bytes(V * 4)
+    hX = alloc_bytes(b1n * 4)
+    hIds = alloc_bytes(T * 4)
+    hZ = alloc_bytes(b1n * 4)
+    hH = alloc_bytes(b1n * 4)
+    hLG = alloc_bytes(b2n * 4)
+    hP = alloc_bytes(b2n * 4)
+    hDL = alloc_bytes(b2n * 4)
+    hDW1 = alloc_bytes(w1b)
+    hDW2 = alloc_bytes(w2b)
+    hDB1 = alloc_bytes(D * 4)
+    hDB2 = alloc_bytes(V * 4)
+    hDH = alloc_bytes(b1n * 4)
+    hDZ = alloc_bytes(b1n * 4)
+    hM1 = alloc_bytes(w1b)
+    hM2 = alloc_bytes(w2b)
+    hV1 = alloc_bytes(w1b)
+    hV2 = alloc_bytes(w2b)
+    hOut = alloc_bytes(w1b)
+    i: "i32" = 0
+    j: "i32" = 0
+    while i < D:
+        j = 0
+        while j < D:
+            vw: "i64" = write_f32(hW1, (i + j * D) * 4, 0.2 + 0.01 * (i + j))
+            vdm: "i64" = write_f32(hM1, (i + j * D) * 4, 0.0)
+            vdv: "i64" = write_f32(hV1, (i + j * D) * 4, 0.0)
+            vdg: "i64" = write_f32(hDW1, (i + j * D) * 4, 0.0)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < D:
+        j = 0
+        while j < V:
+            vw2: "i64" = write_f32(hW2, (i + j * D) * 4, 0.3 + 0.01 * (i + j))
+            vdm2: "i64" = write_f32(hM2, (i + j * D) * 4, 0.0)
+            vdv2: "i64" = write_f32(hV2, (i + j * D) * 4, 0.0)
+            vdg2: "i64" = write_f32(hDW2, (i + j * D) * 4, 0.0)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < D:
+        vb1: "i64" = write_f32(hb1, i * 4, 0.1)
+        vdb1: "i64" = write_f32(hDB1, i * 4, 0.0)
+        i = i + 1
+    i = 0
+    while i < V:
+        vb2: "i64" = write_f32(hb2, i * 4, 0.05)
+        vdb2: "i64" = write_f32(hDB2, i * 4, 0.0)
+        i = i + 1
+    i = 0
+    while i < T:
+        j = 0
+        while j < D:
+            vx: "i64" = write_f32(hX, (i + j * T) * 4, 0.1 + 0.02 * (i + j))
+            j = j + 1
+        vi: "i32" = (i + 1) % V
+        vid: "i64" = write_i32(hIds, i * 4, vi)
+        i = i + 1
+    # forward z = X@W1 + b1 ; h = gelu(z)
+    i = 0
+    while i < T:
+        j = 0
+        while j < D:
+            s: "f32" = 0.0
+            s = 0.0
+            k: "i32" = 0
+            while k < D:
+                xv: "f32" = read_f32(hX, (i + k * T) * 4)
+                wv: "f32" = read_f32(hW1, (k + j * D) * 4)
+                s = s + xv * wv
+                k = k + 1
+            bv: "f32" = read_f32(hb1, j * 4)
+            zv: "f32" = s + bv
+            wz: "i64" = write_f32(hZ, (i + j * T) * 4, zv)
+            zz: "f32" = 0.79788456 * (zv + 0.044715 * zv * zv * zv)
+            ee: "f32" = exp(2.0 * zz)
+            th: "f32" = (ee - 1.0) / (ee + 1.0)
+            hv: "f32" = 0.5 * zv * (1.0 + th)
+            wh: "i64" = write_f32(hH, (i + j * T) * 4, hv)
+            j = j + 1
+        i = i + 1
+    # logits = h@W2 + b2 ; softmax ; loss
+    i = 0
+    while i < T:
+        j = 0
+        while j < V:
+            s2: "f32" = 0.0
+            s2 = 0.0
+            k = 0
+            while k < D:
+                hv2: "f32" = read_f32(hH, (i + k * T) * 4)
+                w2v: "f32" = read_f32(hW2, (k + j * D) * 4)
+                s2 = s2 + hv2 * w2v
+                k = k + 1
+            b2v: "f32" = read_f32(hb2, j * 4)
+            wl: "i64" = write_f32(hLG, (i + j * V) * 4, s2 + b2v)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < T:
+        mx: "f32" = -1000000000.0
+        j = 0
+        while j < V:
+            lv: "f32" = read_f32(hLG, (i + j * V) * 4)
+            if lv > mx:
+                mx = lv
+            j = j + 1
+        zz2: "f32" = 0.0
+        j = 0
+        while j < V:
+            lv = read_f32(hLG, (i + j * V) * 4)
+            ev: "f32" = exp(lv - mx)
+            wp: "i64" = write_f32(hP, (i + j * V) * 4, ev)
+            zz2 = zz2 + ev
+            j = j + 1
+        j = 0
+        while j < V:
+            pv: "f32" = read_f32(hP, (i + j * V) * 4)
+            wq: "i64" = write_f32(hP, (i + j * V) * 4, pv / zz2)
+            j = j + 1
+        i = i + 1
+    loss: "f32" = 0.0
+    i = 0
+    while i < T:
+        idv: "i32" = read_i32(hIds, i * 4)
+        pv2: "f32" = read_f32(hP, (i + idv * V) * 4)
+        loss = loss - log(pv2)
+        i = i + 1
+    loss = loss / 4.0
+    print("LOSS", loss)
+    # backward dlogits = (P - onehot)/T
+    i = 0
+    while i < T:
+        idv = read_i32(hIds, i * 4)
+        j = 0
+        while j < V:
+            pv3: "f32" = read_f32(hP, (i + j * V) * 4)
+            dv: "f32" = pv3
+            if j == idv:
+                dv = dv - 1.0
+            dv = dv / 4.0
+            wdl: "i64" = write_f32(hDL, (i + j * V) * 4, dv)
+            j = j + 1
+        i = i + 1
+    # dW2 += h^T * dL ; db2 += dL ; dh = dL * W2^T
+    i = 0
+    while i < D:
+        j = 0
+        while j < V:
+            s3: "f32" = 0.0
+            s3 = 0.0
+            t: "i32" = 0
+            while t < T:
+                hv3: "f32" = read_f32(hH, (t + i * T) * 4)
+                dl: "f32" = read_f32(hDL, (t + j * V) * 4)
+                s3 = s3 + hv3 * dl
+                t = t + 1
+            old: "f32" = read_f32(hDW2, (i + j * D) * 4)
+            wdw: "i64" = write_f32(hDW2, (i + j * D) * 4, old + s3)
+            j = j + 1
+        i = i + 1
+    j = 0
+    while j < V:
+        s4: "f32" = 0.0
+        s4 = 0.0
+        t = 0
+        while t < T:
+            dl = read_f32(hDL, (t + j * V) * 4)
+            s4 = s4 + dl
+            t = t + 1
+        ob: "f32" = read_f32(hDB2, j * 4)
+        wdb: "i64" = write_f32(hDB2, j * 4, ob + s4)
+        j = j + 1
+    i = 0
+    while i < T:
+        j = 0
+        while j < D:
+            s5: "f32" = 0.0
+            s5 = 0.0
+            v = 0
+            while v < V:
+                dl = read_f32(hDL, (i + v * V) * 4)
+                w2 = read_f32(hW2, (j + v * D) * 4)
+                s5 = s5 + dl * w2
+                v = v + 1
+            wdh: "i64" = write_f32(hDH, (i + j * T) * 4, s5)
+            j = j + 1
+        i = i + 1
+    # dz = dh * gelu'(z) ; dW1 += x^T*dz ; db1 += dz
+    i = 0
+    while i < T:
+        j = 0
+        while j < D:
+            zv2: "f32" = read_f32(hZ, (i + j * T) * 4)
+            zz3: "f32" = 0.79788456 * (zv2 + 0.044715 * zv2 * zv2 * zv2)
+            ee2: "f32" = exp(2.0 * zz3)
+            th2: "f32" = (ee2 - 1.0) / (ee2 + 1.0)
+            a1: "f32" = 0.5 * (1.0 + th2)
+            bq: "f32" = 0.5 * zv2 * (1.0 - th2 * th2) * 0.79788456 * (1.0 + 0.134145 * zv2 * zv2)
+            dzv: "f32" = read_f32(hDH, (i + j * T) * 4) * (a1 + bq)
+            wdz: "i64" = write_f32(hDZ, (i + j * T) * 4, dzv)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < D:
+        j = 0
+        while j < D:
+            s6: "f32" = 0.0
+            s6 = 0.0
+            t = 0
+            while t < T:
+                xv2: "f32" = read_f32(hX, (t + i * T) * 4)
+                dz2: "f32" = read_f32(hDZ, (t + j * T) * 4)
+                s6 = s6 + xv2 * dz2
+                t = t + 1
+            o2: "f32" = read_f32(hDW1, (i + j * D) * 4)
+            wdw1: "i64" = write_f32(hDW1, (i + j * D) * 4, o2 + s6)
+            j = j + 1
+        i = i + 1
+    # AdamW via PTX (compiler sinh)
+    # @tkv.ptx_kernel name="adamw_kernel" kind="adamw" var="PTX"
+    pb = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wu: "i64" = write_u8(pb, kk, PTX[kk])
+        kk = kk + 1
+    wvz: "i64" = write_u8(pb, kk, 0)
+    mc = alloc_bytes(8)
+    rc = cu_module_load(mc, pb)
+    if rc != 0:
+        print("ADAMW load fail", rc)
+        return 1
+    mo = read_i64(mc, 0)
+    fb = alloc_bytes(len(FN))
+    rf: "i32" = 0
+    while rf < len(FN):
+        ww: "i64" = write_u8(fb, rf, FN[rf])
+        rf = rf + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mo, fb)
+    if rc != 0:
+        print("ADAMW fn fail", rc)
+        return 1
+    fn = read_i64(fc, 0)
+    cell = alloc_bytes(8)
+    rc = cuda_malloc(cell, w1b)
+    dW1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    dM1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    dV1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    dG1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    dW2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    dM2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    dV2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    dG2 = read_i64(cell, 0)
+    ww1: "i64" = cuda_h2d(dW1, hW1, w1b, 1)
+    wm1: "i64" = cuda_h2d(dM1, hM1, w1b, 1)
+    wv1: "i64" = cuda_h2d(dV1, hV1, w1b, 1)
+    wg1: "i64" = cuda_h2d(dG1, hDW1, w1b, 1)
+    ww2: "i64" = cuda_h2d(dW2, hW2, w2b, 1)
+    wm2: "i64" = cuda_h2d(dM2, hM2, w2b, 1)
+    wv2: "i64" = cuda_h2d(dV2, hV2, w2b, 1)
+    wg2: "i64" = cuda_h2d(dG2, hDW2, w2b, 1)
+    lr = alloc_bytes(4)
+    wl: "i64" = write_f32(lr, 0, 0.01)
+    bb1 = alloc_bytes(4)
+    wb1: "i64" = write_f32(bb1, 0, 0.9)
+    bb2 = alloc_bytes(4)
+    wb2: "i64" = write_f32(bb2, 0, 0.999)
+    eps = alloc_bytes(4)
+    wep: "i64" = write_f32(eps, 0, 0.00000001)
+    wd = alloc_bytes(4)
+    wdd: "i64" = write_f32(wd, 0, 0.01)
+    bc1 = alloc_bytes(4)
+    wbc1: "i64" = write_f32(bc1, 0, 0.1)
+    bc2 = alloc_bytes(4)
+    wbc2: "i64" = write_f32(bc2, 0, 0.001)
+    nn = alloc_bytes(4)
+    wnn: "i64" = write_i32(nn, 0, n1)
+    par = alloc_bytes(96)
+    wp0: "i64" = write_i64(par, 0, dW1)
+    wp1: "i64" = write_i64(par, 8, dM1)
+    wp2: "i64" = write_i64(par, 16, dV1)
+    wp3: "i64" = write_i64(par, 24, dG1)
+    wp4: "i64" = write_i64(par, 32, nn)
+    wp5: "i64" = write_i64(par, 40, lr)
+    wp6: "i64" = write_i64(par, 48, bb1)
+    wp7: "i64" = write_i64(par, 56, bb2)
+    wp8: "i64" = write_i64(par, 64, eps)
+    wp9: "i64" = write_i64(par, 72, wd)
+    wp10: "i64" = write_i64(par, 80, bc1)
+    wp11: "i64" = write_i64(par, 88, bc2)
+    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
+    if rc != 0:
+        print("ADAMW1 launch fail", rc)
+        return 1
+    wnn2: "i64" = write_i32(nn, 0, n2)
+    wp0b: "i64" = write_i64(par, 0, dW2)
+    wp1b: "i64" = write_i64(par, 8, dM2)
+    wp2b: "i64" = write_i64(par, 16, dV2)
+    wp3b: "i64" = write_i64(par, 24, dG2)
+    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
+    if rc != 0:
+        print("ADAMW2 launch fail", rc)
+        return 1
+    wr1: "i64" = cuda_h2d(hOut, dW1, w1b, 2)
+    i = 0
+    while i < 8:
+        ov: "f32" = read_f32(hOut, i * 4)
+        print("W1NEW", i, ov)
+        i = i + 1
+    wr2: "i64" = cuda_h2d(hOut, dW2, w2b, 2)
+    i = 0
+    while i < 8:
+        ov2: "f32" = read_f32(hOut, i * 4)
+        print("W2NEW", i, ov2)
+        i = i + 1
+    print("BATCH DONE")
+    return 0

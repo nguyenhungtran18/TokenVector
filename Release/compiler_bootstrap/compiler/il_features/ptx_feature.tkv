@@ -125,6 +125,34 @@ def ptx_get(kind: "str") -> "str":
             'LEND: ret;\\n'
             '}\\n'
         )
+    if kind == 'adamw':
+        return head + (
+            '.entry adamw_kernel(.param .u64 pp, .param .u64 pm, .param .u64 pv, .param .u64 pg, .param .u32 pn, .param .f32 plr, .param .f32 pb1, .param .f32 pb2, .param .f32 peps, .param .f32 pwd, .param .f32 pbc1, .param .f32 pbc2)\\n'
+            '{\\n'
+            '.reg .f32 p,m,v,g,lr,b1,b2,eps,wd,bc1,bc2,t1,t2,t3,t4,t5,t6;\\n'
+            '.reg .u64 pb_,pm_,pv_,pg_,off;\\n'
+            '.reg .u32 i,n;\\n'
+            '.reg .pred q;\\n'
+            'ld.param.u64 pb_,[pp]; ld.param.u64 pm_,[pm]; ld.param.u64 pv_,[pv]; ld.param.u64 pg_,[pg];\\n'
+            'ld.param.u32 n,[pn];\\n'
+            'ld.param.f32 lr,[plr]; ld.param.f32 b1,[pb1]; ld.param.f32 b2,[pb2]; ld.param.f32 eps,[peps];\\n'
+            'ld.param.f32 wd,[pwd]; ld.param.f32 bc1,[pbc1]; ld.param.f32 bc2,[pbc2];\\n'
+            'mov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\\n'
+            'mul.wide.u32 off,i,4;\\n'
+            'cvta.to.global.u64 pb_,pb_; cvta.to.global.u64 pm_,pm_;\\n'
+            'cvta.to.global.u64 pv_,pv_; cvta.to.global.u64 pg_,pg_;\\n'
+            'add.u64 pb_,pb_,off; add.u64 pm_,pm_,off; add.u64 pv_,pv_,off; add.u64 pg_,pg_,off;\\n'
+            'ld.global.f32 p,[pb_]; ld.global.f32 m,[pm_]; ld.global.f32 v,[pv_]; ld.global.f32 g,[pg_];\\n'
+            'mov.f32 t1,1.0; sub.f32 t1,t1,b1; mul.f32 t2,t1,g; fma.rn.f32 m,m,b1,t2;\\n'
+            'mov.f32 t1,1.0; sub.f32 t1,t1,b2; mul.f32 t2,g,g; mul.f32 t2,t1,t2; fma.rn.f32 v,v,b2,t2;\\n'
+            'st.global.f32 [pm_],m; st.global.f32 [pv_],v;\\n'
+            'div.rn.f32 t3,m,bc1; div.rn.f32 t4,v,bc2; sqrt.rn.f32 t5,t4; add.f32 t5,t5,eps;\\n'
+            'div.rn.f32 t6,t3,t5; mul.f32 t6,lr,t6;\\n'
+            'mul.f32 t5,lr,wd; mul.f32 t5,t5,p;\\n'
+            'sub.f32 p,p,t6; sub.f32 p,p,t5; st.global.f32 [pb_],p;\\n'
+            'LEND: ret;\\n'
+            '}\\n'
+        )
     if kind == 'prep':
         return head + (
             '.entry prep_kernel(.param .u64 px, .param .u64 py, .param .u32 pn, .param .u32 pt, .param .f32 pinv)\\n'
