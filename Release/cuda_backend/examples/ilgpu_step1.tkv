@@ -53,6 +53,7 @@ def run() -> "i32":
     hV1 = alloc_bytes(w1b)
     hV2 = alloc_bytes(w2b)
     hOut = alloc_bytes(w1b)
+    print("MARK START")
     i: "i32" = 0
     j: "i32" = 0
     while i < D:
@@ -164,6 +165,7 @@ def run() -> "i32":
         loss = loss - log(pv2)
         i = i + 1
     loss = loss / 4.0
+    print("MARK FWD DONE")
     print("LOSS", loss)
     # backward dlogits = (P - onehot)/T
     i = 0
@@ -254,6 +256,7 @@ def run() -> "i32":
             wdw1: "i64" = write_f32(hDW1, (i + j * D) * 4, o2 + s6)
             j = j + 1
         i = i + 1
+    print("MARK BWD DONE")
     # AdamW via PTX (compiler sinh)
     # @tkv.ptx_kernel name="adamw_kernel" kind="adamw" var="PTX"
     pb = alloc_bytes(len(PTX) + 1)
