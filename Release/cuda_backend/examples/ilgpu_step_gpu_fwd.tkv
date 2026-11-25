@@ -47,8 +47,10 @@ def run() -> "i32":
     hIds = alloc_bytes(T * 4)
     hLG = alloc_bytes(vb)
     hcell = alloc_bytes(4)
-    w1: "i64" = write_f32(hcell, 0, 1.0)
-    w0: "i64" = write_f32(hcell, 0, 0.0)
+    ha = alloc_bytes(4)
+    wa1: "i64" = write_f32(ha, 0, 1.0)
+    hb = alloc_bytes(4)
+    wb0: "i64" = write_f32(hb, 0, 0.0)
     i: "i32" = 0
     j: "i32" = 0
     while i < T:
@@ -101,7 +103,7 @@ def run() -> "i32":
     wd: "i64" = cuda_h2d(db1, hb1, D * 4, 1)
     we: "i64" = cuda_h2d(db2, hb2, V * 4, 1)
     # Z = X @ W1
-    rc = cublas_sgemm(ch, 0, 0, T, D, D, hcell, dX, T, dW1, D, w0, dZ, T)
+    rc = cublas_sgemm(ch, 0, 0, T, D, D, ha, dX, T, dW1, D, hb, dZ, T)
     if rc != 0:
         print("GEMM1 FAIL", rc)
         return 1
@@ -177,7 +179,7 @@ def run() -> "i32":
         print("GELU LAUNCH FAIL", rc)
         return 1
     # LG = H @ W2
-    rc = cublas_sgemm(ch, 0, 0, T, V, D, hcell, dH, T, dW2, D, w0, dLG, T)
+    rc = cublas_sgemm(ch, 0, 0, T, V, D, ha, dH, T, dW2, D, hb, dLG, T)
     if rc != 0:
         print("GEMM2 FAIL", rc)
         return 1
