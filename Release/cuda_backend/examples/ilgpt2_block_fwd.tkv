@@ -351,11 +351,13 @@ def run() -> "i32":
     if rc != 0:
         print("LNF2 FAIL", rc)
         return 1
+    print("MARK 7a lnf2")
     # 9) Z = Y2 W1
     rc = cublas_sgemm(ch, 0, 0, T, F, H, ha, dY2, T, dW1, H, hb0, dZ, T)
     if rc != 0:
         print("Z FAIL", rc)
         return 1
+    print("MARK 7b z gemm")
     # 10) gelu
     g0 = alloc_bytes(8)
     wg0: "i64" = write_i64(g0, 0, dZ)
@@ -377,6 +379,7 @@ def run() -> "i32":
     if rc != 0:
         print("O2 FAIL", rc)
         return 1
+    print("MARK 8a o2 gemm")
     # 12) OUT = X2 + O2
     wzp0 = write_i64(c1, 0, dO2)
     wzp0 = write_i64(c2, 0, dOUT)

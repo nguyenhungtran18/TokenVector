@@ -20674,6 +20674,8 @@
     ldc.i4 1
     ret
   run_If29_else:
+    ldstr "MARK 7a lnf2"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 2
     ldc.i4 0
     ldc.i4 0
@@ -20706,6 +20708,8 @@
     ldc.i4 1
     ret
   run_If30_else:
+    ldstr "MARK 7b z gemm"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 8
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
@@ -20841,6 +20845,8 @@
     ldc.i4 1
     ret
   run_If32_else:
+    ldstr "MARK 8a o2 gemm"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 156
     ldc.i4 0
     conv.i8
