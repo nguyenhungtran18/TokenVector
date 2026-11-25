@@ -130,12 +130,7 @@ def bwd(pb: "i64") -> "i32":
     return 0
 
 def run() -> "i32":
-    rc: "i32" = cu_init(0)
-    if rc != 0:
-        return 1
-    cprobe = alloc_bytes(8)
-    rc = cuda_malloc(cprobe, 4)
-    pprobe = read_i64(cprobe, 0)
+    rc: "i32" = 0
     T: "i32" = 4
     D: "i32" = 8
     V: "i32" = 8
