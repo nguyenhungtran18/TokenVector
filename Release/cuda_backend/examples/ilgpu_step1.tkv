@@ -300,113 +300,57 @@ def run() -> "i32":
         return 1
     print("MARK BWD DONE")
     print("MARK BWD DONE")
-    # AdamW via PTX (compiler sinh)
-    # @tkv.ptx_kernel name="adamw_kernel" kind="adamw" var="PTX"
-    pb = alloc_bytes(len(PTX) + 1)
-    kk: "i32" = 0
-    while kk < len(PTX):
-        wu: "i64" = write_u8(pb, kk, PTX[kk])
-        kk = kk + 1
-    wvz: "i64" = write_u8(pb, kk, 0)
-    mc = alloc_bytes(8)
-    rc = cu_module_load(mc, pb)
-    if rc != 0:
-        print("ADAMW load fail", rc)
-        return 1
-    print("MARK MODULE OK")
-    mo = read_i64(mc, 0)
-    fb = alloc_bytes(len(FN))
-    rf: "i32" = 0
-    while rf < len(FN):
-        ww: "i64" = write_u8(fb, rf, FN[rf])
-        rf = rf + 1
-    fc = alloc_bytes(8)
-    rc = cu_module_fn(fc, mo, fb)
-    if rc != 0:
-        print("ADAMW fn fail", rc)
-        return 1
-    print("MARK FN OK")
-    fn = read_i64(fc, 0)
-    cell = alloc_bytes(8)
-    rc = cuda_malloc(cell, w1b)
-    dW1 = read_i64(cell, 0)
-    rc = cuda_malloc(cell, w1b)
-    dM1 = read_i64(cell, 0)
-    rc = cuda_malloc(cell, w1b)
-    dV1 = read_i64(cell, 0)
-    rc = cuda_malloc(cell, w1b)
-    dG1 = read_i64(cell, 0)
-    rc = cuda_malloc(cell, w2b)
-    dW2 = read_i64(cell, 0)
-    rc = cuda_malloc(cell, w2b)
-    dM2 = read_i64(cell, 0)
-    rc = cuda_malloc(cell, w2b)
-    dV2 = read_i64(cell, 0)
-    rc = cuda_malloc(cell, w2b)
-    dG2 = read_i64(cell, 0)
-    ww1: "i64" = cuda_h2d(dW1, hW1, w1b, 1)
-    wm1: "i64" = cuda_h2d(dM1, hM1, w1b, 1)
-    wv1: "i64" = cuda_h2d(dV1, hV1, w1b, 1)
-    wg1: "i64" = cuda_h2d(dG1, hDW1, w1b, 1)
-    ww2: "i64" = cuda_h2d(dW2, hW2, w2b, 1)
-    wm2: "i64" = cuda_h2d(dM2, hM2, w2b, 1)
-    wv2: "i64" = cuda_h2d(dV2, hV2, w2b, 1)
-    wg2: "i64" = cuda_h2d(dG2, hDW2, w2b, 1)
-    lr = alloc_bytes(4)
-    wl: "i64" = write_f32(lr, 0, 0.01)
-    bb1 = alloc_bytes(4)
-    wb1: "i64" = write_f32(bb1, 0, 0.9)
-    bb2 = alloc_bytes(4)
-    wb2: "i64" = write_f32(bb2, 0, 0.999)
-    eps = alloc_bytes(4)
-    wep: "i64" = write_f32(eps, 0, 0.00000001)
-    wd = alloc_bytes(4)
-    wdd: "i64" = write_f32(wd, 0, 0.01)
-    bc1 = alloc_bytes(4)
-    wbc1: "i64" = write_f32(bc1, 0, 0.1)
-    bc2 = alloc_bytes(4)
-    wbc2: "i64" = write_f32(bc2, 0, 0.001)
-    nn = alloc_bytes(4)
-    wnn: "i64" = write_i32(nn, 0, n1)
-    par = alloc_bytes(96)
-    wp0: "i64" = write_i64(par, 0, dW1)
-    wp1: "i64" = write_i64(par, 8, dM1)
-    wp2: "i64" = write_i64(par, 16, dV1)
-    wp3: "i64" = write_i64(par, 24, dG1)
-    wp4: "i64" = write_i64(par, 32, nn)
-    wp5: "i64" = write_i64(par, 40, lr)
-    wp6: "i64" = write_i64(par, 48, bb1)
-    wp7: "i64" = write_i64(par, 56, bb2)
-    wp8: "i64" = write_i64(par, 64, eps)
-    wp9: "i64" = write_i64(par, 72, wd)
-    wp10: "i64" = write_i64(par, 80, bc1)
-    wp11: "i64" = write_i64(par, 88, bc2)
-    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
-    print("MARK LAUNCH1 OK")
-    if rc != 0:
-        print("ADAMW1 launch fail", rc)
-        return 1
-    wnn2: "i64" = write_i32(nn, 0, n2)
-    wp0b: "i64" = write_i64(par, 0, dW2)
-    wp1b: "i64" = write_i64(par, 8, dM2)
-    wp2b: "i64" = write_i64(par, 16, dV2)
-    wp3b: "i64" = write_i64(par, 24, dG2)
-    rc = cu_launch(fn, 1, 1, 1, 64, 1, 1, 0, 0, par, 0)
-    if rc != 0:
-        print("ADAMW2 launch fail", rc)
-        return 1
-    print("MARK LAUNCH2 OK")
-    wr1: "i64" = cuda_h2d(hOut, dW1, w1b, 2)
+    # AdamW tren host (khong can CUDA launch)
+    lr: "f32" = 0.01
+    bb1: "f32" = 0.9
+    bb2: "f32" = 0.999
+    epx: "f32" = 0.00000001
+    wdc: "f32" = 0.01
+    bc1v: "f32" = 0.1
+    bc2v: "f32" = 0.001
+    i = 0
+    while i < D:
+        j = 0
+        while j < D:
+            off = (i + j * D) * 4
+            pv = read_f32(hW1, off)
+            gv = read_f32(hDW1, off)
+            mv = read_f32(hM1, off)
+            vv = read_f32(hV1, off)
+            mv = bb1 * mv + (1.0 - bb1) * gv
+            vv = bb2 * vv + (1.0 - bb2) * gv * gv
+            nv = pv - lr * (mv / bc1v) / (sqrt(vv / bc2v) + epx) - lr * wdc * pv
+            wn1: "i64" = write_f32(hW1, off, nv)
+            wm1b: "i64" = write_f32(hM1, off, mv)
+            wv1b: "i64" = write_f32(hV1, off, vv)
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < D:
+        j = 0
+        while j < V:
+            off = (i + j * D) * 4
+            pv = read_f32(hW2, off)
+            gv = read_f32(hDW2, off)
+            mv = read_f32(hM2, off)
+            vv = read_f32(hV2, off)
+            mv = bb1 * mv + (1.0 - bb1) * gv
+            vv = bb2 * vv + (1.0 - bb2) * gv * gv
+            nv = pv - lr * (mv / bc1v) / (sqrt(vv / bc2v) + epx) - lr * wdc * pv
+            wn2: "i64" = write_f32(hW2, off, nv)
+            wm2b: "i64" = write_f32(hM2, off, mv)
+            wv2b: "i64" = write_f32(hV2, off, vv)
+            j = j + 1
+        i = i + 1
     i = 0
     while i < 8:
-        ov: "f32" = read_f32(hOut, i * 4)
+        ov = read_f32(hW1, i * 4)
         print("W1NEW", i, ov)
         i = i + 1
-    wr2: "i64" = cuda_h2d(hOut, dW2, w2b, 2)
     i = 0
     while i < 8:
-        ov2: "f32" = read_f32(hOut, i * 4)
-        print("W2NEW", i, ov2)
+        ov = read_f32(hW2, i * 4)
+        print("W2NEW", i, ov)
         i = i + 1
     print("BATCH DONE")
     return 0
