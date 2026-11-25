@@ -1,0 +1,439 @@
+# -*- coding: utf-8 -*-
+# IL-only full train step tren GPU: forward + backward + AdamW. Khong C++/torch.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
+     "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+    {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32",
+                "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        print("CUINIT FAIL", rc)
+        return 1
+    hc = alloc_bytes(8)
+    rc = cublas_create(hc)
+    ch = read_i64(hc, 0)
+    T: "i32" = 4
+    D: "i32" = 8
+    V: "i32" = 8
+    tdb: "i32" = T * D * 4
+    tvb: "i32" = T * V * 4
+    w1b: "i32" = D * D * 4
+    w2b: "i32" = D * V * 4
+    b1b: "i32" = D * 4
+    b2b: "i32" = V * 4
+    hX = alloc_bytes(tdb)
+    hW1 = alloc_bytes(w1b)
+    hW2 = alloc_bytes(w2b)
+    hb1 = alloc_bytes(b1b)
+    hb2 = alloc_bytes(b2b)
+    hIds = alloc_bytes(T * 4)
+    hLG = alloc_bytes(tvb)
+    hP = alloc_bytes(tvb)
+    hDL = alloc_bytes(tvb)
+    hOnes = alloc_bytes(T * 4)
+    hTmp = alloc_bytes(w1b)
+    hZ1 = alloc_bytes(w1b)
+    hZ2 = alloc_bytes(w2b)
+    hZB1 = alloc_bytes(b1b)
+    hZB2 = alloc_bytes(b2b)
+    ha = alloc_bytes(4)
+    wa1: "i64" = write_f32(ha, 0, 1.0)
+    hb = alloc_bytes(4)
+    wb0: "i64" = write_f32(hb, 0, 0.0)
+    i: "i32" = 0
+    j: "i32" = 0
+    while i < T:
+        j = 0
+        while j < D:
+            wx: "i64" = write_f32(hX, (i + j * T) * 4, 0.1 + 0.02 * (i + j))
+            j = j + 1
+        idv: "i32" = (i + 1) % V
+        wids: "i64" = write_i32(hIds, i * 4, idv)
+        wo: "i64" = write_f32(hOnes, i * 4, 1.0)
+        i = i + 1
+    i = 0
+    while i < D:
+        j = 0
+        while j < D:
+            ww1: "i64" = write_f32(hW1, (i + j * D) * 4, 0.2 + 0.01 * (i + j))
+            j = j + 1
+        wb1: "i64" = write_f32(hb1, i * 4, 0.1)
+        iz1: "i64" = write_f32(hZ1, i * 4, 0.0)
+        i = i + 1
+    i = 0
+    while i < w1b / 4:
+        iz2: "i64" = write_f32(hZ1, i * 4, 0.0)
+        i = i + 1
+    i = 0
+    while i < D:
+        j = 0
+        while j < V:
+            ww2: "i64" = write_f32(hW2, (i + j * D) * 4, 0.3 + 0.01 * (i + j))
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < V:
+        wb2: "i64" = write_f32(hb2, i * 4, 0.05)
+        i = i + 1
+    i = 0
+    while i < w2b / 4:
+        iz3: "i64" = write_f32(hZ2, i * 4, 0.0)
+        i = i + 1
+    i = 0
+    while i < D:
+        iz4: "i64" = write_f32(hZB1, i * 4, 0.0)
+        i = i + 1
+    i = 0
+    while i < V:
+        iz5: "i64" = write_f32(hZB2, i * 4, 0.0)
+        i = i + 1
+    cell = alloc_bytes(8)
+    rc = cuda_malloc(cell, tdb)
+    dX = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    dW1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tdb)
+    dZ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tdb)
+    dH = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    dW2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tvb)
+    dLG = read_i64(cell, 0)
+    rc = cuda_malloc(cell, b1b)
+    db1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, b2b)
+    db2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tvb)
+    dDL = read_i64(cell, 0)
+    rc = cuda_malloc(cell, T * 4)
+    dOnes = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tdb)
+    dDH = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tdb)
+    dDZ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    dDW1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    dDW2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, b1b)
+    dDB1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, b2b)
+    dDB2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    dM1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    dV1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    dM2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    dV2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, b1b)
+    dMB1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, b1b)
+    dVB1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, b2b)
+    dMB2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, b2b)
+    dVB2 = read_i64(cell, 0)
+    c1: "i64" = cuda_h2d(dX, hX, tdb, 1)
+    c2: "i64" = cuda_h2d(dW1, hW1, w1b, 1)
+    c3: "i64" = cuda_h2d(dW2, hW2, w2b, 1)
+    c4: "i64" = cuda_h2d(db1, hb1, b1b, 1)
+    c5: "i64" = cuda_h2d(db2, hb2, b2b, 1)
+    c6: "i64" = cuda_h2d(dOnes, hOnes, T * 4, 1)
+    c7: "i64" = cuda_h2d(dM1, hZ1, w1b, 1)
+    c8: "i64" = cuda_h2d(dV1, hZ1, w1b, 1)
+    c9: "i64" = cuda_h2d(dM2, hZ2, w2b, 1)
+    c10: "i64" = cuda_h2d(dV2, hZ2, w2b, 1)
+    c11: "i64" = cuda_h2d(dMB1, hZB1, b1b, 1)
+    c12: "i64" = cuda_h2d(dVB1, hZB1, b1b, 1)
+    c13: "i64" = cuda_h2d(dMB2, hZB2, b2b, 1)
+    c14: "i64" = cuda_h2d(dVB2, hZB2, b2b, 1)
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry biasgelu_kernel(.param .u64 px, .param .u64 pb, .param .u64 py)\n{\n.reg .f32 f1,f2,f3,f4,f5,fb;\n.reg .u64 xp,bp,yp,off,offb;\n.reg .u32 col,row,idx,nt;\n.reg .pred q;\nld.param.u64 xp,[px];\nld.param.u64 bp,[pb];\nld.param.u64 yp,[py];\nmov.u32 col,%ctaid.x;\nmov.u32 row,%tid.x;\nmov.u32 nt,%ntid.x;\nsetp.ge.u32 q,row,nt;\n@q bra LEND;\nmul.lo.u32 idx,col,nt;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nmul.wide.u32 offb,col,4;\ncvta.to.global.u64 xp,xp;\ncvta.to.global.u64 bp,bp;\ncvta.to.global.u64 yp,yp;\nadd.u64 xp,xp,off;\nadd.u64 yp,yp,off;\nadd.u64 bp,bp,offb;\nld.global.f32 f1,[xp];\nld.global.f32 fb,[bp];\nadd.f32 f1,f1,fb;\nmul.f32 f3,f1,f1;\nmul.f32 f3,f3,f1;\nmov.f32 f4,0.044715;\nfma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456;\nmul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0;\nadd.f32 f2,f2,f3;\nmov.f32 f3,0.5;\nmul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2;\nst.global.f32 [yp],f5;\nLEND: ret;\n}\n.entry biasadd_kernel(.param .u64 px, .param .u64 pb, .param .u64 py)\n{\n.reg .f32 f1,fb,f3;\n.reg .u64 xp,bp,yp,off,offb;\n.reg .u32 col,row,idx,nt;\n.reg .pred q;\nld.param.u64 xp,[px];\nld.param.u64 bp,[pb];\nld.param.u64 yp,[py];\nmov.u32 col,%ctaid.x;\nmov.u32 row,%tid.x;\nmov.u32 nt,%ntid.x;\nsetp.ge.u32 q,row,nt;\n@q bra LEND;\nmul.lo.u32 idx,col,nt;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nmul.wide.u32 offb,col,4;\ncvta.to.global.u64 xp,xp;\ncvta.to.global.u64 bp,bp;\ncvta.to.global.u64 yp,yp;\nadd.u64 xp,xp,off;\nadd.u64 yp,yp,off;\nadd.u64 bp,bp,offb;\nld.global.f32 f1,[xp];\nld.global.f32 fb,[bp];\nadd.f32 f3,f1,fb;\nst.global.f32 [yp],f3;\nLEND: ret;\n}\n.entry dgelu_kernel(.param .u64 px, .param .u64 pd, .param .u32 pn)\n{\n.reg .f32 x,z,th,a,b,t1,t2,t3,c,g,d,xx;\n.reg .u64 xb,db,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 xb,[px];\nld.param.u64 db,[pd];\nld.param.u32 n,[pn];\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 db,db;\nadd.u64 xb,xb,off;\nadd.u64 db,db,off;\nld.global.f32 x,[xb];\nld.global.f32 d,[db];\nmul.f32 xx,x,x;\nmov.f32 t2,0.134145;\nfma.rn.f32 t2,xx,t2,1.0;\nmul.f32 t3,x,xx;\nmov.f32 z,0.79788456;\nmul.f32 z,z,x;\nmov.f32 c,0.0356774;\nfma.rn.f32 z,c,t3,z;\ntanh.approx.f32 th,z;\nmov.f32 a,1.0;\nadd.f32 a,a,th;\nmov.f32 c,0.5;\nmul.f32 a,a,c;\nmov.f32 b,1.0;\nmul.f32 t1,th,th;\nsub.f32 b,b,t1;\nmul.f32 b,b,x;\nmov.f32 c,0.79788456;\nmul.f32 b,b,c;\nmul.f32 b,b,0.5;\nmov.f32 t2,0.134145;\nfma.rn.f32 t2,xx,t2,1.0;\nmul.f32 b,b,t2;\nadd.f32 g,a,b;\nmul.f32 d,d,g;\nst.global.f32 [db],d;\nLEND: ret;\n}\n.entry adamw_kernel(.param .u64 pp, .param .u64 pm, .param .u64 pv, .param .u64 pg, .param .u32 pn, .param .f32 plr, .param .f32 pb1, .param .f32 pb2, .param .f32 peps, .param .f32 pwd, .param .f32 pbc1, .param .f32 pbc2)\n{\n.reg .f32 p,m,v,g,lr,b1,b2,eps,wd,bc1,bc2,t1,t2,t3,t4,t5,t6;\n.reg .u64 pb_,pm_,pv_,pg_,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 pb_,[pp];\nld.param.u64 pm_,[pm];\nld.param.u64 pv_,[pv];\nld.param.u64 pg_,[pg];\nld.param.u32 n,[pn];\nld.param.f32 lr,[plr];\nld.param.f32 b1,[pb1];\nld.param.f32 b2,[pb2];\nld.param.f32 eps,[peps];\nld.param.f32 wd,[pwd];\nld.param.f32 bc1,[pbc1];\nld.param.f32 bc2,[pbc2];\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 pb_,pb_;\ncvta.to.global.u64 pm_,pm_;\ncvta.to.global.u64 pv_,pv_;\ncvta.to.global.u64 pg_,pg_;\nadd.u64 pb_,pb_,off;\nadd.u64 pm_,pm_,off;\nadd.u64 pv_,pv_,off;\nadd.u64 pg_,pg_,off;\nld.global.f32 p,[pb_];\nld.global.f32 m,[pm_];\nld.global.f32 v,[pv_];\nld.global.f32 g,[pg_];\nmov.f32 t1,1.0;\nsub.f32 t1,t1,b1;\nmul.f32 t2,t1,g;\nfma.rn.f32 m,m,b1,t2;\nmov.f32 t1,1.0;\nsub.f32 t1,t1,b2;\nmul.f32 t2,g,g;\nmul.f32 t2,t1,t2;\nfma.rn.f32 v,v,b2,t2;\nst.global.f32 [pm_],m;\nst.global.f32 [pv_],v;\ndiv.rn.f32 t3,m,bc1;\ndiv.rn.f32 t4,v,bc2;\nsqrt.rn.f32 t5,t4;\nadd.f32 t5,t5,eps;\ndiv.rn.f32 t6,t3,t5;\nmul.f32 t6,lr,t6;\nmul.f32 t5,lr,wd;\nmul.f32 t5,t5,p;\nsub.f32 p,p,t6;\nsub.f32 p,p,t5;\nst.global.f32 [pb_],p;\nLEND: ret;\n}\n"
+    FN1 = b"biasgelu_kernel\x00"
+    FN2 = b"biasadd_kernel\x00"
+    FN3 = b"dgelu_kernel\x00"
+    FN4 = b"adamw_kernel\x00"
+    pbuf = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wu: "i64" = write_u8(pbuf, kk, PTX[kk])
+        kk = kk + 1
+    wz: "i64" = write_u8(pbuf, kk, 0)
+    mc = alloc_bytes(8)
+    rc = cu_module_load(mc, pbuf)
+    if rc != 0:
+        print("MODULE FAIL", rc)
+        return 1
+    mod = read_i64(mc, 0)
+    nb = alloc_bytes(len(FN1))
+    r1: "i32" = 0
+    while r1 < len(FN1):
+        w1: "i64" = write_u8(nb, r1, FN1[r1])
+        r1 = r1 + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("FN biasgelu FAIL", rc)
+        return 1
+    k_bg = read_i64(fc, 0)
+    r1 = 0
+    while r1 < len(FN2):
+        w2: "i64" = write_u8(nb, r1, FN2[r1])
+        r1 = r1 + 1
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("FN biasadd FAIL", rc)
+        return 1
+    k_ba = read_i64(fc, 0)
+    r1 = 0
+    while r1 < len(FN3):
+        w3: "i64" = write_u8(nb, r1, FN3[r1])
+        r1 = r1 + 1
+    wz2: "i64" = write_u8(nb, r1, 0)
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("FN dgelu FAIL", rc)
+        return 1
+    k_dg = read_i64(fc, 0)
+    r1 = 0
+    while r1 < len(FN4):
+        w4: "i64" = write_u8(nb, r1, FN4[r1])
+        r1 = r1 + 1
+    wz3: "i64" = write_u8(nb, r1, 0)
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("FN adamw FAIL", rc)
+        return 1
+    k_ad = read_i64(fc, 0)
+    # slots
+    pa0 = alloc_bytes(8)
+    pa1 = alloc_bytes(8)
+    pa2 = alloc_bytes(8)
+    pa3 = alloc_bytes(8)
+    pan = alloc_bytes(4)
+    plr = alloc_bytes(4)
+    pb1s = alloc_bytes(4)
+    pb2s = alloc_bytes(4)
+    peps = alloc_bytes(4)
+    pwd = alloc_bytes(4)
+    pbc1 = alloc_bytes(4)
+    pbc2 = alloc_bytes(4)
+    wr0: "i64" = write_f32(plr, 0, 0.01)
+    wr1: "i64" = write_f32(pb1s, 0, 0.9)
+    wr2: "i64" = write_f32(pb2s, 0, 0.999)
+    wr3: "i64" = write_f32(peps, 0, 1e-08)
+    wr4: "i64" = write_f32(pwd, 0, 0.01)
+    par = alloc_bytes(96)
+    wp0: "i64" = write_i64(par, 0, pa0)
+    wp1: "i64" = write_i64(par, 8, pa1)
+    wp2: "i64" = write_i64(par, 16, pa2)
+    wp3: "i64" = write_i64(par, 24, pa3)
+    wp4: "i64" = write_i64(par, 32, pan)
+    wp5: "i64" = write_i64(par, 40, plr)
+    wp6: "i64" = write_i64(par, 48, pb1s)
+    wp7: "i64" = write_i64(par, 56, pb2s)
+    wp8: "i64" = write_i64(par, 64, peps)
+    wp9: "i64" = write_i64(par, 72, pwd)
+    wp10: "i64" = write_i64(par, 80, pbc1)
+    wp11: "i64" = write_i64(par, 88, pbc2)
+    # forward kernel args (biasgelu: x,b,y)
+    f0 = alloc_bytes(8)
+    f1 = alloc_bytes(8)
+    f2 = alloc_bytes(8)
+    p3 = alloc_bytes(24)
+    q0: "i64" = write_i64(p3, 0, f0)
+    q1: "i64" = write_i64(p3, 8, f1)
+    q2: "i64" = write_i64(p3, 16, f2)
+    # dgelu args (x, dy, n)
+    g2 = alloc_bytes(4)
+    p4 = alloc_bytes(24)
+    g0: "i64" = write_i64(p4, 0, f0)
+    g1: "i64" = write_i64(p4, 8, f1)
+    g3: "i64" = write_i64(p4, 16, g2)
+    wg2: "i64" = write_i32(g2, 0, T * D)
+    p1: "f32" = 0.9
+    p2: "f32" = 0.999
+    step: "i32" = 1
+    nsteps: "i32" = 5
+    while step <= nsteps:
+        # 1) Z = X @ W1
+        rc = cublas_sgemm(ch, 0, 0, T, D, D, ha, dX, T, dW1, D, hb, dZ, T)
+        if rc != 0:
+            print("GEMM1 FAIL", rc)
+            return 1
+        # 2) H = gelu(Z + b1)
+        wf0: "i64" = write_i64(f0, 0, dZ)
+        wf1: "i64" = write_i64(f1, 0, db1)
+        wf2: "i64" = write_i64(f2, 0, dH)
+        rc = cu_launch(k_bg, D, 1, 1, T, 1, 1, 0, 0, p3, 0)
+        if rc != 0:
+            print("BIASGELU FAIL", rc)
+            return 1
+        # 3) LG = H @ W2
+        rc = cublas_sgemm(ch, 0, 0, T, V, D, ha, dH, T, dW2, D, hb, dLG, T)
+        if rc != 0:
+            print("GEMM2 FAIL", rc)
+            return 1
+        # 4) LG += b2
+        wf0 = write_i64(f0, 0, dLG)
+        wf1 = write_i64(f1, 0, db2)
+        wf2 = write_i64(f2, 0, dLG)
+        rc = cu_launch(k_ba, V, 1, 1, T, 1, 1, 0, 0, p3, 0)
+        if rc != 0:
+            print("BIASADD FAIL", rc)
+            return 1
+        # 5) loss + softmax + dL tren host
+        rd: "i64" = cuda_h2d(hLG, dLG, tvb, 2)
+        loss: "f32" = 0.0
+        i = 0
+        while i < T:
+            mx: "f32" = -1000000000.0
+            j = 0
+            while j < V:
+                lv: "f32" = read_f32(hLG, (i + j * T) * 4)
+                if lv > mx:
+                    mx = lv
+                j = j + 1
+            zsum: "f32" = 0.0
+            j = 0
+            while j < V:
+                lv = read_f32(hLG, (i + j * T) * 4)
+                ev: "f32" = exp(lv - mx)
+                zsum = zsum + ev
+                j = j + 1
+            j = 0
+            while j < V:
+                lv = read_f32(hLG, (i + j * T) * 4)
+                ev = exp(lv - mx)
+                wp: "i64" = write_f32(hP, (i + j * T) * 4, ev / zsum)
+                j = j + 1
+            idv2: "i32" = read_i32(hIds, i * 4)
+            pv3: "f32" = read_f32(hP, (i + idv2 * T) * 4)
+            loss = loss - log(pv3)
+            j = 0
+            while j < V:
+                pv4: "f32" = read_f32(hP, (i + j * T) * 4)
+                dv: "f32" = pv4
+                if j == idv2:
+                    dv = dv - 1.0
+                dv = dv / 4.0
+                wdl: "i64" = write_f32(hDL, (i + j * T) * 4, dv)
+                j = j + 1
+            i = i + 1
+        loss = loss / 4.0
+        print("LOSS", loss)
+        wdl2: "i64" = cuda_h2d(dDL, hDL, tvb, 1)
+        # 6) dW2 = dH^T @ dL
+        rc = cublas_sgemm(ch, 1, 0, D, V, T, ha, dH, T, dDL, T, hb, dDW2, D)
+        if rc != 0:
+            print("GEM_DW2 FAIL", rc)
+            return 1
+        # 7) db2 = ones^T @ dL
+        rc = cublas_sgemm(ch, 1, 0, 1, V, T, ha, dOnes, T, dDL, T, hb, dDB2, 1)
+        if rc != 0:
+            print("GEM_DB2 FAIL", rc)
+            return 1
+        # 8) dH = dL @ W2^T
+        rc = cublas_sgemm(ch, 0, 1, T, D, V, ha, dDL, T, dW2, D, hb, dDH, T)
+        if rc != 0:
+            print("GEM_DH FAIL", rc)
+            return 1
+        # 9) dZ = dgelu(Z, dH)
+        cp: "i64" = cuda_h2d(dDZ, dDH, tdb, 3)
+        wg0: "i64" = write_i64(f0, 0, dZ)
+        wg3: "i64" = write_i64(f1, 0, dDZ)
+        rc = cu_launch(k_dg, 1, 1, 1, 64, 1, 1, 0, 0, p4, 0)
+        if rc != 0:
+            print("DGELU FAIL", rc)
+            return 1
+        # 10) dW1 = dX^T @ dZ
+        rc = cublas_sgemm(ch, 1, 0, D, D, T, ha, dX, T, dDZ, T, hb, dDW1, D)
+        if rc != 0:
+            print("GEM_DW1 FAIL", rc)
+            return 1
+        # 11) db1 = ones^T @ dZ
+        rc = cublas_sgemm(ch, 1, 0, 1, D, T, ha, dOnes, T, dDZ, T, hb, dDB1, 1)
+        if rc != 0:
+            print("GEM_DB1 FAIL", rc)
+            return 1
+        # 12) AdamW
+        bc1v: "f32" = 1.0 - p1
+        bc2v: "f32" = 1.0 - p2
+        wbc1: "i64" = write_f32(pbc1, 0, bc1v)
+        wbc2: "i64" = write_f32(pbc2, 0, bc2v)
+        wa_0: "i64" = write_i64(pa0, 0, dW1)
+        wa_1: "i64" = write_i64(pa1, 0, dM1)
+        wa_2: "i64" = write_i64(pa2, 0, dV1)
+        wa_3: "i64" = write_i64(pa3, 0, dDW1)
+        wa_n: "i64" = write_i32(pan, 0, D * D)
+        rc = cu_launch(k_ad, 1, 1, 1, 128, 1, 1, 0, 0, par, 0)
+        if rc != 0:
+            print("ADAMW W1 FAIL", rc)
+            return 1
+        wa_0 = write_i64(pa0, 0, dW2)
+        wa_1 = write_i64(pa1, 0, dM2)
+        wa_2 = write_i64(pa2, 0, dV2)
+        wa_3 = write_i64(pa3, 0, dDW2)
+        wa_n = write_i32(pan, 0, D * V)
+        rc = cu_launch(k_ad, 1, 1, 1, 128, 1, 1, 0, 0, par, 0)
+        if rc != 0:
+            print("ADAMW W2 FAIL", rc)
+            return 1
+        wa_0 = write_i64(pa0, 0, db1)
+        wa_1 = write_i64(pa1, 0, dMB1)
+        wa_2 = write_i64(pa2, 0, dVB1)
+        wa_3 = write_i64(pa3, 0, dDB1)
+        wa_n = write_i32(pan, 0, D)
+        rc = cu_launch(k_ad, 1, 1, 1, 128, 1, 1, 0, 0, par, 0)
+        if rc != 0:
+            print("ADAMW B1 FAIL", rc)
+            return 1
+        wa_0 = write_i64(pa0, 0, db2)
+        wa_1 = write_i64(pa1, 0, dMB2)
+        wa_2 = write_i64(pa2, 0, dVB2)
+        wa_3 = write_i64(pa3, 0, dDB2)
+        wa_n = write_i32(pan, 0, V)
+        rc = cu_launch(k_ad, 1, 1, 1, 128, 1, 1, 0, 0, par, 0)
+        if rc != 0:
+            print("ADAMW B2 FAIL", rc)
+            return 1
+        p1 = p1 * 0.9
+        p2 = p2 * 0.999
+        if step == 1:
+            rw1: "i64" = cuda_h2d(hTmp, dW1, w1b, 2)
+            i = 0
+            while i < D:
+                wv: "f32" = read_f32(hTmp, i * 4)
+                print("W1NEW", i, wv)
+                i = i + 1
+            rw2: "i64" = cuda_h2d(hTmp, dW2, w2b, 2)
+            i = 0
+            while i < V:
+                wv2: "f32" = read_f32(hTmp, i * 4)
+                print("W2NEW", i, wv2)
+                i = i + 1
+        step = step + 1
+    print("BATCH DONE")
+    return 0
