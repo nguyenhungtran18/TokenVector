@@ -133,6 +133,11 @@ def run() -> "i32":
         print("GEMM1 FAIL", rc)
         return 1
     # BIASADD Z += b1 ; GELU Z -> H
+    dz: "i32" = 0
+    while dz < 8:
+        zv: "f32" = read_f32(hLG, dz * 4)
+        print("Z", dz, zv)
+        dz = dz + 1
     PTX2 = b".version 8.0\n.target sm_75\n.address_size 64\n.entry biasadd_kernel(.param .u64 px, .param .u64 pb, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 x,b,y;\n.reg .u64 xb,bb,yb,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 xb,[px]; ld.param.u64 bb,[pb]; ld.param.u64 yb,[py]; ld.param.u32 n,[pn];\nmov.u32 i,%tid.x; setp.ge.u32 q,i,n; @q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 xb,xb; cvta.to.global.u64 bb,bb; cvta.to.global.u64 yb,yb;\nadd.u64 xb,xb,off; add.u64 bb,bb,off; add.u64 yb,yb,off;\nld.global.f32 x,[xb]; ld.global.f32 b,[bb]; add.f32 y,x,b; st.global.f32 [yb],y;\nLEND: ret;\n}\n"
     FN2 = b"biasadd_kernel\x00"
     p2 = alloc_bytes(len(PTX2) + 1)
@@ -209,6 +214,11 @@ def run() -> "i32":
         print("GELU LAUNCH FAIL", rc)
         return 1
     # LG = H @ W2
+    dh2: "i32" = 0
+    while dh2 < 8:
+        hv2: "f32" = read_f32(hLG, dh2 * 4)
+        print("H", dh2, hv2)
+        dh2 = dh2 + 1
     rc = cublas_sgemm(ch, 0, 0, T, V, D, ha, dH, T, dW2, D, hb, dLG, T)
     if rc != 0:
         print("GEMM2 FAIL", rc)
@@ -232,6 +242,12 @@ def run() -> "i32":
         print("BIAS2 LAUNCH FAIL", rc)
         return 1
     wr: "i64" = cuda_h2d(hLG, dLG, vb, 2)
+    wr: "i64" = cuda_h2d(hLG, dLG, vb, 2)
+    dl2: "i32" = 0
+    while dl2 < 8:
+        lgv: "f32" = read_f32(hLG, dl2 * 4)
+        print("LG", dl2, lgv)
+        dl2 = dl2 + 1
     # loss on host
     loss: "f32" = 0.0
     i = 0
