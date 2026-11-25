@@ -1228,8 +1228,8 @@
 {
   .method public static int32 'run'() cil managed
   {
-    .maxstack 240
-    .locals init (int32 'rc', int64 'hc', int64 'ch', int32 'T', int32 'D', int32 'V', int32 'td', int32 'dv', int32 'tb', int32 'vb', int64 'hX', int64 'hW1', int64 'hW2', int64 'hb1', int64 'hb2', int64 'hIds', int64 'hLG', int64 'ha', int64 'wa1', int64 'hb', int64 'wb0', int32 'i', int32 'j', int64 'wb1x', int64 'wb2', int64 'wx', int32 'idv', int32 '__idiv1000129_a', int32 '__idiv1000129_b', int32 '__idiv1000129_q', int32 '__idiv1000129_r', int64 'wids', int64 'ww1', int64 'ww2', int64 'cell', int64 'dX', int64 'dW1', int64 'dZ', int64 'dH', int64 'dW2', int64 'dLG', int64 'db1', int64 'db2', int64 'wa', int64 'wb', int64 'wc', int64 'wd', int64 'we', int64 'wd2', int64 'wd3', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTXA', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FNA', int64 'pa', valuetype TkvInt 'ka', int64 'wua', int64 'wza', int64 'ma', int64 'oa', int64 'fa', valuetype TkvInt 'ra', int64 'wfa', int64 'ca', int64 'fna', int64 'a0', int64 'wa0', int64 'a1', int64 'wa2', int64 'a2', int64 'wa3', int64 'par', int64 'wa4', int64 'wa5', int64 'wa6', int64 'wzdiag', int32 'dz', float32 'zv', int64 'whdiag', int32 'dh2', float32 'hv2', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTXB', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FNB', int64 'pb', valuetype TkvInt 'kb', int64 'wub', int64 'wzb', int64 'mb', int64 'ob', int64 'fb2', valuetype TkvInt 'rb', int64 'wfb', int64 'cb', int64 'fnb', int64 'b0', int64 'wb0b', int64 'b1p', int64 'wb1p', int64 'b2p', int64 'wb2p', int64 'parb', int64 'wb3', int64 'wb4', int64 'wb5', int64 'wr', int32 'dl2', float32 'lgv', float32 'loss', float32 'mx', float32 'lv', float32 'zsum', float32 'ev', int32 'idv2', float32 'lv2', float32 'ev2', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
+    .maxstack 246
+    .locals init (int32 'rc', int64 'hc', int64 'ch', int32 'T', int32 'D', int32 'V', int32 'td', int32 'dv', int32 'tb', int32 'vb', int64 'hX', int64 'hW1', int64 'hW2', int64 'hb1', int64 'hb2', int64 'hIds', int64 'hLG', int64 'ha', int64 'wa1', int64 'hb', int64 'wb0', int32 'i', int32 'j', int64 'wb1x', int64 'wb2', int64 'wx', int32 'idv', int32 '__idiv1000133_a', int32 '__idiv1000133_b', int32 '__idiv1000133_q', int32 '__idiv1000133_r', int64 'wids', int64 'ww1', int64 'ww2', int64 'cell', int64 'dX', int64 'dW1', int64 'dZ', int64 'dH', int64 'dW2', int64 'dLG', int64 'db1', int64 'db2', int64 'wa', int64 'wb', int64 'wc', int64 'wd', int64 'we', int64 'wd2', int64 'wd3', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTXA', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FNA', int64 'pa', valuetype TkvInt 'ka', int64 'wua', int64 'wza', int64 'ma', int64 'oa', int64 'fa', valuetype TkvInt 'ra', int64 'wfa', int64 'ca', int64 'fna', int64 'a0', int64 'wa0', int64 'a1', int64 'wa2', int64 'a2', int64 'wa3', int64 'par', int64 'wa4', int64 'wa5', int64 'wa6', int64 'wzdiag', int32 'dz', float32 'zv', int64 'whdiag', int32 'dh2', float32 'hv2', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTXB', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FNB', int64 'pb', valuetype TkvInt 'kb', int64 'wub', int64 'wzb', int64 'mb', int64 'ob', int64 'fb2', valuetype TkvInt 'rb', int64 'wfb', int64 'cb', int64 'fnb', int64 'b0', int64 'wb0b', int64 'b1p', int64 'wb1p', int64 'b2p', int64 'wb2p', int64 'parb', int64 'wb3', int64 'wb4', int64 'wb5', int64 'wr', int32 'dl2', float32 'lgv', float32 'loss', float32 'mx', float32 'lv', float32 'zsum', float32 'ev', int32 'idv2', float32 'lv2', float32 'ev2', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
     ldc.i4 0
     call int32 TKVApp::__pinvoke_cu_init(int32)
     stloc.s 0
@@ -1289,7 +1289,11 @@
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
     stloc.s 10
-    ldloc.s 8
+    ldloc.s 4
+    ldloc.s 4
+    mul
+    ldc.i4 4
+    mul
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
     stloc.s 11
@@ -1710,7 +1714,11 @@
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
     stloc.s 35
     ldloc.s 34
-    ldloc.s 8
+    ldloc.s 4
+    ldloc.s 4
+    mul
+    ldc.i4 4
+    mul
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
@@ -1807,7 +1815,11 @@
     stloc.s 43
     ldloc.s 36
     ldloc.s 11
-    ldloc.s 8
+    ldloc.s 4
+    ldloc.s 4
+    mul
+    ldc.i4 4
+    mul
     conv.i8
     ldc.i4 1
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)

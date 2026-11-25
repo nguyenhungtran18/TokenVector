@@ -40,7 +40,7 @@ def run() -> "i32":
     tb: "i32" = td * 4
     vb: "i32" = dv * 4
     hX = alloc_bytes(tb)
-    hW1 = alloc_bytes(tb)
+    hW1 = alloc_bytes(D * D * 4)
     hW2 = alloc_bytes(vb)
     hb1 = alloc_bytes(D * 4)
     hb2 = alloc_bytes(V * 4)
@@ -89,7 +89,7 @@ def run() -> "i32":
     cell = alloc_bytes(8)
     rc = cuda_malloc(cell, tb)
     dX = read_i64(cell, 0)
-    rc = cuda_malloc(cell, tb)
+    rc = cuda_malloc(cell, D * D * 4)
     dW1 = read_i64(cell, 0)
     rc = cuda_malloc(cell, tb)
     dZ = read_i64(cell, 0)
@@ -104,7 +104,7 @@ def run() -> "i32":
     rc = cuda_malloc(cell, V * 4)
     db2 = read_i64(cell, 0)
     wa: "i64" = cuda_h2d(dX, hX, tb, 1)
-    wb: "i64" = cuda_h2d(dW1, hW1, tb, 1)
+    wb: "i64" = cuda_h2d(dW1, hW1, D * D * 4, 1)
     wc: "i64" = cuda_h2d(dW2, hW2, vb, 1)
     wd: "i64" = cuda_h2d(db1, hb1, D * 4, 1)
     we: "i64" = cuda_h2d(db2, hb2, V * 4, 1)
