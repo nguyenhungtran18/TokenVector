@@ -3945,7 +3945,7 @@
     ret
   run_If10_else:
     ldloc.s 2
-    ldc.i4 0
+    ldc.i4 1
     ldc.i4 0
     ldloc.s 3
     ldc.i4 1

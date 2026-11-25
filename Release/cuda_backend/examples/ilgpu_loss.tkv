@@ -129,7 +129,7 @@ def run() -> "i32":
         print("EXP launch fail", rc)
         return 1
     # row sum = de(T,V) * ones(V,1)
-    rc = cublas_sgemm(ch, 0, 0, T, 1, V, acell, de, V, donV, V, bcell, drow, T)
+    rc = cublas_sgemm(ch, 1, 0, T, 1, V, acell, de, V, donV, V, bcell, drow, T)
     if rc != 0:
         print("rowsum fail", rc)
         return 1
