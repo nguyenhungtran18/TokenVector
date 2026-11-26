@@ -614,7 +614,10 @@ def run() -> "i32":
             zd = read_i64(AZ, ll * 8)
             od = read_i64(AO, ll * 8)
             # reload THIS layer's forward activations (no stale shared buffers)
-            wh = cuda_h2d(gOUT, hOUT, qb, 2)
+            wh = cuda_h2d(hOUT, gOUT, qb, 2)
+            if wh != 0:
+                print("BWD GOUT MEMCPY FAIL", wh)
+                return 1
             wh = cuda_h2d(hZ, zd, fb, 2)
             ii = 0
             while ii < T * F:
