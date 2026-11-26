@@ -431,6 +431,8 @@ def run() -> "i32":
                     zs = zs + ev
                     wh = write_f32(hP, (ii + jj * T) * 4, ev)
                     jj = jj + 1
+                if ii == 0:
+                    print("M S0", mx, zs, read_f32(hS, 0), exp(read_f32(hS, 0) - mx))
                 jj = 0
                 while jj <= ii:
                     pv: "f32" = read_f32(hP, (ii + jj * T) * 4)
