@@ -440,10 +440,13 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(od, hOUT, qb, 1)
+            sm: "f32" = 0.0
             ii = 0
             while ii < qb / 4:
+                sm = sm + read_f32(hOUT, ii * 4)
                 wh = write_f32(hX, ii * 4, read_f32(hOUT, ii * 4))
                 ii = ii + 1
+            print("DBGL", ll, sm)
             ll = ll + 1
         # logits + loss tu OUT cua lop cuoi
         wh = cuda_h2d(dOUT, hOUT, qb, 1)
