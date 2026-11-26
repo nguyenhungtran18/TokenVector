@@ -588,7 +588,7 @@ def run() -> "i32":
     if rc != 0:
         print("BW dQ FAIL", rc)
         return 1
-    rc = cublas_sgemm(ch, 1, 0, H, H, T, hal, dSg, T, dQ, T, hb0, dKg, T)
+    rc = cublas_sgemm(ch, 1, 0, T, H, T, hal, dSg, T, dQ, T, hb0, dKg, T)
     if rc != 0:
         print("BW dK FAIL", rc)
         return 1
@@ -764,12 +764,12 @@ def run() -> "i32":
             print("GQ", ii, jj, gvv)
             jj = jj + 1
         ii = ii + 1
-    bj9: "i64" = cuda_h2d(hgr, dKg, hb * H, 2)
+    bj9: "i64" = cuda_h2d(hgr, dKg, qb, 2)
     ii = 0
-    while ii < H:
+    while ii < T:
         jj = 0
         while jj < H:
-            gvv = read_f32(hgr, (ii + jj * H) * 4)
+            gvv = read_f32(hgr, (ii + jj * T) * 4)
             print("GK", ii, jj, gvv)
             jj = jj + 1
         ii = ii + 1
