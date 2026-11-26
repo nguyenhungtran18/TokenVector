@@ -31,9 +31,6 @@ Assembled method TkvInt::BitOr
 Assembled method TkvInt::BitXor
 Assembled method TkvInt::Shl
 Assembled method TkvInt::Shr
-Assembled method TkvTime::Now
-Assembled method TkvTime::Perf
-Assembled method TkvTime::Sleep
 Assembled method TkvStr::I32
 Assembled method TkvStr::I64
 Assembled method TkvStr::Bool
@@ -49,23 +46,26 @@ Assembled method TkvStr::IsDigit
 Assembled method TkvStr::IsAlpha
 Assembled method TkvStr::IsAlnum
 Assembled method TkvStr::IsSpace
+Assembled method TkvTime::Now
+Assembled method TkvTime::Perf
+Assembled method TkvTime::Sleep
 Assembled method TKVApp::run
 Assembled method TKVApp::Main
 Creating PE file
 
 Emitting classes:
 Class 1:	TkvInt
-Class 2:	TkvTime
-Class 3:	TkvStr
+Class 2:	TkvStr
+Class 3:	TkvTime
 Class 4:	TKVApp
 
 Emitting fields and methods:
 Global 	
 Class 1	Fields: 2;	Methods: 27;	
-Class 2	Methods: 3;	
-Class 3	Methods: 15;	
-Class 4	Methods: 8;	
-Resolving local member refs: 292 -> 292 defs, 0 refs, 0 unresolved
+Class 2	Methods: 15;	
+Class 3	Methods: 3;	
+Class 4	Methods: 11;	
+Resolving local member refs: 306 -> 306 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	

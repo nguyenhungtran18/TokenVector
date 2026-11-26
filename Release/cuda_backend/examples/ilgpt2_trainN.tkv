@@ -5,6 +5,14 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i32"], "returns": "i32"},
     {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
      "convention": "cdecl", "params": [], "returns": "i32"},
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
+     "returns": "i32"},
     {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
@@ -42,6 +50,31 @@ def run() -> "i32":
     w2b: "i32" = hb * F
     wh2: "i32" = V * hb
     msz: "i32" = NL * 8
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gelu_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,f2,f3,f4,f5;\n.reg .u64 x,y,off;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 x,[px];\nld.param.u64 y,[py];\nld.param.u32 n,[pn];\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 x,x;\ncvta.to.global.u64 y,y;\nadd.u64 x,x,off;\nadd.u64 y,y,off;\nld.global.f32 f1,[x];\nmul.f32 f3,f1,f1;\nmul.f32 f3,f3,f1;\nmov.f32 f4,0.044715;\nfma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456;\nmul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0;\nadd.f32 f2,f2,f3;\nmov.f32 f3,0.5;\nmul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2;\nst.global.f32 [y],f5;\nLEND: ret;\n}\n"
+    FN = b"gelu_kernel\x00"
+    pbuf = alloc_bytes(len(PTX) + 1)
+    kk = 0
+    while kk < len(PTX):
+        wh = write_u8(pbuf, kk, PTX[kk])
+        kk = kk + 1
+    wh = write_u8(pbuf, kk, 0)
+    mc = alloc_bytes(8)
+    rc = cu_module_load(mc, pbuf)
+    if rc != 0:
+        print("MODULE FAIL", rc)
+        return 1
+    mod: "i64" = read_i64(mc, 0)
+    nb2 = alloc_bytes(len(FN))
+    kk = 0
+    while kk < len(FN):
+        wh = write_u8(nb2, kk, FN[kk])
+        kk = kk + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mod, nb2)
+    if rc != 0:
+        print("FN FAIL", rc)
+        return 1
+    kgelu: "i64" = read_i64(fc, 0)
     cell = alloc_bytes(8)
     # arrays cua device-pointer / host-pointer theo lop
     AWq = alloc_bytes(msz)
@@ -161,9 +194,6 @@ def run() -> "i32":
     hY2 = alloc_bytes(qb)
     hST = alloc_bytes(stb)
     hXH = alloc_bytes(qb)
-    hyq = alloc_bytes(qb)
-    hyk = alloc_bytes(qb)
-    hyv = alloc_bytes(qb)
     g1h = alloc_bytes(hb)
     b1h = alloc_bytes(hb)
     g2h = alloc_bytes(hb)
@@ -172,7 +202,6 @@ def run() -> "i32":
     hP = alloc_bytes(sb)
     hO = alloc_bytes(qb)
     hX2 = alloc_bytes(qb)
-    hO2 = alloc_bytes(qb)
     hOUT = alloc_bytes(qb)
     hZ = alloc_bytes(fb)
     hLG = alloc_bytes(tvb)
@@ -180,7 +209,6 @@ def run() -> "i32":
     hGP = alloc_bytes(sb)
     hDS = alloc_bytes(sb)
     hGY2 = alloc_bytes(fb)
-    hGDX2 = alloc_bytes(qb)
     hy1 = alloc_bytes(qb)
     gWh = alloc_bytes(wh2)
     gW1h = alloc_bytes(w1b)
@@ -305,7 +333,7 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.1)
         wh = write_f32(b2h, ii * 4, 0.02)
         ii = ii + 1
-    lr: "f32" = 0.001
+    lr: "f32" = 0.0000001
     t0 = time_perf()
     step: "i32" = 1
     while step <= 2:
@@ -443,27 +471,27 @@ def run() -> "i32":
             rc = cublas_sgemm(ch, 0, 0, T, F, H, one, dY2, T, w1d, H, zero, dZ, T)
             wh = cuda_h2d(hZ, dZ, fb, 2)
             wh = cuda_h2d(zd, dZ, fb, 1)
-            ii = 0
-            while ii < T * F:
-                xv = read_f32(hZ, ii * 4)
-                zz: "f32" = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
-                thv: "f32" = 1.0
-                if zz < -8.0:
-                    thv = -1.0
-                else:
-                    if zz < 8.0:
-                        e2: "f32" = exp(2.0 * zz)
-                        thv = (e2 - 1.0) / (e2 + 1.0)
-                wh = write_f32(hZ, ii * 4, 0.5 * xv * (1.0 + thv))
-                ii = ii + 1
-            wh = cuda_h2d(dHH, hZ, fb, 1)
+            a0 = alloc_bytes(8)
+            wh = write_i64(a0, 0, dZ)
+            a1 = alloc_bytes(8)
+            wh = write_i64(a1, 0, dHH)
+            a2 = alloc_bytes(4)
+            wh = write_i32(a2, 0, T * F)
+            pl = alloc_bytes(24)
+            wh = write_i64(pl, 0, a0)
+            wh = write_i64(pl, 8, a1)
+            wh = write_i64(pl, 16, a2)
+            rc = cu_launch(kgelu, 8192, 1, 1, 256, 1, 1, 0, 0, pl, 0)
+            if rc != 0:
+                print("GELU FAIL", rc)
+                return 1
             rc = cublas_sgemm(ch, 0, 0, T, H, F, one, dHH, T, w2d, F, zero, dO2, T)
-            wh = cuda_h2d(hO2, dO2, qb, 2)
+            wh = cuda_h2d(hO, dO2, qb, 2)
             ii = 0
             while ii < T:
                 jj = 0
                 while jj < H:
-                    wh = write_f32(hOUT, (ii + jj * T) * 4, read_f32(hX2, (ii + jj * T) * 4) + read_f32(hO2, (ii + jj * T) * 4))
+                    wh = write_f32(hOUT, (ii + jj * T) * 4, read_f32(hX2, (ii + jj * T) * 4) + read_f32(hO, (ii + jj * T) * 4))
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(od, hOUT, qb, 1)
@@ -473,6 +501,7 @@ def run() -> "i32":
         rc = cublas_sgemm(ch, 0, 0, T, V, H, one, dOUT, T, dWh, H, zero, dLG, T)
         wh = cuda_h2d(hLG, dLG, tvb, 2)
         lossv: "f32" = 0.0
+        dxv = 0.0
         ii = 0
         while ii < T:
             mx = -1000000000.0
@@ -504,8 +533,6 @@ def run() -> "i32":
             ii = ii + 1
         lossv = lossv / T
         print("LOSS", lossv)
-        lf: "f64" = lossv
-        print("LOSSF", lf)
         wh = cuda_h2d(dDL, hDL, tvb, 1)
         print("MARK FWD", step)
         rc = cublas_sgemm(ch, 0, 1, T, H, V, one, dDL, T, dWh, H, zero, gOUT, T)
@@ -536,37 +563,18 @@ def run() -> "i32":
             rc = cublas_sgemm(ch, 1, 0, F, H, T, one, dHH, T, gOUT, T, zero, g2d, F)
             rc = cublas_sgemm(ch, 0, 1, T, F, H, one, gOUT, T, w2d, F, zero, gHH, T)
             print("B1 dW2", ll)
-            if ll == 23:
-                wh = cuda_h2d(hP, gHH, 8, 2)
-                lf = read_f32(hP, 0)
-                print("M GHH0", lf)
-                wh = cuda_h2d(hP, gOUT, 8, 2)
-                lf = read_f32(hP, 0)
-                print("M GOUT0", lf)
             wh = cuda_h2d(hZ, zd, fb, 2)
             ii = 0
             while ii < T * F:
                 xv = read_f32(hZ, ii * 4)
                 zz = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
-                thv = 1.0
-                if zz < -8.0:
-                    thv = -1.0
-                else:
-                    if zz < 8.0:
-                        e2 = exp(2.0 * zz)
-                        thv = (e2 - 1.0) / (e2 + 1.0)
+                e2 = exp(2.0 * zz)
+                thv = (e2 - 1.0) / (e2 + 1.0)
                 wh = write_f32(hZ, ii * 4, 0.5 * xv * (1.0 + thv))
                 ii = ii + 1
             wh = cuda_h2d(dHH, hZ, fb, 1)
             # dZ tu Z goc
             print("B1 dW2", ll)
-            if ll == 23:
-                wh = cuda_h2d(hP, gHH, 8, 2)
-                lf = read_f32(hP, 0)
-                print("M GHH0", lf)
-                wh = cuda_h2d(hP, gOUT, 8, 2)
-                lf = read_f32(hP, 0)
-                print("M GOUT0", lf)
             wh = cuda_h2d(hZ, zd, fb, 2)
             wh = cuda_h2d(hGY2, gHH, fb, 2)
             ii = 0
@@ -596,26 +604,26 @@ def run() -> "i32":
             while ii < T:
                 mn = read_f32(hST, ii * 8)
                 rv = read_f32(hST, ii * 8 + 4)
-                acc1: "f32" = 0.0
-                acc2: "f32" = 0.0
+                dxv = 0.0
+                dxv = 0.0
                 jj = 0
                 while jj < H:
-                    dvv: "f32" = read_f32(hGY2, (ii + jj * T) * 4)
-                    gvv: "f32" = read_f32(g2h, jj * 4)
+                    dxv = read_f32(hGY2, (ii + jj * T) * 4)
+                    dxv = read_f32(g2h, jj * 4)
                     xhv = read_f32(hXH, (ii + jj * T) * 4)
-                    acc1 = acc1 + dvv * gvv
-                    acc2 = acc2 + dvv * gvv * xhv
+                    dxv = dxv + dxv * dxv
+                    dxv = dxv + dxv * dxv * xhv
                     jj = jj + 1
                 jj = 0
                 while jj < H:
-                    dvv = read_f32(hGY2, (ii + jj * T) * 4)
-                    gvv = read_f32(g2h, jj * 4)
+                    dxv = read_f32(hGY2, (ii + jj * T) * 4)
+                    dxv = read_f32(g2h, jj * 4)
                     xhv = read_f32(hXH, (ii + jj * T) * 4)
-                    dxv: "f32" = (dvv * gvv - acc1 / H - xhv * acc2 / H) * rv
-                    wh = write_f32(hGDX2, (ii + jj * T) * 4, dxv + read_f32(hOUT, (ii + jj * T) * 4))
+                    dxv = (dxv * dxv - dxv / H - xhv * dxv / H) * rv
+                    wh = write_f32(hX2, (ii + jj * T) * 4, dxv + read_f32(hOUT, (ii + jj * T) * 4))
                     jj = jj + 1
                 ii = ii + 1
-            wh = cuda_h2d(gDX2, hGDX2, qb, 1)
+            wh = cuda_h2d(gDX2, hX2, qb, 1)
             print("B3 ln2", ll)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gDX2, T, wod, H, zero, gA, T)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dA, T, gDX2, T, zero, gWo, H)
@@ -626,28 +634,18 @@ def run() -> "i32":
             wh = cuda_h2d(hGP, gP, sb, 2)
             ii = 0
             while ii < T:
-                rst: "f32" = 0.0
+                dxv = 0.0
                 jj = 0
                 while jj < T:
-                    rst = rst + read_f32(hP, (ii + jj * T) * 4) * read_f32(hGP, (ii + jj * T) * 4)
+                    dxv = dxv + read_f32(hP, (ii + jj * T) * 4) * read_f32(hGP, (ii + jj * T) * 4)
                     jj = jj + 1
                 jj = 0
                 while jj < T:
-                    wh = write_f32(hDS, (ii + jj * T) * 4, read_f32(hP, (ii + jj * T) * 4) * (read_f32(hGP, (ii + jj * T) * 4) - rst))
+                    wh = write_f32(hDS, (ii + jj * T) * 4, read_f32(hP, (ii + jj * T) * 4) * (read_f32(hGP, (ii + jj * T) * 4) - dxv))
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(gS, hDS, sb, 1)
             print("B5 dS", ll)
-            if ll >= 0:
-                lf = read_f32(hDS, 0)
-                print("M DS0", lf)
-                lf = read_f32(hP, 0)
-                print("M HP0", lf)
-                lf = read_f32(hGP, 0)
-                print("M HGP0", lf)
-                wh = cuda_h2d(hP, gS, 8, 2)
-                lf = read_f32(hP, 0)
-                print("M GS0", lf)
             rc = cublas_sgemm(ch, 0, 0, T, H, T, hal, gS, T, dK, T, zero, gQ, T)
             rc = cublas_sgemm(ch, 1, 0, T, H, T, hal, gS, T, dQ, T, zero, gK, T)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gQ, T, zero, gqd, H)
@@ -656,21 +654,17 @@ def run() -> "i32":
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gQ, T, wqd, H, zero, dQ, T)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gK, T, wkd, H, zero, dK, T)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gV, T, wvd, H, zero, dV, T)
-            wh = cuda_h2d(hyq, dQ, qb, 2)
-            wh = cuda_h2d(hyk, dK, qb, 2)
-            wh = cuda_h2d(hyv, dV, qb, 2)
+            wh = cuda_h2d(hP, dQ, qb, 2)
+            wh = cuda_h2d(hS, dK, qb, 2)
+            wh = cuda_h2d(hDL, dV, qb, 2)
             ii = 0
             while ii < T:
                 jj = 0
                 while jj < H:
-                    wh = write_f32(hy1, (ii + jj * T) * 4, read_f32(hyq, (ii + jj * T) * 4) + read_f32(hyk, (ii + jj * T) * 4) + read_f32(hyv, (ii + jj * T) * 4))
+                    wh = write_f32(hy1, (ii + jj * T) * 4, read_f32(hP, (ii + jj * T) * 4) + read_f32(hS, (ii + jj * T) * 4) + read_f32(hDL, (ii + jj * T) * 4))
                     jj = jj + 1
                 ii = ii + 1
             print("B6 qkv", ll)
-            if ll >= 0:
-                wh = cuda_h2d(hP, gqd, 8, 2)
-                lf = read_f32(hP, 0)
-                print("M GQD0", lf)
             wh = cuda_h2d(dY1, read_i64(AY1, ll * 8), qb, 1)
             wh = cuda_h2d(gY1, hy1, qb, 1)
             wh = cuda_h2d(hXH, xh1d, qb, 2)
@@ -680,25 +674,25 @@ def run() -> "i32":
             while ii < T:
                 mn = read_f32(hST, ii * 8)
                 rv = read_f32(hST, ii * 8 + 4)
-                acc1 = 0.0
-                acc2 = 0.0
+                dxv = 0.0
+                dxv = 0.0
                 jj = 0
                 while jj < H:
-                    dvv = read_f32(hGY2, (ii + jj * T) * 4)
-                    gvv = read_f32(g1h, jj * 4)
+                    dxv = read_f32(hGY2, (ii + jj * T) * 4)
+                    dxv = read_f32(g1h, jj * 4)
                     xhv = read_f32(hXH, (ii + jj * T) * 4)
-                    acc1 = acc1 + dvv * gvv
-                    acc2 = acc2 + dvv * gvv * xhv
+                    dxv = dxv + dxv * dxv
+                    dxv = dxv + dxv * dxv * xhv
                     jj = jj + 1
                 jj = 0
                 while jj < H:
-                    dvv = read_f32(hGY2, (ii + jj * T) * 4)
-                    gvv = read_f32(g1h, jj * 4)
+                    dxv = read_f32(hGY2, (ii + jj * T) * 4)
+                    dxv = read_f32(g1h, jj * 4)
                     xhv = read_f32(hXH, (ii + jj * T) * 4)
-                    wh = write_f32(hGDX2, (ii + jj * T) * 4, (dvv * gvv - acc1 / H - xhv * acc2 / H) * rv)
+                    wh = write_f32(hX2, (ii + jj * T) * 4, (dxv * dxv - dxv / H - xhv * dxv / H) * rv)
                     jj = jj + 1
                 ii = ii + 1
-            wh = cuda_h2d(gOUT, hGDX2, qb, 1)
+            wh = cuda_h2d(gOUT, hX2, qb, 1)
             print("MARK B", ll)
             ll = ll - 1
         print("MARK BWD", step)
@@ -710,76 +704,50 @@ def run() -> "i32":
             god = read_i64(AGo, ll * 8)
             g1d = read_i64(AG1, ll * 8)
             g2d = read_i64(AG2, ll * 8)
+            wph = read_i64(HWq, ll * 8)
+            wph = read_i64(HWk, ll * 8)
+            wph = read_i64(HWv, ll * 8)
+            wph = read_i64(HWo, ll * 8)
+            wph = read_i64(HW1, ll * 8)
+            wph = read_i64(HW2, ll * 8)
             wh = cuda_h2d(gWqh, gqd, whb, 2)
             wh = cuda_h2d(gWkh, gkd, whb, 2)
             wh = cuda_h2d(gWvh, gvd, whb, 2)
             wh = cuda_h2d(gWoh, god, whb, 2)
             wh = cuda_h2d(gW1h, g1d, w1b, 2)
             wh = cuda_h2d(gW2h, g2d, w2b, 2)
-            if ll >= 0:
-                lf = read_f32(gWqh, 0)
-                lf = read_f32(gWoh, 0)
-                print("M GO", lf)
-                lf = read_f32(gW1h, 0)
-                print("M G1", lf)
-                lf = read_f32(gW2h, 0)
-                print("M G2", lf)
-
-                print("M GQ", lf)
-                lf = read_f32(hwq, 0)
-                print("M WB", lf)
-            wph = read_i64(HWq, ll * 8)
             ii = 0
             while ii < H * H:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gWqh, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
-                ii = ii + 1
-            wh = cuda_h2d(read_i64(AWq, ll * 8), wph, whb, 1)
-            if ll == 0:
-                lf = read_f32(hwq, 0)
-                print("M WA", lf)
-            wph = read_i64(HWk, ll * 8)
-            ii = 0
-            while ii < H * H:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gWkh, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
-                ii = ii + 1
-            wh = cuda_h2d(read_i64(AWk, ll * 8), wph, whb, 1)
-            wph = read_i64(HWv, ll * 8)
-            ii = 0
-            while ii < H * H:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gWvh, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
-                ii = ii + 1
-            wh = cuda_h2d(read_i64(AWv, ll * 8), wph, whb, 1)
-            wph = read_i64(HWo, ll * 8)
-            ii = 0
-            while ii < H * H:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gWoh, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
-            wh = cuda_h2d(read_i64(AWo, ll * 8), wph, whb, 1)
-            wph = read_i64(HW1, ll * 8)
             ii = 0
             while ii < H * F:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gW1h, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
-            wh = cuda_h2d(read_i64(AW1, ll * 8), wph, w1b, 1)
-            wph = read_i64(HW2, ll * 8)
             ii = 0
             while ii < F * H:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gW2h, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
+            wh = cuda_h2d(read_i64(AWq, ll * 8), wph, whb, 1)
+            wh = cuda_h2d(read_i64(AWk, ll * 8), wph, whb, 1)
+            wh = cuda_h2d(read_i64(AWv, ll * 8), wph, whb, 1)
+            wh = cuda_h2d(read_i64(AWo, ll * 8), wph, whb, 1)
+            wh = cuda_h2d(read_i64(AW1, ll * 8), wph, w1b, 1)
             wh = cuda_h2d(read_i64(AW2, ll * 8), wph, w2b, 1)
-
             ll = ll + 1
         print("MARK UPD", step)
         step = step + 1
     syn: "i32" = cuda_sync()
-    t1 = time_perf()
-    dtm: "f64" = t1 - t0
+    dtm: "f64" = time_perf() - t0
     print("MS_TOTAL", dtm * 1000.0)
     print("MS_STEP", (dtm * 1000.0) / 2.0)
     print("BATCH DONE")
