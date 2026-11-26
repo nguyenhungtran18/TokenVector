@@ -28,10 +28,12 @@ __tkv_extern_pinvoke__ = [
 
 def run() -> "i32":
     rc: "i32" = cu_init(0)
+    print("M INIT", rc)
     if rc != 0:
         return 1
     cell = alloc_bytes(8)
     rc = cublas_create(cell)
+    print("M CUBLAS", rc)
     ch: "i64" = read_i64(cell, 0)
     NL: "i32" = 24
     T: "i32" = 512
@@ -74,6 +76,7 @@ def run() -> "i32":
         print("FN GELU FAIL", rc)
         return 1
     kgelu: "i64" = read_i64(fc, 0)
+    print("M MODULE", rc)
     FN = b"loss_kernel_packed\x00"
     nb2 = alloc_bytes(len(FN))
     kk = 0
@@ -508,6 +511,7 @@ def run() -> "i32":
         # logits + loss tu OUT cua lop cuoi
         wh = cuda_h2d(dOUT, hOUT, qb, 1)
         rc = cublas_sgemm(ch, 0, 0, T, V, H, one, dOUT, T, dWh, H, zero, dLG, T)
+        print("M CE PRE", step)
         # device CE loss: packed params + 1 combined output (lossRow + dL col-major)
         pbuf = alloc_bytes(16 + T * 4)
         wh = write_i32(pbuf, 0, T)
@@ -532,7 +536,9 @@ def run() -> "i32":
         wh = write_i64(pl, 0, a0)
         wh = write_i64(pl, 8, a1)
         wh = write_i64(pl, 16, a2)
+        print("M CE LAUNCH", step)
         rc = cu_launch(kgelu, 1, 1, 1, T, 1, 1, 0, 0, pl, 0)
+        print("M CE POST", rc)
         if rc != 0:
             print("LOSS FAIL", rc)
             return 1
