@@ -23,11 +23,11 @@ def run() -> "i32":
     hcell = alloc_bytes(8)
     rc = cublas_create(hcell)
     ch: "i64" = read_i64(hcell, 0)
-    NL: "i32" = 4
-    T: "i32" = 4
-    H: "i32" = 8
+    NL: "i32" = 24
+    T: "i32" = 512
+    H: "i32" = 1024
     F: "i32" = 4 * H
-    V: "i32" = 8
+    V: "i32" = 50257
     hb: "i32" = H * 4
     h4: "i32" = F * 4
     qb: "i32" = T * H * 4
@@ -303,7 +303,7 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.1 + 0.04 * ii)
         wh = write_f32(b2h, ii * 4, 0.02 * ii)
         ii = ii + 1
-    lr: "f32" = 0.000001
+    lr: "f32" = 0.0000001
     step: "i32" = 1
     while step <= 2:
         # ---- forward layers ----

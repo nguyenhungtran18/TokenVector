@@ -1256,17 +1256,17 @@
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
     stloc.s 2
-    ldc.i4 4
+    ldc.i4 24
     stloc.s 3
-    ldc.i4 4
+    ldc.i4 512
     stloc.s 4
-    ldc.i4 8
+    ldc.i4 1024
     stloc.s 5
     ldc.i4 4
     ldloc.s 5
     mul
     stloc.s 6
-    ldc.i4 8
+    ldc.i4 50257
     stloc.s 7
     ldloc.s 5
     ldc.i4 4
@@ -3152,7 +3152,7 @@
     stloc.s 60
     br run_W15_start
   run_W15_end:
-    ldc.r4 0.000001
+    ldc.r4 0.0000001
     stloc.s 147
     ldc.i4 1
     stloc.s 148
