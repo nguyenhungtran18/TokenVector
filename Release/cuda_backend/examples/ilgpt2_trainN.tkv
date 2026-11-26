@@ -415,6 +415,7 @@ def run() -> "i32":
                     ii = ii + 1
                 print("F2 softmax", sm)
             wh = cuda_h2d(pd, hP, sb, 1)
+            wh = cuda_h2d(dP, hP, sb, 1)
             if ll == 0:
                 wh = cuda_h2d(hS, dP, sb, 2)
                 sm = 0.0
