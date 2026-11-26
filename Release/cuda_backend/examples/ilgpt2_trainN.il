@@ -1267,8 +1267,8 @@
 {
   .method public static int32 'run'() cil managed
   {
-    .maxstack 1084
-    .locals init (int32 'rc', int64 'cell', int64 'ch', int32 'NL', int32 'T', int32 'H', int32 'F', int32 'V', int32 'hb', int32 'h4', int32 'qb', int32 'fb', int32 'sb', int32 'tvb', int32 'stb', int32 'whb', int32 'w1b', int32 'w2b', int32 'wh2', int32 'msz', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX', int64 'pbuf', valuetype TkvInt 'kk', int64 'wh', int64 'mc', int64 'mod', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN', int64 'fc', int64 'kgelu', int64 'AWq', int64 'AWk', int64 'AWv', int64 'AWo', int64 'AW1', int64 'AW2', int64 'AGq', int64 'AGk', int64 'AGv', int64 'AGo', int64 'AG1', int64 'AG2', int64 'AX1', int64 'AY1', int64 'AS1', int64 'AY2', int64 'AX2', int64 'AS2', int64 'AP', int64 'AZ', int64 'AO', int64 'HWq', int64 'HWk', int64 'HWv', int64 'HWo', int64 'HW1', int64 'HW2', int64 'HGq', int64 'HGk', int64 'HGv', int64 'HGo', int64 'HG1', int64 'HG2', int64 'one', int64 'zero', int64 'hal', int64 'hX', int64 'hIds', int32 'ii', int32 'jj', int32 '__idiv1003784_a', int32 '__idiv1003784_b', int32 '__idiv1003784_q', int32 '__idiv1003784_r', int64 'dY1', int64 '__tern1', int64 'dS', int64 'dP', int64 'dQ', int64 'dK', int64 'dV', int64 'dA', int64 'dO', int64 'dX2', int64 'dY2', int64 'dZ', int64 'dHH', int64 'dO2', int64 'dOUT', int64 'dLG', int64 'dDL', int64 'gHH', int64 'gZ', int64 'gY2', int64 'gDX2', int64 'gA', int64 'gWo', int64 'gP', int64 'gV', int64 'gS', int64 'gQ', int64 'gK', int64 'gY1', int64 'gOUT', int64 'hY1', int64 'hY2', int64 'hST', int64 'hXH', int64 'hyq', int64 'hyk', int64 'hyv', int64 'g1h', int64 'b1h', int64 'g2h', int64 'b2h', int64 'hS', int64 'hP', int64 'hO', int64 'hX2', int64 'hO2', int64 'hOUT', int64 'hZ', int64 'hDL', int64 'hGP', int64 'hDS', int64 'hGY2', int64 'hGDX2', int64 'hy1', int64 'gWh', int64 'gW1h', int64 'gW2h', int64 'gWqh', int64 'gWkh', int64 'gWvh', int64 'gWoh', int32 'll', int64 'wqd', int64 'wkd', int64 'wvd', int64 'wod', int64 'w1d', int64 'w2d', int64 'hwq', int64 'hwk', int64 'hwv', int64 'hwo', int64 'hw1', int64 'hw2', int32 '__idiv1004349_a', int32 '__idiv1004349_b', int32 '__idiv1004349_q', int32 '__idiv1004349_r', int32 '__idiv1004352_a', int32 '__idiv1004352_b', int32 '__idiv1004352_q', int32 '__idiv1004352_r', int32 '__idiv1004369_a', int32 '__idiv1004369_b', int32 '__idiv1004369_q', int32 '__idiv1004369_r', int32 '__idiv1004372_a', int32 '__idiv1004372_b', int32 '__idiv1004372_q', int32 '__idiv1004372_r', int32 '__idiv1004389_a', int32 '__idiv1004389_b', int32 '__idiv1004389_q', int32 '__idiv1004389_r', int32 '__idiv1004392_a', int32 '__idiv1004392_b', int32 '__idiv1004392_q', int32 '__idiv1004392_r', int32 '__idiv1004409_a', int32 '__idiv1004409_b', int32 '__idiv1004409_q', int32 '__idiv1004409_r', int32 '__idiv1004412_a', int32 '__idiv1004412_b', int32 '__idiv1004412_q', int32 '__idiv1004412_r', int32 '__idiv1004436_a', int32 '__idiv1004436_b', int32 '__idiv1004436_q', int32 '__idiv1004436_r', int32 '__idiv1004439_a', int32 '__idiv1004439_b', int32 '__idiv1004439_q', int32 '__idiv1004439_r', int32 '__idiv1004470_a', int32 '__idiv1004470_b', int32 '__idiv1004470_q', int32 '__idiv1004470_r', int32 '__idiv1004473_a', int32 '__idiv1004473_b', int32 '__idiv1004473_q', int32 '__idiv1004473_r', int64 'hWh', int64 'dWh', float32 'lr', float64 't0', int32 'step', int64 'xh1d', int64 's1d', int64 'y2d', int64 'xh2d', int64 's2d', int64 'pd', int64 'zd', int64 'od', float32 'su', float32 'sq', float32 'xv', float32 'mn', float32 'vr', float32 'rs', float32 'xhv', float32 'mx', float32 'sv', float32 'zs', float32 'ev', float32 'pv', int64 'a0', int64 'a1', int64 'a2', int64 'pl', int64 'nb2', float32 'lossv', int64 'gqd', int64 'gkd', int64 'gvd', int64 'god', int64 'g1d', int64 'g2d', float32 'zz', float64 'e2', float64 'thv', float32 'dg', float32 'rv', float64 'dxv', int64 'wph', int32 'syn', float64 't1', float64 'dtm', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum', int32 '__licm252', int32 '__licm253', int32 '__licm254', int32 '__licm255')
+    .maxstack 1088
+    .locals init (int32 'rc', int64 'cell', int64 'ch', int32 'NL', int32 'T', int32 'H', int32 'F', int32 'V', int32 'hb', int32 'h4', int32 'qb', int32 'fb', int32 'sb', int32 'tvb', int32 'stb', int32 'whb', int32 'w1b', int32 'w2b', int32 'wh2', int32 'msz', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX', int64 'pbuf', valuetype TkvInt 'kk', int64 'wh', int64 'mc', int64 'mod', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN', int64 'fc', int64 'kgelu', int64 'AWq', int64 'AWk', int64 'AWv', int64 'AWo', int64 'AW1', int64 'AW2', int64 'AGq', int64 'AGk', int64 'AGv', int64 'AGo', int64 'AG1', int64 'AG2', int64 'AX1', int64 'AY1', int64 'AS1', int64 'AY2', int64 'AX2', int64 'AS2', int64 'AP', int64 'AZ', int64 'AO', int64 'HWq', int64 'HWk', int64 'HWv', int64 'HWo', int64 'HW1', int64 'HW2', int64 'HGq', int64 'HGk', int64 'HGv', int64 'HGo', int64 'HG1', int64 'HG2', int64 'one', int64 'zero', int64 'hal', int64 'hX', int64 'hIds', int32 'ii', int32 'jj', int32 '__idiv1003805_a', int32 '__idiv1003805_b', int32 '__idiv1003805_q', int32 '__idiv1003805_r', int64 'dY1', int64 '__tern1', int64 'dS', int64 'dP', int64 'dQ', int64 'dK', int64 'dV', int64 'dA', int64 'dO', int64 'dX2', int64 'dY2', int64 'dZ', int64 'dHH', int64 'dO2', int64 'dOUT', int64 'dLG', int64 'dDL', int64 'gHH', int64 'gZ', int64 'gY2', int64 'gDX2', int64 'gA', int64 'gWo', int64 'gP', int64 'gV', int64 'gS', int64 'gQ', int64 'gK', int64 'gY1', int64 'gOUT', int64 'hY1', int64 'hY2', int64 'hST', int64 'hXH', int64 'hyq', int64 'hyk', int64 'hyv', int64 'g1h', int64 'b1h', int64 'g2h', int64 'b2h', int64 'hS', int64 'hP', int64 'hO', int64 'hX2', int64 'hO2', int64 'hOUT', int64 'hZ', int64 'hDL', int64 'hGP', int64 'hDS', int64 'hGY2', int64 'hGDX2', int64 'hy1', int64 'gWh', int64 'gW1h', int64 'gW2h', int64 'gWqh', int64 'gWkh', int64 'gWvh', int64 'gWoh', int32 'll', int64 'wqd', int64 'wkd', int64 'wvd', int64 'wod', int64 'w1d', int64 'w2d', int64 'hwq', int64 'hwk', int64 'hwv', int64 'hwo', int64 'hw1', int64 'hw2', int32 '__idiv1004370_a', int32 '__idiv1004370_b', int32 '__idiv1004370_q', int32 '__idiv1004370_r', int32 '__idiv1004373_a', int32 '__idiv1004373_b', int32 '__idiv1004373_q', int32 '__idiv1004373_r', int32 '__idiv1004390_a', int32 '__idiv1004390_b', int32 '__idiv1004390_q', int32 '__idiv1004390_r', int32 '__idiv1004393_a', int32 '__idiv1004393_b', int32 '__idiv1004393_q', int32 '__idiv1004393_r', int32 '__idiv1004410_a', int32 '__idiv1004410_b', int32 '__idiv1004410_q', int32 '__idiv1004410_r', int32 '__idiv1004413_a', int32 '__idiv1004413_b', int32 '__idiv1004413_q', int32 '__idiv1004413_r', int32 '__idiv1004430_a', int32 '__idiv1004430_b', int32 '__idiv1004430_q', int32 '__idiv1004430_r', int32 '__idiv1004433_a', int32 '__idiv1004433_b', int32 '__idiv1004433_q', int32 '__idiv1004433_r', int32 '__idiv1004457_a', int32 '__idiv1004457_b', int32 '__idiv1004457_q', int32 '__idiv1004457_r', int32 '__idiv1004460_a', int32 '__idiv1004460_b', int32 '__idiv1004460_q', int32 '__idiv1004460_r', int32 '__idiv1004491_a', int32 '__idiv1004491_b', int32 '__idiv1004491_q', int32 '__idiv1004491_r', int32 '__idiv1004494_a', int32 '__idiv1004494_b', int32 '__idiv1004494_q', int32 '__idiv1004494_r', int64 'hWh', int64 'dWh', float32 'lr', float64 't0', int32 'step', int64 'xh1d', int64 's1d', int64 'y2d', int64 'xh2d', int64 's2d', int64 'pd', int64 'zd', int64 'od', float32 'su', float32 'sq', float32 'xv', float32 'mn', float32 'vr', float32 'rs', float32 'xhv', float32 'mx', float32 'sv', float32 'zs', float32 'ev', float32 'pv', int64 'a0', int64 'a1', int64 'a2', int64 'pl', int64 'nb2', float32 'lossv', int64 'gqd', int64 'gkd', int64 'gvd', int64 'god', int64 'g1d', int64 'g2d', float32 'zz', float64 'e2', float64 'thv', float32 'dg', float32 'rv', float64 'dxv', int64 'wph', int32 'syn', float64 't1', float64 'dtm', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum', int32 '__licm252', int32 '__licm253', int32 '__licm254', int32 '__licm255')
     ldc.i4 0
     call int32 TKVApp::__pinvoke_cu_init(int32)
     stloc.s 0
@@ -15472,6 +15472,57 @@
     ldloc.s 4
     call int32 TKVApp::__pinvoke_cublas_sgemm(int64, int32, int32, int32, int32, int32, int64, int64, int32, int64, int32, int64, int64, int32)
     stloc.s 0
+    ldstr "M LG DUMP START"
+    call void [mscorlib]System.Console::WriteLine(string)
+    ldloc.s 21
+    ldloc.s 88
+    ldc.i8 32
+    ldc.i4 2
+    call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
+    conv.i8
+    stloc.s 23
+    ldstr "M LG"
+    ldstr " "
+    ldloc.s 21
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    ldind.r4
+    call string TkvStr::F32(float32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 21
+    ldc.i4 4
+    conv.i8
+    add
+    conv.i
+    ldind.r4
+    call string TkvStr::F32(float32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 21
+    ldc.i4 8
+    conv.i8
+    add
+    conv.i
+    ldind.r4
+    call string TkvStr::F32(float32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 21
+    ldc.i4 12
+    conv.i8
+    add
+    conv.i
+    ldind.r4
+    call string TkvStr::F32(float32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
     newobj instance void class [mscorlib]System.Collections.Generic.List`1<unsigned int8>::.ctor()
     dup
     ldc.i4 108

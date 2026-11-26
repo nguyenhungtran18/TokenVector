@@ -522,6 +522,9 @@ def run() -> "i32":
         # logits + loss tu OUT cua lop cuoi
         wh = cuda_h2d(dOUT, hOUT, qb, 1)
         rc = cublas_sgemm(ch, 0, 0, T, V, H, one, dOUT, T, dWh, H, zero, dLG, T)
+        print("M LG DUMP START")
+        wh = cuda_h2d(pbuf, dLG, 32, 2)
+        print("M LG", read_f32(pbuf, 0), read_f32(pbuf, 4), read_f32(pbuf, 8), read_f32(pbuf, 12))
         # loss fn loaded AFTER all gelu launches (kgelu slot reused)
         FN = b"loss_kernel_packed\x00"
         nb2 = alloc_bytes(len(FN))
