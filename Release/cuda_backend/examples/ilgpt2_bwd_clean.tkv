@@ -131,6 +131,8 @@ def run() -> "i32":
     dZ = read_i64(cell, 0)
     rc = cuda_malloc(cell, fb)
     dHH = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dHHg = read_i64(cell, 0)
     rc = cuda_malloc(cell, sb)
     dP = read_i64(cell, 0)
     rc = cuda_malloc(cell, qb)
@@ -216,7 +218,7 @@ def run() -> "i32":
     if rc != 0:
         print("dW2 FAIL", rc)
         return 1
-    rc = cublas_sgemm(ch, 0, 1, T, F, H, one, dDOUT, T, dW2, F, zero, dHH, T)
+    rc = cublas_sgemm(ch, 0, 1, T, F, H, one, dDOUT, T, dW2, F, zero, dHHg, T)
     if rc != 0:
         print("dHH FAIL", rc)
         return 1
@@ -287,7 +289,7 @@ def run() -> "i32":
     if rc != 0:
         print("dP FAIL", rc)
         return 1
-    rc = cublas_sgemm(ch, 1, 0, H, T, T, one, dP, T, dAg, T, zero, dVg, H)
+    rc = cublas_sgemm(ch, 1, 0, T, H, T, one, dP, T, dAg, T, zero, dVg, T)
     if rc != 0:
         print("dV FAIL", rc)
         return 1
@@ -461,10 +463,10 @@ def run() -> "i32":
         ii = ii + 1
     u7: "i64" = cuda_h2d(hgr, dVg, qb, 2)
     ii = 0
-    while ii < H:
+    while ii < T:
         jj = 0
-        while jj < T:
-            gvv = read_f32(hgr, (ii + jj * H) * 4)
+        while jj < H:
+            gvv = read_f32(hgr, (ii + jj * T) * 4)
             print("GV", ii, jj, gvv)
             jj = jj + 1
         ii = ii + 1
