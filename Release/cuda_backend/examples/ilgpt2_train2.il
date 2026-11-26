@@ -1277,7 +1277,7 @@
     ldloc.s 6
     mul
     stloc.s 7
-    ldc.i4 8
+    ldc.i4 50257
     stloc.s 8
     ldloc.s 6
     ldc.i4 4
