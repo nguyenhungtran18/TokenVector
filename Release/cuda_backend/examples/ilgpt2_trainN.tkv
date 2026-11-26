@@ -445,6 +445,7 @@ def run() -> "i32":
             if rc != 0:
                 print("O GEMM FAIL", ll, rc)
                 return 1
+            print("M AGEMM", ll, step)
             wh = cuda_h2d(hO, dO, qb, 2)
             ii = 0
             while ii < T:
@@ -453,6 +454,7 @@ def run() -> "i32":
                     wh = write_f32(hX2, (ii + jj * T) * 4, read_f32(hX, (ii + jj * T) * 4) + read_f32(hO, (ii + jj * T) * 4))
                     jj = jj + 1
                 ii = ii + 1
+            print("M RES", ll, step)
             wh = cuda_h2d(dX2, hX2, qb, 1)
             ii = 0
             while ii < T:
@@ -477,6 +479,7 @@ def run() -> "i32":
                     wh = write_f32(hXH, (ii + jj * T) * 4, xhv)
                     jj = jj + 1
                 ii = ii + 1
+            print("M LN2HOST", ll, step)
             wh = cuda_h2d(dY2, hY2, qb, 1)
             wh = cuda_h2d(y2d, hY2, qb, 1)
             wh = cuda_h2d(xh2d, hXH, qb, 1)
