@@ -713,6 +713,12 @@ def run() -> "i32":
             ii = 0
             while ii < H * H:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gWqh, ii * 4)
+                if dxv != dxv:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv > 1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv < -1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
             wh = cuda_h2d(read_i64(AWq, ll * 8), wph, whb, 1)
@@ -720,6 +726,12 @@ def run() -> "i32":
             ii = 0
             while ii < H * H:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gWkh, ii * 4)
+                if dxv != dxv:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv > 1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv < -1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
             wh = cuda_h2d(read_i64(AWk, ll * 8), wph, whb, 1)
@@ -727,6 +739,12 @@ def run() -> "i32":
             ii = 0
             while ii < H * H:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gWvh, ii * 4)
+                if dxv != dxv:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv > 1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv < -1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
             wh = cuda_h2d(read_i64(AWv, ll * 8), wph, whb, 1)
@@ -734,6 +752,12 @@ def run() -> "i32":
             ii = 0
             while ii < H * H:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gWoh, ii * 4)
+                if dxv != dxv:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv > 1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv < -1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
             wh = cuda_h2d(read_i64(AWo, ll * 8), wph, whb, 1)
@@ -741,6 +765,12 @@ def run() -> "i32":
             ii = 0
             while ii < H * F:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gW1h, ii * 4)
+                if dxv != dxv:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv > 1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv < -1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
             wh = cuda_h2d(read_i64(AW1, ll * 8), wph, w1b, 1)
@@ -748,6 +778,12 @@ def run() -> "i32":
             ii = 0
             while ii < F * H:
                 dxv = read_f32(wph, ii * 4) - lr * read_f32(gW2h, ii * 4)
+                if dxv != dxv:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv > 1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
+                if dxv < -1000000000000000000000000000000.0:
+                    dxv = read_f32(wph, ii * 4)
                 wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
             wh = cuda_h2d(read_i64(AW2, ll * 8), wph, w2b, 1)
