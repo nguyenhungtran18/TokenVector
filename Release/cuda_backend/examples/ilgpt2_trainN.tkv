@@ -77,18 +77,7 @@ def run() -> "i32":
         return 1
     kgelu: "i64" = read_i64(fc, 0)
     print("M MODULE", rc)
-    FN = b"loss_kernel_packed\x00"
-    nb2 = alloc_bytes(len(FN))
-    kk = 0
-    while kk < len(FN):
-        wh = write_u8(nb2, kk, FN[kk])
-        kk = kk + 1
-    mc = alloc_bytes(8)
-    rc = cu_module_fn(fc, mod, nb2)
-    if rc != 0:
-        print("FN LOSS FAIL", rc)
-        return 1
-    kgelu = read_i64(fc, 0)
+
     cell = alloc_bytes(8)
     # arrays cua device-pointer / host-pointer theo lop
     AWq = alloc_bytes(msz)
@@ -511,6 +500,19 @@ def run() -> "i32":
         # logits + loss tu OUT cua lop cuoi
         wh = cuda_h2d(dOUT, hOUT, qb, 1)
         rc = cublas_sgemm(ch, 0, 0, T, V, H, one, dOUT, T, dWh, H, zero, dLG, T)
+        # loss fn loaded AFTER all gelu launches (kgelu slot reused)
+        FN = b"loss_kernel_packed\x00"
+        nb2 = alloc_bytes(len(FN))
+        kk = 0
+        while kk < len(FN):
+            wh = write_u8(nb2, kk, FN[kk])
+            kk = kk + 1
+        mc = alloc_bytes(8)
+        rc = cu_module_fn(mc, mod, nb2)
+        if rc != 0:
+            print("FN LOSS FAIL", rc)
+            return 1
+        kgelu = read_i64(mc, 0)
         print("M CE PRE", step)
         # device CE loss: packed params + 1 combined output (lossRow + dL col-major)
         pbuf = alloc_bytes(16 + T * 4)
