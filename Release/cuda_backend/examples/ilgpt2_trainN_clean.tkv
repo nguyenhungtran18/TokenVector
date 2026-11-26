@@ -5,7 +5,14 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i32"], "returns": "i32"},
     {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
      "convention": "cdecl", "params": [], "returns": "i32"},
-    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": [ "i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64" ],
+     "returns": "i32"},    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
      "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
@@ -18,6 +25,50 @@ __tkv_extern_pinvoke__ = [
 ]
 
 
+def sgd_update(w: "i64", g: "i64", n: "i32", lr: "f32") -> "i32":
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry sgd_kernel(.param .u64 pW, .param .u64 pG, .param .f32 plr, .param .u32 pn)\n{\n.reg .f32 w,g,lr;\n.reg .u64 wp,gp,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 wp,[pW];\nld.param.u64 gp,[pG];\nld.param.f32 lr,[plr];\nld.param.u32 n,[pn];\ncvta.to.global.u64 wp,wp;\ncvta.to.global.u64 gp,gp;\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wp,wp,off;\nadd.u64 gp,gp,off;\nld.global.f32 w,[wp];\nld.global.f32 g,[gp];\nsetp.eq.f32 q,g,g;\n@!q mov.f32 g,0.0;\nsetp.eq.f32 q,w,w;\n@!q mov.f32 w,0.0;\nmad.f32 w,w,-lr,g;\nst.global.f32 [wp],w;\nLEND: ret;\n}\n"
+    FNS = b"sgd_kernel\x00"
+    pb = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wh: "i64" = write_u8(pb, kk, PTX[kk])
+        kk = kk + 1
+    wh = write_u8(pb, kk, 0)
+    mc = alloc_bytes(8)
+    rc: "i32" = cu_module_load(mc, pb)
+    if rc != 0:
+        print("SGD MOD FAIL", rc)
+        return 1
+    mod: "i64" = read_i64(mc, 0)
+    nb = alloc_bytes(len(FNS))
+    kk = 0
+    while kk < len(FNS):
+        wh = write_u8(nb, kk, FNS[kk])
+        kk = kk + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("SGD FN FAIL", rc)
+        return 1
+    fnh: "i64" = read_i64(fc, 0)
+    a0 = alloc_bytes(8)
+    wh = write_i64(a0, 0, w)
+    a1 = alloc_bytes(8)
+    wh = write_i64(a1, 0, g)
+    a2 = alloc_bytes(4)
+    wh = write_f32(a2, 0, lr)
+    a3 = alloc_bytes(4)
+    wh = write_i32(a3, 0, n)
+    pl = alloc_bytes(32)
+    wh = write_i64(pl, 0, a0)
+    wh = write_i64(pl, 8, a1)
+    wh = write_i64(pl, 16, a2)
+    wh = write_i64(pl, 24, a3)
+    rc = cu_launch(fnh, 16384, 1, 1, 256, 1, 1, 0, 0, pl, 0)
+    if rc != 0:
+        print("SGD LAUNCH FAIL", rc)
+        return 1
+    return 0
 def run() -> "i32":
     rc: "i32" = cu_init(0)
     if rc != 0:
@@ -305,7 +356,7 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.1)
         wh = write_f32(b2h, ii * 4, 0.02)
         ii = ii + 1
-    lr: "f32" = 0.0000001
+    lr: "f32" = 0.0001
     t0 = time_perf()
     step: "i32" = 1
     while step <= 2:
@@ -709,84 +760,12 @@ def run() -> "i32":
             wh = cuda_h2d(gWoh, god, whb, 2)
             wh = cuda_h2d(gW1h, g1d, w1b, 2)
             wh = cuda_h2d(gW2h, g2d, w2b, 2)
-            wph = read_i64(HWq, ll * 8)
-            ii = 0
-            while ii < H * H:
-                dxv = read_f32(wph, ii * 4) - lr * read_f32(gWqh, ii * 4)
-                if dxv != dxv:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv > 1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv < -1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                wh = write_f32(wph, ii * 4, dxv)
-                ii = ii + 1
-            wh = cuda_h2d(read_i64(AWq, ll * 8), wph, whb, 1)
-            wph = read_i64(HWk, ll * 8)
-            ii = 0
-            while ii < H * H:
-                dxv = read_f32(wph, ii * 4) - lr * read_f32(gWkh, ii * 4)
-                if dxv != dxv:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv > 1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv < -1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                wh = write_f32(wph, ii * 4, dxv)
-                ii = ii + 1
-            wh = cuda_h2d(read_i64(AWk, ll * 8), wph, whb, 1)
-            wph = read_i64(HWv, ll * 8)
-            ii = 0
-            while ii < H * H:
-                dxv = read_f32(wph, ii * 4) - lr * read_f32(gWvh, ii * 4)
-                if dxv != dxv:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv > 1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv < -1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                wh = write_f32(wph, ii * 4, dxv)
-                ii = ii + 1
-            wh = cuda_h2d(read_i64(AWv, ll * 8), wph, whb, 1)
-            wph = read_i64(HWo, ll * 8)
-            ii = 0
-            while ii < H * H:
-                dxv = read_f32(wph, ii * 4) - lr * read_f32(gWoh, ii * 4)
-                if dxv != dxv:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv > 1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv < -1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                wh = write_f32(wph, ii * 4, dxv)
-                ii = ii + 1
-            wh = cuda_h2d(read_i64(AWo, ll * 8), wph, whb, 1)
-            wph = read_i64(HW1, ll * 8)
-            ii = 0
-            while ii < H * F:
-                dxv = read_f32(wph, ii * 4) - lr * read_f32(gW1h, ii * 4)
-                if dxv != dxv:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv > 1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv < -1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                wh = write_f32(wph, ii * 4, dxv)
-                ii = ii + 1
-            wh = cuda_h2d(read_i64(AW1, ll * 8), wph, w1b, 1)
-            wph = read_i64(HW2, ll * 8)
-            ii = 0
-            while ii < F * H:
-                dxv = read_f32(wph, ii * 4) - lr * read_f32(gW2h, ii * 4)
-                if dxv != dxv:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv > 1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                if dxv < -1000000000000000000000000000000.0:
-                    dxv = read_f32(wph, ii * 4)
-                wh = write_f32(wph, ii * 4, dxv)
-                ii = ii + 1
-            wh = cuda_h2d(read_i64(AW2, ll * 8), wph, w2b, 1)
+            rc = sgd_update(read_i64(AWq, ll * 8), gqd, H * H, lr)
+            rc = sgd_update(read_i64(AWk, ll * 8), gkd, H * H, lr)
+            rc = sgd_update(read_i64(AWv, ll * 8), gvd, H * H, lr)
+            rc = sgd_update(read_i64(AWo, ll * 8), god, H * H, lr)
+            rc = sgd_update(read_i64(AW1, ll * 8), g1d, H * F, lr)
+            rc = sgd_update(read_i64(AW2, ll * 8), g2d, F * H, lr)
 
             ll = ll + 1
         print("MARK UPD", step)
