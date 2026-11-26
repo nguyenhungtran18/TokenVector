@@ -134,7 +134,7 @@ def run() -> "i32":
     while ii < T:
         jj = 0
         while jj < H:
-            wh = write_f32(hX, (ii + jj * T) * 4, 0.15 + 0.001 * ((ii % 7) + (jj % 5)))
+            wh = write_f32(hX, (ii + jj * T) * 4, 0.05 * ((ii % 7) + (jj % 5)))
             jj = jj + 1
         wh = write_i32(hIds, ii * 4, (ii + 1) % V)
         ii = ii + 1
@@ -285,21 +285,21 @@ def run() -> "i32":
         while ii < H:
             jj = 0
             while jj < H:
-                wh = write_f32(hwq, (ii + jj * H) * 4, 0.030 + 0.0015 * ((ii % 8) + (jj % 8)))
-                wh = write_f32(hwk, (ii + jj * H) * 4, 0.023 + 0.0015 * ((ii % 8) + (jj % 8)))
-                wh = write_f32(hwv, (ii + jj * H) * 4, 0.015 + 0.0015 * ((ii % 8) + (jj % 8)))
-                wh = write_f32(hwo, (ii + jj * H) * 4, 0.045 + 0.0015 * ((ii % 8) + (jj % 8)))
+                wh = write_f32(hwq, (ii + jj * H) * 4, 0.0062 * ((ii % 8) + (jj % 8) - 7))
+                wh = write_f32(hwk, (ii + jj * H) * 4, 0.0062 * ((ii % 8) + (jj % 8) - 7))
+                wh = write_f32(hwv, (ii + jj * H) * 4, 0.0062 * ((ii % 8) + (jj % 8) - 7))
+                wh = write_f32(hwo, (ii + jj * H) * 4, 0.0062 * ((ii % 8) + (jj % 8) - 7))
                 jj = jj + 1
             jj = 0
             while jj < F:
-                wh = write_f32(hw1, (ii + jj * H) * 4, 0.030 + 0.0008 * ((ii % 8) + (jj % 8)))
+                wh = write_f32(hw1, (ii + jj * H) * 4, 0.0062 * ((ii % 8) + (jj % 8) - 7))
                 jj = jj + 1
             ii = ii + 1
         ii = 0
         while ii < F:
             jj = 0
             while jj < H:
-                wh = write_f32(hw2, (ii + jj * F) * 4, 0.030 + 0.0008 * ((ii % 8) + (jj % 8)))
+                wh = write_f32(hw2, (ii + jj * F) * 4, 0.0062 * ((ii % 8) + (jj % 8) - 7))
                 jj = jj + 1
             ii = ii + 1
         wh = cuda_h2d(wqd, hwq, whb, 1)
@@ -315,7 +315,7 @@ def run() -> "i32":
     while ii < H:
         jj = 0
         while jj < V:
-            wh = write_f32(hWh, (ii + jj * H) * 4, 0.030 + 0.0005 * ((ii % 8) + (jj % 8)))
+            wh = write_f32(hWh, (ii + jj * H) * 4, 0.002 * ((ii % 8) + (jj % 8) - 7))
             jj = jj + 1
         ii = ii + 1
     rc = cuda_malloc(cell, wh2)
@@ -323,12 +323,12 @@ def run() -> "i32":
     wh = cuda_h2d(dWh, hWh, wh2, 1)
     ii = 0
     while ii < H:
-        wh = write_f32(g1h, ii * 4, 1.05)
-        wh = write_f32(b1h, ii * 4, 0.01)
-        wh = write_f32(g2h, ii * 4, 1.1)
-        wh = write_f32(b2h, ii * 4, 0.02)
+        wh = write_f32(g1h, ii * 4, 1.0)
+        wh = write_f32(b1h, ii * 4, 0.0)
+        wh = write_f32(g2h, ii * 4, 1.0)
+        wh = write_f32(b2h, ii * 4, 0.0)
         ii = ii + 1
-    lr: "f32" = 0.02
+    lr: "f32" = 0.01
     sfn: "i64" = sgd_init()
     if sfn == 0:
         print("SGD INIT FAIL")
