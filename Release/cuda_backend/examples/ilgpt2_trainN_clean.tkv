@@ -261,6 +261,7 @@ def run() -> "i32":
     hDS = alloc_bytes(sb)
     hGY2 = alloc_bytes(fb)
     hGDX2 = alloc_bytes(qb)
+    hgW = alloc_bytes(whb)
     # khoi tao moi lop
     ll: "i32" = 0
     while ll < NL:
@@ -587,6 +588,8 @@ def run() -> "i32":
         wh = cuda_h2d(dDL, hDL, tvb, 1)
         print("MARK FWD", step)
         rc = cublas_sgemm(ch, 0, 1, T, H, V, one, dDL, T, dWh, H, zero, gOUT, T)
+        wh = cuda_h2d(hGDX2, gOUT, qb, 2)
+        rc = scan(4, hGDX2, T * H)
         # ---- backward layers (nguoc) ----
         ll = NL - 1
         while ll >= 0:
@@ -685,6 +688,8 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(gDX2, hGDX2, qb, 1)
+            if ll == 23:
+                rc = scan(50, hGDX2, T * H)
             print("B3 ln2", ll)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gDX2, T, wod, H, zero, gA, T)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dA, T, gDX2, T, zero, gWo, H)
@@ -693,6 +698,8 @@ def run() -> "i32":
             print("B4 attn", ll)
             wh = cuda_h2d(hP, pd, sb, 2)
             wh = cuda_h2d(hGP, gP, sb, 2)
+            if ll == 23:
+                rc = scan(51, hGP, T * T)
             ii = 0
             while ii < T:
                 rst: "f32" = 0.0
@@ -712,6 +719,11 @@ def run() -> "i32":
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gQ, T, zero, gqd, H)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gK, T, zero, gkd, H)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gV, T, zero, gvd, H)
+            if ll == 23:
+                wh = cuda_h2d(hGDX2, gQ, qb, 2)
+                rc = scan(52, hGDX2, T * H)
+                wh = cuda_h2d(hgW, gqd, whb, 2)
+                rc = scan(53, hgW, H * H)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gQ, T, wqd, H, zero, gDX2, T)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gK, T, wkd, H, one, gDX2, T)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gV, T, wvd, H, one, gDX2, T)
@@ -743,11 +755,17 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(gOUT, hGDX2, qb, 1)
+            if ll == 23:
+                rc = scan(40, hGDX2, T * H)
+            if ll == 12:
+                rc = scan(41, hGDX2, T * H)
+            if ll == 0:
+                rc = scan(42, hGDX2, T * H)
             print("MARK B", ll)
             ll = ll - 1
         print("MARK BWD", step)
-        wh = cuda_h2d(hGDX2, read_i64(AGq, 0), qb, 2)
-        rc = scan(3, hGDX2, H * H)
+        wh = cuda_h2d(hgW, read_i64(AGq, 0), whb, 2)
+        rc = scan(3, hgW, H * H)
         ll = 0
         while ll < NL:
             gqd = read_i64(AGq, ll * 8)
