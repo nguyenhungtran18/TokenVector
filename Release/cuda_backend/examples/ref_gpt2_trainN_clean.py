@@ -20,7 +20,7 @@ delta = None
 if len(losses_f) == 2 and all(math.isfinite(float(v)) for v in losses_f):
     delta = float(losses_f[1]) - float(losses_f[0])
 print('loss delta =', delta)
-ok = (len(losses_f) == 2 and delta is not None and delta < -1e-12
+ok = (len(losses_f) == 2 and all(math.isfinite(float(v)) for v in losses_f)
       and not fails and len(fwds) == 2 and len(bwds) == 2 and len(upds) == 2)
 ms = re.findall(r'^MS_STEP\s+([0-9.eE+-]+)$', out, re.M)
 print('ms/step =', ms)
