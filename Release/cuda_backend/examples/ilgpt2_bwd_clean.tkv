@@ -229,7 +229,7 @@ def run() -> "i32":
     # 2) dZ = dHH * dgelu(Z)
     hDHH = alloc_bytes(fb)
     hDZ = alloc_bytes(fb)
-    q0: "i64" = cuda_h2d(hDHH, dHH, fb, 2)
+    q0: "i64" = cuda_h2d(hDHH, dHHg, fb, 2)
     kk: "i32" = 0
     while kk < T * F:
         xv: "f32" = read_f32(hZ, kk * 4)

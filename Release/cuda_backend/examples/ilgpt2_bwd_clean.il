@@ -2806,7 +2806,7 @@
     conv.i8
     stloc.s 127
     ldloc.s 126
-    ldloc.s 71
+    ldloc.s 72
     ldloc.s 10
     conv.i8
     ldc.i4 2
