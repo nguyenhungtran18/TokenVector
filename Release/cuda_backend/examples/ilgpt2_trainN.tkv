@@ -536,6 +536,13 @@ def run() -> "i32":
             rc = cublas_sgemm(ch, 1, 0, F, H, T, one, dHH, T, gOUT, T, zero, g2d, F)
             rc = cublas_sgemm(ch, 0, 1, T, F, H, one, gOUT, T, w2d, F, zero, gHH, T)
             print("B1 dW2", ll)
+            if ll == 23:
+                wh = cuda_h2d(hP, gHH, 8, 2)
+                lf = read_f32(hP, 0)
+                print("M GHH0", lf)
+                wh = cuda_h2d(hP, gOUT, 8, 2)
+                lf = read_f32(hP, 0)
+                print("M GOUT0", lf)
             wh = cuda_h2d(hZ, zd, fb, 2)
             ii = 0
             while ii < T * F:
@@ -553,6 +560,13 @@ def run() -> "i32":
             wh = cuda_h2d(dHH, hZ, fb, 1)
             # dZ tu Z goc
             print("B1 dW2", ll)
+            if ll == 23:
+                wh = cuda_h2d(hP, gHH, 8, 2)
+                lf = read_f32(hP, 0)
+                print("M GHH0", lf)
+                wh = cuda_h2d(hP, gOUT, 8, 2)
+                lf = read_f32(hP, 0)
+                print("M GOUT0", lf)
             wh = cuda_h2d(hZ, zd, fb, 2)
             wh = cuda_h2d(hGY2, gHH, fb, 2)
             ii = 0
