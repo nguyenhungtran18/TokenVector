@@ -3,6 +3,8 @@
 __tkv_extern_pinvoke__ = [
     {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
      "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
+     "convention": "cdecl", "params": [], "returns": "i32"},
     {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
@@ -304,6 +306,7 @@ def run() -> "i32":
         wh = write_f32(b2h, ii * 4, 0.02)
         ii = ii + 1
     lr: "f32" = 0.0000001
+    t0 = time_perf()
     step: "i32" = 1
     while step <= 2:
         # ---- forward layers ----
@@ -672,12 +675,12 @@ def run() -> "i32":
             god = read_i64(AGo, ll * 8)
             g1d = read_i64(AG1, ll * 8)
             g2d = read_i64(AG2, ll * 8)
-            wqh = read_i64(HWq, ll * 8)
-            wkh = read_i64(HWk, ll * 8)
-            wvh = read_i64(HWv, ll * 8)
-            woh = read_i64(HWo, ll * 8)
-            w1h = read_i64(HW1, ll * 8)
-            w2h = read_i64(HW2, ll * 8)
+            wph = read_i64(HWq, ll * 8)
+            wph = read_i64(HWk, ll * 8)
+            wph = read_i64(HWv, ll * 8)
+            wph = read_i64(HWo, ll * 8)
+            wph = read_i64(HW1, ll * 8)
+            wph = read_i64(HW2, ll * 8)
             wh = cuda_h2d(gWqh, gqd, whb, 2)
             wh = cuda_h2d(gWkh, gkd, whb, 2)
             wh = cuda_h2d(gWvh, gvd, whb, 2)
@@ -686,33 +689,38 @@ def run() -> "i32":
             wh = cuda_h2d(gW2h, g2d, w2b, 2)
             ii = 0
             while ii < H * H:
-                dxv = read_f32(wqh, ii * 4) - lr * read_f32(gWqh, ii * 4)
-                wh = write_f32(wqh, ii * 4, dxv)
-                dxv = read_f32(wkh, ii * 4) - lr * read_f32(gWkh, ii * 4)
-                wh = write_f32(wkh, ii * 4, dxv)
-                dxv = read_f32(wvh, ii * 4) - lr * read_f32(gWvh, ii * 4)
-                wh = write_f32(wvh, ii * 4, dxv)
-                dxv = read_f32(woh, ii * 4) - lr * read_f32(gWoh, ii * 4)
-                wh = write_f32(woh, ii * 4, dxv)
+                dxv = read_f32(wph, ii * 4) - lr * read_f32(gWqh, ii * 4)
+                wh = write_f32(wph, ii * 4, dxv)
+                dxv = read_f32(wph, ii * 4) - lr * read_f32(gWkh, ii * 4)
+                wh = write_f32(wph, ii * 4, dxv)
+                dxv = read_f32(wph, ii * 4) - lr * read_f32(gWvh, ii * 4)
+                wh = write_f32(wph, ii * 4, dxv)
+                dxv = read_f32(wph, ii * 4) - lr * read_f32(gWoh, ii * 4)
+                wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
             ii = 0
             while ii < H * F:
-                dxv = read_f32(w1h, ii * 4) - lr * read_f32(gW1h, ii * 4)
-                wh = write_f32(w1h, ii * 4, dxv)
+                dxv = read_f32(wph, ii * 4) - lr * read_f32(gW1h, ii * 4)
+                wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
             ii = 0
             while ii < F * H:
-                dxv = read_f32(w2h, ii * 4) - lr * read_f32(gW2h, ii * 4)
-                wh = write_f32(w2h, ii * 4, dxv)
+                dxv = read_f32(wph, ii * 4) - lr * read_f32(gW2h, ii * 4)
+                wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
-            wh = cuda_h2d(read_i64(AWq, ll * 8), wqh, whb, 1)
-            wh = cuda_h2d(read_i64(AWk, ll * 8), wkh, whb, 1)
-            wh = cuda_h2d(read_i64(AWv, ll * 8), wvh, whb, 1)
-            wh = cuda_h2d(read_i64(AWo, ll * 8), woh, whb, 1)
-            wh = cuda_h2d(read_i64(AW1, ll * 8), w1h, w1b, 1)
-            wh = cuda_h2d(read_i64(AW2, ll * 8), w2h, w2b, 1)
+            wh = cuda_h2d(read_i64(AWq, ll * 8), wph, whb, 1)
+            wh = cuda_h2d(read_i64(AWk, ll * 8), wph, whb, 1)
+            wh = cuda_h2d(read_i64(AWv, ll * 8), wph, whb, 1)
+            wh = cuda_h2d(read_i64(AWo, ll * 8), wph, whb, 1)
+            wh = cuda_h2d(read_i64(AW1, ll * 8), wph, w1b, 1)
+            wh = cuda_h2d(read_i64(AW2, ll * 8), wph, w2b, 1)
             ll = ll + 1
         print("MARK UPD", step)
         step = step + 1
+    syn: "i32" = cuda_sync()
+    t1 = time_perf()
+    dtm: "f64" = t1 - t0
+    print("MS_TOTAL", dtm * 1000.0)
+    print("MS_STEP", (dtm * 1000.0) / 2.0)
     print("BATCH DONE")
     return 0
