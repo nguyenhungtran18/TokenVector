@@ -260,21 +260,21 @@ def run() -> "i32":
         while ii < H:
             jj = 0
             while jj < H:
-                wh = write_f32(hwq, (ii + jj * H) * 4, 0.20 + 0.01 * (ii + jj))
-                wh = write_f32(hwk, (ii + jj * H) * 4, 0.15 + 0.01 * (ii + jj))
-                wh = write_f32(hwv, (ii + jj * H) * 4, 0.10 + 0.01 * (ii + jj))
-                wh = write_f32(hwo, (ii + jj * H) * 4, 0.30 + 0.01 * (ii + jj))
+                wh = write_f32(hwq, (ii + jj * H) * 4, 0.20 + 0.01 * (ii + (jj % 8)))
+                wh = write_f32(hwk, (ii + jj * H) * 4, 0.15 + 0.01 * (ii + (jj % 8)))
+                wh = write_f32(hwv, (ii + jj * H) * 4, 0.10 + 0.01 * (ii + (jj % 8)))
+                wh = write_f32(hwo, (ii + jj * H) * 4, 0.30 + 0.01 * (ii + (jj % 8)))
                 jj = jj + 1
             jj = 0
             while jj < F:
-                wh = write_f32(hw1, (ii + jj * H) * 4, 0.2 + 0.005 * (ii + jj))
+                wh = write_f32(hw1, (ii + jj * H) * 4, 0.2 + 0.005 * (ii + (jj % 8)))
                 jj = jj + 1
             ii = ii + 1
         ii = 0
         while ii < F:
             jj = 0
             while jj < H:
-                wh = write_f32(hw2, (ii + jj * F) * 4, 0.2 + 0.005 * (ii + jj))
+                wh = write_f32(hw2, (ii + jj * F) * 4, 0.2 + 0.005 * (ii + (jj % 8)))
                 jj = jj + 1
             ii = ii + 1
         wh = cuda_h2d(wqd, hwq, whb, 1)
