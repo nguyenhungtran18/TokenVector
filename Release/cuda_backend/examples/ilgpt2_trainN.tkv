@@ -177,7 +177,7 @@ def run() -> "i32":
     hDL = alloc_bytes(tvb)
     hGP = alloc_bytes(sb)
     hDS = alloc_bytes(sb)
-    hGY2 = alloc_bytes(qb)
+    hGY2 = alloc_bytes(fb)
     hGDX2 = alloc_bytes(qb)
     hy1 = alloc_bytes(qb)
     gWh = alloc_bytes(wh2)
