@@ -704,6 +704,13 @@ def run() -> "i32":
             wh = cuda_h2d(gW2h, g2d, w2b, 2)
             if ll == 0:
                 lf = read_f32(gWqh, 0)
+                lf = read_f32(gWoh, 0)
+                print("M GO", lf)
+                lf = read_f32(gW1h, 0)
+                print("M G1", lf)
+                lf = read_f32(gW2h, 0)
+                print("M G2", lf)
+
                 print("M GQ", lf)
                 lf = read_f32(hwq, 0)
                 print("M WB", lf)
