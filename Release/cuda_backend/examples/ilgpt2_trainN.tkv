@@ -5,6 +5,14 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i32"], "returns": "i32"},
     {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
      "convention": "cdecl", "params": [], "returns": "i32"},
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
+     "returns": "i32"},
     {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
@@ -42,6 +50,30 @@ def run() -> "i32":
     w2b: "i32" = hb * F
     wh2: "i32" = V * hb
     msz: "i32" = NL * 8
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gelu_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,f2,f3,f4,f5;\n.reg .u64 x,y,off;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 x,[px];\nld.param.u64 y,[py];\nld.param.u32 n,[pn];\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 x,x;\ncvta.to.global.u64 y,y;\nadd.u64 x,x,off;\nadd.u64 y,y,off;\nld.global.f32 f1,[x];\nmul.f32 f3,f1,f1;\nmul.f32 f3,f3,f1;\nmov.f32 f4,0.044715;\nfma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456;\nmul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0;\nadd.f32 f2,f2,f3;\nmov.f32 f3,0.5;\nmul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2;\nst.global.f32 [y],f5;\nLEND: ret;\n}\n"
+    pbuf = alloc_bytes(len(PTX) + 1)
+    kk = 0
+    while kk < len(PTX):
+        wh = write_u8(pbuf, kk, PTX[kk])
+        kk = kk + 1
+    wh = write_u8(pbuf, kk, 0)
+    mc = alloc_bytes(8)
+    rc = cu_module_load(mc, pbuf)
+    if rc != 0:
+        print("MODULE FAIL", rc)
+        return 1
+    mod: "i64" = read_i64(mc, 0)
+    FNG = b"gelu_kernel\x00"
+    kk = 0
+    while kk < len(FNG):
+        wh = write_u8(pbuf, kk, FNG[kk])
+        kk = kk + 1
+    mc = alloc_bytes(8)
+    rc = cu_module_fn(mc, mod, pbuf)
+    if rc != 0:
+        print("FN GELU FAIL", rc)
+        return 1
+    k_gelu: "i64" = read_i64(mc, 0)
     cell = alloc_bytes(8)
     # arrays cua device-pointer / host-pointer theo lop
     AWq = alloc_bytes(msz)
@@ -443,20 +475,14 @@ def run() -> "i32":
             rc = cublas_sgemm(ch, 0, 0, T, F, H, one, dY2, T, w1d, H, zero, dZ, T)
             wh = cuda_h2d(hZ, dZ, fb, 2)
             wh = cuda_h2d(zd, dZ, fb, 1)
-            ii = 0
-            while ii < T * F:
-                xv = read_f32(hZ, ii * 4)
-                zz: "f32" = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
-                thv: "f32" = 1.0
-                if zz < -8.0:
-                    thv = -1.0
-                else:
-                    if zz < 8.0:
-                        e2: "f32" = exp(2.0 * zz)
-                        thv = (e2 - 1.0) / (e2 + 1.0)
-                wh = write_f32(hZ, ii * 4, 0.5 * xv * (1.0 + thv))
-                ii = ii + 1
-            wh = cuda_h2d(dHH, hZ, fb, 1)
+            pbuf = alloc_bytes(24)
+            wh = write_i64(pbuf, 0, dZ)
+            wh = write_i64(pbuf, 8, dHH)
+            wh = write_i32(pbuf, 16, T * F)
+            rc = cu_launch(k_gelu, 8192, 1, 1, 256, 1, 1, 0, 0, pbuf, 0)
+            if rc != 0:
+                print("GELU FAIL", ll, rc)
+                return 1
             rc = cublas_sgemm(ch, 0, 0, T, H, F, one, dHH, T, w2d, F, zero, dO2, T)
             wh = cuda_h2d(hO2, dO2, qb, 2)
             ii = 0
@@ -473,6 +499,7 @@ def run() -> "i32":
         rc = cublas_sgemm(ch, 0, 0, T, V, H, one, dOUT, T, dWh, H, zero, dLG, T)
         wh = cuda_h2d(hLG, dLG, tvb, 2)
         lossv: "f32" = 0.0
+        dxv = 0.0
         ii = 0
         while ii < T:
             mx = -1000000000.0
@@ -575,22 +602,22 @@ def run() -> "i32":
             while ii < T:
                 mn = read_f32(hST, ii * 8)
                 rv = read_f32(hST, ii * 8 + 4)
-                acc1: "f32" = 0.0
-                acc2: "f32" = 0.0
+                dxv = 0.0
+                dxv = 0.0
                 jj = 0
                 while jj < H:
-                    dvv: "f32" = read_f32(hGY2, (ii + jj * T) * 4)
-                    gvv: "f32" = read_f32(g2h, jj * 4)
+                    dxv = read_f32(hGY2, (ii + jj * T) * 4)
+                    dxv = read_f32(g2h, jj * 4)
                     xhv = read_f32(hXH, (ii + jj * T) * 4)
-                    acc1 = acc1 + dvv * gvv
-                    acc2 = acc2 + dvv * gvv * xhv
+                    dxv = dxv + dxv * dxv
+                    dxv = dxv + dxv * dxv * xhv
                     jj = jj + 1
                 jj = 0
                 while jj < H:
-                    dvv = read_f32(hGY2, (ii + jj * T) * 4)
-                    gvv = read_f32(g2h, jj * 4)
+                    dxv = read_f32(hGY2, (ii + jj * T) * 4)
+                    dxv = read_f32(g2h, jj * 4)
                     xhv = read_f32(hXH, (ii + jj * T) * 4)
-                    dxv: "f32" = (dvv * gvv - acc1 / H - xhv * acc2 / H) * rv
+                    dxv = (dxv * dxv - dxv / H - xhv * dxv / H) * rv
                     wh = write_f32(hGDX2, (ii + jj * T) * 4, dxv + read_f32(hOUT, (ii + jj * T) * 4))
                     jj = jj + 1
                 ii = ii + 1
@@ -605,14 +632,14 @@ def run() -> "i32":
             wh = cuda_h2d(hGP, gP, sb, 2)
             ii = 0
             while ii < T:
-                rst: "f32" = 0.0
+                dxv = 0.0
                 jj = 0
                 while jj < T:
-                    rst = rst + read_f32(hP, (ii + jj * T) * 4) * read_f32(hGP, (ii + jj * T) * 4)
+                    dxv = dxv + read_f32(hP, (ii + jj * T) * 4) * read_f32(hGP, (ii + jj * T) * 4)
                     jj = jj + 1
                 jj = 0
                 while jj < T:
-                    wh = write_f32(hDS, (ii + jj * T) * 4, read_f32(hP, (ii + jj * T) * 4) * (read_f32(hGP, (ii + jj * T) * 4) - rst))
+                    wh = write_f32(hDS, (ii + jj * T) * 4, read_f32(hP, (ii + jj * T) * 4) * (read_f32(hGP, (ii + jj * T) * 4) - dxv))
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(gS, hDS, sb, 1)
@@ -645,22 +672,22 @@ def run() -> "i32":
             while ii < T:
                 mn = read_f32(hST, ii * 8)
                 rv = read_f32(hST, ii * 8 + 4)
-                acc1 = 0.0
-                acc2 = 0.0
+                dxv = 0.0
+                dxv = 0.0
                 jj = 0
                 while jj < H:
-                    dvv = read_f32(hGY2, (ii + jj * T) * 4)
-                    gvv = read_f32(g1h, jj * 4)
+                    dxv = read_f32(hGY2, (ii + jj * T) * 4)
+                    dxv = read_f32(g1h, jj * 4)
                     xhv = read_f32(hXH, (ii + jj * T) * 4)
-                    acc1 = acc1 + dvv * gvv
-                    acc2 = acc2 + dvv * gvv * xhv
+                    dxv = dxv + dxv * dxv
+                    dxv = dxv + dxv * dxv * xhv
                     jj = jj + 1
                 jj = 0
                 while jj < H:
-                    dvv = read_f32(hGY2, (ii + jj * T) * 4)
-                    gvv = read_f32(g1h, jj * 4)
+                    dxv = read_f32(hGY2, (ii + jj * T) * 4)
+                    dxv = read_f32(g1h, jj * 4)
                     xhv = read_f32(hXH, (ii + jj * T) * 4)
-                    wh = write_f32(hGDX2, (ii + jj * T) * 4, (dvv * gvv - acc1 / H - xhv * acc2 / H) * rv)
+                    wh = write_f32(hGDX2, (ii + jj * T) * 4, (dxv * dxv - dxv / H - xhv * dxv / H) * rv)
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(gOUT, hGDX2, qb, 1)
