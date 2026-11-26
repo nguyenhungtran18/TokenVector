@@ -25,7 +25,7 @@ __tkv_extern_pinvoke__ = [
 ]
 
 
-def sgd_update(w: "i64", g: "i64", n: "i32", lr: "f32") -> "i32":
+def sgd_init() -> "i64":
     PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry sgd_kernel(.param .u64 pW, .param .u64 pG, .param .f32 plr, .param .u32 pn)\n{\n.reg .f32 w,g,lr,tn,t1,t2;\n.reg .u64 wp,gp,off;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 wp,[pW];\nld.param.u64 gp,[pG];\nld.param.f32 lr,[plr];\nld.param.u32 n,[pn];\ncvta.to.global.u64 wp,wp;\ncvta.to.global.u64 gp,gp;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wp,wp,off;\nadd.u64 gp,gp,off;\nld.global.f32 w,[wp];\nld.global.f32 g,[gp];\nmax.f32 t1,g,0f00000000;\nmin.f32 t2,g,0f00000000;\nadd.f32 g,t1,t2;\nmax.f32 t1,w,0f00000000;\nmin.f32 t2,w,0f00000000;\nadd.f32 w,t1,t2;\nmul.f32 tn,lr,g;\nsub.f32 w,w,tn;\nst.global.f32 [wp],w;\nLEND: ret;\n}\n"
     FNS = b"sgd_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
@@ -38,7 +38,7 @@ def sgd_update(w: "i64", g: "i64", n: "i32", lr: "f32") -> "i32":
     rc: "i32" = cu_module_load(mc, pb)
     if rc != 0:
         print("SGD MOD FAIL", rc)
-        return 1
+        return 0
     mod: "i64" = read_i64(mc, 0)
     nb = alloc_bytes(len(FNS))
     kk = 0
@@ -49,8 +49,11 @@ def sgd_update(w: "i64", g: "i64", n: "i32", lr: "f32") -> "i32":
     rc = cu_module_fn(fc, mod, nb)
     if rc != 0:
         print("SGD FN FAIL", rc)
-        return 1
+        return 0
     fnh: "i64" = read_i64(fc, 0)
+    return fnh
+
+def sgd_update(fnh: "i64", w: "i64", g: "i64", n: "i32", lr: "f32") -> "i32":
     a0 = alloc_bytes(8)
     wh = write_i64(a0, 0, w)
     a1 = alloc_bytes(8)
@@ -116,18 +119,6 @@ def run() -> "i32":
     AP = alloc_bytes(msz)
     AZ = alloc_bytes(msz)
     AO = alloc_bytes(msz)
-    HWq = alloc_bytes(msz)
-    HWk = alloc_bytes(msz)
-    HWv = alloc_bytes(msz)
-    HWo = alloc_bytes(msz)
-    HW1 = alloc_bytes(msz)
-    HW2 = alloc_bytes(msz)
-    HGq = alloc_bytes(msz)
-    HGk = alloc_bytes(msz)
-    HGv = alloc_bytes(msz)
-    HGo = alloc_bytes(msz)
-    HG1 = alloc_bytes(msz)
-    HG2 = alloc_bytes(msz)
     # scalar
     one = alloc_bytes(4)
     wh: "i64" = write_f32(one, 0, 1.0)
@@ -143,7 +134,7 @@ def run() -> "i32":
     while ii < T:
         jj = 0
         while jj < H:
-            wh = write_f32(hX, (ii + jj * T) * 4, 0.15)
+            wh = write_f32(hX, (ii + jj * T) * 4, 0.15 + 0.001 * ((ii % 7) + (jj % 5)))
             jj = jj + 1
         wh = write_i32(hIds, ii * 4, (ii + 1) % V)
         ii = ii + 1
@@ -233,13 +224,6 @@ def run() -> "i32":
     hGY2 = alloc_bytes(fb)
     hGDX2 = alloc_bytes(qb)
     hy1 = alloc_bytes(qb)
-    gWh = alloc_bytes(wh2)
-    gW1h = alloc_bytes(w1b)
-    gW2h = alloc_bytes(w2b)
-    gWqh = alloc_bytes(whb)
-    gWkh = alloc_bytes(whb)
-    gWvh = alloc_bytes(whb)
-    gWoh = alloc_bytes(whb)
     # khoi tao moi lop
     ll: "i32" = 0
     while ll < NL:
@@ -297,37 +281,25 @@ def run() -> "i32":
         hwo: "i64" = alloc_bytes(whb)
         hw1: "i64" = alloc_bytes(w1b)
         hw2: "i64" = alloc_bytes(w2b)
-        wh = write_i64(HWq, ll * 8, hwq)
-        wh = write_i64(HWk, ll * 8, hwk)
-        wh = write_i64(HWv, ll * 8, hwv)
-        wh = write_i64(HWo, ll * 8, hwo)
-        wh = write_i64(HW1, ll * 8, hw1)
-        wh = write_i64(HW2, ll * 8, hw2)
-        wh = write_i64(HGq, ll * 8, gWqh)
-        wh = write_i64(HGk, ll * 8, gWkh)
-        wh = write_i64(HGv, ll * 8, gWvh)
-        wh = write_i64(HGo, ll * 8, gWoh)
-        wh = write_i64(HG1, ll * 8, gW1h)
-        wh = write_i64(HG2, ll * 8, gW2h)
         ii = 0
         while ii < H:
             jj = 0
             while jj < H:
-                wh = write_f32(hwq, (ii + jj * H) * 4, 0.20 + 0.01 * ((ii % 8) + (jj % 8)))
-                wh = write_f32(hwk, (ii + jj * H) * 4, 0.15 + 0.01 * ((ii % 8) + (jj % 8)))
-                wh = write_f32(hwv, (ii + jj * H) * 4, 0.10 + 0.01 * ((ii % 8) + (jj % 8)))
-                wh = write_f32(hwo, (ii + jj * H) * 4, 0.30 + 0.01 * ((ii % 8) + (jj % 8)))
+                wh = write_f32(hwq, (ii + jj * H) * 4, 0.030 + 0.0015 * ((ii % 8) + (jj % 8)))
+                wh = write_f32(hwk, (ii + jj * H) * 4, 0.023 + 0.0015 * ((ii % 8) + (jj % 8)))
+                wh = write_f32(hwv, (ii + jj * H) * 4, 0.015 + 0.0015 * ((ii % 8) + (jj % 8)))
+                wh = write_f32(hwo, (ii + jj * H) * 4, 0.045 + 0.0015 * ((ii % 8) + (jj % 8)))
                 jj = jj + 1
             jj = 0
             while jj < F:
-                wh = write_f32(hw1, (ii + jj * H) * 4, 0.2 + 0.005 * ((ii % 8) + (jj % 8)))
+                wh = write_f32(hw1, (ii + jj * H) * 4, 0.030 + 0.0008 * ((ii % 8) + (jj % 8)))
                 jj = jj + 1
             ii = ii + 1
         ii = 0
         while ii < F:
             jj = 0
             while jj < H:
-                wh = write_f32(hw2, (ii + jj * F) * 4, 0.2 + 0.005 * ((ii % 8) + (jj % 8)))
+                wh = write_f32(hw2, (ii + jj * F) * 4, 0.030 + 0.0008 * ((ii % 8) + (jj % 8)))
                 jj = jj + 1
             ii = ii + 1
         wh = cuda_h2d(wqd, hwq, whb, 1)
@@ -343,7 +315,7 @@ def run() -> "i32":
     while ii < H:
         jj = 0
         while jj < V:
-            wh = write_f32(hWh, (ii + jj * H) * 4, 0.20)
+            wh = write_f32(hWh, (ii + jj * H) * 4, 0.030 + 0.0005 * ((ii % 8) + (jj % 8)))
             jj = jj + 1
         ii = ii + 1
     rc = cuda_malloc(cell, wh2)
@@ -356,7 +328,10 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.1)
         wh = write_f32(b2h, ii * 4, 0.02)
         ii = ii + 1
-    lr: "f32" = 0.0001
+    lr: "f32" = 0.02
+    sfn: "i64" = sgd_init()
+    if sfn == 0:
+        print("SGD INIT FAIL")
     t0 = time_perf()
     step: "i32" = 1
     while step <= 2:
@@ -584,7 +559,7 @@ def run() -> "i32":
             zd = read_i64(AZ, ll * 8)
             od = read_i64(AO, ll * 8)
             # reload THIS layer's forward activations (no stale shared buffers)
-            wh = cuda_h2d(od, hOUT, qb, 2)
+            wh = cuda_h2d(gOUT, hOUT, qb, 2)
             wh = cuda_h2d(hZ, zd, fb, 2)
             ii = 0
             while ii < T * F:
@@ -739,7 +714,7 @@ def run() -> "i32":
                     dvv = read_f32(hGY2, (ii + jj * T) * 4)
                     gvv = read_f32(g1h, jj * 4)
                     xhv = read_f32(hXH, (ii + jj * T) * 4)
-                    wh = write_f32(hGDX2, (ii + jj * T) * 4, (dvv * gvv - acc1 / H - xhv * acc2 / H) * rv)
+                    wh = write_f32(hGDX2, (ii + jj * T) * 4, (dvv * gvv - acc1 / H - xhv * acc2 / H) * rv + read_f32(hOUT, (ii + jj * T) * 4))
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(gOUT, hGDX2, qb, 1)
@@ -754,18 +729,12 @@ def run() -> "i32":
             god = read_i64(AGo, ll * 8)
             g1d = read_i64(AG1, ll * 8)
             g2d = read_i64(AG2, ll * 8)
-            wh = cuda_h2d(gWqh, gqd, whb, 2)
-            wh = cuda_h2d(gWkh, gkd, whb, 2)
-            wh = cuda_h2d(gWvh, gvd, whb, 2)
-            wh = cuda_h2d(gWoh, god, whb, 2)
-            wh = cuda_h2d(gW1h, g1d, w1b, 2)
-            wh = cuda_h2d(gW2h, g2d, w2b, 2)
-            rc = sgd_update(read_i64(AWq, ll * 8), gqd, H * H, lr)
-            rc = sgd_update(read_i64(AWk, ll * 8), gkd, H * H, lr)
-            rc = sgd_update(read_i64(AWv, ll * 8), gvd, H * H, lr)
-            rc = sgd_update(read_i64(AWo, ll * 8), god, H * H, lr)
-            rc = sgd_update(read_i64(AW1, ll * 8), g1d, H * F, lr)
-            rc = sgd_update(read_i64(AW2, ll * 8), g2d, F * H, lr)
+            rc = sgd_update(sfn, read_i64(AWq, ll * 8), gqd, H * H, lr)
+            rc = sgd_update(sfn, read_i64(AWk, ll * 8), gkd, H * H, lr)
+            rc = sgd_update(sfn, read_i64(AWv, ll * 8), gvd, H * H, lr)
+            rc = sgd_update(sfn, read_i64(AWo, ll * 8), god, H * H, lr)
+            rc = sgd_update(sfn, read_i64(AW1, ll * 8), g1d, H * F, lr)
+            rc = sgd_update(sfn, read_i64(AW2, ll * 8), g2d, F * H, lr)
 
             ll = ll + 1
         print("MARK UPD", step)
