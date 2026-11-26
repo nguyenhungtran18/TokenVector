@@ -530,6 +530,7 @@ def run() -> "i32":
             wh = cuda_h2d(od, hOUT, qb, 2)
             rc = cublas_sgemm(ch, 1, 0, F, H, T, one, dHH, T, gOUT, T, zero, g2d, F)
             rc = cublas_sgemm(ch, 0, 1, T, F, H, one, gOUT, T, w2d, F, zero, gHH, T)
+            print("B1 dW2", ll)
             wh = cuda_h2d(hZ, zd, fb, 2)
             ii = 0
             while ii < T * F:
@@ -541,6 +542,7 @@ def run() -> "i32":
                 ii = ii + 1
             wh = cuda_h2d(dHH, hZ, fb, 1)
             # dZ tu Z goc
+            print("B1 dW2", ll)
             wh = cuda_h2d(hZ, zd, fb, 2)
             wh = cuda_h2d(hGY2, gHH, fb, 2)
             ii = 0
@@ -559,6 +561,7 @@ def run() -> "i32":
                 ii = ii + 1
             wh = cuda_h2d(gZ, hZ, fb, 1)
             wh = cuda_h2d(dY2, y2d, qb, 1)
+            print("B2 dZ", ll)
             rc = cublas_sgemm(ch, 1, 0, H, F, T, one, dY2, T, gZ, T, zero, g1d, H)
             rc = cublas_sgemm(ch, 0, 1, T, H, F, one, gZ, T, w1d, H, zero, gY2, T)
             wh = cuda_h2d(hY2, y2d, qb, 2)
@@ -589,10 +592,12 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(gDX2, hGDX2, qb, 1)
+            print("B3 ln2", ll)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gDX2, T, wod, H, zero, gA, T)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dA, T, gDX2, T, zero, gWo, H)
             rc = cublas_sgemm(ch, 0, 1, T, T, H, one, gA, T, dV, T, zero, gP, T)
             rc = cublas_sgemm(ch, 1, 0, T, H, T, one, dP, T, gA, T, zero, gV, T)
+            print("B4 attn", ll)
             wh = cuda_h2d(hP, pd, sb, 2)
             wh = cuda_h2d(hGP, gP, sb, 2)
             ii = 0
@@ -608,6 +613,7 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(gS, hDS, sb, 1)
+            print("B5 dS", ll)
             rc = cublas_sgemm(ch, 0, 0, T, H, T, hal, gS, T, dK, T, zero, gQ, T)
             rc = cublas_sgemm(ch, 1, 0, T, H, T, hal, gS, T, dQ, T, zero, gK, T)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gQ, T, zero, gqd, H)
@@ -626,6 +632,7 @@ def run() -> "i32":
                     wh = write_f32(hy1, (ii + jj * T) * 4, read_f32(hyq, (ii + jj * T) * 4) + read_f32(hyk, (ii + jj * T) * 4) + read_f32(hyv, (ii + jj * T) * 4))
                     jj = jj + 1
                 ii = ii + 1
+            print("B6 qkv", ll)
             wh = cuda_h2d(dY1, read_i64(AY1, ll * 8), qb, 1)
             wh = cuda_h2d(gY1, hy1, qb, 1)
             wh = cuda_h2d(hXH, xh1d, qb, 2)
