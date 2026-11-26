@@ -99,7 +99,7 @@ def run() -> "i32":
     while i < H:
         j = 0
         while j < V:
-            wh = write_f32(hWh, (i + j * H) * 4, 0.2 + 0.01 * (i + j))
+            wh = write_f32(hWh, (i + j * H) * 4, 0.2 + 0.01 * (i + (j % 8)))
             j = j + 1
         i = i + 1
     # device buffers: activations
@@ -258,7 +258,7 @@ def run() -> "i32":
     while i < H:
         j = 0
         while j < V:
-            wh = write_f32(shWh, (i + j * H) * 4, 0.2 + 0.01 * (i + j))
+            wh = write_f32(shWh, (i + j * H) * 4, 0.2 + 0.01 * (i + (j % 8)))
             j = j + 1
         i = i + 1
     # device buffers: activations
