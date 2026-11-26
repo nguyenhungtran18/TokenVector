@@ -683,6 +683,11 @@ def run() -> "i32":
             wh = cuda_h2d(gWoh, god, whb, 2)
             wh = cuda_h2d(gW1h, g1d, w1b, 2)
             wh = cuda_h2d(gW2h, g2d, w2b, 2)
+            if ll == 0:
+                lf = read_f32(gWqh, 0)
+                print("M GQ", lf)
+                lf = read_f32(hwq, 0)
+                print("M WB", lf)
             wph = read_i64(HWq, ll * 8)
             ii = 0
             while ii < H * H:
@@ -690,6 +695,9 @@ def run() -> "i32":
                 wh = write_f32(wph, ii * 4, dxv)
                 ii = ii + 1
             wh = cuda_h2d(read_i64(AWq, ll * 8), wph, whb, 1)
+            if ll == 0:
+                lf = read_f32(hwq, 0)
+                print("M WA", lf)
             wph = read_i64(HWk, ll * 8)
             ii = 0
             while ii < H * H:
