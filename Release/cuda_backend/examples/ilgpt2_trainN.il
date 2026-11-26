@@ -3432,7 +3432,7 @@
     stloc.s 60
     br run_W26_start
   run_W26_end:
-    ldc.r4 0.0000001
+    ldc.r4 0.001
     stloc.s 191
     call float64 TkvTime::Perf()
     stloc.s 192
