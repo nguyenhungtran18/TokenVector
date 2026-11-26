@@ -619,6 +619,12 @@ def run() -> "i32":
                 ii = ii + 1
             wh = cuda_h2d(gS, hDS, sb, 1)
             print("B5 dS", ll)
+            if ll == 0:
+                lf = read_f32(hDS, 0)
+                print("M DS0", lf)
+                wh = cuda_h2d(hP, gS, 8, 2)
+                lf = read_f32(hP, 0)
+                print("M GS0", lf)
             rc = cublas_sgemm(ch, 0, 0, T, H, T, hal, gS, T, dK, T, zero, gQ, T)
             rc = cublas_sgemm(ch, 1, 0, T, H, T, hal, gS, T, dQ, T, zero, gK, T)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gQ, T, zero, gqd, H)
@@ -638,6 +644,10 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             print("B6 qkv", ll)
+            if ll == 0:
+                wh = cuda_h2d(hP, gqd, 8, 2)
+                lf = read_f32(hP, 0)
+                print("M GQD0", lf)
             wh = cuda_h2d(dY1, read_i64(AY1, ll * 8), qb, 1)
             wh = cuda_h2d(gY1, hy1, qb, 1)
             wh = cuda_h2d(hXH, xh1d, qb, 2)
