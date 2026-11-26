@@ -77,6 +77,7 @@ def run() -> "i32":
         return 1
     kgelu: "i64" = read_i64(fc, 0)
     print("M MODULE", rc)
+    print("M FN GELU", kgelu)
 
     cell = alloc_bytes(8)
     print("M ALLOC", rc)
@@ -560,6 +561,7 @@ def run() -> "i32":
         wh = write_i64(pl, 0, a0)
         wh = write_i64(pl, 8, a1)
         wh = write_i64(pl, 16, a2)
+        print("M FN LOSS", kgelu)
         print("M CE LAUNCH", step)
         rc = cu_launch(kgelu, 1, 1, 1, T, 1, 1, 0, 0, pl, 0)
         print("M CE POST", rc)
