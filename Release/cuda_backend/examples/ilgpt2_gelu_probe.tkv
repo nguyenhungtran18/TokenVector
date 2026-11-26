@@ -1,0 +1,90 @@
+# -*- coding: utf-8 -*-
+# Probe toi thieu cho gelu_kernel device (grid ctaid, block 256). Khong C++/torch.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64"],
+     "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        return 1
+    n: "i32" = 2097152
+    nb: "i32" = n * 4
+    hx = alloc_bytes(nb)
+    ii: "i32" = 0
+    while ii < n:
+        wh: "i64" = write_f32(hx, ii * 4, 0.1 + 0.02 * (ii % 16))
+        ii = ii + 1
+    cell = alloc_bytes(8)
+    rc = cuda_malloc(cell, nb)
+    dx = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    dy = read_i64(cell, 0)
+    wh = cuda_h2d(dx, hx, nb, 1)
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gelu_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,f2,f3,f4,f5;\n.reg .u64 x,y,off;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 x,[px];\nld.param.u64 y,[py];\nld.param.u32 n,[pn];\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 x,x;\ncvta.to.global.u64 y,y;\nadd.u64 x,x,off;\nadd.u64 y,y,off;\nld.global.f32 f1,[x];\nmul.f32 f3,f1,f1;\nmul.f32 f3,f3,f1;\nmov.f32 f4,0.044715;\nfma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456;\nmul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0;\nadd.f32 f2,f2,f3;\nmov.f32 f3,0.5;\nmul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2;\nst.global.f32 [y],f5;\nLEND: ret;\n}\n"
+    FN = b"gelu_kernel\x00"
+    pbuf = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wh = write_u8(pbuf, kk, PTX[kk])
+        kk = kk + 1
+    wh = write_u8(pbuf, kk, 0)
+    mc = alloc_bytes(8)
+    rc = cu_module_load(mc, pbuf)
+    if rc != 0:
+        print("MODULE FAIL", rc)
+        return 1
+    print("MOD ok")
+    mod: "i64" = read_i64(mc, 0)
+    nb2 = alloc_bytes(len(FN))
+    kk = 0
+    while kk < len(FN):
+        wh = write_u8(nb2, kk, FN[kk])
+        kk = kk + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mod, nb2)
+    if rc != 0:
+        print("FN FAIL", rc)
+        return 1
+    fn: "i64" = read_i64(fc, 0)
+    print("FN ok")
+    a0 = alloc_bytes(8)
+    wh = write_i64(a0, 0, dx)
+    a1 = alloc_bytes(8)
+    wh = write_i64(a1, 0, dy)
+    a2 = alloc_bytes(4)
+    wh = write_i32(a2, 0, n)
+    pl = alloc_bytes(24)
+    wh = write_i64(pl, 0, a0)
+    wh = write_i64(pl, 8, a1)
+    wh = write_i64(pl, 16, a2)
+    print("LAUNCH")
+    rc = cu_launch(fn, 8192, 1, 1, 256, 1, 1, 0, 0, pl, 0)
+    if rc != 0:
+        print("LAUNCH FAIL", rc)
+        return 1
+    print("LAUNCH ok")
+    hy = alloc_bytes(nb)
+    wh = cuda_h2d(hy, dy, nb, 2)
+    su: "f32" = 0.0
+    ii = 0
+    while ii < n:
+        su = su + read_f32(hy, ii * 4)
+        ii = ii + 1
+    print("SUM", su)
+    print("BATCH DONE")
+    return 0
