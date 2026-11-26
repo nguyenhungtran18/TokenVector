@@ -604,7 +604,8 @@ def run() -> "i32":
     zq6: "i64" = cuda_h2d(dYk, z0, qb, 1)
     zq7: "i64" = cuda_h2d(dYv, z0, qb, 1)
     zq8: "i64" = cuda_h2d(dY1g, z0, qb, 1)
-    zq9: "i64" = cuda_h2d(dDX, z0, qb, 1)    print("BWQ2")
+    zq9: "i64" = cuda_h2d(dDX, z0, qb, 1)
+    print("BWQ2")
     rc = cublas_sgemm(ch, 1, 0, H, H, T, ha, dY1, T, dQg, T, hb0, dWqg, H)
     if rc != 0:
         print("BW dWq FAIL", rc)
