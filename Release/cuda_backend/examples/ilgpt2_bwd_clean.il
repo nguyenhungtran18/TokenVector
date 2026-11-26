@@ -2139,7 +2139,7 @@
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
     stloc.s 69
     ldloc.s 67
-    ldloc.s 9
+    ldloc.s 10
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
@@ -2151,7 +2151,7 @@
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
     stloc.s 70
     ldloc.s 67
-    ldloc.s 9
+    ldloc.s 10
     conv.i8
     call int32 TKVApp::__pinvoke_cuda_malloc(int64, int64)
     stloc.s 0
