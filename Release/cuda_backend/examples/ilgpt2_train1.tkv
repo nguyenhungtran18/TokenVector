@@ -22,6 +22,7 @@ def run() -> "i32":
     if rc != 0:
         print("CUINIT FAIL", rc)
         return 1
+    print("T0 start")
     hc = alloc_bytes(8)
     rc = cublas_create(hc)
     ch: "i64" = read_i64(hc, 0)
@@ -200,6 +201,7 @@ def run() -> "i32":
     b4: "i64" = cuda_h2d(dW1, hW1, w1b, 1)
     b5: "i64" = cuda_h2d(dW2, hW2, w2b, 1)
     b6: "i64" = cuda_h2d(dWh, hWh, wh2, 1)
+    print("T1 weights")
     one = alloc_bytes(4)
     c1: "i64" = write_f32(one, 0, 1.0)
     zero = alloc_bytes(4)
@@ -232,10 +234,12 @@ def run() -> "i32":
     gWvh = alloc_bytes(whb)
     gWoh = alloc_bytes(whb)
     gWhh = alloc_bytes(wh2)
+    print("T2 scratch")
     lr: "f32" = 0.02
     step: "i32" = 1
     while step <= 3:
         # ---------------- forward ----------------
+        print("T3 step")
         # LN1 (host)
         ii: "i32" = 0
         while ii < T:
@@ -265,6 +269,7 @@ def run() -> "i32":
             ii = ii + 1
         f0: "i64" = cuda_h2d(dY1, hY1, qb, 1)
         # Q,K,V
+        print("T4 ln1")
         f1: "i32" = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, dWq, H, zero, dQ, T)
         f2: "i32" = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, dWk, H, zero, dK, T)
         f3: "i32" = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, dWv, H, zero, dV, T)
@@ -276,6 +281,7 @@ def run() -> "i32":
         if f4 != 0:
             print("S FAIL", f4)
             return 1
+        print("T5 qkv+s")
         f5: "i64" = cuda_h2d(hS, dS, sb, 2)
         # causal softmax (host)
         ii = 0
@@ -303,6 +309,7 @@ def run() -> "i32":
             ii = ii + 1
         f6: "i64" = cuda_h2d(dP, hP, sb, 1)
         # A = P V, O = A Wo^T
+        print("T6 softmax")
         f7: "i32" = cublas_sgemm(ch, 0, 0, T, H, T, one, dP, T, dV, T, zero, dA, T)
         f8: "i32" = cublas_sgemm(ch, 0, 0, T, H, H, one, dA, T, dWo, H, zero, dO, T)
         if f7 != 0 or f8 != 0:
@@ -347,6 +354,7 @@ def run() -> "i32":
             ii = ii + 1
         f11: "i64" = cuda_h2d(dY2, hY2, qb, 1)
         # Z = Y2 W1, gelu host
+        print("T7 ln2")
         f12: "i32" = cublas_sgemm(ch, 0, 0, T, F, H, one, dY2, T, dW1, H, zero, dZ, T)
         if f12 != 0:
             print("Z FAIL", f12)
@@ -364,6 +372,7 @@ def run() -> "i32":
             ii = ii + 1
         f14: "i64" = cuda_h2d(dHH, hZ, fb, 1)
         # O2 = HH W2
+        print("T8 gelu")
         f15: "i32" = cublas_sgemm(ch, 0, 0, T, H, F, one, dHH, T, dW2, F, zero, dO2, T)
         if f15 != 0:
             print("O2 FAIL", f15)
@@ -380,12 +389,14 @@ def run() -> "i32":
             ii = ii + 1
         f17: "i64" = cuda_h2d(dOUT, hOUT, qb, 1)
         # logits = OUT Wh
+        print("T9 mlp")
         f18: "i32" = cublas_sgemm(ch, 0, 0, T, V, H, one, dOUT, T, dWh, H, zero, dLG, T)
         if f18 != 0:
             print("LG FAIL", f18)
             return 1
         f19: "i64" = cuda_h2d(hLG, dLG, tvb, 2)
         # CE loss + dL (host)
+        print("T10 logits")
         lossv: "f32" = 0.0
         ii = 0
         while ii < T:
