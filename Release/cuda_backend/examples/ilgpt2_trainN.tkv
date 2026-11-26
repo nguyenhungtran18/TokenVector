@@ -454,8 +454,13 @@ def run() -> "i32":
             while ii < T * F:
                 xv = read_f32(hZ, ii * 4)
                 zz: "f32" = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
-                e2: "f32" = exp(2.0 * zz)
-                thv: "f32" = (e2 - 1.0) / (e2 + 1.0)
+                thv: "f32" = 1.0
+                if zz < -8.0:
+                    thv = -1.0
+                else:
+                    if zz < 8.0:
+                        e2: "f32" = exp(2.0 * zz)
+                        thv = (e2 - 1.0) / (e2 + 1.0)
                 wh = write_f32(hZ, ii * 4, 0.5 * xv * (1.0 + thv))
                 ii = ii + 1
             if ll == 0:
@@ -574,8 +579,13 @@ def run() -> "i32":
             while ii < T * F:
                 xv = read_f32(hZ, ii * 4)
                 zz = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
-                e2 = exp(2.0 * zz)
-                thv = (e2 - 1.0) / (e2 + 1.0)
+                thv = 1.0
+                if zz < -8.0:
+                    thv = -1.0
+                else:
+                    if zz < 8.0:
+                        e2 = exp(2.0 * zz)
+                        thv = (e2 - 1.0) / (e2 + 1.0)
                 dg: "f32" = 0.5 * (1.0 + thv) + 0.5 * xv * (1.0 - thv * thv) * 0.79788456 * (1.0 + 0.134145 * xv * xv)
                 wh = write_f32(hZ, ii * 4, read_f32(hGY2, ii * 4) * dg)
                 ii = ii + 1
