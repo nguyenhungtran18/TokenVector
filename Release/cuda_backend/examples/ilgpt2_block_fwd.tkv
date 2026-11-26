@@ -397,7 +397,8 @@ def run() -> "i32":
         print("O2 FAIL", rc)
         return 1
     print("MARK 8a o2 gemm")
-    # 12) OUT = X2 + O2
+    # 12) OUT = X2 + O2  (doi ca c0 tu dX sang dX2)
+    wzp0 = write_i64(c0, 0, dX2)
     wzp0 = write_i64(c1, 0, dO2)
     wzp0 = write_i64(c2, 0, dOUT)
     rc = cu_launch(k_add, 1, 1, 1, 64, 1, 1, 0, 0, pa, 0)

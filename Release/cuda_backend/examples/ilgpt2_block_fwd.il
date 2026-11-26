@@ -1228,7 +1228,7 @@
 {
   .method public static int32 'run'() cil managed
   {
-    .maxstack 394
+    .maxstack 395
     .locals init (int32 'rc', int64 'hc', int64 'ch', int32 'T', int32 'H', int32 'F', int32 'tb', int32 'hb', int32 'h4', int32 'qb', int32 'fb', int32 'sb', int32 'stb', int64 'hX', int64 'hWq', int64 'hWk', int64 'hWv', int64 'hWo', int64 'hW1', int64 'hW2', int64 'hG1', int64 'hB1', int64 'hG2', int64 'hB2', int32 'i', int32 'j', int64 'w0', int64 'w1', int64 'w2', int64 'w3', int64 'w4', int64 'w5', int64 'w6', int64 'w7', int64 'w8', int64 'w9', int64 'w10', int64 'cell', int64 'dX', int64 'dY1', int64 'dXH1', int64 'dST1', int64 'dQ', int64 'dK', int64 'dV', int64 'dS', int64 'dP', int64 'dA', int64 'dO', int64 'dX2', int64 'dY2', int64 'dXH2', int64 'dST2', int64 'dZ', int64 'dHH', int64 'dO2', int64 'dOUT', int64 'dWq', int64 'dWk', int64 'dWv', int64 'dWo', int64 'dW1', int64 'dW2', int64 'dG1', int64 'dB1', int64 'dG2', int64 'dB2', int64 'hd0', int64 'hd1', int64 'hd2', int64 'hd3', int64 'hd4', int64 'hd5', int64 'hd6', int64 'hd7', int64 'hd8', int64 'hd9', int64 'hd10', float32 'invH', float32 'eps', float32 'one', float32 'zero', float32 'alpha', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'PTX', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN1', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN2', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN3', class [mscorlib]System.Collections.Generic.List`1<unsigned int8> 'FN4', int64 'pbuf', int32 'kk', int64 'wu', int64 'wz', int64 'mc', int64 'mod', int64 'nb', int32 'r1', int64 'fc', int64 'k_lnf', int64 'wz1', int64 'k_sf', int64 'wz2', int64 'k_add', int64 'wz3', int64 'k_gelu', int64 'ha', int64 'wa', int64 'hb0', int64 'wb', int64 'hal', int64 'wl', int64 'a0', int64 'qp0', int64 'a1', int64 'qp1', int64 'a2', int64 'qp2', int64 'a3', int64 'qp3', int64 'a4', int64 'qp4', int64 'a5', int64 'qp5', int64 'a6', int64 'qp6', int64 'a7', int64 'qp7', int64 'a8', int64 'qp8', int64 'a9', int64 'qp9', int64 'pl', int64 'wzp0', int64 'wzp1', int64 'wzp2', int64 'wzp3', int64 'wzp4', int64 'wzp5', int64 'wzp6', int64 'wzp7', int64 'wzp8', int64 'wzp9', int64 's0', int64 'ws0', int64 's1', int64 'ws1', int64 's2', int64 'ws2', int64 's3', int64 'ws3', int64 'ps', int64 'wp0', int64 'wp1', int64 'wp2', int64 'wp3', int64 'c0', int64 'wc0', int64 'c1', int64 'wc1', int64 'c2', int64 'wc2', int64 'c3', int64 'wc3', int64 'pa', int64 'wpa0', int64 'wpa1', int64 'wpa2', int64 'wpa3', int64 'hr2', int64 'chk2', int64 'hY2', int64 'hXH2', int64 'hST2', int32 'ii', float32 'su', float32 'sq', int32 'jj', float32 'xv', float32 'mn', float32 'vr', float32 'rs', int64 'wq0', int64 'wq1', float32 'xhv', float32 'gv', float32 'bv', int64 'wq2', int64 'wq3', int64 'up0', int64 'up1', int64 'up2', int64 'g0', int64 'wg0', int64 'g1', int64 'wg1', int64 'g2', int64 'wg2', int64 'pg', int64 'wpg0', int64 'wpg1', int64 'wpg2', int64 'hout', int64 'd1', float32 'vv', int64 'd2', int64 'd3', int64 'd4', int64 'd5', int64 'd55', int64 'd6', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum')
     ldc.i4 0
     call int32 TKVApp::__pinvoke_cu_init(int32)
@@ -20959,6 +20959,15 @@
   run_If34_else:
     ldstr "MARK 8a o2 gemm"
     call void [mscorlib]System.Console::WriteLine(string)
+    ldloc.s 154
+    ldc.i4 0
+    conv.i8
+    add
+    conv.i
+    ldloc.s 49
+    call void [mscorlib]System.Runtime.InteropServices.Marshal::WriteInt64(native int, int64)
+    ldc.i8 0
+    stloc.s 131
     ldloc.s 156
     ldc.i4 0
     conv.i8
