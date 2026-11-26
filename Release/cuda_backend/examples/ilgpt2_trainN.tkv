@@ -447,6 +447,8 @@ def run() -> "i32":
                 print("O GEMM FAIL", ll, rc)
                 return 1
             print("M AGEMM", ll, step)
+            if ll == 0:
+                print("M HO", ll, read_f32(hO, 0), read_f32(hO, 4), read_f32(hO, 8))
             wh = cuda_h2d(hO, dO, qb, 2)
             ii = 0
             while ii < T:
@@ -456,6 +458,8 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             print("M RES", ll, step)
+            if ll == 0:
+                print("M HX2", ll, read_f32(hX2, 0), read_f32(hX2, 4), read_f32(hX2, 8))
             wh = cuda_h2d(dX2, hX2, qb, 1)
             ii = 0
             while ii < T:
@@ -486,6 +490,8 @@ def run() -> "i32":
             wh = cuda_h2d(xh2d, hXH, qb, 1)
             wh = cuda_h2d(s2d, hST, stb, 1)
             print("M Y2H", ll, step)
+            if ll == 0:
+                print("M HY2", ll, read_f32(hY2, 0), read_f32(hY2, 4), read_f32(hY2, 8))
             rc = cublas_sgemm(ch, 0, 0, T, F, H, one, dY2, T, w1d, H, zero, dZ, T)
             print("M FFN", rc)
             wh = cuda_h2d(hZ, dZ, fb, 2)
