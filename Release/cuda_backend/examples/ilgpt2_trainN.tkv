@@ -79,6 +79,7 @@ def run() -> "i32":
     print("M MODULE", rc)
 
     cell = alloc_bytes(8)
+    print("M ALLOC", rc)
     # arrays cua device-pointer / host-pointer theo lop
     AWq = alloc_bytes(msz)
     AWk = alloc_bytes(msz)
@@ -320,6 +321,7 @@ def run() -> "i32":
         wh = cuda_h2d(wod, hwo, whb, 1)
         wh = cuda_h2d(w1d, hw1, w1b, 1)
         wh = cuda_h2d(w2d, hw2, w2b, 1)
+        print("M WEIGHTS", rc)
         ll = ll + 1
     # head weight
     hWh = alloc_bytes(wh2)
@@ -345,6 +347,7 @@ def run() -> "i32":
     step: "i32" = 1
     while step <= 2:
         # ---- forward layers ----
+        print("M STEP", step)
         ll = 0
         while ll < NL:
             wqd = read_i64(AWq, ll * 8)
@@ -717,6 +720,7 @@ def run() -> "i32":
             print("MARK B", ll)
             ll = ll - 1
         print("MARK BWD", step)
+        print("M STEP", step)
         ll = 0
         while ll < NL:
             gqd = read_i64(AGq, ll * 8)
