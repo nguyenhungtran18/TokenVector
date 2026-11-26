@@ -632,4 +632,4 @@ def run() -> "i32":
         print("MARK UPD", step)
         step = step + 1
     print("BATCH DONE")
-        return 0
+    return 0
