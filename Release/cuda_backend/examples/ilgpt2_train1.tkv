@@ -4,6 +4,8 @@
 __tkv_extern_pinvoke__ = [
     {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
      "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
+     "convention": "cdecl", "params": [], "returns": "i32"},
     {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
@@ -28,7 +30,7 @@ def run() -> "i32":
     ch: "i64" = read_i64(hc, 0)
     wh: "i64" = 0
     rcv: "i32" = 0
-    T: "i32" = 4
+    T: "i32" = 512
     H: "i32" = 8
     F: "i32" = 4 * H
     V: "i32" = 8
@@ -103,7 +105,7 @@ def run() -> "i32":
     # device buffers: activations
     rc = cuda_malloc(cell, qb)
     dY1 = read_i64(cell, 0)
-    rc = cuda_malloc(cell, fb)
+    rc = cuda_malloc(cell, sb)
     dS = read_i64(cell, 0)
     rc = cuda_malloc(cell, sb)
     dP = read_i64(cell, 0)
@@ -238,6 +240,7 @@ def run() -> "i32":
     gWhh = alloc_bytes(wh2)
     print("T2 scratch")
     lr: "f32" = 0.001
+    t0 = time_perf()
     step: "i32" = 1
     while step <= 3:
         # ---------------- forward ----------------
@@ -631,5 +634,10 @@ def run() -> "i32":
         wh = cuda_h2d(dWh, hWh, wh2, 1)
         print("MARK UPD", step)
         step = step + 1
+    syn: "i32" = cuda_sync()
+    t1 = time_perf()
+    dtm: "f64" = t1 - t0
+    print("MS_TOTAL", dtm * 1000.0)
+    print("MS_STEP", (dtm * 1000.0) / 3.0)
     print("BATCH DONE")
     return 0
