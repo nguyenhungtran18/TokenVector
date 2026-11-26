@@ -506,6 +506,17 @@ def run() -> "i32":
         wh = cuda_h2d(dOUT, hOUT, qb, 1)
         rc = cublas_sgemm(ch, 0, 0, T, V, H, one, dOUT, T, dWh, H, zero, dLG, T)
         wh = cuda_h2d(hLG, dLG, tvb, 2)
+        omx: "f32" = 0.0
+        ii = 0
+        while ii < T * H:
+            ov: "f32" = read_f32(hOUT, ii * 4)
+            if ov > omx:
+                omx = ov
+            else:
+                if 0.0 - ov > omx:
+                    omx = 0.0 - ov
+            ii = ii + 1
+        print("M OUTMAX", omx)
         lossv: "f32" = 0.0
         ii = 0
         while ii < T:
