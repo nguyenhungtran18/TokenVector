@@ -26,7 +26,7 @@ __tkv_extern_pinvoke__ = [
 
 
 def sgd_update(w: "i64", g: "i64", n: "i32", lr: "f32") -> "i32":
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry sgd_kernel(.param .u64 pW, .param .u64 pG, .param .f32 plr, .param .u32 pn)\n{\n.reg .f32 w,g,lr;\n.reg .u64 wp,gp,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 wp,[pW];\nld.param.u64 gp,[pG];\nld.param.f32 lr,[plr];\nld.param.u32 n,[pn];\ncvta.to.global.u64 wp,wp;\ncvta.to.global.u64 gp,gp;\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wp,wp,off;\nadd.u64 gp,gp,off;\nld.global.f32 w,[wp];\nld.global.f32 g,[gp];\nsetp.eq.f32 q,g,g;\n@!q mov.f32 g,0.0;\nsetp.eq.f32 q,w,w;\n@!q mov.f32 w,0.0;\nmad.f32 w,w,-lr,g;\nst.global.f32 [wp],w;\nLEND: ret;\n}\n"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry sgd_kernel(.param .u64 pW, .param .u64 pG, .param .f32 plr, .param .u32 pn)\n{\n.reg .f32 w,g,lr,tn;\n.reg .u64 wp,gp,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 wp,[pW];\nld.param.u64 gp,[pG];\nld.param.f32 lr,[plr];\nld.param.u32 n,[pn];\ncvta.to.global.u64 wp,wp;\ncvta.to.global.u64 gp,gp;\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wp,wp,off;\nadd.u64 gp,gp,off;\nld.global.f32 w,[wp];\nld.global.f32 g,[gp];\nsetp.eq.f32 q,g,g;\n@!q mov.f32 g,0.0;\nsetp.eq.f32 q,w,w;\n@!q mov.f32 w,0.0;\nneg.f32 tn,lr;\nmad.f32 w,w,tn,g;\nst.global.f32 [wp],w;\nLEND: ret;\n}\n"
     FNS = b"sgd_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
