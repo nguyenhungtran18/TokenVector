@@ -489,6 +489,8 @@ def run() -> "i32":
             rc = cublas_sgemm(ch, 0, 0, T, F, H, one, dY2, T, w1d, H, zero, dZ, T)
             print("M FFN", rc)
             wh = cuda_h2d(hZ, dZ, fb, 2)
+            if ll == 0:
+                print("M Z", ll, read_f32(hZ, 0), read_f32(hZ, 4), read_f32(hZ, 8))
             wh = cuda_h2d(zd, dZ, fb, 1)
             print("M ZH2D", ll, step)
             a0 = alloc_bytes(8)
@@ -504,6 +506,9 @@ def run() -> "i32":
             print("M GE", ll, step)
             rc = cu_launch(kgelu, 8192, 1, 1, 256, 1, 1, 0, 0, pl, 0)
             print("M GEOK", rc)
+            if ll == 0:
+                wh = cuda_h2d(hZ, dHH, 32, 2)
+                print("M HH", ll, read_f32(hZ, 0), read_f32(hZ, 4), read_f32(hZ, 8))
             if rc != 0:
                 print("GELU FAIL", ll, rc)
                 return 1
