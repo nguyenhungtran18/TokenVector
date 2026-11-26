@@ -21340,6 +21340,8 @@
     conv.i
     call int64 [mscorlib]System.Runtime.InteropServices.Marshal::ReadInt64(native int)
     stloc.s 225
+    ldstr "BW alloc"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 2
     ldc.i4 1
     ldc.i4 0
@@ -21404,6 +21406,8 @@
     ldc.i4 1
     ret
   run_If37_else:
+    ldstr "BW after dW2 dHH"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 10
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
@@ -21539,6 +21543,8 @@
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
     stloc.s 236
+    ldstr "BW after dZ"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 2
     ldc.i4 1
     ldc.i4 0
@@ -21603,6 +21609,8 @@
     ldc.i4 1
     ret
   run_If40_else:
+    ldstr "BW after dW1 dY2"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 9
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
@@ -21952,6 +21960,8 @@
     ldc.i4 1
     ret
   run_If45_else:
+    ldstr "BW after LN2"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 2
     ldc.i4 0
     ldc.i4 1
@@ -22080,6 +22090,8 @@
     ldc.i4 1
     ret
   run_If49_else:
+    ldstr "BW after attn gemms"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 11
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8
@@ -22234,6 +22246,8 @@
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
     stloc.s 259
+    ldstr "BW after dS"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 2
     ldc.i4 0
     ldc.i4 0
@@ -22584,6 +22598,8 @@
     ldc.i4 1
     ret
   run_If62_else:
+    ldstr "BW after QKV grads"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 9
     call native int [mscorlib]System.Runtime.InteropServices.Marshal::AllocHGlobal(int32)
     conv.i8

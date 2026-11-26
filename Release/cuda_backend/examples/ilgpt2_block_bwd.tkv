@@ -456,6 +456,7 @@ def run() -> "i32":
     dY1g = read_i64(cell, 0)
     rc = cuda_malloc(cell, qb)
     dDX = read_i64(cell, 0)
+    print("BW alloc")
     # B1: dW2, dHH
     rc = cublas_sgemm(ch, 1, 0, F, H, T, ha, dHH, T, dDOUT, T, hb0, dW2g, F)
     if rc != 0:
@@ -465,6 +466,7 @@ def run() -> "i32":
     if rc != 0:
         print("BW dHH FAIL", rc)
         return 1
+    print("BW after dW2 dHH")
     # B2: dZ = dHH * dgelu(Z) (tren host, se thay bang PTX)
     hZb = alloc_bytes(fb)
     hHb = alloc_bytes(fb)
@@ -482,6 +484,7 @@ def run() -> "i32":
         wk: "i64" = write_f32(hZg, kk * 4, dvv)
         kk = kk + 1
     bk2: "i64" = cuda_h2d(dZg, hZg, fb, 1)
+    print("BW after dZ")
     # B3: dW1, dY2
     rc = cublas_sgemm(ch, 1, 0, H, F, T, ha, dY2, T, dZg, T, hb0, dW1g, H)
     if rc != 0:
@@ -491,6 +494,7 @@ def run() -> "i32":
     if rc != 0:
         print("BW dY2 FAIL", rc)
         return 1
+    print("BW after dW1 dY2")
     # B4: LN2 backward (host), dX2 = dOUT + dx_ln
     hY2g = alloc_bytes(qb)
     hDX2L = alloc_bytes(qb)
@@ -537,6 +541,7 @@ def run() -> "i32":
     if rc != 0:
         print("BW ADD LN2 FAIL", rc)
         return 1
+    print("BW after LN2")
     # B5: attention backward
     rc = cublas_sgemm(ch, 0, 1, T, H, H, ha, dDX2T, T, dWo, H, hb0, dAg, T)
     if rc != 0:
@@ -554,6 +559,7 @@ def run() -> "i32":
     if rc != 0:
         print("BW dV FAIL", rc)
         return 1
+    print("BW after attn gemms")
     # dS = P*(dP - rowsum(P*dP))
     hPb = alloc_bytes(sb)
     hDPb = alloc_bytes(sb)
@@ -577,6 +583,7 @@ def run() -> "i32":
             jj = jj + 1
         ii = ii + 1
     bk7: "i64" = cuda_h2d(dSg, hDSb, sb, 1)
+    print("BW after dS")
     rc = cublas_sgemm(ch, 0, 0, T, H, T, hal, dSg, T, dK, T, hb0, dQg, T)
     if rc != 0:
         print("BW dQ FAIL", rc)
@@ -621,6 +628,7 @@ def run() -> "i32":
     if rc != 0:
         print("BW ADD2 FAIL", rc)
         return 1
+    print("BW after QKV grads")
     # B6: LN1 backward (host)
     hY1g = alloc_bytes(qb)
     hXH1b = alloc_bytes(qb)
