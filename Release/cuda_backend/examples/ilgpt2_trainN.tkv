@@ -57,11 +57,13 @@ def run() -> "i32":
         wh = write_u8(pbuf, kk, PTX[kk])
         kk = kk + 1
     wh = write_u8(pbuf, kk, 0)
+    print("PTX written")
     mc = alloc_bytes(8)
     rc = cu_module_load(mc, pbuf)
     if rc != 0:
         print("MODULE FAIL", rc)
         return 1
+    print("MOD loaded")
     mod: "i64" = read_i64(mc, 0)
     FNG = b"gelu_kernel\x00"
     kk = 0
@@ -73,6 +75,7 @@ def run() -> "i32":
     if rc != 0:
         print("FN GELU FAIL", rc)
         return 1
+    print("FN ok")
     k_gelu: "i64" = read_i64(mc, 0)
     cell = alloc_bytes(8)
     # arrays cua device-pointer / host-pointer theo lop
