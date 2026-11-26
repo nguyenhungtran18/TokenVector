@@ -96,6 +96,7 @@ def zero_buf(p: "i64", n: "i32") -> "i32":
 def scan(tag: "i32", p: "i64", n: "i32") -> "i32":
     mx: "f32" = 0.0
     nc: "i32" = 0
+    ss: "f32" = 0.0
     k: "i32" = 0
     while k < n:
         v: "f32" = read_f32(p, k * 4)
@@ -106,8 +107,9 @@ def scan(tag: "i32", p: "i64", n: "i32") -> "i32":
             mx = av
         if v * 0.0 != 0.0:
             nc = nc + 1
+        ss = ss + v * v
         k = k + 1
-    print("M SCAN", tag, mx, nc)
+    print("M SCAN", tag, mx, nc, ss / n)
     return nc
 
 def run() -> "i32":
@@ -363,7 +365,7 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.0)
         wh = write_f32(b2h, ii * 4, 0.0)
         ii = ii + 1
-    lr: "f32" = 0.0001
+    lr: "f32" = 0.5
     sfn: "i64" = sgd_init()
     if sfn == 0:
         print("SGD INIT FAIL")
