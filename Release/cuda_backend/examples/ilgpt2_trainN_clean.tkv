@@ -73,8 +73,18 @@ def sgd_update(fnh: "i64", w: "i64", g: "i64", n: "i32", lr: "f32") -> "i32":
         return 1
     return 0
 def wrand(i: "i32", j: "i32", s: "f32") -> "f32":
-    u: "i32" = ((i % 251) * (j % 251)) % 251
-    return s * (u / 251.0 - 0.5)
+    h: "i32" = i * 374761393 + j * 668265263
+    h = (h ^ (h >> 13)) * 1274126177
+    h = h ^ (h >> 16)
+    u: "i32" = h & 65535
+    return s * (u / 65535.0 - 0.5)
+
+def copy_buf(d: "i64", s: "i64", n: "i32") -> "i32":
+    k: "i32" = 0
+    while k < n:
+        whc: "i64" = write_f32(d, k * 4, read_f32(s, k * 4))
+        k = k + 1
+    return 0
 
 def zero_buf(p: "i64", n: "i32") -> "i32":
     k: "i32" = 0
@@ -156,13 +166,14 @@ def run() -> "i32":
     wh = write_f32(hal, 0, 1.0 / sqrt(H))
     # input + ids
     hX = alloc_bytes(qb)
+    hIN = alloc_bytes(qb)
     hIds = alloc_bytes(T * 4)
     ii: "i32" = 0
     jj: "i32" = 0
     while ii < T:
         jj = 0
         while jj < H:
-            wh = write_f32(hX, (ii + jj * T) * 4, wrand(ii, jj, 0.4))
+            wh = write_f32(hIN, (ii + jj * T) * 4, wrand(ii, jj, 0.4))
             jj = jj + 1
         wh = write_i32(hIds, ii * 4, (ii + 1) % V)
         ii = ii + 1
@@ -360,6 +371,7 @@ def run() -> "i32":
     t0 = time_perf()
     step: "i32" = 1
     while step <= 2:
+        rc = copy_buf(hX, hIN, T * H)
         # ---- forward layers ----
         ll = 0
         while ll < NL:
@@ -526,6 +538,9 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(od, hOUT, qb, 1)
+            rc = copy_buf(hX, hOUT, T * H)
+            if ll < 2:
+                rc = scan(10 + ll, hOUT, T * H)
             ll = ll + 1
         # logits + loss tu OUT cua lop cuoi
         wh = cuda_h2d(dOUT, hOUT, qb, 1)
@@ -552,8 +567,8 @@ def run() -> "i32":
                 wh = write_f32(hDL, (ii + jj * T) * 4, ev)
                 jj = jj + 1
             idv: "i32" = read_i32(hIds, ii * 4)
-            pc: "f32" = read_f32(hDL, (ii + idv * T) * 4) / zs
-            lossv = lossv - log(pc)
+            lt: "f32" = read_f32(hLG, (ii + idv * T) * 4)
+            lossv = lossv - (lt - mx - log(zs))
             jj = 0
             while jj < V:
                 pv = read_f32(hDL, (ii + jj * T) * 4) / zs
@@ -618,23 +633,6 @@ def run() -> "i32":
             rc = cublas_sgemm(ch, 0, 0, T, H, T, one, dP, T, dV, T, zero, dA, T)
             rc = cublas_sgemm(ch, 1, 0, F, H, T, one, dHH, T, gOUT, T, zero, g2d, F)
             rc = cublas_sgemm(ch, 0, 1, T, F, H, one, gOUT, T, w2d, F, zero, gHH, T)
-            print("B1 dW2", ll)
-            wh = cuda_h2d(hZ, zd, fb, 2)
-            ii = 0
-            while ii < T * F:
-                xv = read_f32(hZ, ii * 4)
-                zz = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
-                thv = 1.0
-                if zz < -8.0:
-                    thv = -1.0
-                else:
-                    if zz < 8.0:
-                        e2 = exp(2.0 * zz)
-                        thv = (e2 - 1.0) / (e2 + 1.0)
-                wh = write_f32(hZ, ii * 4, 0.5 * xv * (1.0 + thv))
-                ii = ii + 1
-            wh = cuda_h2d(dHH, hZ, fb, 1)
-            # dZ tu Z goc
             print("B1 dW2", ll)
             wh = cuda_h2d(hZ, zd, fb, 2)
             wh = cuda_h2d(hGY2, gHH, fb, 2)
