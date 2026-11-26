@@ -240,6 +240,7 @@ def run() -> "i32":
     while step <= 3:
         # ---------------- forward ----------------
         print("T3 step")
+        print("TDBG T=", T, " H=", H, " F=", F, " V=", V)
         # LN1 (host)
         ii: "i32" = 0
         while ii < T:
