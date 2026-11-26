@@ -2635,6 +2635,8 @@
     stloc.s 141
     br run_W14_start
   run_W14_end:
+    ldstr "T3a sums"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 139
     ldloc.s 4
     conv.r4
@@ -2660,6 +2662,8 @@
     conv.r4
     div
     stloc.s 145
+    ldstr "T3b stats"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 113
     ldloc.s 138
     ldc.i4 8
@@ -2774,6 +2778,8 @@
     stloc.s 138
     br run_W13_start
   run_W13_end:
+    ldstr "T3c ln1 done"
+    call void [mscorlib]System.Console::WriteLine(string)
     ldloc.s 52
     ldloc.s 111
     ldloc.s 10

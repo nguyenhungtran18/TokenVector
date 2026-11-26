@@ -251,10 +251,12 @@ def run() -> "i32":
                 su = su + xv
                 sq = sq + xv * xv
                 jj = jj + 1
+            print("T3a sums")
             mn: "f32" = su / H
             vr: "f32" = sq / H - mn * mn
             vr = vr + 0.000001
             rs: "f32" = 1.0 / sqrt(vr)
+            print("T3b stats")
             wz: "i64" = write_f32(hST1, ii * 8, mn)
             wz = write_f32(hST1, ii * 8 + 4, rs)
             jj = 0
@@ -267,6 +269,7 @@ def run() -> "i32":
                 wz = write_f32(hY1, (ii + jj * T) * 4, xhv * gv + bv)
                 jj = jj + 1
             ii = ii + 1
+        print("T3c ln1 done")
         f0: "i64" = cuda_h2d(dY1, hY1, qb, 1)
         # Q,K,V
         print("T4 ln1")
