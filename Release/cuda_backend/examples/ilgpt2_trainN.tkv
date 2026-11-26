@@ -624,7 +624,7 @@ def run() -> "i32":
                 ii = ii + 1
             wh = cuda_h2d(gS, hDS, sb, 1)
             print("B5 dS", ll)
-            if ll == 0:
+            if ll >= 0:
                 lf = read_f32(hDS, 0)
                 print("M DS0", lf)
                 lf = read_f32(hP, 0)
@@ -653,7 +653,7 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             print("B6 qkv", ll)
-            if ll == 0:
+            if ll >= 0:
                 wh = cuda_h2d(hP, gqd, 8, 2)
                 lf = read_f32(hP, 0)
                 print("M GQD0", lf)
