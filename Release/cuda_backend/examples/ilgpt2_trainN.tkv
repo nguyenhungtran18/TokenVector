@@ -541,8 +541,13 @@ def run() -> "i32":
             while ii < T * F:
                 xv = read_f32(hZ, ii * 4)
                 zz = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
-                e2 = exp(2.0 * zz)
-                thv = (e2 - 1.0) / (e2 + 1.0)
+                thv = 1.0
+                if zz < -8.0:
+                    thv = -1.0
+                else:
+                    if zz < 8.0:
+                        e2 = exp(2.0 * zz)
+                        thv = (e2 - 1.0) / (e2 + 1.0)
                 wh = write_f32(hZ, ii * 4, 0.5 * xv * (1.0 + thv))
                 ii = ii + 1
             wh = cuda_h2d(dHH, hZ, fb, 1)
