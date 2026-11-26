@@ -1,0 +1,169 @@
+# -*- coding: utf-8 -*-
+# IL-only QKV backward (toi thieu): dWq/dWk/dWv/dY1. Khong C++/torch.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+    {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32",
+                "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        print("CUINIT FAIL", rc)
+        return 1
+    hc = alloc_bytes(8)
+    rc = cublas_create(hc)
+    ch: "i64" = read_i64(hc, 0)
+    T: "i32" = 4
+    H: "i32" = 8
+    hb: "i32" = H * 4
+    qb: "i32" = T * H * 4
+    whb: "i32" = hb * H
+    # host: column-major (row i, col j) = i + j*T
+    hY1 = alloc_bytes(qb)
+    hDQ = alloc_bytes(qb)
+    hDK = alloc_bytes(qb)
+    hDV = alloc_bytes(qb)
+    hWq = alloc_bytes(whb)
+    hWk = alloc_bytes(whb)
+    hWv = alloc_bytes(whb)
+    i: "i32" = 0
+    j: "i32" = 0
+    while i < T:
+        j = 0
+        while j < H:
+            w0: "i64" = write_f32(hY1, (i + j * T) * 4, 1.0 + 0.1 * (i + j))
+            w1: "i64" = write_f32(hDQ, (i + j * T) * 4, 0.01 * (i + j + 1))
+            w2: "i64" = write_f32(hDK, (i + j * T) * 4, 0.02 * (i + j + 1))
+            w3: "i64" = write_f32(hDV, (i + j * T) * 4, 0.03 * (i + j + 1))
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < H:
+        j = 0
+        while j < H:
+            w4: "i64" = write_f32(hWq, (i + j * H) * 4, 0.20 + 0.01 * (i + j))
+            w5: "i64" = write_f32(hWk, (i + j * H) * 4, 0.15 + 0.01 * (i + j))
+            w6: "i64" = write_f32(hWv, (i + j * H) * 4, 0.10 + 0.01 * (i + j))
+            j = j + 1
+        i = i + 1
+    # device
+    cell = alloc_bytes(8)
+    rc = cuda_malloc(cell, qb)
+    dY1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, qb)
+    dDQ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, qb)
+    dDK = read_i64(cell, 0)
+    rc = cuda_malloc(cell, qb)
+    dDV = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    dWq = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    dWk = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    dWv = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    dWqg = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    dWkg = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    dWvg = read_i64(cell, 0)
+    rc = cuda_malloc(cell, qb)
+    dYq = read_i64(cell, 0)
+    rc = cuda_malloc(cell, qb)
+    dYk = read_i64(cell, 0)
+    rc = cuda_malloc(cell, qb)
+    dYv = read_i64(cell, 0)
+    h0: "i64" = cuda_h2d(dY1, hY1, qb, 1)
+    h1: "i64" = cuda_h2d(dDQ, hDQ, qb, 1)
+    h2: "i64" = cuda_h2d(dDK, hDK, qb, 1)
+    h3: "i64" = cuda_h2d(dDV, hDV, qb, 1)
+    h4: "i64" = cuda_h2d(dWq, hWq, whb, 1)
+    h5: "i64" = cuda_h2d(dWk, hWk, whb, 1)
+    h6: "i64" = cuda_h2d(dWv, hWv, whb, 1)
+    one = alloc_bytes(4)
+    a1: "i64" = write_f32(one, 0, 1.0)
+    zero = alloc_bytes(4)
+    a0: "i64" = write_f32(zero, 0, 0.0)
+    # dW = Y1^T dQ
+    rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, dDQ, T, zero, dWqg, H)
+    if rc != 0:
+        print("dWq FAIL", rc)
+        return 1
+    rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, dDK, T, zero, dWkg, H)
+    if rc != 0:
+        print("dWk FAIL", rc)
+        return 1
+    rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, dDV, T, zero, dWvg, H)
+    if rc != 0:
+        print("dWv FAIL", rc)
+        return 1
+    # dY = dQ W^T
+    rc = cublas_sgemm(ch, 0, 1, T, H, H, one, dDQ, T, dWq, H, zero, dYq, T)
+    if rc != 0:
+        print("dYq FAIL", rc)
+        return 1
+    rc = cublas_sgemm(ch, 0, 1, T, H, H, one, dDK, T, dWk, H, zero, dYk, T)
+    if rc != 0:
+        print("dYk FAIL", rc)
+        return 1
+    rc = cublas_sgemm(ch, 0, 1, T, H, H, one, dDV, T, dWv, H, zero, dYv, T)
+    if rc != 0:
+        print("dYv FAIL", rc)
+        return 1
+    # dump
+    hgr = alloc_bytes(whb)
+    z0: "i64" = cuda_h2d(hgr, dWqg, whb, 2)
+    i = 0
+    while i < H:
+        j = 0
+        while j < H:
+            vv: "f32" = read_f32(hgr, (i + j * H) * 4)
+            print("GWQ", i, j, vv)
+            j = j + 1
+        i = i + 1
+    z1: "i64" = cuda_h2d(hgr, dWkg, whb, 2)
+    i = 0
+    while i < H:
+        j = 0
+        while j < H:
+            vv = read_f32(hgr, (i + j * H) * 4)
+            print("GWK", i, j, vv)
+            j = j + 1
+        i = i + 1
+    z2: "i64" = cuda_h2d(hgr, dWvg, whb, 2)
+    i = 0
+    while i < H:
+        j = 0
+        while j < H:
+            vv = read_f32(hgr, (i + j * H) * 4)
+            print("GWV", i, j, vv)
+            j = j + 1
+        i = i + 1
+    hyq = alloc_bytes(qb)
+    hyk = alloc_bytes(qb)
+    hyv = alloc_bytes(qb)
+    dys: "i64" = cuda_h2d(hyq, dYq, qb, 2)
+    dys = cuda_h2d(hyk, dYk, qb, 2)
+    dys = cuda_h2d(hyv, dYv, qb, 2)
+    i = 0
+    while i < T:
+        j = 0
+        while j < H:
+            vv = read_f32(hyq, (i + j * T) * 4) + read_f32(hyk, (i + j * T) * 4) + read_f32(hyv, (i + j * T) * 4)
+            print("GY1", i, j, vv)
+            j = j + 1
+        i = i + 1
+    print("BATCH DONE")
+    return 0
