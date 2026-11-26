@@ -1228,8 +1228,8 @@
 {
   .method public static int32 'run'() cil managed
   {
-    .maxstack 1075
-    .locals init (int32 'rc', int64 'hcell', int64 'ch', int32 'NL', int32 'T', int32 'H', int32 'F', int32 'V', int32 'hb', int32 'h4', int32 'qb', int32 'fb', int32 'sb', int32 'tvb', int32 'stb', int32 'whb', int32 'w1b', int32 'w2b', int32 'wh2', int32 'msz', int64 'cell', int64 'AWq', int64 'AWk', int64 'AWv', int64 'AWo', int64 'AW1', int64 'AW2', int64 'AGq', int64 'AGk', int64 'AGv', int64 'AGo', int64 'AG1', int64 'AG2', int64 'AX1', int64 'AY1', int64 'AS1', int64 'AY2', int64 'AX2', int64 'AS2', int64 'AP', int64 'AZ', int64 'AO', int64 'HWq', int64 'HWk', int64 'HWv', int64 'HWo', int64 'HW1', int64 'HW2', int64 'HGq', int64 'HGk', int64 'HGv', int64 'HGo', int64 'HG1', int64 'HG2', int64 'one', int64 'wh', int64 'zero', int64 'hal', int64 'hX', int64 'hIds', int32 'ii', int32 'jj', int32 '__idiv1003556_a', int32 '__idiv1003556_b', int32 '__idiv1003556_q', int32 '__idiv1003556_r', int64 'dY1', int64 '__tern1', int64 'dS', int64 'dP', int64 'dQ', int64 'dK', int64 'dV', int64 'dA', int64 'dO', int64 'dX2', int64 'dY2', int64 'dZ', int64 'dHH', int64 'dO2', int64 'dOUT', int64 'dLG', int64 'dDL', int64 'gHH', int64 'gZ', int64 'gY2', int64 'gDX2', int64 'gA', int64 'gWo', int64 'gP', int64 'gV', int64 'gS', int64 'gQ', int64 'gK', int64 'gY1', int64 'gOUT', int64 'hY1', int64 'hY2', int64 'hST', int64 'hXH', int64 'hyq', int64 'hyk', int64 'hyv', int64 'g1h', int64 'b1h', int64 'g2h', int64 'b2h', int64 'hS', int64 'hP', int64 'hO', int64 'hX2', int64 'hO2', int64 'hOUT', int64 'hZ', int64 'hLG', int64 'hDL', int64 'hGP', int64 'hDS', int64 'hGY2', int64 'hGDX2', int64 'hy1', int64 'gWh', int64 'gW1h', int64 'gW2h', int64 'gWqh', int64 'gWkh', int64 'gWvh', int64 'gWoh', int32 'll', int64 'wqd', int64 'wkd', int64 'wvd', int64 'wod', int64 'w1d', int64 'w2d', int64 'hwq', int64 'hwk', int64 'hwv', int64 'hwo', int64 'hw1', int64 'hw2', int32 '__idiv1004116_a', int32 '__idiv1004116_b', int32 '__idiv1004116_q', int32 '__idiv1004116_r', int32 '__idiv1004134_a', int32 '__idiv1004134_b', int32 '__idiv1004134_q', int32 '__idiv1004134_r', int32 '__idiv1004152_a', int32 '__idiv1004152_b', int32 '__idiv1004152_q', int32 '__idiv1004152_r', int32 '__idiv1004170_a', int32 '__idiv1004170_b', int32 '__idiv1004170_q', int32 '__idiv1004170_r', int32 '__idiv1004195_a', int32 '__idiv1004195_b', int32 '__idiv1004195_q', int32 '__idiv1004195_r', int32 '__idiv1004227_a', int32 '__idiv1004227_b', int32 '__idiv1004227_q', int32 '__idiv1004227_r', int64 'hWh', int32 '__idiv1004297_a', int32 '__idiv1004297_b', int32 '__idiv1004297_q', int32 '__idiv1004297_r', int64 'dWh', int32 '__idiv1004334_a', int32 '__idiv1004334_b', int32 '__idiv1004334_q', int32 '__idiv1004334_r', int32 '__idiv1004345_a', int32 '__idiv1004345_b', int32 '__idiv1004345_q', int32 '__idiv1004345_r', int32 '__idiv1004356_a', int32 '__idiv1004356_b', int32 '__idiv1004356_q', int32 '__idiv1004356_r', int32 '__idiv1004367_a', int32 '__idiv1004367_b', int32 '__idiv1004367_q', int32 '__idiv1004367_r', float32 'lr', int32 'step', int64 'xh1d', int64 's1d', int64 'y2d', int64 'xh2d', int64 's2d', int64 'pd', int64 'zd', int64 'od', float32 'sm', float32 'su', float32 'sq', float32 'xv', float32 'mn', float32 'vr', float32 'rs', float32 'xhv', float32 'mx', float32 'sv', float32 'zs', float32 'ev', float32 'pv', float32 'zz', float32 'thv', float32 'e2', float32 'lossv', float32 'lv', int32 'idv', float32 'pc', float32 'dv', int64 'gqd', int64 'gkd', int64 'gvd', int64 'god', int64 'g1d', int64 'g2d', float32 'dg', float32 'rv', float32 'acc1', float32 'acc2', float32 'dvv', float32 'gvv', float32 'dxv', float32 'rst', int64 'wqh', int64 'wkh', int64 'wvh', int64 'woh', int64 'w1h', int64 'w2h', float32 'nv', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum', int32 '__licm249', int32 '__licm250', int32 '__licm251', int32 '__licm252')
+    .maxstack 1092
+    .locals init (int32 'rc', int64 'hcell', int64 'ch', int32 'NL', int32 'T', int32 'H', int32 'F', int32 'V', int32 'hb', int32 'h4', int32 'qb', int32 'fb', int32 'sb', int32 'tvb', int32 'stb', int32 'whb', int32 'w1b', int32 'w2b', int32 'wh2', int32 'msz', int64 'cell', int64 'AWq', int64 'AWk', int64 'AWv', int64 'AWo', int64 'AW1', int64 'AW2', int64 'AGq', int64 'AGk', int64 'AGv', int64 'AGo', int64 'AG1', int64 'AG2', int64 'AX1', int64 'AY1', int64 'AS1', int64 'AY2', int64 'AX2', int64 'AS2', int64 'AP', int64 'AZ', int64 'AO', int64 'HWq', int64 'HWk', int64 'HWv', int64 'HWo', int64 'HW1', int64 'HW2', int64 'HGq', int64 'HGk', int64 'HGv', int64 'HGo', int64 'HG1', int64 'HG2', int64 'one', int64 'wh', int64 'zero', int64 'hal', int64 'hX', int64 'hIds', int32 'ii', int32 'jj', int32 '__idiv1003631_a', int32 '__idiv1003631_b', int32 '__idiv1003631_q', int32 '__idiv1003631_r', int64 'dY1', int64 '__tern1', int64 'dS', int64 'dP', int64 'dQ', int64 'dK', int64 'dV', int64 'dA', int64 'dO', int64 'dX2', int64 'dY2', int64 'dZ', int64 'dHH', int64 'dO2', int64 'dOUT', int64 'dLG', int64 'dDL', int64 'gHH', int64 'gZ', int64 'gY2', int64 'gDX2', int64 'gA', int64 'gWo', int64 'gP', int64 'gV', int64 'gS', int64 'gQ', int64 'gK', int64 'gY1', int64 'gOUT', int64 'hY1', int64 'hY2', int64 'hST', int64 'hXH', int64 'hyq', int64 'hyk', int64 'hyv', int64 'g1h', int64 'b1h', int64 'g2h', int64 'b2h', int64 'hS', int64 'hP', int64 'hO', int64 'hX2', int64 'hO2', int64 'hOUT', int64 'hZ', int64 'hLG', int64 'hDL', int64 'hGP', int64 'hDS', int64 'hGY2', int64 'hGDX2', int64 'hy1', int64 'gWh', int64 'gW1h', int64 'gW2h', int64 'gWqh', int64 'gWkh', int64 'gWvh', int64 'gWoh', int32 'll', int64 'wqd', int64 'wkd', int64 'wvd', int64 'wod', int64 'w1d', int64 'w2d', int64 'hwq', int64 'hwk', int64 'hwv', int64 'hwo', int64 'hw1', int64 'hw2', int32 '__idiv1004191_a', int32 '__idiv1004191_b', int32 '__idiv1004191_q', int32 '__idiv1004191_r', int32 '__idiv1004209_a', int32 '__idiv1004209_b', int32 '__idiv1004209_q', int32 '__idiv1004209_r', int32 '__idiv1004227_a', int32 '__idiv1004227_b', int32 '__idiv1004227_q', int32 '__idiv1004227_r', int32 '__idiv1004245_a', int32 '__idiv1004245_b', int32 '__idiv1004245_q', int32 '__idiv1004245_r', int32 '__idiv1004270_a', int32 '__idiv1004270_b', int32 '__idiv1004270_q', int32 '__idiv1004270_r', int32 '__idiv1004302_a', int32 '__idiv1004302_b', int32 '__idiv1004302_q', int32 '__idiv1004302_r', int64 'hWh', int32 '__idiv1004372_a', int32 '__idiv1004372_b', int32 '__idiv1004372_q', int32 '__idiv1004372_r', int64 'dWh', int32 '__idiv1004409_a', int32 '__idiv1004409_b', int32 '__idiv1004409_q', int32 '__idiv1004409_r', int32 '__idiv1004420_a', int32 '__idiv1004420_b', int32 '__idiv1004420_q', int32 '__idiv1004420_r', int32 '__idiv1004431_a', int32 '__idiv1004431_b', int32 '__idiv1004431_q', int32 '__idiv1004431_r', int32 '__idiv1004442_a', int32 '__idiv1004442_b', int32 '__idiv1004442_q', int32 '__idiv1004442_r', float32 'lr', int32 'step', int64 'xh1d', int64 's1d', int64 'y2d', int64 'xh2d', int64 's2d', int64 'pd', int64 'zd', int64 'od', float32 'sm', float32 'su', float32 'sq', float32 'xv', float32 'mn', float32 'vr', float32 'rs', float32 'xhv', float32 'mx', float32 'sv', float32 'zs', float32 'ev', float32 'pv', float32 'zz', float32 'thv', float32 'e2', float32 'lossv', float32 'lv', int32 'idv', float32 'pc', float32 'dv', int64 'gqd', int64 'gkd', int64 'gvd', int64 'god', int64 'g1d', int64 'g2d', float32 'dg', float32 'rv', float32 'acc1', float32 'acc2', float32 'dvv', float32 'gvv', float32 'dxv', float32 'rst', int64 'wqh', int64 'wkh', int64 'wvh', int64 'woh', int64 'w1h', int64 'w2h', float32 'nv', valuetype TkvInt '__tkvint_a', valuetype TkvInt '__tkvint_b', valuetype TkvInt '__tkvint_r', int64 '__tkvint_x', valuetype [System.Numerics]System.Numerics.Complex '__tkvcplx_str', object '__arr2d_src', object '__arr2d_dst', int32 '__arr2d_i', int32 '__arr2d_n', valuetype [System.Numerics]System.Numerics.Vector4 '__v4hsum', int32 '__licm249', int32 '__licm250', int32 '__licm251', int32 '__licm252')
     ldc.i4 0
     call int32 TKVApp::__pinvoke_cu_init(int32)
     stloc.s 0
@@ -4131,6 +4131,85 @@
     ldloc.s 4
     call int32 TKVApp::__pinvoke_cublas_sgemm(int64, int32, int32, int32, int32, int32, int64, int64, int32, int64, int32, int64, int64, int32)
     stloc.s 0
+    ldloc.s 0
+    ldc.i4 0
+    ceq
+    ldc.i4.0
+    ceq
+    brfalse run_If42_else
+    ldstr "A GEMM FAIL"
+    ldstr " "
+    ldloc.s 128
+    call string TkvStr::I32(int32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 0
+    call string TkvStr::I32(int32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
+    ldc.i4 1
+    ret
+  run_If42_else:
+    ldloc.s 128
+    ldc.i4 0
+    ceq
+    brfalse run_If43_else
+    ldloc.s 109
+    ldloc.s 73
+    ldloc.s 10
+    conv.i8
+    ldc.i4 2
+    call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
+    conv.i8
+    stloc.s 55
+    ldc.r4 0.0
+    stloc.s 197
+    ldc.i4 0
+    stloc.s 60
+  run_W44_start:
+    ldloc.s 60
+    conv.r8
+    ldloc.s 10
+    conv.r8
+    ldc.i4 4
+    dup
+    brtrue run_tdiv45_nz
+    pop
+    ldstr "division by zero"
+    newobj instance void [mscorlib]System.DivideByZeroException::.ctor(string)
+    throw
+  run_tdiv45_nz:
+    conv.r8
+    div
+    clt
+    brfalse run_W44_end
+    ldloc.s 197
+    ldloc.s 109
+    ldloc.s 60
+    ldc.i4 4
+    mul
+    conv.i8
+    add
+    conv.i
+    ldind.r4
+    add
+    stloc.s 197
+    ldloc.s 60
+    ldc.i4 1
+    add
+    stloc.s 60
+    br run_W44_start
+  run_W44_end:
+    ldstr "F2b dA"
+    ldstr " "
+    ldloc.s 197
+    call string TkvStr::F32(float32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
+  run_If43_else:
     ldloc.s 2
     ldc.i4 0
     ldc.i4 0
@@ -4147,31 +4226,64 @@
     ldloc.s 4
     call int32 TKVApp::__pinvoke_cublas_sgemm(int64, int32, int32, int32, int32, int32, int64, int64, int32, int64, int32, int64, int64, int32)
     stloc.s 0
+    ldloc.s 0
+    ldc.i4 0
+    ceq
+    ldc.i4.0
+    ceq
+    brfalse run_If46_else
+    ldstr "O GEMM FAIL"
+    ldstr " "
+    ldloc.s 128
+    call string TkvStr::I32(int32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 0
+    call string TkvStr::I32(int32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
+    ldc.i4 1
+    ret
+  run_If46_else:
     ldloc.s 128
     ldc.i4 0
     ceq
-    brfalse run_If42_else
+    brfalse run_If47_else
+    ldstr "F2c wod"
+    ldstr " "
+    ldloc.s 132
+    call string TkvStr::I64(int64)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
+  run_If47_else:
+    ldloc.s 128
+    ldc.i4 0
+    ceq
+    brfalse run_If48_else
     ldc.r4 0.0
     stloc.s 197
     ldc.i4 0
     stloc.s 60
-  run_W43_start:
+  run_W49_start:
     ldloc.s 60
     conv.r8
     ldloc.s 10
     conv.r8
     ldc.i4 4
     dup
-    brtrue run_tdiv44_nz
+    brtrue run_tdiv50_nz
     pop
     ldstr "division by zero"
     newobj instance void [mscorlib]System.DivideByZeroException::.ctor(string)
     throw
-  run_tdiv44_nz:
+  run_tdiv50_nz:
     conv.r8
     div
     clt
-    brfalse run_W43_end
+    brfalse run_W49_end
     ldloc.s 197
     ldloc.s 109
     ldloc.s 60
@@ -4187,8 +4299,8 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W43_start
-  run_W43_end:
+    br run_W49_start
+  run_W49_end:
     ldstr "F3 attn"
     ldstr " "
     ldloc.s 197
@@ -4196,7 +4308,7 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
-  run_If42_else:
+  run_If48_else:
     ldloc.s 109
     ldloc.s 74
     ldloc.s 10
@@ -4207,18 +4319,18 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W45_start:
+  run_W51_start:
     ldloc.s 60
     ldloc.s 4
     clt
-    brfalse run_W45_end
+    brfalse run_W51_end
     ldc.i4 0
     stloc.s 61
-  run_W46_start:
+  run_W52_start:
     ldloc.s 61
     ldloc.s 5
     clt
-    brfalse run_W46_end
+    brfalse run_W52_end
     ldloc.s 110
     ldloc.s 60
     ldloc.s 61
@@ -4262,14 +4374,14 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W46_start
-  run_W46_end:
+    br run_W52_start
+  run_W52_end:
     ldloc.s 60
     ldc.i4 1
     add
     stloc.s 60
-    br run_W45_start
-  run_W45_end:
+    br run_W51_start
+  run_W51_end:
     ldloc.s 75
     ldloc.s 110
     ldloc.s 10
@@ -4280,22 +4392,22 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W47_start:
+  run_W53_start:
     ldloc.s 60
     ldloc.s 4
     clt
-    brfalse run_W47_end
+    brfalse run_W53_end
     ldc.r4 0.0
     stloc.s 198
     ldc.r4 0.0
     stloc.s 199
     ldc.i4 0
     stloc.s 61
-  run_W48_start:
+  run_W54_start:
     ldloc.s 61
     ldloc.s 5
     clt
-    brfalse run_W48_end
+    brfalse run_W54_end
     ldloc.s 110
     ldloc.s 60
     ldloc.s 61
@@ -4323,8 +4435,8 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W48_start
-  run_W48_end:
+    br run_W54_start
+  run_W54_end:
     ldloc.s 198
     ldloc.s 5
     conv.r4
@@ -4374,11 +4486,11 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 61
-  run_W49_start:
+  run_W55_start:
     ldloc.s 61
     ldloc.s 5
     clt
-    brfalse run_W49_end
+    brfalse run_W55_end
     ldloc.s 110
     ldloc.s 60
     ldloc.s 61
@@ -4450,39 +4562,39 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W49_start
-  run_W49_end:
+    br run_W55_start
+  run_W55_end:
     ldloc.s 60
     ldc.i4 1
     add
     stloc.s 60
-    br run_W47_start
-  run_W47_end:
+    br run_W53_start
+  run_W53_end:
     ldloc.s 128
     ldc.i4 0
     ceq
-    brfalse run_If50_else
+    brfalse run_If56_else
     ldc.r4 0.0
     stloc.s 197
     ldc.i4 0
     stloc.s 60
-  run_W51_start:
+  run_W57_start:
     ldloc.s 60
     conv.r8
     ldloc.s 10
     conv.r8
     ldc.i4 4
     dup
-    brtrue run_tdiv52_nz
+    brtrue run_tdiv58_nz
     pop
     ldstr "division by zero"
     newobj instance void [mscorlib]System.DivideByZeroException::.ctor(string)
     throw
-  run_tdiv52_nz:
+  run_tdiv58_nz:
     conv.r8
     div
     clt
-    brfalse run_W51_end
+    brfalse run_W57_end
     ldloc.s 197
     ldloc.s 97
     ldloc.s 60
@@ -4498,8 +4610,8 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W51_start
-  run_W51_end:
+    br run_W57_start
+  run_W57_end:
     ldstr "F4 ln2"
     ldstr " "
     ldloc.s 197
@@ -4507,7 +4619,7 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
-  run_If50_else:
+  run_If56_else:
     ldloc.s 76
     ldloc.s 97
     ldloc.s 10
@@ -4564,6 +4676,65 @@
     call int32 TKVApp::__pinvoke_cuda_h2d(int64, int64, int64, int32)
     conv.i8
     stloc.s 55
+    ldloc.s 128
+    ldc.i4 0
+    ceq
+    brfalse run_If59_else
+    ldc.r4 0.0
+    stloc.s 197
+    ldc.i4 0
+    stloc.s 60
+  run_W60_start:
+    ldloc.s 60
+    conv.r8
+    ldloc.s 11
+    conv.r8
+    ldc.i4 4
+    dup
+    brtrue run_tdiv61_nz
+    pop
+    ldstr "division by zero"
+    newobj instance void [mscorlib]System.DivideByZeroException::.ctor(string)
+    throw
+  run_tdiv61_nz:
+    conv.r8
+    div
+    clt
+    brfalse run_W60_end
+    ldloc.s 197
+    ldloc.s 113
+    ldloc.s 60
+    ldc.i4 4
+    mul
+    conv.i8
+    add
+    conv.i
+    ldind.r4
+    add
+    stloc.s 197
+    ldloc.s 60
+    ldc.i4 1
+    add
+    stloc.s 60
+    br run_W60_start
+  run_W60_end:
+    ldstr "F4b Z"
+    ldstr " "
+    ldloc.s 197
+    call string TkvStr::F32(float32)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldstr "w1d"
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    ldstr " "
+    ldloc.s 133
+    call string TkvStr::I64(int64)
+    call string [mscorlib]System.String::Concat(string, string)
+    call string [mscorlib]System.String::Concat(string, string)
+    call void [mscorlib]System.Console::WriteLine(string)
+  run_If59_else:
     ldloc.s 195
     ldloc.s 77
     ldloc.s 11
@@ -4574,11 +4745,11 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W53_start:
+  run_W62_start:
     ldloc.s 60
     ldloc.s 249
     clt
-    brfalse run_W53_end
+    brfalse run_W62_end
     ldloc.s 113
     ldloc.s 60
     ldc.i4 4
@@ -4606,16 +4777,16 @@
     ldc.r4 8.0
     neg
     clt
-    brfalse run_If54_else
+    brfalse run_If63_else
     ldc.r4 1.0
     neg
     stloc.s 211
-    br run_If54_end
-  run_If54_else:
+    br run_If63_end
+  run_If63_else:
     ldloc.s 210
     ldc.r4 8.0
     clt
-    brfalse run_If55_else
+    brfalse run_If64_else
     ldc.r4 2.0
     ldloc.s 210
     mul
@@ -4631,8 +4802,8 @@
     add
     div
     stloc.s 211
-  run_If55_else:
-  run_If54_end:
+  run_If64_else:
+  run_If63_end:
     ldloc.s 113
     ldloc.s 60
     ldc.i4 4
@@ -4654,33 +4825,33 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W53_start
-  run_W53_end:
+    br run_W62_start
+  run_W62_end:
     ldloc.s 128
     ldc.i4 0
     ceq
-    brfalse run_If56_else
+    brfalse run_If65_else
     ldc.r4 0.0
     stloc.s 197
     ldc.i4 0
     stloc.s 60
-  run_W57_start:
+  run_W66_start:
     ldloc.s 60
     conv.r8
     ldloc.s 11
     conv.r8
     ldc.i4 4
     dup
-    brtrue run_tdiv58_nz
+    brtrue run_tdiv67_nz
     pop
     ldstr "division by zero"
     newobj instance void [mscorlib]System.DivideByZeroException::.ctor(string)
     throw
-  run_tdiv58_nz:
+  run_tdiv67_nz:
     conv.r8
     div
     clt
-    brfalse run_W57_end
+    brfalse run_W66_end
     ldloc.s 197
     ldloc.s 113
     ldloc.s 60
@@ -4696,8 +4867,8 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W57_start
-  run_W57_end:
+    br run_W66_start
+  run_W66_end:
     ldstr "F5 gelu"
     ldstr " "
     ldloc.s 197
@@ -4705,7 +4876,7 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
-  run_If56_else:
+  run_If65_else:
     ldloc.s 78
     ldloc.s 113
     ldloc.s 11
@@ -4740,18 +4911,18 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W59_start:
+  run_W68_start:
     ldloc.s 60
     ldloc.s 4
     clt
-    brfalse run_W59_end
+    brfalse run_W68_end
     ldc.i4 0
     stloc.s 61
-  run_W60_start:
+  run_W69_start:
     ldloc.s 61
     ldloc.s 5
     clt
-    brfalse run_W60_end
+    brfalse run_W69_end
     ldloc.s 112
     ldloc.s 60
     ldloc.s 61
@@ -4795,14 +4966,14 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W60_start
-  run_W60_end:
+    br run_W69_start
+  run_W69_end:
     ldloc.s 60
     ldc.i4 1
     add
     stloc.s 60
-    br run_W59_start
-  run_W59_end:
+    br run_W68_start
+  run_W68_end:
     ldloc.s 196
     ldloc.s 112
     ldloc.s 10
@@ -4815,23 +4986,23 @@
     stloc.s 197
     ldc.i4 0
     stloc.s 60
-  run_W61_start:
+  run_W70_start:
     ldloc.s 60
     conv.r8
     ldloc.s 10
     conv.r8
     ldc.i4 4
     dup
-    brtrue run_tdiv62_nz
+    brtrue run_tdiv71_nz
     pop
     ldstr "division by zero"
     newobj instance void [mscorlib]System.DivideByZeroException::.ctor(string)
     throw
-  run_tdiv62_nz:
+  run_tdiv71_nz:
     conv.r8
     div
     clt
-    brfalse run_W61_end
+    brfalse run_W70_end
     ldloc.s 197
     ldloc.s 112
     ldloc.s 60
@@ -4865,8 +5036,8 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W61_start
-  run_W61_end:
+    br run_W70_start
+  run_W70_end:
     ldstr "DBGL"
     ldstr " "
     ldloc.s 128
@@ -4921,21 +5092,21 @@
     stloc.s 213
     ldc.i4 0
     stloc.s 60
-  run_W63_start:
+  run_W72_start:
     ldloc.s 60
     ldloc.s 4
     clt
-    brfalse run_W63_end
+    brfalse run_W72_end
     ldc.r4 1000000000.0
     neg
     stloc.s 205
     ldc.i4 0
     stloc.s 61
-  run_W64_start:
+  run_W73_start:
     ldloc.s 61
     ldloc.s 7
     clt
-    brfalse run_W64_end
+    brfalse run_W73_end
     ldloc.s 114
     ldloc.s 60
     ldloc.s 61
@@ -4952,25 +5123,25 @@
     ldloc.s 214
     ldloc.s 205
     cgt
-    brfalse run_If65_else
+    brfalse run_If74_else
     ldloc.s 214
     stloc.s 205
-  run_If65_else:
+  run_If74_else:
     ldloc.s 61
     ldc.i4 1
     add
     stloc.s 61
-    br run_W64_start
-  run_W64_end:
+    br run_W73_start
+  run_W73_end:
     ldc.r4 0.0
     stloc.s 207
     ldc.i4 0
     stloc.s 61
-  run_W66_start:
+  run_W75_start:
     ldloc.s 61
     ldloc.s 7
     clt
-    brfalse run_W66_end
+    brfalse run_W75_end
     ldloc.s 114
     ldloc.s 60
     ldloc.s 61
@@ -5014,8 +5185,8 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W66_start
-  run_W66_end:
+    br run_W75_start
+  run_W75_end:
     ldloc.s 59
     ldloc.s 60
     ldc.i4 4
@@ -5049,11 +5220,11 @@
     stloc.s 213
     ldc.i4 0
     stloc.s 61
-  run_W67_start:
+  run_W76_start:
     ldloc.s 61
     ldloc.s 7
     clt
-    brfalse run_W67_end
+    brfalse run_W76_end
     ldloc.s 115
     ldloc.s 60
     ldloc.s 61
@@ -5074,12 +5245,12 @@
     ldloc.s 61
     ldloc.s 215
     ceq
-    brfalse run_If68_else
+    brfalse run_If77_else
     ldloc.s 217
     ldc.r4 1.0
     sub
     stloc.s 217
-  run_If68_else:
+  run_If77_else:
     ldloc.s 115
     ldloc.s 60
     ldloc.s 61
@@ -5102,14 +5273,14 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W67_start
-  run_W67_end:
+    br run_W76_start
+  run_W76_end:
     ldloc.s 60
     ldc.i4 1
     add
     stloc.s 60
-    br run_W63_start
-  run_W63_end:
+    br run_W72_start
+  run_W72_end:
     ldloc.s 213
     ldloc.s 4
     conv.r4
@@ -5157,13 +5328,13 @@
     ldc.i4 1
     sub
     stloc.s 128
-  run_W69_start:
+  run_W78_start:
     ldloc.s 128
     ldc.i4 0
     clt
     ldc.i4.0
     ceq
-    brfalse run_W69_end
+    brfalse run_W78_end
     ldloc.s 21
     ldloc.s 128
     ldc.i4 8
@@ -5396,11 +5567,11 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W70_start:
+  run_W79_start:
     ldloc.s 60
     ldloc.s 249
     clt
-    brfalse run_W70_end
+    brfalse run_W79_end
     ldloc.s 113
     ldloc.s 60
     ldc.i4 4
@@ -5458,33 +5629,33 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W70_start
-  run_W70_end:
+    br run_W79_start
+  run_W79_end:
     ldloc.s 128
     ldc.i4 0
     ceq
-    brfalse run_If71_else
+    brfalse run_If80_else
     ldc.r4 0.0
     stloc.s 197
     ldc.i4 0
     stloc.s 60
-  run_W72_start:
+  run_W81_start:
     ldloc.s 60
     conv.r8
     ldloc.s 11
     conv.r8
     ldc.i4 4
     dup
-    brtrue run_tdiv73_nz
+    brtrue run_tdiv82_nz
     pop
     ldstr "division by zero"
     newobj instance void [mscorlib]System.DivideByZeroException::.ctor(string)
     throw
-  run_tdiv73_nz:
+  run_tdiv82_nz:
     conv.r8
     div
     clt
-    brfalse run_W72_end
+    brfalse run_W81_end
     ldloc.s 197
     ldloc.s 113
     ldloc.s 60
@@ -5500,8 +5671,8 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W72_start
-  run_W72_end:
+    br run_W81_start
+  run_W81_end:
     ldstr "F5 gelu"
     ldstr " "
     ldloc.s 197
@@ -5509,7 +5680,7 @@
     call string [mscorlib]System.String::Concat(string, string)
     call string [mscorlib]System.String::Concat(string, string)
     call void [mscorlib]System.Console::WriteLine(string)
-  run_If71_else:
+  run_If80_else:
     ldloc.s 78
     ldloc.s 113
     ldloc.s 11
@@ -5536,11 +5707,11 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W74_start:
+  run_W83_start:
     ldloc.s 60
     ldloc.s 249
     clt
-    brfalse run_W74_end
+    brfalse run_W83_end
     ldloc.s 113
     ldloc.s 60
     ldc.i4 4
@@ -5568,16 +5739,16 @@
     ldc.r4 8.0
     neg
     clt
-    brfalse run_If75_else
+    brfalse run_If84_else
     ldc.r4 1.0
     neg
     stloc.s 211
-    br run_If75_end
-  run_If75_else:
+    br run_If84_end
+  run_If84_else:
     ldloc.s 210
     ldc.r4 8.0
     clt
-    brfalse run_If76_else
+    brfalse run_If85_else
     ldc.r4 2.0
     ldloc.s 210
     mul
@@ -5593,8 +5764,8 @@
     add
     div
     stloc.s 211
-  run_If76_else:
-  run_If75_end:
+  run_If85_else:
+  run_If84_end:
     ldc.r4 0.5
     ldc.r4 1.0
     ldloc.s 211
@@ -5645,8 +5816,8 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W74_start
-  run_W74_end:
+    br run_W83_start
+  run_W83_end:
     ldloc.s 84
     ldloc.s 113
     ldloc.s 11
@@ -5729,11 +5900,11 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W77_start:
+  run_W86_start:
     ldloc.s 60
     ldloc.s 4
     clt
-    brfalse run_W77_end
+    brfalse run_W86_end
     ldloc.s 98
     ldloc.s 60
     ldc.i4 8
@@ -5760,11 +5931,11 @@
     stloc.s 227
     ldc.i4 0
     stloc.s 61
-  run_W78_start:
+  run_W87_start:
     ldloc.s 61
     ldloc.s 5
     clt
-    brfalse run_W78_end
+    brfalse run_W87_end
     ldloc.s 118
     ldloc.s 60
     ldloc.s 61
@@ -5818,15 +5989,15 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W78_start
-  run_W78_end:
+    br run_W87_start
+  run_W87_end:
     ldc.i4 0
     stloc.s 61
-  run_W79_start:
+  run_W88_start:
     ldloc.s 61
     ldloc.s 5
     clt
-    brfalse run_W79_end
+    brfalse run_W88_end
     ldloc.s 118
     ldloc.s 60
     ldloc.s 61
@@ -5912,14 +6083,14 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W79_start
-  run_W79_end:
+    br run_W88_start
+  run_W88_end:
     ldloc.s 60
     ldc.i4 1
     add
     stloc.s 60
-    br run_W77_start
-  run_W77_end:
+    br run_W86_start
+  run_W86_end:
     ldloc.s 86
     ldloc.s 119
     ldloc.s 10
@@ -6010,20 +6181,20 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W80_start:
+  run_W89_start:
     ldloc.s 60
     ldloc.s 4
     clt
-    brfalse run_W80_end
+    brfalse run_W89_end
     ldc.r4 0.0
     stloc.s 231
     ldc.i4 0
     stloc.s 61
-  run_W81_start:
+  run_W90_start:
     ldloc.s 61
     ldloc.s 4
     clt
-    brfalse run_W81_end
+    brfalse run_W90_end
     ldloc.s 231
     ldloc.s 108
     ldloc.s 60
@@ -6056,15 +6227,15 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W81_start
-  run_W81_end:
+    br run_W90_start
+  run_W90_end:
     ldc.i4 0
     stloc.s 61
-  run_W82_start:
+  run_W91_start:
     ldloc.s 61
     ldloc.s 4
     clt
-    brfalse run_W82_end
+    brfalse run_W91_end
     ldloc.s 117
     ldloc.s 60
     ldloc.s 61
@@ -6110,14 +6281,14 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W82_start
-  run_W82_end:
+    br run_W91_start
+  run_W91_end:
     ldloc.s 60
     ldc.i4 1
     add
     stloc.s 60
-    br run_W80_start
-  run_W80_end:
+    br run_W89_start
+  run_W89_end:
     ldloc.s 91
     ldloc.s 117
     ldloc.s 12
@@ -6280,18 +6451,18 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W83_start:
+  run_W92_start:
     ldloc.s 60
     ldloc.s 4
     clt
-    brfalse run_W83_end
+    brfalse run_W92_end
     ldc.i4 0
     stloc.s 61
-  run_W84_start:
+  run_W93_start:
     ldloc.s 61
     ldloc.s 5
     clt
-    brfalse run_W84_end
+    brfalse run_W93_end
     ldloc.s 120
     ldloc.s 60
     ldloc.s 61
@@ -6348,14 +6519,14 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W84_start
-  run_W84_end:
+    br run_W93_start
+  run_W93_end:
     ldloc.s 60
     ldc.i4 1
     add
     stloc.s 60
-    br run_W83_start
-  run_W83_end:
+    br run_W92_start
+  run_W92_end:
     ldloc.s 66
     ldloc.s 34
     ldloc.s 128
@@ -6405,11 +6576,11 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W85_start:
+  run_W94_start:
     ldloc.s 60
     ldloc.s 4
     clt
-    brfalse run_W85_end
+    brfalse run_W94_end
     ldloc.s 98
     ldloc.s 60
     ldc.i4 8
@@ -6436,11 +6607,11 @@
     stloc.s 227
     ldc.i4 0
     stloc.s 61
-  run_W86_start:
+  run_W95_start:
     ldloc.s 61
     ldloc.s 5
     clt
-    brfalse run_W86_end
+    brfalse run_W95_end
     ldloc.s 118
     ldloc.s 60
     ldloc.s 61
@@ -6494,15 +6665,15 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W86_start
-  run_W86_end:
+    br run_W95_start
+  run_W95_end:
     ldc.i4 0
     stloc.s 61
-  run_W87_start:
+  run_W96_start:
     ldloc.s 61
     ldloc.s 5
     clt
-    brfalse run_W87_end
+    brfalse run_W96_end
     ldloc.s 118
     ldloc.s 60
     ldloc.s 61
@@ -6573,14 +6744,14 @@
     ldc.i4 1
     add
     stloc.s 61
-    br run_W87_start
-  run_W87_end:
+    br run_W96_start
+  run_W96_end:
     ldloc.s 60
     ldc.i4 1
     add
     stloc.s 60
-    br run_W85_start
-  run_W85_end:
+    br run_W94_start
+  run_W94_end:
     ldloc.s 95
     ldloc.s 119
     ldloc.s 10
@@ -6600,8 +6771,8 @@
     ldc.i4 1
     sub
     stloc.s 128
-    br run_W69_start
-  run_W69_end:
+    br run_W78_start
+  run_W78_end:
     ldstr "MARK BWD"
     ldstr " "
     ldloc.s 188
@@ -6611,11 +6782,11 @@
     call void [mscorlib]System.Console::WriteLine(string)
     ldc.i4 0
     stloc.s 128
-  run_W88_start:
+  run_W97_start:
     ldloc.s 128
     ldloc.s 3
     clt
-    brfalse run_W88_end
+    brfalse run_W97_end
     ldloc.s 27
     ldloc.s 128
     ldc.i4 8
@@ -6774,11 +6945,11 @@
     stloc.s 55
     ldc.i4 0
     stloc.s 60
-  run_W89_start:
+  run_W98_start:
     ldloc.s 60
     ldloc.s 250
     clt
-    brfalse run_W89_end
+    brfalse run_W98_end
     ldloc.s 232
     ldloc.s 60
     ldc.i4 4
@@ -6907,15 +7078,15 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W89_start
-  run_W89_end:
+    br run_W98_start
+  run_W98_end:
     ldc.i4 0
     stloc.s 60
-  run_W90_start:
+  run_W99_start:
     ldloc.s 60
     ldloc.s 251
     clt
-    brfalse run_W90_end
+    brfalse run_W99_end
     ldloc.s 236
     ldloc.s 60
     ldc.i4 4
@@ -6951,15 +7122,15 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W90_start
-  run_W90_end:
+    br run_W99_start
+  run_W99_end:
     ldc.i4 0
     stloc.s 60
-  run_W91_start:
+  run_W100_start:
     ldloc.s 60
     ldloc.s 252
     clt
-    brfalse run_W91_end
+    brfalse run_W100_end
     ldloc.s 237
     ldloc.s 60
     ldc.i4 4
@@ -6995,8 +7166,8 @@
     ldc.i4 1
     add
     stloc.s 60
-    br run_W91_start
-  run_W91_end:
+    br run_W100_start
+  run_W100_end:
     ldloc.s 21
     ldloc.s 128
     ldc.i4 8
@@ -7091,8 +7262,8 @@
     ldc.i4 1
     add
     stloc.s 128
-    br run_W88_start
-  run_W88_end:
+    br run_W97_start
+  run_W97_end:
     ldstr "MARK UPD"
     ldstr " "
     ldloc.s 188

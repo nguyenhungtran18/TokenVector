@@ -396,7 +396,23 @@ def run() -> "i32":
                 print("F2 softmax", sm)
             wh = cuda_h2d(pd, hP, sb, 1)
             rc = cublas_sgemm(ch, 0, 0, T, H, T, one, dP, T, dV, T, zero, dA, T)
+            if rc != 0:
+                print("A GEMM FAIL", ll, rc)
+                return 1
+            if ll == 0:
+                wh = cuda_h2d(hO, dA, qb, 2)
+                sm = 0.0
+                ii = 0
+                while ii < qb / 4:
+                    sm = sm + read_f32(hO, ii * 4)
+                    ii = ii + 1
+                print("F2b dA", sm)
             rc = cublas_sgemm(ch, 0, 0, T, H, H, one, dA, T, wod, H, zero, dO, T)
+            if rc != 0:
+                print("O GEMM FAIL", ll, rc)
+                return 1
+            if ll == 0:
+                print("F2c wod", wod)
             if ll == 0:
                 sm = 0.0
                 ii = 0
@@ -449,6 +465,13 @@ def run() -> "i32":
             wh = cuda_h2d(s2d, hST, stb, 1)
             rc = cublas_sgemm(ch, 0, 0, T, F, H, one, dY2, T, w1d, H, zero, dZ, T)
             wh = cuda_h2d(hZ, dZ, fb, 2)
+            if ll == 0:
+                sm = 0.0
+                ii = 0
+                while ii < fb / 4:
+                    sm = sm + read_f32(hZ, ii * 4)
+                    ii = ii + 1
+                print("F4b Z", sm, "w1d", w1d)
             wh = cuda_h2d(zd, dZ, fb, 1)
             ii = 0
             while ii < T * F:
