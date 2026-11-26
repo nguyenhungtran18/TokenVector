@@ -2598,7 +2598,7 @@
     stloc.s 114
     ldstr "T2 scratch"
     call void [mscorlib]System.Console::WriteLine(string)
-    ldc.r4 0.001
+    ldc.r4 0.0001
     stloc.s 115
     call float64 TkvTime::Perf()
     stloc.s 116
