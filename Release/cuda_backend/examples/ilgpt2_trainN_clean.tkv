@@ -305,7 +305,7 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.1)
         wh = write_f32(b2h, ii * 4, 0.02)
         ii = ii + 1
-    lr: "f32" = 0.0000001
+    lr: "f32" = 0.00001
     t0 = time_perf()
     step: "i32" = 1
     while step <= 2:
