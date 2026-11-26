@@ -2559,7 +2559,7 @@
     stloc.s 114
     ldstr "T2 scratch"
     call void [mscorlib]System.Console::WriteLine(string)
-    ldc.r4 0.02
+    ldc.r4 0.001
     stloc.s 115
     ldc.i4 1
     stloc.s 116
