@@ -323,6 +323,7 @@ def run() -> "i32":
             pd = read_i64(AP, ll * 8)
             zd = read_i64(AZ, ll * 8)
             od = read_i64(AO, ll * 8)
+            sm: "f32" = 0.0
             # LN1 tu hX (hoac OUT lop truoc)
             ii = 0
             while ii < T:
@@ -347,6 +348,13 @@ def run() -> "i32":
                     wh = write_f32(hXH, (ii + jj * T) * 4, xhv)
                     jj = jj + 1
                 ii = ii + 1
+            if ll == 0:
+                sm = 0.0
+                ii = 0
+                while ii < qb / 4:
+                    sm = sm + read_f32(hY1, ii * 4)
+                    ii = ii + 1
+                print("F1 ln1", sm)
             wh = cuda_h2d(dY1, hY1, qb, 1)
             wh = cuda_h2d(read_i64(AY1, ll * 8), hY1, qb, 1)
             wh = cuda_h2d(xh1d, hXH, qb, 1)
@@ -379,9 +387,23 @@ def run() -> "i32":
                     wh = write_f32(hP, (ii + jj * T) * 4, pv / zs)
                     jj = jj + 1
                 ii = ii + 1
+            if ll == 0:
+                sm = 0.0
+                ii = 0
+                while ii < sb / 4:
+                    sm = sm + read_f32(hP, ii * 4)
+                    ii = ii + 1
+                print("F2 softmax", sm)
             wh = cuda_h2d(pd, hP, sb, 1)
             rc = cublas_sgemm(ch, 0, 0, T, H, T, one, dP, T, dV, T, zero, dA, T)
             rc = cublas_sgemm(ch, 0, 0, T, H, H, one, dA, T, wod, H, zero, dO, T)
+            if ll == 0:
+                sm = 0.0
+                ii = 0
+                while ii < qb / 4:
+                    sm = sm + read_f32(hO, ii * 4)
+                    ii = ii + 1
+                print("F3 attn", sm)
             wh = cuda_h2d(hO, dO, qb, 2)
             ii = 0
             while ii < T:
@@ -414,6 +436,13 @@ def run() -> "i32":
                     wh = write_f32(hXH, (ii + jj * T) * 4, xhv)
                     jj = jj + 1
                 ii = ii + 1
+            if ll == 0:
+                sm = 0.0
+                ii = 0
+                while ii < qb / 4:
+                    sm = sm + read_f32(hY2, ii * 4)
+                    ii = ii + 1
+                print("F4 ln2", sm)
             wh = cuda_h2d(dY2, hY2, qb, 1)
             wh = cuda_h2d(y2d, hY2, qb, 1)
             wh = cuda_h2d(xh2d, hXH, qb, 1)
@@ -429,6 +458,13 @@ def run() -> "i32":
                 thv: "f32" = (e2 - 1.0) / (e2 + 1.0)
                 wh = write_f32(hZ, ii * 4, 0.5 * xv * (1.0 + thv))
                 ii = ii + 1
+            if ll == 0:
+                sm = 0.0
+                ii = 0
+                while ii < fb / 4:
+                    sm = sm + read_f32(hZ, ii * 4)
+                    ii = ii + 1
+                print("F5 gelu", sm)
             wh = cuda_h2d(dHH, hZ, fb, 1)
             rc = cublas_sgemm(ch, 0, 0, T, H, F, one, dHH, T, w2d, F, zero, dO2, T)
             wh = cuda_h2d(hO2, dO2, qb, 2)
@@ -440,7 +476,7 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(od, hOUT, qb, 1)
-            sm: "f32" = 0.0
+            sm = 0.0
             ii = 0
             while ii < qb / 4:
                 sm = sm + read_f32(hOUT, ii * 4)
@@ -510,6 +546,7 @@ def run() -> "i32":
             pd = read_i64(AP, ll * 8)
             zd = read_i64(AZ, ll * 8)
             od = read_i64(AO, ll * 8)
+            sm: "f32" = 0.0
             wh = cuda_h2d(od, hOUT, qb, 2)
             rc = cublas_sgemm(ch, 1, 0, F, H, T, one, dHH, T, gOUT, T, zero, g2d, F)
             rc = cublas_sgemm(ch, 0, 1, T, F, H, one, gOUT, T, w2d, F, zero, gHH, T)
@@ -522,6 +559,13 @@ def run() -> "i32":
                 thv = (e2 - 1.0) / (e2 + 1.0)
                 wh = write_f32(hZ, ii * 4, 0.5 * xv * (1.0 + thv))
                 ii = ii + 1
+            if ll == 0:
+                sm = 0.0
+                ii = 0
+                while ii < fb / 4:
+                    sm = sm + read_f32(hZ, ii * 4)
+                    ii = ii + 1
+                print("F5 gelu", sm)
             wh = cuda_h2d(dHH, hZ, fb, 1)
             # dZ tu Z goc
             wh = cuda_h2d(hZ, zd, fb, 2)
