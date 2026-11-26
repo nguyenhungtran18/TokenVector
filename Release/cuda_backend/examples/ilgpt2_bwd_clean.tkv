@@ -158,6 +158,10 @@ def run() -> "i32":
     rc = cuda_malloc(cell, hb * F)
     dW2 = read_i64(cell, 0)
     rc = cuda_malloc(cell, h4 * H)
+    dW1g = read_i64(cell, 0)
+    rc = cuda_malloc(cell, hb * F)
+    dW2g = read_i64(cell, 0)
+    rc = cuda_malloc(cell, h4 * H)
     dZg = read_i64(cell, 0)
     rc = cuda_malloc(cell, qb)
     dDX2 = read_i64(cell, 0)
@@ -214,7 +218,7 @@ def run() -> "i32":
     hal = alloc_bytes(4)
     a2: "i64" = write_f32(hal, 0, 1.0 / sqrt(H))
     # 1) dW2, dHH
-    rc = cublas_sgemm(ch, 1, 0, F, H, T, one, dHH, T, dDOUT, T, zero, dW2, F)
+    rc = cublas_sgemm(ch, 1, 0, F, H, T, one, dHH, T, dDOUT, T, zero, dW2g, F)
     if rc != 0:
         print("dW2 FAIL", rc)
         return 1
@@ -238,7 +242,7 @@ def run() -> "i32":
         kk = kk + 1
     q2: "i64" = cuda_h2d(dZg, hDZ, fb, 1)
     # 3) dW1, dY2
-    rc = cublas_sgemm(ch, 1, 0, H, F, T, one, dY2, T, dZg, T, zero, dW1, H)
+    rc = cublas_sgemm(ch, 1, 0, H, F, T, one, dY2, T, dZg, T, zero, dW1g, H)
     if rc != 0:
         print("dW1 FAIL", rc)
         return 1
@@ -398,7 +402,7 @@ def run() -> "i32":
     print("BW4")
     # dump
     hgr = alloc_bytes(h4 * H)
-    u0: "i64" = cuda_h2d(hgr, dW2, hb * F, 2)
+    u0: "i64" = cuda_h2d(hgr, dW2g, hb * F, 2)
     ii = 0
     while ii < F:
         jj = 0
@@ -407,7 +411,7 @@ def run() -> "i32":
             print("GW2", ii, jj, gvv)
             jj = jj + 1
         ii = ii + 1
-    u1: "i64" = cuda_h2d(hgr, dW1, h4 * H, 2)
+    u1: "i64" = cuda_h2d(hgr, dW1g, h4 * H, 2)
     ii = 0
     while ii < H:
         jj = 0
