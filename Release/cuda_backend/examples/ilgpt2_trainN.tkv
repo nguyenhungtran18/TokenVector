@@ -298,10 +298,10 @@ def run() -> "i32":
     wh = cuda_h2d(dWh, hWh, wh2, 1)
     ii = 0
     while ii < H:
-        wh = write_f32(g1h, ii * 4, 1.0 + 0.05 * ii)
-        wh = write_f32(b1h, ii * 4, 0.01 * ii)
-        wh = write_f32(g2h, ii * 4, 1.1 + 0.04 * ii)
-        wh = write_f32(b2h, ii * 4, 0.02 * ii)
+        wh = write_f32(g1h, ii * 4, 1.0 + 0.05 * (ii % 8))
+        wh = write_f32(b1h, ii * 4, 0.01 * (ii % 8))
+        wh = write_f32(g2h, ii * 4, 1.1 + 0.04 * (ii % 8))
+        wh = write_f32(b2h, ii * 4, 0.02 * (ii % 8))
         ii = ii + 1
     lr: "f32" = 0.0000001
     step: "i32" = 1
