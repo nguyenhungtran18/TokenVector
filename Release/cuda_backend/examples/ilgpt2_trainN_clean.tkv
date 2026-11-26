@@ -305,7 +305,7 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.1)
         wh = write_f32(b2h, ii * 4, 0.02)
         ii = ii + 1
-    lr: "f32" = 0.0000001
+    lr: "f32" = 0.0001
     t0 = time_perf()
     step: "i32" = 1
     while step <= 2:
@@ -552,6 +552,7 @@ def run() -> "i32":
             wh = cuda_h2d(dY1, read_i64(AY1, ll * 8), qb, 3)
             rc = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, wkd, H, zero, dK, T)
             rc = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, wvd, H, zero, dV, T)
+            rc = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, wqd, H, zero, dQ, T)
             wh = cuda_h2d(dP, pd, sb, 3)
             rc = cublas_sgemm(ch, 0, 0, T, H, T, one, dP, T, dV, T, zero, dA, T)
             rc = cublas_sgemm(ch, 1, 0, F, H, T, one, dHH, T, gOUT, T, zero, g2d, F)
