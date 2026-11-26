@@ -482,7 +482,9 @@ def run() -> "i32":
             wh = write_i64(pbuf, 0, dZ)
             wh = write_i64(pbuf, 8, dHH)
             wh = write_i32(pbuf, 16, T * F)
+            print("GELU launch")
             rc = cu_launch(k_gelu, 8192, 1, 1, 256, 1, 1, 0, 0, pbuf, 0)
+            print("GELU ok")
             if rc != 0:
                 print("GELU FAIL", ll, rc)
                 return 1
