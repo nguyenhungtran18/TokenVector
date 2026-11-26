@@ -504,6 +504,8 @@ def run() -> "i32":
             ii = ii + 1
         lossv = lossv / T
         print("LOSS", lossv)
+        lf: "f64" = lossv
+        print("LOSSF", lf)
         wh = cuda_h2d(dDL, hDL, tvb, 1)
         print("MARK FWD", step)
         rc = cublas_sgemm(ch, 0, 1, T, H, V, one, dDL, T, dWh, H, zero, gOUT, T)

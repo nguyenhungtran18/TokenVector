@@ -14,10 +14,12 @@ bwds = re.findall(r'^MARK BWD\s+(\d+)$', out, re.M)
 print('losses =', losses)
 print('fails  =', fails)
 print('fwds   =', fwds, 'bwds =', bwds)
+losses_f = re.findall(r'^LOSSF\s+([0-9.eE+-]+)$', out, re.M)
+print('losses_f =', losses_f)
 delta = None
-if len(losses) == 2 and all(math.isfinite(float(v)) for v in losses):
-    delta = float(losses[1]) - float(losses[0])
-print('loss delta =', delta)
+if len(losses_f) == 2 and all(math.isfinite(float(v)) for v in losses_f):
+    delta = float(losses_f[1]) - float(losses_f[0])
+print('loss delta (f64) =', delta)
 ok = (len(losses) == 2 and all(math.isfinite(float(v)) for v in losses)
       and delta is not None and delta < -1e-6
       and not fails and len(fwds) == 2 and len(bwds) == 2 and len(upds) == 2)
