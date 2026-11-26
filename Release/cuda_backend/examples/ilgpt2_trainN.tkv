@@ -702,7 +702,7 @@ def run() -> "i32":
             wh = cuda_h2d(gWoh, god, whb, 2)
             wh = cuda_h2d(gW1h, g1d, w1b, 2)
             wh = cuda_h2d(gW2h, g2d, w2b, 2)
-            if ll == 0:
+            if ll >= 0:
                 lf = read_f32(gWqh, 0)
                 lf = read_f32(gWoh, 0)
                 print("M GO", lf)
