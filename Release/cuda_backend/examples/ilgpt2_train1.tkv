@@ -239,7 +239,7 @@ def run() -> "i32":
     gWoh = alloc_bytes(whb)
     gWhh = alloc_bytes(wh2)
     print("T2 scratch")
-    lr: "f32" = 0.0001
+    lr: "f32" = 0.000001
     t0 = time_perf()
     step: "i32" = 1
     while step <= 3:
