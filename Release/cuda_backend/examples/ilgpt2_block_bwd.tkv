@@ -588,34 +588,42 @@ def run() -> "i32":
     if rc != 0:
         print("BW dQ FAIL", rc)
         return 1
+    print("BWQ1")
     rc = cublas_sgemm(ch, 1, 0, T, H, T, hal, dSg, T, dQ, T, hb0, dKg, T)
     if rc != 0:
         print("BW dK FAIL", rc)
         return 1
+    print("BWQ2")
     rc = cublas_sgemm(ch, 1, 0, H, H, T, ha, dY1, T, dQg, T, hb0, dWqg, H)
     if rc != 0:
         print("BW dWq FAIL", rc)
         return 1
+    print("BWQ3")
     rc = cublas_sgemm(ch, 1, 0, H, H, T, ha, dY1, T, dKg, T, hb0, dWkg, H)
     if rc != 0:
         print("BW dWk FAIL", rc)
         return 1
+    print("BWQ4")
     rc = cublas_sgemm(ch, 1, 0, H, H, T, ha, dY1, T, dVg, T, hb0, dWvg, H)
     if rc != 0:
         print("BW dWv FAIL", rc)
         return 1
+    print("BWQ5")
     rc = cublas_sgemm(ch, 0, 1, T, H, H, ha, dQg, T, dWq, H, hb0, dYq, T)
     if rc != 0:
         print("BW dYq FAIL", rc)
         return 1
+    print("BWQ6")
     rc = cublas_sgemm(ch, 0, 1, T, H, H, ha, dKg, T, dWk, H, hb0, dYk, T)
     if rc != 0:
         print("BW dYk FAIL", rc)
         return 1
+    print("BWQ7")
     rc = cublas_sgemm(ch, 0, 1, T, H, H, ha, dVg, T, dWv, H, hb0, dYv, T)
     if rc != 0:
         print("BW dYv FAIL", rc)
         return 1
+    print("BWQ8")
     wzp0 = write_i64(c0, 0, dYq)
     wzp0 = write_i64(c1, 0, dYk)
     wzp0 = write_i64(c2, 0, dY1g)
