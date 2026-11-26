@@ -167,11 +167,12 @@ def run() -> "i32":
     one: "f32" = 1.0
     zero: "f32" = 0.0
     alpha: "f32" = 1.0 / sqrt(H)
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry lnf_kernel(.param .u64 px, .param .u64 pg, .param .u64 pb, .param .u64 py, .param .u64 pxh, .param .u64 pst, .param .u32 pT, .param .u32 pH, .param .f32 pinvH, .param .f32 peps)\n{\n.reg .f32 x,sum,sq,mean,var,rstd,g,b,xh,y,t,ss,eps,invh;\n.reg .u64 xb,gb,bb,yb,hb,stb,off,offg,xa,ga,ba,ya,ha,sta;\n.reg .u32 row,j,tn,hn,idx;\n.reg .pred q;\nld.param.u64 xb,[px];\nld.param.u64 gb,[pg];\nld.param.u64 bb,[pb];\nld.param.u64 yb,[py];\nld.param.u64 hb,[pxh];\nld.param.u64 stb,[pst];\nld.param.u32 tn,[pT];\nld.param.u32 hn,[pH];\nld.param.f32 invh,[pinvH];\nld.param.f32 eps,[peps];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 gb,gb;\ncvta.to.global.u64 bb,bb;\ncvta.to.global.u64 yb,yb;\ncvta.to.global.u64 hb,hb;\ncvta.to.global.u64 stb,stb;\nmov.u32 row,%tid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nmov.f32 sum,0.0;\nmov.f32 sq,0.0;\nmov.u32 j,0;\nL1:\nsetp.ge.u32 q,j,hn;\n@q bra L1D;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nadd.f32 sum,sum,x;\nmul.f32 ss,x,x;\nadd.f32 sq,sq,ss;\nadd.u32 j,j,1;\nbra L1;\nL1D:\nmul.f32 mean,sum,invh;\nmul.f32 var,sq,invh;\nmul.f32 ss,mean,mean;\nsub.f32 var,var,ss;\nadd.f32 var,var,eps;\nsqrt.rn.f32 rstd,var;\nrcp.approx.f32 rstd,rstd;\nmul.wide.u32 off,row,8;\nadd.u64 sta,stb,off;\nst.global.f32 [sta],mean;\nadd.u64 sta,sta,4;\nst.global.f32 [sta],rstd;\nmov.u32 j,0;\nL2:\nsetp.ge.u32 q,j,hn;\n@q bra LEND;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nsub.f32 xh,x,mean;\nmul.f32 xh,xh,rstd;\nmul.wide.u32 offg,j,4;\nadd.u64 ga,gb,offg;\nld.global.f32 g,[ga];\nadd.u64 ba,bb,offg;\nld.global.f32 b,[ba];\nmul.f32 y,xh,g;\nadd.f32 y,y,b;\nadd.u64 ya,yb,off;\nst.global.f32 [ya],y;\nadd.u64 ha,hb,off;\nst.global.f32 [ha],xh;\nadd.u32 j,j,1;\nbra L2;\nLEND:\nret;\n}\n.entry sf_kernel(.param .u64 ps, .param .u64 pp, .param .u32 pT, .param .f32 pone)\n{\n.reg .f32 x,mx,sum,e,p,one;\n.reg .u64 sb,pb,off,xa,pa;\n.reg .u32 row,j,tn,idx;\n.reg .pred q;\nld.param.u64 sb,[ps];\nld.param.u64 pb,[pp];\nld.param.u32 tn,[pT];\nld.param.f32 one,[pone];\ncvta.to.global.u64 sb,sb;\ncvta.to.global.u64 pb,pb;\nmov.u32 row,%tid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nmov.f32 mx,-1000000000.0;\nmov.u32 j,0;\nL1:\nsetp.gt.u32 q,j,row;\n@q bra L1D;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,sb,off;\nld.global.f32 x,[xa];\nmax.f32 mx,mx,x;\nadd.u32 j,j,1;\nbra L1;\nL1D:\nmov.f32 sum,0.0;\nmov.u32 j,0;\nL2:\nsetp.gt.u32 q,j,row;\n@q bra L2D;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,sb,off;\nld.global.f32 x,[xa];\nsub.f32 x,x,mx;\nmul.f32 x,x,1.442695;\nex2.approx.f32 e,x;\nadd.f32 sum,sum,e;\nadd.u32 j,j,1;\nbra L2;\nL2D:\nmov.u32 j,0;\nL3:\nsetp.ge.u32 q,j,tn;\n@q bra LEND;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmov.f32 p,0.0;\nsetp.gt.u32 q,j,row;\n@q bra L3W;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,sb,off;\nld.global.f32 x,[xa];\nsub.f32 x,x,mx;\nmul.f32 x,x,1.442695;\nex2.approx.f32 e,x;\ndiv.rn.f32 p,e,sum;\nL3W:\nmul.wide.u32 off,idx,4;\nadd.u64 pa,pb,off;\nst.global.f32 [pa],p;\nadd.u32 j,j,1;\nbra L3;\nLEND:\nret;\n}\n.entry add_kernel(.param .u64 pa, .param .u64 pb, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 a,b,c;\n.reg .u64 xa,xb,ya,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 xa,[pa];\nld.param.u64 xb,[pb];\nld.param.u64 ya,[py];\nld.param.u32 n,[pn];\ncvta.to.global.u64 xa,xa;\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 ya,ya;\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 xa,xa,off;\nadd.u64 xb,xb,off;\nadd.u64 ya,ya,off;\nld.global.f32 a,[xa];\nld.global.f32 b,[xb];\nadd.f32 c,a,b;\nst.global.f32 [ya],c;\nLEND: ret;\n}\n.entry gelu_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,f2,f3,f4,f5;\n.reg .u64 x,y,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 x,[px];\nld.param.u64 y,[py];\nld.param.u32 n,[pn];\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 x,x;\ncvta.to.global.u64 y,y;\nadd.u64 x,x,off;\nadd.u64 y,y,off;\nld.global.f32 f1,[x];\nmul.f32 f3,f1,f1;\nmul.f32 f3,f3,f1;\nmov.f32 f4,0.044715;\nfma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456;\nmul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0;\nadd.f32 f2,f2,f3;\nmov.f32 f3,0.5;\nmul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2;\nst.global.f32 [y],f5;\nLEND: ret;\n}\n"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry lnf_kernel(.param .u64 px, .param .u64 pg, .param .u64 pb, .param .u64 py, .param .u64 pxh, .param .u64 pst, .param .u32 pT, .param .u32 pH, .param .f32 pinvH, .param .f32 peps)\n{\n.reg .f32 x,sum,sq,mean,var,rstd,g,b,xh,y,t,ss,eps,invh;\n.reg .u64 xb,gb,bb,yb,hb,stb,off,offg,xa,ga,ba,ya,ha,sta;\n.reg .u32 row,j,tn,hn,idx;\n.reg .pred q;\nld.param.u64 xb,[px];\nld.param.u64 gb,[pg];\nld.param.u64 bb,[pb];\nld.param.u64 yb,[py];\nld.param.u64 hb,[pxh];\nld.param.u64 stb,[pst];\nld.param.u32 tn,[pT];\nld.param.u32 hn,[pH];\nld.param.f32 invh,[pinvH];\nld.param.f32 eps,[peps];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 gb,gb;\ncvta.to.global.u64 bb,bb;\ncvta.to.global.u64 yb,yb;\ncvta.to.global.u64 hb,hb;\ncvta.to.global.u64 stb,stb;\nmov.u32 row,%tid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nmov.f32 sum,0.0;\nmov.f32 sq,0.0;\nmov.u32 j,0;\nL1:\nsetp.ge.u32 q,j,hn;\n@q bra L1D;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nadd.f32 sum,sum,x;\nmul.f32 ss,x,x;\nadd.f32 sq,sq,ss;\nadd.u32 j,j,1;\nbra L1;\nL1D:\nmul.f32 mean,sum,invh;\nmul.f32 var,sq,invh;\nmul.f32 ss,mean,mean;\nsub.f32 var,var,ss;\nadd.f32 var,var,eps;\nsqrt.rn.f32 rstd,var;\nrcp.approx.f32 rstd,rstd;\nmul.wide.u32 off,row,8;\nadd.u64 sta,stb,off;\nst.global.f32 [sta],mean;\nadd.u64 sta,sta,4;\nst.global.f32 [sta],rstd;\nmov.u32 j,0;\nL2:\nsetp.ge.u32 q,j,hn;\n@q bra LEND;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nsub.f32 xh,x,mean;\nmul.f32 xh,xh,rstd;\nmul.wide.u32 offg,j,4;\nadd.u64 ga,gb,offg;\nld.global.f32 g,[ga];\nadd.u64 ba,bb,offg;\nld.global.f32 b,[ba];\nmul.f32 y,xh,g;\nadd.f32 y,y,b;\nadd.u64 ya,yb,off;\nst.global.f32 [ya],y;\nadd.u64 ha,hb,off;\nst.global.f32 [ha],xh;\nadd.u32 j,j,1;\nbra L2;\nLEND:\nret;\n}\n.entry sf_kernel(.param .u64 ps, .param .u64 pp, .param .u32 pT, .param .f32 pone)\n{\n.reg .f32 x,mx,sum,e,p,one;\n.reg .u64 sb,pb,off,xa,pa;\n.reg .u32 row,j,tn,idx;\n.reg .pred q;\nld.param.u64 sb,[ps];\nld.param.u64 pb,[pp];\nld.param.u32 tn,[pT];\nld.param.f32 one,[pone];\ncvta.to.global.u64 sb,sb;\ncvta.to.global.u64 pb,pb;\nmov.u32 row,%tid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nmov.f32 mx,-1000000000.0;\nmov.u32 j,0;\nL1:\nsetp.gt.u32 q,j,row;\n@q bra L1D;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,sb,off;\nld.global.f32 x,[xa];\nmax.f32 mx,mx,x;\nadd.u32 j,j,1;\nbra L1;\nL1D:\nmov.f32 sum,0.0;\nmov.u32 j,0;\nL2:\nsetp.gt.u32 q,j,row;\n@q bra L2D;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,sb,off;\nld.global.f32 x,[xa];\nsub.f32 x,x,mx;\nmul.f32 x,x,1.442695;\nex2.approx.f32 e,x;\nadd.f32 sum,sum,e;\nadd.u32 j,j,1;\nbra L2;\nL2D:\nmov.u32 j,0;\nL3:\nsetp.ge.u32 q,j,tn;\n@q bra LEND;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmov.f32 p,0.0;\nsetp.gt.u32 q,j,row;\n@q bra L3W;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,sb,off;\nld.global.f32 x,[xa];\nsub.f32 x,x,mx;\nmul.f32 x,x,1.442695;\nex2.approx.f32 e,x;\ndiv.rn.f32 p,e,sum;\nL3W:\nmul.wide.u32 off,idx,4;\nadd.u64 pa,pb,off;\nst.global.f32 [pa],p;\nadd.u32 j,j,1;\nbra L3;\nLEND:\nret;\n}\n.entry add_kernel(.param .u64 pa, .param .u64 pb, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 a,b,c;\n.reg .u64 xa,xb,ya,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 xa,[pa];\nld.param.u64 xb,[pb];\nld.param.u64 ya,[py];\nld.param.u32 n,[pn];\ncvta.to.global.u64 xa,xa;\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 ya,ya;\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 xa,xa,off;\nadd.u64 xb,xb,off;\nadd.u64 ya,ya,off;\nld.global.f32 a,[xa];\nld.global.f32 b,[xb];\nadd.f32 c,a,b;\nst.global.f32 [ya],c;\nLEND: ret;\n}\n.entry gelu_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,f2,f3,f4,f5;\n.reg .u64 x,y,off;\n.reg .u32 i,n;\n.reg .pred q;\nld.param.u64 x,[px];\nld.param.u64 y,[py];\nld.param.u32 n,[pn];\nmov.u32 i,%tid.x;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 x,x;\ncvta.to.global.u64 y,y;\nadd.u64 x,x,off;\nadd.u64 y,y,off;\nld.global.f32 f1,[x];\nmul.f32 f3,f1,f1;\nmul.f32 f3,f3,f1;\nmov.f32 f4,0.044715;\nfma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456;\nmul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0;\nadd.f32 f2,f2,f3;\nmov.f32 f3,0.5;\nmul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2;\nst.global.f32 [y],f5;\nLEND: ret;\n}\n.entry ln2f_kernel(.param .u64 px, .param .u64 pg, .param .u64 pb, .param .u64 py, .param .u64 pxh, .param .u64 pst, .param .u32 pT, .param .u32 pH, .param .f32 pinvH, .param .f32 peps)\n{\n.reg .f32 x,sum,sq,mean,var,rstd,g,b,xh,y,t,ss,eps,invh;\n.reg .u64 xb,gb,bb,yb,hb,stb,off,offg,xa,ga,ba,ya,ha,sta;\n.reg .u32 row,j,tn,hn,idx;\n.reg .pred q;\nld.param.u64 xb,[px];\nld.param.u64 gb,[pg];\nld.param.u64 bb,[pb];\nld.param.u64 yb,[py];\nld.param.u64 hb,[pxh];\nld.param.u64 stb,[pst];\nld.param.u32 tn,[pT];\nld.param.u32 hn,[pH];\nld.param.f32 invh,[pinvH];\nld.param.f32 eps,[peps];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 gb,gb;\ncvta.to.global.u64 bb,bb;\ncvta.to.global.u64 yb,yb;\ncvta.to.global.u64 hb,hb;\ncvta.to.global.u64 stb,stb;\nmov.u32 row,%tid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nmov.f32 sum,0.0;\nmov.f32 sq,0.0;\nmov.u32 j,0;\nL1:\nsetp.ge.u32 q,j,hn;\n@q bra L1D;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nadd.f32 sum,sum,x;\nmul.f32 ss,x,x;\nadd.f32 sq,sq,ss;\nadd.u32 j,j,1;\nbra L1;\nL1D:\nmul.f32 mean,sum,invh;\nmul.f32 var,sq,invh;\nmul.f32 ss,mean,mean;\nsub.f32 var,var,ss;\nadd.f32 var,var,eps;\nsqrt.rn.f32 rstd,var;\nrcp.approx.f32 rstd,rstd;\nmul.wide.u32 off,row,8;\nadd.u64 sta,stb,off;\nst.global.f32 [sta],mean;\nadd.u64 sta,sta,4;\nst.global.f32 [sta],rstd;\nmov.u32 j,0;\nL2:\nsetp.ge.u32 q,j,hn;\n@q bra LEND;\nmul.lo.u32 idx,j,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nsub.f32 xh,x,mean;\nmul.f32 xh,xh,rstd;\nmul.wide.u32 offg,j,4;\nadd.u64 ga,gb,offg;\nld.global.f32 g,[ga];\nadd.u64 ba,bb,offg;\nld.global.f32 b,[ba];\nmul.f32 y,xh,g;\nadd.f32 y,y,b;\nadd.u64 ya,yb,off;\nst.global.f32 [ya],y;\nadd.u64 ha,hb,off;\nst.global.f32 [ha],xh;\nadd.u32 j,j,1;\nbra L2;\nLEND:\nret;\n}\n"
     FN1 = b"lnf_kernel\x00"
     FN2 = b"sf_kernel\x00"
     FN3 = b"add_kernel\x00"
     FN4 = b"gelu_kernel\x00"
+    FN5 = b"ln2f_kernel\x00"
     pbuf = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
     while kk < len(PTX):
@@ -225,6 +226,16 @@ def run() -> "i32":
         print("FN GELU FAIL", rc)
         return 1
     k_gelu: "i64" = read_i64(fc, 0)
+    r1 = 0
+    while r1 < len(FN5):
+        w5: "i64" = write_u8(nb, r1, FN5[r1])
+        r1 = r1 + 1
+    wz5: "i64" = write_u8(nb, r1, 0)
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("FN LN2F FAIL", rc)
+        return 1
+    k_ln2f: "i64" = read_i64(fc, 0)
     # scalar buffers
     ha = alloc_bytes(4)
     wa: "i64" = write_f32(ha, 0, one)
@@ -333,42 +344,23 @@ def run() -> "i32":
         print("ADD1 FAIL", rc)
         return 1
     print("MARK 7 attn+res")
-    # 8) LN2 - tam thoi tren host (device kernel se thay lai sau)
-    hr2 = alloc_bytes(qb)
-    chk2: "i64" = cuda_h2d(hr2, dX2, qb, 2)
-    hY2 = alloc_bytes(qb)
-    hXH2 = alloc_bytes(qb)
-    hST2 = alloc_bytes(stb)
-    ii: "i32" = 0
-    while ii < T:
-        su: "f32" = 0.0
-        sq: "f32" = 0.0
-        jj: "i32" = 0
-        while jj < H:
-            xv: "f32" = read_f32(hr2, (ii + jj * T) * 4)
-            su = su + xv
-            sq = sq + xv * xv
-            jj = jj + 1
-        mn: "f32" = su / H
-        vr: "f32" = sq / H - mn * mn
-        vr = vr + eps
-        rs: "f32" = 1.0 / sqrt(vr)
-        wq0: "i64" = write_f32(hST2, ii * 8, mn)
-        wq1: "i64" = write_f32(hST2, ii * 8 + 4, rs)
-        jj = 0
-        while jj < H:
-            xv = read_f32(hr2, (ii + jj * T) * 4)
-            xhv: "f32" = (xv - mn) * rs
-            gv: "f32" = read_f32(hG2, jj * 4)
-            bv: "f32" = read_f32(hB2, jj * 4)
-            wq2: "i64" = write_f32(hXH2, (ii + jj * T) * 4, xhv)
-            wq3: "i64" = write_f32(hY2, (ii + jj * T) * 4, xhv * gv + bv)
-            jj = jj + 1
-        ii = ii + 1
-    up0: "i64" = cuda_h2d(dY2, hY2, qb, 1)
-    up1: "i64" = cuda_h2d(dXH2, hXH2, qb, 1)
-    up2: "i64" = cuda_h2d(dST2, hST2, stb, 1)
-    print("MARK 7a lnf2 host")
+    # 8) LN2 - device, dung entry RIENG ln2f_kernel
+    pl2 = alloc_bytes(80)
+    lz0: "i64" = write_i64(pl2, 0, dX2)
+    lz1: "i64" = write_i64(pl2, 8, dG2)
+    lz2: "i64" = write_i64(pl2, 16, dB2)
+    lz3: "i64" = write_i64(pl2, 24, dY2)
+    lz4: "i64" = write_i64(pl2, 32, dXH2)
+    lz5: "i64" = write_i64(pl2, 40, dST2)
+    lz6: "i64" = write_i64(pl2, 48, a6)
+    lz7: "i64" = write_i64(pl2, 56, a7)
+    lz8: "i64" = write_i64(pl2, 64, a8)
+    lz9: "i64" = write_i64(pl2, 72, a9)
+    rc = cu_launch(k_ln2f, 1, 1, 1, 64, 1, 1, 0, 0, pl2, 0)
+    if rc != 0:
+        print("LN2 FAIL", rc)
+        return 1
+    print("MARK 7a lnf2 device")
     # 9) Z = Y2 W1
     rc = cublas_sgemm(ch, 0, 0, T, F, H, ha, dY2, T, dW1, H, hb0, dZ, T)
     if rc != 0:
