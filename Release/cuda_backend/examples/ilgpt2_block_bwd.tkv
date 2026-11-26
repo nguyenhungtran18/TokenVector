@@ -550,7 +550,7 @@ def run() -> "i32":
     if rc != 0:
         print("BW dP FAIL", rc)
         return 1
-    rc = cublas_sgemm(ch, 1, 0, H, T, T, ha, dP, T, dAg, T, hb0, dVg, T)
+    rc = cublas_sgemm(ch, 1, 0, H, T, T, ha, dP, T, dAg, T, hb0, dVg, H)
     if rc != 0:
         print("BW dV FAIL", rc)
         return 1
