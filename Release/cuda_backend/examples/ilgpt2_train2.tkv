@@ -1,0 +1,1119 @@
+# -*- coding: utf-8 -*-
+# IL-only 1-layer transformer TRAIN step: forward + CE loss + backward + update.
+# Khong C++/torch. Elementwise tren host, GEMM qua cuBLAS.
+__tkv_extern_pinvoke__ = [
+    {"name": "cu_init", "dll": "cuda.dll", "symbol": "cuInit",
+     "convention": "cdecl", "params": ["i32"], "returns": "i32"},
+    {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
+     "convention": "cdecl", "params": [], "returns": "i32"},
+    {"name": "cuda_malloc", "dll": "cudart.dll", "symbol": "cudaMalloc",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
+    {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32",
+                "i64", "i32", "i64", "i64", "i32"], "returns": "i32"},
+]
+
+
+def run() -> "i32":
+    rc: "i32" = cu_init(0)
+    if rc != 0:
+        print("CUINIT FAIL", rcv)
+        return 1
+    print("T0 start")
+    hc = alloc_bytes(8)
+    rc = cublas_create(hc)
+    ch: "i64" = read_i64(hc, 0)
+    wh: "i64" = 0
+    rcv: "i32" = 0
+    T: "i32" = 512
+    H: "i32" = 8
+    F: "i32" = 4 * H
+    V: "i32" = 8
+    hb: "i32" = H * 4
+    h4: "i32" = F * 4
+    vb: "i32" = V * 4
+    qb: "i32" = T * H * 4
+    fb: "i32" = T * F * 4
+    sb: "i32" = T * T * 4
+    tvb: "i32" = T * V * 4
+    stb: "i32" = T * 8
+    whb: "i32" = hb * H
+    w1b: "i32" = h4 * H
+    w2b: "i32" = hb * F
+    wh2: "i32" = vb * H
+    cell = alloc_bytes(8)
+    # host constants
+    hX = alloc_bytes(qb)
+    hIds = alloc_bytes(T * 4)
+    hWq = alloc_bytes(whb)
+    hWk = alloc_bytes(whb)
+    hWv = alloc_bytes(whb)
+    hWo = alloc_bytes(whb)
+    hW1 = alloc_bytes(w1b)
+    hW2 = alloc_bytes(w2b)
+    hWh = alloc_bytes(wh2)
+    hG1 = alloc_bytes(hb)
+    hB1 = alloc_bytes(hb)
+    hG2 = alloc_bytes(hb)
+    hB2 = alloc_bytes(hb)
+    i: "i32" = 0
+    j: "i32" = 0
+    while i < T:
+        j = 0
+        while j < H:
+            wh = write_f32(hX, (i + j * T) * 4, 0.1 + 0.02 * (i + j))
+            j = j + 1
+        wh = write_i32(hIds, i * 4, (i + 1) % V)
+        i = i + 1
+    i = 0
+    while i < H:
+        j = 0
+        while j < H:
+            wh = write_f32(hWq, (i + j * H) * 4, 0.20 + 0.01 * (i + j))
+            wh = write_f32(hWk, (i + j * H) * 4, 0.15 + 0.01 * (i + j))
+            wh = write_f32(hWv, (i + j * H) * 4, 0.10 + 0.01 * (i + j))
+            wh = write_f32(hWo, (i + j * H) * 4, 0.30 + 0.01 * (i + j))
+            j = j + 1
+        j = 0
+        while j < F:
+            wh = write_f32(hW1, (i + j * H) * 4, 0.2 + 0.005 * (i + j))
+            j = j + 1
+        wh = write_f32(hG1, i * 4, 1.0 + 0.05 * i)
+        wh = write_f32(hB1, i * 4, 0.01 * i)
+        wh = write_f32(hG2, i * 4, 1.1 + 0.04 * i)
+        wh = write_f32(hB2, i * 4, 0.02 * i)
+        i = i + 1
+    i = 0
+    while i < F:
+        j = 0
+        while j < H:
+            wh = write_f32(hW2, (i + j * F) * 4, 0.2 + 0.005 * (i + j))
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < H:
+        j = 0
+        while j < V:
+            wh = write_f32(hWh, (i + j * H) * 4, 0.2 + 0.01 * (i + j))
+            j = j + 1
+        i = i + 1
+    # device buffers: activations
+    rc = cuda_malloc(cell, qb)
+    dY1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, sb)
+    dS = read_i64(cell, 0)
+    rc = cuda_malloc(cell, sb)
+    dP = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dQ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dK = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dV = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dA = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dO = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dX2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dY2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dZ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dHH = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dO2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    dOUT = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tvb)
+    dLG = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tvb)
+    dDL = read_i64(cell, 0)
+    # device buffers: weights
+    rc = cuda_malloc(cell, whb)
+    dWq = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    dWk = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    dWv = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    dWo = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    dW1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    dW2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, wh2)
+    dWh = read_i64(cell, 0)
+    # device buffers: gradient outputs (RIENG, khong ghi de weight)
+    rc = cuda_malloc(cell, whb)
+    gWq = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    gWk = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    gWv = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    gWo = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    gW1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    gW2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, wh2)
+    gWh = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    gHH = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    gZ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    gY2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    gDX2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    gA = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    gWo2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, sb)
+    gP = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    gV = read_i64(cell, 0)
+    rc = cuda_malloc(cell, sb)
+    gS = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    gQ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    gK = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    gY1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    gOUT = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    hTmpQ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    hTmpK = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    hTmpV = read_i64(cell, 0)
+    # H2D constants
+    wh = cuda_h2d(dWq, hWq, whb, 1)
+    wh = cuda_h2d(dWk, hWk, whb, 1)
+    wh = cuda_h2d(dWv, hWv, whb, 1)
+    wh = cuda_h2d(dWo, hWo, whb, 1)
+    wh = cuda_h2d(dW1, hW1, w1b, 1)
+    wh = cuda_h2d(dW2, hW2, w2b, 1)
+    wh = cuda_h2d(dWh, hWh, wh2, 1)
+    print("T1 weights")
+    cell = alloc_bytes(8)
+    # host constants
+    shX = alloc_bytes(qb)
+    shWq = alloc_bytes(whb)
+    shWk = alloc_bytes(whb)
+    shWv = alloc_bytes(whb)
+    shWo = alloc_bytes(whb)
+    shW1 = alloc_bytes(w1b)
+    shW2 = alloc_bytes(w2b)
+    shWh = alloc_bytes(wh2)
+    shG1 = alloc_bytes(hb)
+    shB1 = alloc_bytes(hb)
+    shG2 = alloc_bytes(hb)
+    shB2 = alloc_bytes(hb)
+    i: "i32" = 0
+    j: "i32" = 0
+    while i < T:
+        j = 0
+        while j < H:
+            wh = write_f32(shX, (i + j * T) * 4, 0.1 + 0.02 * (i + j))
+            j = j + 1
+        wh = write_i32(hIds, i * 4, (i + 1) % V)
+        i = i + 1
+    i = 0
+    while i < H:
+        j = 0
+        while j < H:
+            wh = write_f32(shWq, (i + j * H) * 4, 0.20 + 0.01 * (i + j))
+            wh = write_f32(shWk, (i + j * H) * 4, 0.15 + 0.01 * (i + j))
+            wh = write_f32(shWv, (i + j * H) * 4, 0.10 + 0.01 * (i + j))
+            wh = write_f32(shWo, (i + j * H) * 4, 0.30 + 0.01 * (i + j))
+            j = j + 1
+        j = 0
+        while j < F:
+            wh = write_f32(shW1, (i + j * H) * 4, 0.2 + 0.005 * (i + j))
+            j = j + 1
+        wh = write_f32(shG1, i * 4, 1.0 + 0.05 * i)
+        wh = write_f32(shB1, i * 4, 0.01 * i)
+        wh = write_f32(shG2, i * 4, 1.1 + 0.04 * i)
+        wh = write_f32(shB2, i * 4, 0.02 * i)
+        i = i + 1
+    i = 0
+    while i < F:
+        j = 0
+        while j < H:
+            wh = write_f32(shW2, (i + j * F) * 4, 0.2 + 0.005 * (i + j))
+            j = j + 1
+        i = i + 1
+    i = 0
+    while i < H:
+        j = 0
+        while j < V:
+            wh = write_f32(shWh, (i + j * H) * 4, 0.2 + 0.01 * (i + j))
+            j = j + 1
+        i = i + 1
+    # device buffers: activations
+    rc = cuda_malloc(cell, qb)
+    sdY1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, sb)
+    sdS = read_i64(cell, 0)
+    rc = cuda_malloc(cell, sb)
+    sdP = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdQ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdK = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdV = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdA = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdO = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdX2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdY2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdZ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdHH = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdO2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sdOUT = read_i64(cell, 0)
+    rc = cuda_malloc(cell, tvb)
+    rc = cuda_malloc(cell, tvb)
+    sdDL = read_i64(cell, 0)
+    # device buffers: weights
+    rc = cuda_malloc(cell, whb)
+    sdWq = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    sdWk = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    sdWv = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    sdWo = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    sdW1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    sdW2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, wh2)
+    sdWh = read_i64(cell, 0)
+    # device buffers: gradient outputs (RIENG, khong ghi de weight)
+    rc = cuda_malloc(cell, whb)
+    sgWq = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    sgWk = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    sgWv = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    sgWo = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w1b)
+    sgW1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, w2b)
+    sgW2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, wh2)
+    sgWh = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sgHH = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sgZ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sgY2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sgDX2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sgA = read_i64(cell, 0)
+    rc = cuda_malloc(cell, whb)
+    sgWo2 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, sb)
+    sgP = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sgV = read_i64(cell, 0)
+    rc = cuda_malloc(cell, sb)
+    sgS = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sgQ = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sgK = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sgY1 = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    sgOUT = read_i64(cell, 0)
+    rc = cuda_malloc(cell, fb)
+    rc = cuda_malloc(cell, fb)
+    rc = cuda_malloc(cell, fb)
+    # H2D constants
+    wh = cuda_h2d(sdWq, shWq, whb, 1)
+    wh = cuda_h2d(sdWk, shWk, whb, 1)
+    wh = cuda_h2d(sdWv, shWv, whb, 1)
+    wh = cuda_h2d(sdWo, shWo, whb, 1)
+    wh = cuda_h2d(sdW1, shW1, w1b, 1)
+    wh = cuda_h2d(sdW2, shW2, w2b, 1)
+    wh = cuda_h2d(sdWh, shWh, wh2, 1)
+    print("T1 weights")
+    one = alloc_bytes(4)
+    wh = write_f32(one, 0, 1.0)
+    zero = alloc_bytes(4)
+    wh = write_f32(zero, 0, 0.0)
+    hal = alloc_bytes(4)
+    wh = write_f32(hal, 0, 1.0 / sqrt(H))
+    # host scratch
+    hY1 = alloc_bytes(qb)
+    hXH1 = alloc_bytes(qb)
+    hST1 = alloc_bytes(stb)
+    hY2 = alloc_bytes(qb)
+    hXH2 = alloc_bytes(qb)
+    hST2 = alloc_bytes(stb)
+    hS = alloc_bytes(sb)
+    hP = alloc_bytes(sb)
+    hZ = alloc_bytes(fb)
+    hHH = alloc_bytes(fb)
+    hO = alloc_bytes(qb)
+    hX2 = alloc_bytes(qb)
+    hO2 = alloc_bytes(qb)
+    hOUT = alloc_bytes(qb)
+    hORIGZ = alloc_bytes(fb)
+    hHHTMP = alloc_bytes(fb)
+    hLG = alloc_bytes(tvb)
+    hDL = alloc_bytes(tvb)
+    gW1h = alloc_bytes(w1b)
+    gW2h = alloc_bytes(w2b)
+    gWqh = alloc_bytes(whb)
+    gWkh = alloc_bytes(whb)
+    gWvh = alloc_bytes(whb)
+    gWoh = alloc_bytes(whb)
+    gWhh = alloc_bytes(wh2)
+    print("T2 scratch")
+    shY1 = alloc_bytes(qb)
+    shXH1 = alloc_bytes(qb)
+    shST1 = alloc_bytes(stb)
+    shY2 = alloc_bytes(qb)
+    shXH2 = alloc_bytes(qb)
+    shST2 = alloc_bytes(stb)
+    shP = alloc_bytes(sb)
+    shZ = alloc_bytes(fb)
+    shHH = alloc_bytes(fb)
+    shO = alloc_bytes(qb)
+    shX2 = alloc_bytes(qb)
+    shO2 = alloc_bytes(qb)
+    shOUT = alloc_bytes(qb)
+    shLG = alloc_bytes(tvb)
+    shDL = alloc_bytes(tvb)
+    print("T2 scratch")
+    lr: "f32" = 0.000001
+    step: "i32" = 1
+    while step <= 3:
+        # LN1 (host)
+        ii: "i32" = 0
+        while ii < T:
+            su: "f32" = 0.0
+            sq: "f32" = 0.0
+            jj: "i32" = 0
+            while jj < H:
+                xv: "f32" = read_f32(hX, (ii + jj * T) * 4)
+                su = su + xv
+                sq = sq + xv * xv
+                jj = jj + 1
+            print("T3a sums")
+            mn: "f32" = su / H
+            vr: "f32" = sq / H - mn * mn
+            vr = vr + 0.000001
+            rs: "f32" = 1.0 / sqrt(vr)
+            print("T3b stats")
+            wh = write_f32(hST1, ii * 8, mn)
+            wz = write_f32(hST1, ii * 8 + 4, rs)
+            jj = 0
+            while jj < H:
+                xv = read_f32(hX, (ii + jj * T) * 4)
+                xhv: "f32" = (xv - mn) * rs
+                gv: "f32" = read_f32(hG1, jj * 4)
+                bv: "f32" = read_f32(hB1, jj * 4)
+                wz = write_f32(hXH1, (ii + jj * T) * 4, xhv)
+                wz = write_f32(hY1, (ii + jj * T) * 4, xhv * gv + bv)
+                jj = jj + 1
+            ii = ii + 1
+        print("T3c ln1 done")
+        wh = cuda_h2d(dY1, hY1, qb, 1)
+        # Q,K,V
+        print("T4 ln1")
+        rcv = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, dWq, H, zero, dQ, T)
+        rcv = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, dWk, H, zero, dK, T)
+        rcv = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, dWv, H, zero, dV, T)
+        if rcv != 0:
+            print("QKV FAIL", rcv)
+            return 1
+        # S = Q K^T / sqrt(H)
+        rcv = cublas_sgemm(ch, 0, 1, T, T, H, hal, dQ, T, dK, T, zero, dS, T)
+        if rcv != 0:
+            print("S FAIL", rcv)
+            return 1
+        print("T5 qkv+s")
+        wh = cuda_h2d(hS, dS, sb, 2)
+        # causal softmax (host)
+        ii = 0
+        while ii < T:
+            mx: "f32" = -1000000000.0
+            jj = 0
+            while jj <= ii:
+                sv: "f32" = read_f32(hS, (ii + jj * T) * 4)
+                if sv > mx:
+                    mx = sv
+                jj = jj + 1
+            zs: "f32" = 0.0
+            jj = 0
+            while jj <= ii:
+                sv = read_f32(hS, (ii + jj * T) * 4)
+                ev: "f32" = exp(sv - mx)
+                zs = zs + ev
+                wz = write_f32(hP, (ii + jj * T) * 4, ev)
+                jj = jj + 1
+            jj = 0
+            while jj <= ii:
+                pv: "f32" = read_f32(hP, (ii + jj * T) * 4)
+                wz = write_f32(hP, (ii + jj * T) * 4, pv / zs)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(dP, hP, sb, 1)
+        # A = P V, O = A Wo^T
+        print("T6 softmax")
+        rcv = cublas_sgemm(ch, 0, 0, T, H, T, one, dP, T, dV, T, zero, dA, T)
+        rcv = cublas_sgemm(ch, 0, 0, T, H, H, one, dA, T, dWo, H, zero, dO, T)
+        if rcv != 0:
+            print("ATTN FAIL", rcv)
+            return 1
+        wh = cuda_h2d(hO, dO, qb, 2)
+        # residual X2 = X + O
+        ii = 0
+        while ii < T:
+            jj = 0
+            while jj < H:
+                xv = read_f32(hX, (ii + jj * T) * 4) + read_f32(hO, (ii + jj * T) * 4)
+                wz = write_f32(hX2, (ii + jj * T) * 4, xv)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(dX2, hX2, qb, 1)
+        # LN2 (host)
+        ii = 0
+        while ii < T:
+            su = 0.0
+            sq = 0.0
+            jj = 0
+            while jj < H:
+                xv = read_f32(hX2, (ii + jj * T) * 4)
+                su = su + xv
+                sq = sq + xv * xv
+                jj = jj + 1
+            mn = su / H
+            vr = sq / H - mn * mn + 0.000001
+            rs = 1.0 / sqrt(vr)
+            wz = write_f32(hST2, ii * 8, mn)
+            wz = write_f32(hST2, ii * 8 + 4, rs)
+            jj = 0
+            while jj < H:
+                xv = read_f32(hX2, (ii + jj * T) * 4)
+                xhv = (xv - mn) * rs
+                gv = read_f32(hG2, jj * 4)
+                bv = read_f32(hB2, jj * 4)
+                wz = write_f32(hXH2, (ii + jj * T) * 4, xhv)
+                wz = write_f32(hY2, (ii + jj * T) * 4, xhv * gv + bv)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(dY2, hY2, qb, 1)
+        # Z = Y2 W1, gelu host
+        print("T7 ln2")
+        rcv = cublas_sgemm(ch, 0, 0, T, F, H, one, dY2, T, dW1, H, zero, dZ, T)
+        if rcv != 0:
+            print("Z FAIL", rcv)
+            return 1
+        wh = cuda_h2d(hZ, dZ, fb, 2)
+        wh = cuda_h2d(hORIGZ, dZ, fb, 2)
+        ii = 0
+        while ii < T * F:
+            xv = read_f32(hZ, ii * 4)
+            zz = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
+            e2: "f32" = exp(2.0 * zz)
+            thv: "f32" = (e2 - 1.0) / (e2 + 1.0)
+            gv = 0.5 * xv * (1.0 + thv)
+            wz = write_f32(hZ, ii * 4, gv)
+            ii = ii + 1
+        wh = cuda_h2d(dHH, hZ, fb, 1)
+        # O2 = HH W2
+        print("T8 gelu")
+        rcv = cublas_sgemm(ch, 0, 0, T, H, F, one, dHH, T, dW2, F, zero, dO2, T)
+        if rcv != 0:
+            print("O2 FAIL", rcv)
+            return 1
+        wh = cuda_h2d(hO2, dO2, qb, 2)
+        # OUT = X2 + O2
+        ii = 0
+        while ii < T:
+            jj = 0
+            while jj < H:
+                xv = read_f32(hX2, (ii + jj * T) * 4) + read_f32(hO2, (ii + jj * T) * 4)
+                wz = write_f32(hOUT, (ii + jj * T) * 4, xv)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(dOUT, hOUT, qb, 1)
+        # LN1 (host)
+        ii: "i32" = 0
+        while ii < T:
+            su: "f32" = 0.0
+            sq: "f32" = 0.0
+            jj: "i32" = 0
+            while jj < H:
+                xv: "f32" = read_f32(hOUT, (ii + jj * T) * 4)
+                su = su + xv
+                sq = sq + xv * xv
+                jj = jj + 1
+            print("T3a sums")
+            mn: "f32" = su / H
+            vr: "f32" = sq / H - mn * mn
+            vr = vr + 0.000001
+            rs: "f32" = 1.0 / sqrt(vr)
+            print("T3b stats")
+            wh = write_f32(shST1, ii * 8, mn)
+            wz = write_f32(shST1, ii * 8 + 4, rs)
+            jj = 0
+            while jj < H:
+                xv = read_f32(hOUT, (ii + jj * T) * 4)
+                xhv: "f32" = (xv - mn) * rs
+                gv: "f32" = read_f32(shG1, jj * 4)
+                bv: "f32" = read_f32(shB1, jj * 4)
+                wz = write_f32(shXH1, (ii + jj * T) * 4, xhv)
+                wz = write_f32(shY1, (ii + jj * T) * 4, xhv * gv + bv)
+                jj = jj + 1
+            ii = ii + 1
+        print("T3c ln1 done")
+        wh = cuda_h2d(sdY1, shY1, qb, 1)
+        # Q,K,V
+        print("T4 ln1")
+        rcv = cublas_sgemm(ch, 0, 0, T, H, H, one, sdY1, T, sdWq, H, zero, sdQ, T)
+        rcv = cublas_sgemm(ch, 0, 0, T, H, H, one, sdY1, T, sdWk, H, zero, sdK, T)
+        rcv = cublas_sgemm(ch, 0, 0, T, H, H, one, sdY1, T, sdWv, H, zero, sdV, T)
+        if rcv != 0:
+            print("QKV FAIL", rcv)
+            return 1
+        # S = Q K^T / sqrt(H)
+        rcv = cublas_sgemm(ch, 0, 1, T, T, H, hal, sdQ, T, sdK, T, zero, sdS, T)
+        if rcv != 0:
+            print("S FAIL", rcv)
+            return 1
+        print("T5 qkv+s")
+        wh = cuda_h2d(hS, sdS, sb, 2)
+        # causal softmax (host)
+        ii = 0
+        while ii < T:
+            mx: "f32" = -1000000000.0
+            jj = 0
+            while jj <= ii:
+                sv: "f32" = read_f32(hS, (ii + jj * T) * 4)
+                if sv > mx:
+                    mx = sv
+                jj = jj + 1
+            zs: "f32" = 0.0
+            jj = 0
+            while jj <= ii:
+                sv = read_f32(hS, (ii + jj * T) * 4)
+                ev: "f32" = exp(sv - mx)
+                zs = zs + ev
+                wz = write_f32(shP, (ii + jj * T) * 4, ev)
+                jj = jj + 1
+            jj = 0
+            while jj <= ii:
+                pv: "f32" = read_f32(shP, (ii + jj * T) * 4)
+                wz = write_f32(shP, (ii + jj * T) * 4, pv / zs)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(sdP, shP, sb, 1)
+        # A = P V, O = A Wo^T
+        print("T6 softmax")
+        rcv = cublas_sgemm(ch, 0, 0, T, H, T, one, sdP, T, sdV, T, zero, sdA, T)
+        rcv = cublas_sgemm(ch, 0, 0, T, H, H, one, sdA, T, sdWo, H, zero, sdO, T)
+        if rcv != 0:
+            print("ATTN FAIL", rcv)
+            return 1
+        wh = cuda_h2d(shO, sdO, qb, 2)
+        # residual X2 = X + O
+        ii = 0
+        while ii < T:
+            jj = 0
+            while jj < H:
+                xv = read_f32(hOUT, (ii + jj * T) * 4) + read_f32(shO, (ii + jj * T) * 4)
+                wz = write_f32(shX2, (ii + jj * T) * 4, xv)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(sdX2, shX2, qb, 1)
+        # LN2 (host)
+        ii = 0
+        while ii < T:
+            su = 0.0
+            sq = 0.0
+            jj = 0
+            while jj < H:
+                xv = read_f32(shX2, (ii + jj * T) * 4)
+                su = su + xv
+                sq = sq + xv * xv
+                jj = jj + 1
+            mn = su / H
+            vr = sq / H - mn * mn + 0.000001
+            rs = 1.0 / sqrt(vr)
+            wz = write_f32(shST2, ii * 8, mn)
+            wz = write_f32(shST2, ii * 8 + 4, rs)
+            jj = 0
+            while jj < H:
+                xv = read_f32(shX2, (ii + jj * T) * 4)
+                xhv = (xv - mn) * rs
+                gv = read_f32(shG2, jj * 4)
+                bv = read_f32(shB2, jj * 4)
+                wz = write_f32(shXH2, (ii + jj * T) * 4, xhv)
+                wz = write_f32(shY2, (ii + jj * T) * 4, xhv * gv + bv)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(sdY2, shY2, qb, 1)
+        # Z = Y2 W1, gelu host
+        print("T7 ln2")
+        rcv = cublas_sgemm(ch, 0, 0, T, F, H, one, sdY2, T, sdW1, H, zero, sdZ, T)
+        if rcv != 0:
+            print("Z FAIL", rcv)
+            return 1
+        wh = cuda_h2d(shZ, sdZ, fb, 2)
+        wh = cuda_h2d(hORIGZ, sdZ, fb, 2)
+        ii = 0
+        while ii < T * F:
+            xv = read_f32(shZ, ii * 4)
+            zz = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
+            e2: "f32" = exp(2.0 * zz)
+            thv: "f32" = (e2 - 1.0) / (e2 + 1.0)
+            gv = 0.5 * xv * (1.0 + thv)
+            wz = write_f32(shZ, ii * 4, gv)
+            ii = ii + 1
+        wh = cuda_h2d(sdHH, shZ, fb, 1)
+        # O2 = HH W2
+        print("T8 gelu")
+        rcv = cublas_sgemm(ch, 0, 0, T, H, F, one, sdHH, T, sdW2, F, zero, sdO2, T)
+        if rcv != 0:
+            print("O2 FAIL", rcv)
+            return 1
+        wh = cuda_h2d(shO2, sdO2, qb, 2)
+        # OUT = X2 + O2
+        ii = 0
+        while ii < T:
+            jj = 0
+            while jj < H:
+                xv = read_f32(shX2, (ii + jj * T) * 4) + read_f32(shO2, (ii + jj * T) * 4)
+                wz = write_f32(shOUT, (ii + jj * T) * 4, xv)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(sdOUT, shOUT, qb, 1)
+        # logits = OUT Wh
+        print("T9 mlp")
+        rcv = cublas_sgemm(ch, 0, 0, T, V, H, one, sdOUT, T, sdWh, H, zero, dLG, T)
+        if rcv != 0:
+            print("LG FAIL", rcv)
+            return 1
+        wh = cuda_h2d(shLG, dLG, tvb, 2)
+        # CE loss + sdL (host)
+        print("T10 logits")
+        lossv: "f32" = 0.0
+        ii = 0
+        while ii < T:
+            mx = -1000000000.0
+            jj = 0
+            while jj < V:
+                lv: "f32" = read_f32(shLG, (ii + jj * T) * 4)
+                if lv > mx:
+                    mx = lv
+                jj = jj + 1
+            zs = 0.0
+            jj = 0
+            while jj < V:
+                lv = read_f32(shLG, (ii + jj * T) * 4)
+                ev = exp(lv - mx)
+                zs = zs + ev
+                wz = write_f32(shDL, (ii + jj * T) * 4, ev)
+                jj = jj + 1
+            idv: "i32" = read_i32(hIds, ii * 4)
+            pcorrect: "f32" = read_f32(shDL, (ii + idv * T) * 4) / zs
+            lossv = lossv - log(pcorrect)
+            jj = 0
+            while jj < V:
+                pv2: "f32" = read_f32(shDL, (ii + jj * T) * 4) / zs
+                dv: "f32" = pv2
+                if jj == idv:
+                    dv = dv - 1.0
+                dv = dv / T
+                wz = write_f32(shDL, (ii + jj * T) * 4, dv)
+                jj = jj + 1
+            ii = ii + 1
+        lossv = lossv / T
+        print("LOSS", lossv)
+        wh = cuda_h2d(dDL, shDL, tvb, 1)
+        print("MARK FWD", step)
+        # ---------------- backward ----------------
+
+        print("MARK FWD", step)
+        # sdWh = OUT^T sdL ; sdOUT = sdL Wh^T
+        rcv = cublas_sgemm(ch, 1, 0, H, V, T, one, sdOUT, T, dDL, T, zero, sgWh, H)
+        rcv = cublas_sgemm(ch, 0, 1, T, H, V, one, dDL, T, sdWh, H, zero, sgOUT, T)
+        if rcv != 0:
+            print("HEAD BW FAIL", rcv)
+            return 1
+        # sdW2 = HH^T sdOUT ; sdHHg = sdOUT W2^T
+        rcv = cublas_sgemm(ch, 1, 0, F, H, T, one, sdHH, T, sgOUT, T, zero, sgW2, F)
+        rcv = cublas_sgemm(ch, 0, 1, T, F, H, one, sgOUT, T, sdW2, F, zero, sgHH, T)
+        if rcv != 0:
+            print("W2 BW FAIL", rcv)
+            return 1
+        # sdZ = sdHHg * dgelu(Z_goc)
+        wh = cuda_h2d(hHHTMP, sgHH, fb, 2)
+        ii = 0
+        while ii < T * F:
+            xv = read_f32(hORIGZ, ii * 4)
+            zz = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
+            e2 = exp(2.0 * zz)
+            thv = (e2 - 1.0) / (e2 + 1.0)
+            gv = 0.5 * (1.0 + thv) + 0.5 * xv * (1.0 - thv * thv) * 0.79788456 * (1.0 + 0.134145 * xv * xv)
+            dvv = read_f32(hHHTMP, ii * 4) * gv
+            wz = write_f32(hORIGZ, ii * 4, dvv)
+            ii = ii + 1
+        wh = cuda_h2d(sgZ, hORIGZ, fb, 1)
+        # sdW1 = Y2^T sdZ ; sdY2 = sdZ W1^T
+        rcv = cublas_sgemm(ch, 1, 0, H, F, T, one, sdY2, T, sgZ, T, zero, sgW1, H)
+        rcv = cublas_sgemm(ch, 0, 1, T, H, F, one, sgZ, T, sdW1, H, zero, sgY2, T)
+        if rcv != 0:
+            print("W1 BW FAIL", rcv)
+            return 1
+        # LN2 bwd + residual: sgDX2 = sdOUT + dx_ln2
+        hGY2 = alloc_bytes(qb)
+        hGDX2 = alloc_bytes(qb)
+        wh = cuda_h2d(hGY2, sgY2, qb, 2)
+        ii = 0
+        while ii < T:
+            mn = read_f32(shST2, ii * 8)
+            rs = read_f32(shST2, ii * 8 + 4)
+            acc1: "f32" = 0.0
+            acc2: "f32" = 0.0
+            jj = 0
+            while jj < H:
+                dvv = read_f32(hGY2, (ii + jj * T) * 4)
+                gvv = read_f32(shG2, jj * 4)
+                xhv = read_f32(shXH2, (ii + jj * T) * 4)
+                acc1 = acc1 + dvv * gvv
+                acc2 = acc2 + dvv * gvv * xhv
+                jj = jj + 1
+            jj = 0
+            while jj < H:
+                dvv = read_f32(hGY2, (ii + jj * T) * 4)
+                gvv = read_f32(shG2, jj * 4)
+                xhv = read_f32(shXH2, (ii + jj * T) * 4)
+                dxv = (dvv * gvv - acc1 / H - xhv * acc2 / H) * rs
+                doutv = read_f32(shOUT, (ii + jj * T) * 4)
+                wz = write_f32(hGDX2, (ii + jj * T) * 4, dxv + doutv)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(sgDX2, hGDX2, qb, 1)
+        print("MARK B2", step)
+        # attention backward
+        rcv = cublas_sgemm(ch, 0, 1, T, H, H, one, sgDX2, T, sdWo, H, zero, sgA, T)
+        rcv = cublas_sgemm(ch, 1, 0, H, H, T, one, sdA, T, sgDX2, T, zero, sgWo2, H)
+        rcv = cublas_sgemm(ch, 0, 1, T, T, H, one, sgA, T, sdV, T, zero, sgP, T)
+        rcv = cublas_sgemm(ch, 1, 0, T, H, T, one, sdP, T, sgA, T, zero, sgV, T)
+        if rcv != 0:
+            print("ATTN BW FAIL", rcv)
+            return 1
+        # sdS = P*(sdP - rowsum(P*sdP)) host
+        hGP = alloc_bytes(sb)
+        hDS = alloc_bytes(sb)
+        wh = cuda_h2d(hGP, sgP, sb, 2)
+        ii = 0
+        while ii < T:
+            rst: "f32" = 0.0
+            jj = 0
+            while jj < T:
+                ppv = read_f32(shP, (ii + jj * T) * 4)
+                ddv = read_f32(hGP, (ii + jj * T) * 4)
+                rst = rst + ppv * ddv
+                jj = jj + 1
+            jj = 0
+            while jj < T:
+                ppv = read_f32(shP, (ii + jj * T) * 4)
+                ddv = read_f32(hGP, (ii + jj * T) * 4)
+                wz = write_f32(hDS, (ii + jj * T) * 4, ppv * (ddv - rst))
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(sgS, hDS, sb, 1)
+        rcv = cublas_sgemm(ch, 0, 0, T, H, T, hal, sgS, T, sdK, T, zero, sgQ, T)
+        rcv = cublas_sgemm(ch, 1, 0, T, H, T, hal, sgS, T, sdQ, T, zero, sgK, T)
+        if rcv != 0:
+            print("QK BW FAIL", rcv)
+            return 1
+        rcv = cublas_sgemm(ch, 1, 0, H, H, T, one, sdY1, T, sgQ, T, zero, sgWq, H)
+        rcv = cublas_sgemm(ch, 1, 0, H, H, T, one, sdY1, T, sgK, T, zero, sgWk, H)
+        rcv = cublas_sgemm(ch, 1, 0, H, H, T, one, sdY1, T, sgV, T, zero, sgWv, H)
+        if rcv != 0:
+            print("WQKV BW FAIL", rcv)
+            return 1
+        rcv = cublas_sgemm(ch, 0, 1, T, H, H, one, sgQ, T, sdWq, H, zero, hTmpQ, T)
+        rcv = cublas_sgemm(ch, 0, 1, T, H, H, one, sgK, T, sdWk, H, zero, hTmpK, T)
+        rcv = cublas_sgemm(ch, 0, 1, T, H, H, one, sgV, T, sdWv, H, zero, hTmpV, T)
+        if rcv != 0:
+            print("YQKV BW FAIL", rcv)
+            return 1
+        hyq = alloc_bytes(qb)
+        hyk = alloc_bytes(qb)
+        hyv = alloc_bytes(qb)
+        hy1 = alloc_bytes(qb)
+        wh = cuda_h2d(hyq, hTmpQ, qb, 2)
+        wh = cuda_h2d(hyk, hTmpK, qb, 2)
+        wh = cuda_h2d(hyv, hTmpV, qb, 2)
+        ii = 0
+        while ii < T:
+            jj = 0
+            while jj < H:
+                vsum = read_f32(hyq, (ii + jj * T) * 4) + read_f32(hyk, (ii + jj * T) * 4) + read_f32(hyv, (ii + jj * T) * 4)
+                wz = write_f32(hy1, (ii + jj * T) * 4, vsum)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(sgY1, hy1, qb, 1)
+        # LN1 bwd (host) -> dx (input gradient, khong cap nhat)
+        shGDX1 = alloc_bytes(qb)
+        ii = 0
+        while ii < T:
+            mn = read_f32(shST1, ii * 8)
+            rs = read_f32(shST1, ii * 8 + 4)
+            acc1 = 0.0
+            acc2 = 0.0
+            jj = 0
+            while jj < H:
+                dvv = read_f32(hy1, (ii + jj * T) * 4)
+                gvv = read_f32(shG1, jj * 4)
+                xhv = read_f32(shXH1, (ii + jj * T) * 4)
+                acc1 = acc1 + dvv * gvv
+                acc2 = acc2 + dvv * gvv * xhv
+                jj = jj + 1
+            jj = 0
+            while jj < H:
+                dvv = read_f32(hy1, (ii + jj * T) * 4)
+                gvv = read_f32(shG1, jj * 4)
+                xhv = read_f32(shXH1, (ii + jj * T) * 4)
+                dxv = (dvv * gvv - acc1 / H - xhv * acc2 / H) * rs
+                wz = write_f32(shGDX1, (ii + jj * T) * 4, dxv)
+                jj = jj + 1
+            ii = ii + 1
+        print("MARK B3", step)
+        # dOUT cua layer 1 = gradient tu layer 2
+        wh = cuda_h2d(gOUT, shGDX1, qb, 1)
+        # dW2 = HH^T dOUT ; dHHg = dOUT W2^T
+        rcv = cublas_sgemm(ch, 1, 0, F, H, T, one, dHH, T, gOUT, T, zero, gW2, F)
+        rcv = cublas_sgemm(ch, 0, 1, T, F, H, one, gOUT, T, dW2, F, zero, gHH, T)
+        if rcv != 0:
+            print("W2 BW FAIL", rcv)
+            return 1
+        # dZ = dHHg * dgelu(Z_goc)
+        wh = cuda_h2d(hHHTMP, gHH, fb, 2)
+        ii = 0
+        while ii < T * F:
+            xv = read_f32(hORIGZ, ii * 4)
+            zz = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
+            e2 = exp(2.0 * zz)
+            thv = (e2 - 1.0) / (e2 + 1.0)
+            gv = 0.5 * (1.0 + thv) + 0.5 * xv * (1.0 - thv * thv) * 0.79788456 * (1.0 + 0.134145 * xv * xv)
+            dvv = read_f32(hHHTMP, ii * 4) * gv
+            wz = write_f32(hORIGZ, ii * 4, dvv)
+            ii = ii + 1
+        wh = cuda_h2d(gZ, hORIGZ, fb, 1)
+        # dW1 = Y2^T dZ ; dY2 = dZ W1^T
+        rcv = cublas_sgemm(ch, 1, 0, H, F, T, one, dY2, T, gZ, T, zero, gW1, H)
+        rcv = cublas_sgemm(ch, 0, 1, T, H, F, one, gZ, T, dW1, H, zero, gY2, T)
+        if rcv != 0:
+            print("W1 BW FAIL", rcv)
+            return 1
+        # LN2 bwd + residual: gDX2 = dOUT + dx_ln2
+        hGY2 = alloc_bytes(qb)
+        hGDX2 = alloc_bytes(qb)
+        wh = cuda_h2d(hGY2, gY2, qb, 2)
+        ii = 0
+        while ii < T:
+            mn = read_f32(hST2, ii * 8)
+            rs = read_f32(hST2, ii * 8 + 4)
+            acc1: "f32" = 0.0
+            acc2: "f32" = 0.0
+            jj = 0
+            while jj < H:
+                dvv = read_f32(hGY2, (ii + jj * T) * 4)
+                gvv = read_f32(hG2, jj * 4)
+                xhv = read_f32(hXH2, (ii + jj * T) * 4)
+                acc1 = acc1 + dvv * gvv
+                acc2 = acc2 + dvv * gvv * xhv
+                jj = jj + 1
+            jj = 0
+            while jj < H:
+                dvv = read_f32(hGY2, (ii + jj * T) * 4)
+                gvv = read_f32(hG2, jj * 4)
+                xhv = read_f32(hXH2, (ii + jj * T) * 4)
+                dxv = (dvv * gvv - acc1 / H - xhv * acc2 / H) * rs
+                doutv = read_f32(hOUT, (ii + jj * T) * 4)
+                wz = write_f32(hGDX2, (ii + jj * T) * 4, dxv + doutv)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(gDX2, hGDX2, qb, 1)
+        print("MARK B2", step)
+        # attention backward
+        rcv = cublas_sgemm(ch, 0, 1, T, H, H, one, gDX2, T, dWo, H, zero, gA, T)
+        rcv = cublas_sgemm(ch, 1, 0, H, H, T, one, dA, T, gDX2, T, zero, gWo2, H)
+        rcv = cublas_sgemm(ch, 0, 1, T, T, H, one, gA, T, dV, T, zero, gP, T)
+        rcv = cublas_sgemm(ch, 1, 0, T, H, T, one, dP, T, gA, T, zero, gV, T)
+        if rcv != 0:
+            print("ATTN BW FAIL", rcv)
+            return 1
+        # dS = P*(dP - rowsum(P*dP)) host
+        hGP = alloc_bytes(sb)
+        hDS = alloc_bytes(sb)
+        wh = cuda_h2d(hGP, gP, sb, 2)
+        ii = 0
+        while ii < T:
+            rst: "f32" = 0.0
+            jj = 0
+            while jj < T:
+                ppv = read_f32(hP, (ii + jj * T) * 4)
+                ddv = read_f32(hGP, (ii + jj * T) * 4)
+                rst = rst + ppv * ddv
+                jj = jj + 1
+            jj = 0
+            while jj < T:
+                ppv = read_f32(hP, (ii + jj * T) * 4)
+                ddv = read_f32(hGP, (ii + jj * T) * 4)
+                wz = write_f32(hDS, (ii + jj * T) * 4, ppv * (ddv - rst))
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(gS, hDS, sb, 1)
+        rcv = cublas_sgemm(ch, 0, 0, T, H, T, hal, gS, T, dK, T, zero, gQ, T)
+        rcv = cublas_sgemm(ch, 1, 0, T, H, T, hal, gS, T, dQ, T, zero, gK, T)
+        if rcv != 0:
+            print("QK BW FAIL", rcv)
+            return 1
+        rcv = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gQ, T, zero, gWq, H)
+        rcv = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gK, T, zero, gWk, H)
+        rcv = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gV, T, zero, gWv, H)
+        if rcv != 0:
+            print("WQKV BW FAIL", rcv)
+            return 1
+        rcv = cublas_sgemm(ch, 0, 1, T, H, H, one, gQ, T, dWq, H, zero, hTmpQ, T)
+        rcv = cublas_sgemm(ch, 0, 1, T, H, H, one, gK, T, dWk, H, zero, hTmpK, T)
+        rcv = cublas_sgemm(ch, 0, 1, T, H, H, one, gV, T, dWv, H, zero, hTmpV, T)
+        if rcv != 0:
+            print("YQKV BW FAIL", rcv)
+            return 1
+        hyq = alloc_bytes(qb)
+        hyk = alloc_bytes(qb)
+        hyv = alloc_bytes(qb)
+        hy1 = alloc_bytes(qb)
+        wh = cuda_h2d(hyq, hTmpQ, qb, 2)
+        wh = cuda_h2d(hyk, hTmpK, qb, 2)
+        wh = cuda_h2d(hyv, hTmpV, qb, 2)
+        ii = 0
+        while ii < T:
+            jj = 0
+            while jj < H:
+                vsum = read_f32(hyq, (ii + jj * T) * 4) + read_f32(hyk, (ii + jj * T) * 4) + read_f32(hyv, (ii + jj * T) * 4)
+                wz = write_f32(hy1, (ii + jj * T) * 4, vsum)
+                jj = jj + 1
+            ii = ii + 1
+        wh = cuda_h2d(gY1, hy1, qb, 1)
+        # SGD update: W = W - lr * gW
+        wh = cuda_h2d(gW1h, gW1, w1b, 2)
+        wh = cuda_h2d(gW2h, gW2, w2b, 2)
+        wh = cuda_h2d(gWqh, gWq, whb, 2)
+        wh = cuda_h2d(gWkh, gWk, whb, 2)
+        wh = cuda_h2d(gWvh, gWv, whb, 2)
+        wh = cuda_h2d(gWoh, gWo2, whb, 2)
+        wh = cuda_h2d(gWhh, gWh, wh2, 2)
+        ii = 0
+        while ii < H * F:
+            dxv = read_f32(hW1, ii * 4) - lr * read_f32(gW1h, ii * 4)
+            wz = write_f32(hW1, ii * 4, dxv)
+            ii = ii + 1
+        ii = 0
+        while ii < F * H:
+            dxv = read_f32(hW2, ii * 4) - lr * read_f32(gW2h, ii * 4)
+            wz = write_f32(hW2, ii * 4, dxv)
+            ii = ii + 1
+        ii = 0
+        while ii < H * H:
+            dxv = read_f32(hWq, ii * 4) - lr * read_f32(gWqh, ii * 4)
+            wz = write_f32(hWq, ii * 4, dxv)
+            dxv = read_f32(hWk, ii * 4) - lr * read_f32(gWkh, ii * 4)
+            wz = write_f32(hWk, ii * 4, dxv)
+            dxv = read_f32(hWv, ii * 4) - lr * read_f32(gWvh, ii * 4)
+            wz = write_f32(hWv, ii * 4, dxv)
+            dxv = read_f32(hWo, ii * 4) - lr * read_f32(gWoh, ii * 4)
+            wz = write_f32(hWo, ii * 4, dxv)
+            ii = ii + 1
+        ii = 0
+        while ii < H * V:
+            dxv = read_f32(hWh, ii * 4) - lr * read_f32(gWhh, ii * 4)
+            wz = write_f32(hWh, ii * 4, dxv)
+            ii = ii + 1
+        wh = cuda_h2d(dW1, hW1, w1b, 1)
+        wh = cuda_h2d(dW2, hW2, w2b, 1)
+        wh = cuda_h2d(dWq, hWq, whb, 1)
+        wh = cuda_h2d(dWk, hWk, whb, 1)
+        wh = cuda_h2d(dWv, hWv, whb, 1)
+        wh = cuda_h2d(dWo, hWo, whb, 1)
+        wh = cuda_h2d(dWh, hWh, wh2, 1)
+        print("MARK UPD", step)
+        # SGD update: W = W - lr * sgW
+        wh = cuda_h2d(gW1h, sgW1, w1b, 2)
+        wh = cuda_h2d(gW2h, sgW2, w2b, 2)
+        wh = cuda_h2d(gWqh, sgWq, whb, 2)
+        wh = cuda_h2d(gWkh, sgWk, whb, 2)
+        wh = cuda_h2d(gWvh, sgWv, whb, 2)
+        wh = cuda_h2d(gWoh, sgWo2, whb, 2)
+        wh = cuda_h2d(gWhh, sgWh, wh2, 2)
+        ii = 0
+        while ii < H * F:
+            dxv = read_f32(shW1, ii * 4) - lr * read_f32(gW1h, ii * 4)
+            wz = write_f32(shW1, ii * 4, dxv)
+            ii = ii + 1
+        ii = 0
+        while ii < F * H:
+            dxv = read_f32(shW2, ii * 4) - lr * read_f32(gW2h, ii * 4)
+            wz = write_f32(shW2, ii * 4, dxv)
+            ii = ii + 1
+        ii = 0
+        while ii < H * H:
+            dxv = read_f32(shWq, ii * 4) - lr * read_f32(gWqh, ii * 4)
+            wz = write_f32(shWq, ii * 4, dxv)
+            dxv = read_f32(shWk, ii * 4) - lr * read_f32(gWkh, ii * 4)
+            wz = write_f32(shWk, ii * 4, dxv)
+            dxv = read_f32(shWv, ii * 4) - lr * read_f32(gWvh, ii * 4)
+            wz = write_f32(shWv, ii * 4, dxv)
+            dxv = read_f32(shWo, ii * 4) - lr * read_f32(gWoh, ii * 4)
+            wz = write_f32(shWo, ii * 4, dxv)
+            ii = ii + 1
+        ii = 0
+        while ii < H * V:
+            dxv = read_f32(shWh, ii * 4) - lr * read_f32(gWhh, ii * 4)
+            wz = write_f32(shWh, ii * 4, dxv)
+            ii = ii + 1
+        wh = cuda_h2d(sdW1, shW1, w1b, 1)
+        wh = cuda_h2d(sdW2, shW2, w2b, 1)
+        wh = cuda_h2d(sdWq, shWq, whb, 1)
+        wh = cuda_h2d(sdWk, shWk, whb, 1)
+        wh = cuda_h2d(sdWv, shWv, whb, 1)
+        wh = cuda_h2d(sdWo, shWo, whb, 1)
+        wh = cuda_h2d(sdWh, shWh, wh2, 1)
+        print("MARK UPD", step)
+        step = step + 1
+    print("BATCH DONE")
+    return 0
