@@ -632,6 +632,55 @@ def run() -> "i32":
             print("MARK B", ll)
             ll = ll - 1
         print("MARK BWD", step)
+        ll = 0
+        while ll < NL:
+            gqd = read_i64(AGq, ll * 8)
+            gkd = read_i64(AGk, ll * 8)
+            gvd = read_i64(AGv, ll * 8)
+            god = read_i64(AGo, ll * 8)
+            g1d = read_i64(AG1, ll * 8)
+            g2d = read_i64(AG2, ll * 8)
+            wqh = read_i64(HWq, ll * 8)
+            wkh = read_i64(HWk, ll * 8)
+            wvh = read_i64(HWv, ll * 8)
+            woh = read_i64(HWo, ll * 8)
+            w1h = read_i64(HW1, ll * 8)
+            w2h = read_i64(HW2, ll * 8)
+            wh = cuda_h2d(gWqh, gqd, whb, 2)
+            wh = cuda_h2d(gWkh, gkd, whb, 2)
+            wh = cuda_h2d(gWvh, gvd, whb, 2)
+            wh = cuda_h2d(gWoh, god, whb, 2)
+            wh = cuda_h2d(gW1h, g1d, w1b, 2)
+            wh = cuda_h2d(gW2h, g2d, w2b, 2)
+            ii = 0
+            while ii < H * H:
+                nv: "f32" = read_f32(wqh, ii * 4) - lr * read_f32(gWqh, ii * 4)
+                wh = write_f32(wqh, ii * 4, nv)
+                nv = read_f32(wkh, ii * 4) - lr * read_f32(gWkh, ii * 4)
+                wh = write_f32(wkh, ii * 4, nv)
+                nv = read_f32(wvh, ii * 4) - lr * read_f32(gWvh, ii * 4)
+                wh = write_f32(wvh, ii * 4, nv)
+                nv = read_f32(woh, ii * 4) - lr * read_f32(gWoh, ii * 4)
+                wh = write_f32(woh, ii * 4, nv)
+                ii = ii + 1
+            ii = 0
+            while ii < H * F:
+                nv = read_f32(w1h, ii * 4) - lr * read_f32(gW1h, ii * 4)
+                wh = write_f32(w1h, ii * 4, nv)
+                ii = ii + 1
+            ii = 0
+            while ii < F * H:
+                nv = read_f32(w2h, ii * 4) - lr * read_f32(gW2h, ii * 4)
+                wh = write_f32(w2h, ii * 4, nv)
+                ii = ii + 1
+            wh = cuda_h2d(read_i64(AWq, ll * 8), wqh, whb, 1)
+            wh = cuda_h2d(read_i64(AWk, ll * 8), wkh, whb, 1)
+            wh = cuda_h2d(read_i64(AWv, ll * 8), wvh, whb, 1)
+            wh = cuda_h2d(read_i64(AWo, ll * 8), woh, whb, 1)
+            wh = cuda_h2d(read_i64(AW1, ll * 8), w1h, w1b, 1)
+            wh = cuda_h2d(read_i64(AW2, ll * 8), w2h, w2b, 1)
+            ll = ll + 1
+        print("MARK UPD", step)
         step = step + 1
     print("BATCH DONE")
     return 0
