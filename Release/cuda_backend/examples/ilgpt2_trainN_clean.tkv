@@ -361,10 +361,14 @@ def run() -> "i32":
                 while jj < H:
                     xv: "f32" = read_f32(hX, (ii + jj * T) * 4)
                     su = su + xv
-                    sq = sq + xv * xv
                     jj = jj + 1
                 mn: "f32" = su / H
-                vr: "f32" = sq / H - mn * mn + 0.000001
+                jj = 0
+                while jj < H:
+                    xv = read_f32(hX, (ii + jj * T) * 4)
+                    sq = sq + (xv - mn) * (xv - mn)
+                    jj = jj + 1
+                vr: "f32" = sq / H + 0.000001
                 rs: "f32" = 1.0 / sqrt(vr)
                 wh = write_f32(hST, ii * 8, mn)
                 wh = write_f32(hST, ii * 8 + 4, rs)
@@ -447,10 +451,14 @@ def run() -> "i32":
                 while jj < H:
                     xv = read_f32(hX2, (ii + jj * T) * 4)
                     su = su + xv
-                    sq = sq + xv * xv
                     jj = jj + 1
                 mn = su / H
-                vr = sq / H - mn * mn + 0.000001
+                jj = 0
+                while jj < H:
+                    xv = read_f32(hX2, (ii + jj * T) * 4)
+                    sq = sq + (xv - mn) * (xv - mn)
+                    jj = jj + 1
+                vr = sq / H + 0.000001
                 rs = 1.0 / sqrt(vr)
                 wh = write_f32(hST, ii * 8, mn)
                 wh = write_f32(hST, ii * 8 + 4, rs)
