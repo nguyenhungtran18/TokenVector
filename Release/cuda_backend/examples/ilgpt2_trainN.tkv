@@ -545,6 +545,7 @@ def run() -> "i32":
         while ii < T:
             wh = write_i32(pbuf, 16 + ii * 4, read_i32(hIds, ii * 4))
             ii = ii + 1
+        print("M CE DBG", read_i32(pbuf, 0), read_i32(pbuf, 4), read_f32(pbuf, 8), read_i32(pbuf, 16))
         mc = alloc_bytes(8)
         rc = cuda_malloc(mc, 16 + T * 4)
         gHH = read_i64(mc, 0)
@@ -566,6 +567,7 @@ def run() -> "i32":
             print("LOSS FAIL", rc)
             return 1
         wh = cuda_h2d(pbuf, dDL - T * 4, T * 4, 2)
+        print("M CE OUT", read_f32(pbuf, 0), read_f32(pbuf, 4), read_f32(pbuf, 8))
         lossv: "f32" = 0.0
         ii = 0
         while ii < T:
