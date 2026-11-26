@@ -90,7 +90,7 @@ def run() -> "i32":
     while ii < T:
         jj = 0
         while jj < H:
-            wh = write_f32(hX, (ii + jj * T) * 4, 0.1 + 0.02 * (ii + jj))
+            wh = write_f32(hX, (ii + jj * T) * 4, 0.1 + 0.02 * ((ii + jj) % 16))
             jj = jj + 1
         wh = write_i32(hIds, ii * 4, (ii + 1) % V)
         ii = ii + 1
