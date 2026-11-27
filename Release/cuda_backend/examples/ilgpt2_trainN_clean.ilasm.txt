@@ -51,6 +51,8 @@ Assembled method TkvTime::Perf
 Assembled method TkvTime::Sleep
 Assembled method TKVApp::sgd_init
 Assembled method TKVApp::sgd_update
+Assembled method TKVApp::adamw_init
+Assembled method TKVApp::adamw_update
 Assembled method TKVApp::gelu_fwd_init
 Assembled method TKVApp::gelu_bwd_init
 Assembled method TKVApp::gelu_fwd
@@ -64,9 +66,6 @@ Assembled method TKVApp::sf_bwd
 Assembled method TKVApp::add_k
 Assembled method TKVApp::toh
 Assembled method TKVApp::gemm16
-Assembled method TKVApp::gemm16h
-Assembled method TKVApp::tof_init
-Assembled method TKVApp::tof
 Assembled method TKVApp::loss_init
 Assembled method TKVApp::loss_fwd
 Assembled method TKVApp::wrand
@@ -89,7 +88,7 @@ Class 1	Fields: 2;	Methods: 27;
 Class 2	Methods: 15;	
 Class 3	Methods: 3;	
 Class 4	Methods: 36;	
-Resolving local member refs: 426 -> 426 defs, 0 refs, 0 unresolved
+Resolving local member refs: 433 -> 433 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	
