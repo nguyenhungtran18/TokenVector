@@ -1,0 +1,60 @@
+.version 8.0
+.target sm_75
+.address_size 64
+.entry adamw_kernel(.param .u64 pW, .param .u64 pG, .param .u64 pM, .param .u64 pV, .param .f32 pLR, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pWD, .param .u32 pN)
+{
+.reg .f32 w,g,m,v,t,den,lr,bc1,bc2,wd;
+.reg .u64 wb,gb,mb,vb,off,wa,ga,ma,va;
+.reg .u32 i,n,base,nt;
+.reg .pred q;
+ld.param.u64 wb,[pW];
+ld.param.u64 gb,[pG];
+ld.param.u64 mb,[pM];
+ld.param.u64 vb,[pV];
+ld.param.f32 lr,[pLR];
+ld.param.f32 bc1,[pBC1];
+ld.param.f32 bc2,[pBC2];
+ld.param.f32 wd,[pWD];
+ld.param.u32 n,[pN];
+cvta.to.global.u64 wb,wb;
+cvta.to.global.u64 gb,gb;
+cvta.to.global.u64 mb,mb;
+cvta.to.global.u64 vb,vb;
+mov.u32 nt,%ntid.x;
+mov.u32 base,%ctaid.x;
+mul.lo.u32 base,base,nt;
+mov.u32 i,%tid.x;
+add.u32 i,i,base;
+setp.ge.u32 q,i,n;
+@q bra LEND;
+mul.wide.u32 off,i,4;
+add.u64 wa,wb,off;
+add.u64 ga,gb,off;
+add.u64 ma,mb,off;
+add.u64 va,vb,off;
+ld.global.f32 w,[wa];
+ld.global.f32 g,[ga];
+ld.global.f32 m,[ma];
+ld.global.f32 v,[va];
+mul.f32 m,m,0.9;
+mul.f32 t,g,0.1;
+add.f32 m,m,t;
+mul.f32 v,v,0.999;
+mul.f32 t,g,g;
+mul.f32 t,t,0.001;
+add.f32 v,v,t;
+div.rn.f32 t,v,bc2;
+sqrt.rn.f32 den,t;
+add.f32 den,den,0.0000001;
+div.rn.f32 t,m,bc1;
+div.rn.f32 t,t,den;
+mul.f32 t,t,lr;
+sub.f32 w,w,t;
+mul.f32 t,w,wd;
+sub.f32 w,w,t;
+st.global.f32 [wa],w;
+st.global.f32 [ma],m;
+st.global.f32 [va],v;
+LEND:
+ret;
+}
