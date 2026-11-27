@@ -862,8 +862,11 @@ def run() -> "i32":
     rc = zero_buf(hP, T * T)
     xin: "i64" = dX
     t0 = time_perf()
+    tf: "f64" = 0.0
+    tb: "f64" = 0.0
     step: "i32" = 1
     while step <= 2:
+        tA = time_perf()
         wh = cuda_h2d(dX, hIN, qb, 1)
         xin = dX
         # ---- forward layers ----
@@ -980,6 +983,8 @@ def run() -> "i32":
         print("LOSS", lossv)
         lf: "f64" = lossv
         print("LOSSF", lf)
+        tB = time_perf()
+        tf = tf + (tB - tA)
         print("MARK FWD", step)
         rc = toh(th, dDL, fpA, sTV)
         rc = toh(th, dWh, fpB, sHV)
@@ -1102,6 +1107,8 @@ def run() -> "i32":
                 return 1
             print("MARK B", ll)
             ll = ll - 1
+        tC = time_perf()
+        tb = tb + (tC - tB)
         print("MARK BWD", step)
         ll = 0
         while ll < NL:
@@ -1124,6 +1131,8 @@ def run() -> "i32":
     syn: "i32" = cuda_sync()
     t1 = time_perf()
     dtm: "f64" = t1 - t0
+    print("MS_FWD", tf * 1000.0)
+    print("MS_BWD", tb * 1000.0)
     print("MS_TOTAL", dtm * 1000.0)
     print("MS_STEP", (dtm * 1000.0) / 2.0)
     print("BATCH DONE")
