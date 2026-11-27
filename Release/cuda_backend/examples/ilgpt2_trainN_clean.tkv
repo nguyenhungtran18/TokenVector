@@ -894,20 +894,17 @@ def run() -> "i32":
             if rc != 0:
                 print("LN1 FWD FAIL", ll)
                 return 1
-            wh = cuda_h2d(dY1, y1d, qb, 3)
-            rc = toh(th, dY1, fpA, sQH)
+            rc = toh(th, y1d, fpA, sQH)
             rc = toh(th, wqd, fpB, sHH)
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dQ, T)
             if rc != 0:
                 print("Q GEMM FAIL", ll, rc)
                 return 1
-            rc = toh(th, dY1, fpA, sQH)
             rc = toh(th, wkd, fpB, sHH)
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dK, T)
             if rc != 0:
                 print("K GEMM FAIL", ll, rc)
                 return 1
-            rc = toh(th, dY1, fpA, sQH)
             rc = toh(th, wvd, fpB, sHH)
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dV, T)
             if rc != 0:
@@ -919,12 +916,11 @@ def run() -> "i32":
             if rc != 0:
                 print("S GEMM FAIL", ll, rc)
                 return 1
-            rc = sf_fwd(sff, dS, dP, T)
+            rc = sf_fwd(sff, dS, pd, T)
             if rc != 0:
                 print("SF FWD FAIL", ll)
                 return 1
-            wh = cuda_h2d(pd, dP, sb, 3)
-            rc = toh(th, dP, fpA, sTT)
+            rc = toh(th, pd, fpA, sTT)
             rc = toh(th, dV, fpB, sQH)
             rc = gemm16(ch, 0, 0, T, H, T, one, fpA, T, fpB, T, zero, dA, T)
             if rc != 0:
@@ -944,12 +940,10 @@ def run() -> "i32":
             if rc != 0:
                 print("LN2 FWD FAIL", ll)
                 return 1
-            wh = cuda_h2d(dY2, y2d, qb, 3)
-            rc = toh(th, dY2, fpA, sQH)
+            rc = toh(th, y2d, fpA, sQH)
             rc = toh(th, w1d, fpB, H * F)
-            rc = gemm16(ch, 0, 0, T, F, H, one, fpA, T, fpB, H, zero, dZ, T)
-            wh = cuda_h2d(zd, dZ, fb, 3)
-            rc = gelu_fwd(gfn, dZ, dHH, T * F)
+            rc = gemm16(ch, 0, 0, T, F, H, one, fpA, T, fpB, H, zero, zd, T)
+            rc = gelu_fwd(gfn, zd, dHH, T * F)
             rc = toh(th, dHH, fpA, sTF)
             rc = toh(th, w2d, fpB, sFH)
             rc = gemm16(ch, 0, 0, T, H, F, one, fpA, T, fpB, F, zero, dO2, T)
@@ -957,7 +951,6 @@ def run() -> "i32":
             if rc != 0:
                 print("ADD OUT FAIL", ll)
                 return 1
-            wh = cuda_h2d(od, dOUT, qb, 3)
             xin = dOUT
             ll = ll + 1
         tH = time_perf()
@@ -991,7 +984,6 @@ def run() -> "i32":
         tf = tf + (tH - tA)
         print("MARK FWD", step)
         rc = toh(th, dDL, fpA, sTV)
-        rc = toh(th, dWh, fpB, sHV)
         rc = gemm16(ch, 0, 1, T, H, V, one, fpA, T, fpB, H, zero, gOUT, T)
         # ---- backward layers (nguoc) ----
         ll = NL - 1
@@ -1018,18 +1010,15 @@ def run() -> "i32":
             od = read_i64(AO, ll * 8)
             # reload THIS layer's forward activations (no stale shared buffers)
             rc = gelu_fwd(gfn, zd, dHH, T * F)
-            wh = cuda_h2d(dY1, read_i64(AY1, ll * 8), qb, 3)
-            rc = toh(th, dY1, fpA, sQH)
+            yb1: "i64" = read_i64(AY1, ll * 8)
+            rc = toh(th, yb1, fpA, sQH)
             rc = toh(th, wqd, fpB, sHH)
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dQ, T)
-            rc = toh(th, dY1, fpA, sQH)
             rc = toh(th, wkd, fpB, sHH)
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dK, T)
-            rc = toh(th, dY1, fpA, sQH)
             rc = toh(th, wvd, fpB, sHH)
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dV, T)
-            wh = cuda_h2d(dP, pd, sb, 3)
-            rc = toh(th, dP, fpA, sTT)
+            rc = toh(th, pd, fpA, sTT)
             rc = toh(th, dV, fpB, sQH)
             rc = gemm16(ch, 0, 0, T, H, T, one, fpA, T, fpB, T, zero, dA, T)
             rc = toh(th, dHH, fpA, sTF)
@@ -1040,9 +1029,8 @@ def run() -> "i32":
             rc = gemm16(ch, 0, 1, T, F, H, one, fpA, T, fpB, F, zero, gHH, T)
             print("B1 dW2", ll)
             rc = gelu_bwd(bfn, zd, gHH, gZ, T * F)
-            wh = cuda_h2d(dY2, y2d, qb, 3)
             print("B2 dZ", ll)
-            rc = toh(th, dY2, fpA, sQH)
+            rc = toh(th, y2d, fpA, sQH)
             rc = toh(th, gZ, fpB, sTF)
             rc = gemm16(ch, 1, 0, H, F, T, one, fpA, T, fpB, T, zero, g1d, H)
             rc = toh(th, gZ, fpA, sTF)
@@ -1066,11 +1054,11 @@ def run() -> "i32":
             rc = toh(th, gA, fpA, sQH)
             rc = toh(th, dV, fpB, sQH)
             rc = gemm16(ch, 0, 1, T, T, H, one, fpA, T, fpB, T, zero, gP, T)
-            rc = toh(th, dP, fpA, sTT)
+            rc = toh(th, pd, fpA, sTT)
             rc = toh(th, gA, fpB, sQH)
             rc = gemm16(ch, 1, 0, T, H, T, one, fpA, T, fpB, T, zero, gV, T)
             print("B4 attn", ll)
-            rc = sf_bwd(sbk, gP, dP, gS, T)
+            rc = sf_bwd(sbk, gP, pd, gS, T)
             if rc != 0:
                 print("SF BWD FAIL", ll)
                 return 1
@@ -1081,13 +1069,11 @@ def run() -> "i32":
             rc = toh(th, gS, fpA, sTT)
             rc = toh(th, dQ, fpB, sQH)
             rc = gemm16(ch, 1, 0, T, H, T, hal, fpA, T, fpB, T, zero, gK, T)
-            rc = toh(th, dY1, fpA, sQH)
+            rc = toh(th, yb1, fpA, sQH)
             rc = toh(th, gQ, fpB, sQH)
             rc = gemm16(ch, 1, 0, H, H, T, one, fpA, T, fpB, T, zero, gqd, H)
-            rc = toh(th, dY1, fpA, sQH)
             rc = toh(th, gK, fpB, sQH)
             rc = gemm16(ch, 1, 0, H, H, T, one, fpA, T, fpB, T, zero, gkd, H)
-            rc = toh(th, dY1, fpA, sQH)
             rc = toh(th, gV, fpB, sQH)
             rc = gemm16(ch, 1, 0, H, H, T, one, fpA, T, fpB, T, zero, gvd, H)
             rc = toh(th, gQ, fpA, sQH)
@@ -1100,12 +1086,11 @@ def run() -> "i32":
             rc = toh(th, wvd, fpB, sHH)
             rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, fpB, H, one, gDX2, T)
             print("B6 qkv", ll)
-            wh = cuda_h2d(gY1, gDX2, qb, 3)
-            rc = ln_bwd(lnb, xh1d, gY1, dgam, s1d, gDX2, T, H)
+            rc = ln_bwd(lnb, xh1d, gDX2, dgam, s1d, gY1, T, H)
             if rc != 0:
                 print("LN1 BWD FAIL", ll)
                 return 1
-            rc = add_k(gadd, gDX2, gOUT, gOUT, T * H)
+            rc = add_k(gadd, gY1, gOUT, gOUT, T * H)
             if rc != 0:
                 print("ADD DX1 FAIL", ll)
                 return 1
