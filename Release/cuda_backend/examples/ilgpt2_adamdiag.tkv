@@ -1361,6 +1361,9 @@ def run() -> "i32":
         tC = time_perf()
         tb = tb + (tC - tB)
         print("MARK BWD", step)
+        wh = write_f32(dh, 0, 777777.0)
+        wh = cuda_h2d(dh, read_i64(AGq, 0), 16, 2)
+        print("DIAG gpre", read_f32(dh, 0), read_f32(dh, 4))
         ll = 0
         while ll < NL:
             gqd = read_i64(AGq, ll * 8)
