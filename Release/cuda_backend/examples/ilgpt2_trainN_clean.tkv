@@ -491,6 +491,148 @@ def loss_init() -> "i64":
     fnh: "i64" = read_i64(fc, 0)
     return fnh
 
+def loss_split_init() -> "i64":
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry lpart(.param .u64 pLG, .param .u64 pMX, .param .u64 pSM, .param .u32 pT, .param .u32 pV, .param .u32 pVS)\n{\n.reg .f32 x,t,e,mx,sum;\n.reg .u64 xb,mb,sb,oo,xa,ma,sa;\n.reg .u32 row,c,v0,v1,v,vs,tn,vn,off;\n.reg .pred q;\nld.param.u64 xb,[pLG];\nld.param.u64 mb,[pMX];\nld.param.u64 sb,[pSM];\nld.param.u32 tn,[pT];\nld.param.u32 vn,[pV];\nld.param.u32 vs,[pVS];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 mb,mb;\ncvta.to.global.u64 sb,sb;\nmov.u32 row,%tid.x;\nmov.u32 c,%ctaid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nmul.lo.u32 v0,c,vs;\nadd.u32 v1,v0,vs;\nsetp.gt.u32 q,v1,vn;\n@q mov.u32 v1,vn;\nmov.f32 mx,-1000000000.0;\nmov.u32 v,v0;\nL1:\nsetp.ge.u32 q,v,v1;\n@q bra L1D;\nmul.lo.u32 off,v,tn;\nadd.u32 off,off,row;\nmul.wide.u32 oo,off,4;\nadd.u64 xa,xb,oo;\nld.global.f32 x,[xa];\nmax.f32 mx,mx,x;\nadd.u32 v,v,1;\nbra L1;\nL1D:\nmov.f32 sum,0.0;\nmov.u32 v,v0;\nL2:\nsetp.ge.u32 q,v,v1;\n@q bra L2D;\nmul.lo.u32 off,v,tn;\nadd.u32 off,off,row;\nmul.wide.u32 oo,off,4;\nadd.u64 xa,xb,oo;\nld.global.f32 x,[xa];\nsub.f32 t,x,mx;\nmul.f32 t,t,1.442695;\nex2.approx.f32 e,t;\nadd.f32 sum,sum,e;\nadd.u32 v,v,1;\nbra L2;\nL2D:\nmul.lo.u32 off,c,tn;\nadd.u32 off,off,row;\nmul.wide.u32 oo,off,4;\nadd.u64 ma,mb,oo;\nst.global.f32 [ma],mx;\nadd.u64 sa,sb,oo;\nst.global.f32 [sa],sum;\nLEND:\nret;\n}\n.entry lred(.param .u64 pMX, .param .u64 pSM, .param .u64 pPk, .param .u64 pLG, .param .u64 pLS, .param .u64 pMF, .param .u64 pSF, .param .u32 pT, .param .u32 pNB)\n{\n.reg .f32 mx,sum,t,l,lsum,x,inv;\n.reg .u64 mb,sb,pb,xb,lb,off,oo,xa,la,ia,mfb,sfb;\n.reg .u32 row,c,tn,nb,id;\n.reg .pred q;\nld.param.u64 mb,[pMX];\nld.param.u64 sb,[pSM];\nld.param.u64 pb,[pPk];\nld.param.u64 xb,[pLG];\nld.param.u64 lb,[pLS];\nld.param.u64 mfb,[pMF];\nld.param.u64 sfb,[pSF];\nld.param.u32 tn,[pT];\nld.param.u32 nb,[pNB];\ncvta.to.global.u64 mb,mb;\ncvta.to.global.u64 sb,sb;\ncvta.to.global.u64 pb,pb;\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 lb,lb;\ncvta.to.global.u64 mfb,mfb;\ncvta.to.global.u64 sfb,sfb;\nmov.u32 row,%tid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nld.global.f32 inv,[pb+8];\nmul.wide.u32 off,row,4;\nadd.u64 ia,pb,off;\nld.global.u32 id,[ia+16];\nmov.f32 mx,-1000000000.0;\nmov.f32 sum,0.0;\nmov.u32 c,0;\nLR:\nsetp.ge.u32 q,c,nb;\n@q bra LRD;\nmul.lo.u32 off,c,tn;\nadd.u32 off,off,row;\nmul.wide.u32 oo,off,4;\nadd.u64 xa,mb,oo;\nld.global.f32 t,[xa];\nmax.f32 mx,mx,t;\nadd.u64 xa,sb,oo;\nld.global.f32 t,[xa];\nadd.f32 sum,sum,t;\nadd.u32 c,c,1;\nbra LR;\nLRD:\nmul.lo.u32 off,id,tn;\nadd.u32 off,off,row;\nmul.wide.u32 oo,off,4;\nadd.u64 xa,xb,oo;\nld.global.f32 x,[xa];\nlg2.approx.f32 lsum,sum;\nmul.f32 lsum,lsum,0.69314718;\nadd.f32 l,mx,lsum;\nsub.f32 l,l,x;\nmul.f32 l,l,inv;\nmul.wide.u32 oo,row,4;\nadd.u64 la,lb,oo;\nst.global.f32 [la],l;\nadd.u64 la,mfb,oo;\nst.global.f32 [la],mx;\nadd.u64 la,sfb,oo;\nst.global.f32 [la],sum;\nLEND:\nret;\n}\n.entry ldl(.param .u64 pLG, .param .u64 pPk, .param .u64 pMX, .param .u64 pSM, .param .u64 pDL, .param .u32 pT, .param .u32 pV, .param .u32 pVS)\n{\n.reg .f32 x,t,e,p,mx,sum,inv;\n.reg .u64 xb,pb,mb,sb,db,off,oo,xa,da,ia;\n.reg .u32 row,c,v0,v1,v,vs,tn,vn,id;\n.reg .pred q,pis;\nld.param.u64 xb,[pLG];\nld.param.u64 pb,[pPk];\nld.param.u64 mb,[pMX];\nld.param.u64 sb,[pSM];\nld.param.u64 db,[pDL];\nld.param.u32 tn,[pT];\nld.param.u32 vn,[pV];\nld.param.u32 vs,[pVS];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 pb,pb;\ncvta.to.global.u64 mb,mb;\ncvta.to.global.u64 sb,sb;\ncvta.to.global.u64 db,db;\nmov.u32 row,%tid.x;\nmov.u32 c,%ctaid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nld.global.f32 inv,[pb+8];\nmul.wide.u32 off,row,4;\nadd.u64 ia,pb,off;\nld.global.u32 id,[ia+16];\nmul.wide.u32 off,row,4;\nadd.u64 xa,mb,off;\nld.global.f32 mx,[xa];\nadd.u64 xa,sb,off;\nld.global.f32 sum,[xa];\nmul.lo.u32 v0,c,vs;\nadd.u32 v1,v0,vs;\nsetp.gt.u32 q,v1,vn;\n@q mov.u32 v1,vn;\nmov.u32 v,v0;\nL1:\nsetp.ge.u32 q,v,v1;\n@q bra LEND;\nmul.lo.u32 off,v,tn;\nadd.u32 off,off,row;\nmul.wide.u32 oo,off,4;\nadd.u64 xa,xb,oo;\nld.global.f32 x,[xa];\nsub.f32 t,x,mx;\nmul.f32 t,t,1.442695;\nex2.approx.f32 e,t;\ndiv.rn.f32 p,e,sum;\nsetp.eq.u32 pis,v,id;\n@pis sub.f32 p,p,1.0;\nmul.f32 p,p,inv;\nadd.u64 da,db,oo;\nst.global.f32 [da],p;\nadd.u32 v,v,1;\nbra L1;\nLEND:\nret;\n}\n"
+    pb = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wh: "i64" = write_u8(pb, kk, PTX[kk])
+        kk = kk + 1
+    wh = write_u8(pb, kk, 0)
+    mc = alloc_bytes(8)
+    rc: "i32" = cu_module_load(mc, pb)
+    if rc != 0:
+        print("LOSS SPLIT MOD FAIL", rc)
+        return 0
+    mod: "i64" = read_i64(mc, 0)
+    hs = alloc_bytes(24)
+    fc = alloc_bytes(8)
+    N1 = b"lpart\x00"
+    nb = alloc_bytes(len(N1))
+    kk = 0
+    while kk < len(N1):
+        wh = write_u8(nb, kk, N1[kk])
+        kk = kk + 1
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("LOSS SPLIT FN LPART FAIL", rc)
+        return 0
+    wh = write_i64(hs, 0, read_i64(fc, 0))
+    N2 = b"lred\x00"
+    kk = 0
+    while kk < len(N2):
+        wh = write_u8(nb, kk, N2[kk])
+        kk = kk + 1
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("LOSS SPLIT FN LRED FAIL", rc)
+        return 0
+    wh = write_i64(hs, 8, read_i64(fc, 0))
+    N3 = b"ldl\x00"
+    kk = 0
+    while kk < len(N3):
+        wh = write_u8(nb, kk, N3[kk])
+        kk = kk + 1
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("LOSS SPLIT FN LDL FAIL", rc)
+        return 0
+    wh = write_i64(hs, 16, read_i64(fc, 0))
+    return hs
+
+def lpart(fnh: "i64", lg: "i64", mx: "i64", sm: "i64", tn: "i32", vn: "i32", vs: "i32", nb: "i32") -> "i32":
+    a0 = alloc_bytes(8)
+    wh: "i64" = write_i64(a0, 0, lg)
+    a1 = alloc_bytes(8)
+    wh = write_i64(a1, 0, mx)
+    a2 = alloc_bytes(8)
+    wh = write_i64(a2, 0, sm)
+    a3 = alloc_bytes(4)
+    wh = write_i32(a3, 0, tn)
+    a4 = alloc_bytes(4)
+    wh = write_i32(a4, 0, vn)
+    a5 = alloc_bytes(4)
+    wh = write_i32(a5, 0, vs)
+    pl = alloc_bytes(48)
+    wh = write_i64(pl, 0, a0)
+    wh = write_i64(pl, 8, a1)
+    wh = write_i64(pl, 16, a2)
+    wh = write_i64(pl, 24, a3)
+    wh = write_i64(pl, 32, a4)
+    wh = write_i64(pl, 40, a5)
+    rc: "i32" = cu_launch(fnh, nb, 1, 1, tn, 1, 1, 0, 0, pl, 0)
+    if rc != 0:
+        print("LPART LAUNCH FAIL", rc)
+        return 1
+    return 0
+
+def lred(fnh: "i64", mx: "i64", sm: "i64", pk: "i64", lg: "i64", ls: "i64", mxf: "i64", smf: "i64", tn: "i32", nb: "i32") -> "i32":
+    a0 = alloc_bytes(8)
+    wh: "i64" = write_i64(a0, 0, mx)
+    a1 = alloc_bytes(8)
+    wh = write_i64(a1, 0, sm)
+    a2 = alloc_bytes(8)
+    wh = write_i64(a2, 0, pk)
+    a3 = alloc_bytes(8)
+    wh = write_i64(a3, 0, lg)
+    a4 = alloc_bytes(8)
+    wh = write_i64(a4, 0, ls)
+    a5 = alloc_bytes(8)
+    wh = write_i64(a5, 0, mxf)
+    a6 = alloc_bytes(8)
+    wh = write_i64(a6, 0, smf)
+    a7 = alloc_bytes(4)
+    wh = write_i32(a7, 0, tn)
+    a8 = alloc_bytes(4)
+    wh = write_i32(a8, 0, nb)
+    pl = alloc_bytes(72)
+    wh = write_i64(pl, 0, a0)
+    wh = write_i64(pl, 8, a1)
+    wh = write_i64(pl, 16, a2)
+    wh = write_i64(pl, 24, a3)
+    wh = write_i64(pl, 32, a4)
+    wh = write_i64(pl, 40, a5)
+    wh = write_i64(pl, 48, a6)
+    wh = write_i64(pl, 56, a7)
+    wh = write_i64(pl, 64, a8)
+    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, 0, pl, 0)
+    if rc != 0:
+        print("LRED LAUNCH FAIL", rc)
+        return 1
+    return 0
+
+def ldl(fnh: "i64", lg: "i64", pk: "i64", mx: "i64", sm: "i64", dl: "i64", tn: "i32", vn: "i32", vs: "i32", nb: "i32") -> "i32":
+    a0 = alloc_bytes(8)
+    wh: "i64" = write_i64(a0, 0, lg)
+    a1 = alloc_bytes(8)
+    wh = write_i64(a1, 0, pk)
+    a2 = alloc_bytes(8)
+    wh = write_i64(a2, 0, mx)
+    a3 = alloc_bytes(8)
+    wh = write_i64(a3, 0, sm)
+    a4 = alloc_bytes(8)
+    wh = write_i64(a4, 0, dl)
+    a5 = alloc_bytes(4)
+    wh = write_i32(a5, 0, tn)
+    a6 = alloc_bytes(4)
+    wh = write_i32(a6, 0, vn)
+    a7 = alloc_bytes(4)
+    wh = write_i32(a7, 0, vs)
+    pl = alloc_bytes(64)
+    wh = write_i64(pl, 0, a0)
+    wh = write_i64(pl, 8, a1)
+    wh = write_i64(pl, 16, a2)
+    wh = write_i64(pl, 24, a3)
+    wh = write_i64(pl, 32, a4)
+    wh = write_i64(pl, 40, a5)
+    wh = write_i64(pl, 48, a6)
+    wh = write_i64(pl, 56, a7)
+    rc: "i32" = cu_launch(fnh, nb, 1, 1, tn, 1, 1, 0, 0, pl, 0)
+    if rc != 0:
+        print("LDL LAUNCH FAIL", rc)
+        return 1
+    return 0
+
 def loss_fwd(fnh: "i64", lg: "i64", pk: "i64", dl: "i64", ls: "i64", tn: "i32") -> "i32":
     a0 = alloc_bytes(8)
     wh: "i64" = write_i64(a0, 0, lg)
@@ -559,6 +701,7 @@ def run() -> "i32":
     rc = cublas_create(hcell)
     ch: "i64" = read_i64(hcell, 0)
     NL: "i32" = 24
+    NBL: "i32" = 64
     T: "i32" = 512
     H: "i32" = 1024
     F: "i32" = 4 * H
@@ -669,6 +812,14 @@ def run() -> "i32":
     dPK = read_i64(cell, 0)
     rc = cuda_malloc(cell, stb)
     dLS = read_i64(cell, 0)
+    rc = cuda_malloc(cell, NBL * stb)
+    pMX = read_i64(cell, 0)
+    rc = cuda_malloc(cell, NBL * stb)
+    pSM = read_i64(cell, 0)
+    rc = cuda_malloc(cell, stb)
+    pMXf = read_i64(cell, 0)
+    rc = cuda_malloc(cell, stb)
+    pSMf = read_i64(cell, 0)
     rc = cuda_malloc(cell, wh2 >> 1)
     fpA = read_i64(cell, 0)
     rc = cuda_malloc(cell, wh2 >> 1)
@@ -853,10 +1004,14 @@ def run() -> "i32":
     sbk: "i64" = read_i64(kh, 24)
     gadd: "i64" = read_i64(kh, 32)
     th: "i64" = read_i64(kh, 40)
-    lfn: "i64" = loss_init()
-    if lfn == 0:
-        print("LOSS INIT FAIL")
+    lh: "i64" = loss_split_init()
+    if lh == 0:
+        print("LOSS SPLIT INIT FAIL")
         return 1
+    lfn: "i64" = read_i64(lh, 0)
+    lfr: "i64" = read_i64(lh, 8)
+    lfd: "i64" = read_i64(lh, 16)
+    vsv: "i32" = (V + NBL - 1) >> 6
     wh = cuda_h2d(dgam, g1h, hb, 1)
     wh = cuda_h2d(dbet, b1h, hb, 1)
     rc = zero_buf(hP, T * T)
@@ -972,9 +1127,17 @@ def run() -> "i32":
             wh = write_i32(hPK, 16 + ii * 4, read_i32(hIds, ii * 4))
             ii = ii + 1
         wh = cuda_h2d(dPK, hPK, 16 + T * 4, 1)
-        rc = loss_fwd(lfn, dLG, dPK, dDL, dLS, T)
+        rc = lpart(lfn, dLG, pMX, pSM, T, V, vsv, NBL)
         if rc != 0:
-            print("LOSS KERNEL FAIL")
+            print("LPART FAIL")
+            return 1
+        rc = lred(lfr, pMX, pSM, dPK, dLG, dLS, pMXf, pSMf, T, NBL)
+        if rc != 0:
+            print("LRED FAIL")
+            return 1
+        rc = ldl(lfd, dLG, dPK, pMXf, pSMf, dDL, T, V, vsv, NBL)
+        if rc != 0:
+            print("LDL FAIL")
             return 1
         wh = cuda_h2d(hLS, dLS, T * 4, 2)
         lossv: "f32" = 0.0
