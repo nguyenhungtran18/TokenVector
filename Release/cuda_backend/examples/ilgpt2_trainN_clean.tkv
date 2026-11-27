@@ -458,13 +458,13 @@ def toh(fnh: "i64", src: "i64", dst: "i64", n: "i32") -> "i32":
     return 0
 
 def gemm16(handle: "i64", ta: "i32", tb: "i32", m: "i32", n: "i32", k: "i32", alpha: "i64", a: "i64", lda: "i32", b: "i64", ldb: "i32", beta: "i64", c: "i64", ldc: "i32") -> "i32":
-    rc: "i32" = cublas_gemm_ex(handle, ta, tb, m, n, k, alpha, a, 2, lda, b, 2, ldb, beta, c, 0, ldc, 74, 99)
+    rc: "i32" = cublas_gemm_ex(handle, ta, tb, m, n, k, alpha, a, 2, lda, b, 2, ldb, beta, c, 0, ldc, 74, -1)
     if rc != 0:
         print("GEMM16 FAIL", rc)
     return rc
 
 def loss_init() -> "i64":
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry loss_kernel2(.param .u64 pLG, .param .u64 pPk, .param .u64 pDL, .param .u64 pLS)\n{\n.reg .f32 mx,x,t,e,sum,p,l,lsum,inv;\n.reg .f16 hx;\n.reg .b16 hb;\n.reg .u64 xb,pb,ob,yb,off,xa,ia,ya,la;\n.reg .u32 row,i,vn,tn,id,idx;\n.reg .pred q,pis;\nld.param.u64 xb,[pLG];\nld.param.u64 pb,[pPk];\nld.param.u64 ob,[pDL];\nld.param.u64 yb,[pLS];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 pb,pb;\ncvta.to.global.u64 ob,ob;\ncvta.to.global.u64 yb,yb;\nld.global.u32 tn,[pb];\nld.global.u32 vn,[pb+4];\nld.global.f32 inv,[pb+8];\nmov.u32 row,%tid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nmov.f32 mx,-1000000000.0;\nmov.u32 i,0;\nLMAX:\nsetp.ge.u32 q,i,vn;\n@q bra MAXDONE;\nmul.lo.u32 idx,i,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.b16 hb,[xa];\nmov.b16 hx,hb;\ncvt.f32.f16 x,hx;\nmax.f32 mx,mx,x;\nadd.u32 i,i,1;\nbra LMAX;\nMAXDONE:\nmov.f32 sum,0.0;\nmov.u32 i,0;\nLSUM:\nsetp.ge.u32 q,i,vn;\n@q bra SUMDONE;\nmul.lo.u32 idx,i,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.b16 hb,[xa];\nmov.b16 hx,hb;\ncvt.f32.f16 x,hx;\nsub.f32 t,x,mx;\nmul.f32 t,t,1.442695;\nex2.approx.f32 e,t;\nadd.f32 sum,sum,e;\nadd.u32 i,i,1;\nbra LSUM;\nSUMDONE:\nmul.wide.u32 off,row,4;\nadd.u64 ia,pb,off;\nld.global.u32 id,[ia+16];\nmul.lo.u32 idx,id,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.b16 hb,[xa];\nmov.b16 hx,hb;\ncvt.f32.f16 x,hx;\nlg2.approx.f32 lsum,sum;\nmul.f32 lsum,lsum,0.69314718;\nadd.f32 l,mx,lsum;\nsub.f32 l,l,x;\nmul.f32 l,l,inv;\nmul.wide.u32 off,row,4;\nadd.u64 la,yb,off;\nst.global.f32 [la],l;\nmov.u32 i,0;\nLDL:\nsetp.ge.u32 q,i,vn;\n@q bra LEND;\nmul.lo.u32 idx,i,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.b16 hb,[xa];\nmov.b16 hx,hb;\ncvt.f32.f16 x,hx;\nsub.f32 t,x,mx;\nmul.f32 t,t,1.442695;\nex2.approx.f32 e,t;\ndiv.rn.f32 p,e,sum;\nsetp.eq.u32 pis,i,id;\n@pis sub.f32 p,p,1.0;\nmul.f32 p,p,inv;\nadd.u64 ya,ob,off;\nst.global.f32 [ya],p;\nadd.u32 i,i,1;\nbra LDL;\nLEND:\nret;\n}\n"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry loss_kernel2(.param .u64 pLG, .param .u64 pPk, .param .u64 pDL, .param .u64 pLS)\n{\n.reg .f32 mx,x,t,e,sum,p,l,lsum,inv;\n.reg .u64 xb,pb,ob,yb,off,xa,ia,ya,la;\n.reg .u32 row,i,vn,tn,id,idx;\n.reg .pred q,pis;\nld.param.u64 xb,[pLG];\nld.param.u64 pb,[pPk];\nld.param.u64 ob,[pDL];\nld.param.u64 yb,[pLS];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 pb,pb;\ncvta.to.global.u64 ob,ob;\ncvta.to.global.u64 yb,yb;\nld.global.u32 tn,[pb];\nld.global.u32 vn,[pb+4];\nld.global.f32 inv,[pb+8];\nmov.u32 row,%tid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nmov.f32 mx,-1000000000.0;\nmov.u32 i,0;\nLMAX:\nsetp.ge.u32 q,i,vn;\n@q bra MAXDONE;\nmul.lo.u32 idx,i,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nmax.f32 mx,mx,x;\nadd.u32 i,i,1;\nbra LMAX;\nMAXDONE:\nmov.f32 sum,0.0;\nmov.u32 i,0;\nLSUM:\nsetp.ge.u32 q,i,vn;\n@q bra SUMDONE;\nmul.lo.u32 idx,i,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nsub.f32 t,x,mx;\nmul.f32 t,t,1.442695;\nex2.approx.f32 e,t;\nadd.f32 sum,sum,e;\nadd.u32 i,i,1;\nbra LSUM;\nSUMDONE:\nmul.wide.u32 off,row,4;\nadd.u64 ia,pb,off;\nld.global.u32 id,[ia+16];\nmul.lo.u32 idx,id,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nlg2.approx.f32 lsum,sum;\nmul.f32 lsum,lsum,0.69314718;\nadd.f32 l,mx,lsum;\nsub.f32 l,l,x;\nmul.f32 l,l,inv;\nmul.wide.u32 off,row,4;\nadd.u64 la,yb,off;\nst.global.f32 [la],l;\nmov.u32 i,0;\nLDL:\nsetp.ge.u32 q,i,vn;\n@q bra LEND;\nmul.lo.u32 idx,i,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nsub.f32 t,x,mx;\nmul.f32 t,t,1.442695;\nex2.approx.f32 e,t;\ndiv.rn.f32 p,e,sum;\nsetp.eq.u32 pis,i,id;\n@pis sub.f32 p,p,1.0;\nmul.f32 p,p,inv;\nadd.u64 ya,ob,off;\nst.global.f32 [ya],p;\nadd.u32 i,i,1;\nbra LDL;\nLEND:\nret;\n}\n"
     FNS = b"loss_kernel2\x00"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
@@ -490,12 +490,6 @@ def loss_init() -> "i64":
         return 0
     fnh: "i64" = read_i64(fc, 0)
     return fnh
-
-def gemm16h(handle: "i64", ta: "i32", tb: "i32", m: "i32", n: "i32", k: "i32", alpha: "i64", a: "i64", lda: "i32", b: "i64", ldb: "i32", beta: "i64", c: "i64", ldc: "i32") -> "i32":
-    rc: "i32" = cublas_gemm_ex(handle, ta, tb, m, n, k, alpha, a, 2, lda, b, 2, ldb, beta, c, 2, ldc, 68, -1)
-    if rc != 0:
-        print("GEMM16H FAIL", rc)
-    return rc
 
 def loss_fwd(fnh: "i64", lg: "i64", pk: "i64", dl: "i64", ls: "i64", tn: "i32") -> "i32":
     a0 = alloc_bytes(8)
@@ -669,8 +663,6 @@ def run() -> "i32":
     dOUT = read_i64(cell, 0)
     rc = cuda_malloc(cell, tvb)
     dLG = read_i64(cell, 0)
-    rc = cuda_malloc(cell, tvb >> 1)
-    dLG16 = read_i64(cell, 0)
     rc = cuda_malloc(cell, tvb)
     dDL = read_i64(cell, 0)
     rc = cuda_malloc(cell, 4096)
@@ -873,8 +865,6 @@ def run() -> "i32":
     tf: "f64" = 0.0
     tb: "f64" = 0.0
     thd: "f64" = 0.0
-    thg: "f64" = 0.0
-    thl: "f64" = 0.0
     step: "i32" = 1
     while step <= 2:
         tA = time_perf()
@@ -970,14 +960,10 @@ def run() -> "i32":
             xin = dOUT
             ll = ll + 1
         tH = time_perf()
-        tHG = time_perf()
         # logits + loss tu OUT cua lop cuoi
         rc = toh(th, dOUT, fpA, sQH)
         rc = toh(th, dWh, fpB, sHV)
-        rc = gemm16h(ch, 0, 0, T, V, H, one, fpA, T, fpB, H, zero, dLG16, T)
-        syn = cuda_sync()
-        tHL = time_perf()
-        thg = thg + (tHL - tHG)
+        rc = gemm16(ch, 0, 0, T, V, H, one, fpA, T, fpB, H, zero, dLG, T)
         wh = write_i32(hPK, 0, T)
         wh = write_i32(hPK, 4, V)
         wh = write_f32(hPK, 8, 1.0 / T)
@@ -986,7 +972,7 @@ def run() -> "i32":
             wh = write_i32(hPK, 16 + ii * 4, read_i32(hIds, ii * 4))
             ii = ii + 1
         wh = cuda_h2d(dPK, hPK, 16 + T * 4, 1)
-        rc = loss_fwd(lfn, dLG16, dPK, dDL, dLS, T)
+        rc = loss_fwd(lfn, dLG, dPK, dDL, dLS, T)
         if rc != 0:
             print("LOSS KERNEL FAIL")
             return 1
@@ -1000,7 +986,6 @@ def run() -> "i32":
         lf: "f64" = lossv
         print("LOSSF", lf)
         tB = time_perf()
-        thl = thl + (tB - tHL)
         thd = thd + (tB - tH)
         tf = tf + (tH - tA)
         print("MARK FWD", step)
@@ -1150,8 +1135,6 @@ def run() -> "i32":
     t1 = time_perf()
     dtm: "f64" = t1 - t0
     print("MS_LAYERS", tf * 1000.0)
-    print("MS_HEAD_GEMM", thg * 1000.0)
-    print("MS_LOSS", thl * 1000.0)
     print("MS_HEAD", thd * 1000.0)
     print("MS_BWD", tb * 1000.0)
     print("MS_TOTAL", dtm * 1000.0)
