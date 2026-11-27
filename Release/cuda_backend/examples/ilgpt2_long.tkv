@@ -18,6 +18,8 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
     {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cublas_set_workspace", "dll": "cublas.dll", "symbol": "cublasSetWorkspace_v2",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
     {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
      "convention": "cdecl",
      "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32",
@@ -689,6 +691,11 @@ def run() -> "i32":
     hcell = alloc_bytes(8)
     rc = cublas_create(hcell)
     ch: "i64" = read_i64(hcell, 0)
+    rc = cuda_malloc(hcell, 64 * 1024 * 1024)
+    ws: "i64" = read_i64(hcell, 0)
+    wsrc: "i32" = cublas_set_workspace(ch, ws, 64 * 1024 * 1024)
+    if wsrc != 0:
+        print("CUBLAS WS FAIL", wsrc)
     NL: "i32" = 24
     T: "i32" = 512
     H: "i32" = 1024
