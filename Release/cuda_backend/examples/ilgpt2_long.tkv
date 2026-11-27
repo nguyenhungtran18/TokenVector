@@ -1247,6 +1247,20 @@ def run() -> "i32":
     wh = cuda_h2d(dbet, b1h, hb, 1)
     rc = zero_buf(hP, T * T)
     xin: "i64" = dX
+    ll = 0
+    while ll < NL:
+        wqd = read_i64(AWq, ll * 8)
+        wkd = read_i64(AWk, ll * 8)
+        wvd = read_i64(AWv, ll * 8)
+        wod = read_i64(AWo, ll * 8)
+        w1d = read_i64(AW1, ll * 8)
+        w2d = read_i64(AW2, ll * 8)
+        rc = toh3(th3, wqd, wkd, wvd, shQKV + ll * (3 * H * H * 2), H * H)
+        rc = toh(th, wod, shO + ll * (H * H * 2), sHH)
+        rc = toh(th, w1d, sh1 + ll * (H * F * 2), H * F)
+        rc = toh(th, w2d, sh2 + ll * (H * F * 2), H * F)
+        rc = toht(tht, w2d, sh2T + ll * (H * F * 2), H * F, F)
+        ll = ll + 1
     t0 = time_perf()
     tf: "f64" = 0.0
     tb: "f64" = 0.0
