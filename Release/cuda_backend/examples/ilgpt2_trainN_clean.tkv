@@ -5,24 +5,14 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i32"], "returns": "i32"},
     {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
      "convention": "cdecl", "params": [], "returns": "i32"},
-    {"name": "cu_graph_inst", "dll": "cuda.dll", "symbol": "cuGraphInstantiate",
-     "convention": "cdecl", "params": ["pref", "ptr", "ptr", "ptr", "u64"], "returns": "i32"},
-    {"name": "cu_graph_launch", "dll": "cuda.dll", "symbol": "cuGraphLaunch",
-     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
      "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
     {"name": "cuda_stream_create", "dll": "cudart.dll", "symbol": "cudaStreamCreate",
-     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
-    {"name": "cuda_stream_create_flags", "dll": "cudart.dll", "symbol": "cudaStreamCreateWithFlags",
-     "convention": "cdecl", "params": ["pref", "i32"], "returns": "i32"},
+     "convention": "cdecl", "params": ["pref"], "returns": "i32"},
     {"name": "cublas_set_stream", "dll": "cublas.dll", "symbol": "cublasSetStream_v2",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
-    {"name": "cublas_set_ws", "dll": "cublas.dll", "symbol": "cublasSetWorkspace",
-     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
-    {"name": "cublas_set_ws2", "dll": "cublas.dll", "symbol": "cublasSetWorkspace_v2",
-     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
     {"name": "cuda_malloc_host", "dll": "cudart.dll", "symbol": "cudaMallocHost",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_memcpy_async", "dll": "cudart.dll", "symbol": "cudaMemcpyAsync",
@@ -36,7 +26,7 @@ __tkv_extern_pinvoke__ = [
     {"name": "cuda_graph_inst_flags", "dll": "cudart.dll", "symbol": "cudaGraphInstantiateWithFlags",
      "convention": "cdecl", "params": ["pref", "ptr", "u64"], "returns": "i32"},
     {"name": "cuda_graph_launch", "dll": "cudart.dll", "symbol": "cudaGraphLaunch",
-     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+     "convention": "cdecl", "params": ["ptr", "ptr"], "returns": "i32"},
     {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
      "convention": "cdecl",
      "params": [ "i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64" ],
@@ -233,7 +223,6 @@ def gelu_selftest(gfn: "i64", bfn: "i64", strm: "i64") -> "i32":
     wh = cuda_memcpy_async(hy, dz, nb, 2, strm)
     rc = gelu_bwd(bfn, dx, dy, dz, n, strm)
     wh = cuda_memcpy_async(hdx, dz, nb, 2, strm)
-    syn: "i32" = cuda_sync()
     me: "f32" = 0.0
     ii = 0
     while ii < n:
@@ -593,19 +582,9 @@ def run() -> "i32":
     hcell = alloc_bytes(8)
     rc = cublas_create(hcell)
     ch: "i64" = read_i64(hcell, 0)
-    st0: "i64" = 0
-    ggv: "i64" = 0
-    ee: "i64" = 0
-    rc = cuda_stream_create_flags(st0, 1)
-    rc = cuda_stream_begin(st0, 0)
-    rc = cuda_stream_end(st0, ggv)
-    rc = cuda_graph_inst(ee, ggv, 0, 0, 0)
-    print("EARLY", rc, ggv, ee)
-    return 1
-    sh = pin_alloc(8)
-    rc = cuda_stream_create_flags(sh, 1)
-    st: "i64" = read_i64(sh, 0)
-
+    st: "i64" = 0
+    rc = cuda_stream_create(st)
+    rc = cublas_set_stream(ch, st)
     print("STREAM", rc, st)
     NL: "i32" = 24
     T: "i32" = 512
@@ -910,14 +889,11 @@ def run() -> "i32":
     wh = cuda_memcpy_async(dbet, b1h, hb, 1, st)
     rc = zero_buf(hP, T * T)
     xin: "i64" = dX
-    gph = pin_alloc(8)
-    gex = pin_alloc(8)
+    gph: "i64" = 0
     rc = cuda_stream_begin(st, 0)
-    rc = cuda_stream_end(st, gph)
-    print("TESTEND", rc, read_i64(gph, 0))
-    rc = cuda_graph_inst(gex, gph, 0, 0, 0)
-    print("TESTINSTD", rc)
-    return 1
+    if rc != 0:
+        print("GRAPHBEGIN FAIL", rc)
+        return 1
     tf: "f64" = 0.0
     tb: "f64" = 0.0
     thd: "f64" = 0.0
@@ -1182,11 +1158,8 @@ def run() -> "i32":
     if rc != 0:
         print("GRAPHEND FAIL", rc)
         return 1
-    gex = pin_alloc(8)
-    gerr = pin_alloc(8)
-    glog = pin_alloc(512)
-    rc = cuda_graph_inst(gex, gph, gerr, glog, 512)
-    print("GLOG", read_i32(glog, 0), read_i32(glog, 4), read_i32(glog, 8), read_i32(glog, 12))
+    gex: "i64" = 0
+    rc = cuda_graph_inst(gex, gph, 0, 0, 0)
     print("GRAPHINST", rc)
     if rc != 0:
         return 1
@@ -1223,6 +1196,6 @@ def run() -> "i32":
     print("MS_HEAD", thd * 1000.0)
     print("MS_BWD", tb * 1000.0)
     print("MS_TOTAL", dtm * 1000.0)
-    print("MS_STEP", (dtm * 1000.0) / 2.0)
+    print("MS_STEP", dtm * 1000.0)
     print("BATCH DONE")
     return 0
