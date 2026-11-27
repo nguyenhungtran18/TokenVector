@@ -1032,7 +1032,8 @@ def run() -> "i32":
     b2t: "f32" = 1.0
     rc = cuda_malloc(cell, NL * whb)
     mq: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(mq, 0, NL * whb)
+    mrc: "i32" = cuda_memset(mq, 0, NL * whb)
+    print("DIAG memset rc", mrc, NL * whb, mq)
     rc = cuda_malloc(cell, NL * whb)
     vq: "i64" = read_i64(cell, 0)
     rc = cuda_memset(vq, 0, NL * whb)
@@ -1120,8 +1121,6 @@ def run() -> "i32":
         b2t = b2t * 0.999
         ac1: "f32" = 1.0 - b1t
         ac2: "f32" = 1.0 - b2t
-        if step == 1:
-            print("DIAG adamw", lr, ac1, ac2, wd, afn, mq, m1)
         tA = time_perf()
         wh = cuda_h2d(dX, hIN, qb, 1)
         xin = dX
@@ -1377,16 +1376,10 @@ def run() -> "i32":
             rc = adamw_update(afn, read_i64(AW2, ll * 8), g2d, m2 + uo2, v2 + uo2, F * H, lr, ac1, ac2, wd)
 
             ll = ll + 1
-        wh = cuda_h2d(hY1, read_i64(AWq, 0), 16, 2)
+        wh = write_f32(hY1, 0, 777777.0)
+        dstat: "i32" = cuda_h2d(hY1, mq, 16, 2)
         if step == 1:
-            print("DIAG W0", read_f32(hY1, 0), read_f32(hY1, 4))
-        wh = cuda_h2d(hY1, mq, 16, 2)
-        if step == 1:
-            print("DIAG M0", read_f32(hY1, 0), read_f32(hY1, 4))
-        wh = cuda_h2d(hY1, gqd, 16, 2)
-        if step == 1:
-            print("DIAG G0", read_f32(hY1, 0), read_f32(hY1, 4))
-        print("MARK UPD", step)
+            print("DIAG M0", read_f32(hY1, 0), read_f32(hY1, 4), dstat)        print("MARK UPD", step)
         print("STEPMS", (time_perf() - tA) * 1000.0)
         step = step + 1
     syn: "i32" = cuda_sync()
