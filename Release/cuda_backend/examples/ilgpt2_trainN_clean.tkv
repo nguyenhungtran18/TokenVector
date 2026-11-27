@@ -164,6 +164,82 @@ def adamw_update(fnh: "i64", w: "i64", g: "i64", mv: "i64", n: "i32", lr: "f32",
         return 1
     return 0
 
+def adamw_flat_init() -> "i64":
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry adamw_flat_kernel(.param .u64 pWA, .param .u64 pMA, .param .u64 pGA, .param .u64 pSHA, .param .u32 pSHO, .param .u32 pN, .param .f32 pLR, .param .f32 pWD, .param .f32 pB1, .param .f32 pB2, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pEPS)\n{\n.reg .f32 w,g,m,v,t,t2,u,den,nw,one,lr,wd,b1,b2,bc1,bc2,eps;\n.reg .f16 hf;\n.reg .b16 hu;\n.reg .u64 wa,ma,ga,sha,wp,gp,mp,vp,shb,off,shaddr;\n.reg .u32 i,n,base,nt,layer,sho,idx;\n.reg .pred q;\nld.param.u64 wa,[pWA];\nld.param.u64 ma,[pMA];\nld.param.u64 ga,[pGA];\nld.param.u64 sha,[pSHA];\nld.param.u32 sho,[pSHO];\nld.param.u32 n,[pN];\nld.param.f32 lr,[pLR];\nld.param.f32 wd,[pWD];\nld.param.f32 b1,[pB1];\nld.param.f32 b2,[pB2];\nld.param.f32 bc1,[pBC1];\nld.param.f32 bc2,[pBC2];\nld.param.f32 eps,[pEPS];\nmov.u32 layer,%ctaid.y;\nmul.wide.u32 off,layer,8;\nadd.u64 wa,wa,off;\nadd.u64 ma,ma,off;\nadd.u64 ga,ga,off;\nadd.u64 sha,sha,off;\nld.global.u64 wp,[wa];\nld.global.u64 gp,[ga];\nld.global.u64 mp,[ma];\nld.global.u64 shb,[sha];\ncvta.to.global.u64 wp,wp;\ncvta.to.global.u64 gp,gp;\ncvta.to.global.u64 mp,mp;\ncvta.to.global.u64 shb,shb;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wp,wp,off;\nadd.u64 gp,gp,off;\nld.global.f32 w,[wp];\nld.global.f32 g,[gp];\nmax.f32 t,g,0f00000000;\nmin.f32 t2,g,0f00000000;\nadd.f32 g,t,t2;\nmul.wide.u32 off,n,4;\nadd.u64 vp,mp,off;\nld.global.f32 m,[mp];\nld.global.f32 v,[vp];\nmov.f32 one,1.0;\nsub.f32 t,one,b1;\nmul.f32 t2,t,g;\nfma.rn.f32 m,b1,m,t2;\nsub.f32 t,one,b2;\nmul.f32 t2,g,g;\nmul.f32 t2,t,t2;\nfma.rn.f32 v,b2,v,t2;\ndiv.rn.f32 t,v,bc2;\nsqrt.rn.f32 t,t;\nadd.f32 den,t,eps;\ndiv.rn.f32 u,m,bc1;\ndiv.rn.f32 t,u,den;\nmul.f32 t,lr,t;\nsub.f32 nw,w,t;\nmul.f32 t,lr,wd;\nmul.f32 t,t,w;\nsub.f32 nw,nw,t;\nst.global.f32 [wp],nw;\nmul.wide.u32 off,i,4;\nadd.u64 mp,mp,off;\nst.global.f32 [mp],m;\nadd.u64 vp,vp,off;\nst.global.f32 [vp],v;\nsetp.eq.u64 q,shb,0;\n@q bra LEND;\ncvt.rn.f16.f32 hf,nw;\nmov.b16 hu,hf;\nadd.u32 idx,i,sho;\nmul.wide.u32 off,idx,2;\nadd.u64 shaddr,shb,off;\nst.global.b16 [shaddr],hu;\nLEND:\nret;\n}\n"
+    FNS = b"adamw_flat_kernel\x00"
+    pb = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wh: "i64" = write_u8(pb, kk, PTX[kk])
+        kk = kk + 1
+    wh = write_u8(pb, kk, 0)
+    mc = alloc_bytes(8)
+    rc: "i32" = cu_module_load(mc, pb)
+    if rc != 0:
+        print("ADAMW FLAT MOD FAIL", rc)
+        return 0
+    mod: "i64" = read_i64(mc, 0)
+    nb = alloc_bytes(len(FNS))
+    kk = 0
+    while kk < len(FNS):
+        wh = write_u8(nb, kk, FNS[kk])
+        kk = kk + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("ADAMW FLAT FN FAIL", rc)
+        return 0
+    fnh: "i64" = read_i64(fc, 0)
+    return fnh
+
+def adamw_flat(fnh: "i64", wa: "i64", ma: "i64", ga: "i64", sha: "i64", sho: "i32", n: "i32", nl: "i32", lr: "f32", wd: "f32", b1: "f32", b2: "f32", bc1: "f32", bc2: "f32", eps: "f32") -> "i32":
+    a0 = alloc_bytes(8)
+    wh: "i64" = write_i64(a0, 0, wa)
+    a1 = alloc_bytes(8)
+    wh = write_i64(a1, 0, ma)
+    a2 = alloc_bytes(8)
+    wh = write_i64(a2, 0, ga)
+    a3 = alloc_bytes(8)
+    wh = write_i64(a3, 0, sha)
+    a4 = alloc_bytes(4)
+    wh = write_i32(a4, 0, sho)
+    a5 = alloc_bytes(4)
+    wh = write_i32(a5, 0, n)
+    a6 = alloc_bytes(4)
+    wh = write_f32(a6, 0, lr)
+    a7 = alloc_bytes(4)
+    wh = write_f32(a7, 0, wd)
+    a8 = alloc_bytes(4)
+    wh = write_f32(a8, 0, b1)
+    a9 = alloc_bytes(4)
+    wh = write_f32(a9, 0, b2)
+    a10 = alloc_bytes(4)
+    wh = write_f32(a10, 0, bc1)
+    a11 = alloc_bytes(4)
+    wh = write_f32(a11, 0, bc2)
+    a12 = alloc_bytes(4)
+    wh = write_f32(a12, 0, eps)
+    pl = alloc_bytes(104)
+    wh = write_i64(pl, 0, a0)
+    wh = write_i64(pl, 8, a1)
+    wh = write_i64(pl, 16, a2)
+    wh = write_i64(pl, 24, a3)
+    wh = write_i64(pl, 32, a4)
+    wh = write_i64(pl, 40, a5)
+    wh = write_i64(pl, 48, a6)
+    wh = write_i64(pl, 56, a7)
+    wh = write_i64(pl, 64, a8)
+    wh = write_i64(pl, 72, a9)
+    wh = write_i64(pl, 80, a10)
+    wh = write_i64(pl, 88, a11)
+    wh = write_i64(pl, 96, a12)
+    g: "i32" = (n + 255) >> 8
+    rc: "i32" = cu_launch(fnh, g, nl, 1, 256, 1, 1, 0, 0, pl, 0)
+    if rc != 0:
+        print("ADAMW FLAT LAUNCH FAIL", rc)
+        return 1
+    return 0
+
 def gelu_fwd_init() -> "i64":
     PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gelu_fwd_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,f2,f3,f4,f5;\n.reg .u64 x,y,off;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 x,[px];\nld.param.u64 y,[py];\nld.param.u32 n,[pn];\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 x,x;\ncvta.to.global.u64 y,y;\nadd.u64 x,x,off;\nadd.u64 y,y,off;\nld.global.f32 f1,[x];\nmul.f32 f3,f1,f1;\nmul.f32 f3,f3,f1;\nmov.f32 f4,0.044715;\nfma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456;\nmul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0;\nadd.f32 f2,f2,f3;\nmov.f32 f3,0.5;\nmul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2;\nst.global.f32 [y],f5;\nLEND: ret;\n}\n"
     FNS = b"gelu_fwd_kernel\x00"
@@ -944,6 +1020,10 @@ def run() -> "i32":
     b2v: "f32" = 0.999
     epsv: "f32" = 0.00000001
     afn: "i64" = adamw_init()
+    afl: "i64" = adamw_flat_init()
+    if afl == 0:
+        print("ADAMW FLAT INIT FAIL")
+        return 1
     if afn == 0:
         print("ADAMW INIT FAIL")
         return 1
@@ -975,6 +1055,80 @@ def run() -> "i32":
         return 1
     wh = cuda_h2d(dgam, g1h, hb, 1)
     wh = cuda_h2d(dbet, b1h, hb, 1)
+    hZeros = alloc_bytes(msz)
+    rc = zero_buf(hZeros, NL * 2)
+    rc = cuda_malloc(cell, msz)
+    dAWq = read_i64(cell, 0)
+    wh = cuda_h2d(dAWq, AWq, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAMq = read_i64(cell, 0)
+    wh = cuda_h2d(dAMq, AMq, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAGq = read_i64(cell, 0)
+    wh = cuda_h2d(dAGq, AGq, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dASq = read_i64(cell, 0)
+    wh = cuda_h2d(dASq, AWQV16, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAWk = read_i64(cell, 0)
+    wh = cuda_h2d(dAWk, AWk, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAMk = read_i64(cell, 0)
+    wh = cuda_h2d(dAMk, AMk, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAGk = read_i64(cell, 0)
+    wh = cuda_h2d(dAGk, AGk, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dASk = read_i64(cell, 0)
+    wh = cuda_h2d(dASk, AWQV16, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAWv = read_i64(cell, 0)
+    wh = cuda_h2d(dAWv, AWv, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAMv = read_i64(cell, 0)
+    wh = cuda_h2d(dAMv, AMv, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAGv = read_i64(cell, 0)
+    wh = cuda_h2d(dAGv, AGv, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dASv = read_i64(cell, 0)
+    wh = cuda_h2d(dASv, AWQV16, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAWo = read_i64(cell, 0)
+    wh = cuda_h2d(dAWo, AWo, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAMo = read_i64(cell, 0)
+    wh = cuda_h2d(dAMo, AMo, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAGo = read_i64(cell, 0)
+    wh = cuda_h2d(dAGo, AGo, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dASo = read_i64(cell, 0)
+    wh = cuda_h2d(dASo, hZeros, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAW1 = read_i64(cell, 0)
+    wh = cuda_h2d(dAW1, AW1, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAM1 = read_i64(cell, 0)
+    wh = cuda_h2d(dAM1, AM1, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAG1 = read_i64(cell, 0)
+    wh = cuda_h2d(dAG1, AG1, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAS1 = read_i64(cell, 0)
+    wh = cuda_h2d(dAS1, hZeros, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAW2 = read_i64(cell, 0)
+    wh = cuda_h2d(dAW2, AW2, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAM2 = read_i64(cell, 0)
+    wh = cuda_h2d(dAM2, AM2, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAG2 = read_i64(cell, 0)
+    wh = cuda_h2d(dAG2, AG2, msz, 1)
+    rc = cuda_malloc(cell, msz)
+    dAS2 = read_i64(cell, 0)
+    wh = cuda_h2d(dAS2, hZeros, msz, 1)
     rc = zero_buf(hP, T * T)
     ll = 0
     while ll < NL:
@@ -1215,12 +1369,6 @@ def run() -> "i32":
         print("MARK BWD", step)
         ll = 0
         while ll < NL:
-            gqd = read_i64(AGq, ll * 8)
-            gkd = read_i64(AGk, ll * 8)
-            gvd = read_i64(AGv, ll * 8)
-            god = read_i64(AGo, ll * 8)
-            g1d = read_i64(AG1, ll * 8)
-            g2d = read_i64(AG2, ll * 8)
             bc1v: "f32" = 1.0
             bc2v: "f32" = 1.0
             kk3: "i32" = 0
@@ -1230,13 +1378,12 @@ def run() -> "i32":
                 kk3 = kk3 + 1
             bc1v = 1.0 - bc1v
             bc2v = 1.0 - bc2v
-            rc = adamw_update(afn, read_i64(AWq, ll * 8), gqd, read_i64(AMq, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv, read_i64(AWQV16, ll * 8), 0)
-            rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, read_i64(AMk, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv, read_i64(AWQV16, ll * 8), H * H)
-            rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, read_i64(AMv, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv, read_i64(AWQV16, ll * 8), H * H * 2)
-            rc = adamw_update(afn, read_i64(AWo, ll * 8), god, read_i64(AMo, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv, 0, 0)
-            rc = adamw_update(afn, read_i64(AW1, ll * 8), g1d, read_i64(AM1, ll * 8), H * F, lr, wd, b1v, b2v, bc1v, bc2v, epsv, 0, 0)
-            rc = adamw_update(afn, read_i64(AW2, ll * 8), g2d, read_i64(AM2, ll * 8), F * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv, 0, 0)
-
+            rc = adamw_flat(afl, dAWq, dAMq, dAGq, dASq, 0, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+            rc = adamw_flat(afl, dAWk, dAMk, dAGk, dASk, H * H, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+            rc = adamw_flat(afl, dAWv, dAMv, dAGv, dASv, H * H * 2, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+            rc = adamw_flat(afl, dAWo, dAMo, dAGo, dASo, 0, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+            rc = adamw_flat(afl, dAW1, dAM1, dAG1, dAS1, 0, H * F, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+            rc = adamw_flat(afl, dAW2, dAM2, dAG2, dAS2, 0, H * F, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
             ll = ll + 1
         print("MARK UPD", step)
         step = step + 1
