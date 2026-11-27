@@ -227,6 +227,7 @@ def gelu_selftest(gfn: "i64", bfn: "i64", strm: "i64") -> "i32":
     wh = cuda_memcpy_async(hy, dz, nb, 2, strm)
     rc = gelu_bwd(bfn, dx, dy, dz, n, strm)
     wh = cuda_memcpy_async(hdx, dz, nb, 2, strm)
+    syn: "i32" = cuda_sync()
     me: "f32" = 0.0
     ii = 0
     while ii < n:
