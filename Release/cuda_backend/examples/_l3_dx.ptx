@@ -1,0 +1,67 @@
+.version 8.0
+.target sm_75
+.address_size 64
+.entry loss_dx(.param .u64 pLG, .param .u64 pGM, .param .u64 pGI, .param .u64 pPK, .param .u64 pDL)
+{
+.reg .f32 mx,gis,x,t,e,p,inv;
+.reg .u64 xb,gb,ib,ob,off,xa,ga,ia,oa;
+.reg .u32 row,vn,tn,nb,ch,v0,v1,i,idx,chunk,rb,t0,id;
+.reg .pred q,pis;
+ld.param.u64 xb,[pLG];
+ld.param.u64 gb,[pGM];
+ld.param.u64 ib,[pGI];
+ld.param.u64 pb,[pPK];
+ld.param.u64 ob,[pDL];
+cvta.to.global.u64 xb,xb;
+cvta.to.global.u64 gb,gb;
+cvta.to.global.u64 ib,ib;
+cvta.to.global.u64 ob,ob;
+ld.global.u32 tn,[pb];
+ld.global.u32 vn,[pb+4];
+ld.global.u32 nb,[pb+12];
+ld.global.f32 inv,[pb+8];
+mov.u32 rb,%ntid.x;
+mov.u32 chunk,%ctaid.x;
+mov.u32 t0,%ctaid.y;
+mov.u32 row,%tid.x;
+mad.lo.u32 row,t0,rb,row;
+setp.ge.u32 q,row,tn;
+@q bra LEND;
+add.u32 t0,vn,nb;
+sub.u32 t0,t0,1;
+div.u32 ch,t0,nb;
+mul.lo.u32 v0,chunk,ch;
+add.u32 v1,v0,ch;
+setp.gt.u32 q,v1,vn;
+@q mov.u32 v1,vn;
+mul.wide.u32 off,row,4;
+add.u64 ga,gb,off;
+ld.global.f32 mx,[ga];
+add.u64 ia,ib,off;
+ld.global.f32 gis,[ia];
+add.u64 ia,pb,off;
+ld.global.u32 id,[ia+16];
+mov.u32 i,v0;
+LOOP:
+setp.ge.u32 q,i,v1;
+@q bra DONE;
+mul.lo.u32 idx,i,tn;
+add.u32 idx,idx,row;
+mul.wide.u32 off,idx,4;
+add.u64 xa,xb,off;
+ld.global.f32 x,[xa];
+sub.f32 t,x,mx;
+mul.f32 t,t,1.442695;
+ex2.approx.f32 e,t;
+mul.f32 p,e,gis;
+setp.eq.u32 pis,i,id;
+@pis sub.f32 p,p,1.0;
+mul.f32 p,p,inv;
+add.u64 oa,ob,off;
+st.global.f32 [oa],p;
+add.u32 i,i,1;
+bra LOOP;
+DONE:
+LEND:
+ret;
+}

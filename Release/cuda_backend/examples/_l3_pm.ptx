@@ -1,0 +1,73 @@
+.version 8.0
+.target sm_75
+.address_size 64
+.entry loss_pm(.param .u64 pLG, .param .u64 pPM, .param .u64 pPS, .param .u64 pPK)
+{
+.reg .f32 mx,s,x,t,e;
+.reg .u64 xb,mb,sb,off,xa,ma,sa;
+.reg .u32 row,vn,tn,nb,ch,v0,v1,i,idx,gi,chunk,rb,t0;
+.reg .pred q,gt;
+ld.param.u64 xb,[pLG];
+ld.param.u64 mb,[pPM];
+ld.param.u64 sb,[pPS];
+ld.param.u64 pb,[pPK];
+cvta.to.global.u64 xb,xb;
+cvta.to.global.u64 mb,mb;
+cvta.to.global.u64 sb,sb;
+ld.global.u32 tn,[pb];
+ld.global.u32 vn,[pb+4];
+ld.global.u32 nb,[pb+12];
+mov.u32 rb,%ntid.x;
+mov.u32 chunk,%ctaid.x;
+mov.u32 t0,%ctaid.y;
+mov.u32 row,%tid.x;
+mad.lo.u32 row,t0,rb,row;
+setp.ge.u32 q,row,tn;
+@q bra LEND;
+add.u32 t0,vn,nb;
+sub.u32 t0,t0,1;
+div.u32 ch,t0,nb;
+mul.lo.u32 v0,chunk,ch;
+add.u32 v1,v0,ch;
+setp.gt.u32 q,v1,vn;
+@q mov.u32 v1,vn;
+mov.f32 mx,-1000000000.0;
+mov.f32 s,0.0;
+mov.u32 i,v0;
+LOOP:
+setp.ge.u32 q,i,v1;
+@q bra DONE;
+mul.lo.u32 idx,i,tn;
+add.u32 idx,idx,row;
+mul.wide.u32 off,idx,4;
+add.u64 xa,xb,off;
+ld.global.f32 x,[xa];
+setp.gt.f32 gt,x,mx;
+@gt bra NEWMAX;
+sub.f32 t,x,mx;
+mul.f32 t,t,1.442695;
+ex2.approx.f32 e,t;
+add.f32 s,s,e;
+bra NEXT;
+NEWMAX:
+sub.f32 t,mx,x;
+mul.f32 t,t,1.442695;
+ex2.approx.f32 e,t;
+mul.f32 s,s,e;
+mov.f32 mx,x;
+mov.f32 e,1.0;
+add.f32 s,s,e;
+NEXT:
+add.u32 i,i,1;
+bra LOOP;
+DONE:
+mul.lo.u32 gi,chunk,tn;
+add.u32 gi,gi,row;
+mul.wide.u32 off,gi,4;
+add.u64 ma,mb,off;
+st.global.f32 [ma],mx;
+add.u64 sa,sb,off;
+st.global.f32 [sa],s;
+LEND:
+ret;
+}
