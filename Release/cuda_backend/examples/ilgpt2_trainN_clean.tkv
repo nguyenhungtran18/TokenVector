@@ -1160,7 +1160,10 @@ def run() -> "i32":
         print("GRAPHEND FAIL", rc)
         return 1
     gex = pin_alloc(8)
-    rc = cuda_graph_inst_flags(gex, gph, 0)
+    gerr = pin_alloc(8)
+    glog = pin_alloc(512)
+    rc = cuda_graph_inst(gex, gph, gerr, glog, 512)
+    print("GLOG", read_i32(glog, 0), read_i32(glog, 4), read_i32(glog, 8), read_i32(glog, 12))
     print("GRAPHINST", rc)
     if rc != 0:
         return 1
