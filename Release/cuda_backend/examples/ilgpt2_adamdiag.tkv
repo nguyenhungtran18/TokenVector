@@ -1379,7 +1379,8 @@ def run() -> "i32":
         wh = write_f32(hY1, 0, 777777.0)
         dstat: "i32" = cuda_h2d(hY1, mq, 16, 2)
         if step == 1:
-            print("DIAG M0", read_f32(hY1, 0), read_f32(hY1, 4), dstat)        print("MARK UPD", step)
+            print("DIAG M0", read_f32(hY1, 0), read_f32(hY1, 4), dstat)
+        print("MARK UPD", step)
         print("STEPMS", (time_perf() - tA) * 1000.0)
         step = step + 1
     syn: "i32" = cuda_sync()
