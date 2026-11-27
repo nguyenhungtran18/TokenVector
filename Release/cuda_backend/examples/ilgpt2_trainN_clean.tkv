@@ -5,6 +5,10 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i32"], "returns": "i32"},
     {"name": "cuda_sync", "dll": "cudart.dll", "symbol": "cudaDeviceSynchronize",
      "convention": "cdecl", "params": [], "returns": "i32"},
+    {"name": "cu_graph_inst", "dll": "cuda.dll", "symbol": "cuGraphInstantiate",
+     "convention": "cdecl", "params": ["i64", "i64", "i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_graph_launch", "dll": "cuda.dll", "symbol": "cuGraphLaunch",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cu_module_load", "dll": "cuda.dll", "symbol": "cuModuleLoadData",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
@@ -905,8 +909,8 @@ def run() -> "i32":
     rc = cuda_stream_begin(st, 0)
     rc = cuda_stream_end(st, gph)
     print("TESTEND", rc)
-    rc = cuda_graph_inst_flags(gex, gph, 0)
-    print("TESTINSTF", rc)
+    rc = cu_graph_inst(gex, gph, 0, 0, 0)
+    print("TESTINSTD", rc)
     return 1
     tf: "f64" = 0.0
     tb: "f64" = 0.0
