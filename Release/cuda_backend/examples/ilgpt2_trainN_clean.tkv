@@ -968,6 +968,13 @@ def run() -> "i32":
     wh = cuda_h2d(dgam, g1h, hb, 1)
     wh = cuda_h2d(dbet, b1h, hb, 1)
     rc = zero_buf(hP, T * T)
+    ll = 0
+    while ll < NL:
+        qb0: "i64" = read_i64(AWQV16, ll * 8)
+        rc = toh(th, read_i64(AWq, ll * 8), qb0, sHH)
+        rc = toh(th, read_i64(AWk, ll * 8), qb0 + sHH * 2, sHH)
+        rc = toh(th, read_i64(AWv, ll * 8), qb0 + sHH * 4, sHH)
+        ll = ll + 1
     xin: "i64" = dX
     t0 = time_perf()
     tf: "f64" = 0.0
