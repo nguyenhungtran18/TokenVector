@@ -202,6 +202,10 @@ _EXTERN_DTYPE_TO_IL: "dict[str,str]" = {'i32': 'int32', 'i64': 'int64', 'f32': '
                         # marshalling dung cho tham so out-pointer cua C API.
                         # i64 -> int64 lam cudaGraphInstantiate tra INVALID_VALUE.
                         'ptr': 'native int',
+                        # P/Invoke out-pointer: C# `out IntPtr` -> IL `native int&`.
+                        # Thuong so `ptr` (native int truyen value) lam CUDA API
+                        # tra INVALID_VALUE; can byref cho out-param.
+                        'pref': 'native int&',
                         # Task 3 (RamGuard TokenVector Rewrite, 2026-08-31):
                         # 'u64' - mirror 'bool'/'enum:...', can vi 1 so
                         # property BCL that (vd ComputerInfo.
@@ -316,8 +320,8 @@ def _tokenvector_facing_dtype(dtype: "str") -> "str":
     rieng, gia tri LUON la i32 phia goi/nhan."""
     if dtype == 'bool':
         return 'i32'
-    if dtype == 'ptr':
-        # P/Invoke pointer: IL la 'native int', phia TokenVector van dung i64.
+    if dtype == 'ptr' or dtype == 'pref':
+        # P/Invoke pointer/byref: phia TokenVector van dung i64 (dia chi buffer).
         return 'i64'
     if dtype == 'u64':
         # Task 3 (RamGuard TokenVector Rewrite, 2026-08-31): mirror 'bool' -
