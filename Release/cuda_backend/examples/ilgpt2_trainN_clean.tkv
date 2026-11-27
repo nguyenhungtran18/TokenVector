@@ -906,7 +906,7 @@ def run() -> "i32":
     rc = cuda_stream_begin(st, 0)
     rc = cuda_stream_end(st, gph)
     print("TESTEND", rc, read_i64(gph, 0))
-    rc = cu_graph_inst(gex, gph, 0, 0, 0)
+    rc = cuda_graph_inst(gex, gph, 0, 0, 0)
     print("TESTINSTD", rc)
     return 1
     tf: "f64" = 0.0
