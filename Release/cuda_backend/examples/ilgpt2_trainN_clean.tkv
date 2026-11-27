@@ -865,8 +865,6 @@ def run() -> "i32":
     tf: "f64" = 0.0
     tb: "f64" = 0.0
     thd: "f64" = 0.0
-    thg: "f64" = 0.0
-    thl: "f64" = 0.0
     step: "i32" = 1
     while step <= 2:
         tA = time_perf()
@@ -961,16 +959,11 @@ def run() -> "i32":
             wh = cuda_h2d(od, dOUT, qb, 3)
             xin = dOUT
             ll = ll + 1
-        syn = cuda_sync()
         tH = time_perf()
-        tHG = time_perf()
         # logits + loss tu OUT cua lop cuoi
         rc = toh(th, dOUT, fpA, sQH)
         rc = toh(th, dWh, fpB, sHV)
         rc = gemm16(ch, 0, 0, T, V, H, one, fpA, T, fpB, H, zero, dLG, T)
-        syn = cuda_sync()
-        tHL = time_perf()
-        thg = thg + (tHL - tHG)
         wh = write_i32(hPK, 0, T)
         wh = write_i32(hPK, 4, V)
         wh = write_f32(hPK, 8, 1.0 / T)
@@ -993,8 +986,6 @@ def run() -> "i32":
         lf: "f64" = lossv
         print("LOSSF", lf)
         tB = time_perf()
-        syn = cuda_sync()
-        thl = thl + (tB - tHL)
         thd = thd + (tB - tH)
         tf = tf + (tH - tA)
         print("MARK FWD", step)
@@ -1144,8 +1135,6 @@ def run() -> "i32":
     t1 = time_perf()
     dtm: "f64" = t1 - t0
     print("MS_LAYERS", tf * 1000.0)
-    print("MS_HEAD_GEMM", thg * 1000.0)
-    print("MS_LOSS", thl * 1000.0)
     print("MS_HEAD", thd * 1000.0)
     print("MS_BWD", tb * 1000.0)
     print("MS_TOTAL", dtm * 1000.0)
