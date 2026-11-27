@@ -1140,6 +1140,8 @@ def run() -> "i32":
         print("MARK FWD", step)
         rc = toh(th, dDL, fpA, sTV)
         rc = gemm16(ch, 0, 1, T, H, V, one, fpA, T, fpB, H, zero, gOUT, T)
+            if ll == 23:
+                rc = nanstat(26, gOUT, T * H, hNPbig)
         # ---- backward layers (nguoc) ----
         ll = NL - 1
         while ll >= 0:
@@ -1195,6 +1197,8 @@ def run() -> "i32":
             rc = toh(th, gOUT, fpA, sQH)
             rc = toh(th, w2d, fpB, sFH)
             rc = gemm16(ch, 0, 1, T, F, H, one, fpA, T, fpB, F, zero, gHH, T)
+            if ll == 23:
+                rc = nanstat(28, fpA, T * H, hNPbig)
             if ll == 23:
                 rc = nanstat(24, gHH, T * F, hNPbig)
             if ll == 23:
