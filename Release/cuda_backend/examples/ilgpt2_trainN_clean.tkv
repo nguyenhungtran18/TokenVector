@@ -596,12 +596,7 @@ def run() -> "i32":
     sh = pin_alloc(8)
     rc = cuda_stream_create_flags(sh, 1)
     st: "i64" = read_i64(sh, 0)
-    rc = cublas_set_stream(ch, st)
-    wsc = pin_alloc(8)
-    rc = cuda_malloc(wsc, 67108864)
-    wsp: "i64" = read_i64(wsc, 0)
-    rc = cublas_set_ws2(ch, wsp, 67108864)
-    print("WS", rc)
+
     print("STREAM", rc, st)
     NL: "i32" = 24
     T: "i32" = 512
