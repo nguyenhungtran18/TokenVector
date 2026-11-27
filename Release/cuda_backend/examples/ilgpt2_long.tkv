@@ -727,10 +727,6 @@ def run() -> "i32":
     AGo = alloc_bytes(msz)
     AG1 = alloc_bytes(msz)
     AG2 = alloc_bytes(msz)
-    QALL = alloc_bytes(8)
-    KALL = alloc_bytes(8)
-    VALL = alloc_bytes(8)
-    AALL = alloc_bytes(8)
     AX1 = alloc_bytes(msz)
     AY1 = alloc_bytes(msz)
     AS1 = alloc_bytes(msz)
@@ -833,14 +829,7 @@ def run() -> "i32":
     gY1 = read_i64(cell, 0)
     rc = cuda_malloc(cell, qb)
     gOUT = read_i64(cell, 0)
-    rc = cuda_malloc(cell, NL * qb)
-    qall: "i64" = read_i64(cell, 0)
-    rc = cuda_malloc(cell, NL * qb)
-    kall: "i64" = read_i64(cell, 0)
-    rc = cuda_malloc(cell, NL * qb)
-    vall: "i64" = read_i64(cell, 0)
-    rc = cuda_malloc(cell, NL * qb)
-    aall: "i64" = read_i64(cell, 0)    # host scratch (dung lai)
+    # host scratch (dung lai)    # host scratch (dung lai)
     hY1 = alloc_bytes(qb)
     hY2 = alloc_bytes(qb)
     hST = alloc_bytes(stb)
@@ -899,7 +888,8 @@ def run() -> "i32":
         wh = write_i64(AG2, ll * 8, read_i64(cell, 0))
         rc = cuda_malloc(cell, qb)
         wh = write_i64(AX1, ll * 8, read_i64(cell, 0))
-
+        rc = cuda_malloc(cell, qb)
+        wh = write_i64(AY1, ll * 8, read_i64(cell, 0))
         rc = cuda_malloc(cell, stb)
         wh = write_i64(AS1, ll * 8, read_i64(cell, 0))
         rc = cuda_malloc(cell, qb)
@@ -1037,11 +1027,6 @@ def run() -> "i32":
             y2d = read_i64(AY2, ll * 8)
             xh2d = read_i64(AX2, ll * 8)
             s2d = read_i64(AS2, ll * 8)
-            qo: "i64" = ll * qb
-            qd = qall + qo
-            kd = kall + qo
-            vd = vall + qo
-            ad = aall + qo
             pd = read_i64(AP, ll * 8)
             zd = read_i64(AZ, ll * 8)
             od = read_i64(AO, ll * 8)
