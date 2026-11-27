@@ -1367,21 +1367,21 @@ def run() -> "i32":
         tC = time_perf()
         tb = tb + (tC - tB)
         print("MARK BWD", step)
-            bc1v: "f32" = 1.0
-            bc2v: "f32" = 1.0
-            kk3: "i32" = 0
-            while kk3 < step:
-                bc1v = bc1v * b1v
-                bc2v = bc2v * b2v
-                kk3 = kk3 + 1
-            bc1v = 1.0 - bc1v
-            bc2v = 1.0 - bc2v
-            rc = adamw_flat(afl, dAWq, dAMq, dAGq, dASq, 0, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
-            rc = adamw_flat(afl, dAWk, dAMk, dAGk, dASk, H * H, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
-            rc = adamw_flat(afl, dAWv, dAMv, dAGv, dASv, H * H * 2, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
-            rc = adamw_flat(afl, dAWo, dAMo, dAGo, dASo, 0, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
-            rc = adamw_flat(afl, dAW1, dAM1, dAG1, dAS1, 0, H * F, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
-            rc = adamw_flat(afl, dAW2, dAM2, dAG2, dAS2, 0, H * F, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+        bc1v: "f32" = 1.0
+        bc2v: "f32" = 1.0
+        kk3: "i32" = 0
+        while kk3 < step:
+            bc1v = bc1v * b1v
+            bc2v = bc2v * b2v
+            kk3 = kk3 + 1
+        bc1v = 1.0 - bc1v
+        bc2v = 1.0 - bc2v
+        rc = adamw_flat(afl, dAWq, dAMq, dAGq, dASq, 0, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+        rc = adamw_flat(afl, dAWk, dAMk, dAGk, dASk, H * H, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+        rc = adamw_flat(afl, dAWv, dAMv, dAGv, dASv, H * H * 2, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+        rc = adamw_flat(afl, dAWo, dAMo, dAGo, dASo, 0, H * H, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+        rc = adamw_flat(afl, dAW1, dAM1, dAG1, dAS1, 0, H * F, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+        rc = adamw_flat(afl, dAW2, dAM2, dAG2, dAS2, 0, H * F, NL, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
         print("MARK UPD", step)
         step = step + 1
     syn: "i32" = cuda_sync()
