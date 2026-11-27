@@ -23,6 +23,8 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_graph_inst", "dll": "cudart.dll", "symbol": "cudaGraphInstantiate",
      "convention": "cdecl", "params": ["i64", "i64", "i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cuda_graph_inst_flags", "dll": "cudart.dll", "symbol": "cudaGraphInstantiateWithFlags",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
     {"name": "cuda_graph_launch", "dll": "cudart.dll", "symbol": "cudaGraphLaunch",
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
@@ -1158,7 +1160,7 @@ def run() -> "i32":
         print("GRAPHEND FAIL", rc)
         return 1
     gex = pin_alloc(8)
-    rc = cuda_graph_inst(gex, gph, 0, 0, 0)
+    rc = cuda_graph_inst_flags(gex, gph, 0)
     print("GRAPHINST", rc)
     if rc != 0:
         return 1
