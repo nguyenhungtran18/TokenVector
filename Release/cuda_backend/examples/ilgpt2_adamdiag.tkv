@@ -1237,6 +1237,8 @@ def run() -> "i32":
         print("LOSS", lossv)
         lf: "f64" = lossv
         print("LOSSF", lf)
+        wh = cuda_h2d(dh, dDL, 16, 2)
+        print("DIAG dDL", read_f32(dh, 0), read_f32(dh, 4))
         tB = time_perf()
         thd = thd + (tB - tH)
         tf = tf + (tH - tA)
