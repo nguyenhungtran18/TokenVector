@@ -984,11 +984,6 @@ def run() -> "i32":
         rc = toh(th, read_i64(AWv, ll * 8), qb0 + sHH * 4, sHH)
         ll = ll + 1
     xin: "i64" = dX
-    ev0 = alloc_bytes(8)
-    ev1 = alloc_bytes(8)
-    rc = cuda_event_create(ev0)
-    rc = cuda_event_create(ev1)
-    rc = cuda_event_record(ev0, 0)
     t0 = time_perf()
     tf: "f64" = 0.0
     tb: "f64" = 0.0
@@ -1245,11 +1240,6 @@ def run() -> "i32":
             ll = ll + 1
         print("MARK UPD", step)
         step = step + 1
-    rc = cuda_event_record(ev1, 0)
-    rc = cuda_event_sync(ev1)
-    ms_gpu = alloc_bytes(4)
-    rc = cuda_event_elapsed(ms_gpu, ev0, ev1)
-    print("MS_GPU", read_f32(ms_gpu, 0))
     syn: "i32" = cuda_sync()
     t1 = time_perf()
     dtm: "f64" = t1 - t0
