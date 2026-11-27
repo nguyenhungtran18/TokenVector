@@ -598,6 +598,8 @@ def run() -> "i32":
     st0: "i64" = read_i64(sh0, 0)
     gg = alloc_bytes(8)
     ee = alloc_bytes(8)
+    whz: "i64" = write_i64(ee, 0, 0)
+    whz = write_i64(gg, 0, 0)
     rc = cuda_stream_begin(st0, 0)
     rc = cuda_stream_end(st0, gg)
     rc = cuda_graph_inst(ee, gg, 0, 0, 0)
