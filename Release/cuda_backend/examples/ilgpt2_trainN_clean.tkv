@@ -1102,6 +1102,7 @@ def run() -> "i32":
         rc = gemm16(ch, 0, 0, T, V, H, one, fpA, T, fpB, H, zero, dLG, T)
         wh = write_i32(hPK, 0, T)
         wh = write_i32(hPK, 4, V)
+        wh = write_i32(hPK, 12, 16)
         wh = write_f32(hPK, 8, 1.0 / T)
         ii = 0
         while ii < T:
