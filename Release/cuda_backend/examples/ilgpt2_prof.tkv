@@ -16,10 +16,6 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
      "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
-    {"name": "cuda_memcpy_async", "dll": "cudart.dll", "symbol": "cudaMemcpyAsync",
-     "convention": "cdecl", "params": ["i64", "i64", "i64", "i32", "i64"], "returns": "i32"},
-    {"name": "cuda_stream_sync", "dll": "cudart.dll", "symbol": "cudaStreamSynchronize",
-     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
     {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
     {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
@@ -324,7 +320,7 @@ def ln_fwd(fnh: "i64", x: "i64", gam: "i64", bet: "i64", y: "i64", xh: "i64", st
     a4 = alloc_bytes(8)
     wh = write_i64(a4, 0, xh)
     a5 = alloc_bytes(8)
-    wh = write_i64(a5, 0, 0)
+    wh = write_i64(a5, 0, st)
     a6 = alloc_bytes(4)
     wh = write_i32(a6, 0, tn)
     a7 = alloc_bytes(4)
@@ -358,7 +354,7 @@ def ln_bwd(fnh: "i64", xh: "i64", dy: "i64", gam: "i64", st: "i64", dx: "i64", t
     a2 = alloc_bytes(8)
     wh = write_i64(a2, 0, gam)
     a3 = alloc_bytes(8)
-    wh = write_i64(a3, 0, 0)
+    wh = write_i64(a3, 0, st)
     a4 = alloc_bytes(8)
     wh = write_i64(a4, 0, dx)
     a5 = alloc_bytes(4)
@@ -805,12 +801,12 @@ def run() -> "i32":
                 wh = write_f32(hw2, (ii + jj * F) * 4, wrand(ii, jj, 0.04))
                 jj = jj + 1
             ii = ii + 1
-        wh = cuda_memcpy_async(wqd, hwq, whb, 1, 0)
-        wh = cuda_memcpy_async(wkd, hwk, whb, 1, 0)
-        wh = cuda_memcpy_async(wvd, hwv, whb, 1, 0)
-        wh = cuda_memcpy_async(wod, hwo, whb, 1, 0)
-        wh = cuda_memcpy_async(w1d, hw1, w1b, 1, 0)
-        wh = cuda_memcpy_async(w2d, hw2, w2b, 1, 0)
+        wh = cuda_h2d(wqd, hwq, whb, 1)
+        wh = cuda_h2d(wkd, hwk, whb, 1)
+        wh = cuda_h2d(wvd, hwv, whb, 1)
+        wh = cuda_h2d(wod, hwo, whb, 1)
+        wh = cuda_h2d(w1d, hw1, w1b, 1)
+        wh = cuda_h2d(w2d, hw2, w2b, 1)
         ll = ll + 1
     # head weight
     hWh = alloc_bytes(wh2)
@@ -823,7 +819,7 @@ def run() -> "i32":
         ii = ii + 1
     rc = cuda_malloc(cell, wh2)
     dWh = read_i64(cell, 0)
-    wh = cuda_memcpy_async(dWh, hWh, wh2, 1, 0)
+    wh = cuda_h2d(dWh, hWh, wh2, 1)
     ii = 0
     while ii < H:
         wh = write_f32(g1h, ii * 4, 1.0)
@@ -862,8 +858,8 @@ def run() -> "i32":
     if lfn == 0:
         print("LOSS INIT FAIL")
         return 1
-    wh = cuda_memcpy_async(dgam, g1h, hb, 1, 0)
-    wh = cuda_memcpy_async(dbet, b1h, hb, 1, 0)
+    wh = cuda_h2d(dgam, g1h, hb, 1)
+    wh = cuda_h2d(dbet, b1h, hb, 1)
     rc = zero_buf(hP, T * T)
     xin: "i64" = dX
     t0 = time_perf()
@@ -892,6 +888,75 @@ def run() -> "i32":
     u_upd: "f64" = 0.0
     tp: "f64" = 0.0
     tn: "f64" = 0.0
+    tb0: "f64" = 0.0
+    tb1: "f64" = 0.0
+    k: "i32" = 0
+    xv: "i32" = 0
+    tb0 = time_perf()
+    k = 0
+    while k < 2000:
+        xv = read_i32(hPK, 0)
+        k = k + 1
+    tb1 = time_perf()
+    print("MB read_i32_us", (tb1 - tb0) * 500.0)
+    tb0 = time_perf()
+    k = 0
+    while k < 2000:
+        xv = write_i32(hPK, 0, 1)
+        k = k + 1
+    tb1 = time_perf()
+    print("MB write_i32_us", (tb1 - tb0) * 500.0)
+    tb0 = time_perf()
+    k = 0
+    while k < 2000:
+        xv = read_i64(AWq, 0)
+        k = k + 1
+    tb1 = time_perf()
+    print("MB read_i64_us", (tb1 - tb0) * 500.0)
+    tb0 = time_perf()
+    k = 0
+    while k < 2000:
+        ssy = cuda_sync()
+        k = k + 1
+    tb1 = time_perf()
+    print("MB cuda_sync_us", (tb1 - tb0) * 500.0)
+    tb0 = time_perf()
+    k = 0
+    while k < 200:
+        rc = toh(th, dY1, fpA, sQH)
+        k = k + 1
+    ssy = cuda_sync()
+    tb1 = time_perf()
+    print("MB toh_us", (tb1 - tb0) * 5000.0)
+    tb0 = time_perf()
+    k = 0
+    while k < 200:
+        rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dQ, T)
+        k = k + 1
+    ssy = cuda_sync()
+    tb1 = time_perf()
+    print("MB gemmQ_us", (tb1 - tb0) * 5000.0)
+    tb0 = time_perf()
+    k = 0
+    while k < 50:
+        rc = toh(th, dY1, fpA, sQH)
+        rc = toh(th, dY1, fpB, sQH)
+        rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dQ, T)
+        k = k + 1
+    ssy = cuda_sync()
+    tb1 = time_perf()
+    print("MB nosync_us", (tb1 - tb0) * 20000.0)
+    tb0 = time_perf()
+    k = 0
+    while k < 50:
+        wh = cuda_h2d(dY2, dY1, qb, 3)
+        rc = toh(th, dY1, fpA, sQH)
+        rc = toh(th, dY1, fpB, sQH)
+        rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dQ, T)
+        k = k + 1
+    ssy = cuda_sync()
+    tb1 = time_perf()
+    print("MB sync_us", (tb1 - tb0) * 20000.0)
     step: "i32" = 1
     while step <= 2:
         tA = time_perf()
