@@ -1195,6 +1195,8 @@ def run() -> "i32":
                 rc = nanprobe(1, g2d, hNP)
             rc = toh(th, gOUT, fpA, sQH)
             rc = toh(th, w2d, fpB, sFH)
+            if ll == 23:
+                rc = nanstat(29, fpB, F * H, hNPbig)
             rc = gemm16(ch, 0, 1, T, F, H, one, fpA, T, fpB, F, zero, gHH, T)
             if ll == 23:
                 rc = nanstat(28, fpA, T * H, hNPbig)
