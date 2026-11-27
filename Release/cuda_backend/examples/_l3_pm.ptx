@@ -14,6 +14,7 @@ ld.param.u64 pb,[pPK];
 cvta.to.global.u64 xb,xb;
 cvta.to.global.u64 mb,mb;
 cvta.to.global.u64 sb,sb;
+cvta.to.global.u64 pb,pb;
 ld.global.u32 tn,[pb];
 ld.global.u32 vn,[pb+4];
 ld.global.u32 nb,[pb+12];

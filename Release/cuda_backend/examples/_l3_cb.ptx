@@ -20,6 +20,7 @@ cvta.to.global.u64 xb,xb;
 cvta.to.global.u64 ob,ob;
 cvta.to.global.u64 gb,gb;
 cvta.to.global.u64 ib,ib;
+cvta.to.global.u64 pb,pb;
 ld.global.u32 tn,[pb];
 ld.global.u32 vn,[pb+4];
 ld.global.u32 nb,[pb+12];
@@ -79,7 +80,7 @@ add.u64 la,ob,off;
 st.global.f32 [la],l;
 add.u64 ga,gb,off;
 st.global.f32 [ga],mx;
-div.rn.f32 gsum,1.0,s;
+div.rn.f32 gsum,0f3F800000,s;
 add.u64 ya,ib,off;
 st.global.f32 [ya],gsum;
 LEND:
