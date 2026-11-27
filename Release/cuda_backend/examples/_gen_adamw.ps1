@@ -35,7 +35,7 @@ def adamw_init() -> "i64":
     fnh: "i64" = read_i64(fc, 0)
     return fnh
 
-def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", lr: "f32", bc1: "f32", bc2: "f32", wd: "f32") -> "i32":
+def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", s: "i64", s2: "i64", n: "i32", lr: "f32", bc1: "f32", bc2: "f32", wd: "f32") -> "i32":
     a0 = alloc_bytes(8)
     wh: "i64" = write_i64(a0, 0, w)
     a1 = alloc_bytes(8)
@@ -44,17 +44,21 @@ def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", l
     wh = write_i64(a2, 0, m)
     a3 = alloc_bytes(8)
     wh = write_i64(a3, 0, v)
-    a4 = alloc_bytes(4)
-    wh = write_f32(a4, 0, lr)
-    a5 = alloc_bytes(4)
-    wh = write_f32(a5, 0, bc1)
+    a4 = alloc_bytes(8)
+    wh = write_i64(a4, 0, s)
+    a5 = alloc_bytes(8)
+    wh = write_i64(a5, 0, s2)
     a6 = alloc_bytes(4)
-    wh = write_f32(a6, 0, bc2)
+    wh = write_f32(a6, 0, lr)
     a7 = alloc_bytes(4)
-    wh = write_f32(a7, 0, wd)
+    wh = write_f32(a7, 0, bc1)
     a8 = alloc_bytes(4)
-    wh = write_i32(a8, 0, n)
-    pl = alloc_bytes(72)
+    wh = write_f32(a8, 0, bc2)
+    a9 = alloc_bytes(4)
+    wh = write_f32(a9, 0, wd)
+    a10 = alloc_bytes(4)
+    wh = write_i32(a10, 0, n)
+    pl = alloc_bytes(88)
     wh = write_i64(pl, 0, a0)
     wh = write_i64(pl, 8, a1)
     wh = write_i64(pl, 16, a2)
@@ -64,6 +68,8 @@ def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", l
     wh = write_i64(pl, 48, a6)
     wh = write_i64(pl, 56, a7)
     wh = write_i64(pl, 64, a8)
+    wh = write_i64(pl, 72, a9)
+    wh = write_i64(pl, 80, a10)
     gr: "i32" = (n + 255) >> 8
     rc: "i32" = cu_launch(fnh, gr, 1, 1, 256, 1, 1, 0, 0, pl, 0)
     if rc != 0:

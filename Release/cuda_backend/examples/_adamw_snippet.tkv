@@ -1,6 +1,6 @@
 ﻿
 def adamw_init() -> "i64":
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry adamw_kernel(.param .u64 pW, .param .u64 pG, .param .u64 pM, .param .u64 pV, .param .f32 pLR, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pWD, .param .u32 pN)\n{\n.reg .f32 w,g,m,v,t,den,lr,bc1,bc2,wd;\n.reg .u64 wb,gb,mb,vb,off,wa,ga,ma,va;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 wb,[pW];\nld.param.u64 gb,[pG];\nld.param.u64 mb,[pM];\nld.param.u64 vb,[pV];\nld.param.f32 lr,[pLR];\nld.param.f32 bc1,[pBC1];\nld.param.f32 bc2,[pBC2];\nld.param.f32 wd,[pWD];\nld.param.u32 n,[pN];\ncvta.to.global.u64 wb,wb;\ncvta.to.global.u64 gb,gb;\ncvta.to.global.u64 mb,mb;\ncvta.to.global.u64 vb,vb;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wa,wb,off;\nadd.u64 ga,gb,off;\nadd.u64 ma,mb,off;\nadd.u64 va,vb,off;\nld.global.f32 w,[wa];\nld.global.f32 g,[ga];\nld.global.f32 m,[ma];\nld.global.f32 v,[va];\nmul.f32 m,m,0.9;\nmul.f32 t,g,0.1;\nadd.f32 m,m,t;\nmul.f32 v,v,0.999;\nmul.f32 t,g,g;\nmul.f32 t,t,0.001;\nadd.f32 v,v,t;\ndiv.rn.f32 t,v,bc2;\nsqrt.rn.f32 den,t;\nadd.f32 den,den,0.0000001;\ndiv.rn.f32 t,m,bc1;\ndiv.rn.f32 t,t,den;\nmul.f32 t,t,lr;\nsub.f32 w,w,t;\nmul.f32 t,w,wd;\nsub.f32 w,w,t;\nst.global.f32 [wa],w;\nst.global.f32 [ma],m;\nst.global.f32 [va],v;\nLEND:\nret;\n}\n"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry adamw_kernel(.param .u64 pW, .param .u64 pG, .param .u64 pM, .param .u64 pV, .param .u64 pS, .param .u64 pS2, .param .f32 pLR, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pWD, .param .u32 pN)\n{\n.reg .f32 w,g,m,v,t,den,lr,bc1,bc2,wd;\n.reg .f16 h16;\n.reg .b16 u16;\n.reg .u64 wb,gb,mb,vb,sb,s2b,off,soff,wa,ga,ma,va,sa,s2a;\n.reg .u32 i,n,base,nt,j,q0,i2,q1,q;\n.reg .pred qn,qskip;\nld.param.u64 wb,[pW];\nld.param.u64 gb,[pG];\nld.param.u64 mb,[pM];\nld.param.u64 vb,[pV];\nld.param.u64 sb,[pS];\nld.param.u64 s2b,[pS2];\nld.param.f32 lr,[pLR];\nld.param.f32 bc1,[pBC1];\nld.param.f32 bc2,[pBC2];\nld.param.f32 wd,[pWD];\nld.param.u32 n,[pN];\ncvta.to.global.u64 wb,wb;\ncvta.to.global.u64 gb,gb;\ncvta.to.global.u64 mb,mb;\ncvta.to.global.u64 vb,vb;\ncvta.to.global.u64 sb,sb;\ncvta.to.global.u64 s2b,s2b;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 qn,i,n;\n@qn bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wa,wb,off;\nadd.u64 ga,gb,off;\nadd.u64 ma,mb,off;\nadd.u64 va,vb,off;\nld.global.f32 w,[wa];\nld.global.f32 g,[ga];\nld.global.f32 m,[ma];\nld.global.f32 v,[va];\nmul.f32 m,m,0.9;\nmul.f32 t,g,0.1;\nadd.f32 m,m,t;\nmul.f32 v,v,0.999;\nmul.f32 t,g,g;\nmul.f32 t,t,0.001;\nadd.f32 v,v,t;\ndiv.rn.f32 t,v,bc2;\nsqrt.rn.f32 den,t;\nadd.f32 den,den,0.0000001;\ndiv.rn.f32 t,m,bc1;\ndiv.rn.f32 t,t,den;\nmul.f32 t,t,lr;\nsub.f32 w,w,t;\nmul.f32 t,w,wd;\nsub.f32 w,w,t;\nst.global.f32 [wa],w;\nst.global.f32 [ma],m;\nst.global.f32 [va],v;\ncvt.rn.f16.f32 h16,w;\nmov.b16 u16,h16;\nmul.wide.u32 soff,i,2;\nadd.u64 sa,sb,soff;\nst.global.b16 [sa],u16;\nsetp.eq.u64 qskip,s2b,0;\n@qskip bra LEND;\nshr.u32 j,i,12;\nmul.lo.u32 q0,j,4096;\nsub.u32 i2,i,q0;\nmul.lo.u32 q1,i2,1024;\nadd.u32 q,q1,j;\nmul.wide.u32 soff,q,2;\nadd.u64 s2a,s2b,soff;\nst.global.b16 [s2a],u16;\nLEND:\nret;\n}\n"
     FNS = b"adamw_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
@@ -27,7 +27,7 @@ def adamw_init() -> "i64":
     fnh: "i64" = read_i64(fc, 0)
     return fnh
 
-def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", lr: "f32", bc1: "f32", bc2: "f32", wd: "f32") -> "i32":
+def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", s: "i64", s2: "i64", n: "i32", lr: "f32", bc1: "f32", bc2: "f32", wd: "f32") -> "i32":
     a0 = alloc_bytes(8)
     wh: "i64" = write_i64(a0, 0, w)
     a1 = alloc_bytes(8)
@@ -36,17 +36,21 @@ def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", l
     wh = write_i64(a2, 0, m)
     a3 = alloc_bytes(8)
     wh = write_i64(a3, 0, v)
-    a4 = alloc_bytes(4)
-    wh = write_f32(a4, 0, lr)
-    a5 = alloc_bytes(4)
-    wh = write_f32(a5, 0, bc1)
+    a4 = alloc_bytes(8)
+    wh = write_i64(a4, 0, s)
+    a5 = alloc_bytes(8)
+    wh = write_i64(a5, 0, s2)
     a6 = alloc_bytes(4)
-    wh = write_f32(a6, 0, bc2)
+    wh = write_f32(a6, 0, lr)
     a7 = alloc_bytes(4)
-    wh = write_f32(a7, 0, wd)
+    wh = write_f32(a7, 0, bc1)
     a8 = alloc_bytes(4)
-    wh = write_i32(a8, 0, n)
-    pl = alloc_bytes(72)
+    wh = write_f32(a8, 0, bc2)
+    a9 = alloc_bytes(4)
+    wh = write_f32(a9, 0, wd)
+    a10 = alloc_bytes(4)
+    wh = write_i32(a10, 0, n)
+    pl = alloc_bytes(88)
     wh = write_i64(pl, 0, a0)
     wh = write_i64(pl, 8, a1)
     wh = write_i64(pl, 16, a2)
@@ -56,6 +60,8 @@ def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", l
     wh = write_i64(pl, 48, a6)
     wh = write_i64(pl, 56, a7)
     wh = write_i64(pl, 64, a8)
+    wh = write_i64(pl, 72, a9)
+    wh = write_i64(pl, 80, a10)
     gr: "i32" = (n + 255) >> 8
     rc: "i32" = cu_launch(fnh, gr, 1, 1, 256, 1, 1, 0, 0, pl, 0)
     if rc != 0:

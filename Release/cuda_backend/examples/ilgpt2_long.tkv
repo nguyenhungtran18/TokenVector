@@ -645,8 +645,9 @@ def loss3_fwd(h: "i64", lg: "i64", pk: "i64", dl: "i64", ls: "i64", pm: "i64", p
         return 1
     return 0
 
+
 def adamw_init() -> "i64":
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry adamw_kernel(.param .u64 pW, .param .u64 pG, .param .u64 pM, .param .u64 pV, .param .f32 pLR, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pWD, .param .u32 pN)\n{\n.reg .f32 w,g,m,v,t,den,lr,bc1,bc2,wd;\n.reg .u64 wb,gb,mb,vb,off,wa,ga,ma,va;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 wb,[pW];\nld.param.u64 gb,[pG];\nld.param.u64 mb,[pM];\nld.param.u64 vb,[pV];\nld.param.f32 lr,[pLR];\nld.param.f32 bc1,[pBC1];\nld.param.f32 bc2,[pBC2];\nld.param.f32 wd,[pWD];\nld.param.u32 n,[pN];\ncvta.to.global.u64 wb,wb;\ncvta.to.global.u64 gb,gb;\ncvta.to.global.u64 mb,mb;\ncvta.to.global.u64 vb,vb;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wa,wb,off;\nadd.u64 ga,gb,off;\nadd.u64 ma,mb,off;\nadd.u64 va,vb,off;\nld.global.f32 w,[wa];\nld.global.f32 g,[ga];\nld.global.f32 m,[ma];\nld.global.f32 v,[va];\nmul.f32 m,m,0.9;\nmul.f32 t,g,0.1;\nadd.f32 m,m,t;\nmul.f32 v,v,0.999;\nmul.f32 t,g,g;\nmul.f32 t,t,0.001;\nadd.f32 v,v,t;\ndiv.rn.f32 t,v,bc2;\nsqrt.rn.f32 den,t;\nadd.f32 den,den,0.0000001;\ndiv.rn.f32 t,m,bc1;\ndiv.rn.f32 t,t,den;\nmul.f32 t,t,lr;\nsub.f32 w,w,t;\nmul.f32 t,w,wd;\nsub.f32 w,w,t;\nst.global.f32 [wa],w;\nst.global.f32 [ma],m;\nst.global.f32 [va],v;\nLEND:\nret;\n}\n"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry adamw_kernel(.param .u64 pW, .param .u64 pG, .param .u64 pM, .param .u64 pV, .param .u64 pS, .param .u64 pS2, .param .f32 pLR, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pWD, .param .u32 pN)\n{\n.reg .f32 w,g,m,v,t,den,lr,bc1,bc2,wd;\n.reg .f16 h16;\n.reg .b16 u16;\n.reg .u64 wb,gb,mb,vb,sb,s2b,off,soff,wa,ga,ma,va,sa,s2a;\n.reg .u32 i,n,base,nt,j,q0,i2,q1,q;\n.reg .pred qn,qskip;\nld.param.u64 wb,[pW];\nld.param.u64 gb,[pG];\nld.param.u64 mb,[pM];\nld.param.u64 vb,[pV];\nld.param.u64 sb,[pS];\nld.param.u64 s2b,[pS2];\nld.param.f32 lr,[pLR];\nld.param.f32 bc1,[pBC1];\nld.param.f32 bc2,[pBC2];\nld.param.f32 wd,[pWD];\nld.param.u32 n,[pN];\ncvta.to.global.u64 wb,wb;\ncvta.to.global.u64 gb,gb;\ncvta.to.global.u64 mb,mb;\ncvta.to.global.u64 vb,vb;\ncvta.to.global.u64 sb,sb;\ncvta.to.global.u64 s2b,s2b;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 qn,i,n;\n@qn bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wa,wb,off;\nadd.u64 ga,gb,off;\nadd.u64 ma,mb,off;\nadd.u64 va,vb,off;\nld.global.f32 w,[wa];\nld.global.f32 g,[ga];\nld.global.f32 m,[ma];\nld.global.f32 v,[va];\nmul.f32 m,m,0.9;\nmul.f32 t,g,0.1;\nadd.f32 m,m,t;\nmul.f32 v,v,0.999;\nmul.f32 t,g,g;\nmul.f32 t,t,0.001;\nadd.f32 v,v,t;\ndiv.rn.f32 t,v,bc2;\nsqrt.rn.f32 den,t;\nadd.f32 den,den,0.0000001;\ndiv.rn.f32 t,m,bc1;\ndiv.rn.f32 t,t,den;\nmul.f32 t,t,lr;\nsub.f32 w,w,t;\nmul.f32 t,w,wd;\nsub.f32 w,w,t;\nst.global.f32 [wa],w;\nst.global.f32 [ma],m;\nst.global.f32 [va],v;\ncvt.rn.f16.f32 h16,w;\nmov.b16 u16,h16;\nmul.wide.u32 soff,i,2;\nadd.u64 sa,sb,soff;\nst.global.b16 [sa],u16;\nsetp.eq.u64 qskip,s2b,0;\n@qskip bra LEND;\nshr.u32 j,i,12;\nmul.lo.u32 q0,j,4096;\nsub.u32 i2,i,q0;\nmul.lo.u32 q1,i2,1024;\nadd.u32 q,q1,j;\nmul.wide.u32 soff,q,2;\nadd.u64 s2a,s2b,soff;\nst.global.b16 [s2a],u16;\nLEND:\nret;\n}\n"
     FNS = b"adamw_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
@@ -673,7 +674,7 @@ def adamw_init() -> "i64":
     fnh: "i64" = read_i64(fc, 0)
     return fnh
 
-def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", lr: "f32", bc1: "f32", bc2: "f32", wd: "f32") -> "i32":
+def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", s: "i64", s2: "i64", n: "i32", lr: "f32", bc1: "f32", bc2: "f32", wd: "f32") -> "i32":
     a0 = alloc_bytes(8)
     wh: "i64" = write_i64(a0, 0, w)
     a1 = alloc_bytes(8)
@@ -682,17 +683,21 @@ def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", l
     wh = write_i64(a2, 0, m)
     a3 = alloc_bytes(8)
     wh = write_i64(a3, 0, v)
-    a4 = alloc_bytes(4)
-    wh = write_f32(a4, 0, lr)
-    a5 = alloc_bytes(4)
-    wh = write_f32(a5, 0, bc1)
+    a4 = alloc_bytes(8)
+    wh = write_i64(a4, 0, s)
+    a5 = alloc_bytes(8)
+    wh = write_i64(a5, 0, s2)
     a6 = alloc_bytes(4)
-    wh = write_f32(a6, 0, bc2)
+    wh = write_f32(a6, 0, lr)
     a7 = alloc_bytes(4)
-    wh = write_f32(a7, 0, wd)
+    wh = write_f32(a7, 0, bc1)
     a8 = alloc_bytes(4)
-    wh = write_i32(a8, 0, n)
-    pl = alloc_bytes(72)
+    wh = write_f32(a8, 0, bc2)
+    a9 = alloc_bytes(4)
+    wh = write_f32(a9, 0, wd)
+    a10 = alloc_bytes(4)
+    wh = write_i32(a10, 0, n)
+    pl = alloc_bytes(88)
     wh = write_i64(pl, 0, a0)
     wh = write_i64(pl, 8, a1)
     wh = write_i64(pl, 16, a2)
@@ -702,14 +707,13 @@ def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", l
     wh = write_i64(pl, 48, a6)
     wh = write_i64(pl, 56, a7)
     wh = write_i64(pl, 64, a8)
+    wh = write_i64(pl, 72, a9)
+    wh = write_i64(pl, 80, a10)
     gr: "i32" = (n + 255) >> 8
     rc: "i32" = cu_launch(fnh, gr, 1, 1, 256, 1, 1, 0, 0, pl, 0)
     if rc != 0:
         print("ADAMW LAUNCH FAIL", rc)
     return rc
-
-
-
 
 def toht_init() -> "i64":
     PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry toht_kernel(.param .u64 px, .param .u64 py, .param .u32 pn, .param .u32 pf)\n{\n.reg .f32 fv;\n.reg .f16 hv;\n.reg .b16 uv;\n.reg .u64 xb,yb,off,qoff;\n.reg .u32 i,n,f,hn,j,q0,i2,q1,q,base,nt;\n.reg .pred p;\nld.param.u64 xb,[px];\nld.param.u64 yb,[py];\nld.param.u32 n,[pn];\nld.param.u32 f,[pf];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 yb,yb;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 p,i,n;\n@p bra LEND;\nshr.u32 hn,f,2;\nmul.wide.u32 off,i,4;\nadd.u64 xb,xb,off;\nld.global.f32 fv,[xb];\ncvt.rn.f16.f32 hv,fv;\nmov.b16 uv,hv;\nshr.u32 j,i,12;\nmul.lo.u32 q0,j,4096;\nsub.u32 i2,i,q0;\nmul.lo.u32 q1,i2,hn;\nadd.u32 q,q1,j;\nmul.wide.u32 qoff,q,2;\nadd.u64 yb,yb,qoff;\nst.global.b16 [yb],uv;\nLEND:\nret;\n}\n"
@@ -1176,6 +1180,17 @@ def run() -> "i32":
     rc = cuda_malloc(cell, NL * w2b)
     v2: "i64" = read_i64(cell, 0)
     rc = cuda_memset(v2, 0, NL * w2b)
+    rc = cuda_malloc(cell, NL * 3 * H * H * 2)
+    shQKV: "i64" = read_i64(cell, 0)
+    rc = cuda_malloc(cell, NL * H * H * 2)
+    shO: "i64" = read_i64(cell, 0)
+    rc = cuda_malloc(cell, NL * H * F * 2)
+    sh1: "i64" = read_i64(cell, 0)
+    rc = cuda_malloc(cell, NL * H * F * 2)
+    sh2: "i64" = read_i64(cell, 0)
+    rc = cuda_malloc(cell, NL * H * F * 2)
+    sh2T: "i64" = read_i64(cell, 0)
+    zz64: "i64" = 0
 
 
     gfn: "i64" = gelu_fwd_init()
@@ -1264,6 +1279,12 @@ def run() -> "i32":
             kd = qd + qoff
             vd = kd + qoff
             ad = read_i64(AA, ll * 8)
+            sfq: "i64" = shQKV + ll * (3 * H * H * 2)
+            sfk: "i64" = sfq + H * H * 2
+            sfv: "i64" = sfq + 2 * H * H * 2
+            sfo: "i64" = shO + ll * (H * H * 2)
+            sf1: "i64" = sh1 + ll * (H * F * 2)
+            sf2: "i64" = sh2 + ll * (H * F * 2)
             pd = read_i64(AP, ll * 8)
             zd = read_i64(AZ, ll * 8)
             od = read_i64(AO, ll * 8)
@@ -1274,8 +1295,8 @@ def run() -> "i32":
                 print("LN1 FWD FAIL", ll)
                 return 1
             rc = toh(th, y1d, fpA, sQH)
-            rc = toh3(th3, wqd, wkd, wvd, fpQKV, H * H)
-            rc = gemm16(ch, 0, 0, T, 3 * H, H, one, fpA, T, fpQKV, H, zero, qd, T)
+
+            rc = gemm16(ch, 0, 0, T, 3 * H, H, one, fpA, T, sfq, H, zero, qd, T)
             if rc != 0:
                 print("QKV GEMM FAIL", ll, rc)
                 return 1
@@ -1296,8 +1317,7 @@ def run() -> "i32":
                 print("A GEMM FAIL", ll, rc)
                 return 1
             rc = toh(th, ad, fpA, sQH)
-            rc = toh(th, wod, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dO, T)
+            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, sfo, H, zero, dO, T)
             if rc != 0:
                 print("O GEMM FAIL", ll, rc)
                 return 1
@@ -1310,12 +1330,10 @@ def run() -> "i32":
                 print("LN2 FWD FAIL", ll)
                 return 1
             rc = toh(th, y2d, fpA, sQH)
-            rc = toh(th, w1d, fpB, H * F)
-            rc = gemm16(ch, 0, 0, T, F, H, one, fpA, T, fpB, H, zero, zd, T)
+            rc = gemm16(ch, 0, 0, T, F, H, one, fpA, T, sf1, H, zero, zd, T)
             rc = gelu_fwd(gfn, zd, dHH, T * F)
             rc = toh(th, dHH, fpA, sTF)
-            rc = toh(th, w2d, fpB, sFH)
-            rc = gemm16(ch, 0, 0, T, H, F, one, fpA, T, fpB, F, zero, dO2, T)
+            rc = gemm16(ch, 0, 0, T, H, F, one, fpA, T, sf2, F, zero, dO2, T)
             rc = add_k(gadd, dX2, dO2, dOUT, T * H)
             if rc != 0:
                 print("ADD OUT FAIL", ll)
@@ -1380,6 +1398,13 @@ def run() -> "i32":
             kd = qd + qoff
             vd = kd + qoff
             ad = read_i64(AA, ll * 8)
+            sbq: "i64" = shQKV + ll * (3 * H * H * 2)
+            sbk: "i64" = sbq + H * H * 2
+            sbv: "i64" = sbq + 2 * H * H * 2
+            sbo: "i64" = shO + ll * (H * H * 2)
+            sb1: "i64" = sh1 + ll * (H * F * 2)
+            sb2: "i64" = sh2 + ll * (H * F * 2)
+            sb2t: "i64" = sh2T + ll * (H * F * 2)
 
             pd = read_i64(AP, ll * 8)
             zd = read_i64(AZ, ll * 8)
@@ -1392,15 +1417,13 @@ def run() -> "i32":
             rc = toh(th, gOUT, fpB, sQH)
             rc = gemm16(ch, 1, 0, F, H, T, one, fpA, T, fpB, T, zero, g2d, F)
             rc = toh(th, gOUT, fpA, sQH)
-            rc = toht(tht, w2d, fpT, H * F, F)
-            rc = gemm16(ch, 0, 0, T, F, H, one, fpA, T, fpT, H, zero, gHH, T)
+            rc = gemm16(ch, 0, 0, T, F, H, one, fpA, T, sb2t, H, zero, gHH, T)
             rc = gelu_bwd(bfn, zd, gHH, gZ, T * F)
             rc = toh(th, y2d, fpA, sQH)
             rc = toh(th, gZ, fpB, sTF)
             rc = gemm16(ch, 1, 0, H, F, T, one, fpA, T, fpB, T, zero, g1d, H)
             rc = toh(th, gZ, fpA, sTF)
-            rc = toh(th, w1d, fpB, H * F)
-            rc = gemm16(ch, 0, 1, T, H, F, one, fpA, T, fpB, H, zero, gY2, T)
+            rc = gemm16(ch, 0, 1, T, H, F, one, fpA, T, sb1, H, zero, gY2, T)
             rc = ln_bwd(lnb, xh2d, gY2, dgam, s2d, gDX2, T, H)
             if rc != 0:
                 print("LN2 BWD FAIL", ll)
@@ -1410,8 +1433,7 @@ def run() -> "i32":
                 print("ADD DX2 FAIL", ll)
                 return 1
             rc = toh(th, gDX2, fpA, sQH)
-            rc = toh(th, wod, fpB, sHH)
-            rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, fpB, H, zero, gA, T)
+            rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, sbo, H, zero, gA, T)
             rc = toh(th, ad, fpA, sQH)
             rc = toh(th, gDX2, fpB, sQH)
             rc = gemm16(ch, 1, 0, H, H, T, one, fpA, T, fpB, T, zero, gWo, H)
@@ -1439,14 +1461,11 @@ def run() -> "i32":
             rc = toh(th, gV, fpB, sQH)
             rc = gemm16(ch, 1, 0, H, H, T, one, fpA, T, fpB, T, zero, gvd, H)
             rc = toh(th, gQ, fpA, sQH)
-            rc = toh(th, wqd, fpB, sHH)
-            rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, fpB, H, zero, gDX2, T)
+            rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, sbq, H, zero, gDX2, T)
             rc = toh(th, gK, fpA, sQH)
-            rc = toh(th, wkd, fpB, sHH)
-            rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, fpB, H, one, gDX2, T)
+            rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, sbk, H, one, gDX2, T)
             rc = toh(th, gV, fpA, sQH)
-            rc = toh(th, wvd, fpB, sHH)
-            rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, fpB, H, one, gDX2, T)
+            rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, sbv, H, one, gDX2, T)
             rc = ln_bwd(lnb, xh1d, gDX2, dgam, s1d, gY1, T, H)
             if rc != 0:
                 print("LN1 BWD FAIL", ll)
@@ -1470,12 +1489,15 @@ def run() -> "i32":
             uo: "i64" = ll * whb
             uo1: "i64" = ll * w1b
             uo2: "i64" = ll * w2b
-            rc = adamw_update(afn, read_i64(AWq, ll * 8), gqd, mq + uo, vq + uo, H * H, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, mk + uo, vk + uo, H * H, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, mv + uo, vv + uo, H * H, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AWo, ll * 8), god, mo + uo, vo + uo, H * H, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AW1, ll * 8), g1d, m1 + uo1, v1 + uo1, H * F, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AW2, ll * 8), g2d, m2 + uo2, v2 + uo2, F * H, lr, ac1, ac2, wd)
+            so3: "i64" = ll * (3 * H * H * 2)
+            soh: "i64" = ll * (H * H * 2)
+            sof: "i64" = ll * (H * F * 2)
+            rc = adamw_update(afn, read_i64(AWq, ll * 8), gqd, mq + uo, vq + uo, shQKV + so3, zz64, H * H, lr, ac1, ac2, wd)
+            rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, mk + uo, vk + uo, shQKV + so3 + H * H * 2, zz64, H * H, lr, ac1, ac2, wd)
+            rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, mv + uo, vv + uo, shQKV + so3 + 2 * H * H * 2, zz64, H * H, lr, ac1, ac2, wd)
+            rc = adamw_update(afn, read_i64(AWo, ll * 8), god, mo + uo, vo + uo, shO + soh, zz64, H * H, lr, ac1, ac2, wd)
+            rc = adamw_update(afn, read_i64(AW1, ll * 8), g1d, m1 + uo1, v1 + uo1, sh1 + sof, zz64, H * F, lr, ac1, ac2, wd)
+            rc = adamw_update(afn, read_i64(AW2, ll * 8), g2d, m2 + uo2, v2 + uo2, sh2 + sof, sh2T + sof, F * H, lr, ac1, ac2, wd)
 
             ll = ll + 1
         print("MARK UPD", step)
