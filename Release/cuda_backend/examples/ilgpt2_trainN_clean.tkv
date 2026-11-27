@@ -800,7 +800,6 @@ def run() -> "i32":
     hDS = alloc_bytes(sb)
     hGY2 = alloc_bytes(fb)
     hGDX2 = alloc_bytes(qb)
-    hAW = alloc_bytes(whb)
     # khoi tao moi lop
     ll: "i32" = 0
     while ll < NL:
@@ -923,7 +922,7 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.0)
         wh = write_f32(b2h, ii * 4, 0.0)
         ii = ii + 1
-    lr: "f32" = 0.015
+    lr: "f32" = 0.003
     wd: "f32" = 0.01
     b1v: "f32" = 0.9
     b2v: "f32" = 0.999
@@ -1241,8 +1240,6 @@ def run() -> "i32":
             rc = adamw_update(afn, read_i64(AW2, ll * 8), g2d, read_i64(AM2, ll * 8), F * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
 
             ll = ll + 1
-        wh = cuda_h2d(hAW, read_i64(AWq, 0), whb, 2)
-        rc = scan(99, hAW, H * H)
         print("MARK UPD", step)
         step = step + 1
     syn: "i32" = cuda_sync()
