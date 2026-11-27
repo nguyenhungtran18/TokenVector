@@ -668,6 +668,7 @@ def run() -> "i32":
     AGo = alloc_bytes(msz)
     AG1 = alloc_bytes(msz)
     AG2 = alloc_bytes(msz)
+    AWQV16 = alloc_bytes(msz)
     AMq = alloc_bytes(msz)
     AMk = alloc_bytes(msz)
     AMv = alloc_bytes(msz)
@@ -711,12 +712,11 @@ def run() -> "i32":
     dS = read_i64(cell, 0)
     rc = cuda_malloc(cell, sb)
     dP = read_i64(cell, 0)
-    rc = cuda_malloc(cell, qb)
-    dQ = read_i64(cell, 0)
-    rc = cuda_malloc(cell, qb)
-    dK = read_i64(cell, 0)
-    rc = cuda_malloc(cell, qb)
-    dV = read_i64(cell, 0)
+    rc = cuda_malloc(cell, qb * 3)
+    dQKV = read_i64(cell, 0)
+    dQ: "i64" = dQKV
+    dK: "i64" = dQKV + qb
+    dV: "i64" = dQKV + qb * 2
     rc = cuda_malloc(cell, qb)
     dA = read_i64(cell, 0)
     rc = cuda_malloc(cell, qb)
@@ -806,6 +806,8 @@ def run() -> "i32":
         rc = cuda_malloc(cell, whb)
         wqd: "i64" = read_i64(cell, 0)
         wh = write_i64(AWq, ll * 8, wqd)
+        rc = cuda_malloc(cell, 3 * whb >> 1)
+        wh = write_i64(AWQV16, ll * 8, read_i64(cell, 0))
         rc = cuda_malloc(cell, whb * 2)
         wh = write_i64(AMq, ll * 8, read_i64(cell, 0))
         wh = cuda_memset(read_i64(AMq, ll * 8), 0, whb * 2)
@@ -970,6 +972,13 @@ def run() -> "i32":
         tA = time_perf()
         wh = cuda_h2d(dX, hIN, qb, 1)
         xin = dX
+        ll = 0
+        while ll < NL:
+            qp: "i64" = read_i64(AWQV16, ll * 8)
+            rc = toh(th, read_i64(AWq, ll * 8), qp, sHH)
+            rc = toh(th, read_i64(AWk, ll * 8), qp + sHH * 2, sHH)
+            rc = toh(th, read_i64(AWv, ll * 8), qp + sHH * 4, sHH)
+            ll = ll + 1
         # ---- forward layers ----
         ll = 0
         while ll < NL:
@@ -995,23 +1004,7 @@ def run() -> "i32":
                 return 1
             wh = cuda_h2d(dY1, y1d, qb, 3)
             rc = toh(th, dY1, fpA, sQH)
-            rc = toh(th, wqd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dQ, T)
-            if rc != 0:
-                print("Q GEMM FAIL", ll, rc)
-                return 1
-            rc = toh(th, dY1, fpA, sQH)
-            rc = toh(th, wkd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dK, T)
-            if rc != 0:
-                print("K GEMM FAIL", ll, rc)
-                return 1
-            rc = toh(th, dY1, fpA, sQH)
-            rc = toh(th, wvd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dV, T)
-            if rc != 0:
-                print("V GEMM FAIL", ll, rc)
-                return 1
+            rc = gemm16(ch, 0, 0, T, 3 * H, H, one, fpA, T, read_i64(AWQV16, ll * 8), 3 * H, zero, dQKV, T)
             rc = toh(th, dQ, fpA, sQH)
             rc = toh(th, dK, fpB, sQH)
             rc = gemm16(ch, 0, 1, T, T, H, hal, fpA, T, fpB, T, zero, dS, T)
@@ -1119,14 +1112,7 @@ def run() -> "i32":
             rc = gelu_fwd(gfn, zd, dHH, T * F)
             wh = cuda_h2d(dY1, read_i64(AY1, ll * 8), qb, 3)
             rc = toh(th, dY1, fpA, sQH)
-            rc = toh(th, wqd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dQ, T)
-            rc = toh(th, dY1, fpA, sQH)
-            rc = toh(th, wkd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dK, T)
-            rc = toh(th, dY1, fpA, sQH)
-            rc = toh(th, wvd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dV, T)
+            rc = gemm16(ch, 0, 0, T, 3 * H, H, one, fpA, T, read_i64(AWQV16, ll * 8), 3 * H, zero, dQKV, T)
             wh = cuda_h2d(dP, pd, sb, 3)
             rc = toh(th, dP, fpA, sTT)
             rc = toh(th, dV, fpB, sQH)
