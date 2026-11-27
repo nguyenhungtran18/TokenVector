@@ -25,7 +25,7 @@ $t3=@'
 $s2=$base.Replace($a,$t2+"`n"+$a)
 Set-Content 'ilgpt2_shAssignW.tkv' -Value $s2 -NoNewline -Encoding UTF8
 & '..\..\dist\tkvc-tv.exe' 'ilgpt2_shAssignW.tkv' 'ilgpt2_shAssignW.exe' run --emit-il 2>&1 | Select-Object -First 2
-$s3=$base.Replace('    qoff: "i64" = qb',"    so3: `"i64`" = 0`n    soh: `"i64`" = 0`n    sof: `"i64`" = 0`n    qoff: `"i64`" = qb")
+$s3=$base.Replace("`n    qoff: `"i64`" = qb","`n    so3: `"i64`" = 0`n    soh: `"i64`" = 0`n    sof: `"i64`" = 0`n    qoff: `"i64`" = qb")
 $s3=$s3.Replace($a,$t3+"`n"+$a)
 Set-Content 'ilgpt2_shAssignO.tkv' -Value $s3 -NoNewline -Encoding UTF8
 & '..\..\dist\tkvc-tv.exe' 'ilgpt2_shAssignO.tkv' 'ilgpt2_shAssignO.exe' run --emit-il 2>&1 | Select-Object -First 2
