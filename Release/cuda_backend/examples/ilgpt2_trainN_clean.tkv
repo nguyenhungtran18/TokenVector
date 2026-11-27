@@ -898,7 +898,7 @@ def run() -> "i32":
     tb: "f64" = 0.0
     thd: "f64" = 0.0
     step: "i32" = 1
-    while step <= 2:
+    while step <= 1:
         tA = time_perf()
         wh = cuda_memcpy_async(dX, hIN, qb, 1, st)
         xin = dX
@@ -1164,16 +1164,6 @@ def run() -> "i32":
     if rc != 0:
         return 1
     syn: "i32" = cuda_sync()
-    wh = cuda_memcpy_async(hLS, dLS, T * 4, 2, st)
-    syn = cuda_sync()
-    lossv: "f32" = 0.0
-    ii = 0
-    while ii < T:
-        lossv = lossv + read_f32(hLS, ii * 4)
-        ii = ii + 1
-    print("LOSS", lossv)
-    lf: "f64" = lossv
-    print("LOSSF", lf)
     t0 = time_perf()
     rc = cuda_graph_launch(gex, st)
     if rc != 0:
@@ -1192,6 +1182,18 @@ def run() -> "i32":
     lf = lossv
     print("LOSSF", lf)
     dtm: "f64" = t1 - t0
+    rc = cuda_graph_launch(gex, st)
+    syn = cuda_sync()
+    wh = cuda_memcpy_async(hLS, dLS, T * 4, 2, st)
+    syn = cuda_sync()
+    lossv = 0.0
+    ii = 0
+    while ii < T:
+        lossv = lossv + read_f32(hLS, ii * 4)
+        ii = ii + 1
+    print("LOSS", lossv)
+    lf = lossv
+    print("LOSSF", lf)
     print("MS_LAYERS", tf * 1000.0)
     print("MS_HEAD", thd * 1000.0)
     print("MS_BWD", tb * 1000.0)
