@@ -4,7 +4,7 @@
 .entry loss_cb(.param .u64 pPM, .param .u64 pPS, .param .u64 pLG, .param .u64 pPK, .param .u64 pLS, .param .u64 pGM, .param .u64 pGI)
 {
 .reg .f32 mx,s,x,y,t,e,l,lsum,inv,gsum;
-.reg .u64 mb,sb,xb,ob,gb,ib,off,ma,sa,xa,la,ga,ya;
+.reg .u64 mb,sb,xb,pb,ob,gb,ib,off,ma,sa,xa,la,ga,ya;
 .reg .u32 row,vn,tn,nb,i,idx,id;
 .reg .pred q;
 ld.param.u64 mb,[pPM];

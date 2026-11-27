@@ -4,7 +4,7 @@
 .entry loss_dx(.param .u64 pLG, .param .u64 pGM, .param .u64 pGI, .param .u64 pPK, .param .u64 pDL)
 {
 .reg .f32 mx,gis,x,t,e,p,inv;
-.reg .u64 xb,gb,ib,ob,off,xa,ga,ia,oa;
+.reg .u64 xb,gb,ib,pb,ob,off,xa,ga,ia,oa;
 .reg .u32 row,vn,tn,nb,ch,v0,v1,i,idx,chunk,rb,t0,id;
 .reg .pred q,pis;
 ld.param.u64 xb,[pLG];

@@ -4,7 +4,7 @@
 .entry loss_pm(.param .u64 pLG, .param .u64 pPM, .param .u64 pPS, .param .u64 pPK)
 {
 .reg .f32 mx,s,x,t,e;
-.reg .u64 xb,mb,sb,off,xa,ma,sa;
+.reg .u64 xb,mb,sb,pb,off,xa,ma,sa;
 .reg .u32 row,vn,tn,nb,ch,v0,v1,i,idx,gi,chunk,rb,t0;
 .reg .pred q,gt;
 ld.param.u64 xb,[pLG];
