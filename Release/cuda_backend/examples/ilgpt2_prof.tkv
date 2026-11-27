@@ -881,6 +881,7 @@ def run() -> "i32":
     f_mlp2: "f64" = 0.0
     h_gemm: "f64" = 0.0
     h_loss: "f64" = 0.0
+    h_drain: "f64" = 0.0
     b_qkv: "f64" = 0.0
     b_mlp: "f64" = 0.0
     b_attn: "f64" = 0.0
@@ -957,6 +958,22 @@ def run() -> "i32":
     ssy = cuda_sync()
     tb1 = time_perf()
     print("MB sync_us", (tb1 - tb0) * 20000.0)
+    wh = write_i32(hPK, 0, T)
+    wh = write_i32(hPK, 4, V)
+    wh = write_f32(hPK, 8, 1.0 / T)
+    ii = 0
+    while ii < T:
+        wh = write_i32(hPK, 16 + ii * 4, 0)
+        ii = ii + 1
+    wh = cuda_h2d(dPK, hPK, 16 + T * 4, 1)
+    tb0 = time_perf()
+    k = 0
+    while k < 20:
+        rc = loss_fwd(lfn, dLG, dPK, dDL, dLS, T)
+        k = k + 1
+    ssy = cuda_sync()
+    tb1 = time_perf()
+    print("MB lossk_us", (tb1 - tb0) * 50000.0)
     step: "i32" = 1
     while step <= 2:
         tA = time_perf()
@@ -1091,6 +1108,10 @@ def run() -> "i32":
             f_mlp2 = f_mlp2 + tn
             ll = ll + 1
         tH = time_perf()
+        tp = time_perf()
+        ssy = cuda_sync()
+        tn = time_perf() - tp
+        h_drain = h_drain + tn
         # logits + loss tu OUT cua lop cuoi
         tp = time_perf()
         rc = toh(th, dOUT, fpA, sQH)
@@ -1297,6 +1318,7 @@ def run() -> "i32":
     print("P_MS f_gelu", f_gelu * 500.0)
     print("P_MS f_mlp2", f_mlp2 * 500.0)
     print("P_MS h_gemm", h_gemm * 500.0)
+    print("P_MS h_drain", h_drain * 500.0)
     print("P_MS h_loss", h_loss * 500.0)
     print("P_MS b_qkv", b_qkv * 500.0)
     print("P_MS b_mlp", b_mlp * 500.0)
