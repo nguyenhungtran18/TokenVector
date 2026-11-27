@@ -647,6 +647,11 @@ def nanprobe(tag: "i32", p: "i64", hp: "i64") -> "i32":
     rr: "i32" = cuda_h2d(hp, p, 16, 2)
     print("NANP", tag, read_f32(hp, 0), read_f32(hp, 4), rr)
     return rr
+
+def nanstat(tag: "i32", p: "i64", n: "i32", hp: "i64") -> "i32":
+    rr: "i32" = cuda_h2d(hp, p, n * 4, 2)
+    qq: "i32" = scan(tag, hp, n)
+    return qq
 def wrand(i: "i32", j: "i32", s: "f32") -> "f32":
     h: "i32" = i * 374761393 + j * 668265263
     h = (h ^ (h >> 13)) * 1274126177
@@ -1014,6 +1019,7 @@ def run() -> "i32":
     tb: "f64" = 0.0
     thd: "f64" = 0.0
     hNP: "i64" = alloc_bytes(16)
+    hNPbig: "i64" = alloc_bytes(32 * 1024 * 1024)
     step: "i32" = 1
     while step <= 2:
         tA = time_perf()
@@ -1193,6 +1199,10 @@ def run() -> "i32":
                 rc = nanprobe(2, gHH, hNP)
             rc = gelu_bwd(bfn, zd, gHH, gZ, T * F)
             if ll == 23:
+                rc = nanstat(21, w1d, H * F, hNPbig)
+            if ll == 23:
+                rc = nanstat(20, gZ, T * F, hNPbig)
+            if ll == 23:
                 rc = nanprobe(3, gZ, hNP)
             rc = toh(th, y2d, fpA, sQH)
             rc = toh(th, gZ, fpB, sTF)
@@ -1202,6 +1212,8 @@ def run() -> "i32":
             rc = toh(th, gZ, fpA, sTF)
             rc = toh(th, w1d, fpB, H * F)
             rc = gemm16(ch, 0, 1, T, H, F, one, fpA, T, fpB, H, zero, gY2, T)
+            if ll == 23:
+                rc = nanstat(22, gY2, T * H, hNPbig)
             if ll == 23:
                 rc = nanprobe(5, gY2, hNP)
             rc = ln_bwd(lnb, xh2d, gY2, dgam, s2d, gDX2, T, H)
