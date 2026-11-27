@@ -882,6 +882,9 @@ def run() -> "i32":
     h_gemm: "f64" = 0.0
     h_loss: "f64" = 0.0
     h_drain: "f64" = 0.0
+    h_tohx: "f64" = 0.0
+    h_tohw: "f64" = 0.0
+    h_d2h: "f64" = 0.0
     b_qkv: "f64" = 0.0
     b_mlp: "f64" = 0.0
     b_attn: "f64" = 0.0
@@ -1115,8 +1118,17 @@ def run() -> "i32":
         # logits + loss tu OUT cua lop cuoi
         tp = time_perf()
         rc = toh(th, dOUT, fpA, sQH)
+        ssy = cuda_sync()
+        tn = time_perf() - tp
+        h_tohx = h_tohx + tn
+        tp = time_perf()
         rc = toh(th, dWh, fpB, sHV)
+        ssy = cuda_sync()
+        tn = time_perf() - tp
+        h_tohw = h_tohw + tn
+        tp = time_perf()
         rc = gemm16(ch, 0, 0, T, V, H, one, fpA, T, fpB, H, zero, dLG, T)
+        ssy = cuda_sync()
         tn = time_perf() - tp
         h_gemm = h_gemm + tn
         tp = time_perf()
@@ -1132,6 +1144,10 @@ def run() -> "i32":
         if rc != 0:
             print("LOSS KERNEL FAIL")
             return 1
+        ssy = cuda_sync()
+        tn = time_perf() - tp
+        h_loss = h_loss + tn
+        tp = time_perf()
         wh = cuda_h2d(hLS, dLS, T * 4, 2)
         lossv: "f32" = 0.0
         ii = 0
@@ -1142,7 +1158,7 @@ def run() -> "i32":
         lf: "f64" = lossv
         print("LOSSF", lf)
         tn = time_perf() - tp
-        h_loss = h_loss + tn
+        h_d2h = h_d2h + tn
         tB = time_perf()
         thd = thd + (tB - tH)
         tf = tf + (tH - tA)
@@ -1318,8 +1334,11 @@ def run() -> "i32":
     print("P_MS f_gelu", f_gelu * 500.0)
     print("P_MS f_mlp2", f_mlp2 * 500.0)
     print("P_MS h_gemm", h_gemm * 500.0)
+    print("P_MS h_tohx", h_tohx * 500.0)
+    print("P_MS h_tohw", h_tohw * 500.0)
     print("P_MS h_drain", h_drain * 500.0)
     print("P_MS h_loss", h_loss * 500.0)
+    print("P_MS h_d2h", h_d2h * 500.0)
     print("P_MS b_qkv", b_qkv * 500.0)
     print("P_MS b_mlp", b_mlp * 500.0)
     print("P_MS b_attn", b_attn * 500.0)
