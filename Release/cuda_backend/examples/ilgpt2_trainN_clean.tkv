@@ -584,6 +584,7 @@ def run() -> "i32":
     rc = cuda_stream_create(sh)
     st: "i64" = read_i64(sh, 0)
     rc = cublas_set_stream(ch, st)
+    print("STREAM", rc, st)
     NL: "i32" = 24
     T: "i32" = 512
     H: "i32" = 1024
