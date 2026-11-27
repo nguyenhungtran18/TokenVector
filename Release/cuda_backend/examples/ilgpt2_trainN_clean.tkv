@@ -864,6 +864,7 @@ def run() -> "i32":
     t0 = time_perf()
     tf: "f64" = 0.0
     tb: "f64" = 0.0
+    thd: "f64" = 0.0
     step: "i32" = 1
     while step <= 2:
         tA = time_perf()
@@ -958,6 +959,7 @@ def run() -> "i32":
             wh = cuda_h2d(od, dOUT, qb, 3)
             xin = dOUT
             ll = ll + 1
+        tH = time_perf()
         # logits + loss tu OUT cua lop cuoi
         rc = toh(th, dOUT, fpA, sQH)
         rc = toh(th, dWh, fpB, sHV)
@@ -984,7 +986,8 @@ def run() -> "i32":
         lf: "f64" = lossv
         print("LOSSF", lf)
         tB = time_perf()
-        tf = tf + (tB - tA)
+        thd = thd + (tB - tH)
+        tf = tf + (tH - tA)
         print("MARK FWD", step)
         rc = toh(th, dDL, fpA, sTV)
         rc = toh(th, dWh, fpB, sHV)
@@ -1131,7 +1134,8 @@ def run() -> "i32":
     syn: "i32" = cuda_sync()
     t1 = time_perf()
     dtm: "f64" = t1 - t0
-    print("MS_FWD", tf * 1000.0)
+    print("MS_LAYERS", tf * 1000.0)
+    print("MS_HEAD", thd * 1000.0)
     print("MS_BWD", tb * 1000.0)
     print("MS_TOTAL", dtm * 1000.0)
     print("MS_STEP", (dtm * 1000.0) / 2.0)
