@@ -593,7 +593,7 @@ def run() -> "i32":
     wsc = pin_alloc(8)
     rc = cuda_malloc(wsc, 67108864)
     wsp: "i64" = read_i64(wsc, 0)
-    rc = cublas_set_ws(ch, wsp, 67108864)
+    rc = cublas_set_ws2(ch, wsp, 67108864)
     print("WS", rc)
     print("STREAM", rc, st)
     NL: "i32" = 24
