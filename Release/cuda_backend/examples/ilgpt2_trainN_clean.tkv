@@ -18,6 +18,14 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
     {"name": "cuda_memset", "dll": "cudart.dll", "symbol": "cudaMemset",
      "convention": "cdecl", "params": ["i64", "i32", "i64"], "returns": "i32"},
+    {"name": "cuda_event_create", "dll": "cudart.dll", "symbol": "cudaEventCreate",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cuda_event_record", "dll": "cudart.dll", "symbol": "cudaEventRecord",
+     "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
+    {"name": "cuda_event_sync", "dll": "cudart.dll", "symbol": "cudaEventSynchronize",
+     "convention": "cdecl", "params": ["i64"], "returns": "i32"},
+    {"name": "cuda_event_elapsed", "dll": "cudart.dll", "symbol": "cudaEventElapsedTime",
+     "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
     {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
     {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
@@ -976,6 +984,11 @@ def run() -> "i32":
         rc = toh(th, read_i64(AWv, ll * 8), qb0 + sHH * 4, sHH)
         ll = ll + 1
     xin: "i64" = dX
+    ev0 = alloc_bytes(8)
+    ev1 = alloc_bytes(8)
+    rc = cuda_event_create(ev0)
+    rc = cuda_event_create(ev1)
+    rc = cuda_event_record(ev0, 0)
     t0 = time_perf()
     tf: "f64" = 0.0
     tb: "f64" = 0.0
@@ -1232,6 +1245,11 @@ def run() -> "i32":
             ll = ll + 1
         print("MARK UPD", step)
         step = step + 1
+    rc = cuda_event_record(ev1, 0)
+    rc = cuda_event_sync(ev1)
+    ms_gpu = alloc_bytes(4)
+    rc = cuda_event_elapsed(ms_gpu, ev0, ev1)
+    print("MS_GPU", read_f32(ms_gpu, 0))
     syn: "i32" = cuda_sync()
     t1 = time_perf()
     dtm: "f64" = t1 - t0
