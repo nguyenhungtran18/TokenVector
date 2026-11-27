@@ -1,56 +1,48 @@
-# ilgpt2_trainN_clean.tkv - first fully verified training step
+# ilgpt2_trainN_clean.tkv - final verified training step
 
-- HEAD: `TokenVector.CudaBackend@a5dce8c`
-- Timestamp: 2026-11-27 07:05 +0700 (run), commit 06:56 +0700
-- Config: NL=24, T=512, H=1024, F=4096, V=50257, fp32, SGD lr=0.5, no C++, no torch.
-- Path: `.tkv -> IL -> ilasm -> .NET PE -> dotnet 10 -> P/Invoke cudart/cublas/cuda`
-- exe: 35840 bytes, max `ldloc.s`/`stloc.s` = 188 (<= 255)
+Trang thai cuoi (2026-11-27, HEAD `TokenVector.CudaBackend@0335f6a`):
 
-## Result
+- Cau hinh: `NL=24, T=512, H=1024, F=4096, V=50257`, fp32 master + fp16 tensor core,
+  AdamW `lr=0.0008, wd=0.01`, bias-correct `bc1/bc2`.
+- Khong C/C++, khong torch trong duong chay. Luong:
+  `.tkv -> IL -> ilasm -> .NET PE -> dotnet 10 -> P/Invoke cudart/cublas/cuda`.
+- `max_stloc = 232` (<= 255). `ilgpt2_long.tkv` la ban 10 buoc de do steady-state.
+
+## Ket qua da verify tren Kaggle T4
+
+Ban 2 buoc (`ilgpt2_trainN_clean.exe`, gate):
 
 ```
-LOSS  11.181591      LOSSF 11.181591033935547
-LOSS  10.860526      LOSSF 10.860526084899902
-loss delta = -0.32106494903564453
-MS_TOTAL 15707.537   MS_STEP 7853.769
-KET LUAN: OK   (2 fwd / 2 bwd / 2 upd, 0 FAIL, 0 nan in 22 scans)
+LOSSF 11.181629180908203
+LOSSF 10.577372550964355
+2x MARK FWD/BWD/UPD, 0 FAIL, dotnet rc=0
 ```
 
-## Root cause fixed in a5dce8c
+Ban 10 buoc (`ilgpt2_long.exe`) - loss huu han va hoi tu:
 
-```tkv
-# before (WRONG: reversed D2H -> cudaErrorInvalidValue, nothing copied, rc ignored)
-wh = cuda_h2d(gOUT, hOUT, qb, 2)
-# after
-wh = cuda_h2d(hOUT, gOUT, qb, 2)
-if wh != 0:
-    print("BWD GOUT MEMCPY FAIL", wh)
-    return 1
+```
+11.1816 -> 10.5774 -> 9.4073 -> 8.8755 -> 9.4556
+        -> 6.5953 -> 4.6917 -> 3.3388 -> 2.1593 -> 1.2534
 ```
 
-`hOUT` kept the forward OUT (21.463848) for the whole backward, so every layer
-added the activation into `dL/dhX`. Fingerprint: `M SCAN 50` was byte-identical
-to `M SCAN 1`.
+**Steady-state: 176.1 - 176.8 ms/step** (cac buoc 3..10). Bridge C++ baseline
+`187.8 ms/step` -> nhanh hon ~6%. `MS_STEP 191.4` la trung binh 10 buoc, con
+nhieu warm-up cuBLAS o buoc 1.
 
-## Gradient ladder (step 1, after fix)
+## Cau truc kernel (toan bo PTX inline dang `b"..."` trong .tkv)
 
-| tag | quantity | max | mean-square |
-|-----|----------|-----|-------------|
-| 4   | `gOUT` head (`dDL^T*Wh`) | 2.357e-05 | 1.681e-10 |
-| 54  | `gHH` layer 23 | 2.438e-05 | 2.290e-11 |
-| 55  | `gZ` layer 23 | 2.214e-05 | 7.394e-12 |
-| 50  | `dL/dX2` layer 23 | 2.462e-05 | 1.683e-10 |
-| 51  | `gP` layer 23 | 2.743e-04 | 3.373e-09 |
-| 52  | `gQ` layer 23 | 1.089e-06 | 5.495e-15 |
-| 53  | `gWq` layer 23 | 2.372e-05 | 8.722e-12 |
-| 40  | `dL/dhX` layer 23 | 2.422e-05 | 1.681e-10 |
-| 41  | `dL/dhX` layer 12 | 4.237e-05 | 1.715e-10 |
-| 42  | `dL/dhX` layer 0 | 8.280e-04 | 2.478e-09 |
-| 3   | `gWq` layer 0 | 3.261e-05 | 4.123e-11 |
+- `sgd_init` / kernel cu: con trong file nhung khong con duong chay chinh.
+- `gelu_fwd/bwd`: tanh.approx, fwd/bwd device.
+- `kern_init`: ln_fwd, ln_bwd, sf_fwd, sf_bwd, add, toh.
+- `loss3_init`: 3 kernel `_l3_pm.ptx`, `_l3_cb.ptx`, `_l3_dx.ptx` - chia ca chieu V.
+- `adamw_init`: `_adamw.ptx` (9 tham so kernel / 10 tham so wrapper), ghi fp32 master.
+- `toh3_init`: `_toh3.ptx` - chuyen Wq/Wk/Wv thanh 1 buffer fp16, gop QKV thanh 1 GEMM.
+- `toht_init`: `_toht.ptx` - chuyen W2 sang ban fp16 da transpose, tranh NaN GEMM `gHH`.
 
-## Speed baseline for the next phase
+## Lich su toc do (da.verify)
 
-`MS_STEP = 7853.77` with all diagnostics enabled. Breakdown by element count
-(host elementwise, ~20 ns/element in IL): GELU fwd+bwd ~6M exp/layer,
-LN fwd+bwd ~6M/layer, softmax ~0.5M/layer, loss ~25.7M/step (plus 25.7M in
-`scan 2`). Target remains the C++ bridge `187.8 ms/step`.
+`7853.77 -> 264.95 -> 259.23 -> 274.22 -> 285.85 -> 265.93 -> 259.23 ->
+200.18 -> 183.54 -> 176.5 ms/step`.
+
+Chi tiet profiling, cac bug da sua va ket luan ve gioi han codegen cua compiler
+xem `../../../../TokenVector.Inference/docs/ILGPT2_BLOCK_FORWARD_STATUS_2026-11-26.md`.

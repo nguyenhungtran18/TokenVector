@@ -1,20 +1,16 @@
-.version 8.0
+﻿.version 8.0
 .target sm_75
 .address_size 64
-.entry adamw_kernel(.param .u64 pW, .param .u64 pG, .param .u64 pM, .param .u64 pV, .param .u64 pS, .param .u64 pS2, .param .f32 pLR, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pWD, .param .u32 pN)
+.entry adamw_kernel(.param .u64 pW, .param .u64 pG, .param .u64 pM, .param .u64 pV, .param .f32 pLR, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pWD, .param .u32 pN)
 {
 .reg .f32 w,g,m,v,t,den,lr,bc1,bc2,wd;
-.reg .f16 h16;
-.reg .b16 u16;
-.reg .u64 wb,gb,mb,vb,sb,s2b,off,soff,wa,ga,ma,va,sa,s2a;
-.reg .u32 i,n,base,nt,j,q0,i2,q1,q;
-.reg .pred qn,qskip;
+.reg .u64 wb,gb,mb,vb,off,wa,ga,ma,va;
+.reg .u32 i,n,base,nt;
+.reg .pred q;
 ld.param.u64 wb,[pW];
 ld.param.u64 gb,[pG];
 ld.param.u64 mb,[pM];
 ld.param.u64 vb,[pV];
-ld.param.u64 sb,[pS];
-ld.param.u64 s2b,[pS2];
 ld.param.f32 lr,[pLR];
 ld.param.f32 bc1,[pBC1];
 ld.param.f32 bc2,[pBC2];
@@ -24,15 +20,13 @@ cvta.to.global.u64 wb,wb;
 cvta.to.global.u64 gb,gb;
 cvta.to.global.u64 mb,mb;
 cvta.to.global.u64 vb,vb;
-cvta.to.global.u64 sb,sb;
-cvta.to.global.u64 s2b,s2b;
 mov.u32 nt,%ntid.x;
 mov.u32 base,%ctaid.x;
 mul.lo.u32 base,base,nt;
 mov.u32 i,%tid.x;
 add.u32 i,i,base;
-setp.ge.u32 qn,i,n;
-@qn bra LEND;
+setp.ge.u32 q,i,n;
+@q bra LEND;
 mul.wide.u32 off,i,4;
 add.u64 wa,wb,off;
 add.u64 ga,gb,off;
@@ -61,21 +55,6 @@ sub.f32 w,w,t;
 st.global.f32 [wa],w;
 st.global.f32 [ma],m;
 st.global.f32 [va],v;
-cvt.rn.f16.f32 h16,w;
-mov.b16 u16,h16;
-mul.wide.u32 soff,i,2;
-add.u64 sa,sb,soff;
-st.global.b16 [sa],u16;
-setp.eq.u64 qskip,s2b,0;
-@qskip bra LEND;
-shr.u32 j,i,12;
-mul.lo.u32 q0,j,4096;
-sub.u32 i2,i,q0;
-mul.lo.u32 q1,i2,1024;
-add.u32 q,q1,j;
-mul.wide.u32 soff,q,2;
-add.u64 s2a,s2b,soff;
-st.global.b16 [s2a],u16;
 LEND:
 ret;
 }
