@@ -637,7 +637,7 @@ def attn_init() -> "i64":
         kk = kk + 1
     wh = write_u8(pb, kk, 0)
     mc = alloc_bytes(8)
-    rc: "i32" = cu_module_load(mc, pb)
+    rc: "i32" = cu_module_load_ex(mc, pb, 0, 0, 0)
     if rc != 0:
         print("ATTN MOD FAIL", rc)
         return 0
