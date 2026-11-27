@@ -88,8 +88,8 @@ Global
 Class 1	Fields: 2;	Methods: 27;	
 Class 2	Methods: 15;	
 Class 3	Methods: 3;	
-Class 4	Methods: 37;	
-Resolving local member refs: 430 -> 430 defs, 0 refs, 0 unresolved
+Class 4	Methods: 36;	
+Resolving local member refs: 427 -> 427 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	
