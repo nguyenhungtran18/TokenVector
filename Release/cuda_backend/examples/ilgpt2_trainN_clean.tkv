@@ -72,6 +72,158 @@ def sgd_update(fnh: "i64", w: "i64", g: "i64", n: "i32", lr: "f32") -> "i32":
         print("SGD LAUNCH FAIL", rc)
         return 1
     return 0
+
+def gelu_fwd_init() -> "i64":
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gelu_fwd_kernel(.param .u64 px, .param .u64 py, .param .u32 pn)\n{\n.reg .f32 f1,f2,f3,f4,f5;\n.reg .u64 x,y,off;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 x,[px];\nld.param.u64 y,[py];\nld.param.u32 n,[pn];\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 x,x;\ncvta.to.global.u64 y,y;\nadd.u64 x,x,off;\nadd.u64 y,y,off;\nld.global.f32 f1,[x];\nmul.f32 f3,f1,f1;\nmul.f32 f3,f3,f1;\nmov.f32 f4,0.044715;\nfma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456;\nmul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0;\nadd.f32 f2,f2,f3;\nmov.f32 f3,0.5;\nmul.f32 f2,f2,f3;\nmul.f32 f5,f1,f2;\nst.global.f32 [y],f5;\nLEND: ret;\n}\n"
+    FNS = b"gelu_fwd_kernel\x00"
+    pb = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wh: "i64" = write_u8(pb, kk, PTX[kk])
+        kk = kk + 1
+    wh = write_u8(pb, kk, 0)
+    mc = alloc_bytes(8)
+    rc: "i32" = cu_module_load(mc, pb)
+    if rc != 0:
+        print("GELU FWD MOD FAIL", rc)
+        return 0
+    mod: "i64" = read_i64(mc, 0)
+    nb = alloc_bytes(len(FNS))
+    kk = 0
+    while kk < len(FNS):
+        wh = write_u8(nb, kk, FNS[kk])
+        kk = kk + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("GELU FWD FN FAIL", rc)
+        return 0
+    fnh: "i64" = read_i64(fc, 0)
+    return fnh
+
+def gelu_bwd_init() -> "i64":
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry gelu_bwd_kernel(.param .u64 px, .param .u64 pdy, .param .u64 pdx, .param .u32 pn)\n{\n.reg .f32 f1,f2,f3,f4,f5,f6,f7;\n.reg .u64 x,y,z,off;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 x,[px];\nld.param.u64 y,[pdy];\nld.param.u64 z,[pdx];\nld.param.u32 n,[pn];\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\ncvta.to.global.u64 x,x;\ncvta.to.global.u64 y,y;\ncvta.to.global.u64 z,z;\nadd.u64 x,x,off;\nadd.u64 y,y,off;\nadd.u64 z,z,off;\nld.global.f32 f1,[x];\nmul.f32 f3,f1,f1;\nmul.f32 f3,f3,f1;\nmov.f32 f4,0.044715;\nfma.rn.f32 f3,f3,f4,f1;\nmov.f32 f4,0.79788456;\nmul.f32 f2,f3,f4;\ntanh.approx.f32 f2,f2;\nmov.f32 f3,1.0;\nadd.f32 f5,f2,f3;\nmov.f32 f3,0.5;\nmul.f32 f5,f5,f3;\nmul.f32 f6,f2,f2;\nmov.f32 f3,1.0;\nsub.f32 f6,f3,f6;\nmul.f32 f6,f6,f1;\nmov.f32 f3,0.5;\nmul.f32 f6,f6,f3;\nmul.f32 f7,f1,f1;\nmov.f32 f4,0.134145;\nmov.f32 f3,1.0;\nfma.rn.f32 f7,f7,f4,f3;\nmul.f32 f6,f6,f7;\nmov.f32 f4,0.79788456;\nmul.f32 f6,f6,f4;\nadd.f32 f5,f5,f6;\nld.global.f32 f7,[y];\nmul.f32 f5,f5,f7;\nst.global.f32 [z],f5;\nLEND: ret;\n}\n"
+    FNS = b"gelu_bwd_kernel\x00"
+    pb = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wh: "i64" = write_u8(pb, kk, PTX[kk])
+        kk = kk + 1
+    wh = write_u8(pb, kk, 0)
+    mc = alloc_bytes(8)
+    rc: "i32" = cu_module_load(mc, pb)
+    if rc != 0:
+        print("GELU BWD MOD FAIL", rc)
+        return 0
+    mod: "i64" = read_i64(mc, 0)
+    nb = alloc_bytes(len(FNS))
+    kk = 0
+    while kk < len(FNS):
+        wh = write_u8(nb, kk, FNS[kk])
+        kk = kk + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("GELU BWD FN FAIL", rc)
+        return 0
+    fnh: "i64" = read_i64(fc, 0)
+    return fnh
+
+def gelu_fwd(fnh: "i64", x: "i64", y: "i64", n: "i32") -> "i32":
+    a0 = alloc_bytes(8)
+    wh = write_i64(a0, 0, x)
+    a1 = alloc_bytes(8)
+    wh = write_i64(a1, 0, y)
+    a2 = alloc_bytes(4)
+    wh = write_i32(a2, 0, n)
+    pl = alloc_bytes(24)
+    wh = write_i64(pl, 0, a0)
+    wh = write_i64(pl, 8, a1)
+    wh = write_i64(pl, 16, a2)
+    g: "i32" = (n + 255) // 256
+    rc = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, 0, pl, 0)
+    if rc != 0:
+        print("GELU FWD LAUNCH FAIL", rc)
+        return 1
+    return 0
+
+def gelu_bwd(fnh: "i64", x: "i64", dy: "i64", dx: "i64", n: "i32") -> "i32":
+    a0 = alloc_bytes(8)
+    wh = write_i64(a0, 0, x)
+    a1 = alloc_bytes(8)
+    wh = write_i64(a1, 0, dy)
+    a2 = alloc_bytes(8)
+    wh = write_i64(a2, 0, dx)
+    a3 = alloc_bytes(4)
+    wh = write_i32(a3, 0, n)
+    pl = alloc_bytes(32)
+    wh = write_i64(pl, 0, a0)
+    wh = write_i64(pl, 8, a1)
+    wh = write_i64(pl, 16, a2)
+    wh = write_i64(pl, 24, a3)
+    g: "i32" = (n + 255) // 256
+    rc = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, 0, pl, 0)
+    if rc != 0:
+        print("GELU BWD LAUNCH FAIL", rc)
+        return 1
+    return 0
+
+def gelu_selftest(gfn: "i64", bfn: "i64") -> "i32":
+    n: "i32" = 1024
+    nb: "i32" = n * 4
+    hx = alloc_bytes(nb)
+    hdy = alloc_bytes(nb)
+    hy = alloc_bytes(nb)
+    hdx = alloc_bytes(nb)
+    ii: "i32" = 0
+    while ii < n:
+        xv: "f32" = (ii - 512) * 0.0078125
+        wh: "i64" = write_f32(hx, ii * 4, xv)
+        wh = write_f32(hdy, ii * 4, 1.0 + ii * 0.001)
+        ii = ii + 1
+    cell = alloc_bytes(8)
+    rc: "i32" = cuda_malloc(cell, nb)
+    dx = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    dy = read_i64(cell, 0)
+    rc = cuda_malloc(cell, nb)
+    dz = read_i64(cell, 0)
+    wh = cuda_h2d(dx, hx, nb, 1)
+    wh = cuda_h2d(dy, hdy, nb, 1)
+    rc = gelu_fwd(gfn, dx, dz, n)
+    wh = cuda_h2d(hy, dz, nb, 2)
+    rc = gelu_bwd(bfn, dx, dy, dz, n)
+    wh = cuda_h2d(hdx, dz, nb, 2)
+    me: "f32" = 0.0
+    ii = 0
+    while ii < n:
+        xv = read_f32(hx, ii * 4)
+        zz: "f32" = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
+        thv: "f32" = 1.0
+        if zz < -8.0:
+            thv = -1.0
+        else:
+            if zz < 8.0:
+                e2: "f32" = exp(2.0 * zz)
+                thv = (e2 - 1.0) / (e2 + 1.0)
+        gy: "f32" = 0.5 * xv * (1.0 + thv)
+        dg: "f32" = 0.5 * (1.0 + thv) + 0.5 * xv * (1.0 - thv * thv) * 0.79788456 * (1.0 + 0.134145 * xv * xv)
+        e1: "f32" = read_f32(hy, ii * 4) - gy
+        if e1 < 0.0:
+            e1 = 0.0 - e1
+        eb: "f32" = read_f32(hdx, ii * 4) - read_f32(hdy, ii * 4) * dg
+        if eb < 0.0:
+            eb = 0.0 - eb
+        if e1 > me:
+            me = e1
+        if eb > me:
+            me = eb
+        ii = ii + 1
+    print("GELU SELFTEST MAXERR", me)
+    if me > 0.0001:
+        return 1
+    return 0
+
 def wrand(i: "i32", j: "i32", s: "f32") -> "f32":
     h: "i32" = i * 374761393 + j * 668265263
     h = (h ^ (h >> 13)) * 1274126177
@@ -261,7 +413,6 @@ def run() -> "i32":
     hDS = alloc_bytes(sb)
     hGY2 = alloc_bytes(fb)
     hGDX2 = alloc_bytes(qb)
-    hgW = alloc_bytes(whb)
     # khoi tao moi lop
     ll: "i32" = 0
     while ll < NL:
@@ -370,6 +521,19 @@ def run() -> "i32":
     sfn: "i64" = sgd_init()
     if sfn == 0:
         print("SGD INIT FAIL")
+        return 1
+    gfn: "i64" = gelu_fwd_init()
+    bfn: "i64" = gelu_bwd_init()
+    if gfn == 0:
+        print("GELU FWD INIT FAIL")
+        return 1
+    if bfn == 0:
+        print("GELU BWD INIT FAIL")
+        return 1
+    rc = gelu_selftest(gfn, bfn)
+    if rc != 0:
+        print("GELU SELFTEST FAIL")
+        return 1
     rc = zero_buf(hP, T * T)
     t0 = time_perf()
     step: "i32" = 1
@@ -515,22 +679,8 @@ def run() -> "i32":
             wh = cuda_h2d(xh2d, hXH, qb, 1)
             wh = cuda_h2d(s2d, hST, stb, 1)
             rc = cublas_sgemm(ch, 0, 0, T, F, H, one, dY2, T, w1d, H, zero, dZ, T)
-            wh = cuda_h2d(hZ, dZ, fb, 2)
             wh = cuda_h2d(zd, dZ, fb, 3)
-            ii = 0
-            while ii < T * F:
-                xv = read_f32(hZ, ii * 4)
-                zz: "f32" = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
-                thv: "f32" = 1.0
-                if zz < -8.0:
-                    thv = -1.0
-                else:
-                    if zz < 8.0:
-                        e2: "f32" = exp(2.0 * zz)
-                        thv = (e2 - 1.0) / (e2 + 1.0)
-                wh = write_f32(hZ, ii * 4, 0.5 * xv * (1.0 + thv))
-                ii = ii + 1
-            wh = cuda_h2d(dHH, hZ, fb, 1)
+            rc = gelu_fwd(gfn, dZ, dHH, T * F)
             rc = cublas_sgemm(ch, 0, 0, T, H, F, one, dHH, T, w2d, F, zero, dO2, T)
             wh = cuda_h2d(hO2, dO2, qb, 2)
             ii = 0
@@ -542,15 +692,11 @@ def run() -> "i32":
                 ii = ii + 1
             wh = cuda_h2d(od, hOUT, qb, 1)
             rc = copy_buf(hX, hOUT, T * H)
-            if ll < 2:
-                rc = scan(10 + ll, hOUT, T * H)
             ll = ll + 1
         # logits + loss tu OUT cua lop cuoi
         wh = cuda_h2d(dOUT, hOUT, qb, 1)
         rc = cublas_sgemm(ch, 0, 0, T, V, H, one, dOUT, T, dWh, H, zero, dLG, T)
         wh = cuda_h2d(hLG, dLG, tvb, 2)
-        rc = scan(1, hOUT, T * H)
-        rc = scan(2, hLG, T * V)
         lossv: "f32" = 0.0
         ii = 0
         while ii < T:
@@ -588,8 +734,6 @@ def run() -> "i32":
         wh = cuda_h2d(dDL, hDL, tvb, 1)
         print("MARK FWD", step)
         rc = cublas_sgemm(ch, 0, 1, T, H, V, one, dDL, T, dWh, H, zero, gOUT, T)
-        wh = cuda_h2d(hGDX2, gOUT, qb, 2)
-        rc = scan(4, hGDX2, T * H)
         # ---- backward layers (nguoc) ----
         ll = NL - 1
         while ll >= 0:
@@ -618,21 +762,7 @@ def run() -> "i32":
             if wh != 0:
                 print("BWD GOUT MEMCPY FAIL", wh)
                 return 1
-            wh = cuda_h2d(hZ, zd, fb, 2)
-            ii = 0
-            while ii < T * F:
-                xv = read_f32(hZ, ii * 4)
-                zz = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
-                thv = 1.0
-                if zz < -8.0:
-                    thv = -1.0
-                else:
-                    if zz < 8.0:
-                        e2 = exp(2.0 * zz)
-                        thv = (e2 - 1.0) / (e2 + 1.0)
-                wh = write_f32(hZ, ii * 4, 0.5 * xv * (1.0 + thv))
-                ii = ii + 1
-            wh = cuda_h2d(dHH, hZ, fb, 1)
+            rc = gelu_fwd(gfn, zd, dHH, T * F)
             wh = cuda_h2d(dY1, read_i64(AY1, ll * 8), qb, 3)
             rc = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, wqd, H, zero, dQ, T)
             rc = cublas_sgemm(ch, 0, 0, T, H, H, one, dY1, T, wkd, H, zero, dK, T)
@@ -641,34 +771,12 @@ def run() -> "i32":
             rc = cublas_sgemm(ch, 0, 0, T, H, T, one, dP, T, dV, T, zero, dA, T)
             rc = cublas_sgemm(ch, 1, 0, F, H, T, one, dHH, T, gOUT, T, zero, g2d, F)
             rc = cublas_sgemm(ch, 0, 1, T, F, H, one, gOUT, T, w2d, F, zero, gHH, T)
-            if ll == 23:
-                wh = cuda_h2d(hZ, gHH, fb, 2)
-                rc = scan(54, hZ, T * F)
             print("B1 dW2", ll)
-            wh = cuda_h2d(hZ, zd, fb, 2)
-            wh = cuda_h2d(hGY2, gHH, fb, 2)
-            ii = 0
-            while ii < T * F:
-                xv = read_f32(hZ, ii * 4)
-                zz = 0.79788456 * (xv + 0.044715 * xv * xv * xv)
-                thv = 1.0
-                if zz < -8.0:
-                    thv = -1.0
-                else:
-                    if zz < 8.0:
-                        e2 = exp(2.0 * zz)
-                        thv = (e2 - 1.0) / (e2 + 1.0)
-                dg: "f32" = 0.5 * (1.0 + thv) + 0.5 * xv * (1.0 - thv * thv) * 0.79788456 * (1.0 + 0.134145 * xv * xv)
-                wh = write_f32(hZ, ii * 4, read_f32(hGY2, ii * 4) * dg)
-                ii = ii + 1
-            wh = cuda_h2d(gZ, hZ, fb, 1)
-            if ll == 23:
-                rc = scan(55, hZ, T * F)
+            rc = gelu_bwd(bfn, zd, gHH, gZ, T * F)
             wh = cuda_h2d(dY2, y2d, qb, 3)
             print("B2 dZ", ll)
             rc = cublas_sgemm(ch, 1, 0, H, F, T, one, dY2, T, gZ, T, zero, g1d, H)
             rc = cublas_sgemm(ch, 0, 1, T, H, F, one, gZ, T, w1d, H, zero, gY2, T)
-            wh = cuda_h2d(hY2, y2d, qb, 2)
             wh = cuda_h2d(hXH, xh2d, qb, 2)
             wh = cuda_h2d(hST, s2d, stb, 2)
             wh = cuda_h2d(hGY2, gY2, qb, 2)
@@ -696,8 +804,6 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(gDX2, hGDX2, qb, 1)
-            if ll == 23:
-                rc = scan(50, hGDX2, T * H)
             print("B3 ln2", ll)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gDX2, T, wod, H, zero, gA, T)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dA, T, gDX2, T, zero, gWo, H)
@@ -706,8 +812,6 @@ def run() -> "i32":
             print("B4 attn", ll)
             wh = cuda_h2d(hP, pd, sb, 2)
             wh = cuda_h2d(hGP, gP, sb, 2)
-            if ll == 23:
-                rc = scan(51, hGP, T * T)
             ii = 0
             while ii < T:
                 rst: "f32" = 0.0
@@ -727,11 +831,6 @@ def run() -> "i32":
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gQ, T, zero, gqd, H)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gK, T, zero, gkd, H)
             rc = cublas_sgemm(ch, 1, 0, H, H, T, one, dY1, T, gV, T, zero, gvd, H)
-            if ll == 23:
-                wh = cuda_h2d(hGDX2, gQ, qb, 2)
-                rc = scan(52, hGDX2, T * H)
-                wh = cuda_h2d(hgW, gqd, whb, 2)
-                rc = scan(53, hgW, H * H)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gQ, T, wqd, H, zero, gDX2, T)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gK, T, wkd, H, one, gDX2, T)
             rc = cublas_sgemm(ch, 0, 1, T, H, H, one, gV, T, wvd, H, one, gDX2, T)
@@ -763,17 +862,9 @@ def run() -> "i32":
                     jj = jj + 1
                 ii = ii + 1
             wh = cuda_h2d(gOUT, hGDX2, qb, 1)
-            if ll == 23:
-                rc = scan(40, hGDX2, T * H)
-            if ll == 12:
-                rc = scan(41, hGDX2, T * H)
-            if ll == 0:
-                rc = scan(42, hGDX2, T * H)
             print("MARK B", ll)
             ll = ll - 1
         print("MARK BWD", step)
-        wh = cuda_h2d(hgW, read_i64(AGq, 0), whb, 2)
-        rc = scan(3, hgW, H * H)
         ll = 0
         while ll < NL:
             gqd = read_i64(AGq, ll * 8)
