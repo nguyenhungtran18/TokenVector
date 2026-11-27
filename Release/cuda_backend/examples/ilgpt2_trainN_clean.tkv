@@ -800,7 +800,6 @@ def run() -> "i32":
     hDS = alloc_bytes(sb)
     hGY2 = alloc_bytes(fb)
     hGDX2 = alloc_bytes(qb)
-    hAW = alloc_bytes(qb * 3)
     # khoi tao moi lop
     ll: "i32" = 0
     while ll < NL:
@@ -980,8 +979,6 @@ def run() -> "i32":
             rc = toh(th, read_i64(AWk, ll * 8), qp + sHH * 2, sHH)
             rc = toh(th, read_i64(AWv, ll * 8), qp + sHH * 4, sHH)
             ll = ll + 1
-        wh = cuda_h2d(hAW, read_i64(AWQV16, 0), 3 * whb >> 1, 2)
-        rc = scan(99, hAW, H * H)
         # ---- forward layers ----
         ll = 0
         while ll < NL:
@@ -1007,23 +1004,14 @@ def run() -> "i32":
                 return 1
             wh = cuda_h2d(dY1, y1d, qb, 3)
             rc = toh(th, dY1, fpA, sQH)
-            rc = gemm16(ch, 0, 0, T, 3 * H, H, one, fpA, T, read_i64(AWQV16, ll * 8), 3 * H, zero, dQKV, T)
-            if ll == 0:
-                wh = cuda_h2d(hAW, dQKV, qb * 3, 2)
-                rc = scan(98, hAW, T * H)
+            rc = gemm16(ch, 0, 0, T, 3 * H, H, one, fpA, T, read_i64(AWQV16, ll * 8), H, zero, dQKV, T)
             rc = toh(th, dQ, fpA, sQH)
             rc = toh(th, dK, fpB, sQH)
             rc = gemm16(ch, 0, 1, T, T, H, hal, fpA, T, fpB, T, zero, dS, T)
             if rc != 0:
                 print("S GEMM FAIL", ll, rc)
                 return 1
-            if ll == 0:
-                wh = cuda_h2d(hAW, dS, sb, 2)
-                rc = scan(97, hAW, T * T)
             rc = sf_fwd(sff, dS, dP, T)
-            if ll == 0:
-                wh = cuda_h2d(hAW, dP, sb, 2)
-                rc = scan(96, hAW, T * T)
             if rc != 0:
                 print("SF FWD FAIL", ll)
                 return 1
@@ -1124,10 +1112,7 @@ def run() -> "i32":
             rc = gelu_fwd(gfn, zd, dHH, T * F)
             wh = cuda_h2d(dY1, read_i64(AY1, ll * 8), qb, 3)
             rc = toh(th, dY1, fpA, sQH)
-            rc = gemm16(ch, 0, 0, T, 3 * H, H, one, fpA, T, read_i64(AWQV16, ll * 8), 3 * H, zero, dQKV, T)
-            if ll == 0:
-                wh = cuda_h2d(hAW, dQKV, qb * 3, 2)
-                rc = scan(98, hAW, T * H)
+            rc = gemm16(ch, 0, 0, T, 3 * H, H, one, fpA, T, read_i64(AWQV16, ll * 8), H, zero, dQKV, T)
             wh = cuda_h2d(dP, pd, sb, 3)
             rc = toh(th, dP, fpA, sTT)
             rc = toh(th, dV, fpB, sQH)
@@ -1231,8 +1216,6 @@ def run() -> "i32":
                 kk3 = kk3 + 1
             bc1v = 1.0 - bc1v
             bc2v = 1.0 - bc2v
-            if ll == 0:
-                print("BC", bc1v, bc2v, lr, epsv)
             rc = adamw_update(afn, read_i64(AWq, ll * 8), gqd, read_i64(AMq, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
             rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, read_i64(AMk, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
             rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, read_i64(AMv, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
