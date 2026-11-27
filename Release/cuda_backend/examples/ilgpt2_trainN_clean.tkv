@@ -491,34 +491,6 @@ def loss_init() -> "i64":
     fnh: "i64" = read_i64(fc, 0)
     return fnh
 
-def loss_coal2_init() -> "i64":
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry loss_coal2(.param .u64 pLG, .param .u64 pPk, .param .u64 pDL, .param .u64 pLS)\n{\n.reg .f32 mx,x,t,e,sum,p,l,lsum,inv;\n.reg .u64 xb,pb,ob,yb,off,xa,ia,ya,la;\n.reg .u32 row,i,vn,tn,id,idx;\n.reg .pred q,pis;\nld.param.u64 xb,[pLG];\nld.param.u64 pb,[pPk];\nld.param.u64 ob,[pDL];\nld.param.u64 yb,[pLS];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 pb,pb;\ncvta.to.global.u64 ob,ob;\ncvta.to.global.u64 yb,yb;\nld.global.u32 tn,[pb];\nld.global.u32 vn,[pb+4];\nld.global.f32 inv,[pb+8];\nmov.u32 row,%tid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nmov.f32 mx,-1000000000.0;\nmov.u32 i,0;\nLMAX:\nsetp.ge.u32 q,i,vn;\n@q bra MAXDONE;\nmul.lo.u32 idx,row,vn;\nadd.u32 idx,idx,i;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nmax.f32 mx,mx,x;\nadd.u32 i,i,1;\nbra LMAX;\nMAXDONE:\nmov.f32 sum,0.0;\nmov.u32 i,0;\nLSUM:\nsetp.ge.u32 q,i,vn;\n@q bra SUMDONE;\nmul.lo.u32 idx,row,vn;\nadd.u32 idx,idx,i;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nsub.f32 t,x,mx;\nmul.f32 t,t,1.442695;\nex2.approx.f32 e,t;\nadd.f32 sum,sum,e;\nadd.u32 i,i,1;\nbra LSUM;\nSUMDONE:\nmul.wide.u32 off,row,4;\nadd.u64 ia,pb,off;\nld.global.u32 id,[ia+16];\nmul.lo.u32 idx,row,vn;\nadd.u32 idx,idx,id;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nlg2.approx.f32 lsum,sum;\nmul.f32 lsum,lsum,0.69314718;\nadd.f32 l,mx,lsum;\nsub.f32 l,l,x;\nmul.f32 l,l,inv;\nmul.wide.u32 off,row,4;\nadd.u64 la,yb,off;\nst.global.f32 [la],l;\nmov.u32 i,0;\nLDL:\nsetp.ge.u32 q,i,vn;\n@q bra LEND;\nmul.lo.u32 idx,row,vn;\nadd.u32 idx,idx,i;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nsub.f32 t,x,mx;\nmul.f32 t,t,1.442695;\nex2.approx.f32 e,t;\ndiv.rn.f32 p,e,sum;\nsetp.eq.u32 pis,i,id;\n@pis sub.f32 p,p,1.0;\nmul.f32 p,p,inv;\nadd.u64 ya,ob,off;\nst.global.f32 [ya],p;\nadd.u32 i,i,1;\nbra LDL;\nLEND:\nret;\n}\n"
-    FNS = b"loss_coal2\x00"
-    pb = alloc_bytes(len(PTX) + 1)
-    kk: "i32" = 0
-    while kk < len(PTX):
-        wh: "i64" = write_u8(pb, kk, PTX[kk])
-        kk = kk + 1
-    wh = write_u8(pb, kk, 0)
-    mc = alloc_bytes(8)
-    rc: "i32" = cu_module_load(mc, pb)
-    if rc != 0:
-        print("LOSS COAL2 MOD FAIL", rc)
-        return 0
-    mod: "i64" = read_i64(mc, 0)
-    nb = alloc_bytes(len(FNS))
-    kk = 0
-    while kk < len(FNS):
-        wh = write_u8(nb, kk, FNS[kk])
-        kk = kk + 1
-    fc = alloc_bytes(8)
-    rc = cu_module_fn(fc, mod, nb)
-    if rc != 0:
-        print("LOSS COAL2 FN FAIL", rc)
-        return 0
-    fnh: "i64" = read_i64(fc, 0)
-    return fnh
-
 def loss_fwd(fnh: "i64", lg: "i64", pk: "i64", dl: "i64", ls: "i64", tn: "i32") -> "i32":
     a0 = alloc_bytes(8)
     wh: "i64" = write_i64(a0, 0, lg)
@@ -881,7 +853,7 @@ def run() -> "i32":
     sbk: "i64" = read_i64(kh, 24)
     gadd: "i64" = read_i64(kh, 32)
     th: "i64" = read_i64(kh, 40)
-    lfn: "i64" = loss_coal2_init()
+    lfn: "i64" = loss_init()
     if lfn == 0:
         print("LOSS INIT FAIL")
         return 1
@@ -991,7 +963,7 @@ def run() -> "i32":
         # logits + loss tu OUT cua lop cuoi
         rc = toh(th, dOUT, fpA, sQH)
         rc = toh(th, dWh, fpB, sHV)
-        rc = gemm16(ch, 1, 1, V, T, H, one, fpB, H, fpA, T, zero, dLG, V)
+        rc = gemm16(ch, 0, 0, T, V, H, one, fpA, T, fpB, H, zero, dLG, T)
         wh = write_i32(hPK, 0, T)
         wh = write_i32(hPK, 4, V)
         wh = write_f32(hPK, 8, 1.0 / T)
@@ -1019,7 +991,7 @@ def run() -> "i32":
         print("MARK FWD", step)
         rc = toh(th, dDL, fpA, sTV)
         rc = toh(th, dWh, fpB, sHV)
-        rc = gemm16(ch, 0, 1, T, H, V, one, fpA, V, fpB, H, zero, gOUT, T)
+        rc = gemm16(ch, 0, 1, T, H, V, one, fpA, T, fpB, H, zero, gOUT, T)
         # ---- backward layers (nguoc) ----
         ll = NL - 1
         while ll >= 0:
