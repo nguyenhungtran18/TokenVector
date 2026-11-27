@@ -1221,8 +1221,17 @@ def run() -> "i32":
             god = read_i64(AGo, ll * 8)
             g1d = read_i64(AG1, ll * 8)
             g2d = read_i64(AG2, ll * 8)
-            bc1v: "f32" = 1.0 - pow(b1v, step)
-            bc2v: "f32" = 1.0 - pow(b2v, step)
+            bc1v: "f32" = 1.0
+            bc2v: "f32" = 1.0
+            kk3: "i32" = 0
+            while kk3 < step:
+                bc1v = bc1v * b1v
+                bc2v = bc2v * b2v
+                kk3 = kk3 + 1
+            bc1v = 1.0 - bc1v
+            bc2v = 1.0 - bc2v
+            if ll == 0:
+                print("BC", bc1v, bc2v, lr, epsv)
             rc = adamw_update(afn, read_i64(AWq, ll * 8), gqd, read_i64(AMq, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
             rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, read_i64(AMk, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
             rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, read_i64(AMv, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
@@ -1231,6 +1240,7 @@ def run() -> "i32":
             rc = adamw_update(afn, read_i64(AW2, ll * 8), g2d, read_i64(AM2, ll * 8), F * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
 
             ll = ll + 1
+        rc = scan(99, read_i64(AWq, 0), H * H)
         print("MARK UPD", step)
         step = step + 1
     syn: "i32" = cuda_sync()
