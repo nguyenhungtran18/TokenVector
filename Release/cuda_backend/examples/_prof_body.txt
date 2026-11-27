@@ -1,5 +1,8 @@
     f_ln1: "f64" = 0.0
-    f_qkv: "f64" = 0.0
+    f_qt: "f64" = 0.0
+    f_qg: "f64" = 0.0
+    f_k: "f64" = 0.0
+    f_v: "f64" = 0.0
     f_s: "f64" = 0.0
     f_sf: "f64" = 0.0
     f_av: "f64" = 0.0
@@ -52,16 +55,25 @@
             tp = time_perf()
             rc = toh(th, dY1, fpA, sQH)
             rc = toh(th, wqd, fpB, sHH)
+            tn = time_perf() - tp
+            f_qt = f_qt + tn
+            tp = time_perf()
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dQ, T)
             if rc != 0:
                 print("Q GEMM FAIL", ll, rc)
                 return 1
+            tn = time_perf() - tp
+            f_qg = f_qg + tn
+            tp = time_perf()
             rc = toh(th, dY1, fpA, sQH)
             rc = toh(th, wkd, fpB, sHH)
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dK, T)
             if rc != 0:
                 print("K GEMM FAIL", ll, rc)
                 return 1
+            tn = time_perf() - tp
+            f_k = f_k + tn
+            tp = time_perf()
             rc = toh(th, dY1, fpA, sQH)
             rc = toh(th, wvd, fpB, sHH)
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dV, T)
@@ -69,7 +81,7 @@
                 print("V GEMM FAIL", ll, rc)
                 return 1
             tn = time_perf() - tp
-            f_qkv = f_qkv + tn
+            f_v = f_v + tn
             tp = time_perf()
             rc = toh(th, dQ, fpA, sQH)
             rc = toh(th, dK, fpB, sQH)
@@ -335,7 +347,10 @@
         u_upd = u_upd + tn
         step = step + 1
     print("P_MS f_ln1", f_ln1 * 500.0)
-    print("P_MS f_qkv", f_qkv * 500.0)
+    print("P_MS f_qt", f_qt * 500.0)
+    print("P_MS f_qg", f_qg * 500.0)
+    print("P_MS f_k", f_k * 500.0)
+    print("P_MS f_v", f_v * 500.0)
     print("P_MS f_s", f_s * 500.0)
     print("P_MS f_sf", f_sf * 500.0)
     print("P_MS f_av", f_av * 500.0)
