@@ -967,6 +967,7 @@ def run() -> "i32":
         rc = toh(th, dOUT, fpA, sQH)
         rc = toh(th, dWh, fpB, sHV)
         rc = gemm16(ch, 0, 0, T, V, H, one, fpA, T, fpB, H, zero, dLG, T)
+        syn = cuda_sync()
         tHL = time_perf()
         thg = thg + (tHL - tHG)
         wh = write_i32(hPK, 0, T)
