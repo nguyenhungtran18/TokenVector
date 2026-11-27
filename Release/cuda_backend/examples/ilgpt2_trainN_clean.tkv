@@ -94,7 +94,7 @@ def sgd_update(fnh: "i64", w: "i64", g: "i64", n: "i32", lr: "f32", strm: "i64")
     wh = write_i64(pl, 8, a1)
     wh = write_i64(pl, 16, a2)
     wh = write_i64(pl, 24, a3)
-    rc = cu_launch(fnh, 16384, 1, 1, 256, 1, 1, 0, 0, pl, strm)
+    rc = cu_launch(fnh, 16384, 1, 1, 256, 1, 1, 0, strm, pl, 0)
     if rc != 0:
         print("SGD LAUNCH FAIL", rc)
         return 1
@@ -168,7 +168,7 @@ def gelu_fwd(fnh: "i64", x: "i64", y: "i64", n: "i32", strm: "i64") -> "i32":
     wh = write_i64(pl, 8, a1)
     wh = write_i64(pl, 16, a2)
     g: "i32" = (n + 255) >> 8
-    rc = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, 0, pl, strm)
+    rc = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, strm, pl, 0)
     if rc != 0:
         print("GELU FWD LAUNCH FAIL", rc)
         return 1
@@ -189,7 +189,7 @@ def gelu_bwd(fnh: "i64", x: "i64", dy: "i64", dx: "i64", n: "i32", strm: "i64") 
     wh = write_i64(pl, 16, a2)
     wh = write_i64(pl, 24, a3)
     g: "i32" = (n + 255) >> 8
-    rc = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, 0, pl, strm)
+    rc = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, strm, pl, 0)
     if rc != 0:
         print("GELU BWD LAUNCH FAIL", rc)
         return 1
@@ -362,7 +362,7 @@ def ln_fwd(fnh: "i64", x: "i64", gam: "i64", bet: "i64", y: "i64", xh: "i64", st
     wh = write_i64(pl, 56, a7)
     wh = write_i64(pl, 64, a8)
     wh = write_i64(pl, 72, a9)
-    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, 0, pl, strm)
+    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, strm, pl, 0)
     if rc != 0:
         print("LN FWD LAUNCH FAIL", rc)
         return 1
@@ -394,7 +394,7 @@ def ln_bwd(fnh: "i64", xh: "i64", dy: "i64", gam: "i64", st: "i64", dx: "i64", t
     wh = write_i64(pl, 40, a5)
     wh = write_i64(pl, 48, a6)
     wh = write_i64(pl, 56, a7)
-    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, 0, pl, strm)
+    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, strm, pl, 0)
     if rc != 0:
         print("LN BWD LAUNCH FAIL", rc)
         return 1
@@ -414,7 +414,7 @@ def sf_fwd(fnh: "i64", s: "i64", p: "i64", tn: "i32", strm: "i64") -> "i32":
     wh = write_i64(pl, 8, a1)
     wh = write_i64(pl, 16, a2)
     wh = write_i64(pl, 24, a3)
-    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, 0, pl, strm)
+    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, strm, pl, 0)
     if rc != 0:
         print("SF FWD LAUNCH FAIL", rc)
         return 1
@@ -434,7 +434,7 @@ def sf_bwd(fnh: "i64", dp: "i64", p: "i64", ds: "i64", tn: "i32", strm: "i64") -
     wh = write_i64(pl, 8, a1)
     wh = write_i64(pl, 16, a2)
     wh = write_i64(pl, 24, a3)
-    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, 0, pl, strm)
+    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, strm, pl, 0)
     if rc != 0:
         print("SF BWD LAUNCH FAIL", rc)
         return 1
@@ -455,7 +455,7 @@ def add_k(fnh: "i64", a: "i64", b: "i64", o: "i64", n: "i32", strm: "i64") -> "i
     wh = write_i64(pl, 16, a2)
     wh = write_i64(pl, 24, a3)
     g: "i32" = (n + 255) >> 8
-    rc: "i32" = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, 0, pl, strm)
+    rc: "i32" = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, strm, pl, 0)
     if rc != 0:
         print("ADD LAUNCH FAIL", rc)
         return 1
@@ -473,7 +473,7 @@ def toh(fnh: "i64", src: "i64", dst: "i64", n: "i32", strm: "i64") -> "i32":
     wh = write_i64(pl, 8, a1)
     wh = write_i64(pl, 16, a2)
     g: "i32" = (n + 255) >> 8
-    rc: "i32" = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, 0, pl, strm)
+    rc: "i32" = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, strm, pl, 0)
     if rc != 0:
         print("TOH LAUNCH FAIL", rc)
         return 1
@@ -527,7 +527,7 @@ def loss_fwd(fnh: "i64", lg: "i64", pk: "i64", dl: "i64", ls: "i64", tn: "i32", 
     wh = write_i64(pl, 8, a1)
     wh = write_i64(pl, 16, a2)
     wh = write_i64(pl, 24, a3)
-    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, 0, pl, strm)
+    rc: "i32" = cu_launch(fnh, 1, 1, 1, tn, 1, 1, 0, strm, pl, 0)
     if rc != 0:
         print("LOSS LAUNCH FAIL", rc)
         return 1
