@@ -1,0 +1,41 @@
+.version 8.0
+.target sm_75
+.address_size 64
+.entry toht_kernel(.param .u64 px, .param .u64 py, .param .u32 pn, .param .u32 pf)
+{
+.reg .f32 fv;
+.reg .f16 hv;
+.reg .b16 uv;
+.reg .u64 xb,yb,off,qoff;
+.reg .u32 i,n,f,hn,j,q0,i2,q1,q,base,nt;
+.reg .pred p;
+ld.param.u64 xb,[px];
+ld.param.u64 yb,[py];
+ld.param.u32 n,[pn];
+ld.param.u32 f,[pf];
+cvta.to.global.u64 xb,xb;
+cvta.to.global.u64 yb,yb;
+mov.u32 nt,%ntid.x;
+mov.u32 base,%ctaid.x;
+mul.lo.u32 base,base,nt;
+mov.u32 i,%tid.x;
+add.u32 i,i,base;
+setp.ge.u32 p,i,n;
+@p bra LEND;
+div.u32 hn,n,f;
+mul.wide.u32 off,i,4;
+add.u64 xb,xb,off;
+ld.global.f32 fv,[xb];
+cvt.rn.f16.f32 hv,fv;
+mov.b16 uv,hv;
+div.u32 j,i,f;
+mul.lo.u32 q0,j,f;
+sub.u32 i2,i,q0;
+mul.lo.u32 q1,i2,hn;
+add.u32 q,q1,j;
+mul.wide.u32 qoff,q,2;
+add.u64 yb,yb,qoff;
+st.global.b16 [yb],uv;
+LEND:
+ret;
+}
