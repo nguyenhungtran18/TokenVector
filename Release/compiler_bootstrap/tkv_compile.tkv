@@ -63,7 +63,7 @@ from typed_dsl_parser import (parse_typed_signature, DTYPES, TypeAnn,  # noqa: E
                                dat_bi_danh, them_bi_danh)
 from il_core import rename_reserved_identifiers as _rename_reserved_identifiers  # noqa: E402
 import plugin_loader  # noqa: E402
-from il_codegen import _compile_extern_object_arg, _il_ctor_param_type, _marshal_extern_return_array
+from il_codegen import _compile_extern_object_arg, _il_ctor_param_type, _marshal_extern_return_array, _load_var_addr
 from expr_row import VANG, ea_nut, ea_str, eb_str, ec_ds, ekind, reset_pool_bieu_thuc
 from plugin_loader import load_plugins
 
@@ -2896,6 +2896,12 @@ def _make_extern_pinvoke_call_codegen(hidden_name: "str", param_dtypes: "list[st
                 f"{len(param_dtypes)} tham so, duoc goi voi {len(args)}")
         compile_expr = ctx.compile_expr
         for arg_node, want_dtype in zip(args, param_dtypes):
+            # P/Invoke out-pointer ('pref' -> native int&): phai nap DIA CHI cua
+            # bien managed (ldloca) de .NET marshalling nhu C# `out IntPtr`.
+            # Truyen gia tri i64 se bi CUDA tra CUDA_ERROR_INVALID_VALUE.
+            if want_dtype == 'pref' and ekind(arg_node) == 'var':
+                _load_var_addr(ea_str(arg_node), scope, out)
+                continue
             # Phase 9b fix-of-fix (bool, 2026-08-25): il_param_types (tren) da
             # tinh SAN tu want_dtype THO (giu 'bool' cho chu ky IL) - o day
             # dtype truyen vao compile_expr phai la dtype PHIA TOKENVECTOR.

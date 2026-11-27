@@ -593,17 +593,14 @@ def run() -> "i32":
     hcell = alloc_bytes(8)
     rc = cublas_create(hcell)
     ch: "i64" = read_i64(hcell, 0)
-    sh0 = alloc_bytes(8)
-    rc = cuda_stream_create_flags(sh0, 1)
-    st0: "i64" = read_i64(sh0, 0)
-    gg = alloc_bytes(8)
-    ee = alloc_bytes(8)
-    whz: "i64" = write_i64(ee, 0, 0)
-    whz = write_i64(gg, 0, 0)
+    st0: "i64" = 0
+    ggv: "i64" = 0
+    ee: "i64" = 0
+    rc = cuda_stream_create_flags(st0, 1)
     rc = cuda_stream_begin(st0, 0)
-    rc = cuda_stream_end(st0, gg)
-    rc = cuda_graph_inst(ee, gg, 0, 0, 0)
-    print("EARLY", rc, read_i64(gg, 0))
+    rc = cuda_stream_end(st0, ggv)
+    rc = cuda_graph_inst(ee, ggv, 0, 0, 0)
+    print("EARLY", rc, ggv, ee)
     return 1
     sh = pin_alloc(8)
     rc = cuda_stream_create_flags(sh, 1)
