@@ -81,7 +81,7 @@ def sgd_update(fnh: "i64", w: "i64", g: "i64", n: "i32", lr: "f32") -> "i32":
     return 0
 
 def adamw_init() -> "i64":
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry adamw_kernel(.param .u64 pW, .param .u64 pG, .param .u64 pMV, .param .u32 pN, .param .f32 pLR, .param .f32 pWD, .param .f32 pB1, .param .f32 pB2, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pEPS)\n{\n.reg .f32 w,g,m,v,t,t2,u,den,nw,one,lr,wd,b1,b2,bc1,bc2,eps;\n.reg .u64 wp,gp,mp,vp,off;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 wp,[pW];\nld.param.u64 gp,[pG];\nld.param.u64 mp,[pMV];\nld.param.u32 n,[pN];\nld.param.f32 lr,[pLR];\nld.param.f32 wd,[pWD];\nld.param.f32 b1,[pB1];\nld.param.f32 b2,[pB2];\nld.param.f32 bc1,[pBC1];\nld.param.f32 bc2,[pBC2];\nld.param.f32 eps,[pEPS];\ncvta.to.global.u64 wp,wp;\ncvta.to.global.u64 gp,gp;\ncvta.to.global.u64 mp,mp;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wp,wp,off;\nadd.u64 gp,gp,off;\nld.global.f32 w,[wp];\nld.global.f32 g,[gp];\nmax.f32 t,g,0f00000000;\nmin.f32 t2,g,0f00000000;\nadd.f32 g,t,t2;\nmul.wide.u32 off,n,4;\nadd.u64 vp,mp,off;\nld.global.f32 m,[mp];\nld.global.f32 v,[vp];\nmov.f32 one,1.0;\nsub.f32 t,one,b1;\nmul.f32 t2,t,g;\nfma.rn.f32 m,b1,m,t2;\nsub.f32 t,one,b2;\nmul.f32 t2,g,g;\nmul.f32 t2,t,t2;\nfma.rn.f32 v,b2,v,t2;\ndiv.rn.f32 t,v,bc2;\nsqrt.rn.f32 t,t;\nadd.f32 den,t,eps;\ndiv.rn.f32 u,m,bc1;\ndiv.rn.f32 t,u,den;\nmul.f32 t,lr,t;\nsub.f32 nw,w,t;\nmul.f32 t,lr,wd;\nmul.f32 t,t,w;\nsub.f32 nw,nw,t;\nst.global.f32 [wp],nw;\nmul.wide.u32 off,i,4;\nadd.u64 mp,mp,off;\nst.global.f32 [mp],m;\nadd.u64 vp,vp,off;\nst.global.f32 [vp],v;\nLEND:\nret;\n}\n"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry adamw_kernel(.param .u64 pW, .param .u64 pG, .param .u64 pMV, .param .u32 pN, .param .f32 pLR, .param .f32 pWD, .param .f32 pB1, .param .f32 pB2, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pEPS, .param .u64 pSH, .param .u32 pSHO)\n{\n.reg .f32 w,g,m,v,t,t2,u,den,nw,one,lr,wd,b1,b2,bc1,bc2,eps;\n.reg .f16 hf;\n.reg .b16 hu;\n.reg .u64 wp,gp,mp,vp,off,shb,shaddr;\n.reg .u32 i,n,base,nt,shoff,idx;\n.reg .pred q;\nld.param.u64 wp,[pW];\nld.param.u64 gp,[pG];\nld.param.u64 mp,[pMV];\nld.param.u32 n,[pN];\nld.param.f32 lr,[pLR];\nld.param.f32 wd,[pWD];\nld.param.f32 b1,[pB1];\nld.param.f32 b2,[pB2];\nld.param.f32 bc1,[pBC1];\nld.param.f32 bc2,[pBC2];\nld.param.f32 eps,[pEPS];\nld.param.u64 shb,[pSH];\nld.param.u32 shoff,[pSHO];\ncvta.to.global.u64 wp,wp;\ncvta.to.global.u64 gp,gp;\ncvta.to.global.u64 mp,mp;\ncvta.to.global.u64 shb,shb;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wp,wp,off;\nadd.u64 gp,gp,off;\nld.global.f32 w,[wp];\nld.global.f32 g,[gp];\nmax.f32 t,g,0f00000000;\nmin.f32 t2,g,0f00000000;\nadd.f32 g,t,t2;\nmul.wide.u32 off,n,4;\nadd.u64 vp,mp,off;\nld.global.f32 m,[mp];\nld.global.f32 v,[vp];\nmov.f32 one,1.0;\nsub.f32 t,one,b1;\nmul.f32 t2,t,g;\nfma.rn.f32 m,b1,m,t2;\nsub.f32 t,one,b2;\nmul.f32 t2,g,g;\nmul.f32 t2,t,t2;\nfma.rn.f32 v,b2,v,t2;\ndiv.rn.f32 t,v,bc2;\nsqrt.rn.f32 t,t;\nadd.f32 den,t,eps;\ndiv.rn.f32 u,m,bc1;\ndiv.rn.f32 t,u,den;\nmul.f32 t,lr,t;\nsub.f32 nw,w,t;\nmul.f32 t,lr,wd;\nmul.f32 t,t,w;\nsub.f32 nw,nw,t;\nst.global.f32 [wp],nw;\nmul.wide.u32 off,i,4;\nadd.u64 mp,mp,off;\nst.global.f32 [mp],m;\nadd.u64 vp,vp,off;\nst.global.f32 [vp],v;\nsetp.eq.u64 q,shb,0;\n@q bra LEND;\ncvt.rn.f16.f32 hf,nw;\nmov.b16 hu,hf;\nadd.u32 idx,i,shoff;\nmul.wide.u32 off,idx,2;\nadd.u64 shaddr,shb,off;\nst.global.b16 [shaddr],hu;\nLEND:\nret;\n}\n"
     FNS = b"adamw_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0
@@ -108,7 +108,7 @@ def adamw_init() -> "i64":
     fnh: "i64" = read_i64(fc, 0)
     return fnh
 
-def adamw_update(fnh: "i64", w: "i64", g: "i64", mv: "i64", n: "i32", lr: "f32", wd: "f32", b1: "f32", b2: "f32", bc1: "f32", bc2: "f32", eps: "f32") -> "i32":
+def adamw_update(fnh: "i64", w: "i64", g: "i64", mv: "i64", n: "i32", lr: "f32", wd: "f32", b1: "f32", b2: "f32", bc1: "f32", bc2: "f32", eps: "f32", sh: "i64", sho: "i32") -> "i32":
     a0 = alloc_bytes(8)
     wh: "i64" = write_i64(a0, 0, w)
     a1 = alloc_bytes(8)
@@ -131,7 +131,11 @@ def adamw_update(fnh: "i64", w: "i64", g: "i64", mv: "i64", n: "i32", lr: "f32",
     wh = write_f32(a9, 0, bc2)
     a10 = alloc_bytes(4)
     wh = write_f32(a10, 0, eps)
-    pl = alloc_bytes(88)
+    a11 = alloc_bytes(8)
+    wh = write_i64(a11, 0, sh)
+    a12 = alloc_bytes(4)
+    wh = write_i32(a12, 0, sho)
+    pl = alloc_bytes(104)
     wh = write_i64(pl, 0, a0)
     wh = write_i64(pl, 8, a1)
     wh = write_i64(pl, 16, a2)
@@ -143,6 +147,8 @@ def adamw_update(fnh: "i64", w: "i64", g: "i64", mv: "i64", n: "i32", lr: "f32",
     wh = write_i64(pl, 64, a8)
     wh = write_i64(pl, 72, a9)
     wh = write_i64(pl, 80, a10)
+    wh = write_i64(pl, 88, a11)
+    wh = write_i64(pl, 96, a12)
     g: "i32" = (n + 255) >> 8
     rc: "i32" = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, 0, pl, 0)
     if rc != 0:
@@ -972,13 +978,6 @@ def run() -> "i32":
         tA = time_perf()
         wh = cuda_h2d(dX, hIN, qb, 1)
         xin = dX
-        ll = 0
-        while ll < NL:
-            qp: "i64" = read_i64(AWQV16, ll * 8)
-            rc = toh(th, read_i64(AWq, ll * 8), qp, sHH)
-            rc = toh(th, read_i64(AWk, ll * 8), qp + sHH * 2, sHH)
-            rc = toh(th, read_i64(AWv, ll * 8), qp + sHH * 4, sHH)
-            ll = ll + 1
         # ---- forward layers ----
         ll = 0
         while ll < NL:
@@ -1216,12 +1215,12 @@ def run() -> "i32":
                 kk3 = kk3 + 1
             bc1v = 1.0 - bc1v
             bc2v = 1.0 - bc2v
-            rc = adamw_update(afn, read_i64(AWq, ll * 8), gqd, read_i64(AMq, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
-            rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, read_i64(AMk, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
-            rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, read_i64(AMv, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
-            rc = adamw_update(afn, read_i64(AWo, ll * 8), god, read_i64(AMo, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
-            rc = adamw_update(afn, read_i64(AW1, ll * 8), g1d, read_i64(AM1, ll * 8), H * F, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
-            rc = adamw_update(afn, read_i64(AW2, ll * 8), g2d, read_i64(AM2, ll * 8), F * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv)
+            rc = adamw_update(afn, read_i64(AWq, ll * 8), gqd, read_i64(AMq, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv, read_i64(AWQV16, ll * 8), 0)
+            rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, read_i64(AMk, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv, read_i64(AWQV16, ll * 8), H * H)
+            rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, read_i64(AMv, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv, read_i64(AWQV16, ll * 8), H * H * 2)
+            rc = adamw_update(afn, read_i64(AWo, ll * 8), god, read_i64(AMo, ll * 8), H * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv, 0, 0)
+            rc = adamw_update(afn, read_i64(AW1, ll * 8), g1d, read_i64(AM1, ll * 8), H * F, lr, wd, b1v, b2v, bc1v, bc2v, epsv, 0, 0)
+            rc = adamw_update(afn, read_i64(AW2, ll * 8), g2d, read_i64(AM2, ll * 8), F * H, lr, wd, b1v, b2v, bc1v, bc2v, epsv, 0, 0)
 
             ll = ll + 1
         print("MARK UPD", step)
