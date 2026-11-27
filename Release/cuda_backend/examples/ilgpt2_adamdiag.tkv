@@ -1245,6 +1245,8 @@ def run() -> "i32":
         print("MARK FWD", step)
         rc = toh(th, dDL, fpA, sTV)
         rc = gemm16(ch, 0, 1, T, H, V, one, fpA, T, fpB, H, zero, gOUT, T)
+        wh = cuda_h2d(dh, gOUT, 16, 2)
+        print("DIAG gOUT", read_f32(dh, 0), read_f32(dh, 4))
         # ---- backward layers (nguoc) ----
         ll = NL - 1
         while ll >= 0:
