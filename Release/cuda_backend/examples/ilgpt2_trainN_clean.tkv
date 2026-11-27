@@ -758,6 +758,57 @@ def toht(fnh: "i64", src: "i64", dst: "i64", n: "i32", f: "i32") -> "i32":
     if rc != 0:
         print("TOHT LAUNCH FAIL", rc)
     return rc
+
+def toh3_init() -> "i64":
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry toh3_kernel(.param .u64 pA, .param .u64 pB, .param .u64 pC, .param .u64 pD, .param .u32 pN)\n{\n.reg .f32 f;\n.reg .f16 h;\n.reg .b16 u;\n.reg .u64 ab,bb,cb,db,off,doff,sa,da;\n.reg .u32 i,n,sel,q0,base,nt;\n.reg .pred q;\nld.param.u64 ab,[pA];\nld.param.u64 bb,[pB];\nld.param.u64 cb,[pC];\nld.param.u64 db,[pD];\nld.param.u32 n,[pN];\ncvta.to.global.u64 ab,ab;\ncvta.to.global.u64 bb,bb;\ncvta.to.global.u64 cb,cb;\ncvta.to.global.u64 db,db;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nshr.u32 sel,i,20;\nsetp.ge.u32 q,sel,3;\n@q bra LEND;\nmul.lo.u32 q0,sel,1048576;\nsub.u32 i,i,q0;\nmul.wide.u32 off,i,4;\nmov.u64 sa,ab;\nsetp.eq.u32 q,sel,1;\n@q mov.u64 sa,bb;\nsetp.eq.u32 q,sel,2;\n@q mov.u64 sa,cb;\nadd.u64 sa,sa,off;\nld.global.f32 f,[sa];\ncvt.rn.f16.f32 h,f;\nmov.b16 u,h;\nmul.lo.u32 q0,sel,n;\nadd.u32 q0,q0,i;\nmul.wide.u32 doff,q0,2;\nadd.u64 da,db,doff;\nst.global.b16 [da],u;\nLEND:\nret;\n}\n"
+    FNS = b"toh3_kernel\x00"
+    pb = alloc_bytes(len(PTX) + 1)
+    kk: "i32" = 0
+    while kk < len(PTX):
+        wh: "i64" = write_u8(pb, kk, PTX[kk])
+        kk = kk + 1
+    wh = write_u8(pb, kk, 0)
+    mc = alloc_bytes(8)
+    rc: "i32" = cu_module_load(mc, pb)
+    if rc != 0:
+        print("TOH3 MOD FAIL", rc)
+        return 0
+    mod: "i64" = read_i64(mc, 0)
+    nb = alloc_bytes(len(FNS))
+    kk = 0
+    while kk < len(FNS):
+        wh = write_u8(nb, kk, FNS[kk])
+        kk = kk + 1
+    fc = alloc_bytes(8)
+    rc = cu_module_fn(fc, mod, nb)
+    if rc != 0:
+        print("TOH3 FN FAIL", rc)
+        return 0
+    fnh: "i64" = read_i64(fc, 0)
+    return fnh
+
+def toh3(fnh: "i64", s1: "i64", s2: "i64", s3: "i64", dst: "i64", n: "i32") -> "i32":
+    a0 = alloc_bytes(8)
+    wh: "i64" = write_i64(a0, 0, s1)
+    a1 = alloc_bytes(8)
+    wh = write_i64(a1, 0, s2)
+    a2 = alloc_bytes(8)
+    wh = write_i64(a2, 0, s3)
+    a3 = alloc_bytes(8)
+    wh = write_i64(a3, 0, dst)
+    a4 = alloc_bytes(4)
+    wh = write_i32(a4, 0, n)
+    pl = alloc_bytes(40)
+    wh = write_i64(pl, 0, a0)
+    wh = write_i64(pl, 8, a1)
+    wh = write_i64(pl, 16, a2)
+    wh = write_i64(pl, 24, a3)
+    wh = write_i64(pl, 32, a4)
+    g: "i32" = (n * 3 + 255) >> 8
+    rc: "i32" = cu_launch(fnh, g, 1, 1, 256, 1, 1, 0, 0, pl, 0)
+    if rc != 0:
+        print("TOH3 LAUNCH FAIL", rc)
+    return rc
 def wrand(i: "i32", j: "i32", s: "f32") -> "f32":
     h: "i32" = i * 374761393 + j * 668265263
     h = (h ^ (h >> 13)) * 1274126177
@@ -1010,12 +1061,8 @@ def run() -> "i32":
         wh = write_i64(AX1, ll * 8, read_i64(cell, 0))
         rc = cuda_malloc(cell, qb)
         wh = write_i64(AY1, ll * 8, read_i64(cell, 0))
-        rc = cuda_malloc(cell, qb)
+        rc = cuda_malloc(cell, 3 * qb)
         wh = write_i64(AQ, ll * 8, read_i64(cell, 0))
-        rc = cuda_malloc(cell, qb)
-        wh = write_i64(AK, ll * 8, read_i64(cell, 0))
-        rc = cuda_malloc(cell, qb)
-        wh = write_i64(AV, ll * 8, read_i64(cell, 0))
         rc = cuda_malloc(cell, qb)
         wh = write_i64(AA, ll * 8, read_i64(cell, 0))
         rc = cuda_malloc(cell, stb)
@@ -1159,6 +1206,12 @@ def run() -> "i32":
         return 1
     rc = cuda_malloc(cell, H * F * 2)
     fpT: "i64" = read_i64(cell, 0)
+    th3: "i64" = toh3_init()
+    if th3 == 0:
+        print("TOH3 INIT FAIL")
+        return 1
+    rc = cuda_malloc(cell, 3 * H * H * 2)
+    fpQKV: "i64" = read_i64(cell, 0)
     lfn: "i64" = loss_init()
     if lfn == 0:
         print("LOSS INIT FAIL")
@@ -1207,8 +1260,9 @@ def run() -> "i32":
             xh2d = read_i64(AX2, ll * 8)
             s2d = read_i64(AS2, ll * 8)
             qd = read_i64(AQ, ll * 8)
-            kd = read_i64(AK, ll * 8)
-            vd = read_i64(AV, ll * 8)
+            qoff: "i64" = qb
+            kd = qd + qoff
+            vd = kd + qoff
             ad = read_i64(AA, ll * 8)
             pd = read_i64(AP, ll * 8)
             zd = read_i64(AZ, ll * 8)
@@ -1220,20 +1274,10 @@ def run() -> "i32":
                 print("LN1 FWD FAIL", ll)
                 return 1
             rc = toh(th, y1d, fpA, sQH)
-            rc = toh(th, wqd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, qd, T)
+            rc = toh3(th3, wqd, wkd, wvd, fpQKV, H * H)
+            rc = gemm16(ch, 0, 0, T, 3 * H, H, one, fpA, T, fpQKV, H, zero, qd, T)
             if rc != 0:
-                print("Q GEMM FAIL", ll, rc)
-                return 1
-            rc = toh(th, wkd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, kd, T)
-            if rc != 0:
-                print("K GEMM FAIL", ll, rc)
-                return 1
-            rc = toh(th, wvd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, vd, T)
-            if rc != 0:
-                print("V GEMM FAIL", ll, rc)
+                print("QKV GEMM FAIL", ll, rc)
                 return 1
             rc = toh(th, qd, fpA, sQH)
             rc = toh(th, kd, fpB, sQH)
@@ -1332,8 +1376,9 @@ def run() -> "i32":
             xh2d = read_i64(AX2, ll * 8)
             s2d = read_i64(AS2, ll * 8)
             qd = read_i64(AQ, ll * 8)
-            kd = read_i64(AK, ll * 8)
-            vd = read_i64(AV, ll * 8)
+            qoff: "i64" = qb
+            kd = qd + qoff
+            vd = kd + qoff
             ad = read_i64(AA, ll * 8)
 
             pd = read_i64(AP, ll * 8)

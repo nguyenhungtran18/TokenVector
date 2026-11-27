@@ -1,0 +1,48 @@
+.version 8.0
+.target sm_75
+.address_size 64
+.entry toh3_kernel(.param .u64 pA, .param .u64 pB, .param .u64 pC, .param .u64 pD, .param .u32 pN)
+{
+.reg .f32 f;
+.reg .f16 h;
+.reg .b16 u;
+.reg .u64 ab,bb,cb,db,off,doff,sa,da;
+.reg .u32 i,n,sel,q0,base,nt;
+.reg .pred q;
+ld.param.u64 ab,[pA];
+ld.param.u64 bb,[pB];
+ld.param.u64 cb,[pC];
+ld.param.u64 db,[pD];
+ld.param.u32 n,[pN];
+cvta.to.global.u64 ab,ab;
+cvta.to.global.u64 bb,bb;
+cvta.to.global.u64 cb,cb;
+cvta.to.global.u64 db,db;
+mov.u32 nt,%ntid.x;
+mov.u32 base,%ctaid.x;
+mul.lo.u32 base,base,nt;
+mov.u32 i,%tid.x;
+add.u32 i,i,base;
+shr.u32 sel,i,20;
+setp.ge.u32 q,sel,3;
+@q bra LEND;
+mul.lo.u32 q0,sel,1048576;
+sub.u32 i,i,q0;
+mul.wide.u32 off,i,4;
+mov.u64 sa,ab;
+setp.eq.u32 q,sel,1;
+@q mov.u64 sa,bb;
+setp.eq.u32 q,sel,2;
+@q mov.u64 sa,cb;
+add.u64 sa,sa,off;
+ld.global.f32 f,[sa];
+cvt.rn.f16.f32 h,f;
+mov.b16 u,h;
+mul.lo.u32 q0,sel,n;
+add.u32 q0,q0,i;
+mul.wide.u32 doff,q0,2;
+add.u64 da,db,doff;
+st.global.b16 [da],u;
+LEND:
+ret;
+}
