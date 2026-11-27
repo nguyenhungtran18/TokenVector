@@ -503,9 +503,22 @@ def loss_coal_init() -> "i64":
         kk = kk + 1
     wh = write_u8(pb, kk, 0)
     mc = alloc_bytes(8)
-    rc: "i32" = cu_module_load(mc, pb)
+    logbuf = alloc_bytes(4096)
+    logsz = alloc_bytes(8)
+    wh2x: "i64" = write_i64(logsz, 0, 4096)
+    opts = alloc_bytes(8)
+    wh2x = write_i32(opts, 0, 5)
+    wh2x = write_i32(opts, 4, 6)
+    vals = alloc_bytes(16)
+    wh2x = write_i64(vals, 0, logbuf)
+    wh2x = write_i64(vals, 8, logsz)
+    rc: "i32" = cu_module_load_ex(mc, pb, 2, opts, vals)
     if rc != 0:
         print("LOSS COAL MOD FAIL", rc)
+        kk2: "i32" = 0
+        while kk2 < 24:
+            print("PTXERR", kk2, read_i32(logbuf, kk2 * 4))
+            kk2 = kk2 + 1
         return 0
     mod: "i64" = read_i64(mc, 0)
     nb = alloc_bytes(len(FNS))
