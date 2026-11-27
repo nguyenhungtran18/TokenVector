@@ -710,8 +710,9 @@ def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", l
 
 
 
+
 def toht_init() -> "i64":
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry toht_kernel(.param .u64 px, .param .u64 py, .param .u32 pn, .param .u32 pf)\n{\n.reg .f32 fv;\n.reg .f16 hv;\n.reg .b16 uv;\n.reg .u64 xb,yb,off,qoff;\n.reg .u32 i,n,f,hn,j,q0,i2,q1,q,base,nt;\n.reg .pred p;\nld.param.u64 xb,[px];\nld.param.u64 yb,[py];\nld.param.u32 n,[pn];\nld.param.u32 f,[pf];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 yb,yb;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 p,i,n;\n@p bra LEND;\nshr.u32 hn,f,2;\nmul.wide.u32 off,i,4;\nadd.u64 xb,xb,off;\nld.global.f32 fv,[xb];\ncvt.rn.f16.f32 hv,fv;\nmov.b16 uv,hv;\nshr.u32 j,i,12;\nshl.u32 q0,j,12;\nsub.u32 i2,i,q0;\nmul.lo.u32 q1,i2,hn;\nadd.u32 q,q1,j;\nmul.wide.u32 qoff,q,2;\nadd.u64 yb,yb,qoff;\nst.global.b16 [yb],uv;\nLEND:\nret;\n}\n"
+    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry toht_kernel(.param .u64 px, .param .u64 py, .param .u32 pn, .param .u32 pf)\n{\n.reg .f32 fv;\n.reg .f16 hv;\n.reg .b16 uv;\n.reg .u64 xb,yb,off,qoff;\n.reg .u32 i,n,f,hn,j,q0,i2,q1,q,base,nt;\n.reg .pred p;\nld.param.u64 xb,[px];\nld.param.u64 yb,[py];\nld.param.u32 n,[pn];\nld.param.u32 f,[pf];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 yb,yb;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 p,i,n;\n@p bra LEND;\nshr.u32 hn,f,2;\nmul.wide.u32 off,i,4;\nadd.u64 xb,xb,off;\nld.global.f32 fv,[xb];\ncvt.rn.f16.f32 hv,fv;\nmov.b16 uv,hv;\nshr.u32 j,i,12;\nmul.lo.u32 q0,j,4096;\nsub.u32 i2,i,q0;\nmul.lo.u32 q1,i2,hn;\nadd.u32 q,q1,j;\nmul.wide.u32 qoff,q,2;\nadd.u64 yb,yb,qoff;\nst.global.b16 [yb],uv;\nLEND:\nret;\n}\n"
     FNS = b"toht_kernel\x00"
     pb = alloc_bytes(len(PTX) + 1)
     kk: "i32" = 0

@@ -29,7 +29,7 @@ ld.global.f32 fv,[xb];
 cvt.rn.f16.f32 hv,fv;
 mov.b16 uv,hv;
 shr.u32 j,i,12;
-shl.u32 q0,j,12;
+mul.lo.u32 q0,j,4096;
 sub.u32 i2,i,q0;
 mul.lo.u32 q1,i2,hn;
 add.u32 q,q1,j;
