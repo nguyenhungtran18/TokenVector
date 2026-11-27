@@ -1380,6 +1380,12 @@ def run() -> "i32":
         wh = cuda_h2d(hY1, read_i64(AWq, 0), 16, 2)
         if step == 1:
             print("DIAG W0", read_f32(hY1, 0), read_f32(hY1, 4))
+        wh = cuda_h2d(hY1, mq, 16, 2)
+        if step == 1:
+            print("DIAG M0", read_f32(hY1, 0), read_f32(hY1, 4))
+        wh = cuda_h2d(hY1, gqd, 16, 2)
+        if step == 1:
+            print("DIAG G0", read_f32(hY1, 0), read_f32(hY1, 4))
         print("MARK UPD", step)
         print("STEPMS", (time_perf() - tA) * 1000.0)
         step = step + 1
