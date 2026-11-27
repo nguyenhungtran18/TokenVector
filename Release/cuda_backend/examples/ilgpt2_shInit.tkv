@@ -1511,9 +1511,9 @@ def run() -> "i32":
             uo: "i64" = ll * whb
             uo1: "i64" = ll * w1b
             uo2: "i64" = ll * w2b
-            so3: "i64" = ll * (3 * H * H * 2)
-            soh: "i64" = ll * (H * H * 2)
-            sof: "i64" = ll * (H * F * 2)
+            so3 = ll * (3 * H * H * 2)
+            soh = ll * (H * H * 2)
+            sof = ll * (H * F * 2)
             rc = adamw_update(afn, read_i64(AWq, ll * 8), gqd, mq + uo, vq + uo, shQKV + so3, zz64, H * H, lr, ac1, ac2, wd)
             rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, mk + uo, vk + uo, shQKV + so3 + qoff, zz64, H * H, lr, ac1, ac2, wd)
             rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, mv + uo, vv + uo, shQKV + so3 + qoff + qoff, zz64, H * H, lr, ac1, ac2, wd)
