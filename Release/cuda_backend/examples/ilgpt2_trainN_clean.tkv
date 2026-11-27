@@ -27,6 +27,11 @@ __tkv_extern_pinvoke__ = [
      "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32",
                 "i32", "i64", "i32", "i32", "i64", "i64", "i32", "i32", "i32", "i32"],
      "returns": "i32"},
+    {"name": "cublas_gemm_sbex", "dll": "cublas.dll", "symbol": "cublasGemmStridedBatchedEx",
+     "convention": "cdecl",
+     "params": ["i64", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i32",
+                "i32", "i64", "i64", "i32", "i32", "i64", "i64", "i64", "i32",
+                "i32", "i64", "i32", "i32", "i32"], "returns": "i32"},
 ]
 
 
@@ -463,6 +468,12 @@ def gemm16(handle: "i64", ta: "i32", tb: "i32", m: "i32", n: "i32", k: "i32", al
         print("GEMM16 FAIL", rc)
     return rc
 
+def gemm16bat(handle: "i64", ta: "i32", tb: "i32", m: "i32", n: "i32", k: "i32", alpha: "i64", a: "i64", lda: "i32", stra: "i64", b: "i64", ldb: "i32", strb: "i64", beta: "i64", c: "i64", ldc: "i32", strc: "i64", bc: "i32") -> "i32":
+    rc: "i32" = cublas_gemm_sbex(handle, ta, tb, m, n, k, alpha, a, 2, lda, stra, b, 2, ldb, strb, beta, c, 0, ldc, strc, bc, 68, -1)
+    if rc != 0:
+        print("GEMM16BAT FAIL", rc)
+    return rc
+
 def loss_init() -> "i64":
     PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry loss_kernel2(.param .u64 pLG, .param .u64 pPk, .param .u64 pDL, .param .u64 pLS)\n{\n.reg .f32 mx,x,t,e,sum,p,l,lsum,inv;\n.reg .u64 xb,pb,ob,yb,off,xa,ia,ya,la;\n.reg .u32 row,i,vn,tn,id,idx;\n.reg .pred q,pis;\nld.param.u64 xb,[pLG];\nld.param.u64 pb,[pPk];\nld.param.u64 ob,[pDL];\nld.param.u64 yb,[pLS];\ncvta.to.global.u64 xb,xb;\ncvta.to.global.u64 pb,pb;\ncvta.to.global.u64 ob,ob;\ncvta.to.global.u64 yb,yb;\nld.global.u32 tn,[pb];\nld.global.u32 vn,[pb+4];\nld.global.f32 inv,[pb+8];\nmov.u32 row,%tid.x;\nsetp.ge.u32 q,row,tn;\n@q bra LEND;\nmov.f32 mx,-1000000000.0;\nmov.u32 i,0;\nLMAX:\nsetp.ge.u32 q,i,vn;\n@q bra MAXDONE;\nmul.lo.u32 idx,i,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nmax.f32 mx,mx,x;\nadd.u32 i,i,1;\nbra LMAX;\nMAXDONE:\nmov.f32 sum,0.0;\nmov.u32 i,0;\nLSUM:\nsetp.ge.u32 q,i,vn;\n@q bra SUMDONE;\nmul.lo.u32 idx,i,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nsub.f32 t,x,mx;\nmul.f32 t,t,1.442695;\nex2.approx.f32 e,t;\nadd.f32 sum,sum,e;\nadd.u32 i,i,1;\nbra LSUM;\nSUMDONE:\nmul.wide.u32 off,row,4;\nadd.u64 ia,pb,off;\nld.global.u32 id,[ia+16];\nmul.lo.u32 idx,id,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nlg2.approx.f32 lsum,sum;\nmul.f32 lsum,lsum,0.69314718;\nadd.f32 l,mx,lsum;\nsub.f32 l,l,x;\nmul.f32 l,l,inv;\nmul.wide.u32 off,row,4;\nadd.u64 la,yb,off;\nst.global.f32 [la],l;\nmov.u32 i,0;\nLDL:\nsetp.ge.u32 q,i,vn;\n@q bra LEND;\nmul.lo.u32 idx,i,tn;\nadd.u32 idx,idx,row;\nmul.wide.u32 off,idx,4;\nadd.u64 xa,xb,off;\nld.global.f32 x,[xa];\nsub.f32 t,x,mx;\nmul.f32 t,t,1.442695;\nex2.approx.f32 e,t;\ndiv.rn.f32 p,e,sum;\nsetp.eq.u32 pis,i,id;\n@pis sub.f32 p,p,1.0;\nmul.f32 p,p,inv;\nadd.u64 ya,ob,off;\nst.global.f32 [ya],p;\nadd.u32 i,i,1;\nbra LDL;\nLEND:\nret;\n}\n"
     FNS = b"loss_kernel2\x00"
@@ -563,6 +574,9 @@ def run() -> "i32":
     H: "i32" = 1024
     F: "i32" = 4 * H
     V: "i32" = 50257
+    VS: "i32" = 512
+    NBV: "i32" = 99
+    VP: "i32" = 50688
     hb: "i32" = H * 4
     h4: "i32" = F * 4
     qb: "i32" = T * H * 4
@@ -573,7 +587,8 @@ def run() -> "i32":
     whb: "i32" = hb * H
     w1b: "i32" = h4 * H
     w2b: "i32" = hb * F
-    wh2: "i32" = V * hb
+    wh2: "i32" = VP * hb
+    tvbp: "i32" = T * VP * 4
     msz: "i32" = NL * 8
     sQH: "i32" = T * H
     sHH: "i32" = H * H
@@ -582,6 +597,7 @@ def run() -> "i32":
     sFH: "i32" = F * H
     sTV: "i32" = T * V
     sHV: "i32" = H * V
+    sHVP: "i32" = H * VP
     cell = alloc_bytes(8)
     # arrays cua device-pointer / host-pointer theo lop
     AWq = alloc_bytes(msz)
@@ -661,7 +677,7 @@ def run() -> "i32":
     dO2 = read_i64(cell, 0)
     rc = cuda_malloc(cell, qb)
     dOUT = read_i64(cell, 0)
-    rc = cuda_malloc(cell, tvb)
+    rc = cuda_malloc(cell, tvbp)
     dLG = read_i64(cell, 0)
     rc = cuda_malloc(cell, tvb)
     dDL = read_i64(cell, 0)
@@ -812,8 +828,11 @@ def run() -> "i32":
     ii = 0
     while ii < H:
         jj = 0
-        while jj < V:
-            wh = write_f32(hWh, (ii + jj * H) * 4, wrand(ii, jj, 0.023))
+        while jj < VP:
+            wv: "f32" = 0.0
+            if jj < V:
+                wv = wrand(ii, jj, 0.023)
+            wh = write_f32(hWh, (ii + jj * H) * 4, wv)
             jj = jj + 1
         ii = ii + 1
     rc = cuda_malloc(cell, wh2)
@@ -962,8 +981,8 @@ def run() -> "i32":
         tH = time_perf()
         # logits + loss tu OUT cua lop cuoi
         rc = toh(th, dOUT, fpA, sQH)
-        rc = toh(th, dWh, fpB, sHV)
-        rc = gemm16(ch, 0, 0, T, V, H, one, fpA, T, fpB, H, zero, dLG, T)
+        rc = toh(th, dWh, fpB, sHVP)
+        rc = gemm16bat(ch, 0, 0, T, VS, H, one, fpA, T, 0, fpB, H, VS * H, zero, dLG, T, T * VS, NBV)
         wh = write_i32(hPK, 0, T)
         wh = write_i32(hPK, 4, V)
         wh = write_f32(hPK, 8, 1.0 / T)
@@ -990,7 +1009,7 @@ def run() -> "i32":
         tf = tf + (tH - tA)
         print("MARK FWD", step)
         rc = toh(th, dDL, fpA, sTV)
-        rc = toh(th, dWh, fpB, sHV)
+        rc = toh(th, dWh, fpB, sHVP)
         rc = gemm16(ch, 0, 1, T, H, V, one, fpA, T, fpB, H, zero, gOUT, T)
         # ---- backward layers (nguoc) ----
         ll = NL - 1
