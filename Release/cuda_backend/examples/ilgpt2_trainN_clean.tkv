@@ -826,7 +826,7 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.0)
         wh = write_f32(b2h, ii * 4, 0.0)
         ii = ii + 1
-    lr: "f32" = 0.5
+    lr: "f32" = 8.0
     sfn: "i64" = sgd_init()
     if sfn == 0:
         print("SGD INIT FAIL")
