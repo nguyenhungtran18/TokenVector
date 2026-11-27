@@ -1060,22 +1060,22 @@ def run() -> "i32":
                 return 1
             rc = toh(th, y1d, fpA, sQH)
             rc = toh(th, wqd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, qd, T)
+            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dQ, T)
             if rc != 0:
                 print("Q GEMM FAIL", ll, rc)
                 return 1
             rc = toh(th, wkd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, kd, T)
+            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dK, T)
             if rc != 0:
                 print("K GEMM FAIL", ll, rc)
                 return 1
             rc = toh(th, wvd, fpB, sHH)
-            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, vd, T)
+            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dV, T)
             if rc != 0:
                 print("V GEMM FAIL", ll, rc)
                 return 1
-            rc = toh(th, qd, fpA, sQH)
-            rc = toh(th, kd, fpB, sQH)
+            rc = toh(th, dQ, fpA, sQH)
+            rc = toh(th, dK, fpB, sQH)
             rc = gemm16(ch, 0, 1, T, T, H, hal, fpA, T, fpB, T, zero, dS, T)
             if rc != 0:
                 print("S GEMM FAIL", ll, rc)
@@ -1085,12 +1085,12 @@ def run() -> "i32":
                 print("SF FWD FAIL", ll)
                 return 1
             rc = toh(th, pd, fpA, sTT)
-            rc = toh(th, vd, fpB, sQH)
-            rc = gemm16(ch, 0, 0, T, H, T, one, fpA, T, fpB, T, zero, ad, T)
+            rc = toh(th, dV, fpB, sQH)
+            rc = gemm16(ch, 0, 0, T, H, T, one, fpA, T, fpB, T, zero, dA, T)
             if rc != 0:
                 print("A GEMM FAIL", ll, rc)
                 return 1
-            rc = toh(th, ad, fpA, sQH)
+            rc = toh(th, dA, fpA, sQH)
             rc = toh(th, wod, fpB, sHH)
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dO, T)
             if rc != 0:
@@ -1170,11 +1170,7 @@ def run() -> "i32":
             y2d = read_i64(AY2, ll * 8)
             xh2d = read_i64(AX2, ll * 8)
             s2d = read_i64(AS2, ll * 8)
-            qo: "i64" = ll * qb
-            qd = qall + qo
-            kd = kall + qo
-            vd = vall + qo
-            ad = aall + qo
+
             pd = read_i64(AP, ll * 8)
             zd = read_i64(AZ, ll * 8)
             od = read_i64(AO, ll * 8)
@@ -1189,7 +1185,17 @@ def run() -> "i32":
             rc = toh(th, wvd, fpB, sHH)
             rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dV, T)
             rc = toh(th, pd, fpA, sTT)
-            rc = toh(th, vd, fpB, sQH)
+            rc = toh(th, dV, fpB, sQH)
+            rc = gemm16(ch, 0, 0, T, H, T, one, fpA, T, fpB, T, zero, dA, T)
+            rc = toh(th, yb1, fpA, sQH)
+            rc = toh(th, wqd, fpB, sHH)
+            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dQ, T)
+            rc = toh(th, wkd, fpB, sHH)
+            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dK, T)
+            rc = toh(th, wvd, fpB, sHH)
+            rc = gemm16(ch, 0, 0, T, H, H, one, fpA, T, fpB, H, zero, dV, T)
+            rc = toh(th, pd, fpA, sTT)
+            rc = toh(th, dV, fpB, sQH)
             rc = gemm16(ch, 0, 0, T, H, T, one, fpA, T, fpB, T, zero, dA, T)
             rc = toh(th, dHH, fpA, sTF)
             rc = toh(th, gOUT, fpB, sQH)
@@ -1215,11 +1221,11 @@ def run() -> "i32":
             rc = toh(th, gDX2, fpA, sQH)
             rc = toh(th, wod, fpB, sHH)
             rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, fpB, H, zero, gA, T)
-            rc = toh(th, ad, fpA, sQH)
+            rc = toh(th, dA, fpA, sQH)
             rc = toh(th, gDX2, fpB, sQH)
             rc = gemm16(ch, 1, 0, H, H, T, one, fpA, T, fpB, T, zero, gWo, H)
             rc = toh(th, gA, fpA, sQH)
-            rc = toh(th, vd, fpB, sQH)
+            rc = toh(th, dV, fpB, sQH)
             rc = gemm16(ch, 0, 1, T, T, H, one, fpA, T, fpB, T, zero, gP, T)
             rc = toh(th, pd, fpA, sTT)
             rc = toh(th, gA, fpB, sQH)
@@ -1229,10 +1235,10 @@ def run() -> "i32":
                 print("SF BWD FAIL", ll)
                 return 1
             rc = toh(th, gS, fpA, sTT)
-            rc = toh(th, kd, fpB, sQH)
+            rc = toh(th, dK, fpB, sQH)
             rc = gemm16(ch, 0, 0, T, H, T, hal, fpA, T, fpB, T, zero, gQ, T)
             rc = toh(th, gS, fpA, sTT)
-            rc = toh(th, qd, fpB, sQH)
+            rc = toh(th, dQ, fpB, sQH)
             rc = gemm16(ch, 1, 0, T, H, T, hal, fpA, T, fpB, T, zero, gK, T)
             rc = toh(th, yb1, fpA, sQH)
             rc = toh(th, gQ, fpB, sQH)
