@@ -890,12 +890,9 @@ def run() -> "i32":
     xin: "i64" = dX
     gph = pin_alloc(8)
     rc = cuda_stream_begin(st, 0)
-    print("CAPBEGIN", rc)
-    if rc == 0:
-        rc = cuda_stream_end(st, gph)
-        print("CAPEND", rc)
+    if rc != 0:
+        print("GRAPHBEGIN FAIL", rc)
         return 1
-    t0 = time_perf()
     tf: "f64" = 0.0
     tb: "f64" = 0.0
     thd: "f64" = 0.0
@@ -1010,15 +1007,6 @@ def run() -> "i32":
         if rc != 0:
             print("LOSS KERNEL FAIL")
             return 1
-        wh = cuda_memcpy_async(hLS, dLS, T * 4, 2, st)
-        lossv: "f32" = 0.0
-        ii = 0
-        while ii < T:
-            lossv = lossv + read_f32(hLS, ii * 4)
-            ii = ii + 1
-        print("LOSS", lossv)
-        lf: "f64" = lossv
-        print("LOSSF", lf)
         tB = time_perf()
         thd = thd + (tB - tH)
         tf = tf + (tH - tA)
@@ -1165,8 +1153,43 @@ def run() -> "i32":
             ll = ll + 1
         print("MARK UPD", step)
         step = step + 1
+    rc = cuda_stream_end(st, gph)
+    if rc != 0:
+        print("GRAPHEND FAIL", rc)
+        return 1
+    gex = pin_alloc(8)
+    rc = cuda_graph_inst(gex, gph, 0, 0, 0)
+    print("GRAPHINST", rc)
+    if rc != 0:
+        return 1
     syn: "i32" = cuda_sync()
+    wh = cuda_memcpy_async(hLS, dLS, T * 4, 2, st)
+    syn = cuda_sync()
+    lossv: "f32" = 0.0
+    ii = 0
+    while ii < T:
+        lossv = lossv + read_f32(hLS, ii * 4)
+        ii = ii + 1
+    print("LOSS", lossv)
+    lf: "f64" = lossv
+    print("LOSSF", lf)
+    t0 = time_perf()
+    rc = cuda_graph_launch(gex, st)
+    if rc != 0:
+        print("GRAPHLAUNCH FAIL", rc)
+        return 1
+    syn = cuda_sync()
     t1 = time_perf()
+    wh = cuda_memcpy_async(hLS, dLS, T * 4, 2, st)
+    syn = cuda_sync()
+    lossv = 0.0
+    ii = 0
+    while ii < T:
+        lossv = lossv + read_f32(hLS, ii * 4)
+        ii = ii + 1
+    print("LOSS", lossv)
+    lf = lossv
+    print("LOSSF", lf)
     dtm: "f64" = t1 - t0
     print("MS_LAYERS", tf * 1000.0)
     print("MS_HEAD", thd * 1000.0)
