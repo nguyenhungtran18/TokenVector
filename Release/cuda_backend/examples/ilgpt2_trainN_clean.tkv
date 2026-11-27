@@ -924,7 +924,7 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.0)
         wh = write_f32(b2h, ii * 4, 0.0)
         ii = ii + 1
-    lr: "f32" = 0.0015
+    lr: "f32" = 0.0003
     wd: "f32" = 0.01
     b1v: "f32" = 0.9
     b2v: "f32" = 0.999
