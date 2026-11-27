@@ -9,6 +9,8 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cu_module_fn", "dll": "cuda.dll", "symbol": "cuModuleGetFunction",
      "convention": "cdecl", "params": ["i64", "i64", "i64"], "returns": "i32"},
+    {"name": "cu_module_load_ex", "dll": "cuda.dll", "symbol": "cuModuleLoadDataEx",
+     "convention": "cdecl", "params": ["i64", "i64", "i32", "i64", "i64"], "returns": "i32"},
     {"name": "cu_launch", "dll": "cuda.dll", "symbol": "cuLaunchKernel",
      "convention": "cdecl",
      "params": [ "i64", "i32", "i32", "i32", "i32", "i32", "i32", "i32", "i64", "i64", "i64" ],
@@ -501,9 +503,21 @@ def loss_coal_init() -> "i64":
         kk = kk + 1
     wh = write_u8(pb, kk, 0)
     mc = alloc_bytes(8)
-    rc: "i32" = cu_module_load(mc, pb)
+    logbuf = alloc_bytes(2048)
+    logsz = alloc_bytes(4)
+    wh2x: "i64" = write_i32(logsz, 0, 2048)
+    opts = alloc_bytes(32)
+    wh2x = write_i64(opts, 0, 5)
+    wh2x = write_i64(opts, 8, logbuf)
+    wh2x = write_i64(opts, 16, 6)
+    wh2x = write_i64(opts, 24, logsz)
+    rc: "i32" = cu_module_load_ex(mc, pb, 2, opts, 0)
     if rc != 0:
         print("LOSS COAL MOD FAIL", rc)
+        kk2: "i32" = 0
+        while kk2 < 24:
+            print("PTXERR", kk2, read_i32(logbuf, kk2 * 4))
+            kk2 = kk2 + 1
         return 0
     mod: "i64" = read_i64(mc, 0)
     nb = alloc_bytes(len(FNS))
