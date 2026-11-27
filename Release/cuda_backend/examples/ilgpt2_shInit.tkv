@@ -1486,7 +1486,8 @@ def run() -> "i32":
             rc = toh(th, wkd, fpB, sHH)
             rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, fpB, H, one, gDX2, T)
             rc = toh(th, gV, fpA, sQH)
-            rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, sbq, H, one, gDX2, T)
+            rc = toh(th, wqd, fpB, sHH)
+            rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, fpB, H, zero, gDX2, T)
             rc = ln_bwd(lnb, xh1d, gDX2, dgam, s1d, gY1, T, H)
             if rc != 0:
                 print("LN1 BWD FAIL", ll)
