@@ -1191,6 +1191,10 @@ def run() -> "i32":
     rc = cuda_malloc(cell, NL * H * F * 2)
     sh2T: "i64" = read_i64(cell, 0)
     zz64: "i64" = 0
+    qoff: "i64" = qb
+    so3: "i64" = 0
+    soh: "i64" = 0
+    sof: "i64" = 0
 
 
     gfn: "i64" = gelu_fwd_init()
@@ -1255,11 +1259,14 @@ def run() -> "i32":
         wod = read_i64(AWo, ll * 8)
         w1d = read_i64(AW1, ll * 8)
         w2d = read_i64(AW2, ll * 8)
-        rc = toh3(th3, wqd, wkd, wvd, shQKV + ll * (3 * H * H * 2), H * H)
-        rc = toh(th, wod, shO + ll * (H * H * 2), sHH)
-        rc = toh(th, w1d, sh1 + ll * (H * F * 2), H * F)
-        rc = toh(th, w2d, sh2 + ll * (H * F * 2), H * F)
-        rc = toht(tht, w2d, sh2T + ll * (H * F * 2), H * F, F)
+        so3 = ll * (3 * H * H * 2)
+        soh = ll * (H * H * 2)
+        sof = ll * (H * F * 2)
+        rc = toh3(th3, wqd, wkd, wvd, shQKV + so3, H * H)
+        rc = toh(th, wod, shO + soh, sHH)
+        rc = toh(th, w1d, sh1 + sof, H * F)
+        rc = toh(th, w2d, sh2 + sof, H * F)
+        rc = toht(tht, w2d, sh2T + sof, H * F, F)
         ll = ll + 1
     t0 = time_perf()
     tf: "f64" = 0.0
@@ -1283,22 +1290,25 @@ def run() -> "i32":
             wod = read_i64(AWo, ll * 8)
             w1d = read_i64(AW1, ll * 8)
             w2d = read_i64(AW2, ll * 8)
+            so3 = ll * (3 * H * H * 2)
+            soh = ll * (H * H * 2)
+            sof = ll * (H * F * 2)
             xh1d = read_i64(AX1, ll * 8)
             s1d = read_i64(AS1, ll * 8)
             y2d = read_i64(AY2, ll * 8)
             xh2d = read_i64(AX2, ll * 8)
             s2d = read_i64(AS2, ll * 8)
             qd = read_i64(AQ, ll * 8)
-            qoff: "i64" = qb
+
             kd = qd + qoff
             vd = kd + qoff
             ad = read_i64(AA, ll * 8)
-            sfq: "i64" = shQKV + ll * (3 * H * H * 2)
-            sfk: "i64" = sfq + H * H * 2
-            sfv: "i64" = sfq + 2 * H * H * 2
-            sfo: "i64" = shO + ll * (H * H * 2)
-            sf1: "i64" = sh1 + ll * (H * F * 2)
-            sf2: "i64" = sh2 + ll * (H * F * 2)
+            sfq: "i64" = shQKV + so3
+            sfk: "i64" = sfq + qoff
+            sfv: "i64" = sfq + qoff + qoff
+            sfo: "i64" = shO + soh
+            sf1: "i64" = sh1 + sof
+            sf2: "i64" = sh2 + sof
             pd = read_i64(AP, ll * 8)
             zd = read_i64(AZ, ll * 8)
             od = read_i64(AO, ll * 8)
@@ -1396,6 +1406,9 @@ def run() -> "i32":
             wod = read_i64(AWo, ll * 8)
             w1d = read_i64(AW1, ll * 8)
             w2d = read_i64(AW2, ll * 8)
+            so3 = ll * (3 * H * H * 2)
+            soh = ll * (H * H * 2)
+            sof = ll * (H * F * 2)
             gqd = read_i64(AGq, ll * 8)
             gkd = read_i64(AGk, ll * 8)
             gvd = read_i64(AGv, ll * 8)
@@ -1408,17 +1421,17 @@ def run() -> "i32":
             xh2d = read_i64(AX2, ll * 8)
             s2d = read_i64(AS2, ll * 8)
             qd = read_i64(AQ, ll * 8)
-            qoff: "i64" = qb
+
             kd = qd + qoff
             vd = kd + qoff
             ad = read_i64(AA, ll * 8)
-            sbq: "i64" = shQKV + ll * (3 * H * H * 2)
-            sbk: "i64" = sbq + H * H * 2
-            sbv: "i64" = sbq + 2 * H * H * 2
-            sbo: "i64" = shO + ll * (H * H * 2)
-            sb1: "i64" = sh1 + ll * (H * F * 2)
-            sb2: "i64" = sh2 + ll * (H * F * 2)
-            sb2t: "i64" = sh2T + ll * (H * F * 2)
+            sbq: "i64" = shQKV + so3
+            sbk: "i64" = sbq + qoff
+            sbv: "i64" = sbq + qoff + qoff
+            sbo: "i64" = shO + soh
+            sb1: "i64" = sh1 + sof
+            sb2: "i64" = sh2 + sof
+            sb2t: "i64" = sh2T + sof
 
             pd = read_i64(AP, ll * 8)
             zd = read_i64(AZ, ll * 8)
@@ -1503,12 +1516,12 @@ def run() -> "i32":
             uo: "i64" = ll * whb
             uo1: "i64" = ll * w1b
             uo2: "i64" = ll * w2b
-            so3: "i64" = ll * (3 * H * H * 2)
-            soh: "i64" = ll * (H * H * 2)
-            sof: "i64" = ll * (H * F * 2)
+            so3 = ll * (3 * H * H * 2)
+            soh = ll * (H * H * 2)
+            sof = ll * (H * F * 2)
             rc = adamw_update(afn, read_i64(AWq, ll * 8), gqd, mq + uo, vq + uo, shQKV + so3, zz64, H * H, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, mk + uo, vk + uo, shQKV + so3 + H * H * 2, zz64, H * H, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, mv + uo, vv + uo, shQKV + so3 + 2 * H * H * 2, zz64, H * H, lr, ac1, ac2, wd)
+            rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, mk + uo, vk + uo, shQKV + so3 + qoff, zz64, H * H, lr, ac1, ac2, wd)
+            rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, mv + uo, vv + uo, shQKV + so3 + qoff + qoff, zz64, H * H, lr, ac1, ac2, wd)
             rc = adamw_update(afn, read_i64(AWo, ll * 8), god, mo + uo, vo + uo, shO + soh, zz64, H * H, lr, ac1, ac2, wd)
             rc = adamw_update(afn, read_i64(AW1, ll * 8), g1d, m1 + uo1, v1 + uo1, sh1 + sof, zz64, H * F, lr, ac1, ac2, wd)
             rc = adamw_update(afn, read_i64(AW2, ll * 8), g2d, m2 + uo2, v2 + uo2, sh2 + sof, sh2T + sof, F * H, lr, ac1, ac2, wd)
