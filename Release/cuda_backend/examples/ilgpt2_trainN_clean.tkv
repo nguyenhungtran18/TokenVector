@@ -16,8 +16,6 @@ __tkv_extern_pinvoke__ = [
      "convention": "cdecl", "params": ["i64", "i64"], "returns": "i32"},
     {"name": "cuda_h2d", "dll": "cudart.dll", "symbol": "cudaMemcpy",
      "convention": "cdecl", "params": ["i64", "i64", "i64", "i32"], "returns": "i32"},
-    {"name": "cuda_memset", "dll": "cudart.dll", "symbol": "cudaMemset",
-     "convention": "cdecl", "params": ["i64", "i32", "i64"], "returns": "i32"},
     {"name": "cublas_create", "dll": "cublas.dll", "symbol": "cublasCreate_v2",
      "convention": "cdecl", "params": ["i64"], "returns": "i32"},
     {"name": "cublas_sgemm", "dll": "cublas.dll", "symbol": "cublasSgemm_v2",
@@ -644,69 +642,6 @@ def loss3_fwd(h: "i64", lg: "i64", pk: "i64", dl: "i64", ls: "i64", pm: "i64", p
     if rc != 0:
         return 1
     return 0
-
-def adamw_init() -> "i64":
-    PTX = b".version 8.0\n.target sm_75\n.address_size 64\n.entry adamw_kernel(.param .u64 pW, .param .u64 pG, .param .u64 pM, .param .u64 pV, .param .f32 pLR, .param .f32 pBC1, .param .f32 pBC2, .param .f32 pWD, .param .u32 pN)\n{\n.reg .f32 w,g,m,v,t,den,lr,bc1,bc2,wd;\n.reg .u64 wb,gb,mb,vb,off,wa,ga,ma,va;\n.reg .u32 i,n,base,nt;\n.reg .pred q;\nld.param.u64 wb,[pW];\nld.param.u64 gb,[pG];\nld.param.u64 mb,[pM];\nld.param.u64 vb,[pV];\nld.param.f32 lr,[pLR];\nld.param.f32 bc1,[pBC1];\nld.param.f32 bc2,[pBC2];\nld.param.f32 wd,[pWD];\nld.param.u32 n,[pN];\ncvta.to.global.u64 wb,wb;\ncvta.to.global.u64 gb,gb;\ncvta.to.global.u64 mb,mb;\ncvta.to.global.u64 vb,vb;\nmov.u32 nt,%ntid.x;\nmov.u32 base,%ctaid.x;\nmul.lo.u32 base,base,nt;\nmov.u32 i,%tid.x;\nadd.u32 i,i,base;\nsetp.ge.u32 q,i,n;\n@q bra LEND;\nmul.wide.u32 off,i,4;\nadd.u64 wa,wb,off;\nadd.u64 ga,gb,off;\nadd.u64 ma,mb,off;\nadd.u64 va,vb,off;\nld.global.f32 w,[wa];\nld.global.f32 g,[ga];\nld.global.f32 m,[ma];\nld.global.f32 v,[va];\nmul.f32 m,m,0.9;\nmul.f32 t,g,0.1;\nadd.f32 m,m,t;\nmul.f32 v,v,0.999;\nmul.f32 t,g,g;\nmul.f32 t,t,0.001;\nadd.f32 v,v,t;\ndiv.rn.f32 t,v,bc2;\nsqrt.rn.f32 den,t;\nadd.f32 den,den,0.0000001;\ndiv.rn.f32 t,m,bc1;\ndiv.rn.f32 t,t,den;\nmul.f32 t,t,lr;\nsub.f32 w,w,t;\nmul.f32 t,w,wd;\nsub.f32 w,w,t;\nst.global.f32 [wa],w;\nst.global.f32 [ma],m;\nst.global.f32 [va],v;\nLEND:\nret;\n}\n"
-    FNS = b"adamw_kernel\x00"
-    pb = alloc_bytes(len(PTX) + 1)
-    kk: "i32" = 0
-    while kk < len(PTX):
-        wh: "i64" = write_u8(pb, kk, PTX[kk])
-        kk = kk + 1
-    wh = write_u8(pb, kk, 0)
-    mc = alloc_bytes(8)
-    rc: "i32" = cu_module_load(mc, pb)
-    if rc != 0:
-        print("ADAMW MOD FAIL", rc)
-        return 0
-    mod: "i64" = read_i64(mc, 0)
-    nb = alloc_bytes(len(FNS))
-    kk = 0
-    while kk < len(FNS):
-        wh = write_u8(nb, kk, FNS[kk])
-        kk = kk + 1
-    fc = alloc_bytes(8)
-    rc = cu_module_fn(fc, mod, nb)
-    if rc != 0:
-        print("ADAMW FN FAIL", rc)
-        return 0
-    fnh: "i64" = read_i64(fc, 0)
-    return fnh
-
-def adamw_update(fnh: "i64", w: "i64", g: "i64", m: "i64", v: "i64", n: "i32", lr: "f32", bc1: "f32", bc2: "f32", wd: "f32") -> "i32":
-    a0 = alloc_bytes(8)
-    wh: "i64" = write_i64(a0, 0, w)
-    a1 = alloc_bytes(8)
-    wh = write_i64(a1, 0, g)
-    a2 = alloc_bytes(8)
-    wh = write_i64(a2, 0, m)
-    a3 = alloc_bytes(8)
-    wh = write_i64(a3, 0, v)
-    a4 = alloc_bytes(4)
-    wh = write_f32(a4, 0, lr)
-    a5 = alloc_bytes(4)
-    wh = write_f32(a5, 0, bc1)
-    a6 = alloc_bytes(4)
-    wh = write_f32(a6, 0, bc2)
-    a7 = alloc_bytes(4)
-    wh = write_f32(a7, 0, wd)
-    a8 = alloc_bytes(4)
-    wh = write_i32(a8, 0, n)
-    pl = alloc_bytes(72)
-    wh = write_i64(pl, 0, a0)
-    wh = write_i64(pl, 8, a1)
-    wh = write_i64(pl, 16, a2)
-    wh = write_i64(pl, 24, a3)
-    wh = write_i64(pl, 32, a4)
-    wh = write_i64(pl, 40, a5)
-    wh = write_i64(pl, 48, a6)
-    wh = write_i64(pl, 56, a7)
-    wh = write_i64(pl, 64, a8)
-    gr: "i32" = (n + 255) >> 8
-    rc: "i32" = cu_launch(fnh, gr, 1, 1, 256, 1, 1, 0, 0, pl, 0)
-    if rc != 0:
-        print("ADAMW LAUNCH FAIL", rc)
-    return rc
 def wrand(i: "i32", j: "i32", s: "f32") -> "f32":
     h: "i32" = i * 374761393 + j * 668265263
     h = (h ^ (h >> 13)) * 1274126177
@@ -1022,52 +957,11 @@ def run() -> "i32":
         wh = write_f32(g2h, ii * 4, 1.0)
         wh = write_f32(b2h, ii * 4, 0.0)
         ii = ii + 1
-    afn: "i64" = adamw_init()
-    if afn == 0:
-        print("ADAMW INIT FAIL")
+    lr: "f32" = 8.0
+    sfn: "i64" = sgd_init()
+    if sfn == 0:
+        print("SGD INIT FAIL")
         return 1
-    lr: "f32" = 0.0008
-    wd: "f32" = 0.01
-    b1t: "f32" = 1.0
-    b2t: "f32" = 1.0
-    rc = cuda_malloc(cell, NL * whb)
-    mq: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(mq, 0, NL * whb)
-    rc = cuda_malloc(cell, NL * whb)
-    vq: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(vq, 0, NL * whb)
-    rc = cuda_malloc(cell, NL * whb)
-    mk: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(mk, 0, NL * whb)
-    rc = cuda_malloc(cell, NL * whb)
-    vk: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(vk, 0, NL * whb)
-    rc = cuda_malloc(cell, NL * whb)
-    mv: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(mv, 0, NL * whb)
-    rc = cuda_malloc(cell, NL * whb)
-    vv: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(vv, 0, NL * whb)
-    rc = cuda_malloc(cell, NL * whb)
-    mo: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(mo, 0, NL * whb)
-    rc = cuda_malloc(cell, NL * whb)
-    vo: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(vo, 0, NL * whb)
-    rc = cuda_malloc(cell, NL * w1b)
-    m1: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(m1, 0, NL * w1b)
-    rc = cuda_malloc(cell, NL * w1b)
-    v1: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(v1, 0, NL * w1b)
-    rc = cuda_malloc(cell, NL * w2b)
-    m2: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(m2, 0, NL * w2b)
-    rc = cuda_malloc(cell, NL * w2b)
-    v2: "i64" = read_i64(cell, 0)
-    rc = cuda_memset(v2, 0, NL * w2b)
-
-
     gfn: "i64" = gelu_fwd_init()
     bfn: "i64" = gelu_bwd_init()
     if gfn == 0:
@@ -1116,10 +1010,6 @@ def run() -> "i32":
     thd: "f64" = 0.0
     step: "i32" = 1
     while step <= 2:
-        b1t = b1t * 0.9
-        b2t = b2t * 0.999
-        ac1: "f32" = 1.0 - b1t
-        ac2: "f32" = 1.0 - b2t
         tA = time_perf()
         wh = cuda_h2d(dX, hIN, qb, 1)
         xin = dX
@@ -1364,15 +1254,12 @@ def run() -> "i32":
             god = read_i64(AGo, ll * 8)
             g1d = read_i64(AG1, ll * 8)
             g2d = read_i64(AG2, ll * 8)
-            uo: "i64" = ll * whb
-            uo1: "i64" = ll * w1b
-            uo2: "i64" = ll * w2b
-            rc = adamw_update(afn, read_i64(AWq, ll * 8), gqd, mq + uo, vq + uo, H * H, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AWk, ll * 8), gkd, mk + uo, vk + uo, H * H, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AWv, ll * 8), gvd, mv + uo, vv + uo, H * H, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AWo, ll * 8), god, mo + uo, vo + uo, H * H, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AW1, ll * 8), g1d, m1 + uo1, v1 + uo1, H * F, lr, ac1, ac2, wd)
-            rc = adamw_update(afn, read_i64(AW2, ll * 8), g2d, m2 + uo2, v2 + uo2, F * H, lr, ac1, ac2, wd)
+            rc = sgd_update(sfn, read_i64(AWq, ll * 8), gqd, H * H, lr)
+            rc = sgd_update(sfn, read_i64(AWk, ll * 8), gkd, H * H, lr)
+            rc = sgd_update(sfn, read_i64(AWv, ll * 8), gvd, H * H, lr)
+            rc = sgd_update(sfn, read_i64(AWo, ll * 8), god, H * H, lr)
+            rc = sgd_update(sfn, read_i64(AW1, ll * 8), g1d, H * F, lr)
+            rc = sgd_update(sfn, read_i64(AW2, ll * 8), g2d, F * H, lr)
 
             ll = ll + 1
         print("MARK UPD", step)
