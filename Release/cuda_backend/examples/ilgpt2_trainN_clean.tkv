@@ -1170,9 +1170,7 @@ def run() -> "i32":
             rc = toh(th, gOUT, fpA, sQH)
             rc = toh(th, w2d, fpB, sFH)
             rc = gemm16(ch, 0, 1, T, F, H, one, fpA, T, fpB, F, zero, gHH, T)
-            print("B1 dW2", ll)
             rc = gelu_bwd(bfn, zd, gHH, gZ, T * F)
-            print("B2 dZ", ll)
             rc = toh(th, y2d, fpA, sQH)
             rc = toh(th, gZ, fpB, sTF)
             rc = gemm16(ch, 1, 0, H, F, T, one, fpA, T, fpB, T, zero, g1d, H)
@@ -1187,7 +1185,6 @@ def run() -> "i32":
             if rc != 0:
                 print("ADD DX2 FAIL", ll)
                 return 1
-            print("B3 ln2", ll)
             rc = toh(th, gDX2, fpA, sQH)
             rc = toh(th, wod, fpB, sHH)
             rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, fpB, H, zero, gA, T)
@@ -1200,12 +1197,10 @@ def run() -> "i32":
             rc = toh(th, pd, fpA, sTT)
             rc = toh(th, gA, fpB, sQH)
             rc = gemm16(ch, 1, 0, T, H, T, one, fpA, T, fpB, T, zero, gV, T)
-            print("B4 attn", ll)
             rc = sf_bwd(sbk, gP, pd, gS, T)
             if rc != 0:
                 print("SF BWD FAIL", ll)
                 return 1
-            print("B5 dS", ll)
             rc = toh(th, gS, fpA, sTT)
             rc = toh(th, dK, fpB, sQH)
             rc = gemm16(ch, 0, 0, T, H, T, hal, fpA, T, fpB, T, zero, gQ, T)
@@ -1228,7 +1223,6 @@ def run() -> "i32":
             rc = toh(th, gV, fpA, sQH)
             rc = toh(th, wvd, fpB, sHH)
             rc = gemm16(ch, 0, 1, T, H, H, one, fpA, T, fpB, H, one, gDX2, T)
-            print("B6 qkv", ll)
             rc = ln_bwd(lnb, xh1d, gDX2, dgam, s1d, gY1, T, H)
             if rc != 0:
                 print("LN1 BWD FAIL", ll)
@@ -1237,7 +1231,6 @@ def run() -> "i32":
             if rc != 0:
                 print("ADD DX1 FAIL", ll)
                 return 1
-            print("MARK B", ll)
             ll = ll - 1
         tC = time_perf()
         tb = tb + (tC - tB)
