@@ -1017,7 +1017,13 @@ def run() -> "i32":
             if rc != 0:
                 print("S GEMM FAIL", ll, rc)
                 return 1
+            if ll == 0:
+                wh = cuda_h2d(hAW, dS, sb, 2)
+                rc = scan(97, hAW, T * T)
             rc = sf_fwd(sff, dS, dP, T)
+            if ll == 0:
+                wh = cuda_h2d(hAW, dP, sb, 2)
+                rc = scan(96, hAW, T * T)
             if rc != 0:
                 print("SF FWD FAIL", ll)
                 return 1
