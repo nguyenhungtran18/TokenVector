@@ -56,6 +56,12 @@ Assembled method TKVApp::gelu_bwd_init
 Assembled method TKVApp::gelu_fwd
 Assembled method TKVApp::gelu_bwd
 Assembled method TKVApp::gelu_selftest
+Assembled method TKVApp::kern_init
+Assembled method TKVApp::ln_fwd
+Assembled method TKVApp::ln_bwd
+Assembled method TKVApp::sf_fwd
+Assembled method TKVApp::sf_bwd
+Assembled method TKVApp::add_k
 Assembled method TKVApp::wrand
 Assembled method TKVApp::copy_buf
 Assembled method TKVApp::zero_buf
@@ -75,8 +81,8 @@ Global
 Class 1	Fields: 2;	Methods: 27;	
 Class 2	Methods: 15;	
 Class 3	Methods: 3;	
-Class 4	Methods: 22;	
-Resolving local member refs: 309 -> 309 defs, 0 refs, 0 unresolved
+Class 4	Methods: 28;	
+Resolving local member refs: 331 -> 331 defs, 0 refs, 0 unresolved
 
 Emitting events and properties:
 Global 	
